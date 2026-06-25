@@ -1,0 +1,256 @@
+<div class="space-y-8">
+  <div class="flex justify-between items-end">
+    <div>
+      <h2 class="text-2xl font-black text-slate-800 tracking-tight">System Administration</h2>
+      <div class="flex gap-4 mt-4">
+        <button onclick="switchHRTab('registry')" id="tab-registry" class="text-xs font-black uppercase tracking-widest px-4 py-2 rounded-full bg-blue-600 text-white shadow-lg transition-all">Staff Registry</button>
+        <button onclick="switchHRTab('users')" id="tab-users" class="text-xs font-black uppercase tracking-widest px-4 py-2 rounded-full bg-white text-slate-400 border border-slate-200 hover:bg-slate-50 transition-all">User Management</button>
+        <button onclick="switchHRTab('committees')" id="tab-committees" class="text-xs font-black uppercase tracking-widest px-4 py-2 rounded-full bg-white text-slate-400 border border-slate-200 hover:bg-slate-50 transition-all">Committee Mgmt</button>
+        <button onclick="switchHRTab('settings')" id="tab-settings" class="text-xs font-black uppercase tracking-widest px-4 py-2 rounded-full bg-white text-slate-400 border border-slate-200 hover:bg-slate-50 transition-all">System Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab 1: Staff Registry -->
+  <div id="hr-registry-content" class="space-y-4">
+    <div class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="p-5 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4">
+        <h3 class="font-black text-slate-800 uppercase tracking-widest text-xs">All Faculty & Staff</h3>
+        <div class="relative w-full sm:w-72">
+          <i data-lucide="search" class="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400"></i>
+          <input type="text" id="staffSearchInput" oninput="filterStaffTable()" placeholder="Search by ID, name..." class="w-full pl-12 pr-6 py-3 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-600 outline-none font-bold text-sm">
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="bg-slate-50 text-slate-400 text-xs font-bold uppercase tracking-widest border-b border-slate-100">
+              <th class="px-6 py-4">ID & Category</th>
+              <th class="px-6 py-4">Full Name & Email</th>
+              <th class="px-6 py-4">Eval Status</th>
+              <th class="px-6 py-4 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="staffTableBody" class="divide-y divide-slate-100"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab 2: User Management -->
+  <div id="hr-users-content" class="hidden space-y-6">
+
+    <!-- Create from Profiles Card -->
+    <div class="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm">
+      <div class="flex items-center justify-between mb-6">
+        <div class="flex items-center gap-4">
+          <div class="h-12 w-12 bg-indigo-100 rounded-2xl flex items-center justify-center text-indigo-600">
+            <i data-lucide="users-round"></i>
+          </div>
+          <div>
+            <h3 class="text-xl font-black text-slate-800">Create from Profiles</h3>
+            <p class="text-xs font-bold text-slate-400 uppercase tracking-widest">Grant access to existing staff profiles</p>
+          </div>
+        </div>
+        <button onclick="refreshProfileList()" class="flex items-center gap-2 px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl text-slate-500 text-xs font-black uppercase tracking-widest transition-all">
+          <i data-lucide="refresh-cw" class="h-3.5 w-3.5"></i> Refresh
+        </button>
+      </div>
+
+      <!-- Default password + role row -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
+        <div class="space-y-1">
+          <label class="text-[10px] font-black text-slate-400 uppercase ml-2">Default Password</label>
+          <input type="password" id="bulkDefaultPass" placeholder="e.g. ccpc@1234" class="w-full px-5 py-3 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-sm">
+        </div>
+        <div class="space-y-1 md:col-span-2">
+          <label class="text-[10px] font-black text-slate-400 uppercase ml-2">Assign Role(s)</label>
+          <div class="flex flex-wrap gap-2 px-4 py-3 bg-slate-50 rounded-2xl">
+            <label class="role-chip-wrap"><input type="checkbox" class="bulk-role-cb" value="Teacher"><span>Teacher</span></label>
+            <label class="role-chip-wrap"><input type="checkbox" class="bulk-role-cb" value="Staff"><span>Staff</span></label>
+            <label class="role-chip-wrap"><input type="checkbox" class="bulk-role-cb" value="HR"><span>HR</span></label>
+            <label class="role-chip-wrap"><input type="checkbox" class="bulk-role-cb" value="Principal"><span>Principal</span></label>
+            <label class="role-chip-wrap"><input type="checkbox" class="bulk-role-cb" value="VP"><span>VP</span></label>
+            <label class="role-chip-wrap"><input type="checkbox" class="bulk-role-cb" value="Admin"><span>Admin</span></label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Profile list header -->
+      <div class="flex items-center justify-between mb-3 px-1">
+        <label class="flex items-center gap-2 cursor-pointer select-none">
+          <input type="checkbox" id="selectAllProfiles" onchange="toggleSelectAllProfiles(this.checked)" class="w-4 h-4 rounded accent-indigo-600">
+          <span class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Select All</span>
+        </label>
+        <div class="relative">
+          <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400"></i>
+          <input type="text" id="profileSearchInput" oninput="filterProfileList()" placeholder="Search profiles…" class="pl-9 pr-4 py-2 bg-slate-50 border-none rounded-xl text-xs font-bold focus:ring-2 focus:ring-indigo-500 outline-none w-56">
+        </div>
+      </div>
+
+      <!-- Scrollable profile list -->
+      <div id="profilePickerList" class="space-y-1.5 max-h-64 overflow-y-auto pr-1 custom-scrollbar-light mb-5">
+        <p class="text-slate-400 text-xs font-bold text-center py-6">Loading profiles…</p>
+      </div>
+
+      <div class="flex items-center justify-between pt-4 border-t border-slate-100">
+        <span id="bulkSelCount" class="text-xs font-black text-slate-400">0 selected</span>
+        <button onclick="bulkCreateFromProfiles()" class="bg-indigo-600 text-white font-black px-8 py-3 rounded-2xl shadow-lg shadow-indigo-500/20 hover:bg-black transition-all uppercase tracking-widest text-xs flex items-center gap-2">
+          <i data-lucide="user-check" class="h-4 w-4"></i> Create Users
+        </button>
+      </div>
+    </div>
+
+    <!-- Manual Creation Card -->
+    <div class="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm">
+      <div class="flex items-center gap-4 mb-8">
+        <div class="h-12 w-12 bg-blue-100 rounded-2xl flex items-center justify-center text-blue-600">
+          <i data-lucide="user-plus"></i>
+        </div>
+        <div>
+          <h3 class="text-xl font-black text-slate-800">Add New User</h3>
+          <p class="text-xs font-bold text-slate-400 uppercase tracking-widest">Create system credentials</p>
+        </div>
+      </div>
+
+      <form id="createUserForm" class="space-y-6">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div class="space-y-1">
+            <label class="text-[10px] font-black text-slate-400 uppercase ml-2">User ID</label>
+            <input type="text" name="user_id" required placeholder="e.g. 10101" class="w-full px-6 py-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-600 outline-none font-bold">
+          </div>
+          <div class="space-y-1">
+            <label class="text-[10px] font-black text-slate-400 uppercase ml-2">Email Address</label>
+            <input type="email" name="email" required placeholder="name@ccpc.edu" class="w-full px-6 py-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-600 outline-none font-bold">
+          </div>
+          <div class="space-y-1">
+            <label class="text-[10px] font-black text-slate-400 uppercase ml-2">Initial Password</label>
+            <input type="password" name="password" required placeholder="••••••••" class="w-full px-6 py-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-600 outline-none font-bold">
+          </div>
+          <div class="space-y-2">
+            <label class="text-[10px] font-black text-slate-400 uppercase ml-2">Access Role(s)</label>
+            <div class="flex flex-wrap gap-2 px-4 py-3 bg-slate-50 rounded-2xl">
+              <label class="role-chip-wrap"><input type="checkbox" class="role-cb" value="Teacher"><span>Teacher</span></label>
+              <label class="role-chip-wrap"><input type="checkbox" class="role-cb" value="Staff"><span>Staff</span></label>
+              <label class="role-chip-wrap"><input type="checkbox" class="role-cb" value="HR"><span>HR</span></label>
+              <label class="role-chip-wrap"><input type="checkbox" class="role-cb" value="Principal"><span>Principal</span></label>
+              <label class="role-chip-wrap"><input type="checkbox" class="role-cb" value="VP"><span>VP</span></label>
+              <label class="role-chip-wrap"><input type="checkbox" class="role-cb" value="Admin"><span>Admin</span></label>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex justify-end pt-4">
+          <button type="submit" class="bg-blue-600 text-white font-black px-10 py-4 rounded-2xl shadow-xl shadow-blue-500/20 hover:bg-black transition-all uppercase tracking-widest text-xs">
+            Register Account
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <!-- List Card -->
+    <div class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="p-6 border-b border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4">
+        <h3 class="font-black text-slate-800 uppercase tracking-widest text-xs">System Users</h3>
+        <div class="relative w-full md:w-72">
+          <i data-lucide="search" class="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400"></i>
+          <input type="text" id="userSearchInput" oninput="filterUserList()" placeholder="Search users..." class="w-full pl-12 pr-6 py-3 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-600 outline-none font-bold text-sm">
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="bg-slate-50 text-slate-400 text-xs font-bold uppercase tracking-widest border-b border-slate-100">
+              <th class="px-6 py-4">Identity</th>
+              <th class="px-6 py-4">Contact</th>
+              <th class="px-6 py-4">System Role</th>
+              <th class="px-6 py-4 text-right">Administrative Actions</th>
+            </tr>
+          </thead>
+          <tbody id="userListBody" class="divide-y divide-slate-100">
+            <!-- Dynamic Users -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab 3: Committee Management -->
+  <div id="hr-committees-content" class="hidden space-y-6">
+    <div class="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm">
+      <h3 class="text-xl font-black text-slate-800 mb-6">Create New Committee</h3>
+      
+      <form id="createCommForm" class="space-y-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div class="space-y-1">
+            <label class="text-[10px] font-black text-slate-400 uppercase ml-2">Committee Name</label>
+            <input type="text" name="committee_name" required placeholder="e.g. Disciplinary Committee" class="w-full px-6 py-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-600 outline-none font-bold">
+          </div>
+          <div class="space-y-1">
+            <label class="text-[10px] font-black text-slate-400 uppercase ml-2">Sub-Committee (Optional)</label>
+            <input type="text" name="sub_committee" placeholder="e.g. Section A" class="w-full px-6 py-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-600 outline-none font-bold">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div class="space-y-1">
+            <label class="text-[10px] font-black text-slate-400 uppercase ml-2">Select Chairman</label>
+            <select id="commChairman" required class="w-full px-6 py-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-600 outline-none font-bold">
+              <option value="">Choose a Chairman...</option>
+            </select>
+          </div>
+          <div class="space-y-1">
+            <label class="text-[10px] font-black text-slate-400 uppercase ml-2">Add Members (Press Enter to Add)</label>
+            <div class="relative">
+              <input type="text" id="commMemberSearch" list="userList" placeholder="Search by ID or Email..." class="w-full px-6 py-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-600 outline-none font-bold">
+              <datalist id="userList"></datalist>
+            </div>
+          </div>
+        </div>
+
+        <div class="space-y-2">
+          <label class="text-[10px] font-black text-slate-400 uppercase ml-2">Selected Members</label>
+          <div id="selectedMembers" class="flex flex-wrap gap-2 p-4 bg-slate-50 rounded-2xl min-h-[60px]">
+            <!-- Members will appear here -->
+            <p class="text-slate-400 text-[10px] font-bold uppercase italic self-center mx-auto">No members added yet</p>
+          </div>
+        </div>
+
+        <div class="flex justify-end">
+          <button type="submit" class="bg-blue-600 text-white font-black px-10 py-4 rounded-2xl shadow-xl shadow-blue-500/20 hover:bg-black transition-all uppercase tracking-widest text-xs">
+            Register Committee
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <div class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="p-6 border-b border-slate-100 flex justify-between items-center">
+        <h3 class="font-black text-slate-800 uppercase tracking-widest text-xs">Active Committees</h3>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="bg-slate-50 text-slate-400 text-[10px] font-bold uppercase tracking-widest border-b border-slate-100">
+              <th class="px-6 py-4">Committee Info</th>
+              <th class="px-6 py-4">Chairman</th>
+              <th class="px-6 py-4">Members</th>
+            </tr>
+          </thead>
+          <tbody id="committeeListBody" class="divide-y divide-slate-100">
+            <!-- Committees will be loaded here -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab 4: System Settings (content injected by initSettingsTab) -->
+  <div id="hr-settings-content" class="hidden">
+    <div class="flex flex-col items-center justify-center py-16 text-slate-400">
+      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>
+      <p class="text-xs font-black uppercase tracking-widest">Loading settings...</p>
+    </div>
+  </div>
+</div>
