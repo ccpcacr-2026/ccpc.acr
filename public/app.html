@@ -462,8 +462,10 @@
           <button class="fd-tool text-blue-600" onclick="previewFormLayout()"><i data-lucide="eye" class="h-3 w-3"></i> Preview</button>
           <button class="fd-tool text-emerald-600 font-black" onclick="saveFormLayout()"><i data-lucide="save" class="h-3 w-3"></i> Save</button>
         </div>
+        <!-- Template bar -->
+        <div id="fd-tpl-bar" class="tpl-bar"></div>
         <!-- Canvas + props -->
-        <div style="display:flex;gap:10px;height:calc(100vh - 230px)">
+        <div style="display:flex;gap:10px;height:calc(100vh - 260px)">
           <div id="canvas-scroll" style="flex:1;overflow:auto;background:#4b5563;border-radius:12px;padding:16px;">
             <div id="form-canvas" style="position:relative;width:794px;min-height:1123px;background:#fff;margin:0 auto;box-shadow:0 4px 24px rgba(0,0,0,.5);"></div>
           </div>
@@ -673,6 +675,8 @@
 
       <!-- Tab: Admit Card Designer -->
       <div id="at-admit" class="atab-panel hidden">
+        <!-- Admit template bar -->
+        <div id="admit-tpl-bar" class="tpl-bar mb-3"></div>
         <div class="designer-layout">
           <div class="designer-settings" id="admit-designer-panel">
 

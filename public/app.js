@@ -185,8 +185,8 @@ function showAdminTab(id,btn){
   document.querySelectorAll('.atab').forEach(el=>el.classList.remove('active'));
   document.getElementById(id).classList.remove('hidden');btn.classList.add('active');
   if(id==='at-index')updateIndexPreview();
-  if(id==='at-form'){setTimeout(function(){initCanvas();fdZoomFit();},80);}
-  if(id==='at-admit')setTimeout(updateAdmitPreview,100);
+  if(id==='at-form'){if(typeof loadFormTemplates==='function')loadFormTemplates();else setTimeout(function(){initCanvas();fdZoomFit();},80);}
+  if(id==='at-admit'){if(typeof loadAdmitTemplates==='function')loadAdmitTemplates();else setTimeout(updateAdmitPreview,100);}
   if(id==='at-counters')loadCounters();
 }
 function setTopbarBtn(dashboard,admin,newApp){
@@ -443,8 +443,22 @@ async function ensureSettings(){
 }
 async function ensureFormLayout(){
   if(formLayout&&formLayout.length)return;
-  const r=await api('getSettings',{});
-  formLayout=((r.settings||{}).form_layout||{}).elements||[];
+  const r=await api('getSettings',{});const s=r.settings||{};
+  const tplData=s.form_templates||{};
+  const tpls=tplData.templates||[];
+  const active=tplData.activeId;
+  const tpl=(active&&tpls.find(t=>t.id===active))||tpls[0]||null;
+  if(tpl){formLayout=tpl.elements||[];return;}
+  formLayout=(s.form_layout&&s.form_layout.elements)||[];
+}
+async function ensureAdmitTpl(){
+  if(currentAdmitSettings)return;
+  const r=await api('getSettings',{});const s=r.settings||{};
+  const tplData=s.admit_templates||{};
+  const tpls=tplData.templates||[];
+  const active=tplData.activeId;
+  const tpl=(active&&tpls.find(t=>t.id===active))||tpls[0]||null;
+  currentAdmitSettings=deepMerge(DEFAULT_ADMIT,tpl?tpl.settings||{}:s.admit_card_settings||{});
 }
 async function printForm(){
   await ensureSettings();await ensureFormLayout();
@@ -453,7 +467,7 @@ async function printForm(){
 }
 async function printAdmitCard(){
   if(!currentId){toast('Save the application first to generate Admit Card','warn');return;}
-  await ensureSettings();
+  await ensureSettings();await ensureAdmitTpl();
   const r=await api('getApplication',{id:currentId});
   if(!r.application){toast('Not found','error');return;}
   openPrintTab(generateAdmitHtml(r.application,currentAdmitSettings));
@@ -465,7 +479,7 @@ async function printFormById(id){
   openPrintTab(formLayout&&formLayout.length ? generateFormFromLayout(r.application,formLayout) : generateFormHtml(r.application,currentFormSettings));
 }
 async function printAdmitById(id){
-  await ensureSettings();setLoading(true);
+  await ensureSettings();await ensureAdmitTpl();setLoading(true);
   const r=await api('getApplication',{id});setLoading(false);
   if(!r.application){toast('Not found','error');return;}
   openPrintTab(generateAdmitHtml(r.application,currentAdmitSettings));
@@ -787,12 +801,9 @@ async function loadAdminPanel(){
   setLoading(true);const r=await api('getSettings',{});setLoading(false);
   const s=r.settings||{};
   currentFormSettings  =deepMerge(DEFAULT_FORM,s.form_settings||{});
-  currentAdmitSettings =deepMerge(DEFAULT_ADMIT,s.admit_card_settings||{});
   currentIndexSettings =deepMerge(DEFAULT_INDEX,s.index_settings||{});
-  // form layout is loaded on-demand when the tab is opened
-  formLayout=(s.form_layout&&s.form_layout.elements)||[];
-  populateAdmitDesigner(currentAdmitSettings);
   populateIndexSettings(currentIndexSettings);
+  // form + admit templates loaded on-demand when their tabs are opened
   // Init live listeners
   initDesignerListeners();
   document.querySelector('.atab').click();
@@ -988,6 +999,100 @@ async function saveAdmitDesign(){
 }
 function resetAdmitDesign(){
   populateAdmitDesigner(DEFAULT_ADMIT);updateAdmitPreview();
+}
+
+/* ─── Admit Card Templates ────────────────────────── */
+let admitTemplates=[];
+let admitActiveTplId=null;
+function getActiveAdmitTpl(){return admitTemplates.find(t=>t.id===admitActiveTplId)||null;}
+async function saveAdmitTplsDB(){
+  return api('saveSettings',{key:'admit_templates',value:{templates:admitTemplates,activeId:admitActiveTplId}});
+}
+async function loadAdmitTemplates(){
+  setLoading(true);const r=await api('getSettings',{});setLoading(false);
+  const s=r.settings||{};
+  const data=s.admit_templates||{};
+  admitTemplates=data.templates||[];
+  admitActiveTplId=data.activeId||null;
+  // Migrate legacy admit_card_settings
+  if(!admitTemplates.length&&s.admit_card_settings&&Object.keys(s.admit_card_settings).length){
+    const legacy={id:'admit_legacy_'+Date.now(),name:'Default Card',settings:s.admit_card_settings,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
+    admitTemplates.push(legacy);admitActiveTplId=legacy.id;saveAdmitTplsDB();
+  }
+  const tpl=getActiveAdmitTpl()||(admitTemplates.length?admitTemplates[0]:null);
+  if(tpl){admitActiveTplId=tpl.id;currentAdmitSettings=deepMerge(DEFAULT_ADMIT,tpl.settings||{});}
+  else{admitActiveTplId=null;currentAdmitSettings=deepMerge(DEFAULT_ADMIT,{});}
+  populateAdmitDesigner(currentAdmitSettings);
+  renderAdmitTplBar();
+  setTimeout(updateAdmitPreview,100);
+}
+function renderAdmitTplBar(){
+  const bar=document.getElementById('admit-tpl-bar');if(!bar)return;
+  const opts=admitTemplates.map(t=>`<option value="${t.id}"${t.id===admitActiveTplId?' selected':''}>${t.name}</option>`).join('');
+  const count=admitTemplates.length;
+  bar.innerHTML=
+    `<span class="flbl" style="white-space:nowrap;align-self:center">Templates (${count}):</span>`+
+    (count
+      ?`<select id="admit-tpl-sel" class="finput finput-sm" style="max-width:200px;flex:1" onchange="admitSwitchTpl(this.value)">${opts}</select>
+        <button class="fd-tool text-emerald-700 font-black" onclick="admitSaveTpl()" title="Save current settings to this template">Save</button>
+        <button class="fd-tool text-blue-600" onclick="admitSaveAsTpl()" title="Save as a new template">Save As…</button>
+        <button class="fd-tool" onclick="admitRenameTpl()">Rename</button>
+        <button class="fd-tool text-red-400" onclick="admitDeleteTpl()">Delete</button>`
+      :`<span style="font-size:11px;color:#94a3b8;align-self:center">No templates yet</span>`)+
+    `<button class="fd-tool" onclick="admitNewTpl()">+ New</button>`;
+}
+function admitSwitchTpl(id){
+  if(id===admitActiveTplId)return;
+  admitActiveTplId=id;
+  const tpl=getActiveAdmitTpl();
+  currentAdmitSettings=deepMerge(DEFAULT_ADMIT,tpl?tpl.settings||{}:{});
+  populateAdmitDesigner(currentAdmitSettings);updateAdmitPreview();renderAdmitTplBar();
+}
+async function admitSaveTpl(){
+  if(!admitActiveTplId){await admitSaveAsTpl();return;}
+  const tpl=getActiveAdmitTpl();if(!tpl){await admitSaveAsTpl();return;}
+  tpl.settings=collectAdmitDesignSettings();tpl.updatedAt=new Date().toISOString();
+  currentAdmitSettings=deepMerge(DEFAULT_ADMIT,tpl.settings);
+  setLoading(true);const r=await saveAdmitTplsDB();setLoading(false);
+  if(r.error){toast(r.error,'error');return;}toast('"'+tpl.name+'" saved','success');
+}
+async function admitSaveAsTpl(){
+  const name=prompt('Template name:','Card '+(admitTemplates.length+1));
+  if(!name||!name.trim())return;
+  const id='admit_'+Date.now();
+  admitTemplates.push({id,name:name.trim(),settings:collectAdmitDesignSettings(),createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()});
+  admitActiveTplId=id;
+  setLoading(true);const r=await saveAdmitTplsDB();setLoading(false);
+  if(r.error){toast(r.error,'error');return;}toast('"'+name.trim()+'" created','success');renderAdmitTplBar();
+}
+async function admitRenameTpl(){
+  const tpl=getActiveAdmitTpl();if(!tpl){toast('No active template','warn');return;}
+  const name=prompt('New name:',tpl.name);
+  if(!name||!name.trim()||name.trim()===tpl.name)return;
+  tpl.name=name.trim();
+  setLoading(true);const r=await saveAdmitTplsDB();setLoading(false);
+  if(r.error){toast(r.error,'error');return;}toast('Renamed to "'+tpl.name+'"','success');renderAdmitTplBar();
+}
+async function admitDeleteTpl(){
+  const tpl=getActiveAdmitTpl();if(!tpl){toast('No active template','warn');return;}
+  if(!await openConfirm('Delete template "'+tpl.name+'" permanently?','Delete'))return;
+  admitTemplates=admitTemplates.filter(t=>t.id!==admitActiveTplId);
+  const next=admitTemplates[0]||null;
+  admitActiveTplId=next?next.id:null;
+  currentAdmitSettings=deepMerge(DEFAULT_ADMIT,next?next.settings||{}:{});
+  setLoading(true);const r=await saveAdmitTplsDB();setLoading(false);
+  if(r.error){toast(r.error,'error');return;}
+  toast('Deleted','success');populateAdmitDesigner(currentAdmitSettings);updateAdmitPreview();renderAdmitTplBar();
+}
+function admitNewTpl(){
+  const name=prompt('New template name:','Card '+(admitTemplates.length+1));
+  if(!name||!name.trim())return;
+  const id='admit_'+Date.now();
+  admitTemplates.push({id,name:name.trim(),settings:deepMerge(DEFAULT_ADMIT,{}),createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()});
+  admitActiveTplId=id;
+  currentAdmitSettings=deepMerge(DEFAULT_ADMIT,{});
+  populateAdmitDesigner(currentAdmitSettings);updateAdmitPreview();renderAdmitTplBar();
+  toast('"'+name.trim()+'" started — edit settings and Save','info');
 }
 
 /* ─── Live designer listeners ─────────────────────── */

@@ -637,21 +637,140 @@ function fdRmCol(id, idx) {
   fdRender(); fdRenderProps(el);
 }
 
-/* ── Save / Load ──────────────────────────────────── */
-async function saveFormLayout() {
-  if (typeof setLoading==='function') setLoading(true);
-  var r = await api('saveSettings', {key:'form_layout', value:{elements:formLayout}});
-  if (typeof setLoading==='function') setLoading(false);
-  if (r.error) { toast(r.error,'error'); return; }
-  toast('Layout saved','success');
+/* ── Template state ───────────────────────────────── */
+var formTemplates = [];      // [{id, name, elements, createdAt, updatedAt}]
+var activeTplId   = null;
+
+function getActiveTpl() {
+  return formTemplates.find(function(t){return t.id===activeTplId;}) || null;
 }
-async function loadFormLayout() {
+function cloneLayout() { return JSON.parse(JSON.stringify(formLayout)); }
+
+/* ── Persist all templates ────────────────────────── */
+async function saveTplsDB() {
+  return api('saveSettings', {key:'form_templates', value:{templates:formTemplates, activeId:activeTplId}});
+}
+
+/* ── Load from DB ─────────────────────────────────── */
+async function loadFormTemplates() {
   var r = await api('getSettings', {});
   var s = r.settings || {};
-  formLayout = (s.form_layout && s.form_layout.elements) || [];
-  initCanvas();
-  setTimeout(fdZoomFit, 100);
+  var data = s.form_templates || {};
+  formTemplates = data.templates || [];
+  activeTplId   = data.activeId  || null;
+
+  // Migrate legacy form_layout if templates list is empty
+  if (!formTemplates.length && s.form_layout && s.form_layout.elements && s.form_layout.elements.length) {
+    var legacy = {id:'tpl_legacy_'+Date.now(), name:'Default Form', elements:s.form_layout.elements, createdAt:new Date().toISOString(), updatedAt:new Date().toISOString()};
+    formTemplates.push(legacy); activeTplId = legacy.id;
+    saveTplsDB();
+  }
+
+  var tpl = getActiveTpl() || (formTemplates.length ? formTemplates[0] : null);
+  if (tpl) { activeTplId = tpl.id; formLayout = JSON.parse(JSON.stringify(tpl.elements||[])); }
+  else      { activeTplId = null;  formLayout = []; }
+
+  initCanvas(); renderTplBar(); setTimeout(fdZoomFit, 100);
 }
+
+/* Alias kept for backward compat (called from showAdminTab) */
+var loadFormLayout = loadFormTemplates;
+
+/* ── Template bar UI ──────────────────────────────── */
+function renderTplBar() {
+  var bar = document.getElementById('fd-tpl-bar');
+  if (!bar) return;
+  var opts = formTemplates.map(function(t) {
+    return '<option value="'+t.id+'"'+(t.id===activeTplId?' selected':'')+'>'+escH(t.name)+'</option>';
+  }).join('');
+  var count = formTemplates.length;
+  bar.innerHTML =
+    '<span class="flbl" style="white-space:nowrap;align-self:center">Templates ('+ count +'):</span>' +
+    (count
+      ? '<select id="tpl-sel" class="finput finput-sm" style="max-width:200px;flex:1" onchange="fdSwitchTpl(this.value)">'+opts+'</select>' +
+        '<button class="fd-tool text-emerald-700 font-black" onclick="fdSaveTpl()" title="Overwrite current template with canvas">Save</button>' +
+        '<button class="fd-tool text-blue-600" onclick="fdSaveAsTpl()" title="Save canvas as a new template">Save As…</button>' +
+        '<button class="fd-tool" onclick="fdRenameTpl()" title="Rename current template">Rename</button>' +
+        '<button class="fd-tool text-red-400" onclick="fdDeleteTpl()" title="Delete current template">Delete</button>'
+      : '<span style="font-size:11px;color:#94a3b8;align-self:center">No templates yet</span>') +
+    '<button class="fd-tool" onclick="fdNewTpl()" title="Start a blank new template">+ New</button>';
+}
+
+/* ── Switch to a different template ───────────────── */
+function fdSwitchTpl(id) {
+  if (id === activeTplId) return;
+  activeTplId = id;
+  var tpl = getActiveTpl();
+  formLayout = tpl ? JSON.parse(JSON.stringify(tpl.elements||[])) : [];
+  fdSelectedId = null; fdRender(); fdRenderProps(null); renderTplBar();
+}
+
+/* ── Save (overwrite) ─────────────────────────────── */
+async function fdSaveTpl() {
+  if (!activeTplId) { await fdSaveAsTpl(); return; }
+  var tpl = getActiveTpl();
+  if (!tpl) { await fdSaveAsTpl(); return; }
+  tpl.elements  = cloneLayout();
+  tpl.updatedAt = new Date().toISOString();
+  setLoading(true); var r = await saveTplsDB(); setLoading(false);
+  if (r.error) { toast(r.error,'error'); return; }
+  toast('"' + tpl.name + '" saved', 'success');
+}
+/* Alias for toolbar Save button */
+var saveFormLayout = fdSaveTpl;
+
+/* ── Save As (new template) ───────────────────────── */
+async function fdSaveAsTpl() {
+  var name = prompt('Template name:', 'Form ' + (formTemplates.length + 1));
+  if (!name || !name.trim()) return;
+  var id = 'tpl_' + Date.now();
+  formTemplates.push({id, name:name.trim(), elements:cloneLayout(), createdAt:new Date().toISOString(), updatedAt:new Date().toISOString()});
+  activeTplId = id;
+  setLoading(true); var r = await saveTplsDB(); setLoading(false);
+  if (r.error) { toast(r.error,'error'); return; }
+  toast('"'+name.trim()+'" created','success'); renderTplBar();
+}
+
+/* ── Rename ───────────────────────────────────────── */
+async function fdRenameTpl() {
+  var tpl = getActiveTpl();
+  if (!tpl) { toast('No active template','warn'); return; }
+  var name = prompt('New name:', tpl.name);
+  if (!name || !name.trim() || name.trim()===tpl.name) return;
+  tpl.name = name.trim();
+  setLoading(true); var r = await saveTplsDB(); setLoading(false);
+  if (r.error) { toast(r.error,'error'); return; }
+  toast('Renamed to "'+tpl.name+'"','success'); renderTplBar();
+}
+
+/* ── Delete ───────────────────────────────────────── */
+async function fdDeleteTpl() {
+  var tpl = getActiveTpl();
+  if (!tpl) { toast('No active template','warn'); return; }
+  openConfirm('Delete template "'+tpl.name+'" permanently?','Delete').then(async function(ok) {
+    if (!ok) return;
+    formTemplates = formTemplates.filter(function(t){return t.id!==activeTplId;});
+    var next = formTemplates[0] || null;
+    activeTplId = next ? next.id : null;
+    formLayout = next ? JSON.parse(JSON.stringify(next.elements||[])) : [];
+    setLoading(true); var r = await saveTplsDB(); setLoading(false);
+    if (r.error) { toast(r.error,'error'); return; }
+    toast('Deleted','success'); fdSelectedId=null; fdRender(); fdRenderProps(null); renderTplBar();
+  });
+}
+
+/* ── New blank template ───────────────────────────── */
+function fdNewTpl() {
+  var name = prompt('New template name:', 'Form ' + (formTemplates.length + 1));
+  if (!name || !name.trim()) return;
+  var id = 'tpl_' + Date.now();
+  formTemplates.push({id, name:name.trim(), elements:[], createdAt:new Date().toISOString(), updatedAt:new Date().toISOString()});
+  activeTplId = id; formLayout = [];
+  fdSelectedId = null; fdRender(); fdRenderProps(null); renderTplBar();
+  toast('"'+name.trim()+'" started — add elements and Save','info');
+}
+
+/* ── Clear canvas ─────────────────────────────────── */
 function fdClearCanvas() {
   openConfirm('Clear all elements from the canvas?','Clear').then(function(ok) {
     if (!ok) return;
