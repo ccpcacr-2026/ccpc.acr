@@ -849,14 +849,44 @@ function renderCodeTable(containerId,codes,prefix,circKeys){
   const ck=circKeys||new Set();
   el.innerHTML=Object.entries(codes).map(function(e){
     const k=e[0],val=e[1],fromCirc=ck.has(k);
-    return '<div class="flex items-center gap-1.5 '+(fromCirc?'bg-indigo-50 border-indigo-200':'bg-slate-50 border-slate-200')+' border rounded-lg px-2 py-1.5">'+
-      '<span class="text-xs font-bold text-slate-600 w-20 shrink-0">'+k+(fromCirc?'<span style="font-size:8px;color:#6366f1;margin-left:3px" title="From Circular">●</span>':'')+'</span>'+
-      '<span class="text-slate-300">→</span>'+
+    return '<div class="flex items-center gap-1 '+(fromCirc?'bg-indigo-50 border-indigo-200':'bg-slate-50 border-slate-200')+' border rounded-lg px-2 py-1.5">'+
+      '<span class="text-xs font-bold text-slate-700 shrink-0" style="min-width:72px">'+escH(k)+(fromCirc?'<span style="font-size:8px;color:#6366f1;margin-left:3px" title="From Circular">●</span>':'')+'</span>'+
+      '<span class="text-slate-300 px-0.5">→</span>'+
       '<input type="text" data-prefix="'+prefix+'" data-key="'+k+'" value="'+escH(val)+'" maxlength="6"'+
-        ' class="finput finput-sm flex-1 font-mono text-center font-black text-blue-600"'+
+        ' class="finput finput-sm font-mono text-center font-black text-blue-600" style="min-width:0;flex:1"'+
         ' oninput="updateIndexPreview()">'+
+      '<button onclick="indexDelCode(\''+prefix+'\',\''+escH(k)+'\')" title="Remove '+escH(k)+'" style="flex-shrink:0;margin-left:2px;width:20px;height:20px;font-size:12px;font-weight:900;color:#ef4444;background:none;border:none;cursor:pointer;line-height:1">×</button>'+
       '</div>';
   }).join('');
+}
+function syncCodeTables(){
+  if(!currentIndexSettings)return;
+  if(!currentIndexSettings.classCodes)currentIndexSettings.classCodes={};
+  if(!currentIndexSettings.categoryCodes)currentIndexSettings.categoryCodes={};
+  document.querySelectorAll('[data-prefix="class"]').forEach(function(el){currentIndexSettings.classCodes[el.dataset.key]=el.value.trim().toUpperCase();});
+  document.querySelectorAll('[data-prefix="cat"]').forEach(function(el){currentIndexSettings.categoryCodes[el.dataset.key]=el.value.trim().toUpperCase();});
+}
+function indexDelCode(prefix,key){
+  syncCodeTables();
+  if(prefix==='class')delete currentIndexSettings.classCodes[key];
+  else delete currentIndexSettings.categoryCodes[key];
+  populateIndexSettings(currentIndexSettings);
+}
+function indexAddCode(prefix){
+  const lbl=prefix==='class'?'class':'category';
+  const key=prompt('Enter '+lbl+' name (e.g. "Thirteen", "Staff"):');
+  if(!key||!key.trim())return;
+  const k=key.trim();
+  syncCodeTables();
+  const target=prefix==='class'?currentIndexSettings.classCodes:currentIndexSettings.categoryCodes;
+  if(k in target){toast('"'+k+'" already exists','warn');return;}
+  target[k]='';
+  populateIndexSettings(currentIndexSettings);
+  // focus the new code input
+  setTimeout(function(){
+    const inp=document.querySelector('[data-prefix="'+prefix+'"][data-key="'+k+'"]');
+    if(inp)inp.focus();
+  },100);
 }
 function refreshIndexDropdowns(classCodes,catCodes){
   const classSel=document.getElementById('ip-test-class');
@@ -1201,6 +1231,12 @@ function populateCircularInfo(){
   document.getElementById('circ-title').value=c.title||'';
   document.getElementById('circ-session').value=c.session||'';
   document.getElementById('circ-date').value=c.publishedDate||'';
+  document.getElementById('circ-start-date').value=c.startDate||'';
+  document.getElementById('circ-start-time').value=c.startTime||'';
+  document.getElementById('circ-end-date').value=c.endDate||'';
+  document.getElementById('circ-end-time').value=c.endTime||'';
+  const tzSel=document.getElementById('circ-tz');
+  if(tzSel&&c.timezone){tzSel.value=c.timezone||'GMT+6';}
   document.getElementById('circ-desc').value=c.description||'';
   document.getElementById('circ-use-symbol').checked=!!c.useSymbolCounter;
 }
@@ -1209,6 +1245,11 @@ async function saveCircular(){
   currentCircular.title=document.getElementById('circ-title').value.trim()||currentCircular.title;
   currentCircular.session=document.getElementById('circ-session').value.trim()||currentCircular.session;
   currentCircular.publishedDate=document.getElementById('circ-date').value;
+  currentCircular.startDate=document.getElementById('circ-start-date').value;
+  currentCircular.startTime=document.getElementById('circ-start-time').value;
+  currentCircular.endDate=document.getElementById('circ-end-date').value;
+  currentCircular.endTime=document.getElementById('circ-end-time').value;
+  currentCircular.timezone=document.getElementById('circ-tz').value||'GMT+6';
   currentCircular.description=document.getElementById('circ-desc').value;
   currentCircular.useSymbolCounter=document.getElementById('circ-use-symbol').checked;
   setLoading(true);const r=await api('saveSettings',{key:'circular_settings',value:currentCircular});setLoading(false);
@@ -1304,57 +1345,112 @@ function renderCircularEntries(){
     el.innerHTML='<div class="circ-empty">No entries yet — click "+ Add Entry" or "⚙ Generate All Combos".</div>';
     return;
   }
-  el.innerHTML=entries.map(function(entry,ei){
+
+  // Preserve which sub-rows were open
+  const openSubs=new Set();
+  el.querySelectorAll('.circ-sub-row:not(.hidden)').forEach(function(r){openSubs.add(r.dataset.eid);});
+
+  var dimThs=dims.map(function(d){return '<th>'+circEscH(d.label)+'</th>';}).join('');
+  var rows=entries.map(function(entry,ei){
     var autoSym=circSymbol(entry,dims);
     var displaySym=entry.symbolOverride||autoSym||'—';
-    var dimRows=dims.map(function(dim){
+    var dimTds=dims.map(function(dim){
       var sel=((entry.selections||{})[dim.id])||[];
       var chips=(dim.options||[]).map(function(opt){
         var on=sel.includes(opt.value);
-        return '<button class="circ-val-chip'+(on?' circ-val-on':'')+'" onclick="circToggleVal(\''+entry.id+'\',\''+dim.id+'\',\''+circEscH(opt.value)+'\')">'+circEscH(opt.label||opt.value)+'</button>';
+        return '<button class="circ-val-chip'+(on?' circ-val-on':'')+
+          '" onclick="circToggleVal(\''+entry.id+'\',\''+dim.id+'\',\''+circEscH(opt.value)+'\')">'+
+          circEscH(opt.label||opt.value)+'</button>';
       }).join('');
-      return '<div class="circ-dim-row">'+
-        '<span class="circ-dim-lbl">'+circEscH(dim.label)+'</span>'+
-        '<div class="circ-val-chips">'+(chips||'<span class="circ-empty" style="padding:2px 0;font-size:10px">No options in dimension</span>')+'</div>'+
-        '</div>';
+      return '<td><div class="circ-val-chips">'+(chips||'<span style="font-size:9px;color:#94a3b8">—</span>')+'</div></td>';
     }).join('');
-    return '<div class="circ-entry-card'+(entry.active?'':' circ-entry-off')+'">'+
-      '<div class="circ-entry-hdr">'+
-        '<span class="circ-entry-num">#'+(ei+1)+'</span>'+
-        '<span class="circ-entry-sym" title="Final symbol (used as counter key)">'+circEscH(displaySym)+'</span>'+
-        '<span class="circ-entry-label">'+circEscH(circEntryLabel(entry,dims)||'(empty)')+'</span>'+
-        '<div style="flex:1"></div>'+
-        '<label class="toggle-lbl" style="font-size:10px;white-space:nowrap">'+
-          '<input type="checkbox"'+(entry.active?' checked':'')+' onchange="circUpdEntry(\''+entry.id+'\',\'active\',this.checked)"> Active</label>'+
-        '<button class="nav-btn" style="padding:2px 7px;font-size:10px" onclick="circMoveEntry(\''+entry.id+'\','+ei+',-1)" '+(ei===0?'disabled':'')+'>↑</button>'+
-        '<button class="nav-btn" style="padding:2px 7px;font-size:10px" onclick="circMoveEntry(\''+entry.id+'\','+ei+',1)" '+(ei===entries.length-1?'disabled':'')+'>↓</button>'+
-        '<button class="nav-btn nav-btn-danger" style="padding:2px 7px;font-size:10px" onclick="circDelEntry(\''+entry.id+'\')">×</button>'+
-      '</div>'+
-      '<div class="circ-entry-body">'+
-        dimRows+
-        '<div class="circ-entry-footer">'+
-          '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'+
-            '<div style="display:flex;align-items:center;gap:5px">'+
-              '<span class="flbl">Auto symbol:</span>'+
-              '<span class="circ-sym-auto">'+circEscH(autoSym||'–')+'</span>'+
-            '</div>'+
-            '<div style="display:flex;align-items:center;gap:5px">'+
-              '<span class="flbl">Override:</span>'+
-              '<input class="finput finput-sm" style="width:80px;font-family:monospace;font-weight:900" placeholder="optional" value="'+circEscH(entry.symbolOverride||'')+'" oninput="circUpdEntry(\''+entry.id+'\',\'symbolOverride\',this.value)" title="Override auto-computed symbol">'+
-            '</div>'+
-            '<div style="display:flex;align-items:center;gap:5px">'+
-              '<span class="flbl">Seats:</span>'+
-              '<input class="finput finput-sm" style="width:60px" type="number" min="0" placeholder="0" value="'+(entry.seats||'')+'" oninput="circUpdEntry(\''+entry.id+'\',\'seats\',+(this.value)||0)">'+
-            '</div>'+
-            '<div style="display:flex;align-items:center;gap:5px;flex:1;min-width:140px">'+
-              '<span class="flbl">Note:</span>'+
-              '<input class="finput finput-sm" style="flex:1" placeholder="optional note" value="'+circEscH(entry.note||'')+'" oninput="circUpdEntry(\''+entry.id+'\',\'note\',this.value)">'+
-            '</div>'+
-          '</div>'+
-        '</div>'+
-      '</div>'+
+
+    // Application Options sub-table
+    var opts=entry.appOptions||[];
+    var optsRows=opts.map(function(opt,oi){
+      return '<tr>'+
+        '<td><input class="finput finput-sm" style="width:100%" value="'+circEscH(opt.label||'')+
+          '" placeholder="Option name" oninput="circUpdSubOpt(\''+entry.id+'\',\''+opt.id+'\',\'label\',this.value)"></td>'+
+        '<td><input class="finput finput-sm" style="width:60px;text-align:center" type="number" min="0" value="'+(opt.seats||'')+
+          '" placeholder="0" oninput="circUpdSubOpt(\''+entry.id+'\',\''+opt.id+'\',\'seats\',+(this.value)||0)"></td>'+
+        '<td><input class="finput finput-sm" style="width:100%" value="'+circEscH(opt.note||'')+
+          '" placeholder="note" oninput="circUpdSubOpt(\''+entry.id+'\',\''+opt.id+'\',\'note\',this.value)"></td>'+
+        '<td><button onclick="circDelSubOpt(\''+entry.id+'\',\''+opt.id+'\')" style="color:#ef4444;background:none;border:none;cursor:pointer;font-size:14px;font-weight:900;padding:0 3px">×</button></td>'+
+        '</tr>';
+    }).join('');
+    var subContent='<div style="padding:8px 12px;background:#f8fafc;border-top:1px solid #e2e8f0">'+
+      '<div style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;color:#6366f1;margin-bottom:6px">Application Options '+(opts.length?'('+opts.length+')':'— none yet')+'</div>'+
+      '<table class="circ-sub-table">'+
+        '<thead><tr><th>Option / Quota Name</th><th style="width:70px">Seats</th><th>Note</th><th style="width:28px"></th></tr></thead>'+
+        '<tbody>'+optsRows+'</tbody>'+
+      '</table>'+
+      '<button class="nav-btn" style="font-size:9px;padding:3px 9px;margin-top:5px" onclick="circAddSubOpt(\''+entry.id+'\')">+ Add Option</button>'+
     '</div>';
+
+    var isOpen=openSubs.has(entry.id);
+    return '<tr class="circ-entry-row'+(entry.active?'':' circ-entry-off')+'">'+
+        '<td class="text-center" style="font-size:9px;color:#94a3b8;font-weight:900">'+(ei+1)+'</td>'+
+        '<td style="white-space:nowrap"><span class="circ-entry-sym">'+circEscH(displaySym)+'</span></td>'+
+        dimTds+
+        '<td>'+
+          '<div style="display:flex;align-items:center;gap:3px">'+
+            '<input class="finput finput-sm" style="width:48px;font-family:monospace;font-weight:900" placeholder="auto" value="'+circEscH(entry.symbolOverride||'')+
+              '" oninput="circUpdEntry(\''+entry.id+'\',\'symbolOverride\',this.value)" title="Override symbol (leave blank for auto)">'+
+          '</div>'+
+        '</td>'+
+        '<td><input class="finput finput-sm" style="width:52px;text-align:center" type="number" min="0" placeholder="0" value="'+(entry.seats||'')+
+          '" oninput="circUpdEntry(\''+entry.id+'\',\'seats\',+(this.value)||0)"></td>'+
+        '<td style="text-align:center">'+
+          '<input type="checkbox"'+(entry.active?' checked':'')+
+            ' onchange="circUpdEntry(\''+entry.id+'\',\'active\',this.checked)" style="width:14px;height:14px;accent-color:#2563eb;cursor:pointer">'+
+        '</td>'+
+        '<td><input class="finput finput-sm" style="min-width:80px;width:100%" placeholder="note" value="'+circEscH(entry.note||'')+
+          '" oninput="circUpdEntry(\''+entry.id+'\',\'note\',this.value)"></td>'+
+        '<td style="white-space:nowrap">'+
+          '<button class="nav-btn" style="padding:2px 6px;font-size:10px" onclick="circToggleSub(\''+entry.id+'\')" title="Application options">'+(opts.length?'⚙'+opts.length:'⚙')+'</button> '+
+          '<button class="nav-btn" style="padding:2px 6px;font-size:10px" onclick="circMoveEntry(\''+entry.id+'\','+ei+',-1)" '+(ei===0?'disabled':'')+'>↑</button>'+
+          '<button class="nav-btn" style="padding:2px 6px;font-size:10px" onclick="circMoveEntry(\''+entry.id+'\','+ei+',1)" '+(ei===entries.length-1?'disabled':'')+'>↓</button>'+
+          '<button style="color:#ef4444;background:none;border:none;cursor:pointer;font-size:15px;font-weight:900;padding:0 3px" onclick="circDelEntry(\''+entry.id+'\')">×</button>'+
+        '</td>'+
+      '</tr>'+
+      '<tr class="circ-sub-row'+(isOpen?'':' hidden')+'" data-eid="'+entry.id+'">'+
+        '<td colspan="'+(5+dims.length)+'">'+subContent+'</td>'+
+      '</tr>';
   }).join('');
+
+  el.innerHTML='<div style="overflow-x:auto"><table class="circ-tbl" style="width:100%;border-collapse:collapse">'+
+    '<thead><tr>'+
+      '<th style="width:30px">#</th>'+
+      '<th style="white-space:nowrap">Symbol</th>'+
+      dimThs+
+      '<th style="white-space:nowrap">Sym Override</th>'+
+      '<th>Seats</th><th>Active</th><th>Note</th><th>Actions</th>'+
+    '</tr></thead>'+
+    '<tbody>'+rows+'</tbody>'+
+  '</table></div>';
+}
+function circToggleSub(entId){
+  const sub=document.querySelector('.circ-sub-row[data-eid="'+entId+'"]');
+  if(sub)sub.classList.toggle('hidden');
+}
+function circAddSubOpt(entId){
+  var entry=(currentCircular.entries||[]).find(function(e){return e.id===entId;});
+  if(!entry)return;
+  if(!entry.appOptions)entry.appOptions=[];
+  entry.appOptions.push({id:'opt_'+Date.now(),label:'',seats:0,note:''});
+  renderCircularEntries();
+}
+function circDelSubOpt(entId,optId){
+  var entry=(currentCircular.entries||[]).find(function(e){return e.id===entId;});
+  if(!entry||!entry.appOptions)return;
+  entry.appOptions=entry.appOptions.filter(function(o){return o.id!==optId;});
+  renderCircularEntries();
+}
+function circUpdSubOpt(entId,optId,field,val){
+  var entry=(currentCircular.entries||[]).find(function(e){return e.id===entId;});
+  if(!entry||!entry.appOptions)return;
+  var opt=entry.appOptions.find(function(o){return o.id===optId;});
+  if(opt)opt[field]=val;
 }
 function circAddEntry(){
   if(!currentCircular)return;

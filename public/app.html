@@ -429,11 +429,17 @@
             </div>
 
             <div class="space-y-2">
-              <p class="flbl">Class Codes</p>
+              <div style="display:flex;align-items:center;justify-content:space-between">
+                <p class="flbl">Class Codes</p>
+                <button onclick="indexAddCode('class')" class="nav-btn" style="font-size:9px;padding:3px 9px">+ Add Class</button>
+              </div>
               <div id="class-codes-table" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2"></div>
             </div>
             <div class="space-y-2">
-              <p class="flbl">Category Codes</p>
+              <div style="display:flex;align-items:center;justify-content:space-between">
+                <p class="flbl">Category Codes</p>
+                <button onclick="indexAddCode('cat')" class="nav-btn" style="font-size:9px;padding:3px 9px">+ Add Category</button>
+              </div>
               <div id="cat-codes-table" class="grid grid-cols-2 sm:grid-cols-3 gap-2"></div>
             </div>
 
@@ -790,10 +796,36 @@
           <!-- Info card -->
           <div class="circ-card" style="margin-bottom:12px">
             <div class="circ-card-hdr">Circular Info</div>
-            <div style="display:grid;grid-template-columns:1fr 130px 130px;gap:8px;margin-bottom:8px">
+            <div style="display:grid;grid-template-columns:1fr 110px 110px;gap:8px;margin-bottom:8px">
               <div><label class="flbl">Title</label><input id="circ-title" class="finput" placeholder="Admission Circular 2026"></div>
               <div><label class="flbl">Session / Year</label><input id="circ-session" class="finput" placeholder="2026"></div>
               <div><label class="flbl">Published On</label><input id="circ-date" class="finput" type="date"></div>
+            </div>
+            <!-- Application Window -->
+            <div style="display:grid;grid-template-columns:120px 90px 120px 90px 1fr;gap:6px;margin-bottom:8px;align-items:end">
+              <div><label class="flbl">Opens (Date)</label><input id="circ-start-date" class="finput" type="date"></div>
+              <div><label class="flbl">Time</label><input id="circ-start-time" class="finput" type="time"></div>
+              <div><label class="flbl">Closes (Date)</label><input id="circ-end-date" class="finput" type="date"></div>
+              <div><label class="flbl">Time</label><input id="circ-end-time" class="finput" type="time"></div>
+              <div><label class="flbl">Timezone</label>
+                <select id="circ-tz" class="finput finput-sm" style="width:100%">
+                  <option value="GMT+0">GMT+0 (UTC)</option>
+                  <option value="GMT+1">GMT+1</option><option value="GMT+2">GMT+2</option>
+                  <option value="GMT+3">GMT+3</option><option value="GMT+4">GMT+4</option>
+                  <option value="GMT+5">GMT+5</option>
+                  <option value="GMT+5:30">GMT+5:30 (IST)</option>
+                  <option value="GMT+6" selected>GMT+6 (BST/Dhaka)</option>
+                  <option value="GMT+6:30">GMT+6:30</option>
+                  <option value="GMT+7">GMT+7</option><option value="GMT+8">GMT+8</option>
+                  <option value="GMT+9">GMT+9</option><option value="GMT+9:30">GMT+9:30</option>
+                  <option value="GMT+10">GMT+10</option><option value="GMT+11">GMT+11</option>
+                  <option value="GMT+12">GMT+12</option>
+                  <option value="GMT-1">GMT-1</option><option value="GMT-2">GMT-2</option>
+                  <option value="GMT-3">GMT-3</option><option value="GMT-4">GMT-4</option>
+                  <option value="GMT-5">GMT-5 (EST)</option><option value="GMT-6">GMT-6 (CST)</option>
+                  <option value="GMT-7">GMT-7 (MST)</option><option value="GMT-8">GMT-8 (PST)</option>
+                </select>
+              </div>
             </div>
             <div style="margin-bottom:8px"><label class="flbl">Description / Notes</label><textarea id="circ-desc" class="finput" rows="2" placeholder="Optional notes visible on the circular…"></textarea></div>
             <label class="toggle-lbl">

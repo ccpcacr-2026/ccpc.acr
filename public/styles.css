@@ -232,8 +232,20 @@
 .circ-opt-row { display:flex; align-items:center; gap:4px; margin-bottom:4px; }
 .circ-empty { font-size:11px; color:#94a3b8; padding:8px 0; text-align:center; }
 
+/* Entries table */
+.circ-tbl { width:100%; border-collapse:collapse; font-size:11px; }
+.circ-tbl th { padding:6px 8px; background:#f8fafc; border:1px solid #e2e8f0; font-size:9px; font-weight:900; text-transform:uppercase; letter-spacing:.06em; color:#64748b; white-space:nowrap; }
+.circ-tbl td { padding:5px 6px; border:1px solid #e2e8f0; vertical-align:middle; }
+.circ-entry-row { background:#fff; transition:opacity .15s; }
+.circ-entry-row:hover { background:#fafbff; }
+.circ-entry-off { opacity:.45; }
+.circ-sub-row { background:#f8fafc; }
+.circ-sub-row.hidden { display:none; }
+.circ-sub-table { width:100%; border-collapse:collapse; font-size:11px; }
+.circ-sub-table th { padding:4px 7px; background:#ede9fe; border:1px solid #ddd6fe; font-size:8.5px; font-weight:900; text-transform:uppercase; letter-spacing:.06em; color:#5b21b6; }
+.circ-sub-table td { padding:3px 6px; border:1px solid #e0e7ff; vertical-align:middle; background:#fff; }
+
 .circ-entry-card { border:1.5px solid #e2e8f0; border-radius:12px; margin-bottom:8px; background:#fff; overflow:hidden; transition:opacity .15s; }
-.circ-entry-off { opacity:.5; }
 .circ-entry-hdr {
   display:flex; align-items:center; gap:7px; padding:7px 12px;
   background:#f8fafc; border-bottom:1px solid #e2e8f0; flex-wrap:wrap;
