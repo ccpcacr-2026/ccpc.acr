@@ -1,0 +1,684 @@
+<div class="max-w-5xl mx-auto pb-24 flex flex-col gap-0" id="profileRoot">
+
+  <!-- ══ TITLE & PROGRESS ══ -->
+  <div id="profileTitleBlock" class="rounded-2xl p-4 mb-3" style="background:rgba(255,255,255,0.42);backdrop-filter:saturate(160%) blur(14px);-webkit-backdrop-filter:saturate(160%) blur(14px);border:1px solid rgba(255,255,255,0.6);box-shadow:0 4px 16px -4px rgba(15,23,42,.08);">
+    <h2 class="text-2xl font-black text-slate-800 tracking-tight">Personnel Record</h2>
+    <p class="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-0.5">Chattogram Cantonment Public College — Confidential</p>
+    <div class="flex items-center gap-3 mt-2">
+      <div id="profileCompletionBadge" class="hidden px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest shrink-0"></div>
+      <div class="flex-1 max-w-xs">
+        <div class="flex justify-between items-center mb-1">
+          <span class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Profile Fillup</span>
+          <span id="profileFillPct" class="text-[9px] font-black text-slate-500">0%</span>
+        </div>
+        <div class="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+          <div id="profileFillBar" class="h-full rounded-full bg-teal-400 transition-all duration-500" style="width:0%"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ PHOTO + BUTTONS HEADER (sticky, smooth scroll shrink) ══ -->
+  <div id="photoHeader" class="sticky z-30 flex items-start bg-white border border-slate-100 shadow-sm" style="top:0;gap:1rem;padding:1rem;border-radius:1rem;">
+
+    <!-- Photo Box -->
+    <div id="photoPanelLarge" class="shrink-0 overflow-hidden" style="width:160px;transition:width 0.08s linear;">
+      <div id="photoBox" onclick="document.getElementById('photoFileInput').click()"
+           class="w-full aspect-square rounded-xl border-2 border-dashed border-slate-200 overflow-hidden flex items-center justify-center bg-slate-50 cursor-pointer hover:border-blue-500 transition-all group relative">
+        <img id="photoPreviewImg" src="" alt="Photo" class="hidden w-full h-full object-cover absolute inset-0">
+        <div id="photoPlaceholder" class="flex flex-col items-center gap-1 pointer-events-none">
+          <i data-lucide="camera" class="h-6 w-6 text-slate-300 group-hover:text-blue-400 transition-all"></i>
+          <span id="photoHint" class="text-[7px] font-black text-slate-300 group-hover:text-blue-400 uppercase tracking-wider leading-tight text-center">4.5cm × 4.5cm</span>
+        </div>
+        <div id="photoUploadOverlay" class="hidden absolute inset-0 bg-black/50 flex items-center justify-center">
+          <div class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+        </div>
+      </div>
+      <input type="file" id="photoFileInput" accept="image/jpeg,image/png,image/webp" class="hidden" onchange="handlePhotoSelect(event)">
+      <span id="photoStatusText" class="text-[7px] font-black text-slate-400 uppercase tracking-widest text-center leading-tight mt-1 block">Square · Max 130KB</span>
+    </div>
+
+    <!-- Action Buttons -->
+    <div id="actionButtons" class="flex-1 flex flex-col gap-2 min-w-0" style="transition:flex-direction 0.1s;">
+      <button onclick="toggleProfileMode('preview')" id="btnViewProfile"
+        class="flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-50 border border-slate-200 text-slate-600 text-[9px] font-black rounded-xl hover:bg-blue-600 hover:text-white hover:border-blue-600 transition-all uppercase tracking-widest">
+        <i data-lucide="eye" class="h-3 w-3"></i><span id="previewLabel"> Preview</span>
+      </button>
+      <button onclick="printPersonnelForm()" id="btnPrint"
+        class="flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-800 text-white text-[9px] font-black rounded-xl hover:bg-blue-600 transition-all uppercase tracking-widest">
+        <i data-lucide="printer" class="h-3 w-3"></i><span id="printLabel"> Print</span>
+      </button>
+      <div id="fontSizeWrap" class="pt-1 border-t border-slate-100">
+        <label class="text-[7px] font-black text-slate-400 uppercase tracking-widest block mb-1">Text Size</label>
+        <select id="fontSizeSelect" onchange="setProfileFontSize(+this.value)"
+          class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[10px] font-black text-slate-600 outline-none focus:ring-2 focus:ring-blue-600 cursor-pointer">
+          <option value="1">1 — Smallest</option>
+          <option value="2">2 — Small</option>
+          <option value="3" selected>3 — Default</option>
+          <option value="4">4 — Large</option>
+          <option value="5">5 — Largest</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ MAIN FORM AREA ══ -->
+  <div class="flex-1 min-w-0">
+
+    <!-- ══════════════════════════ EDIT MODE ═══════════════════════════════════ -->
+    <div id="profileEditMode">
+
+      <!-- Compact lock banner -->
+      <div id="profileLockBanner" class="flex items-center justify-between gap-3 px-3.5 py-2 mb-3 rounded-xl border border-amber-200 bg-amber-50">
+        <div class="flex items-center gap-2">
+          <i data-lucide="lock" class="h-3.5 w-3.5 text-amber-600 shrink-0"></i>
+          <span class="text-[9px] font-black text-amber-700 uppercase tracking-widest">Locked · Read only</span>
+        </div>
+        <button type="button" onclick="enableProfileEdit()"
+          class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white font-black text-[9px] rounded-lg hover:bg-black transition-all uppercase tracking-widest shrink-0">
+          <i data-lucide="pencil" class="h-3 w-3"></i> Edit
+        </button>
+      </div>
+
+      <!-- Tab bar -->
+      <div id="profileTabBar" class="sticky z-20 overflow-x-auto p-2 mb-3 rounded-2xl" style="top:0;background:rgba(255,255,255,0.42);backdrop-filter:saturate(160%) blur(14px);-webkit-backdrop-filter:saturate(160%) blur(14px);border:1px solid rgba(255,255,255,0.6);box-shadow:0 4px 16px -4px rgba(15,23,42,.10);">
+        <div class="flex gap-1.5 min-w-max">
+          <button type="button" onclick="switchProfileTab('personal')"  id="ptab-personal"  class="ptab-btn active-ptab">
+            <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-personal"></span><span>Personal</span></div><span class="tab-pct" id="pct-personal">0%</span></div>
+            <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-personal"></div></div>
+          </button>
+          <button type="button" onclick="switchProfileTab('travel')"    id="ptab-travel"    class="ptab-btn">
+            <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-travel"></span><span>Travel</span></div><span class="tab-pct" id="pct-travel">0%</span></div>
+            <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-travel"></div></div>
+          </button>
+          <button type="button" onclick="switchProfileTab('parents')"   id="ptab-parents"   class="ptab-btn">
+            <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-parents"></span><span>Parents</span></div><span class="tab-pct" id="pct-parents">0%</span></div>
+            <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-parents"></div></div>
+          </button>
+          <button type="button" onclick="switchProfileTab('spouse')"    id="ptab-spouse"    class="ptab-btn">
+            <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-spouse"></span><span>Marital</span></div><span class="tab-pct" id="pct-spouse">0%</span></div>
+            <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-spouse"></div></div>
+          </button>
+          <button type="button" onclick="switchProfileTab('children')"  id="ptab-children"  class="ptab-btn">
+            <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-children"></span><span>Children</span></div><span class="tab-pct" id="pct-children">✓</span></div>
+            <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-children"></div></div>
+          </button>
+          <button type="button" onclick="switchProfileTab('financial')" id="ptab-financial" class="ptab-btn">
+            <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-financial"></span><span>Financial</span></div><span class="tab-pct" id="pct-financial">0%</span></div>
+            <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-financial"></div></div>
+          </button>
+          <button type="button" onclick="switchProfileTab('education')" id="ptab-education" class="ptab-btn">
+            <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-education"></span><span>Education</span></div><span class="tab-pct" id="pct-education">0%</span></div>
+            <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-education"></div></div>
+          </button>
+          <button type="button" onclick="switchProfileTab('career')"    id="ptab-career"    class="ptab-btn">
+            <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-career"></span><span>Career</span></div><span class="tab-pct" id="pct-career">0%</span></div>
+            <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-career"></div></div>
+          </button>
+        </div>
+      </div>
+
+      <form id="teacherForm" class="space-y-3 form-locked" oninput="debounceProgressUpdate()">
+
+        <!-- ══════════ TAB 1: PERSONAL ══════════ -->
+        <div id="psec-personal" class="psec space-y-3">
+
+          <div class="pcard">
+            <div class="pcard-hdr">Identity &amp; Appointment</div>
+            <div class="pf-rows">
+              <div class="pf-wrap req">
+                <label class="pf-lbl">ID Number</label>
+                <input type="text" name="teacher_id" readonly data-perm-readonly class="pf-input pf-system" tabindex="-1">
+              </div>
+              <div class="pf-wrap req">
+                <label class="pf-lbl">Joining Date</label>
+                <input type="date" name="joining_date" class="pf-input">
+              </div>
+              <div class="pf-wrap req">
+                <label class="pf-lbl">Full Name (block capital)</label>
+                <input type="text" name="full_name" required class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">নাম (বাংলায়)</label>
+                <input type="text" name="name_bengali" class="pf-input">
+              </div>
+              <div class="pf-wrap req">
+                <label class="pf-lbl">Designation</label>
+                <input type="text" name="designation" class="pf-input">
+              </div>
+              <div class="pf-wrap req">
+                <label class="pf-lbl">Category</label>
+                <select name="category" class="pf-input">
+                  <option value="Teacher">Teacher</option>
+                  <option value="Staff">Staff</option>
+                </select>
+              </div>
+              <div class="pf-wrap req">
+                <label class="pf-lbl">School / College / Admin</label>
+                <select name="school_college" class="pf-input">
+                  <option value="">Select...</option>
+                  <option>School</option><option>College</option><option>Admin</option>
+                </select>
+              </div>
+              <div class="pf-wrap req">
+                <label class="pf-lbl">National ID Number</label>
+                <input type="text" name="national_id" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Auth (GB Notification / Order)</label>
+                <input type="text" name="auth_ref" class="pf-input">
+              </div>
+            </div>
+          </div>
+
+          <div class="pcard">
+            <div class="pcard-hdr">Birth, Physical &amp; Blood</div>
+            <div class="pf-rows">
+              <div class="pf-wrap req">
+                <label class="pf-lbl">Date of Birth</label>
+                <input type="date" name="date_of_birth" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Place of Birth</label>
+                <input type="text" name="place_of_birth" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Birth Certificate No.</label>
+                <input type="text" name="birth_certificate_no" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Height (Feet)</label>
+                <input type="number" step="1" name="height_feet" class="pf-input" placeholder="5">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Height (Inches)</label>
+                <input type="number" step="0.1" name="height_inches" class="pf-input" placeholder="7">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Weight (kg)</label>
+                <input type="number" step="0.1" name="weight_kg" class="pf-input" placeholder="65">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Blood Group</label>
+                <input type="text" name="blood_group" list="dl-blood" class="pf-input" placeholder="e.g. A+">
+                <datalist id="dl-blood"><option value="A+"><option value="A-"><option value="B+"><option value="B-"><option value="AB+"><option value="AB-"><option value="O+"><option value="O-"></datalist>
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Identification Mark(s)</label>
+                <input type="text" name="identification_marks" class="pf-input">
+              </div>
+            </div>
+          </div>
+
+          <div class="pcard">
+            <div class="pcard-hdr">Medical History &amp; Religion</div>
+            <div class="pf-rows">
+              <div class="pf-wrap">
+                <label class="pf-lbl">Medical Category</label>
+                <input type="text" name="medical_category" list="dl-medcat" class="pf-input">
+                <datalist id="dl-medcat"><option value="A1"><option value="A2"><option value="B1"><option value="B2"><option value="C"><option value="SHAPE1"><option value="SHAPE2"></datalist>
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Nature of Disability</label>
+                <input type="text" name="disability_nature" list="dl-disability" class="pf-input">
+                <datalist id="dl-disability"><option value="Visual Impairment"><option value="Hearing Impairment"><option value="Physical Disability"><option value="Intellectual Disability"><option value="Speech Impairment"><option value="None"></datalist>
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Attributability</label>
+                <select name="disability_attributable" class="pf-input">
+                  <option value="">Select...</option>
+                  <option>Attributable to Service</option>
+                  <option>Non-Attributable to Service</option>
+                  <option>Not Applicable</option>
+                </select>
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Religion</label>
+                <input type="text" name="religion" list="dl-religion" class="pf-input">
+                <datalist id="dl-religion"><option value="Islam"><option value="Hindu"><option value="Christian"><option value="Buddhist"></datalist>
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Caste</label>
+                <input type="text" name="caste" class="pf-input">
+              </div>
+            </div>
+          </div>
+
+          <div class="pcard">
+            <div class="pcard-hdr">Nationality, Address &amp; Contact</div>
+            <div class="pf-rows">
+              <div class="pf-wrap req">
+                <label class="pf-lbl">Nationality</label>
+                <input type="text" name="nationality" list="dl-nationality" class="pf-input" placeholder="Bangladeshi">
+                <datalist id="dl-nationality"><option value="Bangladeshi"><option value="Indian"><option value="Pakistani"><option value="British"><option value="American"></datalist>
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Previous Nationality</label>
+                <input type="text" name="previous_nationality" class="pf-input">
+              </div>
+              <div class="pf-wrap req">
+                <label class="pf-lbl">Mobile Number</label>
+                <input type="tel" name="mobile" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">T&amp;T Phone</label>
+                <input type="text" name="tt_phone" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Personal E-mail</label>
+                <input type="email" name="personal_email" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Permanent Address</label>
+                <textarea name="permanent_address" rows="2" class="pf-input resize-none"></textarea>
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Present Address</label>
+                <textarea name="present_address" rows="2" class="pf-input resize-none"></textarea>
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Alternate Address</label>
+                <input type="text" name="alternate_address" class="pf-input">
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /psec-personal -->
+
+        <!-- ══════════ TAB 2: TRAVEL ══════════ -->
+        <div id="psec-travel" class="psec hidden space-y-3">
+
+          <div class="pcard">
+            <div class="pcard-hdr">Passport</div>
+            <div class="pf-rows">
+              <div class="pf-wrap">
+                <label class="pf-lbl">Passport Number</label>
+                <input type="text" name="passport_number" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Type of Passport</label>
+                <select name="passport_type" class="pf-input">
+                  <option value="">Select...</option>
+                  <option>Ordinary</option><option>Official</option><option>Diplomatic</option>
+                </select>
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Date of Issue</label>
+                <input type="date" name="passport_date_issue" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Place of Issue</label>
+                <input type="text" name="passport_place_issue" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Date of Expiry</label>
+                <input type="date" name="passport_date_expiry" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Issuing Authority</label>
+                <input type="text" name="passport_issuing_auth" class="pf-input">
+              </div>
+            </div>
+          </div>
+
+          <div class="pcard">
+            <div class="pcard-hdr flex justify-between items-center">
+              <span>Countries Visited</span>
+              <button type="button" onclick="addCountryRow()" class="add-row-btn">+ Add Country</button>
+            </div>
+            <div id="countriesContainer" class="space-y-2 p-4"></div>
+          </div>
+
+          <div class="pcard">
+            <div class="pcard-hdr flex justify-between items-center">
+              <span>Language Skills <span class="font-normal text-amber-600/60">(Except Bengali &amp; English)</span></span>
+              <button type="button" onclick="addLanguageRow()" class="add-row-btn">+ Add Language</button>
+            </div>
+            <div id="languagesContainer" class="space-y-2 p-4"></div>
+          </div>
+
+        </div><!-- /psec-travel -->
+
+        <!-- ══════════ TAB 3: PARENTS ══════════ -->
+        <div id="psec-parents" class="psec hidden space-y-3">
+
+          <div class="pcard">
+            <div class="pcard-hdr">Father's Details</div>
+            <div class="pf-rows">
+              <div class="pf-wrap">
+                <label class="pf-lbl">Father's Name in Full</label>
+                <input type="text" name="father_name" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Nationality</label>
+                <input type="text" name="father_nationality" list="dl-nationality" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Previous Nationality</label>
+                <input type="text" name="father_prev_nationality" list="dl-nationality" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Present Age</label>
+                <input type="text" name="father_present_age" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Date of Decease</label>
+                <input type="date" name="father_date_of_decease" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Occupation / Profession</label>
+                <input type="text" name="father_occupation" list="dl-occupation" class="pf-input" placeholder="e.g. Farmer, Business…">
+                <datalist id="dl-occupation"><option value="Farmer"><option value="Business"><option value="Service"><option value="Teacher"><option value="Doctor"><option value="Engineer"><option value="Lawyer"><option value="Police"><option value="Military"><option value="Politician"><option value="Retired"><option value="Deceased"></datalist>
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Annual Average Income</label>
+                <input type="text" name="father_annual_income" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Citizenship Auth / Date</label>
+                <input type="text" name="father_citizenship_auth" class="pf-input">
+              </div>
+            </div>
+          </div>
+
+          <div class="pcard">
+            <div class="pcard-hdr">Mother's Details</div>
+            <div class="pf-rows">
+              <div class="pf-wrap">
+                <label class="pf-lbl">Mother's Name in Full</label>
+                <input type="text" name="mother_name" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Nationality</label>
+                <input type="text" name="mother_nationality" list="dl-nationality" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Previous Nationality</label>
+                <input type="text" name="mother_prev_nationality" list="dl-nationality" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Present Age</label>
+                <input type="text" name="mother_present_age" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Date of Decease</label>
+                <input type="date" name="mother_date_of_decease" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Occupation / Profession</label>
+                <input type="text" name="mother_occupation" list="dl-occupation" class="pf-input" placeholder="e.g. Homemaker, Business…">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Citizenship Auth / Date</label>
+                <input type="text" name="mother_citizenship_auth" class="pf-input">
+              </div>
+            </div>
+          </div>
+
+          <div class="pcard">
+            <div class="pcard-hdr flex justify-between items-center">
+              <span>Own Brothers and Sisters</span>
+              <button type="button" onclick="addSiblingRow()" class="add-row-btn">+ Add Sibling</button>
+            </div>
+            <div id="siblingsContainer" class="space-y-2 p-4"></div>
+          </div>
+
+          <div class="pcard">
+            <div class="pcard-hdr">Position within Brothers and Sisters</div>
+            <div class="pf-rows">
+              <div class="pf-wrap">
+                <label class="pf-lbl">Position</label>
+                <input type="text" name="position_in_siblings" class="pf-input" placeholder="e.g. 2nd out of 4 children">
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /psec-parents -->
+
+        <!-- ══════════ TAB 4: MARITAL & SPOUSE ══════════ -->
+        <div id="psec-spouse" class="psec hidden space-y-3">
+
+          <div class="pcard">
+            <div class="pcard-hdr">Marital Status</div>
+            <div class="pf-rows">
+              <div class="pf-wrap">
+                <label class="pf-lbl">Marital Status</label>
+                <select name="marital_status" class="pf-input">
+                  <option value="">Select...</option>
+                  <option>Married</option><option>Unmarried</option><option>Widow</option><option>Divorcee</option>
+                </select>
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Date of Marriage / Divorce</label>
+                <input type="date" name="marriage_divorce_date" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Authority</label>
+                <input type="text" name="marriage_authority" class="pf-input">
+              </div>
+            </div>
+          </div>
+
+          <div class="pcard">
+            <div class="pcard-hdr">Details of Spouse</div>
+            <div class="pf-rows">
+              <div class="pf-wrap">
+                <label class="pf-lbl">Name (block capital)</label>
+                <input type="text" name="spouse_name_en" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">নাম (বাংলায়)</label>
+                <input type="text" name="spouse_name_bn" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Date of Birth</label>
+                <input type="date" name="spouse_dob" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Place of Birth</label>
+                <input type="text" name="spouse_pob" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Birth Registration No.</label>
+                <input type="text" name="spouse_birth_reg" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">National ID Number</label>
+                <input type="text" name="spouse_nid" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Nationality</label>
+                <input type="text" name="spouse_nationality" list="dl-nationality" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Previous Nationality</label>
+                <input type="text" name="spouse_prev_nationality" list="dl-nationality" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Educational Qualification</label>
+                <input type="text" name="spouse_education" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">TID / BIN No.</label>
+                <input type="text" name="spouse_tid_bin" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Occupation</label>
+                <input type="text" name="spouse_occupation" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Occupation Designation</label>
+                <input type="text" name="spouse_occ_designation" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Occupation Address</label>
+                <input type="text" name="spouse_occ_address" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Previous Occupation</label>
+                <input type="text" name="spouse_prev_occupation" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Citizenship Auth (if applicable)</label>
+                <input type="text" name="spouse_citizenship_auth" class="pf-input">
+              </div>
+            </div>
+          </div>
+
+          <div class="pcard">
+            <div class="pcard-hdr flex justify-between items-center">
+              <span>Basic Family Record <span class="font-normal text-amber-600/60">(used in ACR display)</span></span>
+              <button type="button" onclick="addFamilyRow()" class="add-row-btn">+ Add Member</button>
+            </div>
+            <div id="familyContainer" class="space-y-3 p-4"></div>
+          </div>
+
+        </div><!-- /psec-spouse -->
+
+        <!-- ══════════ TAB 5: CHILDREN ══════════ -->
+        <div id="psec-children" class="psec hidden space-y-3">
+
+          <div class="pcard">
+            <div class="pcard-hdr flex justify-between items-center">
+              <span>Particulars of Children</span>
+              <button type="button" onclick="addChildInfoRow()" class="add-row-btn">+ Add Child</button>
+            </div>
+            <div id="childrenContainer" class="space-y-3 p-4"></div>
+          </div>
+
+          <div class="pcard">
+            <div class="pcard-hdr flex justify-between items-center">
+              <span>Brothers and Sister-in-laws</span>
+              <button type="button" onclick="addInlawRow()" class="add-row-btn">+ Add</button>
+            </div>
+            <div id="inlawsContainer" class="space-y-2 p-4"></div>
+          </div>
+
+        </div><!-- /psec-children -->
+
+        <!-- ══════════ TAB 6: FINANCIAL ══════════ -->
+        <div id="psec-financial" class="psec hidden space-y-3">
+
+          <div class="pcard">
+            <div class="pcard-hdr">Details of Income</div>
+            <div class="pf-rows">
+              <div class="pf-wrap">
+                <label class="pf-lbl">TID / BIN No.</label>
+                <input type="text" name="tid_bin_no" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Own Income</label>
+                <input type="text" name="own_income" class="pf-input" placeholder="e.g. 50,000 BDT">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Spouse Income</label>
+                <input type="text" name="spouse_income" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Income from Assets</label>
+                <input type="text" name="assets_income" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Details of Assets</label>
+                <textarea name="assets_details" rows="3" class="pf-input resize-y"></textarea>
+              </div>
+            </div>
+          </div>
+
+          <div class="pcard">
+            <div class="pcard-hdr flex justify-between items-center">
+              <span>Bank Accounts</span>
+              <button type="button" onclick="addBankRow()" class="add-row-btn">+ Add Account</button>
+            </div>
+            <div id="bankContainer" class="space-y-2 p-4"></div>
+          </div>
+
+        </div><!-- /psec-financial -->
+
+        <!-- ══════════ TAB 7: EDUCATION ══════════ -->
+        <div id="psec-education" class="psec hidden space-y-3">
+
+          <div class="pcard">
+            <div class="pcard-hdr flex justify-between items-center">
+              <span>Educational Qualification(s)</span>
+              <button type="button" onclick="addEduRow()" class="add-row-btn">+ Add</button>
+            </div>
+            <div id="eduContainer" class="space-y-3 p-4"></div>
+          </div>
+
+          <div class="pcard">
+            <div class="pcard-hdr">Additional Qualification (if any)</div>
+            <div class="pf-rows">
+              <div class="pf-wrap">
+                <label class="pf-lbl">Details</label>
+                <textarea name="additional_qualification" rows="3" placeholder="Any additional qualifications not listed above…" class="pf-input resize-y"></textarea>
+              </div>
+            </div>
+          </div>
+
+          <div class="pcard">
+            <div class="pcard-hdr flex justify-between items-center">
+              <span>Achievements, Speciality &amp; Active Committees</span>
+              <button type="button" onclick="addAttributeRow()" class="add-row-btn !bg-emerald-600">+ Add Info</button>
+            </div>
+            <div id="attributeContainer" class="space-y-3 p-4"></div>
+          </div>
+
+        </div><!-- /psec-education -->
+
+        <!-- ══════════ TAB 8: CAREER ══════════ -->
+        <div id="psec-career" class="psec hidden space-y-3">
+
+          <div class="pcard">
+            <div class="pcard-hdr">Events Affecting Career</div>
+            <div class="pf-rows">
+              <div class="pf-wrap">
+                <label class="pf-lbl">Breaking Institution Law</label>
+                <textarea name="institution_law_breaking" rows="3" class="pf-input resize-y"></textarea>
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Breaking Civil Law</label>
+                <textarea name="civil_law_breaking" rows="3" class="pf-input resize-y"></textarea>
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /psec-career -->
+
+        <!-- Save bar -->
+        <div id="profileSaveBar" style="display:none;position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);z-index:9999;min-width:340px;max-width:90vw;background:rgba(255,255,255,.97);backdrop-filter:blur(10px);border:1px solid #e2e8f0;box-shadow:0 8px 32px rgba(0,0,0,.15);border-radius:1.25rem;padding:.6rem 1.25rem;flex-direction:row;align-items:center;justify-content:space-between;gap:1rem;">
+          <span id="profileSaveMsg" style="display:none;" class="text-xs font-black text-emerald-600 flex items-center gap-1.5">
+            <i data-lucide="check-circle" class="h-4 w-4"></i> Saved!
+          </span>
+          <div class="ml-auto flex items-center gap-3">
+            <button type="button" onclick="lockProfileEdit()" class="px-5 py-3 text-slate-500 font-black text-[10px] uppercase tracking-widest border border-slate-200 rounded-2xl hover:bg-slate-50 transition-all flex items-center gap-2">
+              <i data-lucide="x" class="h-4 w-4"></i> Cancel
+            </button>
+            <button type="button" onclick="toggleProfileMode('preview')" class="px-5 py-3 text-slate-500 font-black text-[10px] uppercase tracking-widest border border-slate-200 rounded-2xl hover:bg-slate-50 transition-all flex items-center gap-2">
+              <i data-lucide="eye" class="h-4 w-4"></i> Preview
+            </button>
+            <button type="submit" class="px-10 py-3.5 bg-blue-600 text-white font-black text-xs rounded-2xl shadow-xl shadow-blue-500/20 hover:bg-black transition-all uppercase tracking-widest flex items-center gap-2">
+              <i data-lucide="save" class="h-4 w-4"></i> Save Profile
+            </button>
+          </div>
+        </div>
+
+      </form>
+    </div><!-- /profileEditMode -->
+
+    <!-- ══════════════════════════ PREVIEW MODE ═════════════════════════════════ -->
+    <div id="profilePreviewMode" class="hidden">
+      <div class="flex items-center justify-between mb-5 print:hidden">
+        <button onclick="toggleProfileMode('edit')" class="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-blue-600 transition-all">
+          <i data-lucide="arrow-left" class="h-4 w-4"></i> Back to Edit
+        </button>
+        <button onclick="window.print()" class="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white text-[10px] font-black rounded-xl hover:bg-black transition-all uppercase tracking-widest shadow-lg shadow-blue-500/20">
+          <i data-lucide="printer" class="h-3.5 w-3.5"></i> Print
+        </button>
+      </div>
+      <div id="profilePreviewContent" class="space-y-3"></div>
+    </div>
+
+  </div><!-- /left column -->
+
+</div>

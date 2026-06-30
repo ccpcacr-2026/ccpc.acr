@@ -1,0 +1,36 @@
+<div class="space-y-6">
+  <div class="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
+    <div>
+      <h2 class="text-2xl font-black text-slate-800 tracking-tight">Personnel Grading Dashboard</h2>
+      <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Evaluate and review faculty performance marks</p>
+    </div>
+    <div class="relative w-full sm:w-72">
+      <i data-lucide="search" class="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400"></i>
+      <input type="text" id="gradingSearchInput" oninput="filterGradingGrid()" placeholder="Filter by name or ID..." class="w-full pl-12 pr-6 py-3 bg-white border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-600 outline-none font-bold text-sm shadow-sm">
+    </div>
+  </div>
+
+  <!-- Stats bar -->
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-4" id="gradingStats">
+    <div class="stat-card">
+      <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Faculty</p>
+      <p id="stat-total" class="text-2xl font-black text-slate-800">—</p>
+    </div>
+    <div class="stat-card">
+      <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Graded This Year</p>
+      <p id="stat-graded" class="text-2xl font-black text-emerald-600">—</p>
+    </div>
+    <div class="stat-card">
+      <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Avg IO Score</p>
+      <p id="stat-avg-io" class="text-2xl font-black text-blue-600">—</p>
+    </div>
+    <div class="stat-card">
+      <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Pending Review</p>
+      <p id="stat-pending" class="text-2xl font-black text-amber-500">—</p>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="gradingGrid">
+    <!-- Teacher grading cards load here -->
+  </div>
+</div>

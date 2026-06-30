@@ -1,15 +1,18 @@
 {
-  "name": "ccpc-admission",
+  "name": "ccpc-portal",
   "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/obfuscate.js && next build",
+    "obfuscate": "node scripts/obfuscate.js",
     "start": "next start"
   },
   "dependencies": {
-    "next": "14.2.5",
-    "react": "^18",
-    "react-dom": "^18"
+    "next": "^15.0.0"
+  },
+  "devDependencies": {
+    "javascript-obfuscator": "^5.4.3",
+    "terser": "^5.48.0"
   }
 }

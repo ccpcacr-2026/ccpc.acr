@@ -1,8 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  reactStrictMode: false,
-  async rewrites() {
-    return [{ source: '/', destination: '/app.html' }];
+  outputFileTracingIncludes: {
+    '/': ['./public/app.html']
   }
 };
 module.exports = nextConfig;
