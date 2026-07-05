@@ -1281,9 +1281,10 @@
 
           <div class="border-t border-slate-100 pt-4">
             <p class="text-xs font-black text-indigo-600 uppercase tracking-widest mb-3">Select a teacher for adjustment</p>
-            <div id="routineTeacherPicker" class="flex flex-wrap gap-1 mb-4">
-              <div class="text-slate-400 text-xs font-bold">Loading…</div>
-            </div>
+            <select id="routineTeacherPicker" onchange="_selectAdjustTeacher(this.value)"
+              class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-blue-600 outline-none shadow-sm mb-4">
+              <option value="">Loading…</option>
+            </select>
             <div id="routineTeacherPeriods"></div>
           </div>
         </div>` : ''}
@@ -1394,13 +1395,12 @@
   function _renderTeacherPicker(board) {
     const el = document.getElementById('routineTeacherPicker');
     if (!el) return;
-    if (!board || board.error) { el.innerHTML = `<div class="text-red-400 text-xs font-bold">${(board && board.error) || "Could not load today's schedule."}</div>`; return; }
+    if (!board || board.error) { el.innerHTML = `<option value="">${(board && board.error) || "Could not load today's schedule."}</option>`; return; }
     const rows = board.rows.filter(r => board.periods.some(p => r.periods[p]));
-    el.innerHTML = rows.map(r => `
-      <button onclick='_selectAdjustTeacher(${JSON.stringify(r.shortname)})'
-        class="px-4 py-2 rounded-xl text-xs font-black transition-all ${_selectedAdjustShortname === r.shortname ? 'bg-orange-500 text-white shadow-lg' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}">
-        ${r.shortname}
-      </button>`).join('');
+    if (!_selectedAdjustShortname && rows.length) _selectedAdjustShortname = rows[0].shortname;
+    el.innerHTML = rows.length
+      ? rows.map(r => `<option value="${r.shortname}" ${_selectedAdjustShortname === r.shortname ? 'selected' : ''}>${r.shortname}</option>`).join('')
+      : '<option value="">No teachers found</option>';
     const periodsEl = document.getElementById('routineTeacherPeriods');
     if (_selectedAdjustShortname) {
       const row = rows.find(r => r.shortname === _selectedAdjustShortname);
