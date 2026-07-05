@@ -33,6 +33,69 @@ function _rtBroadcast(userId, event, payload = {}) {
   }).catch(() => {}); // ignore errors — delivery is best-effort
 }
 
+// ── ROUTINE / CLASS ADJUSTMENT ("Cut & Toss") ────────────────────────────────
+// Reads from the master scheduling Google Sheet (same spreadsheet the legacy
+// Kodular app + Apps Script web app use) and proxies writes to that same
+// deployed Apps Script web app, so both systems stay in sync on one source
+// of truth. We never reimplement the swap logic itself — only compute which
+// row/column to target and hand off to the already-live endpoint.
+const ROUTINE_SHEET_ID = '11l3oc1mpbR8UerpDxCatzuhcBNqkbdNzWzOTiPPdKgk';
+const ROUTINE_GAS_URL  = 'https://script.google.com/macros/s/AKfycbyLXrJdZTvPrGYzt9fhBYa3IEUx5G5MrpyqBraVJR4RrDu0FFukdI8u7PupakA5an5AKA/exec';
+const PERIOD_LABELS = ['1st','2nd','3rd','4th/junior tiffin','4th/senior tiffin','5th','6th','7th'];
+const WEEKDAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+// Minimal RFC4180 CSV parser — gviz always quotes every field
+function _parseCsv(text) {
+  const rows = [];
+  let row = [], field = '', inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else inQuotes = false; }
+      else field += c;
+    } else if (c === '"') inQuotes = true;
+    else if (c === ',') { row.push(field); field = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++;
+      row.push(field); field = '';
+      rows.push(row); row = [];
+    } else field += c;
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+async function _fetchSheetRows(sheetName) {
+  const url = `https://docs.google.com/spreadsheets/d/${ROUTINE_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+  if (!res.ok) throw new Error(`Could not read sheet "${sheetName}" (HTTP ${res.status})`);
+  return _parseCsv(await res.text());
+}
+
+function _findPeriodCols(headerRow) {
+  const cols = [];
+  (headerRow || []).forEach((h, i) => {
+    const norm = String(h || '').trim().toLowerCase();
+    if (PERIOD_LABELS.some(k => k.toLowerCase() === norm)) cols.push({ idx: i, label: String(h).trim() });
+  });
+  return cols;
+}
+
+async function _callRoutineGas(params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(`${ROUTINE_GAS_URL}?${qs}`, { signal: AbortSignal.timeout(20000) });
+  const text = await res.text();
+  return { ok: res.ok, status: res.status, text };
+}
+
+async function _isCordOrAdmin(callerId) {
+  if (!callerId) return false;
+  const users = await supabaseRequest(`app_users?user_id=eq.${encodeURIComponent(callerId)}&select=role`);
+  const role = Array.isArray(users) && users[0] ? users[0].role : '';
+  const roles = String(role || '').split(',').map(r => r.trim());
+  return roles.some(r => ['Cord', 'Admin'].includes(r));
+}
+
 // ─── All handler functions ────────────────────────────────────────────────────
 
 const handlers = {
@@ -886,6 +949,163 @@ const handlers = {
   async deleteDirectMessage([msgId, userId]) {
     // only the sender can delete their own message
     return supabaseRequest(`direct_messages?id=eq.${msgId}&sender_id=eq.${userId}`, 'delete');
+  },
+
+  // ── ROUTINE / CLASS ADJUSTMENT ("Cut & Toss") ───────────────────────────────
+
+  // Full staff directory with shortname mapping, sourced from the "Logged in info" sheet.
+  async getRoutineDirectory() {
+    const rows = await _fetchSheetRows('Logged in info');
+    const header = rows[0] || [];
+    const fnIdx = header.findIndex(h => String(h).trim() === 'Full Name');
+    const snIdx = header.findIndex(h => String(h).trim() === 'NAME IN SHORT');
+    const desigIdx = header.findIndex(h => String(h).trim() === 'Designation');
+    if (fnIdx < 0 || snIdx < 0) return [];
+    const out = [];
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      const shortname = String(r[snIdx] || '').trim();
+      const fullName = String(r[fnIdx] || '').trim();
+      if (!shortname || !fullName) continue;
+      out.push({ shortname, fullName, designation: desigIdx >= 0 ? String(r[desigIdx] || '').trim() : '' });
+    }
+    return out;
+  },
+
+  // Full week routine for one teacher, from the "Classes" master sheet.
+  async getWeeklyRoutine([shortname]) {
+    const rows = await _fetchSheetRows('Classes');
+    const headerIdx = rows.findIndex(r => r.some(c => String(c).trim() === 'Name'));
+    if (headerIdx < 0) return { error: 'Could not read Classes sheet header' };
+    const header = rows[headerIdx];
+    const nameIdx = header.findIndex(c => String(c).trim() === 'Name');
+    const periodCols = _findPeriodCols(header);
+    const target = String(shortname || '').trim().toLowerCase();
+    let lastWeekday = '';
+    const days = {};
+    for (let i = headerIdx + 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r || r.length < 2) continue;
+      const own = String(r[0] || '').trim();
+      const wd = own || lastWeekday;
+      if (own) lastWeekday = wd;
+      const name = String(r[nameIdx] || '').trim();
+      if (!wd || !name || name.toLowerCase() !== target) continue;
+      days[wd] = days[wd] || {};
+      periodCols.forEach(pc => { days[wd][pc.label] = String(r[pc.idx] || '').trim(); });
+    }
+    return { periods: periodCols.map(p => p.label), days };
+  },
+
+  // Today's live schedule ("Selected" sheet) + derived adjustments (diffed
+  // against the matching weekday's master "Classes" routine — a cell that no
+  // longer matches the master and contains no ";" is a swapped-in substitute).
+  async getTodayRoutineBoard() {
+    const rows = await _fetchSheetRows('Selected');
+    const headerIdx = rows.findIndex(r => r.some(c => String(c).trim() === 'Name'));
+    if (headerIdx < 0) return { error: 'Could not read Selected sheet' };
+    const header = rows[headerIdx];
+    const nameIdx = header.findIndex(c => String(c).trim() === 'Name');
+    const periodCols = _findPeriodCols(header);
+    const meta = rows[0] || [];
+    const weekday = meta.find(c => WEEKDAYS.includes(String(c).trim())) || '';
+    const dateLabel = meta.find(c => /\d{4}/.test(String(c)) && !WEEKDAYS.includes(String(c).trim())) || '';
+
+    // Master routine for the same weekday, keyed by shortname, for diffing
+    const classesRows = await _fetchSheetRows('Classes');
+    const cHeaderIdx = classesRows.findIndex(r => r.some(c => String(c).trim() === 'Name'));
+    const cHeader = classesRows[cHeaderIdx] || [];
+    const cNameIdx = cHeader.findIndex(c => String(c).trim() === 'Name');
+    const cPeriodCols = _findPeriodCols(cHeader);
+    const masterByName = {};
+    let lastWd = '';
+    for (let i = cHeaderIdx + 1; i < classesRows.length; i++) {
+      const r = classesRows[i];
+      const own = String(r[0] || '').trim();
+      const wd = own || lastWd;
+      if (own) lastWd = wd;
+      if (wd !== weekday) continue;
+      const nm = String(r[cNameIdx] || '').trim();
+      if (!nm) continue;
+      masterByName[nm] = masterByName[nm] || {};
+      cPeriodCols.forEach(pc => { masterByName[nm][pc.label] = String(r[pc.idx] || '').trim(); });
+    }
+
+    const periodColNumbers = {};
+    periodCols.forEach(pc => { periodColNumbers[pc.label] = pc.idx + 1; });
+
+    const dataRows = [];
+    const adjustments = [];
+    for (let i = headerIdx + 1; i < rows.length; i++) {
+      const r = rows[i];
+      const name = String(r[nameIdx] || '').trim();
+      if (!name) continue;
+      const periods = {};
+      periodCols.forEach(pc => {
+        const val = String(r[pc.idx] || '').trim();
+        periods[pc.label] = val;
+        const original = (masterByName[name] || {})[pc.label] || '';
+        if (val && !val.includes(';') && val !== original) {
+          adjustments.push({ shortname: name, period: pc.label, originalClass: original, coveredBy: val });
+        }
+      });
+      dataRows.push({ shortname: name, sheetRow: i + 1, periods });
+    }
+
+    return { dateLabel, weekday, periods: periodCols.map(p => p.label), periodColNumbers, rows: dataRows, adjustments };
+  },
+
+  // Free-teacher candidates for a given period, from the "Dropdown" sheet —
+  // values are passed through byte-for-byte, matching what a human picking
+  // from the same in-sheet dropdown would produce.
+  async getSubstituteOptions([periodLabel]) {
+    const rows = await _fetchSheetRows('Dropdown');
+    const header = rows[0] || [];
+    const idx = header.findIndex(h => String(h).trim().toLowerCase() === String(periodLabel || '').trim().toLowerCase());
+    if (idx < 0) return [];
+    const opts = [];
+    for (let i = 1; i < rows.length; i++) {
+      const v = String(rows[i][idx] || '').trim();
+      if (v) opts.push(v);
+    }
+    return opts;
+  },
+
+  // Reassign one period to a substitute — Cord/Admin only (checked server-side).
+  // Delegates the actual sheet mutation to the existing, already-live Apps
+  // Script web app so both the Kodular app and this portal share one code path.
+  async submitClassAdjustment([callerId, teacherShortname, periodLabel, substituteValue]) {
+    if (!(await _isCordOrAdmin(callerId))) return { success: false, message: 'Not authorized to make adjustments.' };
+    const board = await handlers.getTodayRoutineBoard();
+    if (board.error) return { success: false, message: board.error };
+    const row = board.rows.find(r => r.shortname.toLowerCase() === String(teacherShortname || '').trim().toLowerCase());
+    if (!row) return { success: false, message: `Could not find ${teacherShortname} in today's schedule.` };
+    const col = board.periodColNumbers[periodLabel];
+    if (!col) return { success: false, message: 'Unknown period.' };
+    const gasRes = await _callRoutineGas({ action: 'write', row1: row.sheetRow, col, sto: substituteValue });
+    return { success: gasRes.ok, message: gasRes.text, oldValue: row.periods[periodLabel] };
+  },
+
+  // Seed today's "Selected" sheet from the master "Classes" routine — Cord/Admin only.
+  async runDailyRoutineSetup([callerId, dateStr]) {
+    if (!(await _isCordOrAdmin(callerId))) return { success: false, message: 'Not authorized.' };
+    const gasRes = await _callRoutineGas({ action: 'setup', date: dateStr });
+    return { success: gasRes.ok, message: gasRes.text };
+  },
+
+  // Render today's adjustment notice as PDF — Cord/Admin only (generation has cost).
+  async generateAdjustmentPdf([callerId]) {
+    if (!(await _isCordOrAdmin(callerId))) return { success: false, message: 'Not authorized.' };
+    const gasRes = await _callRoutineGas({ action: 'pdf' });
+    return { success: gasRes.ok && !!gasRes.text, url: gasRes.text };
+  },
+
+  // Anyone can see the most recently generated adjustment PDF (read-only).
+  async getLatestAdjustmentPdf() {
+    const rows = await _fetchSheetRows('Adjustment link');
+    if (rows.length < 2) return null;
+    const [name, url, status] = rows[1];
+    return { name: name || '', url: url || '', status: status || '' };
   },
 
   // ── LEGACY COMPAT ─────────────────────────────────────────────────────────────

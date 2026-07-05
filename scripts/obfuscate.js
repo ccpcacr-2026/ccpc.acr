@@ -53,7 +53,10 @@ const RESERVED = [
   // appearance / theme
   'applyThemePreset','previewCustomTheme','saveCurrentTheme',
   // committee archive
-  'archiveCommittee','unarchiveCommittee','toggleArchivedView'
+  'archiveCommittee','unarchiveCommittee','toggleArchivedView',
+  // routine / class adjustment ("Cut & Toss")
+  'loadRoutineView','_onRoutineShortnameChange','_openAdjustModal',
+  '_confirmAdjustment','_openDailySetupPrompt','_generateAdjustmentPdf'
 ];
 
 // Strip HTML comments and collapse whitespace
