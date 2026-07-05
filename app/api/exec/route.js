@@ -81,6 +81,14 @@ function _findPeriodCols(headerRow) {
   return cols;
 }
 
+// The "Classes" sheet's gviz CSV export has a leading blank column not present
+// in the sheet's visual layout, so column positions must never be hardcoded —
+// find the "Weekday" column by its header text (it's fully populated on every
+// row, unlike the neighboring "first row of the day" grouping column).
+function _findWeekdayCol(headerRow) {
+  return (headerRow || []).findIndex(h => String(h).trim() === 'Weekday');
+}
+
 async function _callRoutineGas(params) {
   const qs = new URLSearchParams(params).toString();
   const res = await fetch(`${ROUTINE_GAS_URL}?${qs}`, { signal: AbortSignal.timeout(20000) });
@@ -979,16 +987,14 @@ const handlers = {
     if (headerIdx < 0) return { error: 'Could not read Classes sheet header' };
     const header = rows[headerIdx];
     const nameIdx = header.findIndex(c => String(c).trim() === 'Name');
+    const weekdayIdx = _findWeekdayCol(header);
     const periodCols = _findPeriodCols(header);
     const target = String(shortname || '').trim().toLowerCase();
-    let lastWeekday = '';
     const days = {};
     for (let i = headerIdx + 1; i < rows.length; i++) {
       const r = rows[i];
       if (!r || r.length < 2) continue;
-      const own = String(r[0] || '').trim();
-      const wd = own || lastWeekday;
-      if (own) lastWeekday = wd;
+      const wd = weekdayIdx >= 0 ? String(r[weekdayIdx] || '').trim() : '';
       const name = String(r[nameIdx] || '').trim();
       if (!wd || !name || name.toLowerCase() !== target) continue;
       days[wd] = days[wd] || {};
@@ -1016,14 +1022,12 @@ const handlers = {
     const cHeaderIdx = classesRows.findIndex(r => r.some(c => String(c).trim() === 'Name'));
     const cHeader = classesRows[cHeaderIdx] || [];
     const cNameIdx = cHeader.findIndex(c => String(c).trim() === 'Name');
+    const cWeekdayIdx = _findWeekdayCol(cHeader);
     const cPeriodCols = _findPeriodCols(cHeader);
     const masterByName = {};
-    let lastWd = '';
     for (let i = cHeaderIdx + 1; i < classesRows.length; i++) {
       const r = classesRows[i];
-      const own = String(r[0] || '').trim();
-      const wd = own || lastWd;
-      if (own) lastWd = wd;
+      const wd = cWeekdayIdx >= 0 ? String(r[cWeekdayIdx] || '').trim() : '';
       if (wd !== weekday) continue;
       const nm = String(r[cNameIdx] || '').trim();
       if (!nm) continue;
