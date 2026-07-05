@@ -1056,7 +1056,14 @@ const handlers = {
         const val = String(r[pc.idx] || '').trim();
         periods[pc.label] = val;
         const original = (masterByName[name] || {})[pc.label] || '';
-        if (val && !val.includes(';') && val !== original) {
+        // A substitute's OWN cell gets annotated by the sheet's write logic as
+        // "<classSubject> (<originalTeacher>)" — e.g. "IX-BS-EV; Accounting (SR)".
+        // That's the flip side of the same adjustment, not a second one, so it
+        // must be excluded here. Semicolon-presence alone isn't reliable (one
+        // master-routine cell uses a comma instead), so also match the trailing
+        // "(Name)" annotation pattern directly.
+        const isAnnotatedBySomeoneElse = /\([^()]+\)\s*$/.test(val);
+        if (val && !val.includes(';') && !isAnnotatedBySomeoneElse && val !== original) {
           adjustments.push({ shortname: name, period: pc.label, originalClass: original, coveredBy: val });
         }
       });
