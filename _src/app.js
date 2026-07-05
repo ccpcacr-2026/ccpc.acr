@@ -1530,37 +1530,44 @@
     if (!sub) { showToast('Pick a substitute first', 'error'); return; }
     const myId = window.APP_USER && window.APP_USER.user_id;
 
-    // Immediate feedback — the round trip (locate row/col + call the Apps
-    // Script web app) can take several seconds, so show a saving state right
-    // away instead of leaving the modal looking frozen.
-    const confirmBtn = document.querySelector('#adjustModal button.bg-blue-600');
-    const cancelBtn = document.querySelector('#adjustModal button:not(.bg-blue-600)');
-    if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Saving…'; confirmBtn.classList.add('opacity-60'); }
-    if (cancelBtn) cancelBtn.disabled = true;
-    if (sel) sel.disabled = true;
+    // Don't make the user wait through the round trip (locate row/col + call
+    // the external Apps Script web app + re-verify, which can take several
+    // seconds) — close the modal and apply the change optimistically right
+    // away so they can immediately move on to the next adjustment. The real
+    // outcome is reported later via a toast, and reverted if it didn't land.
+    const m = document.getElementById('adjustModal');
+    if (m) m.remove();
+
+    let previousValue = '';
+    const patchCache = (value) => {
+      if (!_routineBoardCache || !_routineBoardCache.rows) return;
+      const row = _routineBoardCache.rows.find(r => r.shortname.toLowerCase() === String(shortname).trim().toLowerCase());
+      if (row) row.periods[periodLabel] = value;
+    };
+    if (_routineBoardCache && _routineBoardCache.rows) {
+      const row = _routineBoardCache.rows.find(r => r.shortname.toLowerCase() === String(shortname).trim().toLowerCase());
+      if (row) previousValue = row.periods[periodLabel];
+    }
+    patchCache(sub);
+    _renderTeacherPicker(_routineBoardCache);
+    _loadMyRoutinePeriods();
 
     google.script.run.withSuccessHandler(function (res) {
-      const m = document.getElementById('adjustModal');
-      if (m) m.remove();
       if (res && res.success) {
-        showToast('Adjustment saved', 'success');
-        // Optimistic update: patch the cached board and re-render instantly,
-        // rather than waiting on another slow Selected+Classes sheet fetch.
-        if (_routineBoardCache && _routineBoardCache.rows) {
-          const row = _routineBoardCache.rows.find(r => r.shortname.toLowerCase() === String(shortname).trim().toLowerCase());
-          if (row) row.periods[periodLabel] = sub;
-        }
-        _renderTeacherPicker(_routineBoardCache);
-        _loadMyRoutinePeriods();
+        showToast(shortname + ' · ' + periodLabel + ' → ' + sub + ' saved', 'success');
         // Reconcile with the sheet's real state shortly after, in the background.
         setTimeout(() => _loadRoutineBoard(), 1500);
       } else {
-        showToast((res && res.message) || 'Adjustment failed', 'error');
+        showToast((res && res.message) || (shortname + ' · ' + periodLabel + ' adjustment failed'), 'error');
+        patchCache(previousValue);
+        _renderTeacherPicker(_routineBoardCache);
+        _loadMyRoutinePeriods();
       }
     }).withFailureHandler(function () {
-      const m = document.getElementById('adjustModal');
-      if (m) m.remove();
-      showToast('Network error', 'error');
+      showToast('Network error — ' + shortname + ' · ' + periodLabel + ' may not have saved', 'error');
+      patchCache(previousValue);
+      _renderTeacherPicker(_routineBoardCache);
+      _loadMyRoutinePeriods();
     }).submitClassAdjustment(myId, shortname, periodLabel, sub);
   }
 
