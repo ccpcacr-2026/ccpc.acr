@@ -1098,8 +1098,27 @@ const handlers = {
     if (!row) return { success: false, message: `Could not find ${teacherShortname} in today's schedule.` };
     const col = board.periodColNumbers[periodLabel];
     if (!col) return { success: false, message: 'Unknown period.' };
-    const gasRes = await _callRoutineGas({ action: 'write', row1: row.sheetRow, col, sto: substituteValue });
-    return { success: gasRes.ok, message: gasRes.text, oldValue: row.periods[periodLabel] };
+
+    // Defensive: strip any load-info annotation (e.g. "MMU (1,1,0, L./PS: 0)")
+    // down to the bare shortname — the sheet's real cells never carry that
+    // annotation, and sending it verbatim doesn't match anything on the Apps
+    // Script side, which silently no-ops while still reporting "success".
+    const sto = String(substituteValue || '').split(' (')[0].trim();
+    if (!sto) return { success: false, message: 'No substitute selected.' };
+
+    const gasRes = await _callRoutineGas({ action: 'write', row1: row.sheetRow, col, sto });
+    if (!gasRes.ok) return { success: false, message: gasRes.text || 'Write request failed.' };
+
+    // The Apps Script endpoint returns a generic success message even when its
+    // internal logic silently does nothing — verify the cell actually changed
+    // before reporting success back to the client.
+    const verifyBoard = await handlers.getTodayRoutineBoard();
+    const verifyRow = !verifyBoard.error && (verifyBoard.rows || []).find(r => r.shortname.toLowerCase() === row.shortname.toLowerCase());
+    const newVal = verifyRow ? String(verifyRow.periods[periodLabel] || '').trim() : '';
+    if (newVal.toLowerCase() === sto.toLowerCase()) {
+      return { success: true, message: gasRes.text, oldValue: row.periods[periodLabel] };
+    }
+    return { success: false, message: `The sheet did not update as expected (cell still shows "${newVal}"). Please try again.` };
   },
 
   // Seed today's "Selected" sheet from the master "Classes" routine — Cord/Admin only.

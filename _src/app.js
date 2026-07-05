@@ -1509,8 +1509,17 @@
     google.script.run.withSuccessHandler(function (opts) {
       const sel = document.getElementById('adjustSubSelect');
       if (!sel) return;
+      // The Dropdown sheet's options carry a load-info suffix, e.g.
+      // "MMU (1,1,0, L./PS: 0)" — useful to show, but the actual sheet cells
+      // only ever contain the bare shortname ("MMU"). Submitting the full
+      // annotated string doesn't match anything the write endpoint expects,
+      // so the adjustment silently fails to apply. Show the full text, submit
+      // just the shortname.
       sel.innerHTML = (opts || []).length
-        ? opts.map(o => `<option value="${String(o).replace(/"/g, '&quot;')}">${o}</option>`).join('')
+        ? opts.map(o => {
+            const shortname = String(o).split(' (')[0].trim();
+            return `<option value="${shortname.replace(/"/g, '&quot;')}">${o}</option>`;
+          }).join('')
         : '<option value="">No free teachers found for this period</option>';
     }).getSubstituteOptions(periodLabel);
   }
