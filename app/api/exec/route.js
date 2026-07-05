@@ -65,9 +65,11 @@ function _parseCsv(text) {
   return rows;
 }
 
+// Cache-bust with a timestamp — Google's gviz CSV export can otherwise return a
+// cached copy for a short window, which would hide a write that just happened.
 async function _fetchSheetRows(sheetName) {
-  const url = `https://docs.google.com/spreadsheets/d/${ROUTINE_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+  const url = `https://docs.google.com/spreadsheets/d/${ROUTINE_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}&_=${Date.now()}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(15000), cache: 'no-store' });
   if (!res.ok) throw new Error(`Could not read sheet "${sheetName}" (HTTP ${res.status})`);
   return _parseCsv(await res.text());
 }

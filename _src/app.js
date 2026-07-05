@@ -1219,8 +1219,8 @@
           <div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>
         </div>
 
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div class="flex items-center justify-between sm:justify-start gap-3">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div class="flex items-center justify-between sm:justify-start gap-4">
             <h3 class="text-lg font-black text-slate-800">${isCoord ? "Today's Adjustment Setup" : "Today's Adjustments"}</h3>
             <span id="routineLatestPdf" class="text-xs font-bold text-blue-600 whitespace-nowrap"></span>
           </div>
@@ -1285,7 +1285,7 @@
               ${entries.length ? `
                 <div class="space-y-1.5">
                   ${entries.map(p => `
-                    <div class="flex justify-between items-start gap-3 text-xs">
+                    <div class="flex justify-between items-start gap-2 text-xs">
                       <span class="font-bold text-slate-400 uppercase tracking-widest shrink-0">${p}</span>
                       <span class="text-slate-700 text-right">${res.days[d][p]}</span>
                     </div>`).join('')}
@@ -1307,7 +1307,16 @@
     if (!el) return;
     google.script.run.withSuccessHandler(function (board) {
       _routineBoardCache = board;
-      if (!board || board.error) { el.innerHTML = `<div class="p-8 text-center text-red-400 text-xs font-bold">${(board && board.error) || "Could not load today's schedule."}</div>`; return; }
+      _renderRoutineBoard(board, isCoord);
+    }).withFailureHandler(function () {
+      el.innerHTML = '<div class="p-8 text-center text-red-400 text-xs font-bold">Network error loading today\'s schedule.</div>';
+    }).getTodayRoutineBoard();
+  }
+
+  function _renderRoutineBoard(board, isCoord) {
+    const el = document.getElementById('routineAdjustmentBoard');
+    if (!el) return;
+    if (!board || board.error) { el.innerHTML = `<div class="p-8 text-center text-red-400 text-xs font-bold">${(board && board.error) || "Could not load today's schedule."}</div>`; return; }
 
       if (isCoord) {
         const header = `<div class="p-4 border-b border-slate-100 text-xs font-bold text-slate-500">${board.weekday || ''} ${board.dateLabel || ''} &middot; tap a class to reassign it</div>`;
@@ -1350,7 +1359,7 @@
                     const val = r.periods[p];
                     const isAdjusted = !val.includes(';');
                     return `
-                    <div class="flex justify-between items-center gap-3 text-xs rounded-lg px-2 py-2 -mx-2 active:bg-blue-50"
+                    <div class="flex justify-between items-center gap-2 text-xs rounded-lg px-2 py-2 -mx-2 active:bg-blue-50"
                       onclick='_openAdjustModal(${JSON.stringify(r.shortname)}, ${JSON.stringify(p)}, ${JSON.stringify(val)})'>
                       <span class="font-bold text-slate-400 uppercase tracking-widest shrink-0">${p}</span>
                       <span class="text-right ${isAdjusted ? 'text-amber-600 font-black' : 'text-slate-700'}">${val}</span>
@@ -1399,9 +1408,6 @@
       } else {
         el.innerHTML = `<div class="p-8 text-center text-slate-400 text-xs font-black uppercase tracking-widest">No adjustments today</div>`;
       }
-    }).withFailureHandler(function () {
-      el.innerHTML = '<div class="p-8 text-center text-red-400 text-xs font-bold">Network error loading today\'s schedule.</div>';
-    }).getTodayRoutineBoard();
   }
 
   function _loadLatestAdjustmentPdf() {
@@ -1452,16 +1458,36 @@
     const sub = sel ? sel.value : '';
     if (!sub) { showToast('Pick a substitute first', 'error'); return; }
     const myId = window.APP_USER && window.APP_USER.user_id;
+
+    // Immediate feedback — the round trip (locate row/col + call the Apps
+    // Script web app) can take several seconds, so show a saving state right
+    // away instead of leaving the modal looking frozen.
+    const confirmBtn = document.querySelector('#adjustModal button.bg-blue-600');
+    const cancelBtn = document.querySelector('#adjustModal button:not(.bg-blue-600)');
+    if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Saving…'; confirmBtn.classList.add('opacity-60'); }
+    if (cancelBtn) cancelBtn.disabled = true;
+    if (sel) sel.disabled = true;
+
     google.script.run.withSuccessHandler(function (res) {
       const m = document.getElementById('adjustModal');
       if (m) m.remove();
       if (res && res.success) {
         showToast('Adjustment saved', 'success');
-        _loadRoutineBoard(true);
+        // Optimistic update: patch the cached board and re-render instantly,
+        // rather than waiting on another slow Selected+Classes sheet fetch.
+        if (_routineBoardCache && _routineBoardCache.rows) {
+          const row = _routineBoardCache.rows.find(r => r.shortname.toLowerCase() === String(shortname).trim().toLowerCase());
+          if (row) row.periods[periodLabel] = sub;
+        }
+        _renderRoutineBoard(_routineBoardCache, true);
+        // Reconcile with the sheet's real state shortly after, in the background.
+        setTimeout(() => _loadRoutineBoard(true), 1500);
       } else {
         showToast((res && res.message) || 'Adjustment failed', 'error');
       }
     }).withFailureHandler(function () {
+      const m = document.getElementById('adjustModal');
+      if (m) m.remove();
       showToast('Network error', 'error');
     }).submitClassAdjustment(myId, shortname, periodLabel, sub);
   }
