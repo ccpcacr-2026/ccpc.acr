@@ -1267,7 +1267,7 @@
 
         ${isCoord ? `
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 space-y-4">
-          <div class="flex items-center justify-between flex-wrap gap-2">
+          <div class="flex items-center justify-between flex-wrap gap-1">
             <h3 class="text-lg font-black text-slate-800">Adjustment Setup</h3>
             <span id="routineLatestPdf" class="text-xs font-bold text-blue-600 whitespace-nowrap"></span>
           </div>
@@ -1281,7 +1281,7 @@
 
           <div class="border-t border-slate-100 pt-4">
             <p class="text-xs font-black text-indigo-600 uppercase tracking-widest mb-3">Select a teacher for adjustment</p>
-            <div id="routineTeacherPicker" class="flex flex-wrap gap-2 mb-4">
+            <div id="routineTeacherPicker" class="flex flex-wrap gap-1 mb-4">
               <div class="text-slate-400 text-xs font-bold">Loading…</div>
             </div>
             <div id="routineTeacherPeriods"></div>
