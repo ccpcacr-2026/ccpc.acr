@@ -56,7 +56,8 @@ const RESERVED = [
   'archiveCommittee','unarchiveCommittee','toggleArchivedView',
   // routine / class adjustment ("Cut & Toss")
   'loadRoutineView','_onRoutineShortnameChange','_openAdjustModal',
-  '_confirmAdjustment','_openDailySetupPrompt','_generateAdjustmentPdf'
+  '_confirmAdjustment','_openDailySetupPrompt','_generateAdjustmentPdf',
+  '_setRoutineMode','_selectAdjustTeacher','_toggleAdjustmentsList','_loadMyRoutinePeriods'
 ];
 
 // Strip HTML comments and collapse whitespace

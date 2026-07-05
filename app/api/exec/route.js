@@ -1040,6 +1040,11 @@ const handlers = {
     const periodColNumbers = {};
     periodCols.forEach(pc => { periodColNumbers[pc.label] = pc.idx + 1; });
 
+    // Trailing summary columns: "...,7th,<scheduled count>,<gotten count>,Adjusted"
+    // — "Adjusted" is the only labeled one; gotten is the column right before it.
+    const adjustedColIdx = header.findIndex(h => String(h).trim() === 'Adjusted');
+    const gottenColIdx = adjustedColIdx >= 0 ? adjustedColIdx - 1 : -1;
+
     const dataRows = [];
     const adjustments = [];
     for (let i = headerIdx + 1; i < rows.length; i++) {
@@ -1055,10 +1060,15 @@ const handlers = {
           adjustments.push({ shortname: name, period: pc.label, originalClass: original, coveredBy: val });
         }
       });
-      dataRows.push({ shortname: name, sheetRow: i + 1, periods });
+      const adjustedCount = adjustedColIdx >= 0 ? parseInt(r[adjustedColIdx], 10) || 0 : 0;
+      const gottenCount = gottenColIdx >= 0 ? parseInt(r[gottenColIdx], 10) || 0 : 0;
+      dataRows.push({ shortname: name, sheetRow: i + 1, periods, adjustedCount, gottenCount });
     }
 
-    return { dateLabel, weekday, periods: periodCols.map(p => p.label), periodColNumbers, rows: dataRows, adjustments };
+    const parsedDate = dateLabel ? new Date(dateLabel) : null;
+    const isoDate = parsedDate && !isNaN(parsedDate) ? parsedDate.toISOString().slice(0, 10) : '';
+
+    return { dateLabel, isoDate, weekday, periods: periodCols.map(p => p.label), periodColNumbers, rows: dataRows, adjustments };
   },
 
   // Free-teacher candidates for a given period, from the "Dropdown" sheet —

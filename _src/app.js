@@ -1171,6 +1171,21 @@
     return (window.USER_ROLES || [window.ACTIVE_ROLE]).some(r => ['Cord', 'Admin'].includes(r));
   }
 
+  let _routineMode = 'self';
+
+  const PERIOD_TIMES = {
+    '1st': ['7:45-8:30', '8:15-9:00'],
+    '2nd': ['8:30-9:15', '9:00-9:45'],
+    '3rd': ['9:15-9:45', '9:45-10:15'],
+    '4th/junior tiffin': ['9:45-10:30', '10:15-11:00'],
+    '4th/senior tiffin': ['10:30-11:15', '11:00-11:45'],
+    '5th': ['11:15-12:00', '11:45-12:30'],
+    '6th': ['12:00-12:45', '12:30-1:15'],
+    '7th': ['12:45-1:30', '1:15-2:00'],
+  };
+  const PERIOD_COLORS = ['#8fb3b0', '#c2b280', '#4fb8b8', '#c7c7c7', '#5ec8f2', '#9ccc65', '#3d9999', '#a0a050'];
+  const DAY_ORDER = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
   function loadRoutineView() {
     _setViewHash('routine');
     setActiveNavLink('nav-routine');
@@ -1185,6 +1200,7 @@
       const myFullName = (myProfile && myProfile.full_name) ? String(myProfile.full_name).trim().toLowerCase() : '';
       const match = _routineDirectory.find(d => d.fullName.trim().toLowerCase() === myFullName);
       _routineShortname = match ? match.shortname : (_routineDirectory[0] ? _routineDirectory[0].shortname : null);
+      _routineMode = 'self';
       _drawRoutineShell();
     }).withFailureHandler(function () {
       container.innerHTML = `<div class="p-8 text-center text-red-400 text-xs font-bold">Could not load the teacher directory.</div>`;
@@ -1199,215 +1215,261 @@
       .sort((a, b) => a.fullName.localeCompare(b.fullName))
       .map(d => `<option value="${d.shortname}" ${d.shortname === _routineShortname ? 'selected' : ''}>${d.fullName} (${d.shortname})</option>`)
       .join('');
+    const myProfile = window.APP_USER && window.APP_USER.profile;
+    const myFullName = (myProfile && myProfile.full_name) ? String(myProfile.full_name).trim().toLowerCase() : '';
+    const myEntry = _routineDirectory.find(d => d.fullName.trim().toLowerCase() === myFullName);
+    const todayIso = new Date().toISOString().slice(0, 10);
 
     container.innerHTML = `
       <div class="space-y-6">
-        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
-          <div>
-            <h2 class="text-2xl font-black text-slate-800 tracking-tight">Routine</h2>
-            <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Weekly class schedule</p>
+        <div>
+          <h2 class="text-2xl font-black text-slate-800 tracking-tight">Routine</h2>
+          <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Personal &amp; class schedule</p>
+        </div>
+
+        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 space-y-4">
+          ${myEntry ? `
+            <div class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+              <span class="font-black text-slate-800">Name:</span><span class="font-bold text-slate-600">${myEntry.fullName}</span>
+              <span class="font-black text-slate-800">Short Name:</span><span class="font-bold text-slate-600">${myEntry.shortname}</span>
+            </div>` : ''}
+
+          <div class="flex gap-2">
+            <button id="routineModeSelf" onclick="_setRoutineMode('self')" class="flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">Self</button>
+            <button id="routineModeOther" onclick="_setRoutineMode('other')" class="flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">Other's</button>
           </div>
-          <div class="w-full sm:w-72">
+
+          <div id="routineOtherPicker" class="${_routineMode === 'other' ? '' : 'hidden'}">
             <select id="routineShortnameSelect" onchange="_onRoutineShortnameChange()"
               class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-blue-600 outline-none shadow-sm">
               ${options || '<option value="">No teachers found</option>'}
             </select>
           </div>
+
+          <div class="flex items-center justify-between border-t border-slate-100 pt-3">
+            <span class="font-black text-indigo-600 text-sm">With Adjustments</span>
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" id="routineWithAdjustments" checked onchange="_loadMyRoutinePeriods()" class="sr-only peer">
+              <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:bg-emerald-500 transition-all"></div>
+              <div class="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-all peer-checked:translate-x-5"></div>
+            </label>
+          </div>
+
+          <input type="date" id="routineDateInput" value="${todayIso}" onchange="_loadMyRoutinePeriods()"
+            class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-center focus:ring-2 focus:ring-blue-600 outline-none">
+
+          <p id="routineDayLabel" class="text-center font-black italic text-lg text-slate-800"></p>
+
+          <div id="routinePeriodBlocks" class="space-y-1.5">
+            <div class="text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>
+          </div>
         </div>
 
-        <div id="routineWeeklyGrid" class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-          <div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>
-        </div>
-
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div class="flex items-center justify-between sm:justify-start gap-4">
-            <h3 class="text-lg font-black text-slate-800">${isCoord ? "Today's Adjustment Setup" : "Today's Adjustments"}</h3>
+        ${isCoord ? `
+        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 space-y-4">
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <h3 class="text-lg font-black text-slate-800">Adjustment Setup</h3>
             <span id="routineLatestPdf" class="text-xs font-bold text-blue-600 whitespace-nowrap"></span>
           </div>
-          ${isCoord ? `
-            <div class="grid grid-cols-2 sm:flex sm:items-center gap-2">
-              <button onclick="_openDailySetupPrompt()" class="px-4 py-2.5 sm:py-2 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-50 whitespace-nowrap">Run Daily Setup</button>
-              <button onclick="_generateAdjustmentPdf()" class="px-4 py-2.5 sm:py-2 bg-blue-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-blue-700 whitespace-nowrap">Generate PDF</button>
+          <div class="flex gap-2">
+            <button onclick="_openDailySetupPrompt()" class="flex-1 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-emerald-700">Setup New Day</button>
+            <button onclick="_toggleAdjustmentsList()" class="flex-1 py-2.5 bg-amber-500 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-amber-600">View Today's Adjustments</button>
+          </div>
+          <button onclick="_generateAdjustmentPdf()" class="w-full py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-50">Export Adjustments As PDF</button>
+
+          <div id="routineAdjustmentsList" class="hidden"></div>
+
+          <div class="border-t border-slate-100 pt-4">
+            <p class="text-xs font-black text-indigo-600 uppercase tracking-widest mb-3">Select a teacher for adjustment</p>
+            <div id="routineTeacherPicker" class="flex flex-wrap gap-2 mb-4">
+              <div class="text-slate-400 text-xs font-bold">Loading…</div>
             </div>
-          ` : ''}
-        </div>
-        <div id="routineAdjustmentBoard" class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-          <div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>
-        </div>
+            <div id="routineTeacherPeriods"></div>
+          </div>
+        </div>` : ''}
       </div>`;
     lucide.createIcons();
-    _loadRoutineWeeklyGrid();
-    _loadRoutineBoard(isCoord);
-    _loadLatestAdjustmentPdf();
+    _updateRoutineModeButtons();
+    _loadMyRoutinePeriods();
+    if (isCoord) { _loadRoutineBoard(); _loadLatestAdjustmentPdf(); }
+  }
+
+  function _updateRoutineModeButtons() {
+    const selfBtn = document.getElementById('routineModeSelf');
+    const otherBtn = document.getElementById('routineModeOther');
+    const active = 'bg-blue-600 text-white shadow';
+    const inactive = 'bg-slate-100 text-slate-500 hover:bg-slate-200';
+    if (selfBtn) selfBtn.className = `flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${_routineMode === 'self' ? active : inactive}`;
+    if (otherBtn) otherBtn.className = `flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${_routineMode === 'other' ? active : inactive}`;
+  }
+
+  function _setRoutineMode(mode) {
+    _routineMode = mode;
+    const picker = document.getElementById('routineOtherPicker');
+    if (picker) picker.classList.toggle('hidden', mode !== 'other');
+    _updateRoutineModeButtons();
+    if (mode === 'self') {
+      const myProfile = window.APP_USER && window.APP_USER.profile;
+      const myFullName = (myProfile && myProfile.full_name) ? String(myProfile.full_name).trim().toLowerCase() : '';
+      const match = _routineDirectory.find(d => d.fullName.trim().toLowerCase() === myFullName);
+      if (match) _routineShortname = match.shortname;
+    } else {
+      const sel = document.getElementById('routineShortnameSelect');
+      if (sel) _routineShortname = sel.value;
+    }
+    _loadMyRoutinePeriods();
   }
 
   function _onRoutineShortnameChange() {
     _routineShortname = document.getElementById('routineShortnameSelect').value;
-    _loadRoutineWeeklyGrid();
+    _loadMyRoutinePeriods();
   }
 
-  function _loadRoutineWeeklyGrid() {
-    const el = document.getElementById('routineWeeklyGrid');
+  function _renderPeriodBlocksHtml(periods, dayData, adjustedPeriods) {
+    return periods.map((p, i) => {
+      const color = PERIOD_COLORS[i % PERIOD_COLORS.length];
+      const times = PERIOD_TIMES[p];
+      const value = (adjustedPeriods && adjustedPeriods[p]) || dayData[p] || '';
+      return `
+        <div class="flex text-xs" style="gap:2px">
+          <div class="w-[42%] shrink-0 flex flex-col" style="gap:2px">
+            <div class="px-3 py-2 font-black italic text-slate-900 rounded-t-lg" style="background:${color}">${p}</div>
+            ${times ? `<div class="px-3 py-1.5 font-bold text-slate-800 rounded-b-lg" style="background:${color};opacity:0.8">Sum: ${times[0]}<br>Win: ${times[1]}</div>` : ''}
+          </div>
+          <div class="flex-1 flex items-center justify-center px-3 text-center font-black italic text-slate-900 rounded-lg" style="background:${color}">${value || ''}</div>
+        </div>`;
+    }).join('');
+  }
+
+  function _loadMyRoutinePeriods() {
+    const el = document.getElementById('routinePeriodBlocks');
+    const dayLabelEl = document.getElementById('routineDayLabel');
     if (!el) return;
     if (!_routineShortname) { el.innerHTML = '<div class="p-8 text-center text-slate-400 text-xs font-bold">No teacher selected.</div>'; return; }
-    google.script.run.withSuccessHandler(function (res) {
-      if (!res || res.error || !res.periods) { el.innerHTML = `<div class="p-8 text-center text-red-400 text-xs font-bold">${(res && res.error) || 'Could not load routine.'}</div>`; return; }
-      const DAY_ORDER = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-      const days = DAY_ORDER.filter(d => res.days[d]);
-      if (!days.length) { el.innerHTML = '<div class="p-8 text-center text-slate-400 text-xs font-bold">No classes found for this teacher.</div>'; return; }
 
-      // Desktop/tablet: full table (md and up)
-      const tableView = `
-        <div class="hidden md:block overflow-x-auto">
-          <table class="w-full text-left border-collapse text-xs">
-            <thead><tr class="bg-slate-50 border-b border-slate-100">
-              <th class="px-4 py-3 font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Day</th>
-              ${res.periods.map(p => `<th class="px-4 py-3 font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">${p}</th>`).join('')}
-            </tr></thead>
-            <tbody>
-              ${days.map(d => `
-                <tr class="border-b border-slate-50">
-                  <td class="px-4 py-3 font-black text-slate-700 whitespace-nowrap">${d}</td>
-                  ${res.periods.map(p => `<td class="px-4 py-3 text-slate-600">${res.days[d][p] || '<span class="text-slate-300">—</span>'}</td>`).join('')}
-                </tr>`).join('')}
-            </tbody>
-          </table>
-        </div>`;
+    const dateInput = document.getElementById('routineDateInput');
+    const dateStr = dateInput ? dateInput.value : new Date().toISOString().slice(0, 10);
+    const withAdjEl = document.getElementById('routineWithAdjustments');
+    const wantAdjustments = withAdjEl ? withAdjEl.checked : true;
+    const dateObj = new Date(dateStr + 'T00:00:00');
+    const weekday = DAY_ORDER[dateObj.getDay()];
+    if (dayLabelEl) dayLabelEl.textContent = weekday;
 
-      // Mobile: one card per day, only non-empty periods listed (below md)
-      const cardView = `
-        <div class="md:hidden divide-y divide-slate-100">
-          ${days.map(d => {
-            const entries = res.periods.filter(p => res.days[d][p]);
-            return `
-            <div class="p-4">
-              <p class="font-black text-slate-800 text-sm mb-2">${d}</p>
-              ${entries.length ? `
-                <div class="space-y-1.5">
-                  ${entries.map(p => `
-                    <div class="flex justify-between items-start gap-2 text-xs">
-                      <span class="font-bold text-slate-400 uppercase tracking-widest shrink-0">${p}</span>
-                      <span class="text-slate-700 text-right">${res.days[d][p]}</span>
-                    </div>`).join('')}
-                </div>` : `<p class="text-slate-300 text-xs">No classes</p>`}
-            </div>`;
-          }).join('')}
-        </div>`;
+    el.innerHTML = '<div class="text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>';
 
-      el.innerHTML = tableView + cardView;
+    google.script.run.withSuccessHandler(function (weekRes) {
+      if (!weekRes || weekRes.error || !weekRes.periods) { el.innerHTML = `<div class="p-8 text-center text-red-400 text-xs font-bold">${(weekRes && weekRes.error) || 'Could not load routine.'}</div>`; return; }
+      const dayData = weekRes.days[weekday] || {};
+
+      if (wantAdjustments) {
+        google.script.run.withSuccessHandler(function (board) {
+          const isSameDay = board && !board.error && board.isoDate === dateStr;
+          const row = isSameDay ? (board.rows || []).find(r => r.shortname.toLowerCase() === _routineShortname.trim().toLowerCase()) : null;
+          el.innerHTML = _renderPeriodBlocksHtml(weekRes.periods, dayData, row ? row.periods : null);
+        }).withFailureHandler(function () {
+          el.innerHTML = _renderPeriodBlocksHtml(weekRes.periods, dayData, null);
+        }).getTodayRoutineBoard();
+      } else {
+        el.innerHTML = _renderPeriodBlocksHtml(weekRes.periods, dayData, null);
+      }
     }).withFailureHandler(function () {
       el.innerHTML = '<div class="p-8 text-center text-red-400 text-xs font-bold">Network error loading routine.</div>';
     }).getWeeklyRoutine(_routineShortname);
   }
 
   let _routineBoardCache = null;
+  let _selectedAdjustShortname = null;
 
-  function _loadRoutineBoard(isCoord) {
-    const el = document.getElementById('routineAdjustmentBoard');
-    if (!el) return;
+  function _loadRoutineBoard() {
     google.script.run.withSuccessHandler(function (board) {
       _routineBoardCache = board;
-      _renderRoutineBoard(board, isCoord);
+      _renderTeacherPicker(board);
+      if (!document.getElementById('routineAdjustmentsList').classList.contains('hidden')) _renderAdjustmentsList(board);
     }).withFailureHandler(function () {
-      el.innerHTML = '<div class="p-8 text-center text-red-400 text-xs font-bold">Network error loading today\'s schedule.</div>';
+      const el = document.getElementById('routineTeacherPicker');
+      if (el) el.innerHTML = '<div class="text-red-400 text-xs font-bold">Network error loading today\'s schedule.</div>';
     }).getTodayRoutineBoard();
   }
 
-  function _renderRoutineBoard(board, isCoord) {
-    const el = document.getElementById('routineAdjustmentBoard');
+  function _renderTeacherPicker(board) {
+    const el = document.getElementById('routineTeacherPicker');
     if (!el) return;
-    if (!board || board.error) { el.innerHTML = `<div class="p-8 text-center text-red-400 text-xs font-bold">${(board && board.error) || "Could not load today's schedule."}</div>`; return; }
+    if (!board || board.error) { el.innerHTML = `<div class="text-red-400 text-xs font-bold">${(board && board.error) || "Could not load today's schedule."}</div>`; return; }
+    const rows = board.rows.filter(r => board.periods.some(p => r.periods[p]));
+    el.innerHTML = rows.map(r => `
+      <button onclick='_selectAdjustTeacher(${JSON.stringify(r.shortname)})'
+        class="px-4 py-2 rounded-xl text-xs font-black transition-all ${_selectedAdjustShortname === r.shortname ? 'bg-orange-500 text-white shadow-lg' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}">
+        ${r.shortname}
+      </button>`).join('');
+    const periodsEl = document.getElementById('routineTeacherPeriods');
+    if (_selectedAdjustShortname) {
+      const row = rows.find(r => r.shortname === _selectedAdjustShortname);
+      if (row) _renderTeacherPeriodsForAdjustment(board, row);
+      else if (periodsEl) periodsEl.innerHTML = '';
+    }
+  }
 
-      if (isCoord) {
-        const header = `<div class="p-4 border-b border-slate-100 text-xs font-bold text-slate-500">${board.weekday || ''} ${board.dateLabel || ''} &middot; tap a class to reassign it</div>`;
+  function _selectAdjustTeacher(shortname) {
+    _selectedAdjustShortname = shortname;
+    if (_routineBoardCache) _renderTeacherPicker(_routineBoardCache);
+  }
 
-        const tableView = `
-          <div class="hidden md:block overflow-x-auto">
-            <table class="w-full text-left border-collapse text-xs">
-              <thead><tr class="bg-slate-50 border-b border-slate-100">
-                <th class="px-4 py-3 font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Teacher</th>
-                ${board.periods.map(p => `<th class="px-4 py-3 font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">${p}</th>`).join('')}
-              </tr></thead>
-              <tbody>
-                ${board.rows.map(r => `
-                  <tr class="border-b border-slate-50">
-                    <td class="px-4 py-3 font-black text-slate-700 whitespace-nowrap">${r.shortname}</td>
-                    ${board.periods.map(p => {
-                      const val = r.periods[p] || '';
-                      const isAdjusted = val && !val.includes(';');
-                      return `<td class="px-4 py-3 ${val ? 'cursor-pointer hover:bg-blue-50' : ''} ${isAdjusted ? 'text-amber-600 font-black' : 'text-slate-600'}"
-                        ${val ? `onclick='_openAdjustModal(${JSON.stringify(r.shortname)}, ${JSON.stringify(p)}, ${JSON.stringify(val)})'` : ''}>
-                        ${val || '<span class="text-slate-300">—</span>'}
-                      </td>`;
-                    }).join('')}
-                  </tr>`).join('')}
-              </tbody>
-            </table>
-          </div>`;
+  function _renderTeacherPeriodsForAdjustment(board, row) {
+    const el = document.getElementById('routineTeacherPeriods');
+    if (!el) return;
+    const entries = board.periods.filter(p => row.periods[p]);
+    el.innerHTML = `
+      <div class="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-3">
+        <p class="font-black text-orange-600 text-center text-lg">${row.shortname}</p>
+        <p class="text-center text-xs font-bold text-orange-500 mt-1">Total Adjusted Class: ${row.adjustedCount} &middot; Total Adjustment Gotten: ${row.gottenCount}</p>
+      </div>
+      <div class="space-y-1.5">
+        ${entries.map(p => {
+          const color = PERIOD_COLORS[board.periods.indexOf(p) % PERIOD_COLORS.length];
+          const times = PERIOD_TIMES[p];
+          const val = row.periods[p];
+          const isAdjusted = !val.includes(';');
+          return `
+            <div class="flex text-xs cursor-pointer" style="gap:2px"
+              onclick='_openAdjustModal(${JSON.stringify(row.shortname)}, ${JSON.stringify(p)}, ${JSON.stringify(val)})'>
+              <div class="w-[42%] shrink-0 flex flex-col" style="gap:2px">
+                <div class="px-3 py-2 font-black italic text-slate-900 rounded-t-lg" style="background:${color}">${p}</div>
+                ${times ? `<div class="px-3 py-1.5 font-bold text-slate-800 rounded-b-lg" style="background:${color};opacity:0.8">Sum: ${times[0]}<br>Win: ${times[1]}</div>` : ''}
+              </div>
+              <div class="flex-1 flex items-center justify-center px-3 text-center font-black italic text-slate-900 rounded-lg ${isAdjusted ? 'ring-2 ring-amber-400' : ''}" style="background:${color}">${val}</div>
+            </div>`;
+        }).join('')}
+      </div>`;
+  }
 
-        // Mobile: one card per teacher, each period a tappable row (skips empty periods)
-        const cardView = `
-          <div class="md:hidden divide-y divide-slate-100">
-            ${board.rows.map(r => {
-              const entries = board.periods.filter(p => r.periods[p]);
-              if (!entries.length) return '';
-              return `
-              <div class="p-4">
-                <p class="font-black text-slate-800 text-sm mb-2">${r.shortname}</p>
-                <div class="space-y-1">
-                  ${entries.map(p => {
-                    const val = r.periods[p];
-                    const isAdjusted = !val.includes(';');
-                    return `
-                    <div class="flex justify-between items-center gap-2 text-xs rounded-lg px-2 py-2 -mx-2 active:bg-blue-50"
-                      onclick='_openAdjustModal(${JSON.stringify(r.shortname)}, ${JSON.stringify(p)}, ${JSON.stringify(val)})'>
-                      <span class="font-bold text-slate-400 uppercase tracking-widest shrink-0">${p}</span>
-                      <span class="text-right ${isAdjusted ? 'text-amber-600 font-black' : 'text-slate-700'}">${val}</span>
-                    </div>`;
-                  }).join('')}
-                </div>
-              </div>`;
-            }).join('')}
-          </div>`;
+  function _toggleAdjustmentsList() {
+    const el = document.getElementById('routineAdjustmentsList');
+    if (!el) return;
+    if (!el.classList.contains('hidden')) { el.classList.add('hidden'); return; }
+    el.classList.remove('hidden');
+    if (_routineBoardCache) _renderAdjustmentsList(_routineBoardCache);
+    else el.innerHTML = '<div class="text-center py-4 text-slate-400 text-xs font-bold">Loading…</div>';
+  }
 
-        el.innerHTML = header + tableView + cardView;
-      } else if (board.adjustments && board.adjustments.length) {
-        const header = `<div class="p-4 border-b border-slate-100 text-xs font-bold text-slate-500">${board.weekday || ''} ${board.dateLabel || ''}</div>`;
-
-        const tableView = `
-          <div class="hidden md:block overflow-x-auto">
-            <table class="w-full text-left border-collapse text-xs">
-              <thead><tr class="bg-slate-50 border-b border-slate-100">
-                <th class="px-4 py-3 font-black text-slate-400 uppercase tracking-widest">Teacher</th>
-                <th class="px-4 py-3 font-black text-slate-400 uppercase tracking-widest">Period</th>
-                <th class="px-4 py-3 font-black text-slate-400 uppercase tracking-widest">Class</th>
-                <th class="px-4 py-3 font-black text-slate-400 uppercase tracking-widest">Covered By</th>
-              </tr></thead>
-              <tbody>
-                ${board.adjustments.map(a => `<tr class="border-b border-slate-50">
-                  <td class="px-4 py-3 font-black text-slate-700">${a.shortname}</td>
-                  <td class="px-4 py-3 text-slate-600">${a.period}</td>
-                  <td class="px-4 py-3 text-slate-600">${a.originalClass}</td>
-                  <td class="px-4 py-3 text-amber-600 font-black">${a.coveredBy}</td>
-                </tr>`).join('')}
-              </tbody>
-            </table>
-          </div>`;
-
-        const cardView = `
-          <div class="md:hidden divide-y divide-slate-100">
-            ${board.adjustments.map(a => `
-              <div class="p-4 text-xs space-y-1">
-                <div class="flex justify-between"><span class="font-black text-slate-800">${a.shortname}</span><span class="font-bold text-slate-400 uppercase tracking-widest">${a.period}</span></div>
-                <div class="text-slate-500">${a.originalClass}</div>
-                <div class="text-amber-600 font-black">Covered by ${a.coveredBy}</div>
-              </div>`).join('')}
-          </div>`;
-
-        el.innerHTML = header + tableView + cardView;
-      } else {
-        el.innerHTML = `<div class="p-8 text-center text-slate-400 text-xs font-black uppercase tracking-widest">No adjustments today</div>`;
-      }
+  function _renderAdjustmentsList(board) {
+    const el = document.getElementById('routineAdjustmentsList');
+    if (!el || el.classList.contains('hidden')) return;
+    const adj = board.adjustments || [];
+    el.innerHTML = `
+      <div class="bg-emerald-50 border border-emerald-200 rounded-2xl p-5 mt-2">
+        <p class="text-center font-black italic text-slate-800">Chattogram Cantonment Public College</p>
+        <p class="text-center text-xs font-bold text-red-500 mt-1">Adjustment Date: ${board.dateLabel || ''} (${board.weekday || ''})</p>
+        <p class="text-center text-xs font-bold text-red-500">Total Adjustments: ${adj.length}</p>
+        <div class="mt-3 space-y-1.5">
+          ${adj.length ? adj.map((a, i) => `
+            <div class="grid grid-cols-[1.5rem_2.5rem_1fr_2.5rem] gap-2 text-xs py-1 items-center">
+              <span class="text-slate-500">${i + 1}.</span>
+              <span class="font-black">${a.shortname}</span>
+              <span class="text-slate-600">${a.period} &middot; ${a.originalClass}</span>
+              <span class="font-black text-right">${a.coveredBy}</span>
+            </div>`).join('') : '<p class="text-center text-slate-400 text-xs py-2">No adjustments today</p>'}
+        </div>
+      </div>`;
   }
 
   function _loadLatestAdjustmentPdf() {
@@ -1479,9 +1541,10 @@
           const row = _routineBoardCache.rows.find(r => r.shortname.toLowerCase() === String(shortname).trim().toLowerCase());
           if (row) row.periods[periodLabel] = sub;
         }
-        _renderRoutineBoard(_routineBoardCache, true);
+        _renderTeacherPicker(_routineBoardCache);
+        _loadMyRoutinePeriods();
         // Reconcile with the sheet's real state shortly after, in the background.
-        setTimeout(() => _loadRoutineBoard(true), 1500);
+        setTimeout(() => _loadRoutineBoard(), 1500);
       } else {
         showToast((res && res.message) || 'Adjustment failed', 'error');
       }
@@ -1499,7 +1562,7 @@
     showLoading(true);
     google.script.run.withSuccessHandler(function (res) {
       showLoading(false);
-      if (res && res.success) { showToast('Daily setup complete', 'success'); _loadRoutineBoard(true); }
+      if (res && res.success) { showToast('Daily setup complete', 'success'); _loadRoutineBoard(); }
       else showToast((res && res.message) || 'Setup failed', 'error');
     }).withFailureHandler(function () {
       showLoading(false); showToast('Network error', 'error');
