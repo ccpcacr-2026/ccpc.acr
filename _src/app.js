@@ -1207,7 +1207,7 @@
             <h2 class="text-2xl font-black text-slate-800 tracking-tight">Routine</h2>
             <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Weekly class schedule</p>
           </div>
-          <div class="w-72">
+          <div class="w-full sm:w-72">
             <select id="routineShortnameSelect" onchange="_onRoutineShortnameChange()"
               class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-blue-600 outline-none shadow-sm">
               ${options || '<option value="">No teachers found</option>'}
@@ -1219,15 +1219,17 @@
           <div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>
         </div>
 
-        <div class="flex items-center justify-between flex-wrap gap-2">
-          <h3 class="text-lg font-black text-slate-800">${isCoord ? "Today's Adjustment Setup" : "Today's Adjustments"}</h3>
-          <div class="flex items-center gap-2">
-            <span id="routineLatestPdf" class="text-xs font-bold text-blue-600"></span>
-            ${isCoord ? `
-              <button onclick="_openDailySetupPrompt()" class="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-50">Run Daily Setup</button>
-              <button onclick="_generateAdjustmentPdf()" class="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-blue-700">Generate PDF</button>
-            ` : ''}
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div class="flex items-center justify-between sm:justify-start gap-3">
+            <h3 class="text-lg font-black text-slate-800">${isCoord ? "Today's Adjustment Setup" : "Today's Adjustments"}</h3>
+            <span id="routineLatestPdf" class="text-xs font-bold text-blue-600 whitespace-nowrap"></span>
           </div>
+          ${isCoord ? `
+            <div class="grid grid-cols-2 sm:flex sm:items-center gap-2">
+              <button onclick="_openDailySetupPrompt()" class="px-4 py-2.5 sm:py-2 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-50 whitespace-nowrap">Run Daily Setup</button>
+              <button onclick="_generateAdjustmentPdf()" class="px-4 py-2.5 sm:py-2 bg-blue-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-blue-700 whitespace-nowrap">Generate PDF</button>
+            </div>
+          ` : ''}
         </div>
         <div id="routineAdjustmentBoard" class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
           <div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>
@@ -1253,8 +1255,10 @@
       const DAY_ORDER = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
       const days = DAY_ORDER.filter(d => res.days[d]);
       if (!days.length) { el.innerHTML = '<div class="p-8 text-center text-slate-400 text-xs font-bold">No classes found for this teacher.</div>'; return; }
-      el.innerHTML = `
-        <div class="overflow-x-auto">
+
+      // Desktop/tablet: full table (md and up)
+      const tableView = `
+        <div class="hidden md:block overflow-x-auto">
           <table class="w-full text-left border-collapse text-xs">
             <thead><tr class="bg-slate-50 border-b border-slate-100">
               <th class="px-4 py-3 font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Day</th>
@@ -1269,6 +1273,28 @@
             </tbody>
           </table>
         </div>`;
+
+      // Mobile: one card per day, only non-empty periods listed (below md)
+      const cardView = `
+        <div class="md:hidden divide-y divide-slate-100">
+          ${days.map(d => {
+            const entries = res.periods.filter(p => res.days[d][p]);
+            return `
+            <div class="p-4">
+              <p class="font-black text-slate-800 text-sm mb-2">${d}</p>
+              ${entries.length ? `
+                <div class="space-y-1.5">
+                  ${entries.map(p => `
+                    <div class="flex justify-between items-start gap-3 text-xs">
+                      <span class="font-bold text-slate-400 uppercase tracking-widest shrink-0">${p}</span>
+                      <span class="text-slate-700 text-right">${res.days[d][p]}</span>
+                    </div>`).join('')}
+                </div>` : `<p class="text-slate-300 text-xs">No classes</p>`}
+            </div>`;
+          }).join('')}
+        </div>`;
+
+      el.innerHTML = tableView + cardView;
     }).withFailureHandler(function () {
       el.innerHTML = '<div class="p-8 text-center text-red-400 text-xs font-bold">Network error loading routine.</div>';
     }).getWeeklyRoutine(_routineShortname);
@@ -1284,9 +1310,10 @@
       if (!board || board.error) { el.innerHTML = `<div class="p-8 text-center text-red-400 text-xs font-bold">${(board && board.error) || "Could not load today's schedule."}</div>`; return; }
 
       if (isCoord) {
-        el.innerHTML = `
-          <div class="p-4 border-b border-slate-100 text-xs font-bold text-slate-500">${board.weekday || ''} ${board.dateLabel || ''} &middot; click a class to reassign it</div>
-          <div class="overflow-x-auto">
+        const header = `<div class="p-4 border-b border-slate-100 text-xs font-bold text-slate-500">${board.weekday || ''} ${board.dateLabel || ''} &middot; tap a class to reassign it</div>`;
+
+        const tableView = `
+          <div class="hidden md:block overflow-x-auto">
             <table class="w-full text-left border-collapse text-xs">
               <thead><tr class="bg-slate-50 border-b border-slate-100">
                 <th class="px-4 py-3 font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Teacher</th>
@@ -1308,27 +1335,69 @@
               </tbody>
             </table>
           </div>`;
+
+        // Mobile: one card per teacher, each period a tappable row (skips empty periods)
+        const cardView = `
+          <div class="md:hidden divide-y divide-slate-100">
+            ${board.rows.map(r => {
+              const entries = board.periods.filter(p => r.periods[p]);
+              if (!entries.length) return '';
+              return `
+              <div class="p-4">
+                <p class="font-black text-slate-800 text-sm mb-2">${r.shortname}</p>
+                <div class="space-y-1">
+                  ${entries.map(p => {
+                    const val = r.periods[p];
+                    const isAdjusted = !val.includes(';');
+                    return `
+                    <div class="flex justify-between items-center gap-3 text-xs rounded-lg px-2 py-2 -mx-2 active:bg-blue-50"
+                      onclick='_openAdjustModal(${JSON.stringify(r.shortname)}, ${JSON.stringify(p)}, ${JSON.stringify(val)})'>
+                      <span class="font-bold text-slate-400 uppercase tracking-widest shrink-0">${p}</span>
+                      <span class="text-right ${isAdjusted ? 'text-amber-600 font-black' : 'text-slate-700'}">${val}</span>
+                    </div>`;
+                  }).join('')}
+                </div>
+              </div>`;
+            }).join('')}
+          </div>`;
+
+        el.innerHTML = header + tableView + cardView;
+      } else if (board.adjustments && board.adjustments.length) {
+        const header = `<div class="p-4 border-b border-slate-100 text-xs font-bold text-slate-500">${board.weekday || ''} ${board.dateLabel || ''}</div>`;
+
+        const tableView = `
+          <div class="hidden md:block overflow-x-auto">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead><tr class="bg-slate-50 border-b border-slate-100">
+                <th class="px-4 py-3 font-black text-slate-400 uppercase tracking-widest">Teacher</th>
+                <th class="px-4 py-3 font-black text-slate-400 uppercase tracking-widest">Period</th>
+                <th class="px-4 py-3 font-black text-slate-400 uppercase tracking-widest">Class</th>
+                <th class="px-4 py-3 font-black text-slate-400 uppercase tracking-widest">Covered By</th>
+              </tr></thead>
+              <tbody>
+                ${board.adjustments.map(a => `<tr class="border-b border-slate-50">
+                  <td class="px-4 py-3 font-black text-slate-700">${a.shortname}</td>
+                  <td class="px-4 py-3 text-slate-600">${a.period}</td>
+                  <td class="px-4 py-3 text-slate-600">${a.originalClass}</td>
+                  <td class="px-4 py-3 text-amber-600 font-black">${a.coveredBy}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>`;
+
+        const cardView = `
+          <div class="md:hidden divide-y divide-slate-100">
+            ${board.adjustments.map(a => `
+              <div class="p-4 text-xs space-y-1">
+                <div class="flex justify-between"><span class="font-black text-slate-800">${a.shortname}</span><span class="font-bold text-slate-400 uppercase tracking-widest">${a.period}</span></div>
+                <div class="text-slate-500">${a.originalClass}</div>
+                <div class="text-amber-600 font-black">Covered by ${a.coveredBy}</div>
+              </div>`).join('')}
+          </div>`;
+
+        el.innerHTML = header + tableView + cardView;
       } else {
-        el.innerHTML = (board.adjustments && board.adjustments.length)
-          ? `<div class="p-4 border-b border-slate-100 text-xs font-bold text-slate-500">${board.weekday || ''} ${board.dateLabel || ''}</div>
-             <div class="overflow-x-auto">
-             <table class="w-full text-left border-collapse text-xs">
-               <thead><tr class="bg-slate-50 border-b border-slate-100">
-                 <th class="px-4 py-3 font-black text-slate-400 uppercase tracking-widest">Teacher</th>
-                 <th class="px-4 py-3 font-black text-slate-400 uppercase tracking-widest">Period</th>
-                 <th class="px-4 py-3 font-black text-slate-400 uppercase tracking-widest">Class</th>
-                 <th class="px-4 py-3 font-black text-slate-400 uppercase tracking-widest">Covered By</th>
-               </tr></thead>
-               <tbody>
-                 ${board.adjustments.map(a => `<tr class="border-b border-slate-50">
-                   <td class="px-4 py-3 font-black text-slate-700">${a.shortname}</td>
-                   <td class="px-4 py-3 text-slate-600">${a.period}</td>
-                   <td class="px-4 py-3 text-slate-600">${a.originalClass}</td>
-                   <td class="px-4 py-3 text-amber-600 font-black">${a.coveredBy}</td>
-                 </tr>`).join('')}
-               </tbody>
-             </table></div>`
-          : `<div class="p-8 text-center text-slate-400 text-xs font-black uppercase tracking-widest">No adjustments today</div>`;
+        el.innerHTML = `<div class="p-8 text-center text-slate-400 text-xs font-black uppercase tracking-widest">No adjustments today</div>`;
       }
     }).withFailureHandler(function () {
       el.innerHTML = '<div class="p-8 text-center text-red-400 text-xs font-bold">Network error loading today\'s schedule.</div>';
@@ -1365,7 +1434,7 @@
         </div>
         <div class="flex justify-end gap-2 pt-2">
           <button onclick="document.getElementById('adjustModal').remove()" class="px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest border border-slate-200 hover:bg-slate-50">Cancel</button>
-          <button onclick="_confirmAdjustment(${JSON.stringify(shortname)}, ${JSON.stringify(periodLabel)})" class="px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest bg-blue-600 text-white hover:bg-blue-700">Confirm</button>
+          <button onclick='_confirmAdjustment(${JSON.stringify(shortname)}, ${JSON.stringify(periodLabel)})' class="px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest bg-blue-600 text-white hover:bg-blue-700">Confirm</button>
         </div>
       </div>`;
     document.body.appendChild(modal);
