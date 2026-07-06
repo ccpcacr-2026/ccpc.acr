@@ -1292,7 +1292,7 @@
     lucide.createIcons();
     _updateRoutineModeButtons();
     _loadMyRoutinePeriods();
-    if (isCoord) { _loadRoutineBoard(); _loadLatestAdjustmentPdf(); }
+    if (isCoord) { _loadRoutineBoard(); _loadLatestAdjustmentPdf(); _startRoutinePolling(); }
   }
 
   function _updateRoutineModeButtons() {
@@ -1380,16 +1380,33 @@
 
   let _routineBoardCache = null;
   let _selectedAdjustShortname = null;
+  let _routinePoll = null;
 
-  function _loadRoutineBoard() {
+  // silent=true is used for background refreshes (polling, post-write
+  // reconcile) — errors are swallowed instead of clobbering the picker/periods
+  // UI with an error state over what may just be a transient network hiccup.
+  function _loadRoutineBoard(silent) {
     google.script.run.withSuccessHandler(function (board) {
       _routineBoardCache = board;
       _renderTeacherPicker(board);
       if (!document.getElementById('routineAdjustmentsList').classList.contains('hidden')) _renderAdjustmentsList(board);
     }).withFailureHandler(function () {
+      if (silent) return;
       const el = document.getElementById('routineTeacherPicker');
-      if (el) el.innerHTML = '<div class="text-red-400 text-xs font-bold">Network error loading today\'s schedule.</div>';
+      if (el) el.innerHTML = '<option value="">Network error loading today\'s schedule.</option>';
     }).getTodayRoutineBoard();
+  }
+
+  // Keeps the Cord/Admin adjustment board in sync with the sheet without any
+  // visible loading state — self-stops once the picker leaves the DOM (view
+  // navigated away from), same pattern as the messages list poll.
+  function _startRoutinePolling() {
+    clearInterval(_routinePoll);
+    _routinePoll = setInterval(() => {
+      if (!document.getElementById('routineTeacherPicker')) { clearInterval(_routinePoll); return; }
+      if (document.getElementById('adjustModal')) return; // don't refresh under an open reassign modal
+      _loadRoutineBoard(true);
+    }, 5000);
   }
 
   function _renderTeacherPicker(board) {
@@ -1411,7 +1428,11 @@
 
   function _selectAdjustTeacher(shortname) {
     _selectedAdjustShortname = shortname;
+    // Render instantly from whatever's cached so picking a name never looks
+    // frozen, then immediately re-fetch so the periods shown reflect the
+    // sheet's current state rather than a possibly-stale cached board.
     if (_routineBoardCache) _renderTeacherPicker(_routineBoardCache);
+    _loadRoutineBoard(true);
   }
 
   function _renderTeacherPeriodsForAdjustment(board, row) {
@@ -1556,7 +1577,7 @@
       if (res && res.success) {
         showToast(shortname + ' · ' + periodLabel + ' → ' + sub + ' saved', 'success');
         // Reconcile with the sheet's real state shortly after, in the background.
-        setTimeout(() => _loadRoutineBoard(), 1500);
+        setTimeout(() => _loadRoutineBoard(true), 1500);
       } else {
         showToast((res && res.message) || (shortname + ' · ' + periodLabel + ' adjustment failed'), 'error');
         patchCache(previousValue);
@@ -1572,16 +1593,45 @@
   }
 
   function _openDailySetupPrompt() {
-    const dateStr = prompt("Set up today's routine from the master schedule for which date? (YYYY-MM-DD)", new Date().toISOString().slice(0, 10));
-    if (!dateStr) return;
+    const existing = document.getElementById('dailySetupModal');
+    if (existing) existing.remove();
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const modal = document.createElement('div');
+    modal.id = 'dailySetupModal';
+    modal.className = 'fixed inset-0 bg-black/40 z-[90] flex items-center justify-center p-4';
+    modal.innerHTML = `
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+        <h3 class="text-lg font-black text-slate-800">Setup New Day</h3>
+        <p class="text-xs text-slate-500 font-bold">Seed the schedule from the master routine for the picked date. This replaces today's working copy.</p>
+        <input type="date" id="dailySetupDateInput" value="${todayIso}"
+          class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-center focus:ring-2 focus:ring-blue-600 outline-none">
+        <div class="flex justify-end gap-2 pt-2">
+          <button onclick="document.getElementById('dailySetupModal').remove()" class="px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest border border-slate-200 hover:bg-slate-50">Cancel</button>
+          <button id="dailySetupConfirmBtn" onclick="_confirmDailySetup()" class="px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest bg-emerald-600 text-white hover:bg-emerald-700">Confirm</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+  }
+
+  // Unlike a single adjustment, this reseeds the whole day from the master
+  // routine — a much bigger blast radius — so it deliberately blocks and
+  // waits for the real response instead of the optimistic non-blocking
+  // pattern used for single-period adjustments.
+  function _confirmDailySetup() {
+    const dateStr = document.getElementById('dailySetupDateInput').value;
+    if (!dateStr) { showToast('Pick a date first', 'error'); return; }
     const myId = window.APP_USER && window.APP_USER.user_id;
-    showLoading(true);
+    const btn = document.getElementById('dailySetupConfirmBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Setting up…'; btn.classList.add('opacity-60'); }
     google.script.run.withSuccessHandler(function (res) {
-      showLoading(false);
+      const m = document.getElementById('dailySetupModal');
+      if (m) m.remove();
       if (res && res.success) { showToast('Daily setup complete', 'success'); _loadRoutineBoard(); }
       else showToast((res && res.message) || 'Setup failed', 'error');
     }).withFailureHandler(function () {
-      showLoading(false); showToast('Network error', 'error');
+      const m = document.getElementById('dailySetupModal');
+      if (m) m.remove();
+      showToast('Network error', 'error');
     }).runDailyRoutineSetup(myId, dateStr);
   }
 

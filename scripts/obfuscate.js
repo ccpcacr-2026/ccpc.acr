@@ -57,7 +57,8 @@ const RESERVED = [
   // routine / class adjustment ("Cut & Toss")
   'loadRoutineView','_onRoutineShortnameChange','_openAdjustModal',
   '_confirmAdjustment','_openDailySetupPrompt','_generateAdjustmentPdf',
-  '_setRoutineMode','_selectAdjustTeacher','_toggleAdjustmentsList','_loadMyRoutinePeriods'
+  '_setRoutineMode','_selectAdjustTeacher','_toggleAdjustmentsList','_loadMyRoutinePeriods',
+  '_confirmDailySetup'
 ];
 
 // Strip HTML comments and collapse whitespace
