@@ -1442,6 +1442,37 @@
   let _selectedAdjustShortname = null;
   let _routinePoll = null;
 
+  // Adjustments that have been submitted but not yet confirmed landed on the
+  // sheet. The external Apps Script write (+ our own verify re-fetch) can
+  // take a few seconds — without this, the 5s background poll would fetch
+  // the sheet's still-old value mid-flight and clobber the optimistic UI,
+  // making a just-picked substitute flash back to the old value on its own.
+  // Key: "shortname|period" (lowercased shortname) -> { value, expiresAt }.
+  const _pendingAdjustments = new Map();
+
+  function _setPendingAdjustment(shortname, periodLabel, value) {
+    _pendingAdjustments.set(String(shortname).trim().toLowerCase() + '|' + periodLabel, { value, expiresAt: Date.now() + 20000 });
+  }
+  function _clearPendingAdjustment(shortname, periodLabel) {
+    _pendingAdjustments.delete(String(shortname).trim().toLowerCase() + '|' + periodLabel);
+  }
+  // Overlays any still-pending optimistic values onto a freshly fetched board
+  // before it's cached/rendered, so an in-flight write's row always shows the
+  // value the user just picked rather than whatever the sheet had a moment
+  // ago. Expired entries (safety net in case a response never arrives) are
+  // dropped instead of applied.
+  function _applyPendingOverrides(board) {
+    if (!board || !board.rows || !_pendingAdjustments.size) return;
+    const now = Date.now();
+    for (const [key, pending] of _pendingAdjustments) {
+      if (pending.expiresAt < now) { _pendingAdjustments.delete(key); continue; }
+      const sep = key.lastIndexOf('|');
+      const shortnameKey = key.slice(0, sep), period = key.slice(sep + 1);
+      const row = board.rows.find(r => r.shortname.trim().toLowerCase() === shortnameKey);
+      if (row) row.periods[period] = pending.value;
+    }
+  }
+
   // silent=true is used for background refreshes (polling, post-write
   // reconcile) — errors are swallowed instead of clobbering the picker/periods
   // UI with an error state over what may just be a transient network hiccup.
@@ -1453,9 +1484,16 @@
   // the "Selected" sheet's actual working day and flash an empty routine.
   function _loadRoutineBoard(silent, isInitial) {
     google.script.run.withSuccessHandler(function (board) {
+      _applyPendingOverrides(board);
       _routineBoardCache = board;
       _renderTeacherPicker(board);
-      if (!document.getElementById('routineAdjustmentsList').classList.contains('hidden')) _renderAdjustmentsList(board);
+      // routineAdjustmentsList only exists for Cord/Admin (inside the isCoord-
+      // gated block) — this function now runs for every role, so it must not
+      // assume the element is present or it throws for regular teachers,
+      // which (via the shim's promise chain) silently falls into the failure
+      // handler and skips the date-sync below entirely.
+      const adjListEl = document.getElementById('routineAdjustmentsList');
+      if (adjListEl && !adjListEl.classList.contains('hidden')) _renderAdjustmentsList(board);
 
       // The "Selected" sheet's own D1 date (board.isoDate) is the school's
       // actual working day — set via Setup New Day, and it can legitimately
@@ -1498,9 +1536,22 @@
     if (!board || board.error) { el.innerHTML = `<option value="">${(board && board.error) || "Could not load today's schedule."}</option>`; return; }
     const rows = board.rows.filter(r => board.periods.some(p => r.periods[p]));
     if (!_selectedAdjustShortname && rows.length) _selectedAdjustShortname = rows[0].shortname;
-    el.innerHTML = rows.length
-      ? rows.map(r => `<option value="${r.shortname}" ${_selectedAdjustShortname === r.shortname ? 'selected' : ''}>${r.shortname}</option>`).join('')
-      : '<option value="">No teachers found</option>';
+
+    // The list of teacher names is effectively static through a school day —
+    // rebuilding every <option> on every 5s poll tick needlessly touches the
+    // DOM (and can interrupt an open dropdown) for data that never changes.
+    // Only rebuild when the actual set of names differs; otherwise just keep
+    // the selection in sync.
+    const namesKey = rows.map(r => r.shortname).join('|');
+    if (el.dataset.namesKey !== namesKey) {
+      el.innerHTML = rows.length
+        ? rows.map(r => `<option value="${r.shortname}" ${_selectedAdjustShortname === r.shortname ? 'selected' : ''}>${r.shortname}</option>`).join('')
+        : '<option value="">No teachers found</option>';
+      el.dataset.namesKey = namesKey;
+    } else if (el.value !== _selectedAdjustShortname) {
+      el.value = _selectedAdjustShortname;
+    }
+
     const periodsEl = document.getElementById('routineTeacherPeriods');
     if (_selectedAdjustShortname) {
       const row = rows.find(r => r.shortname === _selectedAdjustShortname);
@@ -1522,6 +1573,15 @@
     const el = document.getElementById('routineTeacherPeriods');
     if (!el) return;
     const entries = board.periods.filter(p => row.periods[p]);
+
+    // Skip the rebuild entirely when nothing about this teacher's periods
+    // actually changed since the last render — a poll tick that returns
+    // identical data shouldn't touch the DOM (avoids flicker / losing scroll
+    // position on every 5s refresh).
+    const contentKey = row.shortname + '|' + row.adjustedCount + '|' + row.gottenCount + '|' + entries.map(p => p + '=' + row.periods[p]).join(',');
+    if (el.dataset.contentKey === contentKey) return;
+    el.dataset.contentKey = contentKey;
+
     el.innerHTML = `
       <div class="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-3">
         <p class="font-black text-orange-600 text-center text-lg">${row.shortname}</p>
@@ -1653,6 +1713,7 @@
       if (row) previousValue = row.periods[periodLabel];
     }
     patchCache(sub);
+    _setPendingAdjustment(shortname, periodLabel, sub);
     _renderTeacherPicker(_routineBoardCache);
     _loadMyRoutinePeriods();
 
@@ -1660,15 +1721,18 @@
       if (res && res.success) {
         showToast(shortname + ' · ' + periodLabel + ' → ' + sub + ' saved', 'success');
         // Reconcile with the sheet's real state shortly after, in the background.
+        _clearPendingAdjustment(shortname, periodLabel);
         setTimeout(() => _loadRoutineBoard(true), 1500);
       } else {
         showToast((res && res.message) || (shortname + ' · ' + periodLabel + ' adjustment failed'), 'error');
+        _clearPendingAdjustment(shortname, periodLabel);
         patchCache(previousValue);
         _renderTeacherPicker(_routineBoardCache);
         _loadMyRoutinePeriods();
       }
     }).withFailureHandler(function () {
       showToast('Network error — ' + shortname + ' · ' + periodLabel + ' may not have saved', 'error');
+      _clearPendingAdjustment(shortname, periodLabel);
       patchCache(previousValue);
       _renderTeacherPicker(_routineBoardCache);
       _loadMyRoutinePeriods();
