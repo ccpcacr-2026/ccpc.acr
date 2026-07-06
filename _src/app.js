@@ -1651,7 +1651,7 @@
           </p>
           <div class="relative w-56">
             <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400"></i>
-            <input type="text" id="userSearchInput" oninput="filterUserList()" placeholder="Search users…"
+            <input type="text" id="userSearchInput" oninput="filterUserList()" placeholder="Search users…" autocomplete="off"
               class="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none font-bold text-xs">
           </div>
         </div>
@@ -1675,7 +1675,7 @@
             </div>
             <div class="flex-1 min-w-[160px] relative" style="margin-top:1.4rem;">
               <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400"></i>
-              <input type="text" id="profileSearchInput" oninput="filterProfileList()" placeholder="Search profiles…"
+              <input type="text" id="profileSearchInput" oninput="filterProfileList()" placeholder="Search profiles…" autocomplete="off"
                 class="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none">
             </div>
             <div style="margin-top:1.4rem;">
@@ -1793,7 +1793,7 @@
           <div class="flex items-center gap-3">
             <div class="relative w-56">
               <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400"></i>
-              <input type="text" id="permSearchInput" oninput="filterPermTable()" placeholder="Search users…"
+              <input type="text" id="permSearchInput" oninput="filterPermTable()" placeholder="Search users…" autocomplete="off"
                 class="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-blue-600 outline-none shadow-sm">
             </div>
             <button onclick="loadPermissionsPanel()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-500 text-xs font-black uppercase tracking-widest hover:bg-slate-50 shadow-sm transition-all">
@@ -1982,7 +1982,7 @@
           ${(() => { const wa = staff && (staff.whatsapp || staff.phone); if (!wa) return '<p class="text-xs text-slate-300 font-bold">No phone</p>'; const tel = wa.replace(/[\s\-()]/g,''); const digits = wa.replace(/\D/g,''); return `<div class="flex items-center gap-2 mt-0.5"><span class="text-xs text-slate-400 font-bold select-all">${wa}</span><a href="tel:${tel}" title="Call" class="text-slate-400 hover:text-blue-600 transition-colors"><i data-lucide="phone" class="h-3 w-3"></i></a><a href="https://wa.me/${digits}" target="_blank" title="WhatsApp" class="text-slate-400 hover:text-emerald-500 transition-colors"><i data-lucide="message-circle" class="h-3 w-3"></i></a></div>`; })()}</td>
         <td class="px-6 py-4" data-label="Roles"><div class="flex flex-wrap gap-1">${roleBadges}</div></td>
         <td class="px-6 py-4 text-right" data-label="Actions">
-          <div class="flex justify-end gap-2 opacity-0 group-hover/row:opacity-100 transition-opacity">
+          <div class="flex justify-end gap-4">
             <button onclick="resetPassword('${u.user_id}')" title="Reset Password" class="p-2 hover:bg-amber-50 text-amber-500 rounded-xl transition-all"><i data-lucide="key-round" class="h-4 w-4"></i></button>
             <button onclick="editRole('${u.user_id}', '${safeRole}')" title="Change Role" class="p-2 hover:bg-blue-50 text-blue-500 rounded-xl transition-all"><i data-lucide="shield-check" class="h-4 w-4"></i></button>
             <button onclick="deleteUser('${u.user_id}')" title="Delete User" class="p-2 hover:bg-red-50 text-red-500 rounded-xl transition-all"><i data-lucide="trash-2" class="h-4 w-4"></i></button>
@@ -2013,7 +2013,7 @@
           <span class="w-1.5 h-1.5 rounded-full ${isActive?'bg-emerald-500':'bg-red-400'}"></span>${isActive?'Active':'Inactive'}</span>`;
         const safeRole = (u.role||'').replace(/'/g,"\\'");
         const actions = canEdit ? `<td class="px-6 py-4 text-right">
-          <div class="flex justify-end gap-1 opacity-0 group-hover/row:opacity-100 transition-opacity">
+          <div class="flex justify-end gap-4">
             <button onclick="resetPassword('${u.user_id}')" title="Reset Password" class="p-2 hover:bg-amber-50 text-amber-500 rounded-xl transition-all"><i data-lucide="key-round" class="h-4 w-4"></i></button>
             <button onclick="editRole('${u.user_id}','${safeRole}')" title="Change Role" class="p-2 hover:bg-blue-50 text-blue-500 rounded-xl transition-all"><i data-lucide="shield-check" class="h-4 w-4"></i></button>
             <button onclick="deleteUser('${u.user_id}')" title="Delete" class="p-2 hover:bg-red-50 text-red-500 rounded-xl transition-all"><i data-lucide="trash-2" class="h-4 w-4"></i></button>
