@@ -1185,6 +1185,15 @@
   };
   const PERIOD_COLORS = ['#8fb3b0', '#c2b280', '#4fb8b8', '#c7c7c7', '#5ec8f2', '#9ccc65', '#3d9999', '#a0a050'];
   const DAY_ORDER = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+  // "10 July, 2026" — day-of-month with no leading zero, full month name.
+  function _formatRoutineDate(isoDate) {
+    if (!isoDate) return '';
+    const d = new Date(isoDate + 'T00:00:00');
+    if (isNaN(d)) return '';
+    return `${d.getDate()} ${MONTH_NAMES[d.getMonth()]}, ${d.getFullYear()}`;
+  }
 
   function loadRoutineView() {
     _setViewHash('routine');
@@ -1255,8 +1264,12 @@
             </label>
           </div>
 
-          <input type="date" id="routineDateInput" value="${todayIso}" onchange="_loadMyRoutinePeriods()"
+          <input type="date" id="routineDateInput" value="${todayIso}" onchange="this.dataset.userPicked='1'; _loadMyRoutinePeriods()"
             class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-center focus:ring-2 focus:ring-blue-600 outline-none">
+
+          <button onclick="_openWeeklyRoutineModal()" class="w-full py-2.5 border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50 flex items-center justify-center gap-1.5">
+            <i data-lucide="calendar-range" class="h-3.5 w-3.5"></i> View Full Week
+          </button>
 
           <p id="routineDayLabel" class="text-center font-black italic text-lg text-slate-800"></p>
 
@@ -1292,7 +1305,8 @@
     lucide.createIcons();
     _updateRoutineModeButtons();
     _loadMyRoutinePeriods();
-    if (isCoord) { _loadRoutineBoard(); _loadLatestAdjustmentPdf(); _startRoutinePolling(); }
+    _loadRoutineBoard(); // also syncs the date picker to the "Selected" sheet's actual working date
+    if (isCoord) { _loadLatestAdjustmentPdf(); _startRoutinePolling(); }
   }
 
   function _updateRoutineModeButtons() {
@@ -1354,7 +1368,7 @@
     const wantAdjustments = withAdjEl ? withAdjEl.checked : true;
     const dateObj = new Date(dateStr + 'T00:00:00');
     const weekday = DAY_ORDER[dateObj.getDay()];
-    if (dayLabelEl) dayLabelEl.textContent = weekday;
+    if (dayLabelEl) dayLabelEl.textContent = weekday + ', ' + _formatRoutineDate(dateStr);
 
     el.innerHTML = '<div class="text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>';
 
@@ -1378,6 +1392,53 @@
     }).getWeeklyRoutine(_routineShortname);
   }
 
+  // Full Sun-Sat grid straight from the master "Classes" sheet — the planned
+  // routine, with no "Selected"-sheet adjustments layered in.
+  function _openWeeklyRoutineModal() {
+    if (!_routineShortname) { showToast('Pick a teacher first', 'error'); return; }
+    const existing = document.getElementById('weeklyRoutineModal');
+    if (existing) existing.remove();
+    const modal = document.createElement('div');
+    modal.id = 'weeklyRoutineModal';
+    modal.className = 'fixed inset-0 bg-black/40 z-[90] flex items-center justify-center p-4';
+    modal.innerHTML = `
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto p-6 space-y-4">
+        <div class="flex items-center justify-between">
+          <h3 class="text-lg font-black text-slate-800">Weekly Routine — ${_routineShortname}</h3>
+          <button onclick="document.getElementById('weeklyRoutineModal').remove()" class="p-2 hover:bg-slate-100 rounded-xl"><i data-lucide="x" class="h-4 w-4"></i></button>
+        </div>
+        <div id="weeklyRoutineBody" class="overflow-x-auto">
+          <div class="text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    lucide.createIcons();
+    google.script.run.withSuccessHandler(function (weekRes) {
+      const el = document.getElementById('weeklyRoutineBody');
+      if (!el) return;
+      if (!weekRes || weekRes.error || !weekRes.periods) { el.innerHTML = `<div class="text-red-400 text-xs font-bold text-center py-6">${(weekRes && weekRes.error) || 'Could not load routine.'}</div>`; return; }
+      const days = DAY_ORDER.filter(d => weekRes.days[d]);
+      if (!days.length) { el.innerHTML = '<div class="text-slate-400 text-xs font-bold text-center py-6">No routine found for this teacher.</div>'; return; }
+      el.innerHTML = `
+        <table class="w-full text-xs border-collapse">
+          <thead><tr class="bg-slate-50">
+            <th class="px-3 py-2 text-left font-black text-slate-500 whitespace-nowrap">Period</th>
+            ${days.map(d => `<th class="px-3 py-2 text-center font-black text-slate-500 whitespace-nowrap">${d.slice(0, 3)}</th>`).join('')}
+          </tr></thead>
+          <tbody>
+            ${weekRes.periods.map(p => `
+              <tr class="border-t border-slate-100">
+                <td class="px-3 py-2 font-black text-slate-700 whitespace-nowrap">${p}</td>
+                ${days.map(d => `<td class="px-3 py-2 text-center font-bold text-slate-600">${(weekRes.days[d] && weekRes.days[d][p]) || '—'}</td>`).join('')}
+              </tr>`).join('')}
+          </tbody>
+        </table>`;
+    }).withFailureHandler(function () {
+      const el = document.getElementById('weeklyRoutineBody');
+      if (el) el.innerHTML = '<div class="text-red-400 text-xs font-bold text-center py-6">Network error.</div>';
+    }).getWeeklyRoutine(_routineShortname);
+  }
+
   let _routineBoardCache = null;
   let _selectedAdjustShortname = null;
   let _routinePoll = null;
@@ -1390,6 +1451,20 @@
       _routineBoardCache = board;
       _renderTeacherPicker(board);
       if (!document.getElementById('routineAdjustmentsList').classList.contains('hidden')) _renderAdjustmentsList(board);
+
+      // The "Selected" sheet's own D1 date (board.isoDate) is the school's
+      // actual working day — set via Setup New Day, and it can legitimately
+      // lag behind the real calendar date. Sync the date picker to it (unless
+      // the user has deliberately browsed to a different date) instead of
+      // trusting the browser's today(), otherwise "With Adjustments" silently
+      // never finds a match and today's real adjustments never show up.
+      if (board && !board.error && board.isoDate) {
+        const dateInput = document.getElementById('routineDateInput');
+        if (dateInput && dateInput.dataset.userPicked !== '1' && dateInput.value !== board.isoDate) {
+          dateInput.value = board.isoDate;
+          _loadMyRoutinePeriods();
+        }
+      }
     }).withFailureHandler(function () {
       if (silent) return;
       const el = document.getElementById('routineTeacherPicker');
@@ -1479,7 +1554,7 @@
     el.innerHTML = `
       <div class="bg-emerald-50 border border-emerald-200 rounded-2xl p-5 mt-2">
         <p class="text-center font-black italic text-slate-800">Chattogram Cantonment Public College</p>
-        <p class="text-center text-xs font-bold text-red-500 mt-1">Adjustment Date: ${board.dateLabel || ''} (${board.weekday || ''})</p>
+        <p class="text-center text-xs font-bold text-red-500 mt-1">Adjustment Date: ${_formatRoutineDate(board.isoDate) || board.dateLabel || ''} (${board.weekday || ''})</p>
         <p class="text-center text-xs font-bold text-red-500">Total Adjustments: ${adj.length}</p>
         <div class="mt-3 space-y-1.5">
           ${adj.length ? adj.map((a, i) => `
