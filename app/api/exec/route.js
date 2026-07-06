@@ -1150,6 +1150,38 @@ const handlers = {
     return { name: name || '', url: url || '', status: status || '' };
   },
 
+  // Full history of generated adjustment PDFs (read-only) — the sheet
+  // prepends each new entry above row 2 (see appscript.gs), so rows are
+  // already newest-first; no sorting needed. Each "PDF Name" cell encodes
+  // two dates as one string, e.g.
+  //   "Thu Jul 2, 2026,(PDF Created: Jul 5, 2026, 11:08 pm).pdf"
+  // — the adjustment date the notice covers, and when it was generated —
+  // split apart here so the UI doesn't have to parse it.
+  async getAdjustmentPdfHistory() {
+    const rows = await _fetchSheetRows('Adjustment link');
+    if (rows.length < 2) return [];
+    const header = rows[0];
+    const nameIdx = header.findIndex(h => String(h).trim() === 'PDF Name');
+    const urlIdx = header.findIndex(h => String(h).trim() === 'Download Link');
+    const statusIdx = header.findIndex(h => String(h).trim() === 'Status');
+    const out = [];
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      const name = String(r[nameIdx] || '').trim();
+      const url = String(r[urlIdx] || '').trim();
+      if (!name || !url) continue;
+      const m = name.match(/^(.*?),?\s*\(PDF Created:\s*(.*?)\)\.pdf$/i);
+      out.push({
+        name,
+        url,
+        status: String(r[statusIdx] || '').trim(),
+        adjustmentDateLabel: m ? m[1].trim() : name.replace(/\.pdf$/i, ''),
+        createdLabel: m ? m[2].trim() : '',
+      });
+    }
+    return out;
+  },
+
   // ── LEGACY COMPAT ─────────────────────────────────────────────────────────────
   // getInitialDashboardData was used by old shim before role-specific views were added
 

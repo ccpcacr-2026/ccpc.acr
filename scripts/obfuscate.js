@@ -58,7 +58,7 @@ const RESERVED = [
   'loadRoutineView','_onRoutineShortnameChange','_openAdjustModal',
   '_confirmAdjustment','_openDailySetupPrompt','_generateAdjustmentPdf',
   '_setRoutineMode','_selectAdjustTeacher','_toggleAdjustmentsList','_loadMyRoutinePeriods',
-  '_confirmDailySetup','_openWeeklyRoutineModal'
+  '_confirmDailySetup','_openWeeklyRoutineModal','_setRoutineViewMode','_openPdfHistoryModal'
 ];
 
 // Strip HTML comments and collapse whitespace

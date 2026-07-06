@@ -1255,13 +1255,9 @@
             </select>
           </div>
 
-          <div class="flex items-center justify-between border-t border-slate-100 pt-3">
-            <span class="font-black text-indigo-600 text-sm">With Adjustments</span>
-            <label class="relative inline-flex items-center cursor-pointer">
-              <input type="checkbox" id="routineWithAdjustments" checked onchange="_loadMyRoutinePeriods()" class="sr-only peer">
-              <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:bg-emerald-500 transition-all"></div>
-              <div class="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-all peer-checked:translate-x-5"></div>
-            </label>
+          <div class="flex gap-2 border-t border-slate-100 pt-3">
+            <button id="routineViewSchedule" onclick="_setRoutineViewMode(false)" class="flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">Routine</button>
+            <button id="routineViewAdjustment" onclick="_setRoutineViewMode(true)" class="flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">Adjustments</button>
           </div>
 
           <input type="date" id="routineDateInput" value="${todayIso}" onchange="this.dataset.userPicked='1'; _loadMyRoutinePeriods()"
@@ -1288,7 +1284,10 @@
             <button onclick="_openDailySetupPrompt()" class="flex-1 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-emerald-700">Setup New Day</button>
             <button onclick="_toggleAdjustmentsList()" class="flex-1 py-2.5 bg-amber-500 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-amber-600">View Today's Adjustments</button>
           </div>
-          <button onclick="_generateAdjustmentPdf()" class="w-full py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-50">Export Adjustments As PDF</button>
+          <div class="flex gap-2">
+            <button onclick="_generateAdjustmentPdf()" class="flex-1 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-50">Export As PDF</button>
+            <button onclick="_openPdfHistoryModal()" class="flex-1 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-50">PDF History</button>
+          </div>
 
           <div id="routineAdjustmentsList" class="hidden"></div>
 
@@ -1304,6 +1303,7 @@
       </div>`;
     lucide.createIcons();
     _updateRoutineModeButtons();
+    _updateRoutineViewButtons();
     _loadRoutineBoard(false, true); // resolves the sheet's actual date first, then loads periods for it
     if (isCoord) { _loadLatestAdjustmentPdf(); _startRoutinePolling(); }
   }
@@ -1339,6 +1339,27 @@
     _loadMyRoutinePeriods();
   }
 
+  let _routineShowAdjustments = true;
+
+  function _updateRoutineViewButtons() {
+    const schedBtn = document.getElementById('routineViewSchedule');
+    const adjBtn = document.getElementById('routineViewAdjustment');
+    const active = 'bg-blue-600 text-white shadow';
+    const inactive = 'bg-slate-100 text-slate-500 hover:bg-slate-200';
+    if (schedBtn) schedBtn.className = `flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${!_routineShowAdjustments ? active : inactive}`;
+    if (adjBtn) adjBtn.className = `flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${_routineShowAdjustments ? active : inactive}`;
+  }
+
+  // Toggles between the plain scheduled routine and the same view merged
+  // with today's adjustments — a segmented button pair instead of a checkbox
+  // so switching between the two feels like the same kind of choice as
+  // Self/Other's, not a buried settings switch.
+  function _setRoutineViewMode(showAdjustments) {
+    _routineShowAdjustments = showAdjustments;
+    _updateRoutineViewButtons();
+    _loadMyRoutinePeriods();
+  }
+
   function _renderPeriodBlocksHtml(periods, dayData, adjustedPeriods) {
     return periods.map((p, i) => {
       const color = PERIOD_COLORS[i % PERIOD_COLORS.length];
@@ -1363,8 +1384,7 @@
 
     const dateInput = document.getElementById('routineDateInput');
     const dateStr = dateInput ? dateInput.value : new Date().toISOString().slice(0, 10);
-    const withAdjEl = document.getElementById('routineWithAdjustments');
-    const wantAdjustments = withAdjEl ? withAdjEl.checked : true;
+    const wantAdjustments = _routineShowAdjustments;
     const dateObj = new Date(dateStr + 'T00:00:00');
     const weekday = DAY_ORDER[dateObj.getDay()];
     if (dayLabelEl) dayLabelEl.textContent = weekday + ', ' + _formatRoutineDate(dateStr);
@@ -1644,6 +1664,45 @@
     }).getLatestAdjustmentPdf();
   }
 
+  // Previous days' adjustment notices, from the "Adjustment link" sheet —
+  // newest first (the sheet itself prepends new entries).
+  function _openPdfHistoryModal() {
+    const existing = document.getElementById('pdfHistoryModal');
+    if (existing) existing.remove();
+    const modal = document.createElement('div');
+    modal.id = 'pdfHistoryModal';
+    modal.className = 'fixed inset-0 bg-black/40 z-[90] flex items-center justify-center p-4';
+    modal.innerHTML = `
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[85vh] overflow-y-auto p-6 space-y-4">
+        <div class="flex items-center justify-between">
+          <h3 class="text-lg font-black text-slate-800">Adjustment PDF History</h3>
+          <button onclick="document.getElementById('pdfHistoryModal').remove()" class="p-2 hover:bg-slate-100 rounded-xl"><i data-lucide="x" class="h-4 w-4"></i></button>
+        </div>
+        <div id="pdfHistoryBody" class="space-y-2">
+          <div class="text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    lucide.createIcons();
+    google.script.run.withSuccessHandler(function (list) {
+      const el = document.getElementById('pdfHistoryBody');
+      if (!el) return;
+      if (!Array.isArray(list) || !list.length) { el.innerHTML = '<p class="text-center text-slate-400 text-xs font-bold py-6">No PDFs generated yet.</p>'; return; }
+      el.innerHTML = list.map(item => `
+        <a href="${item.url}" target="_blank" class="flex items-center justify-between gap-3 p-3 bg-slate-50 hover:bg-slate-100 rounded-xl transition-all">
+          <div class="min-w-0">
+            <p class="font-black text-slate-800 text-sm truncate">${item.adjustmentDateLabel || item.name}</p>
+            <p class="text-[10px] text-slate-400 font-bold">${item.createdLabel ? 'Created ' + item.createdLabel : ''}${item.status ? ' &middot; ' + item.status : ''}</p>
+          </div>
+          <i data-lucide="download" class="h-4 w-4 text-blue-600 shrink-0"></i>
+        </a>`).join('');
+      lucide.createIcons();
+    }).withFailureHandler(function () {
+      const el = document.getElementById('pdfHistoryBody');
+      if (el) el.innerHTML = '<p class="text-center text-red-400 text-xs font-bold py-6">Network error.</p>';
+    }).getAdjustmentPdfHistory();
+  }
+
   function _openAdjustModal(shortname, periodLabel, currentValue) {
     if (currentValue && !currentValue.includes(';')) {
       showToast(shortname + ' is already covered by ' + currentValue, 'error');
@@ -1785,6 +1844,7 @@
   function _generateAdjustmentPdf() {
     const myId = window.APP_USER && window.APP_USER.user_id;
     showLoading(true);
+    showToast('Generating PDF and uploading to Drive — this can take a moment…', 'info');
     google.script.run.withSuccessHandler(function (res) {
       showLoading(false);
       if (res && res.success && res.url) { window.open(res.url, '_blank'); showToast('PDF generated', 'success'); _loadLatestAdjustmentPdf(); }
