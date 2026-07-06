@@ -1304,8 +1304,7 @@
       </div>`;
     lucide.createIcons();
     _updateRoutineModeButtons();
-    _loadMyRoutinePeriods();
-    _loadRoutineBoard(); // also syncs the date picker to the "Selected" sheet's actual working date
+    _loadRoutineBoard(false, true); // resolves the sheet's actual date first, then loads periods for it
     if (isCoord) { _loadLatestAdjustmentPdf(); _startRoutinePolling(); }
   }
 
@@ -1446,7 +1445,13 @@
   // silent=true is used for background refreshes (polling, post-write
   // reconcile) — errors are swallowed instead of clobbering the picker/periods
   // UI with an error state over what may just be a transient network hiccup.
-  function _loadRoutineBoard(silent) {
+  // isInitial=true means this is the very first load for the view: "My
+  // Routine" periods haven't been fetched with a confirmed-correct date yet,
+  // so they're loaded here (once, after the date is resolved) rather than
+  // separately — calling _loadMyRoutinePeriods() before this resolves would
+  // race it using the browser's today(), which can legitimately not match
+  // the "Selected" sheet's actual working day and flash an empty routine.
+  function _loadRoutineBoard(silent, isInitial) {
     google.script.run.withSuccessHandler(function (board) {
       _routineBoardCache = board;
       _renderTeacherPicker(board);
@@ -1458,14 +1463,17 @@
       // the user has deliberately browsed to a different date) instead of
       // trusting the browser's today(), otherwise "With Adjustments" silently
       // never finds a match and today's real adjustments never show up.
+      let dateChanged = false;
       if (board && !board.error && board.isoDate) {
         const dateInput = document.getElementById('routineDateInput');
         if (dateInput && dateInput.dataset.userPicked !== '1' && dateInput.value !== board.isoDate) {
           dateInput.value = board.isoDate;
-          _loadMyRoutinePeriods();
+          dateChanged = true;
         }
       }
+      if (isInitial || dateChanged) _loadMyRoutinePeriods();
     }).withFailureHandler(function () {
+      if (isInitial) _loadMyRoutinePeriods(); // fall back to browser-today rather than leaving periods stuck on "Loading…"
       if (silent) return;
       const el = document.getElementById('routineTeacherPicker');
       if (el) el.innerHTML = '<option value="">Network error loading today\'s schedule.</option>';
@@ -1701,7 +1709,7 @@
     google.script.run.withSuccessHandler(function (res) {
       const m = document.getElementById('dailySetupModal');
       if (m) m.remove();
-      if (res && res.success) { showToast('Daily setup complete', 'success'); _loadRoutineBoard(); }
+      if (res && res.success) { showToast('Daily setup complete', 'success'); _loadRoutineBoard(false, true); }
       else showToast((res && res.message) || 'Setup failed', 'error');
     }).withFailureHandler(function () {
       const m = document.getElementById('dailySetupModal');
