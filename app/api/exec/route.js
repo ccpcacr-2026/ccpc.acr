@@ -106,6 +106,75 @@ async function _isCordOrAdmin(callerId) {
   return roles.some(r => ['Cord', 'Admin'].includes(r));
 }
 
+// A routine shortname (e.g. "SR") only means something against the "Logged in
+// info" sheet, which cross-references reliably to Supabase only by full_name
+// (its own "Teacher's ID"/email columns don't match app_users/users_profile
+// at all) — so notifying someone by shortname means: shortname -> full_name
+// (sheet) -> full_name -> teacher_id (users_profile, which equals app_users
+// .user_id by construction in saveAppUser/bulkCreateUsersFromProfiles).
+// Normalizes a full name for cross-referencing the sheet against Supabase:
+// lowercases, trims, collapses whitespace, and strips periods — the sheet
+// writes "Md." while profiles store "Md" for the same person, and a bare
+// period-strip can't create a false match the way fuzzy/substring matching
+// could, so it's safe to apply unconditionally.
+function _normalizeName(name) {
+  return String(name || '').toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ').trim();
+}
+
+async function _resolveUserIdsByShortnames(shortnames) {
+  const [directory, profiles] = await Promise.all([
+    handlers.getRoutineDirectory(),
+    supabaseRequest('users_profile?select=teacher_id,full_name'),
+  ]);
+  const profileByName = {};
+  (Array.isArray(profiles) ? profiles : []).forEach(p => {
+    const key = _normalizeName(p.full_name);
+    if (key) profileByName[key] = p.teacher_id;
+  });
+  const out = {};
+  shortnames.forEach(sn => {
+    const entry = directory.find(d => d.shortname.toLowerCase() === String(sn || '').trim().toLowerCase());
+    const fullNameKey = entry ? _normalizeName(entry.fullName) : '';
+    out[sn] = fullNameKey ? (profileByName[fullNameKey] || null) : null;
+  });
+  return out;
+}
+
+// Best-effort — an adjustment having gone through is the important part, so a
+// notification lookup/insert failure is logged and swallowed, never thrown.
+async function _notifyAdjustment({ originalShortname, substituteShortname, periodLabel, oldValue }) {
+  try {
+    const ids = await _resolveUserIdsByShortnames([originalShortname, substituteShortname]);
+    const now = new Date().toISOString();
+    const notifs = [];
+    if (ids[originalShortname]) {
+      notifs.push({
+        user_id: ids[originalShortname],
+        type: 'class_adjusted',
+        title: 'Your class was covered',
+        message: `Your ${periodLabel} class (${oldValue || 'scheduled class'}) is being covered by ${substituteShortname} today.`,
+        data: { period: periodLabel, coveredBy: substituteShortname, originalClass: oldValue || '' },
+        is_read: false,
+        created_at: now,
+      });
+    }
+    if (ids[substituteShortname] && ids[substituteShortname] !== ids[originalShortname]) {
+      notifs.push({
+        user_id: ids[substituteShortname],
+        type: 'class_adjusted',
+        title: 'You have a new adjustment',
+        message: `You're covering ${originalShortname}'s ${periodLabel} class (${oldValue || 'scheduled class'}) today.`,
+        data: { period: periodLabel, covering: originalShortname, originalClass: oldValue || '' },
+        is_read: false,
+        created_at: now,
+      });
+    }
+    if (notifs.length) await supabaseRequest('notifications', 'post', notifs);
+  } catch (err) {
+    console.error('[_notifyAdjustment] failed:', err);
+  }
+}
+
 // ─── All handler functions ────────────────────────────────────────────────────
 
 const handlers = {
@@ -1123,7 +1192,9 @@ const handlers = {
     const verifyRow = !verifyBoard.error && (verifyBoard.rows || []).find(r => r.shortname.toLowerCase() === row.shortname.toLowerCase());
     const newVal = verifyRow ? String(verifyRow.periods[periodLabel] || '').trim() : '';
     if (newVal.toLowerCase() === sto.toLowerCase()) {
-      return { success: true, message: gasRes.text, oldValue: row.periods[periodLabel] };
+      const oldValue = row.periods[periodLabel];
+      await _notifyAdjustment({ originalShortname: row.shortname, substituteShortname: sto, periodLabel, oldValue });
+      return { success: true, message: gasRes.text, oldValue };
     }
     return { success: false, message: `The sheet did not update as expected (cell still shows "${newVal}"). Please try again.` };
   },
