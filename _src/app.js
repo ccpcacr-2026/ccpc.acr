@@ -215,16 +215,11 @@
     history.replaceState(null, '', '#' + key);
   }
 
-  // Role gates for hash routes — keys that require a specific role set
-  const _HASH_ROLE_GATES = {
-    system:     ['HR','Admin','Principal','VP'],
-    committees: ['Teacher','Staff']
-  };
-
   function _routeByHash() {
-    const key  = window.location.hash.slice(1).split('?')[0];
-    const gate = _HASH_ROLE_GATES[key];
-    if (gate && !gate.includes(window.ACTIVE_ROLE)) {
+    const key = window.location.hash.slice(1).split('?')[0];
+    // Admin-configurable module visibility gates direct hash navigation too,
+    // not just the nav links — see MODULE_REGISTRY / _isModuleVisibleForRole.
+    if (key && MODULE_REGISTRY.some(m => m.key === key) && !_isModuleVisibleForRole(key, window.ACTIVE_ROLE)) {
       // Silently redirect to dashboard — no error toast for URL tampering
       loadDefaultView();
       return;
@@ -240,6 +235,7 @@
     document.getElementById('side-user-id').textContent = window.APP_USER.user_id;
     document.getElementById('side-user-role').textContent = window.ACTIVE_ROLE;
     updateSidebarForRole(window.ACTIVE_ROLE);
+    _loadModuleVisibility(() => updateSidebarForRole(window.ACTIVE_ROLE));
     startSessionHeartbeat();
     loadAndApplyTheme();
     _initRealtime();
@@ -314,22 +310,21 @@
 
   function updateSidebarForRole(activeRole) {
     const allRoles   = window.USER_ROLES || [activeRole];
-    const isAdmin    = ['HR', 'Admin', 'Principal', 'VP'].includes(activeRole);
-    const isTeacher  = ['Teacher', 'Staff'].includes(activeRole);
 
-    // Show only nav sections relevant to the currently active role
-    const adminLinks   = document.getElementById('admin-links');
-    const teacherLinks = document.getElementById('teacher-links');
-    if (adminLinks)   adminLinks.classList.toggle('hidden', !isAdmin);
-    if (teacherLinks) teacherLinks.classList.toggle('hidden', !isTeacher);
-
-    // Analytics: visible for HR, VP, Admin — hidden for Principal
-    const analyticsLink = document.getElementById('nav-analytics');
-    if (analyticsLink) analyticsLink.style.display = ['HR','VP','Admin'].includes(activeRole) ? '' : 'none';
-
-    // Permissions panel: Admin only
-    const permLink = document.getElementById('nav-permissions');
-    if (permLink) permLink.style.display = activeRole === 'Admin' ? '' : 'none';
+    // Per-module visibility — admin-configurable via the System > Module
+    // Access panel (MODULE_REGISTRY / _isModuleVisibleForRole). Falls back to
+    // the same defaults this used to hardcode until an Admin saves a matrix.
+    MODULE_REGISTRY.forEach(m => {
+      const el = document.getElementById(m.navId);
+      if (el) el.style.display = _isModuleVisibleForRole(m.key, activeRole) ? '' : 'none';
+    });
+    // Hide a nav section's group container/label if every link inside it is hidden
+    ['admin-links', 'teacher-links'].forEach(id => {
+      const container = document.getElementById(id);
+      if (!container) return;
+      const anyVisible = [...container.querySelectorAll('.nav-link')].some(a => a.style.display !== 'none');
+      container.classList.toggle('hidden', !anyVisible);
+    });
 
     // Role switcher: only visible when user has more than one role
     const switcher = document.getElementById('role-switcher');
@@ -1878,6 +1873,7 @@
     const tabs = [
       { id: 'sys-users',      label: 'Users',    icon: 'users' },
       ...(canEdit ? [{ id: 'sys-register', label: 'Register', icon: 'user-plus' }] : []),
+      ...(adminOnly ? [{ id: 'sys-modules', label: 'Module Access', icon: 'layout-grid' }] : []),
     ];
     const firstTab = tabs[0].id;
 
@@ -1989,15 +1985,81 @@
           </div>
         </div>` : ''}
 
+        <!-- Module Access matrix -->
+        ${adminOnly ? `
+        <div id="sys-modules" style="display:none;" class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5">
+          <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
+            <div>
+              <p class="font-black text-slate-800 text-sm">Which role sees which module</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Admin always sees everything, regardless of this matrix</p>
+            </div>
+            <button id="moduleAccessSaveBtn" onclick="saveModuleVisibility()" class="px-5 py-2.5 bg-blue-600 text-white text-[10px] font-black rounded-xl hover:bg-black transition-all uppercase tracking-widest shadow-lg shadow-blue-500/20 flex items-center gap-2">
+              <i data-lucide="save" class="h-3.5 w-3.5"></i> Save Changes
+            </button>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+              <thead>
+                <tr class="bg-slate-50 border-b border-slate-100">
+                  <th class="px-4 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Module</th>
+                  ${ALL_ROLES.map(r => `<th class="px-3 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">${r}</th>`).join('')}
+                </tr>
+              </thead>
+              <tbody id="moduleAccessBody" class="divide-y divide-slate-100">
+                <tr><td colspan="${ALL_ROLES.length + 1}" class="px-4 py-8 text-center text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>` : ''}
+
       </div><!-- /scroll area -->
     </div>`;
 
     lucide.createIcons();
     _ensureStaffCache(() => loadUserData_forSystem());
+    if (adminOnly) loadModuleAccessPanel();
+  }
+
+  function loadModuleAccessPanel() {
+    const render = () => {
+      const tbody = document.getElementById('moduleAccessBody');
+      if (!tbody) return;
+      tbody.innerHTML = MODULE_REGISTRY.map(m => {
+        const allowed = (_moduleVisibility && _moduleVisibility[m.key]) || MODULE_DEFAULTS[m.key] || ALL_ROLES;
+        return `<tr>
+          <td class="px-4 py-3 font-black text-slate-800 text-sm">${m.label}</td>
+          ${ALL_ROLES.map(r => `<td class="px-3 py-3 text-center">
+            <input type="checkbox" class="module-access-cb w-4 h-4 rounded accent-blue-600" data-module="${m.key}" data-role="${r}" ${r === 'Admin' ? 'checked disabled title="Admin always has access"' : (allowed.includes(r) ? 'checked' : '')}>
+          </td>`).join('')}
+        </tr>`;
+      }).join('');
+    };
+    if (_moduleVisibility !== null) render();
+    else _loadModuleVisibility(render);
+  }
+
+  function saveModuleVisibility() {
+    const matrix = {};
+    MODULE_REGISTRY.forEach(m => { matrix[m.key] = ['Admin']; });
+    document.querySelectorAll('.module-access-cb:checked').forEach(cb => {
+      const key = cb.dataset.module, role = cb.dataset.role;
+      if (!matrix[key].includes(role)) matrix[key].push(role);
+    });
+    const btn = document.getElementById('moduleAccessSaveBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    google.script.run.withSuccessHandler(function () {
+      _moduleVisibility = matrix;
+      updateSidebarForRole(window.ACTIVE_ROLE);
+      showToast('Module access saved');
+      loadSystemView();
+    }).withFailureHandler(function () {
+      showToast('Failed to save module access', 'error');
+      loadSystemView();
+    }).updateSystemSettings({ module_visibility: matrix });
   }
 
   function switchSysTab(tabId) {
-    const tabs = ['sys-users','sys-register'];
+    const tabs = ['sys-users','sys-register','sys-modules'];
     tabs.forEach(id => {
       const panel = document.getElementById(id);
       const hdr   = document.getElementById(id + '-hdr');
@@ -2036,6 +2098,55 @@
 
   // ── PERMISSION CONTROL PANEL (Admin only) ────────────────────────────────────
   const ALL_ROLES = ['Teacher','Staff','HR','Principal','VP','Admin','Cord'];
+
+  // ── MODULE VISIBILITY (Admin-configurable, System > Module Access) ──────────
+  // Adding a future module (Fees, Grades, ...) is: add its nav link with an id,
+  // add one entry here, add a default row below. The checkbox matrix, sidebar
+  // gating, and hash-route gating all pick it up automatically.
+  const MODULE_REGISTRY = [
+    { key: 'dashboard',        label: 'Command Center',    navId: 'nav-dashboard' },
+    { key: 'routine',          label: 'Routine',            navId: 'nav-routine' },
+    { key: 'system',           label: 'System',             navId: 'nav-system' },
+    { key: 'committees',       label: 'My Assignments',     navId: 'nav-my-committees' },
+    { key: 'messages',         label: 'Messages',           navId: 'nav-messages' },
+    { key: 'notifications',    label: 'Notifications',      navId: 'nav-notifications' },
+    { key: 'users',            label: 'Users Directory',    navId: 'nav-users-directory' },
+    { key: 'analytics',        label: 'Analytics',          navId: 'nav-analytics' },
+    { key: 'permissions',      label: 'Permission Control', navId: 'nav-permissions' },
+  ];
+
+  // Mirrors the hardcoded behavior this feature replaces — used until an
+  // Admin explicitly saves a custom matrix, and as the fallback for any
+  // module the saved matrix doesn't mention (e.g. one just added above).
+  const MODULE_DEFAULTS = {
+    dashboard:     ALL_ROLES,
+    routine:       ALL_ROLES,
+    system:        ['HR','Admin','Principal','VP'],
+    committees:    ['Teacher','Staff'],
+    messages:      ALL_ROLES,
+    notifications: ALL_ROLES,
+    users:         ALL_ROLES,
+    analytics:     ['HR','VP','Admin'],
+    permissions:   ['Admin'],
+  };
+
+  let _moduleVisibility = null; // { moduleKey: [roles...] } once loaded from system_settings
+
+  // Admin always sees every module — a misconfigured matrix should never be
+  // able to lock the one role that can fix the matrix out of the settings.
+  function _isModuleVisibleForRole(moduleKey, role) {
+    if (role === 'Admin') return true;
+    const matrix  = _moduleVisibility || {};
+    const allowed = matrix[moduleKey] || MODULE_DEFAULTS[moduleKey] || ALL_ROLES;
+    return allowed.includes(role);
+  }
+
+  function _loadModuleVisibility(then) {
+    google.script.run.withSuccessHandler(function (settings) {
+      _moduleVisibility = (settings && settings.module_visibility) || null;
+      if (then) then();
+    }).withFailureHandler(function () { if (then) then(); }).getSystemSettings();
+  }
 
   function loadPermissionsPanel() {
     if (window.ACTIVE_ROLE !== 'Admin') { showToast('Admin access only', 'error'); return; }
