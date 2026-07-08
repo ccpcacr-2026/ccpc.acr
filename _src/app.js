@@ -4062,7 +4062,7 @@
   }
 
   function updateProfileProgress() {
-    const tabNames = ['personal','travel','parents','spouse','children','financial','education','career'];
+    const tabNames = ['personal','parents','spouse','children','education','career','travel','financial'];
     let grandFilled = 0, grandTotal = 0;
 
     tabNames.forEach(tab => {

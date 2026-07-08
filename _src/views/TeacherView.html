@@ -87,10 +87,6 @@
             <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-personal"></span><span>Personal</span></div><span class="tab-pct" id="pct-personal">0%</span></div>
             <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-personal"></div></div>
           </button>
-          <button type="button" onclick="switchProfileTab('travel')"    id="ptab-travel"    class="ptab-btn">
-            <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-travel"></span><span>Travel</span></div><span class="tab-pct" id="pct-travel">0%</span></div>
-            <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-travel"></div></div>
-          </button>
           <button type="button" onclick="switchProfileTab('parents')"   id="ptab-parents"   class="ptab-btn">
             <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-parents"></span><span>Parents</span></div><span class="tab-pct" id="pct-parents">0%</span></div>
             <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-parents"></div></div>
@@ -103,10 +99,6 @@
             <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-children"></span><span>Children</span></div><span class="tab-pct" id="pct-children">✓</span></div>
             <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-children"></div></div>
           </button>
-          <button type="button" onclick="switchProfileTab('financial')" id="ptab-financial" class="ptab-btn">
-            <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-financial"></span><span>Financial</span></div><span class="tab-pct" id="pct-financial">0%</span></div>
-            <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-financial"></div></div>
-          </button>
           <button type="button" onclick="switchProfileTab('education')" id="ptab-education" class="ptab-btn">
             <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-education"></span><span>Education</span></div><span class="tab-pct" id="pct-education">0%</span></div>
             <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-education"></div></div>
@@ -114,6 +106,14 @@
           <button type="button" onclick="switchProfileTab('career')"    id="ptab-career"    class="ptab-btn">
             <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-career"></span><span>Career</span></div><span class="tab-pct" id="pct-career">0%</span></div>
             <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-career"></div></div>
+          </button>
+          <button type="button" onclick="switchProfileTab('travel')"    id="ptab-travel"    class="ptab-btn">
+            <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-travel"></span><span>Travel</span></div><span class="tab-pct" id="pct-travel">0%</span></div>
+            <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-travel"></div></div>
+          </button>
+          <button type="button" onclick="switchProfileTab('financial')" id="ptab-financial" class="ptab-btn">
+            <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-financial"></span><span>Financial</span></div><span class="tab-pct" id="pct-financial">0%</span></div>
+            <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-financial"></div></div>
           </button>
         </div>
       </div>
@@ -284,60 +284,6 @@
           </div>
 
         </div><!-- /psec-personal -->
-
-        <!-- ══════════ TAB 2: TRAVEL ══════════ -->
-        <div id="psec-travel" class="psec hidden space-y-3">
-
-          <div class="pcard">
-            <div class="pcard-hdr">Passport</div>
-            <div class="pf-rows">
-              <div class="pf-wrap">
-                <label class="pf-lbl">Passport Number</label>
-                <input type="text" name="passport_number" class="pf-input">
-              </div>
-              <div class="pf-wrap">
-                <label class="pf-lbl">Type of Passport</label>
-                <select name="passport_type" class="pf-input">
-                  <option value="">Select...</option>
-                  <option>Ordinary</option><option>Official</option><option>Diplomatic</option>
-                </select>
-              </div>
-              <div class="pf-wrap">
-                <label class="pf-lbl">Date of Issue</label>
-                <input type="date" name="passport_date_issue" class="pf-input">
-              </div>
-              <div class="pf-wrap">
-                <label class="pf-lbl">Place of Issue</label>
-                <input type="text" name="passport_place_issue" class="pf-input">
-              </div>
-              <div class="pf-wrap">
-                <label class="pf-lbl">Date of Expiry</label>
-                <input type="date" name="passport_date_expiry" class="pf-input">
-              </div>
-              <div class="pf-wrap">
-                <label class="pf-lbl">Issuing Authority</label>
-                <input type="text" name="passport_issuing_auth" class="pf-input">
-              </div>
-            </div>
-          </div>
-
-          <div class="pcard">
-            <div class="pcard-hdr flex justify-between items-center">
-              <span>Countries Visited</span>
-              <button type="button" onclick="addCountryRow()" class="add-row-btn">+ Add Country</button>
-            </div>
-            <div id="countriesContainer" class="space-y-2 p-4"></div>
-          </div>
-
-          <div class="pcard">
-            <div class="pcard-hdr flex justify-between items-center">
-              <span>Language Skills <span class="font-normal text-amber-600/60">(Except Bengali &amp; English)</span></span>
-              <button type="button" onclick="addLanguageRow()" class="add-row-btn">+ Add Language</button>
-            </div>
-            <div id="languagesContainer" class="space-y-2 p-4"></div>
-          </div>
-
-        </div><!-- /psec-travel -->
 
         <!-- ══════════ TAB 3: PARENTS ══════════ -->
         <div id="psec-parents" class="psec hidden space-y-3">
@@ -556,45 +502,6 @@
 
         </div><!-- /psec-children -->
 
-        <!-- ══════════ TAB 6: FINANCIAL ══════════ -->
-        <div id="psec-financial" class="psec hidden space-y-3">
-
-          <div class="pcard">
-            <div class="pcard-hdr">Details of Income</div>
-            <div class="pf-rows">
-              <div class="pf-wrap">
-                <label class="pf-lbl">TID / BIN No.</label>
-                <input type="text" name="tid_bin_no" class="pf-input">
-              </div>
-              <div class="pf-wrap">
-                <label class="pf-lbl">Own Income</label>
-                <input type="text" name="own_income" class="pf-input" placeholder="e.g. 50,000 BDT">
-              </div>
-              <div class="pf-wrap">
-                <label class="pf-lbl">Spouse Income</label>
-                <input type="text" name="spouse_income" class="pf-input">
-              </div>
-              <div class="pf-wrap">
-                <label class="pf-lbl">Income from Assets</label>
-                <input type="text" name="assets_income" class="pf-input">
-              </div>
-              <div class="pf-wrap">
-                <label class="pf-lbl">Details of Assets</label>
-                <textarea name="assets_details" rows="3" class="pf-input resize-y"></textarea>
-              </div>
-            </div>
-          </div>
-
-          <div class="pcard">
-            <div class="pcard-hdr flex justify-between items-center">
-              <span>Bank Accounts</span>
-              <button type="button" onclick="addBankRow()" class="add-row-btn">+ Add Account</button>
-            </div>
-            <div id="bankContainer" class="space-y-2 p-4"></div>
-          </div>
-
-        </div><!-- /psec-financial -->
-
         <!-- ══════════ TAB 7: EDUCATION ══════════ -->
         <div id="psec-education" class="psec hidden space-y-3">
 
@@ -644,6 +551,99 @@
           </div>
 
         </div><!-- /psec-career -->
+        <!-- ══════════ TAB 2: TRAVEL ══════════ -->
+        <div id="psec-travel" class="psec hidden space-y-3">
+
+          <div class="pcard">
+            <div class="pcard-hdr">Passport</div>
+            <div class="pf-rows">
+              <div class="pf-wrap">
+                <label class="pf-lbl">Passport Number</label>
+                <input type="text" name="passport_number" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Type of Passport</label>
+                <select name="passport_type" class="pf-input">
+                  <option value="">Select...</option>
+                  <option>Ordinary</option><option>Official</option><option>Diplomatic</option>
+                </select>
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Date of Issue</label>
+                <input type="date" name="passport_date_issue" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Place of Issue</label>
+                <input type="text" name="passport_place_issue" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Date of Expiry</label>
+                <input type="date" name="passport_date_expiry" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Issuing Authority</label>
+                <input type="text" name="passport_issuing_auth" class="pf-input">
+              </div>
+            </div>
+          </div>
+
+          <div class="pcard">
+            <div class="pcard-hdr flex justify-between items-center">
+              <span>Countries Visited</span>
+              <button type="button" onclick="addCountryRow()" class="add-row-btn">+ Add Country</button>
+            </div>
+            <div id="countriesContainer" class="space-y-2 p-4"></div>
+          </div>
+
+          <div class="pcard">
+            <div class="pcard-hdr flex justify-between items-center">
+              <span>Language Skills <span class="font-normal text-amber-600/60">(Except Bengali &amp; English)</span></span>
+              <button type="button" onclick="addLanguageRow()" class="add-row-btn">+ Add Language</button>
+            </div>
+            <div id="languagesContainer" class="space-y-2 p-4"></div>
+          </div>
+
+        </div><!-- /psec-travel -->
+
+        <!-- ══════════ TAB 6: FINANCIAL ══════════ -->
+        <div id="psec-financial" class="psec hidden space-y-3">
+
+          <div class="pcard">
+            <div class="pcard-hdr">Details of Income</div>
+            <div class="pf-rows">
+              <div class="pf-wrap">
+                <label class="pf-lbl">TID / BIN No.</label>
+                <input type="text" name="tid_bin_no" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Own Income</label>
+                <input type="text" name="own_income" class="pf-input" placeholder="e.g. 50,000 BDT">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Spouse Income</label>
+                <input type="text" name="spouse_income" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Income from Assets</label>
+                <input type="text" name="assets_income" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Details of Assets</label>
+                <textarea name="assets_details" rows="3" class="pf-input resize-y"></textarea>
+              </div>
+            </div>
+          </div>
+
+          <div class="pcard">
+            <div class="pcard-hdr flex justify-between items-center">
+              <span>Bank Accounts</span>
+              <button type="button" onclick="addBankRow()" class="add-row-btn">+ Add Account</button>
+            </div>
+            <div id="bankContainer" class="space-y-2 p-4"></div>
+          </div>
+
+        </div><!-- /psec-financial -->
+
 
         <!-- Save bar -->
         <div id="profileSaveBar" style="display:none;position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);z-index:9999;min-width:340px;max-width:90vw;background:rgba(255,255,255,.97);backdrop-filter:blur(10px);border:1px solid #e2e8f0;box-shadow:0 8px 32px rgba(0,0,0,.15);border-radius:1.25rem;padding:.6rem 1.25rem;flex-direction:row;align-items:center;justify-content:space-between;gap:1rem;">
