@@ -87,6 +87,14 @@
             <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-personal"></span><span>Personal</span></div><span class="tab-pct" id="pct-personal">0%</span></div>
             <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-personal"></div></div>
           </button>
+          <button type="button" onclick="switchProfileTab('education')" id="ptab-education" class="ptab-btn">
+            <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-education"></span><span>Education</span></div><span class="tab-pct" id="pct-education">0%</span></div>
+            <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-education"></div></div>
+          </button>
+          <button type="button" onclick="switchProfileTab('career')"    id="ptab-career"    class="ptab-btn">
+            <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-career"></span><span>Career</span></div><span class="tab-pct" id="pct-career">0%</span></div>
+            <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-career"></div></div>
+          </button>
           <button type="button" onclick="switchProfileTab('parents')"   id="ptab-parents"   class="ptab-btn">
             <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-parents"></span><span>Parents</span></div><span class="tab-pct" id="pct-parents">0%</span></div>
             <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-parents"></div></div>
@@ -99,21 +107,13 @@
             <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-children"></span><span>Children</span></div><span class="tab-pct" id="pct-children">✓</span></div>
             <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-children"></div></div>
           </button>
-          <button type="button" onclick="switchProfileTab('education')" id="ptab-education" class="ptab-btn">
-            <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-education"></span><span>Education</span></div><span class="tab-pct" id="pct-education">0%</span></div>
-            <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-education"></div></div>
-          </button>
-          <button type="button" onclick="switchProfileTab('career')"    id="ptab-career"    class="ptab-btn">
-            <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-career"></span><span>Career</span></div><span class="tab-pct" id="pct-career">0%</span></div>
-            <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-career"></div></div>
+          <button type="button" onclick="switchProfileTab('financial')" id="ptab-financial" class="ptab-btn">
+            <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-financial"></span><span>Financial</span></div><span class="tab-pct" id="pct-financial">0%</span></div>
+            <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-financial"></div></div>
           </button>
           <button type="button" onclick="switchProfileTab('travel')"    id="ptab-travel"    class="ptab-btn">
             <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-travel"></span><span>Travel</span></div><span class="tab-pct" id="pct-travel">0%</span></div>
             <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-travel"></div></div>
-          </button>
-          <button type="button" onclick="switchProfileTab('financial')" id="ptab-financial" class="ptab-btn">
-            <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-financial"></span><span>Financial</span></div><span class="tab-pct" id="pct-financial">0%</span></div>
-            <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-financial"></div></div>
           </button>
         </div>
       </div>
@@ -284,6 +284,56 @@
           </div>
 
         </div><!-- /psec-personal -->
+
+        <!-- ══════════ TAB 7: EDUCATION ══════════ -->
+        <div id="psec-education" class="psec hidden space-y-3">
+
+          <div class="pcard">
+            <div class="pcard-hdr flex justify-between items-center">
+              <span>Educational Qualification(s)</span>
+              <button type="button" onclick="addEduRow()" class="add-row-btn">+ Add</button>
+            </div>
+            <div id="eduContainer" class="space-y-3 p-4"></div>
+          </div>
+
+          <div class="pcard">
+            <div class="pcard-hdr">Additional Qualification (if any)</div>
+            <div class="pf-rows">
+              <div class="pf-wrap">
+                <label class="pf-lbl">Details</label>
+                <textarea name="additional_qualification" rows="3" placeholder="Any additional qualifications not listed above…" class="pf-input resize-y"></textarea>
+              </div>
+            </div>
+          </div>
+
+          <div class="pcard">
+            <div class="pcard-hdr flex justify-between items-center">
+              <span>Achievements, Speciality &amp; Active Committees</span>
+              <button type="button" onclick="addAttributeRow()" class="add-row-btn !bg-emerald-600">+ Add Info</button>
+            </div>
+            <div id="attributeContainer" class="space-y-3 p-4"></div>
+          </div>
+
+        </div><!-- /psec-education -->
+
+        <!-- ══════════ TAB 8: CAREER ══════════ -->
+        <div id="psec-career" class="psec hidden space-y-3">
+
+          <div class="pcard">
+            <div class="pcard-hdr">Events Affecting Career</div>
+            <div class="pf-rows">
+              <div class="pf-wrap">
+                <label class="pf-lbl">Breaking Institution Law</label>
+                <textarea name="institution_law_breaking" rows="3" class="pf-input resize-y"></textarea>
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Breaking Civil Law</label>
+                <textarea name="civil_law_breaking" rows="3" class="pf-input resize-y"></textarea>
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /psec-career -->
 
         <!-- ══════════ TAB 3: PARENTS ══════════ -->
         <div id="psec-parents" class="psec hidden space-y-3">
@@ -502,55 +552,45 @@
 
         </div><!-- /psec-children -->
 
-        <!-- ══════════ TAB 7: EDUCATION ══════════ -->
-        <div id="psec-education" class="psec hidden space-y-3">
+        <!-- ══════════ TAB 6: FINANCIAL ══════════ -->
+        <div id="psec-financial" class="psec hidden space-y-3">
+
+          <div class="pcard">
+            <div class="pcard-hdr">Details of Income</div>
+            <div class="pf-rows">
+              <div class="pf-wrap">
+                <label class="pf-lbl">TID / BIN No.</label>
+                <input type="text" name="tid_bin_no" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Own Income</label>
+                <input type="text" name="own_income" class="pf-input" placeholder="e.g. 50,000 BDT">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Spouse Income</label>
+                <input type="text" name="spouse_income" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Income from Assets</label>
+                <input type="text" name="assets_income" class="pf-input">
+              </div>
+              <div class="pf-wrap">
+                <label class="pf-lbl">Details of Assets</label>
+                <textarea name="assets_details" rows="3" class="pf-input resize-y"></textarea>
+              </div>
+            </div>
+          </div>
 
           <div class="pcard">
             <div class="pcard-hdr flex justify-between items-center">
-              <span>Educational Qualification(s)</span>
-              <button type="button" onclick="addEduRow()" class="add-row-btn">+ Add</button>
+              <span>Bank Accounts</span>
+              <button type="button" onclick="addBankRow()" class="add-row-btn">+ Add Account</button>
             </div>
-            <div id="eduContainer" class="space-y-3 p-4"></div>
+            <div id="bankContainer" class="space-y-2 p-4"></div>
           </div>
 
-          <div class="pcard">
-            <div class="pcard-hdr">Additional Qualification (if any)</div>
-            <div class="pf-rows">
-              <div class="pf-wrap">
-                <label class="pf-lbl">Details</label>
-                <textarea name="additional_qualification" rows="3" placeholder="Any additional qualifications not listed above…" class="pf-input resize-y"></textarea>
-              </div>
-            </div>
-          </div>
+        </div><!-- /psec-financial -->
 
-          <div class="pcard">
-            <div class="pcard-hdr flex justify-between items-center">
-              <span>Achievements, Speciality &amp; Active Committees</span>
-              <button type="button" onclick="addAttributeRow()" class="add-row-btn !bg-emerald-600">+ Add Info</button>
-            </div>
-            <div id="attributeContainer" class="space-y-3 p-4"></div>
-          </div>
-
-        </div><!-- /psec-education -->
-
-        <!-- ══════════ TAB 8: CAREER ══════════ -->
-        <div id="psec-career" class="psec hidden space-y-3">
-
-          <div class="pcard">
-            <div class="pcard-hdr">Events Affecting Career</div>
-            <div class="pf-rows">
-              <div class="pf-wrap">
-                <label class="pf-lbl">Breaking Institution Law</label>
-                <textarea name="institution_law_breaking" rows="3" class="pf-input resize-y"></textarea>
-              </div>
-              <div class="pf-wrap">
-                <label class="pf-lbl">Breaking Civil Law</label>
-                <textarea name="civil_law_breaking" rows="3" class="pf-input resize-y"></textarea>
-              </div>
-            </div>
-          </div>
-
-        </div><!-- /psec-career -->
         <!-- ══════════ TAB 2: TRAVEL ══════════ -->
         <div id="psec-travel" class="psec hidden space-y-3">
 
@@ -604,45 +644,6 @@
           </div>
 
         </div><!-- /psec-travel -->
-
-        <!-- ══════════ TAB 6: FINANCIAL ══════════ -->
-        <div id="psec-financial" class="psec hidden space-y-3">
-
-          <div class="pcard">
-            <div class="pcard-hdr">Details of Income</div>
-            <div class="pf-rows">
-              <div class="pf-wrap">
-                <label class="pf-lbl">TID / BIN No.</label>
-                <input type="text" name="tid_bin_no" class="pf-input">
-              </div>
-              <div class="pf-wrap">
-                <label class="pf-lbl">Own Income</label>
-                <input type="text" name="own_income" class="pf-input" placeholder="e.g. 50,000 BDT">
-              </div>
-              <div class="pf-wrap">
-                <label class="pf-lbl">Spouse Income</label>
-                <input type="text" name="spouse_income" class="pf-input">
-              </div>
-              <div class="pf-wrap">
-                <label class="pf-lbl">Income from Assets</label>
-                <input type="text" name="assets_income" class="pf-input">
-              </div>
-              <div class="pf-wrap">
-                <label class="pf-lbl">Details of Assets</label>
-                <textarea name="assets_details" rows="3" class="pf-input resize-y"></textarea>
-              </div>
-            </div>
-          </div>
-
-          <div class="pcard">
-            <div class="pcard-hdr flex justify-between items-center">
-              <span>Bank Accounts</span>
-              <button type="button" onclick="addBankRow()" class="add-row-btn">+ Add Account</button>
-            </div>
-            <div id="bankContainer" class="space-y-2 p-4"></div>
-          </div>
-
-        </div><!-- /psec-financial -->
 
 
         <!-- Save bar -->
