@@ -406,6 +406,51 @@ export async function POST(req) {
       return NextResponse.json({ result: 'error', message: e.message });
     }
   }
+  // get_bus_data: not admin-exclusive (the student-facing bus tracker uses it
+  // too), but showAdminPanel()'s own "Bus Tracker" nav pane calls
+  // BusTracking.initBusMap() -> this same action, so the ported console needs
+  // it too or that pane silently shows nothing.
+  if (action === 'get_bus_data') {
+    try {
+      const rows = await sb('portal_settings?key=in.(gp_credentials,bus_registry)');
+      if (rows?.error) return NextResponse.json({ result: 'error', message: 'Settings not found.' });
+      const sm = {};
+      rows.forEach(r => { sm[r.key] = r.value; });
+      const creds = sm.gp_credentials || {};
+      const busRegistry = sm.bus_registry || [];
+      if (!busRegistry.length) return NextResponse.json({ result: 'success', data: [], trackers: 0, dataAge: 0 });
+
+      const { token, baseUrl } = await getGPToken(creds);
+      const imeis = busRegistry.map(b => b.imei).join(',');
+      const r = await fetch(`${baseUrl}/tracking/latest?imei=${encodeURIComponent(imeis)}`, {
+        headers: { Authorization: `Bearer ${token}`, channel: creds.gp_channel || 'ALOEXT' },
+      });
+      const json = await r.json();
+      const items = Array.isArray(json?.data) ? json.data : (json?.data ? [json.data] : []);
+      const dataMap = {};
+      items.forEach(d => { dataMap[d.imei] = d; });
+
+      const buses = busRegistry.map(b => {
+        const d = dataMap[b.imei] || {};
+        const spd = parseFloat(d.speed || 0);
+        return {
+          name: b.name, imei: b.imei,
+          lat: parseFloat(d.latitude || d.lat || 0),
+          lng: parseFloat(d.longitude || d.lng || 0),
+          speed: String(spd), isMoving: spd > 2,
+          engine: !!(d.ignition || d.engine),
+          address: d.address || 'Unknown location',
+          time: d.timestamp || d.time || '',
+          heading: d.direction || 0,
+        };
+      });
+
+      return NextResponse.json({ result: 'success', data: buses, trackers: 0, dataAge: 0 });
+    } catch (e) {
+      return NextResponse.json({ result: 'error', message: e.message });
+    }
+  }
+
   if (action === 'check_bus') {
     try {
       const rows = await sb('portal_settings?key=eq.gp_credentials');
