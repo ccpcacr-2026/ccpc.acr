@@ -2097,12 +2097,15 @@
   }
 
   // ── PERMISSION CONTROL PANEL (Admin only) ────────────────────────────────────
-  // 'Admission Admin' is an add-on role: it grants login + circular management
-  // on the separate admission admin panel (ccpc-admission.vercel.app/app.html);
-  // inside this portal it behaves like any unmapped role (TeacherView fallback).
-  const ALL_ROLES = ['Teacher','Staff','HR','Principal','VP','Admin','Cord','Admission Admin'];
-  // Two-letter chips would collide with Admin ('AD') — explicit abbreviations
-  const ROLE_ABBR = { 'Admission Admin':'AA' };
+  // 'Admission Admin' / 'Student Portal Admin' / 'Canteen Admin' are add-on
+  // roles: each grants delegated control of one separate app/module (the
+  // admission admin panel, the Student Portal module here, and ccpc-canteen's
+  // admin panel respectively) WITHOUT the blanket 'Admin' role. Inside this
+  // portal itself they behave like any unmapped role (TeacherView fallback) —
+  // their only purpose is granting access elsewhere.
+  const ALL_ROLES = ['Teacher','Staff','HR','Principal','VP','Admin','Cord','Admission Admin','Student Portal Admin','Canteen Admin'];
+  // Two-letter chips would collide with Admin ('AD') / each other — explicit abbreviations
+  const ROLE_ABBR = { 'Admission Admin':'AA', 'Student Portal Admin':'SP', 'Canteen Admin':'CA' };
   function roleAbbr(r){ return ROLE_ABBR[r] || r.slice(0,2).toUpperCase(); }
 
   // ── MODULE VISIBILITY (Admin-configurable, System > Module Access) ──────────
@@ -2113,6 +2116,7 @@
     { key: 'dashboard',        label: 'Command Center',    navId: 'nav-dashboard' },
     { key: 'routine',          label: 'Routine',            navId: 'nav-routine' },
     { key: 'system',           label: 'System',             navId: 'nav-system' },
+    { key: 'student_portal',   label: 'Student Portal',     navId: 'nav-student-portal' },
     { key: 'committees',       label: 'My Assignments',     navId: 'nav-my-committees' },
     { key: 'messages',         label: 'Messages',           navId: 'nav-messages' },
     { key: 'notifications',    label: 'Notifications',      navId: 'nav-notifications' },
@@ -2128,6 +2132,7 @@
     dashboard:     ALL_ROLES,
     routine:       ALL_ROLES,
     system:        ['HR','Admin','Principal','VP'],
+    student_portal:['Admin','Student Portal Admin'],
     committees:    ['Teacher','Staff'],
     messages:      ALL_ROLES,
     notifications: ALL_ROLES,
@@ -2214,7 +2219,7 @@
     }
     const roleStyle = {
       Teacher:'#4f46e5', Staff:'#64748b', HR:'#9333ea',
-      Principal:'#2563eb', VP:'#0891b2', Admin:'#e11d48', 'Admission Admin':'#0d9488'
+      Principal:'#2563eb', VP:'#0891b2', Admin:'#e11d48', 'Admission Admin':'#0d9488', 'Student Portal Admin':'#7c3aed', 'Canteen Admin':'#ea580c'
     };
     tbody.innerHTML = users.map(u => {
       const current = (u.role || '').split(',').map(r => r.trim()).filter(Boolean);
@@ -2337,7 +2342,7 @@
       tbody.innerHTML = `<tr><td colspan="4" class="px-6 py-12 text-center text-slate-400 font-bold uppercase tracking-widest italic">No matching users found</td></tr>`;
       return;
     }
-    const roleColors = { Teacher:'bg-blue-100 text-blue-600', Staff:'bg-slate-100 text-slate-500', HR:'bg-purple-100 text-purple-600', Admin:'bg-slate-900 text-white', Principal:'bg-indigo-100 text-indigo-600', VP:'bg-indigo-50 text-indigo-500', 'Admission Admin':'bg-teal-100 text-teal-700' };
+    const roleColors = { Teacher:'bg-blue-100 text-blue-600', Staff:'bg-slate-100 text-slate-500', HR:'bg-purple-100 text-purple-600', Admin:'bg-slate-900 text-white', Principal:'bg-indigo-100 text-indigo-600', VP:'bg-indigo-50 text-indigo-500', 'Admission Admin':'bg-teal-100 text-teal-700', 'Student Portal Admin':'bg-violet-100 text-violet-700', 'Canteen Admin':'bg-orange-100 text-orange-700' };
     tbody.innerHTML = users.map(u => {
       const roleBadges = (u.role || '').split(',').map(r => r.trim()).filter(Boolean).map(r =>
         `<span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${roleColors[r] || 'bg-slate-100 text-slate-400'}">${r}</span>`
@@ -2378,7 +2383,7 @@
         tbody.innerHTML = `<tr><td colspan="${canEdit?5:4}" class="px-6 py-10 text-center text-slate-400 text-xs font-black uppercase tracking-widest italic">No users found</td></tr>`;
         lucide.createIcons(); return;
       }
-      const roleColors = { Teacher:'bg-blue-100 text-blue-600', Staff:'bg-slate-100 text-slate-500', HR:'bg-purple-100 text-purple-600', Admin:'bg-slate-900 text-white', Principal:'bg-indigo-100 text-indigo-600', VP:'bg-indigo-50 text-indigo-500', 'Admission Admin':'bg-teal-100 text-teal-700' };
+      const roleColors = { Teacher:'bg-blue-100 text-blue-600', Staff:'bg-slate-100 text-slate-500', HR:'bg-purple-100 text-purple-600', Admin:'bg-slate-900 text-white', Principal:'bg-indigo-100 text-indigo-600', VP:'bg-indigo-50 text-indigo-500', 'Admission Admin':'bg-teal-100 text-teal-700', 'Student Portal Admin':'bg-violet-100 text-violet-700', 'Canteen Admin':'bg-orange-100 text-orange-700' };
       tbody.innerHTML = allUsersCache.map(u => {
         const roleBadges = (u.role||'').split(',').map(r=>r.trim()).filter(Boolean)
           .map(r=>`<span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${roleColors[r]||'bg-slate-100 text-slate-400'}">${r}</span>`).join('');
@@ -2547,7 +2552,7 @@
 
   const _profileRoleStyle = {
     Teacher:'#4f46e5', Staff:'#64748b', HR:'#9333ea',
-    Principal:'#2563eb', VP:'#0891b2', Admin:'#e11d48', 'Admission Admin':'#0d9488'
+    Principal:'#2563eb', VP:'#0891b2', Admin:'#e11d48', 'Admission Admin':'#0d9488', 'Student Portal Admin':'#7c3aed', 'Canteen Admin':'#ea580c'
   };
 
   function renderProfilePicker(profiles) {
@@ -2829,7 +2834,7 @@
       grid.innerHTML = `<div class="col-span-3 flex flex-col items-center py-16 text-slate-400"><i data-lucide="users" class="h-12 w-12 opacity-20 mb-3"></i><p class="font-black uppercase tracking-widest text-xs">No evaluatable faculty</p></div>`;
       lucide.createIcons(); return;
     }
-    const rc = {Teacher:'blue',Staff:'slate',HR:'purple',Admin:'slate',Principal:'indigo',VP:'indigo','Admission Admin':'teal'};
+    const rc = {Teacher:'blue',Staff:'slate',HR:'purple',Admin:'slate',Principal:'indigo',VP:'indigo','Admission Admin':'teal','Student Portal Admin':'violet','Canteen Admin':'orange'};
     const thisYear = new Date().getFullYear().toString();
     let gradedCount=0, ioSum=0, ioCount=0;
 
