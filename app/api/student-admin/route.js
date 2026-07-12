@@ -51,10 +51,15 @@ async function psSave(key, value) {
   return { ok: true };
 }
 
+// NOTE: set_gp_credentials saves {api_key, environment, channel} (see
+// get_tracking_config, which reads those same names back for display) --
+// this used to read gp_api_key/gp_env/gp_channel instead, a leftover from
+// an earlier naming, so credentials the admin saved were never actually
+// found and this always threw "GP API credentials not configured."
 async function getGPToken(settings) {
-  const apiKey  = settings.gp_api_key;
-  const channel = settings.gp_channel  || 'ALOEXT';
-  const baseUrl = settings.gp_env === 'staging' ? GP_STAGE_URL : GP_PROD_URL;
+  const apiKey  = settings.api_key;
+  const channel = settings.channel  || 'ALOEXT';
+  const baseUrl = settings.environment === 'staging' ? GP_STAGE_URL : GP_PROD_URL;
   if (!apiKey) throw new Error('GP API credentials not configured.');
 
   const r = await fetch(`${baseUrl}/auth/token`, {
@@ -355,12 +360,6 @@ export async function POST(req) {
   }
 
   // ── Tracking config: GP credentials + bus/place registry ────────────────
-  // NOTE (found while porting, pre-existing in the original app, not introduced
-  // here): set_gp_credentials saves {api_key, environment, channel}, but
-  // getGPToken() below reads settings.gp_api_key / gp_env / gp_channel — the
-  // key names never match, so test_gp_connection / check_bus / get_bus_data
-  // always fail with "GP API credentials not configured." This is ported
-  // as-is (verbatim move, not a fix) — flagged for a follow-up fix.
   if (action === 'get_tracking_config') {
     const rows = await sb('portal_settings?key=in.(bus_registry,place_registry,gp_credentials)');
     if (rows?.error) return NextResponse.json({});
@@ -423,7 +422,7 @@ export async function POST(req) {
       const { token, baseUrl } = await getGPToken(creds);
       const imeis = busRegistry.map(b => b.imei).join(',');
       const r = await fetch(`${baseUrl}/tracking/latest?imei=${encodeURIComponent(imeis)}`, {
-        headers: { Authorization: `Bearer ${token}`, channel: creds.gp_channel || 'ALOEXT' },
+        headers: { Authorization: `Bearer ${token}`, channel: creds.channel || 'ALOEXT' },
       });
       const json = await r.json();
       const items = Array.isArray(json?.data) ? json.data : (json?.data ? [json.data] : []);
@@ -457,7 +456,7 @@ export async function POST(req) {
       const settings = (!rows?.error && rows[0]) ? rows[0].value : {};
       const { token, baseUrl } = await getGPToken(settings);
       const r = await fetch(`${baseUrl}/tracking/latest?imei=${encodeURIComponent(payload.imei)}`, {
-        headers: { Authorization: `Bearer ${token}`, channel: settings.gp_channel || 'ALOEXT' },
+        headers: { Authorization: `Bearer ${token}`, channel: settings.channel || 'ALOEXT' },
       });
       const data = await r.json();
       if (r.ok && data?.data) {
