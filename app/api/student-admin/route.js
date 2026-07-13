@@ -419,13 +419,7 @@ export async function POST(req) {
       const busRegistry = sm.bus_registry || [];
       if (!busRegistry.length) return NextResponse.json({ result: 'success', data: [], trackers: 0, dataAge: 0 });
 
-      const { token, baseUrl } = await getGPToken(creds);
-      const imeis = busRegistry.map(b => b.imei).join(',');
-      const r = await fetch(`${baseUrl}/tracking/latest?imei=${encodeURIComponent(imeis)}`, {
-        headers: { Authorization: `Bearer ${token}`, channel: creds.channel || 'ALOEXT' },
-      });
-      const json = await r.json();
-      const items = Array.isArray(json?.data) ? json.data : (json?.data ? [json.data] : []);
+      const items = await queryGPLocations(creds, busRegistry.map(b => String(b.imei)));
       const dataMap = {};
       items.forEach(d => { dataMap[d.imei] = d; });
 
@@ -434,13 +428,13 @@ export async function POST(req) {
         const spd = parseFloat(d.speed || 0);
         return {
           name: b.name, imei: b.imei,
-          lat: parseFloat(d.latitude || d.lat || 0),
-          lng: parseFloat(d.longitude || d.lng || 0),
+          lat: parseFloat(d.latitude || 0),
+          lng: parseFloat(d.longitude || 0),
           speed: String(spd), isMoving: spd > 2,
-          engine: !!(d.ignition || d.engine),
+          engine: !!d.engineStatus,
           address: d.address || 'Unknown location',
-          time: d.timestamp || d.time || '',
-          heading: d.direction || 0,
+          time: d.locationTime || '',
+          heading: d.heading || 0,
         };
       });
 
@@ -454,16 +448,12 @@ export async function POST(req) {
     try {
       const rows = await sb('portal_settings?key=eq.gp_credentials');
       const settings = (!rows?.error && rows[0]) ? rows[0].value : {};
-      const { token, baseUrl } = await getGPToken(settings);
-      const r = await fetch(`${baseUrl}/tracking/latest?imei=${encodeURIComponent(payload.imei)}`, {
-        headers: { Authorization: `Bearer ${token}`, channel: settings.channel || 'ALOEXT' },
-      });
-      const data = await r.json();
-      if (r.ok && data?.data) {
-        const d = data.data;
-        return NextResponse.json({ result: 'success', data: { address: d.address || 'Unknown', speed: d.speed || 0, engine: d.ignition ? 'ON' : 'OFF', time: d.timestamp || '' } });
+      const items = await queryGPLocations(settings, [String(payload.imei)]);
+      const d = items[0];
+      if (d && (d.latitude || d.longitude)) {
+        return NextResponse.json({ result: 'success', data: { address: d.address || 'Unknown', speed: d.speed || 0, engine: d.engineStatus ? 'ON' : 'OFF', time: d.locationTime || '' } });
       }
-      return NextResponse.json({ result: 'error', message: `HTTP ${r.status}: ${JSON.stringify(data)}` });
+      return NextResponse.json({ result: 'error', message: d ? 'Device found but has no location fix yet.' : 'No data returned for this IMEI.' });
     } catch (e) {
       return NextResponse.json({ result: 'error', message: e.message });
     }
