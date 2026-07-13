@@ -200,6 +200,22 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success' });
   }
 
+  // ── Permanent Tabs Visibility (Wallet/Canteen/Stationary/Teachers/Bus — the
+  // built-in tabs, not the tab-builder's custom ones in portal_tabs) ──────────
+  // Missing key or missing per-tab entry both mean "visible" — a fresh install
+  // or a newly-added permanent tab should show up, not silently vanish.
+  if (action === 'get_permanent_tabs_config') {
+    const rows = await sb('portal_settings?key=eq.permanent_tabs_visibility');
+    const cfg = (!rows?.error && rows[0]) ? rows[0].value : {};
+    return NextResponse.json(cfg || {});
+  }
+  if (action === 'set_permanent_tabs_config') {
+    const cfg = (payload && typeof payload === 'object') ? payload : {};
+    const r = await psSave('permanent_tabs_visibility', cfg);
+    if (!r.ok) return NextResponse.json({ result: 'error', message: r.message });
+    return NextResponse.json({ result: 'success' });
+  }
+
   // ── Delegated data access (who besides admins can view/export a tab's data) ──
   if (action === 'get_staff_list') {
     // teacher-schema read: faculty portal logins live in teacher.app_users
