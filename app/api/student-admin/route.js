@@ -199,13 +199,55 @@ export async function POST(req) {
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
     return NextResponse.json({ result: 'success' });
   }
+
+  // ── Delegated data access (who besides admins can view/export a tab's data) ──
+  if (action === 'get_staff_list') {
+    // teacher-schema read: faculty portal logins live in teacher.app_users
+    const res = await fetch(`${SB_URL}/rest/v1/app_users?select=user_id,email,role&order=user_id.asc`, {
+      headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher' },
+    });
+    if (!res.ok) return NextResponse.json([]);
+    return NextResponse.json(await res.json());
+  }
+  if (action === 'get_tab_data_access') {
+    const rows = await sb(`portal_tabs?tab_name=eq.${encodeURIComponent(payload.tab_name)}&select=data_access_json`);
+    let ids = [];
+    try { ids = JSON.parse((rows && !rows.error && rows[0]?.data_access_json) || '[]'); } catch {}
+    return NextResponse.json({ user_ids: Array.isArray(ids) ? ids : [] });
+  }
+  if (action === 'set_tab_data_access') {
+    const { tab_name, user_ids } = payload;
+    if (!tab_name) return NextResponse.json({ result: 'error', message: 'Tab name required.' });
+    const clean = [...new Set((Array.isArray(user_ids) ? user_ids : []).map(String).filter(Boolean))];
+    const r = await sb(`portal_tabs?tab_name=eq.${encodeURIComponent(tab_name)}`, 'PATCH', { data_access_json: JSON.stringify(clean) });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success', count: clean.length });
+  }
   if (action === 'get_tab_data') {
     const { tab_name } = payload;
     const rows = await sb(`portal_submissions?tab_name=eq.${encodeURIComponent(tab_name)}&order=submitted_at.asc`);
     if (rows?.error || !rows.length) return NextResponse.json({ headers: ['student_id'], rows: [] });
-    const allKeys = new Set(['student_id']);
-    rows.forEach(r => Object.keys(r.data || {}).forEach(k => allKeys.add(k)));
-    const headers = [...allKeys];
+
+    // Column order follows the tab's configuration (profile include-fields first,
+    // then the form fields as arranged in the builder). Extra keys found only in
+    // older submissions are appended at the end so no data is ever hidden.
+    const tabRow = await sb(`portal_tabs?tab_name=eq.${encodeURIComponent(tab_name)}`);
+    const cfg = (!tabRow?.error && tabRow[0]) ? tabRow[0] : null;
+    const ordered = ['student_id'];
+    if (cfg) {
+      try {
+        JSON.parse(cfg.include_fields_json || '[]').forEach(k => { if (k && !ordered.includes(k)) ordered.push(k); });
+      } catch {}
+      try {
+        JSON.parse(cfg.fields_json || '[]').forEach(f => {
+          const k = f?.data_key || f?.id;
+          if (k && f.type !== 'group_label' && !ordered.includes(k)) ordered.push(k);
+        });
+      } catch {}
+    }
+    const extras = new Set();
+    rows.forEach(r => Object.keys(r.data || {}).forEach(k => { if (!ordered.includes(k)) extras.add(k); }));
+    const headers = [...ordered, ...extras];
     const dataRows = rows.map(r => headers.map(h => h === 'student_id' ? r.student_id : (r.data?.[h] ?? '')));
     return NextResponse.json({ headers, rows: dataRows });
   }

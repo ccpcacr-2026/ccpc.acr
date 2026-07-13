@@ -1253,6 +1253,59 @@ const handlers = {
     return out;
   },
 
+  // ── STUDENT TAB DATA (delegated access) ──────────────────────────────────────
+  // Admins pick teachers/staff per custom tab (portal_tabs.data_access_json in the
+  // student schema); those users can view + export that tab's submissions here.
+
+  async getMyTabDataAccess([userId]) {
+    if (!userId) return [];
+    const res = await fetch(`${process.env.SUPABASE_URL}/rest/v1/portal_tabs?select=tab_name,data_access_json&order=sort_order.asc`, {
+      headers: { apikey: process.env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}`, 'Accept-Profile': 'student' },
+    });
+    if (!res.ok) return [];
+    const rows = await res.json();
+    return rows.filter(t => {
+      try { return JSON.parse(t.data_access_json || '[]').includes(String(userId)); } catch { return false; }
+    }).map(t => ({ tab_name: t.tab_name }));
+  },
+
+  async getTabDataForUser([userId, tabName]) {
+    if (!userId || !tabName) return { error: 'Not authorized.' };
+    const sbStudent = async (path) => {
+      const res = await fetch(`${process.env.SUPABASE_URL}/rest/v1/${path}`, {
+        headers: { apikey: process.env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}`, 'Accept-Profile': 'student' },
+      });
+      return res.ok ? res.json() : { error: 'query failed' };
+    };
+    // authorization: the caller must be on this tab's access list — checked
+    // server-side on every request, never trusted from the client
+    const tabRow = await sbStudent(`portal_tabs?tab_name=eq.${encodeURIComponent(tabName)}`);
+    const cfg = (Array.isArray(tabRow) && tabRow[0]) ? tabRow[0] : null;
+    let allowed = [];
+    try { allowed = JSON.parse(cfg?.data_access_json || '[]'); } catch {}
+    if (!allowed.includes(String(userId))) return { error: 'Not authorized for this tab.' };
+
+    const rows = await sbStudent(`portal_submissions?tab_name=eq.${encodeURIComponent(tabName)}&order=submitted_at.asc`);
+    if (!Array.isArray(rows) || !rows.length) return { headers: ['student_id'], rows: [] };
+
+    // same config-ordered columns as the admin Data view
+    const ordered = ['student_id'];
+    if (cfg) {
+      try { JSON.parse(cfg.include_fields_json || '[]').forEach(k => { if (k && !ordered.includes(k)) ordered.push(k); }); } catch {}
+      try {
+        JSON.parse(cfg.fields_json || '[]').forEach(f => {
+          const k = f?.data_key || f?.id;
+          if (k && f.type !== 'group_label' && !ordered.includes(k)) ordered.push(k);
+        });
+      } catch {}
+    }
+    const extras = new Set();
+    rows.forEach(r => Object.keys(r.data || {}).forEach(k => { if (!ordered.includes(k)) extras.add(k); }));
+    const headers = [...ordered, ...extras];
+    const dataRows = rows.map(r => headers.map(h => h === 'student_id' ? r.student_id : (r.data?.[h] ?? '')));
+    return { headers, rows: dataRows };
+  },
+
   // ── LEGACY COMPAT ─────────────────────────────────────────────────────────────
   // getInitialDashboardData was used by old shim before role-specific views were added
 

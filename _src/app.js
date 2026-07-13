@@ -401,6 +401,7 @@
         if (['Teacher', 'Staff'].includes(role)) {
           const email = window.APP_USER ? window.APP_USER.email   : '';
           const uid   = window.APP_USER ? window.APP_USER.user_id : '';
+          initStudentTabDataSection(uid); // shows only if an admin granted this user access
           const cached = window._loginProfile;
           window._loginProfile = null;
           if (cached) {
@@ -427,6 +428,98 @@
         }
       })
       .catch(e => { console.error('[CCPC] View load failed:', e); showLoading(false); });
+  }
+
+  // ── Student Tab Data (delegated access) ──────────────────────────────────
+  // Admins pick who may view/export a custom student tab's submissions (Student
+  // Portal Admin → Data → Data Access). If this user is on any tab's list, a
+  // "Student Data" card appears under their profile with a table + CSV export.
+  let _stdTabData = null;
+
+  function initStudentTabDataSection(uid) {
+    if (!uid) return;
+    google.script.run
+      .withSuccessHandler(tabs => {
+        if (!Array.isArray(tabs) || !tabs.length) return;
+        const host = document.getElementById('view-container');
+        if (!host || document.getElementById('std-tabdata-card')) return;
+
+        const card = document.createElement('div');
+        card.id = 'std-tabdata-card';
+        card.className = 'max-w-5xl mx-auto mt-6 bg-white border border-slate-200 rounded-2xl p-5';
+        card.innerHTML = `
+          <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
+            <div>
+              <div class="text-sm font-black text-slate-800">Student Data</div>
+              <div class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Custom tab submissions shared with you</div>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <select id="std-tabdata-select" class="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700"></select>
+              <button id="std-tabdata-load" class="px-4 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-black">Load</button>
+              <button id="std-tabdata-export" class="px-4 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-black" disabled>Export CSV</button>
+            </div>
+          </div>
+          <div id="std-tabdata-count" class="text-xs font-bold text-slate-500 mb-2"></div>
+          <div class="overflow-x-auto border border-slate-100 rounded-xl">
+            <table class="w-full text-left">
+              <thead id="std-tabdata-head" class="bg-slate-50"></thead>
+              <tbody id="std-tabdata-body"></tbody>
+            </table>
+          </div>`;
+        host.appendChild(card);
+
+        const sel = card.querySelector('#std-tabdata-select');
+        tabs.forEach(t => {
+          const o = document.createElement('option');
+          o.value = t.tab_name; o.textContent = t.tab_name;
+          sel.appendChild(o);
+        });
+        card.querySelector('#std-tabdata-load').addEventListener('click', () => loadStudentTabData(uid));
+        card.querySelector('#std-tabdata-export').addEventListener('click', exportStudentTabData);
+      })
+      .withFailureHandler(() => {})
+      .getMyTabDataAccess(uid);
+  }
+
+  function loadStudentTabData(uid) {
+    const sel = document.getElementById('std-tabdata-select');
+    const head = document.getElementById('std-tabdata-head');
+    const body = document.getElementById('std-tabdata-body');
+    const count = document.getElementById('std-tabdata-count');
+    const exportBtn = document.getElementById('std-tabdata-export');
+    if (!sel || !sel.value) return;
+    body.innerHTML = '<tr><td class="p-4 text-xs font-bold text-slate-400">Loading…</td></tr>';
+    google.script.run
+      .withSuccessHandler(res => {
+        if (!res || res.error) {
+          body.innerHTML = `<tr><td class="p-4 text-xs font-bold text-rose-500">${(res && res.error) || 'Could not load data.'}</td></tr>`;
+          exportBtn.disabled = true;
+          return;
+        }
+        _stdTabData = { tab: sel.value, headers: res.headers, rows: res.rows };
+        head.innerHTML = '<tr>' + res.headers.map(h => `<th class="px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400">${h}</th>`).join('') + '</tr>';
+        body.innerHTML = res.rows.length
+          ? res.rows.map(r => '<tr class="border-t border-slate-100">' + r.map(c => `<td class="px-3 py-2 text-xs font-semibold text-slate-700">${c ?? ''}</td>`).join('') + '</tr>').join('')
+          : '<tr><td class="p-4 text-xs font-bold text-slate-400">No submissions yet.</td></tr>';
+        count.textContent = `${res.rows.length} student${res.rows.length === 1 ? '' : 's'} submitted "${sel.value}"`;
+        exportBtn.disabled = res.rows.length === 0;
+      })
+      .withFailureHandler(e => {
+        body.innerHTML = `<tr><td class="p-4 text-xs font-bold text-rose-500">${e && e.message ? e.message : e}</td></tr>`;
+        exportBtn.disabled = true;
+      })
+      .getTabDataForUser(uid, sel.value);
+  }
+
+  function exportStudentTabData() {
+    if (!_stdTabData || !_stdTabData.rows.length) return;
+    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const csv = _stdTabData.headers.map(esc).join(',') + '\n'
+      + _stdTabData.rows.map(r => r.map(esc).join(',')).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+    a.download = `${_stdTabData.tab}_export.csv`;
+    a.click();
   }
 
   function renderAdminDashboard() {
