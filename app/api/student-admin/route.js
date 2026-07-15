@@ -16,16 +16,23 @@ import { NextResponse } from 'next/server';
 // entire ccpc-students frontend and found no caller for either action (their
 // only UI, showManualAttendanceForm/showBulkAttendanceImport, is never
 // invoked from any button) — nothing to relocate for unreachable code.
+//
+// Also NOT ported: set_student_pin and the self-service reset_pin action.
+// Both are meant to be called by a logged-in STUDENT (from their own
+// Personal Hub / the login screen's "Forgot PIN?"), but every action on this
+// route requires an admin user_id (_isAdmin below) — a student calling
+// through here would just get 403'd, so there's no reachable path to them.
+// admin_reset_pin (an admin clearing a student's PIN) IS ported below, since
+// that's a real admin action.
 
 const SB_URL = process.env.SUPABASE_URL;
 const SB_KEY = process.env.SUPABASE_SERVICE_KEY;
 
-// The only columns in students_data whose name contains "phone"/"mobile" —
-// which of these count as a valid student-portal login password is
-// admin-configurable (portal_settings.login_password_columns); actual login
-// enforcement lives in ccpc-students (this app has no student self-login),
-// but the setting is managed from either admin surface.
-const LOGIN_PASSWORD_CANDIDATES = ['phone_number', 'father_phone', 'mother_phone'];
+// Text columns in students_data sensible as a shared-secret login password —
+// see the matching comment in ccpc-students' route.js for the full
+// reasoning (excludes categorical/shared columns like gender/house/blood
+// that many students share the exact same value for).
+const LOGIN_PASSWORD_CANDIDATES = ['phone_number', 'father_phone', 'mother_phone', 'fathers_name', 'mothers_name', 'nick_name', 'student_name'];
 
 const GP_PROD_URL  = 'https://bluebird.grameenphone.com/alo-paas';
 const GP_STAGE_URL = 'https://bluebird.grameenphone.com/alo-paas-stage';
@@ -221,6 +228,34 @@ export async function POST(req) {
     const r = await psSave('login_password_columns', columns);
     if (!r.ok) return NextResponse.json({ result: 'error', message: r.message });
     return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Admin-triggered PIN reset (no phone verification — admin is already
+  // authenticated) — for when a student is locked out. ───────────────────────
+  if (action === 'admin_reset_pin') {
+    const { student_id } = payload;
+    if (!student_id) return NextResponse.json({ result: 'error', message: 'Student ID required.' });
+    const rows = await sb(`students_data?student_id=eq.${encodeURIComponent(student_id)}&select=student_id`);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: 'Database error.' });
+    if (!rows.length) return NextResponse.json({ result: 'error', message: 'Student ID not found.' });
+    const r = await sb(`students_data?student_id=eq.${encodeURIComponent(student_id)}`, 'PATCH', { pin: null });
+    if (r?.error) return NextResponse.json({ result: 'error', message: 'Could not reset PIN.' });
+    return NextResponse.json({ result: 'success', message: `PIN cleared for ${student_id} — they can log in with their phone number again.` });
+  }
+
+  // ── Edit History (admin-searchable audit trail, populated by a DB trigger
+  // on every students_data UPDATE — see the edit_history table) ──────────────
+  if (action === 'search_edit_history') {
+    const q = String(payload?.query || '').trim();
+    const limit = Math.min(Number(payload?.limit) || 50, 200);
+    let path = `edit_history?select=*&order=created_at.desc&limit=${limit}`;
+    if (q) {
+      const esc = encodeURIComponent(q);
+      path += `&or=(student_id.ilike.*${esc}*,name.ilike.*${esc}*,class.ilike.*${esc}*,section.ilike.*${esc}*,roll.ilike.*${esc}*)`;
+    }
+    const rows = await sb(path);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', rows: Array.isArray(rows) ? rows : [] });
   }
 
   // ── Permanent Tabs Visibility (Wallet/Canteen/Stationary/Teachers/Bus — the
