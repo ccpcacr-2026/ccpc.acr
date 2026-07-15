@@ -20,6 +20,13 @@ import { NextResponse } from 'next/server';
 const SB_URL = process.env.SUPABASE_URL;
 const SB_KEY = process.env.SUPABASE_SERVICE_KEY;
 
+// The only columns in students_data whose name contains "phone"/"mobile" —
+// which of these count as a valid student-portal login password is
+// admin-configurable (portal_settings.login_password_columns); actual login
+// enforcement lives in ccpc-students (this app has no student self-login),
+// but the setting is managed from either admin surface.
+const LOGIN_PASSWORD_CANDIDATES = ['phone_number', 'father_phone', 'mother_phone'];
+
 const GP_PROD_URL  = 'https://bluebird.grameenphone.com/alo-paas';
 const GP_STAGE_URL = 'https://bluebird.grameenphone.com/alo-paas-stage';
 
@@ -197,6 +204,22 @@ export async function POST(req) {
   if (action === 'delete_tab') {
     const r = await sb(`portal_tabs?tab_name=eq.${encodeURIComponent(payload.tab_name)}`, 'DELETE');
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Login Password Columns (which students_data phone-like columns are
+  // accepted as the login password) ────────────────────────────────────────
+  if (action === 'get_login_password_columns') {
+    const rows = await sb('portal_settings?key=eq.login_password_columns');
+    const saved = (!rows?.error && rows[0]) ? rows[0].value : null;
+    const selected = Array.isArray(saved) ? saved.filter(c => LOGIN_PASSWORD_CANDIDATES.includes(c)) : LOGIN_PASSWORD_CANDIDATES;
+    return NextResponse.json({ candidates: LOGIN_PASSWORD_CANDIDATES, selected });
+  }
+  if (action === 'set_login_password_columns') {
+    const columns = Array.isArray(payload?.columns) ? payload.columns.filter(c => LOGIN_PASSWORD_CANDIDATES.includes(c)) : [];
+    if (!columns.length) return NextResponse.json({ result: 'error', message: 'Select at least one column — otherwise no student could log in.' });
+    const r = await psSave('login_password_columns', columns);
+    if (!r.ok) return NextResponse.json({ result: 'error', message: r.message });
     return NextResponse.json({ result: 'success' });
   }
 
