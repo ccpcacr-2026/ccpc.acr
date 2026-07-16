@@ -175,6 +175,51 @@ async function _notifyAdjustment({ originalShortname, substituteShortname, perio
   }
 }
 
+// Cross-schema request into `inventory` (same Supabase project, service key,
+// Accept/Content-Profile headers) — kept as a free-standing function, NOT a
+// `handlers` property, specifically so it can never be reached directly via
+// {fn:"_invReq", args:[...]} from the client. Only the actual action
+// handlers below (which validate their own inputs) may call it.
+async function _invReq(path, method = 'GET', body = null) {
+  const res = await fetch(`${process.env.SUPABASE_URL}/rest/v1/${path}`, {
+    method,
+    headers: {
+      apikey: process.env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: method === 'GET' ? undefined : 'return=representation',
+      'Accept-Profile': 'inventory',
+      'Content-Profile': 'inventory',
+    },
+    ...(body !== null ? { body: JSON.stringify(body) } : {}),
+  });
+  const text = await res.text();
+  try {
+    const json = JSON.parse(text);
+    if (res.status >= 300) return { error: json?.message || 'Inventory request failed', details: json };
+    return json;
+  } catch {
+    return { error: 'Parse error', details: text };
+  }
+}
+
+// Same accountable-receiver resolution as ccpc-inventory's /api/distribute
+// (necessarily duplicated — separate app, no shared package) — committee ->
+// chairman, room/building -> its assigned distributor, teacher/staff -> their
+// own reference_id, student/others -> no ccpc-teachers identity.
+async function _invResolveReceiver(consumer) {
+  if (consumer.type === 'committee') {
+    const rows = await _invReq(`committees?id=eq.${consumer.reference_id}&select=chairman_user_id`);
+    return (Array.isArray(rows) && rows[0]?.chairman_user_id) || null;
+  }
+  if (consumer.type === 'room' || consumer.type === 'building') {
+    const rows = await _invReq(`distributor_assignments?holder_type=eq.${consumer.type}&holder_id=eq.${consumer.reference_id}&select=assignee_user_id&limit=1`);
+    return (Array.isArray(rows) && rows[0]?.assignee_user_id) || null;
+  }
+  if (consumer.type === 'teacher' || consumer.type === 'staff') return consumer.reference_id || null;
+  return null;
+}
+
 // ─── All handler functions ────────────────────────────────────────────────────
 
 const handlers = {
@@ -1304,6 +1349,178 @@ const handlers = {
     const headers = [...ordered, ...extras];
     const dataRows = rows.map(r => headers.map(h => h === 'student_id' ? r.student_id : (r.data?.[h] ?? '')));
     return { headers, rows: dataRows };
+  },
+
+  // ── INVENTORY (chain-of-custody: receive at ccpc-inventory's central store,
+  // then any room/building/person/committee that received something can hand
+  // it onward themselves) — cross-schema against the `inventory` schema on
+  // the same Supabase project, same pattern as the student-tab-data handlers
+  // above (bare id strings, no cross-schema FK, re-verified server-side on
+  // every call). "Person" consumer rows are expected to carry the holder's
+  // real ccpc-teachers user_id in `reference_id` — see ccpc-inventory's
+  // Settings > Consumer Info field hint. _invReq/_invResolveReceiver are
+  // free-standing helpers above (not handlers properties), so they can't be
+  // reached directly via {fn:"_invReq",...} from the client. ─────────────────
+
+  // True if this user has ever received something directly, or has been
+  // granted distributor rights over a room/building/committee — either one
+  // is enough to show the Inventory nav item.
+  async getMyInventoryAccess([userId]) {
+    if (!userId) return { hasAccess: false };
+    const [distRows, assignRows] = await Promise.all([
+      _invReq(`distributions?receiver_user_id=eq.${encodeURIComponent(userId)}&select=id&limit=1`),
+      _invReq(`distributor_assignments?assignee_user_id=eq.${encodeURIComponent(userId)}&select=id&limit=1`),
+    ]);
+    const hasAccess = (Array.isArray(distRows) && distRows.length > 0) || (Array.isArray(assignRows) && assignRows.length > 0);
+    return { hasAccess };
+  },
+
+  // Everything this user holds AS THEMSELVES (their own "person" consumer
+  // record) plus their full personal receipt history.
+  async getMyHolderStock([userId]) {
+    if (!userId) return { holdings: [] };
+    const consumerRows = await _invReq(
+      `consumers?reference_id=eq.${encodeURIComponent(userId)}&type=in.(teacher,staff)&select=id`
+    );
+    if (!Array.isArray(consumerRows) || !consumerRows.length) return { holdings: [] };
+    const consumerId = consumerRows[0].id;
+    const holdings = await _invReq(
+      `holder_stock?consumer_id=eq.${consumerId}&quantity=gt.0&select=*,products(name,code,unit_id)`
+    );
+    return { holdings: Array.isArray(holdings) ? holdings : [], consumerId };
+  },
+
+  async getMyDistributionHistory([userId]) {
+    if (!userId) return { rows: [] };
+    const rows = await _invReq(
+      `distributions?receiver_user_id=eq.${encodeURIComponent(userId)}&select=*,distribution_items(quantity,total_price,products(name,code)),consumers!distributions_consumer_id_fkey(name,type)&order=created_at.desc`
+    );
+    return { rows: Array.isArray(rows) ? rows : [] };
+  },
+
+  // Rooms/buildings/committees this user has been made a distributor for —
+  // each with its own current holder_stock (resolved via the matching
+  // consumer row for that holder).
+  async getAssignedHolders([userId]) {
+    if (!userId) return { holders: [] };
+    const assignments = await _invReq(`distributor_assignments?assignee_user_id=eq.${encodeURIComponent(userId)}&select=*`);
+    if (!Array.isArray(assignments) || !assignments.length) return { holders: [] };
+
+    const holders = await Promise.all(assignments.map(async (a) => {
+      const consumerRows = await _invReq(
+        `consumers?type=eq.${a.holder_type}&reference_id=eq.${encodeURIComponent(String(a.holder_id))}&select=id,name`
+      );
+      const consumer = Array.isArray(consumerRows) && consumerRows[0];
+      if (!consumer) return { ...a, consumer_id: null, name: null, holdings: [] };
+      const holdings = await _invReq(`holder_stock?consumer_id=eq.${consumer.id}&quantity=gt.0&select=*,products(name,code)`);
+      return { ...a, consumer_id: consumer.id, name: consumer.name, holdings: Array.isArray(holdings) ? holdings : [] };
+    }));
+    return { holders };
+  },
+
+  // Recipient picker data for the embedded Distribute form — same shape the
+  // standalone ccpc-inventory app's own Distribute page reads directly from
+  // Supabase; here it's proxied through _invReq since this app has no direct
+  // DB access into the inventory schema.
+  async getConsumerOptions() {
+    const [consumers, committees, assignments] = await Promise.all([
+      _invReq(`consumers?select=id,name,type,reference_id&order=name.asc`),
+      _invReq(`committees?select=id,name,chairman_user_id&order=name.asc`),
+      _invReq(`distributor_assignments?select=assignee_user_id,holder_type,holder_id`),
+    ]);
+    return {
+      consumers: Array.isArray(consumers) ? consumers : [],
+      committees: Array.isArray(committees) ? committees : [],
+      assignments: Array.isArray(assignments) ? assignments : [],
+    };
+  },
+
+  // Second-hop transfer: userId distributes from something they hold — either
+  // their own received stock, or stock held by a room/building/committee
+  // they're an assigned distributor for. Validates the live balance
+  // server-side (never trusts a client-sent quantity) before moving anything.
+  async createDistribution([userId, fromHolderType, fromHolderId, productId, toConsumerId, quantity, remarks]) {
+    if (!userId) return { result: 'error', message: 'Not authorized.' };
+    const qty = Number(quantity);
+    if (!productId || !toConsumerId || !qty || qty <= 0) {
+      return { result: 'error', message: 'Product, recipient, and a positive quantity are required.' };
+    }
+
+    let fromConsumerId;
+    if (!fromHolderType || fromHolderType === 'self') {
+      const own = await _invReq(`consumers?reference_id=eq.${encodeURIComponent(userId)}&type=in.(teacher,staff)&select=id`);
+      if (!Array.isArray(own) || !own.length) return { result: 'error', message: 'No inventory record found for you.' };
+      fromConsumerId = own[0].id;
+    } else {
+      const assigned = await _invReq(
+        `distributor_assignments?assignee_user_id=eq.${encodeURIComponent(userId)}&holder_type=eq.${fromHolderType}&holder_id=eq.${fromHolderId}&select=id&limit=1`
+      );
+      if (!Array.isArray(assigned) || !assigned.length) return { result: 'error', message: 'You are not an assigned distributor for that holder.' };
+      const consumerRows = await _invReq(`consumers?type=eq.${fromHolderType}&reference_id=eq.${encodeURIComponent(String(fromHolderId))}&select=id`);
+      if (!Array.isArray(consumerRows) || !consumerRows.length) return { result: 'error', message: 'That holder has no inventory record yet.' };
+      fromConsumerId = consumerRows[0].id;
+    }
+
+    const stockRows = await _invReq(`holder_stock?consumer_id=eq.${fromConsumerId}&product_id=eq.${productId}&select=*`);
+    const stock = Array.isArray(stockRows) && stockRows[0];
+    const available = Number(stock?.quantity || 0);
+    if (available < qty) return { result: 'error', message: `Only ${available} on hand — cannot distribute ${qty}.` };
+
+    const toConsumerRows = await _invReq(`consumers?id=eq.${toConsumerId}&select=*`);
+    const toConsumer = Array.isArray(toConsumerRows) && toConsumerRows[0];
+    if (!toConsumer) return { result: 'error', message: 'Recipient not found.' };
+    const receiverUserId = await _invResolveReceiver(toConsumer);
+    const productRows = await _invReq(`products?id=eq.${productId}&select=name`);
+    const productName = (Array.isArray(productRows) && productRows[0]?.name) || 'item';
+
+    const distribution = await _invReq('distributions', 'POST', {
+      distribute_no: `DIST-${Date.now()}`,
+      consumer_id: toConsumerId,
+      from_consumer_id: fromConsumerId,
+      receiver_user_id: receiverUserId,
+      remarks: remarks || (toConsumer.type === 'committee' ? `Committee: ${toConsumer.name}` : null),
+    });
+    if (distribution?.error) return { result: 'error', message: distribution.error };
+    const distributionId = distribution[0].id;
+
+    await _invReq('distribution_items', 'POST', { distribution_id: distributionId, product_id: productId, quantity: qty });
+    await _invReq(`holder_stock?id=eq.${stock.id}`, 'PATCH', { quantity: available - qty, updated_at: new Date().toISOString() });
+
+    const toExisting = await _invReq(`holder_stock?consumer_id=eq.${toConsumerId}&product_id=eq.${productId}&select=*`);
+    if (Array.isArray(toExisting) && toExisting.length) {
+      await _invReq(`holder_stock?id=eq.${toExisting[0].id}`, 'PATCH', { quantity: Number(toExisting[0].quantity) + qty, updated_at: new Date().toISOString() });
+    } else {
+      await _invReq('holder_stock', 'POST', { consumer_id: toConsumerId, product_id: productId, quantity: qty });
+    }
+
+    // Both sides get notified here (unlike ccpc-inventory's anonymous admin
+    // tool, the granter is a real identified user in this flow).
+    await _invReq('inventory_notifications', 'POST', {
+      user_id: userId,
+      message: `You distributed ${qty} × ${productName} to ${toConsumer.name}.`,
+      distribution_id: distributionId,
+    });
+    if (receiverUserId && receiverUserId !== userId) {
+      await _invReq('inventory_notifications', 'POST', {
+        user_id: receiverUserId,
+        message: `You received ${qty} × ${productName}${toConsumer.type === 'committee' ? ` on behalf of ${toConsumer.name}` : ''}.`,
+        distribution_id: distributionId,
+      });
+    }
+
+    return { result: 'success', distribution_id: distributionId };
+  },
+
+  async getMyNotifications([userId]) {
+    if (!userId) return { rows: [] };
+    const rows = await _invReq(`inventory_notifications?user_id=eq.${encodeURIComponent(userId)}&order=created_at.desc&limit=30`);
+    return { rows: Array.isArray(rows) ? rows : [] };
+  },
+
+  async markNotificationRead([id]) {
+    if (!id) return { result: 'error' };
+    const r = await _invReq(`inventory_notifications?id=eq.${id}`, 'PATCH', { is_read: true });
+    return { result: r?.error ? 'error' : 'success' };
   },
 
   // ── LEGACY COMPAT ─────────────────────────────────────────────────────────────

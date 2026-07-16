@@ -208,7 +208,8 @@
     messages:      () => loadMessagesView(),
     notifications: () => loadNotificationsView(),
     users:         () => loadUsersDirectory(),
-    routine:       () => loadRoutineView()
+    routine:       () => loadRoutineView(),
+    inventory:     () => loadInventoryView()
   };
 
   function _setViewHash(key) {
@@ -325,6 +326,13 @@
       const anyVisible = [...container.querySelectorAll('.nav-link')].some(a => a.style.display !== 'none');
       container.classList.toggle('hidden', !anyVisible);
     });
+
+    // #nav-inventory is NOT in MODULE_REGISTRY on purpose — visibility isn't
+    // role-based, it's "have you ever received something, or been assigned as
+    // a distributor" (see the Inventory chain-of-custody plan). Must run
+    // before the early returns below so it fires on every sidebar update
+    // (login, role switch) regardless of how many roles this user has.
+    _checkInventoryNavVisibility();
 
     // Role switcher: only visible when user has more than one role
     const switcher = document.getElementById('role-switcher');
@@ -2187,6 +2195,308 @@
         showLoading(false);
       })
       .catch(() => showLoading(false));
+  }
+
+  // ═══════════════════════════════════════════════════════
+  //  INVENTORY — chain-of-custody: what I currently hold
+  //  (my own + anything I'm an assigned distributor for),
+  //  my full receipt history, and a Distribute action that
+  //  works the same way from either pane (see the Inventory
+  //  chain-of-custody plan — any receiver is a distributor
+  //  of what they received, by default).
+  // ═══════════════════════════════════════════════════════
+  let _invOptionsCache = null;     // { consumers, committees, assignments } — recipient picker data
+  let _invDistContext  = null;     // { fromType, fromId, productId, productName, max } for the open modal
+
+  function loadInventoryView() {
+    _setViewHash('inventory');
+    setActiveNavLink('nav-inventory');
+    setContentHeader('Inventory', 'package');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    if (!myId) return;
+
+    container.innerHTML = `
+      <div class="pt-4 flex flex-col gap-6 max-w-5xl mx-auto pb-10">
+        <div id="invNotifBar" class="flex flex-col gap-2"></div>
+
+        <div>
+          <p class="font-black text-slate-800 text-sm uppercase tracking-widest mb-3">My Inventory</p>
+          <div id="invHoldings" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div class="col-span-2 text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>
+          </div>
+        </div>
+
+        <div id="invAssignedSection" class="hidden">
+          <p class="font-black text-slate-800 text-sm uppercase tracking-widest mb-3">Assigned To Me</p>
+          <div id="invAssigned" class="flex flex-col gap-4"></div>
+        </div>
+
+        <div>
+          <p class="font-black text-slate-800 text-sm uppercase tracking-widest mb-3">Receipt History</p>
+          <div class="overflow-x-auto border border-slate-100 rounded-xl bg-white">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-slate-50">
+                <tr>
+                  <th class="px-4 py-2.5 font-black text-slate-500 uppercase tracking-widest">Date</th>
+                  <th class="px-4 py-2.5 font-black text-slate-500 uppercase tracking-widest">Item</th>
+                  <th class="px-4 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Qty</th>
+                  <th class="px-4 py-2.5 font-black text-slate-500 uppercase tracking-widest">From</th>
+                  <th class="px-4 py-2.5 font-black text-slate-500 uppercase tracking-widest">Remarks</th>
+                </tr>
+              </thead>
+              <tbody id="invHistoryBody"><tr><td colspan="5" class="px-4 py-8 text-center text-slate-400 font-bold">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="invDistModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-sm">
+          <p class="font-black text-slate-800 text-sm mb-3" id="invDistTitle">Distribute</p>
+          <div class="flex flex-col gap-3">
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Recipient Type</label>
+              <select id="invDistType" onchange="_invRenderRecipientOptions()" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 mt-1">
+                <option value="person">Person</option>
+                <option value="room">Room</option>
+                <option value="building">Building</option>
+                <option value="committee">Committee</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Recipient</label>
+              <select id="invDistConsumer" onchange="_invUpdateNotifyPreview()" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 mt-1"></select>
+            </div>
+            <div id="invDistPreview" class="text-[11px] font-bold text-slate-500 bg-slate-50 rounded-lg px-3 py-2"></div>
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Quantity <span id="invDistMax" class="normal-case font-bold text-slate-400"></span></label>
+              <input id="invDistQty" type="number" min="1" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 mt-1">
+            </div>
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Remarks</label>
+              <input id="invDistRemarks" type="text" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 mt-1">
+            </div>
+            <div id="invDistStatus" class="text-xs font-bold"></div>
+            <div class="flex gap-2 justify-end mt-1">
+              <button onclick="_invCloseDistModal()" class="px-4 py-2 rounded-lg text-slate-500 text-xs font-black">Cancel</button>
+              <button onclick="_invSubmitDistribution()" id="invDistSubmitBtn" class="px-4 py-2 rounded-lg bg-blue-600 text-white text-xs font-black">Confirm</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    lucide.createIcons();
+
+    _invLoadNotifications();
+    _invLoadHoldings();
+    _invLoadAssigned();
+    _invLoadHistory();
+  }
+
+  function _invLoadNotifications() {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run
+      .withSuccessHandler(res => {
+        const bar = document.getElementById('invNotifBar');
+        if (!bar) return;
+        const rows = (res && res.rows) || [];
+        const unread = rows.filter(r => !r.is_read);
+        if (!unread.length) { bar.innerHTML = ''; return; }
+        bar.innerHTML = unread.slice(0, 5).map(n => `
+          <div class="flex items-center justify-between gap-3 bg-blue-50 border border-blue-100 rounded-xl px-4 py-2.5">
+            <span class="text-xs font-bold text-blue-800">${n.message}</span>
+            <button onclick="_invMarkNotifRead(${n.id})" class="text-[10px] font-black text-blue-500 uppercase tracking-widest shrink-0">Dismiss</button>
+          </div>`).join('');
+      })
+      .withFailureHandler(() => {})
+      .getMyNotifications(myId);
+  }
+
+  function _invMarkNotifRead(id) {
+    google.script.run.withSuccessHandler(() => _invLoadNotifications()).withFailureHandler(() => {}).markNotificationRead(id);
+  }
+
+  function _invLoadHoldings() {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run
+      .withSuccessHandler(res => {
+        const grid = document.getElementById('invHoldings');
+        if (!grid) return;
+        const holdings = (res && res.holdings) || [];
+        if (!holdings.length) {
+          grid.innerHTML = `<div class="col-span-2 text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">Nothing on hand right now</div>`;
+          return;
+        }
+        grid.innerHTML = holdings.map(h => `
+          <div class="bg-white border border-slate-200 rounded-xl p-4 flex items-center justify-between gap-3">
+            <div>
+              <p class="text-sm font-black text-slate-800">${(h.products && h.products.name) || 'Item'}</p>
+              <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">${(h.products && h.products.code) || ''} · Qty ${h.quantity}</p>
+            </div>
+            <button onclick='_invOpenDistModal("self", null, ${h.product_id}, ${JSON.stringify((h.products && h.products.name) || "item")}, ${h.quantity})'
+              class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest shrink-0">Distribute</button>
+          </div>`).join('');
+      })
+      .withFailureHandler(() => {})
+      .getMyHolderStock(myId);
+  }
+
+  function _invLoadAssigned() {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run
+      .withSuccessHandler(res => {
+        const section = document.getElementById('invAssignedSection');
+        const host = document.getElementById('invAssigned');
+        if (!host || !section) return;
+        const holders = (res && res.holders) || [];
+        if (!holders.length) { section.classList.add('hidden'); return; }
+        section.classList.remove('hidden');
+        host.innerHTML = holders.map(h => `
+          <div class="bg-white border border-slate-200 rounded-xl p-4">
+            <p class="text-xs font-black text-slate-700 uppercase tracking-widest mb-2">${h.name || h.holder_type} <span class="text-slate-400">(${h.holder_type})</span></p>
+            ${h.holdings && h.holdings.length ? `
+              <div class="flex flex-col gap-2">
+                ${h.holdings.map(hd => `
+                  <div class="flex items-center justify-between gap-3 border-t border-slate-50 pt-2">
+                    <span class="text-xs font-bold text-slate-600">${(hd.products && hd.products.name) || 'Item'} <span class="text-slate-400">× ${hd.quantity}</span></span>
+                    <button onclick='_invOpenDistModal("${h.holder_type}", ${h.holder_id}, ${hd.product_id}, ${JSON.stringify((hd.products && hd.products.name) || "item")}, ${hd.quantity})'
+                      class="px-3 py-1 rounded-lg bg-blue-600 text-white text-[9px] font-black uppercase tracking-widest shrink-0">Distribute</button>
+                  </div>`).join('')}
+              </div>` : `<p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Nothing on hand</p>`}
+          </div>`).join('');
+      })
+      .withFailureHandler(() => {})
+      .getAssignedHolders(myId);
+  }
+
+  function _invLoadHistory() {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run
+      .withSuccessHandler(res => {
+        const body = document.getElementById('invHistoryBody');
+        if (!body) return;
+        const rows = (res && res.rows) || [];
+        if (!rows.length) {
+          body.innerHTML = `<tr><td colspan="5" class="px-4 py-8 text-center text-slate-400 font-bold">No items received yet</td></tr>`;
+          return;
+        }
+        body.innerHTML = rows.map(r => {
+          const items = r.distribution_items || [];
+          const itemLabel = items.map(i => `${(i.products && i.products.name) || 'Item'} × ${i.quantity}`).join(', ') || '—';
+          const from = (r.consumers && r.consumers.name) || (r.from_consumer_id ? 'Another holder' : 'Central Store');
+          const date = r.created_at ? new Date(r.created_at).toLocaleDateString('en-BD', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+          return `<tr class="border-t border-slate-50">
+            <td class="px-4 py-2.5 font-bold text-slate-500">${date}</td>
+            <td class="px-4 py-2.5 font-bold text-slate-700">${itemLabel}</td>
+            <td class="px-4 py-2.5 font-bold text-slate-700 text-right">${items.reduce((s, i) => s + Number(i.quantity || 0), 0)}</td>
+            <td class="px-4 py-2.5 font-bold text-slate-500">${from}</td>
+            <td class="px-4 py-2.5 font-bold text-slate-400">${r.remarks || ''}</td>
+          </tr>`;
+        }).join('');
+      })
+      .withFailureHandler(() => {})
+      .getMyDistributionHistory(myId);
+  }
+
+  // ── Distribute modal (shared by "My Inventory" and "Assigned To Me") ────────
+  function _invOpenDistModal(fromType, fromId, productId, productName, max) {
+    _invDistContext = { fromType, fromId, productId, productName, max };
+    document.getElementById('invDistTitle').textContent = `Distribute ${productName}`;
+    document.getElementById('invDistMax').textContent = `(max ${max})`;
+    document.getElementById('invDistQty').value = '';
+    document.getElementById('invDistQty').max = max;
+    document.getElementById('invDistRemarks').value = '';
+    document.getElementById('invDistStatus').textContent = '';
+    document.getElementById('invDistModal').classList.remove('hidden');
+
+    if (_invOptionsCache) { _invRenderRecipientOptions(); return; }
+    google.script.run
+      .withSuccessHandler(res => { _invOptionsCache = res || { consumers: [], committees: [], assignments: [] }; _invRenderRecipientOptions(); })
+      .withFailureHandler(() => { _invOptionsCache = { consumers: [], committees: [], assignments: [] }; _invRenderRecipientOptions(); })
+      .getConsumerOptions();
+  }
+
+  function _invCloseDistModal() {
+    document.getElementById('invDistModal').classList.add('hidden');
+    _invDistContext = null;
+  }
+
+  const PERSON_CONSUMER_TYPES = ['teacher', 'staff', 'student', 'others'];
+  function _invRenderRecipientOptions() {
+    if (!_invOptionsCache) return;
+    const type = document.getElementById('invDistType').value;
+    const wanted = type === 'person' ? PERSON_CONSUMER_TYPES : [type];
+    const matches = _invOptionsCache.consumers.filter(c => wanted.includes(c.type));
+    const sel = document.getElementById('invDistConsumer');
+    sel.innerHTML = `<option value="">--Select--</option>` + matches.map(c =>
+      `<option value="${c.id}">${c.name}${c.type === 'committee' ? ' (Committee)' : ''}</option>`).join('');
+    _invUpdateNotifyPreview();
+  }
+
+  function _invUpdateNotifyPreview() {
+    const sel = document.getElementById('invDistConsumer');
+    const preview = document.getElementById('invDistPreview');
+    const remarksInput = document.getElementById('invDistRemarks');
+    if (!sel.value || !_invOptionsCache) { preview.textContent = ''; return; }
+    const consumer = _invOptionsCache.consumers.find(c => String(c.id) === String(sel.value));
+    if (!consumer) { preview.textContent = ''; return; }
+    let text = 'No ccpc-teachers identity for this recipient — no notification will be sent.';
+    if (consumer.type === 'committee') {
+      const committee = _invOptionsCache.committees.find(c => String(c.id) === String(consumer.reference_id));
+      text = committee && committee.chairman_user_id ? `Will notify: ${committee.chairman_user_id} (chairman of ${committee.name})` : 'No chairman set for this committee yet — no one will be notified.';
+      if (!remarksInput.value) remarksInput.value = `Committee: ${consumer.name}`;
+    } else if (consumer.type === 'room' || consumer.type === 'building') {
+      const a = _invOptionsCache.assignments.find(x => x.holder_type === consumer.type && String(x.holder_id) === String(consumer.reference_id));
+      text = a ? `Will notify: ${a.assignee_user_id}` : 'No distributor assigned yet — no one will be notified.';
+    } else if (consumer.type === 'teacher' || consumer.type === 'staff') {
+      text = consumer.reference_id ? `Will notify: ${consumer.reference_id}` : 'No ccpc-teachers user_id set on this consumer — no one will be notified.';
+    }
+    preview.textContent = text;
+  }
+
+  function _invSubmitDistribution() {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const consumerId = document.getElementById('invDistConsumer').value;
+    const qty = Number(document.getElementById('invDistQty').value);
+    const remarks = document.getElementById('invDistRemarks').value;
+    const status = document.getElementById('invDistStatus');
+    if (!consumerId) { status.className = 'text-xs font-bold text-red-600'; status.textContent = 'Pick a recipient.'; return; }
+    if (!qty || qty <= 0) { status.className = 'text-xs font-bold text-red-600'; status.textContent = 'Enter a quantity greater than 0.'; return; }
+    if (qty > _invDistContext.max) { status.className = 'text-xs font-bold text-red-600'; status.textContent = `Only ${_invDistContext.max} on hand.`; return; }
+
+    document.getElementById('invDistSubmitBtn').disabled = true;
+    google.script.run
+      .withSuccessHandler(res => {
+        document.getElementById('invDistSubmitBtn').disabled = false;
+        if (res && res.result === 'success') {
+          showToast('Distributed successfully');
+          _invCloseDistModal();
+          _invLoadHoldings(); _invLoadAssigned(); _invLoadHistory(); _invLoadNotifications();
+        } else {
+          status.className = 'text-xs font-bold text-red-600';
+          status.textContent = (res && res.message) || 'Failed to distribute.';
+        }
+      })
+      .withFailureHandler(() => {
+        document.getElementById('invDistSubmitBtn').disabled = false;
+        status.className = 'text-xs font-bold text-red-600';
+        status.textContent = 'Network error — try again.';
+      })
+      .createDistribution(myId, _invDistContext.fromType, _invDistContext.fromId, _invDistContext.productId, consumerId, qty, remarks);
+  }
+
+  // Per-user (not per-role) sidebar visibility: does this person have any
+  // inventory to manage at all? Runs after every updateSidebarForRole() pass
+  // so it survives login and role switches without needing its own hook site.
+  function _checkInventoryNavVisibility() {
+    const el = document.getElementById('nav-inventory');
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    if (!el || !myId) return;
+    google.script.run
+      .withSuccessHandler(res => { el.style.display = (res && res.hasAccess) ? '' : 'none'; })
+      .withFailureHandler(() => {})
+      .getMyInventoryAccess(myId);
   }
 
   // ── PERMISSION CONTROL PANEL (Admin only) ────────────────────────────────────

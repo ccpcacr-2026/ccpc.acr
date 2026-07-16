@@ -14,7 +14,7 @@ const RESERVED = [
   'closeConfirmModal','closeDetailsModal','closeEditRoleModal','closeMobileSidebar',
   'closeModal','closeRecordsModal','closeResetPassModal','confirmChangeMyPass',
   'confirmEditRole','confirmResetPassword','launchDashboard','loadMyCommittees',
-  'loadSystemView','logout','openChangeMyPassModal','openMobileSidebar',
+  'loadInventoryView','loadSystemView','logout','openChangeMyPassModal','openMobileSidebar',
   'switchRecordsTab','toggleSidebar',
   // view HTML onclick
   'addAttributeRow','addBankRow','addChildInfoRow','addCountryRow','addEduRow',
@@ -59,7 +59,10 @@ const RESERVED = [
   '_confirmAdjustment','_openDailySetupPrompt','_generateAdjustmentPdf',
   '_setRoutineMode','_selectAdjustTeacher','_toggleAdjustmentsList','_loadMyRoutinePeriods',
   '_confirmDailySetup','_openWeeklyRoutineModal','_setRoutineViewMode','_openPdfHistoryModal',
-  'saveModuleVisibility'
+  'saveModuleVisibility',
+  // inventory chain-of-custody
+  '_invMarkNotifRead','_invOpenDistModal','_invCloseDistModal','_invSubmitDistribution',
+  '_invRenderRecipientOptions','_invUpdateNotifyPreview'
 ];
 
 // Strip HTML comments and collapse whitespace
