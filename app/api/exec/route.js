@@ -1362,19 +1362,6 @@ const handlers = {
   // free-standing helpers above (not handlers properties), so they can't be
   // reached directly via {fn:"_invReq",...} from the client. ─────────────────
 
-  // True if this user has ever received something directly, or has been
-  // granted distributor rights over a room/building/committee — either one
-  // is enough to show the Inventory nav item.
-  async getMyInventoryAccess([userId]) {
-    if (!userId) return { hasAccess: false };
-    const [distRows, assignRows] = await Promise.all([
-      _invReq(`distributions?receiver_user_id=eq.${encodeURIComponent(userId)}&select=id&limit=1`),
-      _invReq(`distributor_assignments?assignee_user_id=eq.${encodeURIComponent(userId)}&select=id&limit=1`),
-    ]);
-    const hasAccess = (Array.isArray(distRows) && distRows.length > 0) || (Array.isArray(assignRows) && assignRows.length > 0);
-    return { hasAccess };
-  },
-
   // Everything this user holds AS THEMSELVES (their own "person" consumer
   // record) plus their full personal receipt history.
   async getMyHolderStock([userId]) {

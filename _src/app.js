@@ -327,13 +327,6 @@
       container.classList.toggle('hidden', !anyVisible);
     });
 
-    // #nav-inventory is NOT in MODULE_REGISTRY on purpose — visibility isn't
-    // role-based, it's "have you ever received something, or been assigned as
-    // a distributor" (see the Inventory chain-of-custody plan). Must run
-    // before the early returns below so it fires on every sidebar update
-    // (login, role switch) regardless of how many roles this user has.
-    _checkInventoryNavVisibility();
-
     // Role switcher: only visible when user has more than one role
     const switcher = document.getElementById('role-switcher');
     const btnsEl   = document.getElementById('role-switcher-btns');
@@ -2484,19 +2477,6 @@
         status.textContent = 'Network error — try again.';
       })
       .createDistribution(myId, _invDistContext.fromType, _invDistContext.fromId, _invDistContext.productId, consumerId, qty, remarks);
-  }
-
-  // Per-user (not per-role) sidebar visibility: does this person have any
-  // inventory to manage at all? Runs after every updateSidebarForRole() pass
-  // so it survives login and role switches without needing its own hook site.
-  function _checkInventoryNavVisibility() {
-    const el = document.getElementById('nav-inventory');
-    const myId = window.APP_USER && window.APP_USER.user_id;
-    if (!el || !myId) return;
-    google.script.run
-      .withSuccessHandler(res => { el.style.display = (res && res.hasAccess) ? '' : 'none'; })
-      .withFailureHandler(() => {})
-      .getMyInventoryAccess(myId);
   }
 
   // ── PERMISSION CONTROL PANEL (Admin only) ────────────────────────────────────
