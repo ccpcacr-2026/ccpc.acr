@@ -62,7 +62,9 @@ const RESERVED = [
   'saveModuleVisibility',
   // inventory chain-of-custody
   '_invMarkNotifRead','_invOpenDistModal','_invCloseDistModal','_invSubmitDistribution',
-  '_invRenderRecipientOptions','_invUpdateNotifyPreview'
+  '_invRenderRecipientOptions','_invUpdateNotifyPreview',
+  // student detail panel (My Class)
+  'openStudentProfile','closeStudentProfile'
 ];
 
 // Strip HTML comments and collapse whitespace

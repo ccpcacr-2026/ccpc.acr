@@ -119,6 +119,17 @@ async function _fetchCsvByGid(sheetId, gid) {
   return _parseCsv(await res.text());
 }
 
+// Cross-schema GET into the `student` schema (same Supabase project, service
+// key, Accept-Profile header) — same pattern as student-admin/route.js's own
+// sb() helper. Free-standing so it's shared by every class-teacher handler
+// below without duplicating the fetch/header boilerplate each time.
+async function _sbStudent(path) {
+  const res = await fetch(`${process.env.SUPABASE_URL}/rest/v1/${path}`, {
+    headers: { apikey: process.env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}`, 'Accept-Profile': 'student' },
+  });
+  return res.ok ? res.json() : [];
+}
+
 // Resolves every row of the class-teacher sheet to a real ccpc-teachers
 // user_id: try the sheet's own ID column first (most rows are "#N/A" in
 // practice), then fall back to the same shortname→full_name→teacher_id chain
@@ -1460,23 +1471,79 @@ const handlers = {
     const mine = assignments.filter(a => a.resolvedUserId === userId);
     if (!mine.length) return { classes: [] };
 
-    const sbStudent = async (path) => {
-      const res = await fetch(`${process.env.SUPABASE_URL}/rest/v1/${path}`, {
-        headers: { apikey: process.env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}`, 'Accept-Profile': 'student' },
-      });
-      return res.ok ? res.json() : [];
-    };
-
     const classes = await Promise.all(mine.map(async ({ classKey, className, section }) => {
       const studentClass = CLASS_TEACHER_NAME_TO_STUDENT_CLASS[className] || className;
       const studentSection = CLASS_TEACHER_SECTION_ALIASES[section] || section;
-      const students = await sbStudent(
+      const students = await _sbStudent(
         `students_data?class=eq.${encodeURIComponent(studentClass)}&section=eq.${encodeURIComponent(studentSection)}` +
         `&select=student_id,student_name,roll,gender,version,shift,phone_number,father_phone,mother_phone&order=roll.asc`
       );
       return { classKey, className, section, students: Array.isArray(students) ? students : [] };
     }));
     return { classes };
+  },
+
+  // Full read-only detail panel for one student — canteen, attendance, custom
+  // tab submissions, and base profile. Authorization is NOT "the roster only
+  // links to your own students" (that's just UI convenience) — this handler
+  // independently re-derives the caller's resolved classes and checks the
+  // requested student actually belongs to one of them before returning
+  // anything, so a tampered studentId can never leak another class's data.
+  // Custom-tab visibility here deliberately bypasses each tab's own global
+  // data_access_json allowlist: being this student's verified class teacher
+  // is itself sufficient authorization, per an explicit product decision —
+  // it is not, and should not become, a way to read another tab's global
+  // allowlist or grant access beyond this one student.
+  async getStudentDetail([callerUserId, studentId]) {
+    if (!callerUserId || !studentId) return { error: 'Not authorized.' };
+
+    const assignments = await _getClassTeacherAssignments();
+    const mine = assignments
+      .filter(a => a.resolvedUserId === callerUserId)
+      .map(a => ({
+        studentClass: CLASS_TEACHER_NAME_TO_STUDENT_CLASS[a.className] || a.className,
+        studentSection: CLASS_TEACHER_SECTION_ALIASES[a.section] || a.section,
+      }));
+    if (!mine.length) return { error: 'Not authorized for this student.' };
+
+    const studentRows = await _sbStudent(`students_data?student_id=eq.${encodeURIComponent(studentId)}&select=*`);
+    const student = Array.isArray(studentRows) && studentRows[0];
+    if (!student) return { error: 'Student not found.' };
+
+    const isMine = mine.some(m => m.studentClass === student.class && m.studentSection === student.section);
+    if (!isMine) return { error: 'Not authorized for this student.' };
+
+    const { pin, nfc_uid, ...profile } = student;
+
+    const [attendance, orders, recharges, tabs, submissions] = await Promise.all([
+      _sbStudent(`attendance_records?student_id=eq.${encodeURIComponent(studentId)}&select=date,entry_time,exit_time&order=date.desc&limit=30`),
+      _sbStudent(`canteen_orders?student_id=eq.${encodeURIComponent(studentId)}&select=orders,price,is_delivered,invoice_number,created_at&order=created_at.desc&limit=20`),
+      _sbStudent(`recharge_history?student_id=eq.${encodeURIComponent(studentId)}&select=amount,gateway,confirmation,created_at&order=created_at.desc&limit=10`),
+      _sbStudent(`portal_tabs?is_enabled=eq.true&select=tab_name,fields_json,icon_class&order=sort_order.asc`),
+      _sbStudent(`portal_submissions?student_id=eq.${encodeURIComponent(studentId)}&select=tab_name,data,updated_at`),
+    ]);
+
+    const submissionByTab = {};
+    (Array.isArray(submissions) ? submissions : []).forEach(s => { submissionByTab[s.tab_name] = s; });
+    const customTabs = (Array.isArray(tabs) ? tabs : [])
+      .filter(t => submissionByTab[t.tab_name])
+      .map(t => {
+        let fields = [];
+        try { fields = JSON.parse(t.fields_json || '[]'); } catch {}
+        const sub = submissionByTab[t.tab_name];
+        return { tab_name: t.tab_name, icon_class: t.icon_class, updated_at: sub.updated_at, fields, data: sub.data || {} };
+      });
+
+    return {
+      profile,
+      attendance: Array.isArray(attendance) ? attendance : [],
+      canteen: {
+        orders: Array.isArray(orders) ? orders : [],
+        recharges: Array.isArray(recharges) ? recharges : [],
+      },
+      customTabs,
+      resultsAvailable: false,
+    };
   },
 
   // ── INVENTORY (chain-of-custody: receive at ccpc-inventory's central store,

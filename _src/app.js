@@ -2219,35 +2219,33 @@
           body.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">You are not currently assigned as a class teacher</div>`;
           return;
         }
-        body.innerHTML = classes.map(c => `
+        body.innerHTML = classes.map(c => {
+          const sorted = [...c.students].sort((a, b) => {
+            const ra = parseInt(a.roll, 10), rb = parseInt(b.roll, 10);
+            if (!isNaN(ra) && !isNaN(rb) && ra !== rb) return ra - rb;
+            return String(a.roll || '').localeCompare(String(b.roll || ''), undefined, { numeric: true });
+          });
+          return `
           <div>
-            <p class="font-black text-slate-800 text-sm uppercase tracking-widest mb-3">${c.classKey}<span class="text-slate-400 font-bold"> · ${c.students.length} students</span></p>
-            <div class="overflow-x-auto border border-slate-100 rounded-xl bg-white">
-              <table class="w-full text-left text-xs">
-                <thead class="bg-slate-50">
-                  <tr>
-                    <th class="px-4 py-2.5 font-black text-slate-500 uppercase tracking-widest">Roll</th>
-                    <th class="px-4 py-2.5 font-black text-slate-500 uppercase tracking-widest">Name</th>
-                    <th class="px-4 py-2.5 font-black text-slate-500 uppercase tracking-widest">Gender</th>
-                    <th class="px-4 py-2.5 font-black text-slate-500 uppercase tracking-widest">Version / Shift</th>
-                    <th class="px-4 py-2.5 font-black text-slate-500 uppercase tracking-widest">Father's Phone</th>
-                    <th class="px-4 py-2.5 font-black text-slate-500 uppercase tracking-widest">Mother's Phone</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${c.students.length ? c.students.map(s => `
-                    <tr class="border-t border-slate-50">
-                      <td class="px-4 py-2.5 font-bold text-slate-500">${s.roll || ''}</td>
-                      <td class="px-4 py-2.5 font-bold text-slate-700">${s.student_name || ''}</td>
-                      <td class="px-4 py-2.5 font-bold text-slate-500">${s.gender || ''}</td>
-                      <td class="px-4 py-2.5 font-bold text-slate-500">${[s.version, s.shift].filter(Boolean).join(' / ')}</td>
-                      <td class="px-4 py-2.5 font-bold text-slate-500">${s.father_phone || ''}</td>
-                      <td class="px-4 py-2.5 font-bold text-slate-500">${s.mother_phone || ''}</td>
-                    </tr>`).join('') : `<tr><td colspan="6" class="px-4 py-8 text-center text-slate-400 font-bold">No students found for this class</td></tr>`}
-                </tbody>
-              </table>
+            <p class="font-black text-slate-800 text-sm uppercase tracking-widest mb-3">${c.classKey}<span class="text-slate-400 font-bold"> · ${sorted.length} students</span></p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              ${sorted.length ? sorted.map(s => `
+                <button onclick='openStudentProfile(${JSON.stringify(s.student_id)})'
+                  class="text-left bg-white border border-slate-200 rounded-xl p-4 hover:border-blue-300 hover:shadow-md transition-all">
+                  <div class="flex items-center justify-between mb-1">
+                    <span class="text-[10px] font-black text-blue-600 uppercase tracking-widest">Roll ${s.roll || '—'}</span>
+                    <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">${s.gender || ''}</span>
+                  </div>
+                  <p class="text-sm font-black text-slate-800 mb-2">${s.student_name || ''}</p>
+                  <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">${[s.version, s.shift].filter(Boolean).join(' / ')}</p>
+                  <div class="mt-2 pt-2 border-t border-slate-50 flex flex-col gap-0.5">
+                    <span class="text-[10px] font-bold text-slate-500">Father: ${s.father_phone || '—'}</span>
+                    <span class="text-[10px] font-bold text-slate-500">Mother: ${s.mother_phone || '—'}</span>
+                  </div>
+                </button>`).join('') : `<div class="col-span-full text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">No students found for this class</div>`}
             </div>
-          </div>`).join('');
+          </div>`;
+        }).join('');
         lucide.createIcons();
       })
       .withFailureHandler(() => {
@@ -2255,6 +2253,138 @@
         if (body) body.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">Failed to load class roster</div>`;
       })
       .getMyClassRoster(myId);
+  }
+
+  function _fieldLabel(f) {
+    return f.name || f.label || String(f.data_key || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  // Read-only detail panel for one student, opened from a "My Class" roster
+  // card. Server re-verifies the student is actually one of the caller's own
+  // class before returning anything — see getStudentDetail in route.js.
+  function openStudentProfile(studentId) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    if (!myId) return;
+    let modal = document.getElementById('studentDetailModal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'studentDetailModal';
+      modal.className = 'hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
+      modal.innerHTML = `<div class="bg-white rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto p-5">
+        <div class="flex items-center justify-between mb-4">
+          <p class="font-black text-slate-800 text-sm" id="studentDetailTitle">Student</p>
+          <button onclick="closeStudentProfile()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+        </div>
+        <div id="studentDetailBody"><div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div></div>
+      </div>`;
+      document.body.appendChild(modal);
+    }
+    modal.classList.remove('hidden');
+    document.getElementById('studentDetailBody').innerHTML = `<div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`;
+    lucide.createIcons();
+
+    google.script.run
+      .withSuccessHandler(res => {
+        const body = document.getElementById('studentDetailBody');
+        if (!body) return;
+        if (!res || res.error) {
+          body.innerHTML = `<div class="text-center py-12 text-red-400 text-xs font-black uppercase tracking-widest">${(res && res.error) || 'Failed to load'}</div>`;
+          return;
+        }
+        const p = res.profile || {};
+        document.getElementById('studentDetailTitle').textContent = `${p.student_name || 'Student'} · Roll ${p.roll || '—'}`;
+
+        const presentDays = res.attendance.filter(a => a.entry_time).length;
+        const attendanceRows = res.attendance.map(a => `
+          <tr class="border-t border-slate-50">
+            <td class="px-3 py-1.5 font-bold text-slate-500">${a.date}</td>
+            <td class="px-3 py-1.5 font-bold text-slate-700">${a.entry_time || '—'}</td>
+            <td class="px-3 py-1.5 font-bold text-slate-700">${a.exit_time || '—'}</td>
+          </tr>`).join('');
+
+        const orderRows = res.canteen.orders.map(o => {
+          const items = Array.isArray(o.orders) ? o.orders.map(i => `${i.name} ×${i.qty}`).join(', ') : '';
+          return `<tr class="border-t border-slate-50">
+            <td class="px-3 py-1.5 font-bold text-slate-500">${new Date(o.created_at).toLocaleDateString()}</td>
+            <td class="px-3 py-1.5 font-bold text-slate-700">${items}</td>
+            <td class="px-3 py-1.5 font-bold text-slate-700 text-right">${o.price}</td>
+          </tr>`;
+        }).join('');
+        const rechargeRows = res.canteen.recharges.map(r => `
+          <tr class="border-t border-slate-50">
+            <td class="px-3 py-1.5 font-bold text-slate-500">${new Date(r.created_at).toLocaleDateString()}</td>
+            <td class="px-3 py-1.5 font-bold text-slate-700">${r.gateway || ''}</td>
+            <td class="px-3 py-1.5 font-bold text-slate-700">${r.confirmation || ''}</td>
+            <td class="px-3 py-1.5 font-bold text-slate-700 text-right">${r.amount}</td>
+          </tr>`).join('');
+
+        body.innerHTML = `
+          <div class="flex flex-col gap-6">
+            <div>
+              <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Profile</p>
+              <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+                ${[['Class', p.class],['Section', p.section],['Roll', p.roll],['Gender', p.gender],['Version', p.version],['Shift', p.shift],
+                   [`Father's Phone`, p.father_phone],[`Mother's Phone`, p.mother_phone],['Balance', p.balance],['Card Status', p.card_status]]
+                  .map(([l, v]) => `<div><p class="text-slate-400 font-bold text-[10px] uppercase">${l}</p><p class="font-black text-slate-700">${v ?? '—'}</p></div>`).join('')}
+              </div>
+            </div>
+
+            <div>
+              <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Attendance <span class="text-slate-500">(${presentDays}/${res.attendance.length} days present, last ${res.attendance.length})</span></p>
+              <div class="overflow-x-auto border border-slate-100 rounded-xl bg-white max-h-48 overflow-y-auto">
+                <table class="w-full text-left text-xs">
+                  <thead class="bg-slate-50 sticky top-0"><tr><th class="px-3 py-1.5 font-black text-slate-500 uppercase">Date</th><th class="px-3 py-1.5 font-black text-slate-500 uppercase">In</th><th class="px-3 py-1.5 font-black text-slate-500 uppercase">Out</th></tr></thead>
+                  <tbody>${attendanceRows || `<tr><td colspan="3" class="px-3 py-4 text-center text-slate-400 font-bold">No records</td></tr>`}</tbody>
+                </table>
+              </div>
+            </div>
+
+            <div>
+              <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Canteen — Orders</p>
+              <div class="overflow-x-auto border border-slate-100 rounded-xl bg-white max-h-48 overflow-y-auto">
+                <table class="w-full text-left text-xs">
+                  <thead class="bg-slate-50 sticky top-0"><tr><th class="px-3 py-1.5 font-black text-slate-500 uppercase">Date</th><th class="px-3 py-1.5 font-black text-slate-500 uppercase">Items</th><th class="px-3 py-1.5 font-black text-slate-500 uppercase text-right">Price</th></tr></thead>
+                  <tbody>${orderRows || `<tr><td colspan="3" class="px-3 py-4 text-center text-slate-400 font-bold">No orders</td></tr>`}</tbody>
+                </table>
+              </div>
+            </div>
+
+            <div>
+              <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Canteen — Recharges</p>
+              <div class="overflow-x-auto border border-slate-100 rounded-xl bg-white max-h-40 overflow-y-auto">
+                <table class="w-full text-left text-xs">
+                  <thead class="bg-slate-50 sticky top-0"><tr><th class="px-3 py-1.5 font-black text-slate-500 uppercase">Date</th><th class="px-3 py-1.5 font-black text-slate-500 uppercase">Gateway</th><th class="px-3 py-1.5 font-black text-slate-500 uppercase">Status</th><th class="px-3 py-1.5 font-black text-slate-500 uppercase text-right">Amount</th></tr></thead>
+                  <tbody>${rechargeRows || `<tr><td colspan="4" class="px-3 py-4 text-center text-slate-400 font-bold">No recharges</td></tr>`}</tbody>
+                </table>
+              </div>
+            </div>
+
+            ${res.customTabs.map(t => `
+              <div>
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">${t.tab_name}</p>
+                <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs bg-white border border-slate-100 rounded-xl p-3">
+                  ${t.fields.filter(f => f.type !== 'group_label' && t.data[f.data_key] !== undefined && t.data[f.data_key] !== null && t.data[f.data_key] !== '').map(f => `
+                    <div><p class="text-slate-400 font-bold text-[10px] uppercase">${_fieldLabel(f)}</p><p class="font-black text-slate-700">${t.data[f.data_key] ?? '—'}</p></div>`).join('')}
+                </div>
+              </div>`).join('')}
+
+            <div>
+              <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Results</p>
+              <div class="text-center py-6 bg-white border border-slate-100 rounded-xl text-slate-400 text-xs font-black uppercase tracking-widest">Not available yet</div>
+            </div>
+          </div>`;
+        lucide.createIcons();
+      })
+      .withFailureHandler(() => {
+        const body = document.getElementById('studentDetailBody');
+        if (body) body.innerHTML = `<div class="text-center py-12 text-red-400 text-xs font-black uppercase tracking-widest">Failed to load</div>`;
+      })
+      .getStudentDetail(myId, studentId);
+  }
+
+  function closeStudentProfile() {
+    const modal = document.getElementById('studentDetailModal');
+    if (modal) modal.classList.add('hidden');
   }
 
   // ═══════════════════════════════════════════════════════
