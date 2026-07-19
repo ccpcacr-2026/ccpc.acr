@@ -14,7 +14,7 @@ const RESERVED = [
   'closeConfirmModal','closeDetailsModal','closeEditRoleModal','closeMobileSidebar',
   'closeModal','closeRecordsModal','closeResetPassModal','confirmChangeMyPass',
   'confirmEditRole','confirmResetPassword','launchDashboard','loadMyCommittees',
-  'loadInventoryView','loadSystemView','logout','openChangeMyPassModal','openMobileSidebar',
+  'loadInventoryView','loadMyClassView','loadSystemView','logout','openChangeMyPassModal','openMobileSidebar',
   'switchRecordsTab','toggleSidebar',
   // view HTML onclick
   'addAttributeRow','addBankRow','addChildInfoRow','addCountryRow','addEduRow',

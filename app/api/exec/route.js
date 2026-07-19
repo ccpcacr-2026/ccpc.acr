@@ -44,6 +44,24 @@ const ROUTINE_GAS_URL  = 'https://script.google.com/macros/s/AKfycbyLXrJdZTvPrGY
 const PERIOD_LABELS = ['1st','2nd','3rd','4th/junior tiffin','4th/senior tiffin','5th','6th','7th'];
 const WEEKDAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
+// ── CLASS TEACHER → STUDENT ROSTER ──────────────────────────────────────────
+// Authoritative class→teacher list lives in a separate Google Sheet (not the
+// routine one above). Same live-fetch-per-request convention as the routine
+// feature — no stored table, no cron, always re-derived from the sheet.
+const CLASS_TEACHER_SHEET_ID  = '1QSpqo2tq9aWnrJGr4o-EP5F8Y4FQhRck9BCY2IqjZSk';
+const CLASS_TEACHER_SHEET_GID = '383089794';
+
+// The sheet's "Class" column uses Roman-numeral/abbreviated internal codes
+// (NUR., KG, I..X) but student.students_data.class stores spelled-out English
+// words (Nursery, KG, One..Ten) — confirmed by comparing the sheet against the
+// live distinct class/section values. Section is otherwise identical except
+// one alias ("BS-EV" in the sheet, stored as "BS-E").
+const CLASS_TEACHER_NAME_TO_STUDENT_CLASS = {
+  'NUR.': 'Nursery', 'KG': 'KG', 'I': 'One', 'II': 'Two', 'III': 'Three', 'IV': 'Four',
+  'V': 'Five', 'VI': 'Six', 'VII': 'Seven', 'VIII': 'Eight', 'IX': 'Nine', 'X': 'Ten',
+};
+const CLASS_TEACHER_SECTION_ALIASES = { 'BS-EV': 'BS-E' };
+
 // Minimal RFC4180 CSV parser — gviz always quotes every field
 function _parseCsv(text) {
   const rows = [];
@@ -89,6 +107,78 @@ function _findPeriodCols(headerRow) {
 // row, unlike the neighboring "first row of the day" grouping column).
 function _findWeekdayCol(headerRow) {
   return (headerRow || []).findIndex(h => String(h).trim() === 'Weekday');
+}
+
+// Same cache-busted/no-store convention as _fetchSheetRows, but by gid — the
+// class-teacher sheet isn't the routine spreadsheet and its tab is referenced
+// by gid, not name.
+async function _fetchCsvByGid(sheetId, gid) {
+  const url = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}&_=${Date.now()}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(15000), cache: 'no-store' });
+  if (!res.ok) throw new Error(`Could not read class-teacher sheet (HTTP ${res.status})`);
+  return _parseCsv(await res.text());
+}
+
+// Resolves every row of the class-teacher sheet to a real ccpc-teachers
+// user_id: try the sheet's own ID column first (most rows are "#N/A" in
+// practice), then fall back to the same shortname→full_name→teacher_id chain
+// _resolveUserIdsByShortnames already uses for the unrelated routine feature
+// (the two sheets share the same shortname vocabulary, confirmed against the
+// "Logged in info" tab). Free-standing (not a `handlers` property) since it's
+// an internal building block only the validated handlers below should call.
+async function _getClassTeacherAssignments() {
+  const [sheetRows, profiles, directory] = await Promise.all([
+    _fetchCsvByGid(CLASS_TEACHER_SHEET_ID, CLASS_TEACHER_SHEET_GID),
+    supabaseRequest('users_profile?select=teacher_id,full_name'),
+    handlers.getRoutineDirectory(),
+  ]);
+
+  const header = sheetRows[0] || [];
+  const classesIdx = header.findIndex(h => String(h).trim() === 'Classes'); // first occurrence
+  const idIdx       = header.findIndex(h => String(h).trim() === 'ID');
+  const snIdx        = header.findIndex(h => String(h).trim() === 'Sort Names');
+  const classIdx     = header.findIndex(h => String(h).trim() === 'Class');   // second table's split column
+  const sectionIdx   = header.findIndex(h => String(h).trim() === 'Section');
+  if (classesIdx < 0) return [];
+
+  const teacherIdSet = new Set();
+  const nameByNormalized = {};
+  (Array.isArray(profiles) ? profiles : []).forEach(p => {
+    if (p.teacher_id) teacherIdSet.add(String(p.teacher_id));
+    const key = _normalizeName(p.full_name);
+    if (key) nameByNormalized[key] = p.teacher_id;
+  });
+  const shortnameToFullName = {};
+  directory.forEach(d => { shortnameToFullName[d.shortname.toLowerCase()] = d.fullName; });
+
+  const out = [];
+  for (let i = 1; i < sheetRows.length; i++) {
+    const row = sheetRows[i];
+    const classKey = String(row[classesIdx] || '').trim();
+    if (!classKey || classKey === '-') break; // sheet trails off into unrelated tables after the class list
+
+    const idVal = String(row[idIdx] || '').trim();
+    let resolvedUserId = null, resolvedVia = null;
+    if (idVal && idVal !== '#N/A' && teacherIdSet.has(idVal)) {
+      resolvedUserId = idVal; resolvedVia = 'id';
+    } else {
+      const shortname = String(row[snIdx] || '').trim();
+      const fullName = shortname ? shortnameToFullName[shortname.toLowerCase()] : '';
+      const normalized = fullName ? _normalizeName(fullName) : '';
+      if (normalized && nameByNormalized[normalized]) {
+        resolvedUserId = nameByNormalized[normalized]; resolvedVia = 'shortname';
+      }
+    }
+
+    out.push({
+      classKey,
+      className: classIdx >= 0 ? String(row[classIdx] || '').trim() : '',
+      section: sectionIdx >= 0 ? String(row[sectionIdx] || '').trim() : '',
+      resolvedUserId,
+      resolvedVia,
+    });
+  }
+  return out;
 }
 
 async function _callRoutineGas(params) {
@@ -1349,6 +1439,44 @@ const handlers = {
     const headers = [...ordered, ...extras];
     const dataRows = rows.map(r => headers.map(h => h === 'student_id' ? r.student_id : (r.data?.[h] ?? '')));
     return { headers, rows: dataRows };
+  },
+
+  // ── CLASS TEACHER → STUDENT ROSTER ────────────────────────────────────────
+  // _getClassTeacherAssignments (free-standing, above) does the actual sheet
+  // resolution; these two handlers only ever look up by the CALLER's own
+  // userId — a class/section is never accepted from the client.
+  async getMyClassAssignments([userId]) {
+    if (!userId) return { classes: [] };
+    const assignments = await _getClassTeacherAssignments();
+    const classes = assignments
+      .filter(a => a.resolvedUserId === userId)
+      .map(({ classKey, className, section }) => ({ classKey, className, section }));
+    return { classes };
+  },
+
+  async getMyClassRoster([userId]) {
+    if (!userId) return { classes: [] };
+    const assignments = await _getClassTeacherAssignments();
+    const mine = assignments.filter(a => a.resolvedUserId === userId);
+    if (!mine.length) return { classes: [] };
+
+    const sbStudent = async (path) => {
+      const res = await fetch(`${process.env.SUPABASE_URL}/rest/v1/${path}`, {
+        headers: { apikey: process.env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}`, 'Accept-Profile': 'student' },
+      });
+      return res.ok ? res.json() : [];
+    };
+
+    const classes = await Promise.all(mine.map(async ({ classKey, className, section }) => {
+      const studentClass = CLASS_TEACHER_NAME_TO_STUDENT_CLASS[className] || className;
+      const studentSection = CLASS_TEACHER_SECTION_ALIASES[section] || section;
+      const students = await sbStudent(
+        `students_data?class=eq.${encodeURIComponent(studentClass)}&section=eq.${encodeURIComponent(studentSection)}` +
+        `&select=student_id,student_name,roll,gender,version,shift,phone_number,father_phone,mother_phone&order=roll.asc`
+      );
+      return { classKey, className, section, students: Array.isArray(students) ? students : [] };
+    }));
+    return { classes };
   },
 
   // ── INVENTORY (chain-of-custody: receive at ccpc-inventory's central store,

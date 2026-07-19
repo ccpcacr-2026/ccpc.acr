@@ -209,7 +209,8 @@
     notifications: () => loadNotificationsView(),
     users:         () => loadUsersDirectory(),
     routine:       () => loadRoutineView(),
-    inventory:     () => loadInventoryView()
+    inventory:     () => loadInventoryView(),
+    myclass:       () => loadMyClassView()
   };
 
   function _setViewHash(key) {
@@ -2188,6 +2189,75 @@
         showLoading(false);
       })
       .catch(() => showLoading(false));
+  }
+
+  // ═══════════════════════════════════════════════════════
+  //  MY CLASS — read-only roster for whichever class(es) the
+  //  caller resolves to as "Class Teacher" in the school's
+  //  master class-teacher sheet (ID match first, shortname
+  //  fallback — resolved server-side, never from client input).
+  // ═══════════════════════════════════════════════════════
+  function loadMyClassView() {
+    if (!['Teacher','Staff'].includes(window.ACTIVE_ROLE)) {
+      showToast('Not available in current role', 'error'); return;
+    }
+    _setViewHash('myclass');
+    setActiveNavLink('nav-my-class');
+    setContentHeader('My Class', 'graduation-cap');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    if (!myId) return;
+
+    container.innerHTML = `<div id="myClassBody" class="pt-4 flex flex-col gap-6 max-w-5xl mx-auto pb-10">
+      <div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>
+    </div>`;
+
+    google.script.run
+      .withSuccessHandler(res => {
+        const body = document.getElementById('myClassBody');
+        if (!body) return;
+        const classes = (res && res.classes) || [];
+        if (!classes.length) {
+          body.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">You are not currently assigned as a class teacher</div>`;
+          return;
+        }
+        body.innerHTML = classes.map(c => `
+          <div>
+            <p class="font-black text-slate-800 text-sm uppercase tracking-widest mb-3">${c.classKey}<span class="text-slate-400 font-bold"> · ${c.students.length} students</span></p>
+            <div class="overflow-x-auto border border-slate-100 rounded-xl bg-white">
+              <table class="w-full text-left text-xs">
+                <thead class="bg-slate-50">
+                  <tr>
+                    <th class="px-4 py-2.5 font-black text-slate-500 uppercase tracking-widest">Roll</th>
+                    <th class="px-4 py-2.5 font-black text-slate-500 uppercase tracking-widest">Name</th>
+                    <th class="px-4 py-2.5 font-black text-slate-500 uppercase tracking-widest">Gender</th>
+                    <th class="px-4 py-2.5 font-black text-slate-500 uppercase tracking-widest">Version / Shift</th>
+                    <th class="px-4 py-2.5 font-black text-slate-500 uppercase tracking-widest">Father's Phone</th>
+                    <th class="px-4 py-2.5 font-black text-slate-500 uppercase tracking-widest">Mother's Phone</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${c.students.length ? c.students.map(s => `
+                    <tr class="border-t border-slate-50">
+                      <td class="px-4 py-2.5 font-bold text-slate-500">${s.roll || ''}</td>
+                      <td class="px-4 py-2.5 font-bold text-slate-700">${s.student_name || ''}</td>
+                      <td class="px-4 py-2.5 font-bold text-slate-500">${s.gender || ''}</td>
+                      <td class="px-4 py-2.5 font-bold text-slate-500">${[s.version, s.shift].filter(Boolean).join(' / ')}</td>
+                      <td class="px-4 py-2.5 font-bold text-slate-500">${s.father_phone || ''}</td>
+                      <td class="px-4 py-2.5 font-bold text-slate-500">${s.mother_phone || ''}</td>
+                    </tr>`).join('') : `<tr><td colspan="6" class="px-4 py-8 text-center text-slate-400 font-bold">No students found for this class</td></tr>`}
+                </tbody>
+              </table>
+            </div>
+          </div>`).join('');
+        lucide.createIcons();
+      })
+      .withFailureHandler(() => {
+        const body = document.getElementById('myClassBody');
+        if (body) body.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">Failed to load class roster</div>`;
+      })
+      .getMyClassRoster(myId);
   }
 
   // ═══════════════════════════════════════════════════════
