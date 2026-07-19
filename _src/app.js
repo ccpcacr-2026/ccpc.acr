@@ -2198,9 +2198,6 @@
   //  fallback — resolved server-side, never from client input).
   // ═══════════════════════════════════════════════════════
   function loadMyClassView() {
-    if (!['Teacher','Staff'].includes(window.ACTIVE_ROLE)) {
-      showToast('Not available in current role', 'error'); return;
-    }
     _setViewHash('myclass');
     setActiveNavLink('nav-my-class');
     setContentHeader('My Class', 'graduation-cap');
