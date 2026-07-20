@@ -2346,10 +2346,13 @@
       .getMyClassRoster(myId);
   }
 
-  // At-a-glance table for one custom tab across the whole class — opened from
-  // the button row above the roster. Same underlying authorization as the
-  // roster/detail views (getMyClassTabTable re-derives the caller's own
-  // resolved classes server-side).
+  // At-a-glance view of one custom tab across the whole class — opened from
+  // the button row above the roster, with a Table | Cards switcher. Same
+  // underlying authorization as the roster/detail views (getMyClassTabTable
+  // re-derives the caller's own resolved classes server-side).
+  let _classTabData = null;
+  let _classTabView = 'table'; // 'table' | 'card'
+
   function openClassTabTable(tabName) {
     const myId = window.APP_USER && window.APP_USER.user_id;
     if (!myId) return;
@@ -2359,15 +2362,24 @@
       modal.id = 'classTabTableModal';
       modal.className = 'hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
       modal.innerHTML = `<div class="bg-white rounded-2xl w-full max-w-5xl max-h-[85vh] overflow-y-auto p-5">
-        <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center justify-between mb-4 gap-3">
           <p class="font-black text-slate-800 text-sm" id="classTabTableTitle">Tab Data</p>
-          <button onclick="closeClassTabTable()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+          <div class="flex items-center gap-2">
+            <div class="flex rounded-lg border border-slate-200 overflow-hidden">
+              <button id="classTabViewTableBtn" class="px-3 py-1.5 text-xs font-black bg-blue-600 text-white">Table</button>
+              <button id="classTabViewCardBtn" class="px-3 py-1.5 text-xs font-black text-slate-500">Cards</button>
+            </div>
+            <button onclick="closeClassTabTable()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+          </div>
         </div>
         <div id="classTabTableBody"><div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div></div>
       </div>`;
       document.body.appendChild(modal);
+      modal.querySelector('#classTabViewTableBtn').addEventListener('click', () => _setClassTabView('table'));
+      modal.querySelector('#classTabViewCardBtn').addEventListener('click', () => _setClassTabView('card'));
     }
     modal.classList.remove('hidden');
+    _classTabData = null;
     document.getElementById('classTabTableTitle').textContent = tabName;
     document.getElementById('classTabTableBody').innerHTML = `<div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`;
     lucide.createIcons();
@@ -2380,24 +2392,71 @@
           body.innerHTML = `<div class="text-center py-12 text-red-400 text-xs font-black uppercase tracking-widest">${(res && res.error) || 'Failed to load'}</div>`;
           return;
         }
-        const headers = res.headers || [];
-        const rows = res.rows || [];
-        if (!rows.length) {
-          body.innerHTML = `<div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">No students found</div>`;
-          return;
-        }
-        body.innerHTML = `<div class="overflow-x-auto border border-slate-100 rounded-xl">
-          <table class="w-full text-left text-xs">
-            <thead class="bg-slate-50"><tr>${headers.map(h => `<th class="px-3 py-2 font-black text-slate-500 uppercase tracking-widest whitespace-nowrap">${h}</th>`).join('')}</tr></thead>
-            <tbody>${rows.map(r => `<tr class="border-t border-slate-50">${r.map(v => `<td class="px-3 py-2 font-bold text-slate-700 whitespace-nowrap">${v === '' || v == null ? '—' : v}</td>`).join('')}</tr>`).join('')}</tbody>
-          </table>
-        </div>`;
+        _classTabData = { headers: res.headers || [], rows: res.rows || [] };
+        _renderClassTabData();
       })
       .withFailureHandler(() => {
         const body = document.getElementById('classTabTableBody');
         if (body) body.innerHTML = `<div class="text-center py-12 text-red-400 text-xs font-black uppercase tracking-widest">Failed to load</div>`;
       })
       .getMyClassTabTable(myId, tabName);
+  }
+
+  function _setClassTabView(mode) {
+    _classTabView = mode;
+    const tableBtn = document.getElementById('classTabViewTableBtn');
+    const cardBtn = document.getElementById('classTabViewCardBtn');
+    if (tableBtn) tableBtn.className = `px-3 py-1.5 text-xs font-black ${mode === 'table' ? 'bg-blue-600 text-white' : 'text-slate-500'}`;
+    if (cardBtn) cardBtn.className = `px-3 py-1.5 text-xs font-black ${mode === 'card' ? 'bg-blue-600 text-white' : 'text-slate-500'}`;
+    _renderClassTabData();
+  }
+
+  function _renderClassTabData() {
+    const body = document.getElementById('classTabTableBody');
+    if (!body || !_classTabData) return;
+    const { headers, rows } = _classTabData;
+    if (!rows.length) {
+      body.innerHTML = `<div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">No students found</div>`;
+      return;
+    }
+    if (_classTabView === 'table') {
+      body.innerHTML = `<div class="overflow-x-auto border border-slate-100 rounded-xl">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-slate-50"><tr>${headers.map(h => `<th class="px-3 py-2 font-black text-slate-500 uppercase tracking-widest whitespace-nowrap">${h}</th>`).join('')}</tr></thead>
+          <tbody>${rows.map(r => `<tr class="border-t border-slate-50">${r.map(v => `<td class="px-3 py-2 font-bold text-slate-700 whitespace-nowrap">${v === '' || v == null ? '—' : v}</td>`).join('')}</tr>`).join('')}</tbody>
+        </table>
+      </div>`;
+      return;
+    }
+    // Card view: one card per student — Roll/Name/Class are the identity
+    // header (getMyClassTabTable puts them first, already display-labelled),
+    // then only the fields that student actually filled in.
+    const rollIdx = headers.indexOf('Roll');
+    const nameIdx = headers.indexOf('Name');
+    const clsIdx = headers.indexOf('Class');
+    const identityIdx = new Set([rollIdx, nameIdx, clsIdx].filter(i => i >= 0));
+    body.innerHTML = `<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      ${rows.map(r => {
+        const title = (nameIdx >= 0 && r[nameIdx]) || 'Student';
+        const sub = [
+          (rollIdx >= 0 && r[rollIdx]) ? `Roll ${r[rollIdx]}` : null,
+          (clsIdx >= 0 && r[clsIdx]) ? r[clsIdx] : null,
+        ].filter(Boolean).join(' · ');
+        const fields = headers
+          .map((h, i) => ({ h, v: r[i], i }))
+          .filter(f => !identityIdx.has(f.i) && f.v !== '' && f.v != null);
+        return `<div class="bg-white border border-slate-200 rounded-xl p-4">
+          <p class="text-sm font-black text-slate-800">${title}</p>
+          <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">${sub}</p>
+          ${fields.length ? `<div class="pt-2 border-t border-slate-50 flex flex-col gap-1">
+            ${fields.map(f => `<div class="flex justify-between gap-3">
+              <span class="text-[10px] font-bold text-slate-400 uppercase shrink-0">${f.h}</span>
+              <span class="text-xs font-semibold text-slate-700 text-right">${f.v}</span>
+            </div>`).join('')}
+          </div>` : '<p class="text-[10px] font-bold text-slate-300 uppercase tracking-widest pt-2 border-t border-slate-50">No data filled in</p>'}
+        </div>`;
+      }).join('')}
+    </div>`;
   }
 
   function closeClassTabTable() {
