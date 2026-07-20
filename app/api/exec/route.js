@@ -1405,37 +1405,58 @@ const handlers = {
 
   async getMyTabDataAccess([userId]) {
     if (!userId) return [];
-    const res = await fetch(`${process.env.SUPABASE_URL}/rest/v1/portal_tabs?select=tab_name,data_access_json&order=sort_order.asc`, {
-      headers: { apikey: process.env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}`, 'Accept-Profile': 'student' },
+    // Two independent grant paths: the global per-tab allowlist
+    // (portal_tabs.data_access_json) and class-scoped grants
+    // (tab_class_access) — either one makes the tab visible.
+    const [tabs, scoped] = await Promise.all([
+      _sbStudent(`portal_tabs?select=tab_name,data_access_json&order=sort_order.asc`),
+      _sbStudent(`tab_class_access?user_id=eq.${encodeURIComponent(userId)}&select=tab_name`),
+    ]);
+    const names = [];
+    (Array.isArray(tabs) ? tabs : []).forEach(t => {
+      try { if (JSON.parse(t.data_access_json || '[]').includes(String(userId))) names.push(t.tab_name); } catch {}
     });
-    if (!res.ok) return [];
-    const rows = await res.json();
-    return rows.filter(t => {
-      try { return JSON.parse(t.data_access_json || '[]').includes(String(userId)); } catch { return false; }
-    }).map(t => ({ tab_name: t.tab_name }));
+    (Array.isArray(scoped) ? scoped : []).forEach(r => { if (!names.includes(r.tab_name)) names.push(r.tab_name); });
+    return names.map(tab_name => ({ tab_name }));
   },
 
   async getTabDataForUser([userId, tabName]) {
     if (!userId || !tabName) return { error: 'Not authorized.' };
-    const sbStudent = async (path) => {
-      const res = await fetch(`${process.env.SUPABASE_URL}/rest/v1/${path}`, {
-        headers: { apikey: process.env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}`, 'Accept-Profile': 'student' },
-      });
-      return res.ok ? res.json() : { error: 'query failed' };
-    };
-    // authorization: the caller must be on this tab's access list — checked
-    // server-side on every request, never trusted from the client
-    const tabRow = await sbStudent(`portal_tabs?tab_name=eq.${encodeURIComponent(tabName)}`);
+    // authorization: the caller must be on this tab's global access list, or
+    // hold class-scoped grants for it — checked server-side on every request,
+    // never trusted from the client
+    const tabRow = await _sbStudent(`portal_tabs?tab_name=eq.${encodeURIComponent(tabName)}`);
     const cfg = (Array.isArray(tabRow) && tabRow[0]) ? tabRow[0] : null;
     let allowed = [];
     try { allowed = JSON.parse(cfg?.data_access_json || '[]'); } catch {}
-    if (!allowed.includes(String(userId))) return { error: 'Not authorized for this tab.' };
+    const isGlobal = allowed.includes(String(userId));
 
-    const rows = await sbStudent(`portal_submissions?tab_name=eq.${encodeURIComponent(tabName)}&order=submitted_at.asc`);
-    if (!Array.isArray(rows) || !rows.length) return { headers: ['student_id'], rows: [] };
+    // Class-scoped path: global grantees see everything (as always); a
+    // scoped-only grantee sees just their granted class-sections' students,
+    // with class/section columns prepended so multi-class views stay readable.
+    let allowedStudentIds = null; // null = unrestricted (global grant)
+    let scopedInfoById = null;
+    if (!isGlobal) {
+      const grants = await _sbStudent(`tab_class_access?tab_name=eq.${encodeURIComponent(tabName)}&user_id=eq.${encodeURIComponent(userId)}&select=class,section`);
+      if (!Array.isArray(grants) || !grants.length) return { error: 'Not authorized for this tab.' };
+      const orFilter = grants.map(g => `and(class.eq.${encodeURIComponent(g.class)},section.eq.${encodeURIComponent(g.section)})`).join(',');
+      const students = await _sbStudent(`students_data?or=(${orFilter})&select=student_id,class,section`);
+      allowedStudentIds = new Set();
+      scopedInfoById = {};
+      (Array.isArray(students) ? students : []).forEach(s => {
+        allowedStudentIds.add(String(s.student_id));
+        scopedInfoById[String(s.student_id)] = { class: s.class, section: s.section };
+      });
+    }
+
+    let rows = await _sbStudent(`portal_submissions?tab_name=eq.${encodeURIComponent(tabName)}&order=submitted_at.asc`);
+    if (!Array.isArray(rows)) rows = [];
+    if (allowedStudentIds) rows = rows.filter(r => allowedStudentIds.has(String(r.student_id)));
+    const scopedCols = allowedStudentIds ? ['class', 'section'] : [];
+    if (!rows.length) return { headers: ['student_id', ...scopedCols], rows: [] };
 
     // same config-ordered columns as the admin Data view
-    const ordered = ['student_id'];
+    const ordered = ['student_id', ...scopedCols];
     if (cfg) {
       try { JSON.parse(cfg.include_fields_json || '[]').forEach(k => { if (k && !ordered.includes(k)) ordered.push(k); }); } catch {}
       try {
@@ -1448,7 +1469,13 @@ const handlers = {
     const extras = new Set();
     rows.forEach(r => Object.keys(r.data || {}).forEach(k => { if (!ordered.includes(k)) extras.add(k); }));
     const headers = [...ordered, ...extras];
-    const dataRows = rows.map(r => headers.map(h => h === 'student_id' ? r.student_id : (r.data?.[h] ?? '')));
+    const dataRows = rows.map(r => headers.map(h => {
+      if (h === 'student_id') return r.student_id;
+      if (scopedInfoById && (h === 'class' || h === 'section') && !(r.data || {})[h]) {
+        return (scopedInfoById[String(r.student_id)] || {})[h] ?? '';
+      }
+      return r.data?.[h] ?? '';
+    }));
     return { headers, rows: dataRows };
   },
 

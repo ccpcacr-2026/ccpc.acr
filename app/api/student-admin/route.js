@@ -55,6 +55,60 @@ async function sb(path, method = 'GET', body = null) {
   return text ? JSON.parse(text) : null;
 }
 
+// ── Shortname resolution for the staff-directory search ─────────────────────
+// Shortnames aren't a DB column anywhere — they only exist in the routine
+// Google Sheet's "Logged in info" tab (Full Name ↔ NAME IN SHORT), same
+// source /api/exec's getRoutineDirectory reads. Local copies of the CSV
+// fetch/parse helpers, matching the project's accepted cross-route
+// duplication (ccpc-students carries its own copy too).
+const ROUTINE_SHEET_ID = '11l3oc1mpbR8UerpDxCatzuhcBNqkbdNzWzOTiPPdKgk';
+
+function _parseCsv(text) {
+  const rows = [];
+  let row = [], field = '', inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else inQuotes = false; }
+      else field += c;
+    } else if (c === '"') inQuotes = true;
+    else if (c === ',') { row.push(field); field = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++;
+      row.push(field); field = '';
+      rows.push(row); row = [];
+    } else field += c;
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+function _normalizeName(name) {
+  return String(name || '').toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ').trim();
+}
+
+// normalized full_name -> shortname. Best-effort: any failure returns an
+// empty map so the staff directory still works, just without shortnames.
+async function _shortnameByName() {
+  try {
+    const url = `https://docs.google.com/spreadsheets/d/${ROUTINE_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('Logged in info')}&_=${Date.now()}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000), cache: 'no-store' });
+    if (!res.ok) return {};
+    const rows = _parseCsv(await res.text());
+    const header = rows[0] || [];
+    const fnIdx = header.findIndex(h => String(h).trim() === 'Full Name');
+    const snIdx = header.findIndex(h => String(h).trim() === 'NAME IN SHORT');
+    if (fnIdx < 0 || snIdx < 0) return {};
+    const out = {};
+    for (let i = 1; i < rows.length; i++) {
+      const key = _normalizeName(rows[i][fnIdx]);
+      const sn = String(rows[i][snIdx] || '').trim();
+      if (key && sn) out[key] = sn;
+    }
+    return out;
+  } catch { return {}; }
+}
+
 async function psSave(key, value) {
   const existing = await sb(`portal_settings?key=eq.${encodeURIComponent(key)}`);
   if (existing?.error) return { ok: false, message: 'Lookup failed: ' + existing.error };
@@ -337,6 +391,81 @@ export async function POST(req) {
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
     return NextResponse.json({ result: 'success', count: clean.length });
   }
+
+  // ── Class-scoped tab access (student.tab_class_access) — the per-class
+  // counterpart to the global data_access_json grants above. An admin
+  // searches staff by name/id/shortname/phone and checks off which
+  // class-sections of one tab's data that person may see. ────────────────────
+  if (action === 'get_staff_directory') {
+    // Rich search list: name + phone from users_profile, account fields from
+    // app_users, shortname resolved live from the routine sheet (best-effort).
+    const hdrs = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher' };
+    const [profRes, userRes, shortnames] = await Promise.all([
+      fetch(`${SB_URL}/rest/v1/users_profile?select=teacher_id,full_name,phone,whatsapp&order=full_name.asc&limit=1000`, { headers: hdrs }),
+      fetch(`${SB_URL}/rest/v1/app_users?select=user_id,email,role,phone&limit=1000`, { headers: hdrs }),
+      _shortnameByName(),
+    ]);
+    const profiles = profRes.ok ? await profRes.json() : [];
+    const users = userRes.ok ? await userRes.json() : [];
+    const profById = {};
+    profiles.forEach(p => { profById[p.teacher_id] = p; });
+    const out = users.map(u => {
+      const p = profById[u.user_id] || {};
+      return {
+        user_id: u.user_id,
+        full_name: p.full_name || '',
+        shortname: shortnames[_normalizeName(p.full_name)] || '',
+        phone: p.phone || p.whatsapp || u.phone || '',
+        email: u.email || '',
+        role: u.role || '',
+      };
+    }).sort((a, b) => (a.full_name || a.user_id).localeCompare(b.full_name || b.user_id));
+    return NextResponse.json(out);
+  }
+  if (action === 'get_class_sections') {
+    // PostgREST has no distinct param on plain selects — fetch all pairs and
+    // dedupe here (a few thousand tiny rows, fine).
+    const rows = await sb('students_data?select=class,section&limit=10000');
+    if (rows?.error) return NextResponse.json([]);
+    const seen = new Set();
+    const out = [];
+    rows.forEach(r => {
+      const cls = String(r.class || '').trim(), sec = String(r.section || '').trim();
+      if (!cls || !sec) return;
+      const key = `${cls}|${sec}`;
+      if (!seen.has(key)) { seen.add(key); out.push({ class: cls, section: sec }); }
+    });
+    out.sort((a, b) => a.class.localeCompare(b.class) || a.section.localeCompare(b.section));
+    return NextResponse.json(out);
+  }
+  if (action === 'get_tab_class_access') {
+    const { tab_name } = payload;
+    if (!tab_name) return NextResponse.json({ result: 'error', message: 'Tab name required.' });
+    const rows = await sb(`tab_class_access?tab_name=eq.${encodeURIComponent(tab_name)}&select=user_id,class,section&order=user_id.asc`);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    const byUser = {};
+    rows.forEach(r => {
+      (byUser[r.user_id] = byUser[r.user_id] || []).push({ class: r.class, section: r.section });
+    });
+    return NextResponse.json({ grants: Object.entries(byUser).map(([user_id, class_sections]) => ({ user_id, class_sections })) });
+  }
+  if (action === 'set_tab_class_access') {
+    const { tab_name, user_id: granteeId, class_sections } = payload;
+    if (!tab_name || !granteeId) return NextResponse.json({ result: 'error', message: 'Tab name and user required.' });
+    const clean = (Array.isArray(class_sections) ? class_sections : [])
+      .map(cs => ({ class: String(cs.class || '').trim(), section: String(cs.section || '').trim() }))
+      .filter(cs => cs.class && cs.section);
+    // Replace-all semantics: delete existing rows for this (tab, user), then
+    // insert the new set. An empty set = full revoke.
+    const del = await sb(`tab_class_access?tab_name=eq.${encodeURIComponent(tab_name)}&user_id=eq.${encodeURIComponent(granteeId)}`, 'DELETE');
+    if (del?.error) return NextResponse.json({ result: 'error', message: del.error });
+    if (clean.length) {
+      const ins = await sb('tab_class_access', 'POST', clean.map(cs => ({ tab_name, user_id: granteeId, class: cs.class, section: cs.section })));
+      if (ins?.error) return NextResponse.json({ result: 'error', message: ins.error });
+    }
+    return NextResponse.json({ result: 'success', count: clean.length });
+  }
+
   if (action === 'get_tab_data') {
     const { tab_name } = payload;
     const rows = await sb(`portal_submissions?tab_name=eq.${encodeURIComponent(tab_name)}&order=submitted_at.asc`);

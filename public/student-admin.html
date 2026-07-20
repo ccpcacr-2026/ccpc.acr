@@ -987,10 +987,11 @@
                                 </div>
                                 <div class="tab-pane" id="admin-reports">
                                     <div class="row g-3 mb-4">
-                                        <div class="col-md-4"><select id="summary-tab-select" class="form-select" onchange="loadSummaryData()"><option value="">Select Target...</option></select></div>
-                                        <div class="col-md-4"><input type="text" id="summary-search" class="form-control" placeholder="Filter current view..." autocomplete="off" onkeyup="filterSummaryTable()"></div>
+                                        <div class="col-md-3"><select id="summary-tab-select" class="form-select" onchange="loadSummaryData()"><option value="">Select Target...</option></select></div>
+                                        <div class="col-md-3"><input type="text" id="summary-search" class="form-control" placeholder="Filter current view..." autocomplete="off" onkeyup="filterSummaryTable()"></div>
                                         <div class="col-md-2"><button onclick="exportSummaryData()" class="btn btn-success w-100 fw-800">Export CSV</button></div>
                                         <div class="col-md-2"><button onclick="openTabAccessModal()" class="btn btn-outline-primary w-100 fw-800" title="Choose which teachers/staff can view & export this tab's data from their own portal">Data Access</button></div>
+                                        <div class="col-md-2"><button onclick="openClassAccessModal()" class="btn btn-outline-primary w-100 fw-800" title="Grant a teacher/staff access to this tab's data for specific class-sections only">Class Access</button></div>
                                     </div>
                                     <div id="summary-count" class="small fw-800 text-muted mb-2"></div>
                                     <div class="table-responsive rounded-4 border"><table class="table table-hover align-middle mb-0" id="summary-table"><thead class="bg-light"><tr id="summary-headers"></tr></thead><tbody id="summary-body"></tbody></table></div>
@@ -4169,7 +4170,7 @@
                 const list = document.getElementById('tab-access-list');
                 if (!Array.isArray(staff) || !staff.length) { list.innerHTML = '<div class="text-muted small">No teacher/staff accounts found.</div>'; return; }
                 list.innerHTML = staff.map(u => `
-                    <label class="d-flex align-items-center gap-2 py-1 tab-access-row" data-search="${String(u.user_id + ' ' + (u.email||'')).toLowerCase()}">
+                    <label class="align-items-center gap-2 py-1 tab-access-row" style="display:flex" data-search="${String(u.user_id + ' ' + (u.email||'')).toLowerCase()}">
                         <input type="checkbox" class="form-check-input tab-access-check" value="${u.user_id}" ${granted.has(String(u.user_id)) ? 'checked' : ''}>
                         <span class="fw-700 small">${u.user_id}</span>
                         <span class="small text-muted text-truncate">${u.email || ''}</span>
@@ -4182,8 +4183,10 @@
 
         function filterTabAccessList() {
             const q = document.getElementById('tab-access-filter').value.toLowerCase();
+            // rows use inline display:flex (NOT Bootstrap's d-flex, whose
+            // !important would override this hide) — see openTabAccessModal
             document.querySelectorAll('.tab-access-row').forEach(row => {
-                row.style.display = row.dataset.search.includes(q) ? '' : 'none';
+                row.style.display = row.dataset.search.includes(q) ? 'flex' : 'none';
             });
         }
 
@@ -4199,6 +4202,159 @@
                     if (typeof showToast === 'function') showToast((res && res.message) || 'Save failed', 'error');
                 }
             }).catch(() => { if (typeof showToast === 'function') showToast('Network error', 'error'); });
+        }
+
+        // ── Class-scoped tab access: grant one person specific class-sections ──
+        let _caTab = null, _caStaff = [], _caClassSections = [], _caGrants = {}, _caSelectedUser = null;
+
+        function openClassAccessModal() {
+            const tab = document.getElementById('summary-tab-select').value;
+            if (!tab) { if (typeof showToast === 'function') showToast('Select a tab first', 'error'); else alert('Select a tab first'); return; }
+            _caTab = tab; _caSelectedUser = null;
+            const existing = document.getElementById('class-access-overlay');
+            if (existing) existing.remove();
+            const overlay = document.createElement('div');
+            overlay.id = 'class-access-overlay';
+            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:3000;display:flex;align-items:center;justify-content:center;padding:16px';
+            overlay.innerHTML = `
+                <div style="background:#fff;border-radius:16px;max-width:680px;width:100%;max-height:85vh;display:flex;flex-direction:column">
+                    <div class="p-3 border-bottom d-flex justify-content-between align-items-center">
+                        <strong>Class Access — ${tab}</strong>
+                        <button class="btn-close" onclick="document.getElementById('class-access-overlay').remove()"></button>
+                    </div>
+                    <div class="p-2 border-bottom">
+                        <input type="text" id="class-access-filter" class="form-control form-control-sm" placeholder="Search by name, ID, shortname or phone..." oninput="filterClassAccessStaff()">
+                    </div>
+                    <div id="class-access-grantees" class="px-3 pt-2 d-flex flex-wrap gap-2"></div>
+                    <div style="overflow-y:auto;flex:1" class="p-3">
+                        <div id="class-access-staff-list"><div class="text-center p-4"><div class="spinner-border text-primary"></div></div></div>
+                        <div id="class-access-sections" class="mt-3"></div>
+                    </div>
+                    <div class="p-3 border-top d-flex justify-content-between align-items-center">
+                        <span class="small text-muted">Pick a person, tick the class-sections they may see, then save.</span>
+                        <button class="btn btn-primary fw-800 px-4" id="class-access-save-btn" onclick="saveClassAccess()" disabled>Save</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(overlay);
+
+            Promise.all([
+                portalFetch('get_staff_directory', {}),
+                portalFetch('get_class_sections', {}),
+                portalFetch('get_tab_class_access', { tab_name: tab }),
+            ]).then(([staff, sections, access]) => {
+                _caStaff = Array.isArray(staff) ? staff : [];
+                _caClassSections = Array.isArray(sections) ? sections : [];
+                _caGrants = {};
+                ((access && access.grants) || []).forEach(g => { _caGrants[g.user_id] = g.class_sections || []; });
+                renderClassAccessStaff();
+                renderClassAccessGrantees();
+            }).catch(() => {
+                document.getElementById('class-access-staff-list').innerHTML = '<div class="text-danger small">Could not load the staff directory.</div>';
+            });
+        }
+
+        function renderClassAccessStaff() {
+            const list = document.getElementById('class-access-staff-list');
+            if (!list) return;
+            if (!_caStaff.length) { list.innerHTML = '<div class="text-muted small">No teacher/staff accounts found.</div>'; return; }
+            list.innerHTML = _caStaff.map(u => {
+                const search = [u.full_name, u.user_id, u.shortname, u.phone].filter(Boolean).join(' ').toLowerCase();
+                const selected = _caSelectedUser === u.user_id;
+                return `<div class="align-items-center gap-2 py-1 px-2 rounded class-access-row" data-uid="${u.user_id}" data-search="${search.replace(/"/g, '&quot;')}"
+                    onclick="selectClassAccessUser(this.dataset.uid)" style="display:flex;cursor:pointer;${selected ? 'background:var(--primary);color:#fff' : ''}">
+                    <span class="fw-800 small">${u.full_name || u.user_id}</span>
+                    ${u.shortname ? `<span class="badge ${selected ? 'bg-white text-dark' : 'bg-light text-secondary'}" style="font-size:0.6rem">${u.shortname}</span>` : ''}
+                    <span class="small ${selected ? '' : 'text-muted'}">${u.user_id}</span>
+                    <span class="small ${selected ? '' : 'text-muted'} ms-auto">${u.phone || ''}</span>
+                    ${_caGrants[u.user_id] && _caGrants[u.user_id].length ? `<span class="badge bg-success" style="font-size:0.6rem">${_caGrants[u.user_id].length}</span>` : ''}
+                </div>`;
+            }).join('');
+        }
+
+        function filterClassAccessStaff() {
+            const q = document.getElementById('class-access-filter').value.toLowerCase();
+            // rows use inline display:flex (NOT Bootstrap's d-flex, whose
+            // !important would override this hide) — see renderClassAccessStaff
+            document.querySelectorAll('.class-access-row').forEach(row => {
+                row.style.display = row.dataset.search.includes(q) ? 'flex' : 'none';
+            });
+        }
+
+        function renderClassAccessGrantees() {
+            const host = document.getElementById('class-access-grantees');
+            if (!host) return;
+            const grantees = Object.entries(_caGrants).filter(([, cs]) => cs.length);
+            host.innerHTML = grantees.length ? grantees.map(([uid, cs]) => {
+                const person = _caStaff.find(s => s.user_id === uid);
+                return `<span class="badge bg-primary-subtle text-primary d-flex align-items-center gap-1" style="font-size:0.65rem">
+                    ${(person && person.full_name) || uid} · ${cs.length} class${cs.length === 1 ? '' : 'es'}
+                    <i class="bi bi-x-circle-fill" style="cursor:pointer" data-uid="${uid}" onclick="removeClassAccess(this.dataset.uid)" title="Revoke"></i>
+                </span>`;
+            }).join('') : '';
+        }
+
+        function selectClassAccessUser(uid) {
+            _caSelectedUser = uid;
+            renderClassAccessStaff();
+            const host = document.getElementById('class-access-sections');
+            const saveBtn = document.getElementById('class-access-save-btn');
+            if (saveBtn) saveBtn.disabled = false;
+            const granted = new Set((_caGrants[uid] || []).map(cs => `${cs.class}|${cs.section}`));
+            const person = _caStaff.find(s => s.user_id === uid);
+            host.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="small fw-800">Class-sections for ${(person && person.full_name) || uid}</span>
+                    <span>
+                        <button class="btn btn-xs btn-outline-secondary rounded-pill px-2 py-0 me-1" style="font-size:0.65rem" onclick="toggleAllClassSections(true)">Select all</button>
+                        <button class="btn btn-xs btn-outline-secondary rounded-pill px-2 py-0" style="font-size:0.65rem" onclick="toggleAllClassSections(false)">Clear</button>
+                    </span>
+                </div>
+                <div class="row g-1">
+                    ${_caClassSections.map(cs => {
+                        const key = `${cs.class}|${cs.section}`;
+                        return `<div class="col-6 col-md-3">
+                            <label class="d-flex align-items-center gap-1 small border rounded px-2 py-1" style="cursor:pointer">
+                                <input type="checkbox" class="form-check-input class-section-check" value="${key.replace(/"/g, '&quot;')}" ${granted.has(key) ? 'checked' : ''}>
+                                ${cs.class}-${cs.section}
+                            </label>
+                        </div>`;
+                    }).join('')}
+                </div>`;
+        }
+
+        function toggleAllClassSections(on) {
+            document.querySelectorAll('.class-section-check').forEach(c => { c.checked = on; });
+        }
+
+        function saveClassAccess() {
+            if (!_caSelectedUser || !_caTab) return;
+            const class_sections = Array.from(document.querySelectorAll('.class-section-check:checked')).map(c => {
+                const [cls, sec] = c.value.split('|');
+                return { class: cls, section: sec };
+            });
+            portalFetch('set_tab_class_access', { tab_name: _caTab, user_id: _caSelectedUser, class_sections }).then(res => {
+                if (res && res.result === 'success') {
+                    _caGrants[_caSelectedUser] = class_sections;
+                    renderClassAccessGrantees();
+                    renderClassAccessStaff();
+                    if (typeof showToast === 'function') showToast(`${res.count} class-section${res.count === 1 ? '' : 's'} granted`, 'success');
+                } else {
+                    if (typeof showToast === 'function') showToast((res && res.message) || 'Save failed', 'error');
+                }
+            }).catch(() => { if (typeof showToast === 'function') showToast('Network error', 'error'); });
+        }
+
+        function removeClassAccess(uid) {
+            if (!_caTab || !uid) return;
+            portalFetch('set_tab_class_access', { tab_name: _caTab, user_id: uid, class_sections: [] }).then(res => {
+                if (res && res.result === 'success') {
+                    delete _caGrants[uid];
+                    renderClassAccessGrantees();
+                    renderClassAccessStaff();
+                    if (_caSelectedUser === uid) selectClassAccessUser(uid);
+                    if (typeof showToast === 'function') showToast('Access revoked', 'success');
+                }
+            });
         }
 
         function exportSummaryData() {
