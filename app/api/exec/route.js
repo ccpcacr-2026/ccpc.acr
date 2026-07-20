@@ -1405,18 +1405,25 @@ const handlers = {
 
   async getMyTabDataAccess([userId]) {
     if (!userId) return [];
-    // Two independent grant paths: the global per-tab allowlist
-    // (portal_tabs.data_access_json) and class-scoped grants
-    // (tab_class_access) — either one makes the tab visible.
-    const [tabs, scoped] = await Promise.all([
-      _sbStudent(`portal_tabs?select=tab_name,data_access_json&order=sort_order.asc`),
+    // Three independent grant paths: the global per-tab allowlist
+    // (portal_tabs.data_access_json), admin-given class-scoped grants
+    // (tab_class_access), and being a verified class teacher — class
+    // teachers automatically see every enabled tab, scoped to their own
+    // class(es), with no explicit grant needed. Sheet resolution is
+    // best-effort so explicit grants keep working if the sheet is down.
+    const [tabs, scoped, assignments] = await Promise.all([
+      _sbStudent(`portal_tabs?select=tab_name,data_access_json,is_enabled&order=sort_order.asc`),
       _sbStudent(`tab_class_access?user_id=eq.${encodeURIComponent(userId)}&select=tab_name`),
+      _getClassTeacherAssignments().catch(() => []),
     ]);
+    const scopedNames = new Set((Array.isArray(scoped) ? scoped : []).map(r => r.tab_name));
+    const isClassTeacher = assignments.some(a => a.resolvedUserId === userId);
     const names = [];
     (Array.isArray(tabs) ? tabs : []).forEach(t => {
-      try { if (JSON.parse(t.data_access_json || '[]').includes(String(userId))) names.push(t.tab_name); } catch {}
+      let global = false;
+      try { global = JSON.parse(t.data_access_json || '[]').includes(String(userId)); } catch {}
+      if (global || scopedNames.has(t.tab_name) || (isClassTeacher && t.is_enabled !== false)) names.push(t.tab_name);
     });
-    (Array.isArray(scoped) ? scoped : []).forEach(r => { if (!names.includes(r.tab_name)) names.push(r.tab_name); });
     return names.map(tab_name => ({ tab_name }));
   },
 
@@ -1434,12 +1441,31 @@ const handlers = {
     // Class-scoped path: global grantees see everything (as always); a
     // scoped-only grantee sees just their granted class-sections' students,
     // with class/section columns prepended so multi-class views stay readable.
+    // Grant sources merged here: explicit admin grants (tab_class_access) +
+    // being the verified class teacher of a class (automatic, enabled tabs
+    // only — no explicit grant needed; sheet resolution is best-effort so
+    // explicit grants keep working if the sheet is down).
     let allowedStudentIds = null; // null = unrestricted (global grant)
     let scopedInfoById = null;
     if (!isGlobal) {
-      const grants = await _sbStudent(`tab_class_access?tab_name=eq.${encodeURIComponent(tabName)}&user_id=eq.${encodeURIComponent(userId)}&select=class,section`);
-      if (!Array.isArray(grants) || !grants.length) return { error: 'Not authorized for this tab.' };
-      const orFilter = grants.map(g => `and(class.eq.${encodeURIComponent(g.class)},section.eq.${encodeURIComponent(g.section)})`).join(',');
+      const [grants, assignments] = await Promise.all([
+        _sbStudent(`tab_class_access?tab_name=eq.${encodeURIComponent(tabName)}&user_id=eq.${encodeURIComponent(userId)}&select=class,section`),
+        cfg?.is_enabled !== false ? _getClassTeacherAssignments().catch(() => []) : Promise.resolve([]),
+      ]);
+      const pairSet = new Set();
+      const pairs = [];
+      const addPair = (cls, sec) => {
+        if (!cls || !sec) return;
+        const key = `${cls}|${sec}`;
+        if (!pairSet.has(key)) { pairSet.add(key); pairs.push({ class: cls, section: sec }); }
+      };
+      (Array.isArray(grants) ? grants : []).forEach(g => addPair(g.class, g.section));
+      assignments.filter(a => a.resolvedUserId === userId).forEach(a => addPair(
+        CLASS_TEACHER_NAME_TO_STUDENT_CLASS[a.className] || a.className,
+        CLASS_TEACHER_SECTION_ALIASES[a.section] || a.section
+      ));
+      if (!pairs.length) return { error: 'Not authorized for this tab.' };
+      const orFilter = pairs.map(g => `and(class.eq.${encodeURIComponent(g.class)},section.eq.${encodeURIComponent(g.section)})`).join(',');
       const students = await _sbStudent(`students_data?or=(${orFilter})&select=student_id,class,section`);
       allowedStudentIds = new Set();
       scopedInfoById = {};

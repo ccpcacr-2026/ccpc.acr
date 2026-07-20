@@ -437,6 +437,7 @@
   // Portal Admin → Data → Data Access). If this user is on any tab's list, a
   // "Student Data" card appears under their profile with a table + CSV export.
   let _stdTabData = null;
+  let _stdTabView = 'table'; // 'table' | 'card'
 
   function initStudentTabDataSection(uid) {
     if (!uid) return;
@@ -459,15 +460,14 @@
               <select id="std-tabdata-select" class="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700"></select>
               <button id="std-tabdata-load" class="px-4 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-black">Load</button>
               <button id="std-tabdata-export" class="px-4 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-black" disabled>Export CSV</button>
+              <div class="flex rounded-lg border border-slate-200 overflow-hidden">
+                <button id="std-tabdata-viewtable" class="px-3 py-1.5 text-xs font-black bg-blue-600 text-white">Table</button>
+                <button id="std-tabdata-viewcard" class="px-3 py-1.5 text-xs font-black text-slate-500">Cards</button>
+              </div>
             </div>
           </div>
           <div id="std-tabdata-count" class="text-xs font-bold text-slate-500 mb-2"></div>
-          <div class="overflow-x-auto border border-slate-100 rounded-xl">
-            <table class="w-full text-left">
-              <thead id="std-tabdata-head" class="bg-slate-50"></thead>
-              <tbody id="std-tabdata-body"></tbody>
-            </table>
-          </div>`;
+          <div id="std-tabdata-view" class="border border-slate-100 rounded-xl overflow-x-auto"></div>`;
         host.appendChild(card);
 
         const sel = card.querySelector('#std-tabdata-select');
@@ -478,36 +478,96 @@
         });
         card.querySelector('#std-tabdata-load').addEventListener('click', () => loadStudentTabData(uid));
         card.querySelector('#std-tabdata-export').addEventListener('click', exportStudentTabData);
+        card.querySelector('#std-tabdata-viewtable').addEventListener('click', () => _setStudentTabView('table'));
+        card.querySelector('#std-tabdata-viewcard').addEventListener('click', () => _setStudentTabView('card'));
       })
       .withFailureHandler(() => {})
       .getMyTabDataAccess(uid);
   }
 
+  function _setStudentTabView(mode) {
+    _stdTabView = mode;
+    const tableBtn = document.getElementById('std-tabdata-viewtable');
+    const cardBtn = document.getElementById('std-tabdata-viewcard');
+    if (tableBtn) tableBtn.className = `px-3 py-1.5 text-xs font-black ${mode === 'table' ? 'bg-blue-600 text-white' : 'text-slate-500'}`;
+    if (cardBtn) cardBtn.className = `px-3 py-1.5 text-xs font-black ${mode === 'card' ? 'bg-blue-600 text-white' : 'text-slate-500'}`;
+    _renderStudentTabData();
+  }
+
+  function _prettyHeader(h) {
+    return String(h || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  function _renderStudentTabData() {
+    const view = document.getElementById('std-tabdata-view');
+    if (!view) return;
+    if (!_stdTabData) { view.innerHTML = ''; return; }
+    const { headers, rows } = _stdTabData;
+    if (!rows.length) {
+      view.innerHTML = '<div class="p-4 text-xs font-bold text-slate-400">No submissions yet.</div>';
+      return;
+    }
+    if (_stdTabView === 'table') {
+      view.innerHTML = `<table class="w-full text-left">
+        <thead class="bg-slate-50"><tr>${headers.map(h => `<th class="px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 whitespace-nowrap">${h}</th>`).join('')}</tr></thead>
+        <tbody>${rows.map(r => '<tr class="border-t border-slate-100">' + r.map(c => `<td class="px-3 py-2 text-xs font-semibold text-slate-700">${c ?? ''}</td>`).join('') + '</tr>').join('')}</tbody>
+      </table>`;
+      return;
+    }
+    // Card view: one card per student, identity fields as the header, then
+    // only the fields that student actually filled in.
+    const idIdx = headers.indexOf('student_id');
+    const nameIdx = headers.indexOf('student_name');
+    const clsIdx = headers.indexOf('class');
+    const secIdx = headers.indexOf('section');
+    const rollIdx = headers.indexOf('roll');
+    const identityIdx = new Set([idIdx, nameIdx, clsIdx, secIdx, rollIdx].filter(i => i >= 0));
+    view.innerHTML = `<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-3 bg-slate-50">
+      ${rows.map(r => {
+        const title = (nameIdx >= 0 && r[nameIdx]) || (idIdx >= 0 && r[idIdx]) || 'Student';
+        const sub = [
+          idIdx >= 0 ? r[idIdx] : null,
+          (clsIdx >= 0 && r[clsIdx]) ? `${r[clsIdx]}${(secIdx >= 0 && r[secIdx]) ? '-' + r[secIdx] : ''}` : null,
+          (rollIdx >= 0 && r[rollIdx]) ? `Roll ${r[rollIdx]}` : null,
+        ].filter(Boolean).join(' · ');
+        const fields = headers
+          .map((h, i) => ({ h, v: r[i], i }))
+          .filter(f => !identityIdx.has(f.i) && f.v !== '' && f.v != null);
+        return `<div class="bg-white border border-slate-200 rounded-xl p-4">
+          <p class="text-sm font-black text-slate-800">${title}</p>
+          <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">${sub}</p>
+          ${fields.length ? `<div class="pt-2 border-t border-slate-50 flex flex-col gap-1">
+            ${fields.map(f => `<div class="flex justify-between gap-3">
+              <span class="text-[10px] font-bold text-slate-400 uppercase shrink-0">${_prettyHeader(f.h)}</span>
+              <span class="text-xs font-semibold text-slate-700 text-right">${f.v}</span>
+            </div>`).join('')}
+          </div>` : '<p class="text-[10px] font-bold text-slate-300 uppercase tracking-widest pt-2 border-t border-slate-50">No data filled in</p>'}
+        </div>`;
+      }).join('')}
+    </div>`;
+  }
+
   function loadStudentTabData(uid) {
     const sel = document.getElementById('std-tabdata-select');
-    const head = document.getElementById('std-tabdata-head');
-    const body = document.getElementById('std-tabdata-body');
+    const view = document.getElementById('std-tabdata-view');
     const count = document.getElementById('std-tabdata-count');
     const exportBtn = document.getElementById('std-tabdata-export');
     if (!sel || !sel.value) return;
-    body.innerHTML = '<tr><td class="p-4 text-xs font-bold text-slate-400">Loading…</td></tr>';
+    view.innerHTML = '<div class="p-4 text-xs font-bold text-slate-400">Loading…</div>';
     google.script.run
       .withSuccessHandler(res => {
         if (!res || res.error) {
-          body.innerHTML = `<tr><td class="p-4 text-xs font-bold text-rose-500">${(res && res.error) || 'Could not load data.'}</td></tr>`;
+          view.innerHTML = `<div class="p-4 text-xs font-bold text-rose-500">${(res && res.error) || 'Could not load data.'}</div>`;
           exportBtn.disabled = true;
           return;
         }
         _stdTabData = { tab: sel.value, headers: res.headers, rows: res.rows };
-        head.innerHTML = '<tr>' + res.headers.map(h => `<th class="px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400">${h}</th>`).join('') + '</tr>';
-        body.innerHTML = res.rows.length
-          ? res.rows.map(r => '<tr class="border-t border-slate-100">' + r.map(c => `<td class="px-3 py-2 text-xs font-semibold text-slate-700">${c ?? ''}</td>`).join('') + '</tr>').join('')
-          : '<tr><td class="p-4 text-xs font-bold text-slate-400">No submissions yet.</td></tr>';
+        _renderStudentTabData();
         count.textContent = `${res.rows.length} student${res.rows.length === 1 ? '' : 's'} submitted "${sel.value}"`;
         exportBtn.disabled = res.rows.length === 0;
       })
       .withFailureHandler(e => {
-        body.innerHTML = `<tr><td class="p-4 text-xs font-bold text-rose-500">${e && e.message ? e.message : e}</td></tr>`;
+        view.innerHTML = `<div class="p-4 text-xs font-bold text-rose-500">${e && e.message ? e.message : e}</div>`;
         exportBtn.disabled = true;
       })
       .getTabDataForUser(uid, sel.value);
