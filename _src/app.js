@@ -2206,9 +2206,28 @@
     const myId = window.APP_USER && window.APP_USER.user_id;
     if (!myId) return;
 
-    container.innerHTML = `<div id="myClassBody" class="pt-4 flex flex-col gap-6 max-w-5xl mx-auto pb-10">
-      <div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>
+    container.innerHTML = `<div class="pt-4 max-w-5xl mx-auto pb-10">
+      <div id="myClassTabButtons" class="flex flex-wrap gap-2 mb-5"></div>
+      <div id="myClassBody" class="flex flex-col gap-6">
+        <div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>
+      </div>
     </div>`;
+
+    google.script.run
+      .withSuccessHandler(res => {
+        const btnHost = document.getElementById('myClassTabButtons');
+        if (btnHost) {
+          const tabs = (res && res.tabs) || [];
+          btnHost.innerHTML = tabs.map(t => `
+            <button onclick='openClassTabTable(${JSON.stringify(t.tab_name).replace(/'/g, "&#39;")})'
+              class="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] font-black text-slate-600 uppercase tracking-widest hover:border-blue-300 hover:text-blue-600 transition-all">
+              <i data-lucide="table" class="h-3 w-3"></i>${t.tab_name}
+            </button>`).join('');
+          lucide.createIcons();
+        }
+      })
+      .withFailureHandler(() => {})
+      .getEnabledPortalTabs();
 
     google.script.run
       .withSuccessHandler(res => {
@@ -2265,6 +2284,65 @@
         if (body) body.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">Failed to load class roster</div>`;
       })
       .getMyClassRoster(myId);
+  }
+
+  // At-a-glance table for one custom tab across the whole class — opened from
+  // the button row above the roster. Same underlying authorization as the
+  // roster/detail views (getMyClassTabTable re-derives the caller's own
+  // resolved classes server-side).
+  function openClassTabTable(tabName) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    if (!myId) return;
+    let modal = document.getElementById('classTabTableModal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'classTabTableModal';
+      modal.className = 'hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
+      modal.innerHTML = `<div class="bg-white rounded-2xl w-full max-w-5xl max-h-[85vh] overflow-y-auto p-5">
+        <div class="flex items-center justify-between mb-4">
+          <p class="font-black text-slate-800 text-sm" id="classTabTableTitle">Tab Data</p>
+          <button onclick="closeClassTabTable()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+        </div>
+        <div id="classTabTableBody"><div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div></div>
+      </div>`;
+      document.body.appendChild(modal);
+    }
+    modal.classList.remove('hidden');
+    document.getElementById('classTabTableTitle').textContent = tabName;
+    document.getElementById('classTabTableBody').innerHTML = `<div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`;
+    lucide.createIcons();
+
+    google.script.run
+      .withSuccessHandler(res => {
+        const body = document.getElementById('classTabTableBody');
+        if (!body) return;
+        if (!res || res.error) {
+          body.innerHTML = `<div class="text-center py-12 text-red-400 text-xs font-black uppercase tracking-widest">${(res && res.error) || 'Failed to load'}</div>`;
+          return;
+        }
+        const headers = res.headers || [];
+        const rows = res.rows || [];
+        if (!rows.length) {
+          body.innerHTML = `<div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">No students found</div>`;
+          return;
+        }
+        body.innerHTML = `<div class="overflow-x-auto border border-slate-100 rounded-xl">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-slate-50"><tr>${headers.map(h => `<th class="px-3 py-2 font-black text-slate-500 uppercase tracking-widest whitespace-nowrap">${h}</th>`).join('')}</tr></thead>
+            <tbody>${rows.map(r => `<tr class="border-t border-slate-50">${r.map(v => `<td class="px-3 py-2 font-bold text-slate-700 whitespace-nowrap">${v === '' || v == null ? '—' : v}</td>`).join('')}</tr>`).join('')}</tbody>
+          </table>
+        </div>`;
+      })
+      .withFailureHandler(() => {
+        const body = document.getElementById('classTabTableBody');
+        if (body) body.innerHTML = `<div class="text-center py-12 text-red-400 text-xs font-black uppercase tracking-widest">Failed to load</div>`;
+      })
+      .getMyClassTabTable(myId, tabName);
+  }
+
+  function closeClassTabTable() {
+    const modal = document.getElementById('classTabTableModal');
+    if (modal) modal.classList.add('hidden');
   }
 
   function _fieldLabel(f) {

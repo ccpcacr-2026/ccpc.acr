@@ -64,7 +64,9 @@ const RESERVED = [
   '_invMarkNotifRead','_invOpenDistModal','_invCloseDistModal','_invSubmitDistribution',
   '_invRenderRecipientOptions','_invUpdateNotifyPreview',
   // student detail panel (My Class)
-  'openStudentProfile','closeStudentProfile'
+  'openStudentProfile','closeStudentProfile',
+  // class-wide tab data table (My Class)
+  'openClassTabTable','closeClassTabTable'
 ];
 
 // Strip HTML comments and collapse whitespace

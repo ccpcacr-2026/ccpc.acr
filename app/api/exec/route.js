@@ -1483,6 +1483,86 @@ const handlers = {
     return { classes };
   },
 
+  // Bare tab list for the "My Class" button row — tab NAMES aren't sensitive
+  // (only submission data is, gated per-tab below), so no per-user filtering
+  // needed here.
+  async getEnabledPortalTabs() {
+    const rows = await _sbStudent(`portal_tabs?is_enabled=eq.true&select=tab_name,icon_class&order=sort_order.asc`);
+    return { tabs: Array.isArray(rows) ? rows : [] };
+  },
+
+  // Whole-class, at-a-glance table for one custom tab: one row per student in
+  // the caller's own resolved class(es), one column per tab field. Same
+  // authorization model as getMyClassRoster/getStudentDetail — the roster is
+  // re-derived server-side from the caller's own resolved classes, never
+  // from client input, and submissions are queried scoped to just those
+  // student_ids.
+  async getMyClassTabTable([userId, tabName]) {
+    if (!userId || !tabName) return { error: 'Not authorized.' };
+    const assignments = await _getClassTeacherAssignments();
+    const mine = assignments
+      .filter(a => a.resolvedUserId === userId)
+      .map(a => ({
+        classKey: a.classKey,
+        studentClass: CLASS_TEACHER_NAME_TO_STUDENT_CLASS[a.className] || a.className,
+        studentSection: CLASS_TEACHER_SECTION_ALIASES[a.section] || a.section,
+      }));
+    if (!mine.length) return { error: 'Not authorized.' };
+
+    const rosterLists = await Promise.all(mine.map(async (m) => {
+      const students = await _sbStudent(
+        `students_data?class=eq.${encodeURIComponent(m.studentClass)}&section=eq.${encodeURIComponent(m.studentSection)}&select=student_id,student_name,roll&order=roll.asc`
+      );
+      return (Array.isArray(students) ? students : []).map(s => ({ ...s, classKey: m.classKey }));
+    }));
+    const roster = rosterLists.flat();
+    if (!roster.length) return { headers: [], rows: [] };
+
+    const studentIds = roster.map(s => s.student_id);
+    const [tabRows, subRows] = await Promise.all([
+      _sbStudent(`portal_tabs?tab_name=eq.${encodeURIComponent(tabName)}&select=fields_json`),
+      _sbStudent(`portal_submissions?tab_name=eq.${encodeURIComponent(tabName)}&student_id=in.(${studentIds.map(encodeURIComponent).join(',')})&select=student_id,data`),
+    ]);
+    const cfg = Array.isArray(tabRows) && tabRows[0];
+    let fields = [];
+    try { fields = JSON.parse(cfg?.fields_json || '[]'); } catch {}
+    // Track each field's nearest preceding group_label (e.g. "Father's
+    // Information") so same-named fields in different branches of a form
+    // (three separate "Occupation Type" fields, one per parent/guardian) can
+    // be disambiguated in the table header instead of all showing identically.
+    let currentGroup = '';
+    const dataFields = [];
+    fields.forEach(f => {
+      if (f.type === 'group_label') { currentGroup = f.label || ''; return; }
+      if (f.data_key) dataFields.push({ ...f, _group: currentGroup });
+    });
+    const bareLabel = f => f.name || f.label || f.data_key;
+
+    const subByStudent = {};
+    (Array.isArray(subRows) ? subRows : []).forEach(s => { subByStudent[s.student_id] = s.data || {}; });
+
+    // Prune to only fields that at least one student actually filled in —
+    // forms like this routinely define 40+ conditional sub-fields (Father's
+    // Info / Mother's Info / Local Guardian branches), and showing every one
+    // as a column defeats "at a glance" with a wall of empty, duplicate-
+    // labelled cells (e.g. three separate "Occupation Type" columns).
+    const usedFields = dataFields.filter(f => roster.some(s => {
+      const v = (subByStudent[s.student_id] || {})[f.data_key];
+      return v !== undefined && v !== null && v !== '';
+    }));
+    const labelCounts = {};
+    usedFields.forEach(f => { const l = bareLabel(f); labelCounts[l] = (labelCounts[l] || 0) + 1; });
+    const labelFor = f => (labelCounts[bareLabel(f)] > 1 && f._group) ? `${f._group}: ${bareLabel(f)}` : bareLabel(f);
+
+    const multiClass = mine.length > 1;
+    const headers = ['Roll', 'Name', ...(multiClass ? ['Class'] : []), ...usedFields.map(labelFor)];
+    const rows = roster.map(s => {
+      const data = subByStudent[s.student_id] || {};
+      return [s.roll || '', s.student_name || '', ...(multiClass ? [s.classKey] : []), ...usedFields.map(f => data[f.data_key] ?? '')];
+    });
+    return { headers, rows, tab_name: tabName };
+  },
+
   // Full read-only detail panel for one student — canteen, attendance, custom
   // tab submissions, and base profile. Authorization is NOT "the roster only
   // links to your own students" (that's just UI convenience) — this handler
