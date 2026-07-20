@@ -905,6 +905,7 @@
                                 <button class="btn btn-sm fw-800 me-2" data-bs-toggle="tab" data-bs-target="#admin-reports" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">Data</button>
                                 <button class="btn btn-sm fw-800 me-2" data-bs-toggle="tab" data-bs-target="#admin-history" onclick="loadEditHistory()" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">History</button>
                                 <button class="btn btn-sm fw-800 me-2" data-bs-toggle="tab" data-bs-target="#admin-nfc" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">NFC</button>
+                                <button class="btn btn-sm fw-800 me-2" data-bs-toggle="tab" data-bs-target="#admin-photo" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">Photo</button>
                                 <button class="btn btn-sm fw-800 me-2" data-bs-toggle="tab" data-bs-target="#admin-tracking" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">Bus</button>
                                 <button class="btn btn-sm fw-800 me-2" data-bs-toggle="tab" data-bs-target="#admin-notices" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">Notices</button>
                                 <button class="btn btn-sm fw-800" data-bs-toggle="tab" data-bs-target="#admin-import" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">Import</button>
@@ -1004,6 +1005,25 @@
                                     <div class="table-responsive rounded-4 border"><table class="table table-hover align-middle mb-0"><thead class="bg-light"><tr><th>Student ID</th><th>Name</th><th>Class</th><th>Section</th><th>Roll</th><th>Changes</th><th>When</th></tr></thead><tbody id="history-body"></tbody></table></div>
                                 </div>
                                 <div class="tab-pane" id="admin-nfc"></div>
+                                <div class="tab-pane" id="admin-photo">
+                                    <p class="small text-muted mb-3" style="font-size:0.72rem">Look up a student, then upload or replace their profile photo. Stored in the public "students" Storage bucket; images over 130KB are compressed automatically.</p>
+                                    <div class="row g-3 mb-4">
+                                        <div class="col-md-8"><input type="text" id="photo-student-id" class="form-control" placeholder="Student ID" autocomplete="off" onkeydown="if(event.key==='Enter')loadStudentForPhoto()"></div>
+                                        <div class="col-md-4"><button onclick="loadStudentForPhoto()" class="btn btn-outline-primary w-100 fw-800"><i class="bi bi-search"></i> Load</button></div>
+                                    </div>
+                                    <div id="photo-student-card" class="card border-0 shadow-sm p-4 hidden" style="border-radius:24px;max-width:420px">
+                                        <div class="d-flex align-items-center gap-3 mb-4">
+                                            <div id="photo-avatar" style="width:72px;height:72px;border-radius:50%;flex-shrink:0;background:linear-gradient(135deg,var(--primary),var(--primary-l));display:flex;align-items:center;justify-content:center;font-size:1.4rem;font-weight:900;color:#fff;background-size:cover;background-position:center"></div>
+                                            <div>
+                                                <div id="photo-student-name" class="fw-800" style="color:var(--text)"></div>
+                                                <div id="photo-student-meta" class="small fw-700 text-muted"></div>
+                                            </div>
+                                        </div>
+                                        <input type="file" id="photo-file-input" accept="image/*" class="d-none" onchange="handleStudentPhotoSelect(event)">
+                                        <button onclick="document.getElementById('photo-file-input').click()" class="btn btn-primary w-100 py-3 fw-800"><i class="bi bi-camera-fill me-2"></i>Upload / Change Photo</button>
+                                        <div id="photo-status" class="text-center small fw-800 mt-2"></div>
+                                    </div>
+                                </div>
                                 <div class="tab-pane" id="admin-tracking">
                                     <div class="row g-4">
                                         <div class="col-md-5">
@@ -3989,6 +4009,102 @@
                     </tr>`;
                 }).join('');
             }).catch(() => { body.innerHTML = '<tr><td colspan="7" class="text-center text-danger p-4">Network error</td></tr>'; });
+        }
+
+        // ── Admin photo upload (Photo tab) ──────────────────────────────────
+        let _photoStudentId = null;
+
+        function _renderPhotoAvatar(student) {
+            const el = document.getElementById('photo-avatar');
+            if (!el) return;
+            if (student.photo) {
+                el.style.backgroundImage = `url('${student.photo}')`;
+                el.textContent = '';
+            } else {
+                el.style.backgroundImage = '';
+                const name = student.student_name || student.student_id || '?';
+                el.textContent = name.trim().charAt(0).toUpperCase();
+            }
+        }
+
+        function loadStudentForPhoto() {
+            const sid = (document.getElementById('photo-student-id') || {}).value.trim();
+            const card = document.getElementById('photo-student-card');
+            const status = document.getElementById('photo-status');
+            if (!sid) return;
+            if (status) status.textContent = '';
+            portalFetch('get_student_basic', { student_id: sid }).then(res => {
+                if (!res || res.result !== 'success') {
+                    if (card) card.classList.add('hidden');
+                    if (status) { status.className = 'text-center small fw-800 mt-2 text-danger'; status.textContent = (res && res.message) || 'Student not found.'; }
+                    return;
+                }
+                _photoStudentId = res.student.student_id;
+                document.getElementById('photo-student-name').textContent = res.student.student_name || res.student.student_id;
+                document.getElementById('photo-student-meta').textContent = [res.student.class, res.student.section, res.student.roll ? `Roll ${res.student.roll}` : ''].filter(Boolean).join(' · ');
+                _renderPhotoAvatar(res.student);
+                if (card) card.classList.remove('hidden');
+            }).catch(() => { if (status) { status.className = 'text-center small fw-800 mt-2 text-danger'; status.textContent = 'Network error.'; } });
+        }
+
+        function handleStudentPhotoSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            if (file.size > 5 * 1024 * 1024) {
+                alert('Photo must be under 5 MB.');
+                event.target.value = '';
+                return;
+            }
+            if (!_photoStudentId) return;
+
+            const status = document.getElementById('photo-status');
+            if (status) { status.className = 'text-center small fw-800 mt-2 text-muted'; status.textContent = 'Processing...'; }
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = new Image();
+                img.onload = function() {
+                    // Center-crop to square on a canvas, cap at 500×500 px — same
+                    // approach as the teacher photo flow (ccpc-teachers/_src/app.js
+                    // handlePhotoSelect), just targeting the "students" bucket.
+                    const side     = Math.min(img.width, img.height);
+                    const sx       = Math.floor((img.width  - side) / 2);
+                    const sy       = Math.floor((img.height - side) / 2);
+                    const canvasPx = Math.min(side, 500);
+
+                    const canvas   = document.createElement('canvas');
+                    canvas.width   = canvasPx;
+                    canvas.height  = canvasPx;
+                    const ctx      = canvas.getContext('2d');
+                    ctx.drawImage(img, sx, sy, side, side, 0, 0, canvasPx, canvasPx);
+
+                    const TARGET = 130 * 1024; // 130 KB — matches the "students" bucket's own file-size limit
+                    let base64 = '';
+                    for (const q of [0.85, 0.70, 0.55, 0.40, 0.28]) {
+                        base64 = canvas.toDataURL('image/jpeg', q);
+                        const approxBytes = Math.ceil((base64.length - base64.indexOf(',') - 1) * 0.75);
+                        if (approxBytes <= TARGET) break;
+                    }
+                    const finalBytes = Math.ceil((base64.length - base64.indexOf(',') - 1) * 0.75);
+                    if (finalBytes > TARGET) {
+                        if (status) { status.className = 'text-center small fw-800 mt-2 text-danger'; status.textContent = 'Could not compress under 130KB — use a smaller image.'; }
+                        return;
+                    }
+
+                    if (status) { status.className = 'text-center small fw-800 mt-2 text-muted'; status.textContent = 'Uploading...'; }
+                    portalFetch('upload_photo', { student_id: _photoStudentId, photo_base64: base64 }).then(res => {
+                        if (res && res.result === 'success') {
+                            _renderPhotoAvatar({ photo: res.photo, student_name: document.getElementById('photo-student-name').textContent });
+                            if (status) { status.className = 'text-center small fw-800 mt-2 text-success'; status.textContent = 'Photo saved!'; }
+                        } else {
+                            if (status) { status.className = 'text-center small fw-800 mt-2 text-danger'; status.textContent = (res && res.message) || 'Upload failed.'; }
+                        }
+                    }).catch(() => { if (status) { status.className = 'text-center small fw-800 mt-2 text-danger'; status.textContent = 'Network error.'; } });
+                };
+                img.onerror = function() { if (status) { status.className = 'text-center small fw-800 mt-2 text-danger'; status.textContent = 'Could not read image file.'; } };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
         }
 
         function adminResetPin() {

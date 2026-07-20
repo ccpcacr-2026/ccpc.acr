@@ -243,6 +243,46 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success', message: `PIN cleared for ${student_id} — they can log in with their phone number again.` });
   }
 
+  // ── Minimal single-student lookup for the admin Photo tab (no existing
+  // action returns a bare students_data row to the client — get_tabs only
+  // uses it internally to evaluate tab conditions). ───────────────────────
+  if (action === 'get_student_basic') {
+    const { student_id } = payload;
+    if (!student_id) return NextResponse.json({ result: 'error', message: 'Student ID required.' });
+    const rows = await sb(`students_data?student_id=eq.${encodeURIComponent(student_id)}&select=student_id,student_name,class,section,roll,photo`);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: 'Database error.' });
+    if (!rows.length) return NextResponse.json({ result: 'error', message: 'Student ID not found.' });
+    return NextResponse.json({ result: 'success', student: rows[0] });
+  }
+
+  // ── Profile photo — admin-side upload into the public `students` Storage
+  // bucket. Client sends an already square-cropped, already-compressed
+  // (<=130KB, matching the bucket's own limit) JPEG data URL — see
+  // handleStudentPhotoSelect in student-admin.html, copied from the
+  // equivalent teacher-photo flow (ccpc-teachers/_src/app.js handlePhotoSelect
+  // / uploadPhotoToDrive in exec/route.js), just targeting a different bucket.
+  if (action === 'upload_photo') {
+    const { student_id, photo_base64 } = payload;
+    if (!student_id || !photo_base64) return NextResponse.json({ result: 'error', message: 'Student ID and photo required.' });
+    const raw = String(photo_base64).replace(/^data:[^;]+;base64,/, '');
+    const binary = atob(raw);
+    const buf = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) buf[i] = binary.charCodeAt(i);
+    const contentType = (String(photo_base64).match(/data:([^;]+)/) || [])[1] || 'image/jpeg';
+
+    const uploadRes = await fetch(`${SB_URL}/storage/v1/object/students/photo_${encodeURIComponent(student_id)}.jpg`, {
+      method: 'POST',
+      headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Content-Type': contentType, 'x-upsert': 'true' },
+      body: buf,
+    });
+    if (!uploadRes.ok) return NextResponse.json({ result: 'error', message: 'Upload failed: ' + (await uploadRes.text()).slice(0, 200) });
+
+    const publicUrl = `${SB_URL}/storage/v1/object/public/students/photo_${encodeURIComponent(student_id)}.jpg?v=${Date.now()}`;
+    const patchRes = await sb(`students_data?student_id=eq.${encodeURIComponent(student_id)}`, 'PATCH', { photo: publicUrl });
+    if (patchRes?.error) return NextResponse.json({ result: 'error', message: 'Uploaded, but could not save to profile.' });
+    return NextResponse.json({ result: 'success', photo: publicUrl });
+  }
+
   // ── Edit History (admin-searchable audit trail, populated by a DB trigger
   // on every students_data UPDATE — see the edit_history table) ──────────────
   if (action === 'search_edit_history') {

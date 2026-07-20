@@ -1476,7 +1476,7 @@ const handlers = {
       const studentSection = CLASS_TEACHER_SECTION_ALIASES[section] || section;
       const students = await _sbStudent(
         `students_data?class=eq.${encodeURIComponent(studentClass)}&section=eq.${encodeURIComponent(studentSection)}` +
-        `&select=student_id,student_name,roll,gender,version,shift,phone_number,father_phone,mother_phone&order=roll.asc`
+        `&select=student_id,student_name,roll,gender,version,shift,phone_number,father_phone,mother_phone,photo&order=roll.asc`
       );
       return { classKey, className, section, students: Array.isArray(students) ? students : [] };
     }));

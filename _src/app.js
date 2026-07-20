@@ -2229,20 +2229,32 @@
           <div>
             <p class="font-black text-slate-800 text-sm uppercase tracking-widest mb-3">${c.classKey}<span class="text-slate-400 font-bold"> · ${sorted.length} students</span></p>
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              ${sorted.length ? sorted.map(s => `
-                <button onclick='openStudentProfile(${JSON.stringify(s.student_id)})'
-                  class="text-left bg-white border border-slate-200 rounded-xl p-4 hover:border-blue-300 hover:shadow-md transition-all">
-                  <div class="flex items-center justify-between mb-1">
-                    <span class="text-[10px] font-black text-blue-600 uppercase tracking-widest">Roll ${s.roll || '—'}</span>
-                    <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">${s.gender || ''}</span>
+              ${sorted.length ? sorted.map(s => {
+                const fatherTel = String(s.father_phone || '').replace(/[\s\-()]/g, '');
+                const motherTel = String(s.mother_phone || '').replace(/[\s\-()]/g, '');
+                return `
+                <div onclick='openStudentProfile(${JSON.stringify(s.student_id)})'
+                  class="cursor-pointer bg-white border border-slate-200 rounded-xl p-4 hover:border-blue-300 hover:shadow-lg transition-all">
+                  <div class="flex items-center gap-3 mb-3">
+                    ${_avatar(s.student_name, s.photo, 'w-12 h-12')}
+                    <div class="flex-1 min-w-0">
+                      <p class="text-sm font-black text-slate-800 truncate">${s.student_name || ''}</p>
+                      <p class="text-[10px] font-black text-blue-600 uppercase tracking-widest">Roll ${s.roll || '—'} <span class="text-slate-400">· ${s.gender || ''}</span></p>
+                    </div>
                   </div>
-                  <p class="text-sm font-black text-slate-800 mb-2">${s.student_name || ''}</p>
-                  <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">${[s.version, s.shift].filter(Boolean).join(' / ')}</p>
-                  <div class="mt-2 pt-2 border-t border-slate-50 flex flex-col gap-0.5">
-                    <span class="text-[10px] font-bold text-slate-500">Father: ${s.father_phone || '—'}</span>
-                    <span class="text-[10px] font-bold text-slate-500">Mother: ${s.mother_phone || '—'}</span>
+                  <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">${[s.version, s.shift].filter(Boolean).join(' / ')}</p>
+                  <div class="pt-2 border-t border-slate-50 flex flex-col gap-1">
+                    <div class="flex items-center justify-between">
+                      <span class="text-[10px] font-bold text-slate-500 flex items-center gap-1.5"><i data-lucide="user" class="h-3 w-3 text-slate-300"></i>Father: ${s.father_phone || '—'}</span>
+                      ${fatherTel ? `<a href="tel:${fatherTel}" title="Call Father" onclick="event.stopPropagation()" class="text-slate-300 hover:text-blue-600 transition-colors shrink-0"><i data-lucide="phone" class="h-3.5 w-3.5"></i></a>` : ''}
+                    </div>
+                    <div class="flex items-center justify-between">
+                      <span class="text-[10px] font-bold text-slate-500 flex items-center gap-1.5"><i data-lucide="user" class="h-3 w-3 text-slate-300"></i>Mother: ${s.mother_phone || '—'}</span>
+                      ${motherTel ? `<a href="tel:${motherTel}" title="Call Mother" onclick="event.stopPropagation()" class="text-slate-300 hover:text-blue-600 transition-colors shrink-0"><i data-lucide="phone" class="h-3.5 w-3.5"></i></a>` : ''}
+                    </div>
                   </div>
-                </button>`).join('') : `<div class="col-span-full text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">No students found for this class</div>`}
+                </div>`;
+              }).join('') : `<div class="col-span-full text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">No students found for this class</div>`}
             </div>
           </div>`;
         }).join('');
@@ -2272,7 +2284,10 @@
       modal.className = 'hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
       modal.innerHTML = `<div class="bg-white rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto p-5">
         <div class="flex items-center justify-between mb-4">
-          <p class="font-black text-slate-800 text-sm" id="studentDetailTitle">Student</p>
+          <div class="flex items-center gap-3">
+            <div id="studentDetailAvatar"></div>
+            <p class="font-black text-slate-800 text-sm" id="studentDetailTitle">Student</p>
+          </div>
           <button onclick="closeStudentProfile()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
         </div>
         <div id="studentDetailBody"><div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div></div>
@@ -2293,6 +2308,9 @@
         }
         const p = res.profile || {};
         document.getElementById('studentDetailTitle').textContent = `${p.student_name || 'Student'} · Roll ${p.roll || '—'}`;
+        document.getElementById('studentDetailAvatar').innerHTML = _avatar(p.student_name, p.photo, 'w-10 h-10');
+        const fatherTel = String(p.father_phone || '').replace(/[\s\-()]/g, '');
+        const motherTel = String(p.mother_phone || '').replace(/[\s\-()]/g, '');
 
         const presentDays = res.attendance.filter(a => a.entry_time).length;
         const attendanceRows = res.attendance.map(a => `
@@ -2324,8 +2342,10 @@
               <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Profile</p>
               <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
                 ${[['Class', p.class],['Section', p.section],['Roll', p.roll],['Gender', p.gender],['Version', p.version],['Shift', p.shift],
-                   [`Father's Phone`, p.father_phone],[`Mother's Phone`, p.mother_phone],['Balance', p.balance],['Card Status', p.card_status]]
+                   ['Balance', p.balance],['Card Status', p.card_status]]
                   .map(([l, v]) => `<div><p class="text-slate-400 font-bold text-[10px] uppercase">${l}</p><p class="font-black text-slate-700">${v ?? '—'}</p></div>`).join('')}
+                <div><p class="text-slate-400 font-bold text-[10px] uppercase">Father's Phone</p><p class="font-black text-slate-700 flex items-center gap-1.5">${p.father_phone || '—'}${fatherTel ? `<a href="tel:${fatherTel}" title="Call Father" class="text-blue-500 hover:text-blue-700"><i data-lucide="phone" class="h-3.5 w-3.5"></i></a>` : ''}</p></div>
+                <div><p class="text-slate-400 font-bold text-[10px] uppercase">Mother's Phone</p><p class="font-black text-slate-700 flex items-center gap-1.5">${p.mother_phone || '—'}${motherTel ? `<a href="tel:${motherTel}" title="Call Mother" class="text-blue-500 hover:text-blue-700"><i data-lucide="phone" class="h-3.5 w-3.5"></i></a>` : ''}</p></div>
               </div>
             </div>
 
