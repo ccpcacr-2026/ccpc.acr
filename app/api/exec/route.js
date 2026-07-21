@@ -1479,7 +1479,17 @@ const handlers = {
     if (!Array.isArray(rows)) rows = [];
     if (allowedStudentIds) rows = rows.filter(r => allowedStudentIds.has(String(r.student_id)));
     const scopedCols = allowedStudentIds ? ['class', 'section'] : [];
-    if (!rows.length) return { headers: ['student_id', ...scopedCols], rows: [] };
+    if (!rows.length) return { headers: ['student_id', ...scopedCols], rows: [], sort_meta: {} };
+
+    // Sort metadata (roll/name/class/section/gender per student) — always
+    // fetched so the teacher's own view can offer a "Sort by" control at
+    // view-time rather than an admin pre-configuring one; none of these
+    // live on the submission row itself. Keyed by student_id so the client
+    // can re-sort without a round-trip regardless of display-column config.
+    const sortIds = [...new Set(rows.map(r => String(r.student_id)))];
+    const sortProfiles = await _sbStudent(`students_data?student_id=in.(${sortIds.map(encodeURIComponent).join(',')})&select=student_id,student_name,roll,class,section,gender`);
+    const sortMeta = {};
+    (Array.isArray(sortProfiles) ? sortProfiles : []).forEach(p => { sortMeta[String(p.student_id)] = p; });
 
     // same config-ordered columns as the admin Data view
     const ordered = ['student_id', ...scopedCols];
@@ -1502,7 +1512,7 @@ const handlers = {
       }
       return r.data?.[h] ?? '';
     }));
-    return { headers, rows: dataRows };
+    return { headers, rows: dataRows, sort_meta: sortMeta };
   },
 
   // ── CLASS TEACHER → STUDENT ROSTER ────────────────────────────────────────
@@ -1564,12 +1574,12 @@ const handlers = {
 
     const rosterLists = await Promise.all(mine.map(async (m) => {
       const students = await _sbStudent(
-        `students_data?class=eq.${encodeURIComponent(m.studentClass)}&section=eq.${encodeURIComponent(m.studentSection)}&select=student_id,student_name,roll&order=roll.asc`
+        `students_data?class=eq.${encodeURIComponent(m.studentClass)}&section=eq.${encodeURIComponent(m.studentSection)}&select=student_id,student_name,roll,class,section,gender&order=roll.asc`
       );
       return (Array.isArray(students) ? students : []).map(s => ({ ...s, classKey: m.classKey }));
     }));
     const roster = rosterLists.flat();
-    if (!roster.length) return { headers: [], rows: [] };
+    if (!roster.length) return { headers: [], rows: [], sort_meta: [] };
 
     const studentIds = roster.map(s => s.student_id);
     const [tabRows, subRows] = await Promise.all([
@@ -1613,7 +1623,12 @@ const handlers = {
       const data = subByStudent[s.student_id] || {};
       return [s.roll || '', s.student_name || '', ...(multiClass ? [s.classKey] : []), ...usedFields.map(f => data[f.data_key] ?? '')];
     });
-    return { headers, rows, tab_name: tabName };
+    // Index-aligned with `rows` (not keyed by student_id — it isn't a visible
+    // column here) so the teacher's "Sort by" control can re-order both
+    // together without another round-trip; Roll/Name are already visible
+    // columns, class/section/gender are not.
+    const sortMeta = roster.map(s => ({ roll: s.roll, student_name: s.student_name, class: s.class, section: s.section, gender: s.gender }));
+    return { headers, rows, tab_name: tabName, sort_meta: sortMeta };
   },
 
   // Full read-only detail panel for one student — canteen, attendance, custom

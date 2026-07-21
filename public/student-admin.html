@@ -488,9 +488,19 @@
             text-transform: uppercase; letter-spacing: 0.06em; cursor: pointer;
         }
         .btn-logout:hover { background: #EF4444; color: #fff; border-color: transparent; transform: translateY(-2px); box-shadow: 0 8px 24px rgba(239,68,68,0.3); }
+        /* Sits to the left of the Logout pill — only shown for the admin flow
+           (see showAdminPanel), so admins always have a way back to the main
+           Faculty Portal without this ever appearing in the student self-
+           service login/view. */
+        .btn-back-portal {
+            right: 152px; color: var(--primary); border-color: rgba(15,122,62,0.2);
+            text-decoration: none;
+        }
+        .btn-back-portal:hover { background: var(--primary); color: #fff; border-color: transparent; box-shadow: 0 8px 24px rgba(15,122,62,0.3); }
 
         @media (max-width: 991px) {
             .btn-logout { top: 12px; right: 13px; padding: 9px 15px; font-size: 0.71rem; }
+            .btn-back-portal { right: 128px; }
             .mobile-header { padding-right: 118px !important; }
         }
 
@@ -1136,6 +1146,10 @@
         <nav class="bottom-nav" id="bottom-nav-container"></nav>
     </div>
 
+    <a id="btn-back-to-portal" href="/app.html" class="btn-logout btn-back-portal hidden">
+        <i class="bi bi-arrow-left"></i> Faculty Portal
+    </a>
+
     <button id="btn-logout-fixed" class="btn-logout hidden" onclick="logout()">
         <i class="bi bi-box-arrow-right"></i> Logout
     </button>
@@ -1751,7 +1765,7 @@
 
         function showAdminPanel() {
             try {
-                const els = ['login-section', 'admin-section', 'btn-logout-fixed', 'sidebar-container', 'mobile-header'];
+                const els = ['login-section', 'admin-section', 'btn-logout-fixed', 'btn-back-to-portal', 'sidebar-container', 'mobile-header'];
                 els.forEach(id => {
                     const el = document.getElementById(id);
                     if (el) {
