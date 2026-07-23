@@ -725,6 +725,17 @@
             .detail-value { font-size: 0.82rem !important; }
         }
 
+        /* ── Class Access modal: side-by-side on desktop, stacked on mobile ── */
+        .ca-split { display: flex; flex: 1; min-height: 380px; }
+        .ca-left { width: 44%; border-right: 1px solid #eee; display: flex; flex-direction: column; }
+        .ca-right { width: 56%; overflow-y: auto; }
+        @media (max-width: 991px) {
+            .ca-split { flex-direction: column; overflow-y: auto; }
+            .ca-left, .ca-right { width: 100%; }
+            .ca-left { border-right: none; border-bottom: 1px solid #eee; max-height: 45vh; }
+            .ca-right { flex: 1; }
+        }
+
         /* ── Sidebar Student Card ──────────────────────────────── */
         .sidebar-student-card {
             margin: 0 10px 6px; padding: 11px 13px;
@@ -4231,21 +4242,27 @@
             overlay.id = 'class-access-overlay';
             overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:3000;display:flex;align-items:center;justify-content:center;padding:16px';
             overlay.innerHTML = `
-                <div style="background:#fff;border-radius:16px;max-width:680px;width:100%;max-height:85vh;display:flex;flex-direction:column">
+                <div style="background:#fff;border-radius:16px;max-width:960px;width:100%;max-height:85vh;display:flex;flex-direction:column">
                     <div class="p-3 border-bottom d-flex justify-content-between align-items-center">
                         <strong>Class Access — ${tab}</strong>
                         <button class="btn-close" onclick="document.getElementById('class-access-overlay').remove()"></button>
                     </div>
-                    <div class="p-2 border-bottom">
-                        <input type="text" id="class-access-filter" class="form-control form-control-sm" placeholder="Search by name, ID, shortname or phone..." oninput="filterClassAccessStaff()">
-                    </div>
-                    <div id="class-access-grantees" class="px-3 pt-2 d-flex flex-wrap gap-2"></div>
-                    <div style="overflow-y:auto;flex:1" class="p-3">
-                        <div id="class-access-staff-list"><div class="text-center p-4"><div class="spinner-border text-primary"></div></div></div>
-                        <div id="class-access-sections" class="mt-3"></div>
+                    <div id="class-access-grantees" class="px-3 pt-3 pb-2 d-flex flex-wrap gap-2" style="min-height:0"></div>
+                    <div class="ca-split" style="border-top:1px solid #eee">
+                        <div class="ca-left">
+                            <div class="p-2 border-bottom">
+                                <input type="text" id="class-access-filter" class="form-control form-control-sm" placeholder="Search by name, ID, shortname or phone..." oninput="filterClassAccessStaff()">
+                            </div>
+                            <div id="class-access-staff-list" style="overflow-y:auto;flex:1" class="p-2"><div class="text-center p-4"><div class="spinner-border text-primary"></div></div></div>
+                        </div>
+                        <div class="ca-right p-3">
+                            <div id="class-access-sections">
+                                <div class="text-center text-muted small py-5">Pick a teacher on the left to assign class-sections.</div>
+                            </div>
+                        </div>
                     </div>
                     <div class="p-3 border-top d-flex justify-content-between align-items-center">
-                        <span class="small text-muted">Pick a person, tick the class-sections they may see, then save.</span>
+                        <span class="small text-muted">Pick a teacher, tick the class-sections they may see, then save — the list stays open so you can move on to the next teacher.</span>
                         <button class="btn btn-primary fw-800 px-4" id="class-access-save-btn" onclick="saveClassAccess()" disabled>Save</button>
                     </div>
                 </div>`;
@@ -4274,23 +4291,30 @@
             list.innerHTML = _caStaff.map(u => {
                 const search = [u.full_name, u.user_id, u.shortname, u.phone].filter(Boolean).join(' ').toLowerCase();
                 const selected = _caSelectedUser === u.user_id;
-                return `<div class="align-items-center gap-2 py-1 px-2 rounded class-access-row" data-uid="${u.user_id}" data-search="${search.replace(/"/g, '&quot;')}"
-                    onclick="selectClassAccessUser(this.dataset.uid)" style="display:flex;cursor:pointer;${selected ? 'background:var(--primary);color:#fff' : ''}">
-                    <span class="fw-800 small">${u.full_name || u.user_id}</span>
-                    ${u.shortname ? `<span class="badge ${selected ? 'bg-white text-dark' : 'bg-light text-secondary'}" style="font-size:0.6rem">${u.shortname}</span>` : ''}
-                    <span class="small ${selected ? '' : 'text-muted'}">${u.user_id}</span>
-                    <span class="small ${selected ? '' : 'text-muted'} ms-auto">${u.phone || ''}</span>
-                    ${_caGrants[u.user_id] && _caGrants[u.user_id].length ? `<span class="badge bg-success" style="font-size:0.6rem">${_caGrants[u.user_id].length}</span>` : ''}
+                const grantCount = (_caGrants[u.user_id] || []).length;
+                return `<div class="py-1 px-2 rounded class-access-row mb-1" data-uid="${u.user_id}" data-search="${search.replace(/"/g, '&quot;')}"
+                    onclick="selectClassAccessUser(this.dataset.uid)" style="cursor:pointer;${selected ? 'background:var(--primary);color:#fff' : ''}">
+                    <div class="d-flex justify-content-between align-items-start gap-2">
+                        <div class="text-truncate">
+                            <span class="fw-800 small">${u.full_name || u.user_id}</span>
+                            ${u.shortname ? `<span class="badge ${selected ? 'bg-white text-dark' : 'bg-light text-secondary'} ms-1" style="font-size:0.6rem">${u.shortname}</span>` : ''}
+                            <div class="small ${selected ? '' : 'text-muted'}">${u.user_id}${u.phone ? ' · ' + u.phone : ''}</div>
+                        </div>
+                        ${grantCount ? `<span class="badge ${selected ? 'bg-white text-dark' : 'bg-success'} shrink-0" style="font-size:0.6rem">${grantCount}</span>` : ''}
+                    </div>
                 </div>`;
             }).join('');
+            // Re-render rebuilds the list from scratch, which would otherwise drop
+            // whatever the admin had already typed into the search box — keep it
+            // filtered so picking one teacher doesn't reset the list for the next.
+            filterClassAccessStaff();
         }
 
         function filterClassAccessStaff() {
-            const q = document.getElementById('class-access-filter').value.toLowerCase();
-            // rows use inline display:flex (NOT Bootstrap's d-flex, whose
-            // !important would override this hide) — see renderClassAccessStaff
+            const filterEl = document.getElementById('class-access-filter');
+            const q = filterEl ? filterEl.value.toLowerCase() : '';
             document.querySelectorAll('.class-access-row').forEach(row => {
-                row.style.display = row.dataset.search.includes(q) ? 'flex' : 'none';
+                row.style.display = row.dataset.search.includes(q) ? '' : 'none';
             });
         }
 
@@ -4326,7 +4350,7 @@
                 <div class="row g-1">
                     ${_caClassSections.map(cs => {
                         const key = `${cs.class}|${cs.section}`;
-                        return `<div class="col-6 col-md-3">
+                        return `<div class="col-6">
                             <label class="d-flex align-items-center gap-1 small border rounded px-2 py-1" style="cursor:pointer">
                                 <input type="checkbox" class="form-check-input class-section-check" value="${key.replace(/"/g, '&quot;')}" ${granted.has(key) ? 'checked' : ''}>
                                 ${cs.class}-${cs.section}
