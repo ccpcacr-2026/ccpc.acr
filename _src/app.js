@@ -468,6 +468,11 @@
                 <option value="section">Sort: Section</option>
                 <option value="gender">Sort: Gender</option>
               </select>
+              <select id="std-tabdata-filter" class="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700">
+                <option value="">Show: All</option>
+                <option value="filled">Show: Filled</option>
+                <option value="unfilled">Show: Not Filled</option>
+              </select>
               <div class="flex rounded-lg border border-slate-200 overflow-hidden">
                 <button id="std-tabdata-viewtable" class="px-3 py-1.5 text-xs font-black bg-blue-600 text-white">Table</button>
                 <button id="std-tabdata-viewcard" class="px-3 py-1.5 text-xs font-black text-slate-500">Cards</button>
@@ -489,6 +494,7 @@
         card.querySelector('#std-tabdata-viewtable').addEventListener('click', () => _setStudentTabView('table'));
         card.querySelector('#std-tabdata-viewcard').addEventListener('click', () => _setStudentTabView('card'));
         card.querySelector('#std-tabdata-sort').addEventListener('change', (e) => _setStudentTabSort(e.target.value));
+        card.querySelector('#std-tabdata-filter').addEventListener('change', (e) => _setStudentTabFilter(e.target.value));
       })
       .withFailureHandler(() => {})
       .getMyTabDataAccess(uid);
@@ -509,6 +515,26 @@
     _renderStudentTabData();
   }
 
+  let _stdFilterKey = ''; // '' | 'filled' | 'unfilled'
+  function _setStudentTabFilter(key) {
+    _stdFilterKey = key;
+    _renderStudentTabData();
+  }
+
+  // Shared by render/export so both apply identical sort+filter.
+  function _stdVisibleRows() {
+    if (!_stdTabData) return [];
+    const filled = _stdTabData.filled || {};
+    let rows = _stdTabData.rows;
+    if (_stdSortKey && _stdTabData.sortMeta) {
+      const meta = _stdTabData.sortMeta;
+      rows = [...rows].sort((a, b) => _sortCompare((meta[a[0]] || {})[_stdSortKey], (meta[b[0]] || {})[_stdSortKey]));
+    }
+    if (_stdFilterKey === 'filled') rows = rows.filter(r => filled[r[0]]);
+    else if (_stdFilterKey === 'unfilled') rows = rows.filter(r => !filled[r[0]]);
+    return rows;
+  }
+
   // Generic numeric-aware comparator, matching the convention already used
   // for roll-number sorting elsewhere (My Class roster, etc.).
   function _sortCompare(va, vb) {
@@ -521,24 +547,27 @@
     return String(h || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   }
 
+  function _statusBadge(isFilled) {
+    return isFilled
+      ? '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-black uppercase tracking-widest whitespace-nowrap">Filled</span>'
+      : '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-[10px] font-black uppercase tracking-widest whitespace-nowrap">Not Filled</span>';
+  }
+
   function _renderStudentTabData() {
     const view = document.getElementById('std-tabdata-view');
     if (!view) return;
     if (!_stdTabData) { view.innerHTML = ''; return; }
     const { headers } = _stdTabData;
-    let rows = _stdTabData.rows;
-    if (_stdSortKey && _stdTabData.sortMeta) {
-      const meta = _stdTabData.sortMeta;
-      rows = [...rows].sort((a, b) => _sortCompare((meta[a[0]] || {})[_stdSortKey], (meta[b[0]] || {})[_stdSortKey]));
-    }
+    const filled = _stdTabData.filled || {};
+    const rows = _stdVisibleRows();
     if (!rows.length) {
-      view.innerHTML = '<div class="p-4 text-xs font-bold text-slate-400">No submissions yet.</div>';
+      view.innerHTML = `<div class="p-4 text-xs font-bold text-slate-400">${_stdFilterKey ? 'No students match this filter.' : 'No students found.'}</div>`;
       return;
     }
     if (_stdTabView === 'table') {
       view.innerHTML = `<table class="w-full text-left">
-        <thead class="bg-slate-50"><tr>${headers.map(h => `<th class="px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 whitespace-nowrap">${h}</th>`).join('')}</tr></thead>
-        <tbody>${rows.map(r => '<tr class="border-t border-slate-100">' + r.map(c => `<td class="px-3 py-2 text-xs font-semibold text-slate-700">${c ?? ''}</td>`).join('') + '</tr>').join('')}</tbody>
+        <thead class="bg-slate-50"><tr><th class="px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 whitespace-nowrap">Status</th>${headers.map(h => `<th class="px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 whitespace-nowrap">${h}</th>`).join('')}</tr></thead>
+        <tbody>${rows.map(r => `<tr class="border-t border-slate-100"><td class="px-3 py-2">${_statusBadge(filled[r[0]])}</td>${r.map(c => `<td class="px-3 py-2 text-xs font-semibold text-slate-700">${c === '' || c == null ? '—' : c}</td>`).join('')}</tr>`).join('')}</tbody>
       </table>`;
       return;
     }
@@ -562,7 +591,10 @@
           .map((h, i) => ({ h, v: r[i], i }))
           .filter(f => !identityIdx.has(f.i) && f.v !== '' && f.v != null);
         return `<div class="bg-white border border-slate-200 rounded-xl p-4">
-          <p class="text-sm font-black text-slate-800">${title}</p>
+          <div class="flex items-start justify-between gap-2">
+            <p class="text-sm font-black text-slate-800">${title}</p>
+            ${_statusBadge(filled[r[0]])}
+          </div>
           <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">${sub}</p>
           ${fields.length ? `<div class="pt-2 border-t border-slate-50 flex flex-col gap-1">
             ${fields.map(f => `<div class="flex justify-between gap-3">
@@ -581,6 +613,7 @@
     const count = document.getElementById('std-tabdata-count');
     const exportBtn = document.getElementById('std-tabdata-export');
     const sortSel = document.getElementById('std-tabdata-sort');
+    const filterSel = document.getElementById('std-tabdata-filter');
     if (!sel || !sel.value) return;
     view.innerHTML = '<div class="p-4 text-xs font-bold text-slate-400">Loading…</div>';
     google.script.run
@@ -591,10 +624,13 @@
           return;
         }
         _stdSortKey = '';
+        _stdFilterKey = '';
         if (sortSel) sortSel.value = '';
-        _stdTabData = { tab: sel.value, headers: res.headers, rows: res.rows, sortMeta: res.sort_meta || {} };
+        if (filterSel) filterSel.value = '';
+        _stdTabData = { tab: sel.value, headers: res.headers, rows: res.rows, sortMeta: res.sort_meta || {}, filled: res.filled || {} };
         _renderStudentTabData();
-        count.textContent = `${res.rows.length} student${res.rows.length === 1 ? '' : 's'} submitted "${sel.value}"`;
+        const filledCount = res.rows.filter(r => (res.filled || {})[r[0]]).length;
+        count.textContent = `${filledCount} of ${res.rows.length} student${res.rows.length === 1 ? '' : 's'} filled "${sel.value}" — ${res.rows.length - filledCount} not filled`;
         exportBtn.disabled = res.rows.length === 0;
       })
       .withFailureHandler(e => {
@@ -606,15 +642,12 @@
 
   function exportStudentTabData() {
     if (!_stdTabData || !_stdTabData.rows.length) return;
-    // Export whatever order is currently on screen, not always submission order.
-    let rows = _stdTabData.rows;
-    if (_stdSortKey && _stdTabData.sortMeta) {
-      const meta = _stdTabData.sortMeta;
-      rows = [...rows].sort((a, b) => _sortCompare((meta[a[0]] || {})[_stdSortKey], (meta[b[0]] || {})[_stdSortKey]));
-    }
+    // Export whatever sort/filter is currently on screen.
+    const rows = _stdVisibleRows();
+    const filled = _stdTabData.filled || {};
     const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const csv = _stdTabData.headers.map(esc).join(',') + '\n'
-      + rows.map(r => r.map(esc).join(',')).join('\n');
+    const csv = ['Status', ..._stdTabData.headers].map(esc).join(',') + '\n'
+      + rows.map(r => [filled[r[0]] ? 'Filled' : 'Not Filled', ...r].map(esc).join(',')).join('\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
     a.download = `${_stdTabData.tab}_export.csv`;
@@ -2400,9 +2433,9 @@
       modal.id = 'classTabTableModal';
       modal.className = 'hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
       modal.innerHTML = `<div class="bg-white rounded-2xl w-full max-w-5xl max-h-[85vh] overflow-y-auto p-5">
-        <div class="flex items-center justify-between mb-4 gap-3">
+        <div class="flex items-center justify-between mb-1 gap-3">
           <p class="font-black text-slate-800 text-sm" id="classTabTableTitle">Tab Data</p>
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 flex-wrap">
             <select id="classTabSortSelect" class="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700">
               <option value="">Sort: Default</option>
               <option value="roll">Sort: Roll</option>
@@ -2411,6 +2444,11 @@
               <option value="section">Sort: Section</option>
               <option value="gender">Sort: Gender</option>
             </select>
+            <select id="classTabFilterSelect" class="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700">
+              <option value="">Show: All</option>
+              <option value="filled">Show: Filled</option>
+              <option value="unfilled">Show: Not Filled</option>
+            </select>
             <div class="flex rounded-lg border border-slate-200 overflow-hidden">
               <button id="classTabViewTableBtn" class="px-3 py-1.5 text-xs font-black bg-blue-600 text-white">Table</button>
               <button id="classTabViewCardBtn" class="px-3 py-1.5 text-xs font-black text-slate-500">Cards</button>
@@ -2418,19 +2456,25 @@
             <button onclick="closeClassTabTable()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
           </div>
         </div>
+        <p id="classTabTableCount" class="text-xs font-bold text-slate-500 mb-3"></p>
         <div id="classTabTableBody"><div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div></div>
       </div>`;
       document.body.appendChild(modal);
       modal.querySelector('#classTabViewTableBtn').addEventListener('click', () => _setClassTabView('table'));
       modal.querySelector('#classTabViewCardBtn').addEventListener('click', () => _setClassTabView('card'));
       modal.querySelector('#classTabSortSelect').addEventListener('change', (e) => _setClassTabSort(e.target.value));
+      modal.querySelector('#classTabFilterSelect').addEventListener('change', (e) => _setClassTabFilter(e.target.value));
     }
     modal.classList.remove('hidden');
     _classTabData = null;
     _classSortKey = '';
+    _classFilterKey = '';
     const sortSel = document.getElementById('classTabSortSelect');
     if (sortSel) sortSel.value = '';
+    const filterSel = document.getElementById('classTabFilterSelect');
+    if (filterSel) filterSel.value = '';
     document.getElementById('classTabTableTitle').textContent = tabName;
+    document.getElementById('classTabTableCount').textContent = '';
     document.getElementById('classTabTableBody').innerHTML = `<div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`;
     lucide.createIcons();
 
@@ -2442,7 +2486,11 @@
           body.innerHTML = `<div class="text-center py-12 text-red-400 text-xs font-black uppercase tracking-widest">${(res && res.error) || 'Failed to load'}</div>`;
           return;
         }
-        _classTabData = { headers: res.headers || [], rows: res.rows || [], sortMeta: res.sort_meta || [] };
+        _classTabData = { headers: res.headers || [], rows: res.rows || [], sortMeta: res.sort_meta || [], filled: res.filled || [] };
+        const filledCount = (res.filled || []).filter(Boolean).length;
+        const total = (res.rows || []).length;
+        const countEl = document.getElementById('classTabTableCount');
+        if (countEl) countEl.textContent = total ? `${filledCount} of ${total} students filled this in — ${total - filledCount} not filled` : '';
         _renderClassTabData();
       })
       .withFailureHandler(() => {
@@ -2466,28 +2514,38 @@
     _renderClassTabData();
   }
 
+  let _classFilterKey = ''; // '' | 'filled' | 'unfilled'
+  function _setClassTabFilter(key) {
+    _classFilterKey = key;
+    _renderClassTabData();
+  }
+
   function _renderClassTabData() {
     const body = document.getElementById('classTabTableBody');
     if (!body || !_classTabData) return;
     const { headers } = _classTabData;
-    // sort_meta is index-aligned with rows (student_id isn't a visible column
-    // here) — zip, sort the pairs together, unzip, so both stay in lockstep.
-    let rows = _classTabData.rows;
-    if (_classSortKey && _classTabData.sortMeta && _classTabData.sortMeta.length === rows.length) {
-      rows = rows
-        .map((r, i) => [r, _classTabData.sortMeta[i]])
-        .sort((a, b) => _sortCompare((a[1] || {})[_classSortKey], (b[1] || {})[_classSortKey]))
-        .map(pair => pair[0]);
+    // sort_meta/filled are index-aligned with rows (student_id isn't a visible
+    // column here) — zip all three together, sort/filter, then unzip, so they
+    // stay in lockstep.
+    const filledArr = _classTabData.filled && _classTabData.filled.length === _classTabData.rows.length
+      ? _classTabData.filled : _classTabData.rows.map(() => true);
+    let pairs = _classTabData.rows.map((r, i) => [r, (_classTabData.sortMeta || [])[i], filledArr[i]]);
+    if (_classSortKey && _classTabData.sortMeta && _classTabData.sortMeta.length === _classTabData.rows.length) {
+      pairs = pairs.sort((a, b) => _sortCompare((a[1] || {})[_classSortKey], (b[1] || {})[_classSortKey]));
     }
+    if (_classFilterKey === 'filled') pairs = pairs.filter(p => p[2]);
+    else if (_classFilterKey === 'unfilled') pairs = pairs.filter(p => !p[2]);
+    const rows = pairs.map(p => p[0]);
+    const filled = pairs.map(p => p[2]);
     if (!rows.length) {
-      body.innerHTML = `<div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">No students found</div>`;
+      body.innerHTML = `<div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">${_classFilterKey ? 'No students match this filter' : 'No students found'}</div>`;
       return;
     }
     if (_classTabView === 'table') {
       body.innerHTML = `<div class="overflow-x-auto border border-slate-100 rounded-xl">
         <table class="w-full text-left text-xs">
-          <thead class="bg-slate-50"><tr>${headers.map(h => `<th class="px-3 py-2 font-black text-slate-500 uppercase tracking-widest whitespace-nowrap">${h}</th>`).join('')}</tr></thead>
-          <tbody>${rows.map(r => `<tr class="border-t border-slate-50">${r.map(v => `<td class="px-3 py-2 font-bold text-slate-700 whitespace-nowrap">${v === '' || v == null ? '—' : v}</td>`).join('')}</tr>`).join('')}</tbody>
+          <thead class="bg-slate-50"><tr><th class="px-3 py-2 font-black text-slate-500 uppercase tracking-widest whitespace-nowrap">Status</th>${headers.map(h => `<th class="px-3 py-2 font-black text-slate-500 uppercase tracking-widest whitespace-nowrap">${h}</th>`).join('')}</tr></thead>
+          <tbody>${rows.map((r, i) => `<tr class="border-t border-slate-50"><td class="px-3 py-2">${_statusBadge(filled[i])}</td>${r.map(v => `<td class="px-3 py-2 font-bold text-slate-700 whitespace-nowrap">${v === '' || v == null ? '—' : v}</td>`).join('')}</tr>`).join('')}</tbody>
         </table>
       </div>`;
       return;
@@ -2500,7 +2558,7 @@
     const clsIdx = headers.indexOf('Class');
     const identityIdx = new Set([rollIdx, nameIdx, clsIdx].filter(i => i >= 0));
     body.innerHTML = `<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-      ${rows.map(r => {
+      ${rows.map((r, i) => {
         const title = (nameIdx >= 0 && r[nameIdx]) || 'Student';
         const sub = [
           (rollIdx >= 0 && r[rollIdx]) ? `Roll ${r[rollIdx]}` : null,
@@ -2510,7 +2568,10 @@
           .map((h, i) => ({ h, v: r[i], i }))
           .filter(f => !identityIdx.has(f.i) && f.v !== '' && f.v != null);
         return `<div class="bg-white border border-slate-200 rounded-xl p-4">
-          <p class="text-sm font-black text-slate-800">${title}</p>
+          <div class="flex items-start justify-between gap-2">
+            <p class="text-sm font-black text-slate-800">${title}</p>
+            ${_statusBadge(filled[i])}
+          </div>
           <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">${sub}</p>
           ${fields.length ? `<div class="pt-2 border-t border-slate-50 flex flex-col gap-1">
             ${fields.map(f => `<div class="flex justify-between gap-3">

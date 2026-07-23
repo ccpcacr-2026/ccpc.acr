@@ -1446,7 +1446,10 @@ const handlers = {
     // only — no explicit grant needed; sheet resolution is best-effort so
     // explicit grants keep working if the sheet is down).
     let allowedStudentIds = null; // null = unrestricted (global grant)
-    let scopedInfoById = null;
+    let roster; // student_id,student_name,roll,class,section,gender — the full
+                // universe this call can ever show, submitted or not, so
+                // non-submitters appear as blank/"not filled" rows instead of
+                // silently vanishing from the list.
     if (!isGlobal) {
       const [grants, assignments] = await Promise.all([
         _sbStudent(`tab_class_access?tab_name=eq.${encodeURIComponent(tabName)}&user_id=eq.${encodeURIComponent(userId)}&select=class,section`),
@@ -1466,30 +1469,33 @@ const handlers = {
       ));
       if (!pairs.length) return { error: 'Not authorized for this tab.' };
       const orFilter = pairs.map(g => `and(class.eq.${encodeURIComponent(g.class)},section.eq.${encodeURIComponent(g.section)})`).join(',');
-      const students = await _sbStudent(`students_data?or=(${orFilter})&select=student_id,class,section`);
-      allowedStudentIds = new Set();
-      scopedInfoById = {};
-      (Array.isArray(students) ? students : []).forEach(s => {
-        allowedStudentIds.add(String(s.student_id));
-        scopedInfoById[String(s.student_id)] = { class: s.class, section: s.section };
-      });
+      const students = await _sbStudent(`students_data?or=(${orFilter})&select=student_id,student_name,roll,class,section,gender&order=roll.asc`);
+      roster = Array.isArray(students) ? students : [];
+      allowedStudentIds = new Set(roster.map(s => String(s.student_id)));
+    } else {
+      const all = await _sbStudent(`students_data?select=student_id,student_name,roll,class,section,gender&order=class.asc,section.asc,roll.asc`);
+      roster = Array.isArray(all) ? all : [];
     }
-
-    let rows = await _sbStudent(`portal_submissions?tab_name=eq.${encodeURIComponent(tabName)}&order=submitted_at.asc`);
-    if (!Array.isArray(rows)) rows = [];
-    if (allowedStudentIds) rows = rows.filter(r => allowedStudentIds.has(String(r.student_id)));
     const scopedCols = allowedStudentIds ? ['class', 'section'] : [];
-    if (!rows.length) return { headers: ['student_id', ...scopedCols], rows: [], sort_meta: {} };
+    if (!roster.length) return { headers: ['student_id', ...scopedCols], rows: [], sort_meta: {}, filled: {} };
+
+    let subRows = await _sbStudent(`portal_submissions?tab_name=eq.${encodeURIComponent(tabName)}`);
+    if (!Array.isArray(subRows)) subRows = [];
+    if (allowedStudentIds) subRows = subRows.filter(r => allowedStudentIds.has(String(r.student_id)));
+    const subByStudent = {};
+    subRows.forEach(r => { subByStudent[String(r.student_id)] = r.data || {}; });
 
     // Sort metadata (roll/name/class/section/gender per student) — always
-    // fetched so the teacher's own view can offer a "Sort by" control at
+    // returned so the teacher's own view can offer a "Sort by" control at
     // view-time rather than an admin pre-configuring one; none of these
     // live on the submission row itself. Keyed by student_id so the client
     // can re-sort without a round-trip regardless of display-column config.
-    const sortIds = [...new Set(rows.map(r => String(r.student_id)))];
-    const sortProfiles = await _sbStudent(`students_data?student_id=in.(${sortIds.map(encodeURIComponent).join(',')})&select=student_id,student_name,roll,class,section,gender`);
     const sortMeta = {};
-    (Array.isArray(sortProfiles) ? sortProfiles : []).forEach(p => { sortMeta[String(p.student_id)] = p; });
+    roster.forEach(s => { sortMeta[String(s.student_id)] = s; });
+    // Same keying — whether this student actually has a portal_submissions
+    // row for this tab, independent of which individual fields are blank.
+    const filled = {};
+    roster.forEach(s => { filled[String(s.student_id)] = subByStudent.hasOwnProperty(String(s.student_id)); });
 
     // same config-ordered columns as the admin Data view
     const ordered = ['student_id', ...scopedCols];
@@ -1503,16 +1509,15 @@ const handlers = {
       } catch {}
     }
     const extras = new Set();
-    rows.forEach(r => Object.keys(r.data || {}).forEach(k => { if (!ordered.includes(k)) extras.add(k); }));
+    subRows.forEach(r => Object.keys(r.data || {}).forEach(k => { if (!ordered.includes(k)) extras.add(k); }));
     const headers = [...ordered, ...extras];
-    const dataRows = rows.map(r => headers.map(h => {
-      if (h === 'student_id') return r.student_id;
-      if (scopedInfoById && (h === 'class' || h === 'section') && !(r.data || {})[h]) {
-        return (scopedInfoById[String(r.student_id)] || {})[h] ?? '';
-      }
-      return r.data?.[h] ?? '';
+    const dataRows = roster.map(s => headers.map(h => {
+      if (h === 'student_id') return s.student_id;
+      const data = subByStudent[String(s.student_id)];
+      if (scopedCols.includes(h)) return (data && data[h]) || s[h] || '';
+      return data ? (data[h] ?? '') : '';
     }));
-    return { headers, rows: dataRows, sort_meta: sortMeta };
+    return { headers, rows: dataRows, sort_meta: sortMeta, filled };
   },
 
   // ── CLASS TEACHER → STUDENT ROSTER ────────────────────────────────────────
@@ -1579,7 +1584,7 @@ const handlers = {
       return (Array.isArray(students) ? students : []).map(s => ({ ...s, classKey: m.classKey }));
     }));
     const roster = rosterLists.flat();
-    if (!roster.length) return { headers: [], rows: [], sort_meta: [] };
+    if (!roster.length) return { headers: [], rows: [], sort_meta: [], filled: [] };
 
     const studentIds = roster.map(s => s.student_id);
     const [tabRows, subRows] = await Promise.all([
@@ -1603,6 +1608,7 @@ const handlers = {
 
     const subByStudent = {};
     (Array.isArray(subRows) ? subRows : []).forEach(s => { subByStudent[s.student_id] = s.data || {}; });
+    const submittedIds = new Set((Array.isArray(subRows) ? subRows : []).map(s => String(s.student_id)));
 
     // Prune to only fields that at least one student actually filled in —
     // forms like this routinely define 40+ conditional sub-fields (Father's
@@ -1628,7 +1634,10 @@ const handlers = {
     // together without another round-trip; Roll/Name are already visible
     // columns, class/section/gender are not.
     const sortMeta = roster.map(s => ({ roll: s.roll, student_name: s.student_name, class: s.class, section: s.section, gender: s.gender }));
-    return { headers, rows, tab_name: tabName, sort_meta: sortMeta };
+    // Index-aligned with `rows`, same reasoning as sort_meta above — lets the
+    // teacher filter to Filled/Not Filled client-side with no extra round-trip.
+    const filled = roster.map(s => submittedIds.has(String(s.student_id)));
+    return { headers, rows, tab_name: tabName, sort_meta: sortMeta, filled };
   },
 
   // Full read-only detail panel for one student — canteen, attendance, custom
