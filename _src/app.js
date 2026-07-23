@@ -466,6 +466,7 @@
                 <option value="student_name">Sort: Name</option>
                 <option value="class">Sort: Class</option>
                 <option value="section">Sort: Section</option>
+                <option value="group">Sort: Group</option>
                 <option value="gender">Sort: Gender</option>
               </select>
               <select id="std-tabdata-filter" class="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700">
@@ -2442,6 +2443,7 @@
               <option value="student_name">Sort: Name</option>
               <option value="class">Sort: Class</option>
               <option value="section">Sort: Section</option>
+              <option value="group">Sort: Group</option>
               <option value="gender">Sort: Gender</option>
             </select>
             <select id="classTabFilterSelect" class="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700">
@@ -2663,7 +2665,7 @@
             <div>
               <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Profile</p>
               <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
-                ${[['Class', p.class],['Section', p.section],['Roll', p.roll],['Gender', p.gender],['Version', p.version],['Shift', p.shift],
+                ${[['Class', p.class],['Section', p.section],['Group', p.group],['Roll', p.roll],['Gender', p.gender],['Version', p.version],['Shift', p.shift],
                    ['Balance', p.balance],['Card Status', p.card_status]]
                   .map(([l, v]) => `<div><p class="text-slate-400 font-bold text-[10px] uppercase">${l}</p><p class="font-black text-slate-700">${v ?? '—'}</p></div>`).join('')}
                 <div><p class="text-slate-400 font-bold text-[10px] uppercase">Father's Phone</p><p class="font-black text-slate-700 flex items-center gap-1.5">${p.father_phone || '—'}${fatherTel ? `<a href="tel:${fatherTel}" title="Call Father" class="text-blue-500 hover:text-blue-700"><i data-lucide="phone" class="h-3.5 w-3.5"></i></a>` : ''}</p></div>

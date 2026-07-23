@@ -1452,31 +1452,41 @@ const handlers = {
                 // silently vanishing from the list.
     if (!isGlobal) {
       const [grants, assignments] = await Promise.all([
-        _sbStudent(`tab_class_access?tab_name=eq.${encodeURIComponent(tabName)}&user_id=eq.${encodeURIComponent(userId)}&select=class,section`),
+        _sbStudent(`tab_class_access?tab_name=eq.${encodeURIComponent(tabName)}&user_id=eq.${encodeURIComponent(userId)}&select=class,section,group`),
         cfg?.is_enabled !== false ? _getClassTeacherAssignments().catch(() => []) : Promise.resolve([]),
       ]);
-      const pairSet = new Set();
-      const pairs = [];
-      const addPair = (cls, sec) => {
+      const seen = new Set();
+      const filters = [];
+      // grp === null means "no group constraint" (matches every group) — used
+      // for sheet-resolved class teachers, since the routine sheet has no
+      // concept of group. Explicit admin grants always carry a specific group
+      // (defaulting to the literal value 'None'), matched exactly — that's the
+      // whole point of making Class Access group-aware.
+      const addFilter = (cls, sec, grp) => {
         if (!cls || !sec) return;
-        const key = `${cls}|${sec}`;
-        if (!pairSet.has(key)) { pairSet.add(key); pairs.push({ class: cls, section: sec }); }
+        const key = `${cls}|${sec}|${grp === null ? '*' : grp}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        filters.push(grp !== null
+          ? `and(class.eq.${encodeURIComponent(cls)},section.eq.${encodeURIComponent(sec)},group.eq.${encodeURIComponent(grp)})`
+          : `and(class.eq.${encodeURIComponent(cls)},section.eq.${encodeURIComponent(sec)})`);
       };
-      (Array.isArray(grants) ? grants : []).forEach(g => addPair(g.class, g.section));
-      assignments.filter(a => a.resolvedUserId === userId).forEach(a => addPair(
+      (Array.isArray(grants) ? grants : []).forEach(g => addFilter(g.class, g.section, g.group || 'None'));
+      assignments.filter(a => a.resolvedUserId === userId).forEach(a => addFilter(
         CLASS_TEACHER_NAME_TO_STUDENT_CLASS[a.className] || a.className,
-        CLASS_TEACHER_SECTION_ALIASES[a.section] || a.section
+        CLASS_TEACHER_SECTION_ALIASES[a.section] || a.section,
+        null
       ));
-      if (!pairs.length) return { error: 'Not authorized for this tab.' };
-      const orFilter = pairs.map(g => `and(class.eq.${encodeURIComponent(g.class)},section.eq.${encodeURIComponent(g.section)})`).join(',');
-      const students = await _sbStudent(`students_data?or=(${orFilter})&select=student_id,student_name,roll,class,section,gender&order=roll.asc`);
+      if (!filters.length) return { error: 'Not authorized for this tab.' };
+      const orFilter = filters.join(',');
+      const students = await _sbStudent(`students_data?or=(${orFilter})&select=student_id,student_name,roll,class,section,group,gender&order=roll.asc`);
       roster = Array.isArray(students) ? students : [];
       allowedStudentIds = new Set(roster.map(s => String(s.student_id)));
     } else {
-      const all = await _sbStudent(`students_data?select=student_id,student_name,roll,class,section,gender&order=class.asc,section.asc,roll.asc`);
+      const all = await _sbStudent(`students_data?select=student_id,student_name,roll,class,section,group,gender&order=class.asc,section.asc,roll.asc`);
       roster = Array.isArray(all) ? all : [];
     }
-    const scopedCols = allowedStudentIds ? ['class', 'section'] : [];
+    const scopedCols = allowedStudentIds ? ['class', 'section', 'group'] : [];
     if (!roster.length) return { headers: ['student_id', ...scopedCols], rows: [], sort_meta: {}, filled: {} };
 
     let subRows = await _sbStudent(`portal_submissions?tab_name=eq.${encodeURIComponent(tabName)}`);
@@ -1544,7 +1554,7 @@ const handlers = {
       const studentSection = CLASS_TEACHER_SECTION_ALIASES[section] || section;
       const students = await _sbStudent(
         `students_data?class=eq.${encodeURIComponent(studentClass)}&section=eq.${encodeURIComponent(studentSection)}` +
-        `&select=student_id,student_name,roll,gender,version,shift,phone_number,father_phone,mother_phone,photo&order=roll.asc`
+        `&select=student_id,student_name,roll,gender,group,version,shift,phone_number,father_phone,mother_phone,photo&order=roll.asc`
       );
       return { classKey, className, section, students: Array.isArray(students) ? students : [] };
     }));
@@ -1579,7 +1589,7 @@ const handlers = {
 
     const rosterLists = await Promise.all(mine.map(async (m) => {
       const students = await _sbStudent(
-        `students_data?class=eq.${encodeURIComponent(m.studentClass)}&section=eq.${encodeURIComponent(m.studentSection)}&select=student_id,student_name,roll,class,section,gender&order=roll.asc`
+        `students_data?class=eq.${encodeURIComponent(m.studentClass)}&section=eq.${encodeURIComponent(m.studentSection)}&select=student_id,student_name,roll,class,section,group,gender&order=roll.asc`
       );
       return (Array.isArray(students) ? students : []).map(s => ({ ...s, classKey: m.classKey }));
     }));
@@ -1633,7 +1643,7 @@ const handlers = {
     // column here) so the teacher's "Sort by" control can re-order both
     // together without another round-trip; Roll/Name are already visible
     // columns, class/section/gender are not.
-    const sortMeta = roster.map(s => ({ roll: s.roll, student_name: s.student_name, class: s.class, section: s.section, gender: s.gender }));
+    const sortMeta = roster.map(s => ({ roll: s.roll, student_name: s.student_name, class: s.class, section: s.section, group: s.group, gender: s.gender }));
     // Index-aligned with `rows`, same reasoning as sort_meta above — lets the
     // teacher filter to Filled/Not Filled client-side with no extra round-trip.
     const filled = roster.map(s => submittedIds.has(String(s.student_id)));

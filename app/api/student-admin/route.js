@@ -423,29 +423,30 @@ export async function POST(req) {
     return NextResponse.json(out);
   }
   if (action === 'get_class_sections') {
-    // PostgREST has no distinct param on plain selects — fetch all pairs and
+    // PostgREST has no distinct param on plain selects — fetch all triples and
     // dedupe here (a few thousand tiny rows, fine).
-    const rows = await sb('students_data?select=class,section&limit=10000');
+    const rows = await sb('students_data?select=class,section,group&limit=10000');
     if (rows?.error) return NextResponse.json([]);
     const seen = new Set();
     const out = [];
     rows.forEach(r => {
       const cls = String(r.class || '').trim(), sec = String(r.section || '').trim();
+      const grp = String(r.group || '').trim() || 'None';
       if (!cls || !sec) return;
-      const key = `${cls}|${sec}`;
-      if (!seen.has(key)) { seen.add(key); out.push({ class: cls, section: sec }); }
+      const key = `${cls}|${sec}|${grp}`;
+      if (!seen.has(key)) { seen.add(key); out.push({ class: cls, section: sec, group: grp }); }
     });
-    out.sort((a, b) => a.class.localeCompare(b.class) || a.section.localeCompare(b.section));
+    out.sort((a, b) => a.class.localeCompare(b.class) || a.section.localeCompare(b.section) || a.group.localeCompare(b.group));
     return NextResponse.json(out);
   }
   if (action === 'get_tab_class_access') {
     const { tab_name } = payload;
     if (!tab_name) return NextResponse.json({ result: 'error', message: 'Tab name required.' });
-    const rows = await sb(`tab_class_access?tab_name=eq.${encodeURIComponent(tab_name)}&select=user_id,class,section&order=user_id.asc`);
+    const rows = await sb(`tab_class_access?tab_name=eq.${encodeURIComponent(tab_name)}&select=user_id,class,section,group&order=user_id.asc`);
     if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
     const byUser = {};
     rows.forEach(r => {
-      (byUser[r.user_id] = byUser[r.user_id] || []).push({ class: r.class, section: r.section });
+      (byUser[r.user_id] = byUser[r.user_id] || []).push({ class: r.class, section: r.section, group: r.group || 'None' });
     });
     return NextResponse.json({ grants: Object.entries(byUser).map(([user_id, class_sections]) => ({ user_id, class_sections })) });
   }
@@ -453,14 +454,14 @@ export async function POST(req) {
     const { tab_name, user_id: granteeId, class_sections } = payload;
     if (!tab_name || !granteeId) return NextResponse.json({ result: 'error', message: 'Tab name and user required.' });
     const clean = (Array.isArray(class_sections) ? class_sections : [])
-      .map(cs => ({ class: String(cs.class || '').trim(), section: String(cs.section || '').trim() }))
+      .map(cs => ({ class: String(cs.class || '').trim(), section: String(cs.section || '').trim(), group: String(cs.group || '').trim() || 'None' }))
       .filter(cs => cs.class && cs.section);
     // Replace-all semantics: delete existing rows for this (tab, user), then
     // insert the new set. An empty set = full revoke.
     const del = await sb(`tab_class_access?tab_name=eq.${encodeURIComponent(tab_name)}&user_id=eq.${encodeURIComponent(granteeId)}`, 'DELETE');
     if (del?.error) return NextResponse.json({ result: 'error', message: del.error });
     if (clean.length) {
-      const ins = await sb('tab_class_access', 'POST', clean.map(cs => ({ tab_name, user_id: granteeId, class: cs.class, section: cs.section })));
+      const ins = await sb('tab_class_access', 'POST', clean.map(cs => ({ tab_name, user_id: granteeId, class: cs.class, section: cs.section, group: cs.group })));
       if (ins?.error) return NextResponse.json({ result: 'error', message: ins.error });
     }
     return NextResponse.json({ result: 'success', count: clean.length });

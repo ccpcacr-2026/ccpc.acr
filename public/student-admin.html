@@ -4337,7 +4337,7 @@
             const host = document.getElementById('class-access-sections');
             const saveBtn = document.getElementById('class-access-save-btn');
             if (saveBtn) saveBtn.disabled = false;
-            const granted = new Set((_caGrants[uid] || []).map(cs => `${cs.class}|${cs.section}`));
+            const granted = new Set((_caGrants[uid] || []).map(cs => `${cs.class}|${cs.section}|${cs.group || 'None'}`));
             const person = _caStaff.find(s => s.user_id === uid);
             host.innerHTML = `
                 <div class="d-flex justify-content-between align-items-center mb-2">
@@ -4349,11 +4349,13 @@
                 </div>
                 <div class="row g-1">
                     ${_caClassSections.map(cs => {
-                        const key = `${cs.class}|${cs.section}`;
+                        const grp = cs.group || 'None';
+                        const key = `${cs.class}|${cs.section}|${grp}`;
+                        const label = grp !== 'None' ? `${cs.class}-${cs.section}-${grp}` : `${cs.class}-${cs.section}`;
                         return `<div class="col-6">
                             <label class="d-flex align-items-center gap-1 small border rounded px-2 py-1" style="cursor:pointer">
                                 <input type="checkbox" class="form-check-input class-section-check" value="${key.replace(/"/g, '&quot;')}" ${granted.has(key) ? 'checked' : ''}>
-                                ${cs.class}-${cs.section}
+                                ${label}
                             </label>
                         </div>`;
                     }).join('')}
@@ -4367,8 +4369,8 @@
         function saveClassAccess() {
             if (!_caSelectedUser || !_caTab) return;
             const class_sections = Array.from(document.querySelectorAll('.class-section-check:checked')).map(c => {
-                const [cls, sec] = c.value.split('|');
-                return { class: cls, section: sec };
+                const [cls, sec, grp] = c.value.split('|');
+                return { class: cls, section: sec, group: grp };
             });
             portalFetch('set_tab_class_access', { tab_name: _caTab, user_id: _caSelectedUser, class_sections }).then(res => {
                 if (res && res.result === 'success') {
