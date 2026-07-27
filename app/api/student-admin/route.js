@@ -385,6 +385,19 @@ export async function POST(req) {
     return _ingestPunchLog(payload);
   }
 
+  // Self-service: any authenticated caller (Admin included) may ask which
+  // of the 5 ERP tabs THEIR OWN role currently opens, so the Faculty
+  // Portal sidebar can show direct shortcuts to just those tabs — this
+  // never reveals or lets anyone edit the matrix itself (that stays
+  // Admin-only via get_admin_tab_visibility above).
+  if (action === 'get_my_tab_access') {
+    const roles = await _getUserRoles(user_id);
+    if (!roles.length) return NextResponse.json({ result: 'success', tabs: [] });
+    const matrix = await _getAdminTabVisibility();
+    const tabs = Object.keys(ADMIN_TAB_ACTIONS).filter(tab => _isTabAllowed(tab, roles, matrix));
+    return NextResponse.json({ result: 'success', tabs });
+  }
+
   // Any authenticated teacher/staff (not just Admin) may request their own
   // leave or view their own payslips — scoped to their own user_id only,
   // never trusting a teacher_id the client might try to pass instead.

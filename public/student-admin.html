@@ -2089,14 +2089,19 @@
                         showAdminPanel();
                         return;
                     }
-                    // Not a full Admin — check for restricted field-category viewer
-                    // access before denying entirely.
-                    portalFetch('get_my_access', {}).then(access => {
-                        if (access && access.result === 'success' && Array.isArray(access.fields) && access.fields.length) {
-                            showViewerPanel(access);
-                        } else {
-                            showAccessDenied('Your account does not have Student Portal admin access.');
-                        }
+                    // Not a full Admin — check for an ERP-tab grant (e.g. HR for
+                    // Payroll) before falling back to a restricted field-category
+                    // viewer, before denying entirely.
+                    portalFetch('get_my_tab_access', {}).then(tabAccess => {
+                        const tabs = (tabAccess && tabAccess.result === 'success' && Array.isArray(tabAccess.tabs)) ? tabAccess.tabs : [];
+                        if (tabs.length) { showAdminPanel(tabs); return; }
+                        portalFetch('get_my_access', {}).then(access => {
+                            if (access && access.result === 'success' && Array.isArray(access.fields) && access.fields.length) {
+                                showViewerPanel(access);
+                            } else {
+                                showAccessDenied('Your account does not have Student Portal admin access.');
+                            }
+                        }).catch(() => showAccessDenied('Your account does not have Student Portal admin access.'));
                     }).catch(() => showAccessDenied('Your account does not have Student Portal admin access.'));
                 }).catch(() => showAccessDenied('Could not verify your session. Check your connection and reload.'));
             } catch(e) {
@@ -2400,7 +2405,14 @@
             resetUI();
         }
 
-        function showAdminPanel() {
+        const ERP_TAB_DOM_ID = { fees: 'admin-fees', attendance: 'admin-attendance', exams: 'admin-exams', payroll: 'admin-payroll', transport: 'admin-transport' };
+
+        // restrictTabs: undefined for a full Admin/Student Portal Admin (sees
+        // every pill, as before); an array of ERP tab keys for an account that
+        // only has an admin_tab_visibility grant (e.g. HR for Payroll) — such
+        // an account gets JUST those pills, none of Setup/Data/Access/etc.,
+        // and lands directly on the first one instead of Setup.
+        function showAdminPanel(restrictTabs) {
             try {
                 const els = ['login-section', 'admin-section', 'sidebar-container', 'mobile-header']
                     .concat(_isEmbedded ? [] : ['btn-logout-fixed', 'btn-back-to-portal']);
@@ -2411,6 +2423,22 @@
                         else el.classList.remove('hidden');
                     }
                 });
+
+                if (Array.isArray(restrictTabs)) {
+                    const allowedDomIds = restrictTabs.map(t => ERP_TAB_DOM_ID[t]).filter(Boolean);
+                    document.querySelectorAll('#admin-section .nav-pills > button[data-bs-target]').forEach(btn => {
+                        const domId = btn.getAttribute('data-bs-target').slice(1);
+                        const isErpTab = Object.values(ERP_TAB_DOM_ID).includes(domId);
+                        btn.classList.toggle('hidden', isErpTab ? !allowedDomIds.includes(domId) : true);
+                    });
+                }
+                const requestedTab = new URLSearchParams(location.search).get('tab');
+                const targetDomId = (requestedTab && ERP_TAB_DOM_ID[requestedTab])
+                    || (Array.isArray(restrictTabs) && restrictTabs.length ? ERP_TAB_DOM_ID[restrictTabs[0]] : null);
+                if (targetDomId) {
+                    const btn = document.querySelector(`#admin-section button[data-bs-target="#${targetDomId}"]`);
+                    if (btn) setTimeout(() => btn.click(), 50);
+                }
 
                 // Populate Mobile Nav for Admin
                 const bottom = document.getElementById('bottom-nav-container');
@@ -2424,8 +2452,11 @@
                 addNav('admin-home', 'Admin Panel', 'bi-shield-lock-fill', true);
                 addNav('bus-tracking', 'Bus Tracker', 'bi-bus-front-fill');
                 
-                // Ensure bus tracking content exists for admin
-                if (content && !document.getElementById('bus-tracking-content')) {
+                // Ensure bus tracking content exists for admin — Bus Tracker is
+                // its own full-admin-only feature, not one of the 5 ERP tabs, so
+                // a restricted account skips it entirely (same reasoning as the
+                // Setup/Data/etc. loaders above).
+                if (!Array.isArray(restrictTabs) && content && !document.getElementById('bus-tracking-content')) {
                     const trackPane = document.createElement('div');
                     trackPane.className = 'tab-pane'; trackPane.id = 'bus-tracking-content';
                     trackPane.style.height = 'calc(100vh - 120px)';
@@ -2472,14 +2503,19 @@
                 bLog.onclick = () => { window.location.href = '/app.html'; };
                 if(bottom) bottom.appendChild(bLog);
 
-                loadAdminTabs();
-                loadPermanentTabsAdmin();
-                loadLoginPasswordColumnsAdmin();
-                loadIncludeFields();
-                loadEditableProfileFields();
-                loadTrackingConfig();
-                loadNoticesAdmin();
-                initBulkImport();
+                // These all back Setup/Data/NFC/Notices/Import — full-admin-only
+                // sections a restricted ERP-tab account never sees a pill for, so
+                // calling them would just be a guaranteed 403 per action.
+                if (!Array.isArray(restrictTabs)) {
+                    loadAdminTabs();
+                    loadPermanentTabsAdmin();
+                    loadLoginPasswordColumnsAdmin();
+                    loadIncludeFields();
+                    loadEditableProfileFields();
+                    loadTrackingConfig();
+                    loadNoticesAdmin();
+                    initBulkImport();
+                }
             } catch(e) {
                 console.error("showAdminPanel error", e);
                 alert("Error loading Admin Panel.");

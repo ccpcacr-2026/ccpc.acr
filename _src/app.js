@@ -334,6 +334,7 @@
     });
 
     _maybeRevealStudentPortalForGrantee(activeRole);
+    _loadErpTabLinks(activeRole);
 
     // Role switcher: only visible when user has more than one role
     const switcher = document.getElementById('role-switcher');
@@ -392,6 +393,43 @@
         const container = document.getElementById('admin-links');
         if (container) container.classList.remove('hidden');
       }
+    }).catch(() => {});
+  }
+
+  // Direct sidebar shortcuts to the 5 ERP tabs (Fees/Attendance/Exams/
+  // Payroll/Transport) inside the Student Portal console — otherwise those
+  // are two clicks away (Student Portal, then the tab pill inside the
+  // iframe). Shown per-role from the SAME admin_tab_visibility matrix an
+  // Admin edits in the Access tab (get_admin_tab_visibility), via a
+  // self-service, non-admin-gated action — so e.g. an HR account sees a
+  // "Payroll" shortcut directly without needing Admin/Student Portal Admin.
+  const ERP_TAB_META = {
+    fees: { label: 'Fees', icon: 'wallet' },
+    attendance: { label: 'Attendance', icon: 'fingerprint' },
+    exams: { label: 'Exams', icon: 'clipboard-list' },
+    payroll: { label: 'Payroll', icon: 'banknote' },
+    transport: { label: 'Transport', icon: 'bus' },
+  };
+  function _loadErpTabLinks(activeRole) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const host = document.getElementById('erp-links');
+    if (!myId || !host) return;
+    fetch('/api/student-admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'get_my_tab_access', payload: {}, user_id: myId })
+    }).then(r => r.ok ? r.json() : null).then(res => {
+      const tabs = (res && res.result === 'success' && Array.isArray(res.tabs)) ? res.tabs : [];
+      window._hasErpTabAccess = tabs.length > 0; // loadStudentPortalView's own role gate checks this too
+      if (!tabs.length) { host.innerHTML = ''; host.classList.add('hidden'); return; }
+      host.innerHTML = tabs.map(t => {
+        const meta = ERP_TAB_META[t] || { label: t, icon: 'layout-grid' };
+        return `<a href="javascript:void(0)" onclick="loadStudentPortalView('${t}'); closeMobileSidebar();" class="nav-link" id="nav-erp-${t}"><div class="nav-icon-box"><i data-lucide="${meta.icon}" class="nav-icon"></i></div><span class="nav-text">${meta.label}</span></a>`;
+      }).join('');
+      host.classList.remove('hidden');
+      lucide.createIcons();
+      const adminLinks = document.getElementById('admin-links');
+      if (adminLinks) adminLinks.classList.remove('hidden');
     }).catch(() => {});
   }
 
@@ -3020,21 +3058,23 @@
   // always has, with nothing new to log into. The `embedded=1` param tells
   // it to hide its own Back-to-Portal/Logout buttons, since this page
   // already provides those.
-  function loadStudentPortalView() {
+  function loadStudentPortalView(tabKey) {
     // Either the normal role matrix allows it, or this specific account has
-    // a field-category grant (see _maybeRevealStudentPortalForGrantee) — the
-    // latter is what actually makes the nav link visible for a plain
-    // Teacher/Staff in the first place, so it must also be accepted here.
-    if (!_isModuleVisibleForRole('student_portal', window.ACTIVE_ROLE) && !window._hasFieldCategoryAccess) {
+    // a field-category grant (see _maybeRevealStudentPortalForGrantee) or an
+    // ERP-tab grant (see _loadErpTabLinks) — either of the latter two is
+    // what actually makes the nav link visible for a plain Teacher/Staff in
+    // the first place, so both must also be accepted here.
+    if (!_isModuleVisibleForRole('student_portal', window.ACTIVE_ROLE) && !window._hasFieldCategoryAccess && !window._hasErpTabAccess) {
       showToast('Not available in current role', 'error');
       return;
     }
     _setViewHash('student_portal');
-    setActiveNavLink('nav-student-portal');
+    setActiveNavLink(tabKey ? ('nav-erp-' + tabKey) : 'nav-student-portal');
     setContentHeader('Student Portal', 'graduation-cap');
     const container = document.getElementById('view-container');
     if (!container) return;
-    container.innerHTML = `<iframe id="student-portal-frame" src="/student-admin.html?embedded=1" title="Student Portal Admin" style="width:100%;height:calc(100vh - 140px);min-height:600px;border:none;border-radius:16px;background:#fff"></iframe>`;
+    const tabParam = tabKey ? ('&tab=' + encodeURIComponent(tabKey)) : '';
+    container.innerHTML = `<iframe id="student-portal-frame" src="/student-admin.html?embedded=1${tabParam}" title="Student Portal Admin" style="width:100%;height:calc(100vh - 140px);min-height:600px;border:none;border-radius:16px;background:#fff"></iframe>`;
   }
 
   function loadInventoryView() {
