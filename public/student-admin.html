@@ -736,6 +736,28 @@
             .ca-right { flex: 1; }
         }
 
+        /* ── Colorful data-summary table: cycles by column index, excluding
+           green/red (reserved elsewhere for status/danger indicators). No
+           Tailwind on this page, so these are literal classes, not utility
+           strings — mirrors the palette used in the Faculty Portal's own
+           tab-data tables (_src/app.js _COL_PALETTE) for a consistent look. */
+        .col-tint-head-0 { background: #dbeafe !important; color: #1e40af; }
+        .col-tint-head-1 { background: #e0e7ff !important; color: #3730a3; }
+        .col-tint-head-2 { background: #ede9fe !important; color: #5b21b6; }
+        .col-tint-head-3 { background: #fae8ff !important; color: #86198f; }
+        .col-tint-head-4 { background: #fef3c7 !important; color: #92400e; }
+        .col-tint-head-5 { background: #cffafe !important; color: #155e75; }
+        .col-tint-head-6 { background: #ccfbf1 !important; color: #115e59; }
+        .col-tint-head-7 { background: #fed7aa !important; color: #9a3412; }
+        .col-tint-cell-0 { background: #eff6ff !important; }
+        .col-tint-cell-1 { background: #eef2ff !important; }
+        .col-tint-cell-2 { background: #f5f3ff !important; }
+        .col-tint-cell-3 { background: #fdf4ff !important; }
+        .col-tint-cell-4 { background: #fffbeb !important; }
+        .col-tint-cell-5 { background: #ecfeff !important; }
+        .col-tint-cell-6 { background: #f0fdfa !important; }
+        .col-tint-cell-7 { background: #fff7ed !important; }
+
         /* ── Sidebar Student Card ──────────────────────────────── */
         .sidebar-student-card {
             margin: 0 10px 6px; padding: 11px 13px;
@@ -924,6 +946,7 @@
                             <div class="nav nav-pills" role="tablist">
                                 <button class="btn btn-sm fw-800 active me-2" data-bs-toggle="tab" data-bs-target="#admin-manage" style="background:rgba(255,255,255,0.18);color:#fff;border-radius:10px;border:none">Setup</button>
                                 <button class="btn btn-sm fw-800 me-2" data-bs-toggle="tab" data-bs-target="#admin-reports" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">Data</button>
+                                <button class="btn btn-sm fw-800 me-2" data-bs-toggle="tab" data-bs-target="#admin-access" onclick="loadFieldCategories();loadFieldGrants()" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">Access</button>
                                 <button class="btn btn-sm fw-800 me-2" data-bs-toggle="tab" data-bs-target="#admin-history" onclick="loadEditHistory()" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">History</button>
                                 <button class="btn btn-sm fw-800 me-2" data-bs-toggle="tab" data-bs-target="#admin-nfc" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">NFC</button>
                                 <button class="btn btn-sm fw-800 me-2" data-bs-toggle="tab" data-bs-target="#admin-photo" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">Photo</button>
@@ -1007,15 +1030,97 @@
                                     <div id="admin-tabs-list" class="row g-4"></div>
                                 </div>
                                 <div class="tab-pane" id="admin-reports">
-                                    <div class="row g-3 mb-4">
+                                    <div class="row g-3 mb-3">
                                         <div class="col-md-3"><select id="summary-tab-select" class="form-select" onchange="loadSummaryData()"><option value="">Select Target...</option></select></div>
                                         <div class="col-md-3"><input type="text" id="summary-search" class="form-control" placeholder="Filter current view..." autocomplete="off" onkeyup="filterSummaryTable()"></div>
                                         <div class="col-md-2"><button onclick="exportSummaryData()" class="btn btn-success w-100 fw-800">Export CSV</button></div>
                                         <div class="col-md-2"><button onclick="openTabAccessModal()" class="btn btn-outline-primary w-100 fw-800" title="Choose which teachers/staff can view & export this tab's data from their own portal">Data Access</button></div>
                                         <div class="col-md-2"><button onclick="openClassAccessModal()" class="btn btn-outline-primary w-100 fw-800" title="Grant a teacher/staff access to this tab's data for specific class-sections only">Class Access</button></div>
                                     </div>
+                                    <div class="row g-3 mb-4">
+                                        <div class="col-md-2"><button onclick="openSummaryMergeModal()" class="btn btn-outline-secondary w-100 fw-800" title="Combine 2+ columns into one display cell, for viewing and printing only">Merge Columns</button></div>
+                                        <div class="col-md-2"><button onclick="openSummaryPrintModal()" class="btn btn-dark w-100 fw-800">Print</button></div>
+                                    </div>
                                     <div id="summary-count" class="small fw-800 text-muted mb-2"></div>
                                     <div class="table-responsive rounded-4 border"><table class="table table-hover align-middle mb-0" id="summary-table"><thead class="bg-light"><tr id="summary-headers"></tr></thead><tbody id="summary-body"></tbody></table></div>
+                                </div>
+                                <div class="tab-pane" id="admin-access">
+                                    <!-- Field categories: named, reusable groups of student fields, used both
+                                         to scope a viewer's visible fields and to pick exactly which columns
+                                         a CSV export contains. -->
+                                    <div class="p-4 bg-light rounded-4 border mb-4">
+                                        <div class="d-flex justify-content-between align-items-center mb-3">
+                                            <span class="fw-800"><i class="bi bi-collection text-primary me-2"></i>Field Categories</span>
+                                            <button class="btn btn-sm btn-primary rounded-pill px-3" onclick="openFieldCategoryEditor(null)">+ New Category</button>
+                                        </div>
+                                        <p class="small text-muted mb-3" style="font-size:0.72rem">A category is a named set of student fields. Categories are used below both to grant a viewer restricted read-only access, and to pick exactly which columns a download contains.</p>
+                                        <div id="field-categories-list" class="d-flex flex-column gap-2">
+                                            <span class="text-muted small fst-italic">Loading categories...</span>
+                                        </div>
+                                    </div>
+
+                                    <!-- Access grants: which non-admin user_id is a viewer of which categories. -->
+                                    <div class="p-4 bg-light rounded-4 border mb-4">
+                                        <div class="d-flex justify-content-between align-items-center mb-3">
+                                            <span class="fw-800"><i class="bi bi-person-badge text-primary me-2"></i>Viewer Access Grants</span>
+                                        </div>
+                                        <p class="small text-muted mb-3" style="font-size:0.72rem">Grant a staff account read-only access to one or more categories, without making them a full Admin. A viewer's visible fields are the union of every category they're granted.</p>
+                                        <div class="row g-3 mb-3">
+                                            <div class="col-md-6">
+                                                <input type="text" id="grant-user-search" class="form-control" placeholder="Search staff by name, ID, shortname or phone..." autocomplete="off" oninput="filterGrantStaff()">
+                                                <div id="grant-staff-list" class="border rounded mt-1" style="max-height:220px;overflow-y:auto"></div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <div id="grant-categories-picker" class="border rounded p-2" style="min-height:220px">
+                                                    <div class="text-center text-muted small py-5">Pick a staff member on the left to assign categories.</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div id="field-grants-list" class="d-flex flex-column gap-1"></div>
+                                    </div>
+
+                                    <!-- Search & bulk update: find students by ID or by class+section+roll+group,
+                                         select one or many, and set one or more fields to the same value across
+                                         all selected students in one action. -->
+                                    <div class="p-4 bg-light rounded-4 border mb-4">
+                                        <div class="d-flex justify-content-between align-items-center mb-3">
+                                            <span class="fw-800"><i class="bi bi-search text-primary me-2"></i>Search &amp; Update Students</span>
+                                        </div>
+                                        <div class="row g-2 mb-3">
+                                            <div class="col-md-3"><input type="text" id="stu-search-id" class="form-control form-control-sm" placeholder="Student ID"></div>
+                                            <div class="col-md-2"><input type="text" id="stu-search-class" class="form-control form-control-sm" placeholder="Class"></div>
+                                            <div class="col-md-2"><input type="text" id="stu-search-section" class="form-control form-control-sm" placeholder="Section"></div>
+                                            <div class="col-md-2"><input type="text" id="stu-search-roll" class="form-control form-control-sm" placeholder="Roll"></div>
+                                            <div class="col-md-2"><input type="text" id="stu-search-group" class="form-control form-control-sm" placeholder="Group"></div>
+                                            <div class="col-md-1"><button class="btn btn-sm btn-primary w-100" onclick="searchStudentsAdmin()"><i class="bi bi-search"></i></button></div>
+                                        </div>
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <div class="form-check">
+                                                <input type="checkbox" class="form-check-input" id="stu-search-select-all" onchange="toggleAllStudentRows(this.checked)">
+                                                <label class="form-check-label small" for="stu-search-select-all">Select all</label>
+                                            </div>
+                                            <button class="btn btn-sm btn-outline-primary" id="stu-bulk-edit-btn" onclick="openBulkEditModal()" disabled>Bulk Edit Selected (<span id="stu-selected-count">0</span>)</button>
+                                        </div>
+                                        <div class="table-responsive rounded border" style="max-height:360px;overflow-y:auto">
+                                            <table class="table table-hover align-middle mb-0 small" id="stu-search-table">
+                                                <thead class="bg-light"><tr id="stu-search-headers"></tr></thead>
+                                                <tbody id="stu-search-body"><tr><td class="text-muted small p-3">Search above to see results.</td></tr></tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+
+                                    <!-- Category download: pick a saved category, export a CSV containing
+                                         exactly (and only) that category's fields. -->
+                                    <div class="p-4 bg-light rounded-4 border">
+                                        <div class="d-flex justify-content-between align-items-center mb-3">
+                                            <span class="fw-800"><i class="bi bi-download text-primary me-2"></i>Category Download</span>
+                                        </div>
+                                        <p class="small text-muted mb-3" style="font-size:0.72rem">The downloaded CSV's columns exactly match the selected category — no more, no less. Optionally narrow it with the same search filters above.</p>
+                                        <div class="row g-2">
+                                            <div class="col-md-6"><select id="dl-category-select" class="form-select form-select-sm"><option value="">Select category...</option></select></div>
+                                            <div class="col-md-6"><button class="btn btn-success btn-sm w-100 fw-800" onclick="downloadByCategoryAdmin()"><i class="bi bi-download"></i> Download CSV</button></div>
+                                        </div>
+                                    </div>
                                 </div>
                                 <div class="tab-pane" id="admin-history">
                                     <p class="small text-muted mb-3" style="font-size:0.72rem">Every change to a student's record is logged here automatically (who/what changed and when) — search by Student ID, name, class, section, or roll.</p>
@@ -1279,6 +1384,12 @@
     </script>
 
     <script>
+        // Set by the Faculty Portal when it embeds this page in an iframe
+        // (see loadStudentPortalView in _src/app.js) — the floating Back-to-
+        // Portal/Logout buttons are redundant there since the parent page
+        // already provides that chrome.
+        const _isEmbedded = new URLSearchParams(location.search).get('embedded') === '1';
+
         /* ── Portal API helper (replaces google.script.run) ──────────────── */
         let ADMIN_USER_ID = null; // set once /api/exec confirms Admin / Student Portal Admin role
         async function portalFetch(action, payload = {}) {
@@ -1438,9 +1549,171 @@
                 <div style="font-size:40px;margin-bottom:12px">&#128274;</div>
                 <h2 style="margin:0 0 8px;color:#1e293b">Access Denied</h2>
                 <p style="color:#64748b;font-size:14px">${msg}</p>
-                <a href="/app.html" style="display:inline-block;margin-top:16px;padding:10px 20px;background:#1d4ed8;color:#fff;border-radius:10px;text-decoration:none;font-weight:700;font-size:13px">&larr; Back to Faculty Portal</a>
+                ${_isEmbedded ? '' : '<a href="/app.html" style="display:inline-block;margin-top:16px;padding:10px 20px;background:#1d4ed8;color:#fff;border-radius:10px;text-decoration:none;font-weight:700;font-size:13px">&larr; Back to Faculty Portal</a>'}
               </div>
             </div>`;
+        }
+
+        // Restricted read-only console for a granted "viewer" (a non-admin
+        // user_id with one or more student.field_access_grants rows) — a
+        // deliberately separate, self-contained page rather than a filtered
+        // version of the full Admin Console, so there's no risk of an admin
+        // control leaking through by a missed CSS/JS guard. The server has
+        // already stripped every field the caller isn't granted (see
+        // search_students / download_students_by_category's viewer path in
+        // student-admin/route.js) — this UI never needs to filter fields
+        // itself, it just renders exactly whatever the server returned.
+        let _vwAccess = null;
+
+        function showViewerPanel(access) {
+            _vwAccess = access;
+            const fields = access.fields || [];
+            const categories = access.categories || [];
+            const canEdit = (access.editable_fields || []).length > 0;
+            document.body.innerHTML = `
+                <div style="min-height:100vh;background:#f8fafc;font-family:-apple-system,'Segoe UI',Roboto,sans-serif">
+                    <div class="p-4 text-white d-flex justify-content-between align-items-center flex-wrap gap-2" style="background:linear-gradient(135deg,var(--sidebar-bg,#0f2c1e),#1a3d28)">
+                        <div>
+                            <h5 class="m-0 fw-800">Student Data ${canEdit ? 'Viewer &amp; Editor' : 'Viewer'}</h5>
+                            <span class="small" style="opacity:.75">Granted: ${categories.join(', ')}</span>
+                        </div>
+                        ${_isEmbedded ? '' : '<a href="/app.html" class="btn btn-sm btn-light fw-700">&larr; Back to Faculty Portal</a>'}
+                    </div>
+                    <div class="p-4">
+                        <div class="row g-2 mb-3">
+                            <div class="col-md-3"><input type="text" id="vw-search-id" class="form-control form-control-sm" placeholder="Student ID"></div>
+                            <div class="col-md-2"><input type="text" id="vw-search-class" class="form-control form-control-sm" placeholder="Class"></div>
+                            <div class="col-md-2"><input type="text" id="vw-search-section" class="form-control form-control-sm" placeholder="Section"></div>
+                            <div class="col-md-2"><input type="text" id="vw-search-roll" class="form-control form-control-sm" placeholder="Roll"></div>
+                            <div class="col-md-2"><input type="text" id="vw-search-group" class="form-control form-control-sm" placeholder="Group"></div>
+                            <div class="col-md-1"><button class="btn btn-sm btn-primary w-100" onclick="viewerSearch()"><i class="bi bi-search"></i></button></div>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                            ${categories.length > 1 ? `<div><select id="vw-category-select" class="form-select form-select-sm" style="max-width:280px;display:inline-block">${categories.map(c => `<option value="${c}">${c}</option>`).join('')}</select> <button class="btn btn-sm btn-success fw-800" onclick="viewerDownload()"><i class="bi bi-download"></i> Download CSV</button></div>`
+                              : `<div><button class="btn btn-sm btn-success fw-800" onclick="viewerDownload('${categories[0] || ''}')"><i class="bi bi-download"></i> Download CSV</button></div>`}
+                            ${canEdit ? `<div class="d-flex align-items-center gap-2">
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="vw-select-all" onchange="toggleAllViewerRows(this.checked)">
+                                    <label class="form-check-label small" for="vw-select-all">Select all</label>
+                                </div>
+                                <button class="btn btn-sm btn-outline-primary" id="vw-bulk-edit-btn" onclick="viewerOpenBulkEditModal()" disabled>Bulk Edit Selected (<span id="vw-selected-count">0</span>)</button>
+                            </div>` : ''}
+                        </div>
+                        <div class="table-responsive rounded-4 border bg-white">
+                            <table class="table table-hover align-middle mb-0 small">
+                                <thead class="bg-light"><tr id="vw-headers">${canEdit ? '<th style="width:28px"></th>' : ''}${fields.map(f => `<th class="small fw-800">${f.replace(/_/g,' ').toUpperCase()}</th>`).join('')}</tr></thead>
+                                <tbody id="vw-body"><tr><td class="text-muted small p-3">Search above to see results.</td></tr></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>`;
+        }
+
+        function viewerSearch() {
+            const payload = {
+                student_id: document.getElementById('vw-search-id').value.trim(),
+                class: document.getElementById('vw-search-class').value.trim(),
+                section: document.getElementById('vw-search-section').value.trim(),
+                roll: document.getElementById('vw-search-roll').value.trim(),
+                group: document.getElementById('vw-search-group').value.trim(),
+            };
+            const canEdit = ((_vwAccess && _vwAccess.editable_fields) || []).length > 0;
+            portalFetch('search_students', payload).then(res => {
+                const body = document.getElementById('vw-body');
+                if (!res || res.result !== 'success' || !res.rows.length) { body.innerHTML = `<tr><td colspan="100" class="text-muted small p-3">No students matched.</td></tr>`; updateViewerSelectedCount(); return; }
+                const headers = res.headers || Object.keys(res.rows[0]);
+                body.innerHTML = res.rows.map(r => `<tr>
+                    ${canEdit ? `<td><input type="checkbox" class="form-check-input vw-row-check" value="${String(r.student_id).replace(/"/g,'&quot;')}" onchange="updateViewerSelectedCount()"></td>` : ''}
+                    ${headers.map(h => `<td class="small">${r[h] ?? ''}</td>`).join('')}
+                </tr>`).join('');
+                updateViewerSelectedCount();
+            });
+        }
+
+        function toggleAllViewerRows(checked) {
+            document.querySelectorAll('.vw-row-check').forEach(c => { c.checked = checked; });
+            updateViewerSelectedCount();
+        }
+
+        function updateViewerSelectedCount() {
+            const n = document.querySelectorAll('.vw-row-check:checked').length;
+            const el = document.getElementById('vw-selected-count');
+            if (el) el.textContent = n;
+            const btn = document.getElementById('vw-bulk-edit-btn');
+            if (btn) btn.disabled = n === 0;
+        }
+
+        // Scoped port of the admin's openBulkEditModal/submitBulkEdit — same UI
+        // shape (blank field = unchanged), but the field list is the grantee's
+        // own editable_fields (never the full schema), and it posts to
+        // viewer_bulk_update_students, which re-enforces that same field list
+        // server-side regardless of what this form sends.
+        function viewerOpenBulkEditModal() {
+            const ids = Array.from(document.querySelectorAll('.vw-row-check:checked')).map(c => c.value);
+            if (!ids.length) return;
+            const fields = (_vwAccess && _vwAccess.editable_fields || []).filter(f => f !== 'student_id');
+            const overlay = document.createElement('div');
+            overlay.id = 'vw-bulk-edit-overlay';
+            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:3000;display:flex;align-items:center;justify-content:center;padding:16px';
+            overlay.innerHTML = `
+                <div style="background:#fff;border-radius:16px;max-width:520px;width:100%;max-height:85vh;display:flex;flex-direction:column">
+                    <div class="p-3 border-bottom d-flex justify-content-between align-items-center">
+                        <strong>Bulk Edit — ${ids.length} student${ids.length === 1 ? '' : 's'}</strong>
+                        <button class="btn-close" onclick="document.getElementById('vw-bulk-edit-overlay').remove()"></button>
+                    </div>
+                    <p class="small text-muted px-3 pt-3 mb-2" style="font-size:0.72rem">Leave a field blank to leave it unchanged. Every filled-in field is set to the same value on all ${ids.length} selected student${ids.length === 1 ? '' : 's'}.</p>
+                    <div style="overflow-y:auto;flex:1" class="px-3 pb-3 d-flex flex-column gap-2">
+                        ${fields.map(h => `<div class="input-group input-group-sm">
+                            <span class="input-group-text" style="min-width:130px">${h.replace(/_/g,' ')}</span>
+                            <input type="text" class="form-control vw-bulk-edit-field" data-field="${h}" placeholder="Leave blank = no change">
+                        </div>`).join('')}
+                    </div>
+                    <div class="p-3 border-top d-flex justify-content-end">
+                        <button class="btn btn-primary fw-800 px-4" onclick='viewerSubmitBulkEdit(${JSON.stringify(ids)})'>Apply to ${ids.length} student${ids.length === 1 ? '' : 's'}</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(overlay);
+        }
+
+        function viewerSubmitBulkEdit(ids) {
+            const updates = {};
+            document.querySelectorAll('.vw-bulk-edit-field').forEach(inp => {
+                const v = inp.value.trim();
+                if (v !== '') updates[inp.dataset.field] = v;
+            });
+            if (!Object.keys(updates).length) { if (typeof showToast === 'function') showToast('Set at least one field', 'error'); else alert('Set at least one field'); return; }
+            portalFetch('viewer_bulk_update_students', { student_ids: ids, updates }).then(res => {
+                const overlay = document.getElementById('vw-bulk-edit-overlay');
+                if (overlay) overlay.remove();
+                if (res && (res.result === 'success' || res.result === 'partial')) {
+                    if (typeof showToast === 'function') showToast(`Updated ${res.updated} student${res.updated === 1 ? '' : 's'}${res.errors && res.errors.length ? ' (' + res.errors.length + ' failed)' : ''}`, res.result === 'success' ? 'success' : 'error');
+                    viewerSearch();
+                } else {
+                    if (typeof showToast === 'function') showToast((res && res.message) || 'Update failed', 'error');
+                    else alert((res && res.message) || 'Update failed');
+                }
+            });
+        }
+
+        function viewerDownload(fixedCategory) {
+            const category_name = fixedCategory || document.getElementById('vw-category-select').value;
+            if (!category_name) return;
+            const payload = {
+                category_name,
+                student_id: document.getElementById('vw-search-id').value.trim(),
+                class: document.getElementById('vw-search-class').value.trim(),
+                section: document.getElementById('vw-search-section').value.trim(),
+                roll: document.getElementById('vw-search-roll').value.trim(),
+                group: document.getElementById('vw-search-group').value.trim(),
+            };
+            portalFetch('download_students_by_category', payload).then(res => {
+                if (!res || res.result !== 'success') return;
+                const csv = res.headers.join(',') + '\n' + res.rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g,'""')}"`).join(',')).join('\n');
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+                a.download = `${category_name}_export.csv`;
+                a.click();
+            });
         }
 
         // Runs at DOM-parse time (script sits at end of <body>), NOT window.onload —
@@ -1466,12 +1739,20 @@
                 }).then(r => r.json()).then(res => {
                     if (!res || !res.success) { showAccessDenied('Your Faculty Portal session is no longer valid — sign in again there, then return here.'); return; }
                     const roles = res.roles || (res.role ? [res.role] : []);
-                    if (!roles.includes('Admin') && !roles.includes('Student Portal Admin')) {
-                        showAccessDenied('Your account does not have Student Portal admin access.');
+                    ADMIN_USER_ID = uid;
+                    if (roles.includes('Admin') || roles.includes('Student Portal Admin')) {
+                        showAdminPanel();
                         return;
                     }
-                    ADMIN_USER_ID = uid;
-                    showAdminPanel();
+                    // Not a full Admin — check for restricted field-category viewer
+                    // access before denying entirely.
+                    portalFetch('get_my_access', {}).then(access => {
+                        if (access && access.result === 'success' && Array.isArray(access.fields) && access.fields.length) {
+                            showViewerPanel(access);
+                        } else {
+                            showAccessDenied('Your account does not have Student Portal admin access.');
+                        }
+                    }).catch(() => showAccessDenied('Your account does not have Student Portal admin access.'));
                 }).catch(() => showAccessDenied('Could not verify your session. Check your connection and reload.'));
             } catch(e) {
                 console.error("initPortal error", e);
@@ -1776,7 +2057,8 @@
 
         function showAdminPanel() {
             try {
-                const els = ['login-section', 'admin-section', 'btn-logout-fixed', 'btn-back-to-portal', 'sidebar-container', 'mobile-header'];
+                const els = ['login-section', 'admin-section', 'sidebar-container', 'mobile-header']
+                    .concat(_isEmbedded ? [] : ['btn-logout-fixed', 'btn-back-to-portal']);
                 els.forEach(id => {
                     const el = document.getElementById(id);
                     if (el) {
@@ -4151,17 +4433,182 @@
             }).catch(() => { if (status) { status.className = 'small fw-700 text-danger align-self-center'; status.textContent = 'Network error.'; } });
         }
 
+        let _summaryData = null; // { tab, headers, rows } — last-loaded, used by merge/print
+        let summaryColumnMerges = []; // [{ id, label, cols }] — display-only, reset on tab load
+
         function loadSummaryData() {
             const t = document.getElementById('summary-tab-select').value;
             if(!t) return;
             const countEl = document.getElementById('summary-count');
             if (countEl) countEl.textContent = '';
+            summaryColumnMerges = [];
             document.getElementById('summary-body').innerHTML = '<tr><td colspan="100" class="text-center p-5"><div class="spinner-border text-primary"></div></td></tr>';
             portalFetch('get_tab_data', { tab_name: t }).then(res => {
-                document.getElementById('summary-headers').innerHTML = res.headers.map(h => `<th class="small fw-800 text-muted">${h.toUpperCase()}</th>`).join('');
-                document.getElementById('summary-body').innerHTML = res.rows.map(r => `<tr>${r.map(c => `<td class="small fw-600">${c||''}</td>`).join('')}</tr>`).join('');
+                _summaryData = { tab: t, headers: res.headers, rows: res.rows };
+                renderSummaryTable();
                 if (countEl) countEl.innerHTML = `<i class="bi bi-people-fill me-1"></i>${res.rows.length} student${res.rows.length === 1 ? '' : 's'} submitted "${t}"`;
             });
+        }
+
+        function renderSummaryTable() {
+            if (!_summaryData) return;
+            const { headers: dHeaders, rows: dRows } = applySummaryColumnMerges(_summaryData.headers, _summaryData.rows, summaryColumnMerges);
+            document.getElementById('summary-headers').innerHTML = dHeaders.map((h, i) => `<th class="small fw-800 col-tint-head-${i % 8}">${h.toUpperCase()}</th>`).join('');
+            document.getElementById('summary-body').innerHTML = dRows.map(r => `<tr>${r.map((c, i) => `<td class="small fw-600 col-tint-cell-${i % 8}">${c||''}</td>`).join('')}</tr>`).join('');
+        }
+
+        // Display-only column merge — collapses configured column groups into
+        // one cell each, at the leftmost merged column's position. Never
+        // touches exportSummaryData, which reads _summaryData/get_tab_data
+        // directly and stays on the original, unmerged columns.
+        function applySummaryColumnMerges(headers, rows, merges) {
+            if (!merges || !merges.length) return { headers, rows };
+            const groups = merges
+                .map(m => ({ ...m, idxs: m.cols.map(c => headers.indexOf(c)).filter(i => i >= 0) }))
+                .filter(g => g.idxs.length >= 2);
+            if (!groups.length) return { headers, rows };
+            const anchorOf = {};
+            const dropSet = new Set();
+            groups.forEach(g => {
+                const anchor = Math.min(...g.idxs);
+                anchorOf[anchor] = g;
+                g.idxs.forEach(i => { if (i !== anchor) dropSet.add(i); });
+            });
+            const dHeaders = [];
+            const colPlan = [];
+            headers.forEach((h, i) => {
+                if (dropSet.has(i)) return;
+                if (anchorOf[i]) { dHeaders.push(anchorOf[i].label); colPlan.push({ merge: anchorOf[i].idxs }); return; }
+                dHeaders.push(h);
+                colPlan.push({ idx: i });
+            });
+            const dRows = rows.map(r => colPlan.map(p => p.merge
+                ? p.merge.map(i => r[i]).filter(v => v !== '' && v != null).join('<br>')
+                : r[p.idx]));
+            return { headers: dHeaders, rows: dRows };
+        }
+
+        function _prettySummaryHeader(h) {
+            return String(h || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        }
+
+        let _activeSummaryMergeOpts = null;
+        function openSummaryMergeModal() {
+            if (!_summaryData) { if (typeof showToast === 'function') showToast('Load a tab first', 'error'); return; }
+            const opts = { headers: _summaryData.headers.filter(h => h !== 'student_id'), merges: summaryColumnMerges };
+            _activeSummaryMergeOpts = opts;
+            const existing = document.getElementById('summary-merge-overlay');
+            if (existing) existing.remove();
+            const usedCols = new Set(opts.merges.flatMap(m => m.cols));
+            const available = opts.headers.filter(h => !usedCols.has(h));
+            const overlay = document.createElement('div');
+            overlay.id = 'summary-merge-overlay';
+            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:3000;display:flex;align-items:center;justify-content:center;padding:16px';
+            overlay.innerHTML = `
+                <div style="background:#fff;border-radius:16px;max-width:520px;width:100%;max-height:85vh;display:flex;flex-direction:column">
+                    <div class="p-3 border-bottom d-flex justify-content-between align-items-center">
+                        <strong>Merge Columns — ${_summaryData.tab}</strong>
+                        <button class="btn-close" onclick="document.getElementById('summary-merge-overlay').remove()"></button>
+                    </div>
+                    <div id="summary-merge-chips" class="px-3 pt-3 pb-2 d-flex flex-wrap gap-2"></div>
+                    <div style="overflow-y:auto;flex:1" class="p-3">
+                        <input type="text" id="summary-merge-label" class="form-control form-control-sm mb-2" placeholder="Label for the merged column (optional)">
+                        <div id="summary-merge-picker" style="max-height:280px;overflow-y:auto" class="d-flex flex-column gap-1">
+                            ${available.length ? available.map(h => `<label class="d-flex align-items-center gap-2 small" style="cursor:pointer"><input type="checkbox" class="summary-merge-check" value="${String(h).replace(/"/g, '&quot;')}">${h}</label>`).join('') : '<span class="small text-muted">No more columns available to merge.</span>'}
+                        </div>
+                    </div>
+                    <div class="p-3 border-top d-flex justify-content-end">
+                        <button class="btn btn-primary fw-800 px-4" onclick="createSummaryColumnMerge()">Create Merge</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(overlay);
+            renderSummaryMergeChips();
+        }
+        function renderSummaryMergeChips() {
+            const host = document.getElementById('summary-merge-chips');
+            if (!host || !_activeSummaryMergeOpts) return;
+            host.innerHTML = _activeSummaryMergeOpts.merges.map(m => `<span class="badge bg-primary-subtle text-primary d-flex align-items-center gap-1" style="font-size:0.65rem">
+                ${m.label} &middot; ${m.cols.length} cols
+                <i class="bi bi-x-circle-fill" style="cursor:pointer" onclick="removeSummaryColumnMerge('${m.id}')"></i>
+            </span>`).join('');
+        }
+        function createSummaryColumnMerge() {
+            const label = document.getElementById('summary-merge-label').value.trim();
+            const cols = Array.from(document.querySelectorAll('.summary-merge-check:checked')).map(c => c.value);
+            if (cols.length < 2) { if (typeof showToast === 'function') showToast('Pick at least 2 columns to merge', 'error'); return; }
+            const finalLabel = label || cols.map(_prettySummaryHeader).join(' / ');
+            summaryColumnMerges = [...summaryColumnMerges, { id: 'm' + Date.now() + Math.random().toString(36).slice(2, 6), label: finalLabel, cols }];
+            renderSummaryTable();
+            openSummaryMergeModal();
+        }
+        function removeSummaryColumnMerge(id) {
+            summaryColumnMerges = summaryColumnMerges.filter(m => m.id !== id);
+            renderSummaryTable();
+            openSummaryMergeModal();
+        }
+
+        function openSummaryPrintModal() {
+            if (!_summaryData) { if (typeof showToast === 'function') showToast('Load a tab first', 'error'); return; }
+            const { headers: dHeaders } = applySummaryColumnMerges(_summaryData.headers, _summaryData.rows, summaryColumnMerges);
+            const existing = document.getElementById('summary-print-overlay');
+            if (existing) existing.remove();
+            const overlay = document.createElement('div');
+            overlay.id = 'summary-print-overlay';
+            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:3000;display:flex;align-items:center;justify-content:center;padding:16px';
+            overlay.innerHTML = `
+                <div style="background:#fff;border-radius:16px;max-width:420px;width:100%;max-height:85vh;display:flex;flex-direction:column">
+                    <div class="p-3 border-bottom d-flex justify-content-between align-items-center">
+                        <strong>Print — ${_summaryData.tab}</strong>
+                        <button class="btn-close" onclick="document.getElementById('summary-print-overlay').remove()"></button>
+                    </div>
+                    <div class="px-3 pt-3 d-flex gap-2">
+                        <button class="btn btn-xs btn-outline-secondary rounded-pill px-2 py-0" style="font-size:0.65rem" onclick="document.querySelectorAll('.summary-print-check').forEach(c=>c.checked=true)">Select all</button>
+                        <button class="btn btn-xs btn-outline-secondary rounded-pill px-2 py-0" style="font-size:0.65rem" onclick="document.querySelectorAll('.summary-print-check').forEach(c=>c.checked=false)">Clear</button>
+                    </div>
+                    <div style="overflow-y:auto;flex:1" class="p-3 d-flex flex-column gap-1">
+                        ${dHeaders.map(h => `<label class="d-flex align-items-center gap-2 small" style="cursor:pointer"><input type="checkbox" class="summary-print-check" value="${String(h).replace(/"/g, '&quot;')}" checked>${h}</label>`).join('')}
+                    </div>
+                    <div class="p-3 border-top d-flex justify-content-end">
+                        <button class="btn btn-primary fw-800 px-4" onclick="printSummaryData()">Print</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(overlay);
+        }
+        function printSummaryData() {
+            const selected = Array.from(document.querySelectorAll('.summary-print-check:checked')).map(c => c.value);
+            if (!selected.length) { if (typeof showToast === 'function') showToast('Pick at least one column', 'error'); return; }
+            const overlay = document.getElementById('summary-print-overlay');
+            if (overlay) overlay.remove();
+            const { headers: dHeaders, rows: dRows } = applySummaryColumnMerges(_summaryData.headers, _summaryData.rows, summaryColumnMerges);
+            const idxs = selected.map(h => dHeaders.indexOf(h));
+            const rows = dRows.map(r => idxs.map(i => r[i]));
+            const tints = ['#dbeafe','#e0e7ff','#ede9fe','#fae8ff','#fef3c7','#cffafe','#ccfbf1','#fed7aa'];
+            const tintsCell = ['#eff6ff','#eef2ff','#f5f3ff','#fdf4ff','#fffbeb','#ecfeff','#f0fdfa','#fff7ed'];
+            const theadCells = selected.map((h, i) => `<th style="background:${tints[i % 8]};color:#1e293b;border:1px solid #cbd5e1;padding:5px 7px;font-size:9pt;text-transform:uppercase;letter-spacing:.04em;text-align:left">${h}</th>`).join('');
+            const bodyRows = rows.map(r => `<tr>${r.map((c, i) => `<td style="background:${tintsCell[i % 8]};border:1px solid #cbd5e1;padding:4px 7px;font-size:9pt">${c === '' || c == null ? '&mdash;' : c}</td>`).join('')}</tr>`).join('');
+            const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${_summaryData.tab}</title>
+                <style>
+                    @page { size: landscape; margin: 10mm; }
+                    body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; margin: 0; padding: 16px; }
+                    table { border-collapse: collapse; width: 100%; }
+                    .print-meta { font-size: 8pt; color: #64748b; margin-bottom: 10px; }
+                    h1 { font-size: 13pt; margin: 0 0 2px; }
+                </style></head>
+                <body>
+                    <h1>${_summaryData.tab}</h1>
+                    <div class="print-meta">Printed ${new Date().toLocaleString()} &mdash; ${rows.length} row${rows.length === 1 ? '' : 's'}</div>
+                    <table><thead><tr>${theadCells}</tr></thead><tbody>${bodyRows}</tbody></table>
+                </body></html>`;
+            const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const win = window.open(url, '_blank', 'width=1100,height=750');
+            if (!win) {
+                if (typeof showToast === 'function') showToast('Popup blocked — please allow popups for this site and try again', 'error');
+                URL.revokeObjectURL(url);
+                return;
+            }
+            win.focus();
+            setTimeout(function () { win.print(); setTimeout(function () { URL.revokeObjectURL(url); }, 1000); }, 800);
         }
 
         // ── Delegated data access: which teachers/staff may view/export this tab ──
@@ -4403,6 +4850,347 @@
             portalFetch('get_tab_data', { tab_name: tab }).then(res => {
                 let csv = res.headers.join(',') + '\n' + res.rows.map(r => r.map(c => `"${String(c||'').replace(/"/g,'""')}"`).join(',')).join('\n');
                 const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type:'text/csv' })); a.download = `${tab}_export.csv`; a.click();
+            });
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // Field categories, viewer access grants, student search/bulk-update,
+        // and category-scoped CSV download.
+        // ═══════════════════════════════════════════════════════════════════
+
+        // ── Field categories ─────────────────────────────────────────────
+        let _fieldCategories = []; // [{ name, fields: [...] }]
+
+        function loadFieldCategories() {
+            portalFetch('get_field_categories', {}).then(res => {
+                _fieldCategories = (res && res.result === 'success' && Array.isArray(res.categories)) ? res.categories : [];
+                renderFieldCategoriesList();
+                populateDownloadCategorySelect();
+            }).catch(() => {});
+        }
+
+        function renderFieldCategoriesList() {
+            const host = document.getElementById('field-categories-list');
+            if (!host) return;
+            if (!_fieldCategories.length) { host.innerHTML = '<span class="text-muted small fst-italic">No categories yet — create one to get started.</span>'; return; }
+            host.innerHTML = _fieldCategories.map(c => `
+                <div class="d-flex justify-content-between align-items-center border rounded px-3 py-2 bg-white">
+                    <div>
+                        <span class="fw-800 small">${c.name}</span>
+                        <span class="text-muted small ms-2">${c.fields.length} field${c.fields.length === 1 ? '' : 's'}: ${c.fields.map(f => f.replace(/_/g,' ')).join(', ')}</span>
+                    </div>
+                    <div class="d-flex gap-1">
+                        <button class="btn btn-sm btn-outline-secondary" onclick="openFieldCategoryEditor('${c.name.replace(/'/g, "\\'")}')"><i class="bi bi-pencil"></i></button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteFieldCategoryConfirm('${c.name.replace(/'/g, "\\'")}')"><i class="bi bi-trash"></i></button>
+                    </div>
+                </div>`).join('');
+        }
+
+        function openFieldCategoryEditor(name) {
+            const existing = name ? _fieldCategories.find(c => c.name === name) : null;
+            portalFetch('get_student_data_headers', {}).then(headers => {
+                const skip = new Set(['id']);
+                const rows = (headers || []).filter(h => !skip.has(h.toLowerCase()));
+                const selected = existing ? new Set(existing.fields) : new Set();
+                const overlay = document.createElement('div');
+                overlay.id = 'field-category-overlay';
+                overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:3000;display:flex;align-items:center;justify-content:center;padding:16px';
+                overlay.innerHTML = `
+                    <div style="background:#fff;border-radius:16px;max-width:560px;width:100%;max-height:85vh;display:flex;flex-direction:column">
+                        <div class="p-3 border-bottom d-flex justify-content-between align-items-center">
+                            <strong>${existing ? 'Edit' : 'New'} Category</strong>
+                            <button class="btn-close" onclick="document.getElementById('field-category-overlay').remove()"></button>
+                        </div>
+                        <div class="p-3">
+                            <input type="text" id="fc-name-input" class="form-control mb-3" placeholder="Category name (e.g. Contact Info)" value="${existing ? existing.name.replace(/"/g,'&quot;') : ''}" ${existing ? 'readonly' : ''}>
+                            <div class="d-flex gap-2 mb-2">
+                                <button class="btn btn-xs btn-outline-secondary rounded-pill px-2 py-0" style="font-size:0.65rem" onclick="document.querySelectorAll('.fc-field-check').forEach(c=>{c.checked=true;c.closest('label').classList.add('active')})">Select all</button>
+                                <button class="btn btn-xs btn-outline-secondary rounded-pill px-2 py-0" style="font-size:0.65rem" onclick="document.querySelectorAll('.fc-field-check').forEach(c=>{c.checked=false;c.closest('label').classList.remove('active')})">Clear</button>
+                            </div>
+                        </div>
+                        <div style="overflow-y:auto;flex:1" class="px-3 pb-3 d-flex flex-wrap gap-2">
+                            ${rows.map(h => `<label class="include-field-chip ${selected.has(h) ? 'active' : ''}">
+                                <input type="checkbox" class="fc-field-check" value="${h}" ${selected.has(h) ? 'checked' : ''} onchange="this.closest('label').classList.toggle('active',this.checked)">
+                                ${h.replace(/_/g,' ')}
+                            </label>`).join('')}
+                        </div>
+                        <div class="p-3 border-top d-flex justify-content-end">
+                            <button class="btn btn-primary fw-800 px-4" onclick="saveFieldCategoryFromEditor()">Save</button>
+                        </div>
+                    </div>`;
+                document.body.appendChild(overlay);
+            });
+        }
+
+        function saveFieldCategoryFromEditor() {
+            const name = document.getElementById('fc-name-input').value.trim();
+            const fields = Array.from(document.querySelectorAll('.fc-field-check:checked')).map(c => c.value);
+            if (!name) { if (typeof showToast === 'function') showToast('Category name required', 'error'); return; }
+            if (!fields.length) { if (typeof showToast === 'function') showToast('Select at least one field', 'error'); return; }
+            portalFetch('save_field_category', { name, fields }).then(res => {
+                const overlay = document.getElementById('field-category-overlay');
+                if (overlay) overlay.remove();
+                if (res && res.result === 'success') {
+                    if (typeof showToast === 'function') showToast('Category saved', 'success');
+                    loadFieldCategories();
+                } else {
+                    if (typeof showToast === 'function') showToast((res && res.message) || 'Save failed', 'error');
+                }
+            });
+        }
+
+        function deleteFieldCategoryConfirm(name) {
+            if (!confirm(`Delete category "${name}"? Any viewer grants using it will also be removed.`)) return;
+            portalFetch('delete_field_category', { name }).then(res => {
+                if (res && res.result === 'success') { loadFieldCategories(); loadFieldGrants(); }
+                else if (typeof showToast === 'function') showToast((res && res.message) || 'Delete failed', 'error');
+            });
+        }
+
+        function populateDownloadCategorySelect() {
+            const sel = document.getElementById('dl-category-select');
+            if (!sel) return;
+            const current = sel.value;
+            sel.innerHTML = '<option value="">Select category...</option>' + _fieldCategories.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+            if (_fieldCategories.some(c => c.name === current)) sel.value = current;
+        }
+
+        // ── Viewer access grants ─────────────────────────────────────────
+        let _grantStaff = [], _grantSelectedUser = null, _fieldGrants = {}; // { user_id: [category_name, ...] }
+
+        function loadFieldGrants() {
+            Promise.all([
+                portalFetch('get_staff_directory', {}),
+                portalFetch('get_field_access_grants', {}),
+            ]).then(([staff, grantsRes]) => {
+                _grantStaff = Array.isArray(staff) ? staff : [];
+                _fieldGrants = {};
+                ((grantsRes && grantsRes.grants) || []).forEach(g => { _fieldGrants[g.user_id] = g.categories || []; });
+                renderGrantStaffList();
+                renderFieldGrantsList();
+            }).catch(() => {});
+        }
+
+        function renderGrantStaffList() {
+            const list = document.getElementById('grant-staff-list');
+            if (!list) return;
+            if (!_grantStaff.length) { list.innerHTML = '<div class="text-muted small p-2">No staff accounts found.</div>'; return; }
+            list.innerHTML = _grantStaff.map(u => {
+                const search = [u.full_name, u.user_id, u.shortname, u.phone].filter(Boolean).join(' ').toLowerCase();
+                const selected = _grantSelectedUser === u.user_id;
+                const count = (_fieldGrants[u.user_id] || []).length;
+                return `<div class="py-1 px-2 grant-staff-row" data-uid="${u.user_id}" data-search="${search.replace(/"/g,'&quot;')}"
+                    onclick="selectGrantUser(this.dataset.uid)" style="cursor:pointer;${selected ? 'background:var(--primary);color:#fff' : ''}">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span class="small fw-700">${u.full_name || u.user_id}</span>
+                        ${count ? `<span class="badge ${selected ? 'bg-white text-dark' : 'bg-success'}" style="font-size:0.6rem">${count}</span>` : ''}
+                    </div>
+                </div>`;
+            }).join('');
+            filterGrantStaff();
+        }
+
+        function filterGrantStaff() {
+            const q = (document.getElementById('grant-user-search') || {}).value?.toLowerCase() || '';
+            document.querySelectorAll('.grant-staff-row').forEach(row => { row.style.display = row.dataset.search.includes(q) ? '' : 'none'; });
+        }
+
+        function selectGrantUser(uid) {
+            _grantSelectedUser = uid;
+            renderGrantStaffList();
+            const host = document.getElementById('grant-categories-picker');
+            const granted = _fieldGrants[uid] || []; // [{name, can_edit}]
+            const person = _grantStaff.find(s => s.user_id === uid);
+            if (!_fieldCategories.length) {
+                host.innerHTML = '<div class="text-muted small">Create a field category first.</div>';
+                return;
+            }
+            host.innerHTML = `
+                <div class="small fw-800 mb-2">Categories for ${(person && person.full_name) || uid}</div>
+                <div class="d-flex flex-column gap-1 mb-3">
+                    ${_fieldCategories.map(c => {
+                        const g = granted.find(x => x.name === c.name);
+                        return `<div class="d-flex align-items-center gap-3 small border rounded px-2 py-1">
+                            <label class="d-flex align-items-center gap-2" style="cursor:pointer;min-width:180px">
+                                <input type="checkbox" class="form-check-input grant-category-check" value="${c.name}" ${g ? 'checked' : ''} onchange="_syncGrantEditCheckbox(this)">
+                                ${c.name}
+                            </label>
+                            <label class="d-flex align-items-center gap-2 text-muted" style="cursor:pointer">
+                                <input type="checkbox" class="form-check-input grant-category-edit-check" value="${c.name}" ${g && g.can_edit ? 'checked' : ''} ${g ? '' : 'disabled'} onchange="if(this.checked) this.closest('div').querySelector('.grant-category-check').checked = true">
+                                Can edit
+                            </label>
+                        </div>`;
+                    }).join('')}
+                </div>
+                <button class="btn btn-sm btn-primary w-100" onclick="saveFieldGrantsForUser()">Save Grants</button>`;
+        }
+
+        // Keeps the "Can edit" checkbox in lockstep with its category checkbox —
+        // unchecking the category clears and disables edit (can't edit what you
+        // can't view), checking it re-enables edit as an option.
+        function _syncGrantEditCheckbox(mainCb) {
+            const editCb = mainCb.closest('div').querySelector('.grant-category-edit-check');
+            if (!editCb) return;
+            editCb.disabled = !mainCb.checked;
+            if (!mainCb.checked) editCb.checked = false;
+        }
+
+        function saveFieldGrantsForUser() {
+            if (!_grantSelectedUser) return;
+            const editSet = new Set(Array.from(document.querySelectorAll('.grant-category-edit-check:checked')).map(c => c.value));
+            const categories = Array.from(document.querySelectorAll('.grant-category-check:checked')).map(c => ({ name: c.value, can_edit: editSet.has(c.value) }));
+            portalFetch('set_field_access_grants', { user_id: _grantSelectedUser, categories }).then(res => {
+                if (res && res.result === 'success') {
+                    _fieldGrants[_grantSelectedUser] = categories;
+                    renderGrantStaffList();
+                    renderFieldGrantsList();
+                    if (typeof showToast === 'function') showToast('Access updated', 'success');
+                } else if (typeof showToast === 'function') showToast((res && res.message) || 'Save failed', 'error');
+            });
+        }
+
+        function renderFieldGrantsList() {
+            const host = document.getElementById('field-grants-list');
+            if (!host) return;
+            const entries = Object.entries(_fieldGrants).filter(([, cats]) => cats.length);
+            host.innerHTML = entries.length ? entries.map(([uid, cats]) => {
+                const person = _grantStaff.find(s => s.user_id === uid);
+                const catText = cats.map(c => c.can_edit ? `${c.name} (edit)` : c.name).join(', ');
+                return `<span class="badge bg-primary-subtle text-primary d-inline-flex align-items-center gap-1 me-2 mb-1" style="font-size:0.68rem">
+                    ${(person && person.full_name) || uid}: ${catText}
+                    <i class="bi bi-x-circle-fill" style="cursor:pointer" onclick="revokeFieldGrant('${uid.replace(/'/g,"\\'")}')" title="Revoke all"></i>
+                </span>`;
+            }).join('') : '<span class="text-muted small fst-italic">No viewers granted yet.</span>';
+        }
+
+        function revokeFieldGrant(uid) {
+            portalFetch('set_field_access_grants', { user_id: uid, categories: [] }).then(res => {
+                if (res && res.result === 'success') {
+                    delete _fieldGrants[uid];
+                    if (_grantSelectedUser === uid) selectGrantUser(uid);
+                    renderGrantStaffList();
+                    renderFieldGrantsList();
+                }
+            });
+        }
+
+        // ── Search & bulk update ─────────────────────────────────────────
+        let _stuSearchHeaders = [], _stuSearchRows = [];
+
+        function searchStudentsAdmin() {
+            const payload = {
+                student_id: document.getElementById('stu-search-id').value.trim(),
+                class: document.getElementById('stu-search-class').value.trim(),
+                section: document.getElementById('stu-search-section').value.trim(),
+                roll: document.getElementById('stu-search-roll').value.trim(),
+                group: document.getElementById('stu-search-group').value.trim(),
+            };
+            portalFetch('search_students', payload).then(res => {
+                if (!res || res.result !== 'success') { if (typeof showToast === 'function') showToast((res && res.message) || 'Search failed', 'error'); return; }
+                _stuSearchRows = res.rows || [];
+                _stuSearchHeaders = _stuSearchRows.length ? Object.keys(_stuSearchRows[0]) : [];
+                renderStuSearchTable();
+            });
+        }
+
+        function renderStuSearchTable() {
+            const headEl = document.getElementById('stu-search-headers');
+            const bodyEl = document.getElementById('stu-search-body');
+            if (!_stuSearchRows.length) {
+                headEl.innerHTML = '';
+                bodyEl.innerHTML = '<tr><td class="text-muted small p-3">No students matched.</td></tr>';
+                updateStuSelectedCount();
+                return;
+            }
+            headEl.innerHTML = '<th style="width:28px"></th>' + _stuSearchHeaders.map(h => `<th class="small fw-800">${h.replace(/_/g,' ').toUpperCase()}</th>`).join('');
+            bodyEl.innerHTML = _stuSearchRows.map(r => `<tr>
+                <td><input type="checkbox" class="form-check-input stu-row-check" value="${String(r.student_id).replace(/"/g,'&quot;')}" onchange="updateStuSelectedCount()"></td>
+                ${_stuSearchHeaders.map(h => `<td class="small">${r[h] ?? ''}</td>`).join('')}
+            </tr>`).join('');
+            updateStuSelectedCount();
+        }
+
+        function toggleAllStudentRows(checked) {
+            document.querySelectorAll('.stu-row-check').forEach(c => { c.checked = checked; });
+            updateStuSelectedCount();
+        }
+
+        function updateStuSelectedCount() {
+            const n = document.querySelectorAll('.stu-row-check:checked').length;
+            const el = document.getElementById('stu-selected-count');
+            if (el) el.textContent = n;
+            const btn = document.getElementById('stu-bulk-edit-btn');
+            if (btn) btn.disabled = n === 0;
+        }
+
+        function openBulkEditModal() {
+            const ids = Array.from(document.querySelectorAll('.stu-row-check:checked')).map(c => c.value);
+            if (!ids.length) return;
+            portalFetch('get_student_data_headers', {}).then(headers => {
+                const locked = new Set(['id','student_id','nfc_uid','pin','balance','daily_limit','monthly_limit','card_status','submitted_at']);
+                const rows = (headers || []).filter(h => !locked.has(h.toLowerCase()));
+                const overlay = document.createElement('div');
+                overlay.id = 'bulk-edit-overlay';
+                overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:3000;display:flex;align-items:center;justify-content:center;padding:16px';
+                overlay.innerHTML = `
+                    <div style="background:#fff;border-radius:16px;max-width:520px;width:100%;max-height:85vh;display:flex;flex-direction:column">
+                        <div class="p-3 border-bottom d-flex justify-content-between align-items-center">
+                            <strong>Bulk Edit — ${ids.length} student${ids.length === 1 ? '' : 's'}</strong>
+                            <button class="btn-close" onclick="document.getElementById('bulk-edit-overlay').remove()"></button>
+                        </div>
+                        <p class="small text-muted px-3 pt-3 mb-2" style="font-size:0.72rem">Leave a field blank to leave it unchanged. Every filled-in field is set to the same value on all ${ids.length} selected student${ids.length === 1 ? '' : 's'}.</p>
+                        <div style="overflow-y:auto;flex:1" class="px-3 pb-3 d-flex flex-column gap-2">
+                            ${rows.map(h => `<div class="input-group input-group-sm">
+                                <span class="input-group-text" style="min-width:130px">${h.replace(/_/g,' ')}</span>
+                                <input type="text" class="form-control bulk-edit-field" data-field="${h}" placeholder="Leave blank = no change">
+                            </div>`).join('')}
+                        </div>
+                        <div class="p-3 border-top d-flex justify-content-end">
+                            <button class="btn btn-primary fw-800 px-4" onclick='submitBulkEdit(${JSON.stringify(ids)})'>Apply to ${ids.length} student${ids.length === 1 ? '' : 's'}</button>
+                        </div>
+                    </div>`;
+                document.body.appendChild(overlay);
+            });
+        }
+
+        function submitBulkEdit(ids) {
+            const updates = {};
+            document.querySelectorAll('.bulk-edit-field').forEach(inp => {
+                const v = inp.value.trim();
+                if (v !== '') updates[inp.dataset.field] = v;
+            });
+            if (!Object.keys(updates).length) { if (typeof showToast === 'function') showToast('Set at least one field', 'error'); return; }
+            portalFetch('bulk_update_students', { student_ids: ids, updates }).then(res => {
+                const overlay = document.getElementById('bulk-edit-overlay');
+                if (overlay) overlay.remove();
+                if (res && (res.result === 'success' || res.result === 'partial')) {
+                    if (typeof showToast === 'function') showToast(`Updated ${res.updated} student${res.updated === 1 ? '' : 's'}${res.errors && res.errors.length ? ' (' + res.errors.length + ' failed)' : ''}`, res.result === 'success' ? 'success' : 'error');
+                    searchStudentsAdmin();
+                } else {
+                    if (typeof showToast === 'function') showToast((res && res.message) || 'Update failed', 'error');
+                }
+            });
+        }
+
+        // ── Category download ────────────────────────────────────────────
+        function downloadByCategoryAdmin() {
+            const category_name = document.getElementById('dl-category-select').value;
+            if (!category_name) { if (typeof showToast === 'function') showToast('Select a category', 'error'); return; }
+            const payload = {
+                category_name,
+                student_id: document.getElementById('stu-search-id').value.trim(),
+                class: document.getElementById('stu-search-class').value.trim(),
+                section: document.getElementById('stu-search-section').value.trim(),
+                roll: document.getElementById('stu-search-roll').value.trim(),
+                group: document.getElementById('stu-search-group').value.trim(),
+            };
+            portalFetch('download_students_by_category', payload).then(res => {
+                if (!res || res.result !== 'success') { if (typeof showToast === 'function') showToast((res && res.message) || 'Download failed', 'error'); return; }
+                const csv = res.headers.join(',') + '\n' + res.rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g,'""')}"`).join(',')).join('\n');
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+                a.download = `${category_name}_export.csv`;
+                a.click();
             });
         }
 

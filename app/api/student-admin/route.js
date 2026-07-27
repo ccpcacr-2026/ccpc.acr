@@ -178,13 +178,152 @@ async function _isAdmin(userId) {
   return roles.includes('Admin') || roles.includes('Student Portal Admin');
 }
 
+// ── Field-level access (viewers) ─────────────────────────────────────────
+// A "viewer" is any non-admin user_id with at least one row in
+// student.field_access_grants. Their visible fields = the union of every
+// granted category's `fields` array. Full Admins/Student Portal Admins
+// never consult this — they always see/edit every field, unchanged.
+async function _getViewerCategories(userId) {
+  if (!userId) return [];
+  const rows = await sb(`field_access_grants?user_id=eq.${encodeURIComponent(userId)}&select=category_name`);
+  if (rows?.error) return [];
+  return rows.map(r => r.category_name);
+}
+
+async function _fieldsForCategories(categoryNames) {
+  if (!categoryNames.length) return [];
+  const rows = await sb(`field_categories?name=in.(${categoryNames.map(encodeURIComponent).join(',')})&select=fields`);
+  if (rows?.error) return [];
+  const union = new Set(['student_id']);
+  rows.forEach(r => (Array.isArray(r.fields) ? r.fields : []).forEach(f => union.add(f)));
+  return [...union];
+}
+
+async function _getViewerFields(userId) {
+  return _fieldsForCategories(await _getViewerCategories(userId));
+}
+
+// An "editor" is a viewer whose grant additionally has can_edit=true — a
+// strict subset of their viewable categories, never broader. Editable
+// fields are the union of only those categories, same shape as viewer
+// fields, so both can be enforced with the same field-membership check.
+async function _getEditorCategories(userId) {
+  if (!userId) return [];
+  const rows = await sb(`field_access_grants?user_id=eq.${encodeURIComponent(userId)}&can_edit=eq.true&select=category_name`);
+  if (rows?.error) return [];
+  return rows.map(r => r.category_name);
+}
+
+async function _getEditorFields(userId) {
+  return _fieldsForCategories(await _getEditorCategories(userId));
+}
+
+// Shared chunked-PATCH used by both the full-admin bulk_update_students and
+// the field-restricted viewer_bulk_update_students below.
+async function _bulkPatchStudents(ids, updates) {
+  let updated = 0;
+  const errors = [];
+  for (let i = 0; i < ids.length; i += 20) {
+    const chunk = ids.slice(i, i + 20);
+    const results = await Promise.all(chunk.map(id => sb(`students_data?student_id=eq.${encodeURIComponent(id)}`, 'PATCH', updates)));
+    results.forEach((r, idx) => { if (r?.error) errors.push(`${chunk[idx]}: ${r.error}`); else updated++; });
+  }
+  return { updated, errors };
+}
+
+// Shared by both the viewer path above and the editor actions below.
+// filters: { student_id?, class?, section?, roll?, group? } — any
+// combination, all optional, AND-combined. projectFields, when given,
+// limits the PostgREST `select=` to just those columns (used to enforce a
+// viewer's field grant server-side); omit/empty for a full row (editors).
+async function _searchStudents(filters, projectFields) {
+  const f = filters || {};
+  const clauses = [];
+  if (f.student_id) clauses.push(`student_id=eq.${encodeURIComponent(f.student_id)}`);
+  if (f.class) clauses.push(`class=eq.${encodeURIComponent(f.class)}`);
+  if (f.section) clauses.push(`section=eq.${encodeURIComponent(f.section)}`);
+  if (f.roll) clauses.push(`roll=eq.${encodeURIComponent(f.roll)}`);
+  if (f.group) clauses.push(`group=eq.${encodeURIComponent(f.group)}`);
+  const select = (Array.isArray(projectFields) && projectFields.length)
+    ? projectFields.map(encodeURIComponent).join(',')
+    : '*';
+  const query = `students_data?${clauses.length ? clauses.join('&') + '&' : ''}select=${select}&order=class.asc,section.asc,roll.asc&limit=500`;
+  return sb(query);
+}
+
+// Looks up a category's field list, then runs _searchStudents projected to
+// exactly those fields (+ student_id), returning CSV-ready {headers, rows}
+// where rows are arrays in the same order as headers — this direct
+// field-list-to-column mapping is what guarantees the downloaded file
+// matches the selected category.
+async function _downloadByCategory(categoryName, filters) {
+  const catRows = await sb(`field_categories?name=eq.${encodeURIComponent(categoryName)}&select=fields`);
+  if (catRows?.error) return { result: 'error', message: catRows.error };
+  if (!catRows.length) return { result: 'error', message: 'Category not found.' };
+  const catFields = Array.isArray(catRows[0].fields) ? catRows[0].fields : [];
+  const headers = catFields.includes('student_id') ? catFields : ['student_id', ...catFields];
+  const rows = await _searchStudents(filters, headers);
+  if (rows?.error) return { result: 'error', message: rows.error };
+  return { result: 'success', headers, rows: rows.map(r => headers.map(h => r[h] ?? '')) };
+}
+
+// Actions a restricted viewer (not a full Admin) may call. Everything else
+// on this route still requires _isAdmin, exactly as before this feature.
+const VIEWER_SAFE_ACTIONS = new Set(['get_my_access', 'search_students', 'download_students_by_category', 'viewer_bulk_update_students']);
+
 export async function POST(req) {
   let body;
   try { body = await req.json(); } catch { return NextResponse.json({ result: 'error', message: 'Bad request' }, { status: 400 }); }
   const { action, payload = {}, user_id } = body;
 
-  if (!(await _isAdmin(user_id))) {
-    return NextResponse.json({ result: 'error', message: 'Admin access required.' }, { status: 403 });
+  const isAdmin = await _isAdmin(user_id);
+  let viewerCategories = [];
+  if (!isAdmin) {
+    if (!VIEWER_SAFE_ACTIONS.has(action)) {
+      return NextResponse.json({ result: 'error', message: 'Admin access required.' }, { status: 403 });
+    }
+    viewerCategories = await _getViewerCategories(user_id);
+    if (!viewerCategories.length) {
+      return NextResponse.json({ result: 'error', message: 'No data access has been granted to this account.' }, { status: 403 });
+    }
+  }
+
+  // ── Viewer-only actions (isAdmin === false, viewerCategories is non-empty) ──
+  if (!isAdmin && action === 'get_my_access') {
+    const fields = await _getViewerFields(user_id);
+    const editableFields = await _getEditorFields(user_id);
+    return NextResponse.json({ result: 'success', categories: viewerCategories, fields, editable_fields: editableFields });
+  }
+  if (!isAdmin && action === 'search_students') {
+    const fields = await _getViewerFields(user_id);
+    const rows = await _searchStudents(payload, fields);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', headers: fields, rows });
+  }
+  if (!isAdmin && action === 'download_students_by_category') {
+    const { category_name } = payload;
+    if (!viewerCategories.includes(category_name)) {
+      return NextResponse.json({ result: 'error', message: 'That category has not been granted to this account.' }, { status: 403 });
+    }
+    return NextResponse.json(await _downloadByCategory(category_name, payload));
+  }
+  if (!isAdmin && action === 'viewer_bulk_update_students') {
+    const editableFields = await _getEditorFields(user_id);
+    if (!editableFields.length) {
+      return NextResponse.json({ result: 'error', message: 'You do not have edit access to any category.' }, { status: 403 });
+    }
+    const { student_ids, updates } = payload;
+    const ids = Array.isArray(student_ids) ? [...new Set(student_ids.map(s => String(s || '').trim()).filter(Boolean))] : [];
+    // Silently drop any key outside the grantee's editable fields — this is
+    // the server-side enforcement of "editor can edit only their granted
+    // category's fields", never trusting what the client claims it's editing.
+    const cleanUpdates = (updates && typeof updates === 'object') ? Object.fromEntries(
+      Object.entries(updates).filter(([k, v]) => editableFields.includes(k) && k !== 'student_id' && v !== '' && v !== null && v !== undefined)
+    ) : {};
+    if (!ids.length) return NextResponse.json({ result: 'error', message: 'Select at least one student.' });
+    if (!Object.keys(cleanUpdates).length) return NextResponse.json({ result: 'error', message: 'Set at least one field you have edit access to.' });
+    const { updated, errors } = await _bulkPatchStudents(ids, cleanUpdates);
+    return NextResponse.json({ result: errors.length ? 'partial' : 'success', updated, errors });
   }
 
   // ── Notices ─────────────────────────────────────────────────────────────
@@ -467,6 +606,65 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success', count: clean.length });
   }
 
+  // ── Field categories (named, reusable groups of students_data columns) —
+  // used both to scope a viewer's visible fields and to pick exactly which
+  // columns a CSV export contains. Admin/editor-only management. ──────────
+  if (action === 'get_field_categories') {
+    const rows = await sb('field_categories?select=name,fields&order=name.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', categories: rows });
+  }
+  if (action === 'save_field_category') {
+    const { name, fields } = payload;
+    const cleanName = String(name || '').trim();
+    if (!cleanName) return NextResponse.json({ result: 'error', message: 'Category name required.' });
+    const cleanFields = Array.isArray(fields) ? [...new Set(fields.map(f => String(f || '').trim()).filter(Boolean))] : [];
+    if (!cleanFields.length) return NextResponse.json({ result: 'error', message: 'Select at least one field.' });
+    const existing = await sb(`field_categories?name=eq.${encodeURIComponent(cleanName)}`);
+    if (existing?.error) return NextResponse.json({ result: 'error', message: existing.error });
+    const rowData = { name: cleanName, fields: cleanFields, updated_at: new Date().toISOString() };
+    const r = existing.length
+      ? await sb(`field_categories?name=eq.${encodeURIComponent(cleanName)}`, 'PATCH', rowData)
+      : await sb('field_categories', 'POST', rowData);
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'delete_field_category') {
+    const { name } = payload;
+    if (!name) return NextResponse.json({ result: 'error', message: 'Category name required.' });
+    // Grants referencing this category cascade-delete via the FK — no
+    // separate cleanup needed here.
+    const r = await sb(`field_categories?name=eq.${encodeURIComponent(name)}`, 'DELETE');
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Field access grants (which users are viewers of which categories) —
+  // a viewer's visible fields = the union of every category they're granted.
+  // Replace-all semantics per user_id, same idiom as set_tab_class_access. ──
+  if (action === 'get_field_access_grants') {
+    const rows = await sb('field_access_grants?select=user_id,category_name,can_edit&order=user_id.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    const byUser = {};
+    rows.forEach(r => { (byUser[r.user_id] = byUser[r.user_id] || []).push({ name: r.category_name, can_edit: !!r.can_edit }); });
+    return NextResponse.json({ result: 'success', grants: Object.entries(byUser).map(([grant_user_id, categories]) => ({ user_id: grant_user_id, categories })) });
+  }
+  if (action === 'set_field_access_grants') {
+    const { user_id: granteeId, categories } = payload;
+    if (!granteeId) return NextResponse.json({ result: 'error', message: 'User required.' });
+    const seen = new Set();
+    const clean = (Array.isArray(categories) ? categories : [])
+      .map(c => ({ name: String(c?.name || '').trim(), can_edit: !!c?.can_edit }))
+      .filter(c => c.name && !seen.has(c.name) && seen.add(c.name));
+    const del = await sb(`field_access_grants?user_id=eq.${encodeURIComponent(granteeId)}`, 'DELETE');
+    if (del?.error) return NextResponse.json({ result: 'error', message: del.error });
+    if (clean.length) {
+      const ins = await sb('field_access_grants', 'POST', clean.map(c => ({ user_id: granteeId, category_name: c.name, can_edit: c.can_edit })));
+      if (ins?.error) return NextResponse.json({ result: 'error', message: 'One or more category names do not exist: ' + ins.error });
+    }
+    return NextResponse.json({ result: 'success', count: clean.length });
+  }
+
   if (action === 'get_tab_data') {
     const { tab_name } = payload;
     const rows = await sb(`portal_submissions?tab_name=eq.${encodeURIComponent(tab_name)}&order=submitted_at.asc`);
@@ -499,6 +697,35 @@ export async function POST(req) {
     const rows = await sb('students_data?limit=1');
     if (!rows?.error && rows.length) return NextResponse.json(Object.keys(rows[0]));
     return NextResponse.json(['student_id', 'student_name', 'class', 'section', 'roll']);
+  }
+
+  // ── Search / bulk-update / category download — editor (full-admin) path.
+  // The viewer-only equivalents of search_students and
+  // download_students_by_category live earlier, right after the access
+  // gate, and return before execution ever reaches here. ──────────────────
+  if (action === 'search_students') {
+    const { student_id, class: cls, section, roll, group } = payload || {};
+    const rows = await _searchStudents({ student_id, class: cls, section, roll, group }, null);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', rows });
+  }
+  if (action === 'bulk_update_students') {
+    const { student_ids, updates } = payload;
+    const ids = Array.isArray(student_ids) ? [...new Set(student_ids.map(s => String(s || '').trim()).filter(Boolean))] : [];
+    const cleanUpdates = (updates && typeof updates === 'object') ? Object.fromEntries(
+      Object.entries(updates).filter(([k, v]) => k !== 'student_id' && k !== 'id' && v !== '' && v !== null && v !== undefined)
+    ) : {};
+    if (!ids.length) return NextResponse.json({ result: 'error', message: 'Select at least one student.' });
+    if (!Object.keys(cleanUpdates).length) return NextResponse.json({ result: 'error', message: 'Set at least one field.' });
+    // students_data's UPDATE trigger writes to student.edit_history automatically — no extra audit code needed here.
+    const { updated, errors } = await _bulkPatchStudents(ids, cleanUpdates);
+    return NextResponse.json({ result: errors.length ? 'partial' : 'success', updated, errors });
+  }
+  if (action === 'download_students_by_category') {
+    const { category_name, student_id, class: cls, section, roll, group } = payload || {};
+    if (!category_name) return NextResponse.json({ result: 'error', message: 'Category required.' });
+    const out = await _downloadByCategory(category_name, { student_id, class: cls, section, roll, group });
+    return NextResponse.json(out);
   }
 
   // ── Profile: editable fields + promote/unpromote tabs ──────────────────

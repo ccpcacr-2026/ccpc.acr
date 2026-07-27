@@ -87,10 +87,14 @@
     el.classList.toggle('hidden', !show);
     clearTimeout(_loadingTimer);
     if (show) {
+      // Longer than the shim's own 25s fetch-abort timeout (shim.js), so a
+      // slow request's real failure handler (with an actual error message)
+      // gets to fire and hide this first — this is only the last-resort
+      // backstop for a request that never calls either handler at all.
       _loadingTimer = setTimeout(() => {
         el.classList.add('hidden');
         console.warn('[CCPC] Loading spinner auto-hidden after timeout');
-      }, 15000);
+      }, 30000);
     }
   }
 
@@ -210,7 +214,8 @@
     users:         () => loadUsersDirectory(),
     routine:       () => loadRoutineView(),
     inventory:     () => loadInventoryView(),
-    myclass:       () => loadMyClassView()
+    myclass:       () => loadMyClassView(),
+    student_portal:() => loadStudentPortalView()
   };
 
   function _setViewHash(key) {
@@ -328,6 +333,8 @@
       container.classList.toggle('hidden', !anyVisible);
     });
 
+    _maybeRevealStudentPortalForGrantee(activeRole);
+
     // Role switcher: only visible when user has more than one role
     const switcher = document.getElementById('role-switcher');
     const btnsEl   = document.getElementById('role-switcher-btns');
@@ -361,6 +368,31 @@
         </button>`;
       }).join('');
     }
+  }
+
+  // A plain Teacher/Staff granted a field-category (student.field_access_grants,
+  // via the Admin's "Viewer Access Grants" panel) has no role that makes
+  // MODULE_DEFAULTS show the Student Portal nav link — so if the role-based
+  // pass just hid it, ask once whether this specific account has any grant
+  // anyway, and reveal it if so. Admin/Student Portal Admin already see it
+  // via the normal role matrix and never need this extra round-trip.
+  function _maybeRevealStudentPortalForGrantee(activeRole) {
+    if (activeRole === 'Admin' || activeRole === 'Student Portal Admin') return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const navEl = document.getElementById('nav-student-portal');
+    if (!myId || !navEl || navEl.style.display !== 'none') return;
+    fetch('/api/student-admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'get_my_access', payload: {}, user_id: myId })
+    }).then(r => r.ok ? r.json() : null).then(res => {
+      if (res && res.result === 'success' && Array.isArray(res.categories) && res.categories.length) {
+        window._hasFieldCategoryAccess = true; // loadStudentPortalView's own role gate checks this too
+        navEl.style.display = '';
+        const container = document.getElementById('admin-links');
+        if (container) container.classList.remove('hidden');
+      }
+    }).catch(() => {});
   }
 
   function setActiveNavLink(id) {
@@ -478,6 +510,8 @@
                 <button id="std-tabdata-viewtable" class="px-3 py-1.5 text-xs font-black bg-blue-600 text-white">Table</button>
                 <button id="std-tabdata-viewcard" class="px-3 py-1.5 text-xs font-black text-slate-500">Cards</button>
               </div>
+              <button id="std-tabdata-merge" class="px-4 py-1.5 rounded-lg border border-slate-200 text-slate-700 text-xs font-black">Merge Columns</button>
+              <button id="std-tabdata-print" class="px-4 py-1.5 rounded-lg bg-slate-800 text-white text-xs font-black">Print</button>
             </div>
           </div>
           <div id="std-tabdata-count" class="text-xs font-bold text-slate-500 mb-2"></div>
@@ -496,6 +530,28 @@
         card.querySelector('#std-tabdata-viewcard').addEventListener('click', () => _setStudentTabView('card'));
         card.querySelector('#std-tabdata-sort').addEventListener('change', (e) => _setStudentTabSort(e.target.value));
         card.querySelector('#std-tabdata-filter').addEventListener('change', (e) => _setStudentTabFilter(e.target.value));
+        card.querySelector('#std-tabdata-merge').addEventListener('click', () => {
+          if (!_stdTabData) return;
+          _openMergeColumnsModal({
+            title: `Merge Columns — ${_stdTabData.tab}`,
+            headers: _stdTabData.headers.filter(h => h !== 'student_id'),
+            merges: _stdColumnMerges,
+            onChange: (m) => { _stdColumnMerges = m; _renderStudentTabData(); },
+          });
+        });
+        card.querySelector('#std-tabdata-print').addEventListener('click', () => {
+          if (!_stdTabData) return;
+          const { headers: dHeaders, rows: dRows } = _applyColumnMerges(_stdTabData.headers, _stdVisibleRows(), _stdColumnMerges);
+          _openPrintColumnsModal({
+            title: `Print — ${_stdTabData.tab}`,
+            headers: dHeaders,
+            onPrint: (selected) => {
+              const idxs = selected.map(h => dHeaders.indexOf(h));
+              const rows = dRows.map(r => idxs.map(i => r[i]));
+              _openPrintWindow(_buildPrintHtml(_stdTabData.tab, selected, rows));
+            },
+          });
+        });
       })
       .withFailureHandler(() => {})
       .getMyTabDataAccess(uid);
@@ -521,6 +577,10 @@
     _stdFilterKey = key;
     _renderStudentTabData();
   }
+
+  // Display-only column merges for the table view — [{ id, label, cols }].
+  // Reset whenever a new tab is loaded (see loadStudentTabData).
+  let _stdColumnMerges = [];
 
   // Shared by render/export so both apply identical sort+filter.
   function _stdVisibleRows() {
@@ -554,6 +614,179 @@
       : '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-[10px] font-black uppercase tracking-widest whitespace-nowrap">Not Filled</span>';
   }
 
+  // ── Colorful tab-data tables: shared by the Student Data card and My Class
+  // tab-table (both live in this file). Cycles by column index, deliberately
+  // excluding green/red/emerald — those stay reserved for the Filled/Not
+  // Filled status badge above.
+  const _COL_PALETTE = [
+    { head: 'bg-blue-100 text-blue-700', cell: 'bg-blue-50/60', hex: '#dbeafe', hexCell: '#eff6ff' },
+    { head: 'bg-indigo-100 text-indigo-700', cell: 'bg-indigo-50/60', hex: '#e0e7ff', hexCell: '#eef2ff' },
+    { head: 'bg-violet-100 text-violet-700', cell: 'bg-violet-50/60', hex: '#ede9fe', hexCell: '#f5f3ff' },
+    { head: 'bg-fuchsia-100 text-fuchsia-700', cell: 'bg-fuchsia-50/60', hex: '#fae8ff', hexCell: '#fdf4ff' },
+    { head: 'bg-amber-100 text-amber-700', cell: 'bg-amber-50/60', hex: '#fef3c7', hexCell: '#fffbeb' },
+    { head: 'bg-cyan-100 text-cyan-700', cell: 'bg-cyan-50/60', hex: '#cffafe', hexCell: '#ecfeff' },
+    { head: 'bg-teal-100 text-teal-700', cell: 'bg-teal-50/60', hex: '#ccfbf1', hexCell: '#f0fdfa' },
+    { head: 'bg-orange-100 text-orange-700', cell: 'bg-orange-50/60', hex: '#fed7aa', hexCell: '#fff7ed' },
+  ];
+  function _colTint(i) { return _COL_PALETTE[i % _COL_PALETTE.length]; }
+
+  // Display-only column merge: collapses configured column groups into one
+  // cell each, at the leftmost merged column's position. Never touches
+  // sort/filter/export — callers apply this only when building table markup,
+  // strictly after sort+filter have already run on the original headers/rows.
+  function _applyColumnMerges(headers, rows, merges) {
+    if (!merges || !merges.length) return { headers, rows };
+    const groups = merges
+      .map(m => ({ ...m, idxs: m.cols.map(c => headers.indexOf(c)).filter(i => i >= 0) }))
+      .filter(g => g.idxs.length >= 2);
+    if (!groups.length) return { headers, rows };
+    const anchorOf = {};
+    const dropSet = new Set();
+    groups.forEach(g => {
+      const anchor = Math.min(...g.idxs);
+      anchorOf[anchor] = g;
+      g.idxs.forEach(i => { if (i !== anchor) dropSet.add(i); });
+    });
+    const dHeaders = [];
+    const colPlan = [];
+    headers.forEach((h, i) => {
+      if (dropSet.has(i)) return;
+      if (anchorOf[i]) { dHeaders.push(anchorOf[i].label); colPlan.push({ merge: anchorOf[i].idxs }); return; }
+      dHeaders.push(h);
+      colPlan.push({ idx: i });
+    });
+    const dRows = rows.map(r => colPlan.map(p => p.merge
+      ? p.merge.map(i => r[i]).filter(v => v !== '' && v != null).join('<br>')
+      : r[p.idx]));
+    return { headers: dHeaders, rows: dRows };
+  }
+
+  // ── Merge Columns modal — generic, reused by both surfaces in this file.
+  // opts: { title, headers (candidates to offer), merges (current array),
+  //         onChange(newMergesArray) }
+  let _activeMergeModalOpts = null;
+  function _openMergeColumnsModal(opts) {
+    _activeMergeModalOpts = opts;
+    const existing = document.getElementById('merge-columns-overlay');
+    if (existing) existing.remove();
+    const usedCols = new Set(opts.merges.flatMap(m => m.cols));
+    const available = opts.headers.filter(h => !usedCols.has(h));
+    const overlay = document.createElement('div');
+    overlay.id = 'merge-columns-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:3000;display:flex;align-items:center;justify-content:center;padding:16px';
+    overlay.innerHTML = `
+      <div style="background:#fff;border-radius:16px;max-width:520px;width:100%;max-height:85vh;display:flex;flex-direction:column">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #e2e8f0">
+          <strong>${opts.title || 'Merge Columns'}</strong>
+          <button onclick="document.getElementById('merge-columns-overlay').remove()" style="border:none;background:none;font-size:18px;cursor:pointer;line-height:1">&times;</button>
+        </div>
+        <div id="merge-columns-chips" style="padding:${opts.merges.length ? '12px 16px 0' : '0'};display:flex;flex-wrap:wrap;gap:6px"></div>
+        <div style="overflow-y:auto;flex:1;padding:12px 16px">
+          <input type="text" id="merge-columns-label" placeholder="Label for the merged column (optional)" style="width:100%;padding:6px 10px;border:1px solid #cbd5e1;border-radius:8px;margin-bottom:10px;font-size:13px;box-sizing:border-box">
+          <div id="merge-columns-picker" style="display:flex;flex-direction:column;gap:4px;max-height:280px;overflow-y:auto">
+            ${available.length ? available.map(h => `<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" class="merge-col-check" value="${String(h).replace(/"/g, '&quot;')}">${h}</label>`).join('') : '<span style="font-size:12px;color:#94a3b8">No more columns available to merge.</span>'}
+          </div>
+        </div>
+        <div style="padding:12px 16px;border-top:1px solid #e2e8f0;display:flex;justify-content:flex-end">
+          <button id="merge-columns-create" style="background:#2563eb;color:#fff;border:none;border-radius:8px;padding:7px 16px;font-weight:800;font-size:13px;cursor:pointer">Create Merge</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    const chipsHost = document.getElementById('merge-columns-chips');
+    chipsHost.innerHTML = opts.merges.map(m => `<span style="display:inline-flex;align-items:center;gap:5px;background:#eff6ff;color:#1d4ed8;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700">
+        ${m.label} &middot; ${m.cols.length} cols
+        <span data-id="${m.id}" style="cursor:pointer;font-weight:900" onclick="_removeColumnMerge('${m.id}')">&times;</span>
+      </span>`).join('');
+
+    document.getElementById('merge-columns-create').addEventListener('click', () => {
+      const label = document.getElementById('merge-columns-label').value.trim();
+      const cols = Array.from(document.querySelectorAll('.merge-col-check:checked')).map(c => c.value);
+      if (cols.length < 2) { if (typeof showToast === 'function') showToast('Pick at least 2 columns to merge', 'error'); return; }
+      const finalLabel = label || cols.map(_prettyHeader).join(' / ');
+      const newMerges = [...opts.merges, { id: 'm' + Date.now() + Math.random().toString(36).slice(2, 6), label: finalLabel, cols }];
+      opts.onChange(newMerges);
+      opts.merges = newMerges;
+      _openMergeColumnsModal(opts);
+    });
+  }
+  function _removeColumnMerge(id) {
+    if (!_activeMergeModalOpts) return;
+    const newMerges = _activeMergeModalOpts.merges.filter(m => m.id !== id);
+    _activeMergeModalOpts.onChange(newMerges);
+    _activeMergeModalOpts.merges = newMerges;
+    _openMergeColumnsModal(_activeMergeModalOpts);
+  }
+
+  // ── Print column-picker modal — generic, reused by both surfaces here.
+  // opts: { title, headers (already post-merge display headers), onPrint(selectedHeaders) }
+  function _openPrintColumnsModal(opts) {
+    const existing = document.getElementById('print-columns-overlay');
+    if (existing) existing.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'print-columns-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:3000;display:flex;align-items:center;justify-content:center;padding:16px';
+    overlay.innerHTML = `
+      <div style="background:#fff;border-radius:16px;max-width:420px;width:100%;max-height:85vh;display:flex;flex-direction:column">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #e2e8f0">
+          <strong>${opts.title || 'Print'}</strong>
+          <button onclick="document.getElementById('print-columns-overlay').remove()" style="border:none;background:none;font-size:18px;cursor:pointer;line-height:1">&times;</button>
+        </div>
+        <div style="padding:10px 16px 0;display:flex;gap:8px">
+          <button id="print-columns-all" style="font-size:11px;border:1px solid #cbd5e1;border-radius:999px;padding:3px 10px;background:#fff;cursor:pointer">Select all</button>
+          <button id="print-columns-none" style="font-size:11px;border:1px solid #cbd5e1;border-radius:999px;padding:3px 10px;background:#fff;cursor:pointer">Clear</button>
+        </div>
+        <div id="print-columns-list" style="overflow-y:auto;flex:1;padding:10px 16px 12px;display:flex;flex-direction:column;gap:4px">
+          ${opts.headers.map(h => `<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" class="print-col-check" value="${String(h).replace(/"/g, '&quot;')}" checked>${h}</label>`).join('')}
+        </div>
+        <div style="padding:12px 16px;border-top:1px solid #e2e8f0;display:flex;justify-content:flex-end">
+          <button id="print-columns-go" style="background:#2563eb;color:#fff;border:none;border-radius:8px;padding:7px 16px;font-weight:800;font-size:13px;cursor:pointer">Print</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    document.getElementById('print-columns-all').addEventListener('click', () => { document.querySelectorAll('.print-col-check').forEach(c => { c.checked = true; }); });
+    document.getElementById('print-columns-none').addEventListener('click', () => { document.querySelectorAll('.print-col-check').forEach(c => { c.checked = false; }); });
+    document.getElementById('print-columns-go').addEventListener('click', () => {
+      const selected = Array.from(document.querySelectorAll('.print-col-check:checked')).map(c => c.value);
+      if (!selected.length) { if (typeof showToast === 'function') showToast('Pick at least one column', 'error'); return; }
+      document.getElementById('print-columns-overlay').remove();
+      opts.onPrint(selected);
+    });
+  }
+
+  // Standalone printable HTML document — no Tailwind CDN in the popup window,
+  // so tints are inlined as literal colors via _colTint(...).hex/hexCell.
+  function _buildPrintHtml(title, headers, rows) {
+    const theadCells = headers.map((h, i) => `<th style="background:${_colTint(i).hex};color:#1e293b;border:1px solid #cbd5e1;padding:5px 7px;font-size:9pt;text-transform:uppercase;letter-spacing:.04em;text-align:left">${h}</th>`).join('');
+    const bodyRows = rows.map(r => `<tr>${r.map((c, i) => `<td style="background:${_colTint(i).hexCell};border:1px solid #cbd5e1;padding:4px 7px;font-size:9pt">${c === '' || c == null ? '&mdash;' : c}</td>`).join('')}</tr>`).join('');
+    return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${title}</title>
+      <style>
+        @page { size: landscape; margin: 10mm; }
+        body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; margin: 0; padding: 16px; }
+        table { border-collapse: collapse; width: 100%; }
+        .print-meta { font-size: 8pt; color: #64748b; margin-bottom: 10px; }
+        h1 { font-size: 13pt; margin: 0 0 2px; }
+      </style></head>
+      <body>
+        <h1>${title}</h1>
+        <div class="print-meta">Printed ${new Date().toLocaleString()} &mdash; ${rows.length} row${rows.length === 1 ? '' : 's'}</div>
+        <table><thead><tr>${theadCells}</tr></thead><tbody>${bodyRows}</tbody></table>
+      </body></html>`;
+  }
+
+  function _openPrintWindow(html) {
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const win = window.open(url, '_blank', 'width=1100,height=750');
+    if (!win) {
+      if (typeof showToast === 'function') showToast('Popup blocked — please allow popups for this site and try again', 'error');
+      URL.revokeObjectURL(url);
+      return;
+    }
+    win.focus();
+    setTimeout(function () { win.print(); setTimeout(function () { URL.revokeObjectURL(url); }, 1000); }, 800);
+  }
+
   function _renderStudentTabData() {
     const view = document.getElementById('std-tabdata-view');
     if (!view) return;
@@ -566,9 +799,10 @@
       return;
     }
     if (_stdTabView === 'table') {
+      const { headers: dHeaders, rows: dRows } = _applyColumnMerges(headers, rows, _stdColumnMerges);
       view.innerHTML = `<table class="w-full text-left">
-        <thead class="bg-slate-50"><tr><th class="px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 whitespace-nowrap">Status</th>${headers.map(h => `<th class="px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 whitespace-nowrap">${h}</th>`).join('')}</tr></thead>
-        <tbody>${rows.map(r => `<tr class="border-t border-slate-100"><td class="px-3 py-2">${_statusBadge(filled[r[0]])}</td>${r.map(c => `<td class="px-3 py-2 text-xs font-semibold text-slate-700">${c === '' || c == null ? '—' : c}</td>`).join('')}</tr>`).join('')}</tbody>
+        <thead class="bg-slate-50"><tr><th class="px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 whitespace-nowrap">Status</th>${dHeaders.map((h, i) => `<th class="px-3 py-2 text-[10px] font-black uppercase tracking-widest whitespace-nowrap ${_colTint(i).head}">${h}</th>`).join('')}</tr></thead>
+        <tbody>${dRows.map((r, ri) => `<tr class="border-t border-slate-100"><td class="px-3 py-2">${_statusBadge(filled[rows[ri][0]])}</td>${r.map((c, i) => `<td class="px-3 py-2 text-xs font-semibold text-slate-700 ${_colTint(i).cell}">${c === '' || c == null ? '—' : c}</td>`).join('')}</tr>`).join('')}</tbody>
       </table>`;
       return;
     }
@@ -626,6 +860,7 @@
         }
         _stdSortKey = '';
         _stdFilterKey = '';
+        _stdColumnMerges = [];
         if (sortSel) sortSel.value = '';
         if (filterSel) filterSel.value = '';
         _stdTabData = { tab: sel.value, headers: res.headers, rows: res.rows, sortMeta: res.sort_meta || {}, filled: res.filled || {} };
@@ -2455,6 +2690,8 @@
               <button id="classTabViewTableBtn" class="px-3 py-1.5 text-xs font-black bg-blue-600 text-white">Table</button>
               <button id="classTabViewCardBtn" class="px-3 py-1.5 text-xs font-black text-slate-500">Cards</button>
             </div>
+            <button id="classTabMergeBtn" class="px-4 py-1.5 rounded-lg border border-slate-200 text-slate-700 text-xs font-black">Merge Columns</button>
+            <button id="classTabPrintBtn" class="px-4 py-1.5 rounded-lg bg-slate-800 text-white text-xs font-black">Print</button>
             <button onclick="closeClassTabTable()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
           </div>
         </div>
@@ -2466,11 +2703,35 @@
       modal.querySelector('#classTabViewCardBtn').addEventListener('click', () => _setClassTabView('card'));
       modal.querySelector('#classTabSortSelect').addEventListener('change', (e) => _setClassTabSort(e.target.value));
       modal.querySelector('#classTabFilterSelect').addEventListener('change', (e) => _setClassTabFilter(e.target.value));
+      modal.querySelector('#classTabMergeBtn').addEventListener('click', () => {
+        if (!_classTabData) return;
+        _openMergeColumnsModal({
+          title: `Merge Columns — ${document.getElementById('classTabTableTitle').textContent}`,
+          headers: _classTabData.headers,
+          merges: _classColumnMerges,
+          onChange: (m) => { _classColumnMerges = m; _renderClassTabData(); },
+        });
+      });
+      modal.querySelector('#classTabPrintBtn').addEventListener('click', () => {
+        if (!_classTabData) return;
+        const { rows: visRows, filled: visFilled } = _classVisiblePairs();
+        const { headers: dHeaders, rows: dRows } = _applyColumnMerges(_classTabData.headers, visRows, _classColumnMerges);
+        _openPrintColumnsModal({
+          title: `Print — ${document.getElementById('classTabTableTitle').textContent}`,
+          headers: dHeaders,
+          onPrint: (selected) => {
+            const idxs = selected.map(h => dHeaders.indexOf(h));
+            const rows = dRows.map(r => idxs.map(i => r[i]));
+            _openPrintWindow(_buildPrintHtml(document.getElementById('classTabTableTitle').textContent, selected, rows));
+          },
+        });
+      });
     }
     modal.classList.remove('hidden');
     _classTabData = null;
     _classSortKey = '';
     _classFilterKey = '';
+    _classColumnMerges = [];
     const sortSel = document.getElementById('classTabSortSelect');
     if (sortSel) sortSel.value = '';
     const filterSel = document.getElementById('classTabFilterSelect');
@@ -2522,13 +2783,15 @@
     _renderClassTabData();
   }
 
-  function _renderClassTabData() {
-    const body = document.getElementById('classTabTableBody');
-    if (!body || !_classTabData) return;
-    const { headers } = _classTabData;
-    // sort_meta/filled are index-aligned with rows (student_id isn't a visible
-    // column here) — zip all three together, sort/filter, then unzip, so they
-    // stay in lockstep.
+  // Display-only column merges for the table view — [{ id, label, cols }].
+  // Reset whenever the modal is (re)opened for a tab — see openClassTabTable.
+  let _classColumnMerges = [];
+
+  // Shared by render/print — sort_meta/filled are index-aligned with rows
+  // (student_id isn't a visible column here), so zip all three together,
+  // sort/filter, then unzip, so they stay in lockstep.
+  function _classVisiblePairs() {
+    if (!_classTabData) return { rows: [], filled: [] };
     const filledArr = _classTabData.filled && _classTabData.filled.length === _classTabData.rows.length
       ? _classTabData.filled : _classTabData.rows.map(() => true);
     let pairs = _classTabData.rows.map((r, i) => [r, (_classTabData.sortMeta || [])[i], filledArr[i]]);
@@ -2537,17 +2800,24 @@
     }
     if (_classFilterKey === 'filled') pairs = pairs.filter(p => p[2]);
     else if (_classFilterKey === 'unfilled') pairs = pairs.filter(p => !p[2]);
-    const rows = pairs.map(p => p[0]);
-    const filled = pairs.map(p => p[2]);
+    return { rows: pairs.map(p => p[0]), filled: pairs.map(p => p[2]) };
+  }
+
+  function _renderClassTabData() {
+    const body = document.getElementById('classTabTableBody');
+    if (!body || !_classTabData) return;
+    const { headers } = _classTabData;
+    const { rows, filled } = _classVisiblePairs();
     if (!rows.length) {
       body.innerHTML = `<div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">${_classFilterKey ? 'No students match this filter' : 'No students found'}</div>`;
       return;
     }
     if (_classTabView === 'table') {
+      const { headers: dHeaders, rows: dRows } = _applyColumnMerges(headers, rows, _classColumnMerges);
       body.innerHTML = `<div class="overflow-x-auto border border-slate-100 rounded-xl">
         <table class="w-full text-left text-xs">
-          <thead class="bg-slate-50"><tr><th class="px-3 py-2 font-black text-slate-500 uppercase tracking-widest whitespace-nowrap">Status</th>${headers.map(h => `<th class="px-3 py-2 font-black text-slate-500 uppercase tracking-widest whitespace-nowrap">${h}</th>`).join('')}</tr></thead>
-          <tbody>${rows.map((r, i) => `<tr class="border-t border-slate-50"><td class="px-3 py-2">${_statusBadge(filled[i])}</td>${r.map(v => `<td class="px-3 py-2 font-bold text-slate-700 whitespace-nowrap">${v === '' || v == null ? '—' : v}</td>`).join('')}</tr>`).join('')}</tbody>
+          <thead class="bg-slate-50"><tr><th class="px-3 py-2 font-black text-slate-500 uppercase tracking-widest whitespace-nowrap">Status</th>${dHeaders.map((h, i) => `<th class="px-3 py-2 font-black uppercase tracking-widest whitespace-nowrap ${_colTint(i).head}">${h}</th>`).join('')}</tr></thead>
+          <tbody>${dRows.map((r, i) => `<tr class="border-t border-slate-50"><td class="px-3 py-2">${_statusBadge(filled[i])}</td>${r.map((v, ci) => `<td class="px-3 py-2 font-bold text-slate-700 whitespace-nowrap ${_colTint(ci).cell}">${v === '' || v == null ? '—' : v}</td>`).join('')}</tr>`).join('')}</tbody>
         </table>
       </div>`;
       return;
@@ -2741,6 +3011,31 @@
   // ═══════════════════════════════════════════════════════
   let _invOptionsCache = null;     // { consumers, committees, assignments } — recipient picker data
   let _invDistContext  = null;     // { fromType, fromId, productId, productName, max } for the open modal
+
+  // Student Portal admin console — embedded in-place instead of opening
+  // student-admin.html as its own tab/page. It's still the same standalone
+  // HTML file (own layout, own /api/student-admin calls), just framed inside
+  // this SPA's view-container now; same-origin iframes share localStorage
+  // with the parent, so it re-verifies the caller's role the same way it
+  // always has, with nothing new to log into. The `embedded=1` param tells
+  // it to hide its own Back-to-Portal/Logout buttons, since this page
+  // already provides those.
+  function loadStudentPortalView() {
+    // Either the normal role matrix allows it, or this specific account has
+    // a field-category grant (see _maybeRevealStudentPortalForGrantee) — the
+    // latter is what actually makes the nav link visible for a plain
+    // Teacher/Staff in the first place, so it must also be accepted here.
+    if (!_isModuleVisibleForRole('student_portal', window.ACTIVE_ROLE) && !window._hasFieldCategoryAccess) {
+      showToast('Not available in current role', 'error');
+      return;
+    }
+    _setViewHash('student_portal');
+    setActiveNavLink('nav-student-portal');
+    setContentHeader('Student Portal', 'graduation-cap');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    container.innerHTML = `<iframe id="student-portal-frame" src="/student-admin.html?embedded=1" title="Student Portal Admin" style="width:100%;height:calc(100vh - 140px);min-height:600px;border:none;border-radius:16px;background:#fff"></iframe>`;
+  }
 
   function loadInventoryView() {
     _setViewHash('inventory');

@@ -22,6 +22,14 @@
           const sc = _success;
           const fc = _failure;
 
+          // On a slow/dropped connection, fetch() has no default timeout — it
+          // would otherwise hang indefinitely with no feedback (the spinner's
+          // own auto-hide just makes it silently disappear, no error shown).
+          // Abort after 25s so withFailureHandler actually fires with a
+          // message the user can act on, instead of the app just looking stuck.
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 25000);
+
           fetch('/api/exec', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -30,13 +38,17 @@
               args,
               _uid:   window.APP_USER ? window.APP_USER.user_id : null,
               _email: window.APP_USER ? window.APP_USER.email   : null
-            })
+            }),
+            signal: controller.signal
           })
             .then(r => r.ok ? r.json() : Promise.reject('HTTP ' + r.status))
-            .then(data => { if (sc) sc(data); })
+            .then(data => { clearTimeout(timeoutId); if (sc) sc(data); })
             .catch(err => {
-              if (fc) fc(err);
-              else console.error('[GAS shim] ' + prop + ' failed:', err);
+              clearTimeout(timeoutId);
+              const isTimeout = err && err.name === 'AbortError';
+              const message = isTimeout ? 'Request timed out — check your connection and try again.' : err;
+              if (fc) fc(message);
+              else console.error('[GAS shim] ' + prop + ' failed:', message);
             });
         };
       }
