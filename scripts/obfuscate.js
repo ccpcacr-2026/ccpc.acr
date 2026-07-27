@@ -66,7 +66,14 @@ const RESERVED = [
   // student detail panel (My Class)
   'openStudentProfile','closeStudentProfile',
   // class-wide tab data table (My Class)
-  'openClassTabTable','closeClassTabTable'
+  'openClassTabTable','closeClassTabTable',
+  // native admin-console port (retiring the student-admin.html iframe)
+  'toggleAdminSubnav','loadStudentPortalView','loadAdminAccessView',
+  'saveAdminTabVisibility','openFieldCategoryEditor','saveFieldCategoryFromEditor',
+  'deleteFieldCategoryConfirm','filterGrantStaff','selectGrantUser',
+  '_syncGrantEditCheckbox','saveFieldGrantsForUser','revokeFieldGrant',
+  'searchStudentsAdmin','toggleAllStudentRows','updateStuSelectedCount',
+  'openBulkEditModal','submitBulkEdit','downloadByCategoryAdmin'
 ];
 
 // Strip HTML comments and collapse whitespace

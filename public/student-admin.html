@@ -400,6 +400,10 @@
             .sidebar-nav { display: flex; }
             .content-area { margin-left: var(--sidebar-width); }
         }
+        /* Embedded in the Faculty Portal — its own sidebar already shows every
+           tab this page has, so this page's sidebar/mobile-header stay hidden
+           (see showAdminPanel) and this page's own content area goes full-bleed. */
+        body.embedded-admin .content-area { margin-left: 0 !important; padding-top: 24px; }
 
         @media (max-width: 991px) {
             .content-area { padding: 18px; padding-top: 88px; padding-bottom: 90px; }
@@ -881,6 +885,13 @@
             <div class="container animate-in">
 
                 <!-- Login -->
+                <!-- Embedded (Faculty Portal iframe) callers never hit this student
+                     ID/phone login form at all — they're already authenticated staff,
+                     verified async by initPortal() below. Hiding it synchronously via
+                     document.write, before the browser paints, is what actually kills
+                     the visible flash of a student login form inside an admin panel;
+                     toggling a class in initPortal's own JS runs too late to help. -->
+                <script>if (new URLSearchParams(location.search).get('embedded') === '1') document.write('<style>#login-section{display:none}</style>');</script>
                 <div id="login-section">
                     <div class="login-brand">
                         <div class="login-logo-ring">
@@ -2437,6 +2448,12 @@
         }
 
         const ERP_TAB_DOM_ID = { fees: 'admin-fees', attendance: 'admin-attendance', exams: 'admin-exams', payroll: 'admin-payroll', transport: 'admin-transport' };
+        // Broader than ERP_TAB_DOM_ID on purpose — this one's only used to
+        // resolve a ?tab= deep link from the Faculty Portal's own sidebar
+        // (which now covers all 13 tabs + Bus Tracker), never for the
+        // restrictTabs pill-hiding logic below, which stays scoped to just
+        // the 5 admin_tab_visibility-gated tabs.
+        const FULL_TAB_DOM_ID = Object.assign({ setup: 'admin-manage', data: 'admin-reports', access: 'admin-access', history: 'admin-history', nfc: 'admin-nfc', photo: 'admin-photo', notices: 'admin-notices', import: 'admin-import' }, ERP_TAB_DOM_ID);
 
         // restrictTabs: undefined for a full Admin/Student Portal Admin (sees
         // every pill, as before); an array of ERP tab keys for an account that
@@ -2445,8 +2462,12 @@
         // and lands directly on the first one instead of Setup.
         function showAdminPanel(restrictTabs) {
             try {
-                const els = ['login-section', 'admin-section', 'sidebar-container', 'mobile-header']
-                    .concat(_isEmbedded ? [] : ['btn-logout-fixed', 'btn-back-to-portal']);
+                // sidebar-container/mobile-header stay hidden when embedded — this
+                // page's own "CCPC Portal" sidebar next to the Faculty Portal's own
+                // sidebar is exactly the double-sidebar look being phased out tab by
+                // tab; the Faculty Portal already shows every tab this page has.
+                const els = ['login-section', 'admin-section']
+                    .concat(_isEmbedded ? [] : ['sidebar-container', 'mobile-header', 'btn-logout-fixed', 'btn-back-to-portal']);
                 els.forEach(id => {
                     const el = document.getElementById(id);
                     if (el) {
@@ -2454,6 +2475,7 @@
                         else el.classList.remove('hidden');
                     }
                 });
+                if (_isEmbedded) document.body.classList.add('embedded-admin');
 
                 // allowedSubnavDomIds is null for a full Admin/Student Portal
                 // Admin (every tab, in the sidebar sub-nav below); a specific
@@ -2472,7 +2494,7 @@
                     });
                 }
                 const requestedTab = new URLSearchParams(location.search).get('tab');
-                const targetDomId = requestedTab && ERP_TAB_DOM_ID[requestedTab];
+                const targetDomId = requestedTab && FULL_TAB_DOM_ID[requestedTab];
 
                 // Populate Mobile Nav for Admin
                 const bottom = document.getElementById('bottom-nav-container');
@@ -2486,7 +2508,8 @@
                 addNav('admin-home', 'Admin Panel', 'bi-shield-lock-fill', true);
                 addNav('bus-tracking', 'Bus Tracker', 'bi-bus-front-fill');
                 renderAdminSubnav(allowedSubnavDomIds);
-                if (targetDomId) setTimeout(() => selectAdminTab(targetDomId), 50);
+                if (requestedTab === 'bus_tracker') setTimeout(() => switchTab('bus-tracking'), 50);
+                else if (targetDomId) setTimeout(() => selectAdminTab(targetDomId), 50);
 
                 // Ensure bus tracking content exists for admin — Bus Tracker is
                 // its own full-admin-only feature, not one of the 5 ERP tabs, so

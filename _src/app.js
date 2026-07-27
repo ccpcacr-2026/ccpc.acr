@@ -334,7 +334,7 @@
     });
 
     _maybeRevealStudentPortalForGrantee(activeRole);
-    _loadErpTabLinks(activeRole);
+    _loadAdminSubnav(activeRole);
 
     // Role switcher: only visible when user has more than one role
     const switcher = document.getElementById('role-switcher');
@@ -396,35 +396,63 @@
     }).catch(() => {});
   }
 
-  // Direct sidebar shortcuts to the 5 ERP tabs (Fees/Attendance/Exams/
-  // Payroll/Transport) inside the Student Portal console — otherwise those
-  // are two clicks away (Student Portal, then the tab pill inside the
-  // iframe). Shown per-role from the SAME admin_tab_visibility matrix an
-  // Admin edits in the Access tab (get_admin_tab_visibility), via a
-  // self-service, non-admin-gated action — so e.g. an HR account sees a
-  // "Payroll" shortcut directly without needing Admin/Student Portal Admin.
-  const ERP_TAB_META = {
-    fees: { label: 'Fees', icon: 'wallet' },
-    attendance: { label: 'Attendance', icon: 'fingerprint' },
-    exams: { label: 'Exams', icon: 'clipboard-list' },
-    payroll: { label: 'Payroll', icon: 'banknote' },
-    transport: { label: 'Transport', icon: 'bus' },
-  };
-  function _loadErpTabLinks(activeRole) {
+  // All 14 destinations nested under "Student Portal" in the sidebar. The 5
+  // ERP-tab entries (erp:true) stay gated per-account by the admin-editable
+  // admin_tab_visibility matrix (get_my_tab_access, self-service — e.g. an
+  // HR account sees just "Payroll" without needing Admin/Student Portal
+  // Admin); the rest are shown to any Admin/Student Portal Admin, matching
+  // student-admin.html's own plain _isAdmin-only rule for those tabs (no
+  // per-tab matrix exists for them). action.type 'native' means this tab has
+  // its own loadAdminXxxView and never touches the iframe at all; 'iframe'/
+  // 'iframe-bus' route through the (now chrome-free-when-embedded)
+  // student-admin.html iframe until that tab's own porting phase lands — as
+  // each phase ships, only that one entry's action needs to change.
+  const ADMIN_SUBNAV_ITEMS = [
+    { key: 'setup', label: 'Setup', icon: 'sliders-horizontal', erp: false, action: { type: 'iframe', domId: 'admin-manage' } },
+    { key: 'data', label: 'Data', icon: 'table', erp: false, action: { type: 'iframe', domId: 'admin-reports' } },
+    { key: 'access', label: 'Access', icon: 'shield-check', erp: false, action: { type: 'native', fn: 'loadAdminAccessView' } },
+    { key: 'fees', label: 'Fees', icon: 'wallet', erp: true, action: { type: 'iframe', domId: 'admin-fees' } },
+    { key: 'attendance', label: 'Attendance', icon: 'fingerprint', erp: true, action: { type: 'iframe', domId: 'admin-attendance' } },
+    { key: 'exams', label: 'Exams', icon: 'clipboard-list', erp: true, action: { type: 'iframe', domId: 'admin-exams' } },
+    { key: 'payroll', label: 'Payroll', icon: 'banknote', erp: true, action: { type: 'iframe', domId: 'admin-payroll' } },
+    { key: 'transport', label: 'Transport', icon: 'bus', erp: true, action: { type: 'iframe', domId: 'admin-transport' } },
+    { key: 'history', label: 'History', icon: 'clock', erp: false, action: { type: 'iframe', domId: 'admin-history' } },
+    { key: 'nfc', label: 'NFC', icon: 'radio', erp: false, action: { type: 'iframe', domId: 'admin-nfc' } },
+    { key: 'photo', label: 'Photo', icon: 'camera', erp: false, action: { type: 'iframe', domId: 'admin-photo' } },
+    { key: 'notices', label: 'Notices', icon: 'megaphone', erp: false, action: { type: 'iframe', domId: 'admin-notices' } },
+    { key: 'import', label: 'Import', icon: 'file-spreadsheet', erp: false, action: { type: 'iframe', domId: 'admin-import' } },
+    { key: 'bus_tracker', label: 'Bus Tracker', icon: 'map-pin', erp: false, action: { type: 'iframe-bus' } },
+  ];
+
+  // "Student Portal" is a pure expand/collapse subheader now — its own click
+  // never navigates anywhere, it just shows/hides the 14 items nested under
+  // it in this same sidebar (one panel, not two).
+  function toggleAdminSubnav() {
+    const host = document.getElementById('erp-links');
+    const parent = document.getElementById('nav-student-portal');
+    if (!host || !parent) return;
+    const nowExpanded = !parent.classList.contains('expanded');
+    parent.classList.toggle('expanded', nowExpanded);
+    host.classList.toggle('collapsed', !nowExpanded);
+  }
+
+  function _loadAdminSubnav(activeRole) {
     const myId = window.APP_USER && window.APP_USER.user_id;
     const host = document.getElementById('erp-links');
     if (!myId || !host) return;
+    const isFullAdmin = activeRole === 'Admin' || activeRole === 'Student Portal Admin';
     fetch('/api/student-admin', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'get_my_tab_access', payload: {}, user_id: myId })
     }).then(r => r.ok ? r.json() : null).then(res => {
-      const tabs = (res && res.result === 'success' && Array.isArray(res.tabs)) ? res.tabs : [];
-      window._hasErpTabAccess = tabs.length > 0; // loadStudentPortalView's own role gate checks this too
-      if (!tabs.length) { host.innerHTML = ''; host.classList.add('hidden'); return; }
-      host.innerHTML = tabs.map(t => {
-        const meta = ERP_TAB_META[t] || { label: t, icon: 'layout-grid' };
-        return `<a href="javascript:void(0)" onclick="loadStudentPortalView('${t}'); closeMobileSidebar();" class="nav-link" id="nav-erp-${t}"><div class="nav-icon-box"><i data-lucide="${meta.icon}" class="nav-icon"></i></div><span class="nav-text">${meta.label}</span></a>`;
+      const erpTabs = (res && res.result === 'success' && Array.isArray(res.tabs)) ? res.tabs : [];
+      window._hasErpTabAccess = erpTabs.length > 0; // loadStudentPortalView's own role gate checks this too
+      const items = ADMIN_SUBNAV_ITEMS.filter(i => i.erp ? erpTabs.includes(i.key) : isFullAdmin);
+      if (!items.length) { host.innerHTML = ''; host.classList.add('hidden'); return; }
+      host.innerHTML = items.map(i => {
+        const onclick = i.action.type === 'native' ? `${i.action.fn}()` : `loadStudentPortalView('${i.key}')`;
+        return `<a href="javascript:void(0)" onclick="${onclick}; closeMobileSidebar();" class="nav-link nav-sublink" id="nav-erp-${i.key}"><div class="nav-icon-box"><i data-lucide="${i.icon}" class="nav-icon"></i></div><span class="nav-text">${i.label}</span></a>`;
       }).join('');
       host.classList.remove('hidden');
       lucide.createIcons();
@@ -3057,12 +3085,14 @@
   // with the parent, so it re-verifies the caller's role the same way it
   // always has, with nothing new to log into. The `embedded=1` param tells
   // it to hide its own Back-to-Portal/Logout buttons, since this page
-  // already provides those.
-  const ERP_TAB_DOM_ID_MAP = { fees: 'admin-fees', attendance: 'admin-attendance', exams: 'admin-exams', payroll: 'admin-payroll', transport: 'admin-transport' };
+  // already provides those. Only ever called for a tabKey whose
+  // ADMIN_SUBNAV_ITEMS action.type is 'iframe'/'iframe-bus' — native-ported
+  // tabs (action.type 'native') call their own loadAdminXxxView directly and
+  // never reach this function at all.
   function loadStudentPortalView(tabKey) {
     // Either the normal role matrix allows it, or this specific account has
     // a field-category grant (see _maybeRevealStudentPortalForGrantee) or an
-    // ERP-tab grant (see _loadErpTabLinks) — either of the latter two is
+    // ERP-tab grant (see _loadAdminSubnav) — either of the latter two is
     // what actually makes the nav link visible for a plain Teacher/Staff in
     // the first place, so both must also be accepted here.
     if (!_isModuleVisibleForRole('student_portal', window.ACTIVE_ROLE) && !window._hasFieldCategoryAccess && !window._hasErpTabAccess) {
@@ -3075,20 +3105,26 @@
     const container = document.getElementById('view-container');
     if (!container) return;
 
+    const item = tabKey && ADMIN_SUBNAV_ITEMS.find(i => i.key === tabKey);
+
     // If the console is already open (from a previous shortcut click), tell
-    // the already-loaded iframe to just switch tabs in place — same-origin,
-    // so this is a plain synchronous call, no postMessage needed. Recreating
-    // the iframe on every shortcut click was forcing a full reload + re-login
-    // check each time, which looked like the login screen flashing on every
-    // tab switch. Falls back to a fresh iframe if anything about that isn't
-    // true yet (e.g. the child page hasn't finished its own login check).
+    // the already-loaded iframe to just switch tabs/views in place —
+    // same-origin, so this is a plain synchronous call, no postMessage
+    // needed. Recreating the iframe on every shortcut click was forcing a
+    // full reload + re-login check each time, which looked like the login
+    // screen flashing on every tab switch. Falls back to a fresh iframe if
+    // anything about that isn't true yet (e.g. the child page hasn't
+    // finished its own login check).
     const existing = document.getElementById('student-portal-frame');
     if (existing && /\/student-admin\.html/.test(existing.src)) {
+      if (!tabKey) return; // already open, no specific tab requested — leave it as-is
       try {
-        const domId = tabKey && ERP_TAB_DOM_ID_MAP[tabKey];
-        if (!tabKey) return; // already open, no specific tab requested — leave it as-is
-        if (domId && existing.contentWindow && typeof existing.contentWindow.selectAdminTab === 'function') {
-          existing.contentWindow.selectAdminTab(domId);
+        if (item && item.action.type === 'iframe' && existing.contentWindow && typeof existing.contentWindow.selectAdminTab === 'function') {
+          existing.contentWindow.selectAdminTab(item.action.domId);
+          return;
+        }
+        if (item && item.action.type === 'iframe-bus' && existing.contentWindow && typeof existing.contentWindow.switchTab === 'function') {
+          existing.contentWindow.switchTab('bus-tracking');
           return;
         }
       } catch (_) { /* fall through to a fresh iframe below */ }
@@ -3096,6 +3132,490 @@
 
     const tabParam = tabKey ? ('&tab=' + encodeURIComponent(tabKey)) : '';
     container.innerHTML = `<iframe id="student-portal-frame" src="/student-admin.html?embedded=1${tabParam}" title="Student Portal Admin" style="width:100%;height:calc(100vh - 140px);min-height:600px;border:none;border-radius:16px;background:#fff"></iframe>`;
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Access tab — native port (Phase 1 of retiring the student-admin.html
+  // iframe, see the plan). Talks to the exact same /api/student-admin
+  // backend actions the iframe version used, via _adminFetch below — no
+  // backend changes needed, this is a pure frontend translation.
+  // ══════════════════════════════════════════════════════════════════════
+
+  function _adminFetch(action, payload = {}) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    return fetch('/api/student-admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, payload, user_id: myId })
+    }).then(async r => {
+      if (!r.ok) {
+        let serverMsg = '';
+        try { const body = await r.json(); serverMsg = body?.message || body?.error || ''; } catch (_) {}
+        throw new Error(serverMsg || ('Network error ' + r.status));
+      }
+      return r.json();
+    });
+  }
+
+  const TAB_ACCESS_LABELS = { fees: 'Fees', attendance: 'Attendance', exams: 'Exams', payroll: 'Payroll (incl. Leave)', transport: 'Transport' };
+  const TAB_ACCESS_ROLES = ['Student Portal Admin', 'HR', 'Principal', 'VP', 'Teacher', 'Staff'];
+  let _tabAccessDefaults = {}, _tabAccessMatrix = {};
+  let _fieldCategories = [];
+  let _grantStaff = [], _grantSelectedUser = null, _fieldGrants = {};
+  let _stuSearchRows = [], _stuSearchHeaders = [];
+
+  function loadAdminAccessView() {
+    if (!['Admin', 'Student Portal Admin'].includes(window.ACTIVE_ROLE)) {
+      showToast('Not available in current role', 'error');
+      return;
+    }
+    _setViewHash('student_portal');
+    setActiveNavLink('nav-erp-access');
+    setContentHeader('Access', 'shield-check');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    container.innerHTML = `
+      <div class="space-y-5 pb-10">
+        <div>
+          <h2 class="text-2xl font-black text-slate-800 tracking-tight">Access</h2>
+          <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Module access, field categories, viewer grants, student search</p>
+        </div>
+
+        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6" id="tabAccessCard">
+          <div class="flex items-center justify-between mb-1">
+            <p class="font-black text-slate-800 text-sm flex items-center gap-2"><i data-lucide="toggle-right" class="h-4 w-4 text-blue-600"></i>Admin Console Module Access</p>
+            <button onclick="saveAdminTabVisibility()" id="tabAccessSaveBtn" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button>
+          </div>
+          <p class="text-xs text-slate-400 font-bold mt-1 mb-4">Choose which roles can open each of these admin tabs. Admin always has access. Payroll defaults to Admin + HR only — the other four default to Admin + Student Portal Admin.</p>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse" id="tabAccessTable">
+              <thead><tr class="text-slate-400 text-[10px] font-black uppercase tracking-widest border-b border-slate-100"><th class="py-2 pr-3">Tab</th></tr></thead>
+              <tbody id="tabAccessBody"><tr><td class="py-3 text-xs text-slate-400 font-bold italic">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+          <div class="flex items-center justify-between mb-1">
+            <p class="font-black text-slate-800 text-sm flex items-center gap-2"><i data-lucide="folder" class="h-4 w-4 text-blue-600"></i>Field Categories</p>
+            <button onclick="openFieldCategoryEditor(null)" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">+ New Category</button>
+          </div>
+          <p class="text-xs text-slate-400 font-bold mt-1 mb-4">A category is a named set of student fields. Categories are used below both to grant a viewer restricted read-only access, and to pick exactly which columns a download contains.</p>
+          <div id="fieldCategoriesList" class="flex flex-col gap-2"><span class="text-xs text-slate-400 font-bold italic">Loading…</span></div>
+        </div>
+
+        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+          <p class="font-black text-slate-800 text-sm flex items-center gap-2 mb-1"><i data-lucide="user-check" class="h-4 w-4 text-blue-600"></i>Viewer Access Grants</p>
+          <p class="text-xs text-slate-400 font-bold mt-1 mb-4">Grant a staff account read-only access to one or more categories, without making them a full Admin. A viewer's visible fields are the union of every category they're granted.</p>
+          <div class="grid md:grid-cols-2 gap-4 mb-3">
+            <div>
+              <input type="text" id="grantUserSearch" oninput="filterGrantStaff()" placeholder="Search staff by name, ID, shortname or phone…" autocomplete="off"
+                class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none">
+              <div id="grantStaffList" class="border border-slate-200 rounded-xl mt-1.5 overflow-y-auto" style="max-height:220px"></div>
+            </div>
+            <div id="grantCategoriesPicker" class="border border-slate-200 rounded-xl p-3" style="min-height:220px">
+              <div class="text-center text-slate-400 text-xs font-bold py-10">Pick a staff member on the left to assign categories.</div>
+            </div>
+          </div>
+          <div id="fieldGrantsList" class="flex flex-wrap gap-1.5"></div>
+        </div>
+
+        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+          <p class="font-black text-slate-800 text-sm flex items-center gap-2 mb-3"><i data-lucide="search" class="h-4 w-4 text-blue-600"></i>Search &amp; Update Students</p>
+          <div class="grid grid-cols-2 md:grid-cols-6 gap-2 mb-3">
+            <input type="text" id="stuSearchId" placeholder="Student ID" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none">
+            <input type="text" id="stuSearchClass" placeholder="Class" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none">
+            <input type="text" id="stuSearchSection" placeholder="Section" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none">
+            <input type="text" id="stuSearchRoll" placeholder="Roll" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none">
+            <input type="text" id="stuSearchGroup" placeholder="Group" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none">
+            <button onclick="searchStudentsAdmin()" class="px-3 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center justify-center gap-1"><i data-lucide="search" class="h-3.5 w-3.5"></i>Search</button>
+          </div>
+          <div class="flex items-center justify-between mb-2">
+            <label class="flex items-center gap-2 text-xs font-bold text-slate-500 cursor-pointer">
+              <input type="checkbox" id="stuSearchSelectAll" onchange="toggleAllStudentRows(this.checked)">Select all
+            </label>
+            <button id="stuBulkEditBtn" onclick="openBulkEditModal()" disabled
+              class="px-4 py-2 border border-slate-200 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 disabled:opacity-40 transition-all">
+              Bulk Edit Selected (<span id="stuSelectedCount">0</span>)
+            </button>
+          </div>
+          <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:360px">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead class="bg-slate-50"><tr id="stuSearchHeaders"></tr></thead>
+              <tbody id="stuSearchBody"><tr><td class="p-3 text-slate-400 font-bold">Search above to see results.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+          <p class="font-black text-slate-800 text-sm flex items-center gap-2 mb-1"><i data-lucide="download" class="h-4 w-4 text-blue-600"></i>Category Download</p>
+          <p class="text-xs text-slate-400 font-bold mt-1 mb-4">The downloaded CSV's columns exactly match the selected category — no more, no less. Optionally narrow it with the same search filters above.</p>
+          <div class="grid md:grid-cols-2 gap-2">
+            <select id="dlCategorySelect" class="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none"><option value="">Select category…</option></select>
+            <button onclick="downloadByCategoryAdmin()" class="px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center justify-center gap-1.5"><i data-lucide="download" class="h-3.5 w-3.5"></i>Download CSV</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="fieldCategoryModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl w-full max-w-lg" style="max-height:85vh;display:flex;flex-direction:column">
+          <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+            <p class="font-black text-slate-800 text-sm" id="fieldCategoryModalTitle">New Category</p>
+            <button onclick="document.getElementById('fieldCategoryModal').classList.add('hidden')" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="h-4 w-4"></i></button>
+          </div>
+          <div class="p-4">
+            <input type="text" id="fcNameInput" placeholder="Category name (e.g. Contact Info)" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm focus:ring-2 focus:ring-blue-600 outline-none mb-3">
+            <div class="flex gap-3 mb-2">
+              <button onclick="document.querySelectorAll('.fc-field-check').forEach(c=>{c.checked=true;c.dispatchEvent(new Event('change'))})" class="text-[10px] font-black uppercase tracking-widest text-blue-600">Select all</button>
+              <button onclick="document.querySelectorAll('.fc-field-check').forEach(c=>{c.checked=false;c.dispatchEvent(new Event('change'))})" class="text-[10px] font-black uppercase tracking-widest text-slate-400">Clear</button>
+            </div>
+          </div>
+          <div class="px-4 pb-4 flex flex-wrap gap-2 overflow-y-auto" style="flex:1" id="fcFieldsList"></div>
+          <div class="p-4 border-t border-slate-100 flex justify-end">
+            <button onclick="saveFieldCategoryFromEditor()" class="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="bulkEditModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl w-full max-w-md" style="max-height:85vh;display:flex;flex-direction:column">
+          <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+            <p class="font-black text-slate-800 text-sm" id="bulkEditModalTitle">Bulk Edit</p>
+            <button onclick="document.getElementById('bulkEditModal').classList.add('hidden')" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="h-4 w-4"></i></button>
+          </div>
+          <p class="text-xs text-slate-400 font-bold px-4 pt-3" id="bulkEditModalHint"></p>
+          <div class="px-4 pb-3 pt-2 flex flex-col gap-2 overflow-y-auto" style="flex:1" id="bulkEditFieldsList"></div>
+          <div class="p-4 border-t border-slate-100 flex justify-end">
+            <button id="bulkEditApplyBtn" class="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Apply</button>
+          </div>
+        </div>
+      </div>
+    `;
+    lucide.createIcons();
+
+    loadAdminTabVisibility();
+    loadFieldCategories();
+    loadFieldGrants();
+  }
+
+  function loadAdminTabVisibility() {
+    _adminFetch('get_admin_tab_visibility', {}).then(res => {
+      const card = document.getElementById('tabAccessCard');
+      if (!res || res.result !== 'success') { if (card) card.style.display = 'none'; return; }
+      _tabAccessDefaults = res.defaults || {};
+      _tabAccessMatrix = res.matrix || {};
+      renderAdminTabVisibility();
+    }).catch(() => {});
+  }
+
+  function renderAdminTabVisibility() {
+    const thead = document.querySelector('#tabAccessTable thead tr');
+    const tbody = document.getElementById('tabAccessBody');
+    if (!thead || !tbody) return;
+    thead.innerHTML = '<th class="py-2 pr-3">Tab</th>' + TAB_ACCESS_ROLES.map(r => `<th class="py-2 px-2 text-center">${r}</th>`).join('');
+    tbody.innerHTML = Object.keys(TAB_ACCESS_LABELS).map(tab => {
+      const allowed = _tabAccessMatrix[tab] || _tabAccessDefaults[tab] || [];
+      return `<tr class="border-b border-slate-50">
+        <td class="py-2 pr-3 font-black text-slate-700 text-xs">${TAB_ACCESS_LABELS[tab]}</td>
+        ${TAB_ACCESS_ROLES.map(r => `<td class="py-2 px-2 text-center"><input type="checkbox" class="tab-access-cb" data-tab="${tab}" data-role="${r}" ${allowed.includes(r) ? 'checked' : ''}></td>`).join('')}
+      </tr>`;
+    }).join('');
+  }
+
+  function saveAdminTabVisibility() {
+    const matrix = {};
+    Object.keys(TAB_ACCESS_LABELS).forEach(tab => { matrix[tab] = []; });
+    document.querySelectorAll('.tab-access-cb:checked').forEach(cb => matrix[cb.dataset.tab].push(cb.dataset.role));
+    const btn = document.getElementById('tabAccessSaveBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    _adminFetch('save_admin_tab_visibility', { matrix }).then(res => {
+      if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+      if (res && res.result === 'success') { _tabAccessMatrix = res.matrix; showToast('Module access saved'); }
+      else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(() => { if (btn) { btn.disabled = false; btn.textContent = 'Save'; } showToast('Network error', 'error'); });
+  }
+
+  function loadFieldCategories() {
+    _adminFetch('get_field_categories', {}).then(res => {
+      _fieldCategories = (res && res.result === 'success' && Array.isArray(res.categories)) ? res.categories : [];
+      renderFieldCategoriesList();
+      populateDownloadCategorySelect();
+    }).catch(() => {});
+  }
+
+  function renderFieldCategoriesList() {
+    const host = document.getElementById('fieldCategoriesList');
+    if (!host) return;
+    if (!_fieldCategories.length) { host.innerHTML = '<span class="text-xs text-slate-400 font-bold italic">No categories yet — create one to get started.</span>'; return; }
+    host.innerHTML = _fieldCategories.map(c => `
+      <div class="flex justify-between items-center border border-slate-200 rounded-xl px-3 py-2">
+        <div>
+          <span class="font-black text-slate-800 text-xs">${c.name}</span>
+          <span class="text-slate-400 text-xs ml-2">${c.fields.length} field${c.fields.length === 1 ? '' : 's'}: ${c.fields.map(f => f.replace(/_/g,' ')).join(', ')}</span>
+        </div>
+        <div class="flex gap-1">
+          <button onclick="openFieldCategoryEditor('${c.name.replace(/'/g, "\\'")}')" class="w-7 h-7 flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button>
+          <button onclick="deleteFieldCategoryConfirm('${c.name.replace(/'/g, "\\'")}')" class="w-7 h-7 flex items-center justify-center rounded-lg border border-red-200 text-red-500 hover:bg-red-50"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+        </div>
+      </div>`).join('');
+    lucide.createIcons();
+  }
+
+  function openFieldCategoryEditor(name) {
+    const existing = name ? _fieldCategories.find(c => c.name === name) : null;
+    _adminFetch('get_student_data_headers', {}).then(headers => {
+      const skip = new Set(['id']);
+      const rows = (headers || []).filter(h => !skip.has(h.toLowerCase()));
+      const selected = existing ? new Set(existing.fields) : new Set();
+      document.getElementById('fieldCategoryModalTitle').textContent = existing ? 'Edit Category' : 'New Category';
+      const nameInput = document.getElementById('fcNameInput');
+      nameInput.value = existing ? existing.name : '';
+      nameInput.readOnly = !!existing;
+      document.getElementById('fcFieldsList').innerHTML = rows.map(h => `
+        <label class="fc-chip flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-bold cursor-pointer ${selected.has(h) ? 'bg-blue-50 border-blue-300 text-blue-700' : 'border-slate-200 text-slate-500'}">
+          <input type="checkbox" class="fc-field-check" value="${h}" ${selected.has(h) ? 'checked' : ''} onchange="this.closest('label').classList.toggle('bg-blue-50',this.checked);this.closest('label').classList.toggle('border-blue-300',this.checked);this.closest('label').classList.toggle('text-blue-700',this.checked);this.closest('label').classList.toggle('border-slate-200',!this.checked);this.closest('label').classList.toggle('text-slate-500',!this.checked)">${h.replace(/_/g,' ')}
+        </label>`).join('');
+      document.getElementById('fieldCategoryModal').classList.remove('hidden');
+    });
+  }
+
+  function saveFieldCategoryFromEditor() {
+    const name = document.getElementById('fcNameInput').value.trim();
+    const fields = Array.from(document.querySelectorAll('.fc-field-check:checked')).map(c => c.value);
+    if (!name) { showToast('Category name required', 'error'); return; }
+    if (!fields.length) { showToast('Select at least one field', 'error'); return; }
+    _adminFetch('save_field_category', { name, fields }).then(res => {
+      document.getElementById('fieldCategoryModal').classList.add('hidden');
+      if (res && res.result === 'success') { showToast('Category saved'); loadFieldCategories(); }
+      else showToast((res && res.message) || 'Save failed', 'error');
+    });
+  }
+
+  function deleteFieldCategoryConfirm(name) {
+    if (!confirm(`Delete category "${name}"? Any viewer grants using it will also be removed.`)) return;
+    _adminFetch('delete_field_category', { name }).then(res => {
+      if (res && res.result === 'success') { loadFieldCategories(); loadFieldGrants(); }
+      else showToast((res && res.message) || 'Delete failed', 'error');
+    });
+  }
+
+  function populateDownloadCategorySelect() {
+    const sel = document.getElementById('dlCategorySelect');
+    if (!sel) return;
+    const current = sel.value;
+    sel.innerHTML = '<option value="">Select category…</option>' + _fieldCategories.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+    if (_fieldCategories.some(c => c.name === current)) sel.value = current;
+  }
+
+  function loadFieldGrants() {
+    Promise.all([
+      _adminFetch('get_staff_directory', {}),
+      _adminFetch('get_field_access_grants', {}),
+    ]).then(([staff, grantsRes]) => {
+      _grantStaff = Array.isArray(staff) ? staff : [];
+      _fieldGrants = {};
+      ((grantsRes && grantsRes.grants) || []).forEach(g => { _fieldGrants[g.user_id] = g.categories || []; });
+      renderGrantStaffList();
+      renderFieldGrantsList();
+    }).catch(() => {});
+  }
+
+  function renderGrantStaffList() {
+    const list = document.getElementById('grantStaffList');
+    if (!list) return;
+    if (!_grantStaff.length) { list.innerHTML = '<div class="text-slate-400 text-xs font-bold p-2">No staff accounts found.</div>'; return; }
+    list.innerHTML = _grantStaff.map(u => {
+      const search = [u.full_name, u.user_id, u.shortname, u.phone].filter(Boolean).join(' ').toLowerCase();
+      const selected = _grantSelectedUser === u.user_id;
+      const count = (_fieldGrants[u.user_id] || []).length;
+      return `<div class="grant-staff-row py-1.5 px-2.5 cursor-pointer text-xs ${selected ? 'bg-blue-600 text-white' : 'hover:bg-slate-50'}" data-uid="${u.user_id}" data-search="${search.replace(/"/g,'&quot;')}" onclick="selectGrantUser(this.dataset.uid)">
+        <div class="flex justify-between items-center">
+          <span class="font-bold">${u.full_name || u.user_id}</span>
+          ${count ? `<span class="px-1.5 py-0.5 rounded-full text-[10px] font-black ${selected ? 'bg-white text-slate-800' : 'bg-emerald-500 text-white'}">${count}</span>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+    filterGrantStaff();
+  }
+
+  function filterGrantStaff() {
+    const q = (document.getElementById('grantUserSearch') || {}).value?.toLowerCase() || '';
+    document.querySelectorAll('.grant-staff-row').forEach(row => { row.style.display = row.dataset.search.includes(q) ? '' : 'none'; });
+  }
+
+  function selectGrantUser(uid) {
+    _grantSelectedUser = uid;
+    renderGrantStaffList();
+    const host = document.getElementById('grantCategoriesPicker');
+    const granted = _fieldGrants[uid] || [];
+    const person = _grantStaff.find(s => s.user_id === uid);
+    if (!_fieldCategories.length) { host.innerHTML = '<div class="text-slate-400 text-xs font-bold">Create a field category first.</div>'; return; }
+    host.innerHTML = `
+      <div class="text-xs font-black text-slate-700 mb-2">Categories for ${(person && person.full_name) || uid}</div>
+      <div class="flex flex-col gap-1 mb-3">
+        ${_fieldCategories.map(c => {
+          const g = granted.find(x => x.name === c.name);
+          return `<div class="flex items-center gap-3 text-xs border border-slate-200 rounded-lg px-2.5 py-1.5">
+            <label class="flex items-center gap-2 cursor-pointer" style="min-width:160px">
+              <input type="checkbox" class="grant-category-check" value="${c.name}" ${g ? 'checked' : ''} onchange="_syncGrantEditCheckbox(this)">${c.name}
+            </label>
+            <label class="flex items-center gap-2 text-slate-400 cursor-pointer">
+              <input type="checkbox" class="grant-category-edit-check" value="${c.name}" ${g && g.can_edit ? 'checked' : ''} ${g ? '' : 'disabled'} onchange="if(this.checked) this.closest('div').querySelector('.grant-category-check').checked = true">Can edit
+            </label>
+          </div>`;
+        }).join('')}
+      </div>
+      <button onclick="saveFieldGrantsForUser()" class="w-full px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Grants</button>`;
+  }
+
+  function _syncGrantEditCheckbox(mainCb) {
+    const editCb = mainCb.closest('div').querySelector('.grant-category-edit-check');
+    if (!editCb) return;
+    editCb.disabled = !mainCb.checked;
+    if (!mainCb.checked) editCb.checked = false;
+  }
+
+  function saveFieldGrantsForUser() {
+    if (!_grantSelectedUser) return;
+    const editSet = new Set(Array.from(document.querySelectorAll('.grant-category-edit-check:checked')).map(c => c.value));
+    const categories = Array.from(document.querySelectorAll('.grant-category-check:checked')).map(c => ({ name: c.value, can_edit: editSet.has(c.value) }));
+    _adminFetch('set_field_access_grants', { user_id: _grantSelectedUser, categories }).then(res => {
+      if (res && res.result === 'success') {
+        _fieldGrants[_grantSelectedUser] = categories;
+        renderGrantStaffList();
+        renderFieldGrantsList();
+        showToast('Access updated');
+      } else showToast((res && res.message) || 'Save failed', 'error');
+    });
+  }
+
+  function renderFieldGrantsList() {
+    const host = document.getElementById('fieldGrantsList');
+    if (!host) return;
+    const entries = Object.entries(_fieldGrants).filter(([, cats]) => cats.length);
+    host.innerHTML = entries.length ? entries.map(([uid, cats]) => {
+      const person = _grantStaff.find(s => s.user_id === uid);
+      const catText = cats.map(c => c.can_edit ? `${c.name} (edit)` : c.name).join(', ');
+      return `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full text-[11px] font-bold">
+        ${(person && person.full_name) || uid}: ${catText}
+        <i data-lucide="x-circle" class="h-3 w-3 cursor-pointer" onclick="revokeFieldGrant('${uid.replace(/'/g,"\\'")}')"></i>
+      </span>`;
+    }).join('') : '<span class="text-xs text-slate-400 font-bold italic">No viewers granted yet.</span>';
+    lucide.createIcons();
+  }
+
+  function revokeFieldGrant(uid) {
+    _adminFetch('set_field_access_grants', { user_id: uid, categories: [] }).then(res => {
+      if (res && res.result === 'success') {
+        delete _fieldGrants[uid];
+        if (_grantSelectedUser === uid) selectGrantUser(uid);
+        renderGrantStaffList();
+        renderFieldGrantsList();
+      }
+    });
+  }
+
+  function searchStudentsAdmin() {
+    const payload = {
+      student_id: document.getElementById('stuSearchId').value.trim(),
+      class: document.getElementById('stuSearchClass').value.trim(),
+      section: document.getElementById('stuSearchSection').value.trim(),
+      roll: document.getElementById('stuSearchRoll').value.trim(),
+      group: document.getElementById('stuSearchGroup').value.trim(),
+    };
+    _adminFetch('search_students', payload).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Search failed', 'error'); return; }
+      _stuSearchRows = res.rows || [];
+      _stuSearchHeaders = _stuSearchRows.length ? Object.keys(_stuSearchRows[0]) : [];
+      renderStuSearchTable();
+    });
+  }
+
+  function renderStuSearchTable() {
+    const headEl = document.getElementById('stuSearchHeaders');
+    const bodyEl = document.getElementById('stuSearchBody');
+    if (!_stuSearchRows.length) {
+      headEl.innerHTML = '';
+      bodyEl.innerHTML = '<tr><td class="p-3 text-slate-400 font-bold text-xs">No students matched.</td></tr>';
+      updateStuSelectedCount();
+      return;
+    }
+    headEl.innerHTML = '<th style="width:28px"></th>' + _stuSearchHeaders.map(h => `<th class="py-2 px-2 font-black text-[10px] text-slate-500 uppercase">${h.replace(/_/g,' ')}</th>`).join('');
+    bodyEl.innerHTML = _stuSearchRows.map(r => `<tr class="border-b border-slate-50">
+      <td class="px-2"><input type="checkbox" class="stu-row-check" value="${String(r.student_id).replace(/"/g,'&quot;')}" onchange="updateStuSelectedCount()"></td>
+      ${_stuSearchHeaders.map(h => `<td class="py-1.5 px-2 text-slate-600">${r[h] ?? ''}</td>`).join('')}
+    </tr>`).join('');
+    updateStuSelectedCount();
+  }
+
+  function toggleAllStudentRows(checked) {
+    document.querySelectorAll('.stu-row-check').forEach(c => { c.checked = checked; });
+    updateStuSelectedCount();
+  }
+
+  function updateStuSelectedCount() {
+    const n = document.querySelectorAll('.stu-row-check:checked').length;
+    const el = document.getElementById('stuSelectedCount');
+    if (el) el.textContent = n;
+    const btn = document.getElementById('stuBulkEditBtn');
+    if (btn) btn.disabled = n === 0;
+  }
+
+  function openBulkEditModal() {
+    const ids = Array.from(document.querySelectorAll('.stu-row-check:checked')).map(c => c.value);
+    if (!ids.length) return;
+    _adminFetch('get_student_data_headers', {}).then(headers => {
+      const locked = new Set(['id','student_id','nfc_uid','pin','balance','daily_limit','monthly_limit','card_status','submitted_at']);
+      const rows = (headers || []).filter(h => !locked.has(h.toLowerCase()));
+      document.getElementById('bulkEditModalTitle').textContent = `Bulk Edit — ${ids.length} student${ids.length === 1 ? '' : 's'}`;
+      document.getElementById('bulkEditModalHint').textContent = `Leave a field blank to leave it unchanged. Every filled-in field is set to the same value on all ${ids.length} selected student${ids.length === 1 ? '' : 's'}.`;
+      document.getElementById('bulkEditFieldsList').innerHTML = rows.map(h => `
+        <div class="flex items-center gap-2">
+          <span class="text-[10px] font-black text-slate-400 uppercase" style="min-width:110px">${h.replace(/_/g,' ')}</span>
+          <input type="text" class="bulk-edit-field flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" data-field="${h}" placeholder="No change">
+        </div>`).join('');
+      const applyBtn = document.getElementById('bulkEditApplyBtn');
+      applyBtn.textContent = `Apply to ${ids.length} student${ids.length === 1 ? '' : 's'}`;
+      applyBtn.onclick = () => submitBulkEdit(ids);
+      document.getElementById('bulkEditModal').classList.remove('hidden');
+    });
+  }
+
+  function submitBulkEdit(ids) {
+    const updates = {};
+    document.querySelectorAll('.bulk-edit-field').forEach(inp => {
+      const v = inp.value.trim();
+      if (v !== '') updates[inp.dataset.field] = v;
+    });
+    if (!Object.keys(updates).length) { showToast('Set at least one field', 'error'); return; }
+    _adminFetch('bulk_update_students', { student_ids: ids, updates }).then(res => {
+      document.getElementById('bulkEditModal').classList.add('hidden');
+      if (res && (res.result === 'success' || res.result === 'partial')) {
+        showToast(`Updated ${res.updated} student${res.updated === 1 ? '' : 's'}${res.errors && res.errors.length ? ' (' + res.errors.length + ' failed)' : ''}`, res.result === 'success' ? 'success' : 'error');
+        searchStudentsAdmin();
+      } else showToast((res && res.message) || 'Update failed', 'error');
+    });
+  }
+
+  function downloadByCategoryAdmin() {
+    const category_name = document.getElementById('dlCategorySelect').value;
+    if (!category_name) { showToast('Select a category', 'error'); return; }
+    const payload = {
+      category_name,
+      student_id: document.getElementById('stuSearchId').value.trim(),
+      class: document.getElementById('stuSearchClass').value.trim(),
+      section: document.getElementById('stuSearchSection').value.trim(),
+      roll: document.getElementById('stuSearchRoll').value.trim(),
+      group: document.getElementById('stuSearchGroup').value.trim(),
+    };
+    _adminFetch('download_students_by_category', payload).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Download failed', 'error'); return; }
+      const csv = res.headers.join(',') + '\n' + res.rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g,'""')}"`).join(',')).join('\n');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+      a.download = `${category_name}_export.csv`;
+      a.click();
+    });
   }
 
   function loadInventoryView() {
