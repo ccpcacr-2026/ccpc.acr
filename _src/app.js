@@ -411,7 +411,7 @@
     { key: 'setup', label: 'Setup', icon: 'sliders-horizontal', erp: false, action: { type: 'iframe', domId: 'admin-manage' } },
     { key: 'data', label: 'Data', icon: 'table', erp: false, action: { type: 'iframe', domId: 'admin-reports' } },
     { key: 'access', label: 'Access', icon: 'shield-check', erp: false, action: { type: 'native', fn: 'loadAdminAccessView' } },
-    { key: 'fees', label: 'Fees', icon: 'wallet', erp: true, action: { type: 'iframe', domId: 'admin-fees' } },
+    { key: 'fees', label: 'Fees', icon: 'wallet', erp: true, action: { type: 'native', fn: 'loadAdminFeesView' } },
     { key: 'attendance', label: 'Attendance', icon: 'fingerprint', erp: true, action: { type: 'iframe', domId: 'admin-attendance' } },
     { key: 'exams', label: 'Exams', icon: 'clipboard-list', erp: true, action: { type: 'iframe', domId: 'admin-exams' } },
     { key: 'payroll', label: 'Payroll', icon: 'banknote', erp: true, action: { type: 'iframe', domId: 'admin-payroll' } },
@@ -3615,6 +3615,502 @@
       a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
       a.download = `${category_name}_export.csv`;
       a.click();
+    });
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Fees tab — native port (Phase 2). Same idiom as loadAdminAccessView:
+  // one loadAdminFeesView entry point, a switchFeesTab sub-nav matching
+  // loadSystemView's switchSysTab idiom, and _adminFetch for every backend
+  // call — no backend changes.
+  // ══════════════════════════════════════════════════════════════════════
+
+  const FEES_SUBTABS = [
+    { id: 'fees-types', label: 'Fee Types' },
+    { id: 'fees-structures', label: 'Fee Structures' },
+    { id: 'fees-generate', label: 'Generate Fees' },
+    { id: 'fees-late', label: 'Late Fee Rules' },
+    { id: 'fees-student', label: 'Student Fees / Discounts' },
+    { id: 'fees-reports', label: 'Reports' },
+    { id: 'fees-accounts', label: 'Accounts' },
+  ];
+  let _feeTypes = [];
+  let _curStudentFeeStudentId = null;
+
+  function loadAdminFeesView() {
+    _setViewHash('student_portal');
+    setActiveNavLink('nav-erp-fees');
+    setContentHeader('Fees', 'wallet');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    const tabBar = FEES_SUBTABS.map((t, i) => `<button onclick="switchFeesTab('${t.id}')" id="ftab-${t.id}"
+      class="fees-tab-btn flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all whitespace-nowrap
+             ${i === 0 ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50'}">${t.label}</button>`).join('');
+
+    container.innerHTML = `
+      <div class="mb-4">
+        <h2 class="text-2xl font-black text-slate-800 tracking-tight">Fees</h2>
+        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Fee types, structures, generation, late fees, discounts, reports, accounts</p>
+      </div>
+      <div class="flex flex-wrap gap-2 mb-5">${tabBar}</div>
+
+      <div id="fees-types">
+        <div class="flex items-center justify-between mb-3">
+          <p class="font-black text-slate-800 text-sm flex items-center gap-2"><i data-lucide="tags" class="h-4 w-4 text-blue-600"></i>Fee Types</p>
+          <button onclick="openFeeTypeEditor(null)" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">+ New Fee Type</button>
+        </div>
+        <div id="feeTypesList" class="flex flex-col gap-2"><span class="text-xs text-slate-400 font-bold italic">Loading…</span></div>
+      </div>
+
+      <div id="fees-structures" style="display:none">
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-3">
+          <p class="font-black text-slate-800 text-xs mb-3 flex items-center gap-2"><i data-lucide="git-branch" class="h-4 w-4 text-blue-600"></i>New Fee Structure</p>
+          <div class="grid grid-cols-2 md:grid-cols-6 gap-2">
+            <select id="fsFeeType" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Fee Type…</option></select>
+            <input type="text" id="fsClass" placeholder="Class" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+            <input type="text" id="fsSection" placeholder="Section (optional)" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+            <input type="text" id="fsYear" placeholder="Academic Year" value="2026" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+            <input type="number" id="fsAmount" placeholder="Amount" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+            <button onclick="saveFeeStructure()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase flex items-center justify-center"><i data-lucide="check" class="h-3.5 w-3.5"></i></button>
+          </div>
+          <select id="fsCollectionMode" class="mt-2 px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:220px">
+            <option value="Monthly">Monthly</option><option value="OnReceive">On Receive</option><option value="OneTime">One Time</option>
+          </select>
+        </div>
+        <div class="overflow-auto border border-slate-200 rounded-xl">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Fee Type</th><th class="py-2 px-3">Class</th><th class="py-2 px-3">Section</th><th class="py-2 px-3">Year</th><th class="py-2 px-3">Amount</th><th class="py-2 px-3">Mode</th><th class="py-2 px-3">Actions</th></tr></thead>
+            <tbody id="feeStructuresBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="fees-generate" style="display:none">
+        <div class="grid md:grid-cols-2 gap-4">
+          <div class="bg-white rounded-2xl border border-slate-200 p-4">
+            <p class="font-black text-slate-800 text-xs mb-3 flex items-center gap-2"><i data-lucide="users" class="h-4 w-4 text-blue-600"></i>Classwise Fee Generation</p>
+            <div class="flex flex-col gap-2">
+              <select id="genCwFeeType" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Fee Type…</option></select>
+              <input type="text" id="genCwClass" placeholder="Class" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <input type="text" id="genCwSection" placeholder="Section (optional)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <input type="text" id="genCwYear" placeholder="Academic Year" value="2026" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <input type="text" id="genCwMonth" placeholder="Fee Month (e.g. January)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <button onclick="generateClasswiseFees()" class="px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Generate for Class</button>
+              <span id="genCwStatus" class="text-xs font-bold"></span>
+            </div>
+          </div>
+          <div class="bg-white rounded-2xl border border-slate-200 p-4">
+            <p class="font-black text-slate-800 text-xs mb-3 flex items-center gap-2"><i data-lucide="user" class="h-4 w-4 text-blue-600"></i>Individual Student Fee Generation</p>
+            <div class="flex flex-col gap-2">
+              <input type="text" id="genIndStudent" placeholder="Student ID" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <select id="genIndFeeType" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Fee Type…</option></select>
+              <input type="text" id="genIndYear" placeholder="Academic Year" value="2026" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <input type="text" id="genIndMonth" placeholder="Fee Month (e.g. January)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <button onclick="generateIndividualFee()" class="px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Generate for Student</button>
+              <span id="genIndStatus" class="text-xs font-bold"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="fees-late" style="display:none">
+        <div class="flex items-center justify-between mb-3">
+          <p class="font-black text-slate-800 text-sm flex items-center gap-2"><i data-lucide="alarm-clock" class="h-4 w-4 text-blue-600"></i>Late Fee Rules</p>
+          <button onclick="openLateFeeEditor()" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">+ New Rule</button>
+        </div>
+        <p class="text-xs text-slate-400 font-bold mb-3">Late fee applies immediately after the deadline is missed (no grace period). Fee is a fixed one-time amount — not per-day, not tiered.</p>
+        <div id="lateFeeRulesList" class="flex flex-col gap-2"><span class="text-xs text-slate-400 font-bold italic">Loading…</span></div>
+      </div>
+
+      <div id="fees-student" style="display:none">
+        <div class="flex gap-2 mb-3">
+          <input type="text" id="stufeeSearchId" placeholder="Student ID" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs flex-1 max-w-xs">
+          <button onclick="loadStudentFees()" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1"><i data-lucide="search" class="h-3.5 w-3.5"></i>Search</button>
+        </div>
+        <div class="overflow-auto border border-slate-200 rounded-xl mb-3">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Fee Type</th><th class="py-2 px-3">Year</th><th class="py-2 px-3">Month</th><th class="py-2 px-3">Total</th><th class="py-2 px-3">Active Due</th><th class="py-2 px-3">Deferred</th><th class="py-2 px-3">Status</th><th class="py-2 px-3">Actions</th></tr></thead>
+            <tbody id="studentFeesBody"><tr><td colspan="8" class="p-3 text-slate-400 font-bold text-xs">Search a student to see their fees.</td></tr></tbody>
+          </table>
+        </div>
+        <div class="bg-white rounded-2xl border border-slate-200 p-4">
+          <p class="font-black text-slate-800 text-xs mb-3">Add Discount / Waiver for this student</p>
+          <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
+            <select id="discFeeType" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Any fee type…</option></select>
+            <select id="discType" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="fixed">Fixed</option><option value="percent">Percent</option></select>
+            <input type="number" id="discValue" placeholder="Value" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+            <input type="text" id="discReason" placeholder="Reason" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+            <button onclick="saveFeeDiscount()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Add</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="fees-reports" style="display:none">
+        <div class="grid md:grid-cols-2 gap-4">
+          <div>
+            <p class="font-black text-slate-800 text-xs mb-2 flex items-center gap-2"><i data-lucide="alert-triangle" class="h-4 w-4 text-red-500"></i>Defaulters List</p>
+            <input type="text" id="defClassFilter" placeholder="Filter by class (optional)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mb-2" style="max-width:260px">
+            <button onclick="loadDefaultersList()" class="px-3 py-1.5 border border-red-200 text-red-500 rounded-lg font-black text-[10px] uppercase mb-2 hover:bg-red-50">Refresh</button>
+            <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:340px">
+              <table class="w-full text-left border-collapse text-xs">
+                <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Student</th><th class="py-2 px-3">Fee Type</th><th class="py-2 px-3">Month</th><th class="py-2 px-3">Due</th></tr></thead>
+                <tbody id="defaultersBody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div>
+            <p class="font-black text-slate-800 text-xs mb-2 flex items-center gap-2"><i data-lucide="trending-up" class="h-4 w-4 text-emerald-500"></i>Fees Collection Report</p>
+            <div id="feesCollectionSummary" class="mb-2"></div>
+            <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:340px">
+              <table class="w-full text-left border-collapse text-xs">
+                <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Date</th><th class="py-2 px-3">Amount</th></tr></thead>
+                <tbody id="feesCollectionBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="fees-accounts" style="display:none">
+        <div class="grid md:grid-cols-2 gap-4">
+          <div>
+            <p class="font-black text-slate-800 text-xs mb-2 flex items-center gap-2"><i data-lucide="landmark" class="h-4 w-4 text-blue-600"></i>Accounts</p>
+            <div class="flex gap-2 mb-2">
+              <input type="text" id="accName" placeholder="Account name" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <select id="accType" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="bank">Bank</option><option value="cash">Cash</option><option value="fixed-deposit">Fixed Deposit</option></select>
+              <button onclick="saveFeeAccount()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Add</button>
+            </div>
+            <div id="feeAccountsList" class="flex flex-col gap-1"></div>
+          </div>
+          <div>
+            <p class="font-black text-slate-800 text-xs mb-2 flex items-center gap-2"><i data-lucide="arrow-left-right" class="h-4 w-4 text-blue-600"></i>Record Transaction</p>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-1">
+              <select id="txAccount" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Account…</option></select>
+              <select id="txDirection" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="credit">Credit (in)</option><option value="debit">Debit (out)</option></select>
+              <input type="number" id="txAmount" placeholder="Amount" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <button onclick="recordAccountTransaction()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Save</button>
+            </div>
+            <input type="text" id="txReference" placeholder="Reference (optional)" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mb-3">
+            <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:280px">
+              <table class="w-full text-left border-collapse text-xs">
+                <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Date</th><th class="py-2 px-3">Direction</th><th class="py-2 px-3">Amount</th><th class="py-2 px-3">Reference</th></tr></thead>
+                <tbody id="accountRegisterBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    lucide.createIcons();
+    loadFeeTypes();
+  }
+
+  function switchFeesTab(tabId) {
+    FEES_SUBTABS.forEach(t => {
+      const panel = document.getElementById(t.id);
+      const btn = document.getElementById('ftab-' + t.id);
+      const active = t.id === tabId;
+      if (panel) panel.style.display = active ? '' : 'none';
+      if (btn) {
+        btn.className = btn.className.replace(/bg-blue-600 text-white shadow-lg shadow-blue-500\/20|bg-white text-slate-400 border border-slate-200 hover:bg-slate-50/g, '').trim();
+        btn.className += active ? ' bg-blue-600 text-white shadow-lg shadow-blue-500/20' : ' bg-white text-slate-400 border border-slate-200 hover:bg-slate-50';
+      }
+    });
+    if (tabId === 'fees-structures') loadFeeStructures();
+    if (tabId === 'fees-late') loadLateFeeRules();
+    if (tabId === 'fees-reports') { loadDefaultersList(); loadFeesCollectionReport(); }
+    if (tabId === 'fees-accounts') { loadFeeAccounts(); loadAccountRegister(); }
+  }
+
+  function _feeTypeOptions(selected) {
+    return _feeTypes.map(f => `<option value="${f.id}" ${String(f.id) === String(selected) ? 'selected' : ''}>${f.name}</option>`).join('');
+  }
+  function _populateFeeTypeSelects() {
+    ['fsFeeType', 'genCwFeeType', 'genIndFeeType'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = '<option value="">Fee Type…</option>' + _feeTypeOptions();
+    });
+    const discSel = document.getElementById('discFeeType');
+    if (discSel) discSel.innerHTML = '<option value="">Any fee type…</option>' + _feeTypeOptions();
+  }
+
+  function loadFeeTypes() {
+    _adminFetch('get_fee_types', {}).then(res => {
+      _feeTypes = (res && res.result === 'success' && res.fee_types) || [];
+      renderFeeTypesList();
+      _populateFeeTypeSelects();
+    });
+  }
+  function renderFeeTypesList() {
+    const host = document.getElementById('feeTypesList');
+    if (!host) return;
+    host.innerHTML = _feeTypes.length ? _feeTypes.map(f => `
+      <div class="flex justify-between items-center border border-slate-200 rounded-xl px-3 py-2">
+        <div>
+          <span class="font-black text-slate-800 text-xs">${f.name}</span>
+          <span class="text-[10px] font-black text-slate-400 bg-slate-100 rounded px-1.5 py-0.5 ml-2">${f.code}</span>
+          ${!f.is_active ? '<span class="text-[10px] font-black text-white bg-slate-400 rounded px-1.5 py-0.5 ml-1">Inactive</span>' : ''}
+          <span class="text-slate-400 text-xs ml-2">${f.description || ''}</span>
+        </div>
+        <div class="flex gap-1">
+          <button onclick='openFeeTypeEditor(${JSON.stringify(f).replace(/'/g, "&apos;")})' class="w-7 h-7 flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button>
+          <button onclick="deleteFeeType(${f.id})" class="w-7 h-7 flex items-center justify-center rounded-lg border border-red-200 text-red-500 hover:bg-red-50"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+        </div>
+      </div>`).join('') : '<span class="text-xs text-slate-400 font-bold italic">No fee types yet — create one to get started.</span>';
+    lucide.createIcons();
+  }
+  function openFeeTypeEditor(existing) {
+    const overlay = document.createElement('div');
+    overlay.id = 'feeTypeOverlay';
+    overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
+    overlay.innerHTML = `
+      <div class="bg-white rounded-2xl w-full max-w-md">
+        <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+          <p class="font-black text-slate-800 text-sm">${existing ? 'Edit' : 'New'} Fee Type</p>
+          <button onclick="document.getElementById('feeTypeOverlay').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="h-4 w-4"></i></button>
+        </div>
+        <div class="p-4 flex flex-col gap-2">
+          <input type="hidden" id="ftId" value="${existing ? existing.id : ''}">
+          <label class="text-[10px] font-black text-slate-400 uppercase">Fee Type Name</label>
+          <input type="text" id="ftName" value="${existing ? existing.name.replace(/"/g,'&quot;') : ''}" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm">
+          <label class="text-[10px] font-black text-slate-400 uppercase">Code</label>
+          <input type="text" id="ftCode" value="${existing ? existing.code.replace(/"/g,'&quot;') : ''}" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm">
+          <label class="text-[10px] font-black text-slate-400 uppercase">Description (optional)</label>
+          <input type="text" id="ftDesc" value="${existing ? (existing.description||'').replace(/"/g,'&quot;') : ''}" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm">
+          <label class="flex items-center gap-2 text-xs font-bold text-slate-600 mt-1"><input type="checkbox" id="ftActive" ${!existing || existing.is_active ? 'checked' : ''}>Active</label>
+        </div>
+        <div class="p-4 border-t border-slate-100 flex justify-end">
+          <button onclick="saveFeeTypeFromEditor()" class="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    lucide.createIcons();
+  }
+  function saveFeeTypeFromEditor() {
+    const id = document.getElementById('ftId').value || null;
+    const name = document.getElementById('ftName').value.trim();
+    const code = document.getElementById('ftCode').value.trim().toUpperCase().replace(/\s+/g, '_');
+    const description = document.getElementById('ftDesc').value.trim();
+    const is_active = document.getElementById('ftActive').checked;
+    if (!name || !code) { showToast('Name and code required', 'error'); return; }
+    _adminFetch('save_fee_type', { id, name, code, description, is_active }).then(res => {
+      const overlay = document.getElementById('feeTypeOverlay');
+      if (overlay) overlay.remove();
+      if (res && res.result === 'success') { showToast('Fee type saved'); loadFeeTypes(); }
+      else showToast((res && res.message) || 'Save failed', 'error');
+    });
+  }
+  function deleteFeeType(id) {
+    if (!confirm('Delete this fee type? Any related fee structures/fees are also removed.')) return;
+    _adminFetch('delete_fee_type', { id }).then(res => { if (res && res.result === 'success') loadFeeTypes(); });
+  }
+
+  function loadFeeStructures() {
+    _adminFetch('get_fee_structures', {}).then(res => {
+      const rows = (res && res.result === 'success' && res.fee_structures) || [];
+      document.getElementById('feeStructuresBody').innerHTML = rows.map(r => `<tr class="border-b border-slate-50">
+        <td class="py-1.5 px-3">${r.fee_types ? r.fee_types.name : ''}</td><td class="py-1.5 px-3">${r.class}</td><td class="py-1.5 px-3">${r.section || '—'}</td><td class="py-1.5 px-3">${r.academic_year}</td>
+        <td class="py-1.5 px-3">৳${Number(r.amount).toLocaleString()}</td><td class="py-1.5 px-3">${r.collection_mode}</td>
+        <td class="py-1.5 px-3"><button onclick="deleteFeeStructure(${r.id})" class="w-6 h-6 flex items-center justify-center rounded border border-red-200 text-red-500 hover:bg-red-50"><i data-lucide="trash-2" class="h-3 w-3"></i></button></td>
+      </tr>`).join('') || '<tr><td colspan="7" class="p-3 text-slate-400 font-bold text-xs">No fee structures yet.</td></tr>';
+      lucide.createIcons();
+    });
+  }
+  function saveFeeStructure() {
+    const fee_type_id = document.getElementById('fsFeeType').value;
+    const cls = document.getElementById('fsClass').value.trim();
+    const section = document.getElementById('fsSection').value.trim();
+    const academic_year = document.getElementById('fsYear').value.trim();
+    const amount = document.getElementById('fsAmount').value;
+    const collection_mode = document.getElementById('fsCollectionMode').value;
+    if (!fee_type_id || !cls || !academic_year || !amount) { showToast('Fill all required fields', 'error'); return; }
+    _adminFetch('save_fee_structure', { fee_type_id, class: cls, section, academic_year, amount, collection_mode }).then(res => {
+      if (res && res.result === 'success') {
+        showToast('Fee structure saved');
+        document.getElementById('fsClass').value = ''; document.getElementById('fsAmount').value = '';
+        loadFeeStructures();
+      } else showToast((res && res.message) || 'Save failed', 'error');
+    });
+  }
+  function deleteFeeStructure(id) {
+    _adminFetch('delete_fee_structure', { id }).then(res => { if (res && res.result === 'success') loadFeeStructures(); });
+  }
+
+  function generateClasswiseFees() {
+    const payload = {
+      fee_type_id: document.getElementById('genCwFeeType').value,
+      class: document.getElementById('genCwClass').value.trim(),
+      section: document.getElementById('genCwSection').value.trim(),
+      academic_year: document.getElementById('genCwYear').value.trim(),
+      fee_month: document.getElementById('genCwMonth').value.trim(),
+    };
+    const status = document.getElementById('genCwStatus');
+    if (!payload.fee_type_id || !payload.class || !payload.academic_year || !payload.fee_month) { status.className = 'text-xs font-bold text-red-500'; status.textContent = 'Fill all required fields.'; return; }
+    status.className = 'text-xs font-bold text-slate-400'; status.textContent = 'Generating…';
+    _adminFetch('generate_classwise_fees', payload).then(res => {
+      if (res && res.result === 'success') { status.className = 'text-xs font-bold text-emerald-600'; status.textContent = `Generated ${res.generated} fee(s), skipped ${res.skipped} already billed.`; }
+      else { status.className = 'text-xs font-bold text-red-500'; status.textContent = (res && res.message) || 'Generation failed'; }
+    });
+  }
+  function generateIndividualFee() {
+    const payload = {
+      student_id: document.getElementById('genIndStudent').value.trim(),
+      fee_type_id: document.getElementById('genIndFeeType').value,
+      academic_year: document.getElementById('genIndYear').value.trim(),
+      fee_month: document.getElementById('genIndMonth').value.trim(),
+    };
+    const status = document.getElementById('genIndStatus');
+    if (!payload.student_id || !payload.fee_type_id || !payload.academic_year || !payload.fee_month) { status.className = 'text-xs font-bold text-red-500'; status.textContent = 'Fill all required fields.'; return; }
+    status.className = 'text-xs font-bold text-slate-400'; status.textContent = 'Generating…';
+    _adminFetch('generate_individual_fee', payload).then(res => {
+      if (res && res.result === 'success') { status.className = 'text-xs font-bold text-emerald-600'; status.textContent = 'Fee generated.'; }
+      else { status.className = 'text-xs font-bold text-red-500'; status.textContent = (res && res.message) || 'Generation failed'; }
+    });
+  }
+
+  function loadLateFeeRules() {
+    _adminFetch('get_late_fee_rules', {}).then(res => {
+      const rules = (res && res.result === 'success' && res.rules) || [];
+      const host = document.getElementById('lateFeeRulesList');
+      host.innerHTML = rules.length ? rules.map(r => `
+        <div class="flex justify-between items-center border border-slate-200 rounded-xl px-3 py-2">
+          <div><span class="font-black text-slate-800 text-xs">${r.rule_name}</span> <span class="text-slate-400 text-xs ml-2">৳${Number(r.amount).toLocaleString()} after day ${r.due_day_of_month} of the month${!r.is_active ? ' · Inactive' : ''}</span></div>
+          <button onclick="deleteLateFeeRule(${r.id})" class="w-7 h-7 flex items-center justify-center rounded-lg border border-red-200 text-red-500 hover:bg-red-50"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+        </div>`).join('') : '<span class="text-xs text-slate-400 font-bold italic">No late fee rules yet.</span>';
+      lucide.createIcons();
+    });
+  }
+  function openLateFeeEditor() {
+    const overlay = document.createElement('div');
+    overlay.id = 'lateFeeOverlay';
+    overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
+    overlay.innerHTML = `
+      <div class="bg-white rounded-2xl w-full max-w-md">
+        <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+          <p class="font-black text-slate-800 text-sm">New Late Fee Rule</p>
+          <button onclick="document.getElementById('lateFeeOverlay').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="h-4 w-4"></i></button>
+        </div>
+        <div class="p-4 flex flex-col gap-2">
+          <div class="bg-amber-50 text-amber-700 text-xs font-bold rounded-lg p-2.5 mb-1">Late fee applies immediately after the deadline is missed (no grace period). Fee is a fixed one-time amount (not per-day, not tiered).</div>
+          <label class="text-[10px] font-black text-slate-400 uppercase">Rule Name</label>
+          <input type="text" id="lfName" placeholder="e.g. Standard Late Fee" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm">
+          <label class="text-[10px] font-black text-slate-400 uppercase">Late Fee Amount (৳)</label>
+          <input type="number" id="lfAmount" placeholder="e.g. 100" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm">
+          <label class="text-[10px] font-black text-slate-400 uppercase">Due Day of Month</label>
+          <input type="number" id="lfDay" min="1" max="31" value="15" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm">
+          <label class="text-[10px] font-black text-slate-400 uppercase">Conditions (optional)</label>
+          <textarea id="lfConditions" placeholder="e.g. Exemptions for scholarship students" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm"></textarea>
+        </div>
+        <div class="p-4 border-t border-slate-100 flex justify-end">
+          <button onclick="saveLateFeeRuleFromEditor()" class="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Create Rule</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    lucide.createIcons();
+  }
+  function saveLateFeeRuleFromEditor() {
+    const rule_name = document.getElementById('lfName').value.trim();
+    const amount = document.getElementById('lfAmount').value;
+    const due_day_of_month = document.getElementById('lfDay').value;
+    const conditions = document.getElementById('lfConditions').value.trim();
+    if (!rule_name || !amount) { showToast('Rule name and amount required', 'error'); return; }
+    _adminFetch('save_late_fee_rule', { rule_name, amount, due_day_of_month, conditions, is_active: true }).then(res => {
+      const overlay = document.getElementById('lateFeeOverlay');
+      if (overlay) overlay.remove();
+      if (res && res.result === 'success') { showToast('Rule created'); loadLateFeeRules(); }
+      else showToast((res && res.message) || 'Save failed', 'error');
+    });
+  }
+  function deleteLateFeeRule(id) {
+    _adminFetch('delete_late_fee_rule', { id }).then(res => { if (res && res.result === 'success') loadLateFeeRules(); });
+  }
+
+  function loadStudentFees() {
+    const student_id = document.getElementById('stufeeSearchId').value.trim();
+    if (!student_id) return;
+    _curStudentFeeStudentId = student_id;
+    _adminFetch('get_student_fees', { student_id }).then(res => {
+      const body = document.getElementById('studentFeesBody');
+      const fees = (res && res.result === 'success' && res.fees) || [];
+      if (!fees.length) { body.innerHTML = '<tr><td colspan="8" class="p-3 text-slate-400 font-bold text-xs">No fees found for this student.</td></tr>'; return; }
+      body.innerHTML = fees.map(f => `<tr class="border-b border-slate-50">
+        <td class="py-1.5 px-3">${f.fee_types ? f.fee_types.name : ''}</td><td class="py-1.5 px-3">${f.academic_year}</td><td class="py-1.5 px-3">${f.fee_month}</td>
+        <td class="py-1.5 px-3">৳${Number(f.amount).toLocaleString()}</td><td class="py-1.5 px-3">৳${Number(f.active_amount).toLocaleString()}</td><td class="py-1.5 px-3">৳${Number(f.deferred_amount).toLocaleString()}</td>
+        <td class="py-1.5 px-3"><span class="px-2 py-0.5 rounded-full text-[10px] font-black ${f.status === 'paid' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}">${f.status}</span></td>
+        <td class="py-1.5 px-3">${f.status !== 'paid' ? `<button onclick="promptRecordPayment(${f.id}, ${f.active_amount})" class="w-6 h-6 flex items-center justify-center rounded border border-emerald-200 text-emerald-600 hover:bg-emerald-50"><i data-lucide="banknote" class="h-3 w-3"></i></button>` : ''}</td>
+      </tr>`).join('');
+      lucide.createIcons();
+    });
+  }
+  function promptRecordPayment(student_fee_id, activeAmount) {
+    const amount = prompt(`Amount to record as paid (active due: ৳${activeAmount}):`, activeAmount);
+    if (!amount) return;
+    _adminFetch('record_payment', { student_fee_id, amount, method: 'Manual' }).then(res => {
+      if (res && res.result === 'success') { showToast('Payment recorded'); loadStudentFees(); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+  function saveFeeDiscount() {
+    if (!_curStudentFeeStudentId) { showToast('Search a student first', 'error'); return; }
+    const fee_type_id = document.getElementById('discFeeType').value || null;
+    const discount_type = document.getElementById('discType').value;
+    const value = document.getElementById('discValue').value;
+    const reason = document.getElementById('discReason').value.trim();
+    if (!value) { showToast('Enter a value', 'error'); return; }
+    _adminFetch('set_discount', { student_id: _curStudentFeeStudentId, fee_type_id, discount_type, value, reason }).then(res => {
+      if (res && res.result === 'success') { showToast('Discount added'); document.getElementById('discValue').value = ''; document.getElementById('discReason').value = ''; }
+      else showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+
+  function loadDefaultersList() {
+    const cls = document.getElementById('defClassFilter').value.trim();
+    _adminFetch('get_defaulters_list', { class: cls }).then(res => {
+      const rows = (res && res.result === 'success' && res.defaulters) || [];
+      document.getElementById('defaultersBody').innerHTML = rows.length ? rows.map(r => `<tr class="border-b border-slate-50"><td class="py-1.5 px-3">${r.student_id}</td><td class="py-1.5 px-3">${r.fee_types ? r.fee_types.name : ''}</td><td class="py-1.5 px-3">${r.fee_month}</td><td class="py-1.5 px-3">৳${Number(r.active_amount).toLocaleString()}</td></tr>`).join('') : '<tr><td colspan="4" class="p-3 text-slate-400 font-bold text-xs">No defaulters found.</td></tr>';
+    });
+  }
+  function loadFeesCollectionReport() {
+    _adminFetch('get_fees_collection_report', {}).then(res => {
+      if (!res || res.result !== 'success') return;
+      document.getElementById('feesCollectionSummary').innerHTML = `<div class="font-black text-slate-800 text-sm">Total Collected: ৳${Number(res.total).toLocaleString()}</div>` +
+        Object.entries(res.by_fee_type || {}).map(([name, amt]) => `<div class="text-xs text-slate-400 font-bold">${name}: ৳${Number(amt).toLocaleString()}</div>`).join('');
+      document.getElementById('feesCollectionBody').innerHTML = (res.transactions || []).slice(0, 50).map(t => `<tr class="border-b border-slate-50"><td class="py-1.5 px-3">${new Date(t.paid_at).toLocaleDateString()}</td><td class="py-1.5 px-3">৳${Number(t.amount).toLocaleString()}</td></tr>`).join('');
+    });
+  }
+
+  function loadFeeAccounts() {
+    _adminFetch('get_fee_accounts', {}).then(res => {
+      const accounts = (res && res.result === 'success' && res.accounts) || [];
+      const host = document.getElementById('feeAccountsList');
+      if (host) host.innerHTML = accounts.map(a => `<div class="flex justify-between border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs"><span>${a.name} <span class="text-[10px] font-black text-slate-400 bg-slate-100 rounded px-1.5 py-0.5">${a.type}</span></span><span class="font-black text-slate-700">৳${Number(a.opening_balance).toLocaleString()}</span></div>`).join('') || '<span class="text-xs text-slate-400 font-bold italic">No accounts yet.</span>';
+      const sel = document.getElementById('txAccount');
+      if (sel) sel.innerHTML = '<option value="">Account…</option>' + accounts.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
+    });
+  }
+  function saveFeeAccount() {
+    const name = document.getElementById('accName').value.trim();
+    const type = document.getElementById('accType').value;
+    if (!name) return;
+    _adminFetch('save_fee_account', { name, type }).then(res => {
+      if (res && res.result === 'success') { document.getElementById('accName').value = ''; loadFeeAccounts(); }
+    });
+  }
+  function recordAccountTransaction() {
+    const account_id = document.getElementById('txAccount').value;
+    const direction = document.getElementById('txDirection').value;
+    const amount = document.getElementById('txAmount').value;
+    const reference = document.getElementById('txReference').value.trim();
+    if (!account_id || !amount) { showToast('Pick an account and amount', 'error'); return; }
+    _adminFetch('record_account_transaction', { account_id, direction, amount, reference }).then(res => {
+      if (res && res.result === 'success') { document.getElementById('txAmount').value = ''; document.getElementById('txReference').value = ''; loadAccountRegister(); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+  function loadAccountRegister() {
+    _adminFetch('get_account_register', {}).then(res => {
+      const rows = (res && res.result === 'success' && res.transactions) || [];
+      document.getElementById('accountRegisterBody').innerHTML = rows.map(t => `<tr class="border-b border-slate-50"><td class="py-1.5 px-3">${new Date(t.occurred_at).toLocaleDateString()}</td><td class="py-1.5 px-3"><span class="px-2 py-0.5 rounded-full text-[10px] font-black ${t.direction === 'credit' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}">${t.direction}</span></td><td class="py-1.5 px-3">৳${Number(t.amount).toLocaleString()}</td><td class="py-1.5 px-3">${t.reference || ''}</td></tr>`).join('') || '<tr><td colspan="4" class="p-3 text-slate-400 font-bold text-xs">No transactions yet.</td></tr>';
     });
   }
 

@@ -73,7 +73,13 @@ const RESERVED = [
   'deleteFieldCategoryConfirm','filterGrantStaff','selectGrantUser',
   '_syncGrantEditCheckbox','saveFieldGrantsForUser','revokeFieldGrant',
   'searchStudentsAdmin','toggleAllStudentRows','updateStuSelectedCount',
-  'openBulkEditModal','submitBulkEdit','downloadByCategoryAdmin'
+  'openBulkEditModal','submitBulkEdit','downloadByCategoryAdmin',
+  // Fees tab native port
+  'loadAdminFeesView','switchFeesTab','openFeeTypeEditor','saveFeeTypeFromEditor',
+  'deleteFeeType','saveFeeStructure','deleteFeeStructure','generateClasswiseFees',
+  'generateIndividualFee','openLateFeeEditor','saveLateFeeRuleFromEditor',
+  'deleteLateFeeRule','loadStudentFees','promptRecordPayment','saveFeeDiscount',
+  'loadDefaultersList','saveFeeAccount','recordAccountTransaction'
 ];
 
 // Strip HTML comments and collapse whitespace
