@@ -3353,7 +3353,7 @@
     dashboard:     ALL_ROLES,
     routine:       ALL_ROLES,
     system:        ['HR','Admin','Principal','VP'],
-    student_portal:['Admin','Student Portal Admin'],
+    student_portal:['Admin','Student Portal Admin','HR'],
     inventory_admin:['Admin','Inventory Admin'],
     committees:    ['Teacher','Staff'],
     messages:      ALL_ROLES,

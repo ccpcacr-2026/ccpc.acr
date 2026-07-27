@@ -55,6 +55,26 @@ async function sb(path, method = 'GET', body = null) {
   return text ? JSON.parse(text) : null;
 }
 
+// Same shape as sb(), scoped to the `teacher` schema instead — used by
+// Payroll/Leave Management, whose tables live alongside users_profile etc.
+async function sbTeacher(path, method = 'GET', body = null) {
+  const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
+    method,
+    headers: {
+      apikey: SB_KEY,
+      Authorization: `Bearer ${SB_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: method === 'POST' ? 'return=representation' : 'return=minimal',
+      'Accept-Profile': 'teacher',
+      'Content-Profile': 'teacher',
+    },
+    ...(body !== null ? { body: JSON.stringify(body) } : {}),
+  });
+  const text = await res.text();
+  if (!res.ok) return { error: text };
+  return text ? JSON.parse(text) : null;
+}
+
 // ── Shortname resolution for the staff-directory search ─────────────────────
 // Shortnames aren't a DB column anywhere — they only exist in the routine
 // Google Sheet's "Logged in info" tab (Full Name ↔ NAME IN SHORT), same
@@ -165,17 +185,70 @@ async function evalRule(rule, profile, submissions) {
 }
 
 // Fresh per-request check against teacher.app_users — never trust a cached role.
-// 'Admin' (controls everything) OR 'Student Portal Admin' (delegated, this module only).
-async function _isAdmin(userId) {
-  if (!userId) return false;
+async function _getUserRoles(userId) {
+  if (!userId) return [];
   const res = await fetch(`${SB_URL}/rest/v1/app_users?user_id=eq.${encodeURIComponent(userId)}&select=role`, {
     headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher' },
   });
-  if (!res.ok) return false;
+  if (!res.ok) return [];
   const rows = await res.json();
   const role = Array.isArray(rows) && rows[0] ? rows[0].role : '';
-  const roles = String(role || '').split(',').map(r => r.trim());
+  return String(role || '').split(',').map(r => r.trim()).filter(Boolean);
+}
+
+// 'Admin' (controls everything) OR 'Student Portal Admin' (delegated, this module only).
+async function _isAdmin(userId) {
+  const roles = await _getUserRoles(userId);
   return roles.includes('Admin') || roles.includes('Student Portal Admin');
+}
+
+// ── Per-tab module access (admin console nav pills) ──────────────────────
+// Which roles can use each of the 5 ERP tabs is admin-configurable (see
+// get_admin_tab_visibility / save_admin_tab_visibility below), stored in
+// teacher.system_settings under key 'admin_tab_visibility' as
+// { tabKey: [role, ...] }. 'Admin' always passes, same as the outer
+// MODULE_REGISTRY matrix in _src/app.js. Every other admin-console action
+// (Setup/Data/Access/History/NFC/Photo/Bus/Notices/Import) is untouched by
+// this and still just needs _isAdmin, as before.
+const ADMIN_TAB_ACTIONS = {
+  fees: new Set(['get_fee_types', 'save_fee_type', 'delete_fee_type', 'get_fee_structures', 'save_fee_structure', 'delete_fee_structure', 'get_late_fee_rules', 'save_late_fee_rule', 'delete_late_fee_rule', 'generate_classwise_fees', 'generate_individual_fee', 'remove_individual_fee', 'set_discount', 'get_discounts', 'set_partial_split', 'record_payment', 'get_student_fees', 'get_defaulters_list', 'get_fees_collection_report', 'get_fee_accounts', 'save_fee_account', 'record_account_transaction', 'get_account_register']),
+  attendance: new Set(['get_attendance_report', 'save_manual_attendance', 'save_bulk_manual_attendance', 'get_staff_attendance_report', 'get_attendance_devices', 'save_attendance_device', 'delete_attendance_device', 'get_punch_log']),
+  exams: new Set(['get_exams', 'save_exam', 'lock_exam', 'get_exam_subjects', 'save_exam_subject', 'delete_exam_subject', 'get_grade_scales', 'save_grade_scale', 'delete_grade_scale', 'save_pass_mark_template', 'get_pass_mark_templates', 'save_exam_result_config', 'get_exam_result_config', 'save_exam_marks_bulk', 'get_exam_marks_for_entry', 'process_exam_result', 'save_seat_plan', 'get_seat_plans', 'save_board_exam_record', 'get_board_exam_records']),
+  // Leave Management lives under the Payroll nav tab (its "Leave" sub-tab) —
+  // one toggle controls both, matching what the tab actually shows.
+  payroll: new Set(['get_salary_structures', 'save_salary_structure', 'get_payroll_runs', 'run_payroll', 'get_payslips', 'mark_payroll_paid', 'get_leave_types', 'save_leave_type', 'get_leave_requests', 'approve_leave_request']),
+  transport: new Set(['get_transport_routes', 'save_transport_route', 'get_transport_vehicles', 'save_transport_vehicle', 'get_pickup_points', 'save_pickup_point', 'assign_route_pickup_point', 'get_route_pickup_points', 'assign_vehicle_to_route', 'get_vehicle_assignments', 'get_transport_fee_master', 'save_transport_fee_master', 'generate_student_transport_fee', 'get_student_transport_fees']),
+};
+
+// Salary/payslip data is HR-sensitive — a delegated "Student Portal Admin"
+// has no business seeing it by default, unlike the other 4 tabs, which
+// default to the same Admin/Student Portal Admin pair as the rest of this
+// console. An Admin can widen or narrow any of these from the Access tab.
+const ADMIN_TAB_DEFAULTS = {
+  fees: ['Admin', 'Student Portal Admin'],
+  attendance: ['Admin', 'Student Portal Admin'],
+  exams: ['Admin', 'Student Portal Admin'],
+  payroll: ['Admin', 'HR'],
+  transport: ['Admin', 'Student Portal Admin'],
+};
+
+function _tabKeyForAction(action) {
+  for (const [tab, set] of Object.entries(ADMIN_TAB_ACTIONS)) {
+    if (set.has(action)) return tab;
+  }
+  return null;
+}
+
+async function _getAdminTabVisibility() {
+  const rows = await sbTeacher(`system_settings?key=eq.admin_tab_visibility&select=value`);
+  if (rows?.error || !Array.isArray(rows) || !rows.length) return {};
+  return rows[0].value || {};
+}
+
+function _isTabAllowed(tabKey, roles, matrix) {
+  if (roles.includes('Admin')) return true;
+  const allowed = (matrix && matrix[tabKey]) || ADMIN_TAB_DEFAULTS[tabKey] || [];
+  return allowed.some(r => roles.includes(r));
 }
 
 // ── Field-level access (viewers) ─────────────────────────────────────────
@@ -271,12 +344,83 @@ async function _downloadByCategory(categoryName, filters) {
 // on this route still requires _isAdmin, exactly as before this feature.
 const VIEWER_SAFE_ACTIONS = new Set(['get_my_access', 'search_students', 'download_students_by_category', 'viewer_bulk_update_students']);
 
+// Device-to-server sync endpoint's actual logic — authenticated by matching
+// ip+credentials against a registered attendance_devices row (see the
+// ingest_punch_log bypass in POST, above the _isAdmin gate).
+async function _ingestPunchLog(payload) {
+  const { device_ip, api_username, api_password, punches } = payload; // punches: [{device_user_id, punch_time, verify_method}]
+  const devRows = await sb(`attendance_devices?ip=eq.${encodeURIComponent(device_ip || '')}&is_active=eq.true`);
+  if (devRows?.error || !devRows.length) return NextResponse.json({ result: 'error', message: 'Unknown or inactive device.' }, { status: 403 });
+  const device = devRows[0];
+  if (device.api_username && (device.api_username !== api_username || device.api_password !== api_password)) {
+    return NextResponse.json({ result: 'error', message: 'Invalid device credentials.' }, { status: 403 });
+  }
+  if (!Array.isArray(punches) || !punches.length) return NextResponse.json({ result: 'error', message: 'No punches provided.' });
+  const rows = await Promise.all(punches.map(async p => {
+    // Best-effort match: try teacher.app_users first, then students_data, by device_user_id.
+    const staffMatch = await fetch(`${SB_URL}/rest/v1/app_users?user_id=eq.${encodeURIComponent(p.device_user_id)}&select=user_id`, { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher' } }).then(r => r.ok ? r.json() : []);
+    let person_type = 'unmatched', person_id = null, matched = false;
+    if (Array.isArray(staffMatch) && staffMatch.length) { person_type = 'staff'; person_id = p.device_user_id; matched = true; }
+    else {
+      const studentMatch = await sb(`students_data?student_id=eq.${encodeURIComponent(p.device_user_id)}&select=student_id`);
+      if (!studentMatch?.error && studentMatch.length) { person_type = 'student'; person_id = p.device_user_id; matched = true; }
+    }
+    return { device_id: device.id, device_user_id: p.device_user_id, person_type, person_id, punch_time: p.punch_time || new Date().toISOString(), verify_method: p.verify_method || '', matched };
+  }));
+  const ins = await sb('attendance_punch_log', 'POST', rows);
+  if (ins?.error) return NextResponse.json({ result: 'error', message: ins.error });
+  await sb(`attendance_devices?id=eq.${encodeURIComponent(device.id)}`, 'PATCH', { last_sync_at: new Date().toISOString() });
+  return NextResponse.json({ result: 'success', ingested: rows.length, unmatched: rows.filter(r => !r.matched).length });
+}
+
 export async function POST(req) {
   let body;
   try { body = await req.json(); } catch { return NextResponse.json({ result: 'error', message: 'Bad request' }, { status: 400 }); }
   const { action, payload = {}, user_id } = body;
 
-  const isAdmin = await _isAdmin(user_id);
+  // A device calls this unattended — no teacher user_id, authenticated by
+  // matching ip+credentials against a registered attendance_devices row
+  // instead, so it must bypass the _isAdmin/viewer gate below entirely.
+  if (action === 'ingest_punch_log') {
+    return _ingestPunchLog(payload);
+  }
+
+  // Any authenticated teacher/staff (not just Admin) may request their own
+  // leave or view their own payslips — scoped to their own user_id only,
+  // never trusting a teacher_id the client might try to pass instead.
+  if (action === 'save_leave_request' || action === 'get_my_payslips') {
+    const selfRows = await fetch(`${SB_URL}/rest/v1/app_users?user_id=eq.${encodeURIComponent(user_id || '')}&select=user_id`, { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher' } }).then(r => r.ok ? r.json() : []);
+    if (!Array.isArray(selfRows) || !selfRows.length) return NextResponse.json({ result: 'error', message: 'Not a recognized staff account.' }, { status: 403 });
+    if (action === 'save_leave_request') {
+      const { leave_type_id, start_date, end_date, reason } = payload;
+      if (!start_date || !end_date) return NextResponse.json({ result: 'error', message: 'Start and end date required.' });
+      const r = await sbTeacher('leave_requests', 'POST', { teacher_id: user_id, leave_type_id: leave_type_id || null, start_date, end_date, reason: reason || '' });
+      if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+      return NextResponse.json({ result: 'success' });
+    }
+    const rows = await sbTeacher(`payslips?teacher_id=eq.${encodeURIComponent(user_id)}&select=*,payroll_runs(month,year,status)&order=id.desc`);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', payslips: rows });
+  }
+
+  // Actions belonging to one of the 5 ERP tabs (Fees/Attendance/Exams/
+  // Payroll/Transport) get gated by the admin-configurable per-tab matrix
+  // instead of the plain _isAdmin check — e.g. Payroll defaults to Admin/HR
+  // only, not Student Portal Admin, and an Admin can widen/narrow any of
+  // the 5 from the Access tab. Once cleared, treat the caller as admin for
+  // the rest of this handler, same as the plain _isAdmin path below.
+  const tabKey = _tabKeyForAction(action);
+  let isAdmin;
+  if (tabKey) {
+    const roles = await _getUserRoles(user_id);
+    const matrix = await _getAdminTabVisibility();
+    if (!_isTabAllowed(tabKey, roles, matrix)) {
+      return NextResponse.json({ result: 'error', message: 'This module requires additional permissions.' }, { status: 403 });
+    }
+    isAdmin = true;
+  } else {
+    isAdmin = await _isAdmin(user_id);
+  }
   let viewerCategories = [];
   if (!isAdmin) {
     if (!VIEWER_SAFE_ACTIONS.has(action)) {
@@ -663,6 +807,784 @@ export async function POST(req) {
       if (ins?.error) return NextResponse.json({ result: 'error', message: 'One or more category names do not exist: ' + ins.error });
     }
     return NextResponse.json({ result: 'success', count: clean.length });
+  }
+
+  // Strictly 'Admin' only (not Student Portal Admin) — this matrix controls
+  // Payroll visibility among the other 4 tabs, and a delegated Student
+  // Portal Admin shouldn't be able to grant themselves or others access to
+  // HR-sensitive salary data by editing the matrix that gates it.
+  if (action === 'get_admin_tab_visibility' || action === 'save_admin_tab_visibility') {
+    const roles = await _getUserRoles(user_id);
+    if (!roles.includes('Admin')) {
+      return NextResponse.json({ result: 'error', message: 'Only Admin can view or change module access.' }, { status: 403 });
+    }
+    if (action === 'get_admin_tab_visibility') {
+      const matrix = await _getAdminTabVisibility();
+      return NextResponse.json({ result: 'success', tabs: Object.keys(ADMIN_TAB_ACTIONS), defaults: ADMIN_TAB_DEFAULTS, matrix });
+    }
+    const { matrix } = payload;
+    const clean = {};
+    Object.keys(ADMIN_TAB_ACTIONS).forEach(tab => {
+      const roleList = Array.isArray(matrix?.[tab]) ? matrix[tab].filter(r => typeof r === 'string') : ADMIN_TAB_DEFAULTS[tab];
+      clean[tab] = [...new Set(['Admin', ...roleList])];
+    });
+    // sbTeacher()'s POST always sends Prefer: return=minimal — an upsert via
+    // on_conflict needs resolution=merge-duplicates too, so this one goes
+    // through a raw fetch instead (same reason generate_classwise_fees does).
+    const upRes = await fetch(`${SB_URL}/rest/v1/system_settings?on_conflict=key`, {
+      method: 'POST',
+      headers: {
+        apikey: SB_KEY,
+        Authorization: `Bearer ${SB_KEY}`,
+        'Content-Type': 'application/json',
+        Prefer: 'resolution=merge-duplicates,return=minimal',
+        'Accept-Profile': 'teacher',
+        'Content-Profile': 'teacher',
+      },
+      body: JSON.stringify({ key: 'admin_tab_visibility', value: clean }),
+    });
+    if (!upRes.ok) return NextResponse.json({ result: 'error', message: await upRes.text() });
+    return NextResponse.json({ result: 'success', matrix: clean });
+  }
+
+  // ── Fees & Dues ───────────────────────────────────────────────────────────
+  if (action === 'get_fee_types') {
+    const rows = await sb('fee_types?select=*&order=name.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', fee_types: rows });
+  }
+  if (action === 'save_fee_type') {
+    const { id, name, code, description, is_active } = payload;
+    if (!name || !code) return NextResponse.json({ result: 'error', message: 'Name and code required.' });
+    const rowData = { name, code, description: description || '', is_active: is_active !== false };
+    const r = id
+      ? await sb(`fee_types?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sb('fee_types', 'POST', rowData);
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'delete_fee_type') {
+    const r = await sb(`fee_types?id=eq.${encodeURIComponent(payload.id)}`, 'DELETE');
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'get_fee_structures') {
+    const rows = await sb('fee_structures?select=*,fee_types(name,code)&order=academic_year.desc,class.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', fee_structures: rows });
+  }
+  if (action === 'save_fee_structure') {
+    const { id, fee_type_id, class: cls, section, academic_year, amount, collection_mode } = payload;
+    if (!fee_type_id || !cls || !academic_year) return NextResponse.json({ result: 'error', message: 'Fee type, class, and academic year required.' });
+    const rowData = { fee_type_id, class: cls, section: section || null, academic_year, amount: Number(amount) || 0, collection_mode: collection_mode || 'Monthly' };
+    const r = id
+      ? await sb(`fee_structures?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sb('fee_structures', 'POST', rowData);
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'delete_fee_structure') {
+    const r = await sb(`fee_structures?id=eq.${encodeURIComponent(payload.id)}`, 'DELETE');
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'get_late_fee_rules') {
+    const rows = await sb('late_fee_rules?select=*&order=rule_name.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', rules: rows });
+  }
+  if (action === 'save_late_fee_rule') {
+    const { id, rule_name, amount, due_day_of_month, conditions, is_active } = payload;
+    if (!rule_name || !amount) return NextResponse.json({ result: 'error', message: 'Rule name and amount required.' });
+    const day = Number(due_day_of_month);
+    if (!day || day < 1 || day > 31) return NextResponse.json({ result: 'error', message: 'Due day must be between 1 and 31.' });
+    const rowData = { rule_name, amount: Number(amount), due_day_of_month: day, conditions: conditions || '', is_active: is_active !== false };
+    const r = id
+      ? await sb(`late_fee_rules?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sb('late_fee_rules', 'POST', rowData);
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'delete_late_fee_rule') {
+    const r = await sb(`late_fee_rules?id=eq.${encodeURIComponent(payload.id)}`, 'DELETE');
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // Applies the late fee (a fixed one-time amount, per the rule) to any
+  // still-due student_fees row whose fee_month has passed due_day_of_month —
+  // idempotent: only touches rows that don't already carry this rule.
+  async function _applyLateFees() {
+    const today = new Date();
+    const day = today.getDate();
+    const rules = await sb('late_fee_rules?is_active=eq.true&select=*');
+    if (rules?.error || !Array.isArray(rules)) return;
+    for (const rule of rules) {
+      if (day <= rule.due_day_of_month) continue;
+      const due = await sb(`student_fees?status=eq.due&late_fee_rule_id=is.null&select=id,amount,active_amount`);
+      if (due?.error || !Array.isArray(due)) continue;
+      await Promise.all(due.map(f => sb(`student_fees?id=eq.${f.id}`, 'PATCH', {
+        late_fee_rule_id: rule.id,
+        amount: Number(f.amount) + Number(rule.amount),
+        active_amount: Number(f.active_amount) + Number(rule.amount),
+      })));
+    }
+  }
+
+  if (action === 'generate_classwise_fees') {
+    const { fee_type_id, class: cls, section, academic_year, fee_month } = payload;
+    if (!fee_type_id || !cls || !academic_year || !fee_month) return NextResponse.json({ result: 'error', message: 'Fee type, class, academic year, and month required.' });
+    const structRows = await sb(`fee_structures?fee_type_id=eq.${encodeURIComponent(fee_type_id)}&class=eq.${encodeURIComponent(cls)}&academic_year=eq.${encodeURIComponent(academic_year)}${section ? `&section=eq.${encodeURIComponent(section)}` : ''}`);
+    if (structRows?.error || !structRows.length) return NextResponse.json({ result: 'error', message: 'No fee structure found for this class/year.' });
+    const amount = Number(structRows[0].amount) || 0;
+    const studentRows = await sb(`students_data?class=eq.${encodeURIComponent(cls)}${section ? `&section=eq.${encodeURIComponent(section)}` : ''}&select=student_id`);
+    if (studentRows?.error) return NextResponse.json({ result: 'error', message: studentRows.error });
+    const rows = studentRows.map(s => ({ student_id: s.student_id, fee_type_id, academic_year, fee_month, amount, active_amount: amount, deferred_amount: 0 }));
+    if (!rows.length) return NextResponse.json({ result: 'error', message: 'No students found for this class.' });
+    // on_conflict skip: a student already billed for this fee/month is left untouched.
+    const ins = await fetch(`${SB_URL}/rest/v1/student_fees?on_conflict=student_id,fee_type_id,academic_year,fee_month`, {
+      method: 'POST',
+      headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Content-Type': 'application/json', 'Content-Profile': 'student', Prefer: 'resolution=ignore-duplicates,return=representation' },
+      body: JSON.stringify(rows),
+    });
+    const insText = await ins.text();
+    if (!ins.ok) return NextResponse.json({ result: 'error', message: insText });
+    const created = insText ? JSON.parse(insText) : [];
+    return NextResponse.json({ result: 'success', generated: created.length, skipped: rows.length - created.length });
+  }
+  if (action === 'generate_individual_fee') {
+    const { student_id, fee_type_id, academic_year, fee_month } = payload;
+    if (!student_id || !fee_type_id || !academic_year || !fee_month) return NextResponse.json({ result: 'error', message: 'Student, fee type, academic year, and month required.' });
+    const studentRows = await sb(`students_data?student_id=eq.${encodeURIComponent(student_id)}&select=class,section`);
+    if (studentRows?.error || !studentRows.length) return NextResponse.json({ result: 'error', message: 'Student not found.' });
+    const { class: cls, section } = studentRows[0];
+    const structRows = await sb(`fee_structures?fee_type_id=eq.${encodeURIComponent(fee_type_id)}&class=eq.${encodeURIComponent(cls)}&academic_year=eq.${encodeURIComponent(academic_year)}`);
+    if (structRows?.error || !structRows.length) return NextResponse.json({ result: 'error', message: 'No fee structure found for this student\'s class/year.' });
+    const amount = Number(structRows[0].amount) || 0;
+    const r = await sb('student_fees', 'POST', { student_id, fee_type_id, academic_year, fee_month, amount, active_amount: amount, deferred_amount: 0 });
+    if (r?.error) return NextResponse.json({ result: 'error', message: 'Already generated for this month, or: ' + r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'remove_individual_fee') {
+    const { student_fee_id } = payload;
+    if (!student_fee_id) return NextResponse.json({ result: 'error', message: 'student_fee_id required.' });
+    const r = await sb(`student_fees?id=eq.${encodeURIComponent(student_fee_id)}`, 'DELETE');
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'set_discount') {
+    const { student_id, fee_type_id, discount_type, value, reason } = payload;
+    if (!student_id || !value) return NextResponse.json({ result: 'error', message: 'Student and value required.' });
+    const r = await sb('fee_discounts', 'POST', { student_id, fee_type_id: fee_type_id || null, discount_type: discount_type || 'fixed', value: Number(value), reason: reason || '' });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'get_discounts') {
+    const { student_id } = payload;
+    const rows = await sb(`fee_discounts?${student_id ? `student_id=eq.${encodeURIComponent(student_id)}&` : ''}select=*&order=created_at.desc`);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', discounts: rows });
+  }
+
+  // Splits amount between the active (billable now) and deferred portions of
+  // one student_fees row, per the demo's "Partial Payments" behaviour.
+  if (action === 'set_partial_split') {
+    const { student_fee_id, active_amount } = payload;
+    const feeRows = await sb(`student_fees?id=eq.${encodeURIComponent(student_fee_id)}&select=amount`);
+    if (feeRows?.error || !feeRows.length) return NextResponse.json({ result: 'error', message: 'Fee not found.' });
+    const total = Number(feeRows[0].amount);
+    const active = Number(active_amount);
+    if (!(active > 0) || active > total) return NextResponse.json({ result: 'error', message: 'Active amount must be between 0 and the total fee.' });
+    const r = await sb(`student_fees?id=eq.${encodeURIComponent(student_fee_id)}`, 'PATCH', { active_amount: active, deferred_amount: total - active });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'record_payment') {
+    const { student_fee_id, amount, method, receipt_no } = payload;
+    if (!student_fee_id || !amount) return NextResponse.json({ result: 'error', message: 'student_fee_id and amount required.' });
+    const feeRows = await sb(`student_fees?id=eq.${encodeURIComponent(student_fee_id)}&select=*`);
+    if (feeRows?.error || !feeRows.length) return NextResponse.json({ result: 'error', message: 'Fee not found.' });
+    const fee = feeRows[0];
+    const pay = Number(amount);
+    const ins = await sb('fee_payments', 'POST', { student_fee_id, amount: pay, method: method || 'Manual', receipt_no: receipt_no || '' });
+    if (ins?.error) return NextResponse.json({ result: 'error', message: ins.error });
+    // Paying off the active portion in full activates the deferred portion
+    // (moves it into active_amount) and marks the row paid if nothing is left.
+    const remainingActive = Number(fee.active_amount) - pay;
+    const patch = remainingActive > 0
+      ? { active_amount: remainingActive }
+      : (Number(fee.deferred_amount) > 0
+          ? { active_amount: Number(fee.deferred_amount) + (remainingActive < 0 ? remainingActive : 0), deferred_amount: 0 }
+          : { active_amount: 0, status: 'paid' });
+    const upd = await sb(`student_fees?id=eq.${encodeURIComponent(student_fee_id)}`, 'PATCH', patch);
+    if (upd?.error) return NextResponse.json({ result: 'error', message: upd.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'get_student_fees') {
+    const { student_id } = payload;
+    if (!student_id) return NextResponse.json({ result: 'error', message: 'student_id required.' });
+    await _applyLateFees().catch(() => {});
+    const rows = await sb(`student_fees?student_id=eq.${encodeURIComponent(student_id)}&select=*,fee_types(name,code)&order=academic_year.desc,fee_month.desc`);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', fees: rows });
+  }
+
+  if (action === 'get_defaulters_list') {
+    const { class: cls, academic_year } = payload || {};
+    const rows = await sb(`student_fees?status=eq.due${cls ? '' : ''}&select=student_id,fee_type_id,academic_year,fee_month,active_amount,fee_types(name)&order=student_id.asc`);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    let filtered = rows.filter(r => Number(r.active_amount) > 0 && (!academic_year || r.academic_year === academic_year));
+    if (cls) {
+      const idsInClass = new Set((await sb(`students_data?class=eq.${encodeURIComponent(cls)}&select=student_id`)).map(s => s.student_id));
+      filtered = filtered.filter(r => idsInClass.has(r.student_id));
+    }
+    return NextResponse.json({ result: 'success', defaulters: filtered });
+  }
+  if (action === 'get_fees_collection_report') {
+    const { academic_year } = payload || {};
+    const payRows = await sb(`fee_payments?select=amount,paid_at,student_fees(fee_type_id,academic_year,fee_types(name))&order=paid_at.desc`);
+    if (payRows?.error) return NextResponse.json({ result: 'error', message: payRows.error });
+    const filtered = academic_year ? payRows.filter(p => p.student_fees?.academic_year === academic_year) : payRows;
+    const byType = {};
+    filtered.forEach(p => {
+      const name = p.student_fees?.fee_types?.name || 'Unknown';
+      byType[name] = (byType[name] || 0) + Number(p.amount);
+    });
+    const total = filtered.reduce((s, p) => s + Number(p.amount), 0);
+    return NextResponse.json({ result: 'success', total, by_fee_type: byType, transactions: filtered });
+  }
+
+  if (action === 'get_fee_accounts') {
+    const rows = await sb('fee_accounts?select=*&order=name.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', accounts: rows });
+  }
+  if (action === 'save_fee_account') {
+    const { id, name, type, opening_balance } = payload;
+    if (!name) return NextResponse.json({ result: 'error', message: 'Name required.' });
+    const rowData = { name, type: type || 'bank', opening_balance: Number(opening_balance) || 0 };
+    const r = id
+      ? await sb(`fee_accounts?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sb('fee_accounts', 'POST', rowData);
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'record_account_transaction') {
+    const { account_id, direction, amount, counterparty_account_id, reference } = payload;
+    if (!account_id || !direction || !amount) return NextResponse.json({ result: 'error', message: 'Account, direction, and amount required.' });
+    const r = await sb('fee_account_transactions', 'POST', { account_id, direction, amount: Number(amount), counterparty_account_id: counterparty_account_id || null, reference: reference || '' });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'get_account_register') {
+    const { account_id } = payload || {};
+    const rows = await sb(`fee_account_transactions?${account_id ? `account_id=eq.${encodeURIComponent(account_id)}&` : ''}select=*&order=occurred_at.desc`);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', transactions: rows });
+  }
+
+  // ── Attendance ────────────────────────────────────────────────────────────
+  // ESP32/NFC (student.attendance_records) stays the primary channel — a row
+  // present for a student+date means present, no row means absent unless a
+  // manual override says otherwise. Devices/punch-log below are for optional
+  // additional hardware (e.g. ZKTeco), never a replacement for ESP32.
+  if (action === 'get_attendance_report') {
+    const { class: cls, section, date } = payload || {};
+    if (!date) return NextResponse.json({ result: 'error', message: 'date required.' });
+    const roster = await sb(`students_data?class=eq.${encodeURIComponent(cls || '')}${section ? `&section=eq.${encodeURIComponent(section)}` : ''}&select=student_id,student_name,roll&order=roll.asc`);
+    if (roster?.error) return NextResponse.json({ result: 'error', message: roster.error });
+    const [present, overrides] = await Promise.all([
+      sb(`attendance_records?date=eq.${encodeURIComponent(date)}&select=student_id,entry_time`),
+      sb(`manual_attendance_overrides?date=eq.${encodeURIComponent(date)}&select=student_id,status,reason`),
+    ]);
+    const presentSet = new Set((Array.isArray(present) ? present : []).map(p => p.student_id));
+    const overrideMap = {};
+    (Array.isArray(overrides) ? overrides : []).forEach(o => { overrideMap[o.student_id] = o; });
+    const rows = roster.map(s => {
+      const ov = overrideMap[s.student_id];
+      const status = ov ? ov.status : (presentSet.has(s.student_id) ? 'present' : 'absent');
+      return { student_id: s.student_id, student_name: s.student_name, roll: s.roll, status, source: ov ? 'manual' : (presentSet.has(s.student_id) ? 'device' : 'none') };
+    });
+    const presentCount = rows.filter(r => r.status === 'present').length;
+    return NextResponse.json({ result: 'success', date, rows, present_count: presentCount, absent_count: rows.length - presentCount });
+  }
+  if (action === 'save_manual_attendance') {
+    const { student_id, date, status, marked_by, reason } = payload;
+    if (!student_id || !date || !status) return NextResponse.json({ result: 'error', message: 'student_id, date, and status required.' });
+    const rowData = { student_id, date, status, marked_by: marked_by || null, reason: reason || '' };
+    const existing = await sb(`manual_attendance_overrides?student_id=eq.${encodeURIComponent(student_id)}&date=eq.${encodeURIComponent(date)}`);
+    const r = (!existing?.error && existing.length)
+      ? await sb(`manual_attendance_overrides?student_id=eq.${encodeURIComponent(student_id)}&date=eq.${encodeURIComponent(date)}`, 'PATCH', rowData)
+      : await sb('manual_attendance_overrides', 'POST', rowData);
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'save_bulk_manual_attendance') {
+    const { date, marked_by, entries } = payload; // entries: [{student_id, status}]
+    if (!date || !Array.isArray(entries) || !entries.length) return NextResponse.json({ result: 'error', message: 'date and entries required.' });
+    await Promise.all(entries.map(async e => {
+      const existing = await sb(`manual_attendance_overrides?student_id=eq.${encodeURIComponent(e.student_id)}&date=eq.${encodeURIComponent(date)}`);
+      const rowData = { student_id: e.student_id, date, status: e.status, marked_by: marked_by || null };
+      return (!existing?.error && existing.length)
+        ? sb(`manual_attendance_overrides?student_id=eq.${encodeURIComponent(e.student_id)}&date=eq.${encodeURIComponent(date)}`, 'PATCH', rowData)
+        : sb('manual_attendance_overrides', 'POST', rowData);
+    }));
+    return NextResponse.json({ result: 'success', count: entries.length });
+  }
+
+  if (action === 'get_staff_attendance_report') {
+    const { date } = payload || {};
+    if (!date) return NextResponse.json({ result: 'error', message: 'date required.' });
+    const dayStart = `${date}T00:00:00`, dayEnd = `${date}T23:59:59`;
+    const rows = await sb(`attendance_punch_log?person_type=eq.staff&punch_time=gte.${encodeURIComponent(dayStart)}&punch_time=lte.${encodeURIComponent(dayEnd)}&select=*&order=punch_time.asc`);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', punches: rows });
+  }
+
+  if (action === 'get_attendance_devices') {
+    const rows = await sb('attendance_devices?select=*&order=name.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', devices: rows });
+  }
+  if (action === 'save_attendance_device') {
+    const { id, name, device_type, ip, port, firmware_password, api_username, api_password, sync_interval, is_active, description } = payload;
+    if (!name || !ip) return NextResponse.json({ result: 'error', message: 'Device name and IP required.' });
+    const rowData = { name, device_type: device_type || 'esp32', ip, port: Number(port) || null, firmware_password: firmware_password || null, api_username: api_username || null, api_password: api_password || null, sync_interval: Number(sync_interval) || 30, is_active: is_active !== false, description: description || '' };
+    const r = id
+      ? await sb(`attendance_devices?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sb('attendance_devices', 'POST', rowData);
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'delete_attendance_device') {
+    const r = await sb(`attendance_devices?id=eq.${encodeURIComponent(payload.id)}`, 'DELETE');
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'get_punch_log') {
+    const { person_type, from_date, to_date } = payload || {};
+    let q = 'attendance_punch_log?select=*&order=punch_time.desc&limit=500';
+    if (person_type) q += `&person_type=eq.${encodeURIComponent(person_type)}`;
+    if (from_date) q += `&punch_time=gte.${encodeURIComponent(from_date)}`;
+    if (to_date) q += `&punch_time=lte.${encodeURIComponent(to_date)}`;
+    const rows = await sb(q);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', punches: rows, unmatched_count: rows.filter(r => !r.matched).length });
+  }
+
+  // ── Exam & Assessment ─────────────────────────────────────────────────────
+  if (action === 'get_exams') {
+    const rows = await sb('exams?select=*&order=academic_year.desc,name.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', exams: rows });
+  }
+  if (action === 'save_exam') {
+    const { id, name, exam_type, academic_year, medium, class: cls } = payload;
+    if (!name || !academic_year) return NextResponse.json({ result: 'error', message: 'Name and academic year required.' });
+    const rowData = { name, exam_type: exam_type || 'Term', academic_year, medium: medium || null, class: cls || null };
+    const r = id
+      ? await sb(`exams?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sb('exams', 'POST', rowData);
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'lock_exam') {
+    const { exam_id, locked } = payload;
+    const r = await sb(`exams?id=eq.${encodeURIComponent(exam_id)}`, 'PATCH', { is_locked: locked !== false });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'get_exam_subjects') {
+    const { exam_id } = payload;
+    const rows = await sb(`exam_subjects?exam_id=eq.${encodeURIComponent(exam_id)}&select=*&order=subject.asc`);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', subjects: rows });
+  }
+  if (action === 'save_exam_subject') {
+    const { id, exam_id, subject, full_marks, pass_marks } = payload;
+    if (!exam_id || !subject) return NextResponse.json({ result: 'error', message: 'Exam and subject required.' });
+    const rowData = { exam_id, subject, full_marks: Number(full_marks) || 100, pass_marks: Number(pass_marks) || 33 };
+    const r = id
+      ? await sb(`exam_subjects?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sb('exam_subjects', 'POST', rowData);
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'delete_exam_subject') {
+    const r = await sb(`exam_subjects?id=eq.${encodeURIComponent(payload.id)}`, 'DELETE');
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'get_grade_scales') {
+    const { category } = payload || {};
+    const rows = await sb(`grade_scales?${category ? `category=eq.${encodeURIComponent(category)}&` : ''}select=*&order=min_mark.desc`);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', scales: rows });
+  }
+  if (action === 'save_grade_scale') {
+    const { id, category, gp, min_mark, max_mark, letter_grade, label } = payload;
+    if (gp === undefined || min_mark === undefined || max_mark === undefined || !letter_grade) return NextResponse.json({ result: 'error', message: 'GP, mark range, and letter grade required.' });
+    const rowData = { category: category || 'default', gp: Number(gp), min_mark: Number(min_mark), max_mark: Number(max_mark), letter_grade, label: label || '' };
+    const r = id
+      ? await sb(`grade_scales?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sb('grade_scales', 'POST', rowData);
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'delete_grade_scale') {
+    const r = await sb(`grade_scales?id=eq.${encodeURIComponent(payload.id)}`, 'DELETE');
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  function _gradeFor(scales, mark) {
+    const m = Number(mark);
+    const hit = scales.find(s => m >= Number(s.min_mark) && m <= Number(s.max_mark));
+    return hit || null;
+  }
+
+  if (action === 'save_pass_mark_template') {
+    const { id, name, subject, pass_mark, category } = payload;
+    if (!name || pass_mark === undefined) return NextResponse.json({ result: 'error', message: 'Name and pass mark required.' });
+    const rowData = { name, subject: subject || null, pass_mark: Number(pass_mark), category: category || null };
+    const r = id
+      ? await sb(`pass_mark_templates?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sb('pass_mark_templates', 'POST', rowData);
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'get_pass_mark_templates') {
+    const rows = await sb('pass_mark_templates?select=*&order=name.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', templates: rows });
+  }
+
+  if (action === 'save_exam_result_config') {
+    const { exam_id, ...cfg } = payload;
+    if (!exam_id) return NextResponse.json({ result: 'error', message: 'exam_id required.' });
+    const existing = await sb(`exam_result_config?exam_id=eq.${encodeURIComponent(exam_id)}`);
+    const r = (!existing?.error && existing.length)
+      ? await sb(`exam_result_config?exam_id=eq.${encodeURIComponent(exam_id)}`, 'PATCH', cfg)
+      : await sb('exam_result_config', 'POST', { exam_id, ...cfg });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'get_exam_result_config') {
+    const { exam_id } = payload;
+    const rows = await sb(`exam_result_config?exam_id=eq.${encodeURIComponent(exam_id)}`);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', config: rows[0] || null });
+  }
+
+  // Bulk marks entry for one class+section+subject, all students at once —
+  // matches the demo's "Entry Type: Single Student / Class" pattern's bulk case.
+  if (action === 'save_exam_marks_bulk') {
+    const { exam_subject_id, marks } = payload; // marks: [{student_id, marks_obtained}]
+    if (!exam_subject_id || !Array.isArray(marks)) return NextResponse.json({ result: 'error', message: 'exam_subject_id and marks required.' });
+    const results = await Promise.all(marks.map(async m => {
+      const rowData = { exam_subject_id, student_id: m.student_id, marks_obtained: m.marks_obtained === '' ? null : Number(m.marks_obtained) };
+      const existing = await sb(`exam_marks?exam_subject_id=eq.${encodeURIComponent(exam_subject_id)}&student_id=eq.${encodeURIComponent(m.student_id)}`);
+      return (!existing?.error && existing.length)
+        ? sb(`exam_marks?exam_subject_id=eq.${encodeURIComponent(exam_subject_id)}&student_id=eq.${encodeURIComponent(m.student_id)}`, 'PATCH', rowData)
+        : sb('exam_marks', 'POST', rowData);
+    }));
+    const errors = results.filter(r => r?.error);
+    return NextResponse.json({ result: errors.length ? 'partial' : 'success', saved: marks.length - errors.length });
+  }
+  if (action === 'get_exam_marks_for_entry') {
+    const { exam_subject_id, class: cls, section } = payload;
+    const roster = await sb(`students_data?class=eq.${encodeURIComponent(cls)}${section ? `&section=eq.${encodeURIComponent(section)}` : ''}&select=student_id,student_name,roll&order=roll.asc`);
+    if (roster?.error) return NextResponse.json({ result: 'error', message: roster.error });
+    const marksRows = await sb(`exam_marks?exam_subject_id=eq.${encodeURIComponent(exam_subject_id)}&select=student_id,marks_obtained`);
+    const marksMap = {};
+    (Array.isArray(marksRows) ? marksRows : []).forEach(m => { marksMap[m.student_id] = m.marks_obtained; });
+    return NextResponse.json({ result: 'success', roster: roster.map(s => ({ ...s, marks_obtained: marksMap[s.student_id] ?? '' })) });
+  }
+
+  // Computes grade + pass/fail per student for one exam (all its subjects),
+  // per the exam's own grade category (falls back to 'default'). Locking is
+  // a separate, explicit action — this can be re-run any number of times
+  // while unlocked.
+  if (action === 'process_exam_result') {
+    const { exam_id } = payload;
+    const examRows = await sb(`exams?id=eq.${encodeURIComponent(exam_id)}`);
+    if (examRows?.error || !examRows.length) return NextResponse.json({ result: 'error', message: 'Exam not found.' });
+    if (examRows[0].is_locked) return NextResponse.json({ result: 'error', message: 'Exam is locked — unlock it first.' });
+    const subjects = await sb(`exam_subjects?exam_id=eq.${encodeURIComponent(exam_id)}&select=*`);
+    if (subjects?.error || !subjects.length) return NextResponse.json({ result: 'error', message: 'No subjects configured for this exam.' });
+    const scales = await sb(`grade_scales?category=eq.default&select=*`);
+    const marksRows = await sb(`exam_marks?exam_subject_id=in.(${subjects.map(s => s.id).join(',')})&select=*`);
+    if (marksRows?.error) return NextResponse.json({ result: 'error', message: marksRows.error });
+    const byStudent = {};
+    marksRows.forEach(m => {
+      byStudent[m.student_id] = byStudent[m.student_id] || [];
+      byStudent[m.student_id].push(m);
+    });
+    const results = Object.entries(byStudent).map(([student_id, marks]) => {
+      const total = marks.reduce((s, m) => s + (Number(m.marks_obtained) || 0), 0);
+      const fullTotal = subjects.reduce((s, sub) => s + Number(sub.full_marks), 0);
+      const pct = fullTotal ? (total / fullTotal) * 100 : 0;
+      const grade = _gradeFor(Array.isArray(scales) ? scales : [], pct);
+      const failed = subjects.some(sub => {
+        const m = marks.find(mk => mk.exam_subject_id === sub.id);
+        return !m || Number(m.marks_obtained) < Number(sub.pass_marks);
+      });
+      return { student_id, total, percentage: Math.round(pct * 100) / 100, gpa: grade ? grade.gp : 0, letter_grade: failed ? 'F' : (grade ? grade.letter_grade : ''), pass: !failed };
+    }).sort((a, b) => b.total - a.total).map((r, i) => ({ ...r, position: i + 1 }));
+    return NextResponse.json({ result: 'success', results });
+  }
+
+  if (action === 'save_seat_plan') {
+    const { id, exam_id, class: cls, section, room, seating_layout } = payload;
+    const rowData = { exam_id, class: cls, section, room, seating_layout: seating_layout || [] };
+    const r = id
+      ? await sb(`seat_plans?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sb('seat_plans', 'POST', rowData);
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'get_seat_plans') {
+    const { exam_id } = payload;
+    const rows = await sb(`seat_plans?exam_id=eq.${encodeURIComponent(exam_id)}&select=*`);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', plans: rows });
+  }
+
+  if (action === 'save_board_exam_record') {
+    const { id, student_id, board_exam_type, registration_number, roll_number, academic_year } = payload;
+    if (!student_id || !board_exam_type) return NextResponse.json({ result: 'error', message: 'Student and board exam type required.' });
+    const rowData = { student_id, board_exam_type, registration_number: registration_number || null, roll_number: roll_number || null, academic_year: academic_year || null };
+    const r = id
+      ? await sb(`board_exam_records?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sb('board_exam_records', 'POST', rowData);
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'get_board_exam_records') {
+    const { class: cls, section } = payload || {};
+    let studentIds = null;
+    if (cls) {
+      const roster = await sb(`students_data?class=eq.${encodeURIComponent(cls)}${section ? `&section=eq.${encodeURIComponent(section)}` : ''}&select=student_id,student_name,roll`);
+      if (!roster?.error) studentIds = roster;
+    }
+    const rows = await sb('board_exam_records?select=*');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    if (studentIds) {
+      const idSet = new Set(studentIds.map(s => s.student_id));
+      return NextResponse.json({ result: 'success', roster: studentIds, records: rows.filter(r => idSet.has(r.student_id)) });
+    }
+    return NextResponse.json({ result: 'success', roster: [], records: rows });
+  }
+
+  // ── HRM & Payroll ─────────────────────────────────────────────────────────
+  // People-data (users_profile, family_details, faculty_attributes,
+  // bank_accounts) already exists — this is payroll specifically, kept
+  // separate from teacher.bonus_penalty (performance eval, not salary).
+  if (action === 'get_salary_structures') {
+    const rows = await sbTeacher('salary_structures?select=*&order=designation.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', structures: rows });
+  }
+  if (action === 'save_salary_structure') {
+    const { id, designation, basic, allowances, deductions } = payload;
+    if (!designation || basic === undefined) return NextResponse.json({ result: 'error', message: 'Designation and basic salary required.' });
+    const rowData = { designation, basic: Number(basic), allowances: allowances || {}, deductions: deductions || {} };
+    const existing = await sbTeacher(`salary_structures?designation=eq.${encodeURIComponent(designation)}`);
+    const r = (!existing?.error && existing.length)
+      ? await sbTeacher(`salary_structures?designation=eq.${encodeURIComponent(designation)}`, 'PATCH', rowData)
+      : await sbTeacher('salary_structures', 'POST', rowData);
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'get_payroll_runs') {
+    const rows = await sbTeacher('payroll_runs?select=*&order=year.desc,month.desc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', runs: rows });
+  }
+  // Generates one payslip per active staff member with a salary structure
+  // matching their designation, for the given month/year. Re-running an
+  // existing (unpaid) run recomputes each payslip rather than duplicating.
+  if (action === 'run_payroll') {
+    const { month, year } = payload;
+    if (!month || !year) return NextResponse.json({ result: 'error', message: 'Month and year required.' });
+    const existingRun = await sbTeacher(`payroll_runs?month=eq.${encodeURIComponent(month)}&year=eq.${encodeURIComponent(year)}`);
+    let run = (!existingRun?.error && existingRun.length) ? existingRun[0] : null;
+    if (run && run.status === 'paid') return NextResponse.json({ result: 'error', message: 'This payroll run is already paid — cannot re-run.' });
+    if (!run) {
+      const created = await sbTeacher('payroll_runs', 'POST', { month, year, status: 'draft' });
+      if (created?.error) return NextResponse.json({ result: 'error', message: created.error });
+      run = created[0];
+    }
+    const [staff, structures] = await Promise.all([
+      sbTeacher('app_users?select=user_id,role'),
+      sbTeacher('salary_structures?select=*'),
+    ]);
+    if (staff?.error || structures?.error) return NextResponse.json({ result: 'error', message: 'Could not load staff/salary data.' });
+    const structByDesignation = {};
+    structures.forEach(s => { structByDesignation[s.designation] = s; });
+    let generated = 0;
+    for (const u of staff) {
+      const roles = String(u.role || '').split(',').map(r => r.trim());
+      const struct = roles.map(r => structByDesignation[r]).find(Boolean);
+      if (!struct) continue;
+      const allowanceTotal = Object.values(struct.allowances || {}).reduce((s, v) => s + Number(v || 0), 0);
+      const deductionTotal = Object.values(struct.deductions || {}).reduce((s, v) => s + Number(v || 0), 0);
+      const gross = Number(struct.basic) + allowanceTotal;
+      const net = gross - deductionTotal;
+      const rowData = { payroll_run_id: run.id, teacher_id: u.user_id, gross, total_deductions: deductionTotal, net };
+      const existingSlip = await sbTeacher(`payslips?payroll_run_id=eq.${run.id}&teacher_id=eq.${encodeURIComponent(u.user_id)}`);
+      if (!existingSlip?.error && existingSlip.length) await sbTeacher(`payslips?payroll_run_id=eq.${run.id}&teacher_id=eq.${encodeURIComponent(u.user_id)}`, 'PATCH', rowData);
+      else await sbTeacher('payslips', 'POST', rowData);
+      generated++;
+    }
+    return NextResponse.json({ result: 'success', run_id: run.id, generated });
+  }
+  if (action === 'get_payslips') {
+    const { payroll_run_id } = payload;
+    const rows = await sbTeacher(`payslips?payroll_run_id=eq.${encodeURIComponent(payroll_run_id)}&select=*&order=teacher_id.asc`);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', payslips: rows });
+  }
+  if (action === 'mark_payroll_paid') {
+    const { payroll_run_id } = payload;
+    const r1 = await sbTeacher(`payroll_runs?id=eq.${encodeURIComponent(payroll_run_id)}`, 'PATCH', { status: 'paid' });
+    const r2 = await sbTeacher(`payslips?payroll_run_id=eq.${encodeURIComponent(payroll_run_id)}`, 'PATCH', { paid_at: new Date().toISOString() });
+    if (r1?.error || r2?.error) return NextResponse.json({ result: 'error', message: r1?.error || r2?.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'get_leave_types') {
+    const rows = await sbTeacher('leave_types?select=*&order=name.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', types: rows });
+  }
+  if (action === 'save_leave_type') {
+    const { name, days_allowed } = payload;
+    if (!name) return NextResponse.json({ result: 'error', message: 'Name required.' });
+    const r = await sbTeacher('leave_types', 'POST', { name, days_allowed: Number(days_allowed) || 0 });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'get_leave_requests') {
+    const { status } = payload || {};
+    const rows = await sbTeacher(`leave_requests?${status ? `status=eq.${encodeURIComponent(status)}&` : ''}select=*,leave_types(name)&order=created_at.desc`);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', requests: rows });
+  }
+  if (action === 'approve_leave_request') {
+    const { id, status } = payload; // status: 'approved' | 'rejected'
+    const r = await sbTeacher(`leave_requests?id=eq.${encodeURIComponent(id)}`, 'PATCH', { status });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Transport Mgmt (admin side only — live GPS stays in the standalone bus-
+  // tracking app; this is routes/vehicles/pickup-points/fees administration) ──
+  if (action === 'get_transport_routes') {
+    const rows = await sb('transport_routes?select=*&order=name.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', routes: rows });
+  }
+  if (action === 'save_transport_route') {
+    const { id, name, description, is_active } = payload;
+    if (!name) return NextResponse.json({ result: 'error', message: 'Name required.' });
+    const rowData = { name, description: description || '', is_active: is_active !== false };
+    const r = id ? await sb(`transport_routes?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData) : await sb('transport_routes', 'POST', rowData);
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'get_transport_vehicles') {
+    const rows = await sb('transport_vehicles?select=*&order=name.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', vehicles: rows });
+  }
+  if (action === 'save_transport_vehicle') {
+    const { id, name, registration_no, capacity, driver_name, driver_phone, is_active } = payload;
+    if (!name) return NextResponse.json({ result: 'error', message: 'Name required.' });
+    const rowData = { name, registration_no: registration_no || '', capacity: Number(capacity) || null, driver_name: driver_name || '', driver_phone: driver_phone || '', is_active: is_active !== false };
+    const r = id ? await sb(`transport_vehicles?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData) : await sb('transport_vehicles', 'POST', rowData);
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'get_pickup_points') {
+    const rows = await sb('pickup_points?select=*&order=name.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', points: rows });
+  }
+  if (action === 'save_pickup_point') {
+    const { name, landmark } = payload;
+    if (!name) return NextResponse.json({ result: 'error', message: 'Name required.' });
+    const r = await sb('pickup_points', 'POST', { name, landmark: landmark || '' });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'assign_route_pickup_point') {
+    const { route_id, pickup_point_id, sequence_order } = payload;
+    if (!route_id || !pickup_point_id) return NextResponse.json({ result: 'error', message: 'Route and pickup point required.' });
+    const r = await sb('route_pickup_points', 'POST', { route_id, pickup_point_id, sequence_order: Number(sequence_order) || 0 });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'get_route_pickup_points') {
+    const { route_id } = payload;
+    const rows = await sb(`route_pickup_points?route_id=eq.${encodeURIComponent(route_id)}&select=*,pickup_points(name,landmark)&order=sequence_order.asc`);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', stops: rows });
+  }
+
+  if (action === 'assign_vehicle_to_route') {
+    const { route_id, vehicle_id } = payload;
+    if (!route_id || !vehicle_id) return NextResponse.json({ result: 'error', message: 'Route and vehicle required.' });
+    const r = await sb('vehicle_assignments', 'POST', { route_id, vehicle_id });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'get_vehicle_assignments') {
+    const rows = await sb('vehicle_assignments?select=*,transport_routes(name),transport_vehicles(name,registration_no)');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', assignments: rows });
+  }
+
+  if (action === 'get_transport_fee_master') {
+    const rows = await sb('transport_fee_master?select=*,transport_routes(name)&order=name.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', fees: rows });
+  }
+  if (action === 'save_transport_fee_master') {
+    const { route_id, name, amount, collection_mode } = payload;
+    if (!name || !amount) return NextResponse.json({ result: 'error', message: 'Name and amount required.' });
+    const r = await sb('transport_fee_master', 'POST', { route_id: route_id || null, name, amount: Number(amount), collection_mode: collection_mode || 'Monthly' });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  // Mirrors generate_individual_fee from Fees & Dues (Phase 1) exactly, just
+  // against transport_fee_master/student_transport_fees instead.
+  if (action === 'generate_student_transport_fee') {
+    const { student_id, transport_fee_master_id, academic_year, fee_month } = payload;
+    if (!student_id || !transport_fee_master_id || !academic_year || !fee_month) return NextResponse.json({ result: 'error', message: 'All fields required.' });
+    const feeRows = await sb(`transport_fee_master?id=eq.${encodeURIComponent(transport_fee_master_id)}&select=amount`);
+    if (feeRows?.error || !feeRows.length) return NextResponse.json({ result: 'error', message: 'Transport fee not found.' });
+    const amount = Number(feeRows[0].amount);
+    const r = await sb('student_transport_fees', 'POST', { student_id, transport_fee_master_id, academic_year, fee_month, amount });
+    if (r?.error) return NextResponse.json({ result: 'error', message: 'Already generated for this month, or: ' + r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'get_student_transport_fees') {
+    const { student_id } = payload;
+    if (!student_id) return NextResponse.json({ result: 'error', message: 'student_id required.' });
+    const rows = await sb(`student_transport_fees?student_id=eq.${encodeURIComponent(student_id)}&select=*,transport_fee_master(name)&order=academic_year.desc,fee_month.desc`);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', fees: rows });
   }
 
   if (action === 'get_tab_data') {

@@ -946,7 +946,12 @@
                             <div class="nav nav-pills" role="tablist">
                                 <button class="btn btn-sm fw-800 active me-2" data-bs-toggle="tab" data-bs-target="#admin-manage" style="background:rgba(255,255,255,0.18);color:#fff;border-radius:10px;border:none">Setup</button>
                                 <button class="btn btn-sm fw-800 me-2" data-bs-toggle="tab" data-bs-target="#admin-reports" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">Data</button>
-                                <button class="btn btn-sm fw-800 me-2" data-bs-toggle="tab" data-bs-target="#admin-access" onclick="loadFieldCategories();loadFieldGrants()" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">Access</button>
+                                <button class="btn btn-sm fw-800 me-2" data-bs-toggle="tab" data-bs-target="#admin-access" onclick="loadFieldCategories();loadFieldGrants();loadAdminTabVisibility()" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">Access</button>
+                                <button class="btn btn-sm fw-800 me-2" data-bs-toggle="tab" data-bs-target="#admin-fees" onclick="loadFeeTypes();loadFeeAccounts()" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">Fees</button>
+                                <button class="btn btn-sm fw-800 me-2" data-bs-toggle="tab" data-bs-target="#admin-attendance" onclick="loadAttendanceDevices()" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">Attendance</button>
+                                <button class="btn btn-sm fw-800 me-2" data-bs-toggle="tab" data-bs-target="#admin-exams" onclick="loadExams();loadGradeScales()" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">Exams</button>
+                                <button class="btn btn-sm fw-800 me-2" data-bs-toggle="tab" data-bs-target="#admin-payroll" onclick="loadSalaryStructures();loadPayrollRuns();loadLeaveRequests()" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">Payroll</button>
+                                <button class="btn btn-sm fw-800 me-2" data-bs-toggle="tab" data-bs-target="#admin-transport" onclick="loadTransportRoutes();loadTransportVehicles();loadTransportPickupPoints();loadTransportFeeMaster()" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">Transport</button>
                                 <button class="btn btn-sm fw-800 me-2" data-bs-toggle="tab" data-bs-target="#admin-history" onclick="loadEditHistory()" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">History</button>
                                 <button class="btn btn-sm fw-800 me-2" data-bs-toggle="tab" data-bs-target="#admin-nfc" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">NFC</button>
                                 <button class="btn btn-sm fw-800 me-2" data-bs-toggle="tab" data-bs-target="#admin-photo" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">Photo</button>
@@ -1045,6 +1050,23 @@
                                     <div class="table-responsive rounded-4 border"><table class="table table-hover align-middle mb-0" id="summary-table"><thead class="bg-light"><tr id="summary-headers"></tr></thead><tbody id="summary-body"></tbody></table></div>
                                 </div>
                                 <div class="tab-pane" id="admin-access">
+                                    <!-- Which roles can use each of the 5 ERP tabs, admin-configurable. Admin
+                                         itself is always allowed and its checkbox is locked, mirroring the
+                                         outer module-access matrix pattern used elsewhere in this app. -->
+                                    <div class="p-4 bg-light rounded-4 border mb-4">
+                                        <div class="d-flex justify-content-between align-items-center mb-3">
+                                            <span class="fw-800"><i class="bi bi-toggles text-primary me-2"></i>Admin Console Module Access</span>
+                                            <button class="btn btn-sm btn-primary rounded-pill px-3" id="tab-access-save-btn" onclick="saveAdminTabVisibility()">Save</button>
+                                        </div>
+                                        <p class="small text-muted mb-3" style="font-size:0.72rem">Choose which roles can open each of these admin tabs. Admin always has access. Payroll defaults to Admin + HR only — the other four default to Admin + Student Portal Admin.</p>
+                                        <div class="table-responsive">
+                                            <table class="table table-sm align-middle mb-0" id="tab-access-table">
+                                                <thead><tr><th>Tab</th></tr></thead>
+                                                <tbody><tr><td class="text-muted small fst-italic">Loading...</td></tr></tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+
                                     <!-- Field categories: named, reusable groups of student fields, used both
                                          to scope a viewer's visible fields and to pick exactly which columns
                                          a CSV export contains. -->
@@ -1121,6 +1143,328 @@
                                             <div class="col-md-6"><button class="btn btn-success btn-sm w-100 fw-800" onclick="downloadByCategoryAdmin()"><i class="bi bi-download"></i> Download CSV</button></div>
                                         </div>
                                     </div>
+                                </div>
+                                <div class="tab-pane" id="admin-fees">
+                                    <ul class="nav nav-tabs mb-3" id="fees-subtabs">
+                                        <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#fees-types">Fee Types</button></li>
+                                        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#fees-structures" onclick="loadFeeStructures()">Fee Structures</button></li>
+                                        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#fees-generate">Generate Fees</button></li>
+                                        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#fees-late" onclick="loadLateFeeRules()">Late Fee Rules</button></li>
+                                        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#fees-student">Student Fees / Discounts</button></li>
+                                        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#fees-reports" onclick="loadDefaultersList();loadFeesCollectionReport()">Reports</button></li>
+                                        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#fees-accounts" onclick="loadFeeAccounts();loadAccountRegister()">Accounts</button></li>
+                                    </ul>
+                                    <div class="tab-content">
+                                        <div class="tab-pane active" id="fees-types">
+                                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                                <span class="fw-800"><i class="bi bi-tags text-primary me-2"></i>Fee Types</span>
+                                                <button class="btn btn-sm btn-primary rounded-pill px-3" onclick="openFeeTypeEditor(null)">+ New Fee Type</button>
+                                            </div>
+                                            <div id="fee-types-list" class="d-flex flex-column gap-2"><span class="text-muted small fst-italic">Loading...</span></div>
+                                        </div>
+
+                                        <div class="tab-pane" id="fees-structures">
+                                            <div class="p-4 bg-light rounded-4 border mb-3">
+                                                <span class="fw-800 mb-3 d-block"><i class="bi bi-diagram-3 text-primary me-2"></i>New Fee Structure</span>
+                                                <div class="row g-2">
+                                                    <div class="col-md-3"><select id="fs-fee-type" class="form-select form-select-sm"><option value="">Fee Type...</option></select></div>
+                                                    <div class="col-md-2"><input type="text" id="fs-class" class="form-control form-control-sm" placeholder="Class"></div>
+                                                    <div class="col-md-2"><input type="text" id="fs-section" class="form-control form-control-sm" placeholder="Section (optional)"></div>
+                                                    <div class="col-md-2"><input type="text" id="fs-year" class="form-control form-control-sm" placeholder="Academic Year" value="2026"></div>
+                                                    <div class="col-md-2"><input type="number" id="fs-amount" class="form-control form-control-sm" placeholder="Amount"></div>
+                                                    <div class="col-md-1"><button class="btn btn-sm btn-primary w-100" onclick="saveFeeStructure()"><i class="bi bi-check-lg"></i></button></div>
+                                                </div>
+                                                <select id="fs-collection-mode" class="form-select form-select-sm mt-2" style="max-width:220px">
+                                                    <option value="Monthly">Monthly</option>
+                                                    <option value="OnReceive">On Receive</option>
+                                                    <option value="OneTime">One Time</option>
+                                                </select>
+                                            </div>
+                                            <div class="table-responsive rounded-4 border"><table class="table table-hover align-middle mb-0 small" id="fee-structures-table"><thead class="bg-light"><tr><th>Fee Type</th><th>Class</th><th>Section</th><th>Year</th><th>Amount</th><th>Mode</th><th>Actions</th></tr></thead><tbody id="fee-structures-body"></tbody></table></div>
+                                        </div>
+
+                                        <div class="tab-pane" id="fees-generate">
+                                            <div class="row g-4">
+                                                <div class="col-md-6">
+                                                    <div class="p-4 bg-light rounded-4 border h-100">
+                                                        <span class="fw-800 mb-3 d-block"><i class="bi bi-people text-primary me-2"></i>Classwise Fee Generation</span>
+                                                        <div class="d-flex flex-column gap-2">
+                                                            <select id="gen-cw-fee-type" class="form-select form-select-sm"><option value="">Fee Type...</option></select>
+                                                            <input type="text" id="gen-cw-class" class="form-control form-control-sm" placeholder="Class">
+                                                            <input type="text" id="gen-cw-section" class="form-control form-control-sm" placeholder="Section (optional)">
+                                                            <input type="text" id="gen-cw-year" class="form-control form-control-sm" placeholder="Academic Year" value="2026">
+                                                            <input type="text" id="gen-cw-month" class="form-control form-control-sm" placeholder="Fee Month (e.g. January)">
+                                                            <button class="btn btn-success fw-800" onclick="generateClasswiseFees()">Generate for Class</button>
+                                                            <span id="gen-cw-status" class="small fw-700"></span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <div class="p-4 bg-light rounded-4 border h-100">
+                                                        <span class="fw-800 mb-3 d-block"><i class="bi bi-person text-primary me-2"></i>Individual Student Fee Generation</span>
+                                                        <div class="d-flex flex-column gap-2">
+                                                            <input type="text" id="gen-ind-student" class="form-control form-control-sm" placeholder="Student ID">
+                                                            <select id="gen-ind-fee-type" class="form-select form-select-sm"><option value="">Fee Type...</option></select>
+                                                            <input type="text" id="gen-ind-year" class="form-control form-control-sm" placeholder="Academic Year" value="2026">
+                                                            <input type="text" id="gen-ind-month" class="form-control form-control-sm" placeholder="Fee Month (e.g. January)">
+                                                            <button class="btn btn-success fw-800" onclick="generateIndividualFee()">Generate for Student</button>
+                                                            <span id="gen-ind-status" class="small fw-700"></span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="tab-pane" id="fees-late">
+                                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                                <span class="fw-800"><i class="bi bi-alarm text-primary me-2"></i>Late Fee Rules</span>
+                                                <button class="btn btn-sm btn-primary rounded-pill px-3" onclick="openLateFeeEditor(null)">+ New Rule</button>
+                                            </div>
+                                            <p class="small text-muted mb-3" style="font-size:0.72rem">Late fee applies immediately after the deadline is missed (no grace period). Fee is a fixed one-time amount — not per-day, not tiered.</p>
+                                            <div id="late-fee-rules-list" class="d-flex flex-column gap-2"><span class="text-muted small fst-italic">Loading...</span></div>
+                                        </div>
+
+                                        <div class="tab-pane" id="fees-student">
+                                            <div class="row g-2 mb-3">
+                                                <div class="col-md-4"><input type="text" id="stufee-search-id" class="form-control" placeholder="Student ID"></div>
+                                                <div class="col-md-2"><button class="btn btn-primary w-100" onclick="loadStudentFees()"><i class="bi bi-search"></i> Search</button></div>
+                                            </div>
+                                            <div id="student-fees-list" class="table-responsive rounded-4 border"><table class="table table-hover align-middle mb-0 small"><thead class="bg-light"><tr><th>Fee Type</th><th>Year</th><th>Month</th><th>Total</th><th>Active Due</th><th>Deferred</th><th>Status</th><th>Actions</th></tr></thead><tbody id="student-fees-body"><tr><td colspan="8" class="text-muted small p-3">Search a student to see their fees.</td></tr></tbody></table></div>
+                                            <div class="p-3 bg-light rounded-4 border mt-3">
+                                                <span class="fw-800 small d-block mb-2">Add Discount / Waiver for this student</span>
+                                                <div class="row g-2">
+                                                    <div class="col-md-3"><select id="disc-fee-type" class="form-select form-select-sm"><option value="">Any fee type...</option></select></div>
+                                                    <div class="col-md-2"><select id="disc-type" class="form-select form-select-sm"><option value="fixed">Fixed</option><option value="percent">Percent</option></select></div>
+                                                    <div class="col-md-2"><input type="number" id="disc-value" class="form-control form-control-sm" placeholder="Value"></div>
+                                                    <div class="col-md-3"><input type="text" id="disc-reason" class="form-control form-control-sm" placeholder="Reason"></div>
+                                                    <div class="col-md-2"><button class="btn btn-sm btn-outline-primary w-100" onclick="saveFeeDiscount()">Add</button></div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="tab-pane" id="fees-reports">
+                                            <div class="row g-4">
+                                                <div class="col-md-6">
+                                                    <span class="fw-800 mb-2 d-block"><i class="bi bi-exclamation-triangle text-danger me-2"></i>Defaulters List</span>
+                                                    <input type="text" id="def-class-filter" class="form-control form-control-sm mb-2" placeholder="Filter by class (optional)" style="max-width:260px">
+                                                    <button class="btn btn-sm btn-outline-danger mb-2" onclick="loadDefaultersList()">Refresh</button>
+                                                    <div class="table-responsive rounded-4 border" style="max-height:340px;overflow-y:auto"><table class="table table-hover align-middle mb-0 small"><thead class="bg-light"><tr><th>Student</th><th>Fee Type</th><th>Month</th><th>Due</th></tr></thead><tbody id="defaulters-body"></tbody></table></div>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <span class="fw-800 mb-2 d-block"><i class="bi bi-graph-up text-success me-2"></i>Fees Collection Report</span>
+                                                    <div id="fees-collection-summary" class="mb-2"></div>
+                                                    <div class="table-responsive rounded-4 border" style="max-height:340px;overflow-y:auto"><table class="table table-hover align-middle mb-0 small"><thead class="bg-light"><tr><th>Date</th><th>Amount</th></tr></thead><tbody id="fees-collection-body"></tbody></table></div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="tab-pane" id="fees-accounts">
+                                            <div class="row g-4">
+                                                <div class="col-md-5">
+                                                    <span class="fw-800 mb-2 d-block"><i class="bi bi-bank text-primary me-2"></i>Accounts</span>
+                                                    <div class="row g-2 mb-2">
+                                                        <div class="col-7"><input type="text" id="acc-name" class="form-control form-control-sm" placeholder="Account name"></div>
+                                                        <div class="col-3"><select id="acc-type" class="form-select form-select-sm"><option value="bank">Bank</option><option value="cash">Cash</option><option value="fixed-deposit">Fixed Deposit</option></select></div>
+                                                        <div class="col-2"><button class="btn btn-sm btn-primary w-100" onclick="saveFeeAccount()">Add</button></div>
+                                                    </div>
+                                                    <div id="fee-accounts-list" class="d-flex flex-column gap-1"></div>
+                                                </div>
+                                                <div class="col-md-7">
+                                                    <span class="fw-800 mb-2 d-block"><i class="bi bi-arrow-left-right text-primary me-2"></i>Record Transaction</span>
+                                                    <div class="row g-2 mb-3">
+                                                        <div class="col-md-4"><select id="tx-account" class="form-select form-select-sm"><option value="">Account...</option></select></div>
+                                                        <div class="col-md-3"><select id="tx-direction" class="form-select form-select-sm"><option value="credit">Credit (in)</option><option value="debit">Debit (out)</option></select></div>
+                                                        <div class="col-md-3"><input type="number" id="tx-amount" class="form-control form-control-sm" placeholder="Amount"></div>
+                                                        <div class="col-md-2"><button class="btn btn-sm btn-primary w-100" onclick="recordAccountTransaction()">Save</button></div>
+                                                        <div class="col-md-12"><input type="text" id="tx-reference" class="form-control form-control-sm mt-1" placeholder="Reference (optional)"></div>
+                                                    </div>
+                                                    <div class="table-responsive rounded-4 border" style="max-height:280px;overflow-y:auto"><table class="table table-hover align-middle mb-0 small"><thead class="bg-light"><tr><th>Date</th><th>Direction</th><th>Amount</th><th>Reference</th></tr></thead><tbody id="account-register-body"></tbody></table></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="tab-pane" id="admin-attendance">
+                                    <ul class="nav nav-tabs mb-3">
+                                        <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#att-daily">Daily Report</button></li>
+                                        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#att-devices" onclick="loadAttendanceDevices()">Devices</button></li>
+                                        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#att-punchlog" onclick="loadPunchLog()">Punch Log</button></li>
+                                    </ul>
+                                    <div class="tab-content">
+                                        <div class="tab-pane active" id="att-daily">
+                                            <div class="row g-2 mb-3">
+                                                <div class="col-md-3"><input type="text" id="att-class" class="form-control" placeholder="Class"></div>
+                                                <div class="col-md-2"><input type="text" id="att-section" class="form-control" placeholder="Section (optional)"></div>
+                                                <div class="col-md-3"><input type="date" id="att-date" class="form-control"></div>
+                                                <div class="col-md-2"><button class="btn btn-primary w-100" onclick="loadAttendanceReport()">Load</button></div>
+                                            </div>
+                                            <div id="att-summary" class="mb-2 fw-800 small"></div>
+                                            <div class="table-responsive rounded-4 border"><table class="table table-hover align-middle mb-0 small"><thead class="bg-light"><tr><th>Roll</th><th>Name</th><th>Status</th><th>Source</th><th>Override</th></tr></thead><tbody id="attendance-report-body"><tr><td colspan="5" class="text-muted small p-3">Pick a class and date, then Load.</td></tr></tbody></table></div>
+                                        </div>
+                                        <div class="tab-pane" id="att-devices">
+                                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                                <span class="fw-800"><i class="bi bi-hdd-network text-primary me-2"></i>Attendance Devices</span>
+                                                <button class="btn btn-sm btn-primary rounded-pill px-3" onclick="openAttendanceDeviceEditor()">+ Add Device</button>
+                                            </div>
+                                            <p class="small text-muted mb-3" style="font-size:0.72rem">ESP32 is the primary attendance channel. ZKTeco or other biometric terminals are optional additional devices, not a replacement.</p>
+                                            <div id="attendance-devices-list" class="d-flex flex-column gap-2"><span class="text-muted small fst-italic">Loading...</span></div>
+                                        </div>
+                                        <div class="tab-pane" id="att-punchlog">
+                                            <div class="row g-2 mb-3">
+                                                <div class="col-md-3"><select id="pl-person-type" class="form-select"><option value="">All person types</option><option value="student">Student</option><option value="staff">Staff</option><option value="unmatched">Unmatched</option></select></div>
+                                                <div class="col-md-2"><button class="btn btn-outline-primary w-100" onclick="loadPunchLog()">Refresh</button></div>
+                                            </div>
+                                            <div class="table-responsive rounded-4 border" style="max-height:420px;overflow-y:auto"><table class="table table-hover align-middle mb-0 small"><thead class="bg-light"><tr><th>Time</th><th>Device User</th><th>Type</th><th>Person</th><th>Verify</th><th>Matched</th></tr></thead><tbody id="punch-log-body"></tbody></table></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="tab-pane" id="admin-exams">
+                                    <ul class="nav nav-tabs mb-3">
+                                        <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#exam-setup">Exam Setup</button></li>
+                                        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#exam-marks">Marks Entry</button></li>
+                                        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#exam-process">Result Process</button></li>
+                                        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#exam-grades" onclick="loadGradeScales()">Grade Setup</button></li>
+                                        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#exam-board" onclick="loadBoardExamRecords()">Board Exam Records</button></li>
+                                    </ul>
+                                    <div class="tab-content">
+                                        <div class="tab-pane active" id="exam-setup">
+                                            <div class="row g-4">
+                                                <div class="col-md-5">
+                                                    <div class="p-4 bg-light rounded-4 border">
+                                                        <span class="fw-800 mb-3 d-block"><i class="bi bi-journal-plus text-primary me-2"></i>New Exam</span>
+                                                        <div class="d-flex flex-column gap-2">
+                                                            <input type="text" id="ex-name" class="form-control form-control-sm" placeholder="Exam name (e.g. Half Yearly Exam)">
+                                                            <select id="ex-type" class="form-select form-select-sm"><option>Term</option><option>Half-Yearly</option><option>Final</option><option>Continuous-Test</option></select>
+                                                            <input type="text" id="ex-year" class="form-control form-control-sm" placeholder="Academic Year" value="2026">
+                                                            <input type="text" id="ex-medium" class="form-control form-control-sm" placeholder="Medium (optional)">
+                                                            <input type="text" id="ex-class" class="form-control form-control-sm" placeholder="Class">
+                                                            <button class="btn btn-primary fw-800" onclick="saveExam()">Create Exam</button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="col-md-7">
+                                                    <span class="fw-800 mb-2 d-block"><i class="bi bi-list-ul text-primary me-2"></i>Exams</span>
+                                                    <div id="exams-list" class="d-flex flex-column gap-2"><span class="text-muted small fst-italic">Loading...</span></div>
+                                                    <div id="exam-subjects-panel" class="mt-4"></div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="tab-pane" id="exam-marks">
+                                            <div class="row g-2 mb-3">
+                                                <div class="col-md-3"><select id="me-exam" class="form-select"><option value="">Select exam...</option></select></div>
+                                                <div class="col-md-2"><select id="me-subject" class="form-select"><option value="">Subject...</option></select></div>
+                                                <div class="col-md-2"><input type="text" id="me-class" class="form-control" placeholder="Class"></div>
+                                                <div class="col-md-2"><input type="text" id="me-section" class="form-control" placeholder="Section"></div>
+                                                <div class="col-md-2"><button class="btn btn-primary w-100" onclick="loadMarksEntry()">Load Students</button></div>
+                                            </div>
+                                            <div class="table-responsive rounded-4 border" style="max-height:420px;overflow-y:auto"><table class="table table-hover align-middle mb-0"><thead class="bg-light"><tr><th>Roll</th><th>Name</th><th>Marks</th></tr></thead><tbody id="marks-entry-body"><tr><td colspan="3" class="text-muted small p-3">Pick an exam, subject, and class.</td></tr></tbody></table></div>
+                                            <button class="btn btn-success fw-800 mt-2" onclick="saveMarksEntry()">Save All Marks</button>
+                                            <span id="marks-entry-status" class="small fw-700 ms-2"></span>
+                                        </div>
+
+                                        <div class="tab-pane" id="exam-process">
+                                            <div class="row g-2 mb-3">
+                                                <div class="col-md-4"><select id="pr-exam" class="form-select"><option value="">Select exam...</option></select></div>
+                                                <div class="col-md-2"><button class="btn btn-primary w-100" onclick="processExamResult()">Process Result</button></div>
+                                                <div class="col-md-2"><button class="btn btn-outline-danger w-100" onclick="toggleExamLock(true)">Lock</button></div>
+                                                <div class="col-md-2"><button class="btn btn-outline-secondary w-100" onclick="toggleExamLock(false)">Unlock</button></div>
+                                            </div>
+                                            <div class="table-responsive rounded-4 border"><table class="table table-hover align-middle mb-0 small"><thead class="bg-light"><tr><th>Position</th><th>Student</th><th>Total</th><th>%</th><th>GPA</th><th>Grade</th><th>Pass/Fail</th></tr></thead><tbody id="exam-results-body"><tr><td colspan="7" class="text-muted small p-3">Select an exam and process.</td></tr></tbody></table></div>
+                                        </div>
+
+                                        <div class="tab-pane" id="exam-grades">
+                                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                                <span class="fw-800"><i class="bi bi-star text-primary me-2"></i>Grade Point List</span>
+                                            </div>
+                                            <div class="row g-2 mb-3">
+                                                <div class="col-md-2"><input type="number" id="gs-gp" class="form-control form-control-sm" placeholder="GP" step="0.1"></div>
+                                                <div class="col-md-2"><input type="number" id="gs-min" class="form-control form-control-sm" placeholder="Min %"></div>
+                                                <div class="col-md-2"><input type="number" id="gs-max" class="form-control form-control-sm" placeholder="Max %"></div>
+                                                <div class="col-md-2"><input type="text" id="gs-letter" class="form-control form-control-sm" placeholder="Letter (A+)"></div>
+                                                <div class="col-md-3"><input type="text" id="gs-label" class="form-control form-control-sm" placeholder="Label (Excellent)"></div>
+                                                <div class="col-md-1"><button class="btn btn-sm btn-primary w-100" onclick="saveGradeScale()">+</button></div>
+                                            </div>
+                                            <div class="table-responsive rounded-4 border"><table class="table table-hover align-middle mb-0 small"><thead class="bg-light"><tr><th>GP</th><th>Marks</th><th>Grade</th><th>Label</th><th></th></tr></thead><tbody id="grade-scales-body"></tbody></table></div>
+                                        </div>
+
+                                        <div class="tab-pane" id="exam-board">
+                                            <div class="row g-2 mb-3">
+                                                <div class="col-md-3"><input type="text" id="be-student" class="form-control" placeholder="Student ID"></div>
+                                                <div class="col-md-2"><select id="be-type" class="form-select"><option>JSC</option><option>SSC</option><option>HSC</option></select></div>
+                                                <div class="col-md-3"><input type="text" id="be-reg" class="form-control" placeholder="Registration #"></div>
+                                                <div class="col-md-2"><input type="text" id="be-roll" class="form-control" placeholder="Board Roll #"></div>
+                                                <div class="col-md-2"><button class="btn btn-primary w-100" onclick="saveBoardExamRecord()">Save</button></div>
+                                            </div>
+                                            <div class="table-responsive rounded-4 border" style="max-height:380px;overflow-y:auto"><table class="table table-hover align-middle mb-0 small"><thead class="bg-light"><tr><th>Student</th><th>Type</th><th>Registration #</th><th>Roll #</th></tr></thead><tbody id="board-exam-body"></tbody></table></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="tab-pane" id="admin-payroll">
+                                    <ul class="nav nav-tabs mb-3">
+                                        <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#pr-salary">Salary Setup</button></li>
+                                        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#pr-run">Run Payroll</button></li>
+                                        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#pr-leave" onclick="loadLeaveRequests()">Leave Requests</button></li>
+                                    </ul>
+                                    <div class="tab-content">
+                                        <div class="tab-pane active" id="pr-salary">
+                                            <div class="p-4 bg-light rounded-4 border mb-3">
+                                                <span class="fw-800 mb-2 d-block">New / Update Salary Structure</span>
+                                                <div class="row g-2">
+                                                    <div class="col-md-3"><input type="text" id="ss-designation" class="form-control form-control-sm" placeholder="Designation / Role (e.g. Teacher)"></div>
+                                                    <div class="col-md-3"><input type="number" id="ss-basic" class="form-control form-control-sm" placeholder="Basic Salary"></div>
+                                                    <div class="col-md-3"><input type="number" id="ss-allowance" class="form-control form-control-sm" placeholder="Total Allowances"></div>
+                                                    <div class="col-md-2"><input type="number" id="ss-deduction" class="form-control form-control-sm" placeholder="Total Deductions"></div>
+                                                    <div class="col-md-1"><button class="btn btn-sm btn-primary w-100" onclick="saveSalaryStructure()">Save</button></div>
+                                                </div>
+                                            </div>
+                                            <div class="table-responsive rounded-4 border"><table class="table table-hover align-middle mb-0 small"><thead class="bg-light"><tr><th>Designation</th><th>Basic</th><th>Allowances</th><th>Deductions</th></tr></thead><tbody id="salary-structures-body"></tbody></table></div>
+                                        </div>
+                                        <div class="tab-pane" id="pr-run">
+                                            <div class="row g-2 mb-3">
+                                                <div class="col-md-3"><input type="text" id="pr-month" class="form-control" placeholder="Month (e.g. January)"></div>
+                                                <div class="col-md-2"><input type="text" id="pr-year" class="form-control" placeholder="Year" value="2026"></div>
+                                                <div class="col-md-3"><button class="btn btn-primary w-100" onclick="runPayroll()">Run Payroll</button></div>
+                                            </div>
+                                            <span id="payroll-run-status" class="small fw-700"></span>
+                                            <div class="table-responsive rounded-4 border mt-3"><table class="table table-hover align-middle mb-0 small"><thead class="bg-light"><tr><th>Teacher</th><th>Gross</th><th>Deductions</th><th>Net</th></tr></thead><tbody id="payslips-body"></tbody></table></div>
+                                        </div>
+                                        <div class="tab-pane" id="pr-leave">
+                                            <div class="table-responsive rounded-4 border"><table class="table table-hover align-middle mb-0 small"><thead class="bg-light"><tr><th>Teacher</th><th>Type</th><th>Dates</th><th>Reason</th><th>Status</th><th>Actions</th></tr></thead><tbody id="leave-requests-body"></tbody></table></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="tab-pane" id="admin-transport">
+                                    <p class="small text-muted mb-3" style="font-size:0.72rem">Live GPS tracking stays in the standalone Bus Tracking app — this is route/vehicle/pickup-point/fee administration only.</p>
+                                    <div class="row g-4">
+                                        <div class="col-md-4">
+                                            <span class="fw-800 mb-2 d-block"><i class="bi bi-signpost-split text-primary me-2"></i>Routes</span>
+                                            <div class="d-flex gap-2 mb-2"><input type="text" id="tr-route-name" class="form-control form-control-sm" placeholder="Route name"><button class="btn btn-sm btn-primary" onclick="saveTransportRoute()">+</button></div>
+                                            <div id="transport-routes-list" class="d-flex flex-column gap-1"></div>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <span class="fw-800 mb-2 d-block"><i class="bi bi-truck text-primary me-2"></i>Vehicles</span>
+                                            <div class="d-flex flex-column gap-1 mb-2">
+                                                <input type="text" id="tr-vehicle-name" class="form-control form-control-sm" placeholder="Vehicle name/no.">
+                                                <input type="text" id="tr-vehicle-driver" class="form-control form-control-sm" placeholder="Driver name">
+                                                <button class="btn btn-sm btn-primary" onclick="saveTransportVehicle()">Add Vehicle</button>
+                                            </div>
+                                            <div id="transport-vehicles-list" class="d-flex flex-column gap-1"></div>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <span class="fw-800 mb-2 d-block"><i class="bi bi-geo-alt text-primary me-2"></i>Pickup Points</span>
+                                            <div class="d-flex gap-2 mb-2"><input type="text" id="tr-point-name" class="form-control form-control-sm" placeholder="Point name"><button class="btn btn-sm btn-primary" onclick="saveTransportPickupPoint()">+</button></div>
+                                            <div id="transport-points-list" class="d-flex flex-column gap-1"></div>
+                                        </div>
+                                    </div>
+                                    <hr class="my-4">
+                                    <span class="fw-800 mb-2 d-block"><i class="bi bi-cash-coin text-primary me-2"></i>Transport Fees</span>
+                                    <div class="row g-2 mb-2">
+                                        <div class="col-md-4"><input type="text" id="tf-name" class="form-control form-control-sm" placeholder="Fee name (e.g. Route A Monthly)"></div>
+                                        <div class="col-md-2"><input type="number" id="tf-amount" class="form-control form-control-sm" placeholder="Amount"></div>
+                                        <div class="col-md-2"><button class="btn btn-sm btn-primary w-100" onclick="saveTransportFeeMaster()">Add</button></div>
+                                    </div>
+                                    <div id="transport-fees-list" class="d-flex flex-column gap-1"></div>
                                 </div>
                                 <div class="tab-pane" id="admin-history">
                                     <p class="small text-muted mb-3" style="font-size:0.72rem">Every change to a student's record is logged here automatically (who/what changed and when) — search by Student ID, name, class, section, or roll.</p>
@@ -1504,6 +1848,7 @@
         // Personal Hub is intentionally excluded — always on, no toggle for it.
         const PERMANENT_TABS = [
             { id: 'wallet', name: 'Wallet', icon: 'bi-wallet2' },
+            { id: 'fees', name: 'Fees & Dues', icon: 'bi-cash-stack' },
             { id: 'canteen', name: 'Canteen', icon: 'bi-cup-hot-fill' },
             { id: 'stationary', name: 'Stationary', icon: 'bi-bag-fill' },
             { id: 'teachers', name: 'Teacher Directory', icon: 'bi-people-fill' },
@@ -4861,6 +5206,55 @@
         // ── Field categories ─────────────────────────────────────────────
         let _fieldCategories = []; // [{ name, fields: [...] }]
 
+        const TAB_ACCESS_LABELS = { fees: 'Fees', attendance: 'Attendance', exams: 'Exams', payroll: 'Payroll (incl. Leave)', transport: 'Transport' };
+        const TAB_ACCESS_ROLES = ['Student Portal Admin', 'HR', 'Principal', 'VP', 'Teacher', 'Staff'];
+        let _tabAccessDefaults = {}, _tabAccessMatrix = {};
+
+        // Admin-only (enforced server-side too) — lets an Admin pick exactly
+        // which roles can open each of the 5 ERP tabs. Not shown at all to a
+        // non-Admin caller (e.g. a delegated Student Portal Admin), since the
+        // server would 403 anyway and this matrix also governs Payroll.
+        function loadAdminTabVisibility() {
+            const tbody = document.querySelector('#tab-access-table tbody');
+            const card = document.getElementById('tab-access-save-btn')?.closest('.p-4');
+            portalFetch('get_admin_tab_visibility', {}).then(res => {
+                if (!res || res.result !== 'success') {
+                    if (card) card.style.display = 'none'; // e.g. 403 for a non-Admin — hide the whole card
+                    return;
+                }
+                _tabAccessDefaults = res.defaults || {};
+                _tabAccessMatrix = res.matrix || {};
+                renderAdminTabVisibility();
+            }).catch(() => {});
+        }
+
+        function renderAdminTabVisibility() {
+            const thead = document.querySelector('#tab-access-table thead tr');
+            const tbody = document.querySelector('#tab-access-table tbody');
+            if (!thead || !tbody) return;
+            thead.innerHTML = '<th>Tab</th>' + TAB_ACCESS_ROLES.map(r => `<th class="text-center small">${r}</th>`).join('');
+            tbody.innerHTML = Object.keys(TAB_ACCESS_LABELS).map(tab => {
+                const allowed = _tabAccessMatrix[tab] || _tabAccessDefaults[tab] || [];
+                return `<tr>
+                    <td class="fw-800 small">${TAB_ACCESS_LABELS[tab]}</td>
+                    ${TAB_ACCESS_ROLES.map(r => `<td class="text-center"><input type="checkbox" class="form-check-input tab-access-cb" data-tab="${tab}" data-role="${r}" ${allowed.includes(r) ? 'checked' : ''}></td>`).join('')}
+                </tr>`;
+            }).join('');
+        }
+
+        function saveAdminTabVisibility() {
+            const matrix = {};
+            Object.keys(TAB_ACCESS_LABELS).forEach(tab => { matrix[tab] = []; });
+            document.querySelectorAll('.tab-access-cb:checked').forEach(cb => matrix[cb.dataset.tab].push(cb.dataset.role));
+            const btn = document.getElementById('tab-access-save-btn');
+            if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+            portalFetch('save_admin_tab_visibility', { matrix }).then(res => {
+                if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+                if (res && res.result === 'success') { _tabAccessMatrix = res.matrix; showToast('Module access saved'); }
+                else showToast((res && res.message) || 'Failed to save', 'error');
+            }).catch(() => { if (btn) { btn.disabled = false; btn.textContent = 'Save'; } showToast('Network error', 'error'); });
+        }
+
         function loadFieldCategories() {
             portalFetch('get_field_categories', {}).then(res => {
                 _fieldCategories = (res && res.result === 'success' && Array.isArray(res.categories)) ? res.categories : [];
@@ -5071,6 +5465,653 @@
                     renderGrantStaffList();
                     renderFieldGrantsList();
                 }
+            });
+        }
+
+        // ── Fees & Dues ───────────────────────────────────────────────────
+        let _feeTypes = [];
+
+        function _feeTypeOptions(selected) {
+            return _feeTypes.map(f => `<option value="${f.id}" ${String(f.id) === String(selected) ? 'selected' : ''}>${f.name}</option>`).join('');
+        }
+        function _populateFeeTypeSelects() {
+            ['fs-fee-type', 'gen-cw-fee-type', 'gen-ind-fee-type'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.innerHTML = '<option value="">Fee Type...</option>' + _feeTypeOptions();
+            });
+            const discSel = document.getElementById('disc-fee-type');
+            if (discSel) discSel.innerHTML = '<option value="">Any fee type...</option>' + _feeTypeOptions();
+        }
+
+        function loadFeeTypes() {
+            portalFetch('get_fee_types', {}).then(res => {
+                _feeTypes = (res && res.result === 'success' && res.fee_types) || [];
+                renderFeeTypesList();
+                _populateFeeTypeSelects();
+            });
+        }
+        function renderFeeTypesList() {
+            const host = document.getElementById('fee-types-list');
+            if (!host) return;
+            host.innerHTML = _feeTypes.length ? _feeTypes.map(f => `
+                <div class="d-flex justify-content-between align-items-center border rounded px-3 py-2 bg-white">
+                    <div>
+                        <span class="fw-800 small">${f.name}</span>
+                        <span class="badge bg-light text-secondary ms-2">${f.code}</span>
+                        ${!f.is_active ? '<span class="badge bg-secondary ms-1">Inactive</span>' : ''}
+                        <span class="text-muted small ms-2">${f.description || ''}</span>
+                    </div>
+                    <div class="d-flex gap-1">
+                        <button class="btn btn-sm btn-outline-secondary" onclick='openFeeTypeEditor(${JSON.stringify(f).replace(/'/g, "&apos;")})'><i class="bi bi-pencil"></i></button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteFeeType(${f.id})"><i class="bi bi-trash"></i></button>
+                    </div>
+                </div>`).join('') : '<span class="text-muted small fst-italic">No fee types yet — create one to get started.</span>';
+        }
+        function openFeeTypeEditor(existing) {
+            const overlay = document.createElement('div');
+            overlay.id = 'fee-type-overlay';
+            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:3000;display:flex;align-items:center;justify-content:center;padding:16px';
+            overlay.innerHTML = `
+                <div style="background:#fff;border-radius:16px;max-width:480px;width:100%">
+                    <div class="p-3 border-bottom d-flex justify-content-between align-items-center">
+                        <strong>${existing ? 'Edit' : 'New'} Fee Type</strong>
+                        <button class="btn-close" onclick="document.getElementById('fee-type-overlay').remove()"></button>
+                    </div>
+                    <div class="p-3 d-flex flex-column gap-2">
+                        <input type="hidden" id="ft-id" value="${existing ? existing.id : ''}">
+                        <label class="small fw-700">Fee Type Name</label>
+                        <input type="text" id="ft-name" class="form-control" value="${existing ? existing.name.replace(/"/g,'&quot;') : ''}">
+                        <label class="small fw-700">Code</label>
+                        <input type="text" id="ft-code" class="form-control" value="${existing ? existing.code.replace(/"/g,'&quot;') : ''}">
+                        <label class="small fw-700">Description (optional)</label>
+                        <input type="text" id="ft-desc" class="form-control" value="${existing ? (existing.description||'').replace(/"/g,'&quot;') : ''}">
+                        <div class="form-check">
+                            <input type="checkbox" class="form-check-input" id="ft-active" ${!existing || existing.is_active ? 'checked' : ''}>
+                            <label class="form-check-label small" for="ft-active">Active</label>
+                        </div>
+                    </div>
+                    <div class="p-3 border-top d-flex justify-content-end">
+                        <button class="btn btn-primary fw-800 px-4" onclick="saveFeeTypeFromEditor()">Save</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(overlay);
+        }
+        function saveFeeTypeFromEditor() {
+            const id = document.getElementById('ft-id').value || null;
+            const name = document.getElementById('ft-name').value.trim();
+            const code = document.getElementById('ft-code').value.trim().toUpperCase().replace(/\s+/g, '_');
+            const description = document.getElementById('ft-desc').value.trim();
+            const is_active = document.getElementById('ft-active').checked;
+            if (!name || !code) { if (typeof showToast === 'function') showToast('Name and code required', 'error'); return; }
+            portalFetch('save_fee_type', { id, name, code, description, is_active }).then(res => {
+                const overlay = document.getElementById('fee-type-overlay');
+                if (overlay) overlay.remove();
+                if (res && res.result === 'success') { if (typeof showToast === 'function') showToast('Fee type saved', 'success'); loadFeeTypes(); }
+                else if (typeof showToast === 'function') showToast((res && res.message) || 'Save failed', 'error');
+            });
+        }
+        function deleteFeeType(id) {
+            if (!confirm('Delete this fee type? Any related fee structures/fees are also removed.')) return;
+            portalFetch('delete_fee_type', { id }).then(res => { if (res && res.result === 'success') loadFeeTypes(); });
+        }
+
+        function loadFeeStructures() {
+            portalFetch('get_fee_structures', {}).then(res => {
+                const rows = (res && res.result === 'success' && res.fee_structures) || [];
+                document.getElementById('fee-structures-body').innerHTML = rows.map(r => `<tr>
+                    <td>${r.fee_types ? r.fee_types.name : ''}</td><td>${r.class}</td><td>${r.section || '—'}</td><td>${r.academic_year}</td>
+                    <td>৳${Number(r.amount).toLocaleString()}</td><td>${r.collection_mode}</td>
+                    <td><button class="btn btn-sm btn-outline-danger" onclick="deleteFeeStructure(${r.id})"><i class="bi bi-trash"></i></button></td>
+                </tr>`).join('') || '<tr><td colspan="7" class="text-muted small p-3">No fee structures yet.</td></tr>';
+            });
+        }
+        function saveFeeStructure() {
+            const fee_type_id = document.getElementById('fs-fee-type').value;
+            const cls = document.getElementById('fs-class').value.trim();
+            const section = document.getElementById('fs-section').value.trim();
+            const academic_year = document.getElementById('fs-year').value.trim();
+            const amount = document.getElementById('fs-amount').value;
+            const collection_mode = document.getElementById('fs-collection-mode').value;
+            if (!fee_type_id || !cls || !academic_year || !amount) { if (typeof showToast === 'function') showToast('Fill all required fields', 'error'); return; }
+            portalFetch('save_fee_structure', { fee_type_id, class: cls, section, academic_year, amount, collection_mode }).then(res => {
+                if (res && res.result === 'success') {
+                    if (typeof showToast === 'function') showToast('Fee structure saved', 'success');
+                    document.getElementById('fs-class').value = ''; document.getElementById('fs-amount').value = '';
+                    loadFeeStructures();
+                } else if (typeof showToast === 'function') showToast((res && res.message) || 'Save failed', 'error');
+            });
+        }
+        function deleteFeeStructure(id) {
+            portalFetch('delete_fee_structure', { id }).then(res => { if (res && res.result === 'success') loadFeeStructures(); });
+        }
+
+        function generateClasswiseFees() {
+            const payload = {
+                fee_type_id: document.getElementById('gen-cw-fee-type').value,
+                class: document.getElementById('gen-cw-class').value.trim(),
+                section: document.getElementById('gen-cw-section').value.trim(),
+                academic_year: document.getElementById('gen-cw-year').value.trim(),
+                fee_month: document.getElementById('gen-cw-month').value.trim(),
+            };
+            const status = document.getElementById('gen-cw-status');
+            if (!payload.fee_type_id || !payload.class || !payload.academic_year || !payload.fee_month) { status.className = 'small fw-700 text-danger'; status.textContent = 'Fill all required fields.'; return; }
+            status.className = 'small fw-700 text-muted'; status.textContent = 'Generating...';
+            portalFetch('generate_classwise_fees', payload).then(res => {
+                if (res && res.result === 'success') { status.className = 'small fw-700 text-success'; status.textContent = `Generated ${res.generated} fee(s), skipped ${res.skipped} already billed.`; }
+                else { status.className = 'small fw-700 text-danger'; status.textContent = (res && res.message) || 'Generation failed'; }
+            });
+        }
+        function generateIndividualFee() {
+            const payload = {
+                student_id: document.getElementById('gen-ind-student').value.trim(),
+                fee_type_id: document.getElementById('gen-ind-fee-type').value,
+                academic_year: document.getElementById('gen-ind-year').value.trim(),
+                fee_month: document.getElementById('gen-ind-month').value.trim(),
+            };
+            const status = document.getElementById('gen-ind-status');
+            if (!payload.student_id || !payload.fee_type_id || !payload.academic_year || !payload.fee_month) { status.className = 'small fw-700 text-danger'; status.textContent = 'Fill all required fields.'; return; }
+            status.className = 'small fw-700 text-muted'; status.textContent = 'Generating...';
+            portalFetch('generate_individual_fee', payload).then(res => {
+                if (res && res.result === 'success') { status.className = 'small fw-700 text-success'; status.textContent = 'Fee generated.'; }
+                else { status.className = 'small fw-700 text-danger'; status.textContent = (res && res.message) || 'Generation failed'; }
+            });
+        }
+
+        function loadLateFeeRules() {
+            portalFetch('get_late_fee_rules', {}).then(res => {
+                const rules = (res && res.result === 'success' && res.rules) || [];
+                const host = document.getElementById('late-fee-rules-list');
+                host.innerHTML = rules.length ? rules.map(r => `
+                    <div class="d-flex justify-content-between align-items-center border rounded px-3 py-2 bg-white">
+                        <div><span class="fw-800 small">${r.rule_name}</span> <span class="text-muted small ms-2">৳${Number(r.amount).toLocaleString()} after day ${r.due_day_of_month} of the month${!r.is_active ? ' · Inactive' : ''}</span></div>
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteLateFeeRule(${r.id})"><i class="bi bi-trash"></i></button>
+                    </div>`).join('') : '<span class="text-muted small fst-italic">No late fee rules yet.</span>';
+            });
+        }
+        function openLateFeeEditor() {
+            const overlay = document.createElement('div');
+            overlay.id = 'late-fee-overlay';
+            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:3000;display:flex;align-items:center;justify-content:center;padding:16px';
+            overlay.innerHTML = `
+                <div style="background:#fff;border-radius:16px;max-width:480px;width:100%">
+                    <div class="p-3 border-bottom d-flex justify-content-between align-items-center">
+                        <strong>New Late Fee Rule</strong>
+                        <button class="btn-close" onclick="document.getElementById('late-fee-overlay').remove()"></button>
+                    </div>
+                    <div class="p-3 d-flex flex-column gap-2">
+                        <div class="alert alert-warning small mb-2">Late fee applies immediately after the deadline is missed (no grace period). Fee is a fixed one-time amount (not per-day, not tiered).</div>
+                        <label class="small fw-700">Rule Name</label>
+                        <input type="text" id="lf-name" class="form-control" placeholder="e.g. Standard Late Fee">
+                        <label class="small fw-700">Late Fee Amount (৳)</label>
+                        <input type="number" id="lf-amount" class="form-control" placeholder="e.g. 100">
+                        <label class="small fw-700">Due Day of Month</label>
+                        <input type="number" id="lf-day" class="form-control" min="1" max="31" value="15">
+                        <label class="small fw-700">Conditions (optional)</label>
+                        <textarea id="lf-conditions" class="form-control" placeholder="e.g. Exemptions for scholarship students"></textarea>
+                    </div>
+                    <div class="p-3 border-top d-flex justify-content-end">
+                        <button class="btn btn-primary fw-800 px-4" onclick="saveLateFeeRuleFromEditor()">Create Rule</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(overlay);
+        }
+        function saveLateFeeRuleFromEditor() {
+            const rule_name = document.getElementById('lf-name').value.trim();
+            const amount = document.getElementById('lf-amount').value;
+            const due_day_of_month = document.getElementById('lf-day').value;
+            const conditions = document.getElementById('lf-conditions').value.trim();
+            if (!rule_name || !amount) { if (typeof showToast === 'function') showToast('Rule name and amount required', 'error'); return; }
+            portalFetch('save_late_fee_rule', { rule_name, amount, due_day_of_month, conditions, is_active: true }).then(res => {
+                const overlay = document.getElementById('late-fee-overlay');
+                if (overlay) overlay.remove();
+                if (res && res.result === 'success') { if (typeof showToast === 'function') showToast('Rule created', 'success'); loadLateFeeRules(); }
+                else if (typeof showToast === 'function') showToast((res && res.message) || 'Save failed', 'error');
+            });
+        }
+        function deleteLateFeeRule(id) {
+            portalFetch('delete_late_fee_rule', { id }).then(res => { if (res && res.result === 'success') loadLateFeeRules(); });
+        }
+
+        let _curStudentFeeStudentId = null;
+        function loadStudentFees() {
+            const student_id = document.getElementById('stufee-search-id').value.trim();
+            if (!student_id) return;
+            _curStudentFeeStudentId = student_id;
+            portalFetch('get_student_fees', { student_id }).then(res => {
+                const body = document.getElementById('student-fees-body');
+                const fees = (res && res.result === 'success' && res.fees) || [];
+                if (!fees.length) { body.innerHTML = '<tr><td colspan="8" class="text-muted small p-3">No fees found for this student.</td></tr>'; return; }
+                body.innerHTML = fees.map(f => `<tr>
+                    <td>${f.fee_types ? f.fee_types.name : ''}</td><td>${f.academic_year}</td><td>${f.fee_month}</td>
+                    <td>৳${Number(f.amount).toLocaleString()}</td><td>৳${Number(f.active_amount).toLocaleString()}</td><td>৳${Number(f.deferred_amount).toLocaleString()}</td>
+                    <td><span class="badge ${f.status === 'paid' ? 'bg-success' : 'bg-warning text-dark'}">${f.status}</span></td>
+                    <td>${f.status !== 'paid' ? `<button class="btn btn-sm btn-outline-success" onclick="promptRecordPayment(${f.id}, ${f.active_amount})"><i class="bi bi-cash"></i></button>` : ''}</td>
+                </tr>`).join('');
+            });
+        }
+        function promptRecordPayment(student_fee_id, activeAmount) {
+            const amount = prompt(`Amount to record as paid (active due: ৳${activeAmount}):`, activeAmount);
+            if (!amount) return;
+            portalFetch('record_payment', { student_fee_id, amount, method: 'Manual' }).then(res => {
+                if (res && res.result === 'success') { if (typeof showToast === 'function') showToast('Payment recorded', 'success'); loadStudentFees(); }
+                else if (typeof showToast === 'function') showToast((res && res.message) || 'Failed', 'error');
+            });
+        }
+        function saveFeeDiscount() {
+            if (!_curStudentFeeStudentId) { if (typeof showToast === 'function') showToast('Search a student first', 'error'); return; }
+            const fee_type_id = document.getElementById('disc-fee-type').value || null;
+            const discount_type = document.getElementById('disc-type').value;
+            const value = document.getElementById('disc-value').value;
+            const reason = document.getElementById('disc-reason').value.trim();
+            if (!value) { if (typeof showToast === 'function') showToast('Enter a value', 'error'); return; }
+            portalFetch('set_discount', { student_id: _curStudentFeeStudentId, fee_type_id, discount_type, value, reason }).then(res => {
+                if (res && res.result === 'success') { if (typeof showToast === 'function') showToast('Discount added', 'success'); document.getElementById('disc-value').value = ''; document.getElementById('disc-reason').value = ''; }
+                else if (typeof showToast === 'function') showToast((res && res.message) || 'Failed', 'error');
+            });
+        }
+
+        function loadDefaultersList() {
+            const cls = document.getElementById('def-class-filter').value.trim();
+            portalFetch('get_defaulters_list', { class: cls }).then(res => {
+                const rows = (res && res.result === 'success' && res.defaulters) || [];
+                document.getElementById('defaulters-body').innerHTML = rows.length ? rows.map(r => `<tr><td>${r.student_id}</td><td>${r.fee_types ? r.fee_types.name : ''}</td><td>${r.fee_month}</td><td>৳${Number(r.active_amount).toLocaleString()}</td></tr>`).join('') : '<tr><td colspan="4" class="text-muted small p-3">No defaulters found.</td></tr>';
+            });
+        }
+        function loadFeesCollectionReport() {
+            portalFetch('get_fees_collection_report', {}).then(res => {
+                if (!res || res.result !== 'success') return;
+                document.getElementById('fees-collection-summary').innerHTML = `<div class="fw-800">Total Collected: ৳${Number(res.total).toLocaleString()}</div>` +
+                    Object.entries(res.by_fee_type || {}).map(([name, amt]) => `<div class="small text-muted">${name}: ৳${Number(amt).toLocaleString()}</div>`).join('');
+                document.getElementById('fees-collection-body').innerHTML = (res.transactions || []).slice(0, 50).map(t => `<tr><td>${new Date(t.paid_at).toLocaleDateString()}</td><td>৳${Number(t.amount).toLocaleString()}</td></tr>`).join('');
+            });
+        }
+
+        function loadFeeAccounts() {
+            portalFetch('get_fee_accounts', {}).then(res => {
+                const accounts = (res && res.result === 'success' && res.accounts) || [];
+                const host = document.getElementById('fee-accounts-list');
+                if (host) host.innerHTML = accounts.map(a => `<div class="d-flex justify-content-between border rounded px-2 py-1 small"><span>${a.name} <span class="badge bg-light text-secondary">${a.type}</span></span><span class="fw-700">৳${Number(a.opening_balance).toLocaleString()}</span></div>`).join('') || '<span class="text-muted small fst-italic">No accounts yet.</span>';
+                const sel = document.getElementById('tx-account');
+                if (sel) sel.innerHTML = '<option value="">Account...</option>' + accounts.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
+            });
+        }
+        function saveFeeAccount() {
+            const name = document.getElementById('acc-name').value.trim();
+            const type = document.getElementById('acc-type').value;
+            if (!name) return;
+            portalFetch('save_fee_account', { name, type }).then(res => {
+                if (res && res.result === 'success') { document.getElementById('acc-name').value = ''; loadFeeAccounts(); }
+            });
+        }
+        function recordAccountTransaction() {
+            const account_id = document.getElementById('tx-account').value;
+            const direction = document.getElementById('tx-direction').value;
+            const amount = document.getElementById('tx-amount').value;
+            const reference = document.getElementById('tx-reference').value.trim();
+            if (!account_id || !amount) { if (typeof showToast === 'function') showToast('Pick an account and amount', 'error'); return; }
+            portalFetch('record_account_transaction', { account_id, direction, amount, reference }).then(res => {
+                if (res && res.result === 'success') { document.getElementById('tx-amount').value = ''; document.getElementById('tx-reference').value = ''; loadAccountRegister(); }
+                else if (typeof showToast === 'function') showToast((res && res.message) || 'Failed', 'error');
+            });
+        }
+        function loadAccountRegister() {
+            portalFetch('get_account_register', {}).then(res => {
+                const rows = (res && res.result === 'success' && res.transactions) || [];
+                document.getElementById('account-register-body').innerHTML = rows.map(t => `<tr><td>${new Date(t.occurred_at).toLocaleDateString()}</td><td><span class="badge ${t.direction === 'credit' ? 'bg-success' : 'bg-danger'}">${t.direction}</span></td><td>৳${Number(t.amount).toLocaleString()}</td><td>${t.reference || ''}</td></tr>`).join('') || '<tr><td colspan="4" class="text-muted small p-3">No transactions yet.</td></tr>';
+            });
+        }
+
+        // ── Attendance ────────────────────────────────────────────────────
+        function loadAttendanceReport() {
+            const payload = {
+                class: document.getElementById('att-class').value.trim(),
+                section: document.getElementById('att-section').value.trim(),
+                date: document.getElementById('att-date').value,
+            };
+            if (!payload.class || !payload.date) { if (typeof showToast === 'function') showToast('Class and date required', 'error'); return; }
+            portalFetch('get_attendance_report', payload).then(res => {
+                if (!res || res.result !== 'success') { if (typeof showToast === 'function') showToast((res && res.message) || 'Failed', 'error'); return; }
+                document.getElementById('att-summary').innerHTML = `<span class="text-success">${res.present_count} present</span> &middot; <span class="text-danger">${res.absent_count} absent</span> of ${res.rows.length}`;
+                document.getElementById('attendance-report-body').innerHTML = res.rows.map(r => `<tr>
+                    <td>${r.roll || ''}</td><td>${r.student_name || ''}</td>
+                    <td><span class="badge ${r.status === 'present' ? 'bg-success' : 'bg-danger'}">${r.status}</span></td>
+                    <td class="text-muted">${r.source}</td>
+                    <td>
+                        <button class="btn btn-xs btn-outline-success" style="font-size:0.65rem" onclick="markManualAttendance('${r.student_id}','present')">Present</button>
+                        <button class="btn btn-xs btn-outline-danger" style="font-size:0.65rem" onclick="markManualAttendance('${r.student_id}','absent')">Absent</button>
+                    </td>
+                </tr>`).join('') || '<tr><td colspan="5" class="text-muted small p-3">No students found.</td></tr>';
+            });
+        }
+        function markManualAttendance(student_id, status) {
+            const date = document.getElementById('att-date').value;
+            portalFetch('save_manual_attendance', { student_id, date, status, marked_by: ADMIN_USER_ID }).then(res => {
+                if (res && res.result === 'success') { if (typeof showToast === 'function') showToast('Updated', 'success'); loadAttendanceReport(); }
+                else if (typeof showToast === 'function') showToast((res && res.message) || 'Failed', 'error');
+            });
+        }
+
+        function loadAttendanceDevices() {
+            portalFetch('get_attendance_devices', {}).then(res => {
+                const devices = (res && res.result === 'success' && res.devices) || [];
+                const host = document.getElementById('attendance-devices-list');
+                if (!host) return;
+                host.innerHTML = devices.length ? devices.map(d => `
+                    <div class="d-flex justify-content-between align-items-center border rounded px-3 py-2 bg-white">
+                        <div><span class="fw-800 small">${d.name}</span> <span class="badge bg-light text-secondary ms-1">${d.device_type}</span> <span class="text-muted small ms-2">${d.ip}:${d.port || ''}</span>${!d.is_active ? ' <span class="badge bg-secondary">Inactive</span>' : ''}</div>
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteAttendanceDevice(${d.id})"><i class="bi bi-trash"></i></button>
+                    </div>`).join('') : '<span class="text-muted small fst-italic">No devices registered yet.</span>';
+            });
+        }
+        function openAttendanceDeviceEditor() {
+            const overlay = document.createElement('div');
+            overlay.id = 'att-device-overlay';
+            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:3000;display:flex;align-items:center;justify-content:center;padding:16px';
+            overlay.innerHTML = `
+                <div style="background:#fff;border-radius:16px;max-width:480px;width:100%">
+                    <div class="p-3 border-bottom d-flex justify-content-between align-items-center">
+                        <strong>Add Attendance Device</strong>
+                        <button class="btn-close" onclick="document.getElementById('att-device-overlay').remove()"></button>
+                    </div>
+                    <div class="p-3 d-flex flex-column gap-2">
+                        <label class="small fw-700">Device Name</label>
+                        <input type="text" id="ad-name" class="form-control" placeholder="e.g. Main Gate">
+                        <label class="small fw-700">Device Type</label>
+                        <select id="ad-type" class="form-select"><option value="esp32">ESP32 (primary)</option><option value="zkteco">ZKTeco (optional)</option></select>
+                        <label class="small fw-700">IP Address</label>
+                        <input type="text" id="ad-ip" class="form-control" placeholder="192.168.1.201">
+                        <label class="small fw-700">Port</label>
+                        <input type="number" id="ad-port" class="form-control" value="4370">
+                        <label class="small fw-700">API Username (optional)</label>
+                        <input type="text" id="ad-user" class="form-control">
+                        <label class="small fw-700">API Password (optional)</label>
+                        <input type="password" id="ad-pass" class="form-control">
+                    </div>
+                    <div class="p-3 border-top d-flex justify-content-end">
+                        <button class="btn btn-primary fw-800 px-4" onclick="saveAttendanceDeviceFromEditor()">Add Device</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(overlay);
+        }
+        function saveAttendanceDeviceFromEditor() {
+            const name = document.getElementById('ad-name').value.trim();
+            const device_type = document.getElementById('ad-type').value;
+            const ip = document.getElementById('ad-ip').value.trim();
+            const port = document.getElementById('ad-port').value;
+            const api_username = document.getElementById('ad-user').value.trim();
+            const api_password = document.getElementById('ad-pass').value;
+            if (!name || !ip) { if (typeof showToast === 'function') showToast('Name and IP required', 'error'); return; }
+            portalFetch('save_attendance_device', { name, device_type, ip, port, api_username, api_password, is_active: true }).then(res => {
+                const overlay = document.getElementById('att-device-overlay');
+                if (overlay) overlay.remove();
+                if (res && res.result === 'success') { if (typeof showToast === 'function') showToast('Device added', 'success'); loadAttendanceDevices(); }
+                else if (typeof showToast === 'function') showToast((res && res.message) || 'Save failed', 'error');
+            });
+        }
+        function deleteAttendanceDevice(id) {
+            portalFetch('delete_attendance_device', { id }).then(res => { if (res && res.result === 'success') loadAttendanceDevices(); });
+        }
+
+        function loadPunchLog() {
+            const person_type = document.getElementById('pl-person-type').value;
+            portalFetch('get_punch_log', { person_type }).then(res => {
+                const rows = (res && res.result === 'success' && res.punches) || [];
+                document.getElementById('punch-log-body').innerHTML = rows.map(p => `<tr>
+                    <td>${new Date(p.punch_time).toLocaleString()}</td><td>${p.device_user_id || ''}</td><td>${p.person_type}</td><td>${p.person_id || '—'}</td><td>${p.verify_method || ''}</td>
+                    <td>${p.matched ? '<span class="badge bg-success">Yes</span>' : '<span class="badge bg-warning text-dark">Unmatched</span>'}</td>
+                </tr>`).join('') || '<tr><td colspan="6" class="text-muted small p-3">No punch logs found.</td></tr>';
+            });
+        }
+
+        // ── Exam & Assessment ────────────────────────────────────────────
+        let _exams = [];
+        function _examOptions() { return _exams.map(e => `<option value="${e.id}">${e.name} (${e.academic_year})${e.is_locked ? ' 🔒' : ''}</option>`).join(''); }
+        function loadExams() {
+            portalFetch('get_exams', {}).then(res => {
+                _exams = (res && res.result === 'success' && res.exams) || [];
+                const host = document.getElementById('exams-list');
+                if (host) host.innerHTML = _exams.map(e => `
+                    <div class="d-flex justify-content-between align-items-center border rounded px-3 py-2 bg-white ${e.id == _curExamId ? 'border-primary' : ''}" style="cursor:pointer" onclick="selectExamForSubjects(${e.id})">
+                        <div><span class="fw-800 small">${e.name}</span> <span class="badge bg-light text-secondary ms-1">${e.exam_type}</span> <span class="text-muted small ms-2">${e.academic_year}${e.class ? ' · '+e.class : ''}</span>${e.is_locked ? ' <span class="badge bg-danger">Locked</span>' : ''}</div>
+                    </div>`).join('') || '<span class="text-muted small fst-italic">No exams yet.</span>';
+                ['me-exam', 'pr-exam'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = '<option value="">Select exam...</option>' + _examOptions(); });
+            });
+        }
+        function saveExam() {
+            const name = document.getElementById('ex-name').value.trim();
+            const exam_type = document.getElementById('ex-type').value;
+            const academic_year = document.getElementById('ex-year').value.trim();
+            const medium = document.getElementById('ex-medium').value.trim();
+            const cls = document.getElementById('ex-class').value.trim();
+            if (!name || !academic_year) { if (typeof showToast === 'function') showToast('Name and year required', 'error'); return; }
+            portalFetch('save_exam', { name, exam_type, academic_year, medium, class: cls }).then(res => {
+                if (res && res.result === 'success') { if (typeof showToast === 'function') showToast('Exam created', 'success'); document.getElementById('ex-name').value = ''; loadExams(); }
+                else if (typeof showToast === 'function') showToast((res && res.message) || 'Failed', 'error');
+            });
+        }
+        let _curExamId = null;
+        function selectExamForSubjects(exam_id) {
+            _curExamId = exam_id;
+            loadExams();
+            portalFetch('get_exam_subjects', { exam_id }).then(res => {
+                const subjects = (res && res.result === 'success' && res.subjects) || [];
+                const host = document.getElementById('exam-subjects-panel');
+                host.innerHTML = `
+                    <span class="fw-800 small d-block mb-2">Subjects</span>
+                    <div class="row g-2 mb-2">
+                        <div class="col-md-5"><input type="text" id="es-subject" class="form-control form-control-sm" placeholder="Subject name"></div>
+                        <div class="col-md-3"><input type="number" id="es-full" class="form-control form-control-sm" placeholder="Full marks" value="100"></div>
+                        <div class="col-md-3"><input type="number" id="es-pass" class="form-control form-control-sm" placeholder="Pass marks" value="33"></div>
+                        <div class="col-md-1"><button class="btn btn-sm btn-primary w-100" onclick="saveExamSubject(${exam_id})">+</button></div>
+                    </div>
+                    <div class="d-flex flex-wrap gap-2">${subjects.map(s => `<span class="badge bg-light text-dark border">${s.subject} (${s.full_marks}/${s.pass_marks}) <i class="bi bi-x-circle-fill text-danger ms-1" style="cursor:pointer" onclick="deleteExamSubject(${s.id}, ${exam_id})"></i></span>`).join('') || '<span class="text-muted small fst-italic">No subjects yet.</span>'}</div>`;
+                _populateMarksSubjectSelect(subjects);
+            });
+        }
+        function saveExamSubject(exam_id) {
+            const subject = document.getElementById('es-subject').value.trim();
+            const full_marks = document.getElementById('es-full').value;
+            const pass_marks = document.getElementById('es-pass').value;
+            if (!subject) return;
+            portalFetch('save_exam_subject', { exam_id, subject, full_marks, pass_marks }).then(res => { if (res && res.result === 'success') selectExamForSubjects(exam_id); });
+        }
+        function deleteExamSubject(id, exam_id) {
+            portalFetch('delete_exam_subject', { id }).then(res => { if (res && res.result === 'success') selectExamForSubjects(exam_id); });
+        }
+        let _meSubjects = [];
+        function _populateMarksSubjectSelect(subjects) {
+            _meSubjects = subjects;
+            const el = document.getElementById('me-subject');
+            if (el) el.innerHTML = '<option value="">Subject...</option>' + subjects.map(s => `<option value="${s.id}">${s.subject}</option>`).join('');
+        }
+
+        function loadMarksEntry() {
+            const exam_subject_id = document.getElementById('me-subject').value;
+            const cls = document.getElementById('me-class').value.trim();
+            const section = document.getElementById('me-section').value.trim();
+            if (!exam_subject_id || !cls) { if (typeof showToast === 'function') showToast('Pick a subject and class', 'error'); return; }
+            portalFetch('get_exam_marks_for_entry', { exam_subject_id, class: cls, section }).then(res => {
+                const roster = (res && res.result === 'success' && res.roster) || [];
+                document.getElementById('marks-entry-body').innerHTML = roster.map(s => `<tr>
+                    <td>${s.roll}</td><td>${s.student_name}</td>
+                    <td><input type="number" class="form-control form-control-sm marks-entry-input" data-student="${s.student_id}" value="${s.marks_obtained}" style="max-width:100px"></td>
+                </tr>`).join('') || '<tr><td colspan="3" class="text-muted small p-3">No students found.</td></tr>';
+            });
+        }
+        function saveMarksEntry() {
+            const exam_subject_id = document.getElementById('me-subject').value;
+            const marks = Array.from(document.querySelectorAll('.marks-entry-input')).map(inp => ({ student_id: inp.dataset.student, marks_obtained: inp.value }));
+            const status = document.getElementById('marks-entry-status');
+            portalFetch('save_exam_marks_bulk', { exam_subject_id, marks }).then(res => {
+                if (res && (res.result === 'success' || res.result === 'partial')) { status.className = 'small fw-700 text-success ms-2'; status.textContent = `Saved ${res.saved} of ${marks.length}.`; }
+                else { status.className = 'small fw-700 text-danger ms-2'; status.textContent = (res && res.message) || 'Failed'; }
+            });
+        }
+
+        function processExamResult() {
+            const exam_id = document.getElementById('pr-exam').value;
+            if (!exam_id) return;
+            portalFetch('process_exam_result', { exam_id }).then(res => {
+                if (!res || res.result !== 'success') { if (typeof showToast === 'function') showToast((res && res.message) || 'Failed', 'error'); return; }
+                document.getElementById('exam-results-body').innerHTML = res.results.map(r => `<tr>
+                    <td>${r.position}</td><td>${r.student_id}</td><td>${r.total}</td><td>${r.percentage}%</td><td>${r.gpa}</td><td>${r.letter_grade}</td>
+                    <td><span class="badge ${r.pass ? 'bg-success' : 'bg-danger'}">${r.pass ? 'Pass' : 'Fail'}</span></td>
+                </tr>`).join('') || '<tr><td colspan="7" class="text-muted small p-3">No marks entered yet.</td></tr>';
+            });
+        }
+        function toggleExamLock(locked) {
+            const exam_id = document.getElementById('pr-exam').value;
+            if (!exam_id) return;
+            portalFetch('lock_exam', { exam_id, locked }).then(res => { if (res && res.result === 'success') { if (typeof showToast === 'function') showToast(locked ? 'Exam locked' : 'Exam unlocked', 'success'); loadExams(); } });
+        }
+
+        function loadGradeScales() {
+            portalFetch('get_grade_scales', {}).then(res => {
+                const scales = (res && res.result === 'success' && res.scales) || [];
+                document.getElementById('grade-scales-body').innerHTML = scales.map(s => `<tr>
+                    <td>${s.gp}</td><td>${s.min_mark}-${s.max_mark}</td><td>${s.letter_grade}</td><td>${s.label || ''}</td>
+                    <td><button class="btn btn-sm btn-outline-danger" onclick="deleteGradeScale(${s.id})"><i class="bi bi-trash"></i></button></td>
+                </tr>`).join('') || '<tr><td colspan="5" class="text-muted small p-3">No grade scales yet.</td></tr>';
+            });
+        }
+        function saveGradeScale() {
+            const gp = document.getElementById('gs-gp').value;
+            const min_mark = document.getElementById('gs-min').value;
+            const max_mark = document.getElementById('gs-max').value;
+            const letter_grade = document.getElementById('gs-letter').value.trim();
+            const label = document.getElementById('gs-label').value.trim();
+            if (!gp || !letter_grade || min_mark === '' || max_mark === '') { if (typeof showToast === 'function') showToast('Fill all fields', 'error'); return; }
+            portalFetch('save_grade_scale', { category: 'default', gp, min_mark, max_mark, letter_grade, label }).then(res => {
+                if (res && res.result === 'success') { document.getElementById('gs-gp').value = ''; document.getElementById('gs-min').value = ''; document.getElementById('gs-max').value = ''; document.getElementById('gs-letter').value = ''; document.getElementById('gs-label').value = ''; loadGradeScales(); }
+                else if (typeof showToast === 'function') showToast((res && res.message) || 'Failed', 'error');
+            });
+        }
+        function deleteGradeScale(id) {
+            portalFetch('delete_grade_scale', { id }).then(res => { if (res && res.result === 'success') loadGradeScales(); });
+        }
+
+        function saveBoardExamRecord() {
+            const student_id = document.getElementById('be-student').value.trim();
+            const board_exam_type = document.getElementById('be-type').value;
+            const registration_number = document.getElementById('be-reg').value.trim();
+            const roll_number = document.getElementById('be-roll').value.trim();
+            if (!student_id) { if (typeof showToast === 'function') showToast('Student ID required', 'error'); return; }
+            portalFetch('save_board_exam_record', { student_id, board_exam_type, registration_number, roll_number, academic_year: '2026' }).then(res => {
+                if (res && res.result === 'success') { if (typeof showToast === 'function') showToast('Saved', 'success'); loadBoardExamRecords(); }
+                else if (typeof showToast === 'function') showToast((res && res.message) || 'Failed', 'error');
+            });
+        }
+        function loadBoardExamRecords() {
+            portalFetch('get_board_exam_records', {}).then(res => {
+                const records = (res && res.result === 'success' && res.records) || [];
+                document.getElementById('board-exam-body').innerHTML = records.map(r => `<tr><td>${r.student_id}</td><td>${r.board_exam_type}</td><td>${r.registration_number || ''}</td><td>${r.roll_number || ''}</td></tr>`).join('') || '<tr><td colspan="4" class="text-muted small p-3">No records yet.</td></tr>';
+            });
+        }
+
+        // ── HRM & Payroll ────────────────────────────────────────────────
+        function loadSalaryStructures() {
+            portalFetch('get_salary_structures', {}).then(res => {
+                const rows = (res && res.result === 'success' && res.structures) || [];
+                document.getElementById('salary-structures-body').innerHTML = rows.map(s => {
+                    const allow = Object.values(s.allowances || {}).reduce((a, v) => a + Number(v || 0), 0);
+                    const ded = Object.values(s.deductions || {}).reduce((a, v) => a + Number(v || 0), 0);
+                    return `<tr><td>${s.designation}</td><td>৳${Number(s.basic).toLocaleString()}</td><td>৳${allow.toLocaleString()}</td><td>৳${ded.toLocaleString()}</td></tr>`;
+                }).join('') || '<tr><td colspan="4" class="text-muted small p-3">No salary structures yet.</td></tr>';
+            });
+        }
+        function saveSalaryStructure() {
+            const designation = document.getElementById('ss-designation').value.trim();
+            const basic = document.getElementById('ss-basic').value;
+            const allowance = document.getElementById('ss-allowance').value || 0;
+            const deduction = document.getElementById('ss-deduction').value || 0;
+            if (!designation || !basic) { if (typeof showToast === 'function') showToast('Designation and basic salary required', 'error'); return; }
+            portalFetch('save_salary_structure', { designation, basic, allowances: { total: allowance }, deductions: { total: deduction } }).then(res => {
+                if (res && res.result === 'success') { if (typeof showToast === 'function') showToast('Saved', 'success'); document.getElementById('ss-designation').value = ''; document.getElementById('ss-basic').value = ''; loadSalaryStructures(); }
+                else if (typeof showToast === 'function') showToast((res && res.message) || 'Failed', 'error');
+            });
+        }
+
+        let _curPayrollRunId = null;
+        function loadPayrollRuns() { /* placeholder for a future runs list; run_payroll below is the primary flow */ }
+        function runPayroll() {
+            const month = document.getElementById('pr-month').value.trim();
+            const year = document.getElementById('pr-year').value.trim();
+            const status = document.getElementById('payroll-run-status');
+            if (!month || !year) { status.className = 'small fw-700 text-danger'; status.textContent = 'Month and year required.'; return; }
+            status.className = 'small fw-700 text-muted'; status.textContent = 'Running payroll...';
+            portalFetch('run_payroll', { month, year }).then(res => {
+                if (!res || res.result !== 'success') { status.className = 'small fw-700 text-danger'; status.textContent = (res && res.message) || 'Failed'; return; }
+                _curPayrollRunId = res.run_id;
+                status.className = 'small fw-700 text-success'; status.textContent = `Generated ${res.generated} payslip(s).`;
+                portalFetch('get_payslips', { payroll_run_id: res.run_id }).then(r2 => {
+                    const slips = (r2 && r2.result === 'success' && r2.payslips) || [];
+                    document.getElementById('payslips-body').innerHTML = slips.map(s => `<tr><td>${s.teacher_id}</td><td>৳${Number(s.gross).toLocaleString()}</td><td>৳${Number(s.total_deductions).toLocaleString()}</td><td>৳${Number(s.net).toLocaleString()}</td></tr>`).join('') || '<tr><td colspan="4" class="text-muted small p-3">No payslips generated — no salary structures match any staff designation.</td></tr>';
+                });
+            });
+        }
+
+        function loadLeaveRequests() {
+            portalFetch('get_leave_requests', {}).then(res => {
+                const rows = (res && res.result === 'success' && res.requests) || [];
+                document.getElementById('leave-requests-body').innerHTML = rows.map(r => `<tr>
+                    <td>${r.teacher_id}</td><td>${r.leave_types ? r.leave_types.name : '—'}</td><td>${r.start_date} to ${r.end_date}</td><td>${r.reason || ''}</td>
+                    <td><span class="badge ${r.status === 'approved' ? 'bg-success' : r.status === 'rejected' ? 'bg-danger' : 'bg-warning text-dark'}">${r.status}</span></td>
+                    <td>${r.status === 'pending' ? `<button class="btn btn-sm btn-outline-success" onclick="approveLeave(${r.id},'approved')">Approve</button> <button class="btn btn-sm btn-outline-danger" onclick="approveLeave(${r.id},'rejected')">Reject</button>` : ''}</td>
+                </tr>`).join('') || '<tr><td colspan="6" class="text-muted small p-3">No leave requests yet.</td></tr>';
+            });
+        }
+        function approveLeave(id, status) {
+            portalFetch('approve_leave_request', { id, status }).then(res => { if (res && res.result === 'success') loadLeaveRequests(); });
+        }
+
+        // ── Transport Mgmt (admin side) ─────────────────────────────────
+        function loadTransportRoutes() {
+            portalFetch('get_transport_routes', {}).then(res => {
+                const routes = (res && res.result === 'success' && res.routes) || [];
+                document.getElementById('transport-routes-list').innerHTML = routes.map(r => `<div class="border rounded px-2 py-1 small bg-white">${r.name}${!r.is_active ? ' <span class="badge bg-secondary">Inactive</span>' : ''}</div>`).join('') || '<span class="text-muted small fst-italic">No routes yet.</span>';
+            });
+        }
+        function saveTransportRoute() {
+            const name = document.getElementById('tr-route-name').value.trim();
+            if (!name) return;
+            portalFetch('save_transport_route', { name, is_active: true }).then(res => { if (res && res.result === 'success') { document.getElementById('tr-route-name').value = ''; loadTransportRoutes(); } });
+        }
+        function loadTransportVehicles() {
+            portalFetch('get_transport_vehicles', {}).then(res => {
+                const vehicles = (res && res.result === 'success' && res.vehicles) || [];
+                document.getElementById('transport-vehicles-list').innerHTML = vehicles.map(v => `<div class="border rounded px-2 py-1 small bg-white">${v.name}${v.driver_name ? ' · '+v.driver_name : ''}</div>`).join('') || '<span class="text-muted small fst-italic">No vehicles yet.</span>';
+            });
+        }
+        function saveTransportVehicle() {
+            const name = document.getElementById('tr-vehicle-name').value.trim();
+            const driver_name = document.getElementById('tr-vehicle-driver').value.trim();
+            if (!name) return;
+            portalFetch('save_transport_vehicle', { name, driver_name, is_active: true }).then(res => { if (res && res.result === 'success') { document.getElementById('tr-vehicle-name').value = ''; document.getElementById('tr-vehicle-driver').value = ''; loadTransportVehicles(); } });
+        }
+        function loadTransportPickupPoints() {
+            portalFetch('get_pickup_points', {}).then(res => {
+                const points = (res && res.result === 'success' && res.points) || [];
+                document.getElementById('transport-points-list').innerHTML = points.map(p => `<div class="border rounded px-2 py-1 small bg-white">${p.name}</div>`).join('') || '<span class="text-muted small fst-italic">No pickup points yet.</span>';
+            });
+        }
+        function saveTransportPickupPoint() {
+            const name = document.getElementById('tr-point-name').value.trim();
+            if (!name) return;
+            portalFetch('save_pickup_point', { name }).then(res => { if (res && res.result === 'success') { document.getElementById('tr-point-name').value = ''; loadTransportPickupPoints(); } });
+        }
+        function loadTransportFeeMaster() {
+            portalFetch('get_transport_fee_master', {}).then(res => {
+                const fees = (res && res.result === 'success' && res.fees) || [];
+                document.getElementById('transport-fees-list').innerHTML = fees.map(f => `<div class="border rounded px-2 py-1 small bg-white d-flex justify-content-between"><span>${f.name}</span><span class="fw-700">৳${Number(f.amount).toLocaleString()}/${f.collection_mode}</span></div>`).join('') || '<span class="text-muted small fst-italic">No transport fees yet.</span>';
+            });
+        }
+        function saveTransportFeeMaster() {
+            const name = document.getElementById('tf-name').value.trim();
+            const amount = document.getElementById('tf-amount').value;
+            if (!name || !amount) { if (typeof showToast === 'function') showToast('Name and amount required', 'error'); return; }
+            portalFetch('save_transport_fee_master', { name, amount, collection_mode: 'Monthly' }).then(res => {
+                if (res && res.result === 'success') { document.getElementById('tf-name').value = ''; document.getElementById('tf-amount').value = ''; loadTransportFeeMaster(); }
+                else if (typeof showToast === 'function') showToast((res && res.message) || 'Failed', 'error');
             });
         }
 
