@@ -955,7 +955,6 @@
                                 <button class="btn btn-sm fw-800 me-2" data-bs-toggle="tab" data-bs-target="#admin-history" onclick="loadEditHistory()" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">History</button>
                                 <button class="btn btn-sm fw-800 me-2" data-bs-toggle="tab" data-bs-target="#admin-nfc" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">NFC</button>
                                 <button class="btn btn-sm fw-800 me-2" data-bs-toggle="tab" data-bs-target="#admin-photo" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">Photo</button>
-                                <button class="btn btn-sm fw-800 me-2" data-bs-toggle="tab" data-bs-target="#admin-tracking" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">Bus</button>
                                 <button class="btn btn-sm fw-800 me-2" data-bs-toggle="tab" data-bs-target="#admin-notices" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">Notices</button>
                                 <button class="btn btn-sm fw-800" data-bs-toggle="tab" data-bs-target="#admin-import" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">Import</button>
                             </div>
@@ -1435,36 +1434,94 @@
                                     </div>
                                 </div>
                                 <div class="tab-pane" id="admin-transport">
-                                    <p class="small text-muted mb-3" style="font-size:0.72rem">Live GPS tracking stays in the standalone Bus Tracking app — this is route/vehicle/pickup-point/fee administration only.</p>
-                                    <div class="row g-4">
-                                        <div class="col-md-4">
-                                            <span class="fw-800 mb-2 d-block"><i class="bi bi-signpost-split text-primary me-2"></i>Routes</span>
-                                            <div class="d-flex gap-2 mb-2"><input type="text" id="tr-route-name" class="form-control form-control-sm" placeholder="Route name"><button class="btn btn-sm btn-primary" onclick="saveTransportRoute()">+</button></div>
-                                            <div id="transport-routes-list" class="d-flex flex-column gap-1"></div>
-                                        </div>
-                                        <div class="col-md-4">
-                                            <span class="fw-800 mb-2 d-block"><i class="bi bi-truck text-primary me-2"></i>Vehicles</span>
-                                            <div class="d-flex flex-column gap-1 mb-2">
-                                                <input type="text" id="tr-vehicle-name" class="form-control form-control-sm" placeholder="Vehicle name/no.">
-                                                <input type="text" id="tr-vehicle-driver" class="form-control form-control-sm" placeholder="Driver name">
-                                                <button class="btn btn-sm btn-primary" onclick="saveTransportVehicle()">Add Vehicle</button>
+                                    <ul class="nav nav-tabs mb-3" id="transport-subtabs">
+                                        <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#transport-routes-fees">Routes &amp; Fees</button></li>
+                                        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#transport-bus-config" onclick="loadTrackingConfig()">Bus / GPS Config</button></li>
+                                    </ul>
+                                    <div class="tab-content">
+                                        <div class="tab-pane active" id="transport-routes-fees">
+                                            <p class="small text-muted mb-3" style="font-size:0.72rem">Live GPS tracking stays in the standalone Bus Tracking app — this is route/vehicle/pickup-point/fee administration only.</p>
+                                            <div class="row g-4">
+                                                <div class="col-md-4">
+                                                    <span class="fw-800 mb-2 d-block"><i class="bi bi-signpost-split text-primary me-2"></i>Routes</span>
+                                                    <div class="d-flex gap-2 mb-2"><input type="text" id="tr-route-name" class="form-control form-control-sm" placeholder="Route name"><button class="btn btn-sm btn-primary" onclick="saveTransportRoute()">+</button></div>
+                                                    <div id="transport-routes-list" class="d-flex flex-column gap-1"></div>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <span class="fw-800 mb-2 d-block"><i class="bi bi-truck text-primary me-2"></i>Vehicles</span>
+                                                    <div class="d-flex flex-column gap-1 mb-2">
+                                                        <input type="text" id="tr-vehicle-name" class="form-control form-control-sm" placeholder="Vehicle name/no.">
+                                                        <input type="text" id="tr-vehicle-driver" class="form-control form-control-sm" placeholder="Driver name">
+                                                        <button class="btn btn-sm btn-primary" onclick="saveTransportVehicle()">Add Vehicle</button>
+                                                    </div>
+                                                    <div id="transport-vehicles-list" class="d-flex flex-column gap-1"></div>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <span class="fw-800 mb-2 d-block"><i class="bi bi-geo-alt text-primary me-2"></i>Pickup Points</span>
+                                                    <div class="d-flex gap-2 mb-2"><input type="text" id="tr-point-name" class="form-control form-control-sm" placeholder="Point name"><button class="btn btn-sm btn-primary" onclick="saveTransportPickupPoint()">+</button></div>
+                                                    <div id="transport-points-list" class="d-flex flex-column gap-1"></div>
+                                                </div>
                                             </div>
-                                            <div id="transport-vehicles-list" class="d-flex flex-column gap-1"></div>
+                                            <hr class="my-4">
+                                            <span class="fw-800 mb-2 d-block"><i class="bi bi-cash-coin text-primary me-2"></i>Transport Fees</span>
+                                            <div class="row g-2 mb-2">
+                                                <div class="col-md-4"><input type="text" id="tf-name" class="form-control form-control-sm" placeholder="Fee name (e.g. Route A Monthly)"></div>
+                                                <div class="col-md-2"><input type="number" id="tf-amount" class="form-control form-control-sm" placeholder="Amount"></div>
+                                                <div class="col-md-2"><button class="btn btn-sm btn-primary w-100" onclick="saveTransportFeeMaster()">Add</button></div>
+                                            </div>
+                                            <div id="transport-fees-list" class="d-flex flex-column gap-1"></div>
                                         </div>
-                                        <div class="col-md-4">
-                                            <span class="fw-800 mb-2 d-block"><i class="bi bi-geo-alt text-primary me-2"></i>Pickup Points</span>
-                                            <div class="d-flex gap-2 mb-2"><input type="text" id="tr-point-name" class="form-control form-control-sm" placeholder="Point name"><button class="btn btn-sm btn-primary" onclick="saveTransportPickupPoint()">+</button></div>
-                                            <div id="transport-points-list" class="d-flex flex-column gap-1"></div>
+                                        <div class="tab-pane" id="transport-bus-config">
+                                            <div class="row g-4">
+                                                <div class="col-md-5">
+                                                    <div class="card border-0 shadow-sm p-4 h-100" style="border-radius:24px">
+                                                        <h5 class="fw-800 mb-4"><i class="bi bi-shield-lock-fill me-2" style="color:var(--primary)"></i>GP API Credentials</h5>
+                                                        <div class="premium-form-group mb-3"><input type="text" id="gp-username" class="form-control" placeholder=" "><label>Username</label></div>
+                                                        <div class="premium-form-group mb-3 position-relative">
+                                                            <input type="password" id="gp-password" class="form-control" placeholder=" "><label>Password</label>
+                                                            <button type="button" onclick="toggleGPPassword()" class="btn btn-sm position-absolute end-0 top-50 translate-middle-y me-2 border-0" style="z-index:20;color:var(--text-3)"><i id="gp-pass-icon" class="bi bi-eye-fill fs-5"></i></button>
+                                                        </div>
+                                                        <div class="premium-form-group mb-4"><select id="gp-environment" class="form-select" required><option value="production">Production</option><option value="staging">Staging</option></select><label>Environment</label></div>
+                                                        <div class="premium-form-group mb-4"><input type="text" id="gp-pre-encoded" class="form-control" readonly placeholder=" "><label>Verification (username:password)</label></div>
+                                                        <div class="premium-form-group mb-4"><input type="text" id="gp-api-key-display" class="form-control" readonly placeholder=" "><label>System Generated API Key (Base64)</label><div class="small text-muted mt-1" style="font-size:0.65rem">Generated automatically from your username and password.</div></div>
+                                                        <div class="d-flex gap-2">
+                                                            <button onclick="saveGPConfig()" class="btn btn-primary flex-grow-1 py-3 fw-800">Update Credentials</button>
+                                                            <button id="btn-verify-gp" onclick="verifyGPConnection()" class="btn btn-outline-primary py-3 fw-800" title="Verify Connection"><i class="bi bi-patch-check"></i></button>
+                                                        </div>
+                                                        <div id="gp-status" class="mt-3 text-center small fw-800"></div>
+                                                    </div>
+                                                </div>
+                                                <div class="col-md-7">
+                                                    <div class="card border-0 shadow-sm p-4 mb-4" style="border-radius:24px">
+                                                        <div class="d-flex justify-content-between align-items-center mb-4">
+                                                            <h5 class="fw-800 m-0"><i class="bi bi-bus-front-fill me-2" style="color:var(--primary)"></i>Bus Registry</h5>
+                                                            <button onclick="addBusRow()" class="btn btn-sm btn-outline-primary rounded-pill px-3 fw-800">+ Add Bus</button>
+                                                        </div>
+                                                        <div class="table-responsive">
+                                                            <table class="table table-hover align-middle" id="bus-config-table">
+                                                                <thead><tr class="text-muted small fw-800 text-uppercase"><th>Bus Name</th><th>IMEI Number</th><th></th></tr></thead>
+                                                                <tbody id="bus-config-body"></tbody>
+                                                            </table>
+                                                        </div>
+                                                        <button onclick="saveBusConfig()" class="btn btn-dark w-100 py-3 mt-3 fw-800">Save Registry</button>
+                                                    </div>
+                                                    <div class="card border-0 shadow-sm p-4" style="border-radius:24px">
+                                                        <div class="d-flex justify-content-between align-items-center mb-4">
+                                                            <h5 class="fw-800 m-0"><i class="bi bi-geo-alt-fill me-2" style="color:var(--primary)"></i>Places Registry (Geofencing)</h5>
+                                                            <button onclick="addPlaceRow()" class="btn btn-sm btn-outline-primary rounded-pill px-3 fw-800">+ Add Place</button>
+                                                        </div>
+                                                        <div class="table-responsive">
+                                                            <table class="table table-hover align-middle">
+                                                                <thead><tr class="text-muted small fw-800 text-uppercase"><th>Place Name</th><th>Coordinates (Lat, Lng)</th><th>Radius (m)</th><th></th></tr></thead>
+                                                                <tbody id="place-config-body"></tbody>
+                                                            </table>
+                                                        </div>
+                                                        <button onclick="savePlaceConfig()" class="btn btn-dark w-100 py-3 mt-3 fw-800">Save Places</button>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
-                                    <hr class="my-4">
-                                    <span class="fw-800 mb-2 d-block"><i class="bi bi-cash-coin text-primary me-2"></i>Transport Fees</span>
-                                    <div class="row g-2 mb-2">
-                                        <div class="col-md-4"><input type="text" id="tf-name" class="form-control form-control-sm" placeholder="Fee name (e.g. Route A Monthly)"></div>
-                                        <div class="col-md-2"><input type="number" id="tf-amount" class="form-control form-control-sm" placeholder="Amount"></div>
-                                        <div class="col-md-2"><button class="btn btn-sm btn-primary w-100" onclick="saveTransportFeeMaster()">Add</button></div>
-                                    </div>
-                                    <div id="transport-fees-list" class="d-flex flex-column gap-1"></div>
                                 </div>
                                 <div class="tab-pane" id="admin-history">
                                     <p class="small text-muted mb-3" style="font-size:0.72rem">Every change to a student's record is logged here automatically (who/what changed and when) — search by Student ID, name, class, section, or roll.</p>
@@ -1493,56 +1550,6 @@
                                         <input type="file" id="photo-file-input" accept="image/*" class="d-none" onchange="handleStudentPhotoSelect(event)">
                                         <button onclick="document.getElementById('photo-file-input').click()" class="btn btn-primary w-100 py-3 fw-800"><i class="bi bi-camera-fill me-2"></i>Upload / Change Photo</button>
                                         <div id="photo-status" class="text-center small fw-800 mt-2"></div>
-                                    </div>
-                                </div>
-                                <div class="tab-pane" id="admin-tracking">
-                                    <div class="row g-4">
-                                        <div class="col-md-5">
-                                            <div class="card border-0 shadow-sm p-4 h-100" style="border-radius:24px">
-                                                <h5 class="fw-800 mb-4"><i class="bi bi-shield-lock-fill me-2" style="color:var(--primary)"></i>GP API Credentials</h5>
-                                                <div class="premium-form-group mb-3"><input type="text" id="gp-username" class="form-control" placeholder=" "><label>Username</label></div>
-                                                <div class="premium-form-group mb-3 position-relative">
-                                                    <input type="password" id="gp-password" class="form-control" placeholder=" "><label>Password</label>
-                                                    <button type="button" onclick="toggleGPPassword()" class="btn btn-sm position-absolute end-0 top-50 translate-middle-y me-2 border-0" style="z-index:20;color:var(--text-3)"><i id="gp-pass-icon" class="bi bi-eye-fill fs-5"></i></button>
-                                                </div>
-                                                <div class="premium-form-group mb-4"><select id="gp-environment" class="form-select" required><option value="production">Production</option><option value="staging">Staging</option></select><label>Environment</label></div>
-                                                <div class="premium-form-group mb-4"><input type="text" id="gp-pre-encoded" class="form-control" readonly placeholder=" "><label>Verification (username:password)</label></div>
-                                                <div class="premium-form-group mb-4"><input type="text" id="gp-api-key-display" class="form-control" readonly placeholder=" "><label>System Generated API Key (Base64)</label><div class="small text-muted mt-1" style="font-size:0.65rem">Generated automatically from your username and password.</div></div>
-                                                <div class="d-flex gap-2">
-                                                    <button onclick="saveGPConfig()" class="btn btn-primary flex-grow-1 py-3 fw-800">Update Credentials</button>
-                                                    <button id="btn-verify-gp" onclick="verifyGPConnection()" class="btn btn-outline-primary py-3 fw-800" title="Verify Connection"><i class="bi bi-patch-check"></i></button>
-                                                </div>
-                                                <div id="gp-status" class="mt-3 text-center small fw-800"></div>
-                                            </div>
-                                        </div>
-                                        <div class="col-md-7">
-                                            <div class="card border-0 shadow-sm p-4 mb-4" style="border-radius:24px">
-                                                <div class="d-flex justify-content-between align-items-center mb-4">
-                                                    <h5 class="fw-800 m-0"><i class="bi bi-bus-front-fill me-2" style="color:var(--primary)"></i>Bus Registry</h5>
-                                                    <button onclick="addBusRow()" class="btn btn-sm btn-outline-primary rounded-pill px-3 fw-800">+ Add Bus</button>
-                                                </div>
-                                                <div class="table-responsive">
-                                                    <table class="table table-hover align-middle" id="bus-config-table">
-                                                        <thead><tr class="text-muted small fw-800 text-uppercase"><th>Bus Name</th><th>IMEI Number</th><th></th></tr></thead>
-                                                        <tbody id="bus-config-body"></tbody>
-                                                    </table>
-                                                </div>
-                                                <button onclick="saveBusConfig()" class="btn btn-dark w-100 py-3 mt-3 fw-800">Save Registry</button>
-                                            </div>
-                                            <div class="card border-0 shadow-sm p-4" style="border-radius:24px">
-                                                <div class="d-flex justify-content-between align-items-center mb-4">
-                                                    <h5 class="fw-800 m-0"><i class="bi bi-geo-alt-fill me-2" style="color:var(--primary)"></i>Places Registry (Geofencing)</h5>
-                                                    <button onclick="addPlaceRow()" class="btn btn-sm btn-outline-primary rounded-pill px-3 fw-800">+ Add Place</button>
-                                                </div>
-                                                <div class="table-responsive">
-                                                    <table class="table table-hover align-middle">
-                                                        <thead><tr class="text-muted small fw-800 text-uppercase"><th>Place Name</th><th>Coordinates (Lat, Lng)</th><th>Radius (m)</th><th></th></tr></thead>
-                                                        <tbody id="place-config-body"></tbody>
-                                                    </table>
-                                                </div>
-                                                <button onclick="savePlaceConfig()" class="btn btn-dark w-100 py-3 mt-3 fw-800">Save Places</button>
-                                            </div>
-                                        </div>
                                     </div>
                                 </div>
                                 <div class="tab-pane" id="admin-notices">
