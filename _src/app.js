@@ -3058,6 +3058,7 @@
   // always has, with nothing new to log into. The `embedded=1` param tells
   // it to hide its own Back-to-Portal/Logout buttons, since this page
   // already provides those.
+  const ERP_TAB_DOM_ID_MAP = { fees: 'admin-fees', attendance: 'admin-attendance', exams: 'admin-exams', payroll: 'admin-payroll', transport: 'admin-transport' };
   function loadStudentPortalView(tabKey) {
     // Either the normal role matrix allows it, or this specific account has
     // a field-category grant (see _maybeRevealStudentPortalForGrantee) or an
@@ -3073,6 +3074,26 @@
     setContentHeader('Student Portal', 'graduation-cap');
     const container = document.getElementById('view-container');
     if (!container) return;
+
+    // If the console is already open (from a previous shortcut click), tell
+    // the already-loaded iframe to just switch tabs in place — same-origin,
+    // so this is a plain synchronous call, no postMessage needed. Recreating
+    // the iframe on every shortcut click was forcing a full reload + re-login
+    // check each time, which looked like the login screen flashing on every
+    // tab switch. Falls back to a fresh iframe if anything about that isn't
+    // true yet (e.g. the child page hasn't finished its own login check).
+    const existing = document.getElementById('student-portal-frame');
+    if (existing && /\/student-admin\.html/.test(existing.src)) {
+      try {
+        const domId = tabKey && ERP_TAB_DOM_ID_MAP[tabKey];
+        if (!tabKey) return; // already open, no specific tab requested — leave it as-is
+        if (domId && existing.contentWindow && typeof existing.contentWindow.selectAdminTab === 'function') {
+          existing.contentWindow.selectAdminTab(domId);
+          return;
+        }
+      } catch (_) { /* fall through to a fresh iframe below */ }
+    }
+
     const tabParam = tabKey ? ('&tab=' + encodeURIComponent(tabKey)) : '';
     container.innerHTML = `<iframe id="student-portal-frame" src="/student-admin.html?embedded=1${tabParam}" title="Student Portal Admin" style="width:100%;height:calc(100vh - 140px);min-height:600px;border:none;border-radius:16px;background:#fff"></iframe>`;
   }

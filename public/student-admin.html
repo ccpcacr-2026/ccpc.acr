@@ -369,6 +369,30 @@
         .nav-item-btn.text-danger { color: rgba(252,129,129,0.75) !important; }
         .nav-item-btn.text-danger:hover { color: #fca5a5 !important; background: rgba(252,129,129,0.1) !important; }
 
+        /* ── Admin Panel sub-nav (the 13 admin tabs, nested under Admin Panel) ── */
+        .nav-item-btn .nav-chevron { margin-left: auto; font-size: 0.75rem; transition: transform 0.2s ease; flex-shrink: 0; }
+        .nav-item-btn.expanded .nav-chevron { transform: rotate(90deg); }
+        .nav-subnav-list { max-height: 0; overflow: hidden; transition: max-height 0.25s ease; }
+        .nav-subnav-list.expanded { max-height: 2000px; }
+        .nav-subitem-btn {
+            display: flex; align-items: center; gap: 11px;
+            background: none; border: none;
+            color: rgba(255,255,255,0.42);
+            font-size: 0.8rem; font-weight: 600;
+            padding: 9px 15px 9px 33px; margin-bottom: 1px;
+            width: 100%; border-radius: var(--radius-md);
+            transition: all 0.15s ease;
+            text-decoration: none !important; text-align: left; cursor: pointer;
+        }
+        .nav-subitem-btn i { font-size: 0.95rem; width: 16px; text-align: center; flex-shrink: 0; }
+        .nav-subitem-btn:hover { color: rgba(255,255,255,0.85); background: rgba(255,255,255,0.06); }
+        .nav-subitem-btn.active { color: #fff; background: rgba(16,185,105,0.18); }
+
+        /* The old horizontal pill bar stays functional (Bootstrap tab-toggle +
+           onclick loaders) but is only visually needed as a fallback on
+           mobile, where the sidebar itself is hidden (see @media below). */
+        @media (min-width: 992px) { .admin-pills-bar { display: none !important; } }
+
         /* ── Content Area ────────────────────────────── */
         .content-area { flex: 1; background: var(--bg); padding: 40px; min-height: 100vh; transition: margin 0.3s ease; }
 
@@ -943,7 +967,7 @@
                     <div class="card p-0 overflow-hidden">
                         <div class="p-4 d-flex justify-content-between align-items-center flex-wrap gap-2 text-white" style="background:linear-gradient(135deg,var(--sidebar-bg),#1a3d28)">
                             <h5 class="m-0 fw-800">Admin Control Console</h5>
-                            <div class="nav nav-pills" role="tablist">
+                            <div class="nav nav-pills admin-pills-bar" role="tablist">
                                 <button class="btn btn-sm fw-800 active me-2" data-bs-toggle="tab" data-bs-target="#admin-manage" style="background:rgba(255,255,255,0.18);color:#fff;border-radius:10px;border:none">Setup</button>
                                 <button class="btn btn-sm fw-800 me-2" data-bs-toggle="tab" data-bs-target="#admin-reports" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">Data</button>
                                 <button class="btn btn-sm fw-800 me-2" data-bs-toggle="tab" data-bs-target="#admin-access" onclick="loadFieldCategories();loadFieldGrants();loadAdminTabVisibility()" style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border-radius:10px;border:none">Access</button>
@@ -2431,21 +2455,24 @@
                     }
                 });
 
+                // allowedSubnavDomIds is null for a full Admin/Student Portal
+                // Admin (every tab, in the sidebar sub-nav below); a specific
+                // list for a restricted ERP-tab-only account (e.g. HR sees
+                // just "Payroll") — the underlying pills (still the real
+                // Bootstrap-tab trigger, and mobile's only way to switch
+                // since the sidebar sub-nav is desktop-only) get the same
+                // restriction applied directly.
+                let allowedSubnavDomIds = null;
                 if (Array.isArray(restrictTabs)) {
-                    const allowedDomIds = restrictTabs.map(t => ERP_TAB_DOM_ID[t]).filter(Boolean);
+                    allowedSubnavDomIds = restrictTabs.map(t => ERP_TAB_DOM_ID[t]).filter(Boolean);
                     document.querySelectorAll('#admin-section .nav-pills > button[data-bs-target]').forEach(btn => {
                         const domId = btn.getAttribute('data-bs-target').slice(1);
                         const isErpTab = Object.values(ERP_TAB_DOM_ID).includes(domId);
-                        btn.classList.toggle('hidden', isErpTab ? !allowedDomIds.includes(domId) : true);
+                        btn.classList.toggle('hidden', isErpTab ? !allowedSubnavDomIds.includes(domId) : true);
                     });
                 }
                 const requestedTab = new URLSearchParams(location.search).get('tab');
-                const targetDomId = (requestedTab && ERP_TAB_DOM_ID[requestedTab])
-                    || (Array.isArray(restrictTabs) && restrictTabs.length ? ERP_TAB_DOM_ID[restrictTabs[0]] : null);
-                if (targetDomId) {
-                    const btn = document.querySelector(`#admin-section button[data-bs-target="#${targetDomId}"]`);
-                    if (btn) setTimeout(() => btn.click(), 50);
-                }
+                const targetDomId = requestedTab && ERP_TAB_DOM_ID[requestedTab];
 
                 // Populate Mobile Nav for Admin
                 const bottom = document.getElementById('bottom-nav-container');
@@ -2458,7 +2485,9 @@
 
                 addNav('admin-home', 'Admin Panel', 'bi-shield-lock-fill', true);
                 addNav('bus-tracking', 'Bus Tracker', 'bi-bus-front-fill');
-                
+                renderAdminSubnav(allowedSubnavDomIds);
+                if (targetDomId) setTimeout(() => selectAdminTab(targetDomId), 50);
+
                 // Ensure bus tracking content exists for admin — Bus Tracker is
                 // its own full-admin-only feature, not one of the 5 ERP tabs, so
                 // a restricted account skips it entirely (same reasoning as the
@@ -2777,16 +2806,21 @@
         }
 
         function switchTab(id) {
-            // Hide all potential content areas
-            document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
-            document.getElementById('admin-section').classList.add('hidden');
+            // Hide all potential content areas — but never touch admin-section's
+            // OWN Bootstrap-driven tab-panes (Setup/Fees/Payroll/etc.), which
+            // share the ".tab-pane" class name by coincidence, not relation;
+            // those are managed separately by selectAdminTab below.
+            const adminSectionEl = document.getElementById('admin-section');
+            document.querySelectorAll('.tab-pane').forEach(p => { if (!adminSectionEl.contains(p)) p.classList.remove('active'); });
+            adminSectionEl.classList.add('hidden');
             document.getElementById('form-section').classList.add('hidden');
 
             if (id === 'admin-home') {
-                document.getElementById('admin-section').classList.remove('hidden');
+                adminSectionEl.classList.remove('hidden');
                 document.querySelectorAll('.nav-item-btn').forEach(btn => {
                    if (btn.dataset.tabId === id) btn.classList.add('active'); else btn.classList.remove('active');
                 });
+                selectAdminTab(_lastAdminDomId, { toggleSubnav: false });
                 return;
             }
 
@@ -3311,6 +3345,90 @@
                 if (document.getElementById('hub-profile-card')) renderProfilePane(false);
             }).catch(() => {});
         }
+
+        // All 13 admin tabs, in the same order the old horizontal pill bar
+        // used — domId matches each tab-pane's id, still driven by the same
+        // (now desktop-hidden) pill buttons underneath via selectAdminTab.
+        const ADMIN_SUBNAV_ITEMS = [
+            { domId: 'admin-manage', label: 'Setup', icon: 'bi-sliders' },
+            { domId: 'admin-reports', label: 'Data', icon: 'bi-table' },
+            { domId: 'admin-access', label: 'Access', icon: 'bi-shield-lock-fill' },
+            { domId: 'admin-fees', label: 'Fees', icon: 'bi-cash-stack' },
+            { domId: 'admin-attendance', label: 'Attendance', icon: 'bi-calendar2-check' },
+            { domId: 'admin-exams', label: 'Exams', icon: 'bi-clipboard-check' },
+            { domId: 'admin-payroll', label: 'Payroll', icon: 'bi-wallet2' },
+            { domId: 'admin-transport', label: 'Transport', icon: 'bi-bus-front' },
+            { domId: 'admin-history', label: 'History', icon: 'bi-clock-history' },
+            { domId: 'admin-nfc', label: 'NFC', icon: 'bi-broadcast-pin' },
+            { domId: 'admin-photo', label: 'Photo', icon: 'bi-camera-fill' },
+            { domId: 'admin-notices', label: 'Notices', icon: 'bi-megaphone-fill' },
+            { domId: 'admin-import', label: 'Import', icon: 'bi-file-earmark-spreadsheet-fill' },
+        ];
+        let _lastAdminDomId = 'admin-manage';
+
+        // Builds the nested sub-list under the "Admin Panel" sidebar button —
+        // allowedDomIds is null for a full Admin/Student Portal Admin (every
+        // tab), or a specific list for a restricted ERP-tab-only account.
+        function renderAdminSubnav(allowedDomIds) {
+            const sidebar = document.getElementById('sidebar-items');
+            const parentBtn = sidebar && sidebar.querySelector('[data-tab-id="admin-home"]');
+            if (!sidebar || !parentBtn) return;
+
+            const items = allowedDomIds ? ADMIN_SUBNAV_ITEMS.filter(i => allowedDomIds.includes(i.domId)) : ADMIN_SUBNAV_ITEMS;
+
+            const chevron = document.createElement('i');
+            chevron.className = 'bi bi-chevron-right nav-chevron';
+            parentBtn.appendChild(chevron);
+            parentBtn.classList.add('expanded');
+
+            const list = document.createElement('div');
+            list.className = 'nav-subnav-list expanded';
+            list.id = 'admin-subnav-list';
+            list.innerHTML = items.map(i => `<button type="button" class="nav-subitem-btn" data-dom-id="${i.domId}"><i class="bi ${i.icon}"></i> <span>${i.label}</span></button>`).join('');
+            parentBtn.insertAdjacentElement('afterend', list);
+            list.querySelectorAll('.nav-subitem-btn').forEach(btn => {
+                btn.onclick = () => selectAdminTab(btn.dataset.domId);
+            });
+
+            parentBtn.onclick = () => {
+                const isExpanded = parentBtn.classList.contains('expanded');
+                if (document.getElementById('admin-section').classList.contains('hidden')) {
+                    // Coming from a different top-level view (e.g. Bus Tracker) —
+                    // always enter admin and expand, regardless of prior state.
+                    switchTab('admin-home');
+                    parentBtn.classList.add('expanded');
+                    list.classList.add('expanded');
+                } else {
+                    // Already in Admin Panel — this click just toggles the submenu.
+                    parentBtn.classList.toggle('expanded', !isExpanded);
+                    list.classList.toggle('expanded', !isExpanded);
+                }
+            };
+
+            selectAdminTab(items.length ? items[0].domId : null, { toggleSubnav: false });
+        }
+
+        // The single source of truth for switching which admin tab-pane is
+        // visible — from a sidebar sub-item click, the ?tab= deep link, or
+        // the (same-origin) parent Faculty Portal reusing an already-loaded
+        // iframe instead of recreating it (see loadStudentPortalView in the
+        // outer app.js) to avoid a full reload/re-login flash on every switch.
+        function selectAdminTab(domId, opts) {
+            if (!domId) return;
+            _lastAdminDomId = domId;
+            const pill = document.querySelector(`#admin-section button[data-bs-target="#${domId}"]`);
+            if (pill) pill.click(); // reuses Bootstrap's tab-switch + each pill's own onclick loader
+            document.querySelectorAll('#admin-subnav-list .nav-subitem-btn').forEach(b => {
+                b.classList.toggle('active', b.dataset.domId === domId);
+            });
+            if (!opts || opts.toggleSubnav !== false) {
+                const parentBtn = document.querySelector('[data-tab-id="admin-home"]');
+                const list = document.getElementById('admin-subnav-list');
+                if (parentBtn) parentBtn.classList.add('expanded');
+                if (list) list.classList.add('expanded');
+            }
+        }
+        window.selectAdminTab = selectAdminTab; // callable from the parent Faculty Portal frame
 
         function addNav(id, name, icon, active = false) {
             const sidebar = document.getElementById('sidebar-items');
