@@ -117,7 +117,11 @@ const RESERVED = [
   'loadAdminPhotoView','loadStudentForPhoto','handleStudentPhotoSelect',
   'loadAdminNoticesView','addNoticeRow','previewNotice','saveNoticeRow',
   'deleteNoticeRow','moveNotice',
-  'loadAdminImportView','updateImportSample','previewBulkImport','confirmBulkImport'
+  'loadAdminImportView','updateImportSample','previewBulkImport','confirmBulkImport',
+
+  // Viewer Panel + Bus Tracker native ports (Phase 7)
+  '_studentPortalNavClick','loadViewerPanelView','viewerSearch','toggleAllViewerRows',
+  'viewerOpenBulkEditModal','viewerSubmitBulkEdit','viewerDownload','loadAdminBusTrackerView'
 ];
 
 // Strip HTML comments and collapse whitespace

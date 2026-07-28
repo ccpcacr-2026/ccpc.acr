@@ -420,7 +420,7 @@
     { key: 'photo', label: 'Photo', icon: 'camera', erp: false, action: { type: 'native', fn: 'loadAdminPhotoView' } },
     { key: 'notices', label: 'Notices', icon: 'megaphone', erp: false, action: { type: 'native', fn: 'loadAdminNoticesView' } },
     { key: 'import', label: 'Import', icon: 'file-spreadsheet', erp: false, action: { type: 'native', fn: 'loadAdminImportView' } },
-    { key: 'bus_tracker', label: 'Bus Tracker', icon: 'map-pin', erp: false, action: { type: 'iframe-bus' } },
+    { key: 'bus_tracker', label: 'Bus Tracker', icon: 'map-pin', erp: false, action: { type: 'native', fn: 'loadAdminBusTrackerView' } },
   ];
 
   // "Student Portal" is a pure expand/collapse subheader now — its own click
@@ -433,6 +433,20 @@
     const nowExpanded = !parent.classList.contains('expanded');
     parent.classList.toggle('expanded', nowExpanded);
     host.classList.toggle('collapsed', !nowExpanded);
+  }
+
+  // A field-category-only viewer (see _maybeRevealStudentPortalForGrantee)
+  // has no ERP tab and isn't Admin, so _loadAdminSubnav renders zero items
+  // under "Student Portal" for them — expanding an empty list would be a
+  // dead end. For that one case, clicking the header goes straight to their
+  // own restricted Viewer Panel instead of toggling the (empty) subnav.
+  function _studentPortalNavClick() {
+    const isFullAdmin = window.ACTIVE_ROLE === 'Admin' || window.ACTIVE_ROLE === 'Student Portal Admin';
+    if (!isFullAdmin && !window._hasErpTabAccess && window._hasFieldCategoryAccess) {
+      loadViewerPanelView();
+      return;
+    }
+    toggleAdminSubnav();
   }
 
   function _loadAdminSubnav(activeRole) {
@@ -6509,6 +6523,237 @@
     }).catch(err => {
       if (btn) { btn.disabled = false; btn.textContent = 'Retry Import'; }
       showToast((err && err.message) || 'Network error during import', 'error');
+    });
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Viewer Panel — native port (Phase 7). The restricted read-only/limited-
+  // edit console for a non-admin field-category grantee (never a full
+  // Admin/Student Portal Admin, never an ERP-tab grantee — those two cases
+  // are handled by loadAdminAccessView / the ERP subnav respectively).
+  // Reached only via _studentPortalNavClick, never via ADMIN_SUBNAV_ITEMS.
+  // ══════════════════════════════════════════════════════════════════════
+
+  let _vwAccess = null;
+
+  function loadViewerPanelView() {
+    _setViewHash('student_portal');
+    setActiveNavLink('nav-student-portal');
+    setContentHeader('Student Data Viewer', 'eye');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    container.innerHTML = `<div class="text-center p-10"><i data-lucide="loader-2" class="h-6 w-6 animate-spin inline text-blue-600"></i></div>`;
+    lucide.createIcons();
+    _adminFetch('get_my_access', {}).then(res => {
+      if (!res || res.result !== 'success' || !Array.isArray(res.fields) || !res.fields.length) {
+        container.innerHTML = `<div class="text-center p-10 text-slate-400 font-bold text-sm">Your account does not have Student Portal admin access.</div>`;
+        return;
+      }
+      _vwAccess = res;
+      _renderViewerPanel();
+    }).catch(() => { container.innerHTML = `<div class="text-center p-10 text-red-500 font-bold text-sm">Could not load your access — check your connection and reload.</div>`; });
+  }
+  function _renderViewerPanel() {
+    const container = document.getElementById('view-container');
+    if (!container || !_vwAccess) return;
+    const fields = _vwAccess.fields || [];
+    const categories = _vwAccess.categories || [];
+    const canEdit = (_vwAccess.editable_fields || []).length > 0;
+    setContentHeader(`Student Data ${canEdit ? 'Viewer & Editor' : 'Viewer'}`, 'eye');
+    container.innerHTML = `
+      <div class="mb-4">
+        <h2 class="text-2xl font-black text-slate-800 tracking-tight">Student Data ${canEdit ? 'Viewer &amp; Editor' : 'Viewer'}</h2>
+        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Granted: ${categories.join(', ')}</p>
+      </div>
+      <div class="grid grid-cols-2 md:grid-cols-6 gap-2 mb-3">
+        <input type="text" id="vwSearchId" placeholder="Student ID" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+        <input type="text" id="vwSearchClass" placeholder="Class" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+        <input type="text" id="vwSearchSection" placeholder="Section" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+        <input type="text" id="vwSearchRoll" placeholder="Roll" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+        <input type="text" id="vwSearchGroup" placeholder="Group" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+        <button onclick="viewerSearch()" class="px-3 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Search</button>
+      </div>
+      <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div class="flex items-center gap-2">
+          ${categories.length > 1
+            ? `<select id="vwCategorySelect" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">${categories.map(c => `<option value="${c}">${c}</option>`).join('')}</select><button onclick="viewerDownload()" class="px-3 py-2 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Download CSV</button>`
+            : `<button onclick="viewerDownload('${categories[0] || ''}')" class="px-3 py-2 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Download CSV</button>`}
+        </div>
+        ${canEdit ? `<div class="flex items-center gap-2">
+          <label class="flex items-center gap-1.5 text-[10px] font-black text-slate-400 uppercase"><input type="checkbox" id="vwSelectAll" onchange="toggleAllViewerRows(this.checked)">Select all</label>
+          <button id="vwBulkEditBtn" onclick="viewerOpenBulkEditModal()" disabled class="px-3 py-2 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 disabled:opacity-40 transition-all">Bulk Edit Selected (<span id="vwSelectedCount">0</span>)</button>
+        </div>` : ''}
+      </div>
+      <div class="overflow-auto border border-slate-200 rounded-xl">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead class="bg-slate-50"><tr id="vwHeaders">${canEdit ? '<th style="width:28px"></th>' : ''}${fields.map(f => `<th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">${f.replace(/_/g, ' ')}</th>`).join('')}</tr></thead>
+          <tbody id="vwBody"><tr><td colspan="100" class="text-center text-slate-400 font-bold text-xs p-6">Search above to see results.</td></tr></tbody>
+        </table>
+      </div>
+    `;
+    lucide.createIcons();
+  }
+  function viewerSearch() {
+    const payload = {
+      student_id: document.getElementById('vwSearchId').value.trim(),
+      class: document.getElementById('vwSearchClass').value.trim(),
+      section: document.getElementById('vwSearchSection').value.trim(),
+      roll: document.getElementById('vwSearchRoll').value.trim(),
+      group: document.getElementById('vwSearchGroup').value.trim(),
+    };
+    const canEdit = ((_vwAccess && _vwAccess.editable_fields) || []).length > 0;
+    _adminFetch('search_students', payload).then(res => {
+      const body = document.getElementById('vwBody');
+      if (!res || res.result !== 'success' || !res.rows.length) { body.innerHTML = `<tr><td colspan="100" class="text-center text-slate-400 font-bold text-xs p-6">No students matched.</td></tr>`; updateViewerSelectedCount(); return; }
+      const headers = res.headers || Object.keys(res.rows[0]);
+      body.innerHTML = res.rows.map(r => `<tr class="border-b border-slate-50">
+        ${canEdit ? `<td class="py-1.5 px-3"><input type="checkbox" class="vw-row-check" value="${String(r.student_id).replace(/"/g, '&quot;')}" onchange="updateViewerSelectedCount()"></td>` : ''}
+        ${headers.map(h => `<td class="py-1.5 px-3 text-slate-600 font-bold">${r[h] ?? ''}</td>`).join('')}
+      </tr>`).join('');
+      updateViewerSelectedCount();
+    });
+  }
+  function toggleAllViewerRows(checked) {
+    document.querySelectorAll('.vw-row-check').forEach(c => { c.checked = checked; });
+    updateViewerSelectedCount();
+  }
+  function updateViewerSelectedCount() {
+    const n = document.querySelectorAll('.vw-row-check:checked').length;
+    const el = document.getElementById('vwSelectedCount');
+    if (el) el.textContent = n;
+    const btn = document.getElementById('vwBulkEditBtn');
+    if (btn) btn.disabled = n === 0;
+  }
+  function viewerOpenBulkEditModal() {
+    const ids = Array.from(document.querySelectorAll('.vw-row-check:checked')).map(c => c.value);
+    if (!ids.length) return;
+    const fields = ((_vwAccess && _vwAccess.editable_fields) || []).filter(f => f !== 'student_id');
+    document.getElementById('vwBulkEditOverlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'vwBulkEditOverlay';
+    overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
+    overlay.innerHTML = `
+      <div class="bg-white rounded-2xl w-full max-w-lg" style="max-height:85vh;display:flex;flex-direction:column">
+        <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+          <p class="font-black text-slate-800 text-sm">Bulk Edit — ${ids.length} student${ids.length === 1 ? '' : 's'}</p>
+          <button onclick="document.getElementById('vwBulkEditOverlay').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="h-4 w-4"></i></button>
+        </div>
+        <p class="text-xs text-slate-400 font-bold px-4 pt-4 mb-2">Leave a field blank to leave it unchanged. Every filled-in field is set to the same value on all ${ids.length} selected student${ids.length === 1 ? '' : 's'}.</p>
+        <div class="p-4 overflow-y-auto flex flex-col gap-2" style="flex:1">
+          ${fields.map(h => `<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">${h.replace(/_/g, ' ')}</label><input type="text" class="vw-bulk-edit-field w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm" data-field="${h}" placeholder="Leave blank = no change"></div>`).join('')}
+        </div>
+        <div class="p-4 border-t border-slate-100 flex justify-end">
+          <button onclick='viewerSubmitBulkEdit(${JSON.stringify(ids)})' class="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Apply to ${ids.length} student${ids.length === 1 ? '' : 's'}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    lucide.createIcons();
+  }
+  function viewerSubmitBulkEdit(ids) {
+    const updates = {};
+    document.querySelectorAll('.vw-bulk-edit-field').forEach(inp => { const v = inp.value.trim(); if (v !== '') updates[inp.dataset.field] = v; });
+    if (!Object.keys(updates).length) { showToast('Set at least one field', 'error'); return; }
+    _adminFetch('viewer_bulk_update_students', { student_ids: ids, updates }).then(res => {
+      document.getElementById('vwBulkEditOverlay')?.remove();
+      if (res && (res.result === 'success' || res.result === 'partial')) {
+        showToast(`Updated ${res.updated} student${res.updated === 1 ? '' : 's'}${res.errors && res.errors.length ? ' (' + res.errors.length + ' failed)' : ''}`, res.result === 'success' ? 'success' : 'error');
+        viewerSearch();
+      } else {
+        showToast((res && res.message) || 'Update failed', 'error');
+      }
+    }).catch(() => showToast('Network error', 'error'));
+  }
+  function viewerDownload(fixedCategory) {
+    const category_name = fixedCategory || document.getElementById('vwCategorySelect').value;
+    if (!category_name) return;
+    const payload = {
+      category_name,
+      student_id: document.getElementById('vwSearchId').value.trim(),
+      class: document.getElementById('vwSearchClass').value.trim(),
+      section: document.getElementById('vwSearchSection').value.trim(),
+      roll: document.getElementById('vwSearchRoll').value.trim(),
+      group: document.getElementById('vwSearchGroup').value.trim(),
+    };
+    _adminFetch('download_students_by_category', payload).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Download failed', 'error'); return; }
+      const csv = res.headers.join(',') + '\n' + res.rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+      a.download = `${category_name}_export.csv`;
+      a.click();
+    }).catch(() => showToast('Network error', 'error'));
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Bus Tracker — native port (Phase 7). Leaflet + public/js/bus-tracking.js
+  // are kept file-content-unchanged (own map/marker/geofence/ETA logic,
+  // reused via the same 5 window.BusTracking.* calls) and lazy-loaded on
+  // demand, same idiom as the Import tab's ensureXLSX(). bus-tracking.js
+  // calls a global portalFetch(action, payload) — aliased to _adminFetch
+  // here since it's the same {action, payload, user_id} POST shape.
+  // ══════════════════════════════════════════════════════════════════════
+
+  function ensureBusTrackingAssets() {
+    if (window.BusTracking) return Promise.resolve();
+    window.portalFetch = _adminFetch;
+    const cssReady = document.getElementById('leaflet-css') ? Promise.resolve() : new Promise(resolve => {
+      const link = document.createElement('link');
+      link.id = 'leaflet-css';
+      link.rel = 'stylesheet';
+      link.href = 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.css';
+      link.onload = resolve;
+      link.onerror = resolve;
+      document.head.appendChild(link);
+    });
+    const leafletReady = window.L ? Promise.resolve() : new Promise((resolve, reject) => {
+      const sc = document.createElement('script');
+      sc.src = 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js';
+      sc.onload = resolve;
+      sc.onerror = () => reject(new Error('Could not load the map library — check your connection and retry.'));
+      document.head.appendChild(sc);
+    });
+    return Promise.all([cssReady, leafletReady]).then(() => new Promise((resolve, reject) => {
+      const sc = document.createElement('script');
+      sc.src = '/js/bus-tracking.js';
+      sc.onload = resolve;
+      sc.onerror = () => reject(new Error('Could not load the bus tracker — check your connection and retry.'));
+      document.head.appendChild(sc);
+    }));
+  }
+  function loadAdminBusTrackerView() {
+    if (!['Admin', 'Student Portal Admin'].includes(window.ACTIVE_ROLE)) {
+      showToast('Not available in current role', 'error');
+      return;
+    }
+    _setViewHash('student_portal');
+    setActiveNavLink('nav-erp-bus_tracker');
+    setContentHeader('Bus Tracker', 'map-pin');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    if (window.BusTracking) window.BusTracking.resetBusMap();
+    container.innerHTML = `
+      <div class="mb-4 flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h2 class="text-2xl font-black text-slate-800 tracking-tight">Bus Tracker</h2>
+          <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Live GPS positions, geofence alerts, ETA</p>
+        </div>
+        <button onclick="BusTracking.exportBusData()" class="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Export CSV</button>
+      </div>
+      <div id="geofenceAlerts" class="flex flex-col gap-2 mb-3"></div>
+      <div class="grid md:grid-cols-3 gap-4" style="height:calc(100vh - 260px)">
+        <div class="md:col-span-2 rounded-3xl border border-slate-200 shadow-sm overflow-hidden" style="min-height:400px">
+          <div id="bus-map-container" style="width:100%;height:100%"></div>
+        </div>
+        <div class="flex flex-col gap-3 overflow-hidden">
+          <div id="bus-info-panel" class="shrink-0"></div>
+          <div id="bus-list" class="flex-1 overflow-y-auto flex flex-col gap-2 rounded-3xl border border-slate-200 p-2"></div>
+        </div>
+      </div>
+    `;
+    document.getElementById('bus-info-panel').innerHTML = `<div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 text-center text-slate-400 font-bold text-xs">Select a bus to view details</div>`;
+    lucide.createIcons();
+    ensureBusTrackingAssets().then(() => window.BusTracking.initBusMap()).catch(err => {
+      container.innerHTML += `<div class="mt-3 p-4 bg-red-50 border border-red-200 rounded-xl text-xs font-bold text-red-600">${err.message}</div>`;
     });
   }
 

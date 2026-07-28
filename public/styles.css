@@ -815,3 +815,70 @@ button { user-select: none; }
     margin-bottom: 0.75rem !important;
   }
 }
+
+/* ── Bus Tracker (public/js/bus-tracking.js) — that file's own generated
+   markup uses a handful of Bootstrap utility/component classes (kept
+   file-content-unchanged since its map/marker/geofence/ETA logic doesn't
+   depend on them) but app.html carries no Bootstrap CSS. This scopes just
+   those classes, inside the Bus Tracker view only, to match the rest of
+   the Tailwind-based admin UI. ── */
+#bus-list .bus-list-item {
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+#bus-list .bus-list-item:hover { background: #f8fafc; }
+#bus-list .bus-list-item.active { border-color: #2563eb; background: #eff6ff; }
+#bus-info-panel .card, #bus-list .card {
+  border-radius: 20px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  overflow: hidden;
+}
+#bus-info-panel .card-header {
+  padding: 14px 18px;
+  background: linear-gradient(135deg, #1e293b, #334155);
+  color: #fff;
+}
+#bus-info-panel .card-body { padding: 16px 18px; }
+#bus-info-panel .badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+#bus-info-panel .badge.bg-danger { background: #fee2e2; color: #dc2626; }
+#bus-info-panel .badge.bg-success { background: #dcfce7; color: #16a34a; }
+#geofenceAlerts .alert {
+  position: relative;
+  padding: 10px 40px 10px 14px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+}
+#geofenceAlerts .alert-success { background: #dcfce7; color: #15803d; }
+#geofenceAlerts .alert-warning { background: #fef3c7; color: #b45309; }
+#geofenceAlerts .btn-close {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.5;
+}
+#geofenceAlerts .btn-close:hover { opacity: 1; }
+#bus-info-panel .small, #bus-list .small { font-size: 11px; }
+#bus-info-panel .text-muted, #bus-list .text-muted { color: #94a3b8; }
+#bus-info-panel .fw-600, #bus-list .fw-600 { font-weight: 700; color: #1e293b; }
+#bus-info-panel .row.g-3 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 0; }
+#bus-info-panel .row.g-3 .col-12 { grid-column: 1 / -1; }

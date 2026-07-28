@@ -534,9 +534,25 @@ function refreshMapSize() {
   if (map) setTimeout(() => map.invalidateSize(), 50);
 }
 
+/**
+ * Full teardown — used when the map's container div is about to be removed
+ * from the DOM (e.g. navigating to a different view in a single-page host),
+ * so a later initBusMap() call creates a fresh Leaflet instance instead of
+ * silently no-op'ing on the (now-detached) old one.
+ */
+function resetBusMap() {
+  stopBusTracking();
+  if (map) { try { map.remove(); } catch (_) {} }
+  map = null;
+  busMarkers = {};
+  geofenceCircles = {};
+  selectedBusImei = null;
+}
+
 window.BusTracking = {
   initBusMap,
   stopBusTracking,
+  resetBusMap,
   exportBusData,
   selectBus,
   refreshMapSize,
