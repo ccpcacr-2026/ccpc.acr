@@ -226,7 +226,12 @@
     const key = window.location.hash.slice(1).split('?')[0];
     // Admin-configurable module visibility gates direct hash navigation too,
     // not just the nav links — see MODULE_REGISTRY / _isModuleVisibleForRole.
-    if (key && MODULE_REGISTRY.some(m => m.key === key) && !_isModuleVisibleForRole(key, window.ACTIVE_ROLE)) {
+    // student_portal is exempt from this early gate: a plain Teacher/Staff
+    // with only a field-category grant (no role-based visibility at all)
+    // must still be able to reach it — loadStudentPortalView does its own
+    // complete access check (role OR ERP-tab grant OR field-category
+    // grant) and shows the same "not available" toast if none apply.
+    if (key && key !== 'student_portal' && MODULE_REGISTRY.some(m => m.key === key) && !_isModuleVisibleForRole(key, window.ACTIVE_ROLE)) {
       // Silently redirect to dashboard — no error toast for URL tampering
       loadDefaultView();
       return;
@@ -396,17 +401,15 @@
     }).catch(() => {});
   }
 
-  // All 14 destinations nested under "Student Portal" in the sidebar. The 5
-  // ERP-tab entries (erp:true) stay gated per-account by the admin-editable
+  // All 13 destinations nested under "Student Portal" in the sidebar — every
+  // one a native view calling the same /api/student-admin backend directly
+  // via _adminFetch (no iframe anywhere in this app anymore). The 5 ERP-tab
+  // entries (erp:true) stay gated per-account by the admin-editable
   // admin_tab_visibility matrix (get_my_tab_access, self-service — e.g. an
   // HR account sees just "Payroll" without needing Admin/Student Portal
-  // Admin); the rest are shown to any Admin/Student Portal Admin, matching
-  // student-admin.html's own plain _isAdmin-only rule for those tabs (no
-  // per-tab matrix exists for them). action.type 'native' means this tab has
-  // its own loadAdminXxxView and never touches the iframe at all; 'iframe'/
-  // 'iframe-bus' route through the (now chrome-free-when-embedded)
-  // student-admin.html iframe until that tab's own porting phase lands — as
-  // each phase ships, only that one entry's action needs to change.
+  // Admin); the rest are shown to any Admin/Student Portal Admin. A plain
+  // grantee with neither of those (only a field-category grant) never sees
+  // this list at all — see _studentPortalNavClick/loadViewerPanelView.
   const ADMIN_SUBNAV_ITEMS = [
     { key: 'setup', label: 'Setup', icon: 'sliders-horizontal', erp: false, action: { type: 'native', fn: 'loadAdminSetupView' } },
     { key: 'data', label: 'Data', icon: 'table', erp: false, action: { type: 'native', fn: 'loadAdminDataView' } },
@@ -463,10 +466,9 @@
       window._hasErpTabAccess = erpTabs.length > 0; // loadStudentPortalView's own role gate checks this too
       const items = ADMIN_SUBNAV_ITEMS.filter(i => i.erp ? erpTabs.includes(i.key) : isFullAdmin);
       if (!items.length) { host.innerHTML = ''; host.classList.add('hidden'); return; }
-      host.innerHTML = items.map(i => {
-        const onclick = i.action.type === 'native' ? `${i.action.fn}()` : `loadStudentPortalView('${i.key}')`;
-        return `<a href="javascript:void(0)" onclick="${onclick}; closeMobileSidebar();" class="nav-link nav-sublink" id="nav-erp-${i.key}"><div class="nav-icon-box"><i data-lucide="${i.icon}" class="nav-icon"></i></div><span class="nav-text">${i.label}</span></a>`;
-      }).join('');
+      host.innerHTML = items.map(i =>
+        `<a href="javascript:void(0)" onclick="${i.action.fn}(); closeMobileSidebar();" class="nav-link nav-sublink" id="nav-erp-${i.key}"><div class="nav-icon-box"><i data-lucide="${i.icon}" class="nav-icon"></i></div><span class="nav-text">${i.label}</span></a>`
+      ).join('');
       host.classList.remove('hidden');
       lucide.createIcons();
       const adminLinks = document.getElementById('admin-links');
@@ -3091,67 +3093,55 @@
   let _invOptionsCache = null;     // { consumers, committees, assignments } — recipient picker data
   let _invDistContext  = null;     // { fromType, fromId, productId, productName, max } for the open modal
 
-  // Student Portal admin console — embedded in-place instead of opening
-  // student-admin.html as its own tab/page. It's still the same standalone
-  // HTML file (own layout, own /api/student-admin calls), just framed inside
-  // this SPA's view-container now; same-origin iframes share localStorage
-  // with the parent, so it re-verifies the caller's role the same way it
-  // always has, with nothing new to log into. The `embedded=1` param tells
-  // it to hide its own Back-to-Portal/Logout buttons, since this page
-  // already provides those. Only ever called for a tabKey whose
-  // ADMIN_SUBNAV_ITEMS action.type is 'iframe'/'iframe-bus' — native-ported
-  // tabs (action.type 'native') call their own loadAdminXxxView directly and
-  // never reach this function at all.
-  function loadStudentPortalView(tabKey) {
-    // Either the normal role matrix allows it, or this specific account has
-    // a field-category grant (see _maybeRevealStudentPortalForGrantee) or an
-    // ERP-tab grant (see _loadAdminSubnav) — either of the latter two is
-    // what actually makes the nav link visible for a plain Teacher/Staff in
-    // the first place, so both must also be accepted here.
-    if (!_isModuleVisibleForRole('student_portal', window.ACTIVE_ROLE) && !window._hasFieldCategoryAccess && !window._hasErpTabAccess) {
-      showToast('Not available in current role', 'error');
+  // Hash-restore default for "Student Portal" (e.g. reloading the page
+  // while on any of its sub-views — every one of them calls
+  // _setViewHash('student_portal') too, so the hash alone can't say which
+  // specific tab was open). All 13 sub-tabs are native now, so there's no
+  // iframe to fall back to — this just re-derives the same landing choice
+  // _studentPortalNavClick would make and opens it directly.
+  function _expandStudentPortalSubnav() {
+    const host = document.getElementById('erp-links');
+    const parent = document.getElementById('nav-student-portal');
+    if (parent && host) { parent.classList.add('expanded'); host.classList.remove('collapsed'); }
+  }
+  // Hash-restore default for "Student Portal" (e.g. reloading the page
+  // while on any of its sub-views — every one of them calls
+  // _setViewHash('student_portal') too, so the hash alone can't say which
+  // specific tab was open). Runs synchronously right after login, before
+  // the sidebar's own async grant checks (_loadAdminSubnav /
+  // _maybeRevealStudentPortalForGrantee) are guaranteed to have resolved —
+  // so this always re-derives access itself via a fresh backend call
+  // rather than trusting window._hasErpTabAccess/_hasFieldCategoryAccess,
+  // which may still be unset at this exact moment.
+  function loadStudentPortalView() {
+    const isFullAdmin = window.ACTIVE_ROLE === 'Admin' || window.ACTIVE_ROLE === 'Student Portal Admin';
+    if (isFullAdmin) { _expandStudentPortalSubnav(); loadAdminSetupView(); return; }
+    if (_isModuleVisibleForRole('student_portal', window.ACTIVE_ROLE)) {
+      // Role-based grant (e.g. HR) — land on the first of the 5 ERP tabs
+      // this account actually holds.
+      _adminFetch('get_my_tab_access', {}).then(res => {
+        const tabs = (res && res.result === 'success' && Array.isArray(res.tabs)) ? res.tabs : [];
+        const first = ADMIN_SUBNAV_ITEMS.find(i => i.erp && tabs.includes(i.key));
+        if (first) { _expandStudentPortalSubnav(); window[first.action.fn](); }
+        else showToast('Not available in current role', 'error');
+      }).catch(() => showToast('Not available in current role', 'error'));
       return;
     }
-    _setViewHash('student_portal');
-    setActiveNavLink(tabKey ? ('nav-erp-' + tabKey) : 'nav-student-portal');
-    setContentHeader('Student Portal', 'graduation-cap');
-    const container = document.getElementById('view-container');
-    if (!container) return;
-
-    const item = tabKey && ADMIN_SUBNAV_ITEMS.find(i => i.key === tabKey);
-
-    // If the console is already open (from a previous shortcut click), tell
-    // the already-loaded iframe to just switch tabs/views in place —
-    // same-origin, so this is a plain synchronous call, no postMessage
-    // needed. Recreating the iframe on every shortcut click was forcing a
-    // full reload + re-login check each time, which looked like the login
-    // screen flashing on every tab switch. Falls back to a fresh iframe if
-    // anything about that isn't true yet (e.g. the child page hasn't
-    // finished its own login check).
-    const existing = document.getElementById('student-portal-frame');
-    if (existing && /\/student-admin\.html/.test(existing.src)) {
-      if (!tabKey) return; // already open, no specific tab requested — leave it as-is
-      try {
-        if (item && item.action.type === 'iframe' && existing.contentWindow && typeof existing.contentWindow.selectAdminTab === 'function') {
-          existing.contentWindow.selectAdminTab(item.action.domId);
-          return;
-        }
-        if (item && item.action.type === 'iframe-bus' && existing.contentWindow && typeof existing.contentWindow.switchTab === 'function') {
-          existing.contentWindow.switchTab('bus-tracking');
-          return;
-        }
-      } catch (_) { /* fall through to a fresh iframe below */ }
-    }
-
-    const tabParam = tabKey ? ('&tab=' + encodeURIComponent(tabKey)) : '';
-    container.innerHTML = `<iframe id="student-portal-frame" src="/student-admin.html?embedded=1${tabParam}" title="Student Portal Admin" style="width:100%;height:calc(100vh - 140px);min-height:600px;border:none;border-radius:16px;background:#fff"></iframe>`;
+    // Not role-visible — only a field-category grant (Viewer Panel) can
+    // still admit this account.
+    _adminFetch('get_my_access', {}).then(res => {
+      if (res && res.result === 'success' && Array.isArray(res.fields) && res.fields.length) {
+        window._hasFieldCategoryAccess = true;
+        loadViewerPanelView();
+      } else {
+        showToast('Not available in current role', 'error');
+      }
+    }).catch(() => showToast('Not available in current role', 'error'));
   }
 
   // ══════════════════════════════════════════════════════════════════════
-  // Access tab — native port (Phase 1 of retiring the student-admin.html
-  // iframe, see the plan). Talks to the exact same /api/student-admin
-  // backend actions the iframe version used, via _adminFetch below — no
-  // backend changes needed, this is a pure frontend translation.
+  // Access tab — module access, field categories, viewer grants, student
+  // search/bulk-edit. Talks to /api/student-admin via _adminFetch below.
   // ══════════════════════════════════════════════════════════════════════
 
   function _adminFetch(action, payload = {}) {

@@ -608,9 +608,9 @@ export async function POST(req) {
   // ── Profile photo — admin-side upload into the public `students` Storage
   // bucket. Client sends an already square-cropped, already-compressed
   // (<=130KB, matching the bucket's own limit) JPEG data URL — see
-  // handleStudentPhotoSelect in student-admin.html, copied from the
-  // equivalent teacher-photo flow (ccpc-teachers/_src/app.js handlePhotoSelect
-  // / uploadPhotoToDrive in exec/route.js), just targeting a different bucket.
+  // handleStudentPhotoSelect in _src/app.js, copied from the equivalent
+  // teacher-photo flow (handlePhotoSelect / uploadPhotoToDrive in
+  // exec/route.js), just targeting a different bucket.
   if (action === 'upload_photo') {
     const { student_id, photo_base64 } = payload;
     if (!student_id || !photo_base64) return NextResponse.json({ result: 'error', message: 'Student ID and photo required.' });
