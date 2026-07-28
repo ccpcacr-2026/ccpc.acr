@@ -203,13 +203,17 @@ async function _isAdmin(userId) {
 }
 
 // ── Per-tab module access (admin console nav pills) ──────────────────────
-// Which roles can use each of the 5 ERP tabs is admin-configurable (see
+// Which roles can use each tab is admin-configurable (see
 // get_admin_tab_visibility / save_admin_tab_visibility below), stored in
 // teacher.system_settings under key 'admin_tab_visibility' as
 // { tabKey: [role, ...] }. 'Admin' always passes, same as the outer
-// MODULE_REGISTRY matrix in _src/app.js. Every other admin-console action
-// (Setup/Data/Access/History/NFC/Photo/Bus/Notices/Import) is untouched by
-// this and still just needs _isAdmin, as before.
+// MODULE_REGISTRY matrix in _src/app.js. Originally only the 5 ERP tabs
+// were covered here (everything else just needed _isAdmin) — extended to
+// cover every Student Portal subnav item so an admin can grant a narrower
+// role (e.g. "Class Teacher") access to just some of them. A shared
+// backend action (e.g. get_staff_directory, used by Access/Data/Assign
+// Class Teacher alike) may legitimately belong to more than one tab's set —
+// the caller only needs to clear ONE of them, not all.
 const ADMIN_TAB_ACTIONS = {
   fees: new Set(['get_fee_types', 'save_fee_type', 'delete_fee_type', 'get_fee_structures', 'save_fee_structure', 'delete_fee_structure', 'get_late_fee_rules', 'save_late_fee_rule', 'delete_late_fee_rule', 'generate_classwise_fees', 'generate_individual_fee', 'remove_individual_fee', 'set_discount', 'get_discounts', 'set_partial_split', 'record_payment', 'get_student_fees', 'get_defaulters_list', 'get_fees_collection_report', 'get_fee_accounts', 'save_fee_account', 'record_account_transaction', 'get_account_register']),
   attendance: new Set(['get_attendance_report', 'save_manual_attendance', 'save_bulk_manual_attendance', 'get_staff_attendance_report', 'get_attendance_devices', 'save_attendance_device', 'delete_attendance_device', 'get_punch_log']),
@@ -218,25 +222,46 @@ const ADMIN_TAB_ACTIONS = {
   // one toggle controls both, matching what the tab actually shows.
   payroll: new Set(['get_salary_structures', 'save_salary_structure', 'get_payroll_runs', 'run_payroll', 'get_payslips', 'mark_payroll_paid', 'get_leave_types', 'save_leave_type', 'get_leave_requests', 'approve_leave_request']),
   transport: new Set(['get_transport_routes', 'save_transport_route', 'get_transport_vehicles', 'save_transport_vehicle', 'get_pickup_points', 'save_pickup_point', 'assign_route_pickup_point', 'get_route_pickup_points', 'assign_vehicle_to_route', 'get_vehicle_assignments', 'get_transport_fee_master', 'save_transport_fee_master', 'generate_student_transport_fee', 'get_student_transport_fees']),
+  setup: new Set(['get_tabs', 'get_profile_sections', 'get_student_data_headers', 'get_editable_fields', 'save_editable_fields', 'get_permanent_tabs_config', 'set_permanent_tabs_config', 'get_login_password_columns', 'set_login_password_columns', 'promote_tab_to_profile', 'unpromote_tab_from_profile', 'delete_tab', 'save_tab', 'admin_reset_pin']),
+  add_custom_form: new Set(['get_tabs', 'get_student_data_headers', 'save_tab', 'delete_tab']),
+  data: new Set(['get_tabs', 'get_tab_data', 'get_staff_list', 'get_tab_data_access', 'set_tab_data_access', 'get_staff_directory', 'get_class_sections', 'get_tab_class_access', 'set_tab_class_access', 'get_field_categories', 'get_tab_category_link', 'set_tab_category_link']),
+  access: new Set(['get_field_categories', 'get_student_data_headers', 'save_field_category', 'delete_field_category', 'get_staff_directory', 'get_field_access_grants', 'get_scope_column_values', 'set_field_access_grants', 'get_class_sections', 'get_class_access_grants', 'set_class_access_grants', 'search_students', 'bulk_update_students', 'create_student', 'preview_rename_student_id_impact', 'download_students_by_category']),
+  class_teacher: new Set(['get_class_sections', 'get_class_teacher_assignments', 'get_staff_directory', 'set_class_teacher_assignment']),
+  history: new Set(['search_edit_history']),
+  photo: new Set(['get_student_basic', 'upload_photo']),
+  notices: new Set(['get_notices_admin', 'save_notice', 'delete_notice', 'reorder_notices']),
+  import: new Set(['get_student_data_headers', 'preview_bulk_import', 'bulk_import_new_students']),
+  bus_tracker: new Set(['get_tracking_config', 'get_bus_data']),
 };
 
 // Salary/payslip data is HR-sensitive — a delegated "Student Portal Admin"
-// has no business seeing it by default, unlike the other 4 tabs, which
-// default to the same Admin/Student Portal Admin pair as the rest of this
-// console. An Admin can widen or narrow any of these from the Access tab.
+// has no business seeing it by default, unlike the rest of these, which
+// default to the same Admin/Student Portal Admin pair the console has
+// always required (so extending this list changes nothing until an admin
+// actively widens or narrows one from the Access tab).
 const ADMIN_TAB_DEFAULTS = {
   fees: ['Admin', 'Student Portal Admin'],
   attendance: ['Admin', 'Student Portal Admin'],
   exams: ['Admin', 'Student Portal Admin'],
   payroll: ['Admin', 'HR'],
   transport: ['Admin', 'Student Portal Admin'],
+  setup: ['Admin', 'Student Portal Admin'],
+  add_custom_form: ['Admin', 'Student Portal Admin'],
+  data: ['Admin', 'Student Portal Admin'],
+  access: ['Admin', 'Student Portal Admin'],
+  class_teacher: ['Admin', 'Student Portal Admin'],
+  history: ['Admin', 'Student Portal Admin'],
+  photo: ['Admin', 'Student Portal Admin'],
+  notices: ['Admin', 'Student Portal Admin'],
+  import: ['Admin', 'Student Portal Admin'],
+  bus_tracker: ['Admin', 'Student Portal Admin'],
 };
 
-function _tabKeyForAction(action) {
-  for (const [tab, set] of Object.entries(ADMIN_TAB_ACTIONS)) {
-    if (set.has(action)) return tab;
-  }
-  return null;
+// An action can legitimately belong to more than one tab's Set (shared
+// utility reads like get_staff_directory) — the caller only needs to clear
+// ONE of the tabs it appears in, checked by the caller of this function.
+function _tabKeysForAction(action) {
+  return Object.entries(ADMIN_TAB_ACTIONS).filter(([, set]) => set.has(action)).map(([tab]) => tab);
 }
 
 async function _getAdminTabVisibility() {
@@ -445,7 +470,7 @@ export async function POST(req) {
   }
 
   // Self-service: any authenticated caller (Admin included) may ask which
-  // of the 5 ERP tabs THEIR OWN role currently opens, so the Faculty
+  // admin-console tabs THEIR OWN role currently opens, so the Faculty
   // Portal sidebar can show direct shortcuts to just those tabs — this
   // never reveals or lets anyone edit the matrix itself (that stays
   // Admin-only via get_admin_tab_visibility above).
@@ -475,18 +500,19 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success', payslips: rows });
   }
 
-  // Actions belonging to one of the 5 ERP tabs (Fees/Attendance/Exams/
-  // Payroll/Transport) get gated by the admin-configurable per-tab matrix
-  // instead of the plain _isAdmin check — e.g. Payroll defaults to Admin/HR
-  // only, not Student Portal Admin, and an Admin can widen/narrow any of
-  // the 5 from the Access tab. Once cleared, treat the caller as admin for
-  // the rest of this handler, same as the plain _isAdmin path below.
-  const tabKey = _tabKeyForAction(action);
+  // Actions belonging to one of the admin-console tabs get gated by the
+  // admin-configurable per-tab matrix instead of the plain _isAdmin check —
+  // e.g. Payroll defaults to Admin/HR only, not Student Portal Admin, and
+  // an Admin can widen/narrow any tab from the Access tab. An action shared
+  // across several tabs (e.g. get_staff_directory) only needs ONE of them
+  // to clear. Once cleared, treat the caller as admin for the rest of this
+  // handler, same as the plain _isAdmin path below.
+  const tabKeys = _tabKeysForAction(action);
   let isAdmin;
-  if (tabKey) {
+  if (tabKeys.length) {
     const roles = await _getUserRoles(user_id);
     const matrix = await _getAdminTabVisibility();
-    if (!_isTabAllowed(tabKey, roles, matrix)) {
+    if (!tabKeys.some(tk => _isTabAllowed(tk, roles, matrix))) {
       return NextResponse.json({ result: 'error', message: 'This module requires additional permissions.' }, { status: 403 });
     }
     isAdmin = true;

@@ -460,15 +460,19 @@
     const myId = window.APP_USER && window.APP_USER.user_id;
     const host = document.getElementById('erp-links');
     if (!myId || !host) return;
-    const isFullAdmin = activeRole === 'Admin' || activeRole === 'Student Portal Admin';
     fetch('/api/student-admin', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'get_my_tab_access', payload: {}, user_id: myId })
     }).then(r => r.ok ? r.json() : null).then(res => {
       const erpTabs = (res && res.result === 'success' && Array.isArray(res.tabs)) ? res.tabs : [];
+      // get_my_tab_access now returns every admin-console tab the caller's
+      // role clears (not just the original 5 ERP ones) — Admin/Student
+      // Portal Admin still get every key via the matrix's own defaults, so
+      // this alone decides sidebar visibility for every subnav item.
+      window._adminTabAccess = erpTabs;
       window._hasErpTabAccess = erpTabs.length > 0; // loadStudentPortalView's own role gate checks this too
-      const items = ADMIN_SUBNAV_ITEMS.filter(i => i.erp ? erpTabs.includes(i.key) : isFullAdmin);
+      const items = ADMIN_SUBNAV_ITEMS.filter(i => erpTabs.includes(i.key));
       if (!items.length) { host.innerHTML = ''; host.classList.add('hidden'); return; }
       host.innerHTML = items.map(i =>
         `<a href="javascript:void(0)" onclick="${i.action.fn}(); closeMobileSidebar();" class="nav-link nav-sublink" id="nav-erp-${i.key}"><div class="nav-icon-box"><i data-lucide="${i.icon}" class="nav-icon"></i></div><span class="nav-text">${i.label}</span></a>`
@@ -3169,15 +3173,19 @@
     });
   }
 
-  const TAB_ACCESS_LABELS = { fees: 'Fees', attendance: 'Attendance', exams: 'Exams', payroll: 'Payroll (incl. Leave)', transport: 'Transport' };
-  const TAB_ACCESS_ROLES = ['Student Portal Admin', 'HR', 'Principal', 'VP', 'Teacher', 'Staff'];
+  const TAB_ACCESS_LABELS = {
+    fees: 'Fees', attendance: 'Attendance', exams: 'Exams', payroll: 'Payroll (incl. Leave)', transport: 'Transport',
+    setup: 'Setup', add_custom_form: '+ Add Custom Form', data: 'Data', access: 'Access', class_teacher: 'Assign Class Teacher',
+    history: 'History', photo: 'Photo', notices: 'Notices', import: 'Import', bus_tracker: 'Bus Tracker',
+  };
+  const TAB_ACCESS_ROLES = ['Student Portal Admin', 'HR', 'Principal', 'VP', 'Teacher', 'Staff', 'Class Teacher'];
   let _tabAccessDefaults = {}, _tabAccessMatrix = {};
   let _fieldCategories = [];
   let _grantStaff = [], _grantSelectedUser = null, _fieldGrants = {};
   let _stuSearchRows = [], _stuSearchHeaders = [];
 
   function loadAdminAccessView() {
-    if (!['Admin', 'Student Portal Admin'].includes(window.ACTIVE_ROLE)) {
+    if (!(window._adminTabAccess || []).includes('access')) {
       showToast('Not available in current role', 'error');
       return;
     }
@@ -3342,7 +3350,7 @@
   let _ctStaff = [];
 
   function loadAdminClassTeacherView() {
-    if (!['Admin', 'Student Portal Admin'].includes(window.ACTIVE_ROLE)) {
+    if (!(window._adminTabAccess || []).includes('class_teacher')) {
       showToast('Not available in current role', 'error');
       return;
     }
@@ -5476,7 +5484,7 @@
   let _fieldClipboard = null;
 
   function loadAdminSetupView() {
-    if (!['Admin', 'Student Portal Admin'].includes(window.ACTIVE_ROLE)) {
+    if (!(window._adminTabAccess || []).includes('setup')) {
       showToast('Not available in current role', 'error');
       return;
     }
@@ -5540,7 +5548,7 @@
   // Toggle). Always renders fresh/blank on its own; editTab() populates it
   // afterward when editing, same as it always has.
   function loadAdminAddCustomFormView(preloadInclKeys) {
-    if (!['Admin', 'Student Portal Admin'].includes(window.ACTIVE_ROLE)) {
+    if (!(window._adminTabAccess || []).includes('add_custom_form')) {
       showToast('Not available in current role', 'error');
       return;
     }
@@ -6062,7 +6070,7 @@
   let _caTab = null, _caStaff = [], _caClassSections = [], _caGrants = {}, _caSelectedUser = null;
 
   function loadAdminDataView() {
-    if (!['Admin', 'Student Portal Admin'].includes(window.ACTIVE_ROLE)) {
+    if (!(window._adminTabAccess || []).includes('data')) {
       showToast('Not available in current role', 'error');
       return;
     }
@@ -6486,7 +6494,7 @@
   let _historyDebounce = null;
 
   function loadAdminHistoryView() {
-    if (!['Admin', 'Student Portal Admin'].includes(window.ACTIVE_ROLE)) {
+    if (!(window._adminTabAccess || []).includes('history')) {
       showToast('Not available in current role', 'error');
       return;
     }
@@ -6569,7 +6577,7 @@
   let _photoStudentId = null;
 
   function loadAdminPhotoView() {
-    if (!['Admin', 'Student Portal Admin'].includes(window.ACTIVE_ROLE)) {
+    if (!(window._adminTabAccess || []).includes('photo')) {
       showToast('Not available in current role', 'error');
       return;
     }
@@ -6683,7 +6691,7 @@
   let ADMIN_NOTICES = [];
 
   function loadAdminNoticesView() {
-    if (!['Admin', 'Student Portal Admin'].includes(window.ACTIVE_ROLE)) {
+    if (!(window._adminTabAccess || []).includes('notices')) {
       showToast('Not available in current role', 'error');
       return;
     }
@@ -6813,7 +6821,7 @@
   let IMPORT_EXCEL_ROWS = [];
 
   function loadAdminImportView() {
-    if (!['Admin', 'Student Portal Admin'].includes(window.ACTIVE_ROLE)) {
+    if (!(window._adminTabAccess || []).includes('import')) {
       showToast('Not available in current role', 'error');
       return;
     }
@@ -6862,6 +6870,36 @@
     }).catch(() => {});
     const input = document.getElementById('importFileInput');
     if (input) input.addEventListener('change', handleImportFile);
+  }
+
+  // Same header set the "Match Columns" step auto-detects by name — so a
+  // demo file downloaded here, filled in, and re-uploaded maps every column
+  // automatically with no manual matching needed.
+  const IMPORT_DEMO_SAMPLES = {
+    student_id: '2026001', student_name: 'Jane Doe', class: 'Six', section: 'A', roll: '1',
+    gender: 'Female', version: 'English', shift: 'Morning', phone_number: '01700000000',
+    father_phone: '01700000001', mother_phone: '01700000002', nfc_uid: '',
+    fathers_name: 'John Doe', mothers_name: 'Mary Doe', nick_name: 'Jane',
+    house: 'Red', blood: 'O+', balance: '0', daily_limit: '0', monthly_limit: '0',
+    card_status: '', photo: '', session: '2026',
+  };
+  function downloadImportDemoTemplate() {
+    const build = () => {
+      const cols = IMPORT_DB_COLUMNS.length ? IMPORT_DB_COLUMNS : Object.keys(IMPORT_LABELS);
+      const headerRow = cols.map(c => IMPORT_LABELS[c] || c.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase()));
+      const sampleRow = cols.map(c => IMPORT_DEMO_SAMPLES[c] ?? '');
+      const csv = [headerRow, sampleRow].map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+      a.download = 'student_import_template.csv';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    };
+    if (IMPORT_DB_COLUMNS.length) { build(); return; }
+    _adminFetch('get_student_data_headers', {}).then(cols => {
+      IMPORT_DB_COLUMNS = (Array.isArray(cols) ? cols : []).filter(c => c !== 'id');
+      build();
+    }).catch(() => showToast('Could not load column list', 'error'));
   }
   function normImportKey(s) { return String(s || '').toLowerCase().replace(/[\s_-]/g, ''); }
   function ensureXLSX() {
@@ -7260,7 +7298,7 @@
     }));
   }
   function loadAdminBusTrackerView() {
-    if (!['Admin', 'Student Portal Admin'].includes(window.ACTIVE_ROLE)) {
+    if (!(window._adminTabAccess || []).includes('bus_tracker')) {
       showToast('Not available in current role', 'error');
       return;
     }
@@ -7582,7 +7620,7 @@
   // blanket 'Admin' role. Inside this portal itself they behave like any
   // unmapped role (TeacherView fallback) — their only purpose is granting
   // access elsewhere.
-  const ALL_ROLES = ['Teacher','Staff','HR','Principal','VP','Admin','Cord','Admission Admin','Student Portal Admin','Canteen Admin','Inventory Admin'];
+  const ALL_ROLES = ['Teacher','Staff','HR','Principal','VP','Admin','Cord','Admission Admin','Student Portal Admin','Canteen Admin','Inventory Admin','Class Teacher'];
   // Two-letter chips would collide with Admin ('AD') / each other — explicit abbreviations
   const ROLE_ABBR = { 'Admission Admin':'AA', 'Student Portal Admin':'SP', 'Canteen Admin':'CA', 'Inventory Admin':'IA' };
   function roleAbbr(r){ return ROLE_ABBR[r] || r.slice(0,2).toUpperCase(); }

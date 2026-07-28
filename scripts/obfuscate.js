@@ -99,7 +99,7 @@ const RESERVED = [
   'checkBusStatus','saveBusConfig','addPlaceRow','savePlaceConfig',
   // Setup tab native port (tab builder)
   'loadAdminSetupView','loadAdminAddCustomFormView','_toggleFieldChip','updateIncludeCount','updateEditableCount',
-  'loadAdminClassTeacherView','filterClassTeacherRows','saveClassTeacherAssignment',
+  'loadAdminClassTeacherView','filterClassTeacherRows','saveClassTeacherAssignment','downloadImportDemoTemplate',
   'saveEditableProfileFields','togglePermanentTab','toggleLoginPasswordColumn',
   'saveNewTab','addTabRow','addConditionRow','duplicateField','cutField',
   'copyField','pasteField','promoteTab','unpromoteTab','editTab',
