@@ -276,6 +276,34 @@ async function _getViewerFields(userId) {
   return _fieldsForCategories(await _getViewerCategories(userId));
 }
 
+// Full per-category grant details (fields + can_edit + optional row_filter)
+// — used wherever a category's row_filter needs to be enforced, not just
+// its field list. row_filter shape: { column: [values] }, AND across
+// columns, IN within each column's value list; null/missing = unrestricted.
+async function _getViewerGrants(userId) {
+  if (!userId) return [];
+  const rows = await sb(`field_access_grants?user_id=eq.${encodeURIComponent(userId)}&select=category_name,can_edit,row_filter`);
+  if (rows?.error || !rows.length) return [];
+  const catNames = [...new Set(rows.map(r => r.category_name))];
+  const cats = await sb(`field_categories?name=in.(${catNames.map(encodeURIComponent).join(',')})&select=name,fields`);
+  const fieldsByName = {};
+  (Array.isArray(cats) ? cats : []).forEach(c => { fieldsByName[c.name] = Array.isArray(c.fields) ? c.fields : []; });
+  return rows.map(r => ({
+    category_name: r.category_name,
+    can_edit: !!r.can_edit,
+    row_filter: (r.row_filter && typeof r.row_filter === 'object') ? r.row_filter : null,
+    fields: [...new Set(['student_id', ...(fieldsByName[r.category_name] || [])])],
+  }));
+}
+function _rowMatchesFilter(student, filter) {
+  if (!filter) return true;
+  return Object.entries(filter).every(([col, vals]) => {
+    if (!Array.isArray(vals) || !vals.length) return true;
+    const rawVal = col === 'group' ? (student.group || 'None') : student[col];
+    return vals.includes(String(rawVal ?? '').trim());
+  });
+}
+
 // An "editor" is a viewer whose grant additionally has can_edit=true — a
 // strict subset of their viewable categories, never broader. Editable
 // fields are the union of only those categories, same shape as viewer
@@ -329,7 +357,10 @@ async function _bulkPatchStudents(ids, updates) {
 // combination, all optional, AND-combined. projectFields, when given,
 // limits the PostgREST `select=` to just those columns (used to enforce a
 // viewer's field grant server-side); omit/empty for a full row (editors).
-async function _searchStudents(filters, projectFields) {
+// extraFilter: { column: [values] } — an admin-configured row_filter from a
+// Field Category grant (see _getViewerGrants) — AND-combined with the
+// caller's own filters, IN-combined within each column's own value list.
+async function _searchStudents(filters, projectFields, extraFilter) {
   const f = filters || {};
   const clauses = [];
   if (f.student_id) clauses.push(`student_id=eq.${encodeURIComponent(f.student_id)}`);
@@ -337,6 +368,11 @@ async function _searchStudents(filters, projectFields) {
   if (f.section) clauses.push(`section=eq.${encodeURIComponent(f.section)}`);
   if (f.roll) clauses.push(`roll=eq.${encodeURIComponent(f.roll)}`);
   if (f.group) clauses.push(`group=eq.${encodeURIComponent(f.group)}`);
+  if (extraFilter) {
+    Object.entries(extraFilter).forEach(([col, vals]) => {
+      if (Array.isArray(vals) && vals.length) clauses.push(`${encodeURIComponent(col)}=in.(${vals.map(encodeURIComponent).join(',')})`);
+    });
+  }
   const select = (Array.isArray(projectFields) && projectFields.length)
     ? projectFields.map(encodeURIComponent).join(',')
     : '*';
@@ -348,14 +384,14 @@ async function _searchStudents(filters, projectFields) {
 // exactly those fields (+ student_id), returning CSV-ready {headers, rows}
 // where rows are arrays in the same order as headers — this direct
 // field-list-to-column mapping is what guarantees the downloaded file
-// matches the selected category.
-async function _downloadByCategory(categoryName, filters) {
+// matches the selected category. extraFilter: see _searchStudents above.
+async function _downloadByCategory(categoryName, filters, extraFilter) {
   const catRows = await sb(`field_categories?name=eq.${encodeURIComponent(categoryName)}&select=fields`);
   if (catRows?.error) return { result: 'error', message: catRows.error };
   if (!catRows.length) return { result: 'error', message: 'Category not found.' };
   const catFields = Array.isArray(catRows[0].fields) ? catRows[0].fields : [];
   const headers = catFields.includes('student_id') ? catFields : ['student_id', ...catFields];
-  const rows = await _searchStudents(filters, headers);
+  const rows = await _searchStudents(filters, headers, extraFilter);
   if (rows?.error) return { result: 'error', message: rows.error };
   return { result: 'success', headers, rows: rows.map(r => headers.map(h => r[h] ?? '')) };
 }
@@ -477,8 +513,9 @@ export async function POST(req) {
   }
   if (!isAdmin && action === 'search_students') {
     // Class-wide grants see every core field for matching students, taking
-    // priority on overlap; field-category grants fill in the rest (limited
-    // fields, but every student) for whoever isn't already covered above.
+    // priority on overlap; each field-category grant then fills in the rest
+    // (limited to its own fields, and — if it has a row_filter — limited to
+    // students matching that filter too) for whoever isn't already covered.
     const results = [];
     const seen = new Set();
     if (classGrants.length) {
@@ -487,14 +524,14 @@ export async function POST(req) {
         fullRows.forEach(r => { if (classGrants.some(g => _studentMatchesGrant(r, g))) { seen.add(r.student_id); results.push(r); } });
       }
     }
-    const fields = await _getViewerFields(user_id);
-    if (fields.length) {
-      const catRows = await _searchStudents(payload, fields);
+    const grants = await _getViewerGrants(user_id);
+    for (const g of grants) {
+      const catRows = await _searchStudents(payload, g.fields, g.row_filter);
       if (!catRows?.error) catRows.forEach(r => { if (!seen.has(r.student_id)) { seen.add(r.student_id); results.push(r); } });
     }
     const allKeys = new Set();
     results.forEach(r => Object.keys(r).forEach(k => allKeys.add(k)));
-    const headers = allKeys.size ? [...allKeys] : fields;
+    const headers = allKeys.size ? [...allKeys] : [];
     return NextResponse.json({ result: 'success', headers, rows: results });
   }
   if (!isAdmin && action === 'download_students_by_category') {
@@ -502,7 +539,9 @@ export async function POST(req) {
     if (!viewerCategories.includes(category_name)) {
       return NextResponse.json({ result: 'error', message: 'That category has not been granted to this account.' }, { status: 403 });
     }
-    return NextResponse.json(await _downloadByCategory(category_name, payload));
+    const grants = await _getViewerGrants(user_id);
+    const grant = grants.find(g => g.category_name === category_name);
+    return NextResponse.json(await _downloadByCategory(category_name, payload, grant && grant.row_filter));
   }
   if (!isAdmin && action === 'get_class_tabs') {
     if (!classGrants.length) return NextResponse.json({ result: 'error', message: 'No class access granted.' }, { status: 403 });
@@ -543,38 +582,40 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success' });
   }
   if (!isAdmin && action === 'viewer_bulk_update_students') {
-    const editableFields = await _getEditorFields(user_id);
     const { student_ids, updates } = payload;
     const ids = Array.isArray(student_ids) ? [...new Set(student_ids.map(s => String(s || '').trim()).filter(Boolean))] : [];
     if (!ids.length) return NextResponse.json({ result: 'error', message: 'Select at least one student.' });
 
-    // Students covered by a can_edit class-wide grant get full-field edit
-    // rights; everyone else stays limited to the category-based
-    // editableFields (if any) — never trusting the client's claim either way.
-    const classEditableIds = new Set();
-    if (classGrants.some(g => g.can_edit)) {
-      const rows = await sb(`students_data?student_id=in.(${ids.map(encodeURIComponent).join(',')})&select=student_id,class,section,group`);
-      if (!rows?.error) rows.forEach(r => { if (classGrants.some(g => g.can_edit && _studentMatchesGrant(r, g))) classEditableIds.add(r.student_id); });
-    }
-    if (!editableFields.length && !classEditableIds.size) {
+    const rows = await sb(`students_data?student_id=in.(${ids.map(encodeURIComponent).join(',')})&select=*`);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    const byId = {}; rows.forEach(r => { byId[r.student_id] = r; });
+
+    const editorGrants = (await _getViewerGrants(user_id)).filter(g => g.can_edit);
+    if (!editorGrants.length && !classGrants.some(g => g.can_edit)) {
       return NextResponse.json({ result: 'error', message: 'You do not have edit access to any category.' }, { status: 403 });
     }
 
     const rawUpdates = (updates && typeof updates === 'object') ? updates : {};
-    const categoryUpdates = Object.fromEntries(Object.entries(rawUpdates).filter(([k, v]) => editableFields.includes(k) && k !== 'student_id' && v !== '' && v !== null && v !== undefined));
-    const fullUpdates = Object.fromEntries(Object.entries(rawUpdates).filter(([k, v]) => k !== 'student_id' && k !== 'id' && v !== '' && v !== null && v !== undefined));
-    const categoryIds = ids.filter(id => !classEditableIds.has(id));
-
     let updated = 0; const errors = [];
-    if (classEditableIds.size && Object.keys(fullUpdates).length) {
-      const r = await _bulkPatchStudents([...classEditableIds], fullUpdates);
-      updated += r.updated; errors.push(...r.errors);
+    for (const id of ids) {
+      const student = byId[id];
+      if (!student) { errors.push(`${id}: not found`); continue; }
+      // A student may be covered by several grants at once (class-wide,
+      // and/or one or more field categories each with their own optional
+      // row_filter) — the fields this specific student may have changed is
+      // the union of every grant that actually applies to THEM, never
+      // trusting the client's claim of what it's allowed to edit.
+      const fullAccess = classGrants.some(g => g.can_edit && _studentMatchesGrant(student, g));
+      const allowedFields = new Set();
+      editorGrants.forEach(g => { if (_rowMatchesFilter(student, g.row_filter)) g.fields.forEach(f => allowedFields.add(f)); });
+      const cleanUpdates = fullAccess
+        ? Object.fromEntries(Object.entries(rawUpdates).filter(([k, v]) => k !== 'student_id' && k !== 'id' && v !== '' && v !== null && v !== undefined))
+        : Object.fromEntries(Object.entries(rawUpdates).filter(([k, v]) => allowedFields.has(k) && k !== 'student_id' && v !== '' && v !== null && v !== undefined));
+      if (!Object.keys(cleanUpdates).length) continue; // nothing this caller may change for this student — silently skip
+      const r = await sb(`students_data?student_id=eq.${encodeURIComponent(id)}`, 'PATCH', cleanUpdates);
+      if (r?.error) errors.push(`${id}: ${r.error}`); else updated++;
     }
-    if (categoryIds.length && Object.keys(categoryUpdates).length) {
-      const r = await _bulkPatchStudents(categoryIds, categoryUpdates);
-      updated += r.updated; errors.push(...r.errors);
-    }
-    if (!updated && !errors.length) return NextResponse.json({ result: 'error', message: 'Set at least one field you have edit access to.' });
+    if (!updated && !errors.length) return NextResponse.json({ result: 'error', message: 'You do not have edit access to any of the fields you tried to change for these students.' });
     return NextResponse.json({ result: errors.length ? 'partial' : 'success', updated, errors });
   }
 
@@ -895,10 +936,10 @@ export async function POST(req) {
   // a viewer's visible fields = the union of every category they're granted.
   // Replace-all semantics per user_id, same idiom as set_tab_class_access. ──
   if (action === 'get_field_access_grants') {
-    const rows = await sb('field_access_grants?select=user_id,category_name,can_edit&order=user_id.asc');
+    const rows = await sb('field_access_grants?select=user_id,category_name,can_edit,row_filter&order=user_id.asc');
     if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
     const byUser = {};
-    rows.forEach(r => { (byUser[r.user_id] = byUser[r.user_id] || []).push({ name: r.category_name, can_edit: !!r.can_edit }); });
+    rows.forEach(r => { (byUser[r.user_id] = byUser[r.user_id] || []).push({ name: r.category_name, can_edit: !!r.can_edit, row_filter: r.row_filter || null }); });
     return NextResponse.json({ result: 'success', grants: Object.entries(byUser).map(([grant_user_id, categories]) => ({ user_id: grant_user_id, categories })) });
   }
   if (action === 'set_field_access_grants') {
@@ -906,15 +947,46 @@ export async function POST(req) {
     if (!granteeId) return NextResponse.json({ result: 'error', message: 'User required.' });
     const seen = new Set();
     const clean = (Array.isArray(categories) ? categories : [])
-      .map(c => ({ name: String(c?.name || '').trim(), can_edit: !!c?.can_edit }))
+      .map(c => {
+        // row_filter: { column: [values] } — only columns with >=1 selected
+        // value are kept; an empty/missing column means "any value", so it's
+        // dropped entirely rather than stored as an empty restriction.
+        let rowFilter = null;
+        if (c?.row_filter && typeof c.row_filter === 'object') {
+          const clean_rf = {};
+          Object.entries(c.row_filter).forEach(([col, vals]) => {
+            if (Array.isArray(vals) && vals.length) clean_rf[col] = vals.map(v => String(v));
+          });
+          if (Object.keys(clean_rf).length) rowFilter = clean_rf;
+        }
+        return { name: String(c?.name || '').trim(), can_edit: !!c?.can_edit, row_filter: rowFilter };
+      })
       .filter(c => c.name && !seen.has(c.name) && seen.add(c.name));
     const del = await sb(`field_access_grants?user_id=eq.${encodeURIComponent(granteeId)}`, 'DELETE');
     if (del?.error) return NextResponse.json({ result: 'error', message: del.error });
     if (clean.length) {
-      const ins = await sb('field_access_grants', 'POST', clean.map(c => ({ user_id: granteeId, category_name: c.name, can_edit: c.can_edit })));
+      const ins = await sb('field_access_grants', 'POST', clean.map(c => ({ user_id: granteeId, category_name: c.name, can_edit: c.can_edit, row_filter: c.row_filter })));
       if (ins?.error) return NextResponse.json({ result: 'error', message: 'One or more category names do not exist: ' + ins.error });
     }
     return NextResponse.json({ result: 'success', count: clean.length });
+  }
+  if (action === 'get_scope_column_values') {
+    // Distinct values for the small set of categorical columns an admin can
+    // scope a Field Category grant to (class/section/group/version) — shown
+    // as checkboxes in the grant UI whenever a granted category includes
+    // one of these columns.
+    const rows = await sb('students_data?select=class,section,group,version&limit=10000');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    const sets = { class: new Set(), section: new Set(), group: new Set(), version: new Set() };
+    rows.forEach(r => {
+      if (r.class) sets.class.add(String(r.class).trim());
+      if (r.section) sets.section.add(String(r.section).trim());
+      sets.group.add(String(r.group || '').trim() || 'None');
+      if (r.version) sets.version.add(String(r.version).trim());
+    });
+    const values = {};
+    Object.entries(sets).forEach(([k, s]) => { values[k] = [...s].sort(); });
+    return NextResponse.json({ result: 'success', values });
   }
 
   // ── Class-wide access grants (admin management) — a stronger, class-

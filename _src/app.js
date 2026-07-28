@@ -3443,10 +3443,12 @@
     Promise.all([
       _adminFetch('get_staff_directory', {}),
       _adminFetch('get_field_access_grants', {}),
-    ]).then(([staff, grantsRes]) => {
+      _adminFetch('get_scope_column_values', {}),
+    ]).then(([staff, grantsRes, scopeRes]) => {
       _grantStaff = Array.isArray(staff) ? staff : [];
       _fieldGrants = {};
       ((grantsRes && grantsRes.grants) || []).forEach(g => { _fieldGrants[g.user_id] = g.categories || []; });
+      _scopeColumnValues = (scopeRes && scopeRes.result === 'success' && scopeRes.values) || {};
       renderGrantStaffList();
       renderFieldGrantsList();
     }).catch(() => {});
@@ -3475,6 +3477,15 @@
     document.querySelectorAll('.grant-staff-row').forEach(row => { row.style.display = row.dataset.search.includes(q) ? '' : 'none'; });
   }
 
+  // The small set of categorical students_data columns an admin can scope a
+  // Field Category grant down to — checked via real distinct values fetched
+  // once from get_scope_column_values, shown only for a category whose own
+  // field list happens to include one of these (e.g. "student info" with
+  // class/section/version/group unlocks all four pickers; a category of
+  // just phone/email fields shows none).
+  const SCOPABLE_COLUMNS = ['class', 'section', 'group', 'version'];
+  let _scopeColumnValues = null;
+
   function selectGrantUser(uid) {
     _grantSelectedUser = uid;
     renderGrantStaffList();
@@ -3487,30 +3498,65 @@
       <div class="flex flex-col gap-1 mb-3">
         ${_fieldCategories.map(c => {
           const g = granted.find(x => x.name === c.name);
-          return `<div class="flex items-center gap-3 text-xs border border-slate-200 rounded-lg px-2.5 py-1.5">
-            <label class="flex items-center gap-2 cursor-pointer" style="min-width:160px">
-              <input type="checkbox" class="grant-category-check" value="${c.name}" ${g ? 'checked' : ''} onchange="_syncGrantEditCheckbox(this)">${c.name}
-            </label>
-            <label class="flex items-center gap-2 text-slate-400 cursor-pointer">
-              <input type="checkbox" class="grant-category-edit-check" value="${c.name}" ${g && g.can_edit ? 'checked' : ''} ${g ? '' : 'disabled'} onchange="if(this.checked) this.closest('div').querySelector('.grant-category-check').checked = true">Can edit
-            </label>
+          const rowFilter = (g && g.row_filter) || {};
+          const scopableHere = SCOPABLE_COLUMNS.filter(col => (c.fields || []).includes(col));
+          const catKey = c.name.replace(/[^a-zA-Z0-9]/g, '_');
+          return `<div class="border border-slate-200 rounded-lg px-2.5 py-1.5">
+            <div class="flex items-center gap-3 text-xs">
+              <label class="flex items-center gap-2 cursor-pointer" style="min-width:160px">
+                <input type="checkbox" class="grant-category-check" value="${c.name}" ${g ? 'checked' : ''} onchange="_syncGrantEditCheckbox(this); _toggleGrantScopePanel('${catKey}', this.checked)">${c.name}
+              </label>
+              <label class="flex items-center gap-2 text-slate-400 cursor-pointer">
+                <input type="checkbox" class="grant-category-edit-check" value="${c.name}" ${g && g.can_edit ? 'checked' : ''} ${g ? '' : 'disabled'} onchange="if(this.checked) this.closest('div').querySelector('.grant-category-check').checked = true">Can edit
+              </label>
+            </div>
+            ${scopableHere.length ? `<div id="grantScope_${catKey}" class="grant-scope-panel mt-2 pt-2 border-t border-slate-100 ${g ? '' : 'hidden'}" data-cat="${c.name.replace(/"/g, '&quot;')}">
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1.5">Restrict to (leave a row unchecked = any value)</p>
+              <div class="flex flex-col gap-1.5">
+                ${scopableHere.map(col => {
+                  const vals = (_scopeColumnValues && _scopeColumnValues[col]) || [];
+                  const checkedVals = new Set((rowFilter[col] || []).map(String));
+                  return `<div class="flex items-start gap-2">
+                    <span class="text-[10px] font-black text-slate-500 uppercase pt-0.5" style="min-width:52px">${col}</span>
+                    <div class="flex flex-wrap gap-1.5">
+                      ${vals.map(v => `<label class="flex items-center gap-1 px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded text-[11px] font-bold text-slate-600 cursor-pointer"><input type="checkbox" class="grant-scope-value" data-col="${col}" value="${String(v).replace(/"/g, '&quot;')}" ${checkedVals.has(String(v)) ? 'checked' : ''}>${v}</label>`).join('') || '<span class="text-[10px] text-slate-300 italic">No values found</span>'}
+                    </div>
+                  </div>`;
+                }).join('')}
+              </div>
+            </div>` : ''}
           </div>`;
         }).join('')}
       </div>
       <button onclick="saveFieldGrantsForUser()" class="w-full px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Grants</button>`;
+    lucide.createIcons();
   }
 
   function _syncGrantEditCheckbox(mainCb) {
-    const editCb = mainCb.closest('div').querySelector('.grant-category-edit-check');
+    const editCb = mainCb.closest('div.border').querySelector('.grant-category-edit-check');
     if (!editCb) return;
     editCb.disabled = !mainCb.checked;
     if (!mainCb.checked) editCb.checked = false;
+  }
+  function _toggleGrantScopePanel(catKey, show) {
+    const panel = document.getElementById('grantScope_' + catKey);
+    if (panel) panel.classList.toggle('hidden', !show);
   }
 
   function saveFieldGrantsForUser() {
     if (!_grantSelectedUser) return;
     const editSet = new Set(Array.from(document.querySelectorAll('.grant-category-edit-check:checked')).map(c => c.value));
-    const categories = Array.from(document.querySelectorAll('.grant-category-check:checked')).map(c => ({ name: c.value, can_edit: editSet.has(c.value) }));
+    const categories = Array.from(document.querySelectorAll('.grant-category-check:checked')).map(c => {
+      const row = c.closest('div.border');
+      const scopePanel = row ? row.querySelector('.grant-scope-panel') : null;
+      let row_filter = null;
+      if (scopePanel) {
+        const rf = {};
+        scopePanel.querySelectorAll('.grant-scope-value:checked').forEach(cb => { (rf[cb.dataset.col] = rf[cb.dataset.col] || []).push(cb.value); });
+        if (Object.keys(rf).length) row_filter = rf;
+      }
+      return { name: c.value, can_edit: editSet.has(c.value), row_filter };
+    });
     _adminFetch('set_field_access_grants', { user_id: _grantSelectedUser, categories }).then(res => {
       if (res && res.result === 'success') {
         _fieldGrants[_grantSelectedUser] = categories;

@@ -71,7 +71,7 @@ const RESERVED = [
   'toggleAdminSubnav','loadStudentPortalView','loadAdminAccessView',
   'saveAdminTabVisibility','openFieldCategoryEditor','saveFieldCategoryFromEditor',
   'deleteFieldCategoryConfirm','filterGrantStaff','selectGrantUser',
-  '_syncGrantEditCheckbox','saveFieldGrantsForUser','revokeFieldGrant',
+  '_syncGrantEditCheckbox','saveFieldGrantsForUser','revokeFieldGrant','_toggleGrantScopePanel',
   'searchStudentsAdmin','toggleAllStudentRows','updateStuSelectedCount',
   'openBulkEditModal','submitBulkEdit','downloadByCategoryAdmin',
   // Fees tab native port
