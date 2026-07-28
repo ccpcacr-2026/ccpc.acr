@@ -1647,14 +1647,55 @@ export async function POST(req) {
   if (action === 'bulk_update_students') {
     const { student_ids, updates } = payload;
     const ids = Array.isArray(student_ids) ? [...new Set(student_ids.map(s => String(s || '').trim()).filter(Boolean))] : [];
-    const cleanUpdates = (updates && typeof updates === 'object') ? Object.fromEntries(
-      Object.entries(updates).filter(([k, v]) => k !== 'student_id' && k !== 'id' && v !== '' && v !== null && v !== undefined)
-    ) : {};
     if (!ids.length) return NextResponse.json({ result: 'error', message: 'Select at least one student.' });
-    if (!Object.keys(cleanUpdates).length) return NextResponse.json({ result: 'error', message: 'Set at least one field.' });
+
+    const rawUpdates = (updates && typeof updates === 'object') ? updates : {};
+    const newStudentId = String(rawUpdates.student_id || '').trim();
+    const cleanUpdates = Object.fromEntries(
+      Object.entries(rawUpdates).filter(([k, v]) => k !== 'student_id' && k !== 'id' && v !== '' && v !== null && v !== undefined)
+    );
+
+    // Renaming the Student ID itself is a separate, atomic operation (cascades
+    // across every table that references it — see student.rename_student_id)
+    // and only makes sense for exactly one student at a time.
+    let targetIds = ids;
+    if (newStudentId && newStudentId !== ids[0]) {
+      if (ids.length !== 1) return NextResponse.json({ result: 'error', message: 'Select exactly one student to change their Student ID.' });
+      const renameRes = await sb('rpc/rename_student_id', 'POST', { p_old_id: ids[0], p_new_id: newStudentId });
+      if (renameRes?.error) {
+        let msg = 'Could not change Student ID.';
+        try { const e = JSON.parse(renameRes.error); msg = e.code === '23505' ? `Student ID "${newStudentId}" is already in use by another student.` : (e.message || msg); } catch {}
+        return NextResponse.json({ result: 'error', message: msg });
+      }
+      targetIds = [newStudentId];
+    }
+
+    if (!Object.keys(cleanUpdates).length) {
+      return NextResponse.json({ result: 'success', updated: newStudentId ? 1 : 0, errors: [] });
+    }
     // students_data's UPDATE trigger writes to student.edit_history automatically — no extra audit code needed here.
-    const { updated, errors } = await _bulkPatchStudents(ids, cleanUpdates);
+    const { updated, errors } = await _bulkPatchStudents(targetIds, cleanUpdates);
     return NextResponse.json({ result: errors.length ? 'partial' : 'success', updated, errors });
+  }
+  if (action === 'preview_rename_student_id_impact') {
+    const { student_id } = payload || {};
+    if (!student_id) return NextResponse.json({ result: 'error', message: 'Student ID required.' });
+    const impact = await sb('rpc/preview_rename_student_id_impact', 'POST', { p_old_id: student_id });
+    if (impact?.error) return NextResponse.json({ result: 'error', message: 'Could not check impact.' });
+    return NextResponse.json({ result: 'success', impact: impact || {} });
+  }
+  if (action === 'create_student') {
+    const { student_id, ...fields } = payload || {};
+    const cleanId = String(student_id || '').trim();
+    if (!cleanId) return NextResponse.json({ result: 'error', message: 'Student ID is required.' });
+    const cleanFields = Object.fromEntries(Object.entries(fields).filter(([k, v]) => k !== 'id' && v !== '' && v !== null && v !== undefined));
+    const r = await sb('students_data', 'POST', { student_id: cleanId, ...cleanFields });
+    if (r?.error) {
+      let msg = 'Could not create student.';
+      try { const e = JSON.parse(r.error); msg = e.code === '23505' ? `Student ID "${cleanId}" already exists.` : (e.message || msg); } catch {}
+      return NextResponse.json({ result: 'error', message: msg });
+    }
+    return NextResponse.json({ result: 'success' });
   }
   if (action === 'download_students_by_category') {
     const { category_name, student_id, class: cls, section, roll, group } = payload || {};

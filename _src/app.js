@@ -2488,6 +2488,11 @@
 
         <!-- Users list -->
         <div id="sys-users" class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+          ${canEdit ? `<div class="p-4 border-b border-slate-100 flex justify-end">
+            <button onclick="openStaffFormModal(null)" class="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-black shadow-sm transition-all">
+              <i data-lucide="user-plus" class="h-3.5 w-3.5"></i> Add Teacher / Staff
+            </button>
+          </div>` : ''}
           <div class="overflow-x-auto">
             <table class="w-full text-left border-collapse">
               <thead>
@@ -3237,10 +3242,13 @@
             <label class="flex items-center gap-2 text-xs font-bold text-slate-500 cursor-pointer">
               <input type="checkbox" id="stuSearchSelectAll" onchange="toggleAllStudentRows(this.checked)">Select all
             </label>
-            <button id="stuBulkEditBtn" onclick="openBulkEditModal()" disabled
-              class="px-4 py-2 border border-slate-200 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 disabled:opacity-40 transition-all">
-              Bulk Edit Selected (<span id="stuSelectedCount">0</span>)
-            </button>
+            <div class="flex items-center gap-2">
+              <button onclick="openStudentFormModal(null)" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="user-plus" class="h-3.5 w-3.5"></i>Add Student</button>
+              <button id="stuBulkEditBtn" onclick="openBulkEditModal()" disabled
+                class="px-4 py-2 border border-slate-200 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 disabled:opacity-40 transition-all">
+                Bulk Edit Selected (<span id="stuSelectedCount">0</span>)
+              </button>
+            </div>
           </div>
           <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:360px">
             <table class="w-full text-left border-collapse text-xs">
@@ -3543,12 +3551,14 @@
       updateStuSelectedCount();
       return;
     }
-    headEl.innerHTML = '<th style="width:28px"></th>' + _stuSearchHeaders.map(h => `<th class="py-2 px-2 font-black text-[10px] text-slate-500 uppercase">${h.replace(/_/g,' ')}</th>`).join('');
+    headEl.innerHTML = '<th style="width:28px"></th>' + _stuSearchHeaders.map(h => `<th class="py-2 px-2 font-black text-[10px] text-slate-500 uppercase">${h.replace(/_/g,' ')}</th>`).join('') + '<th style="width:36px"></th>';
     bodyEl.innerHTML = _stuSearchRows.map(r => `<tr class="border-b border-slate-50">
       <td class="px-2"><input type="checkbox" class="stu-row-check" value="${String(r.student_id).replace(/"/g,'&quot;')}" onchange="updateStuSelectedCount()"></td>
       ${_stuSearchHeaders.map(h => `<td class="py-1.5 px-2 text-slate-600">${r[h] ?? ''}</td>`).join('')}
+      <td class="px-2"><button onclick="openStudentFormModal('${String(r.student_id).replace(/'/g,"\\'")}')" title="Edit Student" class="p-1.5 hover:bg-indigo-50 text-indigo-500 rounded-lg transition-all"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button></td>
     </tr>`).join('');
     updateStuSelectedCount();
+    lucide.createIcons();
   }
 
   function toggleAllStudentRows(checked) {
@@ -3598,6 +3608,88 @@
         searchStudentsAdmin();
       } else showToast((res && res.message) || 'Update failed', 'error');
     });
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Student Edit / Add — full-field single-record editor, reached via the
+  // pencil icon on each search result row (or "+ Add Student"). Unlike
+  // Bulk Edit above, Student ID itself is editable here — renaming it goes
+  // through the same impact-preview popup used for staff Login IDs, since
+  // it cascades across attendance/fees/exams/etc. the same way.
+  // ══════════════════════════════════════════════════════════════════════
+  const STUDENT_LOCKED_FIELDS = new Set(['id', 'nfc_uid', 'pin', 'balance', 'daily_limit', 'monthly_limit', 'card_status', 'submitted_at']);
+  let _studentFormOriginalId = null;
+
+  function openStudentFormModal(studentId) {
+    _studentFormOriginalId = studentId || null;
+    const buildModal = (row) => {
+      _adminFetch('get_student_data_headers', {}).then(headers => {
+        const fields = (headers || []).filter(h => !STUDENT_LOCKED_FIELDS.has(h.toLowerCase()));
+        document.getElementById('studentFormOverlay')?.remove();
+        const overlay = document.createElement('div');
+        overlay.id = 'studentFormOverlay';
+        overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
+        overlay.innerHTML = `
+          <div class="bg-white rounded-2xl w-full max-w-2xl" style="max-height:88vh;display:flex;flex-direction:column">
+            <div class="p-5 border-b border-slate-100 flex items-center justify-between">
+              <p class="font-black text-slate-800 text-sm">${studentId ? 'Edit Student — ' + studentId : 'Add Student'}</p>
+              <button onclick="document.getElementById('studentFormOverlay').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="h-4 w-4"></i></button>
+            </div>
+            <div class="p-5 overflow-y-auto grid md:grid-cols-2 gap-4" style="flex:1">
+              ${fields.map(h => `<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">${h.replace(/_/g, ' ')}${h === 'student_id' ? ' <span class=\"text-red-500\">*</span>' : ''}</label><input type="text" class="stu-form-field w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm" data-field="${h}" value="${String(row?.[h] ?? '').replace(/"/g, '&quot;')}"></div>`).join('')}
+            </div>
+            <div class="p-5 border-t border-slate-100 flex justify-end">
+              <button onclick="submitStudentForm()" class="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">${studentId ? 'Save Changes' : 'Create Student'}</button>
+            </div>
+          </div>`;
+        document.body.appendChild(overlay);
+        lucide.createIcons();
+      });
+    };
+    if (studentId) {
+      const cached = _stuSearchRows.find(r => r.student_id === studentId);
+      if (cached) { buildModal(cached); return; }
+      _adminFetch('search_students', { student_id: studentId }).then(res => {
+        buildModal((res && res.rows && res.rows[0]) || null);
+      });
+    } else {
+      buildModal(null);
+    }
+  }
+
+  function submitStudentForm() {
+    const data = {};
+    document.querySelectorAll('.stu-form-field').forEach(inp => { data[inp.dataset.field] = inp.value.trim(); });
+    const newStudentId = data.student_id;
+    if (!newStudentId) { showToast('Student ID is required', 'error'); return; }
+
+    if (!_studentFormOriginalId) {
+      _adminFetch('create_student', data).then(res => {
+        if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not create student', 'error'); return; }
+        document.getElementById('studentFormOverlay')?.remove();
+        showToast('Student created');
+        searchStudentsAdmin();
+      });
+      return;
+    }
+
+    const doSave = () => {
+      _adminFetch('bulk_update_students', { student_ids: [_studentFormOriginalId], updates: data }).then(res => {
+        if (!res || (res.result !== 'success' && res.result !== 'partial')) { showToast((res && res.message) || 'Save failed', 'error'); return; }
+        document.getElementById('studentFormOverlay')?.remove();
+        showToast('Student updated');
+        searchStudentsAdmin();
+      });
+    };
+
+    if (newStudentId !== _studentFormOriginalId) {
+      _adminFetch('preview_rename_student_id_impact', { student_id: _studentFormOriginalId }).then(res => {
+        if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not check impact', 'error'); return; }
+        _showRenameImpactPopup(res.impact, doSave);
+      });
+    } else {
+      doSave();
+    }
   }
 
   function downloadByCategoryAdmin() {
@@ -7294,6 +7386,7 @@
         <td class="px-6 py-4" data-label="Roles"><div class="flex flex-wrap gap-1">${roleBadges}</div></td>
         <td class="px-6 py-4 text-right" data-label="Actions">
           <div class="flex justify-end gap-4">
+            <button onclick="openStaffFormModal('${u.user_id}')" title="Edit Staff" class="p-2 hover:bg-indigo-50 text-indigo-500 rounded-xl transition-all"><i data-lucide="pencil" class="h-4 w-4"></i></button>
             <button onclick="resetPassword('${u.user_id}')" title="Reset Password" class="p-2 hover:bg-amber-50 text-amber-500 rounded-xl transition-all"><i data-lucide="key-round" class="h-4 w-4"></i></button>
             <button onclick="editRole('${u.user_id}', '${safeRole}')" title="Change Role" class="p-2 hover:bg-blue-50 text-blue-500 rounded-xl transition-all"><i data-lucide="shield-check" class="h-4 w-4"></i></button>
             <button onclick="deleteUser('${u.user_id}')" title="Delete User" class="p-2 hover:bg-red-50 text-red-500 rounded-xl transition-all"><i data-lucide="trash-2" class="h-4 w-4"></i></button>
@@ -7325,6 +7418,7 @@
         const safeRole = (u.role||'').replace(/'/g,"\\'");
         const actions = canEdit ? `<td class="px-6 py-4 text-right">
           <div class="flex justify-end gap-4">
+            <button onclick="openStaffFormModal('${u.user_id}')" title="Edit Staff" class="p-2 hover:bg-indigo-50 text-indigo-500 rounded-xl transition-all"><i data-lucide="pencil" class="h-4 w-4"></i></button>
             <button onclick="resetPassword('${u.user_id}')" title="Reset Password" class="p-2 hover:bg-amber-50 text-amber-500 rounded-xl transition-all"><i data-lucide="key-round" class="h-4 w-4"></i></button>
             <button onclick="editRole('${u.user_id}','${safeRole}')" title="Change Role" class="p-2 hover:bg-blue-50 text-blue-500 rounded-xl transition-all"><i data-lucide="shield-check" class="h-4 w-4"></i></button>
             <button onclick="deleteUser('${u.user_id}')" title="Delete" class="p-2 hover:bg-red-50 text-red-500 rounded-xl transition-all"><i data-lucide="trash-2" class="h-4 w-4"></i></button>
@@ -7456,6 +7550,150 @@
       }).withFailureHandler(() => { showLoading(false); showToast('Failed to create user', 'error'); })
         .saveAppUser(data);
     };
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Generic "this will affect linked records" confirmation — shown before
+  // any identifier rename (a student's Student ID or a staff Login ID),
+  // since both cascade across many other tables (attendance, fees, payroll,
+  // family/education records, evaluation grants, ...). The backend always
+  // runs a real COUNT query per table first, so this shows actual numbers,
+  // not just a generic warning.
+  // ══════════════════════════════════════════════════════════════════════
+  function _showRenameImpactPopup(impact, onConfirm) {
+    document.getElementById('renameImpactOverlay')?.remove();
+    const entries = Object.entries(impact || {});
+    const overlay = document.createElement('div');
+    overlay.id = 'renameImpactOverlay';
+    overlay.className = 'fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4';
+    overlay.innerHTML = `
+      <div class="bg-white rounded-2xl w-full max-w-md">
+        <div class="p-5 border-b border-slate-100 flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center shrink-0"><i data-lucide="alert-triangle" class="h-5 w-5"></i></div>
+          <div>
+            <p class="font-black text-slate-800 text-sm">Changing this ID updates linked records</p>
+            <p class="text-xs text-slate-400 font-bold mt-0.5">${entries.length ? 'These will be relinked to the new ID:' : 'No linked records found — safe to rename.'}</p>
+          </div>
+        </div>
+        ${entries.length ? `<div class="p-5 max-h-64 overflow-y-auto flex flex-col gap-1.5">
+          ${entries.map(([label, count]) => `<div class="flex items-center justify-between px-3 py-2 bg-slate-50 rounded-xl"><span class="text-xs font-bold text-slate-600">${label}</span><span class="text-xs font-black text-slate-800">${count}</span></div>`).join('')}
+        </div>` : '<div class="p-2"></div>'}
+        <div class="p-5 border-t border-slate-100 flex justify-end gap-2">
+          <button onclick="document.getElementById('renameImpactOverlay').remove()" class="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Cancel</button>
+          <button id="renameImpactConfirmBtn" class="px-4 py-2.5 bg-amber-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Confirm Rename</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    lucide.createIcons();
+    document.getElementById('renameImpactConfirmBtn').onclick = () => { overlay.remove(); onConfirm(); };
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Staff Edit / Add — full-field editor for an existing account (or a
+  // blank one) reached from the System view's Users table. Editing the
+  // Login ID goes through the impact-preview popup above before the
+  // rename actually happens; every other field is a plain PATCH.
+  // ══════════════════════════════════════════════════════════════════════
+  let _staffFormOriginalId = null;
+
+  function openStaffFormModal(userId) {
+    _staffFormOriginalId = userId || null;
+    const existing = userId ? (allUsersCache || []).find(u => u.user_id === userId) : null;
+    const staff = userId ? (allStaffCache || []).find(s => s.teacher_id === userId) : null;
+    document.getElementById('staffFormOverlay')?.remove();
+    const roles = (existing?.role || '').split(',').map(r => r.trim()).filter(Boolean);
+    const overlay = document.createElement('div');
+    overlay.id = 'staffFormOverlay';
+    overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
+    overlay.innerHTML = `
+      <div class="bg-white rounded-2xl w-full max-w-2xl" style="max-height:88vh;display:flex;flex-direction:column">
+        <div class="p-5 border-b border-slate-100 flex items-center justify-between">
+          <p class="font-black text-slate-800 text-sm">${userId ? 'Edit Staff — ' + userId : 'Add Teacher / Staff'}</p>
+          <button onclick="document.getElementById('staffFormOverlay').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="h-4 w-4"></i></button>
+        </div>
+        <div class="p-5 overflow-y-auto grid md:grid-cols-2 gap-4" style="flex:1">
+          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Login ID</label><input type="text" id="sfUserId" value="${existing?.user_id || ''}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></div>
+          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Email</label><input type="email" id="sfEmail" value="${existing?.email || ''}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></div>
+          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Phone</label><input type="text" id="sfPhone" value="${existing?.phone || ''}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></div>
+          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">${userId ? 'Password (leave blank to keep current)' : 'Initial Password'}</label><input type="password" id="sfPassword" placeholder="${userId ? '••••••••' : ''}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></div>
+          <div class="md:col-span-2"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Role(s)</label>
+            <div class="flex flex-wrap gap-2">${ALL_ROLES.map(r => `<label class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-600 cursor-pointer"><input type="checkbox" class="sf-role-cb" value="${r}" ${roles.includes(r) ? 'checked' : ''}>${r}</label>`).join('')}</div>
+          </div>
+          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Full Name</label><input type="text" id="sfFullName" value="${staff?.full_name || ''}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></div>
+          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Category</label><input type="text" id="sfCategory" value="${staff?.category || ''}" placeholder="Teacher / Staff" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></div>
+          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Department</label><input type="text" id="sfDepartment" value="${staff?.department || ''}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></div>
+          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Designation</label><input type="text" id="sfDesignation" value="${staff?.designation || ''}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></div>
+          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Joining Date</label><input type="date" id="sfJoiningDate" value="${(staff?.joining_date || '').slice(0, 10)}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></div>
+        </div>
+        <div class="p-5 border-t border-slate-100 flex justify-end">
+          <button onclick="submitStaffForm()" class="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">${userId ? 'Save Changes' : 'Create Account'}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    lucide.createIcons();
+  }
+
+  function submitStaffForm() {
+    const newUserId = document.getElementById('sfUserId').value.trim();
+    if (!newUserId) { showToast('Login ID is required', 'error'); return; }
+    const roles = [...document.querySelectorAll('.sf-role-cb:checked')].map(cb => cb.value);
+    if (!roles.length) { showToast('Select at least one role', 'error'); return; }
+    const password = document.getElementById('sfPassword').value.trim();
+    const data = {
+      user_id: newUserId,
+      email: document.getElementById('sfEmail').value.trim(),
+      phone: document.getElementById('sfPhone').value.trim(),
+      role: roles.join(','),
+      full_name: document.getElementById('sfFullName').value.trim(),
+      category: document.getElementById('sfCategory').value.trim(),
+      department: document.getElementById('sfDepartment').value.trim(),
+      designation: document.getElementById('sfDesignation').value.trim(),
+      joining_date: document.getElementById('sfJoiningDate').value.trim(),
+    };
+
+    if (!_staffFormOriginalId) {
+      if (!password) { showToast('Set an initial password', 'error'); return; }
+      data.password = password;
+      google.script.run
+        .withSuccessHandler(res => {
+          if (res && res.error) { showToast(res.details || res.message || 'Could not create account', 'error'); return; }
+          document.getElementById('staffFormOverlay')?.remove();
+          showToast('Account created');
+          if (typeof loadUserData_forSystem === 'function') loadUserData_forSystem();
+        })
+        .withFailureHandler(err => showToast('Failed: ' + (err.message || err), 'error'))
+        .saveAppUser(data);
+      return;
+    }
+
+    const doSave = () => {
+      google.script.run
+        .withSuccessHandler(res => {
+          if (res && res.error) { showToast(res.message || 'Save failed', 'error'); return; }
+          const finish = () => {
+            document.getElementById('staffFormOverlay')?.remove();
+            showToast('Staff record updated');
+            if (typeof loadUserData_forSystem === 'function') loadUserData_forSystem();
+          };
+          if (password) {
+            google.script.run.withSuccessHandler(finish).withFailureHandler(finish).updateAppUserPassword(newUserId, password);
+          } else finish();
+        })
+        .withFailureHandler(err => showToast('Failed: ' + (err.message || err), 'error'))
+        .saveAppUserFull(_staffFormOriginalId, data);
+    };
+
+    if (newUserId !== _staffFormOriginalId) {
+      google.script.run
+        .withSuccessHandler(impact => {
+          if (impact && impact.error) { showToast(impact.message || 'Could not check impact', 'error'); return; }
+          _showRenameImpactPopup(impact, doSave);
+        })
+        .withFailureHandler(() => showToast('Could not check impact', 'error'))
+        .previewRenameTeacherIdImpact(_staffFormOriginalId);
+    } else {
+      doSave();
+    }
   }
 
   // ── CREATE USERS FROM PROFILES ───────────────────────────────────────────────

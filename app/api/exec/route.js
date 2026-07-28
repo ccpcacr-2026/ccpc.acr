@@ -347,15 +347,25 @@ const handlers = {
 
   async saveAppUser([data]) {
     const cleanEmail = _sanitizeEmail(data.email, data.user_id);
-    const userRes = await supabaseRequest('app_users?on_conflict=user_id', 'post', { ...data, email: cleanEmail });
+    // Only real app_users columns go here — data may also carry
+    // users_profile-only fields (full_name, category, department, ...)
+    // from the fuller admin "Add Staff" form, which must never be spread
+    // blindly into this table (PGRST204: column not found).
+    const userRow = { user_id: data.user_id, email: cleanEmail, password: data.password, role: data.role };
+    if (data.phone) userRow.phone = data.phone;
+    const userRes = await supabaseRequest('app_users?on_conflict=user_id', 'post', userRow);
     if (userRes && userRes.error) throw new Error(userRes.details || 'Failed to create user');
     const roleTokens = (data.role || '').split(',').map(r => r.trim());
     const profileCategory = roleTokens.find(r => r === 'Teacher' || r === 'Staff');
-    if (profileCategory) {
+    if (profileCategory || data.full_name || data.category || data.department || data.designation || data.joining_date) {
       await supabaseRequest('users_profile?on_conflict=teacher_id', 'post', {
         teacher_id: data.user_id,
         email: cleanEmail,
-        category: profileCategory
+        category: data.category || profileCategory || null,
+        full_name: data.full_name || null,
+        department: data.department || null,
+        designation: data.designation || null,
+        joining_date: data.joining_date || null,
       });
     }
     return userRes;
@@ -428,6 +438,70 @@ const handlers = {
 
   async updateAppUserRole([userId, newRole]) {
     return supabaseRequest(`app_users?user_id=eq.${userId}`, 'patch', { role: newRole });
+  },
+
+  // How many rows in each linked table hold this exact user_id/teacher_id
+  // today — shown to the admin as a confirmation popup before a rename, so
+  // they know what's actually getting relinked (attendance history, leave
+  // requests, family/education records, evaluation grants, etc.).
+  async previewRenameTeacherIdImpact([oldUserId]) {
+    const impact = await supabaseRequest('rpc/preview_rename_teacher_id_impact', 'post', { p_old_id: oldUserId });
+    if (impact && impact.error) return { error: true, message: 'Could not check impact.' };
+    return impact || {};
+  },
+
+  // Full edit of an EXISTING account — unlike saveAppUser (create-only,
+  // upsert keyed on user_id), this can also rename the id itself (cascading
+  // via teacher.rename_teacher_id across every table that references it —
+  // profile, payroll, leave, family/education records, evaluation grants,
+  // ...) and checks the separate email-uniqueness constraint before writing,
+  // neither of which the simple create path needs to worry about.
+  async saveAppUserFull([oldUserId, data]) {
+    const newUserId = String(data.user_id || '').trim();
+    if (!newUserId) return { error: true, message: 'User ID is required.' };
+
+    if (newUserId !== oldUserId) {
+      const renameRes = await supabaseRequest('rpc/rename_teacher_id', 'post', { p_old_id: oldUserId, p_new_id: newUserId });
+      if (renameRes && renameRes.error) {
+        let msg = 'Could not change User ID.';
+        try { const e = JSON.parse(renameRes.details); msg = e.code === '23505' ? `User ID "${newUserId}" is already in use.` : (e.message || msg); } catch {}
+        return { error: true, message: msg };
+      }
+    }
+
+    const cleanEmail = _sanitizeEmail(data.email, newUserId);
+    if (cleanEmail) {
+      const [dupUser, dupProfile] = await Promise.all([
+        supabaseRequest(`app_users?email=eq.${encodeURIComponent(cleanEmail)}&user_id=neq.${encodeURIComponent(newUserId)}&select=user_id`),
+        supabaseRequest(`users_profile?email=eq.${encodeURIComponent(cleanEmail)}&teacher_id=neq.${encodeURIComponent(newUserId)}&select=teacher_id`),
+      ]);
+      if (Array.isArray(dupUser) && dupUser.length) return { error: true, message: `Email "${cleanEmail}" is already used by another account (${dupUser[0].user_id}).` };
+      if (Array.isArray(dupProfile) && dupProfile.length) return { error: true, message: `Email "${cleanEmail}" is already used by another profile (${dupProfile[0].teacher_id}).` };
+    }
+
+    const userPatch = { email: cleanEmail, phone: data.phone || null };
+    if (data.role) userPatch.role = data.role;
+    const userRes = await supabaseRequest(`app_users?user_id=eq.${encodeURIComponent(newUserId)}`, 'patch', userPatch);
+    if (userRes && userRes.error) return { error: true, message: userRes.details || 'Failed to update account.' };
+
+    const roleTokens = (data.role || '').split(',').map(r => r.trim());
+    const profileCategory = roleTokens.find(r => r === 'Teacher' || r === 'Staff');
+    const profilePatch = {
+      email: cleanEmail,
+      full_name: data.full_name || null,
+      category: data.category || profileCategory || null,
+      department: data.department || null,
+      designation: data.designation || null,
+      joining_date: data.joining_date || null,
+    };
+    const existingProfile = await supabaseRequest(`users_profile?teacher_id=eq.${encodeURIComponent(newUserId)}&select=teacher_id`);
+    if (Array.isArray(existingProfile) && existingProfile.length) {
+      await supabaseRequest(`users_profile?teacher_id=eq.${encodeURIComponent(newUserId)}`, 'patch', profilePatch);
+    } else {
+      await supabaseRequest('users_profile?on_conflict=teacher_id', 'post', { teacher_id: newUserId, ...profilePatch });
+    }
+
+    return { success: true, user_id: newUserId };
   },
 
   // ── AUTH + PROFILE ────────────────────────────────────────────────────────────

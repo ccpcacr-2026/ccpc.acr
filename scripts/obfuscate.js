@@ -121,7 +121,10 @@ const RESERVED = [
 
   // Viewer Panel + Bus Tracker native ports (Phase 7)
   '_studentPortalNavClick','loadViewerPanelView','viewerSearch','toggleAllViewerRows',
-  'viewerOpenBulkEditModal','viewerSubmitBulkEdit','viewerDownload','loadAdminBusTrackerView'
+  'viewerOpenBulkEditModal','viewerSubmitBulkEdit','viewerDownload','loadAdminBusTrackerView',
+
+  // Full-field identifier-safe edit/add panels for students & staff
+  'openStudentFormModal','submitStudentForm','openStaffFormModal','submitStaffForm'
 ];
 
 // Strip HTML comments and collapse whitespace
