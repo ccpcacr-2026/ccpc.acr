@@ -414,8 +414,8 @@
     { key: 'fees', label: 'Fees', icon: 'wallet', erp: true, action: { type: 'native', fn: 'loadAdminFeesView' } },
     { key: 'attendance', label: 'Attendance', icon: 'fingerprint', erp: true, action: { type: 'native', fn: 'loadAdminAttendanceView' } },
     { key: 'exams', label: 'Exams', icon: 'clipboard-list', erp: true, action: { type: 'native', fn: 'loadAdminExamsView' } },
-    { key: 'payroll', label: 'Payroll', icon: 'banknote', erp: true, action: { type: 'iframe', domId: 'admin-payroll' } },
-    { key: 'transport', label: 'Transport', icon: 'bus', erp: true, action: { type: 'iframe', domId: 'admin-transport' } },
+    { key: 'payroll', label: 'Payroll', icon: 'banknote', erp: true, action: { type: 'native', fn: 'loadAdminPayrollView' } },
+    { key: 'transport', label: 'Transport', icon: 'bus', erp: true, action: { type: 'native', fn: 'loadAdminTransportView' } },
     { key: 'history', label: 'History', icon: 'clock', erp: false, action: { type: 'iframe', domId: 'admin-history' } },
     { key: 'nfc', label: 'NFC', icon: 'radio', erp: false, action: { type: 'iframe', domId: 'admin-nfc' } },
     { key: 'photo', label: 'Photo', icon: 'camera', erp: false, action: { type: 'iframe', domId: 'admin-photo' } },
@@ -4586,6 +4586,462 @@
       const records = (res && res.result === 'success' && res.records) || [];
       document.getElementById('boardExamBody').innerHTML = records.map(r => `<tr class="border-b border-slate-50"><td class="py-1.5 px-3">${r.student_id}</td><td class="py-1.5 px-3">${r.board_exam_type}</td><td class="py-1.5 px-3">${r.registration_number || ''}</td><td class="py-1.5 px-3">${r.roll_number || ''}</td></tr>`).join('') || '<tr><td colspan="4" class="p-3 text-slate-400 font-bold text-xs">No records yet.</td></tr>';
     });
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Payroll tab — native port (Phase 4, part 1). Same idiom as Fees.
+  // ══════════════════════════════════════════════════════════════════════
+
+  const PAYROLL_SUBTABS = [
+    { id: 'pr-salary', label: 'Salary Setup' },
+    { id: 'pr-run', label: 'Run Payroll' },
+    { id: 'pr-leave', label: 'Leave Requests' },
+  ];
+
+  function loadAdminPayrollView() {
+    _setViewHash('student_portal');
+    setActiveNavLink('nav-erp-payroll');
+    setContentHeader('Payroll', 'banknote');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    const tabBar = PAYROLL_SUBTABS.map((t, i) => `<button onclick="switchPayrollTab('${t.id}')" id="prtab-${t.id}"
+      class="fees-tab-btn flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all whitespace-nowrap
+             ${i === 0 ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50'}">${t.label}</button>`).join('');
+
+    container.innerHTML = `
+      <div class="mb-4">
+        <h2 class="text-2xl font-black text-slate-800 tracking-tight">Payroll</h2>
+        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Salary structures, payroll runs, leave requests</p>
+      </div>
+      <div class="flex flex-wrap gap-2 mb-5">${tabBar}</div>
+
+      <div id="pr-salary">
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-3">
+          <p class="font-black text-slate-800 text-xs mb-3">New / Update Salary Structure</p>
+          <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
+            <input type="text" id="ssDesignation" placeholder="Designation / Role (e.g. Teacher)" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+            <input type="number" id="ssBasic" placeholder="Basic Salary" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+            <input type="number" id="ssAllowance" placeholder="Total Allowances" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+            <input type="number" id="ssDeduction" placeholder="Total Deductions" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+            <button onclick="saveSalaryStructure()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Save</button>
+          </div>
+        </div>
+        <div class="overflow-auto border border-slate-200 rounded-xl">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Designation</th><th class="py-2 px-3">Basic</th><th class="py-2 px-3">Allowances</th><th class="py-2 px-3">Deductions</th></tr></thead>
+            <tbody id="salaryStructuresBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="pr-run" style="display:none">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+          <input type="text" id="prMonth" placeholder="Month (e.g. January)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+          <input type="text" id="prYear" placeholder="Year" value="2026" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+          <button onclick="runPayroll()" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Run Payroll</button>
+        </div>
+        <span id="payrollRunStatus" class="text-xs font-bold"></span>
+        <div class="overflow-auto border border-slate-200 rounded-xl mt-3">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Teacher</th><th class="py-2 px-3">Gross</th><th class="py-2 px-3">Deductions</th><th class="py-2 px-3">Net</th></tr></thead>
+            <tbody id="payslipsBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="pr-leave" style="display:none">
+        <div class="overflow-auto border border-slate-200 rounded-xl">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Teacher</th><th class="py-2 px-3">Type</th><th class="py-2 px-3">Dates</th><th class="py-2 px-3">Reason</th><th class="py-2 px-3">Status</th><th class="py-2 px-3">Actions</th></tr></thead>
+            <tbody id="leaveRequestsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    `;
+    lucide.createIcons();
+    loadSalaryStructures();
+  }
+
+  function switchPayrollTab(tabId) {
+    PAYROLL_SUBTABS.forEach(t => {
+      const panel = document.getElementById(t.id);
+      const btn = document.getElementById('prtab-' + t.id);
+      const active = t.id === tabId;
+      if (panel) panel.style.display = active ? '' : 'none';
+      if (btn) {
+        btn.className = btn.className.replace(/bg-blue-600 text-white shadow-lg shadow-blue-500\/20|bg-white text-slate-400 border border-slate-200 hover:bg-slate-50/g, '').trim();
+        btn.className += active ? ' bg-blue-600 text-white shadow-lg shadow-blue-500/20' : ' bg-white text-slate-400 border border-slate-200 hover:bg-slate-50';
+      }
+    });
+    if (tabId === 'pr-leave') loadLeaveRequests();
+  }
+
+  function loadSalaryStructures() {
+    _adminFetch('get_salary_structures', {}).then(res => {
+      const rows = (res && res.result === 'success' && res.structures) || [];
+      document.getElementById('salaryStructuresBody').innerHTML = rows.map(s => {
+        const allow = Object.values(s.allowances || {}).reduce((a, v) => a + Number(v || 0), 0);
+        const ded = Object.values(s.deductions || {}).reduce((a, v) => a + Number(v || 0), 0);
+        return `<tr class="border-b border-slate-50"><td class="py-1.5 px-3">${s.designation}</td><td class="py-1.5 px-3">৳${Number(s.basic).toLocaleString()}</td><td class="py-1.5 px-3">৳${allow.toLocaleString()}</td><td class="py-1.5 px-3">৳${ded.toLocaleString()}</td></tr>`;
+      }).join('') || '<tr><td colspan="4" class="p-3 text-slate-400 font-bold text-xs">No salary structures yet.</td></tr>';
+    });
+  }
+  function saveSalaryStructure() {
+    const designation = document.getElementById('ssDesignation').value.trim();
+    const basic = document.getElementById('ssBasic').value;
+    const allowance = document.getElementById('ssAllowance').value || 0;
+    const deduction = document.getElementById('ssDeduction').value || 0;
+    if (!designation || !basic) { showToast('Designation and basic salary required', 'error'); return; }
+    _adminFetch('save_salary_structure', { designation, basic, allowances: { total: allowance }, deductions: { total: deduction } }).then(res => {
+      if (res && res.result === 'success') { showToast('Saved'); document.getElementById('ssDesignation').value = ''; document.getElementById('ssBasic').value = ''; loadSalaryStructures(); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+
+  function runPayroll() {
+    const month = document.getElementById('prMonth').value.trim();
+    const year = document.getElementById('prYear').value.trim();
+    const status = document.getElementById('payrollRunStatus');
+    if (!month || !year) { status.className = 'text-xs font-bold text-red-500'; status.textContent = 'Month and year required.'; return; }
+    status.className = 'text-xs font-bold text-slate-400'; status.textContent = 'Running payroll…';
+    _adminFetch('run_payroll', { month, year }).then(res => {
+      if (!res || res.result !== 'success') { status.className = 'text-xs font-bold text-red-500'; status.textContent = (res && res.message) || 'Failed'; return; }
+      status.className = 'text-xs font-bold text-emerald-600'; status.textContent = `Generated ${res.generated} payslip(s).`;
+      _adminFetch('get_payslips', { payroll_run_id: res.run_id }).then(r2 => {
+        const slips = (r2 && r2.result === 'success' && r2.payslips) || [];
+        document.getElementById('payslipsBody').innerHTML = slips.map(s => `<tr class="border-b border-slate-50"><td class="py-1.5 px-3">${s.teacher_id}</td><td class="py-1.5 px-3">৳${Number(s.gross).toLocaleString()}</td><td class="py-1.5 px-3">৳${Number(s.total_deductions).toLocaleString()}</td><td class="py-1.5 px-3">৳${Number(s.net).toLocaleString()}</td></tr>`).join('') || '<tr><td colspan="4" class="p-3 text-slate-400 font-bold text-xs">No payslips generated — no salary structures match any staff designation.</td></tr>';
+      });
+    });
+  }
+
+  function loadLeaveRequests() {
+    _adminFetch('get_leave_requests', {}).then(res => {
+      const rows = (res && res.result === 'success' && res.requests) || [];
+      document.getElementById('leaveRequestsBody').innerHTML = rows.map(r => `<tr class="border-b border-slate-50">
+        <td class="py-1.5 px-3">${r.teacher_id}</td><td class="py-1.5 px-3">${r.leave_types ? r.leave_types.name : '—'}</td><td class="py-1.5 px-3">${r.start_date} to ${r.end_date}</td><td class="py-1.5 px-3">${r.reason || ''}</td>
+        <td class="py-1.5 px-3"><span class="px-2 py-0.5 rounded-full text-[10px] font-black ${r.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : r.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}">${r.status}</span></td>
+        <td class="py-1.5 px-3">${r.status === 'pending' ? `<button onclick="approveLeave(${r.id},'approved')" class="px-2 py-0.5 border border-emerald-200 text-emerald-600 rounded text-[10px] font-black uppercase hover:bg-emerald-50">Approve</button> <button onclick="approveLeave(${r.id},'rejected')" class="px-2 py-0.5 border border-red-200 text-red-500 rounded text-[10px] font-black uppercase hover:bg-red-50">Reject</button>` : ''}</td>
+      </tr>`).join('') || '<tr><td colspan="6" class="p-3 text-slate-400 font-bold text-xs">No leave requests yet.</td></tr>';
+    });
+  }
+  function approveLeave(id, status) {
+    _adminFetch('approve_leave_request', { id, status }).then(res => { if (res && res.result === 'success') loadLeaveRequests(); });
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Transport tab — native port (Phase 4, part 2). Includes the Bus/GPS
+  // Config sub-tab (GP credentials, bus + geofence registries), merged
+  // into Transport earlier this session.
+  // ══════════════════════════════════════════════════════════════════════
+
+  const TRANSPORT_SUBTABS = [
+    { id: 'transport-routes-fees', label: 'Routes & Fees' },
+    { id: 'transport-bus-config', label: 'Bus / GPS Config' },
+  ];
+
+  function loadAdminTransportView() {
+    _setViewHash('student_portal');
+    setActiveNavLink('nav-erp-transport');
+    setContentHeader('Transport', 'bus');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    const tabBar = TRANSPORT_SUBTABS.map((t, i) => `<button onclick="switchTransportTab('${t.id}')" id="trtab-${t.id}"
+      class="fees-tab-btn flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all whitespace-nowrap
+             ${i === 0 ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50'}">${t.label}</button>`).join('');
+
+    container.innerHTML = `
+      <div class="mb-4">
+        <h2 class="text-2xl font-black text-slate-800 tracking-tight">Transport</h2>
+        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Routes, vehicles, pickup points, fees, GPS device config</p>
+      </div>
+      <div class="flex flex-wrap gap-2 mb-5">${tabBar}</div>
+
+      <div id="transport-routes-fees">
+        <p class="text-xs text-slate-400 font-bold mb-3">Live GPS tracking stays in the standalone Bus Tracking app — this is route/vehicle/pickup-point/fee administration only.</p>
+        <div class="grid md:grid-cols-3 gap-4 mb-4">
+          <div>
+            <p class="font-black text-slate-800 text-xs mb-2 flex items-center gap-2"><i data-lucide="signpost" class="h-4 w-4 text-blue-600"></i>Routes</p>
+            <div class="flex gap-2 mb-2">
+              <input type="text" id="trRouteName" placeholder="Route name" class="flex-1 px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <button onclick="saveTransportRoute()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+</button>
+            </div>
+            <div id="transportRoutesList" class="flex flex-col gap-1"></div>
+          </div>
+          <div>
+            <p class="font-black text-slate-800 text-xs mb-2 flex items-center gap-2"><i data-lucide="truck" class="h-4 w-4 text-blue-600"></i>Vehicles</p>
+            <div class="flex flex-col gap-1 mb-2">
+              <input type="text" id="trVehicleName" placeholder="Vehicle name/no." class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <input type="text" id="trVehicleDriver" placeholder="Driver name" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <button onclick="saveTransportVehicle()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Add Vehicle</button>
+            </div>
+            <div id="transportVehiclesList" class="flex flex-col gap-1"></div>
+          </div>
+          <div>
+            <p class="font-black text-slate-800 text-xs mb-2 flex items-center gap-2"><i data-lucide="map-pin" class="h-4 w-4 text-blue-600"></i>Pickup Points</p>
+            <div class="flex gap-2 mb-2">
+              <input type="text" id="trPointName" placeholder="Point name" class="flex-1 px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <button onclick="saveTransportPickupPoint()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+</button>
+            </div>
+            <div id="transportPointsList" class="flex flex-col gap-1"></div>
+          </div>
+        </div>
+        <hr class="border-slate-100 my-4">
+        <p class="font-black text-slate-800 text-xs mb-2 flex items-center gap-2"><i data-lucide="coins" class="h-4 w-4 text-blue-600"></i>Transport Fees</p>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-2">
+          <input type="text" id="tfName" placeholder="Fee name (e.g. Route A Monthly)" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <input type="number" id="tfAmount" placeholder="Amount" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <button onclick="saveTransportFeeMaster()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Add</button>
+        </div>
+        <div id="transportFeesList" class="flex flex-col gap-1"></div>
+      </div>
+
+      <div id="transport-bus-config" style="display:none">
+        <div class="grid md:grid-cols-2 gap-4">
+          <div class="bg-white rounded-2xl border border-slate-200 p-4">
+            <p class="font-black text-slate-800 text-sm mb-3 flex items-center gap-2"><i data-lucide="shield" class="h-4 w-4 text-blue-600"></i>GP API Credentials</p>
+            <div class="flex flex-col gap-2">
+              <label class="text-[10px] font-black text-slate-400 uppercase">Username</label>
+              <input type="text" id="gpUsername" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm">
+              <label class="text-[10px] font-black text-slate-400 uppercase">Password</label>
+              <div class="relative">
+                <input type="password" id="gpPassword" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm">
+                <button type="button" onclick="toggleGPPassword()" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400"><i data-lucide="eye" id="gpPassIcon" class="h-4 w-4"></i></button>
+              </div>
+              <label class="text-[10px] font-black text-slate-400 uppercase">Environment</label>
+              <select id="gpEnvironment" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm"><option value="production">Production</option><option value="staging">Staging</option></select>
+              <label class="text-[10px] font-black text-slate-400 uppercase">Verification (username:password)</label>
+              <input type="text" id="gpPreEncoded" readonly class="px-3 py-2 bg-slate-100 border border-slate-200 rounded-lg font-bold text-sm text-slate-500">
+              <label class="text-[10px] font-black text-slate-400 uppercase">System Generated API Key (Base64)</label>
+              <input type="text" id="gpApiKeyDisplay" readonly class="px-3 py-2 bg-slate-100 border border-slate-200 rounded-lg font-bold text-sm text-slate-500">
+              <div class="flex gap-2 mt-1">
+                <button onclick="saveGPConfig()" class="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Update Credentials</button>
+                <button id="btnVerifyGp" onclick="verifyGPConnection()" title="Verify Connection" class="px-3 py-2.5 border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50"><i data-lucide="badge-check" class="h-4 w-4"></i></button>
+              </div>
+              <div id="gpStatus" class="text-center text-xs font-bold mt-1"></div>
+            </div>
+          </div>
+          <div class="flex flex-col gap-4">
+            <div class="bg-white rounded-2xl border border-slate-200 p-4">
+              <div class="flex items-center justify-between mb-3">
+                <p class="font-black text-slate-800 text-sm flex items-center gap-2"><i data-lucide="bus-front" class="h-4 w-4 text-blue-600"></i>Bus Registry</p>
+                <button onclick="addBusRow()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">+ Add Bus</button>
+              </div>
+              <div class="overflow-auto">
+                <table class="w-full text-left border-collapse text-xs">
+                  <thead><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2">Bus Name</th><th class="py-2">IMEI Number</th><th></th></tr></thead>
+                  <tbody id="busConfigBody"></tbody>
+                </table>
+              </div>
+              <button onclick="saveBusConfig()" class="w-full mt-3 px-4 py-2.5 bg-slate-800 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Registry</button>
+            </div>
+            <div class="bg-white rounded-2xl border border-slate-200 p-4">
+              <div class="flex items-center justify-between mb-3">
+                <p class="font-black text-slate-800 text-sm flex items-center gap-2"><i data-lucide="map-pin" class="h-4 w-4 text-blue-600"></i>Places Registry (Geofencing)</p>
+                <button onclick="addPlaceRow()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">+ Add Place</button>
+              </div>
+              <div class="overflow-auto">
+                <table class="w-full text-left border-collapse text-xs">
+                  <thead><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2">Place Name</th><th class="py-2">Coordinates</th><th class="py-2">Radius (m)</th><th></th></tr></thead>
+                  <tbody id="placeConfigBody"></tbody>
+                </table>
+              </div>
+              <button onclick="savePlaceConfig()" class="w-full mt-3 px-4 py-2.5 bg-slate-800 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Places</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    lucide.createIcons();
+    loadTransportRoutes();
+    loadTransportVehicles();
+    loadTransportPickupPoints();
+    loadTransportFeeMaster();
+  }
+
+  function switchTransportTab(tabId) {
+    TRANSPORT_SUBTABS.forEach(t => {
+      const panel = document.getElementById(t.id);
+      const btn = document.getElementById('trtab-' + t.id);
+      const active = t.id === tabId;
+      if (panel) panel.style.display = active ? '' : 'none';
+      if (btn) {
+        btn.className = btn.className.replace(/bg-blue-600 text-white shadow-lg shadow-blue-500\/20|bg-white text-slate-400 border border-slate-200 hover:bg-slate-50/g, '').trim();
+        btn.className += active ? ' bg-blue-600 text-white shadow-lg shadow-blue-500/20' : ' bg-white text-slate-400 border border-slate-200 hover:bg-slate-50';
+      }
+    });
+    if (tabId === 'transport-bus-config') loadTrackingConfig();
+  }
+
+  function loadTransportRoutes() {
+    _adminFetch('get_transport_routes', {}).then(res => {
+      const routes = (res && res.result === 'success' && res.routes) || [];
+      document.getElementById('transportRoutesList').innerHTML = routes.map(r => `<div class="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs">${r.name}${!r.is_active ? ' <span class="text-[10px] font-black text-white bg-slate-400 rounded px-1.5 py-0.5">Inactive</span>' : ''}</div>`).join('') || '<span class="text-xs text-slate-400 font-bold italic">No routes yet.</span>';
+    });
+  }
+  function saveTransportRoute() {
+    const name = document.getElementById('trRouteName').value.trim();
+    if (!name) return;
+    _adminFetch('save_transport_route', { name, is_active: true }).then(res => { if (res && res.result === 'success') { document.getElementById('trRouteName').value = ''; loadTransportRoutes(); } });
+  }
+  function loadTransportVehicles() {
+    _adminFetch('get_transport_vehicles', {}).then(res => {
+      const vehicles = (res && res.result === 'success' && res.vehicles) || [];
+      document.getElementById('transportVehiclesList').innerHTML = vehicles.map(v => `<div class="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs">${v.name}${v.driver_name ? ' · '+v.driver_name : ''}</div>`).join('') || '<span class="text-xs text-slate-400 font-bold italic">No vehicles yet.</span>';
+    });
+  }
+  function saveTransportVehicle() {
+    const name = document.getElementById('trVehicleName').value.trim();
+    const driver_name = document.getElementById('trVehicleDriver').value.trim();
+    if (!name) return;
+    _adminFetch('save_transport_vehicle', { name, driver_name, is_active: true }).then(res => { if (res && res.result === 'success') { document.getElementById('trVehicleName').value = ''; document.getElementById('trVehicleDriver').value = ''; loadTransportVehicles(); } });
+  }
+  function loadTransportPickupPoints() {
+    _adminFetch('get_pickup_points', {}).then(res => {
+      const points = (res && res.result === 'success' && res.points) || [];
+      document.getElementById('transportPointsList').innerHTML = points.map(p => `<div class="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs">${p.name}</div>`).join('') || '<span class="text-xs text-slate-400 font-bold italic">No pickup points yet.</span>';
+    });
+  }
+  function saveTransportPickupPoint() {
+    const name = document.getElementById('trPointName').value.trim();
+    if (!name) return;
+    _adminFetch('save_pickup_point', { name }).then(res => { if (res && res.result === 'success') { document.getElementById('trPointName').value = ''; loadTransportPickupPoints(); } });
+  }
+  function loadTransportFeeMaster() {
+    _adminFetch('get_transport_fee_master', {}).then(res => {
+      const fees = (res && res.result === 'success' && res.fees) || [];
+      document.getElementById('transportFeesList').innerHTML = fees.map(f => `<div class="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs flex justify-between"><span>${f.name}</span><span class="font-black text-slate-700">৳${Number(f.amount).toLocaleString()}/${f.collection_mode}</span></div>`).join('') || '<span class="text-xs text-slate-400 font-bold italic">No transport fees yet.</span>';
+    });
+  }
+  function saveTransportFeeMaster() {
+    const name = document.getElementById('tfName').value.trim();
+    const amount = document.getElementById('tfAmount').value;
+    if (!name || !amount) { showToast('Name and amount required', 'error'); return; }
+    _adminFetch('save_transport_fee_master', { name, amount, collection_mode: 'Monthly' }).then(res => {
+      if (res && res.result === 'success') { document.getElementById('tfName').value = ''; document.getElementById('tfAmount').value = ''; loadTransportFeeMaster(); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+
+  function loadTrackingConfig() {
+    _adminFetch('get_tracking_config', {}).then(res => {
+      if (res.busRegistry) {
+        const tbody = document.getElementById('busConfigBody');
+        if (tbody) { tbody.innerHTML = ''; res.busRegistry.forEach(r => addBusRow({ name: r[0], imei: r[1] })); }
+      }
+      if (res.placeRegistry) {
+        const tbody = document.getElementById('placeConfigBody');
+        if (tbody) { tbody.innerHTML = ''; res.placeRegistry.forEach(r => addPlaceRow({ name: r[0], coords: r[1], radius: r[2] })); }
+      }
+      if (res.credentials) {
+        const u = document.getElementById('gpUsername');
+        const p = document.getElementById('gpPassword');
+        const env = document.getElementById('gpEnvironment');
+        const keyDisp = document.getElementById('gpApiKeyDisplay');
+        const preDisp = document.getElementById('gpPreEncoded');
+        if (u) u.value = res.credentials.username || '';
+        if (p) p.value = res.credentials.password || '';
+        if (env) env.value = res.credentials.environment || 'production';
+        if (keyDisp) keyDisp.value = res.credentials.apiKey || '';
+        if (preDisp) preDisp.value = (res.credentials.username && res.credentials.password) ? `${res.credentials.username}:${res.credentials.password}` : '';
+      }
+    });
+  }
+  function toggleGPPassword() {
+    const passInput = document.getElementById('gpPassword');
+    const passIcon = document.getElementById('gpPassIcon');
+    if (passInput.type === 'password') { passInput.type = 'text'; passIcon.setAttribute('data-lucide', 'eye-off'); }
+    else { passInput.type = 'password'; passIcon.setAttribute('data-lucide', 'eye'); }
+    lucide.createIcons();
+  }
+  function saveGPConfig() {
+    const u = document.getElementById('gpUsername').value.trim();
+    const p = document.getElementById('gpPassword').value.trim();
+    const env = document.getElementById('gpEnvironment').value;
+    const manualKey = document.getElementById('gpApiKeyDisplay').value.trim();
+    const s = document.getElementById('gpStatus');
+    if (!u || !p) { showToast('Username and Password required', 'error'); return; }
+    s.textContent = 'Updating…'; s.className = 'text-center text-xs font-bold text-slate-400 mt-1';
+    _adminFetch('set_gp_credentials', { username: u, password: p, channel: 'ALOEXT', environment: env, apiKey: manualKey }).then(res => {
+      s.textContent = res.message;
+      s.className = `text-center text-xs font-bold mt-1 ${res.result === 'success' ? 'text-emerald-600' : 'text-red-500'}`;
+      if (res.result === 'success') { loadTrackingConfig(); verifyGPConnection(); }
+    });
+  }
+  function verifyGPConnection() {
+    const btn = document.getElementById('btnVerifyGp');
+    const s = document.getElementById('gpStatus');
+    btn.disabled = true;
+    s.textContent = 'Verifying connection…'; s.className = 'text-center text-xs font-bold text-slate-400 mt-1';
+    _adminFetch('test_gp_connection', {}).then(res => {
+      btn.disabled = false;
+      s.textContent = res.message;
+      s.className = `text-center text-xs font-bold mt-1 ${res.result === 'success' ? 'text-emerald-600' : 'text-red-500'}`;
+    });
+  }
+  function addBusRow(data = { name: '', imei: '' }) {
+    const tbody = document.getElementById('busConfigBody');
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="py-1"><input type="text" class="b-name px-2 py-1 bg-slate-50 border border-slate-200 rounded font-bold text-xs" value="${data.name}"></td>
+      <td class="py-1"><input type="text" class="b-imei px-2 py-1 bg-slate-50 border border-slate-200 rounded font-bold text-xs" value="${data.imei}"></td>
+      <td class="py-1 text-right whitespace-nowrap">
+        <button onclick="checkBusStatus(this)" class="px-2 py-1 border border-slate-200 text-slate-600 rounded text-[10px] font-black uppercase hover:bg-slate-50"><i data-lucide="radio" class="h-3 w-3 inline"></i> Check</button>
+        <button onclick="this.closest('tr').remove()" class="px-2 py-1 text-red-500"><i data-lucide="trash-2" class="h-3 w-3"></i></button>
+      </td>`;
+    tbody.appendChild(tr);
+    lucide.createIcons();
+  }
+  function checkBusStatus(btn) {
+    const tr = btn.closest('tr');
+    const imei = tr.querySelector('.b-imei').value.trim();
+    if (!imei) { showToast('Please enter an IMEI first', 'error'); return; }
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '…';
+    _adminFetch('check_bus', { imei }).then(res => {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+      lucide.createIcons();
+      if (res.result === 'success') {
+        const d = res.data;
+        alert(`BUS ONLINE\n\nName: ${tr.querySelector('.b-name').value}\nIMEI: ${imei}\nLocation: ${d.address}\nSpeed: ${d.speed} km/h\nEngine: ${d.engine}\nLast Update: ${d.time}`);
+      } else {
+        const isAuthError = res.message.includes('401') || res.message.includes('403') || res.message.includes('Unauthorized');
+        const header = isAuthError ? 'ACCESS DENIED (API ERROR)' : 'BUS NOT FOUND / OFFLINE';
+        const footer = isAuthError ? '\n\nTip: Check your Username, Password, and Channel in the GP API Credentials section.' : '\n\nTip: Ensure the IMEI is correct and the GPS device is powered on.';
+        alert(`${header}\n\n${res.message}${footer}`);
+      }
+    });
+  }
+  function saveBusConfig() {
+    const rows = [];
+    document.querySelectorAll('#busConfigBody tr').forEach(tr => {
+      const name = tr.querySelector('.b-name').value.trim();
+      const imei = tr.querySelector('.b-imei').value.trim();
+      if (name && imei) rows.push([name, imei]);
+    });
+    _adminFetch('save_bus_registry', { rows }).then(() => showToast('Registry updated'));
+  }
+  function addPlaceRow(data = { name: '', coords: '', radius: '50' }) {
+    const tbody = document.getElementById('placeConfigBody');
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="py-1"><input type="text" class="p-name px-2 py-1 bg-slate-50 border border-slate-200 rounded font-bold text-xs" value="${data.name}" placeholder="Main Gate"></td>
+      <td class="py-1"><input type="text" class="p-coords px-2 py-1 bg-slate-50 border border-slate-200 rounded font-bold text-xs" value="${data.coords}" placeholder="22.35, 91.78"></td>
+      <td class="py-1"><input type="number" class="p-radius px-2 py-1 bg-slate-50 border border-slate-200 rounded font-bold text-xs" value="${data.radius}" style="width:80px"></td>
+      <td class="py-1 text-right"><button onclick="this.closest('tr').remove()" class="px-2 py-1 text-red-500"><i data-lucide="trash-2" class="h-3 w-3"></i></button></td>`;
+    tbody.appendChild(tr);
+    lucide.createIcons();
+  }
+  function savePlaceConfig() {
+    const rows = [];
+    document.querySelectorAll('#placeConfigBody tr').forEach(tr => {
+      const name = tr.querySelector('.p-name').value.trim();
+      const coords = tr.querySelector('.p-coords').value.trim();
+      const radius = tr.querySelector('.p-radius').value.trim();
+      if (name && coords) rows.push([name, coords, radius || '50']);
+    });
+    _adminFetch('save_place_registry', { rows }).then(() => showToast('Places Registry updated'));
   }
 
   function loadInventoryView() {

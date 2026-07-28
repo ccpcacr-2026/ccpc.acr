@@ -88,7 +88,15 @@ const RESERVED = [
   'loadAdminExamsView','switchExamsTab','saveExam','selectExamForSubjects',
   'saveExamSubject','deleteExamSubject','loadMarksEntry','saveMarksEntry',
   'processExamResult','toggleExamLock','saveGradeScale','deleteGradeScale',
-  'saveBoardExamRecord'
+  'saveBoardExamRecord',
+  // Payroll tab native port
+  'loadAdminPayrollView','switchPayrollTab','saveSalaryStructure','runPayroll',
+  'approveLeave',
+  // Transport tab native port (incl. Bus/GPS Config)
+  'loadAdminTransportView','switchTransportTab','saveTransportRoute',
+  'saveTransportVehicle','saveTransportPickupPoint','saveTransportFeeMaster',
+  'toggleGPPassword','saveGPConfig','verifyGPConnection','addBusRow',
+  'checkBusStatus','saveBusConfig','addPlaceRow','savePlaceConfig'
 ];
 
 // Strip HTML comments and collapse whitespace
