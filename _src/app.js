@@ -408,7 +408,7 @@
   // student-admin.html iframe until that tab's own porting phase lands — as
   // each phase ships, only that one entry's action needs to change.
   const ADMIN_SUBNAV_ITEMS = [
-    { key: 'setup', label: 'Setup', icon: 'sliders-horizontal', erp: false, action: { type: 'iframe', domId: 'admin-manage' } },
+    { key: 'setup', label: 'Setup', icon: 'sliders-horizontal', erp: false, action: { type: 'native', fn: 'loadAdminSetupView' } },
     { key: 'data', label: 'Data', icon: 'table', erp: false, action: { type: 'iframe', domId: 'admin-reports' } },
     { key: 'access', label: 'Access', icon: 'shield-check', erp: false, action: { type: 'native', fn: 'loadAdminAccessView' } },
     { key: 'fees', label: 'Fees', icon: 'wallet', erp: true, action: { type: 'native', fn: 'loadAdminFeesView' } },
@@ -5042,6 +5042,572 @@
       if (name && coords) rows.push([name, coords, radius || '50']);
     });
     _adminFetch('save_place_registry', { rows }).then(() => showToast('Places Registry updated'));
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Setup tab — native port (Phase 5). The tab builder: dynamic custom
+  // student-info tabs with drag-reorder, cut/copy/paste, conditional
+  // "show only if" visibility, plus promote-to-profile, editable-field
+  // picker, permanent-tab toggles, and login-password-column config. The
+  // drag/clipboard logic is plain HTML5 DnD + keydown listeners — unchanged
+  // from the original, since none of that depends on Bootstrap vs Tailwind.
+  // ══════════════════════════════════════════════════════════════════════
+
+  const SETUP_PERMANENT_TABS = [
+    { id: 'wallet', name: 'Wallet', icon: 'wallet' },
+    { id: 'fees', name: 'Fees & Dues', icon: 'banknote' },
+    { id: 'canteen', name: 'Canteen', icon: 'coffee' },
+    { id: 'stationary', name: 'Stationary', icon: 'shopping-bag' },
+    { id: 'teachers', name: 'Teacher Directory', icon: 'users' },
+    { id: 'bus-tracking', name: 'Live Bus Tracking', icon: 'bus' },
+  ];
+  let _setupAllTabs = [];
+  let _setupPromotedTabs = [];
+  let _activeFieldRow = null;
+  let _fieldClipboard = null;
+
+  function loadAdminSetupView() {
+    if (!['Admin', 'Student Portal Admin'].includes(window.ACTIVE_ROLE)) {
+      showToast('Not available in current role', 'error');
+      return;
+    }
+    _setViewHash('student_portal');
+    setActiveNavLink('nav-erp-setup');
+    setContentHeader('Setup', 'sliders-horizontal');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    container.innerHTML = `
+      <div class="mb-4">
+        <h2 class="text-2xl font-black text-slate-800 tracking-tight">Setup</h2>
+        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Custom tab builder, profile fields, permanent tabs, login settings</p>
+      </div>
+
+      <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 mb-5">
+        <div class="grid grid-cols-1 md:grid-cols-10 gap-3 items-end">
+          <div class="md:col-span-4"><label class="text-[10px] font-black text-slate-400 uppercase">Tab Name</label><input type="text" id="newTabName" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm mt-1"></div>
+          <div class="md:col-span-3"><label class="text-[10px] font-black text-slate-400 uppercase">Icon (Lucide name)</label><input type="text" id="newTabIcon" placeholder="folder" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm mt-1"></div>
+          <div class="md:col-span-2 flex items-center gap-2 pb-2"><input type="checkbox" id="newTabEditable" checked><label class="text-xs font-bold text-slate-600">Allows Edits</label></div>
+          <div class="md:col-span-1"><button onclick="saveNewTab()" class="w-full px-3 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button></div>
+        </div>
+        <div class="grid grid-cols-2 gap-2 mt-4">
+          <button onclick="addTabRow('field')" class="px-4 py-2.5 border border-blue-200 text-blue-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-blue-50 transition-all">+ New Input</button>
+          <button onclick="addTabRow('label')" class="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">+ New Header</button>
+        </div>
+        <div class="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-[10px] font-black text-slate-400 uppercase">Logic Rules</span>
+            <button onclick="addConditionRow()" class="px-3 py-1.5 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase">+ Add Rule</button>
+          </div>
+          <div id="conditionsList" class="flex flex-col gap-3"></div>
+        </div>
+        <div class="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-[10px] font-black text-slate-400 uppercase">Include from Student Profile</span>
+            <span class="text-xs font-bold text-slate-400" id="includeFieldsCount">0 selected</span>
+          </div>
+          <p class="text-xs text-slate-400 font-bold mb-3">Selected fields will appear as read-only info inside the form and will be saved as extra columns in the sheet.</p>
+          <div id="includeFieldsList" class="flex flex-wrap gap-2"><span class="text-xs text-slate-400 font-bold italic">Loading profile columns…</span></div>
+        </div>
+      </div>
+
+      <div id="fieldsList" class="flex flex-col gap-3 mb-5"></div>
+
+      <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 mb-5">
+        <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+          <p class="font-black text-slate-800 text-sm flex items-center gap-2"><i data-lucide="square-pen" class="h-4 w-4 text-blue-600"></i>Student-Editable Profile Fields</p>
+          <div class="flex items-center gap-3">
+            <span class="text-xs font-bold text-slate-400" id="editableFieldsCount">0 selected</span>
+            <button onclick="saveEditableProfileFields()" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Editable Fields</button>
+          </div>
+        </div>
+        <p class="text-xs text-slate-400 font-bold mb-3">Ticked fields get an Edit button in the student's Personal Hub so students can update them. ID / wallet / card fields are always locked.</p>
+        <div id="editableFieldsList" class="flex flex-wrap gap-2"><span class="text-xs text-slate-400 font-bold italic">Loading profile columns…</span></div>
+      </div>
+
+      <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 mb-5">
+        <p class="font-black text-slate-800 text-sm flex items-center gap-2 mb-1"><i data-lucide="pin" class="h-4 w-4 text-blue-600"></i>Permanent Tabs</p>
+        <p class="text-xs text-slate-400 font-bold mb-3">These built-in tabs aren't made in the builder above — turn any of them off to hide it from every student without deleting anything. Personal Hub is always on.</p>
+        <div id="permanentTabsList" class="grid md:grid-cols-2 gap-3"></div>
+      </div>
+
+      <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 mb-5">
+        <p class="font-black text-slate-800 text-sm flex items-center gap-2 mb-1"><i data-lucide="shield-check" class="h-4 w-4 text-blue-600"></i>Login Settings</p>
+        <p class="text-xs text-slate-400 font-bold mb-3">Choose which phone number(s) a student can log in with, alongside their Student ID. Untick a column to stop accepting it — at least one must stay checked.</p>
+        <div id="loginPasswordColumnsList" class="flex flex-wrap gap-4"></div>
+        <hr class="border-slate-100 my-4">
+        <p class="font-black text-slate-800 text-xs mb-1">Reset a Student's PIN</p>
+        <p class="text-xs text-slate-400 font-bold mb-3">If a student is locked out (set a PIN, forgot it, and can't reach their registered phone), clear it here — they'll fall back to phone-number login immediately.</p>
+        <div class="flex gap-2 flex-wrap items-center">
+          <input type="text" id="adminResetPinId" placeholder="Student ID" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" style="max-width:220px">
+          <button onclick="adminResetPin()" class="px-3 py-2 border border-red-200 text-red-500 rounded-xl font-black text-[10px] uppercase hover:bg-red-50">Reset PIN</button>
+          <span id="adminResetPinStatus" class="text-xs font-bold"></span>
+        </div>
+      </div>
+
+      <hr class="border-slate-100 my-6">
+      <div id="adminTabsList" class="grid md:grid-cols-2 gap-4"></div>
+    `;
+    lucide.createIcons();
+    loadAdminTabs();
+    loadIncludeFields();
+    loadEditableProfileFields();
+    loadPermanentTabsAdmin();
+    loadLoginPasswordColumnsAdmin();
+  }
+
+  function loadIncludeFields(selectedKeys = []) {
+    _adminFetch('get_student_data_headers', {}).then(headers => {
+      const container = document.getElementById('includeFieldsList');
+      if (!container) return;
+      const skip = new Set(['student_id', 'studentid', 'nfc_uid', 'nfcuid']);
+      const rows = (headers || []).filter(h => !skip.has(h.toLowerCase().replace(/[\s_]/g, '')));
+      if (!rows.length) { container.innerHTML = '<span class="text-xs text-slate-400 font-bold italic">No profile columns found.</span>'; return; }
+      container.innerHTML = rows.map(h => {
+        const checked = selectedKeys.includes(h);
+        return `<label class="px-2.5 py-1.5 rounded-lg border text-xs font-bold cursor-pointer ${checked ? 'bg-blue-50 border-blue-300 text-blue-700' : 'border-slate-200 text-slate-500'}">
+          <input type="checkbox" value="${h}" ${checked ? 'checked' : ''} onchange="_toggleFieldChip(this);updateIncludeCount()">${h.replace(/_/g, ' ')}
+        </label>`;
+      }).join('');
+      updateIncludeCount();
+    });
+  }
+  function _toggleFieldChip(cb) {
+    const label = cb.closest('label');
+    label.classList.toggle('bg-blue-50', cb.checked);
+    label.classList.toggle('border-blue-300', cb.checked);
+    label.classList.toggle('text-blue-700', cb.checked);
+    label.classList.toggle('border-slate-200', !cb.checked);
+    label.classList.toggle('text-slate-500', !cb.checked);
+  }
+  function updateIncludeCount() {
+    const count = document.querySelectorAll('#includeFieldsList input[type="checkbox"]:checked').length;
+    const el = document.getElementById('includeFieldsCount');
+    if (el) el.textContent = count + ' selected';
+  }
+
+  const SETUP_EDITABLE_LOCKED = new Set(['id', 'student_id', 'nfc_uid', 'balance', 'daily_limit', 'monthly_limit', 'card_status', 'submitted_at']);
+  function loadEditableProfileFields() {
+    Promise.all([
+      _adminFetch('get_student_data_headers', {}),
+      _adminFetch('get_editable_fields', {}),
+    ]).then(([headers, res]) => {
+      const container = document.getElementById('editableFieldsList');
+      if (!container) return;
+      const selected = (res && Array.isArray(res.fields)) ? res.fields : [];
+      const skip = new Set(['id', 'studentid', 'nfcuid', 'submittedat']);
+      const rows = (headers || []).filter(h => !skip.has(h.toLowerCase().replace(/[\s_]/g, '')));
+      if (!rows.length) { container.innerHTML = '<span class="text-xs text-slate-400 font-bold italic">No profile columns found.</span>'; return; }
+      container.innerHTML = rows.map(h => {
+        const locked = SETUP_EDITABLE_LOCKED.has(h);
+        const checked = selected.includes(h);
+        if (locked) return `<span class="px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-400 text-xs font-bold opacity-60" title="Always locked"><i data-lucide="lock" class="h-3 w-3 inline mr-1"></i>${h.replace(/_/g, ' ')}</span>`;
+        return `<label class="px-2.5 py-1.5 rounded-lg border text-xs font-bold cursor-pointer ${checked ? 'bg-blue-50 border-blue-300 text-blue-700' : 'border-slate-200 text-slate-500'}">
+          <input type="checkbox" value="${h}" ${checked ? 'checked' : ''} onchange="_toggleFieldChip(this);updateEditableCount()">${h.replace(/_/g, ' ')}
+        </label>`;
+      }).join('');
+      lucide.createIcons();
+      updateEditableCount();
+    });
+  }
+  function updateEditableCount() {
+    const count = document.querySelectorAll('#editableFieldsList input[type="checkbox"]:checked').length;
+    const el = document.getElementById('editableFieldsCount');
+    if (el) el.textContent = count + ' selected';
+  }
+  function saveEditableProfileFields() {
+    const fields = Array.from(document.querySelectorAll('#editableFieldsList input[type="checkbox"]:checked')).map(c => c.value);
+    _adminFetch('save_editable_fields', { fields }).then(res => {
+      if (res && res.result === 'success') showToast('Editable fields saved');
+      else showToast('Save failed', 'error');
+    }).catch(() => showToast('Network error', 'error'));
+  }
+
+  function loadPermanentTabsAdmin() {
+    _adminFetch('get_permanent_tabs_config', {}).then(cfg => {
+      const list = document.getElementById('permanentTabsList');
+      if (!list) return;
+      cfg = cfg || {};
+      list.innerHTML = SETUP_PERMANENT_TABS.map(t => {
+        const enabled = cfg[t.id] !== false;
+        return `<div class="flex justify-between items-center border border-slate-200 rounded-2xl px-4 py-3 ${enabled ? '' : 'opacity-60'}">
+          <div class="flex items-center gap-2 text-sm font-black text-slate-800"><i data-lucide="${t.icon}" class="h-4 w-4 text-blue-600"></i>${t.name}${enabled ? '' : ' <span class="text-[9px] font-black text-slate-400 bg-slate-100 rounded-full px-2 py-0.5 ml-1">Hidden from students</span>'}</div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" class="sr-only" ${enabled ? 'checked' : ''} onchange="togglePermanentTab('${t.id}', this.checked)">
+            <span class="text-[10px] font-black uppercase ${enabled ? 'text-emerald-600' : 'text-slate-400'}">${enabled ? 'Active' : 'Inactive'}</span>
+          </label>
+        </div>`;
+      }).join('');
+      lucide.createIcons();
+    }).catch(() => {});
+  }
+  function togglePermanentTab(id, isOn) {
+    _adminFetch('get_permanent_tabs_config', {}).then(cfg => {
+      cfg = cfg || {};
+      cfg[id] = isOn;
+      return _adminFetch('set_permanent_tabs_config', cfg);
+    }).then(res => {
+      const tabName = (SETUP_PERMANENT_TABS.find(t => t.id === id) || {}).name || id;
+      if (res && res.result === 'success') showToast(isOn ? `"${tabName}" is now visible to students` : `"${tabName}" is now hidden from students`);
+      else showToast((res && res.message) || 'Could not update status', 'error');
+      loadPermanentTabsAdmin();
+    }).catch(() => { showToast('Network error', 'error'); loadPermanentTabsAdmin(); });
+  }
+
+  function loadLoginPasswordColumnsAdmin() {
+    _adminFetch('get_login_password_columns', {}).then(cfg => {
+      const list = document.getElementById('loginPasswordColumnsList');
+      if (!list || !cfg) return;
+      const selected = cfg.selected || [];
+      list.innerHTML = (cfg.candidates || []).map(col => `
+        <label class="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer">
+          <input type="checkbox" ${selected.includes(col) ? 'checked' : ''} onchange="toggleLoginPasswordColumn('${col}', this.checked)"><code class="text-[11px]">${col}</code>
+        </label>`).join('');
+    }).catch(() => {});
+  }
+  function toggleLoginPasswordColumn(col, isOn) {
+    _adminFetch('get_login_password_columns', {}).then(cfg => {
+      let selected = (cfg && cfg.selected) ? [...cfg.selected] : [];
+      if (isOn && !selected.includes(col)) selected.push(col);
+      if (!isOn) selected = selected.filter(c => c !== col);
+      return _adminFetch('set_login_password_columns', { columns: selected });
+    }).then(res => {
+      if (res && res.result === 'success') showToast('Login settings saved');
+      else showToast((res && res.message) || 'Could not update login settings', 'error');
+      loadLoginPasswordColumnsAdmin();
+    }).catch(() => { showToast('Network error', 'error'); loadLoginPasswordColumnsAdmin(); });
+  }
+
+  function loadAdminTabs() {
+    Promise.all([_adminFetch('get_tabs', {}), _adminFetch('get_profile_sections', {})]).then(([tabs, ps]) => {
+      if (!Array.isArray(tabs)) return;
+      _setupAllTabs = tabs;
+      _setupPromotedTabs = (ps && Array.isArray(ps.sections)) ? ps.sections.map(s => s.tab_name) : [];
+      const list = document.getElementById('adminTabsList');
+      if (list) {
+        list.innerHTML = tabs.map((t, i) => {
+          const promoted = _setupPromotedTabs.includes(t.tab_name);
+          const promoBtn = promoted
+            ? `<button onclick="unpromoteTab('${t.tab_name}')" class="px-3 py-1.5 bg-emerald-600 text-white rounded-full font-black text-[10px] uppercase flex items-center gap-1" title="This tab's fields are part of the profile — click to remove"><i data-lucide="check-circle" class="h-3 w-3"></i>In Profile</button>`
+            : `<button onclick="promoteTab('${t.tab_name}')" class="px-3 py-1.5 border border-emerald-200 text-emerald-600 rounded-full font-black text-[10px] uppercase flex items-center gap-1 hover:bg-emerald-50" title="Add this tab's fields to the student profile as columns"><i data-lucide="plus-circle" class="h-3 w-3"></i>Add to Profile</button>`;
+          return `<div class="border border-slate-200 rounded-2xl p-4 ${t.is_enabled ? '' : 'opacity-60'}">
+            <div class="flex justify-between items-center">
+              <div class="flex items-center gap-2 text-sm font-black text-slate-800 truncate"><i data-lucide="folder" class="h-4 w-4 text-blue-600 shrink-0"></i>${t.tab_name}${t.is_enabled ? '' : ' <span class="text-[9px] font-black text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">Hidden</span>'}</div>
+              <div class="flex items-center gap-2 shrink-0">
+                <button onclick="editTab(${i})" class="px-2.5 py-1 bg-blue-600 text-white rounded-full font-black text-[10px] uppercase">Edit</button>
+                <button onclick="deleteTabConfig(${i})" class="px-2.5 py-1 bg-red-500 text-white rounded-full font-black text-[10px] uppercase">Del</button>
+                <input type="checkbox" ${t.is_enabled ? 'checked' : ''} onchange="toggleStatus(${i}, this.checked)" title="Active tabs are visible to students; inactive tabs are hidden without deleting their setup or data">
+              </div>
+            </div>
+            <div class="mt-2 pt-2 border-t border-slate-100">${promoBtn}</div>
+          </div>`;
+        }).join('');
+        lucide.createIcons();
+      }
+    });
+  }
+
+  function promoteTab(tabName) {
+    if (!confirm(`Add all fields from "${tabName}" to the student profile?\n\nThis creates matching columns in students_data and copies existing submissions into them. Fields you tick as editable will then be editable from the profile.`)) return;
+    showToast('Adding fields to profile…');
+    _adminFetch('promote_tab_to_profile', { tab_name: tabName }).then(res => {
+      if (res && res.result === 'success') { showToast(`Added ${res.added} field(s) to the profile`); loadAdminTabs(); loadEditableProfileFields(); }
+      else showToast((res && res.message) || 'Failed to add to profile', 'error');
+    }).catch(() => showToast('Network error', 'error'));
+  }
+  function unpromoteTab(tabName) {
+    if (!confirm(`Remove "${tabName}" from the student profile view?\n\nThe columns and their data stay in the database — they just won't show in the profile anymore.`)) return;
+    _adminFetch('unpromote_tab_from_profile', { tab_name: tabName }).then(res => {
+      if (res && res.result === 'success') { showToast('Removed from profile'); loadAdminTabs(); }
+      else showToast('Failed', 'error');
+    });
+  }
+
+  function _showIfValStr(v) { return Array.isArray(v) ? v.join(', ') : (v == null ? '' : String(v)); }
+  function parseShowIfForEditor(showIf) {
+    const empty = [{ field: '', value: '' }, { field: '', value: '' }];
+    if (!showIf) return empty;
+    const list = Array.isArray(showIf.all) ? showIf.all : Array.isArray(showIf.any) ? showIf.any : [{ field: showIf.field, value: showIf.value }];
+    return [
+      { field: list[0]?.field || '', value: _showIfValStr(list[0]?.value) },
+      { field: list[1]?.field || '', value: _showIfValStr(list[1]?.value) },
+    ];
+  }
+  function showIfBlockHtml(data) {
+    const c = parseShowIfForEditor(data?.show_if);
+    const has = !!(data && data.show_if);
+    return `
+      <div class="mt-2">
+        <div class="showif-block ${has ? '' : 'hidden'} p-2.5 rounded-xl bg-slate-50 flex items-center gap-2 flex-wrap text-xs">
+          <span class="font-black text-slate-400 flex items-center gap-1"><i data-lucide="git-branch" class="h-3 w-3"></i>Show only if</span>
+          <select class="showif-field px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-xs" style="max-width:190px"><option value="">(always visible)</option></select>
+          <span class="text-slate-400 font-bold">=</span>
+          <input type="text" class="showif-value px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-xs" placeholder="value" style="max-width:130px" value="${(c[0].value || '').replace(/"/g, '&quot;')}">
+          <span class="px-2 py-0.5 bg-slate-800 text-white rounded-full text-[10px] font-black">AND</span>
+          <select class="showif-field2 px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-xs" style="max-width:190px"><option value="">(none)</option></select>
+          <span class="text-slate-400 font-bold">=</span>
+          <input type="text" class="showif-value2 px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-xs" placeholder="value" style="max-width:130px" value="${(c[1].value || '').replace(/"/g, '&quot;')}">
+        </div>
+        <button type="button" class="showif-toggle text-[11px] font-bold text-blue-600 mt-1" onclick="const b=this.previousElementSibling; b.classList.toggle('hidden'); this.textContent = b.classList.contains('hidden') ? '+ Add condition (dependable)' : '− Hide condition';">${has ? '− Hide condition' : '+ Add condition (dependable)'}</button>
+      </div>`;
+  }
+
+  const SETUP_FIELD_ROW_ACTIONS = `
+    <button type="button" onclick="duplicateField(this)" class="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100" title="Duplicate"><i data-lucide="copy" class="h-3.5 w-3.5"></i></button>
+    <button type="button" onclick="cutField(this)" class="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100" title="Cut (Ctrl+X)"><i data-lucide="scissors" class="h-3.5 w-3.5"></i></button>
+    <button type="button" onclick="copyField(this)" class="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100" title="Copy (Ctrl+C)"><i data-lucide="clipboard" class="h-3.5 w-3.5"></i></button>
+    <button type="button" onclick="pasteField(this)" class="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100" title="Paste after this field (Ctrl+V)"><i data-lucide="clipboard-check" class="h-3.5 w-3.5"></i></button>
+    <button type="button" onclick="this.closest('.draggable-row').remove()" class="w-7 h-7 flex items-center justify-center rounded-lg text-red-400 hover:bg-red-50" title="Delete"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>`;
+
+  function addTabRow(type, data = null) {
+    const container = document.getElementById('fieldsList');
+    const row = document.createElement('div');
+    row.className = 'draggable-row bg-white rounded-2xl border border-slate-200 shadow-sm p-4';
+    row.id = `f-row-${container.children.length}`;
+    row.draggable = true;
+    row.ondragstart = (e) => { e.dataTransfer.setData('text', row.id); row.style.opacity = '0.4'; };
+    row.ondragend = () => { row.style.opacity = '1'; };
+    row.ondragover = (e) => {
+      e.preventDefault();
+      const dr = [...container.children].find(el => el.style.opacity === '0.4');
+      if (dr && dr !== row) {
+        const c = [...container.children];
+        if (c.indexOf(dr) < c.indexOf(row)) row.after(dr); else row.before(dr);
+      }
+    };
+    row.addEventListener('click', (e) => { if (e.target.closest('input,select,textarea,button,a')) return; setActiveField(row); });
+    const grip = `<div class="flex items-center text-slate-300 cursor-grab pr-1"><i data-lucide="grip-vertical" class="h-5 w-5"></i></div>`;
+    const keyInput = `<input type="hidden" class="f-key" value="${data?.data_key || ''}">`;
+    if (type === 'label') {
+      row.innerHTML = `<div class="flex items-center gap-2">${grip}<input type="text" placeholder="Identity Header" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-black text-blue-600 text-sm" value="${data?.label || ''}"><input type="hidden" class="f-type" value="group_label">${keyInput}<div class="flex gap-0.5">${SETUP_FIELD_ROW_ACTIONS}</div></div>${showIfBlockHtml(data)}`;
+    } else {
+      row.innerHTML = `<div class="flex items-center gap-2 flex-wrap">${grip}
+        <input type="text" placeholder="Label" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm" style="flex:1;min-width:160px" value="${data?.name || ''}">
+        <select class="f-type px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" onchange="const o = this.closest('.draggable-row').querySelector('.f-options'); if(['checkbox','choose'].includes(this.value)) o.classList.remove('hidden'); else o.classList.add('hidden');">
+          <option value="text" ${data?.type === 'text' ? 'selected' : ''}>Text Input</option>
+          <option value="paragraph" ${data?.type === 'paragraph' ? 'selected' : ''}>Paragraph</option>
+          <option value="number" ${data?.type === 'number' ? 'selected' : ''}>Number</option>
+          <option value="checkbox" ${data?.type === 'checkbox' ? 'selected' : ''}>Checkbox</option>
+          <option value="choose" ${data?.type === 'choose' ? 'selected' : ''}>Dropdown</option>
+        </select>
+        <input type="text" placeholder="Options (comma separated)" class="f-options px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs ${['checkbox', 'choose'].includes(data?.type) ? '' : 'hidden'}" style="flex:1;min-width:160px" value="${(data?.options || []).join(',')}">
+        ${keyInput}
+        <div class="flex gap-0.5">${SETUP_FIELD_ROW_ACTIONS}</div>
+      </div>${showIfBlockHtml(data)}`;
+    }
+    container.appendChild(row);
+    lucide.createIcons();
+    const cond = parseShowIfForEditor(data?.show_if);
+    populateShowIfSelect(row.querySelector('.showif-field'), cond[0].field);
+    populateShowIfSelect(row.querySelector('.showif-field2'), cond[1].field);
+    return row;
+  }
+
+  function setActiveField(row) {
+    document.querySelectorAll('#fieldsList .draggable-row').forEach(r => { r.style.outline = ''; r.style.background = ''; });
+    row.style.outline = '2px solid #2563eb';
+    row.style.background = '#eff6ff';
+    _activeFieldRow = row;
+  }
+  function _readRowShowIf(row) {
+    const f1 = row.querySelector('.showif-field')?.value.trim();
+    const v1 = row.querySelector('.showif-value')?.value.trim();
+    const f2 = row.querySelector('.showif-field2')?.value.trim();
+    const v2 = row.querySelector('.showif-value2')?.value.trim();
+    const conds = [];
+    if (f1) conds.push({ field: f1, value: v1 });
+    if (f2) conds.push({ field: f2, value: v2 });
+    if (!conds.length) return null;
+    if (conds.length === 1) return conds[0];
+    return { all: conds };
+  }
+  function serializeFieldRow(row) {
+    const type = row.querySelector('.f-type')?.value;
+    const show_if = _readRowShowIf(row) || undefined;
+    if (type === 'group_label') return { kind: 'label', data: { label: row.querySelector('input[type="text"]')?.value || '', show_if } };
+    const name = row.querySelector('input[placeholder="Label"]')?.value || '';
+    const options = (row.querySelector('.f-options')?.value || '').split(',').map(s => s.trim()).filter(Boolean);
+    return { kind: 'field', data: { name, type, options, show_if } };
+  }
+  function duplicateField(btn) {
+    const row = btn.closest('.draggable-row');
+    const { kind, data } = serializeFieldRow(row);
+    const newRow = addTabRow(kind, data);
+    row.after(newRow);
+    setActiveField(newRow);
+    newRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  function copyField(btn) {
+    const row = btn.closest('.draggable-row');
+    _fieldClipboard = serializeFieldRow(row);
+    setActiveField(row);
+    showToast('Field copied');
+  }
+  function cutField(btn) {
+    const row = btn.closest('.draggable-row');
+    _fieldClipboard = serializeFieldRow(row);
+    row.remove();
+    if (_activeFieldRow === row) _activeFieldRow = null;
+    showToast('Field cut — Ctrl+V or Paste to place it');
+  }
+  function _pasteAfter(afterRow) {
+    if (!_fieldClipboard) { showToast('Nothing to paste — copy or cut a field first', 'error'); return; }
+    const newRow = addTabRow(_fieldClipboard.kind, _fieldClipboard.data);
+    if (afterRow) afterRow.after(newRow);
+    setActiveField(newRow);
+    newRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  function pasteField(btn) { _pasteAfter(btn.closest('.draggable-row')); }
+
+  document.addEventListener('keydown', (e) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    const key = e.key.toLowerCase();
+    if (key !== 'x' && key !== 'c' && key !== 'v') return;
+    const activeTag = (document.activeElement && document.activeElement.tagName || '').toLowerCase();
+    if (['input', 'textarea', 'select'].includes(activeTag)) return;
+    if (!document.getElementById('fieldsList')) return;
+    if (key === 'v') { e.preventDefault(); _pasteAfter(_activeFieldRow); return; }
+    if (!_activeFieldRow) return;
+    e.preventDefault();
+    _fieldClipboard = serializeFieldRow(_activeFieldRow);
+    if (key === 'x') { const row = _activeFieldRow; row.remove(); _activeFieldRow = null; showToast('Field cut'); }
+    else showToast('Field copied');
+  });
+
+  function getBuilderFieldKeys() {
+    const sz = (s) => s.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+    const out = [];
+    let cl = '';
+    document.querySelectorAll('#fieldsList .draggable-row').forEach(row => {
+      const type = row.querySelector('.f-type')?.value;
+      if (type === 'group_label') { const l = row.querySelector('input[type="text"]')?.value.trim(); if (l) cl = sz(l); return; }
+      const label = row.querySelector('input[placeholder="Label"]')?.value.trim();
+      if (!label) return;
+      let key = row.querySelector('.f-key')?.value.trim();
+      if (!key) { key = sz(label); if (cl) key = `${cl}_${key}`; }
+      out.push({ key, label });
+    });
+    return out;
+  }
+  function populateShowIfSelect(sel, selectedKey, keys) {
+    if (!sel) return;
+    const isSecond = sel.classList.contains('showif-field2');
+    keys = keys || getBuilderFieldKeys();
+    sel.innerHTML = `<option value="">${isSecond ? '(none)' : '(always visible)'}</option>` + keys.map(k => `<option value="${k.key}" ${k.key === selectedKey ? 'selected' : ''}>${k.label}</option>`).join('');
+    if (selectedKey && !keys.some(k => k.key === selectedKey)) {
+      const o = document.createElement('option'); o.value = selectedKey; o.textContent = selectedKey; o.selected = true; sel.appendChild(o);
+    }
+  }
+  function refreshAllShowIfControllers() {
+    const keys = getBuilderFieldKeys();
+    document.querySelectorAll('#fieldsList .showif-field, #fieldsList .showif-field2').forEach(sel => populateShowIfSelect(sel, sel.value, keys));
+  }
+
+  function addConditionRow(rule = null) {
+    const container = document.getElementById('conditionsList');
+    const row = document.createElement('div');
+    row.className = 'flex items-center gap-2 flex-wrap bg-white p-3 rounded-2xl border border-slate-200';
+    row.innerHTML = `
+      <select class="rule-col px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="min-width:160px"><option value="">Column…</option></select>
+      <select class="rule-op px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+        <option value="eq">EQUALS</option><option value="neq">NOT EQUALS</option><option value="contains">CONTAINS</option><option value="in_sheet">IS IN SHEET</option><option value="not_in_sheet">IS NOT IN SHEET</option>
+      </select>
+      <input type="text" class="rule-val px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" placeholder="Target" style="min-width:140px">
+      <button onclick="this.closest('div.flex').remove()" class="w-7 h-7 flex items-center justify-center rounded-lg text-red-400 hover:bg-red-50"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>`;
+    container.appendChild(row);
+    lucide.createIcons();
+    _adminFetch('get_student_data_headers', {}).then(headers => {
+      const s = row.querySelector('.rule-col');
+      (headers || []).forEach(h => { const o = document.createElement('option'); o.value = h; o.textContent = h.toUpperCase().replace(/_/g, ' '); if (rule?.column === h) o.selected = true; s.appendChild(o); });
+    });
+    if (rule) { row.querySelector('.rule-op').value = rule.operator; row.querySelector('.rule-val').value = rule.value; }
+  }
+
+  function saveNewTab() {
+    const name = document.getElementById('newTabName').value.trim();
+    const icon = document.getElementById('newTabIcon').value.trim() || 'folder';
+    const edit = document.getElementById('newTabEditable').checked;
+    if (!name) { showToast('Title required', 'error'); return; }
+    const fields = []; let cl = '';
+    const sz = (s) => s.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+    const optionless = [];
+    document.querySelectorAll('#fieldsList .draggable-row').forEach(row => {
+      const type = row.querySelector('.f-type').value;
+      const showIf = _readRowShowIf(row);
+      if (type === 'group_label') {
+        const l = row.querySelector('input[type="text"]').value.trim();
+        if (l) { const g = { type: 'group_label', label: l }; if (showIf) g.show_if = showIf; fields.push(g); cl = sz(l); }
+      } else {
+        const fn = row.querySelector('input[placeholder="Label"]')?.value.trim();
+        const fo = row.querySelector('.f-options')?.value.split(',').map(s => s.trim()).filter(Boolean);
+        if (fn) {
+          if ((type === 'choose' || type === 'checkbox') && !fo.length) optionless.push(fn);
+          let f = row.querySelector('.f-key')?.value.trim();
+          if (!f) { let k = sz(fn); if (cl) k = `${cl}_${k}`; f = k; let c = 1; while (fields.some(fd => fd.data_key === f)) { f = `${k}_${c++}`; } }
+          const obj = { name: fn, type, options: fo, data_key: f };
+          if (showIf) obj.show_if = showIf;
+          fields.push(obj);
+        }
+      }
+    });
+    if (optionless.length && !confirm(`These dropdown/checkbox fields have no options and will show as empty:\n\n• ${optionless.join('\n• ')}\n\nAdd comma-separated options in the "Options" box. Save anyway?`)) return;
+    const rs = [];
+    document.querySelectorAll('#conditionsList > div').forEach(row => {
+      const col = row.querySelector('.rule-col')?.value;
+      if (col) rs.push({ column: col, operator: row.querySelector('.rule-op').value, value: row.querySelector('.rule-val').value.trim() });
+    });
+    const includeFields = Array.from(document.querySelectorAll('#includeFieldsList input[type="checkbox"]:checked')).map(c => c.value);
+    const existingTab = (_setupAllTabs || []).find(t => t.tab_name === name);
+    const keepEnabled = existingTab ? existingTab.is_enabled !== false : true;
+    const cfg = { tab_name: name, fields_json: JSON.stringify(fields), is_enabled: keepEnabled, icon_class: icon, default_editable: edit ? 'YES' : 'NO', condition_json: JSON.stringify({ logic: 'AND', rules: rs }), include_fields_json: JSON.stringify(includeFields) };
+    _adminFetch('save_tab', cfg).then(res => {
+      if (res && res.result === 'success') { showToast('Setup saved'); loadAdminSetupView(); }
+      else showToast((res && res.message) || 'Save failed — please retry.', 'error');
+    }).catch(() => showToast('Network error while saving — please retry.', 'error'));
+  }
+
+  function editTab(i) {
+    const t = _setupAllTabs[i];
+    document.getElementById('newTabName').value = t.tab_name;
+    document.getElementById('newTabIcon').value = t.icon_class || '';
+    document.getElementById('newTabEditable').checked = t.default_editable === 'YES';
+    document.getElementById('fieldsList').innerHTML = '';
+    JSON.parse(t.fields_json).forEach(f => addTabRow(f.type === 'group_label' ? 'label' : 'field', f));
+    refreshAllShowIfControllers();
+    document.getElementById('conditionsList').innerHTML = '';
+    if (t.condition_json) { const l = JSON.parse(t.condition_json); (l.rules || []).forEach(r => addConditionRow(r)); }
+    let inclKeys = [];
+    try { inclKeys = JSON.parse(t.include_fields_json || '[]'); } catch (e) {}
+    loadIncludeFields(inclKeys);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  function deleteTabConfig(i) {
+    if (!confirm('Confirm deletion?')) return;
+    _adminFetch('delete_tab', { tab_name: _setupAllTabs[i].tab_name }).then(res => {
+      if (res && res.result === 'success') loadAdminTabs();
+      else showToast((res && res.message) || 'Delete failed', 'error');
+    }).catch(() => showToast('Network error while deleting', 'error'));
+  }
+  function toggleStatus(i, s) {
+    _adminFetch('save_tab', { tab_name: _setupAllTabs[i].tab_name, is_enabled: s }).then(res => {
+      if (res && res.result === 'success') { showToast(s ? `"${_setupAllTabs[i].tab_name}" is now visible to students` : `"${_setupAllTabs[i].tab_name}" is now hidden from students`); loadAdminTabs(); }
+      else { showToast((res && res.message) || 'Could not update status', 'error'); loadAdminTabs(); }
+    }).catch(() => { showToast('Network error', 'error'); loadAdminTabs(); });
+  }
+
+  function adminResetPin() {
+    const input = document.getElementById('adminResetPinId');
+    const status = document.getElementById('adminResetPinStatus');
+    const sid = (input && input.value || '').trim();
+    if (!sid) { if (status) { status.className = 'text-xs font-bold text-red-500'; status.textContent = 'Enter a Student ID.'; } return; }
+    if (!confirm(`Clear the PIN for "${sid}"? They will be able to log in with their phone number again.`)) return;
+    if (status) { status.className = 'text-xs font-bold text-slate-400'; status.textContent = 'Resetting…'; }
+    _adminFetch('admin_reset_pin', { student_id: sid }).then(res => {
+      if (res && res.result === 'success') {
+        if (input) input.value = '';
+        if (status) { status.className = 'text-xs font-bold text-emerald-600'; status.textContent = res.message || 'PIN cleared.'; }
+        showToast(res.message || 'PIN cleared');
+      } else if (status) { status.className = 'text-xs font-bold text-red-500'; status.textContent = (res && res.message) || 'Could not reset PIN.'; }
+    }).catch(() => { if (status) { status.className = 'text-xs font-bold text-red-500'; status.textContent = 'Network error.'; } });
   }
 
   function loadInventoryView() {

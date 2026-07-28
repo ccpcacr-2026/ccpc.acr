@@ -96,7 +96,13 @@ const RESERVED = [
   'loadAdminTransportView','switchTransportTab','saveTransportRoute',
   'saveTransportVehicle','saveTransportPickupPoint','saveTransportFeeMaster',
   'toggleGPPassword','saveGPConfig','verifyGPConnection','addBusRow',
-  'checkBusStatus','saveBusConfig','addPlaceRow','savePlaceConfig'
+  'checkBusStatus','saveBusConfig','addPlaceRow','savePlaceConfig',
+  // Setup tab native port (tab builder)
+  'loadAdminSetupView','_toggleFieldChip','updateIncludeCount','updateEditableCount',
+  'saveEditableProfileFields','togglePermanentTab','toggleLoginPasswordColumn',
+  'saveNewTab','addTabRow','addConditionRow','duplicateField','cutField',
+  'copyField','pasteField','promoteTab','unpromoteTab','editTab',
+  'deleteTabConfig','toggleStatus','adminResetPin'
 ];
 
 // Strip HTML comments and collapse whitespace
