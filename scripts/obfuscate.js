@@ -102,7 +102,22 @@ const RESERVED = [
   'saveEditableProfileFields','togglePermanentTab','toggleLoginPasswordColumn',
   'saveNewTab','addTabRow','addConditionRow','duplicateField','cutField',
   'copyField','pasteField','promoteTab','unpromoteTab','editTab',
-  'deleteTabConfig','toggleStatus','adminResetPin'
+  'deleteTabConfig','toggleStatus','adminResetPin',
+
+  // Data tab native port (Phase 6, part 1)
+  'loadAdminDataView','loadSummaryData','filterSummaryTable','exportSummaryData',
+  'openTabAccessModal','filterTabAccessList','saveTabAccess',
+  'openClassAccessModal','selectClassAccessUser','filterClassAccessStaff',
+  'toggleAllClassSections','saveClassAccess','removeClassAccess',
+  'openSummaryMergeModal','createSummaryColumnMerge','removeSummaryColumnMerge',
+  'openSummaryPrintModal','printSummaryData',
+
+  // History/Photo/Notices/Import native ports (Phase 6, part 2)
+  'loadAdminHistoryView','debounceLoadEditHistory','loadEditHistory',
+  'loadAdminPhotoView','loadStudentForPhoto','handleStudentPhotoSelect',
+  'loadAdminNoticesView','addNoticeRow','previewNotice','saveNoticeRow',
+  'deleteNoticeRow','moveNotice',
+  'loadAdminImportView','updateImportSample','previewBulkImport','confirmBulkImport'
 ];
 
 // Strip HTML comments and collapse whitespace

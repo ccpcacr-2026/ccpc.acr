@@ -409,18 +409,17 @@
   // each phase ships, only that one entry's action needs to change.
   const ADMIN_SUBNAV_ITEMS = [
     { key: 'setup', label: 'Setup', icon: 'sliders-horizontal', erp: false, action: { type: 'native', fn: 'loadAdminSetupView' } },
-    { key: 'data', label: 'Data', icon: 'table', erp: false, action: { type: 'iframe', domId: 'admin-reports' } },
+    { key: 'data', label: 'Data', icon: 'table', erp: false, action: { type: 'native', fn: 'loadAdminDataView' } },
     { key: 'access', label: 'Access', icon: 'shield-check', erp: false, action: { type: 'native', fn: 'loadAdminAccessView' } },
     { key: 'fees', label: 'Fees', icon: 'wallet', erp: true, action: { type: 'native', fn: 'loadAdminFeesView' } },
     { key: 'attendance', label: 'Attendance', icon: 'fingerprint', erp: true, action: { type: 'native', fn: 'loadAdminAttendanceView' } },
     { key: 'exams', label: 'Exams', icon: 'clipboard-list', erp: true, action: { type: 'native', fn: 'loadAdminExamsView' } },
     { key: 'payroll', label: 'Payroll', icon: 'banknote', erp: true, action: { type: 'native', fn: 'loadAdminPayrollView' } },
     { key: 'transport', label: 'Transport', icon: 'bus', erp: true, action: { type: 'native', fn: 'loadAdminTransportView' } },
-    { key: 'history', label: 'History', icon: 'clock', erp: false, action: { type: 'iframe', domId: 'admin-history' } },
-    { key: 'nfc', label: 'NFC', icon: 'radio', erp: false, action: { type: 'iframe', domId: 'admin-nfc' } },
-    { key: 'photo', label: 'Photo', icon: 'camera', erp: false, action: { type: 'iframe', domId: 'admin-photo' } },
-    { key: 'notices', label: 'Notices', icon: 'megaphone', erp: false, action: { type: 'iframe', domId: 'admin-notices' } },
-    { key: 'import', label: 'Import', icon: 'file-spreadsheet', erp: false, action: { type: 'iframe', domId: 'admin-import' } },
+    { key: 'history', label: 'History', icon: 'clock', erp: false, action: { type: 'native', fn: 'loadAdminHistoryView' } },
+    { key: 'photo', label: 'Photo', icon: 'camera', erp: false, action: { type: 'native', fn: 'loadAdminPhotoView' } },
+    { key: 'notices', label: 'Notices', icon: 'megaphone', erp: false, action: { type: 'native', fn: 'loadAdminNoticesView' } },
+    { key: 'import', label: 'Import', icon: 'file-spreadsheet', erp: false, action: { type: 'native', fn: 'loadAdminImportView' } },
     { key: 'bus_tracker', label: 'Bus Tracker', icon: 'map-pin', erp: false, action: { type: 'iframe-bus' } },
   ];
 
@@ -5608,6 +5607,909 @@
         showToast(res.message || 'PIN cleared');
       } else if (status) { status.className = 'text-xs font-bold text-red-500'; status.textContent = (res && res.message) || 'Could not reset PIN.'; }
     }).catch(() => { if (status) { status.className = 'text-xs font-bold text-red-500'; status.textContent = 'Network error.'; } });
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Data tab — native port (Phase 6, part 1). Per-tab submitted-data
+  // viewer/exporter with display-only column merging, print, and two kinds
+  // of delegated access (flat "Data Access" and class-scoped "Class
+  // Access"). Modals are injected inline (loadInventoryView's own pattern),
+  // same class-pair as every other dynamic modal built this session.
+  // ══════════════════════════════════════════════════════════════════════
+
+  let _summaryData = null;
+  let _summaryColumnMerges = [];
+  let _activeSummaryMergeOpts = null;
+  let _caTab = null, _caStaff = [], _caClassSections = [], _caGrants = {}, _caSelectedUser = null;
+
+  function loadAdminDataView() {
+    if (!['Admin', 'Student Portal Admin'].includes(window.ACTIVE_ROLE)) {
+      showToast('Not available in current role', 'error');
+      return;
+    }
+    _setViewHash('student_portal');
+    setActiveNavLink('nav-erp-data');
+    setContentHeader('Data', 'table');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    container.innerHTML = `
+      <div class="mb-4">
+        <h2 class="text-2xl font-black text-slate-800 tracking-tight">Data</h2>
+        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Per-tab submitted data, export, merge, print, delegated access</p>
+      </div>
+      <div class="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3">
+        <select id="summaryTabSelect" onchange="loadSummaryData()" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"><option value="">Select Target…</option></select>
+        <input type="text" id="summarySearch" placeholder="Filter current view…" oninput="filterSummaryTable()" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+        <button onclick="exportSummaryData()" class="px-3 py-2 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Export CSV</button>
+        <button onclick="openTabAccessModal()" title="Choose which teachers/staff can view & export this tab's data" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Data Access</button>
+        <button onclick="openClassAccessModal()" title="Grant a teacher/staff access for specific class-sections only" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Class Access</button>
+      </div>
+      <div class="grid grid-cols-2 gap-2 mb-4" style="max-width:340px">
+        <button onclick="openSummaryMergeModal()" title="Combine 2+ columns into one display cell, for viewing and printing only" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Merge Columns</button>
+        <button onclick="openSummaryPrintModal()" class="px-3 py-2 bg-slate-800 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Print</button>
+      </div>
+      <div id="summaryCount" class="text-xs font-black text-slate-500 mb-2"></div>
+      <div class="overflow-auto border border-slate-200 rounded-xl">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead class="bg-slate-50"><tr id="summaryHeaders"></tr></thead>
+          <tbody id="summaryBody"></tbody>
+        </table>
+      </div>
+    `;
+    lucide.createIcons();
+    Object.assign(document.getElementById('summaryTabSelect'), {});
+    const sel = document.getElementById('summaryTabSelect');
+    sel.innerHTML = '<option value="">Select Target…</option><option value="info">General Info</option>' + _setupAllTabs.map(t => `<option value="${t.tab_name}">${t.tab_name}</option>`).join('');
+    if (!_setupAllTabs.length) {
+      _adminFetch('get_tabs', {}).then(tabs => {
+        if (Array.isArray(tabs)) { _setupAllTabs = tabs; sel.innerHTML = '<option value="">Select Target…</option><option value="info">General Info</option>' + tabs.map(t => `<option value="${t.tab_name}">${t.tab_name}</option>`).join(''); }
+      });
+    }
+  }
+
+  function loadSummaryData() {
+    const t = document.getElementById('summaryTabSelect').value;
+    if (!t) return;
+    const countEl = document.getElementById('summaryCount');
+    if (countEl) countEl.textContent = '';
+    _summaryColumnMerges = [];
+    document.getElementById('summaryBody').innerHTML = '<tr><td colspan="100" class="text-center p-6"><i data-lucide="loader-2" class="h-5 w-5 animate-spin inline text-blue-600"></i></td></tr>';
+    lucide.createIcons();
+    _adminFetch('get_tab_data', { tab_name: t }).then(res => {
+      _summaryData = { tab: t, headers: res.headers, rows: res.rows };
+      renderSummaryTable();
+      if (countEl) countEl.innerHTML = `${res.rows.length} student${res.rows.length === 1 ? '' : 's'} submitted "${t}"`;
+    });
+  }
+  function renderSummaryTable() {
+    if (!_summaryData) return;
+    const { headers: dHeaders, rows: dRows } = applySummaryColumnMerges(_summaryData.headers, _summaryData.rows, _summaryColumnMerges);
+    const tints = ['text-blue-600', 'text-indigo-600', 'text-violet-600', 'text-fuchsia-600', 'text-amber-600', 'text-cyan-600', 'text-teal-600', 'text-orange-600'];
+    document.getElementById('summaryHeaders').innerHTML = dHeaders.map((h, i) => `<th class="py-2 px-3 text-[10px] font-black uppercase ${tints[i % 8]}">${h}</th>`).join('');
+    document.getElementById('summaryBody').innerHTML = dRows.map(r => `<tr class="border-b border-slate-50 summary-row" data-search="${r.map(c => String(c ?? '')).join(' ').toLowerCase().replace(/"/g, '&quot;')}">${r.map((c, i) => `<td class="py-1.5 px-3 text-slate-600 font-bold">${c || ''}</td>`).join('')}</tr>`).join('');
+  }
+  function filterSummaryTable() {
+    const q = (document.getElementById('summarySearch').value || '').toLowerCase();
+    document.querySelectorAll('#summaryBody .summary-row').forEach(row => { row.style.display = row.dataset.search.includes(q) ? '' : 'none'; });
+  }
+  function applySummaryColumnMerges(headers, rows, merges) {
+    if (!merges || !merges.length) return { headers, rows };
+    const groups = merges.map(m => ({ ...m, idxs: m.cols.map(c => headers.indexOf(c)).filter(i => i >= 0) })).filter(g => g.idxs.length >= 2);
+    if (!groups.length) return { headers, rows };
+    const anchorOf = {}; const dropSet = new Set();
+    groups.forEach(g => { const anchor = Math.min(...g.idxs); anchorOf[anchor] = g; g.idxs.forEach(i => { if (i !== anchor) dropSet.add(i); }); });
+    const dHeaders = []; const colPlan = [];
+    headers.forEach((h, i) => {
+      if (dropSet.has(i)) return;
+      if (anchorOf[i]) { dHeaders.push(anchorOf[i].label); colPlan.push({ merge: anchorOf[i].idxs }); return; }
+      dHeaders.push(h); colPlan.push({ idx: i });
+    });
+    const dRows = rows.map(r => colPlan.map(p => p.merge ? p.merge.map(i => r[i]).filter(v => v !== '' && v != null).join('<br>') : r[p.idx]));
+    return { headers: dHeaders, rows: dRows };
+  }
+  function _prettySummaryHeader(h) { return String(h || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()); }
+
+  function openSummaryMergeModal() {
+    if (!_summaryData) { showToast('Load a tab first', 'error'); return; }
+    const opts = { headers: _summaryData.headers.filter(h => h !== 'student_id'), merges: _summaryColumnMerges };
+    _activeSummaryMergeOpts = opts;
+    document.getElementById('summaryMergeOverlay')?.remove();
+    const usedCols = new Set(opts.merges.flatMap(m => m.cols));
+    const available = opts.headers.filter(h => !usedCols.has(h));
+    const overlay = document.createElement('div');
+    overlay.id = 'summaryMergeOverlay';
+    overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
+    overlay.innerHTML = `
+      <div class="bg-white rounded-2xl w-full max-w-lg" style="max-height:85vh;display:flex;flex-direction:column">
+        <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+          <p class="font-black text-slate-800 text-sm">Merge Columns — ${_summaryData.tab}</p>
+          <button onclick="document.getElementById('summaryMergeOverlay').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="h-4 w-4"></i></button>
+        </div>
+        <div id="summaryMergeChips" class="px-4 pt-4 pb-1 flex flex-wrap gap-2"></div>
+        <div class="p-4 overflow-y-auto" style="flex:1">
+          <input type="text" id="summaryMergeLabel" placeholder="Label for the merged column (optional)" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm mb-2">
+          <div class="flex flex-col gap-1" style="max-height:280px;overflow-y:auto">
+            ${available.length ? available.map(h => `<label class="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer"><input type="checkbox" class="summary-merge-check" value="${String(h).replace(/"/g, '&quot;')}">${h}</label>`).join('') : '<span class="text-xs text-slate-400 font-bold">No more columns available to merge.</span>'}
+          </div>
+        </div>
+        <div class="p-4 border-t border-slate-100 flex justify-end">
+          <button onclick="createSummaryColumnMerge()" class="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Create Merge</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    lucide.createIcons();
+    renderSummaryMergeChips();
+  }
+  function renderSummaryMergeChips() {
+    const host = document.getElementById('summaryMergeChips');
+    if (!host || !_activeSummaryMergeOpts) return;
+    host.innerHTML = _activeSummaryMergeOpts.merges.map(m => `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full text-[11px] font-bold">${m.label} · ${m.cols.length} cols <i data-lucide="x-circle" class="h-3 w-3 cursor-pointer" onclick="removeSummaryColumnMerge('${m.id}')"></i></span>`).join('');
+    lucide.createIcons();
+  }
+  function createSummaryColumnMerge() {
+    const label = document.getElementById('summaryMergeLabel').value.trim();
+    const cols = Array.from(document.querySelectorAll('.summary-merge-check:checked')).map(c => c.value);
+    if (cols.length < 2) { showToast('Pick at least 2 columns to merge', 'error'); return; }
+    const finalLabel = label || cols.map(_prettySummaryHeader).join(' / ');
+    _summaryColumnMerges = [..._summaryColumnMerges, { id: 'm' + Date.now() + Math.random().toString(36).slice(2, 6), label: finalLabel, cols }];
+    renderSummaryTable();
+    openSummaryMergeModal();
+  }
+  function removeSummaryColumnMerge(id) {
+    _summaryColumnMerges = _summaryColumnMerges.filter(m => m.id !== id);
+    renderSummaryTable();
+    openSummaryMergeModal();
+  }
+
+  function openSummaryPrintModal() {
+    if (!_summaryData) { showToast('Load a tab first', 'error'); return; }
+    const { headers: dHeaders } = applySummaryColumnMerges(_summaryData.headers, _summaryData.rows, _summaryColumnMerges);
+    document.getElementById('summaryPrintOverlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'summaryPrintOverlay';
+    overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
+    overlay.innerHTML = `
+      <div class="bg-white rounded-2xl w-full max-w-sm" style="max-height:85vh;display:flex;flex-direction:column">
+        <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+          <p class="font-black text-slate-800 text-sm">Print — ${_summaryData.tab}</p>
+          <button onclick="document.getElementById('summaryPrintOverlay').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="h-4 w-4"></i></button>
+        </div>
+        <div class="px-4 pt-3 flex gap-3">
+          <button onclick="document.querySelectorAll('.summary-print-check').forEach(c=>c.checked=true)" class="text-[10px] font-black uppercase text-blue-600">Select all</button>
+          <button onclick="document.querySelectorAll('.summary-print-check').forEach(c=>c.checked=false)" class="text-[10px] font-black uppercase text-slate-400">Clear</button>
+        </div>
+        <div class="p-4 overflow-y-auto flex flex-col gap-1" style="flex:1">
+          ${dHeaders.map(h => `<label class="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer"><input type="checkbox" class="summary-print-check" value="${String(h).replace(/"/g, '&quot;')}" checked>${h}</label>`).join('')}
+        </div>
+        <div class="p-4 border-t border-slate-100 flex justify-end">
+          <button onclick="printSummaryData()" class="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Print</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    lucide.createIcons();
+  }
+  function printSummaryData() {
+    const selected = Array.from(document.querySelectorAll('.summary-print-check:checked')).map(c => c.value);
+    if (!selected.length) { showToast('Pick at least one column', 'error'); return; }
+    document.getElementById('summaryPrintOverlay')?.remove();
+    const { headers: dHeaders, rows: dRows } = applySummaryColumnMerges(_summaryData.headers, _summaryData.rows, _summaryColumnMerges);
+    const idxs = selected.map(h => dHeaders.indexOf(h));
+    const rows = dRows.map(r => idxs.map(i => r[i]));
+    const tints = ['#dbeafe', '#e0e7ff', '#ede9fe', '#fae8ff', '#fef3c7', '#cffafe', '#ccfbf1', '#fed7aa'];
+    const tintsCell = ['#eff6ff', '#eef2ff', '#f5f3ff', '#fdf4ff', '#fffbeb', '#ecfeff', '#f0fdfa', '#fff7ed'];
+    const theadCells = selected.map((h, i) => `<th style="background:${tints[i % 8]};color:#1e293b;border:1px solid #cbd5e1;padding:5px 7px;font-size:9pt;text-transform:uppercase;letter-spacing:.04em;text-align:left">${h}</th>`).join('');
+    const bodyRows = rows.map(r => `<tr>${r.map((c, i) => `<td style="background:${tintsCell[i % 8]};border:1px solid #cbd5e1;padding:4px 7px;font-size:9pt">${c === '' || c == null ? '&mdash;' : c}</td>`).join('')}</tr>`).join('');
+    const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${_summaryData.tab}</title>
+      <style>@page{size:landscape;margin:10mm}body{font-family:-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact;margin:0;padding:16px}table{border-collapse:collapse;width:100%}.print-meta{font-size:8pt;color:#64748b;margin-bottom:10px}h1{font-size:13pt;margin:0 0 2px}</style></head>
+      <body><h1>${_summaryData.tab}</h1><div class="print-meta">Printed ${new Date().toLocaleString()} — ${rows.length} row${rows.length === 1 ? '' : 's'}</div><table><thead><tr>${theadCells}</tr></thead><tbody>${bodyRows}</tbody></table></body></html>`;
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const win = window.open(url, '_blank', 'width=1100,height=750');
+    if (!win) { showToast('Popup blocked — please allow popups for this site and try again', 'error'); URL.revokeObjectURL(url); return; }
+    win.focus();
+    setTimeout(() => { win.print(); setTimeout(() => URL.revokeObjectURL(url), 1000); }, 800);
+  }
+
+  function openTabAccessModal() {
+    const tab = document.getElementById('summaryTabSelect').value;
+    if (!tab) { showToast('Select a tab first', 'error'); return; }
+    document.getElementById('tabAccessOverlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'tabAccessOverlay';
+    overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
+    overlay.innerHTML = `
+      <div class="bg-white rounded-2xl w-full max-w-lg" style="max-height:80vh;display:flex;flex-direction:column">
+        <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+          <p class="font-black text-slate-800 text-sm">Data Access — ${tab}</p>
+          <button onclick="document.getElementById('tabAccessOverlay').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="h-4 w-4"></i></button>
+        </div>
+        <div class="p-3 border-b border-slate-100"><input type="text" id="tabAccessFilter" placeholder="Search teachers/staff…" oninput="filterTabAccessList()" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></div>
+        <div id="tabAccessList" class="p-4 overflow-y-auto" style="flex:1"><div class="text-center p-6"><i data-lucide="loader-2" class="h-5 w-5 animate-spin inline text-blue-600"></i></div></div>
+        <div class="p-4 border-t border-slate-100 flex justify-between items-center">
+          <span class="text-xs text-slate-400 font-bold">Ticked people can view &amp; export this tab's data from their faculty portal profile.</span>
+          <button onclick="saveTabAccess()" class="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all shrink-0 ml-3">Save</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    lucide.createIcons();
+    Promise.all([_adminFetch('get_staff_list', {}), _adminFetch('get_tab_data_access', { tab_name: tab })]).then(([staff, access]) => {
+      const granted = new Set((access && access.user_ids) || []);
+      const list = document.getElementById('tabAccessList');
+      if (!Array.isArray(staff) || !staff.length) { list.innerHTML = '<div class="text-xs text-slate-400 font-bold">No teacher/staff accounts found.</div>'; return; }
+      list.innerHTML = staff.map(u => `
+        <label class="tab-access-row flex items-center gap-2 py-1 text-xs" data-search="${String(u.user_id + ' ' + (u.email || '')).toLowerCase()}">
+          <input type="checkbox" class="tab-access-check" value="${u.user_id}" ${granted.has(String(u.user_id)) ? 'checked' : ''}>
+          <span class="font-bold text-slate-700">${u.user_id}</span>
+          <span class="text-slate-400 truncate">${u.email || ''}</span>
+          <span class="ml-auto px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-[9px] font-black shrink-0">${u.role || ''}</span>
+        </label>`).join('');
+    }).catch(() => { document.getElementById('tabAccessList').innerHTML = '<div class="text-xs text-red-500 font-bold">Could not load the staff list.</div>'; });
+  }
+  function filterTabAccessList() {
+    const q = document.getElementById('tabAccessFilter').value.toLowerCase();
+    document.querySelectorAll('.tab-access-row').forEach(row => { row.style.display = row.dataset.search.includes(q) ? '' : 'none'; });
+  }
+  function saveTabAccess() {
+    const tab = document.getElementById('summaryTabSelect').value;
+    const ids = Array.from(document.querySelectorAll('.tab-access-check:checked')).map(c => c.value);
+    _adminFetch('set_tab_data_access', { tab_name: tab, user_ids: ids }).then(res => {
+      if (res && res.result === 'success') { showToast(`${res.count} people can now access "${tab}" data`); document.getElementById('tabAccessOverlay')?.remove(); }
+      else showToast((res && res.message) || 'Save failed', 'error');
+    }).catch(() => showToast('Network error', 'error'));
+  }
+
+  function openClassAccessModal() {
+    const tab = document.getElementById('summaryTabSelect').value;
+    if (!tab) { showToast('Select a tab first', 'error'); return; }
+    _caTab = tab; _caSelectedUser = null;
+    document.getElementById('classAccessOverlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'classAccessOverlay';
+    overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
+    overlay.innerHTML = `
+      <div class="bg-white rounded-2xl w-full" style="max-width:960px;max-height:85vh;display:flex;flex-direction:column">
+        <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+          <p class="font-black text-slate-800 text-sm">Class Access — ${tab}</p>
+          <button onclick="document.getElementById('classAccessOverlay').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="h-4 w-4"></i></button>
+        </div>
+        <div id="classAccessGrantees" class="px-4 pt-4 pb-2 flex flex-wrap gap-2"></div>
+        <div class="grid md:grid-cols-2 gap-0" style="flex:1;min-height:0;border-top:1px solid #f1f5f9">
+          <div class="flex flex-col border-r border-slate-100" style="min-height:0">
+            <div class="p-3 border-b border-slate-100"><input type="text" id="classAccessFilter" placeholder="Search by name, ID, shortname or phone…" oninput="filterClassAccessStaff()" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></div>
+            <div id="classAccessStaffList" class="p-2 overflow-y-auto" style="flex:1"><div class="text-center p-6"><i data-lucide="loader-2" class="h-5 w-5 animate-spin inline text-blue-600"></i></div></div>
+          </div>
+          <div class="p-4 overflow-y-auto" style="flex:1">
+            <div id="classAccessSections"><div class="text-center text-xs text-slate-400 font-bold py-10">Pick a teacher on the left to assign class-sections.</div></div>
+          </div>
+        </div>
+        <div class="p-4 border-t border-slate-100 flex justify-between items-center">
+          <span class="text-xs text-slate-400 font-bold">Pick a teacher, tick the class-sections they may see, then save — the list stays open so you can move on to the next teacher.</span>
+          <button id="classAccessSaveBtn" onclick="saveClassAccess()" disabled class="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all shrink-0 ml-3 disabled:opacity-40">Save</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    lucide.createIcons();
+    Promise.all([_adminFetch('get_staff_directory', {}), _adminFetch('get_class_sections', {}), _adminFetch('get_tab_class_access', { tab_name: tab })]).then(([staff, sections, access]) => {
+      _caStaff = Array.isArray(staff) ? staff : [];
+      _caClassSections = Array.isArray(sections) ? sections : [];
+      _caGrants = {};
+      ((access && access.grants) || []).forEach(g => { _caGrants[g.user_id] = g.class_sections || []; });
+      renderClassAccessStaff();
+      renderClassAccessGrantees();
+    }).catch(() => { document.getElementById('classAccessStaffList').innerHTML = '<div class="text-xs text-red-500 font-bold">Could not load the staff directory.</div>'; });
+  }
+  function renderClassAccessStaff() {
+    const list = document.getElementById('classAccessStaffList');
+    if (!list) return;
+    if (!_caStaff.length) { list.innerHTML = '<div class="text-xs text-slate-400 font-bold">No teacher/staff accounts found.</div>'; return; }
+    list.innerHTML = _caStaff.map(u => {
+      const search = [u.full_name, u.user_id, u.shortname, u.phone].filter(Boolean).join(' ').toLowerCase();
+      const selected = _caSelectedUser === u.user_id;
+      const grantCount = (_caGrants[u.user_id] || []).length;
+      return `<div class="class-access-row py-1.5 px-2 rounded-lg mb-1 cursor-pointer ${selected ? 'bg-blue-600 text-white' : 'hover:bg-slate-50'}" data-uid="${u.user_id}" data-search="${search.replace(/"/g, '&quot;')}" onclick="selectClassAccessUser(this.dataset.uid)">
+        <div class="flex justify-between items-start gap-2">
+          <div class="truncate">
+            <span class="font-black text-xs">${u.full_name || u.user_id}</span>
+            ${u.shortname ? `<span class="text-[9px] font-black rounded px-1 py-0.5 ml-1 ${selected ? 'bg-white/20' : 'bg-slate-100 text-slate-500'}">${u.shortname}</span>` : ''}
+            <div class="text-[11px] ${selected ? 'text-white/80' : 'text-slate-400'}">${u.user_id}${u.phone ? ' · ' + u.phone : ''}</div>
+          </div>
+          ${grantCount ? `<span class="text-[9px] font-black rounded-full px-1.5 py-0.5 shrink-0 ${selected ? 'bg-white text-blue-600' : 'bg-emerald-500 text-white'}">${grantCount}</span>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+    filterClassAccessStaff();
+  }
+  function filterClassAccessStaff() {
+    const filterEl = document.getElementById('classAccessFilter');
+    const q = filterEl ? filterEl.value.toLowerCase() : '';
+    document.querySelectorAll('.class-access-row').forEach(row => { row.style.display = row.dataset.search.includes(q) ? '' : 'none'; });
+  }
+  function renderClassAccessGrantees() {
+    const host = document.getElementById('classAccessGrantees');
+    if (!host) return;
+    const grantees = Object.entries(_caGrants).filter(([, cs]) => cs.length);
+    host.innerHTML = grantees.map(([uid, cs]) => {
+      const person = _caStaff.find(s => s.user_id === uid);
+      return `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full text-[11px] font-bold">${(person && person.full_name) || uid} · ${cs.length} class${cs.length === 1 ? '' : 'es'} <i data-lucide="x-circle" class="h-3 w-3 cursor-pointer" onclick="removeClassAccess('${uid.replace(/'/g, "\\'")}')"></i></span>`;
+    }).join('');
+    lucide.createIcons();
+  }
+  function selectClassAccessUser(uid) {
+    _caSelectedUser = uid;
+    renderClassAccessStaff();
+    const host = document.getElementById('classAccessSections');
+    const saveBtn = document.getElementById('classAccessSaveBtn');
+    if (saveBtn) saveBtn.disabled = false;
+    const granted = new Set((_caGrants[uid] || []).map(cs => `${cs.class}|${cs.section}|${cs.group || 'None'}`));
+    const person = _caStaff.find(s => s.user_id === uid);
+    host.innerHTML = `
+      <div class="flex justify-between items-center mb-2">
+        <span class="text-xs font-black text-slate-700">Class-sections for ${(person && person.full_name) || uid}</span>
+        <span class="flex gap-2">
+          <button onclick="toggleAllClassSections(true)" class="text-[10px] font-black uppercase text-blue-600">Select all</button>
+          <button onclick="toggleAllClassSections(false)" class="text-[10px] font-black uppercase text-slate-400">Clear</button>
+        </span>
+      </div>
+      <div class="grid grid-cols-2 gap-1">
+        ${_caClassSections.map(cs => {
+          const grp = cs.group || 'None';
+          const key = `${cs.class}|${cs.section}|${grp}`;
+          const label = grp !== 'None' ? `${cs.class}-${cs.section}-${grp}` : `${cs.class}-${cs.section}`;
+          return `<label class="flex items-center gap-1.5 text-xs font-bold text-slate-600 border border-slate-200 rounded-lg px-2 py-1 cursor-pointer">
+            <input type="checkbox" class="class-section-check" value="${key.replace(/"/g, '&quot;')}" ${granted.has(key) ? 'checked' : ''}>${label}
+          </label>`;
+        }).join('')}
+      </div>`;
+  }
+  function toggleAllClassSections(on) { document.querySelectorAll('.class-section-check').forEach(c => { c.checked = on; }); }
+  function saveClassAccess() {
+    if (!_caSelectedUser || !_caTab) return;
+    const class_sections = Array.from(document.querySelectorAll('.class-section-check:checked')).map(c => { const [cls, sec, grp] = c.value.split('|'); return { class: cls, section: sec, group: grp }; });
+    _adminFetch('set_tab_class_access', { tab_name: _caTab, user_id: _caSelectedUser, class_sections }).then(res => {
+      if (res && res.result === 'success') { _caGrants[_caSelectedUser] = class_sections; renderClassAccessGrantees(); renderClassAccessStaff(); showToast(`${res.count} class-section${res.count === 1 ? '' : 's'} granted`); }
+      else showToast((res && res.message) || 'Save failed', 'error');
+    }).catch(() => showToast('Network error', 'error'));
+  }
+  function removeClassAccess(uid) {
+    if (!_caTab || !uid) return;
+    _adminFetch('set_tab_class_access', { tab_name: _caTab, user_id: uid, class_sections: [] }).then(res => {
+      if (res && res.result === 'success') { delete _caGrants[uid]; renderClassAccessGrantees(); renderClassAccessStaff(); if (_caSelectedUser === uid) selectClassAccessUser(uid); showToast('Access revoked'); }
+    });
+  }
+
+  function exportSummaryData() {
+    const tab = document.getElementById('summaryTabSelect').value;
+    if (!tab) return;
+    _adminFetch('get_tab_data', { tab_name: tab }).then(res => {
+      const csv = res.headers.join(',') + '\n' + res.rows.map(r => r.map(c => `"${String(c || '').replace(/"/g, '""')}"`).join(',')).join('\n');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+      a.download = `${tab}_export.csv`;
+      a.click();
+    });
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // History tab — native port (Phase 6, part 2). Read-only search over the
+  // student edit_history log.
+  // ══════════════════════════════════════════════════════════════════════
+
+  let _historyDebounce = null;
+
+  function loadAdminHistoryView() {
+    if (!['Admin', 'Student Portal Admin'].includes(window.ACTIVE_ROLE)) {
+      showToast('Not available in current role', 'error');
+      return;
+    }
+    _setViewHash('student_portal');
+    setActiveNavLink('nav-erp-history');
+    setContentHeader('History', 'clock');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    container.innerHTML = `
+      <div class="mb-4">
+        <h2 class="text-2xl font-black text-slate-800 tracking-tight">Edit History</h2>
+        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Every change to a student's record, logged automatically</p>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-2 mb-3">
+        <input type="text" id="historySearch" placeholder="Search Student ID, name, class, section, roll…" oninput="debounceLoadEditHistory()" class="md:col-span-3 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+        <button onclick="loadEditHistory()" class="px-3 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Search</button>
+      </div>
+      <div id="historyCount" class="text-xs font-black text-slate-500 mb-2"></div>
+      <div class="overflow-auto border border-slate-200 rounded-xl">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead class="bg-slate-50"><tr>
+            <th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">Student ID</th>
+            <th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">Name</th>
+            <th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">Class</th>
+            <th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">Section</th>
+            <th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">Roll</th>
+            <th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">Changes</th>
+            <th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">When</th>
+          </tr></thead>
+          <tbody id="historyBody"></tbody>
+        </table>
+      </div>
+    `;
+    lucide.createIcons();
+    loadEditHistory();
+  }
+  function debounceLoadEditHistory() {
+    if (_historyDebounce) clearTimeout(_historyDebounce);
+    _historyDebounce = setTimeout(loadEditHistory, 350);
+  }
+  function loadEditHistory() {
+    const q = (document.getElementById('historySearch') || {}).value || '';
+    const body = document.getElementById('historyBody');
+    const countEl = document.getElementById('historyCount');
+    if (!body) return;
+    body.innerHTML = '<tr><td colspan="7" class="text-center p-6"><i data-lucide="loader-2" class="h-5 w-5 animate-spin inline text-blue-600"></i></td></tr>';
+    lucide.createIcons();
+    _adminFetch('search_edit_history', { query: q }).then(res => {
+      if (!res || res.result !== 'success') { body.innerHTML = `<tr><td colspan="7" class="text-center text-red-500 font-bold p-6">${(res && res.message) || 'Could not load history'}</td></tr>`; return; }
+      const rows = res.rows || [];
+      if (countEl) countEl.textContent = `${rows.length} edit${rows.length === 1 ? '' : 's'}${q ? ` matching "${q}"` : ''}`;
+      if (!rows.length) { body.innerHTML = '<tr><td colspan="7" class="text-center text-slate-400 font-bold p-6">No edits found.</td></tr>'; return; }
+      body.innerHTML = rows.map(r => {
+        const changes = Object.entries(r.edited_history || {}).map(([field, d]) => {
+          if (d && d.changed) return `<span class="inline-block px-2 py-0.5 bg-slate-100 text-slate-500 rounded-full text-[10px] font-bold mr-1 mb-1">${field}: changed</span>`;
+          const oldV = (d && d.old != null) ? String(d.old) : '—';
+          const newV = (d && d.new != null) ? String(d.new) : '—';
+          return `<span class="inline-block px-2 py-0.5 bg-slate-50 border border-slate-200 text-slate-600 rounded-full text-[10px] font-bold mr-1 mb-1" title="${field}">${field}: ${oldV} → ${newV}</span>`;
+        }).join(' ');
+        const when = r.created_at ? new Date(r.created_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+        return `<tr class="border-b border-slate-50">
+          <td class="py-1.5 px-3 font-black text-slate-700">${r.student_id || ''}</td>
+          <td class="py-1.5 px-3 text-slate-600 font-bold">${r.name || ''}</td>
+          <td class="py-1.5 px-3 text-slate-600 font-bold">${r.class || ''}</td>
+          <td class="py-1.5 px-3 text-slate-600 font-bold">${r.section || ''}</td>
+          <td class="py-1.5 px-3 text-slate-600 font-bold">${r.roll || ''}</td>
+          <td class="py-1.5 px-3" style="max-width:420px">${changes || '—'}</td>
+          <td class="py-1.5 px-3 text-slate-400 font-bold whitespace-nowrap">${when}</td>
+        </tr>`;
+      }).join('');
+    }).catch(() => { body.innerHTML = '<tr><td colspan="7" class="text-center text-red-500 font-bold p-6">Network error</td></tr>'; });
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Photo tab — native port (Phase 6, part 2). Admin-side profile-photo
+  // upload for a looked-up student; canvas center-crop + JPEG compression
+  // (<=130KB) carried over unchanged from the original.
+  // ══════════════════════════════════════════════════════════════════════
+
+  let _photoStudentId = null;
+
+  function loadAdminPhotoView() {
+    if (!['Admin', 'Student Portal Admin'].includes(window.ACTIVE_ROLE)) {
+      showToast('Not available in current role', 'error');
+      return;
+    }
+    _setViewHash('student_portal');
+    setActiveNavLink('nav-erp-photo');
+    setContentHeader('Photo', 'camera');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    _photoStudentId = null;
+    container.innerHTML = `
+      <div class="mb-4">
+        <h2 class="text-2xl font-black text-slate-800 tracking-tight">Student Photo</h2>
+        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Look up a student, then upload or replace their profile photo</p>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-2 mb-4" style="max-width:560px">
+        <input type="text" id="photoStudentId" placeholder="Student ID" onkeydown="if(event.key==='Enter')loadStudentForPhoto()" class="md:col-span-3 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+        <button onclick="loadStudentForPhoto()" class="px-3 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Load</button>
+      </div>
+      <div id="photoStudentCard" class="hidden bg-white rounded-3xl border border-slate-200 shadow-sm p-6" style="max-width:420px">
+        <div class="flex items-center gap-3 mb-4">
+          <div id="photoAvatar" class="rounded-full shrink-0 flex items-center justify-center text-white font-black text-xl" style="width:72px;height:72px;background:linear-gradient(135deg,#2563eb,#60a5fa);background-size:cover;background-position:center"></div>
+          <div>
+            <div id="photoStudentName" class="font-black text-slate-800"></div>
+            <div id="photoStudentMeta" class="text-xs text-slate-400 font-bold"></div>
+          </div>
+        </div>
+        <input type="file" id="photoFileInput" accept="image/*" class="hidden" onchange="handleStudentPhotoSelect(event)">
+        <button onclick="document.getElementById('photoFileInput').click()" class="w-full py-3 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Upload / Change Photo</button>
+        <div id="photoStatus" class="text-center text-xs font-bold mt-2"></div>
+      </div>
+    `;
+    lucide.createIcons();
+  }
+  function _renderPhotoAvatar(student) {
+    const el = document.getElementById('photoAvatar');
+    if (!el) return;
+    if (student.photo) { el.style.backgroundImage = `url('${student.photo}')`; el.textContent = ''; }
+    else { el.style.backgroundImage = ''; el.textContent = (student.student_name || student.student_id || '?').trim().charAt(0).toUpperCase(); }
+  }
+  function loadStudentForPhoto() {
+    const sid = (document.getElementById('photoStudentId') || {}).value.trim();
+    const card = document.getElementById('photoStudentCard');
+    const status = document.getElementById('photoStatus');
+    if (!sid) return;
+    if (status) { status.className = 'text-center text-xs font-bold mt-2'; status.textContent = ''; }
+    _adminFetch('get_student_basic', { student_id: sid }).then(res => {
+      if (!res || res.result !== 'success') {
+        if (card) card.classList.add('hidden');
+        if (status) { status.className = 'text-center text-xs font-bold mt-2 text-red-500'; status.textContent = (res && res.message) || 'Student not found.'; }
+        return;
+      }
+      _photoStudentId = res.student.student_id;
+      document.getElementById('photoStudentName').textContent = res.student.student_name || res.student.student_id;
+      document.getElementById('photoStudentMeta').textContent = [res.student.class, res.student.section, res.student.roll ? `Roll ${res.student.roll}` : ''].filter(Boolean).join(' · ');
+      _renderPhotoAvatar(res.student);
+      if (card) card.classList.remove('hidden');
+    }).catch(err => {
+      if (card) card.classList.add('hidden');
+      if (status) { status.className = 'text-center text-xs font-bold mt-2 text-red-500'; status.textContent = (err && err.message) || 'Network error.'; }
+    });
+  }
+  function handleStudentPhotoSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { showToast('Photo must be under 5 MB', 'error'); event.target.value = ''; return; }
+    if (!_photoStudentId) return;
+    const status = document.getElementById('photoStatus');
+    if (status) { status.className = 'text-center text-xs font-bold mt-2 text-slate-400'; status.textContent = 'Processing...'; }
+    const reader = new FileReader();
+    reader.onload = function (e) {
+      const img = new Image();
+      img.onload = function () {
+        const side = Math.min(img.width, img.height);
+        const sx = Math.floor((img.width - side) / 2);
+        const sy = Math.floor((img.height - side) / 2);
+        const canvasPx = Math.min(side, 500);
+        const canvas = document.createElement('canvas');
+        canvas.width = canvasPx; canvas.height = canvasPx;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, sx, sy, side, side, 0, 0, canvasPx, canvasPx);
+        const TARGET = 130 * 1024;
+        let base64 = '';
+        for (const q of [0.85, 0.70, 0.55, 0.40, 0.28]) {
+          base64 = canvas.toDataURL('image/jpeg', q);
+          const approxBytes = Math.ceil((base64.length - base64.indexOf(',') - 1) * 0.75);
+          if (approxBytes <= TARGET) break;
+        }
+        const finalBytes = Math.ceil((base64.length - base64.indexOf(',') - 1) * 0.75);
+        if (finalBytes > TARGET) {
+          if (status) { status.className = 'text-center text-xs font-bold mt-2 text-red-500'; status.textContent = 'Could not compress under 130KB — use a smaller image.'; }
+          return;
+        }
+        if (status) { status.className = 'text-center text-xs font-bold mt-2 text-slate-400'; status.textContent = 'Uploading...'; }
+        _adminFetch('upload_photo', { student_id: _photoStudentId, photo_base64: base64 }).then(res => {
+          if (!res || res.result !== 'success') { if (status) { status.className = 'text-center text-xs font-bold mt-2 text-red-500'; status.textContent = (res && res.message) || 'Upload failed.'; } return; }
+          _renderPhotoAvatar({ photo: res.photo, student_name: document.getElementById('photoStudentName').textContent });
+          if (status) { status.className = 'text-center text-xs font-bold mt-2 text-emerald-600'; status.textContent = 'Photo saved!'; }
+        }).catch(err => { if (status) { status.className = 'text-center text-xs font-bold mt-2 text-red-500'; status.textContent = (err && err.message) || 'Network error.'; } });
+      };
+      img.onerror = function () { if (status) { status.className = 'text-center text-xs font-bold mt-2 text-red-500'; status.textContent = 'Could not read image file.'; } };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Notices tab — native port (Phase 6, part 2). Login-page carousel
+  // notices — each with raw-HTML Title/Subtitle/Body and a live preview.
+  // ══════════════════════════════════════════════════════════════════════
+
+  let ADMIN_NOTICES = [];
+
+  function loadAdminNoticesView() {
+    if (!['Admin', 'Student Portal Admin'].includes(window.ACTIVE_ROLE)) {
+      showToast('Not available in current role', 'error');
+      return;
+    }
+    _setViewHash('student_portal');
+    setActiveNavLink('nav-erp-notices');
+    setContentHeader('Notices', 'megaphone');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    container.innerHTML = `
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h2 class="text-2xl font-black text-slate-800 tracking-tight">Login Page Notices</h2>
+          <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Sliding carousel above the sign-in form</p>
+        </div>
+        <button onclick="addNoticeRow()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all shrink-0">+ Add Notice</button>
+      </div>
+      <p class="text-xs text-slate-400 font-bold mb-4">Each notice has its own Title, Subtitle and Body — write raw HTML (e.g. &lt;span style="color:red"&gt;text&lt;/span&gt;) for full control over color, font and style per word or letter.</p>
+      <div id="noticesAdminList" class="flex flex-col gap-4"></div>
+    `;
+    lucide.createIcons();
+    loadNoticesAdmin();
+  }
+  function loadNoticesAdmin() {
+    _adminFetch('get_notices_admin', {}).then(rows => {
+      ADMIN_NOTICES = Array.isArray(rows) ? rows : [];
+      renderNoticesAdmin();
+    }).catch(() => {});
+  }
+  function renderNoticesAdmin() {
+    const list = document.getElementById('noticesAdminList');
+    if (!list) return;
+    if (!ADMIN_NOTICES.length) { list.innerHTML = '<div class="text-center text-slate-400 font-bold text-xs italic py-10">No notices yet — click "+ Add Notice" to create the first slide.</div>'; return; }
+    list.innerHTML = ADMIN_NOTICES.map((n, i) => `
+      <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5" data-notice-idx="${i}">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Notice ${i + 1}</span>
+          <div class="flex items-center gap-2">
+            <button onclick="moveNotice(${i},-1)" ${i === 0 ? 'disabled' : ''} title="Move up" class="p-1.5 border border-slate-200 rounded-lg text-slate-500 hover:bg-slate-50 disabled:opacity-30"><i data-lucide="arrow-up" class="h-3.5 w-3.5"></i></button>
+            <button onclick="moveNotice(${i},1)" ${i === ADMIN_NOTICES.length - 1 ? 'disabled' : ''} title="Move down" class="p-1.5 border border-slate-200 rounded-lg text-slate-500 hover:bg-slate-50 disabled:opacity-30"><i data-lucide="arrow-down" class="h-3.5 w-3.5"></i></button>
+            <label class="flex items-center gap-1.5 text-[10px] font-black text-slate-400 uppercase ml-2"><input type="checkbox" class="notice-enabled" ${n.is_enabled ? 'checked' : ''} onchange="previewNotice(${i})">Shown</label>
+            <button onclick="deleteNoticeRow(${i}, ${n.id || 'null'})" class="p-1.5 border border-red-200 text-red-500 rounded-lg hover:bg-red-50 ml-2"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+          </div>
+        </div>
+        <div class="grid md:grid-cols-2 gap-3">
+          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Title (HTML)</label>
+            <input type="text" class="notice-title w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm" placeholder="e.g. <i>Exam</i> Routine Published" value="${(n.title || '').replace(/"/g, '&quot;')}" oninput="previewNotice(${i})"></div>
+          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Subtitle (HTML, optional)</label>
+            <input type="text" class="notice-subtitle w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm" placeholder="e.g. GENERAL NOTICE" value="${(n.subtitle || '').replace(/"/g, '&quot;')}" oninput="previewNotice(${i})"></div>
+          <div class="md:col-span-2"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Body (HTML)</label>
+            <textarea class="notice-body w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm" rows="3" placeholder="e.g. Half-yearly exam routine is out." oninput="previewNotice(${i})">${n.body || ''}</textarea></div>
+        </div>
+        <div class="mt-3">
+          <div class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Live Preview</div>
+          <div class="rounded-2xl p-5" style="background:linear-gradient(135deg,#1e293b,#334155)">
+            <div id="noticePreview${i}" class="text-white"></div>
+          </div>
+        </div>
+        <button onclick="saveNoticeRow(${i})" class="w-full py-2.5 mt-3 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Notice</button>
+      </div>`).join('');
+    lucide.createIcons();
+    ADMIN_NOTICES.forEach((_, i) => previewNotice(i));
+  }
+  function noticeRowValues(i) {
+    const card = document.querySelector(`[data-notice-idx="${i}"]`);
+    if (!card) return null;
+    return {
+      title: card.querySelector('.notice-title').value,
+      subtitle: card.querySelector('.notice-subtitle').value,
+      body: card.querySelector('.notice-body').value,
+      is_enabled: card.querySelector('.notice-enabled').checked,
+    };
+  }
+  function previewNotice(i) {
+    const v = noticeRowValues(i);
+    const el = document.getElementById('noticePreview' + i);
+    if (!v || !el) return;
+    el.innerHTML = `
+      ${v.title ? `<div class="text-lg font-black mb-1">${v.title}</div>` : ''}
+      ${v.subtitle ? `<div class="text-[10px] font-black uppercase tracking-widest text-white/60 mb-2">${v.subtitle}</div>` : ''}
+      ${v.body ? `<div class="text-sm text-white/90">${v.body}</div>` : ''}`;
+  }
+  function addNoticeRow() {
+    ADMIN_NOTICES.push({ id: null, title: '', subtitle: '', body: '', is_enabled: true });
+    renderNoticesAdmin();
+  }
+  function saveNoticeRow(i) {
+    const v = noticeRowValues(i);
+    const n = ADMIN_NOTICES[i];
+    if (!v) return;
+    _adminFetch('save_notice', { id: n.id, ...v }).then(res => {
+      if (res.id) n.id = res.id;
+      Object.assign(n, v);
+      showToast('Notice saved');
+    }).catch(err => showToast((err && err.message) || 'Save failed', 'error'));
+  }
+  function deleteNoticeRow(i, id) {
+    if (!confirm('Delete this notice?')) return;
+    const remove = () => { ADMIN_NOTICES.splice(i, 1); renderNoticesAdmin(); };
+    if (!id) { remove(); return; }
+    _adminFetch('delete_notice', { id }).then(() => remove()).catch(() => showToast('Delete failed', 'error'));
+  }
+  function moveNotice(i, dir) {
+    const j = i + dir;
+    if (j < 0 || j >= ADMIN_NOTICES.length) return;
+    [ADMIN_NOTICES[i], ADMIN_NOTICES[j]] = [ADMIN_NOTICES[j], ADMIN_NOTICES[i]];
+    renderNoticesAdmin();
+    const ids = ADMIN_NOTICES.map(n => n.id).filter(Boolean);
+    if (ids.length) _adminFetch('reorder_notices', { ids }).catch(() => {});
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Import tab — native port (Phase 6, part 2). Bulk Excel/CSV import of
+  // new students, with column mapping + preview + confirm. xlsx parser is
+  // loaded on demand from CDN, same as the original.
+  // ══════════════════════════════════════════════════════════════════════
+
+  const IMPORT_LABELS = {
+    student_id: 'Student ID', student_name: 'Student Name', class: 'Class', section: 'Section',
+    roll: 'Roll', gender: 'Gender', version: 'Version', shift: 'Shift', phone_number: 'Student Phone',
+    father_phone: "Father's Phone", mother_phone: "Mother's Phone", nfc_uid: 'NFC UID',
+    fathers_name: "Father's Name", mothers_name: "Mother's Name", nick_name: 'Nick Name',
+    house: 'House', blood: 'Blood Group', balance: 'Wallet Balance', daily_limit: 'Daily Limit',
+    monthly_limit: 'Monthly Limit', card_status: 'Card Status', photo: 'Photo URL', session: 'Session',
+  };
+  let IMPORT_DB_COLUMNS = [];
+  let IMPORT_EXCEL_HEADERS = [];
+  let IMPORT_EXCEL_ROWS = [];
+
+  function loadAdminImportView() {
+    if (!['Admin', 'Student Portal Admin'].includes(window.ACTIVE_ROLE)) {
+      showToast('Not available in current role', 'error');
+      return;
+    }
+    _setViewHash('student_portal');
+    setActiveNavLink('nav-erp-import');
+    setContentHeader('Import', 'file-spreadsheet');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    container.innerHTML = `
+      <div class="mb-4">
+        <h2 class="text-2xl font-black text-slate-800 tracking-tight">Bulk Import Students</h2>
+        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Match columns, then add only students whose ID doesn't already exist</p>
+      </div>
+      <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 mb-4">
+        <div class="flex items-center gap-3 flex-wrap">
+          <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Step 1 · Choose File</span>
+          <input type="file" id="importFileInput" accept=".xlsx,.xls,.csv" class="text-xs font-bold" style="max-width:320px">
+          <span id="importFileStatus" class="text-xs text-slate-400 font-bold"></span>
+        </div>
+      </div>
+      <div id="importMappingSection" class="hidden bg-white rounded-3xl border border-slate-200 shadow-sm p-5 mb-4">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Step 2 · Match Columns</span>
+          <span id="importRowCount" class="text-xs text-slate-400 font-bold"></span>
+        </div>
+        <p class="text-xs text-slate-400 font-bold mb-3">For each database column, pick the matching column from your file. Leave as "— Skip —" to leave it blank. <strong>Student ID</strong> is required.</p>
+        <div id="importMappingList" class="flex flex-col gap-2"></div>
+        <label class="flex items-center gap-2 mt-4 mb-2 text-xs font-bold text-slate-600"><input type="checkbox" id="importUpdateExisting">Also update students whose Student ID already exists (fills in the mapped columns for them instead of skipping)</label>
+        <button onclick="previewBulkImport()" class="px-4 py-2.5 bg-slate-800 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all mt-2">Preview Import</button>
+      </div>
+      <div id="importPreviewSection" class="hidden bg-white rounded-3xl border border-slate-200 shadow-sm p-5 mb-4">
+        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Step 3 · Review &amp; Import</span>
+        <div id="importPreviewSummary" class="grid grid-cols-2 md:grid-cols-4 gap-3 my-3"></div>
+        <button id="importConfirmBtn" onclick="confirmBulkImport()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Import New Students</button>
+      </div>
+      <div id="importResultSection" class="hidden bg-white rounded-3xl border border-slate-200 shadow-sm p-5"></div>
+    `;
+    lucide.createIcons();
+    initBulkImport();
+  }
+  function initBulkImport() {
+    _adminFetch('get_student_data_headers', {}).then(cols => {
+      IMPORT_DB_COLUMNS = (Array.isArray(cols) ? cols : []).filter(c => c !== 'id');
+    }).catch(() => {});
+    const input = document.getElementById('importFileInput');
+    if (input) input.addEventListener('change', handleImportFile);
+  }
+  function normImportKey(s) { return String(s || '').toLowerCase().replace(/[\s_-]/g, ''); }
+  function ensureXLSX() {
+    if (window.XLSX) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const sc = document.createElement('script');
+      sc.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+      sc.onload = resolve;
+      sc.onerror = () => reject(new Error('Could not load the Excel reader — check your connection and retry.'));
+      document.head.appendChild(sc);
+    });
+  }
+  function handleImportFile(e) {
+    const file = e.target.files[0];
+    const status = document.getElementById('importFileStatus');
+    ['importMappingSection', 'importPreviewSection', 'importResultSection'].forEach(id => document.getElementById(id).classList.add('hidden'));
+    if (!file) return;
+    if (status) status.textContent = 'Reading file…';
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      ensureXLSX().then(() => {
+        try {
+          const wb = XLSX.read(evt.target.result, { type: 'array' });
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const grid = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+          if (!grid.length) { if (status) status.textContent = 'File appears to be empty.'; return; }
+          IMPORT_EXCEL_HEADERS = grid[0].map(h => String(h || '').trim());
+          IMPORT_EXCEL_ROWS = grid.slice(1).filter(r => r.some(c => String(c || '').trim() !== ''));
+          if (status) status.textContent = `${file.name} — ${IMPORT_EXCEL_ROWS.length} rows, ${IMPORT_EXCEL_HEADERS.length} columns.`;
+          renderImportMapping();
+        } catch (err) {
+          if (status) status.textContent = 'Could not read this file: ' + err.message;
+        }
+      }).catch((err) => { if (status) status.textContent = err.message; });
+    };
+    reader.readAsArrayBuffer(file);
+  }
+  function renderImportMapping() {
+    const section = document.getElementById('importMappingSection');
+    const list = document.getElementById('importMappingList');
+    const rowCount = document.getElementById('importRowCount');
+    if (!section || !list) return;
+    rowCount.textContent = `${IMPORT_EXCEL_ROWS.length} rows detected`;
+    list.innerHTML = IMPORT_DB_COLUMNS.map(col => {
+      const label = IMPORT_LABELS[col] || col.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      const guessIdx = IMPORT_EXCEL_HEADERS.findIndex(h => normImportKey(h) === normImportKey(col) || normImportKey(h) === normImportKey(label));
+      const required = col === 'student_id';
+      const options = ['<option value="-1">— Skip —</option>'].concat(IMPORT_EXCEL_HEADERS.map((h, i) => `<option value="${i}" ${i === guessIdx ? 'selected' : ''}>${h || '(blank header)'}</option>`));
+      const sample = guessIdx >= 0 && IMPORT_EXCEL_ROWS[0] ? String(IMPORT_EXCEL_ROWS[0][guessIdx] ?? '') : '';
+      return `<div class="grid grid-cols-12 gap-2 items-center py-1 import-map-row" data-col="${col}">
+        <div class="col-span-3"><span class="font-bold text-xs text-slate-700">${label}${required ? ' <span class="text-red-500">*</span>' : ''}</span></div>
+        <div class="col-span-5"><select class="import-map-select w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" onchange="updateImportSample(this)">${options.join('')}</select></div>
+        <div class="col-span-4"><span class="text-xs text-slate-400 italic import-map-sample">${sample ? 'e.g. ' + sample : ''}</span></div>
+      </div>`;
+    }).join('');
+    section.classList.remove('hidden');
+    document.getElementById('importPreviewSection').classList.add('hidden');
+    document.getElementById('importResultSection').classList.add('hidden');
+  }
+  function updateImportSample(sel) {
+    const idx = parseInt(sel.value, 10);
+    const sampleEl = sel.closest('.import-map-row').querySelector('.import-map-sample');
+    const sample = idx >= 0 && IMPORT_EXCEL_ROWS[0] ? String(IMPORT_EXCEL_ROWS[0][idx] ?? '') : '';
+    sampleEl.textContent = sample ? 'e.g. ' + sample : '';
+  }
+  function getImportMapping() {
+    const mapping = {};
+    document.querySelectorAll('.import-map-row').forEach(row => {
+      const col = row.dataset.col;
+      const idx = parseInt(row.querySelector('.import-map-select').value, 10);
+      if (idx >= 0) mapping[col] = idx;
+    });
+    return mapping;
+  }
+  function buildMappedImportRows() {
+    const mapping = getImportMapping();
+    return IMPORT_EXCEL_ROWS.map(r => {
+      const obj = {};
+      Object.entries(mapping).forEach(([col, idx]) => { obj[col] = String(r[idx] ?? '').trim(); });
+      return obj;
+    });
+  }
+  function previewBulkImport() {
+    const mapping = getImportMapping();
+    if (!('student_id' in mapping)) { showToast('Map a column to Student ID first', 'error'); return; }
+    const rows = buildMappedImportRows();
+    const ids = rows.map(r => r.student_id).filter(Boolean);
+    _adminFetch('preview_bulk_import', { student_ids: ids }).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Preview failed', 'error'); return; }
+      const noIdCount = rows.length - ids.length;
+      const updateExisting = document.getElementById('importUpdateExisting').checked;
+      const summary = document.getElementById('importPreviewSummary');
+      const existingLabel = updateExisting ? 'Already Exists (will update)' : 'Already Exists (skip)';
+      const existingColor = updateExisting ? 'text-blue-600' : 'text-amber-600';
+      summary.innerHTML = `
+        <div class="p-3 border border-slate-200 rounded-xl"><div class="text-[10px] font-black text-slate-400 uppercase">Total Rows</div><div class="text-xl font-black text-slate-800">${rows.length}</div></div>
+        <div class="p-3 border border-slate-200 rounded-xl"><div class="text-[10px] font-black text-slate-400 uppercase">New (will import)</div><div class="text-xl font-black text-emerald-600">${res.newCount}</div></div>
+        <div class="p-3 border border-slate-200 rounded-xl"><div class="text-[10px] font-black text-slate-400 uppercase">${existingLabel}</div><div class="text-xl font-black ${existingColor}">${res.existingCount}</div></div>
+        <div class="p-3 border border-slate-200 rounded-xl"><div class="text-[10px] font-black text-slate-400 uppercase">Missing Student ID</div><div class="text-xl font-black text-red-500">${noIdCount}</div></div>`;
+      const confirmBtn = document.getElementById('importConfirmBtn');
+      const totalAction = res.newCount + (updateExisting ? res.existingCount : 0);
+      confirmBtn.disabled = totalAction === 0;
+      confirmBtn.textContent = totalAction === 0 ? 'Nothing to import' : updateExisting ? `Import ${res.newCount} New + Update ${res.existingCount} Existing` : `Import ${res.newCount} New Student${res.newCount === 1 ? '' : 's'}`;
+      document.getElementById('importPreviewSection').classList.remove('hidden');
+      document.getElementById('importResultSection').classList.add('hidden');
+    }).catch(err => showToast((err && err.message) || 'Network error during preview', 'error'));
+  }
+  function confirmBulkImport() {
+    const rows = buildMappedImportRows();
+    const updateExisting = document.getElementById('importUpdateExisting').checked;
+    const btn = document.getElementById('importConfirmBtn');
+    const confirmMsg = updateExisting
+      ? 'Import new students AND update existing students with the mapped columns from this file?'
+      : 'Import new students now? Existing Student IDs will be left untouched.';
+    if (!confirm(confirmMsg)) return;
+    if (btn) { btn.disabled = true; btn.textContent = 'Importing…'; }
+    _adminFetch('bulk_import_new_students', { rows, update_existing: updateExisting }).then(res => {
+      if (!res || (res.result !== 'success' && res.result !== 'partial')) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Retry Import'; }
+        showToast((res && res.message) || 'Import failed', 'error');
+        return;
+      }
+      const resultSection = document.getElementById('importResultSection');
+      resultSection.innerHTML = `
+        <h3 class="font-black text-slate-800 mb-3">Import Complete</h3>
+        <ul class="text-xs font-bold text-slate-600 space-y-1 list-disc pl-4">
+          <li>${res.inserted} new student(s) added</li>
+          ${updateExisting ? `<li>${res.updated} existing student(s) updated</li>` : `<li>${res.skipped_existing} skipped — Student ID already exists</li>`}
+          <li>${res.skipped_missing_id} skipped — missing Student ID</li>
+          <li>${res.skipped_duplicate_in_file} skipped — duplicate Student ID within the file</li>
+        </ul>
+        ${res.errors && res.errors.length ? `<div class="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs font-bold text-amber-700">Some batches failed: ${res.errors.join('; ')}</div>` : ''}`;
+      resultSection.classList.remove('hidden');
+      if (btn) { btn.disabled = true; btn.textContent = 'Done'; }
+      showToast(updateExisting ? `Imported ${res.inserted} new, updated ${res.updated} existing` : `Imported ${res.inserted} new student(s)`);
+    }).catch(err => {
+      if (btn) { btn.disabled = false; btn.textContent = 'Retry Import'; }
+      showToast((err && err.message) || 'Network error during import', 'error');
+    });
   }
 
   function loadInventoryView() {
