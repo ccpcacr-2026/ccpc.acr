@@ -417,6 +417,7 @@
     { key: 'add_custom_form', label: '+ Add Custom Form', icon: 'plus-circle', erp: false, action: { type: 'native', fn: 'loadAdminAddCustomFormView' } },
     { key: 'data', label: 'Data', icon: 'table', erp: false, action: { type: 'native', fn: 'loadAdminDataView' } },
     { key: 'access', label: 'Access', icon: 'shield-check', erp: false, action: { type: 'native', fn: 'loadAdminAccessView' } },
+    { key: 'class_teacher', label: 'Assign Class Teacher', icon: 'user-check', erp: false, action: { type: 'native', fn: 'loadAdminClassTeacherView' } },
     { key: 'fees', label: 'Fees', icon: 'wallet', erp: true, action: { type: 'native', fn: 'loadAdminFeesView' } },
     { key: 'attendance', label: 'Attendance', icon: 'fingerprint', erp: true, action: { type: 'native', fn: 'loadAdminAttendanceView' } },
     { key: 'exams', label: 'Exams', icon: 'clipboard-list', erp: true, action: { type: 'native', fn: 'loadAdminExamsView' } },
@@ -3329,6 +3330,122 @@
     loadFieldCategories();
     loadFieldGrants();
     loadClassWideAccess();
+  }
+
+  // ── Assign Class Teacher (student.class_teacher_assignments) ────────────────
+  // A database-backed fallback for the Google-Sheet-driven class-teacher
+  // detection exec/route.js's _getClassTeacherAssignments does — the sheet
+  // stays authoritative, but any class/section it can't resolve a name for
+  // (or doesn't list at all) falls back to whatever's assigned here.
+  let _ctClassSections = [];
+  let _ctAssignments = {};
+  let _ctStaff = [];
+
+  function loadAdminClassTeacherView() {
+    if (!['Admin', 'Student Portal Admin'].includes(window.ACTIVE_ROLE)) {
+      showToast('Not available in current role', 'error');
+      return;
+    }
+    _setViewHash('student_portal');
+    setActiveNavLink('nav-erp-class_teacher');
+    setContentHeader('Assign Class Teacher', 'user-check');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    container.innerHTML = `
+      <div class="space-y-5 pb-10">
+        <div>
+          <h2 class="text-2xl font-black text-slate-800 tracking-tight">Assign Class Teacher</h2>
+          <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Every class/section in the student database, one teacher each</p>
+        </div>
+        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+          <p class="text-xs text-slate-400 font-bold mb-4">Used as a fallback wherever the routine sheet's own class-teacher list can't resolve a name — assigning someone here always works, even if the sheet is wrong, outdated, or missing that class entirely.</p>
+          <input type="text" id="ctFilter" oninput="filterClassTeacherRows()" placeholder="Filter by class or section…" autocomplete="off"
+            class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mb-3">
+          <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:560px">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead class="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-widest">
+                <tr>
+                  <th class="py-2 px-3">Class</th>
+                  <th class="py-2 px-3">Section</th>
+                  <th class="py-2 px-3">Students</th>
+                  <th class="py-2 px-3">Assigned Teacher</th>
+                </tr>
+              </thead>
+              <tbody id="ctTableBody"><tr><td colspan="4" class="p-4 text-slate-400 font-bold italic">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    `;
+    lucide.createIcons();
+    loadClassTeacherAssignments();
+  }
+
+  function loadClassTeacherAssignments() {
+    Promise.all([
+      _adminFetch('get_class_sections', {}),
+      _adminFetch('get_class_teacher_assignments', {}),
+      _adminFetch('get_staff_directory', {}),
+    ]).then(([sections, assignRes, staff]) => {
+      const seen = new Map();
+      (Array.isArray(sections) ? sections : []).forEach(r => {
+        const key = `${r.class}||${r.section}`;
+        if (!seen.has(key)) seen.set(key, { class: r.class, section: r.section, count: 0 });
+        seen.get(key).count++;
+      });
+      _ctClassSections = [...seen.values()].sort((a, b) => a.class.localeCompare(b.class) || a.section.localeCompare(b.section));
+      _ctAssignments = {};
+      if (assignRes && assignRes.result === 'success') {
+        (assignRes.assignments || []).forEach(a => { _ctAssignments[`${a.class}||${a.section}`] = a.user_id; });
+      }
+      _ctStaff = Array.isArray(staff) ? staff.slice().sort((a, b) => (a.full_name || a.user_id).localeCompare(b.full_name || b.user_id)) : [];
+      renderClassTeacherTable();
+    }).catch(() => {
+      const body = document.getElementById('ctTableBody');
+      if (body) body.innerHTML = '<tr><td colspan="4" class="p-4 text-red-500 font-bold">Failed to load.</td></tr>';
+    });
+  }
+
+  function renderClassTeacherTable() {
+    const body = document.getElementById('ctTableBody');
+    if (!body) return;
+    const filterEl = document.getElementById('ctFilter');
+    const q = (filterEl ? filterEl.value : '').trim().toLowerCase();
+    const rows = _ctClassSections.filter(r => !q || r.class.toLowerCase().includes(q) || r.section.toLowerCase().includes(q));
+    if (!rows.length) { body.innerHTML = '<tr><td colspan="4" class="p-4 text-slate-400 font-bold italic">No matching class/section.</td></tr>'; return; }
+    const staffOptions = _ctStaff.map(s => `<option value="${s.user_id}">${s.full_name || s.user_id}${s.shortname ? ` (${s.shortname})` : ''}</option>`).join('');
+    body.innerHTML = rows.map(r => `<tr class="border-b border-slate-50">
+        <td class="py-2 px-3 font-black text-slate-700">${r.class}</td>
+        <td class="py-2 px-3 font-bold text-slate-500">${r.section}</td>
+        <td class="py-2 px-3 text-slate-400">${r.count}</td>
+        <td class="py-2 px-3">
+          <select class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none w-full max-w-xs"
+            data-class="${r.class}" data-section="${r.section}" onchange="saveClassTeacherAssignment(this)">
+            <option value="">— Unassigned —</option>
+            ${staffOptions}
+          </select>
+        </td>
+      </tr>`).join('');
+    const selects = body.querySelectorAll('select[data-class]');
+    rows.forEach((r, i) => { if (selects[i]) selects[i].value = _ctAssignments[`${r.class}||${r.section}`] || ''; });
+  }
+
+  function filterClassTeacherRows() { renderClassTeacherTable(); }
+
+  function saveClassTeacherAssignment(selectEl) {
+    const cls = selectEl.dataset.class, section = selectEl.dataset.section, userId = selectEl.value;
+    selectEl.disabled = true;
+    _adminFetch('set_class_teacher_assignment', { class: cls, section, user_id: userId || null }).then(res => {
+      selectEl.disabled = false;
+      if (res && res.result === 'success') {
+        const key = `${cls}||${section}`;
+        if (userId) _ctAssignments[key] = userId; else delete _ctAssignments[key];
+        showToast(userId ? 'Class teacher assigned' : 'Assignment cleared');
+      } else {
+        showToast((res && res.message) || 'Failed to save', 'error');
+        renderClassTeacherTable();
+      }
+    }).catch(() => { selectEl.disabled = false; showToast('Network error', 'error'); renderClassTeacherTable(); });
   }
 
   function loadAdminTabVisibility() {
@@ -6715,7 +6832,9 @@
           <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Step 1 · Choose File</span>
           <input type="file" id="importFileInput" accept=".xlsx,.xls,.csv" class="text-xs font-bold" style="max-width:320px">
           <span id="importFileStatus" class="text-xs text-slate-400 font-bold"></span>
+          <button onclick="downloadImportDemoTemplate()" class="ml-auto px-3 py-2 border border-emerald-200 text-emerald-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-50 transition-all flex items-center gap-1.5 shrink-0"><i data-lucide="download" class="h-3.5 w-3.5"></i>Download Demo CSV</button>
         </div>
+        <p class="text-xs text-slate-400 font-bold mt-2">Not sure what format to use? Download the demo file — its column headers exactly match what this importer auto-detects, so filling it in and re-uploading maps everything automatically.</p>
       </div>
       <div id="importMappingSection" class="hidden bg-white rounded-3xl border border-slate-200 shadow-sm p-5 mb-4">
         <div class="flex items-center justify-between mb-3">

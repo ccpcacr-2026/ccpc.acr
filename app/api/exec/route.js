@@ -152,11 +152,24 @@ async function _sbStudent(path) {
 // "Logged in info" tab). Free-standing (not a `handlers` property) since it's
 // an internal building block only the validated handlers below should call.
 async function _getClassTeacherAssignments() {
-  const [sheetRows, profiles, directory] = await Promise.all([
-    _fetchCsvByGid(CLASS_TEACHER_SHEET_ID, CLASS_TEACHER_SHEET_GID),
+  const [sheetRows, profiles, directory, dbAssignments] = await Promise.all([
+    // Best-effort — the sheet stays authoritative when reachable, but a
+    // sheet outage should never take down the DB-backed fallback below too.
+    _fetchCsvByGid(CLASS_TEACHER_SHEET_ID, CLASS_TEACHER_SHEET_GID).catch(() => []),
     supabaseRequest('users_profile?select=teacher_id,full_name'),
     handlers.getRoutineDirectory(),
+    // Admin-assignable fallback (student.class_teacher_assignments, managed
+    // from the "Assign Class Teacher" admin view) — only ever fills in for a
+    // class/section the sheet itself couldn't resolve a user for, never
+    // overrides a real sheet match. Keyed in the student DB's own class/
+    // section spelling (e.g. "Six"/"A"), not the sheet's internal codes.
+    _sbStudent('class_teacher_assignments?select=class,section,user_id'),
   ]);
+
+  const dbByKey = new Map();
+  (Array.isArray(dbAssignments) ? dbAssignments : []).forEach(r => {
+    dbByKey.set(`${r.class}||${r.section}`, r.user_id);
+  });
 
   const header = sheetRows[0] || [];
   const classesIdx = header.findIndex(h => String(h).trim() === 'Classes'); // first occurrence
@@ -164,7 +177,6 @@ async function _getClassTeacherAssignments() {
   const snIdx        = header.findIndex(h => String(h).trim() === 'Sort Names');
   const classIdx     = header.findIndex(h => String(h).trim() === 'Class');   // second table's split column
   const sectionIdx   = header.findIndex(h => String(h).trim() === 'Section');
-  if (classesIdx < 0) return [];
 
   const teacherIdSet = new Set();
   const nameByNormalized = {};
@@ -177,32 +189,49 @@ async function _getClassTeacherAssignments() {
   directory.forEach(d => { shortnameToFullName[d.shortname.toLowerCase()] = d.fullName; });
 
   const out = [];
-  for (let i = 1; i < sheetRows.length; i++) {
-    const row = sheetRows[i];
-    const classKey = String(row[classesIdx] || '').trim();
-    if (!classKey || classKey === '-') break; // sheet trails off into unrelated tables after the class list
+  const seenKeys = new Set();
+  if (classesIdx >= 0) {
+    for (let i = 1; i < sheetRows.length; i++) {
+      const row = sheetRows[i];
+      const classKey = String(row[classesIdx] || '').trim();
+      if (!classKey || classKey === '-') break; // sheet trails off into unrelated tables after the class list
 
-    const idVal = String(row[idIdx] || '').trim();
-    let resolvedUserId = null, resolvedVia = null;
-    if (idVal && idVal !== '#N/A' && teacherIdSet.has(idVal)) {
-      resolvedUserId = idVal; resolvedVia = 'id';
-    } else {
-      const shortname = String(row[snIdx] || '').trim();
-      const fullName = shortname ? shortnameToFullName[shortname.toLowerCase()] : '';
-      const normalized = fullName ? _normalizeName(fullName) : '';
-      if (normalized && nameByNormalized[normalized]) {
-        resolvedUserId = nameByNormalized[normalized]; resolvedVia = 'shortname';
+      const idVal = String(row[idIdx] || '').trim();
+      let resolvedUserId = null, resolvedVia = null;
+      if (idVal && idVal !== '#N/A' && teacherIdSet.has(idVal)) {
+        resolvedUserId = idVal; resolvedVia = 'id';
+      } else {
+        const shortname = String(row[snIdx] || '').trim();
+        const fullName = shortname ? shortnameToFullName[shortname.toLowerCase()] : '';
+        const normalized = fullName ? _normalizeName(fullName) : '';
+        if (normalized && nameByNormalized[normalized]) {
+          resolvedUserId = nameByNormalized[normalized]; resolvedVia = 'shortname';
+        }
       }
-    }
 
-    out.push({
-      classKey,
-      className: classIdx >= 0 ? String(row[classIdx] || '').trim() : '',
-      section: sectionIdx >= 0 ? String(row[sectionIdx] || '').trim() : '',
-      resolvedUserId,
-      resolvedVia,
-    });
+      const className = classIdx >= 0 ? String(row[classIdx] || '').trim() : '';
+      const section = sectionIdx >= 0 ? String(row[sectionIdx] || '').trim() : '';
+      const dbKey = `${CLASS_TEACHER_NAME_TO_STUDENT_CLASS[className] || className}||${CLASS_TEACHER_SECTION_ALIASES[section] || section}`;
+      seenKeys.add(dbKey);
+      if (!resolvedUserId && dbByKey.has(dbKey)) { resolvedUserId = dbByKey.get(dbKey); resolvedVia = 'db'; }
+
+      out.push({ classKey, className, section, resolvedUserId, resolvedVia });
+    }
   }
+
+  // Any DB assignment for a class/section the sheet never listed at all
+  // (new section added to the roster before the sheet catches up, or the
+  // sheet being unreachable entirely) still surfaces as its own entry.
+  // className/section here are already in the student DB's own spelling,
+  // so the CLASS_TEACHER_NAME_TO_STUDENT_CLASS/SECTION_ALIASES lookups
+  // downstream (keyed by the sheet's internal codes) pass them through
+  // unchanged.
+  dbByKey.forEach((userId, key) => {
+    if (seenKeys.has(key)) return;
+    const [studentClass, studentSection] = key.split('||');
+    out.push({ classKey: `${studentClass} ${studentSection}`, className: studentClass, section: studentSection, resolvedUserId: userId, resolvedVia: 'db' });
+  });
+
   return out;
 }
 

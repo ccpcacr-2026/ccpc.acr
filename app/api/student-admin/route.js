@@ -1045,6 +1045,33 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success', count: clean.length });
   }
 
+  // ── Class Teacher assignments (student.class_teacher_assignments) — a
+  // database-backed fallback for the Google-Sheet-driven class-teacher
+  // detection in exec/route.js's _getClassTeacherAssignments: the sheet
+  // stays authoritative, but any class/section it can't resolve a name for
+  // (or doesn't list at all) falls back to whatever's assigned here. Keyed
+  // by (class, section) — one teacher per class-section, matching the
+  // sheet's own granularity (no group). Replace-all-per-key idiom, same as
+  // set_tab_class_access/set_class_access_grants above. ────────────────────
+  if (action === 'get_class_teacher_assignments') {
+    const rows = await sb('class_teacher_assignments?select=class,section,user_id&order=class.asc,section.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', assignments: rows });
+  }
+  if (action === 'set_class_teacher_assignment') {
+    const { class: cls, section, user_id: assigneeId } = payload;
+    const clsClean = String(cls || '').trim();
+    const secClean = String(section || '').trim();
+    if (!clsClean || !secClean) return NextResponse.json({ result: 'error', message: 'Class and section required.' });
+    const del = await sb(`class_teacher_assignments?class=eq.${encodeURIComponent(clsClean)}&section=eq.${encodeURIComponent(secClean)}`, 'DELETE');
+    if (del?.error) return NextResponse.json({ result: 'error', message: del.error });
+    if (assigneeId) {
+      const ins = await sb('class_teacher_assignments', 'POST', { class: clsClean, section: secClean, user_id: String(assigneeId) });
+      if (ins?.error) return NextResponse.json({ result: 'error', message: ins.error });
+    }
+    return NextResponse.json({ result: 'success' });
+  }
+
   // Strictly 'Admin' only (not Student Portal Admin) — this matrix controls
   // Payroll visibility among the other 4 tabs, and a delegated Student
   // Portal Admin shouldn't be able to grant themselves or others access to
