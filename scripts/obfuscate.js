@@ -79,7 +79,16 @@ const RESERVED = [
   'deleteFeeType','saveFeeStructure','deleteFeeStructure','generateClasswiseFees',
   'generateIndividualFee','openLateFeeEditor','saveLateFeeRuleFromEditor',
   'deleteLateFeeRule','loadStudentFees','promptRecordPayment','saveFeeDiscount',
-  'loadDefaultersList','saveFeeAccount','recordAccountTransaction'
+  'loadDefaultersList','saveFeeAccount','recordAccountTransaction',
+  // Attendance tab native port
+  'loadAdminAttendanceView','switchAttendanceTab','loadAttendanceReport',
+  'markManualAttendance','openAttendanceDeviceEditor',
+  'saveAttendanceDeviceFromEditor','deleteAttendanceDevice','loadPunchLog',
+  // Exams tab native port
+  'loadAdminExamsView','switchExamsTab','saveExam','selectExamForSubjects',
+  'saveExamSubject','deleteExamSubject','loadMarksEntry','saveMarksEntry',
+  'processExamResult','toggleExamLock','saveGradeScale','deleteGradeScale',
+  'saveBoardExamRecord'
 ];
 
 // Strip HTML comments and collapse whitespace

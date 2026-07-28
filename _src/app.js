@@ -412,8 +412,8 @@
     { key: 'data', label: 'Data', icon: 'table', erp: false, action: { type: 'iframe', domId: 'admin-reports' } },
     { key: 'access', label: 'Access', icon: 'shield-check', erp: false, action: { type: 'native', fn: 'loadAdminAccessView' } },
     { key: 'fees', label: 'Fees', icon: 'wallet', erp: true, action: { type: 'native', fn: 'loadAdminFeesView' } },
-    { key: 'attendance', label: 'Attendance', icon: 'fingerprint', erp: true, action: { type: 'iframe', domId: 'admin-attendance' } },
-    { key: 'exams', label: 'Exams', icon: 'clipboard-list', erp: true, action: { type: 'iframe', domId: 'admin-exams' } },
+    { key: 'attendance', label: 'Attendance', icon: 'fingerprint', erp: true, action: { type: 'native', fn: 'loadAdminAttendanceView' } },
+    { key: 'exams', label: 'Exams', icon: 'clipboard-list', erp: true, action: { type: 'native', fn: 'loadAdminExamsView' } },
     { key: 'payroll', label: 'Payroll', icon: 'banknote', erp: true, action: { type: 'iframe', domId: 'admin-payroll' } },
     { key: 'transport', label: 'Transport', icon: 'bus', erp: true, action: { type: 'iframe', domId: 'admin-transport' } },
     { key: 'history', label: 'History', icon: 'clock', erp: false, action: { type: 'iframe', domId: 'admin-history' } },
@@ -4111,6 +4111,480 @@
     _adminFetch('get_account_register', {}).then(res => {
       const rows = (res && res.result === 'success' && res.transactions) || [];
       document.getElementById('accountRegisterBody').innerHTML = rows.map(t => `<tr class="border-b border-slate-50"><td class="py-1.5 px-3">${new Date(t.occurred_at).toLocaleDateString()}</td><td class="py-1.5 px-3"><span class="px-2 py-0.5 rounded-full text-[10px] font-black ${t.direction === 'credit' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}">${t.direction}</span></td><td class="py-1.5 px-3">৳${Number(t.amount).toLocaleString()}</td><td class="py-1.5 px-3">${t.reference || ''}</td></tr>`).join('') || '<tr><td colspan="4" class="p-3 text-slate-400 font-bold text-xs">No transactions yet.</td></tr>';
+    });
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Attendance tab — native port (Phase 3, part 1). Same idiom as Fees.
+  // ══════════════════════════════════════════════════════════════════════
+
+  const ATTENDANCE_SUBTABS = [
+    { id: 'att-daily', label: 'Daily Report' },
+    { id: 'att-devices', label: 'Devices' },
+    { id: 'att-punchlog', label: 'Punch Log' },
+  ];
+
+  function loadAdminAttendanceView() {
+    _setViewHash('student_portal');
+    setActiveNavLink('nav-erp-attendance');
+    setContentHeader('Attendance', 'fingerprint');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    const tabBar = ATTENDANCE_SUBTABS.map((t, i) => `<button onclick="switchAttendanceTab('${t.id}')" id="attab-${t.id}"
+      class="fees-tab-btn flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all whitespace-nowrap
+             ${i === 0 ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50'}">${t.label}</button>`).join('');
+
+    container.innerHTML = `
+      <div class="mb-4">
+        <h2 class="text-2xl font-black text-slate-800 tracking-tight">Attendance</h2>
+        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Daily report, devices, punch log</p>
+      </div>
+      <div class="flex flex-wrap gap-2 mb-5">${tabBar}</div>
+
+      <div id="att-daily">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+          <input type="text" id="attClass" placeholder="Class" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+          <input type="text" id="attSection" placeholder="Section (optional)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+          <input type="date" id="attDate" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+          <button onclick="loadAttendanceReport()" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Load</button>
+        </div>
+        <div id="attSummary" class="mb-2 font-black text-slate-700 text-xs"></div>
+        <div class="overflow-auto border border-slate-200 rounded-xl">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Roll</th><th class="py-2 px-3">Name</th><th class="py-2 px-3">Status</th><th class="py-2 px-3">Source</th><th class="py-2 px-3">Override</th></tr></thead>
+            <tbody id="attendanceReportBody"><tr><td colspan="5" class="p-3 text-slate-400 font-bold">Pick a class and date, then Load.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="att-devices" style="display:none">
+        <div class="flex items-center justify-between mb-3">
+          <p class="font-black text-slate-800 text-sm flex items-center gap-2"><i data-lucide="hard-drive" class="h-4 w-4 text-blue-600"></i>Attendance Devices</p>
+          <button onclick="openAttendanceDeviceEditor()" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">+ Add Device</button>
+        </div>
+        <p class="text-xs text-slate-400 font-bold mb-3">ESP32 is the primary attendance channel. ZKTeco or other biometric terminals are optional additional devices, not a replacement.</p>
+        <div id="attendanceDevicesList" class="flex flex-col gap-2"><span class="text-xs text-slate-400 font-bold italic">Loading…</span></div>
+      </div>
+
+      <div id="att-punchlog" style="display:none">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+          <select id="plPersonType" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"><option value="">All person types</option><option value="student">Student</option><option value="staff">Staff</option><option value="unmatched">Unmatched</option></select>
+          <button onclick="loadPunchLog()" class="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Refresh</button>
+        </div>
+        <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:420px">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Time</th><th class="py-2 px-3">Device User</th><th class="py-2 px-3">Type</th><th class="py-2 px-3">Person</th><th class="py-2 px-3">Verify</th><th class="py-2 px-3">Matched</th></tr></thead>
+            <tbody id="punchLogBody"></tbody>
+          </table>
+        </div>
+      </div>
+    `;
+    lucide.createIcons();
+    loadAttendanceReport();
+  }
+
+  function switchAttendanceTab(tabId) {
+    ATTENDANCE_SUBTABS.forEach(t => {
+      const panel = document.getElementById(t.id);
+      const btn = document.getElementById('attab-' + t.id);
+      const active = t.id === tabId;
+      if (panel) panel.style.display = active ? '' : 'none';
+      if (btn) {
+        btn.className = btn.className.replace(/bg-blue-600 text-white shadow-lg shadow-blue-500\/20|bg-white text-slate-400 border border-slate-200 hover:bg-slate-50/g, '').trim();
+        btn.className += active ? ' bg-blue-600 text-white shadow-lg shadow-blue-500/20' : ' bg-white text-slate-400 border border-slate-200 hover:bg-slate-50';
+      }
+    });
+    if (tabId === 'att-devices') loadAttendanceDevices();
+    if (tabId === 'att-punchlog') loadPunchLog();
+  }
+
+  function loadAttendanceReport() {
+    const clsEl = document.getElementById('attClass');
+    if (!clsEl) return;
+    const payload = {
+      class: clsEl.value.trim(),
+      section: document.getElementById('attSection').value.trim(),
+      date: document.getElementById('attDate').value,
+    };
+    if (!payload.class || !payload.date) { showToast('Class and date required', 'error'); return; }
+    _adminFetch('get_attendance_report', payload).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed', 'error'); return; }
+      document.getElementById('attSummary').innerHTML = `<span class="text-emerald-600">${res.present_count} present</span> · <span class="text-red-500">${res.absent_count} absent</span> of ${res.rows.length}`;
+      document.getElementById('attendanceReportBody').innerHTML = res.rows.map(r => `<tr class="border-b border-slate-50">
+        <td class="py-1.5 px-3">${r.roll || ''}</td><td class="py-1.5 px-3">${r.student_name || ''}</td>
+        <td class="py-1.5 px-3"><span class="px-2 py-0.5 rounded-full text-[10px] font-black ${r.status === 'present' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}">${r.status}</span></td>
+        <td class="py-1.5 px-3 text-slate-400">${r.source}</td>
+        <td class="py-1.5 px-3">
+          <button onclick="markManualAttendance('${r.student_id}','present')" class="px-2 py-0.5 border border-emerald-200 text-emerald-600 rounded text-[10px] font-black uppercase hover:bg-emerald-50">Present</button>
+          <button onclick="markManualAttendance('${r.student_id}','absent')" class="px-2 py-0.5 border border-red-200 text-red-500 rounded text-[10px] font-black uppercase hover:bg-red-50">Absent</button>
+        </td>
+      </tr>`).join('') || '<tr><td colspan="5" class="p-3 text-slate-400 font-bold text-xs">No students found.</td></tr>';
+    });
+  }
+  function markManualAttendance(student_id, status) {
+    const date = document.getElementById('attDate').value;
+    _adminFetch('save_manual_attendance', { student_id, date, status, marked_by: window.APP_USER && window.APP_USER.user_id }).then(res => {
+      if (res && res.result === 'success') { showToast('Updated'); loadAttendanceReport(); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+
+  function loadAttendanceDevices() {
+    _adminFetch('get_attendance_devices', {}).then(res => {
+      const devices = (res && res.result === 'success' && res.devices) || [];
+      const host = document.getElementById('attendanceDevicesList');
+      if (!host) return;
+      host.innerHTML = devices.length ? devices.map(d => `
+        <div class="flex justify-between items-center border border-slate-200 rounded-xl px-3 py-2">
+          <div><span class="font-black text-slate-800 text-xs">${d.name}</span> <span class="text-[10px] font-black text-slate-400 bg-slate-100 rounded px-1.5 py-0.5 ml-1">${d.device_type}</span> <span class="text-slate-400 text-xs ml-2">${d.ip}:${d.port || ''}</span>${!d.is_active ? ' <span class="text-[10px] font-black text-white bg-slate-400 rounded px-1.5 py-0.5">Inactive</span>' : ''}</div>
+          <button onclick="deleteAttendanceDevice(${d.id})" class="w-7 h-7 flex items-center justify-center rounded-lg border border-red-200 text-red-500 hover:bg-red-50"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+        </div>`).join('') : '<span class="text-xs text-slate-400 font-bold italic">No devices registered yet.</span>';
+      lucide.createIcons();
+    });
+  }
+  function openAttendanceDeviceEditor() {
+    const overlay = document.createElement('div');
+    overlay.id = 'attDeviceOverlay';
+    overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
+    overlay.innerHTML = `
+      <div class="bg-white rounded-2xl w-full max-w-md">
+        <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+          <p class="font-black text-slate-800 text-sm">Add Attendance Device</p>
+          <button onclick="document.getElementById('attDeviceOverlay').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="h-4 w-4"></i></button>
+        </div>
+        <div class="p-4 flex flex-col gap-2">
+          <label class="text-[10px] font-black text-slate-400 uppercase">Device Name</label>
+          <input type="text" id="adName" placeholder="e.g. Main Gate" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm">
+          <label class="text-[10px] font-black text-slate-400 uppercase">Device Type</label>
+          <select id="adType" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm"><option value="esp32">ESP32 (primary)</option><option value="zkteco">ZKTeco (optional)</option></select>
+          <label class="text-[10px] font-black text-slate-400 uppercase">IP Address</label>
+          <input type="text" id="adIp" placeholder="192.168.1.201" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm">
+          <label class="text-[10px] font-black text-slate-400 uppercase">Port</label>
+          <input type="number" id="adPort" value="4370" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm">
+          <label class="text-[10px] font-black text-slate-400 uppercase">API Username (optional)</label>
+          <input type="text" id="adUser" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm">
+          <label class="text-[10px] font-black text-slate-400 uppercase">API Password (optional)</label>
+          <input type="password" id="adPass" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm">
+        </div>
+        <div class="p-4 border-t border-slate-100 flex justify-end">
+          <button onclick="saveAttendanceDeviceFromEditor()" class="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Add Device</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    lucide.createIcons();
+  }
+  function saveAttendanceDeviceFromEditor() {
+    const name = document.getElementById('adName').value.trim();
+    const device_type = document.getElementById('adType').value;
+    const ip = document.getElementById('adIp').value.trim();
+    const port = document.getElementById('adPort').value;
+    const api_username = document.getElementById('adUser').value.trim();
+    const api_password = document.getElementById('adPass').value;
+    if (!name || !ip) { showToast('Name and IP required', 'error'); return; }
+    _adminFetch('save_attendance_device', { name, device_type, ip, port, api_username, api_password, is_active: true }).then(res => {
+      const overlay = document.getElementById('attDeviceOverlay');
+      if (overlay) overlay.remove();
+      if (res && res.result === 'success') { showToast('Device added'); loadAttendanceDevices(); }
+      else showToast((res && res.message) || 'Save failed', 'error');
+    });
+  }
+  function deleteAttendanceDevice(id) {
+    _adminFetch('delete_attendance_device', { id }).then(res => { if (res && res.result === 'success') loadAttendanceDevices(); });
+  }
+
+  function loadPunchLog() {
+    const person_type = document.getElementById('plPersonType').value;
+    _adminFetch('get_punch_log', { person_type }).then(res => {
+      const rows = (res && res.result === 'success' && res.punches) || [];
+      document.getElementById('punchLogBody').innerHTML = rows.map(p => `<tr class="border-b border-slate-50">
+        <td class="py-1.5 px-3">${new Date(p.punch_time).toLocaleString()}</td><td class="py-1.5 px-3">${p.device_user_id || ''}</td><td class="py-1.5 px-3">${p.person_type}</td><td class="py-1.5 px-3">${p.person_id || '—'}</td><td class="py-1.5 px-3">${p.verify_method || ''}</td>
+        <td class="py-1.5 px-3">${p.matched ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-700">Yes</span>' : '<span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-700">Unmatched</span>'}</td>
+      </tr>`).join('') || '<tr><td colspan="6" class="p-3 text-slate-400 font-bold text-xs">No punch logs found.</td></tr>';
+    });
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Exams tab — native port (Phase 3, part 2). Same idiom as Fees.
+  // ══════════════════════════════════════════════════════════════════════
+
+  const EXAMS_SUBTABS = [
+    { id: 'exam-setup', label: 'Exam Setup' },
+    { id: 'exam-marks', label: 'Marks Entry' },
+    { id: 'exam-process', label: 'Result Process' },
+    { id: 'exam-grades', label: 'Grade Setup' },
+    { id: 'exam-board', label: 'Board Exam Records' },
+  ];
+  let _exams = [];
+  let _curExamId = null;
+  let _meSubjects = [];
+
+  function loadAdminExamsView() {
+    _setViewHash('student_portal');
+    setActiveNavLink('nav-erp-exams');
+    setContentHeader('Exams', 'clipboard-list');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    const tabBar = EXAMS_SUBTABS.map((t, i) => `<button onclick="switchExamsTab('${t.id}')" id="extab-${t.id}"
+      class="fees-tab-btn flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all whitespace-nowrap
+             ${i === 0 ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50'}">${t.label}</button>`).join('');
+
+    container.innerHTML = `
+      <div class="mb-4">
+        <h2 class="text-2xl font-black text-slate-800 tracking-tight">Exams</h2>
+        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Exam setup, marks entry, result processing, grade scale, board records</p>
+      </div>
+      <div class="flex flex-wrap gap-2 mb-5">${tabBar}</div>
+
+      <div id="exam-setup">
+        <div class="grid md:grid-cols-2 gap-4">
+          <div class="bg-white rounded-2xl border border-slate-200 p-4">
+            <p class="font-black text-slate-800 text-xs mb-3 flex items-center gap-2"><i data-lucide="file-plus" class="h-4 w-4 text-blue-600"></i>New Exam</p>
+            <div class="flex flex-col gap-2">
+              <input type="text" id="exName" placeholder="Exam name (e.g. Half Yearly Exam)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <select id="exType" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option>Term</option><option>Half-Yearly</option><option>Final</option><option>Continuous-Test</option></select>
+              <input type="text" id="exYear" placeholder="Academic Year" value="2026" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <input type="text" id="exMedium" placeholder="Medium (optional)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <input type="text" id="exClass" placeholder="Class" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <button onclick="saveExam()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Create Exam</button>
+            </div>
+          </div>
+          <div>
+            <p class="font-black text-slate-800 text-xs mb-2 flex items-center gap-2"><i data-lucide="list" class="h-4 w-4 text-blue-600"></i>Exams</p>
+            <div id="examsList" class="flex flex-col gap-2"><span class="text-xs text-slate-400 font-bold italic">Loading…</span></div>
+            <div id="examSubjectsPanel" class="mt-4"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="exam-marks" style="display:none">
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3">
+          <select id="meExam" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Select exam…</option></select>
+          <select id="meSubject" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Subject…</option></select>
+          <input type="text" id="meClass" placeholder="Class" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <input type="text" id="meSection" placeholder="Section" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <button onclick="loadMarksEntry()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Load Students</button>
+        </div>
+        <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:420px">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Roll</th><th class="py-2 px-3">Name</th><th class="py-2 px-3">Marks</th></tr></thead>
+            <tbody id="marksEntryBody"><tr><td colspan="3" class="p-3 text-slate-400 font-bold">Pick an exam, subject, and class.</td></tr></tbody>
+          </table>
+        </div>
+        <button onclick="saveMarksEntry()" class="mt-3 px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save All Marks</button>
+        <span id="marksEntryStatus" class="text-xs font-bold ml-2"></span>
+      </div>
+
+      <div id="exam-process" style="display:none">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+          <select id="prExam" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Select exam…</option></select>
+          <button onclick="processExamResult()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Process Result</button>
+          <button onclick="toggleExamLock(true)" class="px-3 py-2 border border-red-200 text-red-500 rounded-lg font-black text-[10px] uppercase hover:bg-red-50">Lock</button>
+          <button onclick="toggleExamLock(false)" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Unlock</button>
+        </div>
+        <div class="overflow-auto border border-slate-200 rounded-xl">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Position</th><th class="py-2 px-3">Student</th><th class="py-2 px-3">Total</th><th class="py-2 px-3">%</th><th class="py-2 px-3">GPA</th><th class="py-2 px-3">Grade</th><th class="py-2 px-3">Pass/Fail</th></tr></thead>
+            <tbody id="examResultsBody"><tr><td colspan="7" class="p-3 text-slate-400 font-bold">Select an exam and process.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="exam-grades" style="display:none">
+        <p class="font-black text-slate-800 text-sm flex items-center gap-2 mb-3"><i data-lucide="star" class="h-4 w-4 text-blue-600"></i>Grade Point List</p>
+        <div class="grid grid-cols-2 md:grid-cols-6 gap-2 mb-3">
+          <input type="number" id="gsGp" placeholder="GP" step="0.1" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <input type="number" id="gsMin" placeholder="Min %" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <input type="number" id="gsMax" placeholder="Max %" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <input type="text" id="gsLetter" placeholder="Letter (A+)" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <input type="text" id="gsLabel" placeholder="Label (Excellent)" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <button onclick="saveGradeScale()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+</button>
+        </div>
+        <div class="overflow-auto border border-slate-200 rounded-xl">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">GP</th><th class="py-2 px-3">Marks</th><th class="py-2 px-3">Grade</th><th class="py-2 px-3">Label</th><th class="py-2 px-3"></th></tr></thead>
+            <tbody id="gradeScalesBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="exam-board" style="display:none">
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3">
+          <input type="text" id="beStudent" placeholder="Student ID" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <select id="beType" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option>JSC</option><option>SSC</option><option>HSC</option></select>
+          <input type="text" id="beReg" placeholder="Registration #" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <input type="text" id="beRoll" placeholder="Board Roll #" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <button onclick="saveBoardExamRecord()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Save</button>
+        </div>
+        <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:380px">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Student</th><th class="py-2 px-3">Type</th><th class="py-2 px-3">Registration #</th><th class="py-2 px-3">Roll #</th></tr></thead>
+            <tbody id="boardExamBody"></tbody>
+          </table>
+        </div>
+      </div>
+    `;
+    lucide.createIcons();
+    loadExams();
+  }
+
+  function switchExamsTab(tabId) {
+    EXAMS_SUBTABS.forEach(t => {
+      const panel = document.getElementById(t.id);
+      const btn = document.getElementById('extab-' + t.id);
+      const active = t.id === tabId;
+      if (panel) panel.style.display = active ? '' : 'none';
+      if (btn) {
+        btn.className = btn.className.replace(/bg-blue-600 text-white shadow-lg shadow-blue-500\/20|bg-white text-slate-400 border border-slate-200 hover:bg-slate-50/g, '').trim();
+        btn.className += active ? ' bg-blue-600 text-white shadow-lg shadow-blue-500/20' : ' bg-white text-slate-400 border border-slate-200 hover:bg-slate-50';
+      }
+    });
+    if (tabId === 'exam-grades') loadGradeScales();
+    if (tabId === 'exam-board') loadBoardExamRecords();
+  }
+
+  function _examOptions() { return _exams.map(e => `<option value="${e.id}">${e.name} (${e.academic_year})${e.is_locked ? ' 🔒' : ''}</option>`).join(''); }
+
+  function loadExams() {
+    _adminFetch('get_exams', {}).then(res => {
+      _exams = (res && res.result === 'success' && res.exams) || [];
+      const host = document.getElementById('examsList');
+      if (host) host.innerHTML = _exams.map(e => `
+        <div class="flex justify-between items-center border rounded-xl px-3 py-2 cursor-pointer ${e.id == _curExamId ? 'border-blue-400' : 'border-slate-200'}" onclick="selectExamForSubjects(${e.id})">
+          <div><span class="font-black text-slate-800 text-xs">${e.name}</span> <span class="text-[10px] font-black text-slate-400 bg-slate-100 rounded px-1.5 py-0.5 ml-1">${e.exam_type}</span> <span class="text-slate-400 text-xs ml-2">${e.academic_year}${e.class ? ' · '+e.class : ''}</span>${e.is_locked ? ' <span class="text-[10px] font-black text-white bg-red-500 rounded px-1.5 py-0.5">Locked</span>' : ''}</div>
+        </div>`).join('') || '<span class="text-xs text-slate-400 font-bold italic">No exams yet.</span>';
+      ['meExam', 'prExam'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = '<option value="">Select exam…</option>' + _examOptions(); });
+    });
+  }
+  function saveExam() {
+    const name = document.getElementById('exName').value.trim();
+    const exam_type = document.getElementById('exType').value;
+    const academic_year = document.getElementById('exYear').value.trim();
+    const medium = document.getElementById('exMedium').value.trim();
+    const cls = document.getElementById('exClass').value.trim();
+    if (!name || !academic_year) { showToast('Name and year required', 'error'); return; }
+    _adminFetch('save_exam', { name, exam_type, academic_year, medium, class: cls }).then(res => {
+      if (res && res.result === 'success') { showToast('Exam created'); document.getElementById('exName').value = ''; loadExams(); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+  function selectExamForSubjects(exam_id) {
+    _curExamId = exam_id;
+    loadExams();
+    _adminFetch('get_exam_subjects', { exam_id }).then(res => {
+      const subjects = (res && res.result === 'success' && res.subjects) || [];
+      const host = document.getElementById('examSubjectsPanel');
+      host.innerHTML = `
+        <p class="font-black text-slate-800 text-xs mb-2">Subjects</p>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-2">
+          <input type="text" id="esSubject" placeholder="Subject name" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <input type="number" id="esFull" placeholder="Full marks" value="100" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <input type="number" id="esPass" placeholder="Pass marks" value="33" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <button onclick="saveExamSubject(${exam_id})" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+</button>
+        </div>
+        <div class="flex flex-wrap gap-2">${subjects.map(s => `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 text-slate-700 rounded-full text-[11px] font-bold border border-slate-200">${s.subject} (${s.full_marks}/${s.pass_marks}) <i data-lucide="x-circle" class="h-3 w-3 text-red-500 cursor-pointer" onclick="deleteExamSubject(${s.id}, ${exam_id})"></i></span>`).join('') || '<span class="text-xs text-slate-400 font-bold italic">No subjects yet.</span>'}</div>`;
+      lucide.createIcons();
+      _populateMarksSubjectSelect(subjects);
+    });
+  }
+  function saveExamSubject(exam_id) {
+    const subject = document.getElementById('esSubject').value.trim();
+    const full_marks = document.getElementById('esFull').value;
+    const pass_marks = document.getElementById('esPass').value;
+    if (!subject) return;
+    _adminFetch('save_exam_subject', { exam_id, subject, full_marks, pass_marks }).then(res => { if (res && res.result === 'success') selectExamForSubjects(exam_id); });
+  }
+  function deleteExamSubject(id, exam_id) {
+    _adminFetch('delete_exam_subject', { id }).then(res => { if (res && res.result === 'success') selectExamForSubjects(exam_id); });
+  }
+  function _populateMarksSubjectSelect(subjects) {
+    _meSubjects = subjects;
+    const el = document.getElementById('meSubject');
+    if (el) el.innerHTML = '<option value="">Subject…</option>' + subjects.map(s => `<option value="${s.id}">${s.subject}</option>`).join('');
+  }
+
+  function loadMarksEntry() {
+    const exam_subject_id = document.getElementById('meSubject').value;
+    const cls = document.getElementById('meClass').value.trim();
+    const section = document.getElementById('meSection').value.trim();
+    if (!exam_subject_id || !cls) { showToast('Pick a subject and class', 'error'); return; }
+    _adminFetch('get_exam_marks_for_entry', { exam_subject_id, class: cls, section }).then(res => {
+      const roster = (res && res.result === 'success' && res.roster) || [];
+      document.getElementById('marksEntryBody').innerHTML = roster.map(s => `<tr class="border-b border-slate-50">
+        <td class="py-1.5 px-3">${s.roll}</td><td class="py-1.5 px-3">${s.student_name}</td>
+        <td class="py-1.5 px-3"><input type="number" class="marks-entry-input px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:100px" data-student="${s.student_id}" value="${s.marks_obtained}"></td>
+      </tr>`).join('') || '<tr><td colspan="3" class="p-3 text-slate-400 font-bold text-xs">No students found.</td></tr>';
+    });
+  }
+  function saveMarksEntry() {
+    const exam_subject_id = document.getElementById('meSubject').value;
+    const marks = Array.from(document.querySelectorAll('.marks-entry-input')).map(inp => ({ student_id: inp.dataset.student, marks_obtained: inp.value }));
+    const status = document.getElementById('marksEntryStatus');
+    _adminFetch('save_exam_marks_bulk', { exam_subject_id, marks }).then(res => {
+      if (res && (res.result === 'success' || res.result === 'partial')) { status.className = 'text-xs font-bold text-emerald-600 ml-2'; status.textContent = `Saved ${res.saved} of ${marks.length}.`; }
+      else { status.className = 'text-xs font-bold text-red-500 ml-2'; status.textContent = (res && res.message) || 'Failed'; }
+    });
+  }
+
+  function processExamResult() {
+    const exam_id = document.getElementById('prExam').value;
+    if (!exam_id) return;
+    _adminFetch('process_exam_result', { exam_id }).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed', 'error'); return; }
+      document.getElementById('examResultsBody').innerHTML = res.results.map(r => `<tr class="border-b border-slate-50">
+        <td class="py-1.5 px-3">${r.position}</td><td class="py-1.5 px-3">${r.student_id}</td><td class="py-1.5 px-3">${r.total}</td><td class="py-1.5 px-3">${r.percentage}%</td><td class="py-1.5 px-3">${r.gpa}</td><td class="py-1.5 px-3">${r.letter_grade}</td>
+        <td class="py-1.5 px-3"><span class="px-2 py-0.5 rounded-full text-[10px] font-black ${r.pass ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}">${r.pass ? 'Pass' : 'Fail'}</span></td>
+      </tr>`).join('') || '<tr><td colspan="7" class="p-3 text-slate-400 font-bold text-xs">No marks entered yet.</td></tr>';
+    });
+  }
+  function toggleExamLock(locked) {
+    const exam_id = document.getElementById('prExam').value;
+    if (!exam_id) return;
+    _adminFetch('lock_exam', { exam_id, locked }).then(res => { if (res && res.result === 'success') { showToast(locked ? 'Exam locked' : 'Exam unlocked'); loadExams(); } });
+  }
+
+  function loadGradeScales() {
+    _adminFetch('get_grade_scales', {}).then(res => {
+      const scales = (res && res.result === 'success' && res.scales) || [];
+      document.getElementById('gradeScalesBody').innerHTML = scales.map(s => `<tr class="border-b border-slate-50">
+        <td class="py-1.5 px-3">${s.gp}</td><td class="py-1.5 px-3">${s.min_mark}-${s.max_mark}</td><td class="py-1.5 px-3">${s.letter_grade}</td><td class="py-1.5 px-3">${s.label || ''}</td>
+        <td class="py-1.5 px-3"><button onclick="deleteGradeScale(${s.id})" class="w-6 h-6 flex items-center justify-center rounded border border-red-200 text-red-500 hover:bg-red-50"><i data-lucide="trash-2" class="h-3 w-3"></i></button></td>
+      </tr>`).join('') || '<tr><td colspan="5" class="p-3 text-slate-400 font-bold text-xs">No grade scales yet.</td></tr>';
+      lucide.createIcons();
+    });
+  }
+  function saveGradeScale() {
+    const gp = document.getElementById('gsGp').value;
+    const min_mark = document.getElementById('gsMin').value;
+    const max_mark = document.getElementById('gsMax').value;
+    const letter_grade = document.getElementById('gsLetter').value.trim();
+    const label = document.getElementById('gsLabel').value.trim();
+    if (!gp || !letter_grade || min_mark === '' || max_mark === '') { showToast('Fill all fields', 'error'); return; }
+    _adminFetch('save_grade_scale', { category: 'default', gp, min_mark, max_mark, letter_grade, label }).then(res => {
+      if (res && res.result === 'success') {
+        ['gsGp','gsMin','gsMax','gsLetter','gsLabel'].forEach(id => { document.getElementById(id).value = ''; });
+        loadGradeScales();
+      } else showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+  function deleteGradeScale(id) {
+    _adminFetch('delete_grade_scale', { id }).then(res => { if (res && res.result === 'success') loadGradeScales(); });
+  }
+
+  function saveBoardExamRecord() {
+    const student_id = document.getElementById('beStudent').value.trim();
+    const board_exam_type = document.getElementById('beType').value;
+    const registration_number = document.getElementById('beReg').value.trim();
+    const roll_number = document.getElementById('beRoll').value.trim();
+    if (!student_id) { showToast('Student ID required', 'error'); return; }
+    _adminFetch('save_board_exam_record', { student_id, board_exam_type, registration_number, roll_number, academic_year: '2026' }).then(res => {
+      if (res && res.result === 'success') { showToast('Saved'); loadBoardExamRecords(); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+  function loadBoardExamRecords() {
+    _adminFetch('get_board_exam_records', {}).then(res => {
+      const records = (res && res.result === 'success' && res.records) || [];
+      document.getElementById('boardExamBody').innerHTML = records.map(r => `<tr class="border-b border-slate-50"><td class="py-1.5 px-3">${r.student_id}</td><td class="py-1.5 px-3">${r.board_exam_type}</td><td class="py-1.5 px-3">${r.registration_number || ''}</td><td class="py-1.5 px-3">${r.roll_number || ''}</td></tr>`).join('') || '<tr><td colspan="4" class="p-3 text-slate-400 font-bold text-xs">No records yet.</td></tr>';
     });
   }
 
