@@ -414,6 +414,7 @@
   // this list at all — see _studentPortalNavClick/loadViewerPanelView.
   const ADMIN_SUBNAV_ITEMS = [
     { key: 'setup', label: 'Setup', icon: 'sliders-horizontal', erp: false, action: { type: 'native', fn: 'loadAdminSetupView' } },
+    { key: 'add_custom_form', label: '+ Add Custom Form', icon: 'plus-circle', erp: false, action: { type: 'native', fn: 'loadAdminAddCustomFormView' } },
     { key: 'data', label: 'Data', icon: 'table', erp: false, action: { type: 'native', fn: 'loadAdminDataView' } },
     { key: 'access', label: 'Access', icon: 'shield-check', erp: false, action: { type: 'native', fn: 'loadAdminAccessView' } },
     { key: 'fees', label: 'Fees', icon: 'wallet', erp: true, action: { type: 'native', fn: 'loadAdminFeesView' } },
@@ -5444,6 +5445,20 @@
     loadEditableProfileFields();
     loadPermanentTabsAdmin();
     loadLoginPasswordColumnsAdmin();
+  }
+
+  // A direct shortcut to the "create a new custom form" card at the top of
+  // Setup, for admins who just want to add a tab without wading through the
+  // rest of that page (profile fields, permanent tabs, login settings...).
+  // Reuses loadAdminSetupView entirely — the card is already the first
+  // thing on that page and always renders blank/ready, since the whole view
+  // is freshly rebuilt from scratch on every navigation (editTab() only
+  // fills it in mid-session, never carrying over into the next render).
+  function loadAdminAddCustomFormView() {
+    loadAdminSetupView();
+    setActiveNavLink('nav-erp-add_custom_form');
+    setContentHeader('Add Custom Form', 'plus-circle');
+    setTimeout(() => { document.getElementById('newTabName')?.focus(); }, 50);
   }
 
   function loadIncludeFields(selectedKeys = []) {

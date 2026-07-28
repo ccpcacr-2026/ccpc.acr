@@ -98,7 +98,7 @@ const RESERVED = [
   'toggleGPPassword','saveGPConfig','verifyGPConnection','addBusRow',
   'checkBusStatus','saveBusConfig','addPlaceRow','savePlaceConfig',
   // Setup tab native port (tab builder)
-  'loadAdminSetupView','_toggleFieldChip','updateIncludeCount','updateEditableCount',
+  'loadAdminSetupView','loadAdminAddCustomFormView','_toggleFieldChip','updateIncludeCount','updateEditableCount',
   'saveEditableProfileFields','togglePermanentTab','toggleLoginPasswordColumn',
   'saveNewTab','addTabRow','addConditionRow','duplicateField','cutField',
   'copyField','pasteField','promoteTab','unpromoteTab','editTab',
