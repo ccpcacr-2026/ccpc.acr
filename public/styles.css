@@ -384,6 +384,22 @@ button { user-select: none; }
 .nav-link.active .nav-text { font-weight:800; }
 .nav-section-label { display:flex; align-items:center; gap:8px; padding:8px 8px 3px; }
 .nav-section-label-text { font-size:8px; font-weight:900; color:#334155; text-transform:uppercase; letter-spacing:0.2em; white-space:nowrap; transition:all 0.3s; }
+
+/* ── "Student Portal" accordion header + its nested sub-links ──
+   nav-link's own onclick (_studentPortalNavClick) toggles `.expanded` on
+   itself and `.collapsed` on the sibling #erp-links host — this is the
+   CSS half of that behavior (chevron rotation + show/hide + sub-link
+   sizing/indent so the nested items read as children, not more headers). */
+.nav-chevron { width:12px; height:12px; margin-left:auto; flex-shrink:0; color:#475569; transition:transform 0.2s; }
+.nav-link.expanded .nav-chevron { transform:rotate(90deg); color:#a5b4fc; }
+#erp-links { overflow:hidden; max-height:1000px; transition:max-height 0.25s ease; padding-left:14px; border-left:1px solid rgba(255,255,255,0.06); margin-left:19px; }
+#erp-links.collapsed { max-height:0; }
+.nav-sublink { padding:4px 8px; gap:7px; }
+.nav-sublink .nav-icon-box { width:20px; height:20px; border-radius:6px; background:transparent; }
+.nav-sublink .nav-icon { width:11px; height:11px; }
+.nav-sublink .nav-text { font-size:11px; font-weight:500; color:#94a3b8; }
+.nav-sublink:hover .nav-text, .nav-sublink.active .nav-text { color:#fff; }
+.nav-sublink.active { background:rgba(99,102,241,0.14); }
 .sb-divider { height:1px; background:rgba(255,255,255,0.05); margin:8px 4px; }
 .sb-logout-btn:hover { background:rgba(239,68,68,0.18) !important; border-color:rgba(239,68,68,0.35) !important; color:#fff !important; }
 .sidebar-collapsed { width:68px !important; }
