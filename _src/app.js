@@ -392,7 +392,9 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'get_my_access', payload: {}, user_id: myId })
     }).then(r => r.ok ? r.json() : null).then(res => {
-      if (res && res.result === 'success' && Array.isArray(res.categories) && res.categories.length) {
+      const hasCategories = res && res.result === 'success' && Array.isArray(res.categories) && res.categories.length;
+      const hasClassAccess = res && res.result === 'success' && Array.isArray(res.classAccess) && res.classAccess.length;
+      if (hasCategories || hasClassAccess) {
         window._hasFieldCategoryAccess = true; // loadStudentPortalView's own role gate checks this too
         navEl.style.display = '';
         const container = document.getElementById('admin-links');
@@ -3229,6 +3231,24 @@
         </div>
 
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+          <p class="font-black text-slate-800 text-sm flex items-center gap-2 mb-1"><i data-lucide="layers" class="h-4 w-4 text-blue-600"></i>Class-Wide Access</p>
+          <p class="text-xs text-slate-400 font-bold mt-1 mb-4">A stronger grant than a Field Category: everything for a class/section/group — every core student field <em>and</em> every custom tab's data — not just a named set of columns. Pick a teacher/staff, tick which class-sections they get, and whether they can edit as well as view.</p>
+          <div id="classWideGrantees" class="flex flex-wrap gap-2 mb-3"></div>
+          <div class="grid md:grid-cols-2 gap-0 border border-slate-200 rounded-2xl overflow-hidden" style="min-height:280px">
+            <div class="flex flex-col border-r border-slate-100">
+              <div class="p-3 border-b border-slate-100"><input type="text" id="cwaFilter" oninput="filterClassWideStaff()" placeholder="Search by name, ID, shortname or phone…" autocomplete="off" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></div>
+              <div id="cwaStaffList" class="p-2 overflow-y-auto" style="flex:1;max-height:260px"><div class="text-center p-6"><i data-lucide="loader-2" class="h-5 w-5 animate-spin inline text-blue-600"></i></div></div>
+            </div>
+            <div class="p-4 overflow-y-auto" style="flex:1;max-height:280px">
+              <div id="cwaSections"><div class="text-center text-xs text-slate-400 font-bold py-10">Pick a teacher on the left to assign class-sections.</div></div>
+            </div>
+          </div>
+          <div class="flex justify-end mt-3">
+            <button id="cwaSaveBtn" onclick="saveClassWideAccess()" disabled class="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all disabled:opacity-40">Save</button>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
           <p class="font-black text-slate-800 text-sm flex items-center gap-2 mb-3"><i data-lucide="search" class="h-4 w-4 text-blue-600"></i>Search &amp; Update Students</p>
           <div class="grid grid-cols-2 md:grid-cols-6 gap-2 mb-3">
             <input type="text" id="stuSearchId" placeholder="Student ID" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none">
@@ -3307,6 +3327,7 @@
     loadAdminTabVisibility();
     loadFieldCategories();
     loadFieldGrants();
+    loadClassWideAccess();
   }
 
   function loadAdminTabVisibility() {
@@ -3522,6 +3543,135 @@
         if (_grantSelectedUser === uid) selectGrantUser(uid);
         renderGrantStaffList();
         renderFieldGrantsList();
+      }
+    });
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Class-Wide Access — a stronger, class/section/group-scoped grant than
+  // a Field Category: the grantee's Viewer Panel gets every core student
+  // field (not a named subset) AND every custom tab's submission data for
+  // students inside their granted combos, with edit rights when checked.
+  // Same two-pane staff-picker + class-section-checkbox idiom as the Data
+  // tab's per-tab Class Access, just without a tab_name (this covers all
+  // of them) and with an added "Can edit" toggle per class-section.
+  // ══════════════════════════════════════════════════════════════════════
+  let _cwaStaff = [], _cwaClassSections = [], _cwaGrants = {}, _cwaSelectedUser = null;
+
+  function loadClassWideAccess() {
+    Promise.all([_adminFetch('get_staff_directory', {}), _adminFetch('get_class_sections', {}), _adminFetch('get_class_access_grants', {})])
+      .then(([staff, sections, grantsRes]) => {
+        _cwaStaff = Array.isArray(staff) ? staff : [];
+        _cwaClassSections = Array.isArray(sections) ? sections : [];
+        _cwaGrants = {};
+        ((grantsRes && grantsRes.grants) || []).forEach(g => { _cwaGrants[g.user_id] = g.class_sections || []; });
+        renderClassWideStaff();
+        renderClassWideGrantees();
+      }).catch(() => {});
+  }
+  function renderClassWideStaff() {
+    const list = document.getElementById('cwaStaffList');
+    if (!list) return;
+    if (!_cwaStaff.length) { list.innerHTML = '<div class="text-xs text-slate-400 font-bold">No teacher/staff accounts found.</div>'; return; }
+    list.innerHTML = _cwaStaff.map(u => {
+      const search = [u.full_name, u.user_id, u.shortname, u.phone].filter(Boolean).join(' ').toLowerCase();
+      const selected = _cwaSelectedUser === u.user_id;
+      const grantCount = (_cwaGrants[u.user_id] || []).length;
+      return `<div class="cwa-staff-row py-1.5 px-2 rounded-lg mb-1 cursor-pointer ${selected ? 'bg-blue-600 text-white' : 'hover:bg-slate-50'}" data-uid="${u.user_id}" data-search="${search.replace(/"/g, '&quot;')}" onclick="selectClassWideUser(this.dataset.uid)">
+        <div class="flex justify-between items-start gap-2">
+          <div class="truncate">
+            <span class="font-black text-xs">${u.full_name || u.user_id}</span>
+            ${u.shortname ? `<span class="text-[9px] font-black rounded px-1 py-0.5 ml-1 ${selected ? 'bg-white/20' : 'bg-slate-100 text-slate-500'}">${u.shortname}</span>` : ''}
+            <div class="text-[11px] ${selected ? 'text-white/80' : 'text-slate-400'}">${u.user_id}${u.phone ? ' · ' + u.phone : ''}</div>
+          </div>
+          ${grantCount ? `<span class="text-[9px] font-black rounded-full px-1.5 py-0.5 shrink-0 ${selected ? 'bg-white text-blue-600' : 'bg-emerald-500 text-white'}">${grantCount}</span>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+    filterClassWideStaff();
+  }
+  function filterClassWideStaff() {
+    const q = (document.getElementById('cwaFilter') || {}).value?.toLowerCase() || '';
+    document.querySelectorAll('.cwa-staff-row').forEach(row => { row.style.display = row.dataset.search.includes(q) ? '' : 'none'; });
+  }
+  function renderClassWideGrantees() {
+    const host = document.getElementById('classWideGrantees');
+    if (!host) return;
+    const entries = Object.entries(_cwaGrants).filter(([, cs]) => cs.length);
+    host.innerHTML = entries.length ? entries.map(([uid, cs]) => {
+      const person = _cwaStaff.find(s => s.user_id === uid);
+      const editCount = cs.filter(c => c.can_edit).length;
+      return `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full text-[11px] font-bold">${(person && person.full_name) || uid} · ${cs.length} class${cs.length === 1 ? '' : 'es'}${editCount ? ` (${editCount} editable)` : ''} <i data-lucide="x-circle" class="h-3 w-3 cursor-pointer" onclick="removeClassWideAccess('${uid.replace(/'/g, "\\'")}')"></i></span>`;
+    }).join('') : '<span class="text-xs text-slate-400 font-bold italic">No class-wide grants yet.</span>';
+    lucide.createIcons();
+  }
+  function selectClassWideUser(uid) {
+    _cwaSelectedUser = uid;
+    renderClassWideStaff();
+    const host = document.getElementById('cwaSections');
+    const saveBtn = document.getElementById('cwaSaveBtn');
+    if (saveBtn) saveBtn.disabled = false;
+    const granted = {};
+    (_cwaGrants[uid] || []).forEach(cs => { granted[`${cs.class}|${cs.section}|${cs.group || 'None'}`] = cs.can_edit; });
+    const person = _cwaStaff.find(s => s.user_id === uid);
+    host.innerHTML = `
+      <div class="flex justify-between items-center mb-2">
+        <span class="text-xs font-black text-slate-700">Class-sections for ${(person && person.full_name) || uid}</span>
+        <span class="flex gap-2">
+          <button onclick="toggleAllClassWideSections(true)" class="text-[10px] font-black uppercase text-blue-600">Select all</button>
+          <button onclick="toggleAllClassWideSections(false)" class="text-[10px] font-black uppercase text-slate-400">Clear</button>
+        </span>
+      </div>
+      <div class="flex flex-col gap-1">
+        ${_cwaClassSections.map(cs => {
+          const grp = cs.group || 'None';
+          const key = `${cs.class}|${cs.section}|${grp}`;
+          const label = grp !== 'None' ? `${cs.class}-${cs.section}-${grp}` : `${cs.class}-${cs.section}`;
+          const isGranted = key in granted;
+          return `<div class="flex items-center justify-between gap-2 text-xs border border-slate-200 rounded-lg px-2.5 py-1.5">
+            <label class="flex items-center gap-2 cursor-pointer" style="min-width:140px">
+              <input type="checkbox" class="cwa-section-check" value="${key.replace(/"/g, '&quot;')}" ${isGranted ? 'checked' : ''} onchange="_syncCwaEditCheckbox(this)">${label}
+            </label>
+            <label class="flex items-center gap-2 text-slate-400 cursor-pointer">
+              <input type="checkbox" class="cwa-section-edit-check" value="${key.replace(/"/g, '&quot;')}" ${isGranted && granted[key] ? 'checked' : ''} ${isGranted ? '' : 'disabled'} onchange="if(this.checked) this.closest('div').querySelector('.cwa-section-check').checked = true">Can edit
+            </label>
+          </div>`;
+        }).join('')}
+      </div>`;
+  }
+  function _syncCwaEditCheckbox(mainCb) {
+    const editCb = mainCb.closest('div').querySelector('.cwa-section-edit-check');
+    if (!editCb) return;
+    editCb.disabled = !mainCb.checked;
+    if (!mainCb.checked) editCb.checked = false;
+  }
+  function toggleAllClassWideSections(on) {
+    document.querySelectorAll('.cwa-section-check').forEach(c => { c.checked = on; _syncCwaEditCheckbox(c); });
+  }
+  function saveClassWideAccess() {
+    if (!_cwaSelectedUser) return;
+    const editSet = new Set(Array.from(document.querySelectorAll('.cwa-section-edit-check:checked')).map(c => c.value));
+    const class_sections = Array.from(document.querySelectorAll('.cwa-section-check:checked')).map(c => {
+      const [cls, sec, grp] = c.value.split('|');
+      return { class: cls, section: sec, group: grp, can_edit: editSet.has(c.value) };
+    });
+    _adminFetch('set_class_access_grants', { user_id: _cwaSelectedUser, class_sections }).then(res => {
+      if (res && res.result === 'success') {
+        _cwaGrants[_cwaSelectedUser] = class_sections;
+        renderClassWideGrantees();
+        renderClassWideStaff();
+        showToast(`${res.count} class-section${res.count === 1 ? '' : 's'} granted`);
+      } else showToast((res && res.message) || 'Save failed', 'error');
+    });
+  }
+  function removeClassWideAccess(uid) {
+    _adminFetch('set_class_access_grants', { user_id: uid, class_sections: [] }).then(res => {
+      if (res && res.result === 'success') {
+        delete _cwaGrants[uid];
+        renderClassWideGrantees();
+        renderClassWideStaff();
+        if (_cwaSelectedUser === uid) selectClassWideUser(uid);
+        showToast('Access revoked');
       }
     });
   }
@@ -6627,7 +6777,9 @@
     container.innerHTML = `<div class="text-center p-10"><i data-lucide="loader-2" class="h-6 w-6 animate-spin inline text-blue-600"></i></div>`;
     lucide.createIcons();
     _adminFetch('get_my_access', {}).then(res => {
-      if (!res || res.result !== 'success' || !Array.isArray(res.fields) || !res.fields.length) {
+      const hasFieldAccess = res && res.result === 'success' && Array.isArray(res.fields) && res.fields.length;
+      const hasClassAccess = res && res.result === 'success' && Array.isArray(res.classAccess) && res.classAccess.length;
+      if (!hasFieldAccess && !hasClassAccess) {
         container.innerHTML = `<div class="text-center p-10 text-slate-400 font-bold text-sm">Your account does not have Student Portal admin access.</div>`;
         return;
       }
@@ -6640,12 +6792,16 @@
     if (!container || !_vwAccess) return;
     const fields = _vwAccess.fields || [];
     const categories = _vwAccess.categories || [];
-    const canEdit = (_vwAccess.editable_fields || []).length > 0;
+    const classAccess = _vwAccess.classAccess || [];
+    const canEdit = (_vwAccess.editable_fields || []).length > 0 || classAccess.some(g => g.can_edit);
     setContentHeader(`Student Data ${canEdit ? 'Viewer & Editor' : 'Viewer'}`, 'eye');
+    const grantedScopeText = classAccess.map(g => g.group && g.group !== 'None' ? `${g.class}-${g.section}-${g.group}` : `${g.class}-${g.section}`).join(', ');
     container.innerHTML = `
       <div class="mb-4">
         <h2 class="text-2xl font-black text-slate-800 tracking-tight">Student Data ${canEdit ? 'Viewer &amp; Editor' : 'Viewer'}</h2>
-        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Granted: ${categories.join(', ')}</p>
+        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">
+          ${categories.length ? `Categories: ${categories.join(', ')}` : ''}${categories.length && classAccess.length ? ' · ' : ''}${classAccess.length ? `Full access: ${grantedScopeText}` : ''}
+        </p>
       </div>
       <div class="grid grid-cols-2 md:grid-cols-6 gap-2 mb-3">
         <input type="text" id="vwSearchId" placeholder="Student ID" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
@@ -6659,21 +6815,40 @@
         <div class="flex items-center gap-2">
           ${categories.length > 1
             ? `<select id="vwCategorySelect" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">${categories.map(c => `<option value="${c}">${c}</option>`).join('')}</select><button onclick="viewerDownload()" class="px-3 py-2 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Download CSV</button>`
-            : `<button onclick="viewerDownload('${categories[0] || ''}')" class="px-3 py-2 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Download CSV</button>`}
+            : categories.length ? `<button onclick="viewerDownload('${categories[0] || ''}')" class="px-3 py-2 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Download CSV</button>` : ''}
         </div>
         ${canEdit ? `<div class="flex items-center gap-2">
           <label class="flex items-center gap-1.5 text-[10px] font-black text-slate-400 uppercase"><input type="checkbox" id="vwSelectAll" onchange="toggleAllViewerRows(this.checked)">Select all</label>
           <button id="vwBulkEditBtn" onclick="viewerOpenBulkEditModal()" disabled class="px-3 py-2 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 disabled:opacity-40 transition-all">Bulk Edit Selected (<span id="vwSelectedCount">0</span>)</button>
         </div>` : ''}
       </div>
-      <div class="overflow-auto border border-slate-200 rounded-xl">
+      <div class="overflow-auto border border-slate-200 rounded-xl mb-4">
         <table class="w-full text-left border-collapse text-xs">
           <thead class="bg-slate-50"><tr id="vwHeaders">${canEdit ? '<th style="width:28px"></th>' : ''}${fields.map(f => `<th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">${f.replace(/_/g, ' ')}</th>`).join('')}</tr></thead>
           <tbody id="vwBody"><tr><td colspan="100" class="text-center text-slate-400 font-bold text-xs p-6">Search above to see results.</td></tr></tbody>
         </table>
       </div>
+      ${classAccess.length ? `
+      <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+        <p class="font-black text-slate-800 text-sm flex items-center gap-2 mb-1"><i data-lucide="folder-open" class="h-4 w-4 text-blue-600"></i>Custom Tab Data</p>
+        <p class="text-xs text-slate-400 font-bold mt-1 mb-4">Browse or edit a student's submission for any custom tab — only for students inside your granted class access above.</p>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+          <input type="text" id="vwTabStudentId" placeholder="Student ID" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+          <select id="vwTabSelect" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"><option value="">Loading tabs…</option></select>
+          <button onclick="loadClassTabData()" class="px-3 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Load</button>
+        </div>
+        <div id="vwTabDataArea"></div>
+      </div>` : ''}
     `;
     lucide.createIcons();
+    if (classAccess.length) {
+      _adminFetch('get_class_tabs', {}).then(res => {
+        const sel = document.getElementById('vwTabSelect');
+        if (!sel) return;
+        const tabs = (res && res.result === 'success' && res.tabs) || [];
+        sel.innerHTML = tabs.length ? tabs.map(t => `<option value="${t.tab_name}">${t.tab_name}</option>`).join('') : '<option value="">No tabs available</option>';
+      });
+    }
   }
   function viewerSearch() {
     const payload = {
@@ -6683,16 +6858,53 @@
       roll: document.getElementById('vwSearchRoll').value.trim(),
       group: document.getElementById('vwSearchGroup').value.trim(),
     };
-    const canEdit = ((_vwAccess && _vwAccess.editable_fields) || []).length > 0;
+    const canEdit = ((_vwAccess && _vwAccess.editable_fields) || []).length > 0 || ((_vwAccess && _vwAccess.classAccess) || []).some(g => g.can_edit);
     _adminFetch('search_students', payload).then(res => {
       const body = document.getElementById('vwBody');
       if (!res || res.result !== 'success' || !res.rows.length) { body.innerHTML = `<tr><td colspan="100" class="text-center text-slate-400 font-bold text-xs p-6">No students matched.</td></tr>`; updateViewerSelectedCount(); return; }
       const headers = res.headers || Object.keys(res.rows[0]);
+      // The header row must track whatever columns this particular search
+      // actually returned — a class-wide grantee's rows can carry more
+      // columns than the field-category set the table was first drawn with.
+      const headEl = document.getElementById('vwHeaders');
+      if (headEl) headEl.innerHTML = (canEdit ? '<th style="width:28px"></th>' : '') + headers.map(h => `<th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">${h.replace(/_/g, ' ')}</th>`).join('');
       body.innerHTML = res.rows.map(r => `<tr class="border-b border-slate-50">
         ${canEdit ? `<td class="py-1.5 px-3"><input type="checkbox" class="vw-row-check" value="${String(r.student_id).replace(/"/g, '&quot;')}" onchange="updateViewerSelectedCount()"></td>` : ''}
         ${headers.map(h => `<td class="py-1.5 px-3 text-slate-600 font-bold">${r[h] ?? ''}</td>`).join('')}
       </tr>`).join('');
       updateViewerSelectedCount();
+    });
+  }
+  function loadClassTabData() {
+    const student_id = document.getElementById('vwTabStudentId').value.trim();
+    const tab_name = document.getElementById('vwTabSelect').value;
+    const area = document.getElementById('vwTabDataArea');
+    if (!student_id || !tab_name) { showToast('Enter a Student ID and pick a tab', 'error'); return; }
+    area.innerHTML = '<div class="text-center p-6"><i data-lucide="loader-2" class="h-5 w-5 animate-spin inline text-blue-600"></i></div>';
+    lucide.createIcons();
+    _adminFetch('get_class_student_tab_data', { student_id, tab_name }).then(res => {
+      if (!res || res.result !== 'success') { area.innerHTML = `<div class="text-xs text-red-500 font-bold p-3">${(res && res.message) || 'Could not load tab data'}</div>`; return; }
+      const fields = (res.fields || []).filter(f => f.type !== 'group_label' && (f.data_key || f.id));
+      const data = res.data || {};
+      area.innerHTML = `
+        <div class="border border-slate-200 rounded-xl p-4 flex flex-col gap-3">
+          ${fields.length ? fields.map(f => {
+            const key = f.data_key || f.id;
+            const val = data[key] ?? '';
+            return `<div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">${f.name || f.label || key}</label>
+              <input type="text" class="vw-tab-field w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm" data-key="${key}" value="${String(val).replace(/"/g, '&quot;')}" ${res.can_edit ? '' : 'disabled'}></div>`;
+          }).join('') : '<span class="text-xs text-slate-400 font-bold italic">This tab has no fields configured.</span>'}
+          ${res.can_edit && fields.length ? `<button onclick="saveClassTabData('${student_id.replace(/'/g, "\\'")}', '${tab_name.replace(/'/g, "\\'")}')" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all self-end">Save</button>` : ''}
+        </div>`;
+      lucide.createIcons();
+    }).catch(() => { area.innerHTML = '<div class="text-xs text-red-500 font-bold p-3">Network error</div>'; });
+  }
+  function saveClassTabData(student_id, tab_name) {
+    const data = {};
+    document.querySelectorAll('.vw-tab-field').forEach(inp => { data[inp.dataset.key] = inp.value; });
+    _adminFetch('save_class_student_tab_data', { student_id, tab_name, data }).then(res => {
+      if (res && res.result === 'success') showToast('Saved');
+      else showToast((res && res.message) || 'Save failed', 'error');
     });
   }
   function toggleAllViewerRows(checked) {

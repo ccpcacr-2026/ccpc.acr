@@ -291,6 +291,26 @@ async function _getEditorFields(userId) {
   return _fieldsForCategories(await _getEditorCategories(userId));
 }
 
+// ── Class-wide access (viewers) ──────────────────────────────────────────
+// A stronger grant than a field category: covers EVERY core student field
+// (same set an admin can edit, minus the same locked financial/security
+// columns) AND every custom tab's submission data — but only for students
+// inside the granted class+section+group combos. A user can hold any mix
+// of field-category and class-wide grants at once; every VIEWER_SAFE_ACTIONS
+// handler below unions whatever each type grants rather than picking one.
+async function _getClassAccessGrants(userId) {
+  if (!userId) return [];
+  const rows = await sb(`class_access_grants?user_id=eq.${encodeURIComponent(userId)}&select=class,section,group,can_edit`);
+  if (rows?.error) return [];
+  return rows;
+}
+function _studentMatchesGrant(student, grant) {
+  const grp = String(student.group || '').trim() || 'None';
+  return String(student.class || '').trim() === grant.class
+    && String(student.section || '').trim() === grant.section
+    && grp === (grant.group || 'None');
+}
+
 // Shared chunked-PATCH used by both the full-admin bulk_update_students and
 // the field-restricted viewer_bulk_update_students below.
 async function _bulkPatchStudents(ids, updates) {
@@ -342,7 +362,10 @@ async function _downloadByCategory(categoryName, filters) {
 
 // Actions a restricted viewer (not a full Admin) may call. Everything else
 // on this route still requires _isAdmin, exactly as before this feature.
-const VIEWER_SAFE_ACTIONS = new Set(['get_my_access', 'search_students', 'download_students_by_category', 'viewer_bulk_update_students']);
+const VIEWER_SAFE_ACTIONS = new Set([
+  'get_my_access', 'search_students', 'download_students_by_category', 'viewer_bulk_update_students',
+  'get_class_tabs', 'get_class_student_tab_data', 'save_class_student_tab_data',
+]);
 
 // Device-to-server sync endpoint's actual logic — authenticated by matching
 // ip+credentials against a registered attendance_devices row (see the
@@ -435,27 +458,44 @@ export async function POST(req) {
     isAdmin = await _isAdmin(user_id);
   }
   let viewerCategories = [];
+  let classGrants = [];
   if (!isAdmin) {
     if (!VIEWER_SAFE_ACTIONS.has(action)) {
       return NextResponse.json({ result: 'error', message: 'Admin access required.' }, { status: 403 });
     }
-    viewerCategories = await _getViewerCategories(user_id);
-    if (!viewerCategories.length) {
+    [viewerCategories, classGrants] = await Promise.all([_getViewerCategories(user_id), _getClassAccessGrants(user_id)]);
+    if (!viewerCategories.length && !classGrants.length) {
       return NextResponse.json({ result: 'error', message: 'No data access has been granted to this account.' }, { status: 403 });
     }
   }
 
-  // ── Viewer-only actions (isAdmin === false, viewerCategories is non-empty) ──
+  // ── Viewer-only actions (isAdmin === false, viewerCategories/classGrants non-empty) ──
   if (!isAdmin && action === 'get_my_access') {
     const fields = await _getViewerFields(user_id);
     const editableFields = await _getEditorFields(user_id);
-    return NextResponse.json({ result: 'success', categories: viewerCategories, fields, editable_fields: editableFields });
+    return NextResponse.json({ result: 'success', categories: viewerCategories, fields, editable_fields: editableFields, classAccess: classGrants });
   }
   if (!isAdmin && action === 'search_students') {
+    // Class-wide grants see every core field for matching students, taking
+    // priority on overlap; field-category grants fill in the rest (limited
+    // fields, but every student) for whoever isn't already covered above.
+    const results = [];
+    const seen = new Set();
+    if (classGrants.length) {
+      const fullRows = await _searchStudents(payload, null);
+      if (!fullRows?.error) {
+        fullRows.forEach(r => { if (classGrants.some(g => _studentMatchesGrant(r, g))) { seen.add(r.student_id); results.push(r); } });
+      }
+    }
     const fields = await _getViewerFields(user_id);
-    const rows = await _searchStudents(payload, fields);
-    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
-    return NextResponse.json({ result: 'success', headers: fields, rows });
+    if (fields.length) {
+      const catRows = await _searchStudents(payload, fields);
+      if (!catRows?.error) catRows.forEach(r => { if (!seen.has(r.student_id)) { seen.add(r.student_id); results.push(r); } });
+    }
+    const allKeys = new Set();
+    results.forEach(r => Object.keys(r).forEach(k => allKeys.add(k)));
+    const headers = allKeys.size ? [...allKeys] : fields;
+    return NextResponse.json({ result: 'success', headers, rows: results });
   }
   if (!isAdmin && action === 'download_students_by_category') {
     const { category_name } = payload;
@@ -464,22 +504,77 @@ export async function POST(req) {
     }
     return NextResponse.json(await _downloadByCategory(category_name, payload));
   }
+  if (!isAdmin && action === 'get_class_tabs') {
+    if (!classGrants.length) return NextResponse.json({ result: 'error', message: 'No class access granted.' }, { status: 403 });
+    const tabRows = await sb('portal_tabs?select=tab_name,is_enabled&order=sort_order.asc,id.asc');
+    if (tabRows?.error) return NextResponse.json({ result: 'error', message: tabRows.error });
+    return NextResponse.json({ result: 'success', tabs: (tabRows || []).filter(t => t.is_enabled).map(t => ({ tab_name: t.tab_name })) });
+  }
+  if (!isAdmin && action === 'get_class_student_tab_data') {
+    if (!classGrants.length) return NextResponse.json({ result: 'error', message: 'No class access granted.' }, { status: 403 });
+    const { student_id, tab_name } = payload || {};
+    if (!student_id || !tab_name) return NextResponse.json({ result: 'error', message: 'student_id and tab_name required.' });
+    const studentRows = await sb(`students_data?student_id=eq.${encodeURIComponent(student_id)}&select=*`);
+    if (studentRows?.error || !studentRows.length) return NextResponse.json({ result: 'error', message: 'Student not found.' });
+    const grant = classGrants.find(g => _studentMatchesGrant(studentRows[0], g));
+    if (!grant) return NextResponse.json({ result: 'error', message: 'This student is outside your granted class access.' }, { status: 403 });
+    const tabRows = await sb(`portal_tabs?tab_name=eq.${encodeURIComponent(tab_name)}&select=fields_json`);
+    if (tabRows?.error || !tabRows.length) return NextResponse.json({ result: 'error', message: 'Tab not found.' });
+    let fields = [];
+    try { fields = JSON.parse(tabRows[0].fields_json || '[]'); } catch {}
+    const subRows = await sb(`portal_submissions?student_id=eq.${encodeURIComponent(student_id)}&tab_name=eq.${encodeURIComponent(tab_name)}&select=data`);
+    const data = (!subRows?.error && subRows.length) ? subRows[0].data : {};
+    return NextResponse.json({ result: 'success', fields, data: data || {}, can_edit: !!grant.can_edit });
+  }
+  if (!isAdmin && action === 'save_class_student_tab_data') {
+    if (!classGrants.length) return NextResponse.json({ result: 'error', message: 'No class access granted.' }, { status: 403 });
+    const { student_id, tab_name, data } = payload || {};
+    if (!student_id || !tab_name) return NextResponse.json({ result: 'error', message: 'student_id and tab_name required.' });
+    const studentRows = await sb(`students_data?student_id=eq.${encodeURIComponent(student_id)}&select=*`);
+    if (studentRows?.error || !studentRows.length) return NextResponse.json({ result: 'error', message: 'Student not found.' });
+    const grant = classGrants.find(g => _studentMatchesGrant(studentRows[0], g));
+    if (!grant || !grant.can_edit) return NextResponse.json({ result: 'error', message: 'You do not have edit access for this student.' }, { status: 403 });
+    const cleanData = (data && typeof data === 'object') ? data : {};
+    const existing = await sb(`portal_submissions?student_id=eq.${encodeURIComponent(student_id)}&tab_name=eq.${encodeURIComponent(tab_name)}&select=id`);
+    const r = (!existing?.error && existing.length)
+      ? await sb(`portal_submissions?id=eq.${existing[0].id}`, 'PATCH', { data: cleanData, submitted_at: new Date().toISOString() })
+      : await sb('portal_submissions', 'POST', { student_id, tab_name, data: cleanData });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
   if (!isAdmin && action === 'viewer_bulk_update_students') {
     const editableFields = await _getEditorFields(user_id);
-    if (!editableFields.length) {
-      return NextResponse.json({ result: 'error', message: 'You do not have edit access to any category.' }, { status: 403 });
-    }
     const { student_ids, updates } = payload;
     const ids = Array.isArray(student_ids) ? [...new Set(student_ids.map(s => String(s || '').trim()).filter(Boolean))] : [];
-    // Silently drop any key outside the grantee's editable fields — this is
-    // the server-side enforcement of "editor can edit only their granted
-    // category's fields", never trusting what the client claims it's editing.
-    const cleanUpdates = (updates && typeof updates === 'object') ? Object.fromEntries(
-      Object.entries(updates).filter(([k, v]) => editableFields.includes(k) && k !== 'student_id' && v !== '' && v !== null && v !== undefined)
-    ) : {};
     if (!ids.length) return NextResponse.json({ result: 'error', message: 'Select at least one student.' });
-    if (!Object.keys(cleanUpdates).length) return NextResponse.json({ result: 'error', message: 'Set at least one field you have edit access to.' });
-    const { updated, errors } = await _bulkPatchStudents(ids, cleanUpdates);
+
+    // Students covered by a can_edit class-wide grant get full-field edit
+    // rights; everyone else stays limited to the category-based
+    // editableFields (if any) — never trusting the client's claim either way.
+    const classEditableIds = new Set();
+    if (classGrants.some(g => g.can_edit)) {
+      const rows = await sb(`students_data?student_id=in.(${ids.map(encodeURIComponent).join(',')})&select=student_id,class,section,group`);
+      if (!rows?.error) rows.forEach(r => { if (classGrants.some(g => g.can_edit && _studentMatchesGrant(r, g))) classEditableIds.add(r.student_id); });
+    }
+    if (!editableFields.length && !classEditableIds.size) {
+      return NextResponse.json({ result: 'error', message: 'You do not have edit access to any category.' }, { status: 403 });
+    }
+
+    const rawUpdates = (updates && typeof updates === 'object') ? updates : {};
+    const categoryUpdates = Object.fromEntries(Object.entries(rawUpdates).filter(([k, v]) => editableFields.includes(k) && k !== 'student_id' && v !== '' && v !== null && v !== undefined));
+    const fullUpdates = Object.fromEntries(Object.entries(rawUpdates).filter(([k, v]) => k !== 'student_id' && k !== 'id' && v !== '' && v !== null && v !== undefined));
+    const categoryIds = ids.filter(id => !classEditableIds.has(id));
+
+    let updated = 0; const errors = [];
+    if (classEditableIds.size && Object.keys(fullUpdates).length) {
+      const r = await _bulkPatchStudents([...classEditableIds], fullUpdates);
+      updated += r.updated; errors.push(...r.errors);
+    }
+    if (categoryIds.length && Object.keys(categoryUpdates).length) {
+      const r = await _bulkPatchStudents(categoryIds, categoryUpdates);
+      updated += r.updated; errors.push(...r.errors);
+    }
+    if (!updated && !errors.length) return NextResponse.json({ result: 'error', message: 'Set at least one field you have edit access to.' });
     return NextResponse.json({ result: errors.length ? 'partial' : 'success', updated, errors });
   }
 
@@ -818,6 +913,33 @@ export async function POST(req) {
     if (clean.length) {
       const ins = await sb('field_access_grants', 'POST', clean.map(c => ({ user_id: granteeId, category_name: c.name, can_edit: c.can_edit })));
       if (ins?.error) return NextResponse.json({ result: 'error', message: 'One or more category names do not exist: ' + ins.error });
+    }
+    return NextResponse.json({ result: 'success', count: clean.length });
+  }
+
+  // ── Class-wide access grants (admin management) — a stronger, class-
+  // scoped counterpart to the field categories above: every core field +
+  // every custom tab's data for students in the granted class/section/
+  // group combos, not just a named set of columns. Same replace-all-per-
+  // user_id idiom as set_field_access_grants/set_tab_class_access. ────────
+  if (action === 'get_class_access_grants') {
+    const rows = await sb('class_access_grants?select=user_id,class,section,group,can_edit&order=user_id.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    const byUser = {};
+    rows.forEach(r => { (byUser[r.user_id] = byUser[r.user_id] || []).push({ class: r.class, section: r.section, group: r.group || 'None', can_edit: !!r.can_edit }); });
+    return NextResponse.json({ result: 'success', grants: Object.entries(byUser).map(([user_id, class_sections]) => ({ user_id, class_sections })) });
+  }
+  if (action === 'set_class_access_grants') {
+    const { user_id: granteeId, class_sections } = payload;
+    if (!granteeId) return NextResponse.json({ result: 'error', message: 'User required.' });
+    const clean = (Array.isArray(class_sections) ? class_sections : [])
+      .map(cs => ({ class: String(cs.class || '').trim(), section: String(cs.section || '').trim(), group: String(cs.group || '').trim() || 'None', can_edit: !!cs.can_edit }))
+      .filter(cs => cs.class && cs.section);
+    const del = await sb(`class_access_grants?user_id=eq.${encodeURIComponent(granteeId)}`, 'DELETE');
+    if (del?.error) return NextResponse.json({ result: 'error', message: del.error });
+    if (clean.length) {
+      const ins = await sb('class_access_grants', 'POST', clean.map(cs => ({ user_id: granteeId, class: cs.class, section: cs.section, group: cs.group, can_edit: cs.can_edit })));
+      if (ins?.error) return NextResponse.json({ result: 'error', message: ins.error });
     }
     return NextResponse.json({ result: 'success', count: clean.length });
   }

@@ -124,7 +124,14 @@ const RESERVED = [
   'viewerOpenBulkEditModal','viewerSubmitBulkEdit','viewerDownload','loadAdminBusTrackerView',
 
   // Full-field identifier-safe edit/add panels for students & staff
-  'openStudentFormModal','submitStudentForm','openStaffFormModal','submitStaffForm'
+  'openStudentFormModal','submitStudentForm','openStaffFormModal','submitStaffForm',
+
+  // Class-Wide Access grants (Access tab)
+  'selectClassWideUser','filterClassWideStaff','toggleAllClassWideSections',
+  'saveClassWideAccess','removeClassWideAccess','_syncCwaEditCheckbox',
+
+  // Viewer Panel class-scoped custom-tab data browsing
+  'loadClassTabData','saveClassTabData'
 ];
 
 // Strip HTML comments and collapse whitespace
