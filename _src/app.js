@@ -5371,38 +5371,8 @@
     container.innerHTML = `
       <div class="mb-4">
         <h2 class="text-2xl font-black text-slate-800 tracking-tight">Setup</h2>
-        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Custom tab builder, profile fields, permanent tabs, login settings</p>
+        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Profile fields, permanent tabs, login settings — use "+ Add Custom Form" to build or edit a tab</p>
       </div>
-
-      <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 mb-5">
-        <div class="grid grid-cols-1 md:grid-cols-10 gap-3 items-end">
-          <div class="md:col-span-4"><label class="text-[10px] font-black text-slate-400 uppercase">Tab Name</label><input type="text" id="newTabName" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm mt-1"></div>
-          <div class="md:col-span-3"><label class="text-[10px] font-black text-slate-400 uppercase">Icon (Lucide name)</label><input type="text" id="newTabIcon" placeholder="folder" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm mt-1"></div>
-          <div class="md:col-span-2 flex items-center gap-2 pb-2"><input type="checkbox" id="newTabEditable" checked><label class="text-xs font-bold text-slate-600">Allows Edits</label></div>
-          <div class="md:col-span-1"><button onclick="saveNewTab()" class="w-full px-3 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button></div>
-        </div>
-        <div class="grid grid-cols-2 gap-2 mt-4">
-          <button onclick="addTabRow('field')" class="px-4 py-2.5 border border-blue-200 text-blue-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-blue-50 transition-all">+ New Input</button>
-          <button onclick="addTabRow('label')" class="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">+ New Header</button>
-        </div>
-        <div class="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
-          <div class="flex items-center justify-between mb-3">
-            <span class="text-[10px] font-black text-slate-400 uppercase">Logic Rules</span>
-            <button onclick="addConditionRow()" class="px-3 py-1.5 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase">+ Add Rule</button>
-          </div>
-          <div id="conditionsList" class="flex flex-col gap-3"></div>
-        </div>
-        <div class="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
-          <div class="flex items-center justify-between mb-2">
-            <span class="text-[10px] font-black text-slate-400 uppercase">Include from Student Profile</span>
-            <span class="text-xs font-bold text-slate-400" id="includeFieldsCount">0 selected</span>
-          </div>
-          <p class="text-xs text-slate-400 font-bold mb-3">Selected fields will appear as read-only info inside the form and will be saved as extra columns in the sheet.</p>
-          <div id="includeFieldsList" class="flex flex-wrap gap-2"><span class="text-xs text-slate-400 font-bold italic">Loading profile columns…</span></div>
-        </div>
-      </div>
-
-      <div id="fieldsList" class="flex flex-col gap-3 mb-5"></div>
 
       <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 mb-5">
         <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
@@ -5441,23 +5411,66 @@
     `;
     lucide.createIcons();
     loadAdminTabs();
-    loadIncludeFields();
     loadEditableProfileFields();
     loadPermanentTabsAdmin();
     loadLoginPasswordColumnsAdmin();
   }
 
-  // A direct shortcut to the "create a new custom form" card at the top of
-  // Setup, for admins who just want to add a tab without wading through the
-  // rest of that page (profile fields, permanent tabs, login settings...).
-  // Reuses loadAdminSetupView entirely — the card is already the first
-  // thing on that page and always renders blank/ready, since the whole view
-  // is freshly rebuilt from scratch on every navigation (editTab() only
-  // fills it in mid-session, never carrying over into the next render).
-  function loadAdminAddCustomFormView() {
-    loadAdminSetupView();
+  // The tab BUILDER — create a new custom form, or (via editTab) edit an
+  // existing one — lives here exclusively now, split out of Setup so that
+  // page stays a pure settings/management hub (profile fields, permanent
+  // tabs, login settings, and the list of existing tabs with Edit/Delete/
+  // Toggle). Always renders fresh/blank on its own; editTab() populates it
+  // afterward when editing, same as it always has.
+  function loadAdminAddCustomFormView(preloadInclKeys) {
+    if (!['Admin', 'Student Portal Admin'].includes(window.ACTIVE_ROLE)) {
+      showToast('Not available in current role', 'error');
+      return;
+    }
+    _setViewHash('student_portal');
     setActiveNavLink('nav-erp-add_custom_form');
     setContentHeader('Add Custom Form', 'plus-circle');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    container.innerHTML = `
+      <div class="mb-4">
+        <h2 class="text-2xl font-black text-slate-800 tracking-tight">Add Custom Form</h2>
+        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Build a new tab, or edit an existing one from Setup's list</p>
+      </div>
+
+      <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 mb-5">
+        <div class="grid grid-cols-1 md:grid-cols-10 gap-3 items-end">
+          <div class="md:col-span-4"><label class="text-[10px] font-black text-slate-400 uppercase">Tab Name</label><input type="text" id="newTabName" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm mt-1"></div>
+          <div class="md:col-span-3"><label class="text-[10px] font-black text-slate-400 uppercase">Icon (Lucide name)</label><input type="text" id="newTabIcon" placeholder="folder" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm mt-1"></div>
+          <div class="md:col-span-2 flex items-center gap-2 pb-2"><input type="checkbox" id="newTabEditable" checked><label class="text-xs font-bold text-slate-600">Allows Edits</label></div>
+          <div class="md:col-span-1"><button onclick="saveNewTab()" class="w-full px-3 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button></div>
+        </div>
+        <div class="grid grid-cols-2 gap-2 mt-4">
+          <button onclick="addTabRow('field')" class="px-4 py-2.5 border border-blue-200 text-blue-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-blue-50 transition-all">+ New Input</button>
+          <button onclick="addTabRow('label')" class="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">+ New Header</button>
+        </div>
+        <div class="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-[10px] font-black text-slate-400 uppercase">Logic Rules</span>
+            <button onclick="addConditionRow()" class="px-3 py-1.5 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase">+ Add Rule</button>
+          </div>
+          <div id="conditionsList" class="flex flex-col gap-3"></div>
+        </div>
+        <div class="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-[10px] font-black text-slate-400 uppercase">Include from Student Profile</span>
+            <span class="text-xs font-bold text-slate-400" id="includeFieldsCount">0 selected</span>
+          </div>
+          <p class="text-xs text-slate-400 font-bold mb-3">Selected fields will appear as read-only info inside the form and will be saved as extra columns in the sheet.</p>
+          <div id="includeFieldsList" class="flex flex-wrap gap-2"><span class="text-xs text-slate-400 font-bold italic">Loading profile columns…</span></div>
+        </div>
+      </div>
+
+      <div id="fieldsList" class="flex flex-col gap-3 mb-5"></div>
+    `;
+    lucide.createIcons();
+    loadIncludeFields(preloadInclKeys || []);
+    if (!_setupAllTabs.length) _adminFetch('get_tabs', {}).then(tabs => { if (Array.isArray(tabs)) _setupAllTabs = tabs; });
     setTimeout(() => { document.getElementById('newTabName')?.focus(); }, 50);
   }
 
@@ -5873,6 +5886,12 @@
 
   function editTab(i) {
     const t = _setupAllTabs[i];
+    let inclKeys = [];
+    try { inclKeys = JSON.parse(t.include_fields_json || '[]'); } catch (e) {}
+    // Editing now happens in the same dedicated "Add Custom Form" view as
+    // creating a new tab (moved out of Setup) — render it fresh first, then
+    // fill it in, exactly as this function always has.
+    loadAdminAddCustomFormView(inclKeys);
     document.getElementById('newTabName').value = t.tab_name;
     document.getElementById('newTabIcon').value = t.icon_class || '';
     document.getElementById('newTabEditable').checked = t.default_editable === 'YES';
@@ -5881,10 +5900,6 @@
     refreshAllShowIfControllers();
     document.getElementById('conditionsList').innerHTML = '';
     if (t.condition_json) { const l = JSON.parse(t.condition_json); (l.rules || []).forEach(r => addConditionRow(r)); }
-    let inclKeys = [];
-    try { inclKeys = JSON.parse(t.include_fields_json || '[]'); } catch (e) {}
-    loadIncludeFields(inclKeys);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
   function deleteTabConfig(i) {
     if (!confirm('Confirm deletion?')) return;
