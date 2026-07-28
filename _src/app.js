@@ -5944,12 +5944,13 @@
         <h2 class="text-2xl font-black text-slate-800 tracking-tight">Data</h2>
         <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Per-tab submitted data, export, merge, print, delegated access</p>
       </div>
-      <div class="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3">
+      <div class="grid grid-cols-2 md:grid-cols-6 gap-2 mb-3">
         <select id="summaryTabSelect" onchange="loadSummaryData()" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"><option value="">Select Target…</option></select>
         <input type="text" id="summarySearch" placeholder="Filter current view…" oninput="filterSummaryTable()" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
         <button onclick="exportSummaryData()" class="px-3 py-2 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Export CSV</button>
         <button onclick="openTabAccessModal()" title="Choose which teachers/staff can view & export this tab's data" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Data Access</button>
         <button onclick="openClassAccessModal()" title="Grant a teacher/staff access for specific class-sections only" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Class Access</button>
+        <button onclick="openTabCategoryLinkModal()" title="Automatically grant this tab to whoever holds a chosen Field Category — stays live as those grants change" class="px-3 py-2 border border-indigo-200 text-indigo-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-indigo-50 transition-all">Link Categories</button>
       </div>
       <div class="grid grid-cols-2 gap-2 mb-4" style="max-width:340px">
         <button onclick="openSummaryMergeModal()" title="Combine 2+ columns into one display cell, for viewing and printing only" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Merge Columns</button>
@@ -6281,6 +6282,55 @@
     if (!_caTab || !uid) return;
     _adminFetch('set_tab_class_access', { tab_name: _caTab, user_id: uid, class_sections: [] }).then(res => {
       if (res && res.result === 'success') { delete _caGrants[uid]; renderClassAccessGrantees(); renderClassAccessStaff(); if (_caSelectedUser === uid) selectClassAccessUser(uid); showToast('Access revoked'); }
+    });
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Link Categories — a simpler, live alternative to manually managing
+  // Data Access / Class Access for this one tab: whoever holds any ticked
+  // Field Category (Access tab) automatically gets this tab's data too,
+  // re-evaluated fresh on every request (see exec/route.js
+  // getMyTabDataAccess/getTabDataForUser) rather than copied once, so it
+  // stays current as those grants change — on top of whatever Data
+  // Access/Class Access already grant, never replacing them.
+  // ══════════════════════════════════════════════════════════════════════
+  function openTabCategoryLinkModal() {
+    const tab = document.getElementById('summaryTabSelect').value;
+    if (!tab) { showToast('Select a tab first', 'error'); return; }
+    document.getElementById('tabCategoryLinkOverlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'tabCategoryLinkOverlay';
+    overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
+    overlay.innerHTML = `
+      <div class="bg-white rounded-2xl w-full max-w-md" style="max-height:80vh;display:flex;flex-direction:column">
+        <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+          <p class="font-black text-slate-800 text-sm">Link to Categories — ${tab}</p>
+          <button onclick="document.getElementById('tabCategoryLinkOverlay').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="h-4 w-4"></i></button>
+        </div>
+        <p class="text-xs text-slate-400 font-bold px-4 pt-4">Whoever holds a ticked category automatically gets this tab's data too — live, on top of whatever Data Access / Class Access already grant.</p>
+        <div id="tabCategoryLinkList" class="p-4 overflow-y-auto flex flex-col gap-1.5" style="flex:1"><div class="text-center p-6"><i data-lucide="loader-2" class="h-5 w-5 animate-spin inline text-blue-600"></i></div></div>
+        <div class="p-4 border-t border-slate-100 flex justify-end">
+          <button onclick="saveTabCategoryLink()" class="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    lucide.createIcons();
+    Promise.all([_adminFetch('get_field_categories', {}), _adminFetch('get_tab_category_link', { tab_name: tab })]).then(([catsRes, linkRes]) => {
+      const cats = (catsRes && catsRes.result === 'success' && catsRes.categories) || [];
+      const linked = new Set((linkRes && linkRes.categories) || []);
+      const list = document.getElementById('tabCategoryLinkList');
+      list.innerHTML = cats.length ? cats.map(c => `<label class="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-600 cursor-pointer"><input type="checkbox" class="tab-cat-link-check" value="${c.name.replace(/"/g, '&quot;')}" ${linked.has(c.name) ? 'checked' : ''}>${c.name}</label>`).join('') : '<span class="text-xs text-slate-400 font-bold italic">No field categories exist yet — create one in Access first.</span>';
+    }).catch(() => { document.getElementById('tabCategoryLinkList').innerHTML = '<div class="text-xs text-red-500 font-bold">Could not load categories.</div>'; });
+  }
+  function saveTabCategoryLink() {
+    const tab = document.getElementById('summaryTabSelect').value;
+    if (!tab) return;
+    const categories = Array.from(document.querySelectorAll('.tab-cat-link-check:checked')).map(c => c.value);
+    _adminFetch('set_tab_category_link', { tab_name: tab, categories }).then(res => {
+      if (res && res.result === 'success') {
+        document.getElementById('tabCategoryLinkOverlay')?.remove();
+        showToast(res.count ? `Linked to ${res.count} categor${res.count === 1 ? 'y' : 'ies'}` : 'Category link cleared');
+      } else showToast((res && res.message) || 'Save failed', 'error');
     });
   }
 

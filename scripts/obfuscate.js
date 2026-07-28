@@ -108,6 +108,7 @@ const RESERVED = [
   'loadAdminDataView','loadSummaryData','filterSummaryTable','exportSummaryData',
   'openTabAccessModal','filterTabAccessList','saveTabAccess',
   'openClassAccessModal','selectClassAccessUser','filterClassAccessStaff',
+  'openTabCategoryLinkModal','saveTabCategoryLink',
   'toggleAllClassSections','saveClassAccess','removeClassAccess',
   'openSummaryMergeModal','createSummaryColumnMerge','removeSummaryColumnMerge',
   'openSummaryPrintModal','printSummaryData',

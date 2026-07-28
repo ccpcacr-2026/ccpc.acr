@@ -899,6 +899,35 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success', count: clean.length });
   }
 
+  // ── Tab ↔ Field Category live link — a simpler alternative to manually
+  // picking users for Data Access / Class Access on this one tab: whoever
+  // holds ANY of the linked categories (via field_access_grants)
+  // automatically gets this tab's data too, re-evaluated fresh on every
+  // request rather than copied once — a category grant with no row_filter
+  // behaves like a global Data Access grant; one with a row_filter is
+  // scoped exactly like that filter, live. A tab may link to several
+  // categories at once (their grantees union together), same as one user
+  // already holding several categories at once. Actually consumed by
+  // exec/route.js's getMyTabDataAccess/getTabDataForUser (the self-service
+  // "Student Data" card), the same consumer Data/Class Access already feed.
+  if (action === 'get_tab_category_link') {
+    const { tab_name } = payload || {};
+    if (!tab_name) return NextResponse.json({ result: 'error', message: 'Tab name required.' });
+    const rows = await sb(`portal_tabs?tab_name=eq.${encodeURIComponent(tab_name)}&select=linked_categories_json`);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    let categories = [];
+    try { categories = JSON.parse((rows[0] && rows[0].linked_categories_json) || '[]'); } catch {}
+    return NextResponse.json({ result: 'success', categories: Array.isArray(categories) ? categories : [] });
+  }
+  if (action === 'set_tab_category_link') {
+    const { tab_name, categories } = payload || {};
+    if (!tab_name) return NextResponse.json({ result: 'error', message: 'Tab name required.' });
+    const clean = [...new Set((Array.isArray(categories) ? categories : []).map(c => String(c || '').trim()).filter(Boolean))];
+    const r = await sb(`portal_tabs?tab_name=eq.${encodeURIComponent(tab_name)}`, 'PATCH', { linked_categories_json: JSON.stringify(clean) });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success', count: clean.length });
+  }
+
   // ── Field categories (named, reusable groups of students_data columns) —
   // used both to scope a viewer's visible fields and to pick exactly which
   // columns a CSV export contains. Admin/editor-only management. ──────────

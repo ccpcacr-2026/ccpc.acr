@@ -14,6 +14,20 @@ function _sanitizeEmail(e, teacherId) {
   return teacherId ? `${teacherId}@no-email.local` : null;
 }
 
+// Field Category row_filter check (student.field_access_grants.row_filter,
+// { column: [values] }, AND across columns, IN within each) — local copy
+// of student-admin/route.js's _rowMatchesFilter, used by getTabDataForUser
+// below to live-evaluate a tab's linked-category access; same cross-route
+// duplication convention already used for the CSV/sheet helpers in this file.
+function _matchesRowFilter(student, filter) {
+  if (!filter) return true;
+  return Object.entries(filter).every(([col, vals]) => {
+    if (!Array.isArray(vals) || !vals.length) return true;
+    const rawVal = col === 'group' ? (student.group || 'None') : student[col];
+    return vals.includes(String(rawVal ?? '').trim());
+  });
+}
+
 // Helper: average an array of evaluation objects by their .marks field
 function avg(evals) {
   if (!evals || !evals.length) return 0;
@@ -1479,24 +1493,32 @@ const handlers = {
 
   async getMyTabDataAccess([userId]) {
     if (!userId) return [];
-    // Three independent grant paths: the global per-tab allowlist
+    // Four independent grant paths: the global per-tab allowlist
     // (portal_tabs.data_access_json), admin-given class-scoped grants
-    // (tab_class_access), and being a verified class teacher — class
-    // teachers automatically see every enabled tab, scoped to their own
-    // class(es), with no explicit grant needed. Sheet resolution is
-    // best-effort so explicit grants keep working if the sheet is down.
-    const [tabs, scoped, assignments] = await Promise.all([
-      _sbStudent(`portal_tabs?select=tab_name,data_access_json,is_enabled&order=sort_order.asc`),
+    // (tab_class_access), being a verified class teacher (automatic, every
+    // enabled tab, scoped to their own class(es), no explicit grant
+    // needed — sheet resolution is best-effort so explicit grants keep
+    // working if the sheet is down), and holding a Field Category grant
+    // for ANY category this tab is live-linked to
+    // (portal_tabs.linked_categories_json) — any one of them counts,
+    // filtered or not.
+    const [tabs, scoped, assignments, catGrants] = await Promise.all([
+      _sbStudent(`portal_tabs?select=tab_name,data_access_json,is_enabled,linked_categories_json&order=sort_order.asc`),
       _sbStudent(`tab_class_access?user_id=eq.${encodeURIComponent(userId)}&select=tab_name`),
       _getClassTeacherAssignments().catch(() => []),
+      _sbStudent(`field_access_grants?user_id=eq.${encodeURIComponent(userId)}&select=category_name`),
     ]);
     const scopedNames = new Set((Array.isArray(scoped) ? scoped : []).map(r => r.tab_name));
     const isClassTeacher = assignments.some(a => a.resolvedUserId === userId);
+    const myCategories = new Set((Array.isArray(catGrants) ? catGrants : []).map(g => g.category_name));
     const names = [];
     (Array.isArray(tabs) ? tabs : []).forEach(t => {
       let global = false;
       try { global = JSON.parse(t.data_access_json || '[]').includes(String(userId)); } catch {}
-      if (global || scopedNames.has(t.tab_name) || (isClassTeacher && t.is_enabled !== false)) names.push(t.tab_name);
+      let linkedCats = [];
+      try { linkedCats = JSON.parse(t.linked_categories_json || '[]'); } catch {}
+      const linkedMatch = Array.isArray(linkedCats) && linkedCats.some(c => myCategories.has(c));
+      if (global || scopedNames.has(t.tab_name) || (isClassTeacher && t.is_enabled !== false) || linkedMatch) names.push(t.tab_name);
     });
     return names.map(tab_name => ({ tab_name }));
   },
@@ -1512,19 +1534,39 @@ const handlers = {
     try { allowed = JSON.parse(cfg?.data_access_json || '[]'); } catch {}
     const isGlobal = allowed.includes(String(userId));
 
+    // Live-linked Field Categories (portal_tabs.linked_categories_json) —
+    // a category grant with NO row_filter acts exactly like a global Data
+    // Access grant; one WITH a row_filter is re-evaluated against the live
+    // roster below rather than copied into a static list, so it tracks
+    // both roster changes and any later edit to the category's own filter.
+    // Holding grants in several linked categories at once unions together
+    // (OR) — a student needs to match only one of them.
+    let linkedCats = [];
+    try { linkedCats = JSON.parse(cfg?.linked_categories_json || '[]'); } catch {}
+    let linkedRowFilters = []; // [] = no link/no grant; entries can be null (unfiltered/global) or a filter object
+    let isLinkedGlobal = false;
+    if (!isGlobal && Array.isArray(linkedCats) && linkedCats.length) {
+      const grantRows = await _sbStudent(`field_access_grants?user_id=eq.${encodeURIComponent(userId)}&category_name=in.(${linkedCats.map(encodeURIComponent).join(',')})&select=row_filter`);
+      if (Array.isArray(grantRows) && grantRows.length) {
+        linkedRowFilters = grantRows.map(g => (g.row_filter && typeof g.row_filter === 'object') ? g.row_filter : null);
+        isLinkedGlobal = linkedRowFilters.some(f => f === null);
+      }
+    }
+
     // Class-scoped path: global grantees see everything (as always); a
     // scoped-only grantee sees just their granted class-sections' students,
     // with class/section columns prepended so multi-class views stay readable.
     // Grant sources merged here: explicit admin grants (tab_class_access) +
     // being the verified class teacher of a class (automatic, enabled tabs
     // only — no explicit grant needed; sheet resolution is best-effort so
-    // explicit grants keep working if the sheet is down).
+    // explicit grants keep working if the sheet is down) + a live-linked
+    // category's row_filter, matched per-student rather than via combos.
     let allowedStudentIds = null; // null = unrestricted (global grant)
     let roster; // student_id,student_name,roll,class,section,gender — the full
                 // universe this call can ever show, submitted or not, so
                 // non-submitters appear as blank/"not filled" rows instead of
                 // silently vanishing from the list.
-    if (!isGlobal) {
+    if (!isGlobal && !isLinkedGlobal) {
       const [grants, assignments] = await Promise.all([
         _sbStudent(`tab_class_access?tab_name=eq.${encodeURIComponent(tabName)}&user_id=eq.${encodeURIComponent(userId)}&select=class,section,group`),
         cfg?.is_enabled !== false ? _getClassTeacherAssignments().catch(() => []) : Promise.resolve([]),
@@ -1551,10 +1593,22 @@ const handlers = {
         CLASS_TEACHER_SECTION_ALIASES[a.section] || a.section,
         null
       ));
-      if (!filters.length) return { error: 'Not authorized for this tab.' };
-      const orFilter = filters.join(',');
-      const students = await _sbStudent(`students_data?or=(${orFilter})&select=student_id,student_name,roll,class,section,group,gender&order=roll.asc`);
-      roster = Array.isArray(students) ? students : [];
+      let comboStudents = [];
+      if (filters.length) {
+        const orFilter = filters.join(',');
+        const r = await _sbStudent(`students_data?or=(${orFilter})&select=student_id,student_name,roll,class,section,group,gender&order=roll.asc`);
+        comboStudents = Array.isArray(r) ? r : [];
+      }
+      let linkedStudents = [];
+      const activeFilters = linkedRowFilters.filter(f => f && Object.keys(f).length);
+      if (activeFilters.length) {
+        const all = await _sbStudent(`students_data?select=student_id,student_name,roll,class,section,group,gender,version`);
+        linkedStudents = (Array.isArray(all) ? all : []).filter(s => activeFilters.some(f => _matchesRowFilter(s, f)));
+      }
+      const merged = {};
+      [...comboStudents, ...linkedStudents].forEach(s => { merged[s.student_id] = s; });
+      roster = Object.values(merged);
+      if (!roster.length) return { error: 'Not authorized for this tab.' };
       allowedStudentIds = new Set(roster.map(s => String(s.student_id)));
     } else {
       const all = await _sbStudent(`students_data?select=student_id,student_name,roll,class,section,group,gender&order=class.asc,section.asc,roll.asc`);
