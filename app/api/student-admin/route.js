@@ -1095,23 +1095,30 @@ export async function POST(req) {
   // detection in exec/route.js's _getClassTeacherAssignments: the sheet
   // stays authoritative, but any class/section it can't resolve a name for
   // (or doesn't list at all) falls back to whatever's assigned here. Keyed
-  // by (class, section) — one teacher per class-section, matching the
-  // sheet's own granularity (no group). Replace-all-per-key idiom, same as
-  // set_tab_class_access/set_class_access_grants above. ────────────────────
+  // by (class, section, group) — group is null for a class-wide assignment
+  // (the admin's "Split by Group" toggle off) or an actual group name
+  // (Science/Business Studies/Humanities/etc, toggle on) so e.g. Eleven/A
+  // can have three different class teachers, one per group. Replace-all-
+  // per-key idiom, same as set_tab_class_access/set_class_access_grants
+  // above — correctness comes from the delete-then-insert here, not a DB
+  // constraint (a plain UNIQUE(class,section,group) would let multiple
+  // NULL-group rows coexist since SQL NULLs are never equal to each other).
   if (action === 'get_class_teacher_assignments') {
-    const rows = await sb('class_teacher_assignments?select=class,section,user_id&order=class.asc,section.asc');
+    const rows = await sb('class_teacher_assignments?select=class,section,group,user_id&order=class.asc,section.asc');
     if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
     return NextResponse.json({ result: 'success', assignments: rows });
   }
   if (action === 'set_class_teacher_assignment') {
-    const { class: cls, section, user_id: assigneeId } = payload;
+    const { class: cls, section, group, user_id: assigneeId } = payload;
     const clsClean = String(cls || '').trim();
     const secClean = String(section || '').trim();
+    const grpClean = group ? String(group).trim() : null;
     if (!clsClean || !secClean) return NextResponse.json({ result: 'error', message: 'Class and section required.' });
-    const del = await sb(`class_teacher_assignments?class=eq.${encodeURIComponent(clsClean)}&section=eq.${encodeURIComponent(secClean)}`, 'DELETE');
+    const groupFilter = grpClean ? `group=eq.${encodeURIComponent(grpClean)}` : `group=is.null`;
+    const del = await sb(`class_teacher_assignments?class=eq.${encodeURIComponent(clsClean)}&section=eq.${encodeURIComponent(secClean)}&${groupFilter}`, 'DELETE');
     if (del?.error) return NextResponse.json({ result: 'error', message: del.error });
     if (assigneeId) {
-      const ins = await sb('class_teacher_assignments', 'POST', { class: clsClean, section: secClean, user_id: String(assigneeId) });
+      const ins = await sb('class_teacher_assignments', 'POST', { class: clsClean, section: secClean, group: grpClean, user_id: String(assigneeId) });
       if (ins?.error) return NextResponse.json({ result: 'error', message: ins.error });
     }
     return NextResponse.json({ result: 'success' });

@@ -3443,6 +3443,14 @@
   let _ctClassSections = [];
   let _ctAssignments = {};
   let _ctStaff = [];
+  // Off: one row (one teacher) per class+section, matching the routine
+  // sheet's own granularity. On: one row per class+section+group instead —
+  // needed wherever a section is split into subject groups sharing the same
+  // class+section (e.g. Eleven/A holds Science, Business Studies and
+  // Humanities students at once, each wanting its own class teacher).
+  let _ctUseGroup = false;
+
+  function _ctKey(cls, section, group) { return `${cls}||${section}||${group || ''}`; }
 
   function loadAdminClassTeacherView() {
     if (!(window._adminTabAccess || []).includes('class_teacher')) {
@@ -3454,6 +3462,7 @@
     setContentHeader('Assign Class Teacher', 'user-check');
     const container = document.getElementById('view-container');
     if (!container) return;
+    const groupTh = _ctUseGroup ? '<th class="py-2 px-3">Group</th>' : '';
     container.innerHTML = `
       <div class="space-y-5 pb-10">
         <div>
@@ -3462,7 +3471,11 @@
         </div>
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
           <p class="text-xs text-slate-400 font-bold mb-4">Used as a fallback wherever the routine sheet's own class-teacher list can't resolve a name — assigning someone here always works, even if the sheet is wrong, outdated, or missing that class entirely.</p>
-          <input type="search" id="ctFilter" oninput="filterClassTeacherRows()" placeholder="Filter by class or section…" autocomplete="off"
+          <label class="flex items-center gap-2 mb-3 text-xs font-bold text-slate-600 cursor-pointer w-fit">
+            <input type="checkbox" id="ctGroupToggle" ${_ctUseGroup ? 'checked' : ''} onchange="toggleClassTeacherGroupMode(this.checked)" class="rounded border-slate-300 text-blue-600 focus:ring-blue-600">
+            Split by Group too — e.g. treat Eleven/A/Science, Eleven/A/Business Studies and Eleven/A/Humanities as separate rows
+          </label>
+          <input type="search" id="ctFilter" oninput="filterClassTeacherRows()" placeholder="Filter by class, section or group…" autocomplete="off"
             class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mb-3" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-ct-filter">
           <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:560px">
             <table class="w-full text-left border-collapse text-xs">
@@ -3470,11 +3483,12 @@
                 <tr>
                   <th class="py-2 px-3">Class</th>
                   <th class="py-2 px-3">Section</th>
+                  ${groupTh}
                   <th class="py-2 px-3">Students</th>
                   <th class="py-2 px-3">Assigned Teacher</th>
                 </tr>
               </thead>
-              <tbody id="ctTableBody"><tr><td colspan="4" class="p-4 text-slate-400 font-bold italic">Loading…</td></tr></tbody>
+              <tbody id="ctTableBody"><tr><td colspan="${_ctUseGroup ? 5 : 4}" class="p-4 text-slate-400 font-bold italic">Loading…</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -3482,6 +3496,11 @@
     `;
     lucide.createIcons();
     loadClassTeacherAssignments();
+  }
+
+  function toggleClassTeacherGroupMode(checked) {
+    _ctUseGroup = checked;
+    loadAdminClassTeacherView();
   }
 
   function loadClassTeacherAssignments() {
@@ -3492,24 +3511,26 @@
     ]).then(([sections, assignRes, staff]) => {
       const seen = new Map();
       (Array.isArray(sections) ? sections : []).forEach(r => {
-        const key = `${r.class}||${r.section}`;
-        if (!seen.has(key)) seen.set(key, { class: r.class, section: r.section, count: 0 });
         // get_class_sections returns one row per class/section/GROUP combo
-        // (Science/Arts/Commerce etc, each with its own real student count)
-        // — sum those counts to get the section's actual roll size, rather
-        // than counting rows (which just counted how many groups exist).
+        // (Science/Arts/Commerce etc, each with its own real student count).
+        // With the toggle off, sum those counts into one class+section row
+        // (real roll size, not how many groups exist); with it on, keep
+        // each group as its own row so it can get its own teacher.
+        const grp = _ctUseGroup ? (r.group || 'None') : null;
+        const key = _ctKey(r.class, r.section, grp);
+        if (!seen.has(key)) seen.set(key, { class: r.class, section: r.section, group: grp, count: 0 });
         seen.get(key).count += (Number(r.count) || 0);
       });
-      _ctClassSections = [...seen.values()].sort((a, b) => a.class.localeCompare(b.class) || a.section.localeCompare(b.section));
+      _ctClassSections = [...seen.values()].sort((a, b) => a.class.localeCompare(b.class) || a.section.localeCompare(b.section) || (a.group || '').localeCompare(b.group || ''));
       _ctAssignments = {};
       if (assignRes && assignRes.result === 'success') {
-        (assignRes.assignments || []).forEach(a => { _ctAssignments[`${a.class}||${a.section}`] = a.user_id; });
+        (assignRes.assignments || []).forEach(a => { _ctAssignments[_ctKey(a.class, a.section, a.group)] = a.user_id; });
       }
       _ctStaff = Array.isArray(staff) ? staff.slice().sort((a, b) => (a.full_name || a.user_id).localeCompare(b.full_name || b.user_id)) : [];
       renderClassTeacherTable();
     }).catch(() => {
       const body = document.getElementById('ctTableBody');
-      if (body) body.innerHTML = '<tr><td colspan="4" class="p-4 text-red-500 font-bold">Failed to load.</td></tr>';
+      if (body) body.innerHTML = `<tr><td colspan="${_ctUseGroup ? 5 : 4}" class="p-4 text-red-500 font-bold">Failed to load.</td></tr>`;
     });
   }
 
@@ -3518,34 +3539,35 @@
     if (!body) return;
     const filterEl = document.getElementById('ctFilter');
     const q = (filterEl ? filterEl.value : '').trim().toLowerCase();
-    const rows = _ctClassSections.filter(r => !q || r.class.toLowerCase().includes(q) || r.section.toLowerCase().includes(q));
-    if (!rows.length) { body.innerHTML = '<tr><td colspan="4" class="p-4 text-slate-400 font-bold italic">No matching class/section.</td></tr>'; return; }
+    const rows = _ctClassSections.filter(r => !q || r.class.toLowerCase().includes(q) || r.section.toLowerCase().includes(q) || (r.group || '').toLowerCase().includes(q));
+    if (!rows.length) { body.innerHTML = `<tr><td colspan="${_ctUseGroup ? 5 : 4}" class="p-4 text-slate-400 font-bold italic">No matching class/section.</td></tr>`; return; }
     const staffOptions = _ctStaff.map(s => `<option value="${s.user_id}">${s.full_name || s.user_id}${s.shortname ? ` (${s.shortname})` : ''}</option>`).join('');
     body.innerHTML = rows.map(r => `<tr class="border-b border-slate-50">
         <td class="py-2 px-3 font-black text-slate-700">${r.class}</td>
         <td class="py-2 px-3 font-bold text-slate-500">${r.section}</td>
+        ${_ctUseGroup ? `<td class="py-2 px-3 font-bold text-slate-500">${r.group}</td>` : ''}
         <td class="py-2 px-3 text-slate-400">${r.count}</td>
         <td class="py-2 px-3">
           <select class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none w-full max-w-xs"
-            data-class="${r.class}" data-section="${r.section}" onchange="saveClassTeacherAssignment(this)">
+            data-class="${r.class}" data-section="${r.section}" data-group="${r.group || ''}" onchange="saveClassTeacherAssignment(this)">
             <option value="">— Unassigned —</option>
             ${staffOptions}
           </select>
         </td>
       </tr>`).join('');
     const selects = body.querySelectorAll('select[data-class]');
-    rows.forEach((r, i) => { if (selects[i]) selects[i].value = _ctAssignments[`${r.class}||${r.section}`] || ''; });
+    rows.forEach((r, i) => { if (selects[i]) selects[i].value = _ctAssignments[_ctKey(r.class, r.section, r.group)] || ''; });
   }
 
   function filterClassTeacherRows() { renderClassTeacherTable(); }
 
   function saveClassTeacherAssignment(selectEl) {
-    const cls = selectEl.dataset.class, section = selectEl.dataset.section, userId = selectEl.value;
+    const cls = selectEl.dataset.class, section = selectEl.dataset.section, group = selectEl.dataset.group || null, userId = selectEl.value;
     selectEl.disabled = true;
-    _adminFetch('set_class_teacher_assignment', { class: cls, section, user_id: userId || null }).then(res => {
+    _adminFetch('set_class_teacher_assignment', { class: cls, section, group, user_id: userId || null }).then(res => {
       selectEl.disabled = false;
       if (res && res.result === 'success') {
-        const key = `${cls}||${section}`;
+        const key = _ctKey(cls, section, group);
         if (userId) _ctAssignments[key] = userId; else delete _ctAssignments[key];
         showToast(userId ? 'Class teacher assigned' : 'Assignment cleared');
       } else {
