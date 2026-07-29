@@ -406,16 +406,22 @@ async function _searchStudents(filters, projectFields, extraFilter) {
 }
 
 // Looks up a category's field list, then runs _searchStudents projected to
-// exactly those fields (+ student_id), returning CSV-ready {headers, rows}
-// where rows are arrays in the same order as headers — this direct
-// field-list-to-column mapping is what guarantees the downloaded file
-// matches the selected category. extraFilter: see _searchStudents above.
-async function _downloadByCategory(categoryName, filters, extraFilter) {
+// exactly those fields (+ student_id, + any admin-picked extraColumns),
+// returning CSV-ready {headers, rows} where rows are arrays in the same
+// order as headers — this direct field-list-to-column mapping is what
+// guarantees the downloaded file matches the selected category (plus
+// whatever was explicitly added on top). extraFilter: see _searchStudents
+// above. extraColumns: only ever passed by the full-admin caller — the
+// viewer path below never supplies it, so a restricted viewer can't widen
+// their download past their own granted category's columns.
+async function _downloadByCategory(categoryName, filters, extraFilter, extraColumns) {
   const catRows = await sb(`field_categories?name=eq.${encodeURIComponent(categoryName)}&select=fields`);
   if (catRows?.error) return { result: 'error', message: catRows.error };
   if (!catRows.length) return { result: 'error', message: 'Category not found.' };
   const catFields = Array.isArray(catRows[0].fields) ? catRows[0].fields : [];
-  const headers = catFields.includes('student_id') ? catFields : ['student_id', ...catFields];
+  const base = catFields.includes('student_id') ? catFields : ['student_id', ...catFields];
+  const extra = (Array.isArray(extraColumns) ? extraColumns : []).map(c => String(c || '').trim()).filter(Boolean);
+  const headers = [...new Set([...base, ...extra])];
   const rows = await _searchStudents(filters, headers, extraFilter);
   if (rows?.error) return { result: 'error', message: rows.error };
   return { result: 'success', headers, rows: rows.map(r => headers.map(h => r[h] ?? '')) };
@@ -1974,9 +1980,14 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success' });
   }
   if (action === 'download_students_by_category') {
-    const { category_name, student_id, class: cls, section, roll, group } = payload || {};
+    const { category_name, student_id, class: cls, section, roll, group, extra_columns, extra_filter } = payload || {};
     if (!category_name) return NextResponse.json({ result: 'error', message: 'Category required.' });
-    const out = await _downloadByCategory(category_name, { student_id, class: cls, section, roll, group });
+    let cleanExtraFilter = null;
+    if (extra_filter && typeof extra_filter === 'object') {
+      const entries = Object.entries(extra_filter).filter(([, v]) => Array.isArray(v) && v.length);
+      if (entries.length) cleanExtraFilter = Object.fromEntries(entries);
+    }
+    const out = await _downloadByCategory(category_name, { student_id, class: cls, section, roll, group }, cleanExtraFilter, extra_columns);
     return NextResponse.json(out);
   }
 

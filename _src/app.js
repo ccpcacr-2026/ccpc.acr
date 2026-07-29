@@ -3290,11 +3290,16 @@
 
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
           <p class="font-black text-slate-800 text-sm flex items-center gap-2 mb-1"><i data-lucide="download" class="h-4 w-4 text-blue-600"></i>Category Download</p>
-          <p class="text-xs text-slate-400 font-bold mt-1 mb-4">The downloaded CSV's columns exactly match the selected category — no more, no less. Optionally narrow it with the same search filters above.</p>
-          <div class="grid md:grid-cols-2 gap-2">
-            <select id="dlCategorySelect" class="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none"><option value="">Select category…</option></select>
+          <p class="text-xs text-slate-400 font-bold mt-1 mb-4">The downloaded CSV always includes the selected category's own columns — add more below, and optionally narrow it with the same search filters above or by specific column values.</p>
+          <div class="grid md:grid-cols-2 gap-2 mb-3">
+            <select id="dlCategorySelect" onchange="onDownloadCategoryChange()" class="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none"><option value="">Select category…</option></select>
             <button onclick="downloadByCategoryAdmin()" class="px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center justify-center gap-1.5"><i data-lucide="download" class="h-3.5 w-3.5"></i>Download CSV</button>
           </div>
+          <div id="dlExtraColumnsWrap" class="hidden p-3 bg-slate-50 rounded-xl border border-slate-200 mb-3">
+            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">+ Additional Columns</p>
+            <div id="dlExtraColumnsList" class="flex flex-wrap gap-1.5"></div>
+          </div>
+          <div id="dlFilterWrap" class="hidden p-3 bg-slate-50 rounded-xl border border-slate-200"></div>
         </div>
       </div>
 
@@ -3563,6 +3568,52 @@
     const current = sel.value;
     sel.innerHTML = '<option value="">Select category…</option>' + _fieldCategories.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
     if (_fieldCategories.some(c => c.name === current)) sel.value = current;
+  }
+
+  // Lazily-cached full column list for the "+ Additional Columns" picker —
+  // same get_student_data_headers action used elsewhere, fetched once and
+  // reused across category switches.
+  let _dlAllHeaders = null;
+  function onDownloadCategoryChange() {
+    const catName = document.getElementById('dlCategorySelect').value;
+    const extraWrap = document.getElementById('dlExtraColumnsWrap');
+    const filterWrap = document.getElementById('dlFilterWrap');
+    if (!catName) { extraWrap.classList.add('hidden'); filterWrap.classList.add('hidden'); filterWrap.innerHTML = ''; return; }
+    const cat = _fieldCategories.find(c => c.name === catName);
+    const catFields = new Set((cat && cat.fields) || []);
+
+    const renderExtraColumns = (headers) => {
+      const options = headers.filter(h => !catFields.has(h) && h !== 'student_id');
+      document.getElementById('dlExtraColumnsList').innerHTML = options.length ? options.map(h =>
+        `<label class="px-2.5 py-1.5 rounded-lg border border-white bg-white text-xs font-bold text-slate-500 cursor-pointer">
+          <input type="checkbox" class="dl-extra-col" value="${h}">${h.replace(/_/g, ' ')}
+        </label>`
+      ).join('') : '<span class="text-xs text-slate-400 font-bold italic">No other columns available.</span>';
+    };
+    extraWrap.classList.remove('hidden');
+    if (_dlAllHeaders) renderExtraColumns(_dlAllHeaders);
+    else _adminFetch('get_student_data_headers', {}).then(headers => { _dlAllHeaders = Array.isArray(headers) ? headers : []; renderExtraColumns(_dlAllHeaders); }).catch(() => {});
+
+    const renderFilters = () => {
+      const scopableHere = SCOPABLE_COLUMNS.filter(col => catFields.has(col));
+      if (!scopableHere.length) { filterWrap.classList.add('hidden'); filterWrap.innerHTML = ''; return; }
+      filterWrap.innerHTML = `
+        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Filter by value (leave a row unchecked = any value)</p>
+        <div class="flex flex-col gap-1.5">
+          ${scopableHere.map(col => {
+            const vals = (_scopeColumnValues && _scopeColumnValues[col]) || [];
+            return `<div class="flex items-start gap-2">
+              <span class="text-[10px] font-black text-slate-500 uppercase pt-0.5" style="min-width:52px">${col}</span>
+              <div class="flex flex-wrap gap-1.5">
+                ${vals.map(v => `<label class="flex items-center gap-1 px-1.5 py-0.5 bg-white border border-slate-200 rounded text-[11px] font-bold text-slate-600 cursor-pointer"><input type="checkbox" class="dl-filter-value" data-col="${col}" value="${String(v).replace(/"/g, '&quot;')}">${v}</label>`).join('') || '<span class="text-[10px] text-slate-300 italic">No values found</span>'}
+              </div>
+            </div>`;
+          }).join('')}
+        </div>`;
+      filterWrap.classList.remove('hidden');
+    };
+    if (_scopeColumnValues) renderFilters();
+    else _adminFetch('get_scope_column_values', {}).then(res => { _scopeColumnValues = (res && res.result === 'success' && res.values) || {}; renderFilters(); }).catch(() => {});
   }
 
   function loadFieldGrants() {
@@ -4017,6 +4068,11 @@
   function downloadByCategoryAdmin() {
     const category_name = document.getElementById('dlCategorySelect').value;
     if (!category_name) { showToast('Select a category', 'error'); return; }
+    const extra_columns = Array.from(document.querySelectorAll('.dl-extra-col:checked')).map(c => c.value);
+    const extra_filter = {};
+    document.querySelectorAll('.dl-filter-value:checked').forEach(cb => {
+      (extra_filter[cb.dataset.col] = extra_filter[cb.dataset.col] || []).push(cb.value);
+    });
     const payload = {
       category_name,
       student_id: document.getElementById('stuSearchId').value.trim(),
@@ -4024,6 +4080,8 @@
       section: document.getElementById('stuSearchSection').value.trim(),
       roll: document.getElementById('stuSearchRoll').value.trim(),
       group: document.getElementById('stuSearchGroup').value.trim(),
+      extra_columns,
+      extra_filter,
     };
     _adminFetch('download_students_by_category', payload).then(res => {
       if (!res || res.result !== 'success') { showToast((res && res.message) || 'Download failed', 'error'); return; }
