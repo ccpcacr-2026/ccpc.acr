@@ -1027,7 +1027,7 @@
               <div>
                 <label class="text-[10px] font-black text-slate-400 uppercase mb-1.5 block">Chairman</label>
                 <div class="relative">
-                  <input type="text" id="chairmanSearchInput" placeholder="Search by name or designation…" autocomplete="off"
+                  <input type="search" id="chairmanSearchInput" placeholder="Search by name or designation…" autocomplete="off"
                     class="w-full px-5 py-3 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-600 outline-none font-bold text-sm" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-chairman-search">
                   <input type="hidden" id="commChairman">
                   <div id="chairmanDropdown" class="hidden absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden" style="max-height:220px;overflow-y:auto;"></div>
@@ -1036,7 +1036,7 @@
               <div>
                 <label class="text-[10px] font-black text-slate-400 uppercase mb-1.5 block">Add Members</label>
                 <div class="relative">
-                  <input type="text" id="commMemberSearch" placeholder="Search by name or designation…" autocomplete="off"
+                  <input type="search" id="commMemberSearch" placeholder="Search by name or designation…" autocomplete="off"
                     class="w-full px-5 py-3 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-600 outline-none font-bold text-sm" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-comm-member-search">
                   <div id="memberDropdown" class="hidden absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden" style="max-height:220px;overflow-y:auto;"></div>
                 </div>
@@ -2454,7 +2454,7 @@
           </p>
           <div class="relative w-56">
             <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400"></i>
-            <input type="text" id="userSearchInput" oninput="filterUserList()" placeholder="Search users…" autocomplete="off"
+            <input type="search" id="userSearchInput" oninput="filterUserList()" placeholder="Search users…" autocomplete="off"
               class="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none font-bold text-xs" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-user-search">
           </div>
         </div>
@@ -2478,7 +2478,7 @@
             </div>
             <div class="flex-1 min-w-[160px] relative" style="margin-top:1.4rem;">
               <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400"></i>
-              <input type="text" id="profileSearchInput" oninput="filterProfileList()" placeholder="Search profiles…" autocomplete="off"
+              <input type="search" id="profileSearchInput" oninput="filterProfileList()" placeholder="Search profiles…" autocomplete="off"
                 class="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-profile-search">
             </div>
             <div style="margin-top:1.4rem;">
@@ -3229,7 +3229,7 @@
           <p class="text-xs text-slate-400 font-bold mt-1 mb-4">Grant a staff account read-only access to one or more categories, without making them a full Admin. A viewer's visible fields are the union of every category they're granted.</p>
           <div class="grid md:grid-cols-2 gap-4 mb-3">
             <div>
-              <input type="text" id="grantUserSearch" oninput="filterGrantStaff()" placeholder="Search staff by name, ID, shortname or phone…" autocomplete="off"
+              <input type="search" id="grantUserSearch" oninput="filterGrantStaff()" placeholder="Search staff by name, ID, shortname or phone…" autocomplete="off"
                 class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-grant-user-search">
               <div id="grantStaffList" class="border border-slate-200 rounded-xl mt-1.5 overflow-y-auto" style="max-height:220px"></div>
             </div>
@@ -3246,7 +3246,7 @@
           <div id="classWideGrantees" class="flex flex-wrap gap-2 mb-3"></div>
           <div class="grid md:grid-cols-2 gap-0 border border-slate-200 rounded-2xl overflow-hidden" style="min-height:280px">
             <div class="flex flex-col border-r border-slate-100">
-              <div class="p-3 border-b border-slate-100"><input type="text" id="cwaFilter" oninput="filterClassWideStaff()" placeholder="Search by name, ID, shortname or phone…" autocomplete="off" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-cwa-filter"></div>
+              <div class="p-3 border-b border-slate-100"><input type="search" id="cwaFilter" oninput="filterClassWideStaff()" placeholder="Search by name, ID, shortname or phone…" autocomplete="off" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-cwa-filter"></div>
               <div id="cwaStaffList" class="p-2 overflow-y-auto" style="flex:1;max-height:260px"><div class="text-center p-6"><i data-lucide="loader-2" class="h-5 w-5 animate-spin inline text-blue-600"></i></div></div>
             </div>
             <div class="p-4 overflow-y-auto" style="flex:1;max-height:280px">
@@ -3261,11 +3261,11 @@
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
           <p class="font-black text-slate-800 text-sm flex items-center gap-2 mb-3"><i data-lucide="search" class="h-4 w-4 text-blue-600"></i>Search &amp; Update Students</p>
           <div class="grid grid-cols-2 md:grid-cols-6 gap-2 mb-3">
-            <input type="text" id="stuSearchId" placeholder="Student ID" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-stu-search-id">
-            <input type="text" id="stuSearchClass" placeholder="Class" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-stu-search-class">
-            <input type="text" id="stuSearchSection" placeholder="Section" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-stu-search-section">
-            <input type="text" id="stuSearchRoll" placeholder="Roll" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-stu-search-roll">
-            <input type="text" id="stuSearchGroup" placeholder="Group" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-stu-search-group">
+            <input type="search" id="stuSearchId" placeholder="Student ID" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-stu-search-id">
+            <input type="search" id="stuSearchClass" placeholder="Class" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-stu-search-class">
+            <input type="search" id="stuSearchSection" placeholder="Section" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-stu-search-section">
+            <input type="search" id="stuSearchRoll" placeholder="Roll" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-stu-search-roll">
+            <input type="search" id="stuSearchGroup" placeholder="Group" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-stu-search-group">
             <button onclick="searchStudentsAdmin()" class="px-3 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center justify-center gap-1"><i data-lucide="search" class="h-3.5 w-3.5"></i>Search</button>
           </div>
           <div class="flex items-center justify-between mb-2">
@@ -3372,7 +3372,7 @@
         </div>
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
           <p class="text-xs text-slate-400 font-bold mb-4">Used as a fallback wherever the routine sheet's own class-teacher list can't resolve a name — assigning someone here always works, even if the sheet is wrong, outdated, or missing that class entirely.</p>
-          <input type="text" id="ctFilter" oninput="filterClassTeacherRows()" placeholder="Filter by class or section…" autocomplete="off"
+          <input type="search" id="ctFilter" oninput="filterClassTeacherRows()" placeholder="Filter by class or section…" autocomplete="off"
             class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mb-3" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-ct-filter">
           <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:560px">
             <table class="w-full text-left border-collapse text-xs">
@@ -4207,7 +4207,7 @@
 
       <div id="fees-student" style="display:none">
         <div class="flex gap-2 mb-3">
-          <input type="text" id="stufeeSearchId" placeholder="Student ID" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs flex-1 max-w-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-stufee-search-id">
+          <input type="search" id="stufeeSearchId" placeholder="Student ID" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs flex-1 max-w-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-stufee-search-id">
           <button onclick="loadStudentFees()" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1"><i data-lucide="search" class="h-3.5 w-3.5"></i>Search</button>
         </div>
         <div class="overflow-auto border border-slate-200 rounded-xl mb-3">
@@ -4232,7 +4232,7 @@
         <div class="grid md:grid-cols-2 gap-4">
           <div>
             <p class="font-black text-slate-800 text-xs mb-2 flex items-center gap-2"><i data-lucide="alert-triangle" class="h-4 w-4 text-red-500"></i>Defaulters List</p>
-            <input type="text" id="defClassFilter" placeholder="Filter by class (optional)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mb-2" style="max-width:260px" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-def-class-filter">
+            <input type="search" id="defClassFilter" placeholder="Filter by class (optional)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mb-2" style="max-width:260px" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-def-class-filter">
             <button onclick="loadDefaultersList()" class="px-3 py-1.5 border border-red-200 text-red-500 rounded-lg font-black text-[10px] uppercase mb-2 hover:bg-red-50">Refresh</button>
             <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:340px">
               <table class="w-full text-left border-collapse text-xs">
@@ -6152,7 +6152,7 @@
       </div>
       <div class="grid grid-cols-2 md:grid-cols-6 gap-2 mb-3">
         <select id="summaryTabSelect" onchange="loadSummaryData()" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"><option value="">Select Target…</option></select>
-        <input type="text" id="summarySearch" placeholder="Filter current view…" oninput="filterSummaryTable()" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-summary-search">
+        <input type="search" id="summarySearch" placeholder="Filter current view…" oninput="filterSummaryTable()" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-summary-search">
         <button onclick="exportSummaryData()" class="px-3 py-2 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Export CSV</button>
         <button onclick="openTabAccessModal()" title="Choose which teachers/staff can view & export this tab's data" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Data Access</button>
         <button onclick="openClassAccessModal()" title="Grant a teacher/staff access for specific class-sections only" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Class Access</button>
@@ -6337,7 +6337,7 @@
           <p class="font-black text-slate-800 text-sm">Data Access — ${tab}</p>
           <button onclick="document.getElementById('tabAccessOverlay').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="h-4 w-4"></i></button>
         </div>
-        <div class="p-3 border-b border-slate-100"><input type="text" id="tabAccessFilter" placeholder="Search teachers/staff…" oninput="filterTabAccessList()" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-tab-access-filter"></div>
+        <div class="p-3 border-b border-slate-100"><input type="search" id="tabAccessFilter" placeholder="Search teachers/staff…" oninput="filterTabAccessList()" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-tab-access-filter"></div>
         <div id="tabAccessList" class="p-4 overflow-y-auto" style="flex:1"><div class="text-center p-6"><i data-lucide="loader-2" class="h-5 w-5 animate-spin inline text-blue-600"></i></div></div>
         <div class="p-4 border-t border-slate-100 flex justify-between items-center">
           <span class="text-xs text-slate-400 font-bold">Ticked people can view &amp; export this tab's data from their faculty portal profile.</span>
@@ -6389,7 +6389,7 @@
         <div id="classAccessGrantees" class="px-4 pt-4 pb-2 flex flex-wrap gap-2"></div>
         <div class="grid md:grid-cols-2 gap-0" style="flex:1;min-height:0;border-top:1px solid #f1f5f9">
           <div class="flex flex-col border-r border-slate-100" style="min-height:0">
-            <div class="p-3 border-b border-slate-100"><input type="text" id="classAccessFilter" placeholder="Search by name, ID, shortname or phone…" oninput="filterClassAccessStaff()" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-class-access-filter"></div>
+            <div class="p-3 border-b border-slate-100"><input type="search" id="classAccessFilter" placeholder="Search by name, ID, shortname or phone…" oninput="filterClassAccessStaff()" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-class-access-filter"></div>
             <div id="classAccessStaffList" class="p-2 overflow-y-auto" style="flex:1"><div class="text-center p-6"><i data-lucide="loader-2" class="h-5 w-5 animate-spin inline text-blue-600"></i></div></div>
           </div>
           <div class="p-4 overflow-y-auto" style="flex:1">
@@ -6575,7 +6575,7 @@
         <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Every change to a student's record, logged automatically</p>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-4 gap-2 mb-3">
-        <input type="text" id="historySearch" placeholder="Search Student ID, name, class, section, roll…" oninput="debounceLoadEditHistory()" class="md:col-span-3 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-history-search">
+        <input type="search" id="historySearch" placeholder="Search Student ID, name, class, section, roll…" oninput="debounceLoadEditHistory()" class="md:col-span-3 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-history-search">
         <button onclick="loadEditHistory()" class="px-3 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Search</button>
       </div>
       <div id="historyCount" class="text-xs font-black text-slate-500 mb-2"></div>
@@ -7153,11 +7153,11 @@
         </p>
       </div>
       <div class="grid grid-cols-2 md:grid-cols-6 gap-2 mb-3">
-        <input type="text" id="vwSearchId" placeholder="Student ID" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-vw-search-id">
-        <input type="text" id="vwSearchClass" placeholder="Class" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-vw-search-class">
-        <input type="text" id="vwSearchSection" placeholder="Section" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-vw-search-section">
-        <input type="text" id="vwSearchRoll" placeholder="Roll" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-vw-search-roll">
-        <input type="text" id="vwSearchGroup" placeholder="Group" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-vw-search-group">
+        <input type="search" id="vwSearchId" placeholder="Student ID" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-vw-search-id">
+        <input type="search" id="vwSearchClass" placeholder="Class" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-vw-search-class">
+        <input type="search" id="vwSearchSection" placeholder="Section" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-vw-search-section">
+        <input type="search" id="vwSearchRoll" placeholder="Roll" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-vw-search-roll">
+        <input type="search" id="vwSearchGroup" placeholder="Group" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-vw-search-group">
         <button onclick="viewerSearch()" class="px-3 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Search</button>
       </div>
       <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
@@ -7757,7 +7757,7 @@
           <div class="flex items-center gap-3">
             <div class="relative w-56">
               <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400"></i>
-              <input type="text" id="permSearchInput" oninput="filterPermTable()" placeholder="Search users…" autocomplete="off"
+              <input type="search" id="permSearchInput" oninput="filterPermTable()" placeholder="Search users…" autocomplete="off"
                 class="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-blue-600 outline-none shadow-sm" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-perm-search">
             </div>
             <button onclick="loadPermissionsPanel()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-500 text-xs font-black uppercase tracking-widest hover:bg-slate-50 shadow-sm transition-all">
@@ -9182,7 +9182,7 @@
             <div>
               <label class="text-[10px] font-black text-slate-400 uppercase mb-1.5 block">Chairman</label>
               <div class="relative">
-                <input type="text" id="editChairmanSearch" placeholder="Search by name or designation…" autocomplete="off"
+                <input type="search" id="editChairmanSearch" placeholder="Search by name or designation…" autocomplete="off"
                   class="w-full px-4 py-3 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-600 outline-none font-bold text-sm" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-edit-chairman-search">
                 <input type="hidden" id="commEditChairman">
                 <div id="editChairmanDrop" class="hidden absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden" style="max-height:220px;overflow-y:auto;"></div>
@@ -9191,7 +9191,7 @@
             <div>
               <label class="text-[10px] font-black text-slate-400 uppercase mb-1.5 block">Add Member</label>
               <div class="relative">
-                <input type="text" id="commEditMemberSearch" placeholder="Search by name or designation…" autocomplete="off"
+                <input type="search" id="commEditMemberSearch" placeholder="Search by name or designation…" autocomplete="off"
                   class="w-full px-4 py-3 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-600 outline-none font-bold text-sm" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-comm-edit-member-search">
                 <div id="editMemberDrop" class="hidden absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden" style="max-height:220px;overflow-y:auto;"></div>
               </div>
@@ -11245,7 +11245,7 @@
         <div class="flex items-center gap-3">
           <div class="relative flex-1 max-w-sm">
             <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none"></i>
-            <input id="userDirSearch" type="text" placeholder="Search by name, role, designation…"
+            <input id="userDirSearch" type="search" placeholder="Search by name, role, designation…"
               autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-userdir-search"
               oninput="filterUserDirectory(this.value)"
               class="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-600 transition-all">
@@ -11366,7 +11366,7 @@
           <div class="px-3 pt-3 pb-2 shrink-0">
             <div class="relative">
               <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none"></i>
-              <input id="msgSearch" type="text" placeholder="Search people to message…"
+              <input id="msgSearch" type="search" placeholder="Search people to message…"
                 autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-msg-search"
                 oninput="filterMessagePeople(this.value)"
                 class="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-600 transition-all">
@@ -11521,7 +11521,7 @@
         <div class="p-3 border-b border-slate-100 shrink-0">
           <div class="relative">
             <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none"></i>
-            <input id="newMsgSearch" type="text" placeholder="Search by name, designation, role…"
+            <input id="newMsgSearch" type="search" placeholder="Search by name, designation, role…"
               autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-newmsg-search"
               oninput="filterNewMessage(this.value)"
               class="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-600 transition-all">
