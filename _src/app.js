@@ -11288,9 +11288,9 @@
       </div>
 
       <div id="colleagueProfileModal" class="modal-wrap hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
-        <div class="modal-box relative bg-white rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden" style="max-height:90vh;display:flex;flex-direction:column">
-          <button onclick="closeColleagueProfileModal()" class="absolute top-4 right-4 z-10 w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center transition-all"><i data-lucide="x" class="h-4 w-4"></i></button>
-          <div id="colleagueProfileBody" class="overflow-y-auto" style="flex:1">
+        <div class="modal-box relative bg-white rounded-3xl w-full max-w-2xl shadow-2xl overflow-hidden" style="max-height:92vh;display:flex;flex-direction:column">
+          <button onclick="closeColleagueProfileModal()" class="absolute top-4 right-4 z-10 w-8 h-8 rounded-full bg-black/20 hover:bg-black/35 text-white flex items-center justify-center transition-all backdrop-blur-sm"><i data-lucide="x" class="h-4 w-4"></i></button>
+          <div id="colleagueProfileBody" class="overflow-y-auto bg-slate-50" style="flex:1">
             <div class="text-center py-16"><i data-lucide="loader-2" class="h-6 w-6 animate-spin inline text-blue-600"></i></div>
           </div>
         </div>
@@ -11368,95 +11368,146 @@
     const photoSrc = p.photo_url ? (p.photo_url.startsWith('http') ? p.photo_url : 'https://lh3.googleusercontent.com/d/' + p.photo_url) : '';
     const avatarHtml = photoSrc
       ? `<img src="${photoSrc}" class="w-full h-full object-cover" onerror="this.style.display='none'">`
-      : `<i data-lucide="user" class="h-10 w-10 text-white"></i>`;
+      : `<i data-lucide="user" class="h-11 w-11 text-white"></i>`;
     const pct = Math.max(0, Math.min(100, completion || 0));
-    const pctColor = pct >= 80 ? '#10b981' : pct >= 40 ? '#f59e0b' : '#ef4444';
-    const field = (label, value) => value ? `<div><p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">${label}</p><p class="font-bold text-slate-700 text-sm">${value}</p></div>` : '';
+    const pctBadgeClass = pct >= 80 ? 'bg-emerald-100 text-emerald-600' : pct >= 40 ? 'bg-amber-100 text-amber-600' : 'bg-rose-100 text-rose-600';
+    const pctBarColor = pct >= 80 ? '#10b981' : pct >= 40 ? '#f59e0b' : '#ef4444';
+    const dateOnly = v => v ? String(v).split('T')[0] : '';
+
+    // Same visual language as the owner's own "Preview" mode (prev-section/
+    // pv-field, see styles.css) — reused deliberately so this feels like
+    // the same product, not a bolted-on second design.
+    const sec = (icon, title, bodyHtml) => `
+      <div class="prev-section">
+        <div class="prev-hdr flex items-center gap-1.5"><i data-lucide="${icon}" class="h-3 w-3"></i>${title}</div>
+        <div class="prev-body">${bodyHtml}</div>
+      </div>`;
+    const fld = (label, value) => `<div class="pv-field"><p class="pv-lbl">${label}</p><p class="pv-val${value ? '' : ' empty'}">${value || '—'}</p></div>`;
+    const grid = (...cells) => `<div class="grid grid-cols-2 md:grid-cols-3 gap-4">${cells.join('')}</div>`;
+    // Only render a section if at least one of its fields actually has a value.
+    const any = (...vals) => vals.some(v => v !== null && v !== undefined && String(v).trim() !== '');
 
     const edu = Array.isArray(p.education_records) ? p.education_records : [];
-    const eduHtml = edu.length ? `
-      <div class="border-t border-slate-100 pt-4 mt-4">
-        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5"><i data-lucide="graduation-cap" class="h-3.5 w-3.5"></i>Education</p>
-        <div class="flex flex-col gap-2">
-          ${edu.map(e => `<div class="text-xs"><span class="font-black text-slate-700">${e.exam_passed || e.school_college || ''}</span>${e.school_college && e.exam_passed ? ` <span class="text-slate-400">— ${e.school_college}</span>` : ''}${e.year_of_passing ? ` <span class="text-slate-400">(${e.year_of_passing})</span>` : ''}</div>`).join('')}
-        </div>
-      </div>` : '';
+    const eduSection = (edu.length || p.additional_qualification) ? sec('graduation-cap', 'Education', `
+      ${edu.length ? `<div class="flex flex-col gap-2 mb-3">
+        ${edu.map(e => `<div class="text-sm"><span class="font-black text-slate-700">${e.exam_passed || e.school_college || ''}</span>${e.school_college && e.exam_passed ? ` <span class="text-slate-400 font-bold">— ${e.school_college}</span>` : ''}${e.year_of_passing ? ` <span class="text-slate-400 font-bold">(${e.year_of_passing})</span>` : ''}${e.division_gpa ? ` <span class="text-slate-400 font-bold">· ${e.division_gpa}</span>` : ''}</div>`).join('')}
+      </div>` : ''}
+      ${p.additional_qualification ? fld('Additional Qualification', p.additional_qualification) : ''}
+    `) : '';
 
-    const curatedFields = `
-      <div class="grid grid-cols-2 gap-4 mt-4">
-        ${field('Department / School', p.school_college)}
-        ${field('Category', p.category)}
-        ${field('Joined', p.joining_date ? String(p.joining_date).split('T')[0] : '')}
-        ${field('Mobile', p.mobile || p.tt_phone)}
-        ${field('Email', p.personal_email)}
-        ${field('Additional Qualification', p.additional_qualification)}
-      </div>
-      ${eduHtml}`;
+    const workSection = sec('briefcase', 'Work', grid(
+      fld('Department / School', p.school_college), fld('Category', p.category), fld('Joined', dateOnly(p.joining_date)),
+      fld('Mobile', p.mobile || p.tt_phone), fld('Email', p.personal_email)
+    ));
 
-    const fullSection = isPrivileged ? `
-      <div class="border-t border-slate-100 pt-4 mt-4">
-        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5"><i data-lucide="shield-check" class="h-3.5 w-3.5"></i>Full Personnel Record</p>
-        <div class="grid grid-cols-2 gap-4">
-          ${field('National ID', p.national_id)}
-          ${field('Date of Birth', p.date_of_birth ? String(p.date_of_birth).split('T')[0] : '')}
-          ${field('Blood Group', p.blood_group)}
-          ${field('Nationality', p.nationality)}
-          ${field('Present Address', p.present_address)}
-          ${field('Permanent Address', p.permanent_address)}
-          ${field('Marital Status', p.marital_status)}
-          ${field('TID / BIN No.', p.tid_bin_no)}
-        </div>
-      </div>` : '';
+    if (!isPrivileged) {
+      return _colleagueProfileShell(p, pct, pctBadgeClass, pctBarColor, `${workSection}${eduSection}`);
+    }
+
+    // ── Full personnel record (HR/VP/Admin/Principal/Cord, or your own card) ──
+    const sp = (Array.isArray(p.spouse_details) && p.spouse_details[0]) || {};
+    const siblings = Array.isArray(p.siblings_info) ? p.siblings_info : [];
+    const children = Array.isArray(p.children_info) ? p.children_info : [];
+    const family = Array.isArray(p.family_details) ? p.family_details : [];
+    const countries = Array.isArray(p.countries_visited) ? p.countries_visited : [];
+    const languages = Array.isArray(p.language_skills) ? p.language_skills : [];
+    const tbl = (headers, rows, cellsFn) => rows.length ? `<div class="overflow-x-auto -mx-1"><table class="w-full text-left border-collapse text-xs">
+        <thead><tr class="border-b border-slate-100">${headers.map(h => `<th class="px-1 py-1.5 pv-lbl">${h}</th>`).join('')}</tr></thead>
+        <tbody>${rows.map(r => `<tr class="border-b border-slate-50">${cellsFn(r).map(c => `<td class="px-1 py-1.5 font-bold text-slate-700">${c || '—'}</td>`).join('')}</tr>`).join('')}</tbody>
+      </table></div>` : '<p class="pv-val empty text-xs">No records.</p>';
+
+    const identitySection = any(p.national_id, p.auth_ref, p.tid_bin_no) ? sec('id-card', 'Identity & Registration', grid(
+      fld('National ID', p.national_id), fld('Auth Ref', p.auth_ref), fld('TID / BIN No.', p.tid_bin_no)
+    )) : '';
+
+    const birthSection = any(p.date_of_birth, p.place_of_birth, p.birth_certificate_no, p.height_feet, p.weight_kg, p.blood_group, p.identification_marks, p.religion, p.caste) ? sec('heart-pulse', 'Birth, Physical & Blood', grid(
+      fld('Date of Birth', dateOnly(p.date_of_birth)), fld('Place of Birth', p.place_of_birth), fld('Birth Certificate No.', p.birth_certificate_no),
+      fld('Height', p.height_feet ? `${p.height_feet}' ${p.height_inches || 0}"` : ''), fld('Weight', p.weight_kg ? `${p.weight_kg} kg` : ''), fld('Blood Group', p.blood_group),
+      fld('Identification Marks', p.identification_marks), fld('Religion', p.religion), fld('Caste', p.caste)
+    )) : '';
+
+    const contactSection = any(p.nationality, p.permanent_address, p.present_address, p.alternate_address) ? sec('map-pin', 'Nationality & Address', grid(
+      fld('Nationality', p.nationality), fld('Permanent Address', p.permanent_address), fld('Present Address', p.present_address), fld('Alternate Address', p.alternate_address)
+    )) : '';
+
+    const parentsSection = any(p.father_name, p.mother_name, p.position_in_siblings) || siblings.length ? sec('users', 'Family — Parents & Siblings', `
+      ${any(p.father_name, p.father_occupation, p.father_nationality) ? `<p class="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-2">Father</p>${grid(fld('Name', p.father_name), fld('Occupation', p.father_occupation), fld('Nationality', p.father_nationality))}<div class="my-3"></div>` : ''}
+      ${any(p.mother_name, p.mother_occupation, p.mother_nationality) ? `<p class="text-[10px] font-black text-pink-500 uppercase tracking-widest mb-2">Mother</p>${grid(fld('Name', p.mother_name), fld('Occupation', p.mother_occupation), fld('Nationality', p.mother_nationality))}<div class="my-3"></div>` : ''}
+      ${siblings.length ? `<p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 mt-1">Brothers &amp; Sisters</p>${tbl(['Name', 'Age', 'Occupation / Address'], siblings, r => [r.name, r.age, r.occupation_address])}` : ''}
+      ${p.position_in_siblings ? `<div class="mt-3">${fld('Position within Siblings', p.position_in_siblings)}</div>` : ''}
+    `) : '';
+
+    const maritalSection = any(p.marital_status, sp.name_english, sp.occupation) || family.length ? sec('heart', 'Marital &amp; Spouse', `
+      ${grid(fld('Marital Status', p.marital_status), fld('Marriage / Divorce Date', dateOnly(p.marriage_divorce_date)))}
+      ${any(sp.name_english, sp.occupation, sp.educational_qualification) ? `<div class="mt-3">${grid(fld('Spouse Name', sp.name_english), fld('Spouse Occupation', sp.occupation), fld('Spouse Education', sp.educational_qualification))}</div>` : ''}
+      ${family.length ? `<p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 mt-3">Basic Family Record</p>${tbl(['Relation', 'Name', 'Date'], family, r => [r.member_type, r.name, dateOnly(r.marriage_date)])}` : ''}
+    `) : '';
+
+    const childrenSection = children.length ? sec('baby', 'Particulars of Children', tbl(['Name', 'Sex', 'Date of Birth', 'Occupation'], children, r => [r.name, r.sex, dateOnly(r.date_of_birth), r.occupation])) : '';
+
+    const financialSection = any(p.own_income) ? sec('banknote', 'Financial', grid(fld('Own Income', p.own_income))) : '';
+
+    const travelSection = any(p.passport_number, p.passport_type) || countries.length || languages.length ? sec('plane', 'Travel &amp; Languages', `
+      ${any(p.passport_number) ? grid(fld('Passport Number', p.passport_number), fld('Type', p.passport_type), fld('Date of Expiry', dateOnly(p.passport_date_expiry))) : ''}
+      ${countries.length ? `<p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 mt-3">Countries Visited</p>${tbl(['Country', 'From', 'To'], countries, r => [r.country_name, dateOnly(r.duration_from), dateOnly(r.duration_to)])}` : ''}
+      ${languages.length ? `<div class="flex flex-wrap gap-2 mt-3">${languages.map(l => `<span class="px-3 py-1.5 bg-blue-50 rounded-xl text-xs font-black text-blue-700">${l.language}${l.efficiency ? ` · ${l.efficiency}` : ''}</span>`).join('')}</div>` : ''}
+    `) : '';
 
     // Career notes are HR-disciplinary in nature — visible only alongside
     // the rest of the full record, editable only when canEditCareer (never
     // for your own card, even if you hold an eligible role), and readable
     // history is always one click away for accountability.
-    const careerSection = isPrivileged ? `
-      <div class="border-t border-slate-100 pt-4 mt-4">
-        <div class="flex items-center justify-between mb-2">
-          <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5"><i data-lucide="lock" class="h-3.5 w-3.5"></i>Career Record</p>
-          <button onclick="toggleCareerHistory('${p.teacher_id}')" class="text-[9px] font-black text-blue-600 uppercase tracking-widest hover:underline">View History</button>
+    const careerSection = sec('lock', 'Career Record', `
+      <div class="flex items-center justify-between mb-2 -mt-1">
+        ${canEditCareer ? '<p class="text-[10px] text-slate-400 font-bold">Editable — every change is logged.</p>' : '<p class="text-[10px] text-slate-400 font-bold">Read-only — only HR, VP, Principal, or Cord may edit, and never their own.</p>'}
+        <button onclick="toggleCareerHistory('${p.teacher_id}')" class="text-[9px] font-black text-blue-600 uppercase tracking-widest hover:underline shrink-0 ml-3">View History</button>
+      </div>
+      <div class="flex flex-col gap-3">
+        <div>
+          <label class="pv-lbl mb-1 block">Breaking Institution Law</label>
+          <textarea id="ccInstLaw" rows="2" ${canEditCareer ? '' : 'readonly'} class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs resize-y">${p.institution_law_breaking || ''}</textarea>
         </div>
-        ${!canEditCareer ? '<p class="text-[10px] text-slate-400 font-bold mb-2">Read-only — only HR, VP, Principal, or Cord may edit, and never their own.</p>' : ''}
-        <div class="flex flex-col gap-3">
-          <div>
-            <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Breaking Institution Law</label>
-            <textarea id="ccInstLaw" rows="2" ${canEditCareer ? '' : 'readonly'} class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs resize-y">${p.institution_law_breaking || ''}</textarea>
-          </div>
-          <div>
-            <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Breaking Civil Law</label>
-            <textarea id="ccCivilLaw" rows="2" ${canEditCareer ? '' : 'readonly'} class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs resize-y">${p.civil_law_breaking || ''}</textarea>
-          </div>
-          ${canEditCareer ? `<button onclick="saveColleagueCareerFields('${p.teacher_id}')" class="self-end px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Career Notes</button>` : ''}
+        <div>
+          <label class="pv-lbl mb-1 block">Breaking Civil Law</label>
+          <textarea id="ccCivilLaw" rows="2" ${canEditCareer ? '' : 'readonly'} class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs resize-y">${p.civil_law_breaking || ''}</textarea>
         </div>
-        <div id="careerHistoryPanel" class="hidden mt-3 pt-3 border-t border-dashed border-slate-200"></div>
-      </div>` : '';
+        ${canEditCareer ? `<button onclick="saveColleagueCareerFields('${p.teacher_id}')" class="self-end px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Career Notes</button>` : ''}
+      </div>
+      <div id="careerHistoryPanel" class="hidden mt-3 pt-3 border-t border-dashed border-slate-200"></div>
+    `);
 
+    const allSections = [workSection, identitySection, birthSection, contactSection, parentsSection, maritalSection, childrenSection, financialSection, travelSection, eduSection, careerSection].join('');
+    return _colleagueProfileShell(p, pct, pctBadgeClass, pctBarColor, allSections);
+  }
+
+  function _colleagueProfileShell(p, pct, pctBadgeClass, pctBarColor, sectionsHtml) {
+    const photoSrc = p.photo_url ? (p.photo_url.startsWith('http') ? p.photo_url : 'https://lh3.googleusercontent.com/d/' + p.photo_url) : '';
+    const avatarHtml = photoSrc
+      ? `<img src="${photoSrc}" class="w-full h-full object-cover" onerror="this.style.display='none'">`
+      : `<i data-lucide="user" class="h-11 w-11 text-white"></i>`;
     return `
       <div>
-        <div class="h-24 bg-gradient-to-r from-slate-900 to-blue-900 relative"></div>
-        <div class="px-6 pb-6">
-          <div class="flex items-end justify-between -mt-10">
-            <div class="w-20 h-20 rounded-2xl overflow-hidden border-4 border-white bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center shadow-lg">
+        <div class="h-28 relative" style="background:linear-gradient(120deg,#0f172a 0%,#1e3a8a 55%,#1d4ed8 100%)">
+          <div class="absolute inset-0 opacity-20" style="background-image:radial-gradient(circle at 20% 30%, white 1px, transparent 1px);background-size:18px 18px"></div>
+        </div>
+        <div class="px-6 pb-6 bg-white">
+          <div class="flex items-end justify-between -mt-11">
+            <div class="w-22 h-22 rounded-2xl overflow-hidden border-4 border-white bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center shadow-lg" style="width:5.5rem;height:5.5rem">
               ${avatarHtml}
             </div>
-            <div class="text-right pb-1">
-              <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Profile Complete</p>
-              <p class="text-lg font-black" style="color:${pctColor}">${pct}%</p>
-            </div>
+            <div class="px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest ${pctBadgeClass} mb-1">${pct}% Complete</div>
           </div>
           <div class="mt-3">
             <h3 class="text-xl font-black text-slate-800 tracking-tight">${p.full_name || p.teacher_id || '—'}</h3>
-            ${p.name_bengali ? `<p class="text-slate-400 font-bold text-xs">${p.name_bengali}</p>` : ''}
-            ${p.designation ? `<p class="text-blue-600 font-black text-xs uppercase tracking-wide mt-1">${p.designation}</p>` : ''}
+            ${p.name_bengali ? `<p class="text-slate-400 font-bold text-xs mt-0.5">${p.name_bengali}</p>` : ''}
+            ${p.designation ? `<p class="text-blue-600 font-black text-xs uppercase tracking-wide mt-1.5">${p.designation}</p>` : ''}
           </div>
           <div class="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden mt-3">
-            <div class="h-full rounded-full transition-all" style="width:${pct}%;background:${pctColor}"></div>
+            <div class="h-full rounded-full transition-all" style="width:${pct}%;background:${pctBarColor}"></div>
           </div>
-          ${curatedFields}
-          ${fullSection}
-          ${careerSection}
+        </div>
+        <div class="px-6 pb-6 pt-1 bg-slate-50 flex flex-col gap-3">
+          ${sectionsHtml}
         </div>
       </div>`;
   }
