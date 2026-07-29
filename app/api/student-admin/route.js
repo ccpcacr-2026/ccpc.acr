@@ -895,19 +895,24 @@ export async function POST(req) {
     return NextResponse.json(out);
   }
   if (action === 'get_class_sections') {
-    // PostgREST has no distinct param on plain selects — fetch all triples and
-    // dedupe here (a few thousand tiny rows, fine).
+    // PostgREST has no distinct param on plain selects — fetch every student
+    // row and tally per class/section/group here (a few thousand tiny rows,
+    // fine). `count` is real students in that exact combo — callers that
+    // just need the distinct list (Access/Class Access pickers) simply
+    // ignore it; the Assign Class Teacher panel sums it per class+section
+    // across groups to show actual roll size, not the number of groups.
     const rows = await sb('students_data?select=class,section,group&limit=10000');
     if (rows?.error) return NextResponse.json([]);
-    const seen = new Set();
-    const out = [];
+    const seen = new Map();
     rows.forEach(r => {
       const cls = String(r.class || '').trim(), sec = String(r.section || '').trim();
       const grp = String(r.group || '').trim() || 'None';
       if (!cls || !sec) return;
       const key = `${cls}|${sec}|${grp}`;
-      if (!seen.has(key)) { seen.add(key); out.push({ class: cls, section: sec, group: grp }); }
+      if (!seen.has(key)) seen.set(key, { class: cls, section: sec, group: grp, count: 0 });
+      seen.get(key).count++;
     });
+    const out = [...seen.values()];
     out.sort((a, b) => a.class.localeCompare(b.class) || a.section.localeCompare(b.section) || a.group.localeCompare(b.group));
     return NextResponse.json(out);
   }

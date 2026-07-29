@@ -3494,7 +3494,11 @@
       (Array.isArray(sections) ? sections : []).forEach(r => {
         const key = `${r.class}||${r.section}`;
         if (!seen.has(key)) seen.set(key, { class: r.class, section: r.section, count: 0 });
-        seen.get(key).count++;
+        // get_class_sections returns one row per class/section/GROUP combo
+        // (Science/Arts/Commerce etc, each with its own real student count)
+        // — sum those counts to get the section's actual roll size, rather
+        // than counting rows (which just counted how many groups exist).
+        seen.get(key).count += (Number(r.count) || 0);
       });
       _ctClassSections = [...seen.values()].sort((a, b) => a.class.localeCompare(b.class) || a.section.localeCompare(b.section));
       _ctAssignments = {};
