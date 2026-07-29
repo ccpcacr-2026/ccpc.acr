@@ -289,15 +289,16 @@
         <div id="psec-career" class="psec hidden space-y-3">
 
           <div class="pcard">
-            <div class="pcard-hdr">Events Affecting Career</div>
+            <div class="pcard-hdr flex items-center gap-1.5"><i data-lucide="lock" style="width:12px;height:12px"></i>Events Affecting Career</div>
+            <p class="text-xs text-slate-400 font-bold px-1 -mt-1 mb-2">Read-only — only HR, VP, Principal, or Cord can record entries here, from your colleague profile card. You can never edit your own.</p>
             <div class="pf-rows">
               <div class="pf-wrap">
                 <label class="pf-lbl">Breaking Institution Law</label>
-                <textarea name="institution_law_breaking" rows="3" class="pf-input resize-y"></textarea>
+                <textarea name="institution_law_breaking" rows="3" class="pf-input resize-y" readonly data-perm-readonly></textarea>
               </div>
               <div class="pf-wrap">
                 <label class="pf-lbl">Breaking Civil Law</label>
-                <textarea name="civil_law_breaking" rows="3" class="pf-input resize-y"></textarea>
+                <textarea name="civil_law_breaking" rows="3" class="pf-input resize-y" readonly data-perm-readonly></textarea>
               </div>
             </div>
           </div>

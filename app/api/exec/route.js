@@ -69,6 +69,15 @@ const PROFILE_PUBLIC_FIELDS_DEFAULT = [
   'personal_email', 'mobile', 'tt_phone', 'additional_qualification', 'education_records',
 ];
 
+// Who sees a colleague's full personnel record when viewing their card.
+const PRIVILEGED_ROLES = ['HR', 'VP', 'Admin', 'Principal', 'Cord'];
+// Who may EDIT another teacher's Career tab fields (institution/civil
+// law-breaking notes) — deliberately never includes the record's own
+// owner, even if they hold one of these roles themselves: see
+// saveColleagueCareer, which also hard-blocks self-edits server-side.
+const CAREER_EDIT_ROLES = ['HR', 'VP', 'Principal', 'Cord', 'Admin'];
+const CAREER_FIELDS = ['institution_law_breaking', 'civil_law_breaking'];
+
 // Field Category row_filter check (student.field_access_grants.row_filter,
 // { column: [values] }, AND across columns, IN within each) — local copy
 // of student-admin/route.js's _rowMatchesFilter, used by getTabDataForUser
@@ -665,8 +674,12 @@ const handlers = {
     const viewerRows = await supabaseRequest(`app_users?user_id=eq.${encodeURIComponent(viewerUserId)}&select=role`);
     const viewerRole = (Array.isArray(viewerRows) && viewerRows[0]) ? viewerRows[0].role : '';
     const viewerRoles = String(viewerRole || '').split(',').map(r => r.trim());
-    const PRIVILEGED_ROLES = ['HR', 'VP', 'Admin', 'Principal', 'Cord'];
-    const isPrivileged = viewerRoles.some(r => PRIVILEGED_ROLES.includes(r)) || viewerUserId === targetTeacherId;
+    const isSelf = viewerUserId === targetTeacherId;
+    const isPrivilegedRole = viewerRoles.some(r => PRIVILEGED_ROLES.includes(r));
+    const isPrivileged = isPrivilegedRole || isSelf;
+    // Career fields are only ever editable for SOMEONE ELSE's record, by a
+    // role in CAREER_EDIT_ROLES — never your own, regardless of role.
+    const canEditCareer = viewerRoles.some(r => CAREER_EDIT_ROLES.includes(r)) && !isSelf;
 
     const fullSel = [
       '*', 'family_details(*)', 'faculty_attributes(*)', 'countries_visited(*)',
@@ -680,7 +693,7 @@ const handlers = {
     const completion = _computeProfileCompletion(full);
 
     if (isPrivileged) {
-      return { result: 'success', isPrivileged: true, completion, profile: full };
+      return { result: 'success', isPrivileged: true, canEditCareer, completion, profile: full };
     }
 
     // Which fields count as "public" (visible to any teacher, not just the
@@ -695,7 +708,60 @@ const handlers = {
     publicFields.forEach(f => {
       curated[f] = f === 'education_records' ? (full.education_records || []) : full[f];
     });
-    return { result: 'success', isPrivileged: false, completion, profile: curated };
+    return { result: 'success', isPrivileged: false, canEditCareer: false, completion, profile: curated };
+  },
+
+  // Update someone ELSE's Career tab fields (institution/civil law-breaking
+  // notes) — never your own, even if you hold one of CAREER_EDIT_ROLES;
+  // both checks are re-verified here, never trusted from the client. Every
+  // actually-changed field is logged to career_edit_log (who, when, old →
+  // new) — see getCareerEditHistory to read it back. Only the two fields
+  // named here are ever touched; nothing else on the profile.
+  async saveColleagueCareer([callerUserId, targetTeacherId, institution_law_breaking, civil_law_breaking]) {
+    if (!callerUserId || !targetTeacherId) return { error: 'Missing parameters.' };
+    if (callerUserId === targetTeacherId) return { error: 'You cannot edit your own career record.' };
+    const rows = await supabaseRequest(`app_users?user_id=eq.${encodeURIComponent(callerUserId)}&select=role`);
+    const role = (Array.isArray(rows) && rows[0]) ? rows[0].role : '';
+    const roles = String(role || '').split(',').map(r => r.trim());
+    if (!roles.some(r => CAREER_EDIT_ROLES.includes(r))) return { error: 'Not authorized to edit career records.' };
+
+    const curRows = await supabaseRequest(`users_profile?teacher_id=eq.${encodeURIComponent(targetTeacherId)}&select=${CAREER_FIELDS.join(',')}`);
+    if (!Array.isArray(curRows) || !curRows.length) return { error: 'Profile not found.' };
+    const cur = curRows[0];
+
+    const incoming = { institution_law_breaking, civil_law_breaking };
+    const updates = {};
+    const logs = [];
+    CAREER_FIELDS.forEach(field => {
+      const newVal = incoming[field] != null ? String(incoming[field]).trim() : '';
+      const oldVal = cur[field] || '';
+      if (newVal !== oldVal) {
+        updates[field] = newVal || null;
+        logs.push({ target_teacher_id: targetTeacherId, editor_user_id: callerUserId, field, old_value: oldVal || null, new_value: newVal || null });
+      }
+    });
+    if (!logs.length) return { result: 'success', changed: false };
+
+    const upd = await supabaseRequest(`users_profile?teacher_id=eq.${encodeURIComponent(targetTeacherId)}`, 'patch', updates);
+    if (upd && upd.error) return { error: 'DB error saving career record: ' + (upd.details || upd.error) };
+    await supabaseRequest('career_edit_log', 'post', logs);
+    return { result: 'success', changed: true };
+  },
+
+  // Read-only audit trail for one teacher's Career tab — viewable by the
+  // owner themselves (transparency: you can always see what's on record
+  // about you, even though you can't change it) or by a CAREER_EDIT_ROLES
+  // holder viewing someone else's.
+  async getCareerEditHistory([callerUserId, targetTeacherId]) {
+    if (!callerUserId || !targetTeacherId) return { error: 'Missing parameters.' };
+    if (callerUserId !== targetTeacherId) {
+      const rows = await supabaseRequest(`app_users?user_id=eq.${encodeURIComponent(callerUserId)}&select=role`);
+      const role = (Array.isArray(rows) && rows[0]) ? rows[0].role : '';
+      const roles = String(role || '').split(',').map(r => r.trim());
+      if (!roles.some(r => CAREER_EDIT_ROLES.includes(r))) return { error: 'Not authorized.' };
+    }
+    const logRows = await supabaseRequest(`career_edit_log?target_teacher_id=eq.${encodeURIComponent(targetTeacherId)}&select=*&order=created_at.desc&limit=50`);
+    return { result: 'success', history: Array.isArray(logRows) ? logRows : [] };
   },
 
   // Admin-only — which profile fields a non-privileged viewer sees on a
@@ -779,8 +845,11 @@ const handlers = {
       marriage_divorce_date: d(data.marriage_divorce_date),
       marriage_authority: data.marriage_authority || null,
       own_income: data.own_income || null,
-      institution_law_breaking: data.institution_law_breaking || null,
-      civil_law_breaking: data.civil_law_breaking || null,
+      // institution_law_breaking / civil_law_breaking deliberately excluded
+      // here — no one may edit their own Career tab, not even via a crafted
+      // request to this endpoint. Only saveColleagueCareer (below) may set
+      // these, gated to HR/VP/Principal/Cord/Admin editing someone ELSE's
+      // record, with every change logged to career_edit_log.
       identification_marks: data.identification_marks || null,
       tid_bin_no: data.tid_bin_no || null,
       additional_qualification: data.additional_qualification || null,

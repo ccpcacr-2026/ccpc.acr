@@ -10064,8 +10064,12 @@
     const bar    = document.getElementById('profileSaveBar');
     if (form) {
       form.classList.remove('form-locked');
-      form.querySelectorAll('input:not([data-perm-readonly]), textarea').forEach(el => el.removeAttribute('readonly'));
-      form.querySelectorAll('select').forEach(el => el.disabled = false);
+      // Career tab fields carry data-perm-readonly (see TeacherView.html) —
+      // no one may edit their own Career tab, so this exclusion must apply
+      // to textareas too, not just inputs, or "Edit" would silently unlock
+      // them along with everything else.
+      form.querySelectorAll('input:not([data-perm-readonly]), textarea:not([data-perm-readonly])').forEach(el => el.removeAttribute('readonly'));
+      form.querySelectorAll('select:not([data-perm-readonly])').forEach(el => el.disabled = false);
     }
     if (banner) banner.style.display = 'none';
     if (bar)    bar.style.display    = 'flex';
@@ -11347,7 +11351,7 @@
           body.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase">${(res && res.error) || 'Could not load this profile.'}</div>`;
           return;
         }
-        body.innerHTML = _renderColleagueProfile(res.profile, res.completion, res.isPrivileged);
+        body.innerHTML = _renderColleagueProfile(res.profile, res.completion, res.isPrivileged, res.canEditCareer);
         lucide.createIcons();
       })
       .withFailureHandler(() => {
@@ -11360,7 +11364,7 @@
     if (modal) modal.classList.add('hidden');
   }
 
-  function _renderColleagueProfile(p, completion, isPrivileged) {
+  function _renderColleagueProfile(p, completion, isPrivileged, canEditCareer) {
     const photoSrc = p.photo_url ? (p.photo_url.startsWith('http') ? p.photo_url : 'https://lh3.googleusercontent.com/d/' + p.photo_url) : '';
     const avatarHtml = photoSrc
       ? `<img src="${photoSrc}" class="w-full h-full object-cover" onerror="this.style.display='none'">`
@@ -11404,6 +11408,31 @@
         </div>
       </div>` : '';
 
+    // Career notes are HR-disciplinary in nature — visible only alongside
+    // the rest of the full record, editable only when canEditCareer (never
+    // for your own card, even if you hold an eligible role), and readable
+    // history is always one click away for accountability.
+    const careerSection = isPrivileged ? `
+      <div class="border-t border-slate-100 pt-4 mt-4">
+        <div class="flex items-center justify-between mb-2">
+          <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5"><i data-lucide="lock" class="h-3.5 w-3.5"></i>Career Record</p>
+          <button onclick="toggleCareerHistory('${p.teacher_id}')" class="text-[9px] font-black text-blue-600 uppercase tracking-widest hover:underline">View History</button>
+        </div>
+        ${!canEditCareer ? '<p class="text-[10px] text-slate-400 font-bold mb-2">Read-only — only HR, VP, Principal, or Cord may edit, and never their own.</p>' : ''}
+        <div class="flex flex-col gap-3">
+          <div>
+            <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Breaking Institution Law</label>
+            <textarea id="ccInstLaw" rows="2" ${canEditCareer ? '' : 'readonly'} class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs resize-y">${p.institution_law_breaking || ''}</textarea>
+          </div>
+          <div>
+            <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Breaking Civil Law</label>
+            <textarea id="ccCivilLaw" rows="2" ${canEditCareer ? '' : 'readonly'} class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs resize-y">${p.civil_law_breaking || ''}</textarea>
+          </div>
+          ${canEditCareer ? `<button onclick="saveColleagueCareerFields('${p.teacher_id}')" class="self-end px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Career Notes</button>` : ''}
+        </div>
+        <div id="careerHistoryPanel" class="hidden mt-3 pt-3 border-t border-dashed border-slate-200"></div>
+      </div>` : '';
+
     return `
       <div>
         <div class="h-24 bg-gradient-to-r from-slate-900 to-blue-900 relative"></div>
@@ -11427,8 +11456,44 @@
           </div>
           ${curatedFields}
           ${fullSection}
+          ${careerSection}
         </div>
       </div>`;
+  }
+
+  function saveColleagueCareerFields(teacherId) {
+    const inst = document.getElementById('ccInstLaw');
+    const civil = document.getElementById('ccCivilLaw');
+    if (!inst || !civil) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(function (res) {
+      if (res && res.result === 'success') showToast(res.changed ? 'Career record updated' : 'No changes to save');
+      else showToast((res && res.error) || 'Failed to save', 'error');
+    }).withFailureHandler(function () {
+      showToast('Network error', 'error');
+    }).saveColleagueCareer(myId, teacherId, inst.value.trim(), civil.value.trim());
+  }
+
+  function toggleCareerHistory(teacherId) {
+    const panel = document.getElementById('careerHistoryPanel');
+    if (!panel) return;
+    if (!panel.classList.contains('hidden')) { panel.classList.add('hidden'); return; }
+    panel.classList.remove('hidden');
+    panel.innerHTML = `<p class="text-center text-slate-400 text-xs font-black uppercase py-3">Loading…</p>`;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(function (res) {
+      if (!res || res.result !== 'success') { panel.innerHTML = `<p class="text-center text-slate-400 text-xs font-bold py-3">${(res && res.error) || 'Could not load history.'}</p>`; return; }
+      const hist = res.history || [];
+      if (!hist.length) { panel.innerHTML = `<p class="text-center text-slate-400 text-xs font-bold py-3">No edits recorded yet.</p>`; return; }
+      panel.innerHTML = `<p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Edit History</p>` +
+        hist.map(h => `<div class="text-xs mb-2 pb-2 border-b border-slate-50">
+          <span class="font-black text-slate-700">${h.field === 'institution_law_breaking' ? 'Institution Law' : 'Civil Law'}</span>
+          <span class="text-slate-400"> by ${h.editor_user_id} on ${new Date(h.created_at).toLocaleString()}</span>
+          <div class="text-slate-500 mt-0.5"><span class="line-through text-red-400">${h.old_value || '(empty)'}</span> → <span class="text-emerald-600 font-bold">${h.new_value || '(empty)'}</span></div>
+        </div>`).join('');
+    }).withFailureHandler(function () {
+      panel.innerHTML = `<p class="text-center text-red-400 text-xs font-bold py-3">Network error.</p>`;
+    }).getCareerEditHistory(myId, teacherId);
   }
 
   // ═══════════════════════════════════════════════════════
