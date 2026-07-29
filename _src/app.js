@@ -167,6 +167,14 @@
           if (res.profile) window._loginProfile = res.profile; // pre-loaded scalar profile
           localStorage.setItem('ccpc_user_id', id);
           localStorage.setItem('ccpc_pass', pass);
+          // Login screen only ever gets hidden (never unmounted), so its
+          // password field stays live in the DOM for the whole session —
+          // browsers were tracking it and misfiring "Save password?" on
+          // totally unrelated later input (e.g. typing into a search box).
+          // Clearing the fields the moment they're no longer needed stops
+          // that stale value from being tracked.
+          if (loginId) loginId.value = '';
+          if (loginPw) loginPw.value = '';
           launchDashboard();
         } else if (isAuto) {
           if (loginId) loginId.value = id;
