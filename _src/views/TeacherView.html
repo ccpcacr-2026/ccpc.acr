@@ -95,17 +95,9 @@
             <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-career"></span><span>Career</span></div><span class="tab-pct" id="pct-career">0%</span></div>
             <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-career"></div></div>
           </button>
-          <button type="button" onclick="switchProfileTab('parents')"   id="ptab-parents"   class="ptab-btn">
-            <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-parents"></span><span>Parents</span></div><span class="tab-pct" id="pct-parents">0%</span></div>
-            <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-parents"></div></div>
-          </button>
-          <button type="button" onclick="switchProfileTab('spouse')"    id="ptab-spouse"    class="ptab-btn">
-            <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-spouse"></span><span>Marital</span></div><span class="tab-pct" id="pct-spouse">0%</span></div>
-            <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-spouse"></div></div>
-          </button>
-          <button type="button" onclick="switchProfileTab('children')"  id="ptab-children"  class="ptab-btn">
-            <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-children"></span><span>Children</span></div><span class="tab-pct" id="pct-children">✓</span></div>
-            <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-children"></div></div>
+          <button type="button" onclick="switchProfileTab('family')"    id="ptab-family"    class="ptab-btn">
+            <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-family"></span><span>Family</span></div><span class="tab-pct" id="pct-family">0%</span></div>
+            <div class="tab-bar-wrap"><div class="tab-bar-fill" id="bar-family"></div></div>
           </button>
           <button type="button" onclick="switchProfileTab('financial')" id="ptab-financial" class="ptab-btn">
             <div class="flex items-center justify-between gap-3 w-full"><div class="flex items-center gap-1.5"><span class="tab-dot" id="dot-financial"></span><span>Financial</span></div><span class="tab-pct" id="pct-financial">0%</span></div>
@@ -335,8 +327,8 @@
 
         </div><!-- /psec-career -->
 
-        <!-- ══════════ TAB 3: PARENTS ══════════ -->
-        <div id="psec-parents" class="psec hidden space-y-3">
+        <!-- ══════════ TAB 3: FAMILY (Parents, Marital/Spouse, Children) ══════════ -->
+        <div id="psec-family" class="psec hidden space-y-3">
 
           <div class="pcard">
             <div class="pcard-hdr">Father's Details</div>
@@ -428,11 +420,6 @@
               </div>
             </div>
           </div>
-
-        </div><!-- /psec-parents -->
-
-        <!-- ══════════ TAB 4: MARITAL & SPOUSE ══════════ -->
-        <div id="psec-spouse" class="psec hidden space-y-3">
 
           <div class="pcard">
             <div class="pcard-hdr">Marital Status</div>
@@ -529,11 +516,6 @@
             <div id="familyContainer" class="space-y-3 p-4"></div>
           </div>
 
-        </div><!-- /psec-spouse -->
-
-        <!-- ══════════ TAB 5: CHILDREN ══════════ -->
-        <div id="psec-children" class="psec hidden space-y-3">
-
           <div class="pcard">
             <div class="pcard-hdr flex justify-between items-center">
               <span>Particulars of Children</span>
@@ -550,7 +532,7 @@
             <div id="inlawsContainer" class="space-y-2 p-4"></div>
           </div>
 
-        </div><!-- /psec-children -->
+        </div><!-- /psec-family -->
 
         <!-- ══════════ TAB 6: FINANCIAL ══════════ -->
         <div id="psec-financial" class="psec hidden space-y-3">

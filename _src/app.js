@@ -9915,7 +9915,7 @@
   }
 
   function updateProfileProgress() {
-    const tabNames = ['personal','education','career','parents','spouse','children','financial','travel'];
+    const tabNames = ['personal','education','career','family','financial','travel'];
     let grandFilled = 0, grandTotal = 0;
 
     tabNames.forEach(tab => {
