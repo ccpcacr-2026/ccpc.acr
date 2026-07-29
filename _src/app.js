@@ -1211,13 +1211,9 @@
     sv('weight_kg',           'weight_kg');
     sv('blood_group',         'blood_group');
     sv('identification_marks','identification_marks');
-    sv('medical_category',    'medical_category');
-    sv('disability_nature',   'disability_nature');
-    sv('disability_attributable','disability_attributable');
     sv('religion',            'religion');
     sv('caste',               'caste');
     sv('nationality',         'nationality');
-    sv('previous_nationality','previous_nationality');
     sv('permanent_address',   'permanent_address');
     sv('present_address',     'present_address');
     sv('alternate_address',   'alternate_address');
@@ -1299,20 +1295,9 @@
     const diseaseEl = document.getElementById('diseasesContainer');
     if (diseaseEl) { diseaseEl.innerHTML = ''; diseases.forEach(r => addDiseaseRow(r)); if (!diseases.length) addDiseaseRow(); }
 
-    const inlaws = Array.isArray(data.sibling_inlaws) ? data.sibling_inlaws : [];
-    const inlawEl = document.getElementById('inlawsContainer');
-    if (inlawEl) { inlawEl.innerHTML = ''; inlaws.forEach(r => addInlawRow(r)); if (!inlaws.length) addInlawRow(); }
-
     // --- Tab 6: Financial ---
     sf('tid_bin_no', data.tid_bin_no);
     sf('own_income', data.own_income);
-    sf('spouse_income', data.spouse_income);
-    sf('assets_income', data.assets_income);
-    sf('assets_details', data.assets_details);
-
-    const banks = Array.isArray(data.bank_accounts) ? data.bank_accounts : [];
-    const bankEl = document.getElementById('bankContainer');
-    if (bankEl) { bankEl.innerHTML = ''; banks.forEach(r => addBankRow(r)); if (!banks.length) addBankRow(); }
 
     // --- Tab 7: Education ---
     const eduRecs = Array.isArray(data.education_records) ? data.education_records : [];
@@ -1442,18 +1427,10 @@
     qsf('spouse_prev_occupation', sp.previous_occupation || '');
     qsf('spouse_tid_bin', sp.tid_bin_no || '');
 
-    // children_info + sibling_inlaws → children tab
+    // children_info → children tab
     const chiEl = document.getElementById('childrenContainer');
     const children = Array.isArray(d.children_info) ? d.children_info : [];
     if (chiEl) { chiEl.innerHTML = ''; children.forEach(r => addChildInfoRow(r)); if (!children.length) addChildInfoRow(); }
-    const iEl = document.getElementById('inlawsContainer');
-    const inlaws = Array.isArray(d.sibling_inlaws) ? d.sibling_inlaws : [];
-    if (iEl) { iEl.innerHTML = ''; inlaws.forEach(r => addInlawRow(r)); if (!inlaws.length) addInlawRow(); }
-
-    // bank_accounts → financial tab
-    const bEl = document.getElementById('bankContainer');
-    const banks = Array.isArray(d.bank_accounts) ? d.bank_accounts : [];
-    if (bEl) { bEl.innerHTML = ''; banks.forEach(r => addBankRow(r)); if (!banks.length) addBankRow(); }
 
     // education_records → education tab
     const eEl = document.getElementById('eduContainer');
@@ -1644,47 +1621,6 @@
       <div class="space-y-1"><label class="text-[10px] font-bold text-slate-400">Date of Illness</label>${_inp('disease_date[]', normalizeDate(data.date_of_illness), '', 'date')}</div>
       <div class="space-y-1"><label class="text-[10px] font-bold text-slate-400">Present Condition</label>
         <div class="flex gap-2 items-center">${_inp('disease_condition[]', data.present_condition)}${_removeBtn()}</div>
-      </div>`;
-    c.appendChild(d); lucide.createIcons();
-  }
-
-  function addInlawRow(data) {
-    data = data || {};
-    const c = document.getElementById('inlawsContainer');
-    if (!c) return;
-    const d = document.createElement('div');
-    d.dataset.drow = '1';
-    d.className = 'grid grid-cols-1 md:grid-cols-3 gap-3 border-b border-slate-50 pb-3 group';
-    const rel = data.relation || '';
-    d.innerHTML = `
-      <div class="space-y-1"><label class="text-[10px] font-bold text-slate-400">Relation</label>
-        <select name="inlaw_relation[]" class="pf-input text-sm">
-          <option value="">Select...</option>
-          <option value="Brother" ${rel==='Brother'?'selected':''}>Brother</option>
-          <option value="Sister" ${rel==='Sister'?'selected':''}>Sister</option>
-          <option value="Brother-in-law" ${rel==='Brother-in-law'?'selected':''}>Brother-in-law</option>
-          <option value="Sister-in-law" ${rel==='Sister-in-law'?'selected':''}>Sister-in-law</option>
-        </select>
-      </div>
-      <div class="space-y-1"><label class="text-[10px] font-bold text-slate-400">Name in Full</label>${_inp('inlaw_name[]', data.name_in_full)}</div>
-      <div class="space-y-1"><label class="text-[10px] font-bold text-slate-400">Address</label>
-        <div class="flex gap-2 items-center">${_inp('inlaw_address[]', data.address)}${_removeBtn()}</div>
-      </div>`;
-    c.appendChild(d); lucide.createIcons();
-  }
-
-  function addBankRow(data) {
-    data = data || {};
-    const c = document.getElementById('bankContainer');
-    if (!c) return;
-    const d = document.createElement('div');
-    d.dataset.drow = '1';
-    d.className = 'grid grid-cols-1 md:grid-cols-3 gap-3 border-b border-slate-50 pb-3 group';
-    d.innerHTML = `
-      <div class="space-y-1"><label class="text-[10px] font-bold text-slate-400">Name of Bank</label>${_inp('bank_name[]', data.bank_name)}</div>
-      <div class="space-y-1"><label class="text-[10px] font-bold text-slate-400">Account Number</label>${_inp('bank_account_no[]', data.account_number)}</div>
-      <div class="space-y-1"><label class="text-[10px] font-bold text-slate-400">Type of Account</label>
-        <div class="flex gap-2 items-center">${_inp('bank_account_type[]', data.account_type)}${_removeBtn()}</div>
       </div>`;
     c.appendChild(d); lucide.createIcons();
   }
@@ -2433,6 +2369,99 @@
     }).generateAdjustmentPdf(myId);
   }
 
+  // Grouped exactly like the profile edit form's own tabs (Personal/
+  // Education/Career/Family/Financial/Travel) so the admin recognizes
+  // which section each field lives in. full_name and photo_url aren't
+  // listed here — they're always shown on a colleague's card regardless
+  // of this setting (see getColleagueProfile server-side).
+  const PROFILE_FIELD_CATALOG = {
+    Personal: [
+      ['name_bengali', 'Name (Bengali)'], ['designation', 'Designation'], ['category', 'Category'],
+      ['school_college', 'School / College'], ['joining_date', 'Joining Date'], ['national_id', 'National ID'],
+      ['auth_ref', 'Auth Ref'], ['date_of_birth', 'Date of Birth'], ['place_of_birth', 'Place of Birth'],
+      ['birth_certificate_no', 'Birth Certificate No.'], ['height_feet', 'Height (feet)'], ['height_inches', 'Height (inches)'],
+      ['weight_kg', 'Weight (kg)'], ['blood_group', 'Blood Group'], ['identification_marks', 'Identification Marks'],
+      ['religion', 'Religion'], ['caste', 'Caste'], ['nationality', 'Nationality'], ['mobile', 'Mobile Number'],
+      ['tt_phone', 'T&T Phone'], ['personal_email', 'Personal Email'], ['permanent_address', 'Permanent Address'],
+      ['present_address', 'Present Address'], ['alternate_address', 'Alternate Address'],
+    ],
+    Education: [
+      ['additional_qualification', 'Additional Qualification'], ['education_records', 'Educational Qualifications (list)'],
+    ],
+    Career: [
+      ['institution_law_breaking', 'Institution Law-Breaking Notes'], ['civil_law_breaking', 'Civil Law-Breaking Notes'],
+    ],
+    Family: [
+      ["father_name", "Father's Name"], ['father_nationality', "Father's Nationality"], ['father_prev_nationality', "Father's Previous Nationality"],
+      ['father_present_age', "Father's Present Age"], ['father_date_of_decease', "Father's Date of Decease"], ['father_occupation', "Father's Occupation"],
+      ['father_annual_income', "Father's Annual Income"], ['father_citizenship_auth', "Father's Citizenship Authority"],
+      ["mother_name", "Mother's Name"], ['mother_nationality', "Mother's Nationality"], ['mother_prev_nationality', "Mother's Previous Nationality"],
+      ['mother_present_age', "Mother's Present Age"], ['mother_date_of_decease', "Mother's Date of Decease"], ['mother_occupation', "Mother's Occupation"],
+      ['mother_citizenship_auth', "Mother's Citizenship Authority"], ['position_in_siblings', 'Position within Siblings'],
+      ['marital_status', 'Marital Status'], ['marriage_divorce_date', 'Marriage / Divorce Date'], ['marriage_authority', 'Marriage Authority'],
+      ['spouse_name_en', 'Spouse Name'], ['spouse_name_bn', 'Spouse Name (Bengali)'], ['spouse_dob', 'Spouse Date of Birth'],
+      ['spouse_pob', 'Spouse Place of Birth'], ['spouse_birth_reg', 'Spouse Birth Reg. No.'], ['spouse_nid', 'Spouse National ID'],
+      ['spouse_nationality', 'Spouse Nationality'], ['spouse_prev_nationality', 'Spouse Previous Nationality'],
+      ['spouse_education', 'Spouse Education'], ['spouse_tid_bin', 'Spouse TID/BIN No.'], ['spouse_occupation', 'Spouse Occupation'],
+      ['spouse_occ_designation', 'Spouse Occupation Designation'], ['spouse_occ_address', 'Spouse Occupation Address'],
+      ['spouse_prev_occupation', 'Spouse Previous Occupation'], ['spouse_citizenship_auth', 'Spouse Citizenship Authority'],
+    ],
+    Financial: [
+      ['tid_bin_no', 'TID / BIN No.'], ['own_income', 'Own Income'],
+    ],
+    Travel: [
+      ['passport_number', 'Passport Number'], ['passport_type', 'Passport Type'], ['passport_date_issue', 'Passport Date of Issue'],
+      ['passport_place_issue', 'Passport Place of Issue'], ['passport_date_expiry', 'Passport Date of Expiry'], ['passport_issuing_auth', 'Passport Issuing Authority'],
+    ],
+  };
+  const PROFILE_FIELD_DEFAULT_PUBLIC = [
+    'name_bengali', 'designation', 'category', 'school_college', 'joining_date',
+    'personal_email', 'mobile', 'tt_phone', 'additional_qualification', 'education_records',
+  ];
+  let _profilePublicFields = null;
+
+  function loadProfileFieldVisibilityPanel() {
+    google.script.run.withSuccessHandler(function (settings) {
+      const cfg = settings && settings.profile_public_fields;
+      _profilePublicFields = (cfg && Array.isArray(cfg.fields)) ? cfg.fields : PROFILE_FIELD_DEFAULT_PUBLIC;
+      renderProfileFieldsPanel();
+    }).withFailureHandler(function () {
+      _profilePublicFields = PROFILE_FIELD_DEFAULT_PUBLIC;
+      renderProfileFieldsPanel();
+    }).getSystemSettings();
+  }
+
+  function renderProfileFieldsPanel() {
+    const host = document.getElementById('profileFieldsBody');
+    if (!host) return;
+    const selected = new Set(_profilePublicFields || []);
+    host.innerHTML = Object.entries(PROFILE_FIELD_CATALOG).map(([tab, fields]) => `
+      <div>
+        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">${tab}</p>
+        <div class="flex flex-wrap gap-2">
+          ${fields.map(([key, label]) => `
+            <label class="px-2.5 py-1.5 rounded-lg border text-xs font-bold cursor-pointer ${selected.has(key) ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'border-slate-200 text-slate-500'}">
+              <input type="checkbox" class="profile-field-cb" value="${key}" ${selected.has(key) ? 'checked' : ''} onchange="_toggleFieldChip(this)">${label}
+            </label>`).join('')}
+        </div>
+      </div>`).join('');
+  }
+
+  function saveProfileFieldVisibility() {
+    const fields = Array.from(document.querySelectorAll('.profile-field-cb:checked')).map(c => c.value);
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const btn = document.getElementById('profileFieldsSaveBtn');
+    if (btn) { btn.disabled = true; }
+    google.script.run.withSuccessHandler(function (res) {
+      if (btn) { btn.disabled = false; }
+      if (res && res.result === 'success') { _profilePublicFields = fields; showToast('Profile field privacy saved'); }
+      else showToast((res && res.error) || 'Failed to save', 'error');
+    }).withFailureHandler(function () {
+      if (btn) { btn.disabled = false; }
+      showToast('Network error', 'error');
+    }).saveProfilePublicFields(myId, fields);
+  }
+
   function loadSystemView() {
     if (!_requireAdminRole()) return;
     _setViewHash('system');
@@ -2458,6 +2487,7 @@
       { id: 'sys-users',      label: 'Users',    icon: 'users' },
       ...(canEdit ? [{ id: 'sys-register', label: 'Register', icon: 'user-plus' }] : []),
       ...(adminOnly ? [{ id: 'sys-modules', label: 'Module Access', icon: 'layout-grid' }] : []),
+      ...(adminOnly ? [{ id: 'sys-profile-fields', label: 'Profile Privacy', icon: 'eye-off' }] : []),
     ];
     const firstTab = tabs[0].id;
 
@@ -2601,12 +2631,30 @@
           </div>
         </div>` : ''}
 
+        <!-- Profile field privacy -->
+        ${adminOnly ? `
+        <div id="sys-profile-fields" style="display:none;" class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5">
+          <div class="flex items-center justify-between flex-wrap gap-3 mb-1">
+            <div>
+              <p class="font-black text-slate-800 text-sm">Which profile fields any teacher can see</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Unchecked fields stay hidden from the Users Directory profile card unless the viewer is HR/VP/Admin/Principal/Cord</p>
+            </div>
+            <button id="profileFieldsSaveBtn" onclick="saveProfileFieldVisibility()" class="px-5 py-2.5 bg-blue-600 text-white text-[10px] font-black rounded-xl hover:bg-black transition-all uppercase tracking-widest shadow-lg shadow-blue-500/20 flex items-center gap-2">
+              <i data-lucide="save" class="h-3.5 w-3.5"></i> Save Changes
+            </button>
+          </div>
+          <p class="text-[10px] text-slate-400 font-bold mt-2 mb-3">Name and photo are always visible to everyone — every other field defaults to hidden until checked here.</p>
+          <div id="profileFieldsBody" class="flex flex-col gap-4">
+            <p class="text-center text-slate-400 text-xs font-black uppercase tracking-widest py-8">Loading…</p>
+          </div>
+        </div>` : ''}
+
       </div><!-- /scroll area -->
     </div>`;
 
     lucide.createIcons();
     _ensureStaffCache(() => loadUserData_forSystem());
-    if (adminOnly) loadModuleAccessPanel();
+    if (adminOnly) { loadModuleAccessPanel(); loadProfileFieldVisibilityPanel(); }
   }
 
   function loadModuleAccessPanel() {
@@ -2648,7 +2696,7 @@
   }
 
   function switchSysTab(tabId) {
-    const tabs = ['sys-users','sys-register','sys-modules'];
+    const tabs = ['sys-users','sys-register','sys-modules','sys-profile-fields'];
     tabs.forEach(id => {
       const panel = document.getElementById(id);
       const hdr   = document.getElementById(id + '-hdr');
@@ -10193,8 +10241,6 @@
     const family    = readDynamic('familyContainer',    ['fam_type[]','fam_name[]','fam_date[]']);
     const children  = readDynamic('childrenContainer',  ['child_name[]','child_sex[]','child_dob[]','child_occupation[]','child_address[]']);
     const diseases  = readDynamic('diseasesContainer',  ['disease_name[]','disease_nature[]','disease_date[]','disease_condition[]']);
-    const inlaws    = readDynamic('inlawsContainer',    ['inlaw_name[]','inlaw_address[]']);
-    const banks     = readDynamic('bankContainer',      ['bank_name[]','bank_account_no[]','bank_account_type[]']);
     const edu       = readDynamic('eduContainer',       ['edu_from[]','edu_to[]','edu_school[]','edu_exam[]','edu_gpa[]','edu_year[]','edu_remarks[]']);
     const attrs     = readDynamic('attributeContainer', ['attr_header[]','attr_subheader[]','attr_value[]']);
 
@@ -10257,16 +10303,12 @@
         ${fld('Weight (in kg)', v('weight_kg') ? v('weight_kg') + ' kg' : '')}
         ${fld('Blood Group', v('blood_group'))}
         ${fld('Visible Identification Marks(s)', v('identification_marks'))}
-        ${fld('Present Medical Category', v('medical_category'))}
-        ${fld('Present Nature of Disability (if any)', v('disability_nature'))}
-        ${fld('Present Attributably (if any)', v('disability_attributable'))}
         ${fld('Religion', v('religion'))}
         ${fld('Cast', v('caste'))}
       </div>`)}
 
       ${sec('Nationality, Address(es) &amp; Contact Details', `<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
         ${fld('Nationality', v('nationality'))}
-        ${fld('Previous Nationality (if any)', v('previous_nationality'))}
         ${fld('Personal e-mail Address', v('personal_email'))}
         ${fld('Mobile Number', v('mobile'))}
         ${fld('T&amp;T Phone Number', v('tt_phone'))}
@@ -10372,27 +10414,10 @@
           ['disease_name[]','disease_nature[]','disease_date[]','disease_condition[]']
         )) : ''}
 
-      ${inlaws.length ? sec('Brothers &amp; Sisters-in-Law', `
-        <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
-          ${inlaws.map(r => `<div class="p-3 bg-slate-50 rounded-xl">
-            <p class="font-black text-slate-800 text-sm">${r['inlaw_name[]'] || '—'}</p>
-            <p class="text-xs text-slate-400 font-bold mt-0.5">${r['inlaw_address[]'] || ''}</p>
-          </div>`).join('')}
-        </div>`) : ''}
-
       ${sec('Details of Income', `<div class="grid grid-cols-2 md:grid-cols-4 gap-3">
         ${fld('TID/BIN No', v('tid_bin_no'))}
         ${fld('Own Income', v('own_income'))}
-        ${fld('Spouse Income', v('spouse_income'))}
-        ${fld('Income from Assets', v('assets_income'))}
-        ${v('assets_details') ? `<div class="md:col-span-4">${fld('Details of Assets', v('assets_details'))}</div>` : ''}
       </div>`)}
-
-      ${banks.length ? sec('Details of Bank Accounts', tbl(
-          ['Name of Bank','Account Number','Type of Account'],
-          banks,
-          ['bank_name[]','bank_account_no[]','bank_account_type[]']
-        )) : ''}
 
       ${edu.length ? sec('Part II — Educational Qualifications', tbl(
           ['From','To','Institution','Examination','Division / GPA','Year','Remarks'],
@@ -10586,8 +10611,6 @@
     const siblings  = readDynamic('siblingsContainer',  ['sibling_name[]','sibling_age[]','sibling_nationality[]','sibling_occ_addr[]','sibling_dependency[]']);
     const children  = readDynamic('childrenContainer',  ['child_name[]','child_sex[]','child_dob[]','child_occupation[]','child_address[]']);
     const diseases  = readDynamic('diseasesContainer',  ['disease_name[]','disease_nature[]','disease_date[]','disease_condition[]']);
-    const inlaws    = readDynamic('inlawsContainer',    ['inlaw_name[]','inlaw_address[]']);
-    const banks     = readDynamic('bankContainer',      ['bank_name[]','bank_account_no[]','bank_account_type[]']);
     const edu       = readDynamic('eduContainer',       ['edu_from[]','edu_to[]','edu_school[]','edu_exam[]','edu_gpa[]','edu_year[]','edu_remarks[]']);
 
     const heightStr = v('height_feet') ? v('height_feet') + ' ft ' + (v('height_inches') || '0') + ' in' : '';
@@ -10754,15 +10777,6 @@
             </div>
           </div></div>
 
-          <div class="q"><div class="num">9.</div><div class="body">
-            <div class="fi"><span class="lbl">Medical History Details:</span></div>
-            <div class="sub">
-              <div class="item"><span class="lbl">(a) Present Medical Category:</span> ${U(v('medical_category'),'70pt')}</div>
-              <div class="item"><span class="lbl">(b) Nature of Disability (if any):</span> ${U(v('disability_nature'),'100pt')}</div>
-              <div class="item"><span class="lbl">(c) Attributably (if any):</span> ${U(v('disability_attributable'),'90pt')}</div>
-            </div>
-          </div></div>
-
           <div class="q"><div class="num">10.</div><div class="body">
             <div class="sub">
               <div class="item"><span class="lbl">a. Religion:</span> ${U(v('religion'),'80pt')}</div>
@@ -10773,7 +10787,6 @@
           <div class="q"><div class="num">11.</div><div class="body">
             <div class="sub">
               <div class="item"><span class="lbl">Nationality:</span> ${U(v('nationality'),'100pt')}</div>
-              <div class="item"><span class="lbl">Previous Nationality (if any):</span> ${U(v('previous_nationality'),'100pt')}</div>
             </div>
           </div></div>
 
@@ -10959,8 +10972,6 @@
     // ------------ PAGE 4 ------------
     const childRows = padRows(children, 3).map((r,i) => `<tr><td style="text-align:center;">${i+1}</td><td>${r['child_name[]']||''}</td><td>${r['child_sex[]']||''}</td><td>${r['child_dob[]']||''}</td><td>${r['child_occupation[]']||''}</td><td>${r['child_address[]']||''}</td></tr>`).join('');
     const diseaseRows = padRows(diseases, 2).map(r => `<tr><td>${r['disease_name[]']||''}</td><td>${r['disease_nature[]']||''}</td><td>${r['disease_date[]']||''}</td><td>${r['disease_condition[]']||''}</td></tr>`).join('');
-    const inlawRows  = padRows(inlaws, 3).map(r => `<tr><td>${r['inlaw_name[]']||''}</td><td>${r['inlaw_address[]']||''}</td></tr>`).join('');
-    const bankRows   = padRows(banks, 2).map(r => `<tr><td>${r['bank_name[]']||''}</td><td>${r['bank_account_no[]']||''}</td><td>${r['bank_account_type[]']||''}</td></tr>`).join('');
     const eduRows    = padRows(edu, 3).map(r => `<tr><td>${r['edu_from[]']||''}</td><td>${r['edu_to[]']||''}</td><td>${r['edu_school[]']||''}</td><td>${r['edu_exam[]']||''}</td><td>${r['edu_gpa[]']||''}</td><td>${r['edu_year[]']||''}</td><td>${r['edu_remarks[]']||''}</td></tr>`).join('');
 
     const p4 = `
@@ -10973,10 +10984,7 @@
           <div class="fi"><span class="lbl">Details of Income:</span></div>
           <div class="sub">
             <div class="item"><span class="lbl">a. Own Income:</span> ${U(v('own_income'),'80pt')}</div>
-            <div class="item"><span class="lbl">b. Spouse Income:</span> ${U(v('spouse_income'),'80pt')}</div>
-            <div class="item"><span class="lbl">c. Income from Assets:</span> ${U(v('assets_income'),'80pt')}</div>
           </div>
-          <div class="addr-row" style="margin-top:4pt;margin-left:16pt;"><span class="lbl">d. Details of Assets:</span> ${U(v('assets_details'),'280pt')}</div>
         </div></div>
 
         <div class="q"><div class="num">25.</div><div class="body">
@@ -10992,22 +11000,6 @@
           <table>
             <thead><tr><th>Name</th><th>Nature of Disease</th><th>Date of Illness</th><th>Present Condition</th></tr></thead>
             <tbody>${diseaseRows}</tbody>
-          </table>
-        </div></div>
-
-        <div class="q"><div class="num">27.</div><div class="body">
-          <div class="tbl-title">Name and Address of all Brother and Sister-in-laws:</div>
-          <table>
-            <thead><tr><th>Name in Full</th><th>Address</th></tr></thead>
-            <tbody>${inlawRows}</tbody>
-          </table>
-        </div></div>
-
-        <div class="q"><div class="num">28.</div><div class="body">
-          <div class="tbl-title">Details of Bank Accounts (Add Additional Pages for More Information):</div>
-          <table>
-            <thead><tr><th>a. Name of Bank</th><th>b. Account Number</th><th>c. Type of Account</th></tr></thead>
-            <tbody>${bankRows}</tbody>
           </table>
         </div></div>
 
@@ -11233,7 +11225,7 @@
       const rawNum = (u.whatsapp || u.phone || '').trim();
       const waNum  = rawNum.replace(/\D/g, '');   // digits only for wa.me URL
       const telNum = rawNum.replace(/[\s\-()]/g, ''); // keep + for tel:
-      return `<div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col gap-3">
+      return `<div onclick="openColleagueProfile('${u.user_id}')" class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col gap-3 cursor-pointer">
         <div class="flex items-center gap-3">
           <div class="relative shrink-0">
             <div class="w-12 h-12 rounded-xl overflow-hidden relative bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center">
@@ -11246,15 +11238,15 @@
             ${u.designation ? `<p class="text-[10px] text-blue-600 font-black uppercase tracking-wide truncate">${u.designation}</p>` : ''}
             ${rawNum ? `<div class="flex items-center gap-1.5 mt-0.5">
               <span class="text-[9px] text-slate-400 font-bold select-all">${rawNum}</span>
-              <a href="tel:${telNum}" title="Call" class="text-slate-300 hover:text-blue-600 transition-colors"><i data-lucide="phone" class="h-3 w-3"></i></a>
-              <a href="https://wa.me/${waNum}" target="_blank" title="WhatsApp" class="text-slate-300 hover:text-emerald-500 transition-colors"><i data-lucide="message-circle" class="h-3 w-3"></i></a>
+              <a href="tel:${telNum}" onclick="event.stopPropagation()" title="Call" class="text-slate-300 hover:text-blue-600 transition-colors"><i data-lucide="phone" class="h-3 w-3"></i></a>
+              <a href="https://wa.me/${waNum}" target="_blank" onclick="event.stopPropagation()" title="WhatsApp" class="text-slate-300 hover:text-emerald-500 transition-colors"><i data-lucide="message-circle" class="h-3 w-3"></i></a>
             </div>` : ''}
           </div>
         </div>
         <div class="flex flex-wrap gap-1">${roleChips || '<span class="text-[9px] text-slate-300 font-bold">No role</span>'}</div>
         <div class="flex items-center justify-between pt-1 border-t border-slate-100">
           <span class="text-[9px] text-slate-400 font-bold">${label}</span>
-          ${!isSelf ? `<button onclick="openDirectMessage('${u.user_id}','${(u.full_name||u.user_id).replace(/'/g,"\\'")}','${photoSrc.replace(/'/g,"\\'")}')"
+          ${!isSelf ? `<button onclick="event.stopPropagation(); openDirectMessage('${u.user_id}','${(u.full_name||u.user_id).replace(/'/g,"\\'")}','${photoSrc.replace(/'/g,"\\'")}')"
             class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-600 text-[9px] font-black rounded-xl transition-all uppercase tracking-widest">
             <i data-lucide="send" class="h-3 w-3"></i> Message
           </button>` : `<span class="text-[9px] text-emerald-600 font-black uppercase">You</span>`}
@@ -11288,6 +11280,15 @@
         </div>
         <div id="usersGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <div class="col-span-3 text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">Loading users…</div>
+        </div>
+      </div>
+
+      <div id="colleagueProfileModal" class="modal-wrap hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+        <div class="modal-box relative bg-white rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden" style="max-height:90vh;display:flex;flex-direction:column">
+          <button onclick="closeColleagueProfileModal()" class="absolute top-4 right-4 z-10 w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center transition-all"><i data-lucide="x" class="h-4 w-4"></i></button>
+          <div id="colleagueProfileBody" class="overflow-y-auto" style="flex:1">
+            <div class="text-center py-16"><i data-lucide="loader-2" class="h-6 w-6 animate-spin inline text-blue-600"></i></div>
+          </div>
         </div>
       </div>`;
     lucide.createIcons();
@@ -11323,6 +11324,111 @@
     );
     if (count) count.textContent = filtered.length + ' / ' + _allUsersCache.length + ' users';
     _renderUserCards(filtered);
+  }
+
+  // ── Colleague Profile Viewer (Facebook-style card, opened from a Users
+  // Directory click) — depth shown is decided server-side by
+  // getColleagueProfile based on the VIEWER's own role, never toggled
+  // client-side: HR/VP/Admin/Principal/Cord see the full personnel record,
+  // everyone else sees a curated summary. The completion % badge is the
+  // same either way — it reflects the profile itself, not what this
+  // viewer happens to be allowed to see.
+  function openColleagueProfile(teacherId) {
+    const modal = document.getElementById('colleagueProfileModal');
+    const body = document.getElementById('colleagueProfileBody');
+    if (!modal || !body) return;
+    body.innerHTML = `<div class="text-center py-16"><i data-lucide="loader-2" class="h-6 w-6 animate-spin inline text-blue-600"></i></div>`;
+    lucide.createIcons();
+    modal.classList.remove('hidden');
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run
+      .withSuccessHandler(res => {
+        if (!res || res.result !== 'success') {
+          body.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase">${(res && res.error) || 'Could not load this profile.'}</div>`;
+          return;
+        }
+        body.innerHTML = _renderColleagueProfile(res.profile, res.completion, res.isPrivileged);
+        lucide.createIcons();
+      })
+      .withFailureHandler(() => {
+        body.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase">Network error — try again.</div>`;
+      })
+      .getColleagueProfile(myId, teacherId);
+  }
+  function closeColleagueProfileModal() {
+    const modal = document.getElementById('colleagueProfileModal');
+    if (modal) modal.classList.add('hidden');
+  }
+
+  function _renderColleagueProfile(p, completion, isPrivileged) {
+    const photoSrc = p.photo_url ? (p.photo_url.startsWith('http') ? p.photo_url : 'https://lh3.googleusercontent.com/d/' + p.photo_url) : '';
+    const avatarHtml = photoSrc
+      ? `<img src="${photoSrc}" class="w-full h-full object-cover" onerror="this.style.display='none'">`
+      : `<i data-lucide="user" class="h-10 w-10 text-white"></i>`;
+    const pct = Math.max(0, Math.min(100, completion || 0));
+    const pctColor = pct >= 80 ? '#10b981' : pct >= 40 ? '#f59e0b' : '#ef4444';
+    const field = (label, value) => value ? `<div><p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">${label}</p><p class="font-bold text-slate-700 text-sm">${value}</p></div>` : '';
+
+    const edu = Array.isArray(p.education_records) ? p.education_records : [];
+    const eduHtml = edu.length ? `
+      <div class="border-t border-slate-100 pt-4 mt-4">
+        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5"><i data-lucide="graduation-cap" class="h-3.5 w-3.5"></i>Education</p>
+        <div class="flex flex-col gap-2">
+          ${edu.map(e => `<div class="text-xs"><span class="font-black text-slate-700">${e.exam_passed || e.school_college || ''}</span>${e.school_college && e.exam_passed ? ` <span class="text-slate-400">— ${e.school_college}</span>` : ''}${e.year_of_passing ? ` <span class="text-slate-400">(${e.year_of_passing})</span>` : ''}</div>`).join('')}
+        </div>
+      </div>` : '';
+
+    const curatedFields = `
+      <div class="grid grid-cols-2 gap-4 mt-4">
+        ${field('Department / School', p.school_college)}
+        ${field('Category', p.category)}
+        ${field('Joined', p.joining_date ? String(p.joining_date).split('T')[0] : '')}
+        ${field('Mobile', p.mobile || p.tt_phone)}
+        ${field('Email', p.personal_email)}
+        ${field('Additional Qualification', p.additional_qualification)}
+      </div>
+      ${eduHtml}`;
+
+    const fullSection = isPrivileged ? `
+      <div class="border-t border-slate-100 pt-4 mt-4">
+        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5"><i data-lucide="shield-check" class="h-3.5 w-3.5"></i>Full Personnel Record</p>
+        <div class="grid grid-cols-2 gap-4">
+          ${field('National ID', p.national_id)}
+          ${field('Date of Birth', p.date_of_birth ? String(p.date_of_birth).split('T')[0] : '')}
+          ${field('Blood Group', p.blood_group)}
+          ${field('Nationality', p.nationality)}
+          ${field('Present Address', p.present_address)}
+          ${field('Permanent Address', p.permanent_address)}
+          ${field('Marital Status', p.marital_status)}
+          ${field('TID / BIN No.', p.tid_bin_no)}
+        </div>
+      </div>` : '';
+
+    return `
+      <div>
+        <div class="h-24 bg-gradient-to-r from-slate-900 to-blue-900 relative"></div>
+        <div class="px-6 pb-6">
+          <div class="flex items-end justify-between -mt-10">
+            <div class="w-20 h-20 rounded-2xl overflow-hidden border-4 border-white bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center shadow-lg">
+              ${avatarHtml}
+            </div>
+            <div class="text-right pb-1">
+              <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Profile Complete</p>
+              <p class="text-lg font-black" style="color:${pctColor}">${pct}%</p>
+            </div>
+          </div>
+          <div class="mt-3">
+            <h3 class="text-xl font-black text-slate-800 tracking-tight">${p.full_name || p.teacher_id || '—'}</h3>
+            ${p.name_bengali ? `<p class="text-slate-400 font-bold text-xs">${p.name_bengali}</p>` : ''}
+            ${p.designation ? `<p class="text-blue-600 font-black text-xs uppercase tracking-wide mt-1">${p.designation}</p>` : ''}
+          </div>
+          <div class="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden mt-3">
+            <div class="h-full rounded-full transition-all" style="width:${pct}%;background:${pctColor}"></div>
+          </div>
+          ${curatedFields}
+          ${fullSection}
+        </div>
+      </div>`;
   }
 
   // ═══════════════════════════════════════════════════════

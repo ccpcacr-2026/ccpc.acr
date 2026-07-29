@@ -206,25 +206,6 @@
             <div class="pcard-hdr">Medical History &amp; Religion</div>
             <div class="pf-rows">
               <div class="pf-wrap">
-                <label class="pf-lbl">Medical Category</label>
-                <input type="text" name="medical_category" list="dl-medcat" class="pf-input">
-                <datalist id="dl-medcat"><option value="A1"><option value="A2"><option value="B1"><option value="B2"><option value="C"><option value="SHAPE1"><option value="SHAPE2"></datalist>
-              </div>
-              <div class="pf-wrap">
-                <label class="pf-lbl">Nature of Disability</label>
-                <input type="text" name="disability_nature" list="dl-disability" class="pf-input">
-                <datalist id="dl-disability"><option value="Visual Impairment"><option value="Hearing Impairment"><option value="Physical Disability"><option value="Intellectual Disability"><option value="Speech Impairment"><option value="None"></datalist>
-              </div>
-              <div class="pf-wrap">
-                <label class="pf-lbl">Attributability</label>
-                <select name="disability_attributable" class="pf-input">
-                  <option value="">Select...</option>
-                  <option>Attributable to Service</option>
-                  <option>Non-Attributable to Service</option>
-                  <option>Not Applicable</option>
-                </select>
-              </div>
-              <div class="pf-wrap">
                 <label class="pf-lbl">Religion</label>
                 <input type="text" name="religion" list="dl-religion" class="pf-input">
                 <datalist id="dl-religion"><option value="Islam"><option value="Hindu"><option value="Christian"><option value="Buddhist"></datalist>
@@ -243,10 +224,6 @@
                 <label class="pf-lbl">Nationality</label>
                 <input type="text" name="nationality" list="dl-nationality" class="pf-input" placeholder="Bangladeshi">
                 <datalist id="dl-nationality"><option value="Bangladeshi"><option value="Indian"><option value="Pakistani"><option value="British"><option value="American"></datalist>
-              </div>
-              <div class="pf-wrap">
-                <label class="pf-lbl">Previous Nationality</label>
-                <input type="text" name="previous_nationality" class="pf-input">
               </div>
               <div class="pf-wrap req">
                 <label class="pf-lbl">Mobile Number</label>
@@ -524,14 +501,6 @@
             <div id="childrenContainer" class="space-y-3 p-4"></div>
           </div>
 
-          <div class="pcard">
-            <div class="pcard-hdr flex justify-between items-center">
-              <span>Brothers and Sister-in-laws</span>
-              <button type="button" onclick="addInlawRow()" class="add-row-btn">+ Add</button>
-            </div>
-            <div id="inlawsContainer" class="space-y-2 p-4"></div>
-          </div>
-
         </div><!-- /psec-family -->
 
         <!-- ══════════ TAB 6: FINANCIAL ══════════ -->
@@ -548,27 +517,7 @@
                 <label class="pf-lbl">Own Income</label>
                 <input type="text" name="own_income" class="pf-input" placeholder="e.g. 50,000 BDT">
               </div>
-              <div class="pf-wrap">
-                <label class="pf-lbl">Spouse Income</label>
-                <input type="text" name="spouse_income" class="pf-input">
-              </div>
-              <div class="pf-wrap">
-                <label class="pf-lbl">Income from Assets</label>
-                <input type="text" name="assets_income" class="pf-input">
-              </div>
-              <div class="pf-wrap">
-                <label class="pf-lbl">Details of Assets</label>
-                <textarea name="assets_details" rows="3" class="pf-input resize-y"></textarea>
-              </div>
             </div>
-          </div>
-
-          <div class="pcard">
-            <div class="pcard-hdr flex justify-between items-center">
-              <span>Bank Accounts</span>
-              <button type="button" onclick="addBankRow()" class="add-row-btn">+ Add Account</button>
-            </div>
-            <div id="bankContainer" class="space-y-2 p-4"></div>
           </div>
 
         </div><!-- /psec-financial -->

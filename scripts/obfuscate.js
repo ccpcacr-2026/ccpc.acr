@@ -100,7 +100,7 @@ const RESERVED = [
   // Setup tab native port (tab builder)
   'loadAdminSetupView','loadAdminAddCustomFormView','_toggleFieldChip','updateIncludeCount','updateEditableCount',
   'loadAdminClassTeacherView','filterClassTeacherRows','saveClassTeacherAssignment','downloadImportDemoTemplate',
-  'onDownloadCategoryChange',
+  'onDownloadCategoryChange','openColleagueProfile','closeColleagueProfileModal','saveProfileFieldVisibility',
   'saveEditableProfileFields','togglePermanentTab','toggleLoginPasswordColumn',
   'saveNewTab','addTabRow','addConditionRow','duplicateField','cutField',
   'copyField','pasteField','promoteTab','unpromoteTab','editTab',

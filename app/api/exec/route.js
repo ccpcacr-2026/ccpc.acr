@@ -14,6 +14,61 @@ function _sanitizeEmail(e, teacherId) {
   return teacherId ? `${teacherId}@no-email.local` : null;
 }
 
+// Mirrors exactly the scalar `name="..."` fields present in each edit-form
+// tab of _src/views/TeacherView.html (Personal/Education/Career/Family/
+// Financial/Travel) — same set updateProfileProgress() counts client-side
+// for the owner's own completion bar, kept here as a plain list since the
+// server has no DOM to introspect. Dynamic child-table rows (siblings,
+// children, education records, etc.) intentionally don't count toward this
+// — same as the client-side version, which only counts non-array inputs.
+// Spouse fields live in the spouse_details child table, not on
+// users_profile itself, so they're checked separately in
+// _computeProfileCompletion below via SPOUSE_FIELD_MAP.
+const PROFILE_COMPLETION_SCALAR_FIELDS = [
+  'teacher_id', 'joining_date', 'full_name', 'name_bengali', 'designation', 'category', 'school_college',
+  'national_id', 'auth_ref', 'date_of_birth', 'place_of_birth', 'birth_certificate_no', 'height_feet',
+  'height_inches', 'weight_kg', 'blood_group', 'identification_marks', 'religion', 'caste', 'nationality',
+  'mobile', 'tt_phone', 'personal_email', 'permanent_address', 'present_address', 'alternate_address',
+  'additional_qualification',
+  'institution_law_breaking', 'civil_law_breaking',
+  'father_name', 'father_nationality', 'father_prev_nationality', 'father_present_age', 'father_date_of_decease',
+  'father_occupation', 'father_annual_income', 'father_citizenship_auth', 'mother_name', 'mother_nationality',
+  'mother_prev_nationality', 'mother_present_age', 'mother_date_of_decease', 'mother_occupation', 'mother_citizenship_auth',
+  'position_in_siblings', 'marital_status', 'marriage_divorce_date', 'marriage_authority',
+  'tid_bin_no', 'own_income',
+  'passport_number', 'passport_type', 'passport_date_issue', 'passport_place_issue', 'passport_date_expiry', 'passport_issuing_auth',
+];
+// [form field name, spouse_details column name]
+const SPOUSE_FIELD_MAP = [
+  ['spouse_name_en', 'name_english'], ['spouse_name_bn', 'name_bengali'], ['spouse_dob', 'date_of_birth'],
+  ['spouse_pob', 'place_of_birth'], ['spouse_birth_reg', 'birth_reg_number'], ['spouse_nid', 'national_id'],
+  ['spouse_nationality', 'nationality'], ['spouse_prev_nationality', 'prev_nationality'],
+  ['spouse_education', 'educational_qualification'], ['spouse_tid_bin', 'tid_bin_no'],
+  ['spouse_occupation', 'occupation'], ['spouse_occ_designation', 'occupation_designation'],
+  ['spouse_occ_address', 'occupation_address'], ['spouse_prev_occupation', 'previous_occupation'],
+  ['spouse_citizenship_auth', 'citizenship_auth'],
+];
+function _isFilled(v) { return v !== null && v !== undefined && String(v).trim() !== ''; }
+function _computeProfileCompletion(row) {
+  if (!row) return 0;
+  let total = 0, filled = 0;
+  PROFILE_COMPLETION_SCALAR_FIELDS.forEach(f => { total++; if (_isFilled(row[f])) filled++; });
+  const sp = (Array.isArray(row.spouse_details) && row.spouse_details[0]) || {};
+  SPOUSE_FIELD_MAP.forEach(([, col]) => { total++; if (_isFilled(sp[col])) filled++; });
+  return total ? Math.round((filled / total) * 100) : 0;
+}
+
+// Fallback used by getColleagueProfile when no admin override has been
+// saved yet (system_settings key "profile_public_fields") — a reasonable,
+// low-sensitivity starting point (contact/work info + education), leaving
+// national ID, address, family, financial, and medical fields hidden from
+// non-privileged viewers until an admin explicitly opts them in via the
+// System > Profile Privacy panel.
+const PROFILE_PUBLIC_FIELDS_DEFAULT = [
+  'name_bengali', 'designation', 'category', 'school_college', 'joining_date',
+  'personal_email', 'mobile', 'tt_phone', 'additional_qualification', 'education_records',
+];
+
 // Field Category row_filter check (student.field_access_grants.row_filter,
 // { column: [values] }, AND across columns, IN within each) — local copy
 // of student-admin/route.js's _rowMatchesFilter, used by getTabDataForUser
@@ -589,10 +644,74 @@ const handlers = {
     const sel = [
       'family_details(*)', 'faculty_attributes(*)', 'countries_visited(*)',
       'language_skills(*)', 'siblings_info(*)', 'spouse_details(*)',
-      'children_info(*)', 'sibling_inlaws(*)', 'bank_accounts(*)', 'education_records(*)'
+      'children_info(*)', 'education_records(*)'
     ].join(',');
     const res = await supabaseRequest(`users_profile?select=${sel}&teacher_id=eq.${teacherId}`);
     return (Array.isArray(res) && res.length > 0) ? res[0] : {};
+  },
+
+  // ── COLLEAGUE PROFILE VIEWER (Users Directory card click) ───────────────────
+  // Any teacher/staff can view any colleague's profile card — but the depth
+  // shown depends on the VIEWER's own role, enforced here server-side (never
+  // trust a client-side toggle for data this sensitive): HR/VP/Admin/
+  // Principal/Cord get the full personnel record, same as the owner's own
+  // edit form; everyone else gets a curated, Facebook-style summary (photo,
+  // designation, department, contact info, education highlights) with no
+  // national ID, address, family, financial, or medical fields. Completion %
+  // is always computed from the FULL record regardless of viewer privilege —
+  // it's a property of the profile itself, not of what this viewer may see.
+  async getColleagueProfile([viewerUserId, targetTeacherId]) {
+    if (!viewerUserId || !targetTeacherId) return { error: 'Missing parameters.' };
+    const viewerRows = await supabaseRequest(`app_users?user_id=eq.${encodeURIComponent(viewerUserId)}&select=role`);
+    const viewerRole = (Array.isArray(viewerRows) && viewerRows[0]) ? viewerRows[0].role : '';
+    const viewerRoles = String(viewerRole || '').split(',').map(r => r.trim());
+    const PRIVILEGED_ROLES = ['HR', 'VP', 'Admin', 'Principal', 'Cord'];
+    const isPrivileged = viewerRoles.some(r => PRIVILEGED_ROLES.includes(r)) || viewerUserId === targetTeacherId;
+
+    const fullSel = [
+      '*', 'family_details(*)', 'faculty_attributes(*)', 'countries_visited(*)',
+      'language_skills(*)', 'siblings_info(*)', 'spouse_details(*)',
+      'children_info(*)', 'education_records(*)'
+    ].join(',');
+    const fullRes = await supabaseRequest(`users_profile?select=${fullSel}&teacher_id=eq.${encodeURIComponent(targetTeacherId)}`);
+    const full = (Array.isArray(fullRes) && fullRes.length) ? fullRes[0] : null;
+    if (!full) return { error: 'Profile not found.' };
+
+    const completion = _computeProfileCompletion(full);
+
+    if (isPrivileged) {
+      return { result: 'success', isPrivileged: true, completion, profile: full };
+    }
+
+    // Which fields count as "public" (visible to any teacher, not just the
+    // privileged roles above) is admin-configurable — see
+    // saveProfilePublicFields/PROFILE_PUBLIC_FIELDS_DEFAULT below. Name and
+    // photo are always shown regardless (a card with neither isn't usable).
+    const cfgRows = await supabaseRequest('system_settings?key=eq.profile_public_fields&select=value');
+    const cfg = (Array.isArray(cfgRows) && cfgRows[0]) ? cfgRows[0].value : null;
+    const publicFields = (cfg && Array.isArray(cfg.fields)) ? cfg.fields : PROFILE_PUBLIC_FIELDS_DEFAULT;
+
+    const curated = { teacher_id: full.teacher_id, full_name: full.full_name, photo_url: full.photo_url };
+    publicFields.forEach(f => {
+      curated[f] = f === 'education_records' ? (full.education_records || []) : full[f];
+    });
+    return { result: 'success', isPrivileged: false, completion, profile: curated };
+  },
+
+  // Admin-only — which profile fields a non-privileged viewer sees on a
+  // colleague's card (see getColleagueProfile above). Deliberately a
+  // dedicated action rather than reusing the generic updateSystemSettings
+  // (which has no role gate) — this setting controls the privacy of every
+  // teacher's personal data, so it needs its own server-side enforcement
+  // regardless of what the client-side admin-only UI shows.
+  async saveProfilePublicFields([callerUserId, fields]) {
+    const rows = await supabaseRequest(`app_users?user_id=eq.${encodeURIComponent(callerUserId || '')}&select=role`);
+    const role = (Array.isArray(rows) && rows[0]) ? rows[0].role : '';
+    const roles = String(role || '').split(',').map(r => r.trim());
+    if (!roles.includes('Admin')) return { error: 'Only Admin can change profile field privacy.' };
+    const clean = Array.isArray(fields) ? fields.filter(f => typeof f === 'string') : [];
+    await supabaseRequest('system_settings?on_conflict=key', 'post', [{ key: 'profile_public_fields', value: { fields: clean } }]);
+    return { result: 'success' };
   },
 
   async savePersonalProfile([data]) {
@@ -625,13 +744,9 @@ const handlers = {
       height_inches: data.height_inches || null,
       weight_kg: data.weight_kg || null,
       blood_group: data.blood_group || null,
-      medical_category: data.medical_category || null,
-      disability_nature: data.disability_nature || null,
-      disability_attributable: data.disability_attributable || null,
       religion: data.religion || null,
       caste: data.caste || null,
       nationality: data.nationality || null,
-      previous_nationality: data.previous_nationality || null,
       permanent_address: data.permanent_address || null,
       present_address: data.present_address || null,
       alternate_address: data.alternate_address || null,
@@ -664,9 +779,6 @@ const handlers = {
       marriage_divorce_date: d(data.marriage_divorce_date),
       marriage_authority: data.marriage_authority || null,
       own_income: data.own_income || null,
-      spouse_income: data.spouse_income || null,
-      assets_income: data.assets_income || null,
-      assets_details: data.assets_details || null,
       institution_law_breaking: data.institution_law_breaking || null,
       civil_law_breaking: data.civil_law_breaking || null,
       identification_marks: data.identification_marks || null,
@@ -770,13 +882,6 @@ const handlers = {
       saveRows('chronic_diseases', 'disease_name[]', i => ({
         teacher_id: tid, disease_name: cv('disease_name[]')(i), nature: cv('disease_nature[]')(i),
         date_of_illness: dc('disease_date[]')(i), present_condition: cv('disease_condition[]')(i)
-      })),
-      saveRows('sibling_inlaws', 'inlaw_name[]', i => ({
-        teacher_id: tid, name_in_full: cv('inlaw_name[]')(i), address: cv('inlaw_address[]')(i)
-      })),
-      saveRows('bank_accounts', 'bank_name[]', i => ({
-        teacher_id: tid, bank_name: cv('bank_name[]')(i),
-        account_number: cv('bank_account_no[]')(i), account_type: cv('bank_account_type[]')(i)
       })),
       saveRows('education_records', 'edu_school[]', i => ({
         teacher_id: tid, from_date: cv('edu_from[]')(i), to_date: cv('edu_to[]')(i),
