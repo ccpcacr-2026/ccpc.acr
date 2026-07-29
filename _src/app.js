@@ -3595,8 +3595,11 @@
     else _adminFetch('get_student_data_headers', {}).then(headers => { _dlAllHeaders = Array.isArray(headers) ? headers : []; renderExtraColumns(_dlAllHeaders); }).catch(() => {});
 
     const renderFilters = () => {
-      const scopableHere = SCOPABLE_COLUMNS.filter(col => catFields.has(col));
-      if (!scopableHere.length) { filterWrap.classList.add('hidden'); filterWrap.innerHTML = ''; return; }
+      // Same reasoning as the Viewer Access Grants scope picker: class/
+      // section/group/version exist on every student regardless of whether
+      // the category being downloaded happens to expose them as columns, so
+      // every category can be row-filtered by them, not just ones that do.
+      const scopableHere = SCOPABLE_COLUMNS;
       filterWrap.innerHTML = `
         <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Filter by value (leave a row unchecked = any value)</p>
         <div class="flex flex-col gap-1.5">
@@ -3676,7 +3679,12 @@
         ${_fieldCategories.map(c => {
           const g = granted.find(x => x.name === c.name);
           const rowFilter = (g && g.row_filter) || {};
-          const scopableHere = SCOPABLE_COLUMNS.filter(col => (c.fields || []).includes(col));
+          // Row-scoping is independent of which columns a category exposes —
+          // class/section/group/version exist on every student regardless of
+          // whether they're part of THIS category's own granted field list,
+          // so every category gets the same scope picker, not just ones that
+          // happen to include those columns among their visible fields.
+          const scopableHere = SCOPABLE_COLUMNS;
           const catKey = c.name.replace(/[^a-zA-Z0-9]/g, '_');
           return `<div class="border border-slate-200 rounded-lg px-2.5 py-1.5">
             <div class="flex items-center gap-3 text-xs">

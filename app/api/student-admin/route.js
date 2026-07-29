@@ -513,15 +513,23 @@ export async function POST(req) {
   // across several tabs (e.g. get_staff_directory) only needs ONE of them
   // to clear. Once cleared, treat the caller as admin for the rest of this
   // handler, same as the plain _isAdmin path below.
+  //
+  // A few of these (search_students, download_students_by_category) are
+  // ALSO dual-purpose viewer-safe actions — a restricted viewer with a
+  // Field Category grant calls the exact same action name the Access tab's
+  // admin UI does, branching on `isAdmin` further down. Failing the tab
+  // matrix must NOT hard-reject those — it must fall through with
+  // isAdmin=false so the VIEWER_SAFE_ACTIONS check below gets a chance to
+  // admit a genuine viewer, same as it always has.
   const tabKeys = _tabKeysForAction(action);
   let isAdmin;
   if (tabKeys.length) {
     const roles = await _getUserRoles(user_id);
     const matrix = await _getAdminTabVisibility();
-    if (!tabKeys.some(tk => _isTabAllowed(tk, roles, matrix))) {
+    isAdmin = tabKeys.some(tk => _isTabAllowed(tk, roles, matrix));
+    if (!isAdmin && !VIEWER_SAFE_ACTIONS.has(action)) {
       return NextResponse.json({ result: 'error', message: 'This module requires additional permissions.' }, { status: 403 });
     }
-    isAdmin = true;
   } else {
     isAdmin = await _isAdmin(user_id);
   }
