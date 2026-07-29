@@ -78,7 +78,41 @@
       performLogin(savedId, savedPass, true);
     }
     initLoginForm();
+    _watchForAutofilledSearchFields();
   });
+
+  // Some browsers (observed in Microsoft Edge) still populate a freshly-
+  // rendered search field with the logged-in user's own saved info — their
+  // ID, in this app's case — even with type="search" plus a full
+  // autocomplete="off"/autocorrect/autocapitalize/spellcheck/unique-name
+  // treatment, which is normally enough to opt a field out of Chrome's own
+  // autofill candidate pool. Rather than chase per-browser attribute
+  // quirks further, this watches every input[type="search"] as it's
+  // inserted into the DOM (this app never has one before login) and wipes
+  // any value found on it shortly after insertion — at that exact moment
+  // the user cannot have typed anything yet, so any non-empty value can
+  // only be autofill. Checked at three points (next frame, 250ms, 700ms)
+  // since observed autofill timing varies. Re-fires the field's own
+  // oninput handler after clearing so a search/filter that already ran
+  // against the phantom value gets corrected back to "no filter" too.
+  function _scrubAutofilledValue(el) {
+    const scrub = () => { if (el.value) { el.value = ''; el.dispatchEvent(new Event('input', { bubbles: true })); } };
+    requestAnimationFrame(scrub);
+    setTimeout(scrub, 250);
+    setTimeout(scrub, 700);
+  }
+  function _watchForAutofilledSearchFields() {
+    const root = document.body;
+    if (!root || root._autofillGuardInstalled) return;
+    root._autofillGuardInstalled = true;
+    new MutationObserver(mutations => {
+      mutations.forEach(m => m.addedNodes.forEach(node => {
+        if (node.nodeType !== 1) return;
+        if (node.matches && node.matches('input[type="search"]')) _scrubAutofilledValue(node);
+        if (node.querySelectorAll) node.querySelectorAll('input[type="search"]').forEach(_scrubAutofilledValue);
+      }));
+    }).observe(root, { childList: true, subtree: true });
+  }
 
   let _loadingTimer = null;
   function showLoading(show) {
