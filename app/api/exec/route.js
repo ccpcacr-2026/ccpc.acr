@@ -2191,13 +2191,13 @@ const handlers = {
     return { result: 'success', distribution_id: distributionId };
   },
 
-  async getMyNotifications([userId]) {
+  async getMyInventoryNotifications([userId]) {
     if (!userId) return { rows: [] };
     const rows = await _invReq(`inventory_notifications?user_id=eq.${encodeURIComponent(userId)}&order=created_at.desc&limit=30`);
     return { rows: Array.isArray(rows) ? rows : [] };
   },
 
-  async markNotificationRead([id]) {
+  async markInventoryNotificationRead([id]) {
     if (!id) return { result: 'error' };
     const r = await _invReq(`inventory_notifications?id=eq.${id}`, 'PATCH', { is_read: true });
     return { result: r?.error ? 'error' : 'success' };

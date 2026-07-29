@@ -7584,11 +7584,11 @@
           </div>`).join('');
       })
       .withFailureHandler(() => {})
-      .getMyNotifications(myId);
+      .getMyInventoryNotifications(myId);
   }
 
   function _invMarkNotifRead(id) {
-    google.script.run.withSuccessHandler(() => _invLoadNotifications()).withFailureHandler(() => {}).markNotificationRead(id);
+    google.script.run.withSuccessHandler(() => _invLoadNotifications()).withFailureHandler(() => {}).markInventoryNotificationRead(id);
   }
 
   function _invLoadHoldings() {
