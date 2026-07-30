@@ -13,7 +13,7 @@ const RESERVED = [
   'addBPRecord','addCourseRecord','closeChangeMyPassModal','closeCommEvalModal',
   'closeConfirmModal','closeDetailsModal','closeEditRoleModal','closeMobileSidebar',
   'closeModal','closeRecordsModal','closeResetPassModal','confirmChangeMyPass',
-  'confirmEditRole','confirmResetPassword','launchDashboard','loadMyCommittees',
+  'confirmEditRole','confirmResetPassword','launchDashboard','loadDefaultView','loadMyCommittees',
   'loadInventoryView','loadMyClassView','loadSystemView','logout','openChangeMyPassModal','openMobileSidebar',
   'switchRecordsTab','toggleSidebar',
   // view HTML onclick
