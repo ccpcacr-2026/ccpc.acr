@@ -225,8 +225,11 @@ const ADMIN_TAB_ACTIONS = {
   setup: new Set(['get_tabs', 'get_profile_sections', 'get_student_data_headers', 'get_editable_fields', 'save_editable_fields', 'get_permanent_tabs_config', 'set_permanent_tabs_config', 'get_login_password_columns', 'set_login_password_columns', 'promote_tab_to_profile', 'unpromote_tab_from_profile', 'delete_tab', 'save_tab', 'admin_reset_pin']),
   add_custom_form: new Set(['get_tabs', 'get_student_data_headers', 'save_tab', 'delete_tab']),
   data: new Set(['get_tabs', 'get_tab_data', 'get_staff_list', 'get_tab_data_access', 'set_tab_data_access', 'get_staff_directory', 'get_class_sections', 'get_tab_class_access', 'set_tab_class_access', 'get_field_categories', 'get_tab_category_link', 'set_tab_category_link']),
-  access: new Set(['get_field_categories', 'get_student_data_headers', 'save_field_category', 'delete_field_category', 'get_staff_directory', 'get_field_access_grants', 'get_scope_column_values', 'set_field_access_grants', 'get_class_sections', 'get_class_access_grants', 'set_class_access_grants', 'search_students', 'bulk_update_students', 'create_student', 'preview_rename_student_id_impact', 'download_students_by_category']),
-  class_teacher: new Set(['get_class_sections', 'get_class_teacher_assignments', 'get_staff_directory', 'save_teacher_class_assignment']),
+  // Class Teacher assignment (get_class_teacher_assignments/save_teacher_
+  // class_assignment) lives here too, not its own tab key — it's part of
+  // the same "Staff Access & Roles" unified panel as the field-category and
+  // class-wide grants, sharing one staff picker in the frontend.
+  access: new Set(['get_field_categories', 'get_student_data_headers', 'save_field_category', 'delete_field_category', 'get_staff_directory', 'get_field_access_grants', 'get_scope_column_values', 'set_field_access_grants', 'get_class_sections', 'get_class_access_grants', 'set_class_access_grants', 'search_students', 'bulk_update_students', 'create_student', 'preview_rename_student_id_impact', 'download_students_by_category', 'get_class_teacher_assignments', 'save_teacher_class_assignment']),
   history: new Set(['search_edit_history']),
   photo: new Set(['get_student_basic', 'upload_photo']),
   notices: new Set(['get_notices_admin', 'save_notice', 'delete_notice', 'reorder_notices']),
@@ -268,7 +271,6 @@ const ADMIN_TAB_DEFAULTS = {
   add_custom_form: ['Admin', 'Student Portal Admin'],
   data: ['Admin', 'Student Portal Admin'],
   access: ['Admin', 'Student Portal Admin'],
-  class_teacher: ['Admin', 'Student Portal Admin'],
   history: ['Admin', 'Student Portal Admin'],
   photo: ['Admin', 'Student Portal Admin'],
   notices: ['Admin', 'Student Portal Admin'],

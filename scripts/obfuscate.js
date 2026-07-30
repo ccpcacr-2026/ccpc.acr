@@ -70,8 +70,12 @@ const RESERVED = [
   // native admin-console port (retiring the student-admin.html iframe)
   'toggleAdminSubnav','loadStudentPortalView','loadAdminAccessView',
   'saveAdminTabVisibility','openFieldCategoryEditor','saveFieldCategoryFromEditor',
-  'deleteFieldCategoryConfirm','filterGrantStaff','selectGrantUser',
-  '_syncGrantEditCheckbox','saveFieldGrantsForUser','revokeFieldGrant','_toggleGrantScopePanel',
+  'deleteFieldCategoryConfirm',
+  // Unified Staff Access & Roles panel (Field Category + Class-Wide + Class
+  // Teacher, one shared staff picker)
+  'filterStaffAccess','selectStaffAccessUser','_syncSaCatEditCheckbox','_toggleSaCatScope',
+  'saveSaFieldCategories','_toggleAllSaCwa','saveSaClassWideAccess',
+  '_saCtUpdateDraftBase','_saCtUpdateDraftExtra','_saCtAddCombo','_saCtRemoveCombo','_saCtSaveAssignment',
   'searchStudentsAdmin','toggleAllStudentRows','updateStuSelectedCount',
   'openBulkEditModal','submitBulkEdit','downloadByCategoryAdmin',
   // Fees tab native port
@@ -99,9 +103,7 @@ const RESERVED = [
   'checkBusStatus','saveBusConfig','addPlaceRow','savePlaceConfig',
   // Setup tab native port (tab builder)
   'loadAdminSetupView','loadAdminAddCustomFormView','_toggleFieldChip','updateIncludeCount','updateEditableCount',
-  'loadAdminClassTeacherView','downloadImportDemoTemplate',
-  'openClassTeacherPicker','closeClassTeacherPicker','removeClassTeacherAssignment',
-  '_ctSelectPickerTeacher','_ctUpdateDraftBase','_ctUpdateDraftExtra','_ctAddDraftCombo','_ctRemoveDraftCombo','_ctSaveAssignment','_ctFilterStaff',
+  'downloadImportDemoTemplate',
   'onDownloadCategoryChange','openColleagueProfile','closeColleagueProfileModal','saveProfileFieldVisibility',
   'saveColleagueCareerFields','toggleCareerHistory',
   'saveEditableProfileFields','togglePermanentTab','toggleLoginPasswordColumn',
@@ -132,9 +134,6 @@ const RESERVED = [
   // Full-field identifier-safe edit/add panels for students & staff
   'openStudentFormModal','submitStudentForm','openStaffFormModal','submitStaffForm',
 
-  // Class-Wide Access grants (Access tab)
-  'selectClassWideUser','filterClassWideStaff','toggleAllClassWideSections',
-  'saveClassWideAccess','removeClassWideAccess','_syncCwaEditCheckbox',
 
   // Viewer Panel class-scoped custom-tab data browsing
   'loadClassTabData','saveClassTabData'

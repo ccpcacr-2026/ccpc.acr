@@ -515,7 +515,6 @@
     { key: 'add_custom_form', label: '+ Add Custom Form', icon: 'plus-circle', erp: false, action: { type: 'native', fn: 'loadAdminAddCustomFormView' } },
     { key: 'data', label: 'Data', icon: 'table', erp: false, action: { type: 'native', fn: 'loadAdminDataView' } },
     { key: 'access', label: 'Access', icon: 'shield-check', erp: false, action: { type: 'native', fn: 'loadAdminAccessView' } },
-    { key: 'class_teacher', label: 'Assign Class Teacher', icon: 'user-check', erp: false, action: { type: 'native', fn: 'loadAdminClassTeacherView' } },
     { key: 'fees', label: 'Fees', icon: 'wallet', erp: true, action: { type: 'native', fn: 'loadAdminFeesView' } },
     { key: 'attendance', label: 'Attendance', icon: 'fingerprint', erp: true, action: { type: 'native', fn: 'loadAdminAttendanceView' } },
     { key: 'exams', label: 'Exams', icon: 'clipboard-list', erp: true, action: { type: 'native', fn: 'loadAdminExamsView' } },
@@ -3326,14 +3325,19 @@
 
   const TAB_ACCESS_LABELS = {
     fees: 'Fees', attendance: 'Attendance', exams: 'Exams', payroll: 'Payroll (incl. Leave)', transport: 'Transport',
-    setup: 'Setup', add_custom_form: '+ Add Custom Form', data: 'Data', access: 'Access', class_teacher: 'Assign Class Teacher',
+    setup: 'Setup', add_custom_form: '+ Add Custom Form', data: 'Data', access: 'Access',
     history: 'History', photo: 'Photo', notices: 'Notices', import: 'Import', bus_tracker: 'Bus Tracker',
   };
   const TAB_ACCESS_ROLES = ['Student Portal Admin', 'HR', 'Principal', 'VP', 'Teacher', 'Staff', 'Class Teacher'];
   let _tabAccessDefaults = {}, _tabAccessMatrix = {};
   let _fieldCategories = [];
-  let _grantStaff = [], _grantSelectedUser = null, _fieldGrants = {};
+  let _fieldGrants = {};
   let _stuSearchRows = [], _stuSearchHeaders = [];
+  // Unified staff picker shared by Field Category access, Class-Wide Access
+  // and Class Teacher assignment below — search once, manage everything
+  // about that person in one place, instead of three separate copies of
+  // the same staff list each requiring its own search.
+  let _saStaff = [], _saSelectedUser = null;
 
   function loadAdminAccessView() {
     if (!(window._adminTabAccess || []).includes('access')) {
@@ -3376,36 +3380,16 @@
         </div>
 
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
-          <p class="font-black text-slate-800 text-sm flex items-center gap-2 mb-1"><i data-lucide="user-check" class="h-4 w-4 text-blue-600"></i>Viewer Access Grants</p>
-          <p class="text-xs text-slate-400 font-bold mt-1 mb-4">Grant a staff account read-only access to one or more categories, without making them a full Admin. A viewer's visible fields are the union of every category they're granted.</p>
-          <div class="grid md:grid-cols-2 gap-4 mb-3">
-            <div>
-              <input type="search" id="grantUserSearch" oninput="filterGrantStaff()" placeholder="Search staff by name, ID, shortname or phone…" autocomplete="off"
-                class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-grant-user-search">
-              <div id="grantStaffList" class="border border-slate-200 rounded-xl mt-1.5 overflow-y-auto" style="max-height:220px"></div>
-            </div>
-            <div id="grantCategoriesPicker" class="border border-slate-200 rounded-xl p-3" style="min-height:220px">
-              <div class="text-center text-slate-400 text-xs font-bold py-10">Pick a staff member on the left to assign categories.</div>
-            </div>
-          </div>
-          <div id="fieldGrantsList" class="flex flex-wrap gap-1.5"></div>
-        </div>
-
-        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
-          <p class="font-black text-slate-800 text-sm flex items-center gap-2 mb-1"><i data-lucide="layers" class="h-4 w-4 text-blue-600"></i>Class-Wide Access</p>
-          <p class="text-xs text-slate-400 font-bold mt-1 mb-4">A stronger grant than a Field Category: everything for a class/section/group — every core student field <em>and</em> every custom tab's data — not just a named set of columns. Pick a teacher/staff, tick which class-sections they get, and whether they can edit as well as view.</p>
-          <div id="classWideGrantees" class="flex flex-wrap gap-2 mb-3"></div>
-          <div class="grid md:grid-cols-2 gap-0 border border-slate-200 rounded-2xl overflow-hidden" style="min-height:280px">
+          <p class="font-black text-slate-800 text-sm flex items-center gap-2 mb-1"><i data-lucide="user-cog" class="h-4 w-4 text-blue-600"></i>Staff Access &amp; Roles</p>
+          <p class="text-xs text-slate-400 font-bold mt-1 mb-4">Search for a staff member once, then manage everything about their access in one place: which Field Categories they can view, full Class-Wide Access (with edit rights), and whether they're a Class Teacher for any class/section combination.</p>
+          <div class="grid md:grid-cols-2 gap-0 border border-slate-200 rounded-2xl overflow-hidden" style="min-height:420px">
             <div class="flex flex-col border-r border-slate-100">
-              <div class="p-3 border-b border-slate-100"><input type="search" id="cwaFilter" oninput="filterClassWideStaff()" placeholder="Search by name, ID, shortname or phone…" autocomplete="off" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-cwa-filter"></div>
-              <div id="cwaStaffList" class="p-2 overflow-y-auto" style="flex:1;max-height:260px"><div class="text-center p-6"><i data-lucide="loader-2" class="h-5 w-5 animate-spin inline text-blue-600"></i></div></div>
+              <div class="p-3 border-b border-slate-100"><input type="search" id="saStaffSearch" oninput="filterStaffAccess()" placeholder="Search by name, ID, shortname or phone…" autocomplete="off" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-sa-filter"></div>
+              <div id="saStaffList" class="p-2 overflow-y-auto" style="flex:1;max-height:600px"><div class="text-center p-6"><i data-lucide="loader-2" class="h-5 w-5 animate-spin inline text-blue-600"></i></div></div>
             </div>
-            <div class="p-4 overflow-y-auto" style="flex:1;max-height:280px">
-              <div id="cwaSections"><div class="text-center text-xs text-slate-400 font-bold py-10">Pick a teacher on the left to assign class-sections.</div></div>
+            <div id="saDetail" class="p-4 overflow-y-auto" style="flex:1;max-height:600px">
+              <div class="text-center text-xs text-slate-400 font-bold py-10">Pick a staff member on the left.</div>
             </div>
-          </div>
-          <div class="flex justify-end mt-3">
-            <button id="cwaSaveBtn" onclick="saveClassWideAccess()" disabled class="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all disabled:opacity-40">Save</button>
           </div>
         </div>
 
@@ -3492,29 +3476,33 @@
 
     loadAdminTabVisibility();
     loadFieldCategories();
-    loadFieldGrants();
-    loadClassWideAccess();
+    loadStaffAccessPanel();
   }
 
-  // ── Assign Class Teacher (student.class_teacher_assignments) ────────────────
-  // A database-backed fallback for the Google-Sheet-driven class-teacher
-  // detection exec/route.js's _getClassTeacherAssignments does — the sheet
-  // stays authoritative, but any class/section it can't resolve a name for
-  // (or doesn't list at all) falls back to whatever's assigned here.
+  // ── Class Teacher data (student.class_teacher_assignments) ──────────────────
+  // A database-backed fallback for the Google-Sheet-driven class-teacher detection
+  // exec/route.js's _getClassTeacherAssignments does: the sheet stays
+  // authoritative, but any class/section it can't resolve a name for (or
+  // doesn't list at all) falls back to whatever's assigned here.
   //
   // Teacher-centric model: one teacher holds any number of class+section+
   // criteria combos at once (e.g. Mr. X is class teacher of BOTH Ten/D and
-  // Ten/BS-E) but a given combo can only ever belong to one teacher — so
-  // this is "pick a teacher, then build their combo list" rather than "fill
-  // in a teacher for every class+section row." Criteria columns beyond
-  // class+section (group/shift/version/anything else in students_data) are
-  // fully dynamic — discovered from the real data, never hardcoded — and
-  // only offered when they actually vary within the chosen class+section.
-  let _ctAssignments = [];   // flat [{class, section, extra_criteria, user_id}, ...]
-  let _ctStaff = [];
-  let _ctCandidateCols = []; // e.g. ['gender','version','shift','house','blood','session','group']
-  let _ctSectionRows = [];   // [{class, section, extras:{col:val,...}, count}, ...]
-  let _ctPicker = null;      // null when picker closed, else { userId, combos, draft }
+  // Ten/BS-E) but a given combo can only ever belong to one teacher.
+  // Criteria columns beyond class+section (group/shift/version/anything
+  // else in students_data) are fully dynamic — discovered from the real
+  // data, never hardcoded — and only offered when they actually vary
+  // within the chosen class+section.
+  //
+  // This lives inside the unified Staff Access & Roles panel below rather
+  // than its own tab — picking a class-teacher combo for someone is the
+  // same "search a staff member, configure their access" task as granting
+  // Field Category or Class-Wide Access, so all three now share one staff
+  // list instead of three separate copies of it.
+  let _ctAssignments = [];    // flat [{class, section, extra_criteria, user_id}, ...]
+  let _ctCandidateCols = [];  // e.g. ['group','shift','version','session'] — dynamic, not hardcoded
+  let _ctSectionRows = [];    // [{class, section, extras:{col:val,...}, count}, ...]
+  let _saCtDraft = { class: '', section: '', extraVals: {} };  // combo-builder draft for the selected staff member
+  let _saCtCombos = [];        // combos being edited for the selected staff member
 
   function _ctComboLabel(combo) {
     const extras = Object.values(combo.extra_criteria || {}).filter(v => v && v !== 'None');
@@ -3527,290 +3515,314 @@
     return byUser;
   }
 
-  function loadAdminClassTeacherView() {
-    if (!(window._adminTabAccess || []).includes('class_teacher')) {
-      showToast('Not available in current role', 'error');
-      return;
-    }
-    _setViewHash('student_portal');
-    setActiveNavLink('nav-erp-class_teacher');
-    setContentHeader('Assign Class Teacher', 'user-check');
-    const container = document.getElementById('view-container');
-    if (!container) return;
-    container.innerHTML = `
-      <div class="space-y-5 pb-10">
-        <div class="flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            <h2 class="text-2xl font-black text-slate-800 tracking-tight">Assign Class Teacher</h2>
-            <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">One teacher can hold several class/section combinations — a combination can only belong to one teacher</p>
-          </div>
-          <button onclick="openClassTeacherPicker()" class="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 hover:bg-black text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shrink-0">
-            <i data-lucide="plus" class="h-3.5 w-3.5"></i> Add Class Teacher
-          </button>
-        </div>
-        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
-          <p class="text-xs text-slate-400 font-bold mb-4">Used as a fallback wherever the routine sheet's own class-teacher list can't resolve a name — assigning someone here always works, even if the sheet is wrong, outdated, or missing that class entirely.</p>
-          <div id="ctList" class="space-y-2"><p class="text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</p></div>
-        </div>
-      </div>
-      <div id="ctPickerModal" class="modal-wrap hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
-        <div class="modal-box relative bg-white rounded-3xl w-full max-w-3xl shadow-2xl overflow-hidden" style="max-height:92vh;display:flex;flex-direction:column">
-          <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
-            <p class="font-black text-slate-800 text-sm uppercase tracking-widest">Assign Class Teacher</p>
-            <button onclick="closeClassTeacherPicker()" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-400"><i data-lucide="x" class="h-4 w-4"></i></button>
-          </div>
-          <div id="ctPickerBody" class="flex-1 overflow-y-auto"></div>
-        </div>
-      </div>
-    `;
-    lucide.createIcons();
-    loadClassTeacherAssignments();
-  }
-
-  function loadClassTeacherAssignments() {
+  // ── Unified staff picker: Field Category access + Class-Wide Access +
+  // Class Teacher assignment, all for one selected staff member ───────────
+  function loadStaffAccessPanel() {
     Promise.all([
-      _adminFetch('get_class_teacher_assignments', {}),
       _adminFetch('get_staff_directory', {}),
-    ]).then(([assignRes, staff]) => {
-      _ctAssignments = (assignRes && assignRes.result === 'success') ? (assignRes.assignments || []) : [];
-      _ctStaff = Array.isArray(staff) ? staff.slice().sort((a, b) => (a.full_name || a.user_id).localeCompare(b.full_name || b.user_id)) : [];
-      renderClassTeacherList();
+      _adminFetch('get_field_access_grants', {}),
+      _adminFetch('get_class_access_grants', {}),
+      _adminFetch('get_class_teacher_assignments', {}),
+      _adminFetch('get_class_sections', {}),
+      _adminFetch('get_scope_column_values', {}),
+    ]).then(([staff, fieldGrantsRes, cwaGrantsRes, ctRes, sections, scopeRes]) => {
+      _saStaff = Array.isArray(staff) ? staff.slice().sort((a, b) => (a.full_name || a.user_id).localeCompare(b.full_name || b.user_id)) : [];
+      _fieldGrants = {};
+      ((fieldGrantsRes && fieldGrantsRes.grants) || []).forEach(g => { _fieldGrants[g.user_id] = g.categories || []; });
+      _cwaGrants = {};
+      ((cwaGrantsRes && cwaGrantsRes.grants) || []).forEach(g => { _cwaGrants[g.user_id] = g.class_sections || []; });
+      _ctAssignments = (ctRes && ctRes.result === 'success') ? (ctRes.assignments || []) : [];
+      _cwaClassSections = Array.isArray(sections) ? sections : [];
+      _scopeColumnValues = (scopeRes && scopeRes.result === 'success' && scopeRes.values) || {};
+      renderStaffAccessList();
+      renderStaffAccessDetail();
     }).catch(() => {
-      const list = document.getElementById('ctList');
-      if (list) list.innerHTML = '<p class="text-center py-8 text-red-500 text-xs font-black uppercase">Failed to load.</p>';
+      const list = document.getElementById('saStaffList');
+      if (list) list.innerHTML = '<div class="text-center py-8 text-red-500 text-xs font-black uppercase">Failed to load.</div>';
     });
   }
 
-  function _ctStaffName(userId) {
-    const s = _ctStaff.find(x => x.user_id === userId);
-    return (s && s.full_name) || userId;
-  }
-
-  function _ctStaffMeta(userId) {
-    const s = _ctStaff.find(x => x.user_id === userId);
-    return s ? [s.designation, s.shortname].filter(Boolean).join(' · ') : '';
-  }
-
-  function renderClassTeacherList() {
-    const list = document.getElementById('ctList');
+  function renderStaffAccessList() {
+    const list = document.getElementById('saStaffList');
     if (!list) return;
-    const byUser = _ctAssignmentsByUser();
-    const userIds = Object.keys(byUser).sort((a, b) => _ctStaffName(a).localeCompare(_ctStaffName(b)));
-    if (!userIds.length) {
-      list.innerHTML = '<p class="text-center py-8 text-slate-300 text-xs font-black uppercase tracking-widest">No class teachers assigned yet.</p>';
-      return;
-    }
-    list.innerHTML = userIds.map(uid => `
-      <div class="flex items-center justify-between gap-3 p-3.5 rounded-2xl border border-slate-100 bg-slate-50/50">
-        <div class="min-w-0">
-          <p class="font-black text-slate-800 text-sm truncate">${_escHtml(_ctStaffName(uid))}</p>
-          ${_ctStaffMeta(uid) ? `<p class="text-[10px] font-bold text-slate-400 truncate">${_escHtml(_ctStaffMeta(uid))}</p>` : ''}
-          <div class="flex flex-wrap gap-1.5 mt-1.5">
-            ${byUser[uid].map(c => `<span class="px-2 py-0.5 bg-white border border-slate-200 rounded-lg text-[10px] font-black text-slate-500">${_escHtml(_ctComboLabel(c))}</span>`).join('')}
+    if (!_saStaff.length) { list.innerHTML = '<div class="text-xs text-slate-400 font-bold p-2">No staff accounts found.</div>'; return; }
+    const ctByUser = _ctAssignmentsByUser();
+    list.innerHTML = _saStaff.map(u => {
+      const search = [u.full_name, u.user_id, u.shortname, u.designation, u.phone].filter(Boolean).join(' ').toLowerCase();
+      const selected = _saSelectedUser === u.user_id;
+      const meta = [u.designation, u.shortname].filter(Boolean).join(' · ');
+      const catCount = (_fieldGrants[u.user_id] || []).length;
+      const cwaCount = (_cwaGrants[u.user_id] || []).length;
+      const isCt = (ctByUser[u.user_id] || []).length > 0;
+      const badges = [
+        catCount ? `<span class="px-1.5 py-0.5 rounded-full text-[9px] font-black shrink-0 ${selected ? 'bg-white text-blue-600' : 'bg-blue-100 text-blue-600'}">${catCount} cat</span>` : '',
+        cwaCount ? `<span class="px-1.5 py-0.5 rounded-full text-[9px] font-black shrink-0 ${selected ? 'bg-white text-emerald-600' : 'bg-emerald-100 text-emerald-600'}">${cwaCount} class</span>` : '',
+        isCt ? `<span class="px-1.5 py-0.5 rounded-full text-[9px] font-black shrink-0 ${selected ? 'bg-white text-amber-600' : 'bg-amber-100 text-amber-600'}">Class Teacher</span>` : '',
+      ].filter(Boolean).join(' ');
+      return `<div class="sa-staff-row py-1.5 px-2.5 rounded-lg mb-1 cursor-pointer ${selected ? 'bg-blue-600 text-white' : 'hover:bg-slate-50'}" data-uid="${u.user_id}" data-search="${search.replace(/"/g, '&quot;')}" onclick="selectStaffAccessUser(this.dataset.uid)">
+        <div class="flex items-center justify-between gap-2">
+          <div class="min-w-0">
+            <p class="font-black text-xs truncate">${_escHtml(u.full_name || u.user_id)}</p>
+            ${meta ? `<p class="text-[10px] font-bold truncate ${selected ? 'text-blue-100' : 'text-slate-400'}">${_escHtml(meta)}</p>` : ''}
           </div>
+          <div class="flex gap-1 shrink-0 flex-wrap justify-end" style="max-width:110px">${badges}</div>
         </div>
-        <div class="flex gap-1.5 shrink-0">
-          <button onclick="openClassTeacherPicker('${uid.replace(/'/g, "\\'")}')" class="w-8 h-8 flex items-center justify-center rounded-lg bg-white border border-slate-200 hover:bg-blue-50 hover:text-blue-600 text-slate-500" title="Edit"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button>
-          <button onclick="removeClassTeacherAssignment('${uid.replace(/'/g, "\\'")}')" class="w-8 h-8 flex items-center justify-center rounded-lg bg-white border border-slate-200 hover:bg-red-50 hover:text-red-600 text-slate-500" title="Remove"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
-        </div>
-      </div>`).join('');
-    lucide.createIcons();
-  }
-
-  function removeClassTeacherAssignment(userId) {
-    if (!window.confirm(`Remove ${_ctStaffName(userId)} as class teacher from all their assigned combinations?`)) return;
-    _adminFetch('save_teacher_class_assignment', { user_id: userId, combos: [] }).then(res => {
-      if (res && res.result === 'success') {
-        _ctAssignments = _ctAssignments.filter(a => a.user_id !== userId);
-        renderClassTeacherList();
-        showToast('Assignment removed');
-      } else {
-        showToast((res && res.message) || 'Failed to remove', 'error');
-      }
-    }).catch(() => showToast('Network error', 'error'));
-  }
-
-  // ── Picker modal: left = pick a teacher, right = build their combo list ─────
-  function openClassTeacherPicker(existingUserId) {
-    const byUser = _ctAssignmentsByUser();
-    _ctPicker = {
-      userId: existingUserId || null,
-      combos: existingUserId ? (byUser[existingUserId] || []).map(c => ({ class: c.class, section: c.section, extra_criteria: c.extra_criteria || {} })) : [],
-      draft: { class: '', section: '', extraVals: {} },
-      staffSearch: '',
-    };
-    document.getElementById('ctPickerModal').classList.remove('hidden');
-    renderClassTeacherPicker();
-    if (_ctSectionRows.length) return;
-    const body = document.getElementById('ctPickerBody');
-    if (body) body.insertAdjacentHTML('afterbegin', '<p class="text-center py-8 text-slate-400 text-xs font-black uppercase col-span-2">Loading class list…</p>');
-    _adminFetch('get_class_sections', { dynamic: true }).then(res => {
-      _ctCandidateCols = (res && res.candidateCols) || [];
-      _ctSectionRows = (res && res.rows) || [];
-      renderClassTeacherPicker();
-    }).catch(() => showToast('Could not load class list', 'error'));
-  }
-
-  function closeClassTeacherPicker() {
-    _ctPicker = null;
-    const modal = document.getElementById('ctPickerModal');
-    if (modal) modal.classList.add('hidden');
-  }
-
-  function _ctRenderStaffList() {
-    const byUser = _ctAssignmentsByUser();
-    const editingUid = _ctPicker.userId;
-    const q = (_ctPicker.staffSearch || '').trim().toLowerCase();
-    const staff = q
-      ? _ctStaff.filter(s => [s.full_name, s.user_id, s.shortname, s.designation, s.phone].filter(Boolean).join(' ').toLowerCase().includes(q))
-      : _ctStaff;
-    if (!staff.length) return '<p class="text-center py-6 text-slate-300 text-[10px] font-black uppercase tracking-widest">No match</p>';
-    return staff.map(s => {
-      const existing = byUser[s.user_id];
-      const isEditing = s.user_id === editingUid;
-      const isTakenByOther = existing && !isEditing;
-      const meta = [s.designation, s.shortname].filter(Boolean).join(' · ');
-      const metaHtml = meta ? `<span class="block text-[9px] font-bold normal-case mt-0.5 truncate ${isEditing ? 'text-blue-100' : 'text-slate-400'}">${_escHtml(meta)}</span>` : '';
-      const comboHtml = existing ? `<span class="block text-[9px] font-bold text-slate-400 normal-case mt-0.5 truncate">${existing.map(_ctComboLabel).join(', ')}</span>` : '';
-      if (isTakenByOther) {
-        return `<div class="px-3 py-2 rounded-xl text-xs font-bold text-slate-300 cursor-not-allowed" title="Already a class teacher — edit their own entry to change this">
-          ${_escHtml(s.full_name || s.user_id)}${metaHtml}${comboHtml}
-        </div>`;
-      }
-      return `<button onclick="_ctSelectPickerTeacher('${s.user_id.replace(/'/g, "\\'")}')"
-        class="w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition-colors ${isEditing ? 'bg-blue-600 text-white' : 'text-slate-700 hover:bg-slate-100'}">
-        ${_escHtml(s.full_name || s.user_id)}${metaHtml}${isEditing ? '' : comboHtml}
-      </button>`;
-    }).join('');
-  }
-
-  function _ctFilterStaff(value) {
-    _ctPicker.staffSearch = value;
-    const list = document.getElementById('ctPickerStaffList');
-    if (list) list.innerHTML = _ctRenderStaffList();
-  }
-
-  function renderClassTeacherPicker() {
-    const body = document.getElementById('ctPickerBody');
-    if (!body || !_ctPicker) return;
-
-    let rightHtml = '<p class="text-slate-400 text-xs font-bold p-6">Select a teacher on the left first.</p>';
-    if (_ctPicker.userId) {
-      const d = _ctPicker.draft;
-      const classes = [...new Set(_ctSectionRows.map(r => r.class))].sort();
-      const sections = d.class ? [...new Set(_ctSectionRows.filter(r => r.class === d.class).map(r => r.section))].sort() : [];
-      const matching = (d.class && d.section) ? _ctSectionRows.filter(r => r.class === d.class && r.section === d.section) : [];
-      const relevantCols = matching.length ? _ctCandidateCols.filter(c => new Set(matching.map(r => r.extras[c])).size > 1) : [];
-
-      const extraSelects = relevantCols.map(col => {
-        const options = [...new Set(matching.map(r => r.extras[col]))].sort();
-        return `<div>
-          <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">${_escHtml(col.replace(/_/g, ' '))}</label>
-          <select data-ct-extra="${col}" onchange="_ctUpdateDraftExtra('${col.replace(/'/g, "\\'")}', this.value)"
-            class="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none">
-            <option value="">(any ${_escHtml(col)})</option>
-            ${options.map(o => `<option value="${_escHtml(o)}" ${d.extraVals[col] === o ? 'selected' : ''}>${_escHtml(o)}</option>`).join('')}
-          </select>
-        </div>`;
-      }).join('');
-
-      const comboChips = _ctPicker.combos.length
-        ? _ctPicker.combos.map((c, i) => `<span class="flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 border border-blue-100 rounded-lg text-[10px] font-black text-blue-700">
-            ${_escHtml(_ctComboLabel(c))}
-            <i data-lucide="x" class="h-3 w-3 cursor-pointer" onclick="_ctRemoveDraftCombo(${i})"></i>
-          </span>`).join('')
-        : '<span class="text-[10px] font-bold text-slate-300 italic">No combinations added yet.</span>';
-
-      rightHtml = `
-        <div class="p-6 space-y-4">
-          <p class="font-black text-slate-800 text-sm">${_escHtml(_ctStaffName(_ctPicker.userId))}</p>
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Class</label>
-              <select onchange="_ctUpdateDraftBase('class', this.value)" class="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none">
-                <option value="">Select…</option>
-                ${classes.map(c => `<option value="${_escHtml(c)}" ${d.class === c ? 'selected' : ''}>${_escHtml(c)}</option>`).join('')}
-              </select>
-            </div>
-            <div>
-              <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Section</label>
-              <select onchange="_ctUpdateDraftBase('section', this.value)" ${!d.class ? 'disabled' : ''} class="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none disabled:opacity-50">
-                <option value="">Select…</option>
-                ${sections.map(s => `<option value="${_escHtml(s)}" ${d.section === s ? 'selected' : ''}>${_escHtml(s)}</option>`).join('')}
-              </select>
-            </div>
-            ${extraSelects}
-          </div>
-          <button onclick="_ctAddDraftCombo()" ${(!d.class || !d.section) ? 'disabled' : ''}
-            class="flex items-center gap-1.5 px-4 py-2 bg-slate-800 hover:bg-black text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-40">
-            <i data-lucide="plus" class="h-3.5 w-3.5"></i> Add Combination
-          </button>
-          <div class="flex flex-wrap gap-1.5 pt-2 border-t border-slate-100">${comboChips}</div>
-          <div class="flex justify-end gap-2 pt-2">
-            <button onclick="closeClassTeacherPicker()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-100 transition-all">Cancel</button>
-            <button onclick="_ctSaveAssignment()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">Save</button>
-          </div>
-        </div>`;
-    }
-
-    body.innerHTML = `
-      <div class="grid" style="grid-template-columns:220px 1fr">
-        <div class="border-r border-slate-100 flex flex-col" style="max-height:70vh">
-          <div class="p-3 pb-2 shrink-0">
-            <input type="search" placeholder="Search teachers…" value="${_escHtml(_ctPicker.staffSearch || '')}"
-              oninput="_ctFilterStaff(this.value)" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-ct-staff-search"
-              class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none">
-          </div>
-          <div id="ctPickerStaffList" class="flex-1 overflow-y-auto px-3 pb-3 space-y-0.5">${_ctRenderStaffList()}</div>
-        </div>
-        <div class="overflow-y-auto" style="max-height:70vh">${rightHtml}</div>
       </div>`;
+    }).join('');
+    filterStaffAccess();
+  }
+
+  function filterStaffAccess() {
+    const q = (document.getElementById('saStaffSearch') || {}).value?.toLowerCase() || '';
+    document.querySelectorAll('.sa-staff-row').forEach(row => { row.style.display = row.dataset.search.includes(q) ? '' : 'none'; });
+  }
+
+  function selectStaffAccessUser(uid) {
+    _saSelectedUser = uid;
+    _saCtDraft = { class: '', section: '', extraVals: {} };
+    const byUser = _ctAssignmentsByUser();
+    _saCtCombos = (byUser[uid] || []).map(c => ({ class: c.class, section: c.section, extra_criteria: c.extra_criteria || {} }));
+    renderStaffAccessList();
+    renderStaffAccessDetail();
+    // The dynamic class/section/criteria breakdown is a heavier fetch (scans
+    // every student) — loaded once, lazily, the first time it's actually needed.
+    if (!_ctSectionRows.length) {
+      _adminFetch('get_class_sections', { dynamic: true }).then(res => {
+        _ctCandidateCols = (res && res.candidateCols) || [];
+        _ctSectionRows = (res && res.rows) || [];
+        if (_saSelectedUser === uid) renderStaffAccessDetail();
+      }).catch(() => showToast('Could not load class list', 'error'));
+    }
+  }
+
+  function renderStaffAccessDetail() {
+    const host = document.getElementById('saDetail');
+    if (!host) return;
+    if (!_saSelectedUser) { host.innerHTML = '<div class="text-center text-xs text-slate-400 font-bold py-10">Pick a staff member on the left.</div>'; return; }
+    const uid = _saSelectedUser;
+    const person = _saStaff.find(s => s.user_id === uid);
+    const personName = (person && person.full_name) || uid;
+
+    // ── Field Category Access ──
+    const grantedCats = _fieldGrants[uid] || [];
+    const fieldCategoryHtml = !_fieldCategories.length
+      ? '<p class="text-slate-400 text-xs font-bold">Create a field category above first.</p>'
+      : _fieldCategories.map(c => {
+          const g = grantedCats.find(x => x.name === c.name);
+          const rowFilter = (g && g.row_filter) || {};
+          const catKey = c.name.replace(/[^a-zA-Z0-9]/g, '_');
+          return `<div class="border border-slate-200 rounded-lg px-2.5 py-1.5">
+            <div class="flex items-center gap-3 text-xs">
+              <label class="flex items-center gap-2 cursor-pointer" style="min-width:160px">
+                <input type="checkbox" class="sa-cat-check" value="${c.name}" ${g ? 'checked' : ''} onchange="_syncSaCatEditCheckbox(this); _toggleSaCatScope('${catKey}', this.checked)">${c.name}
+              </label>
+              <label class="flex items-center gap-2 text-slate-400 cursor-pointer">
+                <input type="checkbox" class="sa-cat-edit-check" value="${c.name}" ${g && g.can_edit ? 'checked' : ''} ${g ? '' : 'disabled'} onchange="if(this.checked) this.closest('div').querySelector('.sa-cat-check').checked = true">Can edit
+              </label>
+            </div>
+            <div id="saCatScope_${catKey}" class="sa-cat-scope-panel mt-2 pt-2 border-t border-slate-100 ${g ? '' : 'hidden'}">
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1.5">Restrict to (leave a row unchecked = any value)</p>
+              <div class="flex flex-col gap-1.5">
+                ${SCOPABLE_COLUMNS.map(col => {
+                  const vals = (_scopeColumnValues && _scopeColumnValues[col]) || [];
+                  const checkedVals = new Set((rowFilter[col] || []).map(String));
+                  return `<div class="flex items-start gap-2">
+                    <span class="text-[10px] font-black text-slate-500 uppercase pt-0.5" style="min-width:52px">${col}</span>
+                    <div class="flex flex-wrap gap-1.5">
+                      ${vals.map(v => `<label class="flex items-center gap-1 px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded text-[11px] font-bold text-slate-600 cursor-pointer"><input type="checkbox" class="sa-cat-scope-value" data-col="${col}" value="${String(v).replace(/"/g, '&quot;')}" ${checkedVals.has(String(v)) ? 'checked' : ''}>${v}</label>`).join('') || '<span class="text-[10px] text-slate-300 italic">No values found</span>'}
+                    </div>
+                  </div>`;
+                }).join('')}
+              </div>
+            </div>
+          </div>`;
+        }).join('');
+
+    // ── Class-Wide Access ──
+    const grantedCwa = {};
+    (_cwaGrants[uid] || []).forEach(cs => { grantedCwa[`${cs.class}|${cs.section}|${cs.group || 'None'}`] = cs.can_edit; });
+    const cwaHtml = _cwaClassSections.map(cs => {
+      const grp = cs.group || 'None';
+      const key = `${cs.class}|${cs.section}|${grp}`;
+      const label = grp !== 'None' ? `${cs.class}-${cs.section}-${grp}` : `${cs.class}-${cs.section}`;
+      const isGranted = key in grantedCwa;
+      return `<div class="flex items-center justify-between gap-2 text-xs border border-slate-200 rounded-lg px-2.5 py-1.5">
+        <label class="flex items-center gap-2 cursor-pointer" style="min-width:140px">
+          <input type="checkbox" class="sa-cwa-check" value="${key.replace(/"/g, '&quot;')}" ${isGranted ? 'checked' : ''} onchange="_syncSaCwaEditCheckbox(this)">${label}
+        </label>
+        <label class="flex items-center gap-2 text-slate-400 cursor-pointer">
+          <input type="checkbox" class="sa-cwa-edit-check" value="${key.replace(/"/g, '&quot;')}" ${isGranted && grantedCwa[key] ? 'checked' : ''} ${isGranted ? '' : 'disabled'} onchange="if(this.checked) this.closest('div').querySelector('.sa-cwa-check').checked = true">Can edit
+        </label>
+      </div>`;
+    }).join('');
+
+    // ── Class Teacher combo builder ──
+    const d = _saCtDraft;
+    const classes = [...new Set(_ctSectionRows.map(r => r.class))].sort();
+    const sections = d.class ? [...new Set(_ctSectionRows.filter(r => r.class === d.class).map(r => r.section))].sort() : [];
+    const matching = (d.class && d.section) ? _ctSectionRows.filter(r => r.class === d.class && r.section === d.section) : [];
+    const relevantCols = matching.length ? _ctCandidateCols.filter(c => new Set(matching.map(r => r.extras[c])).size > 1) : [];
+    const extraSelects = relevantCols.map(col => {
+      const options = [...new Set(matching.map(r => r.extras[col]))].sort();
+      return `<div>
+        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">${_escHtml(col.replace(/_/g, ' '))}</label>
+        <select data-ct-extra="${col}" onchange="_saCtUpdateDraftExtra('${col.replace(/'/g, "\\'")}', this.value)"
+          class="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none">
+          <option value="">(any ${_escHtml(col)})</option>
+          ${options.map(o => `<option value="${_escHtml(o)}" ${d.extraVals[col] === o ? 'selected' : ''}>${_escHtml(o)}</option>`).join('')}
+        </select>
+      </div>`;
+    }).join('');
+    const comboChips = _saCtCombos.length
+      ? _saCtCombos.map((c, i) => `<span class="flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 border border-blue-100 rounded-lg text-[10px] font-black text-blue-700">
+          ${_escHtml(_ctComboLabel(c))}
+          <i data-lucide="x" class="h-3 w-3 cursor-pointer" onclick="_saCtRemoveCombo(${i})"></i>
+        </span>`).join('')
+      : '<span class="text-[10px] font-bold text-slate-300 italic">No combinations yet.</span>';
+    const ctLoading = !_ctSectionRows.length;
+
+    host.innerHTML = `
+      <p class="font-black text-slate-800 text-sm mb-4">${_escHtml(personName)}</p>
+
+      <div class="mb-5 pb-5 border-b border-slate-100">
+        <p class="text-xs font-black text-slate-700 mb-2 flex items-center gap-1.5"><i data-lucide="folder" class="h-3.5 w-3.5 text-blue-600"></i>Field Category Access</p>
+        <div class="flex flex-col gap-1 mb-2">${fieldCategoryHtml}</div>
+        ${_fieldCategories.length ? `<button onclick="saveSaFieldCategories()" class="w-full px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Category Access</button>` : ''}
+      </div>
+
+      <div class="mb-5 pb-5 border-b border-slate-100">
+        <div class="flex items-center justify-between mb-2">
+          <p class="text-xs font-black text-slate-700 flex items-center gap-1.5"><i data-lucide="layers" class="h-3.5 w-3.5 text-blue-600"></i>Class-Wide Access</p>
+          <span class="flex gap-2">
+            <button onclick="_toggleAllSaCwa(true)" class="text-[9px] font-black uppercase text-blue-600">Select all</button>
+            <button onclick="_toggleAllSaCwa(false)" class="text-[9px] font-black uppercase text-slate-400">Clear</button>
+          </span>
+        </div>
+        <div class="flex flex-col gap-1 mb-2" style="max-height:220px;overflow-y:auto">${cwaHtml}</div>
+        <button onclick="saveSaClassWideAccess()" class="w-full px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Class-Wide Access</button>
+      </div>
+
+      <div>
+        <p class="text-xs font-black text-slate-700 mb-2 flex items-center gap-1.5"><i data-lucide="user-check" class="h-3.5 w-3.5 text-blue-600"></i>Class Teacher Assignment</p>
+        <p class="text-[10px] text-slate-400 font-bold mb-3">One teacher can hold several class/section combinations — a combination can only belong to one teacher.</p>
+        ${ctLoading ? '<p class="text-xs text-slate-400 font-bold italic">Loading class list…</p>' : `
+        <div class="grid grid-cols-2 gap-3 mb-3">
+          <div>
+            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Class</label>
+            <select onchange="_saCtUpdateDraftBase('class', this.value)" class="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none">
+              <option value="">Select…</option>
+              ${classes.map(c => `<option value="${_escHtml(c)}" ${d.class === c ? 'selected' : ''}>${_escHtml(c)}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Section</label>
+            <select onchange="_saCtUpdateDraftBase('section', this.value)" ${!d.class ? 'disabled' : ''} class="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none disabled:opacity-50">
+              <option value="">Select…</option>
+              ${sections.map(s => `<option value="${_escHtml(s)}" ${d.section === s ? 'selected' : ''}>${_escHtml(s)}</option>`).join('')}
+            </select>
+          </div>
+          ${extraSelects}
+        </div>
+        <button onclick="_saCtAddCombo()" ${(!d.class || !d.section) ? 'disabled' : ''}
+          class="flex items-center gap-1.5 px-4 py-2 bg-slate-800 hover:bg-black text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-40 mb-3">
+          <i data-lucide="plus" class="h-3.5 w-3.5"></i> Add Combination
+        </button>
+        <div class="flex flex-wrap gap-1.5 mb-3">${comboChips}</div>
+        <button onclick="_saCtSaveAssignment()" class="w-full px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Class Teacher Assignment</button>
+        `}
+      </div>
+    `;
     lucide.createIcons();
   }
 
-  function _ctSelectPickerTeacher(userId) {
-    _ctPicker.userId = userId;
-    _ctPicker.draft = { class: '', section: '', extraVals: {} };
-    const byUser = _ctAssignmentsByUser();
-    _ctPicker.combos = (byUser[userId] || []).map(c => ({ class: c.class, section: c.section, extra_criteria: c.extra_criteria || {} }));
-    renderClassTeacherPicker();
+  function _syncSaCatEditCheckbox(mainCb) {
+    const editCb = mainCb.closest('div.border').querySelector('.sa-cat-edit-check');
+    if (!editCb) return;
+    editCb.disabled = !mainCb.checked;
+    if (!mainCb.checked) editCb.checked = false;
+  }
+  function _toggleSaCatScope(catKey, show) {
+    const panel = document.getElementById('saCatScope_' + catKey);
+    if (panel) panel.classList.toggle('hidden', !show);
+  }
+  function saveSaFieldCategories() {
+    if (!_saSelectedUser) return;
+    const editSet = new Set(Array.from(document.querySelectorAll('.sa-cat-edit-check:checked')).map(c => c.value));
+    const categories = Array.from(document.querySelectorAll('.sa-cat-check:checked')).map(c => {
+      const row = c.closest('div.border');
+      const scopePanel = row ? row.querySelector('.sa-cat-scope-panel') : null;
+      let row_filter = null;
+      if (scopePanel) {
+        const rf = {};
+        scopePanel.querySelectorAll('.sa-cat-scope-value:checked').forEach(cb => { (rf[cb.dataset.col] = rf[cb.dataset.col] || []).push(cb.value); });
+        if (Object.keys(rf).length) row_filter = rf;
+      }
+      return { name: c.value, can_edit: editSet.has(c.value), row_filter };
+    });
+    _adminFetch('set_field_access_grants', { user_id: _saSelectedUser, categories }).then(res => {
+      if (res && res.result === 'success') {
+        _fieldGrants[_saSelectedUser] = categories;
+        renderStaffAccessList();
+        showToast('Category access updated');
+      } else showToast((res && res.message) || 'Save failed', 'error');
+    });
   }
 
-  function _ctUpdateDraftBase(field, value) {
-    _ctPicker.draft[field] = value;
-    if (field === 'class') { _ctPicker.draft.section = ''; }
-    _ctPicker.draft.extraVals = {};
-    renderClassTeacherPicker();
+  function _syncSaCwaEditCheckbox(mainCb) {
+    const editCb = mainCb.closest('div').querySelector('.sa-cwa-edit-check');
+    if (!editCb) return;
+    editCb.disabled = !mainCb.checked;
+    if (!mainCb.checked) editCb.checked = false;
+  }
+  function _toggleAllSaCwa(on) {
+    document.querySelectorAll('.sa-cwa-check').forEach(c => { c.checked = on; _syncSaCwaEditCheckbox(c); });
+  }
+  function saveSaClassWideAccess() {
+    if (!_saSelectedUser) return;
+    const editSet = new Set(Array.from(document.querySelectorAll('.sa-cwa-edit-check:checked')).map(c => c.value));
+    const class_sections = Array.from(document.querySelectorAll('.sa-cwa-check:checked')).map(c => {
+      const [cls, sec, grp] = c.value.split('|');
+      return { class: cls, section: sec, group: grp, can_edit: editSet.has(c.value) };
+    });
+    _adminFetch('set_class_access_grants', { user_id: _saSelectedUser, class_sections }).then(res => {
+      if (res && res.result === 'success') {
+        _cwaGrants[_saSelectedUser] = class_sections;
+        renderStaffAccessList();
+        showToast(`${res.count} class-section${res.count === 1 ? '' : 's'} granted`);
+      } else showToast((res && res.message) || 'Save failed', 'error');
+    });
   }
 
-  function _ctUpdateDraftExtra(col, value) {
-    if (value) _ctPicker.draft.extraVals[col] = value; else delete _ctPicker.draft.extraVals[col];
+  function _saCtUpdateDraftBase(field, value) {
+    _saCtDraft[field] = value;
+    if (field === 'class') _saCtDraft.section = '';
+    _saCtDraft.extraVals = {};
+    renderStaffAccessDetail();
   }
-
-  function _ctAddDraftCombo() {
-    const d = _ctPicker.draft;
+  function _saCtUpdateDraftExtra(col, value) {
+    if (value) _saCtDraft.extraVals[col] = value; else delete _saCtDraft.extraVals[col];
+  }
+  function _saCtAddCombo() {
+    const d = _saCtDraft;
     if (!d.class || !d.section) return;
     const extra_criteria = { ...d.extraVals };
     const label = _ctComboLabel({ class: d.class, section: d.section, extra_criteria });
-    if (_ctPicker.combos.some(c => _ctComboLabel(c) === label)) { showToast('Already added', 'error'); return; }
-    _ctPicker.combos.push({ class: d.class, section: d.section, extra_criteria });
-    _ctPicker.draft = { class: '', section: '', extraVals: {} };
-    renderClassTeacherPicker();
+    if (_saCtCombos.some(c => _ctComboLabel(c) === label)) { showToast('Already added', 'error'); return; }
+    _saCtCombos.push({ class: d.class, section: d.section, extra_criteria });
+    _saCtDraft = { class: '', section: '', extraVals: {} };
+    renderStaffAccessDetail();
   }
-
-  function _ctRemoveDraftCombo(index) {
-    _ctPicker.combos.splice(index, 1);
-    renderClassTeacherPicker();
+  function _saCtRemoveCombo(index) {
+    _saCtCombos.splice(index, 1);
+    renderStaffAccessDetail();
   }
-
-  function _ctSaveAssignment() {
-    if (!_ctPicker || !_ctPicker.userId) return;
-    _adminFetch('save_teacher_class_assignment', { user_id: _ctPicker.userId, combos: _ctPicker.combos }).then(res => {
+  function _saCtSaveAssignment() {
+    if (!_saSelectedUser) return;
+    _adminFetch('save_teacher_class_assignment', { user_id: _saSelectedUser, combos: _saCtCombos }).then(res => {
       if (res && res.result === 'success') {
-        _ctAssignments = _ctAssignments.filter(a => a.user_id !== _ctPicker.userId)
-          .concat(_ctPicker.combos.map(c => ({ ...c, user_id: _ctPicker.userId })));
-        closeClassTeacherPicker();
-        renderClassTeacherList();
+        _ctAssignments = _ctAssignments.filter(a => a.user_id !== _saSelectedUser)
+          .concat(_saCtCombos.map(c => ({ ...c, user_id: _saSelectedUser })));
+        renderStaffAccessList();
         showToast('Class teacher assignment saved');
       } else {
         showToast((res && res.message) || 'Failed to save', 'error');
@@ -3860,6 +3872,10 @@
       _fieldCategories = (res && res.result === 'success' && Array.isArray(res.categories)) ? res.categories : [];
       renderFieldCategoriesList();
       populateDownloadCategorySelect();
+      // This can resolve after the Staff Access panel already rendered a
+      // selection (independent fetches) — refresh it too so the Field
+      // Category Access sub-panel isn't stuck on "create one first".
+      if (_saSelectedUser) renderStaffAccessDetail();
     }).catch(() => {});
   }
 
@@ -3914,7 +3930,7 @@
   function deleteFieldCategoryConfirm(name) {
     if (!confirm(`Delete category "${name}"? Any viewer grants using it will also be removed.`)) return;
     _adminFetch('delete_field_category', { name }).then(res => {
-      if (res && res.result === 'success') { loadFieldCategories(); loadFieldGrants(); }
+      if (res && res.result === 'success') { loadFieldCategories(); loadStaffAccessPanel(); }
       else showToast((res && res.message) || 'Delete failed', 'error');
     });
   }
@@ -3976,44 +3992,6 @@
     else _adminFetch('get_scope_column_values', {}).then(res => { _scopeColumnValues = (res && res.result === 'success' && res.values) || {}; renderFilters(); }).catch(() => {});
   }
 
-  function loadFieldGrants() {
-    Promise.all([
-      _adminFetch('get_staff_directory', {}),
-      _adminFetch('get_field_access_grants', {}),
-      _adminFetch('get_scope_column_values', {}),
-    ]).then(([staff, grantsRes, scopeRes]) => {
-      _grantStaff = Array.isArray(staff) ? staff : [];
-      _fieldGrants = {};
-      ((grantsRes && grantsRes.grants) || []).forEach(g => { _fieldGrants[g.user_id] = g.categories || []; });
-      _scopeColumnValues = (scopeRes && scopeRes.result === 'success' && scopeRes.values) || {};
-      renderGrantStaffList();
-      renderFieldGrantsList();
-    }).catch(() => {});
-  }
-
-  function renderGrantStaffList() {
-    const list = document.getElementById('grantStaffList');
-    if (!list) return;
-    if (!_grantStaff.length) { list.innerHTML = '<div class="text-slate-400 text-xs font-bold p-2">No staff accounts found.</div>'; return; }
-    list.innerHTML = _grantStaff.map(u => {
-      const search = [u.full_name, u.user_id, u.shortname, u.phone].filter(Boolean).join(' ').toLowerCase();
-      const selected = _grantSelectedUser === u.user_id;
-      const count = (_fieldGrants[u.user_id] || []).length;
-      return `<div class="grant-staff-row py-1.5 px-2.5 cursor-pointer text-xs ${selected ? 'bg-blue-600 text-white' : 'hover:bg-slate-50'}" data-uid="${u.user_id}" data-search="${search.replace(/"/g,'&quot;')}" onclick="selectGrantUser(this.dataset.uid)">
-        <div class="flex justify-between items-center">
-          <span class="font-bold">${u.full_name || u.user_id}</span>
-          ${count ? `<span class="px-1.5 py-0.5 rounded-full text-[10px] font-black ${selected ? 'bg-white text-slate-800' : 'bg-emerald-500 text-white'}">${count}</span>` : ''}
-        </div>
-      </div>`;
-    }).join('');
-    filterGrantStaff();
-  }
-
-  function filterGrantStaff() {
-    const q = (document.getElementById('grantUserSearch') || {}).value?.toLowerCase() || '';
-    document.querySelectorAll('.grant-staff-row').forEach(row => { row.style.display = row.dataset.search.includes(q) ? '' : 'none'; });
-  }
-
   // The small set of categorical students_data columns an admin can scope a
   // Field Category grant down to — checked via real distinct values fetched
   // once from get_scope_column_values, shown only for a category whose own
@@ -4023,246 +4001,11 @@
   const SCOPABLE_COLUMNS = ['class', 'section', 'group', 'version'];
   let _scopeColumnValues = null;
 
-  function selectGrantUser(uid) {
-    _grantSelectedUser = uid;
-    renderGrantStaffList();
-    const host = document.getElementById('grantCategoriesPicker');
-    const granted = _fieldGrants[uid] || [];
-    const person = _grantStaff.find(s => s.user_id === uid);
-    if (!_fieldCategories.length) { host.innerHTML = '<div class="text-slate-400 text-xs font-bold">Create a field category first.</div>'; return; }
-    host.innerHTML = `
-      <div class="text-xs font-black text-slate-700 mb-2">Categories for ${(person && person.full_name) || uid}</div>
-      <div class="flex flex-col gap-1 mb-3">
-        ${_fieldCategories.map(c => {
-          const g = granted.find(x => x.name === c.name);
-          const rowFilter = (g && g.row_filter) || {};
-          // Row-scoping is independent of which columns a category exposes —
-          // class/section/group/version exist on every student regardless of
-          // whether they're part of THIS category's own granted field list,
-          // so every category gets the same scope picker, not just ones that
-          // happen to include those columns among their visible fields.
-          const scopableHere = SCOPABLE_COLUMNS;
-          const catKey = c.name.replace(/[^a-zA-Z0-9]/g, '_');
-          return `<div class="border border-slate-200 rounded-lg px-2.5 py-1.5">
-            <div class="flex items-center gap-3 text-xs">
-              <label class="flex items-center gap-2 cursor-pointer" style="min-width:160px">
-                <input type="checkbox" class="grant-category-check" value="${c.name}" ${g ? 'checked' : ''} onchange="_syncGrantEditCheckbox(this); _toggleGrantScopePanel('${catKey}', this.checked)">${c.name}
-              </label>
-              <label class="flex items-center gap-2 text-slate-400 cursor-pointer">
-                <input type="checkbox" class="grant-category-edit-check" value="${c.name}" ${g && g.can_edit ? 'checked' : ''} ${g ? '' : 'disabled'} onchange="if(this.checked) this.closest('div').querySelector('.grant-category-check').checked = true">Can edit
-              </label>
-            </div>
-            ${scopableHere.length ? `<div id="grantScope_${catKey}" class="grant-scope-panel mt-2 pt-2 border-t border-slate-100 ${g ? '' : 'hidden'}" data-cat="${c.name.replace(/"/g, '&quot;')}">
-              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1.5">Restrict to (leave a row unchecked = any value)</p>
-              <div class="flex flex-col gap-1.5">
-                ${scopableHere.map(col => {
-                  const vals = (_scopeColumnValues && _scopeColumnValues[col]) || [];
-                  const checkedVals = new Set((rowFilter[col] || []).map(String));
-                  return `<div class="flex items-start gap-2">
-                    <span class="text-[10px] font-black text-slate-500 uppercase pt-0.5" style="min-width:52px">${col}</span>
-                    <div class="flex flex-wrap gap-1.5">
-                      ${vals.map(v => `<label class="flex items-center gap-1 px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded text-[11px] font-bold text-slate-600 cursor-pointer"><input type="checkbox" class="grant-scope-value" data-col="${col}" value="${String(v).replace(/"/g, '&quot;')}" ${checkedVals.has(String(v)) ? 'checked' : ''}>${v}</label>`).join('') || '<span class="text-[10px] text-slate-300 italic">No values found</span>'}
-                    </div>
-                  </div>`;
-                }).join('')}
-              </div>
-            </div>` : ''}
-          </div>`;
-        }).join('')}
-      </div>
-      <button onclick="saveFieldGrantsForUser()" class="w-full px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Grants</button>`;
-    lucide.createIcons();
-  }
-
-  function _syncGrantEditCheckbox(mainCb) {
-    const editCb = mainCb.closest('div.border').querySelector('.grant-category-edit-check');
-    if (!editCb) return;
-    editCb.disabled = !mainCb.checked;
-    if (!mainCb.checked) editCb.checked = false;
-  }
-  function _toggleGrantScopePanel(catKey, show) {
-    const panel = document.getElementById('grantScope_' + catKey);
-    if (panel) panel.classList.toggle('hidden', !show);
-  }
-
-  function saveFieldGrantsForUser() {
-    if (!_grantSelectedUser) return;
-    const editSet = new Set(Array.from(document.querySelectorAll('.grant-category-edit-check:checked')).map(c => c.value));
-    const categories = Array.from(document.querySelectorAll('.grant-category-check:checked')).map(c => {
-      const row = c.closest('div.border');
-      const scopePanel = row ? row.querySelector('.grant-scope-panel') : null;
-      let row_filter = null;
-      if (scopePanel) {
-        const rf = {};
-        scopePanel.querySelectorAll('.grant-scope-value:checked').forEach(cb => { (rf[cb.dataset.col] = rf[cb.dataset.col] || []).push(cb.value); });
-        if (Object.keys(rf).length) row_filter = rf;
-      }
-      return { name: c.value, can_edit: editSet.has(c.value), row_filter };
-    });
-    _adminFetch('set_field_access_grants', { user_id: _grantSelectedUser, categories }).then(res => {
-      if (res && res.result === 'success') {
-        _fieldGrants[_grantSelectedUser] = categories;
-        renderGrantStaffList();
-        renderFieldGrantsList();
-        showToast('Access updated');
-      } else showToast((res && res.message) || 'Save failed', 'error');
-    });
-  }
-
-  function renderFieldGrantsList() {
-    const host = document.getElementById('fieldGrantsList');
-    if (!host) return;
-    const entries = Object.entries(_fieldGrants).filter(([, cats]) => cats.length);
-    host.innerHTML = entries.length ? entries.map(([uid, cats]) => {
-      const person = _grantStaff.find(s => s.user_id === uid);
-      const catText = cats.map(c => c.can_edit ? `${c.name} (edit)` : c.name).join(', ');
-      return `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full text-[11px] font-bold">
-        ${(person && person.full_name) || uid}: ${catText}
-        <i data-lucide="x-circle" class="h-3 w-3 cursor-pointer" onclick="revokeFieldGrant('${uid.replace(/'/g,"\\'")}')"></i>
-      </span>`;
-    }).join('') : '<span class="text-xs text-slate-400 font-bold italic">No viewers granted yet.</span>';
-    lucide.createIcons();
-  }
-
-  function revokeFieldGrant(uid) {
-    _adminFetch('set_field_access_grants', { user_id: uid, categories: [] }).then(res => {
-      if (res && res.result === 'success') {
-        delete _fieldGrants[uid];
-        if (_grantSelectedUser === uid) selectGrantUser(uid);
-        renderGrantStaffList();
-        renderFieldGrantsList();
-      }
-    });
-  }
-
-  // ══════════════════════════════════════════════════════════════════════
-  // Class-Wide Access — a stronger, class/section/group-scoped grant than
-  // a Field Category: the grantee's Viewer Panel gets every core student
+  // Class-Wide Access — a stronger, class/section/group-scoped grant than a
+  // Field Category: the grantee's Viewer Panel gets every core student
   // field (not a named subset) AND every custom tab's submission data for
   // students inside their granted combos, with edit rights when checked.
-  // Same two-pane staff-picker + class-section-checkbox idiom as the Data
-  // tab's per-tab Class Access, just without a tab_name (this covers all
-  // of them) and with an added "Can edit" toggle per class-section.
-  // ══════════════════════════════════════════════════════════════════════
-  let _cwaStaff = [], _cwaClassSections = [], _cwaGrants = {}, _cwaSelectedUser = null;
-
-  function loadClassWideAccess() {
-    Promise.all([_adminFetch('get_staff_directory', {}), _adminFetch('get_class_sections', {}), _adminFetch('get_class_access_grants', {})])
-      .then(([staff, sections, grantsRes]) => {
-        _cwaStaff = Array.isArray(staff) ? staff : [];
-        _cwaClassSections = Array.isArray(sections) ? sections : [];
-        _cwaGrants = {};
-        ((grantsRes && grantsRes.grants) || []).forEach(g => { _cwaGrants[g.user_id] = g.class_sections || []; });
-        renderClassWideStaff();
-        renderClassWideGrantees();
-      }).catch(() => {});
-  }
-  function renderClassWideStaff() {
-    const list = document.getElementById('cwaStaffList');
-    if (!list) return;
-    if (!_cwaStaff.length) { list.innerHTML = '<div class="text-xs text-slate-400 font-bold">No teacher/staff accounts found.</div>'; return; }
-    list.innerHTML = _cwaStaff.map(u => {
-      const search = [u.full_name, u.user_id, u.shortname, u.phone].filter(Boolean).join(' ').toLowerCase();
-      const selected = _cwaSelectedUser === u.user_id;
-      const grantCount = (_cwaGrants[u.user_id] || []).length;
-      return `<div class="cwa-staff-row py-1.5 px-2 rounded-lg mb-1 cursor-pointer ${selected ? 'bg-blue-600 text-white' : 'hover:bg-slate-50'}" data-uid="${u.user_id}" data-search="${search.replace(/"/g, '&quot;')}" onclick="selectClassWideUser(this.dataset.uid)">
-        <div class="flex justify-between items-start gap-2">
-          <div class="truncate">
-            <span class="font-black text-xs">${u.full_name || u.user_id}</span>
-            ${u.shortname ? `<span class="text-[9px] font-black rounded px-1 py-0.5 ml-1 ${selected ? 'bg-white/20' : 'bg-slate-100 text-slate-500'}">${u.shortname}</span>` : ''}
-            <div class="text-[11px] ${selected ? 'text-white/80' : 'text-slate-400'}">${u.user_id}${u.phone ? ' · ' + u.phone : ''}</div>
-          </div>
-          ${grantCount ? `<span class="text-[9px] font-black rounded-full px-1.5 py-0.5 shrink-0 ${selected ? 'bg-white text-blue-600' : 'bg-emerald-500 text-white'}">${grantCount}</span>` : ''}
-        </div>
-      </div>`;
-    }).join('');
-    filterClassWideStaff();
-  }
-  function filterClassWideStaff() {
-    const q = (document.getElementById('cwaFilter') || {}).value?.toLowerCase() || '';
-    document.querySelectorAll('.cwa-staff-row').forEach(row => { row.style.display = row.dataset.search.includes(q) ? '' : 'none'; });
-  }
-  function renderClassWideGrantees() {
-    const host = document.getElementById('classWideGrantees');
-    if (!host) return;
-    const entries = Object.entries(_cwaGrants).filter(([, cs]) => cs.length);
-    host.innerHTML = entries.length ? entries.map(([uid, cs]) => {
-      const person = _cwaStaff.find(s => s.user_id === uid);
-      const editCount = cs.filter(c => c.can_edit).length;
-      return `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full text-[11px] font-bold">${(person && person.full_name) || uid} · ${cs.length} class${cs.length === 1 ? '' : 'es'}${editCount ? ` (${editCount} editable)` : ''} <i data-lucide="x-circle" class="h-3 w-3 cursor-pointer" onclick="removeClassWideAccess('${uid.replace(/'/g, "\\'")}')"></i></span>`;
-    }).join('') : '<span class="text-xs text-slate-400 font-bold italic">No class-wide grants yet.</span>';
-    lucide.createIcons();
-  }
-  function selectClassWideUser(uid) {
-    _cwaSelectedUser = uid;
-    renderClassWideStaff();
-    const host = document.getElementById('cwaSections');
-    const saveBtn = document.getElementById('cwaSaveBtn');
-    if (saveBtn) saveBtn.disabled = false;
-    const granted = {};
-    (_cwaGrants[uid] || []).forEach(cs => { granted[`${cs.class}|${cs.section}|${cs.group || 'None'}`] = cs.can_edit; });
-    const person = _cwaStaff.find(s => s.user_id === uid);
-    host.innerHTML = `
-      <div class="flex justify-between items-center mb-2">
-        <span class="text-xs font-black text-slate-700">Class-sections for ${(person && person.full_name) || uid}</span>
-        <span class="flex gap-2">
-          <button onclick="toggleAllClassWideSections(true)" class="text-[10px] font-black uppercase text-blue-600">Select all</button>
-          <button onclick="toggleAllClassWideSections(false)" class="text-[10px] font-black uppercase text-slate-400">Clear</button>
-        </span>
-      </div>
-      <div class="flex flex-col gap-1">
-        ${_cwaClassSections.map(cs => {
-          const grp = cs.group || 'None';
-          const key = `${cs.class}|${cs.section}|${grp}`;
-          const label = grp !== 'None' ? `${cs.class}-${cs.section}-${grp}` : `${cs.class}-${cs.section}`;
-          const isGranted = key in granted;
-          return `<div class="flex items-center justify-between gap-2 text-xs border border-slate-200 rounded-lg px-2.5 py-1.5">
-            <label class="flex items-center gap-2 cursor-pointer" style="min-width:140px">
-              <input type="checkbox" class="cwa-section-check" value="${key.replace(/"/g, '&quot;')}" ${isGranted ? 'checked' : ''} onchange="_syncCwaEditCheckbox(this)">${label}
-            </label>
-            <label class="flex items-center gap-2 text-slate-400 cursor-pointer">
-              <input type="checkbox" class="cwa-section-edit-check" value="${key.replace(/"/g, '&quot;')}" ${isGranted && granted[key] ? 'checked' : ''} ${isGranted ? '' : 'disabled'} onchange="if(this.checked) this.closest('div').querySelector('.cwa-section-check').checked = true">Can edit
-            </label>
-          </div>`;
-        }).join('')}
-      </div>`;
-  }
-  function _syncCwaEditCheckbox(mainCb) {
-    const editCb = mainCb.closest('div').querySelector('.cwa-section-edit-check');
-    if (!editCb) return;
-    editCb.disabled = !mainCb.checked;
-    if (!mainCb.checked) editCb.checked = false;
-  }
-  function toggleAllClassWideSections(on) {
-    document.querySelectorAll('.cwa-section-check').forEach(c => { c.checked = on; _syncCwaEditCheckbox(c); });
-  }
-  function saveClassWideAccess() {
-    if (!_cwaSelectedUser) return;
-    const editSet = new Set(Array.from(document.querySelectorAll('.cwa-section-edit-check:checked')).map(c => c.value));
-    const class_sections = Array.from(document.querySelectorAll('.cwa-section-check:checked')).map(c => {
-      const [cls, sec, grp] = c.value.split('|');
-      return { class: cls, section: sec, group: grp, can_edit: editSet.has(c.value) };
-    });
-    _adminFetch('set_class_access_grants', { user_id: _cwaSelectedUser, class_sections }).then(res => {
-      if (res && res.result === 'success') {
-        _cwaGrants[_cwaSelectedUser] = class_sections;
-        renderClassWideGrantees();
-        renderClassWideStaff();
-        showToast(`${res.count} class-section${res.count === 1 ? '' : 's'} granted`);
-      } else showToast((res && res.message) || 'Save failed', 'error');
-    });
-  }
-  function removeClassWideAccess(uid) {
-    _adminFetch('set_class_access_grants', { user_id: uid, class_sections: [] }).then(res => {
-      if (res && res.result === 'success') {
-        delete _cwaGrants[uid];
-        renderClassWideGrantees();
-        renderClassWideStaff();
-        if (_cwaSelectedUser === uid) selectClassWideUser(uid);
-        showToast('Access revoked');
-      }
-    });
-  }
+  let _cwaClassSections = [], _cwaGrants = {};
 
   function searchStudentsAdmin() {
     const payload = {
