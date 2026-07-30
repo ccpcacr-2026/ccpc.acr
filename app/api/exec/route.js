@@ -624,7 +624,7 @@ const handlers = {
     if (String(user.password).trim() !== cleanPass)  return { success: false };
 
     const rolesArr = user.role.split(',').map(r => r.trim()).filter(Boolean);
-    const auth = { success: true, user_id: user.user_id, role: rolesArr[0], roles: rolesArr, email: user.email };
+    const auth = { success: true, user_id: user.user_id, role: rolesArr[0], roles: rolesArr, email: user.email, phone: user.phone || '' };
 
     // For Teacher / Staff: fetch scalar profile in the same serverless invocation
     if (rolesArr.some(r => ['Teacher','Staff'].includes(r))) {
@@ -790,6 +790,29 @@ const handlers = {
       try { const e = JSON.parse(res.details); return e.message || res.details; } catch { return res.details || res.error; }
     }
 
+    // Login email and account phone live on app_users, not users_profile —
+    // validated and written separately below, BEFORE the profile fields, so
+    // a rejected email (already used by another account) fails the whole
+    // save instead of silently leaving the profile and credentials
+    // inconsistent with each other.
+    if (data.email !== undefined) {
+      const newEmail = String(data.email || '').trim();
+      if (newEmail) {
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) return { error: 'Enter a valid email address.' };
+        const dupe = await supabaseRequest(`app_users?email=eq.${encodeURIComponent(newEmail)}&user_id=neq.${tid}&select=user_id`);
+        if (Array.isArray(dupe) && dupe.length) return { error: 'That email is already used by another account.' };
+      }
+      const acctPayload = { email: newEmail || null };
+      if (data.phone !== undefined) acctPayload.phone = String(data.phone || '').trim() || null;
+      const acctRes = await supabaseRequest(`app_users?user_id=eq.${tid}`, 'patch', acctPayload);
+      const acctErr = sbErr(acctRes);
+      if (acctErr) return { error: 'DB error saving account info: ' + acctErr };
+    } else if (data.phone !== undefined) {
+      const acctRes = await supabaseRequest(`app_users?user_id=eq.${tid}`, 'patch', { phone: String(data.phone || '').trim() || null });
+      const acctErr = sbErr(acctRes);
+      if (acctErr) return { error: 'DB error saving account info: ' + acctErr };
+    }
+
     // 1. Core profile scalar fields
     // email excluded — it is managed by app_users, not the personal profile form
     // spouse_name excluded — stored in the spouse_details child table
@@ -798,6 +821,7 @@ const handlers = {
       full_name: data.full_name || null,
       category: data.category || null,
       designation: data.designation || null,
+      shortname: data.shortname || null,
       joining_date: d(data.joining_date),
       national_id: data.national_id || null,
       auth_ref: data.auth_ref || null,

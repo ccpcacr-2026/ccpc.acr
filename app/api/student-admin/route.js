@@ -889,10 +889,15 @@ export async function POST(req) {
   // class-sections of one tab's data that person may see. ────────────────────
   if (action === 'get_staff_directory') {
     // Rich search list: name + phone from users_profile, account fields from
-    // app_users, shortname resolved live from the routine sheet (best-effort).
+    // app_users. Shortname prefers each teacher's own self-set
+    // users_profile.shortname; only falls back to the routine sheet's
+    // "Logged in info" lookup for whoever hasn't set one yet — the sheet
+    // stays the sole source of truth for actual routine/schedule matching
+    // elsewhere (that's tied to the sheet's own literal abbreviations and
+    // is untouched by this), this is purely the directory's display value.
     const hdrs = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher' };
     const [profRes, userRes, shortnames] = await Promise.all([
-      fetch(`${SB_URL}/rest/v1/users_profile?select=teacher_id,full_name,phone,whatsapp&order=full_name.asc&limit=1000`, { headers: hdrs }),
+      fetch(`${SB_URL}/rest/v1/users_profile?select=teacher_id,full_name,designation,shortname,phone,whatsapp&order=full_name.asc&limit=1000`, { headers: hdrs }),
       fetch(`${SB_URL}/rest/v1/app_users?select=user_id,email,role,phone&limit=1000`, { headers: hdrs }),
       _shortnameByName(),
     ]);
@@ -905,7 +910,8 @@ export async function POST(req) {
       return {
         user_id: u.user_id,
         full_name: p.full_name || '',
-        shortname: shortnames[_normalizeName(p.full_name)] || '',
+        shortname: p.shortname || shortnames[_normalizeName(p.full_name)] || '',
+        designation: p.designation || '',
         phone: p.phone || p.whatsapp || u.phone || '',
         email: u.email || '',
         role: u.role || '',
