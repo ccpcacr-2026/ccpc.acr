@@ -51,7 +51,7 @@ const RESERVED = [
   // combined login + background profile sections
   'loginAndGetProfile','getMyProfileSections',
   // appearance / theme
-  'applyThemePreset','previewCustomTheme','saveCurrentTheme','changeFontScale','previewCustomSidebar',
+  'applyThemePreset','previewCustomTheme','saveCurrentTheme','changeFontScale','previewCustomSidebar','changeFontFamily',
   // committee archive
   'archiveCommittee','unarchiveCommittee','toggleArchivedView',
   // routine / class adjustment ("Cut & Toss")

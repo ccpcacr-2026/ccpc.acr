@@ -17,21 +17,28 @@
   //  lets an admin override every one of these independently instead of
   //  picking a bundled preset.
   // ══════════════════════════════════════════════════════
+  // Sidebar gradients deliberately stay in "rich jewel-tone" territory (mid
+  // lightness, real saturation at the top stop) rather than near-black —
+  // at very low lightness every hue reads as indistinguishable charcoal, so
+  // the whole point of a per-theme sidebar color is lost. Each one is
+  // built top→bottom from a vivid, clearly-that-color stop down to a deep
+  // (but not pitch-black) base, so switching themes is obviously visible
+  // and each still feels premium rather than neon.
   const THEME_PRESETS = {
-    aurora:    { name:'Aurora',    stops:['#eaf2ff','#f4f0ff','#fdf1f9','#eefcff','#eef4ff'], accents:['#6366f1','#38bdf8','#ec4899','#10b981'], sidebarBg:'linear-gradient(180deg,#0d1b2e 0%,#0a1628 60%,#080f1e 100%)', sidebarText:'#64748b', sidebarTextHover:'#e2e8f0', sidebarAccent:'#4f46e5' },
-    ocean:     { name:'Ocean',     stops:['#e0f2fe','#e6fffb','#eff6ff','#ecfeff','#e0f7fa'], accents:['#0ea5e9','#06b6d4','#3b82f6','#14b8a6'], sidebarBg:'linear-gradient(180deg,#08303f 0%,#052632 60%,#031a22 100%)', sidebarText:'#5fa8bf', sidebarTextHover:'#d7f3fa', sidebarAccent:'#0ea5e9' },
-    sunset:    { name:'Sunset',    stops:['#fff1e6','#ffe9ef','#fef3c7','#ffe4e6','#fff7ed'], accents:['#fb923c','#f43f5e','#f59e0b','#ec4899'], sidebarBg:'linear-gradient(180deg,#3a1420 0%,#2b0e18 60%,#1c090f 100%)', sidebarText:'#c98a94', sidebarTextHover:'#ffe4ea', sidebarAccent:'#f43f5e' },
-    forest:    { name:'Forest',    stops:['#ecfdf5','#f0fdf4','#f7fee7','#ecfccb','#effdf5'], accents:['#10b981','#22c55e','#84cc16','#14b8a6'], sidebarBg:'linear-gradient(180deg,#0c2318 0%,#091b12 60%,#05100b 100%)', sidebarText:'#6aa887', sidebarTextHover:'#dcfce7', sidebarAccent:'#22c55e' },
-    lavender:  { name:'Lavender',  stops:['#f5f3ff','#faf5ff','#fdf4ff','#f3e8ff','#f5f3ff'], accents:['#8b5cf6','#a855f7','#d946ef','#6366f1'], sidebarBg:'linear-gradient(180deg,#1e1533 0%,#170f28 60%,#0f0a1c 100%)', sidebarText:'#9d8ac2', sidebarTextHover:'#ede9fe', sidebarAccent:'#a855f7' },
-    blossom:   { name:'Blossom',   stops:['#fff1f2','#fdf2f8','#fce7f3','#ffe4e6','#fff1f2'], accents:['#fb7185','#ec4899','#f472b6','#e11d48'], sidebarBg:'linear-gradient(180deg,#331420 0%,#280f19 60%,#1a0a10 100%)', sidebarText:'#c983a0', sidebarTextHover:'#fce7f3', sidebarAccent:'#ec4899' },
-    graphite:  { name:'Graphite',  stops:['#f8fafc','#eef2f7','#f1f5f9','#e9eef5','#f8fafc'], accents:['#64748b','#475569','#94a3b8','#334155'], sidebarBg:'linear-gradient(180deg,#1e293b 0%,#16202f 60%,#0f172a 100%)', sidebarText:'#94a3b8', sidebarTextHover:'#f1f5f9', sidebarAccent:'#64748b' },
-    midnight:  { name:'Midnight',  stops:['#eef2ff','#e8f4ff','#eefcff','#f0f5ff','#e6f7ff'], accents:['#22d3ee','#38bdf8','#818cf8','#2dd4bf'], sidebarBg:'linear-gradient(180deg,#020617 0%,#01040f 60%,#000208 100%)', sidebarText:'#5eead4', sidebarTextHover:'#ecfeff', sidebarAccent:'#22d3ee' },
-    crimson:   { name:'Crimson',   stops:['#fff5f5','#fff0f0','#fef2f2','#fff1f2','#fef2f2'], accents:['#dc2626','#ef4444','#f97316','#b91c1c'], sidebarBg:'linear-gradient(180deg,#2b0a0a 0%,#1f0707 60%,#140404 100%)', sidebarText:'#c98a8a', sidebarTextHover:'#fee2e2', sidebarAccent:'#dc2626' },
-    amber:     { name:'Amber',     stops:['#fffbeb','#fefce8','#fff7ed','#fefce8','#fffbeb'], accents:['#d97706','#f59e0b','#eab308','#b45309'], sidebarBg:'linear-gradient(180deg,#2e1f0a 0%,#221706 60%,#160f04 100%)', sidebarText:'#cbaa74', sidebarTextHover:'#fef3c7', sidebarAccent:'#d97706' },
-    emerald:   { name:'Emerald',   stops:['#ecfdf5','#f0fdfa','#effdf5','#ecfeff','#f0fdf9'], accents:['#059669','#0d9488','#10b981','#0891b2'], sidebarBg:'linear-gradient(180deg,#022c22 0%,#012019 60%,#00140f 100%)', sidebarText:'#6fbfa8', sidebarTextHover:'#d1fae5', sidebarAccent:'#059669' },
-    royal:     { name:'Royal',     stops:['#f5f3ff','#f3e8ff','#ede9fe','#f5f3ff','#efe8ff'], accents:['#7c3aed','#6d28d9','#9333ea','#4c1d95'], sidebarBg:'linear-gradient(180deg,#1e1247 0%,#170d38 60%,#0f0824 100%)', sidebarText:'#a996d6', sidebarTextHover:'#ede9fe', sidebarAccent:'#7c3aed' },
+    aurora:    { name:'Aurora',    stops:['#eaf2ff','#f4f0ff','#fdf1f9','#eefcff','#eef4ff'], accents:['#6366f1','#38bdf8','#ec4899','#10b981'], sidebarBg:'linear-gradient(160deg,#2f2f7a 0%,#1c1a52 55%,#100e30 100%)', sidebarText:'#8b8fd6', sidebarTextHover:'#eef0ff', sidebarAccent:'#6366f1' },
+    ocean:     { name:'Ocean',     stops:['#e0f2fe','#e6fffb','#eff6ff','#ecfeff','#e0f7fa'], accents:['#0ea5e9','#06b6d4','#3b82f6','#14b8a6'], sidebarBg:'linear-gradient(160deg,#0b6a92 0%,#084566 55%,#042235 100%)', sidebarText:'#6fc3e0', sidebarTextHover:'#e3f7ff', sidebarAccent:'#0ea5e9' },
+    sunset:    { name:'Sunset',    stops:['#fff1e6','#ffe9ef','#fef3c7','#ffe4e6','#fff7ed'], accents:['#fb923c','#f43f5e','#f59e0b','#ec4899'], sidebarBg:'linear-gradient(160deg,#9c2f56 0%,#6b1d3d 55%,#340e1e 100%)', sidebarText:'#e3a0b5', sidebarTextHover:'#ffe9f0', sidebarAccent:'#f43f5e' },
+    forest:    { name:'Forest',    stops:['#ecfdf5','#f0fdf4','#f7fee7','#ecfccb','#effdf5'], accents:['#10b981','#22c55e','#84cc16','#14b8a6'], sidebarBg:'linear-gradient(160deg,#187347 0%,#0f4c2f 55%,#082e1c 100%)', sidebarText:'#7fd6a6', sidebarTextHover:'#e6fbef', sidebarAccent:'#22c55e' },
+    lavender:  { name:'Lavender',  stops:['#f5f3ff','#faf5ff','#fdf4ff','#f3e8ff','#f5f3ff'], accents:['#8b5cf6','#a855f7','#d946ef','#6366f1'], sidebarBg:'linear-gradient(160deg,#6d28d9 0%,#471f96 55%,#241049 100%)', sidebarText:'#c4a8f0', sidebarTextHover:'#f4ecff', sidebarAccent:'#a855f7' },
+    blossom:   { name:'Blossom',   stops:['#fff1f2','#fdf2f8','#fce7f3','#ffe4e6','#fff1f2'], accents:['#fb7185','#ec4899','#f472b6','#e11d48'], sidebarBg:'linear-gradient(160deg,#af1f63 0%,#761541 55%,#3b0a21 100%)', sidebarText:'#f0a3c6', sidebarTextHover:'#ffe9f4', sidebarAccent:'#ec4899' },
+    graphite:  { name:'Graphite',  stops:['#f8fafc','#eef2f7','#f1f5f9','#e9eef5','#f8fafc'], accents:['#64748b','#475569','#94a3b8','#334155'], sidebarBg:'linear-gradient(160deg,#48566e 0%,#2e3849 55%,#161c26 100%)', sidebarText:'#a9b6c8', sidebarTextHover:'#f4f7fb', sidebarAccent:'#94a3b8' },
+    midnight:  { name:'Midnight',  stops:['#eef2ff','#e8f4ff','#eefcff','#f0f5ff','#e6f7ff'], accents:['#22d3ee','#38bdf8','#818cf8','#2dd4bf'], sidebarBg:'linear-gradient(160deg,#0e8fa8 0%,#0a5266 55%,#020617 100%)', sidebarText:'#7fe6ea', sidebarTextHover:'#e6feff', sidebarAccent:'#22d3ee' },
+    crimson:   { name:'Crimson',   stops:['#fff5f5','#fff0f0','#fef2f2','#fff1f2','#fef2f2'], accents:['#dc2626','#ef4444','#f97316','#b91c1c'], sidebarBg:'linear-gradient(160deg,#b3251f 0%,#791a16 55%,#3a0b09 100%)', sidebarText:'#eb9c98', sidebarTextHover:'#ffeceb', sidebarAccent:'#ef4444' },
+    amber:     { name:'Amber',     stops:['#fffbeb','#fefce8','#fff7ed','#fefce8','#fffbeb'], accents:['#d97706','#f59e0b','#eab308','#b45309'], sidebarBg:'linear-gradient(160deg,#a85a0a 0%,#733d08 55%,#3a1f04 100%)', sidebarText:'#eab873', sidebarTextHover:'#fff2dc', sidebarAccent:'#f59e0b' },
+    emerald:   { name:'Emerald',   stops:['#ecfdf5','#f0fdfa','#effdf5','#ecfeff','#f0fdf9'], accents:['#059669','#0d9488','#10b981','#0891b2'], sidebarBg:'linear-gradient(160deg,#04795c 0%,#03513e 55%,#022c22 100%)', sidebarText:'#6fd9bd', sidebarTextHover:'#e2fbf3', sidebarAccent:'#0d9488' },
+    royal:     { name:'Royal',     stops:['#f5f3ff','#f3e8ff','#ede9fe','#f5f3ff','#efe8ff'], accents:['#7c3aed','#6d28d9','#9333ea','#4c1d95'], sidebarBg:'linear-gradient(160deg,#453ee0 0%,#2c26a3 55%,#150f56 100%)', sidebarText:'#a9a3f2', sidebarTextHover:'#ecebff', sidebarAccent:'#7c3aed' },
     slate:     { name:'Slate Light', stops:['#ffffff','#f8fafc','#f1f5f9','#f8fafc','#ffffff'], accents:['#334155','#475569','#0f172a','#64748b'], sidebarBg:'#ffffff', sidebarText:'#64748b', sidebarTextHover:'#0f172a', sidebarAccent:'#334155' },
-    rosegold:  { name:'Rose Gold', stops:['#fff5f7','#fff7ed','#fef6f0','#fff1f2','#fff8f3'], accents:['#e8998d','#d4a373','#f2b8a0','#c97b63'], sidebarBg:'linear-gradient(180deg,#3d2420 0%,#2e1a17 60%,#1f110f 100%)', sidebarText:'#cba396', sidebarTextHover:'#ffe4d9', sidebarAccent:'#e8998d' },
+    rosegold:  { name:'Rose Gold', stops:['#fff5f7','#fff7ed','#fef6f0','#fff1f2','#fff8f3'], accents:['#e8998d','#d4a373','#f2b8a0','#c97b63'], sidebarBg:'linear-gradient(160deg,#b5594a 0%,#7d3b30 55%,#3f1e18 100%)', sidebarText:'#eeb3a5', sidebarTextHover:'#fff0eb', sidebarAccent:'#e8998d' },
   };
   const FONT_SCALES = {
     compact:     { name:'Compact',      size:'87.5%' },
@@ -39,7 +46,20 @@
     large:       { name:'Large',        size:'112.5%' },
     xlarge:      { name:'Extra Large',  size:'125%' },
   };
-  const DEFAULT_THEME = { mode:'preset', preset:'aurora', fontScale:'comfortable' };
+  // Every family here is already loaded via the single combined Google
+  // Fonts @import in styles.css — adding a new option means adding it to
+  // BOTH that import and this list.
+  const FONT_FAMILIES = {
+    inter:      { name:'Inter',            stack:"'Inter', sans-serif" },
+    poppins:    { name:'Poppins',          stack:"'Poppins', sans-serif" },
+    manrope:    { name:'Manrope',          stack:"'Manrope', sans-serif" },
+    outfit:     { name:'Outfit',           stack:"'Outfit', sans-serif" },
+    jakarta:    { name:'Plus Jakarta Sans',stack:"'Plus Jakarta Sans', sans-serif" },
+    nunito:     { name:'Nunito',           stack:"'Nunito', sans-serif" },
+    worksans:   { name:'Work Sans',        stack:"'Work Sans', sans-serif" },
+    lexend:     { name:'Lexend',           stack:"'Lexend', sans-serif" },
+  };
+  const DEFAULT_THEME = { mode:'preset', preset:'aurora', fontScale:'comfortable', fontFamily:'inter' };
   window.APP_THEME = DEFAULT_THEME;
 
   function _hexToRgba(hex, a) {
@@ -88,6 +108,7 @@
     root.setProperty('--sidebar-accent-glow', _hexToRgba(sidebarAccent, 0.18));
     root.setProperty('--sidebar-accent-text', sidebarTextHover);
     document.documentElement.style.fontSize = (FONT_SCALES[(theme && theme.fontScale)] || FONT_SCALES.comfortable).size;
+    root.setProperty('--app-font', (FONT_FAMILIES[(theme && theme.fontFamily)] || FONT_FAMILIES.inter).stack);
     window.APP_THEME = theme || DEFAULT_THEME;
   }
 
@@ -9092,6 +9113,7 @@
       : (THEME_PRESETS[current.preset] || THEME_PRESETS.aurora).stops;
     const { sidebarBg: baseSidebarBg, sidebarText: baseSidebarText, sidebarAccent: baseSidebarAccent } = _themeColors(current);
     const curFontScale = (current && current.fontScale) || 'comfortable';
+    const curFontFamily = (current && current.fontFamily) || 'inter';
 
     const presetCards = Object.entries(THEME_PRESETS).map(([key, p]) => {
       const grad = `linear-gradient(135deg, ${p.stops.join(', ')})`;
@@ -9120,6 +9142,15 @@
       </button>`;
     }).join('');
 
+    const fontFamilyCards = Object.entries(FONT_FAMILIES).map(([key, f]) => {
+      const sel = curFontFamily === key;
+      return `<button onclick="changeFontFamily('${key}')" id="fontfam-card-${key}"
+        class="px-4 py-3 rounded-2xl border-2 ${sel ? 'border-blue-600 bg-blue-50' : 'border-slate-200 bg-white'} transition-all text-center">
+        <span style="font-family:${f.stack}" class="block text-lg font-bold text-slate-800">Aa</span>
+        <span class="block text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">${f.name}</span>
+      </button>`;
+    }).join('');
+
     const cs = [baseStops[0]||'#eaf2ff', baseStops[1]||'#f4f0ff', baseStops[2]||'#fdf1f9', baseStops[3]||'#eefcff'];
     box.innerHTML = `
       <div class="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm space-y-8">
@@ -9134,6 +9165,10 @@
         <div class="pt-6 border-t border-slate-100">
           <p class="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Font Size</p>
           <div class="grid grid-cols-4 gap-3 max-w-md">${fontCards}</div>
+        </div>
+        <div class="pt-6 border-t border-slate-100">
+          <p class="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Font Family</p>
+          <div class="grid grid-cols-4 gap-3 max-w-2xl">${fontFamilyCards}</div>
         </div>
         <div class="pt-6 border-t border-slate-100">
           <p class="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Custom Gradient</p>
@@ -9201,7 +9236,7 @@
 
   function applyThemePreset(key) {
     const p = THEME_PRESETS[key] || THEME_PRESETS.aurora;
-    applyTheme({ mode: 'preset', preset: key, fontScale: (window.APP_THEME && window.APP_THEME.fontScale) || 'comfortable' });
+    applyTheme({ mode: 'preset', preset: key, fontScale: (window.APP_THEME && window.APP_THEME.fontScale) || 'comfortable', fontFamily: (window.APP_THEME && window.APP_THEME.fontFamily) || 'inter' });
     _markPresetSelected(key);
     // sync the custom colour pickers to this preset's values
     const stops = p.stops;
@@ -9216,6 +9251,23 @@
   function changeFontScale(key) {
     applyTheme({ ...(window.APP_THEME || DEFAULT_THEME), fontScale: key });
     _markFontScaleSelected(key);
+  }
+
+  function _markFontFamilySelected(key) {
+    Object.keys(FONT_FAMILIES).forEach(k => {
+      const c = document.getElementById('fontfam-card-' + k);
+      if (!c) return;
+      const on = k === key;
+      c.classList.toggle('border-blue-600', on);
+      c.classList.toggle('bg-blue-50', on);
+      c.classList.toggle('border-slate-200', !on);
+      c.classList.toggle('bg-white', !on);
+    });
+  }
+
+  function changeFontFamily(key) {
+    applyTheme({ ...(window.APP_THEME || DEFAULT_THEME), fontFamily: key });
+    _markFontFamilySelected(key);
   }
 
   function previewCustomTheme() {

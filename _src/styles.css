@@ -1,4 +1,6 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+/* Curated font choices for the admin Appearance panel — one combined
+   request, font-display=swap so text never goes invisible while loading. */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Poppins:wght@400;500;600;700;800;900&family=Manrope:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Nunito:wght@400;500;600;700;800;900&family=Work+Sans:wght@400;500;600;700;800;900&family=Lexend:wght@400;500;600;700;800&display=swap');
 
 /* Theme variables — overridable at runtime by the admin appearance picker */
 :root {
@@ -8,10 +10,11 @@
     radial-gradient(38rem 38rem at 92% 8%,  rgba(56,189,248,0.16), transparent 62%),
     radial-gradient(46rem 46rem at 85% 92%, rgba(236,72,153,0.12), transparent 62%),
     radial-gradient(34rem 34rem at 18% 95%, rgba(16,185,129,0.12), transparent 62%);
+  --app-font: 'Inter', sans-serif;
 }
 
 body {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--app-font) !important;
   background: var(--app-bg) !important;
   background-size: 320% 320% !important;
   animation: auroraShift 26s ease-in-out infinite;
