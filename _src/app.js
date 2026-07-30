@@ -1206,6 +1206,7 @@
     sv('full_name',           'full_name');
     sv('category',            'category');  if (!form.elements['category']?.value) sf('category', 'Teacher');
     sv('designation',         'designation');
+    sv('shortname',           'shortname');
     sv('national_id',         'national_id', 'nid_number');
     sv('auth_ref',            'auth_ref');
     sv('name_bengali',        'name_bengali');
@@ -1228,6 +1229,10 @@
     sv('personal_email',      'personal_email');
     sv('tt_phone',            'tt_phone', 'phone');
     sv('mobile',              'mobile', 'whatsapp');
+    // Login credentials live on app_users, not this users_profile row —
+    // pulled from the session's own login response instead.
+    sf('email', window.APP_USER ? window.APP_USER.email : '');
+    sf('phone', window.APP_USER ? window.APP_USER.phone : '');
 
     // --- Tab 2: Travel & Languages ---
     sf('passport_number', data.passport_number);
@@ -3525,6 +3530,11 @@
     return (s && s.full_name) || userId;
   }
 
+  function _ctStaffMeta(userId) {
+    const s = _ctStaff.find(x => x.user_id === userId);
+    return s ? [s.designation, s.shortname].filter(Boolean).join(' · ') : '';
+  }
+
   function renderClassTeacherList() {
     const list = document.getElementById('ctList');
     if (!list) return;
@@ -3538,6 +3548,7 @@
       <div class="flex items-center justify-between gap-3 p-3.5 rounded-2xl border border-slate-100 bg-slate-50/50">
         <div class="min-w-0">
           <p class="font-black text-slate-800 text-sm truncate">${_escHtml(_ctStaffName(uid))}</p>
+          ${_ctStaffMeta(uid) ? `<p class="text-[10px] font-bold text-slate-400 truncate">${_escHtml(_ctStaffMeta(uid))}</p>` : ''}
           <div class="flex flex-wrap gap-1.5 mt-1.5">
             ${byUser[uid].map(c => `<span class="px-2 py-0.5 bg-white border border-slate-200 rounded-lg text-[10px] font-black text-slate-500">${_escHtml(_ctComboLabel(c))}</span>`).join('')}
           </div>
@@ -3595,22 +3606,24 @@
     const editingUid = _ctPicker.userId;
     const q = (_ctPicker.staffSearch || '').trim().toLowerCase();
     const staff = q
-      ? _ctStaff.filter(s => [s.full_name, s.user_id, s.shortname, s.phone].filter(Boolean).join(' ').toLowerCase().includes(q))
+      ? _ctStaff.filter(s => [s.full_name, s.user_id, s.shortname, s.designation, s.phone].filter(Boolean).join(' ').toLowerCase().includes(q))
       : _ctStaff;
     if (!staff.length) return '<p class="text-center py-6 text-slate-300 text-[10px] font-black uppercase tracking-widest">No match</p>';
     return staff.map(s => {
       const existing = byUser[s.user_id];
       const isEditing = s.user_id === editingUid;
       const isTakenByOther = existing && !isEditing;
-      const label = existing ? `<span class="block text-[9px] font-bold text-slate-400 normal-case mt-0.5 truncate">${existing.map(_ctComboLabel).join(', ')}</span>` : '';
+      const meta = [s.designation, s.shortname].filter(Boolean).join(' · ');
+      const metaHtml = meta ? `<span class="block text-[9px] font-bold normal-case mt-0.5 truncate ${isEditing ? 'text-blue-100' : 'text-slate-400'}">${_escHtml(meta)}</span>` : '';
+      const comboHtml = existing ? `<span class="block text-[9px] font-bold text-slate-400 normal-case mt-0.5 truncate">${existing.map(_ctComboLabel).join(', ')}</span>` : '';
       if (isTakenByOther) {
         return `<div class="px-3 py-2 rounded-xl text-xs font-bold text-slate-300 cursor-not-allowed" title="Already a class teacher — edit their own entry to change this">
-          ${_escHtml(s.full_name || s.user_id)}${label}
+          ${_escHtml(s.full_name || s.user_id)}${metaHtml}${comboHtml}
         </div>`;
       }
       return `<button onclick="_ctSelectPickerTeacher('${s.user_id.replace(/'/g, "\\'")}')"
         class="w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition-colors ${isEditing ? 'bg-blue-600 text-white' : 'text-slate-700 hover:bg-slate-100'}">
-        ${_escHtml(s.full_name || s.user_id)}${isEditing ? '' : label}
+        ${_escHtml(s.full_name || s.user_id)}${metaHtml}${isEditing ? '' : comboHtml}
       </button>`;
     }).join('');
   }

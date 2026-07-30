@@ -356,6 +356,12 @@ button { user-select: none; }
 @keyframes backdropIn { from { opacity:0; } to { opacity:1; } }
 .modal-box { animation: modalUp .25s cubic-bezier(.34,1.56,.64,1); }
 @keyframes modalUp { from { opacity:0; transform:scale(.95) translateY(1rem); } to { opacity:1; transform:scale(1) translateY(0); } }
+/* A dialog floating over a dark backdrop scrim needs a solid, high-contrast
+   surface — the page-wide glassmorphism (.bg-white at 55% opacity, meant to
+   let the gradient show through content cards) makes low-contrast elements
+   like a plain-gray close icon nearly invisible until :hover adds an opaque
+   chip behind it. Opt every modal surface back out of that translucency. */
+.modal-box, .modal-box.bg-white { background-color: #fff !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
 
 @media (max-width: 767px) {
   main { padding: 1rem !important; }
