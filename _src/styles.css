@@ -11,7 +11,17 @@
     radial-gradient(46rem 46rem at 85% 92%, rgba(236,72,153,0.12), transparent 62%),
     radial-gradient(34rem 34rem at 18% 95%, rgba(16,185,129,0.12), transparent 62%);
   --app-font: 'Inter', sans-serif;
+  --view-heading: #1e293b;
+  --view-subtext: #94a3b8;
 }
+
+/* Main content ("view panel") heading/subtext colors ride the active theme
+   too, not just the sidebar — set per-preset from applyTheme() in app.js.
+   Scoped to #view-container only: modals, the login screen and the sidebar
+   itself keep their own separate, always-neutral text treatment. */
+#view-container .text-slate-800 { color: var(--view-heading) !important; }
+#view-container .text-slate-400,
+#view-container .text-slate-500 { color: var(--view-subtext) !important; }
 
 body {
   font-family: var(--app-font) !important;
@@ -402,6 +412,14 @@ button { user-select: none; }
   --sidebar-border: rgba(255,255,255,0.05);
 }
 #main-sidebar { background: var(--sidebar-bg) !important; }
+/* Blanket redirect: any leftover hardcoded slate text color anywhere inside
+   the sidebar (subtitle, footer, inactive role-switcher buttons, etc.) rides
+   the same theme-reactive color as .nav-link instead of staying a fixed gray
+   that goes unreadable against a vivid/dark sidebar gradient preset. */
+#main-sidebar .text-slate-400,
+#main-sidebar .text-slate-500,
+#main-sidebar .text-slate-600,
+#main-sidebar .text-slate-700 { color: var(--sidebar-text) !important; }
 .nav-link { display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:8px; transition:all 0.18s; color:var(--sidebar-text); text-decoration:none; position:relative; }
 .nav-link:hover { background:rgba(255,255,255,0.05); color:var(--sidebar-text-hover); }
 .nav-link:hover .nav-icon-box { background:var(--sidebar-accent-glow); color:var(--sidebar-accent-text); }

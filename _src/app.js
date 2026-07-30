@@ -69,6 +69,21 @@
     return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
   }
 
+  // Blends hexB into hexA by ratio t (0..1) — used to derive the main
+  // content area's heading/subtext tint from each theme's own accent color,
+  // without needing 14 hand-authored extra hex values per preset.
+  function _mixHex(hexA, hexB, t) {
+    const toRgb = hex => {
+      let h = String(hex || '').replace('#','');
+      if (h.length === 3) h = h.split('').map(x => x + x).join('');
+      const n = parseInt(h || '888888', 16);
+      return [(n>>16)&255, (n>>8)&255, n&255];
+    };
+    const a = toRgb(hexA), b = toRgb(hexB);
+    const mix = (i) => Math.round(a[i] + (b[i] - a[i]) * t);
+    return `rgb(${mix(0)},${mix(1)},${mix(2)})`;
+  }
+
   function _themeColors(theme) {
     const p = THEME_PRESETS[(theme && theme.preset) || 'aurora'] || THEME_PRESETS.aurora;
     if (theme && theme.mode === 'custom' && Array.isArray(theme.stops) && theme.stops.length) {
@@ -107,6 +122,12 @@
     root.setProperty('--sidebar-accent-soft-2', _hexToRgba(sidebarAccent, 0.14));
     root.setProperty('--sidebar-accent-glow', _hexToRgba(sidebarAccent, 0.18));
     root.setProperty('--sidebar-accent-text', sidebarTextHover);
+    root.setProperty('--sidebar-section-label', _hexToRgba(sidebarText, 0.85));
+    // Main content headings/subtext pick up a subtle tint of the theme's own
+    // accent too — mostly neutral so contrast on the white/glass view cards
+    // never suffers, but visibly shifting hue as the theme changes.
+    root.setProperty('--view-heading', _mixHex('#0f172a', sidebarAccent, 0.22));
+    root.setProperty('--view-subtext', _mixHex('#94a3b8', sidebarAccent, 0.4));
     document.documentElement.style.fontSize = (FONT_SCALES[(theme && theme.fontScale)] || FONT_SCALES.comfortable).size;
     root.setProperty('--app-font', (FONT_FAMILIES[(theme && theme.fontFamily)] || FONT_FAMILIES.inter).stack);
     window.APP_THEME = theme || DEFAULT_THEME;
