@@ -429,12 +429,27 @@
       if (el) el.style.display = _isModuleVisibleForRole(m.key, activeRole) ? '' : 'none';
     });
     // Hide a nav section's group container/label if every link inside it is hidden
+    // (nav-sublink items under #erp-links are excluded — they're not gated
+    // individually here, and would otherwise read as "visible" via their own
+    // unset inline style even while their #erp-links host is hidden below).
     ['admin-links', 'teacher-links'].forEach(id => {
       const container = document.getElementById(id);
       if (!container) return;
-      const anyVisible = [...container.querySelectorAll('.nav-link')].some(a => a.style.display !== 'none');
+      const anyVisible = [...container.querySelectorAll('.nav-link:not(.nav-sublink)')].some(a => a.style.display !== 'none');
       container.classList.toggle('hidden', !anyVisible);
     });
+
+    // #erp-links (the Student Portal accordion's sub-items) is a sibling of
+    // #nav-student-portal, not gated by MODULE_REGISTRY itself — it's normally
+    // hidden/shown by _loadAdminSubnav's async get_my_tab_access fetch below.
+    // On a role switch, hide it immediately/synchronously the moment its
+    // parent header goes away, instead of leaving the old role's expanded
+    // sub-items visible (with no header above them) until that fetch resolves.
+    const spNavEl = document.getElementById('nav-student-portal');
+    const erpHost = document.getElementById('erp-links');
+    if (spNavEl && erpHost && spNavEl.style.display === 'none') {
+      erpHost.classList.add('hidden');
+    }
 
     _maybeRevealStudentPortalForGrantee(activeRole);
     _loadAdminSubnav(activeRole);
@@ -570,7 +585,14 @@
       window._adminTabAccess = erpTabs;
       window._hasErpTabAccess = erpTabs.length > 0; // loadStudentPortalView's own role gate checks this too
       const items = ADMIN_SUBNAV_ITEMS.filter(i => erpTabs.includes(i.key));
-      if (!items.length) { host.innerHTML = ''; host.classList.add('hidden'); return; }
+      // get_my_tab_access is account-scoped (any role the account holds
+      // unlocks its tabs), not active-role-scoped — so a multi-role account
+      // (e.g. Admin+Teacher) keeps getting tabs back even while viewing as
+      // Teacher. Without this guard that reopens the sub-items list right
+      // after updateSidebarForRole's own synchronous hide (see there), even
+      // though the "Student Portal" header itself is correctly hidden for
+      // that active role — the exact orphaned-children bug reported.
+      if (!items.length || !_isModuleVisibleForRole('student_portal', activeRole)) { host.innerHTML = ''; host.classList.add('hidden'); return; }
       host.innerHTML = items.map(i =>
         `<a href="javascript:void(0)" onclick="${i.action.fn}(); closeMobileSidebar();" class="nav-link nav-sublink" id="nav-erp-${i.key}"><div class="nav-icon-box"><i data-lucide="${i.icon}" class="nav-icon"></i></div><span class="nav-text">${i.label}</span></a>`
       ).join('');
@@ -7796,7 +7818,7 @@
   // add one entry here, add a default row below. The checkbox matrix, sidebar
   // gating, and hash-route gating all pick it up automatically.
   const MODULE_REGISTRY = [
-    { key: 'dashboard',        label: 'Command Center',    navId: 'nav-dashboard' },
+    { key: 'dashboard',        label: 'Administration',    navId: 'nav-dashboard' },
     { key: 'routine',          label: 'Routine',            navId: 'nav-routine' },
     { key: 'system',           label: 'System',             navId: 'nav-system' },
     { key: 'student_portal',   label: 'Student Portal',     navId: 'nav-student-portal' },
