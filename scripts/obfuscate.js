@@ -99,7 +99,9 @@ const RESERVED = [
   'checkBusStatus','saveBusConfig','addPlaceRow','savePlaceConfig',
   // Setup tab native port (tab builder)
   'loadAdminSetupView','loadAdminAddCustomFormView','_toggleFieldChip','updateIncludeCount','updateEditableCount',
-  'loadAdminClassTeacherView','filterClassTeacherRows','saveClassTeacherAssignment','downloadImportDemoTemplate',
+  'loadAdminClassTeacherView','downloadImportDemoTemplate',
+  'openClassTeacherPicker','closeClassTeacherPicker','removeClassTeacherAssignment',
+  '_ctSelectPickerTeacher','_ctUpdateDraftBase','_ctUpdateDraftExtra','_ctAddDraftCombo','_ctRemoveDraftCombo','_ctSaveAssignment',
   'onDownloadCategoryChange','openColleagueProfile','closeColleagueProfileModal','saveProfileFieldVisibility',
   'saveColleagueCareerFields','toggleCareerHistory',
   'saveEditableProfileFields','togglePermanentTab','toggleLoginPasswordColumn',

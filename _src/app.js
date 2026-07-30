@@ -3440,17 +3440,31 @@
   // detection exec/route.js's _getClassTeacherAssignments does — the sheet
   // stays authoritative, but any class/section it can't resolve a name for
   // (or doesn't list at all) falls back to whatever's assigned here.
-  let _ctClassSections = [];
-  let _ctAssignments = {};
+  //
+  // Teacher-centric model: one teacher holds any number of class+section+
+  // criteria combos at once (e.g. Mr. X is class teacher of BOTH Ten/D and
+  // Ten/BS-E) but a given combo can only ever belong to one teacher — so
+  // this is "pick a teacher, then build their combo list" rather than "fill
+  // in a teacher for every class+section row." Criteria columns beyond
+  // class+section (group/shift/version/anything else in students_data) are
+  // fully dynamic — discovered from the real data, never hardcoded — and
+  // only offered when they actually vary within the chosen class+section.
+  let _ctAssignments = [];   // flat [{class, section, extra_criteria, user_id}, ...]
   let _ctStaff = [];
-  // Off: one row (one teacher) per class+section, matching the routine
-  // sheet's own granularity. On: one row per class+section+group instead —
-  // needed wherever a section is split into subject groups sharing the same
-  // class+section (e.g. Eleven/A holds Science, Business Studies and
-  // Humanities students at once, each wanting its own class teacher).
-  let _ctUseGroup = false;
+  let _ctCandidateCols = []; // e.g. ['gender','version','shift','house','blood','session','group']
+  let _ctSectionRows = [];   // [{class, section, extras:{col:val,...}, count}, ...]
+  let _ctPicker = null;      // null when picker closed, else { userId, combos, draft }
 
-  function _ctKey(cls, section, group) { return `${cls}||${section}||${group || ''}`; }
+  function _ctComboLabel(combo) {
+    const extras = Object.values(combo.extra_criteria || {}).filter(v => v && v !== 'None');
+    return [combo.class, combo.section, ...extras].join('/');
+  }
+
+  function _ctAssignmentsByUser() {
+    const byUser = {};
+    _ctAssignments.forEach(a => { (byUser[a.user_id] = byUser[a.user_id] || []).push(a); });
+    return byUser;
+  }
 
   function loadAdminClassTeacherView() {
     if (!(window._adminTabAccess || []).includes('class_teacher')) {
@@ -3462,35 +3476,29 @@
     setContentHeader('Assign Class Teacher', 'user-check');
     const container = document.getElementById('view-container');
     if (!container) return;
-    const groupTh = _ctUseGroup ? '<th class="py-2 px-3">Group</th>' : '';
     container.innerHTML = `
       <div class="space-y-5 pb-10">
-        <div>
-          <h2 class="text-2xl font-black text-slate-800 tracking-tight">Assign Class Teacher</h2>
-          <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Every class/section in the student database, one teacher each</p>
+        <div class="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h2 class="text-2xl font-black text-slate-800 tracking-tight">Assign Class Teacher</h2>
+            <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">One teacher can hold several class/section combinations — a combination can only belong to one teacher</p>
+          </div>
+          <button onclick="openClassTeacherPicker()" class="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 hover:bg-black text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shrink-0">
+            <i data-lucide="plus" class="h-3.5 w-3.5"></i> Add Class Teacher
+          </button>
         </div>
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
           <p class="text-xs text-slate-400 font-bold mb-4">Used as a fallback wherever the routine sheet's own class-teacher list can't resolve a name — assigning someone here always works, even if the sheet is wrong, outdated, or missing that class entirely.</p>
-          <label class="flex items-center gap-2 mb-3 text-xs font-bold text-slate-600 cursor-pointer w-fit">
-            <input type="checkbox" id="ctGroupToggle" ${_ctUseGroup ? 'checked' : ''} onchange="toggleClassTeacherGroupMode(this.checked)" class="rounded border-slate-300 text-blue-600 focus:ring-blue-600">
-            Split by Group too — e.g. treat Eleven/A/Science, Eleven/A/Business Studies and Eleven/A/Humanities as separate rows
-          </label>
-          <input type="search" id="ctFilter" oninput="filterClassTeacherRows()" placeholder="Filter by class, section or group…" autocomplete="off"
-            class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mb-3" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-ct-filter">
-          <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:560px">
-            <table class="w-full text-left border-collapse text-xs">
-              <thead class="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-widest">
-                <tr>
-                  <th class="py-2 px-3">Class</th>
-                  <th class="py-2 px-3">Section</th>
-                  ${groupTh}
-                  <th class="py-2 px-3">Students</th>
-                  <th class="py-2 px-3">Assigned Teacher</th>
-                </tr>
-              </thead>
-              <tbody id="ctTableBody"><tr><td colspan="${_ctUseGroup ? 5 : 4}" class="p-4 text-slate-400 font-bold italic">Loading…</td></tr></tbody>
-            </table>
+          <div id="ctList" class="space-y-2"><p class="text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</p></div>
+        </div>
+      </div>
+      <div id="ctPickerModal" class="modal-wrap hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+        <div class="modal-box relative bg-white rounded-3xl w-full max-w-3xl shadow-2xl overflow-hidden" style="max-height:92vh;display:flex;flex-direction:column">
+          <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
+            <p class="font-black text-slate-800 text-sm uppercase tracking-widest">Assign Class Teacher</p>
+            <button onclick="closeClassTeacherPicker()" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-400"><i data-lucide="x" class="h-4 w-4"></i></button>
           </div>
+          <div id="ctPickerBody" class="flex-1 overflow-y-auto"></div>
         </div>
       </div>
     `;
@@ -3498,83 +3506,226 @@
     loadClassTeacherAssignments();
   }
 
-  function toggleClassTeacherGroupMode(checked) {
-    _ctUseGroup = checked;
-    loadAdminClassTeacherView();
-  }
-
   function loadClassTeacherAssignments() {
     Promise.all([
-      _adminFetch('get_class_sections', {}),
       _adminFetch('get_class_teacher_assignments', {}),
       _adminFetch('get_staff_directory', {}),
-    ]).then(([sections, assignRes, staff]) => {
-      const seen = new Map();
-      (Array.isArray(sections) ? sections : []).forEach(r => {
-        // get_class_sections returns one row per class/section/GROUP combo
-        // (Science/Arts/Commerce etc, each with its own real student count).
-        // With the toggle off, sum those counts into one class+section row
-        // (real roll size, not how many groups exist); with it on, keep
-        // each group as its own row so it can get its own teacher.
-        const grp = _ctUseGroup ? (r.group || 'None') : null;
-        const key = _ctKey(r.class, r.section, grp);
-        if (!seen.has(key)) seen.set(key, { class: r.class, section: r.section, group: grp, count: 0 });
-        seen.get(key).count += (Number(r.count) || 0);
-      });
-      _ctClassSections = [...seen.values()].sort((a, b) => a.class.localeCompare(b.class) || a.section.localeCompare(b.section) || (a.group || '').localeCompare(b.group || ''));
-      _ctAssignments = {};
-      if (assignRes && assignRes.result === 'success') {
-        (assignRes.assignments || []).forEach(a => { _ctAssignments[_ctKey(a.class, a.section, a.group)] = a.user_id; });
-      }
+    ]).then(([assignRes, staff]) => {
+      _ctAssignments = (assignRes && assignRes.result === 'success') ? (assignRes.assignments || []) : [];
       _ctStaff = Array.isArray(staff) ? staff.slice().sort((a, b) => (a.full_name || a.user_id).localeCompare(b.full_name || b.user_id)) : [];
-      renderClassTeacherTable();
+      renderClassTeacherList();
     }).catch(() => {
-      const body = document.getElementById('ctTableBody');
-      if (body) body.innerHTML = `<tr><td colspan="${_ctUseGroup ? 5 : 4}" class="p-4 text-red-500 font-bold">Failed to load.</td></tr>`;
+      const list = document.getElementById('ctList');
+      if (list) list.innerHTML = '<p class="text-center py-8 text-red-500 text-xs font-black uppercase">Failed to load.</p>';
     });
   }
 
-  function renderClassTeacherTable() {
-    const body = document.getElementById('ctTableBody');
-    if (!body) return;
-    const filterEl = document.getElementById('ctFilter');
-    const q = (filterEl ? filterEl.value : '').trim().toLowerCase();
-    const rows = _ctClassSections.filter(r => !q || r.class.toLowerCase().includes(q) || r.section.toLowerCase().includes(q) || (r.group || '').toLowerCase().includes(q));
-    if (!rows.length) { body.innerHTML = `<tr><td colspan="${_ctUseGroup ? 5 : 4}" class="p-4 text-slate-400 font-bold italic">No matching class/section.</td></tr>`; return; }
-    const staffOptions = _ctStaff.map(s => `<option value="${s.user_id}">${s.full_name || s.user_id}${s.shortname ? ` (${s.shortname})` : ''}</option>`).join('');
-    body.innerHTML = rows.map(r => `<tr class="border-b border-slate-50">
-        <td class="py-2 px-3 font-black text-slate-700">${r.class}</td>
-        <td class="py-2 px-3 font-bold text-slate-500">${r.section}</td>
-        ${_ctUseGroup ? `<td class="py-2 px-3 font-bold text-slate-500">${r.group}</td>` : ''}
-        <td class="py-2 px-3 text-slate-400">${r.count}</td>
-        <td class="py-2 px-3">
-          <select class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none w-full max-w-xs"
-            data-class="${r.class}" data-section="${r.section}" data-group="${r.group || ''}" onchange="saveClassTeacherAssignment(this)">
-            <option value="">— Unassigned —</option>
-            ${staffOptions}
-          </select>
-        </td>
-      </tr>`).join('');
-    const selects = body.querySelectorAll('select[data-class]');
-    rows.forEach((r, i) => { if (selects[i]) selects[i].value = _ctAssignments[_ctKey(r.class, r.section, r.group)] || ''; });
+  function _ctStaffName(userId) {
+    const s = _ctStaff.find(x => x.user_id === userId);
+    return (s && s.full_name) || userId;
   }
 
-  function filterClassTeacherRows() { renderClassTeacherTable(); }
+  function renderClassTeacherList() {
+    const list = document.getElementById('ctList');
+    if (!list) return;
+    const byUser = _ctAssignmentsByUser();
+    const userIds = Object.keys(byUser).sort((a, b) => _ctStaffName(a).localeCompare(_ctStaffName(b)));
+    if (!userIds.length) {
+      list.innerHTML = '<p class="text-center py-8 text-slate-300 text-xs font-black uppercase tracking-widest">No class teachers assigned yet.</p>';
+      return;
+    }
+    list.innerHTML = userIds.map(uid => `
+      <div class="flex items-center justify-between gap-3 p-3.5 rounded-2xl border border-slate-100 bg-slate-50/50">
+        <div class="min-w-0">
+          <p class="font-black text-slate-800 text-sm truncate">${_escHtml(_ctStaffName(uid))}</p>
+          <div class="flex flex-wrap gap-1.5 mt-1.5">
+            ${byUser[uid].map(c => `<span class="px-2 py-0.5 bg-white border border-slate-200 rounded-lg text-[10px] font-black text-slate-500">${_escHtml(_ctComboLabel(c))}</span>`).join('')}
+          </div>
+        </div>
+        <div class="flex gap-1.5 shrink-0">
+          <button onclick="openClassTeacherPicker('${uid.replace(/'/g, "\\'")}')" class="w-8 h-8 flex items-center justify-center rounded-lg bg-white border border-slate-200 hover:bg-blue-50 hover:text-blue-600 text-slate-500" title="Edit"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button>
+          <button onclick="removeClassTeacherAssignment('${uid.replace(/'/g, "\\'")}')" class="w-8 h-8 flex items-center justify-center rounded-lg bg-white border border-slate-200 hover:bg-red-50 hover:text-red-600 text-slate-500" title="Remove"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+        </div>
+      </div>`).join('');
+    lucide.createIcons();
+  }
 
-  function saveClassTeacherAssignment(selectEl) {
-    const cls = selectEl.dataset.class, section = selectEl.dataset.section, group = selectEl.dataset.group || null, userId = selectEl.value;
-    selectEl.disabled = true;
-    _adminFetch('set_class_teacher_assignment', { class: cls, section, group, user_id: userId || null }).then(res => {
-      selectEl.disabled = false;
+  function removeClassTeacherAssignment(userId) {
+    if (!window.confirm(`Remove ${_ctStaffName(userId)} as class teacher from all their assigned combinations?`)) return;
+    _adminFetch('save_teacher_class_assignment', { user_id: userId, combos: [] }).then(res => {
       if (res && res.result === 'success') {
-        const key = _ctKey(cls, section, group);
-        if (userId) _ctAssignments[key] = userId; else delete _ctAssignments[key];
-        showToast(userId ? 'Class teacher assigned' : 'Assignment cleared');
+        _ctAssignments = _ctAssignments.filter(a => a.user_id !== userId);
+        renderClassTeacherList();
+        showToast('Assignment removed');
+      } else {
+        showToast((res && res.message) || 'Failed to remove', 'error');
+      }
+    }).catch(() => showToast('Network error', 'error'));
+  }
+
+  // ── Picker modal: left = pick a teacher, right = build their combo list ─────
+  function openClassTeacherPicker(existingUserId) {
+    const byUser = _ctAssignmentsByUser();
+    _ctPicker = {
+      userId: existingUserId || null,
+      combos: existingUserId ? (byUser[existingUserId] || []).map(c => ({ class: c.class, section: c.section, extra_criteria: c.extra_criteria || {} })) : [],
+      draft: { class: '', section: '', extraVals: {} },
+    };
+    document.getElementById('ctPickerModal').classList.remove('hidden');
+    renderClassTeacherPicker();
+    if (_ctSectionRows.length) return;
+    const body = document.getElementById('ctPickerBody');
+    if (body) body.insertAdjacentHTML('afterbegin', '<p class="text-center py-8 text-slate-400 text-xs font-black uppercase col-span-2">Loading class list…</p>');
+    _adminFetch('get_class_sections', { dynamic: true }).then(res => {
+      _ctCandidateCols = (res && res.candidateCols) || [];
+      _ctSectionRows = (res && res.rows) || [];
+      renderClassTeacherPicker();
+    }).catch(() => showToast('Could not load class list', 'error'));
+  }
+
+  function closeClassTeacherPicker() {
+    _ctPicker = null;
+    const modal = document.getElementById('ctPickerModal');
+    if (modal) modal.classList.add('hidden');
+  }
+
+  function renderClassTeacherPicker() {
+    const body = document.getElementById('ctPickerBody');
+    if (!body || !_ctPicker) return;
+    const byUser = _ctAssignmentsByUser();
+    const editingUid = _ctPicker.userId;
+
+    const staffListHtml = _ctStaff.map(s => {
+      const existing = byUser[s.user_id];
+      const isEditing = s.user_id === editingUid;
+      const isTakenByOther = existing && !isEditing;
+      const label = existing ? `<span class="block text-[9px] font-bold text-slate-400 normal-case mt-0.5 truncate">${existing.map(_ctComboLabel).join(', ')}</span>` : '';
+      if (isTakenByOther) {
+        return `<div class="px-3 py-2 rounded-xl text-xs font-bold text-slate-300 cursor-not-allowed" title="Already a class teacher — edit their own entry to change this">
+          ${_escHtml(s.full_name || s.user_id)}${label}
+        </div>`;
+      }
+      return `<button onclick="_ctSelectPickerTeacher('${s.user_id.replace(/'/g, "\\'")}')"
+        class="w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition-colors ${isEditing ? 'bg-blue-600 text-white' : 'text-slate-700 hover:bg-slate-100'}">
+        ${_escHtml(s.full_name || s.user_id)}${isEditing ? '' : label}
+      </button>`;
+    }).join('');
+
+    let rightHtml = '<p class="text-slate-400 text-xs font-bold p-6">Select a teacher on the left first.</p>';
+    if (_ctPicker.userId) {
+      const d = _ctPicker.draft;
+      const classes = [...new Set(_ctSectionRows.map(r => r.class))].sort();
+      const sections = d.class ? [...new Set(_ctSectionRows.filter(r => r.class === d.class).map(r => r.section))].sort() : [];
+      const matching = (d.class && d.section) ? _ctSectionRows.filter(r => r.class === d.class && r.section === d.section) : [];
+      const relevantCols = matching.length ? _ctCandidateCols.filter(c => new Set(matching.map(r => r.extras[c])).size > 1) : [];
+
+      const extraSelects = relevantCols.map(col => {
+        const options = [...new Set(matching.map(r => r.extras[col]))].sort();
+        return `<div>
+          <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">${_escHtml(col.replace(/_/g, ' '))}</label>
+          <select data-ct-extra="${col}" onchange="_ctUpdateDraftExtra('${col.replace(/'/g, "\\'")}', this.value)"
+            class="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none">
+            <option value="">(any ${_escHtml(col)})</option>
+            ${options.map(o => `<option value="${_escHtml(o)}" ${d.extraVals[col] === o ? 'selected' : ''}>${_escHtml(o)}</option>`).join('')}
+          </select>
+        </div>`;
+      }).join('');
+
+      const comboChips = _ctPicker.combos.length
+        ? _ctPicker.combos.map((c, i) => `<span class="flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 border border-blue-100 rounded-lg text-[10px] font-black text-blue-700">
+            ${_escHtml(_ctComboLabel(c))}
+            <i data-lucide="x" class="h-3 w-3 cursor-pointer" onclick="_ctRemoveDraftCombo(${i})"></i>
+          </span>`).join('')
+        : '<span class="text-[10px] font-bold text-slate-300 italic">No combinations added yet.</span>';
+
+      rightHtml = `
+        <div class="p-6 space-y-4">
+          <p class="font-black text-slate-800 text-sm">${_escHtml(_ctStaffName(_ctPicker.userId))}</p>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Class</label>
+              <select onchange="_ctUpdateDraftBase('class', this.value)" class="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none">
+                <option value="">Select…</option>
+                ${classes.map(c => `<option value="${_escHtml(c)}" ${d.class === c ? 'selected' : ''}>${_escHtml(c)}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Section</label>
+              <select onchange="_ctUpdateDraftBase('section', this.value)" ${!d.class ? 'disabled' : ''} class="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none disabled:opacity-50">
+                <option value="">Select…</option>
+                ${sections.map(s => `<option value="${_escHtml(s)}" ${d.section === s ? 'selected' : ''}>${_escHtml(s)}</option>`).join('')}
+              </select>
+            </div>
+            ${extraSelects}
+          </div>
+          <button onclick="_ctAddDraftCombo()" ${(!d.class || !d.section) ? 'disabled' : ''}
+            class="flex items-center gap-1.5 px-4 py-2 bg-slate-800 hover:bg-black text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-40">
+            <i data-lucide="plus" class="h-3.5 w-3.5"></i> Add Combination
+          </button>
+          <div class="flex flex-wrap gap-1.5 pt-2 border-t border-slate-100">${comboChips}</div>
+          <div class="flex justify-end gap-2 pt-2">
+            <button onclick="closeClassTeacherPicker()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-100 transition-all">Cancel</button>
+            <button onclick="_ctSaveAssignment()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">Save</button>
+          </div>
+        </div>`;
+    }
+
+    body.innerHTML = `
+      <div class="grid" style="grid-template-columns:220px 1fr">
+        <div class="border-r border-slate-100 p-3 space-y-0.5 overflow-y-auto" style="max-height:70vh">${staffListHtml}</div>
+        <div class="overflow-y-auto" style="max-height:70vh">${rightHtml}</div>
+      </div>`;
+    lucide.createIcons();
+  }
+
+  function _ctSelectPickerTeacher(userId) {
+    _ctPicker.userId = userId;
+    _ctPicker.draft = { class: '', section: '', extraVals: {} };
+    const byUser = _ctAssignmentsByUser();
+    _ctPicker.combos = (byUser[userId] || []).map(c => ({ class: c.class, section: c.section, extra_criteria: c.extra_criteria || {} }));
+    renderClassTeacherPicker();
+  }
+
+  function _ctUpdateDraftBase(field, value) {
+    _ctPicker.draft[field] = value;
+    if (field === 'class') { _ctPicker.draft.section = ''; }
+    _ctPicker.draft.extraVals = {};
+    renderClassTeacherPicker();
+  }
+
+  function _ctUpdateDraftExtra(col, value) {
+    if (value) _ctPicker.draft.extraVals[col] = value; else delete _ctPicker.draft.extraVals[col];
+  }
+
+  function _ctAddDraftCombo() {
+    const d = _ctPicker.draft;
+    if (!d.class || !d.section) return;
+    const extra_criteria = { ...d.extraVals };
+    const label = _ctComboLabel({ class: d.class, section: d.section, extra_criteria });
+    if (_ctPicker.combos.some(c => _ctComboLabel(c) === label)) { showToast('Already added', 'error'); return; }
+    _ctPicker.combos.push({ class: d.class, section: d.section, extra_criteria });
+    _ctPicker.draft = { class: '', section: '', extraVals: {} };
+    renderClassTeacherPicker();
+  }
+
+  function _ctRemoveDraftCombo(index) {
+    _ctPicker.combos.splice(index, 1);
+    renderClassTeacherPicker();
+  }
+
+  function _ctSaveAssignment() {
+    if (!_ctPicker || !_ctPicker.userId) return;
+    _adminFetch('save_teacher_class_assignment', { user_id: _ctPicker.userId, combos: _ctPicker.combos }).then(res => {
+      if (res && res.result === 'success') {
+        _ctAssignments = _ctAssignments.filter(a => a.user_id !== _ctPicker.userId)
+          .concat(_ctPicker.combos.map(c => ({ ...c, user_id: _ctPicker.userId })));
+        closeClassTeacherPicker();
+        renderClassTeacherList();
+        showToast('Class teacher assignment saved');
       } else {
         showToast((res && res.message) || 'Failed to save', 'error');
-        renderClassTeacherTable();
       }
-    }).catch(() => { selectEl.disabled = false; showToast('Network error', 'error'); renderClassTeacherTable(); });
+    }).catch(() => showToast('Network error', 'error'));
   }
 
   function loadAdminTabVisibility() {

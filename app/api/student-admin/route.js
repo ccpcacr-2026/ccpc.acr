@@ -226,13 +226,32 @@ const ADMIN_TAB_ACTIONS = {
   add_custom_form: new Set(['get_tabs', 'get_student_data_headers', 'save_tab', 'delete_tab']),
   data: new Set(['get_tabs', 'get_tab_data', 'get_staff_list', 'get_tab_data_access', 'set_tab_data_access', 'get_staff_directory', 'get_class_sections', 'get_tab_class_access', 'set_tab_class_access', 'get_field_categories', 'get_tab_category_link', 'set_tab_category_link']),
   access: new Set(['get_field_categories', 'get_student_data_headers', 'save_field_category', 'delete_field_category', 'get_staff_directory', 'get_field_access_grants', 'get_scope_column_values', 'set_field_access_grants', 'get_class_sections', 'get_class_access_grants', 'set_class_access_grants', 'search_students', 'bulk_update_students', 'create_student', 'preview_rename_student_id_impact', 'download_students_by_category']),
-  class_teacher: new Set(['get_class_sections', 'get_class_teacher_assignments', 'get_staff_directory', 'set_class_teacher_assignment']),
+  class_teacher: new Set(['get_class_sections', 'get_class_teacher_assignments', 'get_staff_directory', 'save_teacher_class_assignment']),
   history: new Set(['search_edit_history']),
   photo: new Set(['get_student_basic', 'upload_photo']),
   notices: new Set(['get_notices_admin', 'save_notice', 'delete_notice', 'reorder_notices']),
   import: new Set(['get_student_data_headers', 'preview_bulk_import', 'bulk_import_new_students']),
   bus_tracker: new Set(['get_tracking_config', 'get_bus_data']),
 };
+
+// Columns get_class_sections' dynamic (Assign Class Teacher) mode will never
+// offer as a grouping column, plus class/section themselves (already the
+// fixed base of every row). Two kinds excluded:
+//  - identity/system/free-text columns that don't represent class
+//    structure at all (student_id, phone numbers, photo, pin, etc).
+//  - per-student personal attributes (gender, house, blood) — these vary
+//    within literally every class+section (individual student traits, not
+//    an administrative split), so offering them would show 5+ irrelevant
+//    narrowing dropdowns on EVERY class+section instead of only the
+//    columns that actually organize students into cohorts (group, shift,
+//    version, session, or whatever else the school's data adds later).
+const CT_EXCLUDED_COLS = new Set([
+  'id', 'student_id', 'student_name', 'class', 'section', 'roll',
+  'phone_number', 'father_phone', 'mother_phone', 'nfc_uid', 'submitted_at',
+  'fathers_name', 'mothers_name', 'nick_name', 'balance', 'daily_limit',
+  'monthly_limit', 'card_status', 'photo', 'pin',
+  'gender', 'house', 'blood',
+]);
 
 // Salary/payslip data is HR-sensitive — a delegated "Student Portal Admin"
 // has no business seeing it by default, unlike the rest of these, which
@@ -896,25 +915,56 @@ export async function POST(req) {
   }
   if (action === 'get_class_sections') {
     // PostgREST has no distinct param on plain selects — fetch every student
-    // row and tally per class/section/group here (a few thousand tiny rows,
-    // fine). `count` is real students in that exact combo — callers that
-    // just need the distinct list (Access/Class Access pickers) simply
-    // ignore it; the Assign Class Teacher panel sums it per class+section
-    // across groups to show actual roll size, not the number of groups.
-    const rows = await sb('students_data?select=class,section,group&limit=10000');
-    if (rows?.error) return NextResponse.json([]);
+    // row and tally per unique combo here (a few thousand tiny rows, fine).
+    // `count` is real students in that exact combo.
+    //
+    // Two shapes, by whether `payload.dynamic` is set:
+    //  - Unset (Class-Wide Access / Class Access pickers — unchanged since
+    //    before the Assign Class Teacher combo-picker existed): breaks out
+    //    by class, section and group only, `{class,section,group,count}`.
+    //  - Set (Assign Class Teacher's combo picker): discovers every real
+    //    students_data column except CT_EXCLUDED_COLS (identity/system
+    //    columns) and fetches all of them at once, `{class,section,
+    //    extras:{col:val,...},count}` — lets the picker figure out, once an
+    //    admin has picked a class+section, which OTHER columns actually
+    //    vary within it (only those are worth a further narrowing
+    //    dropdown — most class+sections need none at all), with no
+    //    hardcoded list of "the columns that matter" to keep in sync as
+    //    students_data itself changes.
+    if (!payload?.dynamic) {
+      const rows = await sb('students_data?select=class,section,group&limit=10000');
+      if (rows?.error) return NextResponse.json([]);
+      const seen = new Map();
+      rows.forEach(r => {
+        const cls = String(r.class || '').trim(), sec = String(r.section || '').trim();
+        const grp = String(r.group || '').trim() || 'None';
+        if (!cls || !sec) return;
+        const key = `${cls}|${sec}|${grp}`;
+        if (!seen.has(key)) seen.set(key, { class: cls, section: sec, group: grp, count: 0 });
+        seen.get(key).count++;
+      });
+      const out = [...seen.values()];
+      out.sort((a, b) => a.class.localeCompare(b.class) || a.section.localeCompare(b.section) || a.group.localeCompare(b.group));
+      return NextResponse.json(out);
+    }
+
+    const headerRows = await sb('students_data?limit=1');
+    if (headerRows?.error || !headerRows.length) return NextResponse.json({ candidateCols: [], rows: [] });
+    const candidateCols = Object.keys(headerRows[0]).filter(c => !CT_EXCLUDED_COLS.has(c));
+    const rows = await sb(`students_data?select=${['class', 'section', ...candidateCols].join(',')}&limit=10000`);
+    if (rows?.error) return NextResponse.json({ candidateCols, rows: [] });
     const seen = new Map();
     rows.forEach(r => {
       const cls = String(r.class || '').trim(), sec = String(r.section || '').trim();
-      const grp = String(r.group || '').trim() || 'None';
       if (!cls || !sec) return;
-      const key = `${cls}|${sec}|${grp}`;
-      if (!seen.has(key)) seen.set(key, { class: cls, section: sec, group: grp, count: 0 });
+      const extras = {};
+      candidateCols.forEach(c => { extras[c] = String(r[c] || '').trim() || 'None'; });
+      const key = JSON.stringify([cls, sec, extras]);
+      if (!seen.has(key)) seen.set(key, { class: cls, section: sec, extras, count: 0 });
       seen.get(key).count++;
     });
-    const out = [...seen.values()];
-    out.sort((a, b) => a.class.localeCompare(b.class) || a.section.localeCompare(b.section) || a.group.localeCompare(b.group));
-    return NextResponse.json(out);
+    const out = [...seen.values()].sort((a, b) => a.class.localeCompare(b.class) || a.section.localeCompare(b.section));
+    return NextResponse.json({ candidateCols, rows: out });
   }
   if (action === 'get_tab_class_access') {
     const { tab_name } = payload;
@@ -1094,33 +1144,62 @@ export async function POST(req) {
   // database-backed fallback for the Google-Sheet-driven class-teacher
   // detection in exec/route.js's _getClassTeacherAssignments: the sheet
   // stays authoritative, but any class/section it can't resolve a name for
-  // (or doesn't list at all) falls back to whatever's assigned here. Keyed
-  // by (class, section, group) — group is null for a class-wide assignment
-  // (the admin's "Split by Group" toggle off) or an actual group name
-  // (Science/Business Studies/Humanities/etc, toggle on) so e.g. Eleven/A
-  // can have three different class teachers, one per group. Replace-all-
-  // per-key idiom, same as set_tab_class_access/set_class_access_grants
-  // above — correctness comes from the delete-then-insert here, not a DB
-  // constraint (a plain UNIQUE(class,section,group) would let multiple
-  // NULL-group rows coexist since SQL NULLs are never equal to each other).
+  // (or doesn't list at all) falls back to whatever's assigned here.
+  //
+  // Model: one teacher (user_id) holds ANY NUMBER of class+section+criteria
+  // combos at once (e.g. Mr. X is class teacher of BOTH Ten/D and
+  // Ten/BS-E) — but a given combo can only ever belong to ONE teacher, so
+  // "assign" is teacher-centric (save_teacher_class_assignment replaces one
+  // teacher's *entire* combo list in one call) rather than per-row. extra_
+  // criteria is a jsonb {column:value} object for whichever columns beyond
+  // class+section narrow this specific combo (e.g. {"group":"Science"}) —
+  // {} means the combo is the whole class+section, no further narrowing.
   if (action === 'get_class_teacher_assignments') {
-    const rows = await sb('class_teacher_assignments?select=class,section,group,user_id&order=class.asc,section.asc');
+    const rows = await sb('class_teacher_assignments?select=class,section,extra_criteria,user_id&order=class.asc,section.asc');
     if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
     return NextResponse.json({ result: 'success', assignments: rows });
   }
-  if (action === 'set_class_teacher_assignment') {
-    const { class: cls, section, group, user_id: assigneeId } = payload;
-    const clsClean = String(cls || '').trim();
-    const secClean = String(section || '').trim();
-    const grpClean = group ? String(group).trim() : null;
-    if (!clsClean || !secClean) return NextResponse.json({ result: 'error', message: 'Class and section required.' });
-    const groupFilter = grpClean ? `group=eq.${encodeURIComponent(grpClean)}` : `group=is.null`;
-    const del = await sb(`class_teacher_assignments?class=eq.${encodeURIComponent(clsClean)}&section=eq.${encodeURIComponent(secClean)}&${groupFilter}`, 'DELETE');
-    if (del?.error) return NextResponse.json({ result: 'error', message: del.error });
-    if (assigneeId) {
-      const ins = await sb('class_teacher_assignments', 'POST', { class: clsClean, section: secClean, group: grpClean, user_id: String(assigneeId) });
-      if (ins?.error) return NextResponse.json({ result: 'error', message: ins.error });
+  if (action === 'save_teacher_class_assignment') {
+    const { user_id: assigneeId, combos } = payload;
+    const cleanAssignee = String(assigneeId || '').trim();
+    if (!cleanAssignee) return NextResponse.json({ result: 'error', message: 'Teacher required.' });
+    const cleanCombos = (Array.isArray(combos) ? combos : [])
+      .map(c => ({
+        class: String(c?.class || '').trim(),
+        section: String(c?.section || '').trim(),
+        extra_criteria: (c?.extra_criteria && typeof c.extra_criteria === 'object' && !Array.isArray(c.extra_criteria)) ? c.extra_criteria : {},
+      }))
+      .filter(c => c.class && c.section);
+
+    if (!cleanCombos.length) {
+      // No combos left — fully unassign this teacher.
+      const del = await sb(`class_teacher_assignments?user_id=eq.${encodeURIComponent(cleanAssignee)}`, 'DELETE');
+      if (del?.error) return NextResponse.json({ result: 'error', message: del.error });
+      return NextResponse.json({ result: 'success' });
     }
+
+    // Reject any combo already claimed by a DIFFERENT teacher — compare
+    // extra_criteria by normalized (sorted-key) JSON since key order isn't
+    // guaranteed to match between what's stored and what the client sent.
+    const normJson = (o) => JSON.stringify(Object.fromEntries(Object.entries(o || {}).sort()));
+    const existing = await sb('class_teacher_assignments?select=class,section,extra_criteria,user_id');
+    if (existing?.error) return NextResponse.json({ result: 'error', message: existing.error });
+    for (const c of cleanCombos) {
+      const clash = existing.find(e =>
+        e.user_id !== cleanAssignee && e.class === c.class && e.section === c.section &&
+        normJson(e.extra_criteria) === normJson(c.extra_criteria)
+      );
+      if (clash) {
+        const extraLabel = Object.values(c.extra_criteria).join('/');
+        const label = extraLabel ? `${c.class}/${c.section}/${extraLabel}` : `${c.class}/${c.section}`;
+        return NextResponse.json({ result: 'error', message: `${label} is already assigned to another teacher.` });
+      }
+    }
+
+    const del = await sb(`class_teacher_assignments?user_id=eq.${encodeURIComponent(cleanAssignee)}`, 'DELETE');
+    if (del?.error) return NextResponse.json({ result: 'error', message: del.error });
+    const ins = await sb('class_teacher_assignments', 'POST', cleanCombos.map(c => ({ class: c.class, section: c.section, extra_criteria: c.extra_criteria, user_id: cleanAssignee })));
+    if (ins?.error) return NextResponse.json({ result: 'error', message: ins.error });
     return NextResponse.json({ result: 'success' });
   }
 
