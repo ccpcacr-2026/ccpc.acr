@@ -3485,6 +3485,33 @@
         </div>
 
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+          <div class="flex items-center justify-between mb-1">
+            <p class="font-black text-slate-800 text-sm flex items-center gap-2"><i data-lucide="refresh-cw" class="h-4 w-4 text-blue-600"></i>Class Teacher Sync</p>
+            <button onclick="openClassTeacherSyncModal()" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="cloud-download" class="h-3.5 w-3.5"></i>Sync from Google Sheet</button>
+          </div>
+          <p class="text-xs text-slate-400 font-bold mt-1">Pulls the class teacher for every class/section from the master routine sheet, merged with whatever's already assigned here for any gap the sheet can't resolve. Review or change any row, then save to replace the whole class teacher list at once.</p>
+        </div>
+
+        <div id="ctSyncModal" class="modal-wrap hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+          <div class="modal-box bg-white rounded-3xl w-full max-w-3xl shadow-2xl flex flex-col" style="max-height:90vh">
+            <div class="flex items-start justify-between p-6 pb-4 shrink-0">
+              <div>
+                <h3 class="font-black text-slate-800 text-lg">Sync Class Teachers from Sheet</h3>
+                <p class="text-xs text-slate-400 font-bold mt-1">Review each class, change the teacher if needed, then Save All to replace the whole list.</p>
+              </div>
+              <button onclick="closeClassTeacherSyncModal()" class="text-slate-400 hover:text-red-500 transition-colors p-1"><i data-lucide="x" class="h-5 w-5"></i></button>
+            </div>
+            <div id="ctSyncBody" class="flex-1 overflow-y-auto px-6 space-y-1.5">
+              <div class="text-center py-10"><i data-lucide="loader-2" class="h-6 w-6 animate-spin inline text-blue-600"></i></div>
+            </div>
+            <div class="flex gap-3 p-6 pt-4 shrink-0 border-t border-slate-100">
+              <button onclick="closeClassTeacherSyncModal()" class="flex-1 py-3 font-black text-xs uppercase tracking-widest text-slate-400 hover:bg-slate-50 rounded-2xl transition-all border border-slate-200">Cancel</button>
+              <button onclick="saveClassTeacherSync()" id="ctSyncSaveBtn" class="flex-1 py-3 font-black text-xs uppercase tracking-widest bg-blue-600 text-white rounded-2xl hover:bg-black transition-all shadow-lg shadow-blue-500/20">Save All</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
           <p class="font-black text-slate-800 text-sm flex items-center gap-2 mb-3"><i data-lucide="search" class="h-4 w-4 text-blue-600"></i>Search &amp; Update Students</p>
           <div class="grid grid-cols-2 md:grid-cols-6 gap-2 mb-3">
             <input type="search" id="stuSearchId" placeholder="Student ID" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-stu-search-id">
@@ -3946,6 +3973,86 @@
         showToast((res && res.message) || 'Failed to save', 'error');
       }
     }).catch(() => showToast('Network error', 'error'));
+  }
+
+  // ── Class Teacher Sync (bulk, sheet + DB merge — separate RPC system from
+  // the rest of this panel: previewClassTeacherSync/applyClassTeacherSync
+  // live in /api/exec, not /api/student-admin, since that's where the sheet-
+  // parsing + shortname-resolution logic this reuses already lives). ────────
+  let _ctSyncRows = [];
+  const CT_SYNC_SOURCE_LABEL = { id: 'Sheet', shortname: 'Sheet', db: 'DB', null: 'Unresolved' };
+
+  function openClassTeacherSyncModal() {
+    document.getElementById('ctSyncModal').classList.remove('hidden');
+    document.getElementById('ctSyncBody').innerHTML = '<div class="text-center py-10"><i data-lucide="loader-2" class="h-6 w-6 animate-spin inline text-blue-600"></i></div>';
+    lucide.createIcons();
+    google.script.run.withSuccessHandler(res => {
+      _ctSyncRows = (res && res.rows) || [];
+      renderClassTeacherSyncTable();
+    }).withFailureHandler(() => {
+      document.getElementById('ctSyncBody').innerHTML = '<div class="text-center py-10 text-red-500 text-xs font-black uppercase">Failed to load from sheet.</div>';
+    }).previewClassTeacherSync();
+  }
+
+  function closeClassTeacherSyncModal() {
+    document.getElementById('ctSyncModal').classList.add('hidden');
+  }
+
+  function renderClassTeacherSyncTable() {
+    const body = document.getElementById('ctSyncBody');
+    if (!body) return;
+    if (!_ctSyncRows.length) { body.innerHTML = '<div class="text-center py-10 text-xs text-slate-400 font-bold">No classes found in the sheet.</div>'; return; }
+    const options = _saStaff.map(s => {
+      const label = [s.full_name || s.user_id, s.designation, s.shortname ? 'SN: ' + s.shortname : ''].filter(Boolean).join(' — ');
+      return `<option value="${s.user_id}">${_escHtml(label)}</option>`;
+    }).join('');
+    body.innerHTML = `
+      <div class="grid grid-cols-12 gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 pb-2 sticky top-0 bg-white">
+        <div class="col-span-3">Class</div><div class="col-span-6">Teacher</div><div class="col-span-3">Source</div>
+      </div>` +
+      _ctSyncRows.map((r, i) => {
+        const sourceLabel = CT_SYNC_SOURCE_LABEL[r.source || 'null'];
+        const sourceCls = r.source ? (r.source === 'db' ? 'bg-slate-100 text-slate-500' : 'bg-emerald-100 text-emerald-600') : 'bg-amber-100 text-amber-600';
+        return `<div class="grid grid-cols-12 gap-2 items-center py-1.5 px-1 rounded-lg hover:bg-slate-50">
+          <div class="col-span-3 font-bold text-xs text-slate-700 truncate">${_escHtml(r.class)}/${_escHtml(r.section)}</div>
+          <div class="col-span-6">
+            <select data-idx="${i}" class="ct-sync-select w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none">
+              <option value="">— Unassigned —</option>
+              ${options}
+            </select>
+          </div>
+          <div class="col-span-3"><span class="px-1.5 py-0.5 rounded-full text-[9px] font-black ${sourceCls}">${sourceLabel}</span></div>
+        </div>`;
+      }).join('');
+    _ctSyncRows.forEach((r, i) => {
+      const sel = body.querySelector(`.ct-sync-select[data-idx="${i}"]`);
+      if (sel && r.user_id) sel.value = r.user_id;
+    });
+  }
+
+  function saveClassTeacherSync() {
+    const rows = _ctSyncRows.map((r, i) => {
+      const sel = document.querySelector(`.ct-sync-select[data-idx="${i}"]`);
+      return { class: r.class, section: r.section, user_id: sel ? sel.value : '' };
+    }).filter(r => r.user_id);
+    showConfirm(`This replaces the entire class teacher list with these ${rows.length} assignments. Continue?`, () => {
+      const btn = document.getElementById('ctSyncSaveBtn');
+      if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+      const myId = window.APP_USER && window.APP_USER.user_id;
+      google.script.run.withSuccessHandler(res => {
+        if (btn) { btn.disabled = false; btn.textContent = 'Save All'; }
+        if (res && res.success) {
+          showToast('Class teacher list updated (' + res.count + ' assignments)');
+          closeClassTeacherSyncModal();
+          loadStaffAccessPanel();
+        } else {
+          showToast((res && res.message) || 'Failed to save', 'error');
+        }
+      }).withFailureHandler(() => {
+        if (btn) { btn.disabled = false; btn.textContent = 'Save All'; }
+        showToast('Network error', 'error');
+      }).applyClassTeacherSync(myId, rows);
+    });
   }
 
   function loadAdminTabVisibility() {

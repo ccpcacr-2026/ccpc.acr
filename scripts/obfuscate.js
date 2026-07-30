@@ -29,6 +29,7 @@ const RESERVED = [
   'openTraceReport','removeRow','resetPassword','saveCommitteeEdit',
   'savePermRow','saveSettings','sendCommitteeChatMessage','setChatReply',
   'switchActiveRole','switchAdminTab','switchSysTab','toggleAliasPanel','toggleEval',
+  'openClassTeacherSyncModal','closeClassTeacherSyncModal','saveClassTeacherSync',
   // dynamic HTML non-onclick event handlers (oninput / onkeydown / onblur / onchange)
   '_onChatInput','_onChatKeydown','_saveAliases',
   'filterPermTable','filterProfileList','filterUserList',
@@ -50,6 +51,8 @@ const RESERVED = [
   'openNewMessage','closeNewMessage','filterNewMessage','_broadcastTyping',
   // combined login + background profile sections
   'loginAndGetProfile','getMyProfileSections',
+  // class teacher sync (google.script.run RPC names, exec/route.js)
+  'previewClassTeacherSync','applyClassTeacherSync',
   // appearance / theme
   'applyThemePreset','previewCustomTheme','saveCurrentTheme','changeFontScale','previewCustomSidebar','changeFontFamily',
   // committee archive

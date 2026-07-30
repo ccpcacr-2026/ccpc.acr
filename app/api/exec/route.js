@@ -208,6 +208,28 @@ async function _sbStudent(path) {
   return res.ok ? res.json() : [];
 }
 
+// Write counterpart to _sbStudent (GET-only above) — needed by
+// applyClassTeacherSync below, the only exec/route.js handler that writes
+// into the `student` schema directly rather than through student-admin/route.js.
+async function _sbStudentWrite(path, method, payload) {
+  const res = await fetch(`${process.env.SUPABASE_URL}/rest/v1/${path}`, {
+    method,
+    headers: {
+      apikey: process.env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}`,
+      'Content-Type': 'application/json',
+      'Accept-Profile': 'student',
+      'Content-Profile': 'student',
+      Prefer: 'return=representation',
+    },
+    body: payload != null ? JSON.stringify(payload) : undefined,
+  });
+  const text = await res.text();
+  if (res.status >= 400) return { error: 'Supabase Error', details: text, status: res.status };
+  if (!text) return null;
+  try { return JSON.parse(text); } catch { return { error: 'Parse Error', details: text }; }
+}
+
 // Resolves every row of the class-teacher sheet to a real ccpc-teachers
 // user_id: try the sheet's own ID column first (most rows are "#N/A" in
 // practice), then fall back to the same shortname→full_name→teacher_id chain
@@ -1914,6 +1936,45 @@ const handlers = {
       return { classKey, className, section, students: Array.isArray(students) ? students : [] };
     }));
     return { classes };
+  },
+
+  // ── CLASS TEACHER SYNC (bulk admin tool, "Staff Access & Roles" panel) ──
+  // Surfaces _getClassTeacherAssignments' own sheet+DB merge for manual
+  // review instead of silent internal resolution: every class/section the
+  // sheet lists, translated into the student DB's own class/section spelling
+  // (so it matches Class-Wide Access and can be written straight back), with
+  // whichever teacher got resolved — sheet ID match, sheet shortname match,
+  // or an existing DB row filling a gap the sheet couldn't resolve.
+  async previewClassTeacherSync() {
+    const rows = await _getClassTeacherAssignments();
+    return {
+      rows: rows.map(r => ({
+        class: CLASS_TEACHER_NAME_TO_STUDENT_CLASS[r.className] || r.className,
+        section: CLASS_TEACHER_SECTION_ALIASES[r.section] || r.section,
+        user_id: r.resolvedUserId,
+        source: r.resolvedVia, // 'id' | 'shortname' | 'db' | null (sheet listed it but nobody could be resolved)
+      })),
+    };
+  },
+
+  // Admin-only: replaces student.class_teacher_assignments wholesale with
+  // the reviewed list (a row with no teacher picked is simply omitted, not
+  // written as a blank assignment). extra_criteria is always {} here — the
+  // sheet has no concept of narrowing a combo further than class+section;
+  // that stays a manual-only feature via the per-teacher combo builder
+  // elsewhere in the same panel, untouched by this bulk replace.
+  async applyClassTeacherSync([callerId, rows]) {
+    if (!(await _isCordOrAdmin(callerId))) return { success: false, message: 'Not authorized.' };
+    const clean = (Array.isArray(rows) ? rows : [])
+      .map(r => ({ class: String(r.class || '').trim(), section: String(r.section || '').trim(), user_id: String(r.user_id || '').trim(), extra_criteria: {} }))
+      .filter(r => r.class && r.section && r.user_id);
+    const del = await _sbStudentWrite('class_teacher_assignments?id=gt.0', 'DELETE');
+    if (del && del.error) return { success: false, message: del.error };
+    if (clean.length) {
+      const ins = await _sbStudentWrite('class_teacher_assignments', 'POST', clean);
+      if (ins && ins.error) return { success: false, message: ins.error };
+    }
+    return { success: true, count: clean.length };
   },
 
   // Bare tab list for the "My Class" button row — tab NAMES aren't sensitive
