@@ -2592,7 +2592,7 @@
     <div style="display:flex;flex-direction:column;height:calc(100vh - 72px);overflow:hidden;">
 
       <!-- ══ LOCKED TOP BAR ══ -->
-      <div style="flex-shrink:0;background:#f8fafc;padding-bottom:1rem;border-bottom:1px solid #e2e8f0;">
+      <div style="flex-shrink:0;background:transparent;padding-bottom:1rem;border-bottom:1px solid rgba(226,232,240,0.6);">
         <!-- Title + subtitle -->
         <h2 class="text-2xl font-black text-slate-800 tracking-tight">System</h2>
         <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">
