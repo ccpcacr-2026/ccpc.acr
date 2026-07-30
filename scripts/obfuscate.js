@@ -101,7 +101,7 @@ const RESERVED = [
   'loadAdminSetupView','loadAdminAddCustomFormView','_toggleFieldChip','updateIncludeCount','updateEditableCount',
   'loadAdminClassTeacherView','downloadImportDemoTemplate',
   'openClassTeacherPicker','closeClassTeacherPicker','removeClassTeacherAssignment',
-  '_ctSelectPickerTeacher','_ctUpdateDraftBase','_ctUpdateDraftExtra','_ctAddDraftCombo','_ctRemoveDraftCombo','_ctSaveAssignment',
+  '_ctSelectPickerTeacher','_ctUpdateDraftBase','_ctUpdateDraftExtra','_ctAddDraftCombo','_ctRemoveDraftCombo','_ctSaveAssignment','_ctFilterStaff',
   'onDownloadCategoryChange','openColleagueProfile','closeColleagueProfileModal','saveProfileFieldVisibility',
   'saveColleagueCareerFields','toggleCareerHistory',
   'saveEditableProfileFields','togglePermanentTab','toggleLoginPasswordColumn',

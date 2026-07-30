@@ -3570,6 +3570,7 @@
       userId: existingUserId || null,
       combos: existingUserId ? (byUser[existingUserId] || []).map(c => ({ class: c.class, section: c.section, extra_criteria: c.extra_criteria || {} })) : [],
       draft: { class: '', section: '', extraVals: {} },
+      staffSearch: '',
     };
     document.getElementById('ctPickerModal').classList.remove('hidden');
     renderClassTeacherPicker();
@@ -3589,13 +3590,15 @@
     if (modal) modal.classList.add('hidden');
   }
 
-  function renderClassTeacherPicker() {
-    const body = document.getElementById('ctPickerBody');
-    if (!body || !_ctPicker) return;
+  function _ctRenderStaffList() {
     const byUser = _ctAssignmentsByUser();
     const editingUid = _ctPicker.userId;
-
-    const staffListHtml = _ctStaff.map(s => {
+    const q = (_ctPicker.staffSearch || '').trim().toLowerCase();
+    const staff = q
+      ? _ctStaff.filter(s => [s.full_name, s.user_id, s.shortname, s.phone].filter(Boolean).join(' ').toLowerCase().includes(q))
+      : _ctStaff;
+    if (!staff.length) return '<p class="text-center py-6 text-slate-300 text-[10px] font-black uppercase tracking-widest">No match</p>';
+    return staff.map(s => {
       const existing = byUser[s.user_id];
       const isEditing = s.user_id === editingUid;
       const isTakenByOther = existing && !isEditing;
@@ -3610,6 +3613,17 @@
         ${_escHtml(s.full_name || s.user_id)}${isEditing ? '' : label}
       </button>`;
     }).join('');
+  }
+
+  function _ctFilterStaff(value) {
+    _ctPicker.staffSearch = value;
+    const list = document.getElementById('ctPickerStaffList');
+    if (list) list.innerHTML = _ctRenderStaffList();
+  }
+
+  function renderClassTeacherPicker() {
+    const body = document.getElementById('ctPickerBody');
+    if (!body || !_ctPicker) return;
 
     let rightHtml = '<p class="text-slate-400 text-xs font-bold p-6">Select a teacher on the left first.</p>';
     if (_ctPicker.userId) {
@@ -3672,7 +3686,14 @@
 
     body.innerHTML = `
       <div class="grid" style="grid-template-columns:220px 1fr">
-        <div class="border-r border-slate-100 p-3 space-y-0.5 overflow-y-auto" style="max-height:70vh">${staffListHtml}</div>
+        <div class="border-r border-slate-100 flex flex-col" style="max-height:70vh">
+          <div class="p-3 pb-2 shrink-0">
+            <input type="search" placeholder="Search teachers…" value="${_escHtml(_ctPicker.staffSearch || '')}"
+              oninput="_ctFilterStaff(this.value)" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-ct-staff-search"
+              class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none">
+          </div>
+          <div id="ctPickerStaffList" class="flex-1 overflow-y-auto px-3 pb-3 space-y-0.5">${_ctRenderStaffList()}</div>
+        </div>
         <div class="overflow-y-auto" style="max-height:70vh">${rightHtml}</div>
       </div>`;
     lucide.createIcons();
