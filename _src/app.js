@@ -3646,17 +3646,31 @@
       return { u, hasAccess };
     });
     withAccessFlag.sort((a, b) => (b.hasAccess - a.hasAccess));
+    // Caps how many individual class-name pills show per grant type before
+    // collapsing the rest into a "+N" pill (hover for the full list) — a
+    // handful of names is more useful at a glance than a bare count, but an
+    // uncapped list would blow up row height for anyone with many classes.
+    const classLabel = (cs) => cs.class + '/' + cs.section + ((cs.group && cs.group !== 'None') ? '/' + cs.group : '');
+    const pillList = (names, colorCls, selectedColorCls, selected, cap) => {
+      if (!names.length) return '';
+      const shown = names.slice(0, cap);
+      const rest = names.slice(cap);
+      const cls = selected ? selectedColorCls : colorCls;
+      const pills = shown.map(n => `<span class="px-1.5 py-0.5 rounded-full text-[9px] font-black shrink-0 ${cls}">${_escHtml(n)}</span>`);
+      if (rest.length) pills.push(`<span class="px-1.5 py-0.5 rounded-full text-[9px] font-black shrink-0 ${cls}" title="${_escHtml(rest.join(', '))}">+${rest.length}</span>`);
+      return pills.join(' ');
+    };
     list.innerHTML = withAccessFlag.map(({ u, hasAccess }) => {
       const search = [u.full_name, u.user_id, u.shortname, u.designation, u.phone].filter(Boolean).join(' ').toLowerCase();
       const selected = _saSelectedUser === u.user_id;
       const meta = [u.designation, u.shortname].filter(Boolean).join(' · ');
       const catCount = (_fieldGrants[u.user_id] || []).length;
-      const cwaCount = (_cwaGrants[u.user_id] || []).length;
-      const isCt = (ctByUser[u.user_id] || []).length > 0;
+      const cwaNames = (_cwaGrants[u.user_id] || []).map(classLabel);
+      const ctNames = (ctByUser[u.user_id] || []).map(_ctComboLabel);
       const badges = [
         catCount ? `<span class="px-1.5 py-0.5 rounded-full text-[9px] font-black shrink-0 ${selected ? 'bg-white text-blue-600' : 'bg-blue-100 text-blue-600'}">${catCount} cat</span>` : '',
-        cwaCount ? `<span class="px-1.5 py-0.5 rounded-full text-[9px] font-black shrink-0 ${selected ? 'bg-white text-emerald-600' : 'bg-emerald-100 text-emerald-600'}">${cwaCount} class</span>` : '',
-        isCt ? `<span class="px-1.5 py-0.5 rounded-full text-[9px] font-black shrink-0 ${selected ? 'bg-white text-amber-600' : 'bg-amber-100 text-amber-600'}">Class Teacher</span>` : '',
+        pillList(cwaNames, 'bg-emerald-100 text-emerald-600', 'bg-white text-emerald-600', selected, 3),
+        pillList(ctNames, 'bg-amber-100 text-amber-600', 'bg-white text-amber-600', selected, 3),
       ].filter(Boolean).join(' ');
       return `<div class="sa-staff-row py-1.5 px-2.5 rounded-lg mb-1 cursor-pointer ${selected ? 'bg-blue-600 text-white' : 'hover:bg-slate-50'}" data-uid="${u.user_id}" data-has-access="${hasAccess ? '1' : '0'}" data-search="${search.replace(/"/g, '&quot;')}" onclick="selectStaffAccessUser(this.dataset.uid)">
         <div class="flex items-center justify-between gap-2">
@@ -3664,7 +3678,7 @@
             <p class="font-black text-xs truncate">${_escHtml(u.full_name || u.user_id)}</p>
             ${meta ? `<p class="text-[10px] font-bold truncate ${selected ? 'text-blue-100' : 'text-slate-400'}">${_escHtml(meta)}</p>` : ''}
           </div>
-          <div class="flex gap-1 shrink-0 flex-wrap justify-end" style="max-width:110px">${badges}</div>
+          <div class="flex gap-1 shrink-0 flex-wrap justify-end" style="max-width:160px">${badges}</div>
         </div>
       </div>`;
     }).join('');
