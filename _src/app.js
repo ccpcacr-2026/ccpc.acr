@@ -152,10 +152,28 @@
   // oninput handler after clearing so a search/filter that already ran
   // against the phantom value gets corrected back to "no filter" too.
   function _scrubAutofilledValue(el) {
-    const scrub = () => { if (el.value) { el.value = ''; el.dispatchEvent(new Event('input', { bubbles: true })); } };
+    // Belt-and-suspenders: most browsers never offer autofill for a readonly
+    // field at all, so lock it until the user's first real interaction —
+    // this alone stops the vast majority of cases (incl. the delayed ones
+    // the timed scrub below can still miss on a slower autofill provider).
+    el.readOnly = true;
+    let interacted = false;
+    const unlock = () => {
+      interacted = true; // once real interaction happens, a later scrub must never wipe what the user typed themselves
+      el.readOnly = false;
+      el.removeEventListener('focus', unlock);
+      el.removeEventListener('mousedown', unlock);
+      el.removeEventListener('touchstart', unlock);
+    };
+    el.addEventListener('focus', unlock);
+    el.addEventListener('mousedown', unlock);
+    el.addEventListener('touchstart', unlock);
+    const scrub = () => { if (!interacted && el.value) { el.value = ''; el.dispatchEvent(new Event('input', { bubbles: true })); } };
     requestAnimationFrame(scrub);
     setTimeout(scrub, 250);
     setTimeout(scrub, 700);
+    setTimeout(scrub, 1500);
+    setTimeout(scrub, 3000);
   }
   function _watchForAutofilledSearchFields() {
     const root = document.body;
