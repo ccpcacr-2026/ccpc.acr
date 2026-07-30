@@ -3810,14 +3810,20 @@
     const sections = d.class ? [...new Set(_ctSectionRows.filter(r => r.class === d.class).map(r => r.section))].sort() : [];
     const matching = (d.class && d.section) ? _ctSectionRows.filter(r => r.class === d.class && r.section === d.section) : [];
     const relevantCols = matching.length ? _ctCandidateCols.filter(c => new Set(matching.map(r => r.extras[c])).size > 1) : [];
+    // Student counts shown per option so a single bad/mistyped data row
+    // (e.g. one student with a typo'd shift value) reads as the outlier it
+    // is ("None (1)") instead of looking like a real, equally-weighted
+    // cohort next to "Science (71)" — without hiding or second-guessing any
+    // value, since a genuinely rare-but-real cohort should still show up.
     const extraSelects = relevantCols.map(col => {
       const options = [...new Set(matching.map(r => r.extras[col]))].sort();
+      const countFor = (o) => matching.filter(r => r.extras[col] === o).reduce((s, r) => s + r.count, 0);
       return `<div>
         <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">${_escHtml(col.replace(/_/g, ' '))}</label>
         <select data-ct-extra="${col}" onchange="_saCtUpdateDraftExtra('${col.replace(/'/g, "\\'")}', this.value)"
           class="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none">
           <option value="">(any ${_escHtml(col)})</option>
-          ${options.map(o => `<option value="${_escHtml(o)}" ${d.extraVals[col] === o ? 'selected' : ''}>${_escHtml(o)}</option>`).join('')}
+          ${options.map(o => `<option value="${_escHtml(o)}" ${d.extraVals[col] === o ? 'selected' : ''}>${_escHtml(o)} (${countFor(o)})</option>`).join('')}
         </select>
       </div>`;
     }).join('');
@@ -3966,6 +3972,20 @@
   }
   function _saCtSaveAssignment() {
     if (!_saSelectedUser) return;
+    // save_teacher_class_assignment treats an empty combo list as "fully
+    // unassign this teacher" (a real, intentional action) -- but it's also
+    // exactly what gets sent if "Add Combination" was never actually
+    // clicked (e.g. the button was still disabled because Section hadn't
+    // been picked yet), which otherwise looks identical to a real save: a
+    // plain success toast with nothing written. Confirm first so that gap
+    // is never silent.
+    if (!_saCtCombos.length) {
+      showConfirm('No class/section combinations added — this will remove ALL class teacher assignments for this person. Continue?', _saCtDoSaveAssignment);
+      return;
+    }
+    _saCtDoSaveAssignment();
+  }
+  function _saCtDoSaveAssignment() {
     _adminFetch('save_teacher_class_assignment', { user_id: _saSelectedUser, combos: _saCtCombos }).then(res => {
       if (res && res.result === 'success') {
         _ctAssignments = _ctAssignments.filter(a => a.user_id !== _saSelectedUser)
