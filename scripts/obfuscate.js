@@ -30,6 +30,7 @@ const RESERVED = [
   'savePermRow','saveSettings','sendCommitteeChatMessage','setChatReply',
   'switchActiveRole','switchAdminTab','switchSysTab','toggleAliasPanel','toggleEval',
   'openClassTeacherSyncModal','closeClassTeacherSyncModal','saveClassTeacherSync',
+  'exportClassTeacherList','_ctSyncFilterOptions','_ctSyncPick','_ctSyncClear','_ctSyncBlur',
   // dynamic HTML non-onclick event handlers (oninput / onkeydown / onblur / onchange)
   '_onChatInput','_onChatKeydown','_saveAliases',
   'filterPermTable','filterProfileList','filterUserList',

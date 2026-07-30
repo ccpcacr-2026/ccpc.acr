@@ -3487,7 +3487,10 @@
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
           <div class="flex items-center justify-between mb-1">
             <p class="font-black text-slate-800 text-sm flex items-center gap-2"><i data-lucide="refresh-cw" class="h-4 w-4 text-blue-600"></i>Class Teacher Sync</p>
-            <button onclick="openClassTeacherSyncModal()" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="cloud-download" class="h-3.5 w-3.5"></i>Sync from Google Sheet</button>
+            <div class="flex gap-2">
+              <button onclick="exportClassTeacherList()" class="px-4 py-2 border border-slate-200 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="download" class="h-3.5 w-3.5"></i>Export</button>
+              <button onclick="openClassTeacherSyncModal()" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="cloud-download" class="h-3.5 w-3.5"></i>Sync from Google Sheet</button>
+            </div>
           </div>
           <p class="text-xs text-slate-400 font-bold mt-1">Pulls the class teacher for every class/section from the master routine sheet, merged with whatever's already assigned here for any gap the sheet can't resolve. Review or change any row, then save to replace the whole class teacher list at once.</p>
         </div>
@@ -3998,14 +4001,56 @@
     document.getElementById('ctSyncModal').classList.add('hidden');
   }
 
+  // Full names here are overwhelmingly "Md. <given> <given> <surname>" —
+  // sorted alphabetically that clumps almost everyone under "M", so a plain
+  // <select> makes one specific person hard to find in 200+ entries. A
+  // type-to-filter picker per row instead of a native <select>: the input
+  // shows the current pick's label, and only records a NEW pick in
+  // data-user-id when the admin actually clicks a match (typing alone never
+  // silently changes/clears the stored assignment).
+  function _ctSyncStaffLabel(s) {
+    return [s.full_name || s.user_id, s.designation, s.shortname ? 'SN: ' + s.shortname : ''].filter(Boolean).join(' — ');
+  }
+  function _ctSyncRestoreLabel(idx) {
+    const input = document.querySelector(`.ct-sync-input[data-idx="${idx}"]`);
+    if (!input) return;
+    const s = _saStaff.find(x => x.user_id === input.dataset.userId);
+    input.value = s ? _ctSyncStaffLabel(s) : '';
+  }
+  function _ctSyncFilterOptions(idx) {
+    document.querySelectorAll('.ct-sync-dropdown').forEach(d => { if (d.dataset.idx !== String(idx)) d.classList.add('hidden'); });
+    const input = document.querySelector(`.ct-sync-input[data-idx="${idx}"]`);
+    const dropdown = document.querySelector(`.ct-sync-dropdown[data-idx="${idx}"]`);
+    if (!input || !dropdown) return;
+    const q = input.value.toLowerCase();
+    const matches = _saStaff.filter(s => _ctSyncStaffLabel(s).toLowerCase().includes(q)).slice(0, 40);
+    dropdown.innerHTML = matches.map(s =>
+      `<div class="px-3 py-2 text-xs font-bold text-slate-700 hover:bg-blue-50 cursor-pointer" onmousedown="event.preventDefault();_ctSyncPick(${idx},'${s.user_id}')">${_escHtml(_ctSyncStaffLabel(s))}</div>`
+    ).join('') || '<div class="px-3 py-2 text-xs text-slate-400 font-bold">No match</div>';
+    dropdown.classList.remove('hidden');
+  }
+  function _ctSyncPick(idx, userId) {
+    const input = document.querySelector(`.ct-sync-input[data-idx="${idx}"]`);
+    const dropdown = document.querySelector(`.ct-sync-dropdown[data-idx="${idx}"]`);
+    if (input) input.dataset.userId = userId;
+    _ctSyncRestoreLabel(idx);
+    if (dropdown) dropdown.classList.add('hidden');
+  }
+  function _ctSyncClear(idx) {
+    _ctSyncPick(idx, '');
+  }
+  function _ctSyncBlur(idx) {
+    setTimeout(() => {
+      _ctSyncRestoreLabel(idx); // discard any unmatched typing, snap back to the actual pick
+      const dropdown = document.querySelector(`.ct-sync-dropdown[data-idx="${idx}"]`);
+      if (dropdown) dropdown.classList.add('hidden');
+    }, 200);
+  }
+
   function renderClassTeacherSyncTable() {
     const body = document.getElementById('ctSyncBody');
     if (!body) return;
     if (!_ctSyncRows.length) { body.innerHTML = '<div class="text-center py-10 text-xs text-slate-400 font-bold">No classes found in the sheet.</div>'; return; }
-    const options = _saStaff.map(s => {
-      const label = [s.full_name || s.user_id, s.designation, s.shortname ? 'SN: ' + s.shortname : ''].filter(Boolean).join(' — ');
-      return `<option value="${s.user_id}">${_escHtml(label)}</option>`;
-    }).join('');
     body.innerHTML = `
       <div class="grid grid-cols-12 gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 pb-2 sticky top-0 bg-white">
         <div class="col-span-3">Class</div><div class="col-span-6">Teacher</div><div class="col-span-3">Source</div>
@@ -4015,25 +4060,24 @@
         const sourceCls = r.source ? (r.source === 'db' ? 'bg-slate-100 text-slate-500' : 'bg-emerald-100 text-emerald-600') : 'bg-amber-100 text-amber-600';
         return `<div class="grid grid-cols-12 gap-2 items-center py-1.5 px-1 rounded-lg hover:bg-slate-50">
           <div class="col-span-3 font-bold text-xs text-slate-700 truncate">${_escHtml(r.class)}/${_escHtml(r.section)}</div>
-          <div class="col-span-6">
-            <select data-idx="${i}" class="ct-sync-select w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none">
-              <option value="">— Unassigned —</option>
-              ${options}
-            </select>
+          <div class="col-span-6 relative">
+            <input type="text" data-idx="${i}" data-user-id="${r.user_id || ''}" placeholder="— Unassigned —" autocomplete="off"
+              class="ct-sync-input w-full pl-2 pr-7 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none"
+              oninput="_ctSyncFilterOptions(${i})" onfocus="_ctSyncFilterOptions(${i})" onblur="_ctSyncBlur(${i})">
+            <button type="button" tabindex="-1" onmousedown="event.preventDefault();_ctSyncClear(${i})" class="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-300 hover:text-red-500"><i data-lucide="x" class="h-3.5 w-3.5"></i></button>
+            <div class="ct-sync-dropdown hidden absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-20 max-h-52 overflow-y-auto" data-idx="${i}"></div>
           </div>
           <div class="col-span-3"><span class="px-1.5 py-0.5 rounded-full text-[9px] font-black ${sourceCls}">${sourceLabel}</span></div>
         </div>`;
       }).join('');
-    _ctSyncRows.forEach((r, i) => {
-      const sel = body.querySelector(`.ct-sync-select[data-idx="${i}"]`);
-      if (sel && r.user_id) sel.value = r.user_id;
-    });
+    _ctSyncRows.forEach((_, i) => _ctSyncRestoreLabel(i));
+    lucide.createIcons();
   }
 
   function saveClassTeacherSync() {
     const rows = _ctSyncRows.map((r, i) => {
-      const sel = document.querySelector(`.ct-sync-select[data-idx="${i}"]`);
-      return { class: r.class, section: r.section, user_id: sel ? sel.value : '' };
+      const input = document.querySelector(`.ct-sync-input[data-idx="${i}"]`);
+      return { class: r.class, section: r.section, user_id: input ? (input.dataset.userId || '') : '' };
     }).filter(r => r.user_id);
     showConfirm(`This replaces the entire class teacher list with these ${rows.length} assignments. Continue?`, () => {
       const btn = document.getElementById('ctSyncSaveBtn');
@@ -4053,6 +4097,25 @@
         showToast('Network error', 'error');
       }).applyClassTeacherSync(myId, rows);
     });
+  }
+
+  // Exports what's actually stored in student.class_teacher_assignments
+  // right now (already loaded into _ctAssignments by loadStaffAccessPanel)
+  // -- not the sheet-merged preview, which only exists transiently inside
+  // the sync modal above and may include admin edits not yet saved.
+  function exportClassTeacherList() {
+    if (!_ctAssignments.length) { showToast('No class teacher assignments to export', 'error'); return; }
+    const rows = _ctAssignments.slice().sort((a, b) => (a.class + '/' + a.section).localeCompare(b.class + '/' + b.section));
+    const header = ['Class', 'Section', 'Teacher Name', 'Designation', 'Shortname', 'User ID'];
+    const lines = [header, ...rows.map(a => {
+      const s = _saStaff.find(x => x.user_id === a.user_id) || {};
+      return [a.class, a.section, s.full_name || '', s.designation || '', s.shortname || '', a.user_id];
+    })];
+    const csv = lines.map(r => r.map(c => `"${String(c || '').replace(/"/g, '""')}"`).join(',')).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = 'class_teacher_list.csv';
+    a.click();
   }
 
   function loadAdminTabVisibility() {
