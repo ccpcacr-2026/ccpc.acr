@@ -3473,7 +3473,9 @@
           <p class="text-xs text-slate-400 font-bold mt-1 mb-4">Search for a staff member once, then manage everything about their access in one place: which Field Categories they can view, full Class-Wide Access (with edit rights), and whether they're a Class Teacher for any class/section combination.</p>
           <div class="grid md:grid-cols-2 gap-0 border border-slate-200 rounded-2xl overflow-hidden" style="min-height:420px">
             <div class="flex flex-col border-r border-slate-100">
-              <div class="p-3 border-b border-slate-100"><input type="search" id="saStaffSearch" oninput="filterStaffAccess()" placeholder="Search by name, ID, shortname or phone…" autocomplete="off" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-sa-filter"></div>
+              <div class="p-3 border-b border-slate-100 space-y-2"><input type="search" id="saStaffSearch" oninput="filterStaffAccess()" placeholder="Search by name, ID, shortname or phone…" autocomplete="off" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-sa-filter">
+                <label class="flex items-center gap-1.5 text-[10px] font-black text-slate-500 uppercase tracking-wide cursor-pointer select-none"><input type="checkbox" id="saOnlyGranted" onchange="filterStaffAccess()" class="rounded">Only staff with access granted</label>
+              </div>
               <div id="saStaffList" class="p-2 overflow-y-auto" style="flex:1;max-height:600px"><div class="text-center p-6"><i data-lucide="loader-2" class="h-5 w-5 animate-spin inline text-blue-600"></i></div></div>
             </div>
             <div id="saDetail" class="p-4 overflow-y-auto" style="flex:1;max-height:600px">
@@ -3636,7 +3638,15 @@
     if (!list) return;
     if (!_saStaff.length) { list.innerHTML = '<div class="text-xs text-slate-400 font-bold p-2">No staff accounts found.</div>'; return; }
     const ctByUser = _ctAssignmentsByUser();
-    list.innerHTML = _saStaff.map(u => {
+    // Granted staff float to the top (still alphabetical within each group)
+    // so "who already has access" is answerable at a glance without
+    // scrolling the whole directory hunting for badges.
+    const withAccessFlag = _saStaff.map(u => {
+      const hasAccess = (_fieldGrants[u.user_id] || []).length > 0 || (_cwaGrants[u.user_id] || []).length > 0 || (ctByUser[u.user_id] || []).length > 0;
+      return { u, hasAccess };
+    });
+    withAccessFlag.sort((a, b) => (b.hasAccess - a.hasAccess));
+    list.innerHTML = withAccessFlag.map(({ u, hasAccess }) => {
       const search = [u.full_name, u.user_id, u.shortname, u.designation, u.phone].filter(Boolean).join(' ').toLowerCase();
       const selected = _saSelectedUser === u.user_id;
       const meta = [u.designation, u.shortname].filter(Boolean).join(' · ');
@@ -3648,7 +3658,7 @@
         cwaCount ? `<span class="px-1.5 py-0.5 rounded-full text-[9px] font-black shrink-0 ${selected ? 'bg-white text-emerald-600' : 'bg-emerald-100 text-emerald-600'}">${cwaCount} class</span>` : '',
         isCt ? `<span class="px-1.5 py-0.5 rounded-full text-[9px] font-black shrink-0 ${selected ? 'bg-white text-amber-600' : 'bg-amber-100 text-amber-600'}">Class Teacher</span>` : '',
       ].filter(Boolean).join(' ');
-      return `<div class="sa-staff-row py-1.5 px-2.5 rounded-lg mb-1 cursor-pointer ${selected ? 'bg-blue-600 text-white' : 'hover:bg-slate-50'}" data-uid="${u.user_id}" data-search="${search.replace(/"/g, '&quot;')}" onclick="selectStaffAccessUser(this.dataset.uid)">
+      return `<div class="sa-staff-row py-1.5 px-2.5 rounded-lg mb-1 cursor-pointer ${selected ? 'bg-blue-600 text-white' : 'hover:bg-slate-50'}" data-uid="${u.user_id}" data-has-access="${hasAccess ? '1' : '0'}" data-search="${search.replace(/"/g, '&quot;')}" onclick="selectStaffAccessUser(this.dataset.uid)">
         <div class="flex items-center justify-between gap-2">
           <div class="min-w-0">
             <p class="font-black text-xs truncate">${_escHtml(u.full_name || u.user_id)}</p>
@@ -3663,7 +3673,12 @@
 
   function filterStaffAccess() {
     const q = (document.getElementById('saStaffSearch') || {}).value?.toLowerCase() || '';
-    document.querySelectorAll('.sa-staff-row').forEach(row => { row.style.display = row.dataset.search.includes(q) ? '' : 'none'; });
+    const onlyGranted = (document.getElementById('saOnlyGranted') || {}).checked;
+    document.querySelectorAll('.sa-staff-row').forEach(row => {
+      const matchesSearch = row.dataset.search.includes(q);
+      const matchesGranted = !onlyGranted || row.dataset.hasAccess === '1';
+      row.style.display = (matchesSearch && matchesGranted) ? '' : 'none';
+    });
   }
 
   function selectStaffAccessUser(uid) {
