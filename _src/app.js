@@ -11,18 +11,35 @@
   }
 
   // ══════════════════════════════════════════════════════
-  //  THEME / GRADIENT — admin-configurable, applied for all
+  //  THEME — admin-configurable, applied for all: page gradient, sidebar
+  //  colors and a global font-size scale, all bundled into one preset so
+  //  picking a theme re-skins the whole portal in one click. Custom mode
+  //  lets an admin override every one of these independently instead of
+  //  picking a bundled preset.
   // ══════════════════════════════════════════════════════
   const THEME_PRESETS = {
-    aurora:   { name:'Aurora',   stops:['#eaf2ff','#f4f0ff','#fdf1f9','#eefcff','#eef4ff'], accents:['#6366f1','#38bdf8','#ec4899','#10b981'] },
-    ocean:    { name:'Ocean',    stops:['#e0f2fe','#e6fffb','#eff6ff','#ecfeff','#e0f7fa'], accents:['#0ea5e9','#06b6d4','#3b82f6','#14b8a6'] },
-    sunset:   { name:'Sunset',   stops:['#fff1e6','#ffe9ef','#fef3c7','#ffe4e6','#fff7ed'], accents:['#fb923c','#f43f5e','#f59e0b','#ec4899'] },
-    forest:   { name:'Forest',   stops:['#ecfdf5','#f0fdf4','#f7fee7','#ecfccb','#effdf5'], accents:['#10b981','#22c55e','#84cc16','#14b8a6'] },
-    lavender: { name:'Lavender', stops:['#f5f3ff','#faf5ff','#fdf4ff','#f3e8ff','#f5f3ff'], accents:['#8b5cf6','#a855f7','#d946ef','#6366f1'] },
-    blossom:  { name:'Blossom',  stops:['#fff1f2','#fdf2f8','#fce7f3','#ffe4e6','#fff1f2'], accents:['#fb7185','#ec4899','#f472b6','#e11d48'] },
-    graphite: { name:'Graphite', stops:['#f8fafc','#eef2f7','#f1f5f9','#e9eef5','#f8fafc'], accents:['#64748b','#475569','#94a3b8','#334155'] },
+    aurora:    { name:'Aurora',    stops:['#eaf2ff','#f4f0ff','#fdf1f9','#eefcff','#eef4ff'], accents:['#6366f1','#38bdf8','#ec4899','#10b981'], sidebarBg:'linear-gradient(180deg,#0d1b2e 0%,#0a1628 60%,#080f1e 100%)', sidebarText:'#64748b', sidebarTextHover:'#e2e8f0', sidebarAccent:'#4f46e5' },
+    ocean:     { name:'Ocean',     stops:['#e0f2fe','#e6fffb','#eff6ff','#ecfeff','#e0f7fa'], accents:['#0ea5e9','#06b6d4','#3b82f6','#14b8a6'], sidebarBg:'linear-gradient(180deg,#08303f 0%,#052632 60%,#031a22 100%)', sidebarText:'#5fa8bf', sidebarTextHover:'#d7f3fa', sidebarAccent:'#0ea5e9' },
+    sunset:    { name:'Sunset',    stops:['#fff1e6','#ffe9ef','#fef3c7','#ffe4e6','#fff7ed'], accents:['#fb923c','#f43f5e','#f59e0b','#ec4899'], sidebarBg:'linear-gradient(180deg,#3a1420 0%,#2b0e18 60%,#1c090f 100%)', sidebarText:'#c98a94', sidebarTextHover:'#ffe4ea', sidebarAccent:'#f43f5e' },
+    forest:    { name:'Forest',    stops:['#ecfdf5','#f0fdf4','#f7fee7','#ecfccb','#effdf5'], accents:['#10b981','#22c55e','#84cc16','#14b8a6'], sidebarBg:'linear-gradient(180deg,#0c2318 0%,#091b12 60%,#05100b 100%)', sidebarText:'#6aa887', sidebarTextHover:'#dcfce7', sidebarAccent:'#22c55e' },
+    lavender:  { name:'Lavender',  stops:['#f5f3ff','#faf5ff','#fdf4ff','#f3e8ff','#f5f3ff'], accents:['#8b5cf6','#a855f7','#d946ef','#6366f1'], sidebarBg:'linear-gradient(180deg,#1e1533 0%,#170f28 60%,#0f0a1c 100%)', sidebarText:'#9d8ac2', sidebarTextHover:'#ede9fe', sidebarAccent:'#a855f7' },
+    blossom:   { name:'Blossom',   stops:['#fff1f2','#fdf2f8','#fce7f3','#ffe4e6','#fff1f2'], accents:['#fb7185','#ec4899','#f472b6','#e11d48'], sidebarBg:'linear-gradient(180deg,#331420 0%,#280f19 60%,#1a0a10 100%)', sidebarText:'#c983a0', sidebarTextHover:'#fce7f3', sidebarAccent:'#ec4899' },
+    graphite:  { name:'Graphite',  stops:['#f8fafc','#eef2f7','#f1f5f9','#e9eef5','#f8fafc'], accents:['#64748b','#475569','#94a3b8','#334155'], sidebarBg:'linear-gradient(180deg,#1e293b 0%,#16202f 60%,#0f172a 100%)', sidebarText:'#94a3b8', sidebarTextHover:'#f1f5f9', sidebarAccent:'#64748b' },
+    midnight:  { name:'Midnight',  stops:['#eef2ff','#e8f4ff','#eefcff','#f0f5ff','#e6f7ff'], accents:['#22d3ee','#38bdf8','#818cf8','#2dd4bf'], sidebarBg:'linear-gradient(180deg,#020617 0%,#01040f 60%,#000208 100%)', sidebarText:'#5eead4', sidebarTextHover:'#ecfeff', sidebarAccent:'#22d3ee' },
+    crimson:   { name:'Crimson',   stops:['#fff5f5','#fff0f0','#fef2f2','#fff1f2','#fef2f2'], accents:['#dc2626','#ef4444','#f97316','#b91c1c'], sidebarBg:'linear-gradient(180deg,#2b0a0a 0%,#1f0707 60%,#140404 100%)', sidebarText:'#c98a8a', sidebarTextHover:'#fee2e2', sidebarAccent:'#dc2626' },
+    amber:     { name:'Amber',     stops:['#fffbeb','#fefce8','#fff7ed','#fefce8','#fffbeb'], accents:['#d97706','#f59e0b','#eab308','#b45309'], sidebarBg:'linear-gradient(180deg,#2e1f0a 0%,#221706 60%,#160f04 100%)', sidebarText:'#cbaa74', sidebarTextHover:'#fef3c7', sidebarAccent:'#d97706' },
+    emerald:   { name:'Emerald',   stops:['#ecfdf5','#f0fdfa','#effdf5','#ecfeff','#f0fdf9'], accents:['#059669','#0d9488','#10b981','#0891b2'], sidebarBg:'linear-gradient(180deg,#022c22 0%,#012019 60%,#00140f 100%)', sidebarText:'#6fbfa8', sidebarTextHover:'#d1fae5', sidebarAccent:'#059669' },
+    royal:     { name:'Royal',     stops:['#f5f3ff','#f3e8ff','#ede9fe','#f5f3ff','#efe8ff'], accents:['#7c3aed','#6d28d9','#9333ea','#4c1d95'], sidebarBg:'linear-gradient(180deg,#1e1247 0%,#170d38 60%,#0f0824 100%)', sidebarText:'#a996d6', sidebarTextHover:'#ede9fe', sidebarAccent:'#7c3aed' },
+    slate:     { name:'Slate Light', stops:['#ffffff','#f8fafc','#f1f5f9','#f8fafc','#ffffff'], accents:['#334155','#475569','#0f172a','#64748b'], sidebarBg:'#ffffff', sidebarText:'#64748b', sidebarTextHover:'#0f172a', sidebarAccent:'#334155' },
+    rosegold:  { name:'Rose Gold', stops:['#fff5f7','#fff7ed','#fef6f0','#fff1f2','#fff8f3'], accents:['#e8998d','#d4a373','#f2b8a0','#c97b63'], sidebarBg:'linear-gradient(180deg,#3d2420 0%,#2e1a17 60%,#1f110f 100%)', sidebarText:'#cba396', sidebarTextHover:'#ffe4d9', sidebarAccent:'#e8998d' },
   };
-  const DEFAULT_THEME = { mode:'preset', preset:'aurora' };
+  const FONT_SCALES = {
+    compact:     { name:'Compact',      size:'87.5%' },
+    comfortable: { name:'Comfortable',  size:'100%' },
+    large:       { name:'Large',        size:'112.5%' },
+    xlarge:      { name:'Extra Large',  size:'125%' },
+  };
+  const DEFAULT_THEME = { mode:'preset', preset:'aurora', fontScale:'comfortable' };
   window.APP_THEME = DEFAULT_THEME;
 
   function _hexToRgba(hex, a) {
@@ -33,15 +50,22 @@
   }
 
   function _themeColors(theme) {
-    if (theme && theme.mode === 'custom' && Array.isArray(theme.stops) && theme.stops.length) {
-      return { stops: theme.stops, accents: (theme.accents && theme.accents.length) ? theme.accents : theme.stops };
-    }
     const p = THEME_PRESETS[(theme && theme.preset) || 'aurora'] || THEME_PRESETS.aurora;
-    return { stops: p.stops, accents: p.accents };
+    if (theme && theme.mode === 'custom' && Array.isArray(theme.stops) && theme.stops.length) {
+      return {
+        stops: theme.stops,
+        accents: (theme.accents && theme.accents.length) ? theme.accents : theme.stops,
+        sidebarBg: theme.sidebarBg || p.sidebarBg,
+        sidebarText: theme.sidebarText || p.sidebarText,
+        sidebarTextHover: theme.sidebarTextHover || p.sidebarTextHover,
+        sidebarAccent: theme.sidebarAccent || p.sidebarAccent,
+      };
+    }
+    return { stops: p.stops, accents: p.accents, sidebarBg: p.sidebarBg, sidebarText: p.sidebarText, sidebarTextHover: p.sidebarTextHover, sidebarAccent: p.sidebarAccent };
   }
 
   function applyTheme(theme) {
-    const { stops, accents } = _themeColors(theme);
+    const { stops, accents, sidebarBg, sidebarText, sidebarTextHover, sidebarAccent } = _themeColors(theme);
     const n = Math.max(stops.length, 2);
     const stopStr = stops.map((c,i) => `${c} ${Math.round(i/(n-1)*100)}%`).join(', ');
     const bg = `linear-gradient(135deg, ${stopStr})`;
@@ -53,6 +77,17 @@
     const root = document.documentElement.style;
     root.setProperty('--app-bg', bg);
     root.setProperty('--app-glow', glow);
+    root.setProperty('--sidebar-bg', sidebarBg);
+    root.setProperty('--sidebar-text', sidebarText);
+    root.setProperty('--sidebar-text-hover', sidebarTextHover);
+    root.setProperty('--sidebar-icon-color', sidebarText);
+    root.setProperty('--sidebar-accent-1', sidebarAccent);
+    root.setProperty('--sidebar-accent-2', sidebarAccent);
+    root.setProperty('--sidebar-accent-soft-1', _hexToRgba(sidebarAccent, 0.22));
+    root.setProperty('--sidebar-accent-soft-2', _hexToRgba(sidebarAccent, 0.14));
+    root.setProperty('--sidebar-accent-glow', _hexToRgba(sidebarAccent, 0.18));
+    root.setProperty('--sidebar-accent-text', sidebarTextHover);
+    document.documentElement.style.fontSize = (FONT_SCALES[(theme && theme.fontScale)] || FONT_SCALES.comfortable).size;
     window.APP_THEME = theme || DEFAULT_THEME;
   }
 
@@ -9055,17 +9090,33 @@
     const baseStops = (current.mode === 'custom' && current.stops)
       ? current.stops
       : (THEME_PRESETS[current.preset] || THEME_PRESETS.aurora).stops;
+    const { sidebarBg: baseSidebarBg, sidebarText: baseSidebarText, sidebarAccent: baseSidebarAccent } = _themeColors(current);
+    const curFontScale = (current && current.fontScale) || 'comfortable';
 
     const presetCards = Object.entries(THEME_PRESETS).map(([key, p]) => {
       const grad = `linear-gradient(135deg, ${p.stops.join(', ')})`;
       const sel  = current.mode !== 'custom' && current.preset === key;
       return `<button onclick="applyThemePreset('${key}')" id="theme-card-${key}"
         class="rounded-2xl overflow-hidden border-2 ${sel ? 'border-blue-600' : 'border-transparent'} transition-all text-left shadow-sm hover:shadow-md">
-        <div style="height:60px;background:${grad};"></div>
+        <div class="flex" style="height:60px;">
+          <div style="flex:1;background:${grad};"></div>
+          <div style="width:22px;background:${p.sidebarBg};display:flex;align-items:center;justify-content:center;">
+            <span style="width:7px;height:7px;border-radius:50%;background:${p.sidebarAccent};display:inline-block;"></span>
+          </div>
+        </div>
         <div class="flex items-center justify-between px-3 py-2 bg-white">
           <span class="text-xs font-black text-slate-700">${p.name}</span>
           <span class="flex gap-1">${p.accents.map(a => `<span style="width:9px;height:9px;border-radius:50%;background:${a};display:inline-block;"></span>`).join('')}</span>
         </div>
+      </button>`;
+    }).join('');
+
+    const fontCards = Object.entries(FONT_SCALES).map(([key, f]) => {
+      const sel = curFontScale === key;
+      return `<button onclick="changeFontScale('${key}')" id="font-card-${key}"
+        class="px-4 py-3 rounded-2xl border-2 ${sel ? 'border-blue-600 bg-blue-50' : 'border-slate-200 bg-white'} transition-all text-center">
+        <span style="font-size:${f.size}" class="block font-black text-slate-800">Aa</span>
+        <span class="block text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">${f.name}</span>
       </button>`;
     }).join('');
 
@@ -9074,15 +9125,19 @@
       <div class="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm space-y-8">
         <div>
           <h3 class="text-lg font-black text-slate-800 mb-1">Appearance &amp; Theme</h3>
-          <p class="text-[10px] text-slate-400 font-black uppercase tracking-widest">Pick a gradient — saving applies it across the whole portal for everyone</p>
+          <p class="text-[10px] text-slate-400 font-black uppercase tracking-widest">Pick a theme — saving applies the gradient, sidebar colors and font size across the whole portal for everyone</p>
         </div>
         <div>
-          <p class="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Preset Palettes</p>
+          <p class="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Preset Themes</p>
           <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">${presetCards}</div>
         </div>
         <div class="pt-6 border-t border-slate-100">
+          <p class="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Font Size</p>
+          <div class="grid grid-cols-4 gap-3 max-w-md">${fontCards}</div>
+        </div>
+        <div class="pt-6 border-t border-slate-100">
           <p class="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Custom Gradient</p>
-          <p class="text-[10px] text-slate-400 font-bold mb-4">Choose four colours, left → right across the gradient.</p>
+          <p class="text-[10px] text-slate-400 font-bold mb-4">Choose four colours, left → right across the page background.</p>
           <div class="flex flex-wrap items-end gap-4">
             ${cs.map((c,i) => `<div class="space-y-1">
               <label class="text-[9px] font-black text-slate-400 uppercase block">Color ${i+1}</label>
@@ -9091,6 +9146,28 @@
             </div>`).join('')}
           </div>
           <div id="theme-custom-preview" class="mt-4 h-16 rounded-2xl border border-slate-200" style="background:linear-gradient(135deg, ${cs.join(', ')});"></div>
+        </div>
+        <div class="pt-6 border-t border-slate-100">
+          <p class="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Custom Sidebar</p>
+          <p class="text-[10px] text-slate-400 font-bold mb-4">Background, text and accent color for the left navigation.</p>
+          <div class="flex flex-wrap items-end gap-4">
+            <div class="space-y-1">
+              <label class="text-[9px] font-black text-slate-400 uppercase block">Background</label>
+              <input type="color" id="theme-sb-bg" value="${/^#/.test(baseSidebarBg) ? baseSidebarBg : '#0d1b2e'}" oninput="previewCustomSidebar()"
+                class="w-14 h-14 rounded-xl border border-slate-200 cursor-pointer bg-white p-1">
+            </div>
+            <div class="space-y-1">
+              <label class="text-[9px] font-black text-slate-400 uppercase block">Text</label>
+              <input type="color" id="theme-sb-text" value="${baseSidebarText}" oninput="previewCustomSidebar()"
+                class="w-14 h-14 rounded-xl border border-slate-200 cursor-pointer bg-white p-1">
+            </div>
+            <div class="space-y-1">
+              <label class="text-[9px] font-black text-slate-400 uppercase block">Accent</label>
+              <input type="color" id="theme-sb-accent" value="${baseSidebarAccent}" oninput="previewCustomSidebar()"
+                class="w-14 h-14 rounded-xl border border-slate-200 cursor-pointer bg-white p-1">
+            </div>
+          </div>
+          <p class="text-[9px] text-slate-300 font-bold mt-3">Solid colors only here — presets may use a subtle gradient, kept when you pick a preset instead of customizing.</p>
         </div>
         <div class="flex items-center justify-between pt-6 border-t border-slate-100">
           <button onclick="applyThemePreset('aurora')" class="text-[10px] font-black text-slate-400 hover:text-slate-600 uppercase tracking-widest">Reset to Aurora</button>
@@ -9110,22 +9187,59 @@
     });
   }
 
+  function _markFontScaleSelected(key) {
+    Object.keys(FONT_SCALES).forEach(k => {
+      const c = document.getElementById('font-card-' + k);
+      if (!c) return;
+      const on = k === key;
+      c.classList.toggle('border-blue-600', on);
+      c.classList.toggle('bg-blue-50', on);
+      c.classList.toggle('border-slate-200', !on);
+      c.classList.toggle('bg-white', !on);
+    });
+  }
+
   function applyThemePreset(key) {
-    applyTheme({ mode: 'preset', preset: key });
+    const p = THEME_PRESETS[key] || THEME_PRESETS.aurora;
+    applyTheme({ mode: 'preset', preset: key, fontScale: (window.APP_THEME && window.APP_THEME.fontScale) || 'comfortable' });
     _markPresetSelected(key);
-    // sync the custom colour pickers to this preset's stops
-    const stops = (THEME_PRESETS[key] || THEME_PRESETS.aurora).stops;
+    // sync the custom colour pickers to this preset's values
+    const stops = p.stops;
     [0,1,2,3].forEach(i => { const inp = document.getElementById('theme-cc-' + i); if (inp && stops[i]) inp.value = stops[i]; });
     const prev = document.getElementById('theme-custom-preview');
     if (prev) prev.style.background = `linear-gradient(135deg, ${stops.slice(0,4).join(', ')})`;
+    const sbBg = document.getElementById('theme-sb-bg'); if (sbBg && /^#/.test(p.sidebarBg)) sbBg.value = p.sidebarBg;
+    const sbText = document.getElementById('theme-sb-text'); if (sbText) sbText.value = p.sidebarText;
+    const sbAccent = document.getElementById('theme-sb-accent'); if (sbAccent) sbAccent.value = p.sidebarAccent;
+  }
+
+  function changeFontScale(key) {
+    applyTheme({ ...(window.APP_THEME || DEFAULT_THEME), fontScale: key });
+    _markFontScaleSelected(key);
   }
 
   function previewCustomTheme() {
     const stops = [0,1,2,3].map(i => (document.getElementById('theme-cc-' + i) || {}).value).filter(Boolean);
     if (stops.length < 2) return;
-    applyTheme({ mode: 'custom', stops, accents: stops });
+    applyTheme({ ...(window.APP_THEME || DEFAULT_THEME), mode: 'custom', stops, accents: stops });
     const prev = document.getElementById('theme-custom-preview');
     if (prev) prev.style.background = `linear-gradient(135deg, ${stops.join(', ')})`;
+    _markPresetSelected(null);
+  }
+
+  function previewCustomSidebar() {
+    const sidebarBg = (document.getElementById('theme-sb-bg') || {}).value;
+    const sidebarText = (document.getElementById('theme-sb-text') || {}).value;
+    const sidebarTextHover = sidebarText;
+    const sidebarAccent = (document.getElementById('theme-sb-accent') || {}).value;
+    const cur = window.APP_THEME || DEFAULT_THEME;
+    const stops = [0,1,2,3].map(i => (document.getElementById('theme-cc-' + i) || {}).value).filter(Boolean);
+    applyTheme({
+      ...cur, mode: 'custom',
+      stops: stops.length >= 2 ? stops : _themeColors(cur).stops,
+      accents: stops.length >= 2 ? stops : _themeColors(cur).accents,
+      sidebarBg, sidebarText, sidebarTextHover, sidebarAccent,
+    });
     _markPresetSelected(null);
   }
 

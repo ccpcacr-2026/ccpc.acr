@@ -378,18 +378,38 @@ button { user-select: none; }
   #app-screen { padding-bottom: max(0px, env(safe-area-inset-bottom)); }
 }
 
-/* ── Sidebar ── */
-.nav-link { display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:8px; transition:all 0.18s; color:#64748b; text-decoration:none; position:relative; }
-.nav-link:hover { background:rgba(255,255,255,0.05); color:#e2e8f0; }
-.nav-link:hover .nav-icon-box { background:rgba(99,102,241,0.18); color:#a5b4fc; }
-.nav-link.active { background:linear-gradient(135deg,rgba(37,99,235,0.22),rgba(99,102,241,0.14)); color:#fff; box-shadow:0 2px 10px rgba(37,99,235,0.15),inset 0 0 0 1px rgba(99,102,241,0.25); }
-.nav-link.active .nav-icon-box { background:linear-gradient(135deg,#1d4ed8,#4f46e5); color:#fff; box-shadow:0 3px 8px rgba(79,70,229,0.4); }
-.nav-icon-box { width:26px; height:26px; border-radius:7px; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,0.04); color:#475569; transition:all 0.18s; flex-shrink:0; }
+/* ── Sidebar ──
+   Colors are CSS variables (set from applyTheme() in app.js, one set per
+   admin-selected theme preset) so the whole sidebar re-skins along with the
+   page gradient — these :root defaults are only the pre-JS/no-theme
+   fallback, matching the original Aurora-era hardcoded dark-navy look. */
+:root {
+  --sidebar-bg: linear-gradient(180deg,#0d1b2e 0%,#0a1628 60%,#080f1e 100%);
+  --sidebar-text: #64748b;
+  --sidebar-text-hover: #e2e8f0;
+  --sidebar-icon-bg: rgba(255,255,255,0.04);
+  --sidebar-icon-color: #475569;
+  --sidebar-accent-1: #1d4ed8;
+  --sidebar-accent-2: #4f46e5;
+  --sidebar-accent-soft-1: rgba(37,99,235,0.22);
+  --sidebar-accent-soft-2: rgba(99,102,241,0.14);
+  --sidebar-accent-glow: rgba(99,102,241,0.18);
+  --sidebar-accent-text: #a5b4fc;
+  --sidebar-section-label: #334155;
+  --sidebar-border: rgba(255,255,255,0.05);
+}
+#main-sidebar { background: var(--sidebar-bg) !important; }
+.nav-link { display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:8px; transition:all 0.18s; color:var(--sidebar-text); text-decoration:none; position:relative; }
+.nav-link:hover { background:rgba(255,255,255,0.05); color:var(--sidebar-text-hover); }
+.nav-link:hover .nav-icon-box { background:var(--sidebar-accent-glow); color:var(--sidebar-accent-text); }
+.nav-link.active { background:linear-gradient(135deg,var(--sidebar-accent-soft-1),var(--sidebar-accent-soft-2)); color:#fff; box-shadow:0 2px 10px var(--sidebar-accent-soft-1),inset 0 0 0 1px var(--sidebar-accent-soft-2); }
+.nav-link.active .nav-icon-box { background:linear-gradient(135deg,var(--sidebar-accent-1),var(--sidebar-accent-2)); color:#fff; box-shadow:0 3px 8px var(--sidebar-accent-soft-1); }
+.nav-icon-box { width:26px; height:26px; border-radius:7px; display:flex; align-items:center; justify-content:center; background:var(--sidebar-icon-bg); color:var(--sidebar-icon-color); transition:all 0.18s; flex-shrink:0; }
 .nav-icon { width:13px; height:13px; }
 .nav-text { font-size:12px; font-weight:600; white-space:nowrap; transition:all 0.3s; letter-spacing:0.01em; }
 .nav-link.active .nav-text { font-weight:800; }
 .nav-section-label { display:flex; align-items:center; gap:8px; padding:8px 8px 3px; }
-.nav-section-label-text { font-size:8px; font-weight:900; color:#334155; text-transform:uppercase; letter-spacing:0.2em; white-space:nowrap; transition:all 0.3s; }
+.nav-section-label-text { font-size:8px; font-weight:900; color:var(--sidebar-section-label); text-transform:uppercase; letter-spacing:0.2em; white-space:nowrap; transition:all 0.3s; }
 
 /* ── "Student Portal" accordion header + its nested sub-links ──
    nav-link's own onclick (_studentPortalNavClick) toggles `.expanded` on
