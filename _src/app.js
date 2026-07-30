@@ -381,8 +381,8 @@
     if (!window.APP_USER) return;
     document.getElementById('login-screen').classList.add('hidden');
     document.getElementById('app-screen').classList.remove('hidden');
-    document.getElementById('side-user-id').textContent = window.APP_USER.user_id;
     document.getElementById('side-user-role').textContent = window.ACTIVE_ROLE;
+    _renderSidebarUserCard();
     updateSidebarForRole(window.ACTIVE_ROLE);
     _loadModuleVisibility(() => updateSidebarForRole(window.ACTIVE_ROLE));
     startSessionHeartbeat();
@@ -391,6 +391,34 @@
     // Route to saved hash (supports refresh & bookmarked views)
     _routeByHash();
     window.addEventListener('hashchange', _routeByHash);
+  }
+
+  // Sidebar user card: id/email come straight from the login response for
+  // every role; name/shortname/photo need the users_profile row, which
+  // loginAndGetProfile only pre-fetches for Teacher/Staff (see
+  // window._loginProfile) -- everyone else (Admin, HR, etc.) gets it here
+  // via the same self-service getMyProfile lookup the profile-edit view
+  // uses, falling back gracefully to just ID+email if that account has no
+  // personnel record at all (e.g. an IT-only Admin login).
+  function _renderSidebarUserCard() {
+    const u = window.APP_USER;
+    if (!u) return;
+    const nameEl  = document.getElementById('side-user-name');
+    const metaEl  = document.getElementById('side-user-meta');
+    const emailEl = document.getElementById('side-user-email');
+    if (nameEl)  nameEl.textContent  = u.user_id;
+    if (metaEl)  metaEl.textContent  = 'ID: ' + u.user_id;
+    if (emailEl) emailEl.textContent = u.email || '—';
+
+    const applyProfile = (p) => {
+      if (!p) return;
+      if (nameEl && p.full_name) nameEl.textContent = p.full_name;
+      if (metaEl) metaEl.textContent = 'ID: ' + u.user_id + (p.shortname ? ' · SN: ' + p.shortname : '');
+      if (p.photo_url) setProfilePhoto(p.photo_url);
+    };
+
+    if (window._loginProfile) { applyProfile(window._loginProfile); return; }
+    google.script.run.withSuccessHandler(applyProfile).withFailureHandler(() => {}).getMyProfile(u.email, u.user_id);
   }
 
   function _initRealtime() {
@@ -10678,6 +10706,14 @@
       avatar.src = url;
       avatar.classList.remove('hidden');
       if (avatarPh) avatarPh.classList.add('hidden');
+    }
+    // Desktop sidebar user card avatar
+    const sideImg = document.getElementById('side-user-photo');
+    const sidePh  = document.getElementById('side-user-photo-ph');
+    if (sideImg) {
+      sideImg.src = url;
+      sideImg.classList.remove('hidden');
+      if (sidePh) sidePh.classList.add('hidden');
     }
   }
 
