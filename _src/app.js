@@ -351,6 +351,7 @@
     users:         () => loadUsersDirectory(),
     routine:       () => loadRoutineView(),
     inventory:     () => loadInventoryView(),
+    inventory_admin: () => loadInventoryAdminView(),
     myclass:       () => loadMyClassView(),
     student_portal:() => loadStudentPortalView()
   };
@@ -8179,6 +8180,20 @@
     ensureBusTrackingAssets().then(() => window.BusTracking.initBusMap()).catch(err => {
       container.innerHTML += `<div class="mt-3 p-4 bg-red-50 border border-red-200 rounded-xl text-xs font-bold text-red-600">${err.message}</div>`;
     });
+  }
+
+  // Inventory Admin is a genuinely separate app (own Vercel deployment,
+  // own database) -- not worth natively re-porting just to avoid a new
+  // tab. Embedded via iframe instead (confirmed it sets no X-Frame-Options/
+  // CSP frame-ancestors that would block this), so it opens like any other
+  // internal view — same tab, same sidebar/chrome, no external navigation.
+  function loadInventoryAdminView() {
+    _setViewHash('inventory_admin');
+    setActiveNavLink('nav-inventory-admin');
+    setContentHeader('Inventory Admin', 'boxes');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    container.innerHTML = `<iframe src="https://ccpc-inventory.vercel.app" title="Inventory Admin" style="width:100%;height:calc(100vh - 130px);border:1px solid #e2e8f0;border-radius:16px;"></iframe>`;
   }
 
   function loadInventoryView() {
