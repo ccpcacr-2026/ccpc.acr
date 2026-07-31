@@ -1076,27 +1076,29 @@
     if (_stdTabView === 'table') {
       const { headers: dHeaders, rows: dRows } = _applyColumnMerges(headers, rows, _stdColumnMerges);
       view.innerHTML = `<table class="w-full text-left">
-        <thead class="bg-slate-50"><tr><th class="px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 whitespace-nowrap">Status</th>${dHeaders.map((h, i) => `<th class="px-3 py-2 text-[10px] font-black uppercase tracking-widest whitespace-nowrap ${_colTint(i).head}">${h}</th>`).join('')}</tr></thead>
-        <tbody>${dRows.map((r, ri) => `<tr class="border-t border-slate-100"><td class="px-3 py-2">${_statusBadge(filled[rows[ri][0]])}</td>${r.map((c, i) => `<td class="px-3 py-2 text-xs font-semibold text-slate-700 ${_colTint(i).cell}">${c === '' || c == null ? '—' : c}</td>`).join('')}</tr>`).join('')}</tbody>
+        <thead class="bg-slate-50"><tr><th class="px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 whitespace-nowrap">Status</th>${dHeaders.map((h, i) => `<th class="px-3 py-2 text-[10px] font-black uppercase tracking-widest whitespace-nowrap ${_colTint(i).head}">${_escHtml(h)}</th>`).join('')}</tr></thead>
+        <tbody>${dRows.map((r, ri) => `<tr class="border-t border-slate-100"><td class="px-3 py-2">${_statusBadge(filled[rows[ri][0]])}</td>${r.map((c, i) => `<td class="px-3 py-2 text-xs font-semibold text-slate-700 ${_colTint(i).cell}">${c === '' || c == null ? '—' : _escHtml(c)}</td>`).join('')}</tr>`).join('')}</tbody>
       </table>`;
       return;
     }
     // Card view: one card per student, identity fields as the header, then
-    // only the fields that student actually filled in.
+    // only the fields that student actually filled in. Label stacks above
+    // value (not side-by-side) — real forms have long labels and long
+    // values that overflowed past the card edge in the old layout.
     const idIdx = headers.indexOf('student_id');
     const nameIdx = headers.indexOf('student_name');
     const clsIdx = headers.indexOf('class');
     const secIdx = headers.indexOf('section');
     const rollIdx = headers.indexOf('roll');
     const identityIdx = new Set([idIdx, nameIdx, clsIdx, secIdx, rollIdx].filter(i => i >= 0));
-    view.innerHTML = `<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-3 bg-slate-50">
+    view.innerHTML = `<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-slate-50">
       ${rows.map(r => {
-        const title = (nameIdx >= 0 && r[nameIdx]) || (idIdx >= 0 && r[idIdx]) || 'Student';
-        const sub = [
+        const title = _escHtml((nameIdx >= 0 && r[nameIdx]) || (idIdx >= 0 && r[idIdx]) || 'Student');
+        const sub = _escHtml([
           idIdx >= 0 ? r[idIdx] : null,
           (clsIdx >= 0 && r[clsIdx]) ? `${r[clsIdx]}${(secIdx >= 0 && r[secIdx]) ? '-' + r[secIdx] : ''}` : null,
           (rollIdx >= 0 && r[rollIdx]) ? `Roll ${r[rollIdx]}` : null,
-        ].filter(Boolean).join(' · ');
+        ].filter(Boolean).join(' · '));
         const fields = headers
           .map((h, i) => ({ h, v: r[i], i }))
           .filter(f => !identityIdx.has(f.i) && f.v !== '' && f.v != null);
@@ -1106,10 +1108,10 @@
             ${_statusBadge(filled[r[0]])}
           </div>
           <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">${sub}</p>
-          ${fields.length ? `<div class="pt-2 border-t border-slate-50 flex flex-col gap-1">
-            ${fields.map(f => `<div class="flex justify-between gap-3">
-              <span class="text-[10px] font-bold text-slate-400 uppercase shrink-0">${_prettyHeader(f.h)}</span>
-              <span class="text-xs font-semibold text-slate-700 text-right">${f.v}</span>
+          ${fields.length ? `<div class="pt-2 border-t border-slate-50 flex flex-col gap-2.5">
+            ${fields.map(f => `<div>
+              <p class="text-[9.5px] font-bold text-slate-400 uppercase tracking-wide leading-tight">${_escHtml(_prettyHeader(f.h))}</p>
+              <p class="text-xs font-semibold text-slate-700 mt-0.5 break-words">${_escHtml(String(f.v))}</p>
             </div>`).join('')}
           </div>` : '<p class="text-[10px] font-bold text-slate-300 uppercase tracking-widest pt-2 border-t border-slate-50">No data filled in</p>'}
         </div>`;
@@ -3183,26 +3185,30 @@
       const { headers: dHeaders, rows: dRows } = _applyColumnMerges(headers, rows, _classColumnMerges);
       body.innerHTML = `<div class="overflow-x-auto border border-slate-100 rounded-xl">
         <table class="w-full text-left text-xs">
-          <thead class="bg-slate-50"><tr><th class="px-3 py-2 font-black text-slate-500 uppercase tracking-widest whitespace-nowrap">Status</th>${dHeaders.map((h, i) => `<th class="px-3 py-2 font-black uppercase tracking-widest whitespace-nowrap ${_colTint(i).head}">${h}</th>`).join('')}</tr></thead>
-          <tbody>${dRows.map((r, i) => `<tr class="border-t border-slate-50"><td class="px-3 py-2">${_statusBadge(filled[i])}</td>${r.map((v, ci) => `<td class="px-3 py-2 font-bold text-slate-700 whitespace-nowrap ${_colTint(ci).cell}">${v === '' || v == null ? '—' : v}</td>`).join('')}</tr>`).join('')}</tbody>
+          <thead class="bg-slate-50"><tr><th class="px-3 py-2 font-black text-slate-500 uppercase tracking-widest whitespace-nowrap">Status</th>${dHeaders.map((h, i) => `<th class="px-3 py-2 font-black uppercase tracking-widest whitespace-nowrap ${_colTint(i).head}">${_escHtml(h)}</th>`).join('')}</tr></thead>
+          <tbody>${dRows.map((r, i) => `<tr class="border-t border-slate-50"><td class="px-3 py-2">${_statusBadge(filled[i])}</td>${r.map((v, ci) => `<td class="px-3 py-2 font-bold text-slate-700 whitespace-nowrap ${_colTint(ci).cell}">${v === '' || v == null ? '—' : _escHtml(v)}</td>`).join('')}</tr>`).join('')}</tbody>
         </table>
       </div>`;
       return;
     }
     // Card view: one card per student — Roll/Name/Class are the identity
     // header (getMyClassTabTable puts them first, already display-labelled),
-    // then only the fields that student actually filled in.
+    // then only the fields that student actually filled in. Label stacks
+    // above value (not side-by-side) since real forms have long labels
+    // ("Local Guardian's Information: Occupation Type") and long values
+    // (addresses, business names) that fought for space on one line and
+    // overflowed past the card edge in the old side-by-side layout.
     const rollIdx = headers.indexOf('Roll');
     const nameIdx = headers.indexOf('Name');
     const clsIdx = headers.indexOf('Class');
     const identityIdx = new Set([rollIdx, nameIdx, clsIdx].filter(i => i >= 0));
-    body.innerHTML = `<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+    body.innerHTML = `<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
       ${rows.map((r, i) => {
-        const title = (nameIdx >= 0 && r[nameIdx]) || 'Student';
-        const sub = [
+        const title = _escHtml((nameIdx >= 0 && r[nameIdx]) || 'Student');
+        const sub = _escHtml([
           (rollIdx >= 0 && r[rollIdx]) ? `Roll ${r[rollIdx]}` : null,
           (clsIdx >= 0 && r[clsIdx]) ? r[clsIdx] : null,
-        ].filter(Boolean).join(' · ');
+        ].filter(Boolean).join(' · '));
         const fields = headers
           .map((h, i) => ({ h, v: r[i], i }))
           .filter(f => !identityIdx.has(f.i) && f.v !== '' && f.v != null);
@@ -3212,10 +3218,10 @@
             ${_statusBadge(filled[i])}
           </div>
           <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">${sub}</p>
-          ${fields.length ? `<div class="pt-2 border-t border-slate-50 flex flex-col gap-1">
-            ${fields.map(f => `<div class="flex justify-between gap-3">
-              <span class="text-[10px] font-bold text-slate-400 uppercase shrink-0">${f.h}</span>
-              <span class="text-xs font-semibold text-slate-700 text-right">${f.v}</span>
+          ${fields.length ? `<div class="pt-2 border-t border-slate-50 flex flex-col gap-2.5">
+            ${fields.map(f => `<div>
+              <p class="text-[9.5px] font-bold text-slate-400 uppercase tracking-wide leading-tight">${_escHtml(f.h)}</p>
+              <p class="text-xs font-semibold text-slate-700 mt-0.5 break-words">${_escHtml(String(f.v))}</p>
             </div>`).join('')}
           </div>` : '<p class="text-[10px] font-bold text-slate-300 uppercase tracking-widest pt-2 border-t border-slate-50">No data filled in</p>'}
         </div>`;
