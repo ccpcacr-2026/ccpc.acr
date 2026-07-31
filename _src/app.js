@@ -3110,7 +3110,7 @@
     const host = document.getElementById('classTabUnfilledCopy');
     if (!host || !_classTabData) return;
     const meta = _classTabData.sortMeta || [];
-    const rolls = meta.filter((m, i) => !_classTabData.filled[i]).map(m => (m || {}).roll).filter(Boolean);
+    const rolls = meta.filter((m, i) => !_classTabData.filled[i]).map(m => (m || {}).roll).filter(Boolean).sort(_sortCompare);
     if (!rolls.length) { host.classList.add('hidden'); host.classList.remove('flex'); host.innerHTML = ''; return; }
     host.classList.remove('hidden');
     host.classList.add('flex');
