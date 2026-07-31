@@ -3030,9 +3030,9 @@
             <button onclick="closeClassTabTable()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
           </div>
         </div>
-        <div class="flex items-center gap-2 flex-wrap mb-3">
-          <p id="classTabTableCount" class="text-xs font-bold text-slate-500"></p>
-          <div id="classTabUnfilledCopy" class="hidden items-center gap-1.5 flex-wrap"></div>
+        <div class="mb-3">
+          <p id="classTabTableCount" class="text-xs font-bold text-slate-500 mb-2"></p>
+          <div id="classTabUnfilledCopy" class="hidden"></div>
         </div>
         <div id="classTabTableBody"><div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div></div>
       </div>`;
@@ -3077,7 +3077,7 @@
     document.getElementById('classTabTableTitle').textContent = tabName;
     document.getElementById('classTabTableCount').textContent = '';
     const unfilledHost = document.getElementById('classTabUnfilledCopy');
-    if (unfilledHost) { unfilledHost.classList.add('hidden'); unfilledHost.classList.remove('flex'); unfilledHost.innerHTML = ''; }
+    if (unfilledHost) { unfilledHost.classList.add('hidden'); unfilledHost.innerHTML = ''; }
     document.getElementById('classTabTableBody').innerHTML = `<div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`;
     lucide.createIcons();
 
@@ -3125,18 +3125,28 @@
   // straight into a class group chat — computed once per data load (not
   // re-tied to the Sort/Show controls below, since who's actually missing
   // shouldn't change just because the admin is looking at a filtered view).
+  // "Label:roll,roll,roll" per class-section, semicolon+newline between
+  // groups (no trailing semicolon after the last one) -- compact enough to
+  // paste directly into a message, e.g.:
+  //   VI-D:1,3,8;
+  //   VI-E:34,87,76;
+  //   VII-D:5,8,6
+  function _formatRollGroups(groups) {
+    return groups.map(g => `${g.label}:${g.rolls.join(',')}`);
+  }
   function _renderUnfilledRollCopy() {
     const host = document.getElementById('classTabUnfilledCopy');
     if (!host || !_classTabData) return;
     const meta = _classTabData.sortMeta || [];
     const groups = _groupRollsByClassSection(meta.filter((m, i) => !_classTabData.filled[i]));
-    if (!groups.length) { host.classList.add('hidden'); host.classList.remove('flex'); host.innerHTML = ''; return; }
+    if (!groups.length) { host.classList.add('hidden'); host.innerHTML = ''; return; }
     host.classList.remove('hidden');
-    host.classList.add('flex');
-    host.dataset.rolls = groups.map(g => `${g.label}: ${g.rolls.join(', ')}`).join('\n');
-    const shownText = groups.map(g => `${g.label}: ${g.rolls.join(', ')}`).join(' · ');
-    host.innerHTML = `<span class="text-[11px] font-bold text-amber-600">Not filled — ${_escHtml(shownText)}</span>
-      <button onclick="_copyUnfilledRolls(this)" class="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest flex items-center gap-1"><i data-lucide="copy" class="h-3 w-3"></i>Copy</button>`;
+    const lines = _formatRollGroups(groups);
+    host.dataset.rolls = lines.join(';\n');
+    host.innerHTML = `<div class="flex items-start justify-between gap-3 p-2.5 bg-amber-50 border border-amber-200 rounded-lg">
+      <p class="text-[11px] font-bold text-amber-700 leading-relaxed">${lines.map(_escHtml).join(';<br>')}</p>
+      <button onclick="_copyUnfilledRolls(this)" class="shrink-0 px-2 py-1 rounded-md bg-white border border-amber-200 hover:bg-amber-100 text-amber-700 text-[10px] font-black uppercase tracking-widest flex items-center gap-1"><i data-lucide="copy" class="h-3 w-3"></i>Copy</button>
+    </div>`;
     lucide.createIcons();
   }
   function _copyUnfilledRolls(btn) {
@@ -3203,9 +3213,9 @@
           <button id="adminSubMergeBtn" class="px-4 py-1.5 rounded-lg border border-slate-200 text-slate-700 text-xs font-black">Merge Columns</button>
           <button id="adminSubPrintBtn" class="px-4 py-1.5 rounded-lg bg-slate-800 text-white text-xs font-black">Print</button>
         </div>
-        <div class="flex items-center gap-2 flex-wrap px-6 pb-3 shrink-0">
-          <p id="adminSubCount" class="text-xs font-bold text-slate-500"></p>
-          <div id="adminSubUnfilledCopy" class="hidden items-center gap-1.5 flex-wrap"></div>
+        <div class="px-6 pb-3 shrink-0">
+          <p id="adminSubCount" class="text-xs font-bold text-slate-500 mb-2"></p>
+          <div id="adminSubUnfilledCopy" class="hidden"></div>
         </div>
         <div id="adminSubBody" class="flex-1 overflow-y-auto px-6 pb-6"><div class="text-center py-12"><i data-lucide="loader-2" class="h-6 w-6 animate-spin inline text-blue-600"></i></div></div>
       </div>`;
@@ -3250,7 +3260,7 @@
     document.getElementById('adminSubCount').textContent = '';
     document.getElementById('adminSubFilters').innerHTML = '';
     const unfilledHost = document.getElementById('adminSubUnfilledCopy');
-    if (unfilledHost) { unfilledHost.classList.add('hidden'); unfilledHost.classList.remove('flex'); unfilledHost.innerHTML = ''; }
+    if (unfilledHost) { unfilledHost.classList.add('hidden'); unfilledHost.innerHTML = ''; }
     document.getElementById('adminSubBody').innerHTML = `<div class="text-center py-12"><i data-lucide="loader-2" class="h-6 w-6 animate-spin inline text-blue-600"></i></div>`;
     lucide.createIcons();
 
@@ -3349,22 +3359,24 @@
     if (!host || !_adminSubData) return;
     const { filled, meta } = _adminSubRosterFilteredPairs();
     const groups = _groupRollsByClassSection(meta.filter((m, i) => !filled[i]));
-    if (!groups.length) { host.classList.add('hidden'); host.classList.remove('flex'); host.innerHTML = ''; return; }
+    if (!groups.length) { host.classList.add('hidden'); host.innerHTML = ''; return; }
     host.classList.remove('hidden');
-    host.classList.add('flex');
-    // Full list always copies in full (newline-per-class), regardless of
-    // the display cap below.
-    host.dataset.rolls = groups.map(g => `${g.label}: ${g.rolls.join(', ')}`).join('\n');
+    // Full list always copies in full ("Label:rolls;\nLabel:rolls"),
+    // regardless of the display cap below.
+    const lines = _formatRollGroups(groups);
+    host.dataset.rolls = lines.join(';\n');
     // Unlike the class-teacher version of this widget (naturally capped at
     // however many classes one teacher holds), admin's roster spans the
     // whole school -- an unfiltered view can span 40+ class/sections, which
     // broke the layout entirely before this cap. Encourages narrowing with
     // the checkboxes above instead of dumping every class inline.
     const CAP = 8;
-    const shownGroups = groups.slice(0, CAP).map(g => `${g.label}: ${g.rolls.join(', ')}`).join(' · ');
-    const shown = groups.length > CAP ? `${shownGroups} … (+${groups.length - CAP} more classes — narrow with filters above, or Copy for the full list)` : shownGroups;
-    host.innerHTML = `<span class="text-[11px] font-bold text-amber-600">Not filled — ${_escHtml(shown)}</span>
-      <button onclick="_copyAdminUnfilledRolls(this)" class="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest flex items-center gap-1 shrink-0"><i data-lucide="copy" class="h-3 w-3"></i>Copy${groups.length > CAP ? ` All (${groups.length} classes)` : ''}</button>`;
+    const shownLines = lines.slice(0, CAP);
+    const overflowNote = groups.length > CAP ? `<br>… +${groups.length - CAP} more classes — narrow with filters above, or Copy for the full list` : '';
+    host.innerHTML = `<div class="flex items-start justify-between gap-3 p-2.5 bg-amber-50 border border-amber-200 rounded-lg">
+      <p class="text-[11px] font-bold text-amber-700 leading-relaxed">${shownLines.map(_escHtml).join(';<br>')}${overflowNote}</p>
+      <button onclick="_copyAdminUnfilledRolls(this)" class="shrink-0 px-2 py-1 rounded-md bg-white border border-amber-200 hover:bg-amber-100 text-amber-700 text-[10px] font-black uppercase tracking-widest flex items-center gap-1"><i data-lucide="copy" class="h-3 w-3"></i>Copy${groups.length > CAP ? ` All (${groups.length})` : ''}</button>
+    </div>`;
     lucide.createIcons();
   }
   function _copyAdminUnfilledRolls(btn) {
