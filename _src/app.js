@@ -3400,6 +3400,13 @@
   function _setAdminSubSort(key) { _adminSubSortKey = key; _renderAdminSubData(); }
   function _setAdminSubFilter(key) { _adminSubFilterKey = key; _renderAdminSubData(); }
 
+  // Building/parsing an HTML table or card grid for the whole school (up to
+  // ~3000 students) in one innerHTML assignment measured at ~14s of solid
+  // main-thread work -- the page looks frozen, then everything "pops in" at
+  // once, which read as flickering. Require narrowing down first instead of
+  // ever attempting that render; the count and unfilled-roll widgets above
+  // stay instant either way since those are plain array work, not DOM.
+  const ADMIN_SUB_RENDER_CAP = 300;
   function _renderAdminSubData() {
     const body = document.getElementById('adminSubBody');
     if (!body || !_adminSubData) return;
@@ -3407,6 +3414,12 @@
     const { rows, filled } = _adminSubVisiblePairs();
     if (!rows.length) {
       body.innerHTML = `<div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">No students match this filter</div>`;
+      return;
+    }
+    if (rows.length > ADMIN_SUB_RENDER_CAP) {
+      body.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest px-8">
+        ${rows.length} students match — that's too many to list at once.<br class="my-1">Narrow with the Class/Section/Group/Shift filters above to view the table.
+      </div>`;
       return;
     }
     if (_adminSubView === 'table') {
