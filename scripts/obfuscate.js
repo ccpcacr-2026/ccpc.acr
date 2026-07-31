@@ -29,7 +29,7 @@ const RESERVED = [
   'openTraceReport','removeRow','resetPassword','saveCommitteeEdit',
   'savePermRow','saveSettings','sendCommitteeChatMessage','setChatReply',
   'switchActiveRole','switchAdminTab','switchSysTab','toggleAliasPanel','toggleEval',
-  'openClassTeacherSyncModal','closeClassTeacherSyncModal','saveClassTeacherSync',
+  'openClassTeacherSyncModal','closeClassTeacherSyncModal','saveClassTeacherSync','_copyUnfilledRolls',
   'exportClassTeacherList','_ctSyncFilterOptions','_ctSyncPick','_ctSyncClear','_ctSyncBlur',
   // dynamic HTML non-onclick event handlers (oninput / onkeydown / onblur / onchange)
   '_onChatInput','_onChatKeydown','_saveAliases',

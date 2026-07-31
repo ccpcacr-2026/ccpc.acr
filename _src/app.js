@@ -3028,7 +3028,10 @@
             <button onclick="closeClassTabTable()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
           </div>
         </div>
-        <p id="classTabTableCount" class="text-xs font-bold text-slate-500 mb-3"></p>
+        <div class="flex items-center gap-2 flex-wrap mb-3">
+          <p id="classTabTableCount" class="text-xs font-bold text-slate-500"></p>
+          <div id="classTabUnfilledCopy" class="hidden items-center gap-1.5 flex-wrap"></div>
+        </div>
         <div id="classTabTableBody"><div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div></div>
       </div>`;
       document.body.appendChild(modal);
@@ -3071,6 +3074,8 @@
     if (filterSel) filterSel.value = '';
     document.getElementById('classTabTableTitle').textContent = tabName;
     document.getElementById('classTabTableCount').textContent = '';
+    const unfilledHost = document.getElementById('classTabUnfilledCopy');
+    if (unfilledHost) { unfilledHost.classList.add('hidden'); unfilledHost.classList.remove('flex'); unfilledHost.innerHTML = ''; }
     document.getElementById('classTabTableBody').innerHTML = `<div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`;
     lucide.createIcons();
 
@@ -3087,6 +3092,7 @@
         const total = (res.rows || []).length;
         const countEl = document.getElementById('classTabTableCount');
         if (countEl) countEl.textContent = total ? `${filledCount} of ${total} students filled this in — ${total - filledCount} not filled` : '';
+        _renderUnfilledRollCopy();
         _renderClassTabData();
       })
       .withFailureHandler(() => {
@@ -3094,6 +3100,34 @@
         if (body) body.innerHTML = `<div class="text-center py-12 text-red-400 text-xs font-black uppercase tracking-widest">Failed to load</div>`;
       })
       .getMyClassTabTable(myId, tabName);
+  }
+
+  // Rolls of every student who hasn't filled the tab in yet, ready to paste
+  // straight into a class group chat — computed once per data load (not
+  // re-tied to the Sort/Show controls below, since who's actually missing
+  // shouldn't change just because the admin is looking at a filtered view).
+  function _renderUnfilledRollCopy() {
+    const host = document.getElementById('classTabUnfilledCopy');
+    if (!host || !_classTabData) return;
+    const meta = _classTabData.sortMeta || [];
+    const rolls = meta.filter((m, i) => !_classTabData.filled[i]).map(m => (m || {}).roll).filter(Boolean);
+    if (!rolls.length) { host.classList.add('hidden'); host.classList.remove('flex'); host.innerHTML = ''; return; }
+    host.classList.remove('hidden');
+    host.classList.add('flex');
+    host.dataset.rolls = rolls.join(', ');
+    host.innerHTML = `<span class="text-[11px] font-bold text-amber-600">Not filled — Roll ${_escHtml(rolls.join(', '))}</span>
+      <button onclick="_copyUnfilledRolls(this)" class="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest flex items-center gap-1"><i data-lucide="copy" class="h-3 w-3"></i>Copy</button>`;
+    lucide.createIcons();
+  }
+  function _copyUnfilledRolls(btn) {
+    const host = document.getElementById('classTabUnfilledCopy');
+    const rolls = host && host.dataset.rolls;
+    if (!rolls) return;
+    navigator.clipboard.writeText(rolls).then(() => {
+      const original = btn.innerHTML;
+      btn.innerHTML = 'Copied!';
+      setTimeout(() => { btn.innerHTML = original; lucide.createIcons(); }, 1500);
+    }).catch(() => showToast('Could not copy', 'error'));
   }
 
   function _setClassTabView(mode) {
