@@ -224,7 +224,7 @@ const ADMIN_TAB_ACTIONS = {
   transport: new Set(['get_transport_routes', 'save_transport_route', 'get_transport_vehicles', 'save_transport_vehicle', 'get_pickup_points', 'save_pickup_point', 'assign_route_pickup_point', 'get_route_pickup_points', 'assign_vehicle_to_route', 'get_vehicle_assignments', 'get_transport_fee_master', 'save_transport_fee_master', 'generate_student_transport_fee', 'get_student_transport_fees']),
   setup: new Set(['get_tabs', 'get_profile_sections', 'get_student_data_headers', 'get_editable_fields', 'save_editable_fields', 'get_permanent_tabs_config', 'set_permanent_tabs_config', 'get_login_password_columns', 'set_login_password_columns', 'promote_tab_to_profile', 'unpromote_tab_from_profile', 'delete_tab', 'save_tab', 'admin_reset_pin']),
   add_custom_form: new Set(['get_tabs', 'get_student_data_headers', 'save_tab', 'delete_tab']),
-  data: new Set(['get_tabs', 'get_tab_data', 'get_staff_list', 'get_tab_data_access', 'set_tab_data_access', 'get_staff_directory', 'get_class_sections', 'get_tab_class_access', 'set_tab_class_access', 'get_field_categories', 'get_tab_category_link', 'set_tab_category_link']),
+  data: new Set(['get_tabs', 'get_tab_data', 'get_tab_submission_status', 'get_staff_list', 'get_tab_data_access', 'set_tab_data_access', 'get_staff_directory', 'get_class_sections', 'get_tab_class_access', 'set_tab_class_access', 'get_field_categories', 'get_tab_category_link', 'set_tab_category_link']),
   // Class Teacher assignment (get_class_teacher_assignments/save_teacher_
   // class_assignment) lives here too, not its own tab key — it's part of
   // the same "Staff Access & Roles" unified panel as the field-category and
@@ -2016,6 +2016,52 @@ export async function POST(req) {
     const headers = [...ordered, ...extras];
     const dataRows = rows.map(r => headers.map(h => h === 'student_id' ? r.student_id : (r.data?.[h] ?? '')));
     return NextResponse.json({ headers, rows: dataRows });
+  }
+  // Admin's own version of the "who filled it in / who hasn't" view a class
+  // teacher gets automatically for their own class (see getMyClassTabTable
+  // in exec/route.js, whose field-pruning/labeling logic this mirrors) --
+  // scoped to the WHOLE roster instead of one class-teacher's class, since
+  // an admin needs to check across the school. Class/section/group/shift
+  // narrowing happens client-side against this one fetch (same pattern as
+  // every other filter/sort control already built for this feature family)
+  // rather than a param here, so toggling checkboxes needs no round-trip.
+  if (action === 'get_tab_submission_status') {
+    const { tab_name } = payload;
+    if (!tab_name) return NextResponse.json({ result: 'error', message: 'Tab required.' });
+    const [roster, subRows, tabRow] = await Promise.all([
+      sb('students_data?select=student_id,student_name,class,section,roll,group,shift,version,gender&limit=10000'),
+      sb(`portal_submissions?tab_name=eq.${encodeURIComponent(tab_name)}&select=student_id,data`),
+      sb(`portal_tabs?tab_name=eq.${encodeURIComponent(tab_name)}&select=fields_json`),
+    ]);
+    if (roster?.error) return NextResponse.json({ result: 'error', message: roster.error });
+    const rosterArr = Array.isArray(roster) ? roster : [];
+    const cfg = (!tabRow?.error && Array.isArray(tabRow) && tabRow[0]) ? tabRow[0] : null;
+    let fields = [];
+    try { fields = JSON.parse(cfg?.fields_json || '[]'); } catch {}
+    let currentGroup = '';
+    const dataFields = [];
+    fields.forEach(f => {
+      if (f.type === 'group_label') { currentGroup = f.label || ''; return; }
+      if (f.data_key) dataFields.push({ ...f, _group: currentGroup });
+    });
+    const bareLabel = f => f.name || f.label || f.data_key;
+    const subByStudent = {};
+    (Array.isArray(subRows) ? subRows : []).forEach(s => { subByStudent[s.student_id] = s.data || {}; });
+    const usedFields = dataFields.filter(f => rosterArr.some(s => {
+      const v = (subByStudent[s.student_id] || {})[f.data_key];
+      return v !== undefined && v !== null && v !== '';
+    }));
+    const labelCounts = {};
+    usedFields.forEach(f => { const l = bareLabel(f); labelCounts[l] = (labelCounts[l] || 0) + 1; });
+    const labelFor = f => (labelCounts[bareLabel(f)] > 1 && f._group) ? `${f._group}: ${bareLabel(f)}` : bareLabel(f);
+    const headers = ['Roll', 'Name', 'Class', 'Section', ...usedFields.map(labelFor)];
+    const dataRows2 = rosterArr.map(s => {
+      const data = subByStudent[s.student_id] || {};
+      return [s.roll || '', s.student_name || '', s.class || '', s.section || '', ...usedFields.map(f => data[f.data_key] ?? '')];
+    });
+    const sortMeta = rosterArr.map(s => ({ roll: s.roll, student_name: s.student_name, class: s.class || '', section: s.section || '', group: s.group || 'None', shift: s.shift || 'None', version: s.version || 'None', gender: s.gender }));
+    const filled = rosterArr.map(s => subByStudent.hasOwnProperty(s.student_id));
+    return NextResponse.json({ result: 'success', headers, rows: dataRows2, sort_meta: sortMeta, filled });
   }
   if (action === 'get_student_data_headers') {
     const rows = await sb('students_data?limit=1');

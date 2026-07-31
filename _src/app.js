@@ -3104,6 +3104,23 @@
       .getMyClassTabTable(myId, tabName);
   }
 
+  // Groups unfilled students by class-section (e.g. "Eight-A: 2, 4, 9") --
+  // shared by both the class-teacher and admin versions of the unfilled-
+  // roll widget below, since a flat cross-class roll list is ambiguous the
+  // moment two different classes both have a roll "2".
+  function _groupRollsByClassSection(metaList) {
+    const groups = new Map();
+    (metaList || []).forEach(m => {
+      if (!m || !m.roll) return;
+      const label = [m.class, m.section].filter(Boolean).join('-') || '—';
+      if (!groups.has(label)) groups.set(label, []);
+      groups.get(label).push(m.roll);
+    });
+    const labels = [...groups.keys()].sort(_sortCompare);
+    labels.forEach(l => groups.get(l).sort(_sortCompare));
+    return labels.map(l => ({ label: l, rolls: groups.get(l) }));
+  }
+
   // Rolls of every student who hasn't filled the tab in yet, ready to paste
   // straight into a class group chat — computed once per data load (not
   // re-tied to the Sort/Show controls below, since who's actually missing
@@ -3112,12 +3129,13 @@
     const host = document.getElementById('classTabUnfilledCopy');
     if (!host || !_classTabData) return;
     const meta = _classTabData.sortMeta || [];
-    const rolls = meta.filter((m, i) => !_classTabData.filled[i]).map(m => (m || {}).roll).filter(Boolean).sort(_sortCompare);
-    if (!rolls.length) { host.classList.add('hidden'); host.classList.remove('flex'); host.innerHTML = ''; return; }
+    const groups = _groupRollsByClassSection(meta.filter((m, i) => !_classTabData.filled[i]));
+    if (!groups.length) { host.classList.add('hidden'); host.classList.remove('flex'); host.innerHTML = ''; return; }
     host.classList.remove('hidden');
     host.classList.add('flex');
-    host.dataset.rolls = rolls.join(', ');
-    host.innerHTML = `<span class="text-[11px] font-bold text-amber-600">Not filled — Roll ${_escHtml(rolls.join(', '))}</span>
+    host.dataset.rolls = groups.map(g => `${g.label}: ${g.rolls.join(', ')}`).join('\n');
+    const shownText = groups.map(g => `${g.label}: ${g.rolls.join(', ')}`).join(' · ');
+    host.innerHTML = `<span class="text-[11px] font-bold text-amber-600">Not filled — ${_escHtml(shownText)}</span>
       <button onclick="_copyUnfilledRolls(this)" class="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest flex items-center gap-1"><i data-lucide="copy" class="h-3 w-3"></i>Copy</button>`;
     lucide.createIcons();
   }
@@ -3130,6 +3148,295 @@
       btn.innerHTML = 'Copied!';
       setTimeout(() => { btn.innerHTML = original; lucide.createIcons(); }, 1500);
     }).catch(() => showToast('Could not copy', 'error'));
+  }
+
+  // ── Admin's own "who filled it in / who hasn't" view (Data tab) — same
+  // idea as the class-teacher one above, but scoped to the whole school
+  // instead of one class, with class/section/group/shift checkbox filters
+  // to narrow down. Deliberately a parallel implementation rather than a
+  // parameterized shared one (matches this file's existing precedent of
+  // _renderClassTabData/_renderStudentTabData being separate too) — the
+  // roster-filter layer here has no equivalent in the class-teacher view.
+  let _adminSubData = null;
+  let _adminSubView = 'table';
+  let _adminSubSortKey = '';
+  let _adminSubFilterKey = ''; // '' | 'filled' | 'unfilled'
+  let _adminSubColumnMerges = [];
+  let _adminSubRosterFilter = { class: new Set(), section: new Set(), group: new Set(), shift: new Set() };
+
+  function openSubmissionStatusModal() {
+    const tabName = document.getElementById('summaryTabSelect') && document.getElementById('summaryTabSelect').value;
+    if (!tabName) { showToast('Select a tab first', 'error'); return; }
+    let modal = document.getElementById('adminSubStatusModal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'adminSubStatusModal';
+      modal.className = 'hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4';
+      modal.innerHTML = `<div class="bg-white rounded-3xl w-full max-w-5xl shadow-2xl flex flex-col" style="max-height:90vh">
+        <div class="flex items-start justify-between p-6 pb-4 shrink-0">
+          <div>
+            <h3 class="font-black text-slate-800 text-lg" id="adminSubStatusTitle">Submission Status</h3>
+            <p class="text-xs text-slate-400 font-bold mt-1">Filter by class, section, group or shift to narrow down who's missing.</p>
+          </div>
+          <button onclick="closeSubmissionStatusModal()" class="text-slate-400 hover:text-red-500 transition-colors p-1"><i data-lucide="x" class="h-5 w-5"></i></button>
+        </div>
+        <div id="adminSubFilters" class="px-6 pb-3 shrink-0 flex flex-col gap-2"></div>
+        <div class="flex items-center gap-2 flex-wrap px-6 pb-3 shrink-0">
+          <select id="adminSubSortSelect" class="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700">
+            <option value="">Sort: Default</option>
+            <option value="roll">Sort: Roll</option>
+            <option value="student_name">Sort: Name</option>
+            <option value="class">Sort: Class</option>
+            <option value="section">Sort: Section</option>
+            <option value="group">Sort: Group</option>
+            <option value="gender">Sort: Gender</option>
+          </select>
+          <select id="adminSubFilterSelect" class="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700">
+            <option value="">Show: All</option>
+            <option value="filled">Show: Filled</option>
+            <option value="unfilled">Show: Not Filled</option>
+          </select>
+          <div class="flex rounded-lg border border-slate-200 overflow-hidden">
+            <button id="adminSubViewTableBtn" class="px-3 py-1.5 text-xs font-black bg-blue-600 text-white">Table</button>
+            <button id="adminSubViewCardBtn" class="px-3 py-1.5 text-xs font-black text-slate-500">Cards</button>
+          </div>
+          <button id="adminSubMergeBtn" class="px-4 py-1.5 rounded-lg border border-slate-200 text-slate-700 text-xs font-black">Merge Columns</button>
+          <button id="adminSubPrintBtn" class="px-4 py-1.5 rounded-lg bg-slate-800 text-white text-xs font-black">Print</button>
+        </div>
+        <div class="flex items-center gap-2 flex-wrap px-6 pb-3 shrink-0">
+          <p id="adminSubCount" class="text-xs font-bold text-slate-500"></p>
+          <div id="adminSubUnfilledCopy" class="hidden items-center gap-1.5 flex-wrap"></div>
+        </div>
+        <div id="adminSubBody" class="flex-1 overflow-y-auto px-6 pb-6"><div class="text-center py-12"><i data-lucide="loader-2" class="h-6 w-6 animate-spin inline text-blue-600"></i></div></div>
+      </div>`;
+      document.body.appendChild(modal);
+      modal.querySelector('#adminSubViewTableBtn').addEventListener('click', () => _setAdminSubView('table'));
+      modal.querySelector('#adminSubViewCardBtn').addEventListener('click', () => _setAdminSubView('card'));
+      modal.querySelector('#adminSubSortSelect').addEventListener('change', (e) => _setAdminSubSort(e.target.value));
+      modal.querySelector('#adminSubFilterSelect').addEventListener('change', (e) => _setAdminSubFilter(e.target.value));
+      modal.querySelector('#adminSubMergeBtn').addEventListener('click', () => {
+        if (!_adminSubData) return;
+        _openMergeColumnsModal({
+          title: `Merge Columns — ${document.getElementById('adminSubStatusTitle').textContent}`,
+          headers: _adminSubData.headers,
+          merges: _adminSubColumnMerges,
+          onChange: (m) => { _adminSubColumnMerges = m; _renderAdminSubData(); },
+        });
+      });
+      modal.querySelector('#adminSubPrintBtn').addEventListener('click', () => {
+        if (!_adminSubData) return;
+        const { rows: visRows } = _adminSubVisiblePairs();
+        const { headers: dHeaders, rows: dRows } = _applyColumnMerges(_adminSubData.headers, visRows, _adminSubColumnMerges);
+        _openPrintColumnsModal({
+          title: `Print — ${document.getElementById('adminSubStatusTitle').textContent}`,
+          headers: dHeaders,
+          onPrint: (selected) => {
+            const idxs = selected.map(h => dHeaders.indexOf(h));
+            const rows = dRows.map(r => idxs.map(i => r[i]));
+            _openPrintWindow(_buildPrintHtml(document.getElementById('adminSubStatusTitle').textContent, selected, rows));
+          },
+        });
+      });
+    }
+    modal.classList.remove('hidden');
+    _adminSubData = null;
+    _adminSubSortKey = '';
+    _adminSubFilterKey = '';
+    _adminSubColumnMerges = [];
+    _adminSubRosterFilter = { class: new Set(), section: new Set(), group: new Set(), shift: new Set() };
+    document.getElementById('adminSubSortSelect').value = '';
+    document.getElementById('adminSubFilterSelect').value = '';
+    document.getElementById('adminSubStatusTitle').textContent = tabName;
+    document.getElementById('adminSubCount').textContent = '';
+    document.getElementById('adminSubFilters').innerHTML = '';
+    const unfilledHost = document.getElementById('adminSubUnfilledCopy');
+    if (unfilledHost) { unfilledHost.classList.add('hidden'); unfilledHost.classList.remove('flex'); unfilledHost.innerHTML = ''; }
+    document.getElementById('adminSubBody').innerHTML = `<div class="text-center py-12"><i data-lucide="loader-2" class="h-6 w-6 animate-spin inline text-blue-600"></i></div>`;
+    lucide.createIcons();
+
+    _adminFetch('get_tab_submission_status', { tab_name: tabName }).then(res => {
+      if (!res || res.result !== 'success') {
+        document.getElementById('adminSubBody').innerHTML = `<div class="text-center py-12 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml((res && res.message) || 'Failed to load')}</div>`;
+        return;
+      }
+      _adminSubData = { headers: res.headers || [], rows: res.rows || [], sortMeta: res.sort_meta || [], filled: res.filled || [] };
+      _renderAdminSubFilterCheckboxes();
+      _renderAdminSubCount();
+      _renderAdminUnfilledRollCopy();
+      _renderAdminSubData();
+    }).catch(() => {
+      document.getElementById('adminSubBody').innerHTML = `<div class="text-center py-12 text-red-400 text-xs font-black uppercase tracking-widest">Network error</div>`;
+    });
+  }
+
+  function closeSubmissionStatusModal() {
+    const modal = document.getElementById('adminSubStatusModal');
+    if (modal) modal.classList.add('hidden');
+  }
+
+  function _renderAdminSubFilterCheckboxes() {
+    const host = document.getElementById('adminSubFilters');
+    if (!host || !_adminSubData) return;
+    const dims = [{ key: 'class', label: 'Class' }, { key: 'section', label: 'Section' }, { key: 'group', label: 'Group' }, { key: 'shift', label: 'Shift' }];
+    const groups = dims.map(d => {
+      const values = [...new Set(_adminSubData.sortMeta.map(m => m[d.key]).filter(v => v && v !== 'None'))].sort(_sortCompare);
+      if (!values.length) return '';
+      return `<div class="flex items-start gap-2 flex-wrap">
+        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest shrink-0 pt-1" style="width:56px">${d.label}</span>
+        <div class="flex gap-1.5 flex-wrap">
+          ${values.map(v => `<label class="flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-200 text-[10px] font-bold text-slate-600 cursor-pointer hover:bg-slate-50">
+            <input type="checkbox" class="admin-sub-filter-cb" onchange="_toggleAdminSubRosterFilter('${d.key}', '${String(v).replace(/'/g, "\\'")}', this.checked)">${_escHtml(v)}
+          </label>`).join('')}
+        </div>
+      </div>`;
+    }).filter(Boolean).join('');
+    host.innerHTML = groups + (groups ? `<button onclick="_clearAdminSubRosterFilters()" class="self-start text-[10px] font-black uppercase text-blue-600 hover:underline">Clear filters</button>` : '');
+  }
+
+  function _toggleAdminSubRosterFilter(dim, value, checked) {
+    const set = _adminSubRosterFilter[dim];
+    if (!set) return;
+    if (checked) set.add(value); else set.delete(value);
+    _renderAdminSubCount();
+    _renderAdminUnfilledRollCopy();
+    _renderAdminSubData();
+  }
+  function _clearAdminSubRosterFilters() {
+    Object.values(_adminSubRosterFilter).forEach(s => s.clear());
+    document.querySelectorAll('.admin-sub-filter-cb').forEach(cb => { cb.checked = false; });
+    _renderAdminSubCount();
+    _renderAdminUnfilledRollCopy();
+    _renderAdminSubData();
+  }
+  function _adminSubPassesRosterFilter(m) {
+    const meta = m || {};
+    return ['class', 'section', 'group', 'shift'].every(dim => {
+      const set = _adminSubRosterFilter[dim];
+      return !set || !set.size || set.has(meta[dim]);
+    });
+  }
+  // Roster-filter-only view (class/section/group/shift checkboxes applied,
+  // but NOT the Show: Filled/Not Filled dropdown) -- the count line and the
+  // copyable unfilled-roll list should always reflect who's actually
+  // missing within the checked scope, not whatever the Show dropdown
+  // happens to be set to at the moment.
+  function _adminSubRosterFilteredPairs() {
+    if (!_adminSubData) return { rows: [], filled: [], meta: [] };
+    const filledArr = _adminSubData.filled && _adminSubData.filled.length === _adminSubData.rows.length
+      ? _adminSubData.filled : _adminSubData.rows.map(() => true);
+    const meta = _adminSubData.sortMeta || [];
+    const idxs = _adminSubData.rows.map((_, i) => i).filter(i => _adminSubPassesRosterFilter(meta[i]));
+    return { rows: idxs.map(i => _adminSubData.rows[i]), filled: idxs.map(i => filledArr[i]), meta: idxs.map(i => meta[i]) };
+  }
+  function _adminSubVisiblePairs() {
+    const { rows, filled, meta } = _adminSubRosterFilteredPairs();
+    let pairs = rows.map((r, i) => [r, meta[i], filled[i]]);
+    if (_adminSubSortKey) pairs = pairs.sort((a, b) => _sortCompare((a[1] || {})[_adminSubSortKey], (b[1] || {})[_adminSubSortKey]));
+    if (_adminSubFilterKey === 'filled') pairs = pairs.filter(p => p[2]);
+    else if (_adminSubFilterKey === 'unfilled') pairs = pairs.filter(p => !p[2]);
+    return { rows: pairs.map(p => p[0]), filled: pairs.map(p => p[2]) };
+  }
+  function _renderAdminSubCount() {
+    const countEl = document.getElementById('adminSubCount');
+    if (!countEl || !_adminSubData) return;
+    const { filled } = _adminSubRosterFilteredPairs();
+    const total = filled.length;
+    const filledCount = filled.filter(Boolean).length;
+    countEl.textContent = total ? `${filledCount} of ${total} students filled this in — ${total - filledCount} not filled` : 'No students match this filter';
+  }
+  function _renderAdminUnfilledRollCopy() {
+    const host = document.getElementById('adminSubUnfilledCopy');
+    if (!host || !_adminSubData) return;
+    const { filled, meta } = _adminSubRosterFilteredPairs();
+    const groups = _groupRollsByClassSection(meta.filter((m, i) => !filled[i]));
+    if (!groups.length) { host.classList.add('hidden'); host.classList.remove('flex'); host.innerHTML = ''; return; }
+    host.classList.remove('hidden');
+    host.classList.add('flex');
+    // Full list always copies in full (newline-per-class), regardless of
+    // the display cap below.
+    host.dataset.rolls = groups.map(g => `${g.label}: ${g.rolls.join(', ')}`).join('\n');
+    // Unlike the class-teacher version of this widget (naturally capped at
+    // however many classes one teacher holds), admin's roster spans the
+    // whole school -- an unfiltered view can span 40+ class/sections, which
+    // broke the layout entirely before this cap. Encourages narrowing with
+    // the checkboxes above instead of dumping every class inline.
+    const CAP = 8;
+    const shownGroups = groups.slice(0, CAP).map(g => `${g.label}: ${g.rolls.join(', ')}`).join(' · ');
+    const shown = groups.length > CAP ? `${shownGroups} … (+${groups.length - CAP} more classes — narrow with filters above, or Copy for the full list)` : shownGroups;
+    host.innerHTML = `<span class="text-[11px] font-bold text-amber-600">Not filled — ${_escHtml(shown)}</span>
+      <button onclick="_copyAdminUnfilledRolls(this)" class="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest flex items-center gap-1 shrink-0"><i data-lucide="copy" class="h-3 w-3"></i>Copy${groups.length > CAP ? ` All (${groups.length} classes)` : ''}</button>`;
+    lucide.createIcons();
+  }
+  function _copyAdminUnfilledRolls(btn) {
+    const host = document.getElementById('adminSubUnfilledCopy');
+    const rolls = host && host.dataset.rolls;
+    if (!rolls) return;
+    navigator.clipboard.writeText(rolls).then(() => {
+      const original = btn.innerHTML;
+      btn.innerHTML = 'Copied!';
+      setTimeout(() => { btn.innerHTML = original; lucide.createIcons(); }, 1500);
+    }).catch(() => showToast('Could not copy', 'error'));
+  }
+  function _setAdminSubView(mode) {
+    _adminSubView = mode;
+    const tableBtn = document.getElementById('adminSubViewTableBtn');
+    const cardBtn = document.getElementById('adminSubViewCardBtn');
+    if (tableBtn) tableBtn.className = `px-3 py-1.5 text-xs font-black ${mode === 'table' ? 'bg-blue-600 text-white' : 'text-slate-500'}`;
+    if (cardBtn) cardBtn.className = `px-3 py-1.5 text-xs font-black ${mode === 'card' ? 'bg-blue-600 text-white' : 'text-slate-500'}`;
+    _renderAdminSubData();
+  }
+  function _setAdminSubSort(key) { _adminSubSortKey = key; _renderAdminSubData(); }
+  function _setAdminSubFilter(key) { _adminSubFilterKey = key; _renderAdminSubData(); }
+
+  function _renderAdminSubData() {
+    const body = document.getElementById('adminSubBody');
+    if (!body || !_adminSubData) return;
+    const { headers } = _adminSubData;
+    const { rows, filled } = _adminSubVisiblePairs();
+    if (!rows.length) {
+      body.innerHTML = `<div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">No students match this filter</div>`;
+      return;
+    }
+    if (_adminSubView === 'table') {
+      const { headers: dHeaders, rows: dRows } = _applyColumnMerges(headers, rows, _adminSubColumnMerges);
+      body.innerHTML = `<div class="overflow-x-auto border border-slate-100 rounded-xl">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-slate-50"><tr><th class="px-3 py-2 font-black text-slate-500 uppercase tracking-widest whitespace-nowrap">Status</th>${dHeaders.map((h, i) => `<th class="px-3 py-2 font-black uppercase tracking-widest whitespace-nowrap ${_colTint(i).head}">${_escHtml(h)}</th>`).join('')}</tr></thead>
+          <tbody>${dRows.map((r, i) => `<tr class="border-t border-slate-50"><td class="px-3 py-2">${_statusBadge(filled[i])}</td>${r.map((v, ci) => `<td class="px-3 py-2 font-bold text-slate-700 whitespace-nowrap ${_colTint(ci).cell}">${v === '' || v == null ? '—' : _escHtml(v)}</td>`).join('')}</tr>`).join('')}</tbody>
+        </table>
+      </div>`;
+      return;
+    }
+    const rollIdx = headers.indexOf('Roll');
+    const nameIdx = headers.indexOf('Name');
+    const clsIdx = headers.indexOf('Class');
+    const secIdx = headers.indexOf('Section');
+    const identityIdx = new Set([rollIdx, nameIdx, clsIdx, secIdx].filter(i => i >= 0));
+    body.innerHTML = `<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      ${rows.map((r, i) => {
+        const title = _escHtml((nameIdx >= 0 && r[nameIdx]) || 'Student');
+        const sub = _escHtml([
+          (rollIdx >= 0 && r[rollIdx]) ? `Roll ${r[rollIdx]}` : null,
+          (clsIdx >= 0 && r[clsIdx]) ? `${r[clsIdx]}${(secIdx >= 0 && r[secIdx]) ? '/' + r[secIdx] : ''}` : null,
+        ].filter(Boolean).join(' · '));
+        const fields = headers
+          .map((h, i) => ({ h, v: r[i], i }))
+          .filter(f => !identityIdx.has(f.i) && f.v !== '' && f.v != null);
+        return `<div class="bg-white border border-slate-200 rounded-xl p-4">
+          <div class="flex items-start justify-between gap-2">
+            <p class="text-sm font-black text-slate-800">${title}</p>
+            ${_statusBadge(filled[i])}
+          </div>
+          <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">${sub}</p>
+          ${fields.length ? `<div class="pt-2 border-t border-slate-50 flex flex-col gap-2.5">
+            ${fields.map(f => `<div>
+              <p class="text-[9.5px] font-bold text-slate-400 uppercase tracking-wide leading-tight">${_escHtml(f.h)}</p>
+              <p class="text-xs font-semibold text-slate-700 mt-0.5 break-words">${_escHtml(String(f.v))}</p>
+            </div>`).join('')}
+          </div>` : '<p class="text-[10px] font-bold text-slate-300 uppercase tracking-widest pt-2 border-t border-slate-50">No data filled in</p>'}
+        </div>`;
+      }).join('')}
+    </div>`;
   }
 
   function _setClassTabView(mode) {
@@ -6602,6 +6909,7 @@
         <select id="summaryTabSelect" onchange="loadSummaryData()" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"><option value="">Select Target…</option></select>
         <input type="search" id="summarySearch" placeholder="Filter current view…" oninput="filterSummaryTable()" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-summary-search">
         <button onclick="exportSummaryData()" class="px-3 py-2 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Export CSV</button>
+        <button onclick="openSubmissionStatusModal()" title="See who has and hasn't filled this tab in, across the whole school — filterable by class/section/group/shift" class="px-3 py-2 border border-blue-200 text-blue-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-blue-50 transition-all">Submission Status</button>
         <button onclick="openTabAccessModal()" title="Choose which teachers/staff can view & export this tab's data" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Data Access</button>
         <button onclick="openClassAccessModal()" title="Grant a teacher/staff access for specific class-sections only" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Class Access</button>
         <button onclick="openTabCategoryLinkModal()" title="Automatically grant this tab to whoever holds a chosen Field Category — stays live as those grants change" class="px-3 py-2 border border-indigo-200 text-indigo-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-indigo-50 transition-all">Link Categories</button>
