@@ -22,6 +22,7 @@ const RESERVED = [
   'openInventoryImportModal','closeInventoryImportModal','updateInventoryImportSample',
   'previewInventoryImport','confirmInventoryImport',
   'openInventoryProductDetail','openInventoryDistributeFor',
+  'openInventoryQuickProductModal','selectInventoryRegistryProduct','submitInventoryRegistry',
   // view HTML onclick
   'addAttributeRow','addBankRow','addChildInfoRow','addCountryRow','addEduRow',
   'addFamilyRow','addInlawRow','addLanguageRow','addSiblingRow','bulkCreateFromProfiles',

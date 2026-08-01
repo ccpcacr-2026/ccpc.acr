@@ -303,6 +303,36 @@ async function _productHistory(payload) {
   });
 }
 
+// ── Registry (receive stock, ported verbatim) ───────────────────────────────
+// Simplified receiving: writes through the existing purchases/purchase_items
+// tables (no new schema needed for intake) — supplier/unit_price are
+// optional, unlike a fuller Purchase module a store admin might use later.
+async function _registryCreate(payload) {
+  const productId = payload.product_id;
+  const qty = Number(payload.quantity);
+  if (!productId || !qty || qty <= 0) {
+    return NextResponse.json({ result: 'error', message: 'A product and a positive quantity are required.' }, { status: 400 });
+  }
+  const purchase = await sbInventory('purchases', 'POST', {
+    purchase_no: `REG-${Date.now()}`,
+    remarks: payload.remarks || 'Registry intake',
+  });
+  if (purchase?.error) return NextResponse.json({ result: 'error', message: purchase.error }, { status: 500 });
+  const purchaseId = purchase[0].id;
+  const price = Number(payload.unit_price) || 0;
+  const item = await sbInventory('purchase_items', 'POST', {
+    purchase_id: purchaseId,
+    product_id: productId,
+    quantity: qty,
+    qty_in_root_unit: qty,
+    qty_remaining: qty, // nothing distributed from this lot yet
+    unit_price: price,
+    final_amount: price * qty,
+  });
+  if (item?.error) return NextResponse.json({ result: 'error', message: item.error }, { status: 500 });
+  return NextResponse.json({ result: 'success', purchase_id: purchaseId, purchase_item: item[0] });
+}
+
 // ── Excel bulk import (ported verbatim from ccpc-inventory's import route) ──
 // Mapping is resolved client-side; this only ever sees already-mapped
 // {dbColumn: value} rows. Two modes: preview (existence counts, no writes)
@@ -458,6 +488,7 @@ export async function POST(req) {
   if (action === 'settings_import_confirm') return _settingsImportConfirm(payload);
   if (action === 'products_summary') return _productsSummary(payload);
   if (action === 'product_history') return _productHistory(payload);
+  if (action === 'registry_create') return _registryCreate(payload);
 
   return NextResponse.json({ result: 'error', message: 'Unknown action' }, { status: 400 });
 }

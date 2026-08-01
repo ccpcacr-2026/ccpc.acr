@@ -8350,6 +8350,7 @@
   let _invEntityRows = [];
   let _invEntityLookups = {};
   let _invEditingEntity = null; // null = modal closed, {} = new, {...row} = editing
+  let _invEntityFormContext = 'settings'; // 'settings' | 'registry-quick-add' — where saving should return to
 
   function loadInventoryAdminView() {
     _setViewHash('inventory_admin');
@@ -8424,6 +8425,7 @@
     const body = document.getElementById('invAdminBody');
     if (!body) return;
     if (tab === 'stock') { loadInventoryStockPanel(); return; }
+    if (tab === 'registry') { loadInventoryRegistryPanel(); return; }
     if (tab === 'settings') {
       body.innerHTML = `
         <div class="grid md:grid-cols-4 gap-4">
@@ -8436,7 +8438,7 @@
         </div>`;
       return;
     }
-    const labels = { registry: 'Registry', distribute: 'Distribute' };
+    const labels = { distribute: 'Distribute' };
     body.innerHTML = `<div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-16 text-center text-slate-400 text-xs font-black uppercase tracking-widest">${labels[tab]} — coming in a later phase</div>`;
   }
 
@@ -8526,10 +8528,12 @@
     return `<div>${label}<input id="invField_${f.name}" type="${f.type === 'number' ? 'number' : 'text'}" value="${_escHtml(val)}" class="${inputCls}"></div>`;
   }
 
-  function openInventoryEntityForm(entityKey, id) {
+  function openInventoryEntityForm(entityKey, id, prefill) {
     const cfg = INV_ENTITIES[entityKey];
     if (!cfg) return;
-    _invEditingEntity = id ? (_invEntityRows.find(r => String(r.id) === String(id)) || {}) : {};
+    _invCurrentEntity = entityKey;
+    _invEntityFormContext = 'settings';
+    _invEditingEntity = id ? (_invEntityRows.find(r => String(r.id) === String(id)) || {}) : Object.assign({}, prefill || {});
     const title = document.getElementById('invEntityFormTitle');
     if (title) title.textContent = (id ? 'Edit ' : 'Create ') + cfg.label;
     const statusEl = document.getElementById('invEntityFormStatus');
@@ -8549,11 +8553,13 @@
     const modal = document.getElementById('invEntityFormModal');
     if (modal) modal.classList.add('hidden');
     _invEditingEntity = null;
+    _invEntityFormContext = 'settings';
   }
 
   function saveInventoryEntityForm() {
     if (!_invCurrentEntity) return;
     const cfg = INV_ENTITIES[_invCurrentEntity];
+    const context = _invEntityFormContext;
     const values = {};
     cfg.fields.forEach(f => {
       if (f.type === 'boolean' || f.type === 'radio') {
@@ -8571,6 +8577,11 @@
       if (!res || res.result !== 'success') { if (statusEl) statusEl.textContent = (res && res.message) || 'Save failed.'; return; }
       closeInventoryEntityForm();
       showToast('Saved', 'success');
+      if (context === 'registry-quick-add') {
+        const created = res.data && res.data[0];
+        if (created) _invSelectRegistryProduct(created);
+        return;
+      }
       openInventorySettingsEntity(_invCurrentEntity);
     }).catch(err => { if (statusEl) statusEl.textContent = err.message || 'Save failed.'; });
   }
@@ -8886,6 +8897,106 @@
   function openInventoryDistributeFor(productId) {
     _invDistributePreselectProduct = productId;
     switchInvAdminTab('distribute');
+  }
+
+  // ── Registry (receive stock) ────────────────────────────────────────────
+  let _invRegistryProducts = [];
+  let _invRegistrySelectedProduct = null;
+
+  function loadInventoryRegistryPanel() {
+    const body = document.getElementById('invAdminBody');
+    if (!body) return;
+    _invRegistrySelectedProduct = null;
+    body.innerHTML = `
+      <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 max-w-lg">
+        <p class="text-sm font-black text-slate-800 uppercase tracking-widest mb-4">Receive Stock</p>
+        <div class="mb-3 relative">
+          <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Product</label>
+          <input id="invRegistryProductQuery" type="text" placeholder="Search by name or code…" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
+          <div id="invRegistryMatches" class="mt-1 max-h-44 overflow-y-auto flex flex-col rounded-lg"></div>
+        </div>
+        <div class="mb-3">
+          <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Quantity Received</label>
+          <input id="invRegistryQty" type="number" min="1" placeholder="e.g. 50" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
+        </div>
+        <div class="mb-3">
+          <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Unit Price (optional)</label>
+          <input id="invRegistryPrice" type="number" placeholder="0.00" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
+        </div>
+        <div class="mb-4">
+          <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Remarks (optional)</label>
+          <input id="invRegistryRemarks" type="text" placeholder="e.g. Donated, purchased, transferred…" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
+        </div>
+        <div id="invRegistryStatus" class="text-xs font-bold mb-3"></div>
+        <button id="invRegistrySubmitBtn" onclick="submitInventoryRegistry()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">Register Receipt</button>
+      </div>`;
+    const input = document.getElementById('invRegistryProductQuery');
+    input.addEventListener('input', () => { _invRegistrySelectedProduct = null; _invRenderRegistryMatches(input.value.trim()); });
+    _invAdminFetch('settings_list', { entity: 'products' }).then(res => { _invRegistryProducts = (res && res.data) || []; });
+  }
+
+  function _invRenderRegistryMatches(query) {
+    const host = document.getElementById('invRegistryMatches');
+    if (!host) return;
+    if (!query) { host.innerHTML = ''; return; }
+    const q = query.toLowerCase();
+    const matches = _invRegistryProducts.filter(p => `${p.name} ${p.code || ''}`.toLowerCase().includes(q));
+    if (!matches.length) {
+      host.innerHTML = `<button onclick='openInventoryQuickProductModal(${JSON.stringify(query)})' class="w-full text-left px-3 py-2 border border-slate-200 rounded-lg text-xs font-bold text-blue-600 hover:bg-slate-50">+ Add "${_escHtml(query)}" as a new product</button>`;
+      return;
+    }
+    host.innerHTML = matches.slice(0, 8).map(p => `<button onclick="selectInventoryRegistryProduct(${p.id})" class="w-full text-left px-3 py-2 border-b border-slate-100 last:border-b-0 bg-white text-xs font-bold text-slate-700 hover:bg-slate-50">${_escHtml(p.name)} ${p.code ? `<span class="text-slate-400">(${_escHtml(p.code)})</span>` : ''}</button>`).join('');
+  }
+
+  function selectInventoryRegistryProduct(id) {
+    const product = _invRegistryProducts.find(p => String(p.id) === String(id));
+    if (!product) return;
+    _invRegistrySelectedProduct = product;
+    const input = document.getElementById('invRegistryProductQuery');
+    if (input) input.value = product.name;
+    const host = document.getElementById('invRegistryMatches');
+    if (host) host.innerHTML = '';
+  }
+
+  // Called after a quick "add new product" save from the Registry panel —
+  // not onclick-referenced, so no RESERVED entry needed.
+  function _invSelectRegistryProduct(product) {
+    _invRegistryProducts.push(product);
+    selectInventoryRegistryProduct(product.id);
+  }
+
+  function openInventoryQuickProductModal(prefillName) {
+    openInventoryEntityForm('products', null, { name: prefillName || '' });
+    _invEntityFormContext = 'registry-quick-add';
+    const title = document.getElementById('invEntityFormTitle');
+    if (title) title.textContent = 'Add New Product';
+  }
+
+  function submitInventoryRegistry() {
+    const statusEl = document.getElementById('invRegistryStatus');
+    if (!_invRegistrySelectedProduct) { if (statusEl) { statusEl.textContent = 'Pick a product first.'; statusEl.className = 'text-xs font-bold mb-3 text-red-500'; } return; }
+    const qty = Number(document.getElementById('invRegistryQty').value);
+    if (!qty || qty <= 0) { if (statusEl) { statusEl.textContent = 'Enter a quantity greater than 0.'; statusEl.className = 'text-xs font-bold mb-3 text-red-500'; } return; }
+    const unitPrice = document.getElementById('invRegistryPrice').value;
+    const remarks = document.getElementById('invRegistryRemarks').value;
+    const btn = document.getElementById('invRegistrySubmitBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    if (statusEl) { statusEl.textContent = ''; statusEl.className = 'text-xs font-bold mb-3'; }
+    const productForMsg = _invRegistrySelectedProduct;
+    _invAdminFetch('registry_create', { product_id: productForMsg.id, quantity: qty, unit_price: unitPrice, remarks }).then(res => {
+      if (btn) { btn.disabled = false; btn.textContent = 'Register Receipt'; }
+      if (!res || res.result !== 'success') { if (statusEl) { statusEl.textContent = (res && res.message) || 'Save failed.'; statusEl.className = 'text-xs font-bold mb-3 text-red-500'; } return; }
+      if (statusEl) { statusEl.textContent = `Received ${qty} × ${productForMsg.name}.`; statusEl.className = 'text-xs font-bold mb-3 text-emerald-600'; }
+      showToast('Receipt registered', 'success');
+      _invRegistrySelectedProduct = null;
+      document.getElementById('invRegistryProductQuery').value = '';
+      document.getElementById('invRegistryQty').value = '';
+      document.getElementById('invRegistryPrice').value = '';
+      document.getElementById('invRegistryRemarks').value = '';
+    }).catch(err => {
+      if (btn) { btn.disabled = false; btn.textContent = 'Register Receipt'; }
+      if (statusEl) { statusEl.textContent = err.message || 'Network error.'; statusEl.className = 'text-xs font-bold mb-3 text-red-500'; }
+    });
   }
 
   function loadInventoryView() {
