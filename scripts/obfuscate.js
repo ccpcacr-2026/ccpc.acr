@@ -23,6 +23,8 @@ const RESERVED = [
   'previewInventoryImport','confirmInventoryImport',
   'openInventoryProductDetail','openInventoryDistributeFor',
   'openInventoryQuickProductModal','selectInventoryRegistryProduct','submitInventoryRegistry',
+  'selectInventoryDistributeProduct','submitInventoryDistribution','_invClearDistProduct',
+  '_invOnDistRecipientTypeChange','_invUpdateDistNotifyPreview',
   // view HTML onclick
   'addAttributeRow','addBankRow','addChildInfoRow','addCountryRow','addEduRow',
   'addFamilyRow','addInlawRow','addLanguageRow','addSiblingRow','bulkCreateFromProfiles',

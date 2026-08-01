@@ -8426,6 +8426,7 @@
     if (!body) return;
     if (tab === 'stock') { loadInventoryStockPanel(); return; }
     if (tab === 'registry') { loadInventoryRegistryPanel(); return; }
+    if (tab === 'distribute') { loadInventoryDistributePanel(); return; }
     if (tab === 'settings') {
       body.innerHTML = `
         <div class="grid md:grid-cols-4 gap-4">
@@ -8438,8 +8439,6 @@
         </div>`;
       return;
     }
-    const labels = { distribute: 'Distribute' };
-    body.innerHTML = `<div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-16 text-center text-slate-400 text-xs font-black uppercase tracking-widest">${labels[tab]} — coming in a later phase</div>`;
   }
 
   function openInventorySettingsEntity(slug) {
@@ -8996,6 +8995,193 @@
     }).catch(err => {
       if (btn) { btn.disabled = false; btn.textContent = 'Register Receipt'; }
       if (statusEl) { statusEl.textContent = err.message || 'Network error.'; statusEl.className = 'text-xs font-bold mb-3 text-red-500'; }
+    });
+  }
+
+  // ── Distribute (Central Store FIFO) ─────────────────────────────────────
+  // Recipient-type radios map to consumer types exactly as ccpc-inventory's
+  // own RECIPIENT_TYPES/PERSON_CONSUMER_TYPES did. PERSON_CONSUMER_TYPES
+  // itself already exists above (shared with the self-service distribute
+  // modal) — reused as-is, not redeclared.
+  let _invDistProducts = [];
+  let _invDistConsumers = [];
+  let _invDistCommittees = [];
+  let _invDistAssignments = [];
+  let _invDistSelectedProduct = null;
+
+  function loadInventoryDistributePanel() {
+    const body = document.getElementById('invAdminBody');
+    if (!body) return;
+    _invDistSelectedProduct = null;
+    body.innerHTML = `
+      <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 max-w-lg">
+        <p class="text-sm font-black text-slate-800 uppercase tracking-widest mb-4">Distribute</p>
+        <div class="mb-3" id="invDistProductWrap">
+          <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Product</label>
+          <input id="invDistProductQuery" type="text" placeholder="Search by name or code…" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
+          <div id="invDistProductMatches" class="mt-1 max-h-40 overflow-y-auto flex flex-col rounded-lg"></div>
+        </div>
+        <div class="mb-3">
+          <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Recipient Type</label>
+          <div class="flex flex-wrap gap-3 mt-1.5">
+            ${['room', 'building', 'person', 'committee'].map(t => `<label class="flex items-center gap-1.5 text-xs font-bold text-slate-600"><input type="radio" name="invDistRecipientType" value="${t}" onchange="_invOnDistRecipientTypeChange()" ${t === 'person' ? 'checked' : ''}> ${t.charAt(0).toUpperCase() + t.slice(1)}</label>`).join('')}
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Recipient</label>
+          <select id="invDistConsumerSelect" onchange="_invUpdateDistNotifyPreview()" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1"><option value="">--Select--</option></select>
+          <p id="invDistNoConsumersMsg" class="hidden text-[11px] font-bold text-slate-400 mt-1"></p>
+        </div>
+        <div id="invDistNotifyPreview" class="hidden text-[11px] font-bold text-slate-500 bg-slate-50 rounded-lg px-3 py-2 mb-3"></div>
+        <div class="mb-3">
+          <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Quantity</label>
+          <input id="invDistQty" type="number" min="1" placeholder="e.g. 10" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
+        </div>
+        <div class="mb-4">
+          <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Remarks</label>
+          <input id="invDistRemarks" type="text" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
+        </div>
+        <div id="invDistStatus" class="text-xs font-bold mb-3"></div>
+        <button id="invDistSubmitBtn" onclick="submitInventoryDistribution()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">Confirm Distribution</button>
+      </div>`;
+    _invWireDistProductInput();
+    Promise.all([
+      _invAdminFetch('settings_list', { entity: 'products' }).then(res => { _invDistProducts = (res && res.data) || []; }),
+      _invAdminFetch('distribute_options', {}).then(res => {
+        _invDistConsumers = (res && res.consumers) || [];
+        _invDistCommittees = (res && res.committees) || [];
+        _invDistAssignments = (res && res.assignments) || [];
+      }),
+    ]).then(() => {
+      _invRenderDistConsumerOptions();
+      if (_invDistributePreselectProduct) {
+        const p = _invDistProducts.find(pp => String(pp.id) === String(_invDistributePreselectProduct));
+        if (p) _invSelectDistProduct(p);
+        _invDistributePreselectProduct = null;
+      }
+    });
+  }
+
+  function _invWireDistProductInput() {
+    const input = document.getElementById('invDistProductQuery');
+    if (input) input.addEventListener('input', () => { _invDistSelectedProduct = null; _invRenderDistProductMatches(input.value.trim()); });
+  }
+
+  function _invRenderDistProductMatches(query) {
+    const host = document.getElementById('invDistProductMatches');
+    if (!host) return;
+    if (!query) { host.innerHTML = ''; return; }
+    const q = query.toLowerCase();
+    const matches = _invDistProducts.filter(p => `${p.name} ${p.code || ''}`.toLowerCase().includes(q));
+    host.innerHTML = matches.length
+      ? matches.slice(0, 8).map(p => `<button onclick="selectInventoryDistributeProduct(${p.id})" class="w-full text-left px-3 py-2 border-b border-slate-100 last:border-b-0 bg-white text-xs font-bold text-slate-700 hover:bg-slate-50">${_escHtml(p.name)} ${p.code ? `<span class="text-slate-400">(${_escHtml(p.code)})</span>` : ''}</button>`).join('')
+      : `<div class="px-3 py-2 text-xs text-slate-400 font-bold">No matches.</div>`;
+  }
+
+  function selectInventoryDistributeProduct(id) {
+    const product = _invDistProducts.find(p => String(p.id) === String(id));
+    if (product) _invSelectDistProduct(product);
+  }
+
+  function _invSelectDistProduct(product) {
+    _invDistSelectedProduct = product;
+    const wrap = document.getElementById('invDistProductWrap');
+    if (!wrap) return;
+    wrap.innerHTML = `
+      <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Product</label>
+      <div class="flex items-center gap-2 mt-1">
+        <span class="text-xs font-black text-slate-800">${_escHtml(product.name)}</span>
+        <button onclick="_invClearDistProduct()" class="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600">Change</button>
+      </div>`;
+  }
+
+  function _invClearDistProduct() {
+    _invDistSelectedProduct = null;
+    const wrap = document.getElementById('invDistProductWrap');
+    if (!wrap) return;
+    wrap.innerHTML = `
+      <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Product</label>
+      <input id="invDistProductQuery" type="text" placeholder="Search by name or code…" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
+      <div id="invDistProductMatches" class="mt-1 max-h-40 overflow-y-auto flex flex-col rounded-lg"></div>`;
+    _invWireDistProductInput();
+  }
+
+  function _invGetDistRecipientType() {
+    const checked = document.querySelector('input[name="invDistRecipientType"]:checked');
+    return checked ? checked.value : 'person';
+  }
+
+  function _invRenderDistConsumerOptions() {
+    const type = _invGetDistRecipientType();
+    const wanted = type === 'person' ? PERSON_CONSUMER_TYPES : [type];
+    const filtered = _invDistConsumers.filter(c => wanted.includes(c.type));
+    const sel = document.getElementById('invDistConsumerSelect');
+    if (sel) sel.innerHTML = `<option value="">--Select--</option>` + filtered.map(c => `<option value="${c.id}">${_escHtml(c.name)}${c.type === 'committee' ? ' (Committee)' : ''}</option>`).join('');
+    const msg = document.getElementById('invDistNoConsumersMsg');
+    if (msg) {
+      if (!filtered.length) { msg.textContent = `No ${type} consumers set up yet — add one in Settings → Consumer Info.`; msg.classList.remove('hidden'); }
+      else msg.classList.add('hidden');
+    }
+  }
+
+  function _invOnDistRecipientTypeChange() {
+    const sel = document.getElementById('invDistConsumerSelect');
+    if (sel) sel.value = '';
+    _invRenderDistConsumerOptions();
+    _invUpdateDistNotifyPreview();
+  }
+
+  // Client-side preview only — the server re-resolves authoritatively on submit.
+  function _invUpdateDistNotifyPreview() {
+    const consumerId = document.getElementById('invDistConsumerSelect').value;
+    const previewEl = document.getElementById('invDistNotifyPreview');
+    const remarksEl = document.getElementById('invDistRemarks');
+    if (!consumerId) { if (previewEl) previewEl.classList.add('hidden'); return; }
+    const consumer = _invDistConsumers.find(c => String(c.id) === String(consumerId));
+    if (!consumer) { if (previewEl) previewEl.classList.add('hidden'); return; }
+    let text;
+    if (consumer.type === 'committee') {
+      const committee = _invDistCommittees.find(c => String(c.id) === String(consumer.reference_id));
+      text = committee && committee.chairman_user_id ? `${committee.chairman_user_id} (chairman of ${committee.name})` : 'No chairman set for this committee yet — no one will be notified.';
+      if (remarksEl) remarksEl.value = `Committee: ${consumer.name}`;
+    } else if (consumer.type === 'room' || consumer.type === 'building') {
+      const a = _invDistAssignments.find(x => x.holder_type === consumer.type && String(x.holder_id) === String(consumer.reference_id));
+      text = a ? a.assignee_user_id : 'No distributor assigned yet — no one will be notified.';
+    } else if (consumer.type === 'teacher' || consumer.type === 'staff') {
+      text = consumer.reference_id || 'No ccpc-teachers user_id set on this consumer — no one will be notified.';
+    } else {
+      text = 'No ccpc-teachers identity for this recipient type — no notification will be sent.';
+    }
+    if (previewEl) { previewEl.innerHTML = `<strong>Will notify:</strong> ${_escHtml(text)}`; previewEl.classList.remove('hidden'); }
+  }
+
+  function submitInventoryDistribution() {
+    const statusEl = document.getElementById('invDistStatus');
+    const setStatus = (msg, isError) => { if (statusEl) { statusEl.textContent = msg; statusEl.className = 'text-xs font-bold mb-3' + (isError ? ' text-red-500' : ''); } };
+    const consumerId = document.getElementById('invDistConsumerSelect').value;
+    const qty = Number(document.getElementById('invDistQty').value);
+    const remarks = document.getElementById('invDistRemarks').value;
+    if (!_invDistSelectedProduct) { setStatus('Pick a product.', true); return; }
+    if (!consumerId) { setStatus('Pick a recipient.', true); return; }
+    if (!qty || qty <= 0) { setStatus('Enter a quantity greater than 0.', true); return; }
+    const btn = document.getElementById('invDistSubmitBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Distributing…'; }
+    setStatus('', false);
+    const productForMsg = _invDistSelectedProduct;
+    const consumerForMsg = _invDistConsumers.find(c => String(c.id) === String(consumerId));
+    _invAdminFetch('distribute_create', { product_id: productForMsg.id, consumer_id: consumerId, quantity: qty, remarks }).then(res => {
+      if (btn) { btn.disabled = false; btn.textContent = 'Confirm Distribution'; }
+      if (!res || res.result !== 'success') { setStatus((res && res.message) || 'Distribution failed.', true); return; }
+      setStatus(`Distributed ${qty} × ${productForMsg.name} to ${consumerForMsg ? consumerForMsg.name : 'recipient'}.`, false);
+      showToast('Distribution recorded', 'success');
+      document.getElementById('invDistConsumerSelect').value = '';
+      document.getElementById('invDistQty').value = '';
+      document.getElementById('invDistRemarks').value = '';
+      const previewEl = document.getElementById('invDistNotifyPreview');
+      if (previewEl) previewEl.classList.add('hidden');
+    }).catch(err => {
+      if (btn) { btn.disabled = false; btn.textContent = 'Confirm Distribution'; }
+      setStatus(err.message || 'Network error.', true);
     });
   }
 

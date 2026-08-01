@@ -333,6 +333,119 @@ async function _registryCreate(payload) {
   return NextResponse.json({ result: 'success', purchase_id: purchaseId, purchase_item: item[0] });
 }
 
+// ── Distribute (Central Store FIFO, ported verbatim) ────────────────────────
+// Own copy of the consumers/committees/distributor_assignments picker data —
+// deliberately NOT reused from app/api/exec/route.js's ungated
+// getConsumerOptions, which only feeds the self-service second-hop UI (see
+// header comment). This console can distribute any Central Store stock to
+// anyone, so it stays behind _isInventoryAdmin like every other action here.
+async function _distributeOptions() {
+  const [consumers, committees, assignments] = await Promise.all([
+    sbInventory('consumers?select=*'),
+    sbInventory('committees?select=*'),
+    sbInventory('distributor_assignments?select=*'),
+  ]);
+  if (consumers?.error) return NextResponse.json({ result: 'error', message: consumers.error }, { status: 500 });
+  if (committees?.error) return NextResponse.json({ result: 'error', message: committees.error }, { status: 500 });
+  if (assignments?.error) return NextResponse.json({ result: 'error', message: assignments.error }, { status: 500 });
+  return NextResponse.json({ result: 'success', consumers: consumers || [], committees: committees || [], assignments: assignments || [] });
+}
+
+// committee -> its chairman, room/building -> whoever is assigned as its
+// distributor, teacher/staff -> their own reference_id (expected to hold
+// their real ccpc-teachers user_id). Student/others resolve to null.
+async function _distResolveReceiverUserId(consumer) {
+  if (consumer.type === 'committee') {
+    const rows = await sbInventory(`committees?id=eq.${encodeURIComponent(consumer.reference_id)}&select=chairman_user_id`);
+    return (Array.isArray(rows) && rows[0]?.chairman_user_id) || null;
+  }
+  if (consumer.type === 'room' || consumer.type === 'building') {
+    const rows = await sbInventory(`distributor_assignments?holder_type=eq.${consumer.type}&holder_id=eq.${encodeURIComponent(consumer.reference_id)}&select=assignee_user_id&limit=1`);
+    return (Array.isArray(rows) && rows[0]?.assignee_user_id) || null;
+  }
+  if (consumer.type === 'teacher' || consumer.type === 'staff') {
+    return consumer.reference_id || null;
+  }
+  return null;
+}
+
+async function _distributeCreate(payload) {
+  const productId = payload.product_id;
+  const consumerId = payload.consumer_id;
+  const qty = Number(payload.quantity);
+  if (!productId || !consumerId || !qty || qty <= 0) {
+    return NextResponse.json({ result: 'error', message: 'Product, recipient, and a positive quantity are required.' }, { status: 400 });
+  }
+
+  const consumerRows = await sbInventory(`consumers?id=eq.${encodeURIComponent(consumerId)}&select=*`);
+  if (consumerRows?.error || !Array.isArray(consumerRows) || !consumerRows.length) {
+    return NextResponse.json({ result: 'error', message: 'Recipient not found.' }, { status: 404 });
+  }
+  const consumer = consumerRows[0];
+
+  // FIFO across Central Store's lots for this product — oldest purchase
+  // first. Keep BOTH sort keys: id.asc is the tiebreaker when two lots
+  // share a created_at timestamp.
+  const lots = await sbInventory(`purchase_items?product_id=eq.${encodeURIComponent(productId)}&qty_remaining=gt.0&select=*&order=created_at.asc,id.asc`);
+  if (lots?.error) return NextResponse.json({ result: 'error', message: lots.error }, { status: 500 });
+  const available = (Array.isArray(lots) ? lots : []).reduce((s, l) => s + Number(l.qty_remaining || 0), 0);
+  if (available < qty) {
+    return NextResponse.json({ result: 'error', message: `Only ${available} in stock — cannot distribute ${qty}.` }, { status: 400 });
+  }
+
+  const receiverUserId = await _distResolveReceiverUserId(consumer);
+
+  const distribution = await sbInventory('distributions', 'POST', {
+    distribute_no: `DIST-${Date.now()}`,
+    consumer_id: consumerId,
+    entry_type: 'fifo',
+    receiver_user_id: receiverUserId,
+    remarks: payload.remarks || (consumer.type === 'committee' ? `Committee: ${consumer.name}` : null),
+  });
+  if (distribution?.error) return NextResponse.json({ result: 'error', message: distribution.error }, { status: 500 });
+  const distributionId = distribution[0].id;
+
+  let remainingToTake = qty;
+  for (const lot of lots) {
+    if (remainingToTake <= 0) break;
+    const take = Math.min(remainingToTake, Number(lot.qty_remaining));
+    remainingToTake -= take;
+
+    const itemRes = await sbInventory('distribution_items', 'POST', {
+      distribution_id: distributionId,
+      product_id: productId,
+      purchase_item_id: lot.id, // the FIFO trace — distinguishes this from the non-FIFO self-service createDistribution
+      quantity: take,
+      unit_price: lot.unit_price,
+      total_price: take * Number(lot.unit_price || 0),
+    });
+    if (itemRes?.error) return NextResponse.json({ result: 'error', message: itemRes.error }, { status: 500 });
+
+    await sbInventory(`purchase_items?id=eq.${lot.id}`, 'PATCH', { qty_remaining: Number(lot.qty_remaining) - take });
+  }
+
+  // Upsert the recipient's holder_stock (increment if a row already exists).
+  const existingHolding = await sbInventory(`holder_stock?consumer_id=eq.${encodeURIComponent(consumerId)}&product_id=eq.${encodeURIComponent(productId)}&select=*`);
+  if (Array.isArray(existingHolding) && existingHolding.length) {
+    await sbInventory(`holder_stock?id=eq.${existingHolding[0].id}`, 'PATCH', {
+      quantity: Number(existingHolding[0].quantity) + qty,
+      updated_at: new Date().toISOString(),
+    });
+  } else {
+    await sbInventory('holder_stock', 'POST', { consumer_id: consumerId, product_id: productId, quantity: qty });
+  }
+
+  if (receiverUserId) {
+    await sbInventory('inventory_notifications', 'POST', {
+      user_id: receiverUserId,
+      message: `You received ${qty} × item from the store${consumer.type === 'committee' ? ` on behalf of ${consumer.name}` : ''}.`,
+      distribution_id: distributionId,
+    });
+  }
+
+  return NextResponse.json({ result: 'success', distribution_id: distributionId, receiver_user_id: receiverUserId });
+}
+
 // ── Excel bulk import (ported verbatim from ccpc-inventory's import route) ──
 // Mapping is resolved client-side; this only ever sees already-mapped
 // {dbColumn: value} rows. Two modes: preview (existence counts, no writes)
@@ -489,6 +602,8 @@ export async function POST(req) {
   if (action === 'products_summary') return _productsSummary(payload);
   if (action === 'product_history') return _productHistory(payload);
   if (action === 'registry_create') return _registryCreate(payload);
+  if (action === 'distribute_options') return _distributeOptions();
+  if (action === 'distribute_create') return _distributeCreate(payload);
 
   return NextResponse.json({ result: 'error', message: 'Unknown action' }, { status: 400 });
 }
