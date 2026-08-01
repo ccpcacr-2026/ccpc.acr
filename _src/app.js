@@ -8182,18 +8182,371 @@
     });
   }
 
-  // Inventory Admin is a genuinely separate app (own Vercel deployment,
-  // own database) -- not worth natively re-porting just to avoid a new
-  // tab. Embedded via iframe instead (confirmed it sets no X-Frame-Options/
-  // CSP frame-ancestors that would block this), so it opens like any other
-  // internal view — same tab, same sidebar/chrome, no external navigation.
+  // ── Inventory Admin (native port of the standalone ccpc-inventory app) ────
+  // Ported natively (no iframe, no second login) into app/api/inventory-admin
+  // /route.js + the views below. That route re-verifies the caller's OWN
+  // ccpc-teachers user_id for the 'Admin'/'Inventory Admin' role on every
+  // request — same trust model as the Student Portal admin console.
+  //
+  // This is a SEPARATE feature from the pre-existing self-service inventory
+  // flow above (_invReq/getMyHolderStock/createDistribution/PERSON_CONSUMER_TYPES
+  // etc.) — that one hands off stock a holder already has (no FIFO). This
+  // console instead manages Central Store stock via purchase_items FIFO
+  // lots. Same `inventory` schema tables, two independent code paths.
+  function _invAdminFetch(action, payload) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    return fetch('/api/inventory-admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, payload: payload || {}, user_id: myId })
+    }).then(async r => {
+      let body = null;
+      try { body = await r.json(); } catch (_) {}
+      if (!r.ok) throw new Error((body && body.message) || ('Network error ' + r.status));
+      return body;
+    });
+  }
+
+  // Client mirror of app/api/inventory-admin/route.js's ENTITIES — the
+  // server copy is authoritative for save defaulting; this one only drives
+  // rendering (list columns + form fields), same split as the source app.
+  const INV_ENTITIES = {
+    groups: { label: 'Group', title: 'GROUP', importKey: 'name',
+      columns: [{ key: 'code', label: 'Code#' }, { key: 'name', label: 'Group' }],
+      fields: [{ name: 'code', label: 'Code#', type: 'text' }, { name: 'name', label: 'Group', type: 'text', required: true }] },
+    units: { label: 'Unit', title: 'UNIT', importKey: 'name',
+      columns: [{ key: 'name', label: 'Unit' }, { key: 'short_form', label: 'Short Form' }],
+      fields: [{ name: 'name', label: 'Unit', type: 'text', required: true }, { name: 'short_form', label: 'Short Form', type: 'text' }] },
+    unit_conversions: { label: 'Unit Conversion', title: 'UNIT CONVERSION',
+      columns: [
+        { key: 'unit_id', label: 'Unit', lookup: 'units', lookupLabel: 'name' },
+        { key: 'unit_type', label: 'Unit Type' },
+        { key: 'value', label: 'Value' },
+        { key: 'convert_from_unit_id', label: 'Convert From', lookup: 'units', lookupLabel: 'name' },
+        { key: 'from_value', label: 'Value' },
+        { key: 'convert_to_unit_id', label: 'Convert To', lookup: 'units', lookupLabel: 'name' },
+      ],
+      fields: [
+        { name: 'unit_id', label: 'Unit', type: 'select', source: 'units', optionLabel: 'name' },
+        { name: 'unit_type', label: 'Unit Type', type: 'text' },
+        { name: 'value', label: 'Value', type: 'number', default: 0 },
+        { name: 'convert_from_unit_id', label: 'Convert From', type: 'select', source: 'units', optionLabel: 'name' },
+        { name: 'from_value', label: 'Value', type: 'number', default: 0 },
+        { name: 'convert_to_unit_id', label: 'Convert To', type: 'select', source: 'units', optionLabel: 'name' },
+      ] },
+    buildings: { label: 'Building', title: 'BUILDING', importKey: 'name',
+      columns: [{ key: 'name', label: 'Building Name' }, { key: 'short_name', label: 'Short Name' }],
+      fields: [{ name: 'name', label: 'Building Name', type: 'text', required: true }, { name: 'short_name', label: 'Short Name', type: 'text' }] },
+    floors: { label: 'Floor', title: 'FLOOR', importKey: 'name',
+      columns: [{ key: 'name', label: 'Floor Name' }, { key: 'short_name', label: 'Short Name' }, { key: 'building_id', label: 'Building', lookup: 'buildings', lookupLabel: 'name' }],
+      fields: [
+        { name: 'building_id', label: 'Building', type: 'select', source: 'buildings', optionLabel: 'name' },
+        { name: 'name', label: 'Floor Name', type: 'text', required: true },
+        { name: 'short_name', label: 'Short Name', type: 'text' },
+      ] },
+    room_types: { label: 'Room Type', title: 'ROOM TYPE', importKey: 'name',
+      columns: [{ key: 'name', label: 'Room Type Name' }],
+      fields: [{ name: 'name', label: 'Room Type Name', type: 'text', required: true }] },
+    rooms: { label: 'Room', title: 'ROOM', importKey: 'name',
+      columns: [
+        { key: 'name', label: 'Room' },
+        { key: 'building_id', label: 'Building', lookup: 'buildings', lookupLabel: 'name' },
+        { key: 'floor_id', label: 'Floor', lookup: 'floors', lookupLabel: 'name' },
+        { key: 'room_type_id', label: 'Room Type', lookup: 'room_types', lookupLabel: 'name' },
+      ],
+      fields: [
+        { name: 'name', label: 'Room Name', type: 'text', required: true },
+        { name: 'building_id', label: 'Building', type: 'select', source: 'buildings', optionLabel: 'name' },
+        { name: 'floor_id', label: 'Floor', type: 'select', source: 'floors', optionLabel: 'name' },
+        { name: 'room_type_id', label: 'Room Type', type: 'select', source: 'room_types', optionLabel: 'name' },
+      ] },
+    departments: { label: 'Department', title: 'DEPARTMENT', importKey: 'name',
+      columns: [{ key: 'name', label: 'Department Name' }],
+      fields: [{ name: 'name', label: 'Department Name', type: 'text', required: true }] },
+    products: { label: 'Product', title: 'PRODUCT INFO', importKey: 'name',
+      columns: [
+        { key: 'code', label: 'Code#' }, { key: 'name', label: 'Product Name' },
+        { key: 'group_id', label: 'Group', lookup: 'groups', lookupLabel: 'name' },
+        { key: 'unit_id', label: 'Unit', lookup: 'units', lookupLabel: 'name' },
+        { key: 'is_active', label: 'Active' },
+      ],
+      fields: [
+        { name: 'code', label: 'Code#', type: 'text' },
+        { name: 'name', label: 'Product Name', type: 'text', required: true },
+        { name: 'group_id', label: 'Group', type: 'select', source: 'groups', optionLabel: 'name' },
+        { name: 'unit_id', label: 'Unit Type', type: 'select', source: 'units', optionLabel: 'name' },
+        { name: 'type', label: 'Type', type: 'radio', default: 'consumable',
+          options: [{ value: 'consumable', label: 'Consumable' }, { value: 'fixed', label: 'Fixed' }] },
+        { name: 'expireable', label: 'Expireable', type: 'boolean', default: false },
+        { name: 'vat_item', label: 'VAT Item', type: 'boolean', default: false },
+        { name: 'vat_type', label: 'VAT Type', type: 'radio', default: 'n/a',
+          options: [{ value: 'percentage', label: 'Percentage' }, { value: 'fixed', label: 'Fixed' }, { value: 'n/a', label: 'N/A' }] },
+        { name: 'allow_purchase_return', label: 'Allow Purchase Return', type: 'boolean', default: false },
+        { name: 'allow_distribute_return', label: 'Allow Distribute Return', type: 'boolean', default: false },
+        { name: 'is_active', label: 'Current Status', type: 'boolean', default: true },
+      ] },
+    suppliers: { label: 'Supplier', title: 'SUPPLIER INFO', importKey: 'name',
+      columns: [{ key: 'code', label: 'Code#' }, { key: 'name', label: 'Name' }, { key: 'phone', label: 'Phone' }, { key: 'is_active', label: 'Active' }],
+      fields: [
+        { name: 'source', label: 'Source', type: 'text', default: 'GENERAL' },
+        { name: 'code', label: 'Code#', type: 'text' },
+        { name: 'title', label: 'Title', type: 'text' },
+        { name: 'name', label: 'Name', type: 'text', required: true },
+        { name: 'address', label: 'Address', type: 'text' },
+        { name: 'country', label: 'Country', type: 'text', default: 'Bangladesh' },
+        { name: 'district', label: 'District', type: 'text' },
+        { name: 'phone', label: 'Phone/Cell', type: 'text' },
+        { name: 'contact_person', label: 'Contact Person', type: 'text' },
+        { name: 'designation', label: 'Designation', type: 'text' },
+        { name: 'contract_phone', label: 'Contract Phone', type: 'text' },
+        { name: 'is_active', label: 'Current Status', type: 'boolean', default: true },
+      ] },
+    consumers: { label: 'Consumer', title: 'CONSUMER INFO', importKey: 'name',
+      columns: [{ key: 'code', label: 'Code#' }, { key: 'name', label: 'Name' }, { key: 'type', label: 'Type' }, { key: 'is_active', label: 'Active' }],
+      fields: [
+        { name: 'source_id', label: 'Source ID', type: 'text' },
+        { name: 'type', label: 'Type', type: 'radio', required: true,
+          options: [
+            { value: 'teacher', label: 'Teacher' }, { value: 'staff', label: 'Staff' }, { value: 'student', label: 'Student' },
+            { value: 'room', label: 'Room' }, { value: 'building', label: 'Building' }, { value: 'committee', label: 'Committee' }, { value: 'others', label: 'Others' },
+          ] },
+        { name: 'reference_id', label: "Reference ID (Teacher/Staff: their ccpc-teachers user_id · Room/Building: its Settings ID · Committee: its Committee ID)", type: 'text' },
+        { name: 'code', label: 'Code#', type: 'text' },
+        { name: 'name', label: 'Name', type: 'text', required: true },
+        { name: 'location', label: 'Consumer Location', type: 'text' },
+        { name: 'phone', label: 'Consumer Phone/Cell', type: 'text' },
+        { name: 'designation', label: 'Consumer Designation', type: 'text' },
+        { name: 'contact_person', label: 'Contact Person', type: 'text' },
+        { name: 'contact_designation', label: 'Contact Designation', type: 'text' },
+        { name: 'is_active', label: 'Current Status', type: 'boolean', default: false },
+      ] },
+    committees: { label: 'Committee', title: 'COMMITTEES', importKey: 'name',
+      columns: [{ key: 'name', label: 'Name' }, { key: 'chairman_user_id', label: 'Chairman (Teacher user_id)' }, { key: 'description', label: 'Description' }],
+      fields: [
+        { name: 'name', label: 'Committee Name', type: 'text', required: true },
+        { name: 'chairman_user_id', label: 'Chairman (ccpc-teachers user_id)', type: 'text' },
+        { name: 'description', label: 'Description', type: 'text' },
+      ] },
+    distributor_assignments: { label: 'Distributor Assignment', title: 'DISTRIBUTOR ASSIGNMENTS',
+      columns: [{ key: 'assignee_user_id', label: 'Assignee (Teacher user_id)' }, { key: 'holder_type', label: 'Holder Type' }, { key: 'holder_id', label: 'Holder ID' }],
+      fields: [
+        { name: 'assignee_user_id', label: 'Assignee (ccpc-teachers user_id)', type: 'text', required: true },
+        { name: 'holder_type', label: 'Holder Type', type: 'radio', required: true,
+          options: [{ value: 'room', label: 'Room' }, { value: 'building', label: 'Building' }, { value: 'committee', label: 'Committee' }] },
+        { name: 'holder_id', label: 'Holder', type: 'text', required: true },
+      ] },
+  };
+  const INV_SETTINGS_MENU = [
+    { slug: 'products', label: 'Product Info' }, { slug: 'suppliers', label: 'Supplier Info' },
+    { slug: 'consumers', label: 'Consumer Info' }, { slug: 'committees', label: 'Committee' },
+    { slug: 'groups', label: 'Group' }, { slug: 'units', label: 'Unit' }, { slug: 'unit_conversions', label: 'Unit Conversion' },
+    { slug: 'rooms', label: 'Room' }, { slug: 'buildings', label: 'Building' }, { slug: 'floors', label: 'Floor' },
+    { slug: 'room_types', label: 'Room Type' }, { slug: 'departments', label: 'Department' },
+    { slug: 'distributor_assignments', label: 'Distributor Assignments' },
+  ];
+
+  let _invAdminActiveTab = 'settings';
+  let _invCurrentEntity = null;
+  let _invEntityRows = [];
+  let _invEntityLookups = {};
+  let _invEditingEntity = null; // null = modal closed, {} = new, {...row} = editing
+
   function loadInventoryAdminView() {
     _setViewHash('inventory_admin');
     setActiveNavLink('nav-inventory-admin');
     setContentHeader('Inventory Admin', 'boxes');
     const container = document.getElementById('view-container');
     if (!container) return;
-    container.innerHTML = `<iframe src="https://ccpc-inventory.vercel.app" title="Inventory Admin" style="width:100%;height:calc(100vh - 130px);border:1px solid #e2e8f0;border-radius:16px;"></iframe>`;
+    container.innerHTML = `
+      <div class="flex flex-wrap gap-2 mb-4">
+        <button id="invAdminTab_stock" onclick="switchInvAdminTab('stock')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all">Stock Overview</button>
+        <button id="invAdminTab_registry" onclick="switchInvAdminTab('registry')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all">Registry</button>
+        <button id="invAdminTab_distribute" onclick="switchInvAdminTab('distribute')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all">Distribute</button>
+        <button id="invAdminTab_settings" onclick="switchInvAdminTab('settings')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all">Settings</button>
+      </div>
+      <div id="invAdminBody"></div>
+
+      <div id="invEntityFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-lg max-h-[85vh] overflow-y-auto">
+          <p class="font-black text-slate-800 text-sm mb-3" id="invEntityFormTitle"></p>
+          <div id="invEntityFormFields" class="flex flex-col gap-3"></div>
+          <div id="invEntityFormStatus" class="text-xs font-bold mt-2"></div>
+          <div class="flex gap-2 justify-end mt-4">
+            <button onclick="closeInventoryEntityForm()" class="px-4 py-2 rounded-lg text-slate-500 text-xs font-black">Cancel</button>
+            <button onclick="saveInventoryEntityForm()" class="px-4 py-2 rounded-lg bg-blue-600 text-white text-xs font-black">Save</button>
+          </div>
+        </div>
+      </div>`;
+    lucide.createIcons();
+    switchInvAdminTab(_invAdminActiveTab || 'settings');
+  }
+
+  function switchInvAdminTab(tab) {
+    _invAdminActiveTab = tab;
+    ['stock', 'registry', 'distribute', 'settings'].forEach(t => {
+      const btn = document.getElementById('invAdminTab_' + t);
+      if (!btn) return;
+      btn.classList.toggle('bg-blue-600', t === tab);
+      btn.classList.toggle('text-white', t === tab);
+      btn.classList.toggle('text-slate-500', t !== tab);
+    });
+    const body = document.getElementById('invAdminBody');
+    if (!body) return;
+    if (tab === 'settings') {
+      body.innerHTML = `
+        <div class="grid md:grid-cols-4 gap-4">
+          <div class="md:col-span-1 bg-white rounded-3xl border border-slate-200 shadow-sm p-2 flex flex-col gap-1 max-h-[70vh] overflow-y-auto" id="invSettingsMenu">
+            ${INV_SETTINGS_MENU.map(m => `<button data-slug="${m.slug}" onclick="openInventorySettingsEntity('${m.slug}')" class="text-left px-3 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all">${_escHtml(m.label)}</button>`).join('')}
+          </div>
+          <div class="md:col-span-3 bg-white rounded-3xl border border-slate-200 shadow-sm p-5" id="invSettingsPanel">
+            <div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Pick a category on the left</div>
+          </div>
+        </div>`;
+      return;
+    }
+    const labels = { stock: 'Stock Overview', registry: 'Registry', distribute: 'Distribute' };
+    body.innerHTML = `<div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-16 text-center text-slate-400 text-xs font-black uppercase tracking-widest">${labels[tab]} — coming in a later phase</div>`;
+  }
+
+  function openInventorySettingsEntity(slug) {
+    _invCurrentEntity = slug;
+    const menu = document.getElementById('invSettingsMenu');
+    if (menu) Array.from(menu.children).forEach(btn => btn.classList.toggle('bg-slate-100', btn.dataset.slug === slug));
+    const panel = document.getElementById('invSettingsPanel');
+    if (panel) panel.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`;
+    const cfg = INV_ENTITIES[slug];
+    if (!cfg) return;
+    const lookupSlugs = Array.from(new Set((cfg.columns || []).filter(c => c.lookup).map(c => c.lookup)));
+    Promise.all([
+      _invAdminFetch('settings_list', { entity: slug }),
+      ...lookupSlugs.map(s => _invAdminFetch('settings_list', { entity: s }).then(res => { _invEntityLookups[s] = (res && res.data) || []; }))
+    ]).then(([res]) => {
+      _invEntityRows = (res && res.data) || [];
+      _invRenderSettingsTable();
+    }).catch(err => {
+      if (panel) panel.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml(err.message || 'Failed to load')}</div>`;
+    });
+  }
+
+  function _invDisplayValue(col, row) {
+    const raw = row[col.key];
+    if (col.lookup) {
+      const list = _invEntityLookups[col.lookup] || [];
+      const match = list.find(r => String(r.id) === String(raw));
+      return match ? (match[col.lookupLabel] ?? '') : '';
+    }
+    if (raw === true) return 'Yes';
+    if (raw === false) return 'No';
+    return raw == null ? '' : raw;
+  }
+
+  function _invRenderSettingsTable() {
+    const cfg = INV_ENTITIES[_invCurrentEntity];
+    const panel = document.getElementById('invSettingsPanel');
+    if (!panel || !cfg) return;
+    const rows = _invEntityRows;
+    panel.innerHTML = `
+      <div class="flex items-center justify-between mb-4 gap-3">
+        <p class="text-sm font-black text-slate-800 uppercase tracking-widest">${_escHtml(cfg.title)}</p>
+        <button onclick="openInventoryEntityForm('${_invCurrentEntity}')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all shrink-0">+ Create New</button>
+      </div>
+      ${!rows.length ? `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">No records yet</div>` : `
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-slate-50"><tr>${cfg.columns.map(c => `<th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">${_escHtml(c.label)}</th>`).join('')}<th></th></tr></thead>
+          <tbody>${rows.map(r => `<tr class="border-t border-slate-50">
+            ${cfg.columns.map(c => `<td class="px-3 py-2.5 font-bold text-slate-600">${_escHtml(_invDisplayValue(c, r))}</td>`).join('')}
+            <td class="px-3 py-2.5 text-right whitespace-nowrap">
+              <button onclick="openInventoryEntityForm('${_invCurrentEntity}', ${r.id})" class="text-blue-600 font-black text-[10px] uppercase tracking-widest mr-3">Edit</button>
+              <button onclick="deleteInventoryEntityRow('${_invCurrentEntity}', ${r.id})" class="text-red-500 font-black text-[10px] uppercase tracking-widest">Delete</button>
+            </td>
+          </tr>`).join('')}</tbody>
+        </table>
+      </div>`}`;
+  }
+
+  function _invFieldHtml(f, current) {
+    const val = current && current[f.name] !== undefined && current[f.name] !== null ? current[f.name] : (f.default !== undefined ? f.default : '');
+    const label = `<label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">${_escHtml(f.label)}${f.required ? ' *' : ''}</label>`;
+    const inputCls = 'w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1';
+    if (f.type === 'boolean') {
+      const isTrue = val === true || val === 'true';
+      return `<div>${label}<div class="flex gap-4 mt-1.5">
+        <label class="flex items-center gap-1.5 text-xs font-bold text-slate-600"><input type="radio" name="invField_${f.name}" value="true" ${isTrue ? 'checked' : ''}> Yes</label>
+        <label class="flex items-center gap-1.5 text-xs font-bold text-slate-600"><input type="radio" name="invField_${f.name}" value="false" ${!isTrue ? 'checked' : ''}> No</label>
+      </div></div>`;
+    }
+    if (f.type === 'radio') {
+      return `<div>${label}<div class="flex flex-wrap gap-3 mt-1.5">
+        ${f.options.map(o => `<label class="flex items-center gap-1.5 text-xs font-bold text-slate-600"><input type="radio" name="invField_${f.name}" value="${_escHtml(o.value)}" ${String(val) === o.value ? 'checked' : ''}> ${_escHtml(o.label)}</label>`).join('')}
+      </div></div>`;
+    }
+    if (f.type === 'select') {
+      const opts = _invEntityLookups[f.source] || [];
+      return `<div>${label}<select id="invField_${f.name}" class="${inputCls}">
+        <option value="">—</option>
+        ${opts.map(o => `<option value="${o.id}" ${String(val) === String(o.id) ? 'selected' : ''}>${_escHtml(o[f.optionLabel])}</option>`).join('')}
+      </select></div>`;
+    }
+    return `<div>${label}<input id="invField_${f.name}" type="${f.type === 'number' ? 'number' : 'text'}" value="${_escHtml(val)}" class="${inputCls}"></div>`;
+  }
+
+  function openInventoryEntityForm(entityKey, id) {
+    const cfg = INV_ENTITIES[entityKey];
+    if (!cfg) return;
+    _invEditingEntity = id ? (_invEntityRows.find(r => String(r.id) === String(id)) || {}) : {};
+    const title = document.getElementById('invEntityFormTitle');
+    if (title) title.textContent = (id ? 'Edit ' : 'Create ') + cfg.label;
+    const statusEl = document.getElementById('invEntityFormStatus');
+    if (statusEl) statusEl.textContent = '';
+    document.getElementById('invEntityFormModal').classList.remove('hidden');
+    const renderFields = () => {
+      const host = document.getElementById('invEntityFormFields');
+      if (host) host.innerHTML = cfg.fields.map(f => _invFieldHtml(f, _invEditingEntity)).join('');
+    };
+    const needed = Array.from(new Set(cfg.fields.filter(f => f.type === 'select').map(f => f.source)));
+    const missing = needed.filter(s => !_invEntityLookups[s]);
+    if (!missing.length) { renderFields(); return; }
+    Promise.all(missing.map(s => _invAdminFetch('settings_list', { entity: s }).then(res => { _invEntityLookups[s] = (res && res.data) || []; }))).then(renderFields);
+  }
+
+  function closeInventoryEntityForm() {
+    const modal = document.getElementById('invEntityFormModal');
+    if (modal) modal.classList.add('hidden');
+    _invEditingEntity = null;
+  }
+
+  function saveInventoryEntityForm() {
+    if (!_invCurrentEntity) return;
+    const cfg = INV_ENTITIES[_invCurrentEntity];
+    const values = {};
+    cfg.fields.forEach(f => {
+      if (f.type === 'boolean' || f.type === 'radio') {
+        const checked = document.querySelector(`input[name="invField_${f.name}"]:checked`);
+        values[f.name] = checked ? checked.value : '';
+      } else {
+        const el = document.getElementById(`invField_${f.name}`);
+        values[f.name] = el ? el.value : '';
+      }
+    });
+    if (_invEditingEntity && _invEditingEntity.id) values.id = _invEditingEntity.id;
+    const statusEl = document.getElementById('invEntityFormStatus');
+    if (statusEl) statusEl.textContent = 'Saving…';
+    _invAdminFetch('settings_save', { entity: _invCurrentEntity, values }).then(res => {
+      if (!res || res.result !== 'success') { if (statusEl) statusEl.textContent = (res && res.message) || 'Save failed.'; return; }
+      closeInventoryEntityForm();
+      showToast('Saved', 'success');
+      openInventorySettingsEntity(_invCurrentEntity);
+    }).catch(err => { if (statusEl) statusEl.textContent = err.message || 'Save failed.'; });
+  }
+
+  function deleteInventoryEntityRow(entityKey, id) {
+    if (!confirm('Delete this record?')) return;
+    _invAdminFetch('settings_delete', { entity: entityKey, id }).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Delete failed.', 'error'); return; }
+      showToast('Deleted', 'success');
+      openInventorySettingsEntity(entityKey);
+    }).catch(err => showToast(err.message || 'Delete failed.', 'error'));
   }
 
   function loadInventoryView() {

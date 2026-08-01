@@ -16,6 +16,9 @@ const RESERVED = [
   'confirmEditRole','confirmResetPassword','launchDashboard','loadDefaultView','loadMyCommittees',
   'loadInventoryView','loadInventoryAdminView','loadMyClassView','loadSystemView','logout','openChangeMyPassModal','openMobileSidebar',
   'switchRecordsTab','toggleSidebar',
+  // Inventory Admin (native port of ccpc-inventory) — onclick-referenced
+  'switchInvAdminTab','openInventorySettingsEntity','openInventoryEntityForm',
+  'saveInventoryEntityForm','closeInventoryEntityForm','deleteInventoryEntityRow',
   // view HTML onclick
   'addAttributeRow','addBankRow','addChildInfoRow','addCountryRow','addEduRow',
   'addFamilyRow','addInlawRow','addLanguageRow','addSiblingRow','bulkCreateFromProfiles',
