@@ -21,6 +21,7 @@ const RESERVED = [
   'saveInventoryEntityForm','closeInventoryEntityForm','deleteInventoryEntityRow',
   'openInventoryImportModal','closeInventoryImportModal','updateInventoryImportSample',
   'previewInventoryImport','confirmInventoryImport',
+  'openInventoryProductDetail','openInventoryDistributeFor',
   // view HTML onclick
   'addAttributeRow','addBankRow','addChildInfoRow','addCountryRow','addEduRow',
   'addFamilyRow','addInlawRow','addLanguageRow','addSiblingRow','bulkCreateFromProfiles',

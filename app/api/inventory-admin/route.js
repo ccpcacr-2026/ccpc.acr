@@ -265,6 +265,44 @@ async function _settingsDelete(payload) {
   return NextResponse.json({ result: 'success' });
 }
 
+// ── Stock Overview + Product Detail (read-only, ported verbatim) ───────────
+async function _productsSummary(payload) {
+  const q = (payload.q || '').trim();
+  let path = 'product_stock_summary?select=*&order=name.asc';
+  if (q) {
+    const esc = encodeURIComponent(q);
+    path += `&or=(name.ilike.*${esc}*,code.ilike.*${esc}*)`;
+  }
+  const rows = await sbInventory(path);
+  if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+  const units = await sbInventory('units?select=id,short_form');
+  const unitMap = new Map((Array.isArray(units) ? units : []).map(u => [u.id, u.short_form]));
+  const data = (rows || []).map(r => ({ ...r, unit: unitMap.get(r.unit_id) || '' }));
+  return NextResponse.json({ result: 'success', data });
+}
+
+async function _productHistory(payload) {
+  const id = payload.id;
+  if (!id) return NextResponse.json({ result: 'error', message: 'id is required' }, { status: 400 });
+  const [productRows, summaryRows, historyRows] = await Promise.all([
+    sbInventory(`products?id=eq.${encodeURIComponent(id)}&select=*`),
+    sbInventory(`product_stock_summary?id=eq.${encodeURIComponent(id)}&select=*`),
+    // distributions has two FKs into consumers (consumer_id = recipient,
+    // from_consumer_id = second-hop source) — PostgREST can't auto-pick one
+    // for the embed, so it must be named explicitly or this 300s as ambiguous.
+    sbInventory(`distribution_items?product_id=eq.${encodeURIComponent(id)}&select=*,distributions(*,consumers!distributions_consumer_id_fkey(name,type))&order=id.desc`),
+  ]);
+  if (productRows?.error) return NextResponse.json({ result: 'error', message: productRows.error }, { status: 500 });
+  if (!Array.isArray(productRows) || !productRows.length) return NextResponse.json({ result: 'error', message: 'Product not found' }, { status: 404 });
+  if (historyRows?.error) return NextResponse.json({ result: 'error', message: historyRows.error }, { status: 500 });
+  return NextResponse.json({
+    result: 'success',
+    product: productRows[0],
+    summary: (Array.isArray(summaryRows) && summaryRows[0]) || null,
+    history: Array.isArray(historyRows) ? historyRows : [],
+  });
+}
+
 // ── Excel bulk import (ported verbatim from ccpc-inventory's import route) ──
 // Mapping is resolved client-side; this only ever sees already-mapped
 // {dbColumn: value} rows. Two modes: preview (existence counts, no writes)
@@ -418,6 +456,8 @@ export async function POST(req) {
   if (action === 'settings_delete') return _settingsDelete(payload);
   if (action === 'settings_import_preview') return _settingsImportPreview(payload);
   if (action === 'settings_import_confirm') return _settingsImportConfirm(payload);
+  if (action === 'products_summary') return _productsSummary(payload);
+  if (action === 'product_history') return _productHistory(payload);
 
   return NextResponse.json({ result: 'error', message: 'Unknown action' }, { status: 400 });
 }

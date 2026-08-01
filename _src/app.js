@@ -8345,7 +8345,7 @@
     { slug: 'distributor_assignments', label: 'Distributor Assignments' },
   ];
 
-  let _invAdminActiveTab = 'settings';
+  let _invAdminActiveTab = 'stock';
   let _invCurrentEntity = null;
   let _invEntityRows = [];
   let _invEntityLookups = {};
@@ -8409,7 +8409,7 @@
     lucide.createIcons();
     const importFileInput = document.getElementById('invImportFileInput');
     if (importFileInput) importFileInput.addEventListener('change', _invHandleImportFile);
-    switchInvAdminTab(_invAdminActiveTab || 'settings');
+    switchInvAdminTab(_invAdminActiveTab || 'stock');
   }
 
   function switchInvAdminTab(tab) {
@@ -8423,6 +8423,7 @@
     });
     const body = document.getElementById('invAdminBody');
     if (!body) return;
+    if (tab === 'stock') { loadInventoryStockPanel(); return; }
     if (tab === 'settings') {
       body.innerHTML = `
         <div class="grid md:grid-cols-4 gap-4">
@@ -8435,7 +8436,7 @@
         </div>`;
       return;
     }
-    const labels = { stock: 'Stock Overview', registry: 'Registry', distribute: 'Distribute' };
+    const labels = { registry: 'Registry', distribute: 'Distribute' };
     body.innerHTML = `<div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-16 text-center text-slate-400 text-xs font-black uppercase tracking-widest">${labels[tab]} — coming in a later phase</div>`;
   }
 
@@ -8754,6 +8755,137 @@
       if (btn) { btn.disabled = false; btn.textContent = 'Retry Import'; }
       showToast((err && err.message) || 'Network error during import', 'error');
     });
+  }
+
+  // ── Stock Overview + Product Detail (read-only) ─────────────────────────
+  let _invStockRows = [];
+  let _invDistributePreselectProduct = null;
+
+  function loadInventoryStockPanel() {
+    const body = document.getElementById('invAdminBody');
+    if (!body) return;
+    body.innerHTML = `
+      <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5">
+        <div class="flex items-center gap-3 flex-wrap mb-4">
+          <input id="invStockSearch" type="text" placeholder="Search by product name or code…" class="flex-1 max-w-sm bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2">
+          <label class="flex items-center gap-2 text-xs font-bold text-slate-600"><input type="checkbox" id="invStockShowPrice" checked> Show unit price</label>
+        </div>
+        <div id="invStockTableWrap"><div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div></div>
+      </div>`;
+    const search = document.getElementById('invStockSearch');
+    const priceToggle = document.getElementById('invStockShowPrice');
+    let debounceTimer;
+    search.addEventListener('input', () => { clearTimeout(debounceTimer); debounceTimer = setTimeout(() => _invLoadStockTable(search.value.trim()), 300); });
+    priceToggle.addEventListener('change', () => _invRenderStockTable(_invStockRows));
+    _invLoadStockTable('');
+  }
+
+  function _invLoadStockTable(q) {
+    _invAdminFetch('products_summary', { q }).then(res => {
+      _invStockRows = (res && res.data) || [];
+      _invRenderStockTable(_invStockRows);
+    }).catch(err => {
+      const wrap = document.getElementById('invStockTableWrap');
+      if (wrap) wrap.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml(err.message || 'Failed to load')}</div>`;
+    });
+  }
+
+  function _invRenderStockTable(rows) {
+    const wrap = document.getElementById('invStockTableWrap');
+    if (!wrap) return;
+    const priceToggle = document.getElementById('invStockShowPrice');
+    const showPrice = priceToggle ? priceToggle.checked : true;
+    if (!rows.length) {
+      wrap.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">No products found</div>`;
+      return;
+    }
+    wrap.innerHTML = `
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-slate-50"><tr>
+            <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Code</th>
+            <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Product</th>
+            <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Received</th>
+            <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Distributed</th>
+            <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Damaged</th>
+            <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Remaining</th>
+            ${showPrice ? `<th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Unit Price</th><th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Stock Value</th>` : ''}
+          </tr></thead>
+          <tbody>${rows.map(r => {
+            const price = Number(r.latest_unit_price || 0);
+            const remaining = Number(r.remaining || 0);
+            return `<tr class="border-t border-slate-50">
+              <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(r.code || '—')}</td>
+              <td class="px-3 py-2.5 font-bold text-blue-600"><button onclick="openInventoryProductDetail(${r.id})" class="hover:underline">${_escHtml(r.name)}</button></td>
+              <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(r.received || 0)}</td>
+              <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(r.distributed || 0)}</td>
+              <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(r.damaged || 0)}</td>
+              <td class="px-3 py-2.5 font-black text-slate-800 text-right">${remaining} ${_escHtml(r.unit || '')}</td>
+              ${showPrice ? `<td class="px-3 py-2.5 font-bold text-slate-600 text-right">${price ? price.toFixed(2) : '—'}</td><td class="px-3 py-2.5 font-bold text-slate-600 text-right">${price ? (price * remaining).toFixed(2) : '—'}</td>` : ''}
+            </tr>`;
+          }).join('')}</tbody>
+        </table>
+      </div>`;
+  }
+
+  function _invStatCard(label, value, highlight) {
+    return `<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+      <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">${_escHtml(label)}</p>
+      <p class="text-2xl font-black ${highlight ? 'text-emerald-600' : 'text-slate-800'}">${Number(value || 0)}</p>
+    </div>`;
+  }
+
+  function openInventoryProductDetail(productId) {
+    const body = document.getElementById('invAdminBody');
+    if (!body) return;
+    body.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`;
+    _invAdminFetch('product_history', { id: productId }).then(res => {
+      if (!res || res.result !== 'success') { body.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml((res && res.message) || 'Failed to load')}</div>`; return; }
+      const product = res.product, summary = res.summary, history = res.history || [];
+      body.innerHTML = `
+        <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
+          <div>
+            <button onclick="switchInvAdminTab('stock')" class="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600">&larr; Back to Stock Overview</button>
+            <p class="text-lg font-black text-slate-800 mt-1">${_escHtml(product.name)}</p>
+          </div>
+          <button onclick="openInventoryDistributeFor(${product.id})" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all shrink-0">+ New Distribution</button>
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+          ${_invStatCard('Received', summary ? summary.received : 0)}
+          ${_invStatCard('Distributed', summary ? summary.distributed : 0)}
+          ${_invStatCard('Damaged', summary ? summary.damaged : 0)}
+          ${_invStatCard('Remaining', summary ? summary.remaining : 0, true)}
+        </div>
+        <p class="text-sm font-black text-slate-800 uppercase tracking-widest mb-3">Distribution History</p>
+        ${!history.length ? `<div class="bg-white rounded-3xl border border-slate-200 shadow-sm text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">This product hasn't been distributed yet</div>` : `
+        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-x-auto">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-slate-50"><tr>
+              <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Date</th>
+              <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Distribute No.</th>
+              <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Recipient</th>
+              <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Type</th>
+              <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Quantity</th>
+              <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Total Price</th>
+            </tr></thead>
+            <tbody>${history.map(h => `<tr class="border-t border-slate-50">
+              <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml((h.distributions && h.distributions.distribute_date) || '—')}</td>
+              <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml((h.distributions && h.distributions.distribute_no) || '—')}</td>
+              <td class="px-3 py-2.5 font-bold text-slate-700">${_escHtml((h.distributions && h.distributions.consumers && h.distributions.consumers.name) || '—')}</td>
+              <td class="px-3 py-2.5 font-bold text-slate-500 capitalize">${_escHtml((h.distributions && h.distributions.consumers && h.distributions.consumers.type) || '—')}</td>
+              <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(h.quantity || 0)}</td>
+              <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(h.total_price || 0).toFixed(2)}</td>
+            </tr>`).join('')}</tbody>
+          </table>
+        </div>`}
+      `;
+      lucide.createIcons();
+    }).catch(err => { body.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml(err.message || 'Network error')}</div>`; });
+  }
+
+  function openInventoryDistributeFor(productId) {
+    _invDistributePreselectProduct = productId;
+    switchInvAdminTab('distribute');
   }
 
   function loadInventoryView() {
