@@ -8376,8 +8376,39 @@
             <button onclick="saveInventoryEntityForm()" class="px-4 py-2 rounded-lg bg-blue-600 text-white text-xs font-black">Save</button>
           </div>
         </div>
+      </div>
+
+      <div id="invImportModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-2xl max-h-[85vh] overflow-y-auto">
+          <div class="flex items-center justify-between mb-3">
+            <p class="font-black text-slate-800 text-sm" id="invImportTitle">Import from Excel</p>
+            <button onclick="closeInventoryImportModal()" class="text-slate-400 hover:text-slate-600 text-xs font-black">✕</button>
+          </div>
+          <div class="flex items-center gap-3 flex-wrap mb-3">
+            <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Step 1 · Choose File</span>
+            <input type="file" id="invImportFileInput" accept=".xlsx,.xls,.csv" class="text-xs font-bold" style="max-width:260px">
+            <span id="invImportFileStatus" class="text-xs text-slate-400 font-bold"></span>
+          </div>
+          <div id="invImportMappingSection" class="hidden mb-3">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Step 2 · Match Columns</span>
+              <span id="invImportRowCount" class="text-xs text-slate-400 font-bold"></span>
+            </div>
+            <div id="invImportMappingList" class="flex flex-col gap-2"></div>
+            <label class="flex items-center gap-2 mt-3 mb-2 text-xs font-bold text-slate-600"><input type="checkbox" id="invImportUpdateExisting">Also update existing records (fills mapped columns instead of skipping)</label>
+            <button onclick="previewInventoryImport()" class="px-4 py-2.5 bg-slate-800 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Preview Import</button>
+          </div>
+          <div id="invImportPreviewSection" class="hidden mb-3">
+            <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Step 3 · Review &amp; Import</span>
+            <div id="invImportPreviewSummary" class="grid grid-cols-2 md:grid-cols-3 gap-3 my-3"></div>
+            <button id="invImportConfirmBtn" onclick="confirmInventoryImport()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Import</button>
+          </div>
+          <div id="invImportResultSection" class="hidden"></div>
+        </div>
       </div>`;
     lucide.createIcons();
+    const importFileInput = document.getElementById('invImportFileInput');
+    if (importFileInput) importFileInput.addEventListener('change', _invHandleImportFile);
     switchInvAdminTab(_invAdminActiveTab || 'settings');
   }
 
@@ -8448,7 +8479,10 @@
     panel.innerHTML = `
       <div class="flex items-center justify-between mb-4 gap-3">
         <p class="text-sm font-black text-slate-800 uppercase tracking-widest">${_escHtml(cfg.title)}</p>
-        <button onclick="openInventoryEntityForm('${_invCurrentEntity}')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all shrink-0">+ Create New</button>
+        <div class="flex gap-2 shrink-0">
+          ${cfg.importKey ? `<button onclick="openInventoryImportModal('${_invCurrentEntity}')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all">Import from Excel</button>` : ''}
+          <button onclick="openInventoryEntityForm('${_invCurrentEntity}')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">+ Create New</button>
+        </div>
       </div>
       ${!rows.length ? `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">No records yet</div>` : `
       <div class="overflow-x-auto">
@@ -8547,6 +8581,179 @@
       showToast('Deleted', 'success');
       openInventorySettingsEntity(entityKey);
     }).catch(err => showToast(err.message || 'Delete failed.', 'error'));
+  }
+
+  // ── Settings Excel import — same 3-step pattern as loadAdminImportView's
+  // student bulk importer (handleImportFile/updateImportSample/getImportMapping/
+  // buildMappedImportRows/previewBulkImport/confirmBulkImport), generalized to
+  // any INV_ENTITIES entity via cfg.fields instead of a hardcoded column list.
+  // Reuses the existing ensureXLSX()/normImportKey() helpers as-is.
+  let _invImportEntity = null;
+  let _invImportHeaders = [];
+  let _invImportRows = [];
+
+  function openInventoryImportModal(entityKey) {
+    const cfg = INV_ENTITIES[entityKey];
+    if (!cfg || !cfg.importKey) return;
+    _invImportEntity = entityKey;
+    _invImportHeaders = [];
+    _invImportRows = [];
+    const title = document.getElementById('invImportTitle');
+    if (title) title.textContent = 'Import ' + cfg.label + ' from Excel';
+    const fileInput = document.getElementById('invImportFileInput');
+    if (fileInput) fileInput.value = '';
+    const status = document.getElementById('invImportFileStatus');
+    if (status) status.textContent = '';
+    ['invImportMappingSection', 'invImportPreviewSection', 'invImportResultSection'].forEach(id => { const el = document.getElementById(id); if (el) el.classList.add('hidden'); });
+    const modal = document.getElementById('invImportModal');
+    if (modal) modal.classList.remove('hidden');
+  }
+
+  function closeInventoryImportModal() {
+    const modal = document.getElementById('invImportModal');
+    if (modal) modal.classList.add('hidden');
+  }
+
+  function _invHandleImportFile(e) {
+    const file = e.target.files[0];
+    const status = document.getElementById('invImportFileStatus');
+    ['invImportMappingSection', 'invImportPreviewSection', 'invImportResultSection'].forEach(id => { const el = document.getElementById(id); if (el) el.classList.add('hidden'); });
+    if (!file) return;
+    if (status) status.textContent = 'Reading file…';
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      ensureXLSX().then(() => {
+        try {
+          const wb = XLSX.read(evt.target.result, { type: 'array' });
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const grid = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+          if (!grid.length) { if (status) status.textContent = 'File appears to be empty.'; return; }
+          _invImportHeaders = grid[0].map(h => String(h || '').trim());
+          _invImportRows = grid.slice(1).filter(r => r.some(c => String(c || '').trim() !== ''));
+          if (status) status.textContent = `${file.name} — ${_invImportRows.length} rows, ${_invImportHeaders.length} columns.`;
+          _invRenderImportMapping();
+        } catch (err) {
+          if (status) status.textContent = 'Could not read this file: ' + err.message;
+        }
+      }).catch(err => { if (status) status.textContent = err.message; });
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function _invRenderImportMapping() {
+    const cfg = INV_ENTITIES[_invImportEntity];
+    const section = document.getElementById('invImportMappingSection');
+    const list = document.getElementById('invImportMappingList');
+    const rowCount = document.getElementById('invImportRowCount');
+    if (!section || !list || !cfg) return;
+    rowCount.textContent = `${_invImportRows.length} rows detected`;
+    list.innerHTML = cfg.fields.map(f => {
+      const guessIdx = _invImportHeaders.findIndex(h => normImportKey(h) === normImportKey(f.name) || normImportKey(h) === normImportKey(f.label));
+      const required = f.name === cfg.importKey;
+      const options = ['<option value="-1">— Skip —</option>'].concat(_invImportHeaders.map((h, i) => `<option value="${i}" ${i === guessIdx ? 'selected' : ''}>${_escHtml(h || '(blank header)')}</option>`));
+      const sample = guessIdx >= 0 && _invImportRows[0] ? String(_invImportRows[0][guessIdx] ?? '') : '';
+      return `<div class="grid grid-cols-12 gap-2 items-center py-1 inv-import-map-row" data-field="${f.name}">
+        <div class="col-span-3"><span class="font-bold text-xs text-slate-700">${_escHtml(f.label)}${required ? ' <span class="text-red-500">*</span>' : ''}</span></div>
+        <div class="col-span-5"><select class="inv-import-map-select w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" onchange="updateInventoryImportSample(this)">${options.join('')}</select></div>
+        <div class="col-span-4"><span class="text-xs text-slate-400 italic inv-import-map-sample">${sample ? 'e.g. ' + _escHtml(sample) : ''}</span></div>
+      </div>`;
+    }).join('');
+    section.classList.remove('hidden');
+    document.getElementById('invImportPreviewSection').classList.add('hidden');
+    document.getElementById('invImportResultSection').classList.add('hidden');
+  }
+
+  function updateInventoryImportSample(sel) {
+    const idx = parseInt(sel.value, 10);
+    const sampleEl = sel.closest('.inv-import-map-row').querySelector('.inv-import-map-sample');
+    const sample = idx >= 0 && _invImportRows[0] ? String(_invImportRows[0][idx] ?? '') : '';
+    sampleEl.textContent = sample ? 'e.g. ' + sample : '';
+  }
+
+  function _invGetImportMapping() {
+    const mapping = {};
+    document.querySelectorAll('.inv-import-map-row').forEach(row => {
+      const field = row.dataset.field;
+      const idx = parseInt(row.querySelector('.inv-import-map-select').value, 10);
+      if (idx >= 0) mapping[field] = idx;
+    });
+    return mapping;
+  }
+
+  function _invBuildMappedImportRows() {
+    const mapping = _invGetImportMapping();
+    return _invImportRows.map(r => {
+      const obj = {};
+      Object.entries(mapping).forEach(([field, idx]) => { obj[field] = String(r[idx] ?? '').trim(); });
+      return obj;
+    });
+  }
+
+  function previewInventoryImport() {
+    const cfg = INV_ENTITIES[_invImportEntity];
+    if (!cfg) return;
+    const mapping = _invGetImportMapping();
+    if (!(cfg.importKey in mapping)) {
+      const keyField = cfg.fields.find(f => f.name === cfg.importKey);
+      showToast('Map a column to ' + (keyField ? keyField.label : cfg.importKey) + ' first', 'error');
+      return;
+    }
+    const rows = _invBuildMappedImportRows();
+    const keys = rows.map(r => r[cfg.importKey]).filter(Boolean);
+    _invAdminFetch('settings_import_preview', { entity: _invImportEntity, keys }).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Preview failed', 'error'); return; }
+      const noKeyCount = rows.length - keys.length;
+      const updateExisting = document.getElementById('invImportUpdateExisting').checked;
+      const summary = document.getElementById('invImportPreviewSummary');
+      const existingLabel = updateExisting ? 'Existing (will update)' : 'Existing (skip)';
+      const existingColor = updateExisting ? 'text-blue-600' : 'text-amber-600';
+      summary.innerHTML = `
+        <div class="p-3 border border-slate-200 rounded-xl"><div class="text-[10px] font-black text-slate-400 uppercase">Total Rows</div><div class="text-xl font-black text-slate-800">${rows.length}</div></div>
+        <div class="p-3 border border-slate-200 rounded-xl"><div class="text-[10px] font-black text-slate-400 uppercase">New</div><div class="text-xl font-black text-emerald-600">${res.newCount}</div></div>
+        <div class="p-3 border border-slate-200 rounded-xl"><div class="text-[10px] font-black text-slate-400 uppercase">${existingLabel}</div><div class="text-xl font-black ${existingColor}">${res.existingCount}</div></div>
+        ${noKeyCount ? `<div class="p-3 border border-slate-200 rounded-xl"><div class="text-[10px] font-black text-slate-400 uppercase">Missing Key</div><div class="text-xl font-black text-red-500">${noKeyCount}</div></div>` : ''}`;
+      const confirmBtn = document.getElementById('invImportConfirmBtn');
+      const totalAction = res.newCount + (updateExisting ? res.existingCount : 0);
+      confirmBtn.disabled = totalAction === 0;
+      confirmBtn.textContent = totalAction === 0 ? 'Nothing to import' : (updateExisting ? `Import ${res.newCount} New + Update ${res.existingCount} Existing` : `Import ${res.newCount} New Record${res.newCount === 1 ? '' : 's'}`);
+      document.getElementById('invImportPreviewSection').classList.remove('hidden');
+      document.getElementById('invImportResultSection').classList.add('hidden');
+    }).catch(err => showToast((err && err.message) || 'Network error during preview', 'error'));
+  }
+
+  function confirmInventoryImport() {
+    const rows = _invBuildMappedImportRows();
+    const updateExisting = document.getElementById('invImportUpdateExisting').checked;
+    const btn = document.getElementById('invImportConfirmBtn');
+    const confirmMsg = updateExisting
+      ? 'Import new records AND update existing records with the mapped columns from this file?'
+      : 'Import new records now? Existing records will be left untouched.';
+    if (!confirm(confirmMsg)) return;
+    if (btn) { btn.disabled = true; btn.textContent = 'Importing…'; }
+    _invAdminFetch('settings_import_confirm', { entity: _invImportEntity, rows, update_existing: updateExisting }).then(res => {
+      if (!res || (res.result !== 'success' && res.result !== 'partial')) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Retry Import'; }
+        showToast((res && res.message) || 'Import failed', 'error');
+        return;
+      }
+      const resultSection = document.getElementById('invImportResultSection');
+      resultSection.innerHTML = `
+        <h3 class="font-black text-slate-800 mb-3">Import Complete</h3>
+        <ul class="text-xs font-bold text-slate-600 space-y-1 list-disc pl-4">
+          <li>${res.inserted} new record(s) added</li>
+          ${updateExisting ? `<li>${res.updated} existing record(s) updated</li>` : `<li>${res.skipped_existing} skipped — already exists</li>`}
+          <li>${res.skipped_missing_key} skipped — missing key field</li>
+          <li>${res.skipped_duplicate_in_file} skipped — duplicate within the file</li>
+        </ul>
+        ${res.errors && res.errors.length ? `<div class="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs font-bold text-amber-700">Some batches failed: ${_escHtml(res.errors.join('; '))}</div>` : ''}`;
+      resultSection.classList.remove('hidden');
+      if (btn) { btn.disabled = true; btn.textContent = 'Done'; }
+      showToast(updateExisting ? `Imported ${res.inserted} new, updated ${res.updated} existing` : `Imported ${res.inserted} new record(s)`, 'success');
+      openInventorySettingsEntity(_invImportEntity);
+    }).catch(err => {
+      if (btn) { btn.disabled = false; btn.textContent = 'Retry Import'; }
+      showToast((err && err.message) || 'Network error during import', 'error');
+    });
   }
 
   function loadInventoryView() {

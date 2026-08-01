@@ -72,6 +72,7 @@ async function _isInventoryAdmin(userId) {
 const ENTITIES = {
   groups: {
     table: 'groups',
+    importKey: 'name',
     fields: [
       { name: 'code', label: 'Code#', type: 'text' },
       { name: 'name', label: 'Group', type: 'text', required: true },
@@ -79,6 +80,7 @@ const ENTITIES = {
   },
   units: {
     table: 'units',
+    importKey: 'name',
     fields: [
       { name: 'name', label: 'Unit', type: 'text', required: true },
       { name: 'short_form', label: 'Short Form', type: 'text' },
@@ -97,6 +99,7 @@ const ENTITIES = {
   },
   buildings: {
     table: 'buildings',
+    importKey: 'name',
     fields: [
       { name: 'name', label: 'Building Name', type: 'text', required: true },
       { name: 'short_name', label: 'Short Name', type: 'text' },
@@ -104,6 +107,7 @@ const ENTITIES = {
   },
   floors: {
     table: 'floors',
+    importKey: 'name',
     fields: [
       { name: 'building_id', label: 'Building', type: 'select', source: 'buildings', optionLabel: 'name' },
       { name: 'name', label: 'Floor Name', type: 'text', required: true },
@@ -112,12 +116,14 @@ const ENTITIES = {
   },
   room_types: {
     table: 'room_types',
+    importKey: 'name',
     fields: [
       { name: 'name', label: 'Room Type Name', type: 'text', required: true },
     ],
   },
   rooms: {
     table: 'rooms',
+    importKey: 'name',
     fields: [
       { name: 'name', label: 'Room Name', type: 'text', required: true },
       { name: 'building_id', label: 'Building', type: 'select', source: 'buildings', optionLabel: 'name' },
@@ -127,12 +133,14 @@ const ENTITIES = {
   },
   departments: {
     table: 'departments',
+    importKey: 'name',
     fields: [
       { name: 'name', label: 'Department Name', type: 'text', required: true },
     ],
   },
   products: {
     table: 'products',
+    importKey: 'name',
     fields: [
       { name: 'code', label: 'Code#', type: 'text' },
       { name: 'name', label: 'Product Name', type: 'text', required: true },
@@ -151,6 +159,7 @@ const ENTITIES = {
   },
   suppliers: {
     table: 'suppliers',
+    importKey: 'name',
     fields: [
       { name: 'source', label: 'Source', type: 'text', default: 'GENERAL' },
       { name: 'code', label: 'Code#', type: 'text' },
@@ -168,6 +177,7 @@ const ENTITIES = {
   },
   consumers: {
     table: 'consumers',
+    importKey: 'name',
     fields: [
       { name: 'source_id', label: 'Source ID', type: 'text' },
       { name: 'type', label: 'Type', type: 'radio', required: true,
@@ -193,6 +203,7 @@ const ENTITIES = {
   },
   committees: {
     table: 'committees',
+    importKey: 'name',
     fields: [
       { name: 'name', label: 'Committee Name', type: 'text', required: true },
       { name: 'chairman_user_id', label: 'Chairman (ccpc-teachers user_id)', type: 'text' },
@@ -254,6 +265,145 @@ async function _settingsDelete(payload) {
   return NextResponse.json({ result: 'success' });
 }
 
+// ── Excel bulk import (ported verbatim from ccpc-inventory's import route) ──
+// Mapping is resolved client-side; this only ever sees already-mapped
+// {dbColumn: value} rows. Two modes: preview (existence counts, no writes)
+// and confirm (batched insert/update).
+const CHUNK_IN = 200;    // rows per in.() existence-check / bulk insert
+const CHUNK_PATCH = 20;  // concurrent per-row PATCHes for updates
+
+function _chunkKeysFilter(keyCol, chunk) {
+  // PostgREST in.() needs values quoted so names with spaces/commas survive
+  const quoted = chunk.map(k => `"${String(k).replace(/"/g, '\\"')}"`);
+  return `${keyCol}=in.(${encodeURIComponent(quoted.join(','))})`;
+}
+
+async function _fetchExistingKeys(table, keyCol, keys) {
+  const existing = new Set();
+  for (let i = 0; i < keys.length; i += CHUNK_IN) {
+    const chunk = keys.slice(i, i + CHUNK_IN);
+    const rows = await sbInventory(`${table}?${_chunkKeysFilter(keyCol, chunk)}&select=${keyCol}`);
+    if (rows?.error) throw new Error(rows.error);
+    rows.forEach(r => existing.add(String(r[keyCol])));
+  }
+  return existing;
+}
+
+// Coerce a raw spreadsheet cell (always a trimmed string) into the field's
+// real type. Select fields resolve a human label to its id via the lookup
+// map; a bare numeric value is accepted as an id directly.
+function _coerceValue(field, raw, lookupMaps) {
+  if (raw === '' || raw === null || raw === undefined) return undefined;
+  const s = String(raw).trim();
+  if (s === '') return undefined;
+  if (field.type === 'boolean') return ['yes', 'true', '1', 'y'].includes(s.toLowerCase());
+  if (field.type === 'number') { const n = Number(s); return Number.isFinite(n) ? n : undefined; }
+  if (field.type === 'radio') {
+    const match = field.options.find(o => o.value.toLowerCase() === s.toLowerCase() || o.label.toLowerCase() === s.toLowerCase());
+    return match ? match.value : undefined;
+  }
+  if (field.type === 'select') {
+    if (/^\d+$/.test(s)) return Number(s);
+    const map = lookupMaps[field.source];
+    return map ? (map.get(s.toLowerCase()) ?? undefined) : undefined;
+  }
+  return s;
+}
+
+async function _settingsImportPreview(payload) {
+  const cfg = ENTITIES[payload.entity];
+  if (!cfg) return NextResponse.json({ result: 'error', message: 'Unknown entity' }, { status: 404 });
+  if (!cfg.importKey) return NextResponse.json({ result: 'error', message: 'Import is not supported for this entity' }, { status: 400 });
+  const keyCol = cfg.importKey;
+  const keys = Array.isArray(payload.keys) ? [...new Set(payload.keys.map(k => String(k).trim()).filter(Boolean))] : [];
+  if (!keys.length) return NextResponse.json({ result: 'error', message: `No ${keyCol} values found in the mapped file.` });
+  try {
+    const existing = await _fetchExistingKeys(cfg.table, keyCol, keys);
+    return NextResponse.json({ result: 'success', totalCount: keys.length, existingCount: existing.size, newCount: keys.length - existing.size });
+  } catch (e) {
+    return NextResponse.json({ result: 'error', message: e.message }, { status: 500 });
+  }
+}
+
+async function _settingsImportConfirm(payload) {
+  const cfg = ENTITIES[payload.entity];
+  if (!cfg) return NextResponse.json({ result: 'error', message: 'Unknown entity' }, { status: 404 });
+  if (!cfg.importKey) return NextResponse.json({ result: 'error', message: 'Import is not supported for this entity' }, { status: 400 });
+  const keyCol = cfg.importKey;
+  const rows = Array.isArray(payload.rows) ? payload.rows : [];
+  const updateExisting = !!payload.update_existing;
+  if (!rows.length) return NextResponse.json({ result: 'error', message: 'No rows to import.' });
+
+  try {
+    const fieldByName = Object.fromEntries(cfg.fields.map(f => [f.name, f]));
+    const lookupSources = [...new Set(cfg.fields.filter(f => f.type === 'select').map(f => f.source))];
+    const lookupMaps = {};
+    for (const source of lookupSources) {
+      const srcCfg = ENTITIES[source];
+      const optionLabel = cfg.fields.find(f => f.source === source).optionLabel;
+      const list = await sbInventory(`${srcCfg.table}?select=id,${optionLabel}`);
+      if (list?.error) throw new Error(list.error);
+      lookupMaps[source] = new Map(list.map(r => [String(r[optionLabel]).toLowerCase(), r.id]));
+    }
+
+    let skippedMissingKey = 0, skippedDuplicateInFile = 0;
+    const seenInFile = new Set();
+    const clean = [];
+    for (const row of rows) {
+      const key = String(row[keyCol] || '').trim();
+      if (!key) { skippedMissingKey++; continue; }
+      if (seenInFile.has(key)) { skippedDuplicateInFile++; continue; }
+      seenInFile.add(key);
+      const cleanRow = {};
+      for (const [k, v] of Object.entries(row)) {
+        const field = fieldByName[k];
+        if (!field) continue;
+        const coerced = _coerceValue(field, v, lookupMaps);
+        if (coerced !== undefined) cleanRow[k] = coerced;
+      }
+      cleanRow[keyCol] = key;
+      clean.push(cleanRow);
+    }
+
+    const keys = clean.map(r => r[keyCol]);
+    const existing = await _fetchExistingKeys(cfg.table, keyCol, keys);
+    const toInsert = clean.filter(r => !existing.has(r[keyCol]));
+    const toUpdate = updateExisting ? clean.filter(r => existing.has(r[keyCol])) : [];
+
+    let inserted = 0;
+    const errors = [];
+    for (let i = 0; i < toInsert.length; i += CHUNK_IN) {
+      const chunk = toInsert.slice(i, i + CHUNK_IN);
+      const res = await sbInventory(cfg.table, 'POST', chunk);
+      if (res?.error) errors.push(res.error); else inserted += chunk.length;
+    }
+
+    // Existing rows: PATCH each by key, only with the fields that row
+    // actually mapped — never blanks out columns the file didn't provide.
+    let updated = 0;
+    for (let i = 0; i < toUpdate.length; i += CHUNK_PATCH) {
+      const chunk = toUpdate.slice(i, i + CHUNK_PATCH);
+      const results = await Promise.all(chunk.map(row => {
+        const { [keyCol]: key, ...fields } = row;
+        if (Object.keys(fields).length === 0) return Promise.resolve({ skipped: true });
+        return sbInventory(`${cfg.table}?${keyCol}=eq.${encodeURIComponent(key)}`, 'PATCH', fields);
+      }));
+      results.forEach(r => { if (r?.error) errors.push(r.error); else if (!r?.skipped) updated++; });
+    }
+
+    return NextResponse.json({
+      result: errors.length ? 'partial' : 'success',
+      inserted, updated,
+      skipped_existing: updateExisting ? 0 : existing.size,
+      skipped_missing_key: skippedMissingKey,
+      skipped_duplicate_in_file: skippedDuplicateInFile,
+      errors,
+    });
+  } catch (e) {
+    return NextResponse.json({ result: 'error', message: e.message }, { status: 500 });
+  }
+}
+
 export async function POST(req) {
   let body;
   try { body = await req.json(); } catch { return NextResponse.json({ result: 'error', message: 'Bad request' }, { status: 400 }); }
@@ -266,6 +416,8 @@ export async function POST(req) {
   if (action === 'settings_list') return _settingsList(payload);
   if (action === 'settings_save') return _settingsSave(payload);
   if (action === 'settings_delete') return _settingsDelete(payload);
+  if (action === 'settings_import_preview') return _settingsImportPreview(payload);
+  if (action === 'settings_import_confirm') return _settingsImportConfirm(payload);
 
   return NextResponse.json({ result: 'error', message: 'Unknown action' }, { status: 400 });
 }
