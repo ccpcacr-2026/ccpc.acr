@@ -3109,17 +3109,40 @@
   // shared by both the class-teacher and admin versions of the unfilled-
   // roll widget below, since a flat cross-class roll list is ambiguous the
   // moment two different classes both have a roll "2".
-  function _groupRollsByClassSection(metaList) {
-    const groups = new Map();
-    (metaList || []).forEach(m => {
+  //
+  // Takes the FULL roster meta (not pre-filtered to unfilled) plus its
+  // index-aligned `filled` array, because detecting a roll collision
+  // requires seeing every student who shares that roll -- not just the
+  // unfilled ones. Real school data has retained/repeat students overlapping
+  // a newly promoted batch in the same class+section with the same roll
+  // sequence, so "roll 32" can be two or three different actual students.
+  // A bare roll number in that case is genuinely ambiguous -- e.g. a class
+  // teacher reads "32" on the unfilled list, thinks of the one roll-32
+  // student they know who already filled it, and (reasonably) assumes the
+  // list is wrong, when really a DIFFERENT roll-32 student hasn't. Confirmed
+  // live: 87 class/section/roll combos had this exact split for one tab.
+  // Disambiguate by appending the student's name only when the roll is
+  // actually shared -- everyone else keeps the plain compact "32" form.
+  function _groupRollsByClassSection(fullMeta, filledArr) {
+    const rollCounts = new Map();
+    (fullMeta || []).forEach(m => {
       if (!m || !m.roll) return;
+      const key = `${m.class}-${m.section}-${m.roll}`;
+      rollCounts.set(key, (rollCounts.get(key) || 0) + 1);
+    });
+    const groups = new Map();
+    (fullMeta || []).forEach((m, i) => {
+      if (!m || !m.roll || (filledArr && filledArr[i])) return;
       const label = [m.class, m.section].filter(Boolean).join('-') || '—';
+      const key = `${m.class}-${m.section}-${m.roll}`;
+      const ambiguous = (rollCounts.get(key) || 0) > 1;
+      const display = ambiguous ? `${m.roll}(${m.student_name || '?'})` : String(m.roll);
       if (!groups.has(label)) groups.set(label, []);
-      groups.get(label).push(m.roll);
+      groups.get(label).push({ roll: m.roll, display });
     });
     const labels = [...groups.keys()].sort(_sortCompare);
-    labels.forEach(l => groups.get(l).sort(_sortCompare));
-    return labels.map(l => ({ label: l, rolls: groups.get(l) }));
+    labels.forEach(l => groups.get(l).sort((a, b) => _sortCompare(a.roll, b.roll)));
+    return labels.map(l => ({ label: l, rolls: groups.get(l).map(r => r.display) }));
   }
 
   // Rolls of every student who hasn't filled the tab in yet, ready to paste
@@ -3139,7 +3162,7 @@
     const host = document.getElementById('classTabUnfilledCopy');
     if (!host || !_classTabData) return;
     const meta = _classTabData.sortMeta || [];
-    const groups = _groupRollsByClassSection(meta.filter((m, i) => !_classTabData.filled[i]));
+    const groups = _groupRollsByClassSection(meta, _classTabData.filled);
     if (!groups.length) { host.classList.add('hidden'); host.innerHTML = ''; return; }
     host.classList.remove('hidden');
     const lines = _formatRollGroups(groups);
@@ -3359,7 +3382,7 @@
     const host = document.getElementById('adminSubUnfilledCopy');
     if (!host || !_adminSubData) return;
     const { filled, meta } = _adminSubRosterFilteredPairs();
-    const groups = _groupRollsByClassSection(meta.filter((m, i) => !filled[i]));
+    const groups = _groupRollsByClassSection(meta, filled);
     if (!groups.length) { host.classList.add('hidden'); host.innerHTML = ''; return; }
     host.classList.remove('hidden');
     // Full list always copies in full ("Label:rolls;\nLabel:rolls"),
