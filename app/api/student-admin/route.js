@@ -55,6 +55,37 @@ async function sb(path, method = 'GET', body = null) {
   return text ? JSON.parse(text) : null;
 }
 
+// PostgREST silently caps ANY select at this project's configured max_rows
+// (3000) regardless of an explicit &limit= in the querystring — confirmed
+// live: students_data has 3913 rows, and a plain `&limit=10000` GET was
+// still only ever returning 3000 of them (whichever 3000 happened to come
+// back first, with no guaranteed order), so entire classes could be
+// partially or fully missing from any admin view built this way. Fetches
+// in Range-paginated pages instead of trusting a single request to return
+// everything past that cap.
+async function sbAllRows(path) {
+  const PAGE = 3000;
+  let all = [];
+  let offset = 0;
+  while (true) {
+    const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
+      headers: {
+        apikey: SB_KEY,
+        Authorization: `Bearer ${SB_KEY}`,
+        'Accept-Profile': 'student',
+        Range: `${offset}-${offset + PAGE - 1}`,
+      },
+    });
+    if (!res.ok) return { error: await res.text() };
+    const page = await res.json();
+    if (!Array.isArray(page)) return { error: 'Unexpected response shape' };
+    all = all.concat(page);
+    if (page.length < PAGE) break;
+    offset += PAGE;
+  }
+  return all;
+}
+
 // Same shape as sb(), scoped to the `teacher` schema instead — used by
 // Payroll/Leave Management, whose tables live alongside users_profile etc.
 async function sbTeacher(path, method = 'GET', body = null) {
@@ -940,7 +971,7 @@ export async function POST(req) {
     //    hardcoded list of "the columns that matter" to keep in sync as
     //    students_data itself changes.
     if (!payload?.dynamic) {
-      const rows = await sb('students_data?select=class,section,group&limit=10000');
+      const rows = await sbAllRows('students_data?select=class,section,group');
       if (rows?.error) return NextResponse.json([]);
       const seen = new Map();
       rows.forEach(r => {
@@ -959,7 +990,7 @@ export async function POST(req) {
     const headerRows = await sb('students_data?limit=1');
     if (headerRows?.error || !headerRows.length) return NextResponse.json({ candidateCols: [], rows: [] });
     const candidateCols = Object.keys(headerRows[0]).filter(c => !CT_EXCLUDED_COLS.has(c));
-    const rows = await sb(`students_data?select=${['class', 'section', ...candidateCols].join(',')}&limit=10000`);
+    const rows = await sbAllRows(`students_data?select=${['class', 'section', ...candidateCols].join(',')}`);
     if (rows?.error) return NextResponse.json({ candidateCols, rows: [] });
     const seen = new Map();
     rows.forEach(r => {
@@ -1107,7 +1138,7 @@ export async function POST(req) {
     // scope a Field Category grant to (class/section/group/version) — shown
     // as checkboxes in the grant UI whenever a granted category includes
     // one of these columns.
-    const rows = await sb('students_data?select=class,section,group,version&limit=10000');
+    const rows = await sbAllRows('students_data?select=class,section,group,version');
     if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
     const sets = { class: new Set(), section: new Set(), group: new Set(), version: new Set() };
     rows.forEach(r => {
@@ -1991,7 +2022,11 @@ export async function POST(req) {
 
   if (action === 'get_tab_data') {
     const { tab_name } = payload;
-    const rows = await sb(`portal_submissions?tab_name=eq.${encodeURIComponent(tab_name)}&order=submitted_at.asc`);
+    // Not at risk today (comfortably under the 3000-row PostgREST cap for
+    // every tab so far), but paginated anyway so a popular tab crossing that
+    // line later doesn't silently start dropping submissions the same way
+    // the students_data roster fetches above did.
+    const rows = await sbAllRows(`portal_submissions?tab_name=eq.${encodeURIComponent(tab_name)}&order=submitted_at.asc`);
     if (rows?.error || !rows.length) return NextResponse.json({ headers: ['student_id'], rows: [] });
 
     // Column order follows the tab's configuration (profile include-fields first,
@@ -2038,8 +2073,8 @@ export async function POST(req) {
     if (headerRows?.error || !headerRows.length) return NextResponse.json({ result: 'error', message: 'No students found.' });
     const filterCols = Object.keys(headerRows[0]).filter(c => !CT_EXCLUDED_COLS.has(c));
     const [roster, subRows, tabRow] = await Promise.all([
-      sb(`students_data?select=student_id,student_name,class,section,roll,gender,${filterCols.map(encodeURIComponent).join(',')}&limit=10000`),
-      sb(`portal_submissions?tab_name=eq.${encodeURIComponent(tab_name)}&select=student_id,data`),
+      sbAllRows(`students_data?select=student_id,student_name,class,section,roll,gender,${filterCols.map(encodeURIComponent).join(',')}`),
+      sbAllRows(`portal_submissions?tab_name=eq.${encodeURIComponent(tab_name)}&select=student_id,data`),
       sb(`portal_tabs?tab_name=eq.${encodeURIComponent(tab_name)}&select=fields_json`),
     ]);
     if (roster?.error) return NextResponse.json({ result: 'error', message: roster.error });

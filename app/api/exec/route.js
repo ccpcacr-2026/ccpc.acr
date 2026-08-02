@@ -208,6 +208,36 @@ async function _sbStudent(path) {
   return res.ok ? res.json() : [];
 }
 
+// PostgREST silently caps ANY select at this project's configured max_rows
+// (3000) with no explicit Range header — confirmed live: students_data has
+// 3913 rows, so a plain unbounded _sbStudent() fetch against it only ever
+// returns 3000 of them (whichever happened to come back first, no
+// guaranteed order), silently missing entire classes' worth of students.
+// Paginates with Range instead of trusting one request for a table that
+// can legitimately exceed that cap.
+async function _sbStudentAllRows(path) {
+  const PAGE = 3000;
+  let all = [];
+  let offset = 0;
+  while (true) {
+    const res = await fetch(`${process.env.SUPABASE_URL}/rest/v1/${path}`, {
+      headers: {
+        apikey: process.env.SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}`,
+        'Accept-Profile': 'student',
+        Range: `${offset}-${offset + PAGE - 1}`,
+      },
+    });
+    if (!res.ok) return [];
+    const page = await res.json();
+    if (!Array.isArray(page)) return all;
+    all = all.concat(page);
+    if (page.length < PAGE) break;
+    offset += PAGE;
+  }
+  return all;
+}
+
 // Write counterpart to _sbStudent (GET-only above) — needed by
 // applyClassTeacherSync below, the only exec/route.js handler that writes
 // into the `student` schema directly rather than through student-admin/route.js.
@@ -1894,7 +1924,7 @@ const handlers = {
       let linkedStudents = [];
       const activeFilters = linkedRowFilters.filter(f => f && Object.keys(f).length);
       if (activeFilters.length) {
-        const all = await _sbStudent(`students_data?select=student_id,student_name,roll,class,section,group,gender,version`);
+        const all = await _sbStudentAllRows(`students_data?select=student_id,student_name,roll,class,section,group,gender,version`);
         linkedStudents = (Array.isArray(all) ? all : []).filter(s => activeFilters.some(f => _matchesRowFilter(s, f)));
       }
       const merged = {};
@@ -1903,7 +1933,7 @@ const handlers = {
       if (!roster.length) return { error: 'Not authorized for this tab.' };
       allowedStudentIds = new Set(roster.map(s => String(s.student_id)));
     } else {
-      const all = await _sbStudent(`students_data?select=student_id,student_name,roll,class,section,group,gender&order=class.asc,section.asc,roll.asc`);
+      const all = await _sbStudentAllRows(`students_data?select=student_id,student_name,roll,class,section,group,gender&order=class.asc,section.asc,roll.asc`);
       roster = Array.isArray(all) ? all : [];
     }
     const scopedCols = allowedStudentIds ? ['class', 'section', 'group'] : [];
