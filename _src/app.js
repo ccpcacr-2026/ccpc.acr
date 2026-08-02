@@ -3196,7 +3196,12 @@
   let _adminSubSortKey = '';
   let _adminSubFilterKey = ''; // '' | 'filled' | 'unfilled'
   let _adminSubColumnMerges = [];
-  let _adminSubRosterFilter = { class: new Set(), section: new Set(), group: new Set(), shift: new Set() };
+  // Dimension keys are populated on demand (Class/Section always; every
+  // other filterable column comes back dynamically from the backend as
+  // res.filter_cols — see _renderAdminSubFilterCheckboxes) rather than a
+  // fixed set, so any real students_data column can be filtered on, not
+  // just the ones this file happened to hardcode.
+  let _adminSubRosterFilter = {};
 
   function openSubmissionStatusModal() {
     const tabName = document.getElementById('summaryTabSelect') && document.getElementById('summaryTabSelect').value;
@@ -3277,7 +3282,7 @@
     _adminSubSortKey = '';
     _adminSubFilterKey = '';
     _adminSubColumnMerges = [];
-    _adminSubRosterFilter = { class: new Set(), section: new Set(), group: new Set(), shift: new Set() };
+    _adminSubRosterFilter = {};
     document.getElementById('adminSubSortSelect').value = '';
     document.getElementById('adminSubFilterSelect').value = '';
     document.getElementById('adminSubStatusTitle').textContent = tabName;
@@ -3293,7 +3298,7 @@
         document.getElementById('adminSubBody').innerHTML = `<div class="text-center py-12 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml((res && res.message) || 'Failed to load')}</div>`;
         return;
       }
-      _adminSubData = { headers: res.headers || [], rows: res.rows || [], sortMeta: res.sort_meta || [], filled: res.filled || [] };
+      _adminSubData = { headers: res.headers || [], rows: res.rows || [], sortMeta: res.sort_meta || [], filled: res.filled || [], filterCols: res.filter_cols || [] };
       _renderAdminSubFilterCheckboxes();
       _renderAdminSubCount();
       _renderAdminUnfilledRollCopy();
@@ -3311,7 +3316,14 @@
   function _renderAdminSubFilterCheckboxes() {
     const host = document.getElementById('adminSubFilters');
     if (!host || !_adminSubData) return;
-    const dims = [{ key: 'class', label: 'Class' }, { key: 'section', label: 'Section' }, { key: 'group', label: 'Group' }, { key: 'shift', label: 'Shift' }];
+    // Class/Section are always offered; every other dimension comes back
+    // dynamically from the backend (whatever real students_data column
+    // isn't excluded as identity/system/personal-trait data — see
+    // CT_EXCLUDED_COLS server-side) so assigning a class teacher — or
+    // filtering this view — by any such column just works, with nothing to
+    // add here when a school's data grows a new one.
+    const dims = [{ key: 'class', label: 'Class' }, { key: 'section', label: 'Section' },
+      ...(_adminSubData.filterCols || []).map(c => ({ key: c, label: _prettyHeader(c) }))];
     const groups = dims.map(d => {
       const values = [...new Set(_adminSubData.sortMeta.map(m => m[d.key]).filter(v => v && v !== 'None'))].sort(_sortCompare);
       if (!values.length) return '';
@@ -3328,8 +3340,8 @@
   }
 
   function _toggleAdminSubRosterFilter(dim, value, checked) {
+    if (!_adminSubRosterFilter[dim]) _adminSubRosterFilter[dim] = new Set();
     const set = _adminSubRosterFilter[dim];
-    if (!set) return;
     if (checked) set.add(value); else set.delete(value);
     _renderAdminSubCount();
     _renderAdminUnfilledRollCopy();
@@ -3344,7 +3356,7 @@
   }
   function _adminSubPassesRosterFilter(m) {
     const meta = m || {};
-    return ['class', 'section', 'group', 'shift'].every(dim => {
+    return Object.keys(_adminSubRosterFilter).every(dim => {
       const set = _adminSubRosterFilter[dim];
       return !set || !set.size || set.has(meta[dim]);
     });

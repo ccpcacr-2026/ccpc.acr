@@ -249,13 +249,31 @@ async function _getClassTeacherAssignments() {
     // class/section the sheet itself couldn't resolve a user for, never
     // overrides a real sheet match. Keyed in the student DB's own class/
     // section spelling (e.g. "Six"/"A"), not the sheet's internal codes.
-    _sbStudent('class_teacher_assignments?select=class,section,user_id'),
+    // extra_criteria narrows a combo beyond class+section (e.g.
+    // {"session":"2026"} or {"group":"Science"}) — one class+section can
+    // have several rows here, each scoped to a different teacher, whenever
+    // the sheet's single-teacher-per-section model doesn't fit (overlapping
+    // cohorts sharing a class+section, group-split sections, etc).
+    _sbStudent('class_teacher_assignments?select=class,section,user_id,extra_criteria'),
   ]);
 
-  const dbByKey = new Map();
-  (Array.isArray(dbAssignments) ? dbAssignments : []).forEach(r => {
-    dbByKey.set(`${r.class}||${r.section}`, r.user_id);
-  });
+  const dbRows = Array.isArray(dbAssignments) ? dbAssignments : [];
+  const isPlainCombo = (ec) => !ec || typeof ec !== 'object' || Array.isArray(ec) || !Object.keys(ec).length;
+  // Only a PLAIN (no extra_criteria) DB row can silently fill in for a sheet
+  // row the sheet itself couldn't resolve a teacher for — a scoped combo
+  // (session/group-specific) has no equivalent single-teacher meaning at
+  // the sheet-row level, so it's never used for this particular fallback.
+  const plainDbByKey = new Map();
+  dbRows.forEach(r => { if (isPlainCombo(r.extra_criteria)) plainDbByKey.set(`${r.class}||${r.section}`, r.user_id); });
+  // A class+section with ANY scoped DB row means an admin deliberately split
+  // its teaching by some criterion (overlapping cohorts sharing a section,
+  // a group-split section, etc) — the sheet's own flat single-teacher
+  // resolution for that EXACT combo must be suppressed entirely below, even
+  // a real id/shortname match, or that unscoped roster gets unioned back
+  // in with the scoped one and silently erases the narrowing (confirmed
+  // live: this was still pulling in students from the wrong session).
+  const scopedSectionKeys = new Set(dbRows.filter(r => !isPlainCombo(r.extra_criteria)).map(r => `${r.class}||${r.section}`));
+  const consumedPlainKeys = new Set();
 
   const header = sheetRows[0] || [];
   const classesIdx = header.findIndex(h => String(h).trim() === 'Classes'); // first occurrence
@@ -299,26 +317,51 @@ async function _getClassTeacherAssignments() {
       const section = sectionIdx >= 0 ? String(row[sectionIdx] || '').trim() : '';
       const dbKey = `${CLASS_TEACHER_NAME_TO_STUDENT_CLASS[className] || className}||${CLASS_TEACHER_SECTION_ALIASES[section] || section}`;
       seenKeys.add(dbKey);
-      if (!resolvedUserId && dbByKey.has(dbKey)) { resolvedUserId = dbByKey.get(dbKey); resolvedVia = 'db'; }
+      if (scopedSectionKeys.has(dbKey)) {
+        // Deliberately split by the DB's scoped combos — never let even a
+        // real id/shortname sheet match stand in for "the whole section."
+        resolvedUserId = null; resolvedVia = null;
+      } else if (!resolvedUserId && plainDbByKey.has(dbKey)) {
+        resolvedUserId = plainDbByKey.get(dbKey); resolvedVia = 'db';
+        consumedPlainKeys.add(dbKey);
+      }
 
-      out.push({ classKey, className, section, resolvedUserId, resolvedVia });
+      out.push({ classKey, className, section, resolvedUserId, resolvedVia, extraCriteria: {} });
     }
   }
 
-  // Any DB assignment for a class/section the sheet never listed at all
-  // (new section added to the roster before the sheet catches up, or the
-  // sheet being unreachable entirely) still surfaces as its own entry.
-  // className/section here are already in the student DB's own spelling,
-  // so the CLASS_TEACHER_NAME_TO_STUDENT_CLASS/SECTION_ALIASES lookups
-  // downstream (keyed by the sheet's internal codes) pass them through
-  // unchanged.
-  dbByKey.forEach((userId, key) => {
-    if (seenKeys.has(key)) return;
-    const [studentClass, studentSection] = key.split('||');
-    out.push({ classKey: `${studentClass} ${studentSection}`, className: studentClass, section: studentSection, resolvedUserId: userId, resolvedVia: 'db' });
+  // Every DB row not already surfaced above gets its own entry: any SCOPED
+  // (non-plain) combo always does, since the sheet has no way to represent
+  // those at all — plus any plain combo for a class/section the sheet never
+  // listed, or didn't consume as a gap-fill above. className/section here
+  // are already in the student DB's own spelling, so the
+  // CLASS_TEACHER_NAME_TO_STUDENT_CLASS/SECTION_ALIASES lookups downstream
+  // (keyed by the sheet's internal codes) pass them through unchanged.
+  dbRows.forEach(r => {
+    const key = `${r.class}||${r.section}`;
+    const plain = isPlainCombo(r.extra_criteria);
+    if (plain && (seenKeys.has(key) || consumedPlainKeys.has(key))) return;
+    out.push({
+      classKey: `${r.class} ${r.section}`,
+      className: r.class,
+      section: r.section,
+      resolvedUserId: r.user_id,
+      resolvedVia: 'db',
+      extraCriteria: plain ? {} : r.extra_criteria,
+    });
   });
 
   return out;
+}
+
+// Turns a class-teacher assignment's extra_criteria ({"session":"2026"} etc)
+// into an additional PostgREST exact-match querystring suffix — shared by
+// every roster query below so a scoped combo actually narrows who's in it,
+// instead of the extra_criteria being resolved and then silently dropped.
+function _extraCriteriaQS(extraCriteria) {
+  return Object.entries(extraCriteria || {})
+    .map(([k, v]) => `&${encodeURIComponent(k)}=eq.${encodeURIComponent(v)}`)
+    .join('');
 }
 
 async function _callRoutineGas(params) {
@@ -1916,7 +1959,7 @@ const handlers = {
     const assignments = await _getClassTeacherAssignments();
     const classes = assignments
       .filter(a => a.resolvedUserId === userId)
-      .map(({ classKey, className, section }) => ({ classKey, className, section }));
+      .map(({ classKey, className, section, extraCriteria }) => ({ classKey, className, section, extraCriteria: extraCriteria || {} }));
     return { classes };
   },
 
@@ -1926,11 +1969,11 @@ const handlers = {
     const mine = assignments.filter(a => a.resolvedUserId === userId);
     if (!mine.length) return { classes: [] };
 
-    const classes = await Promise.all(mine.map(async ({ classKey, className, section }) => {
+    const classes = await Promise.all(mine.map(async ({ classKey, className, section, extraCriteria }) => {
       const studentClass = CLASS_TEACHER_NAME_TO_STUDENT_CLASS[className] || className;
       const studentSection = CLASS_TEACHER_SECTION_ALIASES[section] || section;
       const students = await _sbStudent(
-        `students_data?class=eq.${encodeURIComponent(studentClass)}&section=eq.${encodeURIComponent(studentSection)}` +
+        `students_data?class=eq.${encodeURIComponent(studentClass)}&section=eq.${encodeURIComponent(studentSection)}${_extraCriteriaQS(extraCriteria)}` +
         `&select=student_id,student_name,roll,gender,group,version,shift,phone_number,father_phone,mother_phone,photo&order=roll.asc`
       );
       return { classKey, className, section, students: Array.isArray(students) ? students : [] };
@@ -1959,22 +2002,28 @@ const handlers = {
 
   // Admin-only: replaces student.class_teacher_assignments wholesale with
   // the reviewed list (a row with no teacher picked is simply omitted, not
-  // written as a blank assignment). extra_criteria is always {} here — the
-  // sheet has no concept of narrowing a combo further than class+section;
-  // that stays a manual-only feature via the per-teacher combo builder
-  // elsewhere in the same panel, untouched by this bulk replace.
+  // written as a blank assignment). The sheet has no concept of narrowing a
+  // combo further than class+section, so this bulk replace never invents
+  // extra_criteria of its own — but it MUST NOT blank out extra_criteria a
+  // Cord/Admin already set manually via the per-teacher combo builder
+  // elsewhere in the same panel (e.g. a session/group-scoped assignment) for
+  // a class+section+teacher triple this sync leaves otherwise unchanged.
   async applyClassTeacherSync([callerId, rows]) {
     if (!(await _isCordOrAdmin(callerId))) return { success: false, message: 'Not authorized.' };
     const clean = (Array.isArray(rows) ? rows : [])
-      .map(r => ({ class: String(r.class || '').trim(), section: String(r.section || '').trim(), user_id: String(r.user_id || '').trim(), extra_criteria: {} }))
+      .map(r => ({ class: String(r.class || '').trim(), section: String(r.section || '').trim(), user_id: String(r.user_id || '').trim() }))
       .filter(r => r.class && r.section && r.user_id);
+    const existing = await _sbStudent('class_teacher_assignments?select=class,section,user_id,extra_criteria');
+    const existingCriteria = new Map();
+    (Array.isArray(existing) ? existing : []).forEach(r => existingCriteria.set(`${r.class}||${r.section}||${r.user_id}`, r.extra_criteria || {}));
+    const cleanWithCriteria = clean.map(r => ({ ...r, extra_criteria: existingCriteria.get(`${r.class}||${r.section}||${r.user_id}`) || {} }));
     const del = await _sbStudentWrite('class_teacher_assignments?id=gt.0', 'DELETE');
     if (del && del.error) return { success: false, message: del.error };
-    if (clean.length) {
-      const ins = await _sbStudentWrite('class_teacher_assignments', 'POST', clean);
+    if (cleanWithCriteria.length) {
+      const ins = await _sbStudentWrite('class_teacher_assignments', 'POST', cleanWithCriteria);
       if (ins && ins.error) return { success: false, message: ins.error };
     }
-    return { success: true, count: clean.length };
+    return { success: true, count: cleanWithCriteria.length };
   },
 
   // Bare tab list for the "My Class" button row — tab NAMES aren't sensitive
@@ -2000,12 +2049,13 @@ const handlers = {
         classKey: a.classKey,
         studentClass: CLASS_TEACHER_NAME_TO_STUDENT_CLASS[a.className] || a.className,
         studentSection: CLASS_TEACHER_SECTION_ALIASES[a.section] || a.section,
+        extraCriteria: a.extraCriteria || {},
       }));
     if (!mine.length) return { error: 'Not authorized.' };
 
     const rosterLists = await Promise.all(mine.map(async (m) => {
       const students = await _sbStudent(
-        `students_data?class=eq.${encodeURIComponent(m.studentClass)}&section=eq.${encodeURIComponent(m.studentSection)}&select=student_id,student_name,roll,class,section,group,gender&order=roll.asc`
+        `students_data?class=eq.${encodeURIComponent(m.studentClass)}&section=eq.${encodeURIComponent(m.studentSection)}${_extraCriteriaQS(m.extraCriteria)}&select=student_id,student_name,roll,class,section,group,gender&order=roll.asc`
       );
       return (Array.isArray(students) ? students : []).map(s => ({ ...s, classKey: m.classKey }));
     }));
@@ -2086,6 +2136,7 @@ const handlers = {
       .map(a => ({
         studentClass: CLASS_TEACHER_NAME_TO_STUDENT_CLASS[a.className] || a.className,
         studentSection: CLASS_TEACHER_SECTION_ALIASES[a.section] || a.section,
+        extraCriteria: a.extraCriteria || {},
       }));
     if (!mine.length) return { error: 'Not authorized for this student.' };
 
@@ -2093,7 +2144,11 @@ const handlers = {
     const student = Array.isArray(studentRows) && studentRows[0];
     if (!student) return { error: 'Student not found.' };
 
-    const isMine = mine.some(m => m.studentClass === student.class && m.studentSection === student.section);
+    // A scoped combo (e.g. {"session":"2026"}) means this teacher is only
+    // authorized for students matching that value too -- not every student
+    // in the raw class+section, which can span multiple overlapping cohorts.
+    const isMine = mine.some(m => m.studentClass === student.class && m.studentSection === student.section &&
+      Object.entries(m.extraCriteria).every(([k, v]) => String(student[k] ?? '') === String(v)));
     if (!isMine) return { error: 'Not authorized for this student.' };
 
     const { pin, nfc_uid, ...profile } = student;

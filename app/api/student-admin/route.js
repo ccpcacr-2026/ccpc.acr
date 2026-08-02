@@ -2028,8 +2028,17 @@ export async function POST(req) {
   if (action === 'get_tab_submission_status') {
     const { tab_name } = payload;
     if (!tab_name) return NextResponse.json({ result: 'error', message: 'Tab required.' });
+    // Filterable columns are discovered the same way Assign Class Teacher's
+    // dynamic combo picker does (get_class_sections above, CT_EXCLUDED_COLS)
+    // — every real students_data column except identity/system/free-text
+    // ones and per-student personal traits, so a school adding e.g. a new
+    // "session" or "department" column shows up here automatically, with no
+    // hardcoded list of "the columns that matter" to keep in sync.
+    const headerRows = await sb('students_data?limit=1');
+    if (headerRows?.error || !headerRows.length) return NextResponse.json({ result: 'error', message: 'No students found.' });
+    const filterCols = Object.keys(headerRows[0]).filter(c => !CT_EXCLUDED_COLS.has(c));
     const [roster, subRows, tabRow] = await Promise.all([
-      sb('students_data?select=student_id,student_name,class,section,roll,group,shift,version,gender&limit=10000'),
+      sb(`students_data?select=student_id,student_name,class,section,roll,gender,${filterCols.map(encodeURIComponent).join(',')}&limit=10000`),
       sb(`portal_submissions?tab_name=eq.${encodeURIComponent(tab_name)}&select=student_id,data`),
       sb(`portal_tabs?tab_name=eq.${encodeURIComponent(tab_name)}&select=fields_json`),
     ]);
@@ -2059,9 +2068,13 @@ export async function POST(req) {
       const data = subByStudent[s.student_id] || {};
       return [s.roll || '', s.student_name || '', s.class || '', s.section || '', ...usedFields.map(f => data[f.data_key] ?? '')];
     });
-    const sortMeta = rosterArr.map(s => ({ roll: s.roll, student_name: s.student_name, class: s.class || '', section: s.section || '', group: s.group || 'None', shift: s.shift || 'None', version: s.version || 'None', gender: s.gender }));
+    const sortMeta = rosterArr.map(s => {
+      const meta = { roll: s.roll, student_name: s.student_name, class: s.class || '', section: s.section || '', gender: s.gender };
+      filterCols.forEach(c => { meta[c] = s[c] || 'None'; });
+      return meta;
+    });
     const filled = rosterArr.map(s => subByStudent.hasOwnProperty(s.student_id));
-    return NextResponse.json({ result: 'success', headers, rows: dataRows2, sort_meta: sortMeta, filled });
+    return NextResponse.json({ result: 'success', headers, rows: dataRows2, sort_meta: sortMeta, filled, filter_cols: filterCols });
   }
   if (action === 'get_student_data_headers') {
     const rows = await sb('students_data?limit=1');
