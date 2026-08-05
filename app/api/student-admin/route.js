@@ -189,6 +189,53 @@ async function getGPToken(settings) {
   throw new Error('GP token fetch failed: ' + JSON.stringify(data));
 }
 
+// GP throttles rapid token requests, so reuse one across calls instead of
+// minting fresh per request (module-scope — best-effort across a warm
+// serverless instance, not a hard guarantee, but avoids the common case of
+// two admin clicks in quick succession both hitting /auth/token). Refreshes
+// a bit before GP's own ~30min expiry.
+let _gpTokenCache = null; // { token, baseUrl, expiresAt }
+async function _getGPTokenCached(settings) {
+  const now = Date.now();
+  if (_gpTokenCache && _gpTokenCache.expiresAt > now) return _gpTokenCache;
+  const { token, baseUrl } = await getGPToken(settings);
+  _gpTokenCache = { token, baseUrl, expiresAt: now + 25 * 60 * 1000 };
+  return _gpTokenCache;
+}
+
+// Step 2 of the GP ALO PAAS contract (see [[bus-tracking-system]] memory):
+// POST {baseUrl}/api/v1/vts/location/current-attributes with api-key +
+// channel + Bearer token + {"imei":[...]} -> data[] with
+// latitude/longitude/engineStatus/locationTime/speed/heading/address. This
+// was referenced by get_bus_data/check_bus below but never actually written
+// anywhere in this repo -- every call threw "queryGPLocations is not
+// defined", surfaced to the user as "BUS NOT FOUND / OFFLINE".
+async function queryGPLocations(settings, imeis, _retried = false) {
+  const { token, baseUrl } = await _getGPTokenCached(settings);
+  const r = await fetch(`${baseUrl}/api/v1/vts/location/current-attributes`, {
+    method: 'POST',
+    headers: {
+      'api-key': settings.api_key,
+      channel: settings.channel || 'ALOEXT',
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ imei: imeis }),
+  });
+  const json = await r.json().catch(() => null);
+  if (!Array.isArray(json?.data)) {
+    // A cached token that's actually expired/revoked server-side shows up as
+    // a 401 here -- drop the cache and retry once with a fresh one before
+    // surfacing an error.
+    if (r.status === 401 && !_retried) {
+      _gpTokenCache = null;
+      return queryGPLocations(settings, imeis, true);
+    }
+    throw new Error('GP location fetch failed: ' + JSON.stringify(json));
+  }
+  return json.data;
+}
+
 // Same conditional-tab evaluator as ccpc-students (used by get_tabs when a
 // student_id is passed — admin's own caller always omits it and gets every
 // tab back unfiltered, but porting the full function keeps behavior identical).
