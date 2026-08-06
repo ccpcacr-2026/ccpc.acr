@@ -5715,10 +5715,10 @@
           <div class="bg-white rounded-2xl border border-slate-200 p-4">
             <p class="font-black text-slate-800 text-xs mb-3 flex items-center gap-2"><i data-lucide="calendar" class="h-4 w-4 text-blue-600"></i>New Term</p>
             <div class="flex flex-col gap-2">
-              <input type="text" id="etName" placeholder="Term name (e.g. Half Yearly Exam 2026)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-              <input type="text" id="etType" placeholder="Type (Yearly / Half-Yearly / Model-Test / Special-Test…)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-              <input type="text" id="etYear" placeholder="Academic Year" value="2026" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-              <input type="text" id="etMedium" placeholder="Medium (optional)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <input type="text" autocomplete="off" id="etName" placeholder="Term name (e.g. Half Yearly Exam 2026)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <input type="text" autocomplete="off" id="etType" placeholder="Type (Yearly / Half-Yearly / Model-Test / Special-Test…)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <input type="text" autocomplete="off" id="etYear" placeholder="Academic Year" value="2026" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <input type="text" autocomplete="off" id="etMedium" placeholder="Medium (optional)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
               <button onclick="saveExamTerm()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Create Term</button>
             </div>
           </div>
@@ -5734,7 +5734,7 @@
 
       <div id="ex-classes" style="display:none">
         <div class="flex items-center gap-2 mb-3">
-          <input type="text" id="cpNewPatternName" placeholder="New pattern name (e.g. Six, Ten-Science)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:280px">
+          <input type="text" autocomplete="off" id="cpNewPatternName" placeholder="New pattern name (e.g. Six, Ten-Science)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:280px">
           <button onclick="saveClassPattern()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ Add Pattern</button>
         </div>
         <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:520px">
@@ -5747,7 +5747,7 @@
 
       <div id="ex-subjects" style="display:none">
         <div class="flex items-center gap-2 mb-3">
-          <input type="text" id="subjNewName" placeholder="New subject (e.g. Bangla)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:280px">
+          <input type="text" autocomplete="off" id="subjNewName" placeholder="New subject (e.g. Bangla)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:280px">
           <button onclick="saveSubject()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ Add Subject</button>
         </div>
         <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:520px">
@@ -5768,7 +5768,7 @@
           <div class="bg-white rounded-2xl border border-slate-200 p-4">
             <p class="font-black text-slate-800 text-xs mb-3 flex items-center gap-2"><i data-lucide="filter" class="h-4 w-4 text-blue-600"></i>New Exam Pattern</p>
             <div class="flex flex-col gap-2">
-              <input type="text" id="epName" placeholder="Pattern name (e.g. Model Test Pattern)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <input type="text" autocomplete="off" id="epName" placeholder="Pattern name (e.g. Model Test Pattern)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
               <div id="epTypeChecklist" class="flex flex-wrap gap-2"></div>
               <label class="flex items-center gap-2 text-xs font-bold text-slate-600"><input type="checkbox" id="epEnforceGate" checked>Enforce per-component pass gate</label>
               <button onclick="saveExamPattern()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Create Pattern</button>
@@ -5841,11 +5841,11 @@
       <div id="ex-grades" style="display:none">
         <p class="font-black text-slate-800 text-sm flex items-center gap-2 mb-3"><i data-lucide="star" class="h-4 w-4 text-blue-600"></i>Grade Point List</p>
         <div class="grid grid-cols-2 md:grid-cols-6 gap-2 mb-3">
-          <input type="number" id="gsGp" placeholder="GP" step="0.1" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-          <input type="number" id="gsMin" placeholder="Min %" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-          <input type="number" id="gsMax" placeholder="Max %" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-          <input type="text" id="gsLetter" placeholder="Letter (A+)" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-          <input type="text" id="gsLabel" placeholder="Label (Excellent)" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <input type="number" autocomplete="off" id="gsGp" placeholder="GP" step="0.1" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <input type="number" autocomplete="off" id="gsMin" placeholder="Min %" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <input type="number" autocomplete="off" id="gsMax" placeholder="Max %" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <input type="text" autocomplete="off" id="gsLetter" placeholder="Letter (A+)" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <input type="text" autocomplete="off" id="gsLabel" placeholder="Label (Excellent)" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
           <button onclick="saveGradeScale()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+</button>
         </div>
         <div class="overflow-auto border border-slate-200 rounded-xl">
@@ -5858,10 +5858,10 @@
 
       <div id="ex-board" style="display:none">
         <div class="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3">
-          <input type="text" id="beStudent" placeholder="Student ID" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <input type="text" autocomplete="off" id="beStudent" placeholder="Student ID" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
           <select id="beType" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option>JSC</option><option>SSC</option><option>HSC</option></select>
-          <input type="text" id="beReg" placeholder="Registration #" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-          <input type="text" id="beRoll" placeholder="Board Roll #" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <input type="text" autocomplete="off" id="beReg" placeholder="Registration #" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <input type="text" autocomplete="off" id="beRoll" placeholder="Board Roll #" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
           <button onclick="saveBoardExamRecord()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Save</button>
         </div>
         <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:380px">
@@ -6044,9 +6044,9 @@
             <tbody>
               ${comps.map(c => `<tr>
                 <td class="py-1 pr-2 font-bold">${c.exam_component_types?.name || ''}</td>
-                <td class="py-1 pr-2"><input type="number" value="${c.full_marks}" class="w-16 px-1.5 py-1 bg-slate-50 border border-slate-200 rounded font-bold text-xs" onchange="updateSubjectComponent(${c.id},${pattern_id},${s.id},${c.component_type_id},this.value,${c.pass_marks},${c.weight_percent})"></td>
-                <td class="py-1 pr-2"><input type="number" value="${c.pass_marks}" class="w-16 px-1.5 py-1 bg-slate-50 border border-slate-200 rounded font-bold text-xs" onchange="updateSubjectComponent(${c.id},${pattern_id},${s.id},${c.component_type_id},${c.full_marks},this.value,${c.weight_percent})"></td>
-                <td class="py-1 pr-2"><input type="number" value="${c.weight_percent}" class="w-16 px-1.5 py-1 bg-slate-50 border border-slate-200 rounded font-bold text-xs" onchange="updateSubjectComponent(${c.id},${pattern_id},${s.id},${c.component_type_id},${c.full_marks},${c.pass_marks},this.value)"></td>
+                <td class="py-1 pr-2"><input type="number" autocomplete="off" value="${c.full_marks}" class="w-16 px-1.5 py-1 bg-slate-50 border border-slate-200 rounded font-bold text-xs" onchange="updateSubjectComponent(${c.id},${pattern_id},${s.id},${c.component_type_id},this.value,${c.pass_marks},${c.weight_percent})"></td>
+                <td class="py-1 pr-2"><input type="number" autocomplete="off" value="${c.pass_marks}" class="w-16 px-1.5 py-1 bg-slate-50 border border-slate-200 rounded font-bold text-xs" onchange="updateSubjectComponent(${c.id},${pattern_id},${s.id},${c.component_type_id},${c.full_marks},this.value,${c.weight_percent})"></td>
+                <td class="py-1 pr-2"><input type="number" autocomplete="off" value="${c.weight_percent}" class="w-16 px-1.5 py-1 bg-slate-50 border border-slate-200 rounded font-bold text-xs" onchange="updateSubjectComponent(${c.id},${pattern_id},${s.id},${c.component_type_id},${c.full_marks},${c.pass_marks},this.value)"></td>
                 <td class="py-1"><i data-lucide="trash-2" class="h-3 w-3 text-red-400 cursor-pointer" onclick="deleteSubjectComponent(${c.id})"></i></td>
               </tr>`).join('')}
             </tbody>
@@ -6054,10 +6054,10 @@
         </div>
         <div class="flex items-center gap-2 mt-2 flex-wrap">
           <select id="csmsNewCompType-${s.id}" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">${_componentTypes.map(t => `<option value="${t.id}">${t.name}</option>`).join('')}</select>
-          <input type="text" id="csmsNewCompTypeName-${s.id}" placeholder="or type a new type name" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:160px">
-          <input type="number" id="csmsNewFull-${s.id}" placeholder="Full" class="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-          <input type="number" id="csmsNewPass-${s.id}" placeholder="Pass" class="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-          <input type="number" id="csmsNewWeight-${s.id}" placeholder="Weight%" class="w-20 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <input type="text" autocomplete="off" id="csmsNewCompTypeName-${s.id}" placeholder="or type a new type name" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:160px">
+          <input type="number" autocomplete="off" id="csmsNewFull-${s.id}" placeholder="Full" class="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <input type="number" autocomplete="off" id="csmsNewPass-${s.id}" placeholder="Pass" class="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <input type="number" autocomplete="off" id="csmsNewWeight-${s.id}" placeholder="Weight%" class="w-20 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
           <button onclick="addSubjectComponent(${pattern_id},${s.id})" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ Add</button>
         </div>
       </div>` : ''}
@@ -6217,7 +6217,7 @@
           <div class="flex items-center gap-2 mt-2 flex-wrap">
             <button onclick="bulkToggleEntrySheets(${exam_id},${g.subject_id},${g.component_type_id},true)" class="text-[10px] font-black uppercase text-emerald-600">Open All</button>
             <button onclick="bulkToggleEntrySheets(${exam_id},${g.subject_id},${g.component_type_id},false)" class="text-[10px] font-black uppercase text-red-500">Close All</button>
-            <input type="text" placeholder="Assign to user_id (optional)" class="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:180px" onchange="assignEntrySheets(${exam_id},${g.subject_id},${g.component_type_id},this.value)">
+            <input type="text" autocomplete="off" placeholder="Assign to user_id (optional)" class="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:180px" onchange="assignEntrySheets(${exam_id},${g.subject_id},${g.component_type_id},this.value)">
           </div>
           <div class="flex flex-wrap gap-1.5 mt-2">
             ${g.sections.map(s => `<label class="flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded border ${s.is_open ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-slate-200 text-slate-400'}"><input type="checkbox" ${s.is_open ? 'checked' : ''} onchange="toggleOneEntrySheet(${exam_id},${g.subject_id},${g.component_type_id},'${s.class}','${s.section}',this.checked)">${s.class}-${s.section}</label>`).join('')}
@@ -6274,7 +6274,7 @@
       const roster = (res && res.result === 'success' && res.roster) || [];
       document.getElementById('marksEntryBody').innerHTML = roster.map(s => `<tr class="border-b border-slate-50">
         <td class="py-1.5 px-3">${s.roll}</td><td class="py-1.5 px-3">${s.student_name}</td>
-        <td class="py-1.5 px-3"><input type="number" class="marks-entry-input px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:100px" data-student="${s.student_id}" value="${s.marks_obtained}"></td>
+        <td class="py-1.5 px-3"><input type="number" autocomplete="off" class="marks-entry-input px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:100px" data-student="${s.student_id}" value="${s.marks_obtained}"></td>
       </tr>`).join('') || '<tr><td colspan="3" class="p-3 text-slate-400 font-bold text-xs">No students found.</td></tr>';
     });
   }
