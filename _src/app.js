@@ -5720,6 +5720,8 @@
              ${i === 0 ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50'}">${t.label}</button>`).join('');
 
     container.innerHTML = `
+      <input style="display:none" type="text" name="fakeusernameremembered" tabindex="-1" aria-hidden="true">
+      <input style="display:none" type="password" name="fakepasswordremembered" tabindex="-1" aria-hidden="true">
       <div class="mb-4">
         <h2 class="text-2xl font-black text-slate-800 tracking-tight">Exams</h2>
         <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Term → Class Pattern → Subject → Components → Exam Pattern → Exam → Marks Entry → Result</p>
