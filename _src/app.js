@@ -5668,15 +5668,30 @@
   // ══════════════════════════════════════════════════════════════════════
 
   const EXAMS_SUBTABS = [
-    { id: 'exam-setup', label: 'Exam Setup' },
-    { id: 'exam-marks', label: 'Marks Entry' },
-    { id: 'exam-process', label: 'Result Process' },
-    { id: 'exam-grades', label: 'Grade Setup' },
-    { id: 'exam-board', label: 'Board Exam Records' },
+    { id: 'ex-terms', label: 'Term Setup' },
+    { id: 'ex-classes', label: 'Class Setup' },
+    { id: 'ex-subjects', label: 'Subject Setup' },
+    { id: 'ex-marks-setup', label: 'Class-Subject Marks Setup' },
+    { id: 'ex-pattern', label: 'Exam Pattern Setup' },
+    { id: 'ex-exam-setup', label: 'Exam Setup' },
+    { id: 'ex-entry-setup', label: 'Marks Entry Setup' },
+    { id: 'ex-marks', label: 'Marks Entry' },
+    { id: 'ex-process', label: 'Result Process' },
+    { id: 'ex-grades', label: 'Grade Setup' },
+    { id: 'ex-board', label: 'Board Exam Records' },
   ];
-  let _exams = [];
-  let _curExamId = null;
-  let _meSubjects = [];
+  let _exTerms = [];
+  let _classPatterns = [];       // Class Pattern (Class Setup) — curriculum grouping of real class+sections
+  let _componentTypes = [];      // CT/CQ/MCQ/... reference list
+  let _examPatternTemplates = []; // Exam Pattern (Exam Pattern Setup) — component-subset-per-occasion
+  let _examList = [];
+  let _subjects = [];
+  let _subjectPatternMap = new Set();
+  let _csmsExpanded = new Set();
+  let _entrySheetRows = [];
+  let _meOpenSheets = [];
+  let _examResults = [];
+  let _erExpanded = new Set();
 
   function loadAdminExamsView() {
     _setViewHash('student_portal');
@@ -5691,65 +5706,139 @@
     container.innerHTML = `
       <div class="mb-4">
         <h2 class="text-2xl font-black text-slate-800 tracking-tight">Exams</h2>
-        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Exam setup, marks entry, result processing, grade scale, board records</p>
+        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Term → Class Pattern → Subject → Components → Exam Pattern → Exam → Marks Entry → Result</p>
       </div>
       <div class="flex flex-wrap gap-2 mb-5">${tabBar}</div>
 
-      <div id="exam-setup">
+      <div id="ex-terms">
         <div class="grid md:grid-cols-2 gap-4">
           <div class="bg-white rounded-2xl border border-slate-200 p-4">
-            <p class="font-black text-slate-800 text-xs mb-3 flex items-center gap-2"><i data-lucide="file-plus" class="h-4 w-4 text-blue-600"></i>New Exam</p>
+            <p class="font-black text-slate-800 text-xs mb-3 flex items-center gap-2"><i data-lucide="calendar" class="h-4 w-4 text-blue-600"></i>New Term</p>
             <div class="flex flex-col gap-2">
-              <input type="text" id="exName" placeholder="Exam name (e.g. Half Yearly Exam)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-              <select id="exType" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option>Term</option><option>Half-Yearly</option><option>Final</option><option>Continuous-Test</option></select>
-              <input type="text" id="exYear" placeholder="Academic Year" value="2026" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-              <input type="text" id="exMedium" placeholder="Medium (optional)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-              <input type="text" id="exClass" placeholder="Class" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-              <button onclick="saveExam()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Create Exam</button>
+              <input type="text" id="etName" placeholder="Term name (e.g. Half Yearly Exam 2026)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <input type="text" id="etType" placeholder="Type (Yearly / Half-Yearly / Model-Test / Special-Test…)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <input type="text" id="etYear" placeholder="Academic Year" value="2026" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <input type="text" id="etMedium" placeholder="Medium (optional)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <button onclick="saveExamTerm()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Create Term</button>
             </div>
           </div>
           <div>
-            <p class="font-black text-slate-800 text-xs mb-2 flex items-center gap-2"><i data-lucide="list" class="h-4 w-4 text-blue-600"></i>Exams</p>
-            <div id="examsList" class="flex flex-col gap-2"><span class="text-xs text-slate-400 font-bold italic">Loading…</span></div>
-            <div id="examSubjectsPanel" class="mt-4"></div>
+            <div class="flex items-center justify-between mb-2">
+              <p class="font-black text-slate-800 text-xs flex items-center gap-2"><i data-lucide="list" class="h-4 w-4 text-blue-600"></i>Terms</p>
+              <label class="flex items-center gap-1.5 text-[10px] font-black text-slate-400 uppercase cursor-pointer"><input type="checkbox" id="etShowArchived" onchange="loadExamTerms()">Show Archived</label>
+            </div>
+            <div id="examTermsList" class="flex flex-col gap-2"><span class="text-xs text-slate-400 font-bold italic">Loading…</span></div>
           </div>
         </div>
       </div>
 
-      <div id="exam-marks" style="display:none">
+      <div id="ex-classes" style="display:none">
+        <div class="flex items-center gap-2 mb-3">
+          <input type="text" id="cpNewPatternName" placeholder="New pattern name (e.g. Six, Ten-Science)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:280px">
+          <button onclick="saveClassPattern()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ Add Pattern</button>
+        </div>
+        <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:520px">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Class</th><th class="py-2 px-3">Section</th><th class="py-2 px-3">Session</th><th class="py-2 px-3">Students</th><th class="py-2 px-3">Pattern</th></tr></thead>
+            <tbody id="classPatternBody"><tr><td colspan="5" class="p-3 text-slate-400 font-bold">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="ex-subjects" style="display:none">
+        <div class="flex items-center gap-2 mb-3">
+          <input type="text" id="subjNewName" placeholder="New subject (e.g. Bangla)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:280px">
+          <button onclick="saveSubject()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ Add Subject</button>
+        </div>
+        <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:520px">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead class="bg-slate-50"><tr id="subjPatternHeaderRow" class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Subject</th></tr></thead>
+            <tbody id="subjPatternBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="ex-marks-setup" style="display:none">
+        <select id="csmsPatternSelect" class="exam-pattern-select px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mb-3" onchange="loadSubjectComponentsSetup()"><option value="">Select class pattern…</option></select>
+        <div id="csmsSubjectsList" class="flex flex-col gap-3"></div>
+      </div>
+
+      <div id="ex-pattern" style="display:none">
+        <div class="grid md:grid-cols-2 gap-4">
+          <div class="bg-white rounded-2xl border border-slate-200 p-4">
+            <p class="font-black text-slate-800 text-xs mb-3 flex items-center gap-2"><i data-lucide="filter" class="h-4 w-4 text-blue-600"></i>New Exam Pattern</p>
+            <div class="flex flex-col gap-2">
+              <input type="text" id="epName" placeholder="Pattern name (e.g. Model Test Pattern)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <div id="epTypeChecklist" class="flex flex-wrap gap-2"></div>
+              <label class="flex items-center gap-2 text-xs font-bold text-slate-600"><input type="checkbox" id="epEnforceGate" checked>Enforce per-component pass gate</label>
+              <button onclick="saveExamPattern()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Create Pattern</button>
+            </div>
+          </div>
+          <div>
+            <p class="font-black text-slate-800 text-xs mb-2 flex items-center gap-2"><i data-lucide="list" class="h-4 w-4 text-blue-600"></i>Exam Patterns</p>
+            <div id="examPatternsList" class="flex flex-col gap-2"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="ex-exam-setup" style="display:none">
+        <div class="grid md:grid-cols-2 gap-4">
+          <div class="bg-white rounded-2xl border border-slate-200 p-4">
+            <p class="font-black text-slate-800 text-xs mb-3 flex items-center gap-2"><i data-lucide="file-plus" class="h-4 w-4 text-blue-600"></i>New Exam</p>
+            <div class="flex flex-col gap-2">
+              <select id="exsTermSelect" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Select term…</option></select>
+              <select id="exsPatternSelect" class="exam-pattern-select px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Select class pattern…</option></select>
+              <select id="exsExamPatternSelect" class="exam-pattern-template-select px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Select exam pattern…</option></select>
+              <button onclick="saveExamSetup()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Create Exam</button>
+            </div>
+          </div>
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <p class="font-black text-slate-800 text-xs flex items-center gap-2"><i data-lucide="list" class="h-4 w-4 text-blue-600"></i>Exams</p>
+              <label class="flex items-center gap-1.5 text-[10px] font-black text-slate-400 uppercase cursor-pointer"><input type="checkbox" id="exsShowArchived" onchange="loadExamSetupList()">Show Archived</label>
+            </div>
+            <div id="examSetupList" class="flex flex-col gap-2"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="ex-entry-setup" style="display:none">
+        <select id="mesExamSelect" class="exam-select px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mb-3" onchange="loadEntrySheetsSetup()"><option value="">Select exam…</option></select>
+        <div id="entrySheetsSetupList" class="flex flex-col gap-2"></div>
+      </div>
+
+      <div id="ex-marks" style="display:none">
         <div class="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3">
-          <select id="meExam" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Select exam…</option></select>
-          <select id="meSubject" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Subject…</option></select>
-          <input type="text" id="meClass" placeholder="Class" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-          <input type="text" id="meSection" placeholder="Section" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <select id="meExamSelect" class="exam-select px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" onchange="loadMarksEntryOptions()"><option value="">Select exam…</option></select>
+          <select id="meSubjectSelect" onchange="_populateMarksComponentSelect()" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Subject…</option></select>
+          <select id="meComponentSelect" onchange="_populateMarksSectionSelect()" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Component…</option></select>
+          <select id="meSectionSelect" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Section…</option></select>
           <button onclick="loadMarksEntry()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Load Students</button>
         </div>
         <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:420px">
           <table class="w-full text-left border-collapse text-xs">
             <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Roll</th><th class="py-2 px-3">Name</th><th class="py-2 px-3">Marks</th></tr></thead>
-            <tbody id="marksEntryBody"><tr><td colspan="3" class="p-3 text-slate-400 font-bold">Pick an exam, subject, and class.</td></tr></tbody>
+            <tbody id="marksEntryBody"><tr><td colspan="3" class="p-3 text-slate-400 font-bold">Pick an exam, subject, component, and section.</td></tr></tbody>
           </table>
         </div>
         <button onclick="saveMarksEntry()" class="mt-3 px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save All Marks</button>
         <span id="marksEntryStatus" class="text-xs font-bold ml-2"></span>
       </div>
 
-      <div id="exam-process" style="display:none">
+      <div id="ex-process" style="display:none">
         <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
-          <select id="prExam" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Select exam…</option></select>
+          <select id="prExamSelect" class="exam-select px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Select exam…</option></select>
           <button onclick="processExamResult()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Process Result</button>
-          <button onclick="toggleExamLock(true)" class="px-3 py-2 border border-red-200 text-red-500 rounded-lg font-black text-[10px] uppercase hover:bg-red-50">Lock</button>
-          <button onclick="toggleExamLock(false)" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Unlock</button>
         </div>
         <div class="overflow-auto border border-slate-200 rounded-xl">
           <table class="w-full text-left border-collapse text-xs">
-            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Position</th><th class="py-2 px-3">Student</th><th class="py-2 px-3">Total</th><th class="py-2 px-3">%</th><th class="py-2 px-3">GPA</th><th class="py-2 px-3">Grade</th><th class="py-2 px-3">Pass/Fail</th></tr></thead>
-            <tbody id="examResultsBody"><tr><td colspan="7" class="p-3 text-slate-400 font-bold">Select an exam and process.</td></tr></tbody>
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3"></th><th class="py-2 px-3">Position</th><th class="py-2 px-3">Student</th><th class="py-2 px-3">Total</th><th class="py-2 px-3">%</th><th class="py-2 px-3">GPA</th><th class="py-2 px-3">Grade</th><th class="py-2 px-3">Pass/Fail</th></tr></thead>
+            <tbody id="examResultsBody"><tr><td colspan="8" class="p-3 text-slate-400 font-bold">Select an exam and process.</td></tr></tbody>
           </table>
         </div>
       </div>
 
-      <div id="exam-grades" style="display:none">
+      <div id="ex-grades" style="display:none">
         <p class="font-black text-slate-800 text-sm flex items-center gap-2 mb-3"><i data-lucide="star" class="h-4 w-4 text-blue-600"></i>Grade Point List</p>
         <div class="grid grid-cols-2 md:grid-cols-6 gap-2 mb-3">
           <input type="number" id="gsGp" placeholder="GP" step="0.1" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
@@ -5767,7 +5856,7 @@
         </div>
       </div>
 
-      <div id="exam-board" style="display:none">
+      <div id="ex-board" style="display:none">
         <div class="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3">
           <input type="text" id="beStudent" placeholder="Student ID" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
           <select id="beType" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option>JSC</option><option>SSC</option><option>HSC</option></select>
@@ -5784,7 +5873,8 @@
       </div>
     `;
     lucide.createIcons();
-    loadExams();
+    _loadClassPatternsList();
+    loadExamTerms();
   }
 
   function switchExamsTab(tabId) {
@@ -5798,76 +5888,389 @@
         btn.className += active ? ' bg-blue-600 text-white shadow-lg shadow-blue-500/20' : ' bg-white text-slate-400 border border-slate-200 hover:bg-slate-50';
       }
     });
-    if (tabId === 'exam-grades') loadGradeScales();
-    if (tabId === 'exam-board') loadBoardExamRecords();
+    const loaders = {
+      'ex-terms': loadExamTerms,
+      'ex-classes': loadClassPatternSetup,
+      'ex-subjects': loadSubjectSetup,
+      'ex-marks-setup': () => _populateClassPatternSelects(),
+      'ex-pattern': loadExamPatternSetup,
+      'ex-exam-setup': loadExamSetupList,
+      'ex-entry-setup': loadExamSetupList,
+      'ex-marks': loadExamSetupList,
+      'ex-process': loadExamSetupList,
+      'ex-grades': loadGradeScales,
+      'ex-board': loadBoardExamRecords,
+    };
+    if (loaders[tabId]) loaders[tabId]();
   }
 
-  function _examOptions() { return _exams.map(e => `<option value="${e.id}">${e.name} (${e.academic_year})${e.is_locked ? ' 🔒' : ''}</option>`).join(''); }
-
-  function loadExams() {
-    _adminFetch('get_exams', {}).then(res => {
-      _exams = (res && res.result === 'success' && res.exams) || [];
-      const host = document.getElementById('examsList');
-      if (host) host.innerHTML = _exams.map(e => `
-        <div class="flex justify-between items-center border rounded-xl px-3 py-2 cursor-pointer ${e.id == _curExamId ? 'border-blue-400' : 'border-slate-200'}" onclick="selectExamForSubjects(${e.id})">
-          <div><span class="font-black text-slate-800 text-xs">${e.name}</span> <span class="text-[10px] font-black text-slate-400 bg-slate-100 rounded px-1.5 py-0.5 ml-1">${e.exam_type}</span> <span class="text-slate-400 text-xs ml-2">${e.academic_year}${e.class ? ' · '+e.class : ''}</span>${e.is_locked ? ' <span class="text-[10px] font-black text-white bg-red-500 rounded px-1.5 py-0.5">Locked</span>' : ''}</div>
-        </div>`).join('') || '<span class="text-xs text-slate-400 font-bold italic">No exams yet.</span>';
-      ['meExam', 'prExam'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = '<option value="">Select exam…</option>' + _examOptions(); });
+  // ── Term Setup ──────────────────────────────────────────────────────────
+  function loadExamTerms() {
+    const includeArchived = document.getElementById('etShowArchived')?.checked;
+    _adminFetch('get_exam_terms', { include_archived: includeArchived }).then(res => {
+      _exTerms = (res && res.result === 'success' && res.terms) || [];
+      const host = document.getElementById('examTermsList');
+      if (host) host.innerHTML = _exTerms.map(t => `
+        <div class="flex justify-between items-center border rounded-xl px-3 py-2 ${t.is_archived ? 'opacity-50' : ''} border-slate-200">
+          <div><span class="font-black text-slate-800 text-xs">${t.name}</span> <span class="text-[10px] font-black text-slate-400 bg-slate-100 rounded px-1.5 py-0.5 ml-1">${t.term_type}</span> <span class="text-slate-400 text-xs ml-2">${t.academic_year}</span>${t.is_archived ? ' <span class="text-[10px] font-black text-white bg-slate-400 rounded px-1.5 py-0.5">Archived</span>' : ''}</div>
+          <button onclick="archiveExamTerm(${t.id}, ${!t.is_archived})" class="text-[10px] font-black uppercase text-slate-400 hover:text-slate-700">${t.is_archived ? 'Unarchive' : 'Archive'}</button>
+        </div>`).join('') || '<span class="text-xs text-slate-400 font-bold italic">No terms yet.</span>';
+      const opts = '<option value="">Select term…</option>' + _exTerms.filter(t => !t.is_archived).map(t => `<option value="${t.id}">${t.name} (${t.academic_year})</option>`).join('');
+      const el = document.getElementById('exsTermSelect'); if (el) { const cur = el.value; el.innerHTML = opts; if (cur) el.value = cur; }
     });
   }
-  function saveExam() {
-    const name = document.getElementById('exName').value.trim();
-    const exam_type = document.getElementById('exType').value;
-    const academic_year = document.getElementById('exYear').value.trim();
-    const medium = document.getElementById('exMedium').value.trim();
-    const cls = document.getElementById('exClass').value.trim();
+  function saveExamTerm() {
+    const name = document.getElementById('etName').value.trim();
+    const term_type = document.getElementById('etType').value.trim() || 'Term';
+    const academic_year = document.getElementById('etYear').value.trim();
+    const medium = document.getElementById('etMedium').value.trim();
     if (!name || !academic_year) { showToast('Name and year required', 'error'); return; }
-    _adminFetch('save_exam', { name, exam_type, academic_year, medium, class: cls }).then(res => {
-      if (res && res.result === 'success') { showToast('Exam created'); document.getElementById('exName').value = ''; loadExams(); }
+    _adminFetch('save_exam_term', { name, term_type, academic_year, medium }).then(res => {
+      if (res && res.result === 'success') { showToast('Term created'); document.getElementById('etName').value = ''; loadExamTerms(); }
       else showToast((res && res.message) || 'Failed', 'error');
     });
   }
-  function selectExamForSubjects(exam_id) {
-    _curExamId = exam_id;
-    loadExams();
-    _adminFetch('get_exam_subjects', { exam_id }).then(res => {
-      const subjects = (res && res.result === 'success' && res.subjects) || [];
-      const host = document.getElementById('examSubjectsPanel');
-      host.innerHTML = `
-        <p class="font-black text-slate-800 text-xs mb-2">Subjects</p>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-2">
-          <input type="text" id="esSubject" placeholder="Subject name" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-          <input type="number" id="esFull" placeholder="Full marks" value="100" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-          <input type="number" id="esPass" placeholder="Pass marks" value="33" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-          <button onclick="saveExamSubject(${exam_id})" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+</button>
-        </div>
-        <div class="flex flex-wrap gap-2">${subjects.map(s => `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 text-slate-700 rounded-full text-[11px] font-bold border border-slate-200">${s.subject} (${s.full_marks}/${s.pass_marks}) <i data-lucide="x-circle" class="h-3 w-3 text-red-500 cursor-pointer" onclick="deleteExamSubject(${s.id}, ${exam_id})"></i></span>`).join('') || '<span class="text-xs text-slate-400 font-bold italic">No subjects yet.</span>'}</div>`;
-      lucide.createIcons();
-      _populateMarksSubjectSelect(subjects);
-    });
-  }
-  function saveExamSubject(exam_id) {
-    const subject = document.getElementById('esSubject').value.trim();
-    const full_marks = document.getElementById('esFull').value;
-    const pass_marks = document.getElementById('esPass').value;
-    if (!subject) return;
-    _adminFetch('save_exam_subject', { exam_id, subject, full_marks, pass_marks }).then(res => { if (res && res.result === 'success') selectExamForSubjects(exam_id); });
-  }
-  function deleteExamSubject(id, exam_id) {
-    _adminFetch('delete_exam_subject', { id }).then(res => { if (res && res.result === 'success') selectExamForSubjects(exam_id); });
-  }
-  function _populateMarksSubjectSelect(subjects) {
-    _meSubjects = subjects;
-    const el = document.getElementById('meSubject');
-    if (el) el.innerHTML = '<option value="">Subject…</option>' + subjects.map(s => `<option value="${s.id}">${s.subject}</option>`).join('');
+  function archiveExamTerm(id, archived) {
+    _adminFetch('archive_exam_term', { id, archived }).then(res => { if (res && res.result === 'success') loadExamTerms(); });
   }
 
+  // ── Class Setup — crosscheck-only, pattern dropdown per class+section+session
+  function _loadClassPatternsList() {
+    return _adminFetch('get_class_patterns', {}).then(res => {
+      _classPatterns = (res && res.result === 'success' && res.patterns) || [];
+      _populateClassPatternSelects();
+    });
+  }
+  function _populateClassPatternSelects() {
+    const opts = '<option value="">Select class pattern…</option>' + _classPatterns.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+    document.querySelectorAll('.exam-pattern-select').forEach(el => { const cur = el.value; el.innerHTML = opts; if (cur) el.value = cur; });
+  }
+  function loadClassPatternSetup() {
+    _adminFetch('get_class_pattern_setup', {}).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed to load', 'error'); return; }
+      _classPatterns = res.patterns || [];
+      _populateClassPatternSelects();
+      document.getElementById('classPatternBody').innerHTML = res.rows.map(r => `<tr class="border-b border-slate-50">
+        <td class="py-1.5 px-3 font-bold">${r.class}</td><td class="py-1.5 px-3">${r.section}</td><td class="py-1.5 px-3">${r.session || '—'}</td><td class="py-1.5 px-3">${r.count}</td>
+        <td class="py-1.5 px-3"><select data-class="${r.class}" data-section="${r.section}" data-session="${r.session}" onchange="saveClassPatternMap(this)" class="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">${_classPatternOptionsHtml(r.pattern_id)}</select></td>
+      </tr>`).join('') || '<tr><td colspan="5" class="p-3 text-slate-400 font-bold">No classes found.</td></tr>';
+    });
+  }
+  function _classPatternOptionsHtml(selectedId) {
+    return '<option value="">— none —</option>' + _classPatterns.map(p => `<option value="${p.id}" ${String(p.id) === String(selectedId) ? 'selected' : ''}>${p.name}</option>`).join('');
+  }
+  function saveClassPattern() {
+    const name = document.getElementById('cpNewPatternName').value.trim();
+    if (!name) return;
+    _adminFetch('save_class_pattern', { name }).then(res => {
+      if (res && res.result === 'success') { showToast('Pattern added'); document.getElementById('cpNewPatternName').value = ''; loadClassPatternSetup(); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+  function saveClassPatternMap(sel) {
+    const { class: cls, section, session } = sel.dataset;
+    const pattern_id = sel.value || null;
+    _adminFetch('save_class_pattern_map', { class: cls, section, session, pattern_id }).then(res => {
+      if (!res || res.result !== 'success') showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+
+  // ── Subject Setup — global catalog + per-pattern checklist ──────────────
+  function loadSubjectSetup() {
+    Promise.all([_adminFetch('get_subjects', {}), _adminFetch('get_subject_pattern_map', {})]).then(([subRes, mapRes]) => {
+      _subjects = (subRes && subRes.result === 'success' && subRes.subjects) || [];
+      const patterns = (mapRes && mapRes.result === 'success' && mapRes.patterns) || [];
+      const mapRows = (mapRes && mapRes.result === 'success' && mapRes.map) || [];
+      _subjectPatternMap = new Set(mapRows.map(m => `${m.subject_id}||${m.pattern_id}`));
+      document.getElementById('subjPatternHeaderRow').innerHTML = '<th class="py-2 px-3">Subject</th>' + patterns.map(p => `<th class="py-2 px-3 text-center">${p.name}</th>`).join('');
+      document.getElementById('subjPatternBody').innerHTML = _subjects.map(s => `<tr class="border-b border-slate-50">
+        <td class="py-1.5 px-3 font-bold">${s.name} <i data-lucide="trash-2" class="h-3 w-3 text-red-400 cursor-pointer inline ml-1" onclick="deleteSubject(${s.id})"></i></td>
+        ${patterns.map(p => `<td class="py-1.5 px-3 text-center"><input type="checkbox" onchange="saveSubjectPatternMap(${s.id},${p.id},this.checked)" ${_subjectPatternMap.has(`${s.id}||${p.id}`) ? 'checked' : ''}></td>`).join('')}
+      </tr>`).join('') || `<tr><td colspan="${patterns.length + 1}" class="p-3 text-slate-400 font-bold">No subjects yet.</td></tr>`;
+      lucide.createIcons();
+    });
+  }
+  function saveSubject() {
+    const name = document.getElementById('subjNewName').value.trim();
+    if (!name) return;
+    _adminFetch('save_subject', { name }).then(res => {
+      if (res && res.result === 'success') { showToast('Subject added'); document.getElementById('subjNewName').value = ''; loadSubjectSetup(); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+  function deleteSubject(id) {
+    if (!confirm('Delete this subject?')) return;
+    _adminFetch('delete_subject', { id }).then(res => { if (res && res.result === 'success') loadSubjectSetup(); });
+  }
+  function saveSubjectPatternMap(subject_id, pattern_id, checked) {
+    _adminFetch('save_subject_pattern_map', { subject_id, pattern_id, checked }).then(res => {
+      if (!res || res.result !== 'success') showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+
+  // ── Class-Subject Marks Setup — standing per-(pattern,subject) components
+  function loadSubjectComponentsSetup() {
+    const pattern_id = document.getElementById('csmsPatternSelect').value;
+    const host = document.getElementById('csmsSubjectsList');
+    if (!pattern_id) { host.innerHTML = ''; return; }
+    Promise.all([
+      _adminFetch('get_subject_components_setup', { pattern_id }),
+      _componentTypes.length ? Promise.resolve({ result: 'success', types: _componentTypes }) : _adminFetch('get_exam_component_types', {}),
+    ]).then(([subRes, typesRes]) => {
+      if (typesRes && typesRes.result === 'success') _componentTypes = typesRes.types || [];
+      const subjects = (subRes && subRes.result === 'success' && subRes.subjects) || [];
+      host.innerHTML = subjects.map(s => _renderCsmsSubjectCard(pattern_id, s)).join('') || '<span class="text-xs text-slate-400 font-bold italic">No subjects checked for this pattern yet — set them in Subject Setup.</span>';
+      lucide.createIcons();
+    });
+  }
+  function _renderCsmsSubjectCard(pattern_id, s) {
+    const expanded = _csmsExpanded.has(s.id);
+    const comps = s.components || [];
+    const weightSum = comps.reduce((sum, c) => sum + Number(c.weight_percent || 0), 0);
+    const fullSum = comps.reduce((sum, c) => sum + Number(c.full_marks || 0), 0);
+    const summary = `${comps.length} component${comps.length === 1 ? '' : 's'} · full ${fullSum} · weight ${weightSum}%`;
+    return `<div class="bg-white rounded-2xl border border-slate-200 p-4">
+      <div class="flex items-center justify-between cursor-pointer" onclick="toggleCsmsSubject(${s.id})">
+        <p class="font-black text-slate-800 text-xs">${s.name}</p>
+        <div class="flex items-center gap-2">
+          <span class="text-[10px] font-bold uppercase ${weightSum === 100 ? 'text-emerald-500' : 'text-amber-500'}">${summary}</span>
+          <i data-lucide="${expanded ? 'chevron-up' : 'chevron-down'}" class="h-4 w-4 text-slate-400"></i>
+        </div>
+      </div>
+      ${expanded ? `<div class="mt-3 pt-3 border-t border-slate-100">
+        <div class="overflow-auto">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-1 pr-2">Component</th><th class="py-1 pr-2">Full</th><th class="py-1 pr-2">Pass</th><th class="py-1 pr-2">Weight %</th><th></th></tr></thead>
+            <tbody>
+              ${comps.map(c => `<tr>
+                <td class="py-1 pr-2 font-bold">${c.exam_component_types?.name || ''}</td>
+                <td class="py-1 pr-2"><input type="number" value="${c.full_marks}" class="w-16 px-1.5 py-1 bg-slate-50 border border-slate-200 rounded font-bold text-xs" onchange="updateSubjectComponent(${c.id},${pattern_id},${s.id},${c.component_type_id},this.value,${c.pass_marks},${c.weight_percent})"></td>
+                <td class="py-1 pr-2"><input type="number" value="${c.pass_marks}" class="w-16 px-1.5 py-1 bg-slate-50 border border-slate-200 rounded font-bold text-xs" onchange="updateSubjectComponent(${c.id},${pattern_id},${s.id},${c.component_type_id},${c.full_marks},this.value,${c.weight_percent})"></td>
+                <td class="py-1 pr-2"><input type="number" value="${c.weight_percent}" class="w-16 px-1.5 py-1 bg-slate-50 border border-slate-200 rounded font-bold text-xs" onchange="updateSubjectComponent(${c.id},${pattern_id},${s.id},${c.component_type_id},${c.full_marks},${c.pass_marks},this.value)"></td>
+                <td class="py-1"><i data-lucide="trash-2" class="h-3 w-3 text-red-400 cursor-pointer" onclick="deleteSubjectComponent(${c.id})"></i></td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div class="flex items-center gap-2 mt-2 flex-wrap">
+          <select id="csmsNewCompType-${s.id}" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">${_componentTypes.map(t => `<option value="${t.id}">${t.name}</option>`).join('')}</select>
+          <input type="text" id="csmsNewCompTypeName-${s.id}" placeholder="or type a new type name" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:160px">
+          <input type="number" id="csmsNewFull-${s.id}" placeholder="Full" class="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <input type="number" id="csmsNewPass-${s.id}" placeholder="Pass" class="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <input type="number" id="csmsNewWeight-${s.id}" placeholder="Weight%" class="w-20 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <button onclick="addSubjectComponent(${pattern_id},${s.id})" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ Add</button>
+        </div>
+      </div>` : ''}
+    </div>`;
+  }
+  function toggleCsmsSubject(subjectId) {
+    if (_csmsExpanded.has(subjectId)) _csmsExpanded.delete(subjectId); else _csmsExpanded.add(subjectId);
+    loadSubjectComponentsSetup();
+  }
+  function updateSubjectComponent(id, pattern_id, subject_id, component_type_id, full_marks, pass_marks, weight_percent) {
+    _adminFetch('save_subject_component', { id, pattern_id, subject_id, component_type_id, full_marks, pass_marks, weight_percent }).then(res => {
+      if (res && res.result === 'success') loadSubjectComponentsSetup();
+      else showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+  function deleteSubjectComponent(id) {
+    _adminFetch('delete_subject_component', { id }).then(res => { if (res && res.result === 'success') loadSubjectComponentsSetup(); });
+  }
+  function addSubjectComponent(pattern_id, subject_id) {
+    const typeSel = document.getElementById(`csmsNewCompType-${subject_id}`);
+    const newTypeName = document.getElementById(`csmsNewCompTypeName-${subject_id}`).value.trim();
+    const full_marks = document.getElementById(`csmsNewFull-${subject_id}`).value;
+    const pass_marks = document.getElementById(`csmsNewPass-${subject_id}`).value;
+    const weight_percent = document.getElementById(`csmsNewWeight-${subject_id}`).value;
+    const proceed = component_type_id => {
+      _adminFetch('save_subject_component', { pattern_id, subject_id, component_type_id, full_marks, pass_marks, weight_percent }).then(res => {
+        if (res && res.result === 'success') { _csmsExpanded.add(subject_id); loadSubjectComponentsSetup(); }
+        else showToast((res && res.message) || 'Failed', 'error');
+      });
+    };
+    if (newTypeName) {
+      _adminFetch('save_exam_component_type', { name: newTypeName }).then(res => {
+        if (res && res.result === 'success' && res.type) { _componentTypes = []; proceed(res.type.id); }
+        else showToast((res && res.message) || 'Failed', 'error');
+      });
+    } else if (typeSel && typeSel.value) {
+      proceed(typeSel.value);
+    } else {
+      showToast('Pick or type a component type', 'error');
+    }
+  }
+
+  // ── Exam Pattern Setup — reusable subset-of-components-per-occasion ─────
+  function loadExamPatternSetup() {
+    Promise.all([_adminFetch('get_exam_patterns', {}), _componentTypes.length ? Promise.resolve({ result: 'success', types: _componentTypes }) : _adminFetch('get_exam_component_types', {})]).then(([res, typesRes]) => {
+      if (typesRes && typesRes.result === 'success') _componentTypes = typesRes.types || [];
+      document.getElementById('epTypeChecklist').innerHTML = _componentTypes.map(t => `<label class="flex items-center gap-1 text-xs font-bold text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1"><input type="checkbox" class="ep-type-cb" value="${t.id}">${t.name}</label>`).join('') || '<span class="text-xs text-slate-400 italic">Add component types first, from Class-Subject Marks Setup.</span>';
+      _examPatternTemplates = (res && res.result === 'success' && res.patterns) || [];
+      _populateExamPatternTemplateSelects();
+      document.getElementById('examPatternsList').innerHTML = _examPatternTemplates.map(p => `
+        <div class="border border-slate-200 rounded-xl px-3 py-2">
+          <div class="flex justify-between items-center">
+            <span class="font-black text-slate-800 text-xs">${p.name}</span>
+            <div class="flex items-center gap-2">
+              <button onclick="duplicateExamPattern(${p.id})" class="text-[10px] font-black uppercase text-blue-500">Duplicate</button>
+              <button onclick="deleteExamPatternTemplate(${p.id})" class="text-[10px] font-black uppercase text-red-500">Delete</button>
+            </div>
+          </div>
+          <div class="text-[10px] text-slate-400 font-bold mt-1">${(p.active_component_type_ids || []).map(id => _componentTypes.find(t => String(t.id) === String(id))?.name).filter(Boolean).join(', ') || 'No components selected'} ${p.enforce_component_pass_gate ? '· gate ON' : '· gate OFF'}</div>
+        </div>`).join('') || '<span class="text-xs text-slate-400 font-bold italic">No exam patterns yet.</span>';
+      lucide.createIcons();
+    });
+  }
+  function saveExamPattern() {
+    const name = document.getElementById('epName').value.trim();
+    const active_component_type_ids = Array.from(document.querySelectorAll('.ep-type-cb:checked')).map(cb => cb.value);
+    const enforce_component_pass_gate = document.getElementById('epEnforceGate').checked;
+    if (!name) { showToast('Name required', 'error'); return; }
+    _adminFetch('save_exam_pattern', { name, active_component_type_ids, enforce_component_pass_gate }).then(res => {
+      if (res && res.result === 'success') { showToast('Exam pattern created'); document.getElementById('epName').value = ''; loadExamPatternSetup(); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+  function duplicateExamPattern(id) {
+    _adminFetch('duplicate_exam_pattern', { id }).then(res => { if (res && res.result === 'success') { showToast('Duplicated'); loadExamPatternSetup(); } });
+  }
+  function deleteExamPatternTemplate(id) {
+    if (!confirm('Delete this exam pattern?')) return;
+    _adminFetch('delete_exam_pattern', { id }).then(res => { if (res && res.result === 'success') loadExamPatternSetup(); });
+  }
+
+  // ── Exam Setup — one row per (Term × Class Pattern) sitting ────────────
+  function _populateExamPatternTemplateSelects() {
+    const opts = '<option value="">Select exam pattern…</option>' + _examPatternTemplates.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+    document.querySelectorAll('.exam-pattern-template-select').forEach(el => { const cur = el.value; el.innerHTML = opts; if (cur) el.value = cur; });
+  }
+  function loadExamSetupList() {
+    if (!_examPatternTemplates.length) _adminFetch('get_exam_patterns', {}).then(res => { _examPatternTemplates = (res && res.result === 'success' && res.patterns) || []; _populateExamPatternTemplateSelects(); });
+    const includeArchived = document.getElementById('exsShowArchived')?.checked;
+    _adminFetch('get_exams', { include_archived: includeArchived }).then(res => {
+      _examList = (res && res.result === 'success' && res.exams) || [];
+      const host = document.getElementById('examSetupList');
+      if (host) host.innerHTML = _examList.map(e => `
+        <div class="border rounded-xl px-3 py-2 ${e.is_archived ? 'opacity-50' : ''} border-slate-200">
+          <div class="flex justify-between items-center">
+            <div><span class="font-black text-slate-800 text-xs">${e.exam_terms?.name || ''}</span> <span class="text-slate-400 text-xs ml-1">${e.class_patterns?.name || ''}</span>${e.is_locked ? ' <span class="text-[10px] font-black text-white bg-red-500 rounded px-1.5 py-0.5">Locked</span>' : ''}${e.is_archived ? ' <span class="text-[10px] font-black text-white bg-slate-400 rounded px-1.5 py-0.5">Archived</span>' : ''}</div>
+          </div>
+          <div class="text-[10px] text-slate-400 font-bold mt-1">${e.exam_patterns?.name || 'No exam pattern set'}</div>
+          <div class="flex items-center gap-2 mt-2">
+            <button onclick="toggleExamSetupLock(${e.id}, ${!e.is_locked})" class="text-[10px] font-black uppercase text-red-500">${e.is_locked ? 'Unlock' : 'Lock'}</button>
+            <button onclick="toggleExamSetupArchive(${e.id}, ${!e.is_archived})" class="text-[10px] font-black uppercase text-slate-500">${e.is_archived ? 'Unarchive' : 'Archive'}</button>
+            <button onclick="openDuplicateExamModal(${e.id})" class="text-[10px] font-black uppercase text-blue-500">Duplicate</button>
+          </div>
+        </div>`).join('') || '<span class="text-xs text-slate-400 font-bold italic">No exams yet.</span>';
+      const opts = '<option value="">Select exam…</option>' + _examList.filter(e => !e.is_archived).map(e => `<option value="${e.id}">${e.exam_terms?.name || ''} · ${e.class_patterns?.name || ''}${e.is_locked ? ' 🔒' : ''}</option>`).join('');
+      document.querySelectorAll('.exam-select').forEach(el => { const cur = el.value; el.innerHTML = opts; if (cur) el.value = cur; });
+    });
+  }
+  function saveExamSetup() {
+    const term_id = document.getElementById('exsTermSelect').value;
+    const pattern_id = document.getElementById('exsPatternSelect').value;
+    const exam_pattern_id = document.getElementById('exsExamPatternSelect').value;
+    if (!term_id || !pattern_id) { showToast('Term and class pattern required', 'error'); return; }
+    _adminFetch('save_exam', { term_id, pattern_id, exam_pattern_id: exam_pattern_id || null }).then(res => {
+      if (res && res.result === 'success') { showToast('Exam created'); loadExamSetupList(); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+  function toggleExamSetupLock(id, locked) {
+    _adminFetch('lock_exam', { id, locked }).then(res => { if (res && res.result === 'success') { showToast(locked ? 'Exam locked' : 'Exam unlocked'); loadExamSetupList(); } });
+  }
+  function toggleExamSetupArchive(id, archived) {
+    _adminFetch('archive_exam', { id, archived }).then(res => { if (res && res.result === 'success') loadExamSetupList(); });
+  }
+  function openDuplicateExamModal(id) {
+    const term_id = prompt('Duplicate into which term? Enter term ID:\n' + _exTerms.map(t => `${t.id}: ${t.name}`).join('\n'));
+    if (!term_id) return;
+    const pattern_id = prompt('Into which class pattern? Enter pattern ID:\n' + _classPatterns.map(p => `${p.id}: ${p.name}`).join('\n'));
+    if (!pattern_id) return;
+    _adminFetch('duplicate_exam', { id, term_id, pattern_id }).then(res => {
+      if (res && res.result === 'success') { showToast('Exam duplicated'); loadExamSetupList(); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+
+  // ── Marks Entry Setup — open/assign subject+component sheets per section
+  function loadEntrySheetsSetup() {
+    const exam_id = document.getElementById('mesExamSelect').value;
+    const host = document.getElementById('entrySheetsSetupList');
+    if (!exam_id) { host.innerHTML = ''; return; }
+    _adminFetch('get_exam_entry_sheets', { exam_id }).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed', 'error'); return; }
+      _entrySheetRows = res.rows || [];
+      const groups = new Map();
+      _entrySheetRows.forEach(r => {
+        const key = `${r.subject_id}||${r.component_type_id}`;
+        if (!groups.has(key)) groups.set(key, { subject_id: r.subject_id, subject_name: r.subject_name, component_type_id: r.component_type_id, component_name: r.component_name, sections: [] });
+        groups.get(key).sections.push(r);
+      });
+      host.innerHTML = [...groups.values()].map(g => {
+        const openCount = g.sections.filter(s => s.is_open).length;
+        return `<div class="border border-slate-200 rounded-xl px-3 py-2">
+          <div class="flex justify-between items-center">
+            <span class="font-black text-slate-800 text-xs">${g.subject_name} — ${g.component_name}</span>
+            <span class="text-[10px] font-bold text-slate-400">${openCount}/${g.sections.length} sections open</span>
+          </div>
+          <div class="flex items-center gap-2 mt-2 flex-wrap">
+            <button onclick="bulkToggleEntrySheets(${exam_id},${g.subject_id},${g.component_type_id},true)" class="text-[10px] font-black uppercase text-emerald-600">Open All</button>
+            <button onclick="bulkToggleEntrySheets(${exam_id},${g.subject_id},${g.component_type_id},false)" class="text-[10px] font-black uppercase text-red-500">Close All</button>
+            <input type="text" placeholder="Assign to user_id (optional)" class="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:180px" onchange="assignEntrySheets(${exam_id},${g.subject_id},${g.component_type_id},this.value)">
+          </div>
+          <div class="flex flex-wrap gap-1.5 mt-2">
+            ${g.sections.map(s => `<label class="flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded border ${s.is_open ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-slate-200 text-slate-400'}"><input type="checkbox" ${s.is_open ? 'checked' : ''} onchange="toggleOneEntrySheet(${exam_id},${g.subject_id},${g.component_type_id},'${s.class}','${s.section}',this.checked)">${s.class}-${s.section}</label>`).join('')}
+          </div>
+        </div>`;
+      }).join('') || '<span class="text-xs text-slate-400 font-bold italic">No subjects/components active for this exam yet — check Exam Pattern Setup and Class-Subject Marks Setup.</span>';
+    });
+  }
+  function bulkToggleEntrySheets(exam_id, subject_id, component_type_id, is_open) {
+    const sections = _entrySheetRows.filter(r => r.subject_id === subject_id && r.component_type_id === component_type_id).map(r => ({ class: r.class, section: r.section }));
+    _adminFetch('save_exam_entry_sheets_bulk', { exam_id, subject_id, component_type_id, sections, is_open }).then(res => { if (res && res.result !== 'error') loadEntrySheetsSetup(); });
+  }
+  function assignEntrySheets(exam_id, subject_id, component_type_id, assigned_user_id) {
+    const rows = _entrySheetRows.filter(r => r.subject_id === subject_id && r.component_type_id === component_type_id);
+    Promise.all(rows.map(r => _adminFetch('save_exam_entry_sheets_bulk', { exam_id, subject_id, component_type_id, sections: [{ class: r.class, section: r.section }], is_open: r.is_open, assigned_user_id }))).then(() => { showToast('Assigned'); loadEntrySheetsSetup(); });
+  }
+  function toggleOneEntrySheet(exam_id, subject_id, component_type_id, cls, section, is_open) {
+    _adminFetch('save_exam_entry_sheets_bulk', { exam_id, subject_id, component_type_id, sections: [{ class: cls, section }], is_open }).then(res => { if (res && res.result !== 'error') loadEntrySheetsSetup(); });
+  }
+
+  // ── Marks Entry — component-scoped, restricted to open sheets ──────────
+  function loadMarksEntryOptions() {
+    const exam_id = document.getElementById('meExamSelect').value;
+    if (!exam_id) return;
+    _adminFetch('get_exam_entry_sheets', { exam_id }).then(res => {
+      _meOpenSheets = ((res && res.result === 'success' && res.rows) || []).filter(r => r.is_open);
+      const subjMap = new Map();
+      _meOpenSheets.forEach(r => subjMap.set(r.subject_id, r.subject_name));
+      document.getElementById('meSubjectSelect').innerHTML = '<option value="">Subject…</option>' + [...subjMap.entries()].map(([id, name]) => `<option value="${id}">${name}</option>`).join('');
+      _populateMarksComponentSelect();
+    });
+  }
+  function _populateMarksComponentSelect() {
+    const subject_id = document.getElementById('meSubjectSelect').value;
+    const compMap = new Map();
+    _meOpenSheets.filter(r => String(r.subject_id) === String(subject_id)).forEach(r => compMap.set(r.component_type_id, r.component_name));
+    document.getElementById('meComponentSelect').innerHTML = '<option value="">Component…</option>' + [...compMap.entries()].map(([id, name]) => `<option value="${id}">${name}</option>`).join('');
+    _populateMarksSectionSelect();
+  }
+  function _populateMarksSectionSelect() {
+    const subject_id = document.getElementById('meSubjectSelect').value;
+    const component_type_id = document.getElementById('meComponentSelect').value;
+    const secs = _meOpenSheets.filter(r => String(r.subject_id) === String(subject_id) && String(r.component_type_id) === String(component_type_id));
+    document.getElementById('meSectionSelect').innerHTML = '<option value="">Section…</option>' + secs.map(s => `<option value="${s.class}||${s.section}">${s.class}-${s.section}</option>`).join('');
+  }
   function loadMarksEntry() {
-    const exam_subject_id = document.getElementById('meSubject').value;
-    const cls = document.getElementById('meClass').value.trim();
-    const section = document.getElementById('meSection').value.trim();
-    if (!exam_subject_id || !cls) { showToast('Pick a subject and class', 'error'); return; }
-    _adminFetch('get_exam_marks_for_entry', { exam_subject_id, class: cls, section }).then(res => {
+    const exam_id = document.getElementById('meExamSelect').value;
+    const subject_id = document.getElementById('meSubjectSelect').value;
+    const component_type_id = document.getElementById('meComponentSelect').value;
+    const secVal = document.getElementById('meSectionSelect').value;
+    if (!exam_id || !subject_id || !component_type_id || !secVal) { showToast('Pick exam, subject, component and section', 'error'); return; }
+    const [cls, section] = secVal.split('||');
+    _adminFetch('get_exam_marks_for_entry', { exam_id, subject_id, component_type_id, class: cls, section }).then(res => {
       const roster = (res && res.result === 'success' && res.roster) || [];
       document.getElementById('marksEntryBody').innerHTML = roster.map(s => `<tr class="border-b border-slate-50">
         <td class="py-1.5 px-3">${s.roll}</td><td class="py-1.5 px-3">${s.student_name}</td>
@@ -5876,30 +6279,50 @@
     });
   }
   function saveMarksEntry() {
-    const exam_subject_id = document.getElementById('meSubject').value;
+    const exam_id = document.getElementById('meExamSelect').value;
+    const subject_id = document.getElementById('meSubjectSelect').value;
+    const component_type_id = document.getElementById('meComponentSelect').value;
     const marks = Array.from(document.querySelectorAll('.marks-entry-input')).map(inp => ({ student_id: inp.dataset.student, marks_obtained: inp.value }));
     const status = document.getElementById('marksEntryStatus');
-    _adminFetch('save_exam_marks_bulk', { exam_subject_id, marks }).then(res => {
-      if (res && (res.result === 'success' || res.result === 'partial')) { status.className = 'text-xs font-bold text-emerald-600 ml-2'; status.textContent = `Saved ${res.saved} of ${marks.length}.`; }
+    _adminFetch('save_exam_marks_bulk', { exam_id, subject_id, component_type_id, marks }).then(res => {
+      if (res && res.result === 'success') { status.className = 'text-xs font-bold text-emerald-600 ml-2'; status.textContent = `Saved ${res.saved} of ${marks.length}.`; }
       else { status.className = 'text-xs font-bold text-red-500 ml-2'; status.textContent = (res && res.message) || 'Failed'; }
     });
   }
 
+  // ── Result Process — weighted/gated computation, expandable breakdown ──
   function processExamResult() {
-    const exam_id = document.getElementById('prExam').value;
+    const exam_id = document.getElementById('prExamSelect').value;
     if (!exam_id) return;
     _adminFetch('process_exam_result', { exam_id }).then(res => {
       if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed', 'error'); return; }
-      document.getElementById('examResultsBody').innerHTML = res.results.map(r => `<tr class="border-b border-slate-50">
-        <td class="py-1.5 px-3">${r.position}</td><td class="py-1.5 px-3">${r.student_id}</td><td class="py-1.5 px-3">${r.total}</td><td class="py-1.5 px-3">${r.percentage}%</td><td class="py-1.5 px-3">${r.gpa}</td><td class="py-1.5 px-3">${r.letter_grade}</td>
-        <td class="py-1.5 px-3"><span class="px-2 py-0.5 rounded-full text-[10px] font-black ${r.pass ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}">${r.pass ? 'Pass' : 'Fail'}</span></td>
-      </tr>`).join('') || '<tr><td colspan="7" class="p-3 text-slate-400 font-bold text-xs">No marks entered yet.</td></tr>';
+      _examResults = res.results;
+      _erExpanded = new Set();
+      _renderExamResults();
     });
   }
-  function toggleExamLock(locked) {
-    const exam_id = document.getElementById('prExam').value;
-    if (!exam_id) return;
-    _adminFetch('lock_exam', { exam_id, locked }).then(res => { if (res && res.result === 'success') { showToast(locked ? 'Exam locked' : 'Exam unlocked'); loadExams(); } });
+  function _renderExamResults() {
+    document.getElementById('examResultsBody').innerHTML = _examResults.map(r => {
+      const expanded = _erExpanded.has(r.student_id);
+      let rowHtml = `<tr class="border-b border-slate-50">
+        <td class="py-1.5 px-3 cursor-pointer" onclick="toggleResultBreakdown('${r.student_id}')"><i data-lucide="${expanded ? 'chevron-up' : 'chevron-down'}" class="h-3 w-3 text-slate-400"></i></td>
+        <td class="py-1.5 px-3">${r.position}</td><td class="py-1.5 px-3">${r.student_name || r.student_id} <span class="text-slate-400">(${r.roll})</span></td><td class="py-1.5 px-3">${r.total}</td><td class="py-1.5 px-3">${r.percentage}%</td><td class="py-1.5 px-3">${r.gpa}</td><td class="py-1.5 px-3">${r.letter_grade}</td>
+        <td class="py-1.5 px-3"><span class="px-2 py-0.5 rounded-full text-[10px] font-black ${r.pass ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}">${r.pass ? 'Pass' : 'Fail'}</span></td>
+      </tr>`;
+      if (expanded) {
+        rowHtml += `<tr class="bg-slate-50"><td colspan="8" class="p-3">
+          ${r.breakdown.map(b => `<div class="mb-2"><span class="font-black text-slate-700 text-xs">${b.subject}</span> — weighted ${b.weighted_pct}% → ${b.subject_final}/${b.subject_full_marks} ${b.pass ? '<span class="text-emerald-600">Pass</span>' : '<span class="text-red-500">Fail</span>'}
+            <div class="text-[11px] text-slate-500 mt-0.5">${b.components.map(c => `${c.name} ${c.marks}/${c.full} (${c.weight}%)`).join(' + ')}</div>
+          </div>`).join('')}
+        </td></tr>`;
+      }
+      return rowHtml;
+    }).join('') || '<tr><td colspan="8" class="p-3 text-slate-400 font-bold text-xs">No results yet.</td></tr>';
+    lucide.createIcons();
+  }
+  function toggleResultBreakdown(student_id) {
+    if (_erExpanded.has(student_id)) _erExpanded.delete(student_id); else _erExpanded.add(student_id);
+    _renderExamResults();
   }
 
   function loadGradeScales() {

@@ -106,6 +106,31 @@ async function sbTeacher(path, method = 'GET', body = null) {
   return text ? JSON.parse(text) : null;
 }
 
+// Same shape as sb()/sbTeacher(), scoped to the `exam` schema — Term/Class/
+// Subject/Component/Exam Pattern/Exam/Entry-Sheet/Marks setup all live there
+// (kept out of `student` so the exam-rebuild tables aren't mixed in with the
+// student roster tables). `extraHeaders` lets a caller opt into upsert
+// semantics (`Prefer: resolution=merge-duplicates`) for exam_marks' atomic
+// save without forcing that header on every other exam-schema write.
+async function sbExam(path, method = 'GET', body = null, extraHeaders = {}) {
+  const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
+    method,
+    headers: {
+      apikey: SB_KEY,
+      Authorization: `Bearer ${SB_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: method === 'POST' ? 'return=representation' : 'return=minimal',
+      'Accept-Profile': 'exam',
+      'Content-Profile': 'exam',
+      ...extraHeaders,
+    },
+    ...(body !== null ? { body: JSON.stringify(body) } : {}),
+  });
+  const text = await res.text();
+  if (!res.ok) return { error: text };
+  return text ? JSON.parse(text) : null;
+}
+
 // ── Shortname resolution for the staff-directory search ─────────────────────
 // Shortnames aren't a DB column anywhere — they only exist in the routine
 // Google Sheet's "Logged in info" tab (Full Name ↔ NAME IN SHORT), same
@@ -295,7 +320,19 @@ async function _isAdmin(userId) {
 const ADMIN_TAB_ACTIONS = {
   fees: new Set(['get_fee_types', 'save_fee_type', 'delete_fee_type', 'get_fee_structures', 'save_fee_structure', 'delete_fee_structure', 'get_late_fee_rules', 'save_late_fee_rule', 'delete_late_fee_rule', 'generate_classwise_fees', 'generate_individual_fee', 'remove_individual_fee', 'set_discount', 'get_discounts', 'set_partial_split', 'record_payment', 'get_student_fees', 'get_defaulters_list', 'get_fees_collection_report', 'get_fee_accounts', 'save_fee_account', 'record_account_transaction', 'get_account_register']),
   attendance: new Set(['get_attendance_report', 'save_manual_attendance', 'save_bulk_manual_attendance', 'get_staff_attendance_report', 'get_attendance_devices', 'save_attendance_device', 'delete_attendance_device', 'get_punch_log']),
-  exams: new Set(['get_exams', 'save_exam', 'lock_exam', 'get_exam_subjects', 'save_exam_subject', 'delete_exam_subject', 'get_grade_scales', 'save_grade_scale', 'delete_grade_scale', 'save_pass_mark_template', 'get_pass_mark_templates', 'save_exam_result_config', 'get_exam_result_config', 'save_exam_marks_bulk', 'get_exam_marks_for_entry', 'process_exam_result', 'save_seat_plan', 'get_seat_plans', 'save_board_exam_record', 'get_board_exam_records']),
+  exams: new Set([
+    'get_exam_terms', 'save_exam_term', 'archive_exam_term',
+    'get_class_pattern_setup', 'get_class_patterns', 'save_class_pattern', 'save_class_pattern_map',
+    'get_subjects', 'save_subject', 'delete_subject', 'get_subject_pattern_map', 'save_subject_pattern_map',
+    'get_exam_component_types', 'save_exam_component_type', 'get_subject_components_setup', 'save_subject_component', 'delete_subject_component',
+    'get_exam_patterns', 'save_exam_pattern', 'duplicate_exam_pattern', 'delete_exam_pattern',
+    'get_exams', 'save_exam', 'lock_exam', 'archive_exam', 'duplicate_exam',
+    'get_exam_entry_sheets', 'save_exam_entry_sheets_bulk',
+    'get_exam_marks_for_entry', 'save_exam_marks_bulk',
+    'process_exam_result',
+    'get_grade_scales', 'save_grade_scale', 'delete_grade_scale',
+    'save_board_exam_record', 'get_board_exam_records',
+  ]),
   // Leave Management lives under the Payroll nav tab (its "Leave" sub-tab) —
   // one toggle controls both, matching what the tab actually shows.
   payroll: new Set(['get_salary_structures', 'save_salary_structure', 'get_payroll_runs', 'run_payroll', 'get_payslips', 'mark_payroll_paid', 'get_leave_types', 'save_leave_type', 'get_leave_requests', 'approve_leave_request']),
@@ -1659,53 +1696,464 @@ export async function POST(req) {
   }
 
   // ── Exam & Assessment ─────────────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════════
+  // Exams — pattern-based curriculum setup + weighted multi-component
+  // results. All tables live in the `exam` Postgres schema (sbExam), not
+  // `student` — see the plan for the full rationale. Pipeline order:
+  // Term Setup → Class Setup → Subject Setup → Class-Subject Marks Setup →
+  // Exam Pattern Setup → Exam Setup → Marks Entry Setup → Marks Entry →
+  // Result Process. Grade Setup / Board Exam Records are unrelated trailing
+  // tabs, unchanged in behavior — only their table moved schema.
+  // ══════════════════════════════════════════════════════════════════════
+
+  function _gradeFor(scales, mark) {
+    const m = Number(mark);
+    const hit = scales.find(s => m >= Number(s.min_mark) && m <= Number(s.max_mark));
+    return hit || null;
+  }
+
+  // A Class Pattern's real class+section combos (crosscheck data from Class
+  // Setup), each carrying the `session` it was mapped under.
+  async function _classPatternRowsForPattern(patternId) {
+    const rows = await sbExam(`class_pattern_map?pattern_id=eq.${encodeURIComponent(patternId)}&select=class,section,session`);
+    return Array.isArray(rows) ? rows : [];
+  }
+
+  // Real students belonging to a pattern — grouped by class+section (one
+  // fetch per unique combo) then filtered to just the session(s) that combo
+  // was actually mapped under, so two sections sharing a class+section but
+  // mapped under different sessions never cross-contaminate each other.
+  async function _studentsForPattern(patternId) {
+    const triples = await _classPatternRowsForPattern(patternId);
+    if (!triples.length) return [];
+    const groups = new Map();
+    triples.forEach(t => {
+      const key = `${t.class}||${t.section}`;
+      if (!groups.has(key)) groups.set(key, { class: t.class, section: t.section, sessions: new Set() });
+      groups.get(key).sessions.add(String(t.session || '').trim());
+    });
+    const list = [...groups.values()];
+    const pages = await Promise.all(list.map(g =>
+      sbAllRows(`students_data?class=eq.${encodeURIComponent(g.class)}&section=eq.${encodeURIComponent(g.section)}&select=student_id,student_name,roll,class,section,session`)
+    ));
+    const out = [];
+    list.forEach((g, i) => {
+      const rows = Array.isArray(pages[i]) ? pages[i] : [];
+      rows.forEach(s => { if (g.sessions.has(String(s.session || '').trim())) out.push(s); });
+    });
+    return out;
+  }
+
+  async function _subjectsForPattern(patternId) {
+    const rows = await sbExam(`subject_pattern_map?pattern_id=eq.${encodeURIComponent(patternId)}&select=subjects(id,name)`);
+    if (rows?.error || !Array.isArray(rows)) return [];
+    return rows.map(r => r.subjects).filter(Boolean);
+  }
+
+  async function _componentsForSubject(patternId, subjectId) {
+    const rows = await sbExam(`subject_components?pattern_id=eq.${encodeURIComponent(patternId)}&subject_id=eq.${encodeURIComponent(subjectId)}&select=*,exam_component_types(id,name)&order=sort_order.asc`);
+    return Array.isArray(rows) ? rows : [];
+  }
+
+  // ── Term Setup ────────────────────────────────────────────────────────
+  if (action === 'get_exam_terms') {
+    const { include_archived } = payload || {};
+    const rows = await sbExam(`exam_terms?${include_archived ? '' : 'is_archived=eq.false&'}select=*&order=id.desc`);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', terms: rows });
+  }
+  if (action === 'save_exam_term') {
+    const { id, name, term_type, academic_year, medium } = payload;
+    if (!name || !academic_year) return NextResponse.json({ result: 'error', message: 'Name and academic year required.' });
+    const rowData = { name, term_type: term_type || 'Term', academic_year, medium: medium || null };
+    const r = id
+      ? await sbExam(`exam_terms?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sbExam('exam_terms', 'POST', rowData);
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'archive_exam_term') {
+    const { id, archived } = payload;
+    const r = await sbExam(`exam_terms?id=eq.${encodeURIComponent(id)}`, 'PATCH', { is_archived: archived !== false });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Class Setup — crosscheck-only class+section+session list from the
+  // real roster, each assignable to a Class Pattern via dropdown ─────────
+  if (action === 'get_class_pattern_setup') {
+    const [studentRows, mapRows, patterns] = await Promise.all([
+      sbAllRows('students_data?select=class,section,session'),
+      sbExam('class_pattern_map?select=*'),
+      sbExam('class_patterns?select=*&order=name.asc'),
+    ]);
+    if (studentRows?.error) return NextResponse.json({ result: 'error', message: studentRows.error });
+    const seen = new Map();
+    studentRows.forEach(r => {
+      const cls = String(r.class || '').trim(), sec = String(r.section || '').trim();
+      if (!cls || !sec) return;
+      const session = String(r.session || '').trim();
+      const key = `${cls}||${sec}||${session}`;
+      if (!seen.has(key)) seen.set(key, { class: cls, section: sec, session, count: 0 });
+      seen.get(key).count++;
+    });
+    const mapByKey = new Map((Array.isArray(mapRows) ? mapRows : []).map(m => [`${m.class}||${m.section}||${m.session}`, m]));
+    const rows = [...seen.values()]
+      .map(r => ({ ...r, pattern_id: mapByKey.get(`${r.class}||${r.section}||${r.session}`)?.pattern_id || null }))
+      .sort((a, b) => a.class.localeCompare(b.class, undefined, { numeric: true }) || a.section.localeCompare(b.section));
+    return NextResponse.json({ result: 'success', rows, patterns: Array.isArray(patterns) ? patterns : [] });
+  }
+  if (action === 'get_class_patterns') {
+    const rows = await sbExam('class_patterns?select=*&order=name.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', patterns: rows });
+  }
+  if (action === 'save_class_pattern') {
+    const { id, name } = payload;
+    if (!name) return NextResponse.json({ result: 'error', message: 'Name required.' });
+    const r = id
+      ? await sbExam(`class_patterns?id=eq.${encodeURIComponent(id)}`, 'PATCH', { name })
+      : await sbExam('class_patterns', 'POST', { name });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success', pattern: Array.isArray(r) ? r[0] : r });
+  }
+  if (action === 'save_class_pattern_map') {
+    const { class: cls, section, session, pattern_id } = payload;
+    if (!cls || !section) return NextResponse.json({ result: 'error', message: 'Class and section required.' });
+    const sess = session || '';
+    const existing = await sbExam(`class_pattern_map?class=eq.${encodeURIComponent(cls)}&section=eq.${encodeURIComponent(section)}&session=eq.${encodeURIComponent(sess)}`);
+    const rowData = { class: cls, section, session: sess, pattern_id: pattern_id || null };
+    const r = (!existing?.error && existing.length)
+      ? await sbExam(`class_pattern_map?id=eq.${existing[0].id}`, 'PATCH', rowData)
+      : await sbExam('class_pattern_map', 'POST', rowData);
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Subject Setup — global subject catalog + per-pattern checklist ────
+  if (action === 'get_subjects') {
+    const rows = await sbExam('subjects?select=*&order=name.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', subjects: rows });
+  }
+  if (action === 'save_subject') {
+    const { id, name } = payload;
+    if (!name) return NextResponse.json({ result: 'error', message: 'Name required.' });
+    const r = id
+      ? await sbExam(`subjects?id=eq.${encodeURIComponent(id)}`, 'PATCH', { name })
+      : await sbExam('subjects', 'POST', { name });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'delete_subject') {
+    const r = await sbExam(`subjects?id=eq.${encodeURIComponent(payload.id)}`, 'DELETE');
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'get_subject_pattern_map') {
+    const [patterns, mapRows] = await Promise.all([
+      sbExam('class_patterns?select=*&order=name.asc'),
+      sbExam('subject_pattern_map?select=subject_id,pattern_id'),
+    ]);
+    return NextResponse.json({ result: 'success', patterns: Array.isArray(patterns) ? patterns : [], map: Array.isArray(mapRows) ? mapRows : [] });
+  }
+  if (action === 'save_subject_pattern_map') {
+    const { subject_id, pattern_id, checked } = payload;
+    if (!subject_id || !pattern_id) return NextResponse.json({ result: 'error', message: 'Subject and pattern required.' });
+    if (checked) {
+      const existing = await sbExam(`subject_pattern_map?subject_id=eq.${encodeURIComponent(subject_id)}&pattern_id=eq.${encodeURIComponent(pattern_id)}`);
+      if (!existing?.error && !existing.length) {
+        const r = await sbExam('subject_pattern_map', 'POST', { subject_id, pattern_id });
+        if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+      }
+    } else {
+      // Deliberately does NOT touch subject_components — unchecking hides
+      // the subject from this pattern's Marks Setup list, it never deletes
+      // the component/weight config already entered for the pair.
+      const r = await sbExam(`subject_pattern_map?subject_id=eq.${encodeURIComponent(subject_id)}&pattern_id=eq.${encodeURIComponent(pattern_id)}`, 'DELETE');
+      if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    }
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Class-Subject Marks Setup — the standing per-(pattern,subject)
+  // component/weight breakdown, reused across every term until changed ──
+  if (action === 'get_exam_component_types') {
+    const rows = await sbExam('exam_component_types?select=*&order=name.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', types: rows });
+  }
+  if (action === 'save_exam_component_type') {
+    const { name } = payload;
+    if (!name) return NextResponse.json({ result: 'error', message: 'Name required.' });
+    const existing = await sbExam(`exam_component_types?name=eq.${encodeURIComponent(name)}`);
+    if (!existing?.error && existing.length) return NextResponse.json({ result: 'success', type: existing[0] });
+    const r = await sbExam('exam_component_types', 'POST', { name });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success', type: Array.isArray(r) ? r[0] : r });
+  }
+  if (action === 'get_subject_components_setup') {
+    const { pattern_id } = payload;
+    if (!pattern_id) return NextResponse.json({ result: 'error', message: 'Pattern required.' });
+    const subjects = await _subjectsForPattern(pattern_id);
+    const comps = await Promise.all(subjects.map(s => _componentsForSubject(pattern_id, s.id)));
+    const out = subjects.map((s, i) => ({ ...s, components: comps[i] }));
+    return NextResponse.json({ result: 'success', subjects: out });
+  }
+  if (action === 'save_subject_component') {
+    const { id, pattern_id, subject_id, component_type_id, full_marks, pass_marks, weight_percent, sort_order } = payload;
+    if (!pattern_id || !subject_id || !component_type_id) return NextResponse.json({ result: 'error', message: 'Pattern, subject and component type required.' });
+    const rowData = { pattern_id, subject_id, component_type_id, full_marks: Number(full_marks) || 0, pass_marks: Number(pass_marks) || 0, weight_percent: Number(weight_percent) || 0, sort_order: Number(sort_order) || 0 };
+    const r = id
+      ? await sbExam(`subject_components?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sbExam('subject_components', 'POST', rowData);
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'delete_subject_component') {
+    const r = await sbExam(`subject_components?id=eq.${encodeURIComponent(payload.id)}`, 'DELETE');
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Exam Pattern Setup — reusable subset-of-components-per-occasion ────
+  if (action === 'get_exam_patterns') {
+    const rows = await sbExam('exam_patterns?select=*&order=name.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', patterns: rows });
+  }
+  if (action === 'save_exam_pattern') {
+    const { id, name, active_component_type_ids, enforce_component_pass_gate } = payload;
+    if (!name) return NextResponse.json({ result: 'error', message: 'Name required.' });
+    const rowData = { name, active_component_type_ids: Array.isArray(active_component_type_ids) ? active_component_type_ids : [], enforce_component_pass_gate: enforce_component_pass_gate !== false };
+    const r = id
+      ? await sbExam(`exam_patterns?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sbExam('exam_patterns', 'POST', rowData);
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'duplicate_exam_pattern') {
+    const { id } = payload;
+    const rows = await sbExam(`exam_patterns?id=eq.${encodeURIComponent(id)}`);
+    if (rows?.error || !rows.length) return NextResponse.json({ result: 'error', message: 'Exam pattern not found.' });
+    const src = rows[0];
+    const r = await sbExam('exam_patterns', 'POST', { name: `Copy of ${src.name}`, active_component_type_ids: src.active_component_type_ids, enforce_component_pass_gate: src.enforce_component_pass_gate });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success', pattern: Array.isArray(r) ? r[0] : r });
+  }
+  if (action === 'delete_exam_pattern') {
+    const r = await sbExam(`exam_patterns?id=eq.${encodeURIComponent(payload.id)}`, 'DELETE');
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Exam Setup — one row per (Term × Class Pattern) sitting ───────────
   if (action === 'get_exams') {
-    const rows = await sb('exams?select=*&order=academic_year.desc,name.asc');
+    const { include_archived } = payload || {};
+    const rows = await sbExam(`exams?${include_archived ? '' : 'is_archived=eq.false&'}select=*,exam_terms(name,term_type,academic_year,is_archived),class_patterns(name),exam_patterns(name)&order=id.desc`);
     if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
     return NextResponse.json({ result: 'success', exams: rows });
   }
   if (action === 'save_exam') {
-    const { id, name, exam_type, academic_year, medium, class: cls } = payload;
-    if (!name || !academic_year) return NextResponse.json({ result: 'error', message: 'Name and academic year required.' });
-    const rowData = { name, exam_type: exam_type || 'Term', academic_year, medium: medium || null, class: cls || null };
+    const { id, term_id, pattern_id, exam_pattern_id } = payload;
+    if (!term_id || !pattern_id) return NextResponse.json({ result: 'error', message: 'Term and class pattern required.' });
+    const rowData = { term_id, pattern_id, exam_pattern_id: exam_pattern_id || null };
     const r = id
-      ? await sb(`exams?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
-      : await sb('exams', 'POST', rowData);
+      ? await sbExam(`exams?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sbExam('exams', 'POST', rowData);
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
     return NextResponse.json({ result: 'success' });
   }
   if (action === 'lock_exam') {
-    const { exam_id, locked } = payload;
-    const r = await sb(`exams?id=eq.${encodeURIComponent(exam_id)}`, 'PATCH', { is_locked: locked !== false });
+    const { id, locked } = payload;
+    const r = await sbExam(`exams?id=eq.${encodeURIComponent(id)}`, 'PATCH', { is_locked: locked !== false });
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
     return NextResponse.json({ result: 'success' });
   }
+  if (action === 'archive_exam') {
+    const { id, archived } = payload;
+    const r = await sbExam(`exams?id=eq.${encodeURIComponent(id)}`, 'PATCH', { is_archived: archived !== false });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  // Clones exam_pattern_id + every entry-sheet's subject+component+open+
+  // assigned "intent" (deduped across sections, since bulk-open applies the
+  // same intent to every section anyway) onto the TARGET pattern's own real
+  // sections — not a literal row copy, so this still works correctly even
+  // when duplicating into a different Class Pattern than the source exam.
+  if (action === 'duplicate_exam') {
+    const { id, term_id, pattern_id } = payload;
+    if (!term_id || !pattern_id) return NextResponse.json({ result: 'error', message: 'Target term and pattern required.' });
+    const rows = await sbExam(`exams?id=eq.${encodeURIComponent(id)}`);
+    if (rows?.error || !rows.length) return NextResponse.json({ result: 'error', message: 'Source exam not found.' });
+    const src = rows[0];
+    const created = await sbExam('exams', 'POST', { term_id, pattern_id, exam_pattern_id: src.exam_pattern_id });
+    if (created?.error) return NextResponse.json({ result: 'error', message: created.error });
+    const newExam = Array.isArray(created) ? created[0] : created;
 
-  if (action === 'get_exam_subjects') {
+    const srcSheets = await sbExam(`exam_entry_sheets?exam_id=eq.${encodeURIComponent(id)}&select=subject_id,component_type_id,is_open,assigned_user_id`);
+    const intents = new Map();
+    (Array.isArray(srcSheets) ? srcSheets : []).forEach(s => intents.set(`${s.subject_id}||${s.component_type_id}`, s));
+    const newSections = [...new Map((await _classPatternRowsForPattern(pattern_id)).map(s => [`${s.class}||${s.section}`, s])).values()];
+    const newRows = [];
+    intents.forEach(intent => newSections.forEach(sec => newRows.push({
+      exam_id: newExam.id, subject_id: intent.subject_id, component_type_id: intent.component_type_id,
+      class: sec.class, section: sec.section, is_open: intent.is_open, assigned_user_id: intent.assigned_user_id,
+    })));
+    if (newRows.length) await Promise.all(newRows.map(r => sbExam('exam_entry_sheets', 'POST', r)));
+    return NextResponse.json({ result: 'success', exam: newExam });
+  }
+
+  // ── Marks Entry Setup — which subject+component+section sheets are open
+  // for this exam, and who's assigned to each ────────────────────────────
+  if (action === 'get_exam_entry_sheets') {
     const { exam_id } = payload;
-    const rows = await sb(`exam_subjects?exam_id=eq.${encodeURIComponent(exam_id)}&select=*&order=subject.asc`);
-    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
-    return NextResponse.json({ result: 'success', subjects: rows });
+    const examRows = await sbExam(`exams?id=eq.${encodeURIComponent(exam_id)}&select=*,exam_patterns(active_component_type_ids)`);
+    if (examRows?.error || !examRows.length) return NextResponse.json({ result: 'error', message: 'Exam not found.' });
+    const examRow = examRows[0];
+    const activeTypeIds = new Set((examRow.exam_patterns?.active_component_type_ids || []).map(String));
+    const [subjects, sectionRows, existing] = await Promise.all([
+      _subjectsForPattern(examRow.pattern_id),
+      _classPatternRowsForPattern(examRow.pattern_id),
+      sbExam(`exam_entry_sheets?exam_id=eq.${encodeURIComponent(exam_id)}&select=*`),
+    ]);
+    const uniqueSections = [...new Map(sectionRows.map(s => [`${s.class}||${s.section}`, s])).values()];
+    const existingMap = new Map((Array.isArray(existing) ? existing : []).map(e => [`${e.subject_id}||${e.component_type_id}||${e.class}||${e.section}`, e]));
+    const rows = [];
+    for (const sub of subjects) {
+      const comps = (await _componentsForSubject(examRow.pattern_id, sub.id)).filter(c => activeTypeIds.has(String(c.component_type_id)));
+      for (const c of comps) {
+        for (const sec of uniqueSections) {
+          const ex = existingMap.get(`${sub.id}||${c.component_type_id}||${sec.class}||${sec.section}`);
+          rows.push({ subject_id: sub.id, subject_name: sub.name, component_type_id: c.component_type_id, component_name: c.exam_component_types?.name || '', class: sec.class, section: sec.section, is_open: ex ? ex.is_open : false, assigned_user_id: ex ? ex.assigned_user_id : null });
+        }
+      }
+    }
+    return NextResponse.json({ result: 'success', rows });
   }
-  if (action === 'save_exam_subject') {
-    const { id, exam_id, subject, full_marks, pass_marks } = payload;
-    if (!exam_id || !subject) return NextResponse.json({ result: 'error', message: 'Exam and subject required.' });
-    const rowData = { exam_id, subject, full_marks: Number(full_marks) || 100, pass_marks: Number(pass_marks) || 33 };
-    const r = id
-      ? await sb(`exam_subjects?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
-      : await sb('exam_subjects', 'POST', rowData);
-    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
-    return NextResponse.json({ result: 'success' });
-  }
-  if (action === 'delete_exam_subject') {
-    const r = await sb(`exam_subjects?id=eq.${encodeURIComponent(payload.id)}`, 'DELETE');
-    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
-    return NextResponse.json({ result: 'success' });
+  if (action === 'save_exam_entry_sheets_bulk') {
+    const { exam_id, subject_id, component_type_id, sections, is_open, assigned_user_id } = payload; // sections: [{class,section}]
+    if (!exam_id || !subject_id || !component_type_id || !Array.isArray(sections)) return NextResponse.json({ result: 'error', message: 'exam_id, subject_id, component_type_id, sections required.' });
+    const results = await Promise.all(sections.map(async sec => {
+      const existing = await sbExam(`exam_entry_sheets?exam_id=eq.${encodeURIComponent(exam_id)}&subject_id=eq.${encodeURIComponent(subject_id)}&component_type_id=eq.${encodeURIComponent(component_type_id)}&class=eq.${encodeURIComponent(sec.class)}&section=eq.${encodeURIComponent(sec.section)}`);
+      const rowData = { exam_id, subject_id, component_type_id, class: sec.class, section: sec.section, is_open: !!is_open, assigned_user_id: assigned_user_id || null };
+      return (!existing?.error && existing.length)
+        ? sbExam(`exam_entry_sheets?id=eq.${existing[0].id}`, 'PATCH', rowData)
+        : sbExam('exam_entry_sheets', 'POST', rowData);
+    }));
+    const errors = results.filter(r => r?.error);
+    return NextResponse.json({ result: errors.length ? 'partial' : 'success' });
   }
 
+  // ── Marks Entry — component-scoped, atomic upsert, trigger-maintained
+  // history (see exam._exam_marks_history in the schema) ────────────────
+  if (action === 'get_exam_marks_for_entry') {
+    const { exam_id, subject_id, component_type_id, class: cls, section } = payload;
+    const roster = await sb(`students_data?class=eq.${encodeURIComponent(cls)}${section ? `&section=eq.${encodeURIComponent(section)}` : ''}&select=student_id,student_name,roll&order=roll.asc`);
+    if (roster?.error) return NextResponse.json({ result: 'error', message: roster.error });
+    const marksRows = await sbExam(`exam_marks?exam_id=eq.${encodeURIComponent(exam_id)}&subject_id=eq.${encodeURIComponent(subject_id)}&component_type_id=eq.${encodeURIComponent(component_type_id)}&select=student_id,marks_obtained,update_history`);
+    const marksMap = {};
+    (Array.isArray(marksRows) ? marksRows : []).forEach(m => { marksMap[m.student_id] = m; });
+    return NextResponse.json({ result: 'success', roster: roster.map(s => ({ ...s, marks_obtained: marksMap[s.student_id]?.marks_obtained ?? '', update_history: marksMap[s.student_id]?.update_history || [] })) });
+  }
+  if (action === 'save_exam_marks_bulk') {
+    const { exam_id, subject_id, component_type_id, marks } = payload; // marks: [{student_id, marks_obtained}]
+    if (!exam_id || !subject_id || !component_type_id || !Array.isArray(marks)) return NextResponse.json({ result: 'error', message: 'exam_id, subject_id, component_type_id and marks required.' });
+    const rows = marks.map(m => ({
+      exam_id, subject_id, component_type_id, student_id: m.student_id,
+      marks_obtained: m.marks_obtained === '' || m.marks_obtained === undefined ? null : Number(m.marks_obtained),
+      updated_by: user_id,
+    }));
+    const r = await sbExam(
+      'exam_marks?on_conflict=exam_id,subject_id,component_type_id,student_id',
+      'POST', rows,
+      { Prefer: 'resolution=merge-duplicates,return=minimal' }
+    );
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success', saved: marks.length });
+  }
+
+  // ── Result Process — weighted component blend per subject, then the
+  // same total/percentage/grade/pass-fail/position aggregation as before ─
+  if (action === 'process_exam_result') {
+    const { exam_id } = payload;
+    const examRows = await sbExam(`exams?id=eq.${encodeURIComponent(exam_id)}&select=*,exam_patterns(id,name,active_component_type_ids,enforce_component_pass_gate)`);
+    if (examRows?.error || !examRows.length) return NextResponse.json({ result: 'error', message: 'Exam not found.' });
+    const examRow = examRows[0];
+    if (examRow.is_locked) return NextResponse.json({ result: 'error', message: 'Exam is locked — unlock it first.' });
+    const ep = examRow.exam_patterns;
+    if (!ep) return NextResponse.json({ result: 'error', message: 'This exam has no Exam Pattern attached — set one in Exam Setup first.' });
+    const activeTypeIds = new Set((ep.active_component_type_ids || []).map(String));
+    if (!activeTypeIds.size) return NextResponse.json({ result: 'error', message: 'The attached Exam Pattern has no active component types selected.' });
+
+    const [subjects, students, marksRows, scales] = await Promise.all([
+      _subjectsForPattern(examRow.pattern_id),
+      _studentsForPattern(examRow.pattern_id),
+      sbExam(`exam_marks?exam_id=eq.${encodeURIComponent(exam_id)}&select=subject_id,component_type_id,student_id,marks_obtained`),
+      sbExam('grade_scales?category=eq.default&select=*'),
+    ]);
+    if (!subjects.length) return NextResponse.json({ result: 'error', message: 'No subjects are set up for this pattern yet.' });
+    if (!students.length) return NextResponse.json({ result: 'error', message: "No students found for this pattern's classes." });
+    if (marksRows?.error) return NextResponse.json({ result: 'error', message: marksRows.error });
+
+    const componentsBySubject = {};
+    await Promise.all(subjects.map(async sub => {
+      const all = await _componentsForSubject(examRow.pattern_id, sub.id);
+      componentsBySubject[sub.id] = all.filter(c => activeTypeIds.has(String(c.component_type_id)));
+    }));
+
+    const marksMap = {};
+    (Array.isArray(marksRows) ? marksRows : []).forEach(m => {
+      marksMap[m.subject_id] = marksMap[m.subject_id] || {};
+      marksMap[m.subject_id][m.component_type_id] = marksMap[m.subject_id][m.component_type_id] || {};
+      marksMap[m.subject_id][m.component_type_id][m.student_id] = m.marks_obtained;
+    });
+    const scaleRows = Array.isArray(scales) ? scales : [];
+
+    const results = students.map(stu => {
+      let total = 0, fullTotal = 0, anyFail = false;
+      const breakdown = [];
+      subjects.forEach(sub => {
+        const comps = componentsBySubject[sub.id] || [];
+        if (!comps.length) return; // no active components for this subject this occasion — excluded
+        let weightedSum = 0, weightSum = 0, gateFail = false, aggregatePassWeighted = 0;
+        const compBreakdown = comps.map(c => {
+          const marks = Number((marksMap[sub.id]?.[c.component_type_id]?.[stu.student_id]) ?? 0);
+          const full = Number(c.full_marks) || 0, weight = Number(c.weight_percent) || 0, pass = Number(c.pass_marks) || 0;
+          weightedSum += full ? (marks / full * weight) : 0;
+          weightSum += weight;
+          aggregatePassWeighted += full ? (pass / full * weight) : 0;
+          if (marks < pass) gateFail = true;
+          return { name: c.exam_component_types?.name || '', marks, full, weight, pass };
+        });
+        const weightedPct = weightSum ? (weightedSum / weightSum * 100) : 0;
+        const subjectFullMarks = comps.reduce((s, c) => s + (Number(c.full_marks) || 0), 0);
+        const subjectFinal = weightedPct / 100 * subjectFullMarks;
+        const subjectPass = ep.enforce_component_pass_gate
+          ? !gateFail
+          : weightedPct >= (weightSum ? (aggregatePassWeighted / weightSum * 100) : 0);
+        if (!subjectPass) anyFail = true;
+        total += subjectFinal;
+        fullTotal += subjectFullMarks;
+        breakdown.push({ subject: sub.name, components: compBreakdown, weighted_pct: Math.round(weightedPct * 100) / 100, subject_final: Math.round(subjectFinal * 100) / 100, subject_full_marks: subjectFullMarks, pass: subjectPass });
+      });
+      const pct = fullTotal ? (total / fullTotal) * 100 : 0;
+      const grade = _gradeFor(scaleRows, pct);
+      return {
+        student_id: stu.student_id, student_name: stu.student_name, roll: stu.roll,
+        total: Math.round(total * 100) / 100, percentage: Math.round(pct * 100) / 100,
+        gpa: grade ? grade.gp : 0, letter_grade: anyFail ? 'F' : (grade ? grade.letter_grade : ''),
+        pass: !anyFail, breakdown,
+      };
+    }).sort((a, b) => b.total - a.total).map((r, i) => ({ ...r, position: i + 1 }));
+
+    return NextResponse.json({ result: 'success', results });
+  }
+
+  // ── Grade Setup (unchanged behavior, table moved to `exam` schema) ─────
   if (action === 'get_grade_scales') {
     const { category } = payload || {};
-    const rows = await sb(`grade_scales?${category ? `category=eq.${encodeURIComponent(category)}&` : ''}select=*&order=min_mark.desc`);
+    const rows = await sbExam(`grade_scales?${category ? `category=eq.${encodeURIComponent(category)}&` : ''}select=*&order=min_mark.desc`);
     if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
     return NextResponse.json({ result: 'success', scales: rows });
   }
@@ -1714,136 +2162,26 @@ export async function POST(req) {
     if (gp === undefined || min_mark === undefined || max_mark === undefined || !letter_grade) return NextResponse.json({ result: 'error', message: 'GP, mark range, and letter grade required.' });
     const rowData = { category: category || 'default', gp: Number(gp), min_mark: Number(min_mark), max_mark: Number(max_mark), letter_grade, label: label || '' };
     const r = id
-      ? await sb(`grade_scales?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
-      : await sb('grade_scales', 'POST', rowData);
+      ? await sbExam(`grade_scales?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sbExam('grade_scales', 'POST', rowData);
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
     return NextResponse.json({ result: 'success' });
   }
   if (action === 'delete_grade_scale') {
-    const r = await sb(`grade_scales?id=eq.${encodeURIComponent(payload.id)}`, 'DELETE');
+    const r = await sbExam(`grade_scales?id=eq.${encodeURIComponent(payload.id)}`, 'DELETE');
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
     return NextResponse.json({ result: 'success' });
   }
-  function _gradeFor(scales, mark) {
-    const m = Number(mark);
-    const hit = scales.find(s => m >= Number(s.min_mark) && m <= Number(s.max_mark));
-    return hit || null;
-  }
 
-  if (action === 'save_pass_mark_template') {
-    const { id, name, subject, pass_mark, category } = payload;
-    if (!name || pass_mark === undefined) return NextResponse.json({ result: 'error', message: 'Name and pass mark required.' });
-    const rowData = { name, subject: subject || null, pass_mark: Number(pass_mark), category: category || null };
-    const r = id
-      ? await sb(`pass_mark_templates?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
-      : await sb('pass_mark_templates', 'POST', rowData);
-    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
-    return NextResponse.json({ result: 'success' });
-  }
-  if (action === 'get_pass_mark_templates') {
-    const rows = await sb('pass_mark_templates?select=*&order=name.asc');
-    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
-    return NextResponse.json({ result: 'success', templates: rows });
-  }
-
-  if (action === 'save_exam_result_config') {
-    const { exam_id, ...cfg } = payload;
-    if (!exam_id) return NextResponse.json({ result: 'error', message: 'exam_id required.' });
-    const existing = await sb(`exam_result_config?exam_id=eq.${encodeURIComponent(exam_id)}`);
-    const r = (!existing?.error && existing.length)
-      ? await sb(`exam_result_config?exam_id=eq.${encodeURIComponent(exam_id)}`, 'PATCH', cfg)
-      : await sb('exam_result_config', 'POST', { exam_id, ...cfg });
-    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
-    return NextResponse.json({ result: 'success' });
-  }
-  if (action === 'get_exam_result_config') {
-    const { exam_id } = payload;
-    const rows = await sb(`exam_result_config?exam_id=eq.${encodeURIComponent(exam_id)}`);
-    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
-    return NextResponse.json({ result: 'success', config: rows[0] || null });
-  }
-
-  // Bulk marks entry for one class+section+subject, all students at once —
-  // matches the demo's "Entry Type: Single Student / Class" pattern's bulk case.
-  if (action === 'save_exam_marks_bulk') {
-    const { exam_subject_id, marks } = payload; // marks: [{student_id, marks_obtained}]
-    if (!exam_subject_id || !Array.isArray(marks)) return NextResponse.json({ result: 'error', message: 'exam_subject_id and marks required.' });
-    const results = await Promise.all(marks.map(async m => {
-      const rowData = { exam_subject_id, student_id: m.student_id, marks_obtained: m.marks_obtained === '' ? null : Number(m.marks_obtained) };
-      const existing = await sb(`exam_marks?exam_subject_id=eq.${encodeURIComponent(exam_subject_id)}&student_id=eq.${encodeURIComponent(m.student_id)}`);
-      return (!existing?.error && existing.length)
-        ? sb(`exam_marks?exam_subject_id=eq.${encodeURIComponent(exam_subject_id)}&student_id=eq.${encodeURIComponent(m.student_id)}`, 'PATCH', rowData)
-        : sb('exam_marks', 'POST', rowData);
-    }));
-    const errors = results.filter(r => r?.error);
-    return NextResponse.json({ result: errors.length ? 'partial' : 'success', saved: marks.length - errors.length });
-  }
-  if (action === 'get_exam_marks_for_entry') {
-    const { exam_subject_id, class: cls, section } = payload;
-    const roster = await sb(`students_data?class=eq.${encodeURIComponent(cls)}${section ? `&section=eq.${encodeURIComponent(section)}` : ''}&select=student_id,student_name,roll&order=roll.asc`);
-    if (roster?.error) return NextResponse.json({ result: 'error', message: roster.error });
-    const marksRows = await sb(`exam_marks?exam_subject_id=eq.${encodeURIComponent(exam_subject_id)}&select=student_id,marks_obtained`);
-    const marksMap = {};
-    (Array.isArray(marksRows) ? marksRows : []).forEach(m => { marksMap[m.student_id] = m.marks_obtained; });
-    return NextResponse.json({ result: 'success', roster: roster.map(s => ({ ...s, marks_obtained: marksMap[s.student_id] ?? '' })) });
-  }
-
-  // Computes grade + pass/fail per student for one exam (all its subjects),
-  // per the exam's own grade category (falls back to 'default'). Locking is
-  // a separate, explicit action — this can be re-run any number of times
-  // while unlocked.
-  if (action === 'process_exam_result') {
-    const { exam_id } = payload;
-    const examRows = await sb(`exams?id=eq.${encodeURIComponent(exam_id)}`);
-    if (examRows?.error || !examRows.length) return NextResponse.json({ result: 'error', message: 'Exam not found.' });
-    if (examRows[0].is_locked) return NextResponse.json({ result: 'error', message: 'Exam is locked — unlock it first.' });
-    const subjects = await sb(`exam_subjects?exam_id=eq.${encodeURIComponent(exam_id)}&select=*`);
-    if (subjects?.error || !subjects.length) return NextResponse.json({ result: 'error', message: 'No subjects configured for this exam.' });
-    const scales = await sb(`grade_scales?category=eq.default&select=*`);
-    const marksRows = await sb(`exam_marks?exam_subject_id=in.(${subjects.map(s => s.id).join(',')})&select=*`);
-    if (marksRows?.error) return NextResponse.json({ result: 'error', message: marksRows.error });
-    const byStudent = {};
-    marksRows.forEach(m => {
-      byStudent[m.student_id] = byStudent[m.student_id] || [];
-      byStudent[m.student_id].push(m);
-    });
-    const results = Object.entries(byStudent).map(([student_id, marks]) => {
-      const total = marks.reduce((s, m) => s + (Number(m.marks_obtained) || 0), 0);
-      const fullTotal = subjects.reduce((s, sub) => s + Number(sub.full_marks), 0);
-      const pct = fullTotal ? (total / fullTotal) * 100 : 0;
-      const grade = _gradeFor(Array.isArray(scales) ? scales : [], pct);
-      const failed = subjects.some(sub => {
-        const m = marks.find(mk => mk.exam_subject_id === sub.id);
-        return !m || Number(m.marks_obtained) < Number(sub.pass_marks);
-      });
-      return { student_id, total, percentage: Math.round(pct * 100) / 100, gpa: grade ? grade.gp : 0, letter_grade: failed ? 'F' : (grade ? grade.letter_grade : ''), pass: !failed };
-    }).sort((a, b) => b.total - a.total).map((r, i) => ({ ...r, position: i + 1 }));
-    return NextResponse.json({ result: 'success', results });
-  }
-
-  if (action === 'save_seat_plan') {
-    const { id, exam_id, class: cls, section, room, seating_layout } = payload;
-    const rowData = { exam_id, class: cls, section, room, seating_layout: seating_layout || [] };
-    const r = id
-      ? await sb(`seat_plans?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
-      : await sb('seat_plans', 'POST', rowData);
-    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
-    return NextResponse.json({ result: 'success' });
-  }
-  if (action === 'get_seat_plans') {
-    const { exam_id } = payload;
-    const rows = await sb(`seat_plans?exam_id=eq.${encodeURIComponent(exam_id)}&select=*`);
-    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
-    return NextResponse.json({ result: 'success', plans: rows });
-  }
-
+  // ── Board Exam Records (unchanged behavior, table moved to `exam` schema;
+  // roster lookup stays against `student` — students_data didn't move) ────
   if (action === 'save_board_exam_record') {
     const { id, student_id, board_exam_type, registration_number, roll_number, academic_year } = payload;
     if (!student_id || !board_exam_type) return NextResponse.json({ result: 'error', message: 'Student and board exam type required.' });
     const rowData = { student_id, board_exam_type, registration_number: registration_number || null, roll_number: roll_number || null, academic_year: academic_year || null };
     const r = id
-      ? await sb(`board_exam_records?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
-      : await sb('board_exam_records', 'POST', rowData);
+      ? await sbExam(`board_exam_records?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sbExam('board_exam_records', 'POST', rowData);
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
     return NextResponse.json({ result: 'success' });
   }
@@ -1854,7 +2192,7 @@ export async function POST(req) {
       const roster = await sb(`students_data?class=eq.${encodeURIComponent(cls)}${section ? `&section=eq.${encodeURIComponent(section)}` : ''}&select=student_id,student_name,roll`);
       if (!roster?.error) studentIds = roster;
     }
-    const rows = await sb('board_exam_records?select=*');
+    const rows = await sbExam('board_exam_records?select=*');
     if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
     if (studentIds) {
       const idSet = new Set(studentIds.map(s => s.student_id));

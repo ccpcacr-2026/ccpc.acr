@@ -102,10 +102,22 @@ const RESERVED = [
   'loadAdminAttendanceView','switchAttendanceTab','loadAttendanceReport',
   'markManualAttendance','openAttendanceDeviceEditor',
   'saveAttendanceDeviceFromEditor','deleteAttendanceDevice','loadPunchLog',
-  // Exams tab native port
-  'loadAdminExamsView','switchExamsTab','saveExam','selectExamForSubjects',
-  'saveExamSubject','deleteExamSubject','loadMarksEntry','saveMarksEntry',
-  'processExamResult','toggleExamLock','saveGradeScale','deleteGradeScale',
+  // Exams tab native port (Term/Class-Pattern/Subject/Components/Exam-Pattern
+  // /Exam/Entry-Setup/Marks/Result rebuild)
+  'loadAdminExamsView','switchExamsTab',
+  'saveExamTerm','archiveExamTerm',
+  'saveClassPattern','saveClassPatternMap',
+  'saveSubject','deleteSubject','saveSubjectPatternMap',
+  'loadSubjectComponentsSetup','toggleCsmsSubject','updateSubjectComponent',
+  'deleteSubjectComponent','addSubjectComponent',
+  'saveExamPattern','duplicateExamPattern','deleteExamPatternTemplate',
+  'saveExamSetup','toggleExamSetupLock','toggleExamSetupArchive','openDuplicateExamModal',
+  'loadEntrySheetsSetup','bulkToggleEntrySheets','assignEntrySheets','toggleOneEntrySheet',
+  'loadExamTerms','loadExamSetupList',
+  'loadMarksEntryOptions','_populateMarksComponentSelect','_populateMarksSectionSelect',
+  'loadMarksEntry','saveMarksEntry',
+  'processExamResult','toggleResultBreakdown',
+  'saveGradeScale','deleteGradeScale',
   'saveBoardExamRecord',
   // Payroll tab native port
   'loadAdminPayrollView','switchPayrollTab','saveSalaryStructure','runPayroll',
