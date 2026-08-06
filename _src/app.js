@@ -413,8 +413,8 @@
 
     const applyProfile = (p) => {
       if (!p) return;
-      if (nameEl && p.full_name) nameEl.textContent = p.full_name;
-      if (metaEl) metaEl.textContent = (p.full_name || u.user_id) + (p.shortname ? ' (' + p.shortname + ')' : '');
+      if (nameEl && p.full_name) nameEl.textContent = p.full_name + (p.shortname ? ' (' + p.shortname + ')' : '');
+      if (metaEl) metaEl.textContent = 'ID: ' + u.user_id;
       if (p.photo_url) setProfilePhoto(p.photo_url);
     };
 
