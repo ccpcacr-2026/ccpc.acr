@@ -5753,10 +5753,19 @@
           <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-classpattern-name" id="cpNewPatternName" placeholder="New pattern name (e.g. Six, Ten-Science)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:280px">
           <button onclick="saveClassPattern()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ Add Pattern</button>
         </div>
+        <div class="flex items-center gap-2 mb-3 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+          <span class="text-[10px] font-black text-slate-500 uppercase">Apply to selected:</span>
+          <select id="cpBulkPatternSelect" class="exam-pattern-select px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs"><option value="">Select class pattern…</option></select>
+          <button onclick="bulkApplyClassPattern()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Apply</button>
+          <span class="text-[10px] text-slate-400 font-bold ml-auto"><span id="cpSelectedCount">0</span> selected</span>
+        </div>
         <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:520px">
           <table class="w-full text-left border-collapse text-xs">
-            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Class</th><th class="py-2 px-3">Section</th><th class="py-2 px-3">Session</th><th class="py-2 px-3">Students</th><th class="py-2 px-3">Pattern</th></tr></thead>
-            <tbody id="classPatternBody"><tr><td colspan="5" class="p-3 text-slate-400 font-bold">Loading…</td></tr></tbody>
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
+              <th class="py-2 px-3"><input type="checkbox" id="cpSelectAll" onchange="toggleAllClassPatternRows(this.checked)"></th>
+              <th class="py-2 px-3">Class</th><th class="py-2 px-3">Section</th><th class="py-2 px-3">Session</th><th class="py-2 px-3">Students</th><th class="py-2 px-3">Pattern</th>
+            </tr></thead>
+            <tbody id="classPatternBody"><tr><td colspan="6" class="p-3 text-slate-400 font-bold">Loading…</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -5967,9 +5976,31 @@
       _classPatterns = res.patterns || [];
       _populateClassPatternSelects();
       document.getElementById('classPatternBody').innerHTML = res.rows.map(r => `<tr class="border-b border-slate-50">
+        <td class="py-1.5 px-3"><input type="checkbox" class="cp-row-cb" data-class="${r.class}" data-section="${r.section}" data-session="${r.session}" onchange="_updateClassPatternSelectedCount()"></td>
         <td class="py-1.5 px-3 font-bold">${r.class}</td><td class="py-1.5 px-3">${r.section}</td><td class="py-1.5 px-3">${r.session || '—'}</td><td class="py-1.5 px-3">${r.count}</td>
         <td class="py-1.5 px-3"><select data-class="${r.class}" data-section="${r.section}" data-session="${r.session}" onchange="saveClassPatternMap(this)" class="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">${_classPatternOptionsHtml(r.pattern_id)}</select></td>
-      </tr>`).join('') || '<tr><td colspan="5" class="p-3 text-slate-400 font-bold">No classes found.</td></tr>';
+      </tr>`).join('') || '<tr><td colspan="6" class="p-3 text-slate-400 font-bold">No classes found.</td></tr>';
+      document.getElementById('cpSelectAll').checked = false;
+      _updateClassPatternSelectedCount();
+    });
+  }
+  function toggleAllClassPatternRows(checked) {
+    document.querySelectorAll('.cp-row-cb').forEach(cb => { cb.checked = checked; });
+    _updateClassPatternSelectedCount();
+  }
+  function _updateClassPatternSelectedCount() {
+    const n = document.querySelectorAll('.cp-row-cb:checked').length;
+    const el = document.getElementById('cpSelectedCount');
+    if (el) el.textContent = n;
+  }
+  function bulkApplyClassPattern() {
+    const pattern_id = document.getElementById('cpBulkPatternSelect').value || null;
+    const rows = Array.from(document.querySelectorAll('.cp-row-cb:checked')).map(cb => cb.dataset);
+    if (!rows.length) { showToast('Select at least one row', 'error'); return; }
+    Promise.all(rows.map(r => _adminFetch('save_class_pattern_map', { class: r.class, section: r.section, session: r.session, pattern_id }))).then(results => {
+      const failed = results.filter(r => !r || r.result !== 'success');
+      showToast(failed.length ? `Applied to ${rows.length - failed.length} of ${rows.length}` : `Applied to ${rows.length} row${rows.length === 1 ? '' : 's'}`, failed.length ? 'error' : undefined);
+      loadClassPatternSetup();
     });
   }
   function _classPatternOptionsHtml(selectedId) {

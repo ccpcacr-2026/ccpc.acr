@@ -107,6 +107,7 @@ const RESERVED = [
   'loadAdminExamsView','switchExamsTab',
   'saveExamTerm','archiveExamTerm',
   'saveClassPattern','saveClassPatternMap',
+  'toggleAllClassPatternRows','_updateClassPatternSelectedCount','bulkApplyClassPattern',
   'saveSubject','deleteSubject','saveSubjectPatternMap',
   'loadSubjectComponentsSetup','toggleCsmsSubject','updateSubjectComponent',
   'deleteSubjectComponent','addSubjectComponent',
