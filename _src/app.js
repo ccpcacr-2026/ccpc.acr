@@ -294,6 +294,20 @@
       .loginAndGetProfile(id, pass);
   }
 
+  // #login-screen holds #loginId (autocomplete="username") and #loginPass
+  // (autocomplete="current-password") — correctly tagged so Chrome's
+  // password manager can save/offer real login credentials. The problem:
+  // launchDashboard() used to only CSS-hide this form, leaving it live in
+  // the DOM for the whole admin session. Chrome's autofill isn't scoped to
+  // visible elements — with a saved credential for this origin, it kept
+  // offering that saved username into unrelated text fields elsewhere on
+  // the page (e.g. Exams' "Medium" field), and no amount of autocomplete
+  // tweaking on the TARGET fields fixed it, because the trigger is this
+  // still-present SOURCE form. Detaching it from the document entirely
+  // (not just hiding it) removes it from Chrome's live-page analysis;
+  // logout() re-inserts the exact same node so the login form still works.
+  let _detachedLoginScreen = null;
+
   function logout() {
     if (window.confirm("Are you sure you want to sign out?")) {
       localStorage.removeItem('ccpc_user_id');
@@ -303,6 +317,7 @@
       window.removeEventListener('hashchange', _routeByHash);
       _destroyRealtime();
       history.replaceState(null, '', window.location.pathname);
+      if (_detachedLoginScreen) { document.body.appendChild(_detachedLoginScreen); _detachedLoginScreen = null; }
       document.getElementById('login-screen').classList.remove('hidden');
       document.getElementById('app-screen').classList.add('hidden');
       document.getElementById('view-container').innerHTML = '';
@@ -380,7 +395,8 @@
 
   function launchDashboard() {
     if (!window.APP_USER) return;
-    document.getElementById('login-screen').classList.add('hidden');
+    const loginScreen = document.getElementById('login-screen');
+    if (loginScreen) { loginScreen.classList.add('hidden'); _detachedLoginScreen = loginScreen; loginScreen.remove(); }
     document.getElementById('app-screen').classList.remove('hidden');
     document.getElementById('side-user-role').textContent = window.ACTIVE_ROLE;
     _renderSidebarUserCard();
