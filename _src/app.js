@@ -5763,7 +5763,7 @@
 
       <div id="ex-subjects" style="display:none">
         <div class="flex items-center gap-2 mb-3">
-          <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-subject-name" id="subjNewName" placeholder="New subject (e.g. Bangla)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:280px">
+          <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-subject-name" id="subjNewName" placeholder="New subject(s), comma-separated (e.g. Bangla, English, Math)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:280px">
           <button onclick="saveSubject()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ Add Subject</button>
         </div>
         <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:520px">
@@ -6007,11 +6007,16 @@
     });
   }
   function saveSubject() {
-    const name = document.getElementById('subjNewName').value.trim();
-    if (!name) return;
-    _adminFetch('save_subject', { name }).then(res => {
-      if (res && res.result === 'success') { showToast('Subject added'); document.getElementById('subjNewName').value = ''; loadSubjectSetup(); }
-      else showToast((res && res.message) || 'Failed', 'error');
+    const raw = document.getElementById('subjNewName').value.trim();
+    if (!raw) return;
+    const names = [...new Set(raw.split(',').map(s => s.trim()).filter(Boolean))];
+    if (!names.length) return;
+    Promise.all(names.map(name => _adminFetch('save_subject', { name }))).then(results => {
+      const failed = results.filter(r => !r || r.result !== 'success');
+      if (!failed.length) showToast(names.length > 1 ? `${names.length} subjects added` : 'Subject added');
+      else showToast(`Added ${names.length - failed.length} of ${names.length} — ${failed[0].message || 'some failed'}`, 'error');
+      document.getElementById('subjNewName').value = '';
+      loadSubjectSetup();
     });
   }
   function deleteSubject(id) {
