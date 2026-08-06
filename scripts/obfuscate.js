@@ -117,6 +117,7 @@ const RESERVED = [
   'checkBusStatus','saveBusConfig','addPlaceRow','savePlaceConfig',
   // Setup tab native port (tab builder)
   'loadAdminSetupView','loadAdminAddCustomFormView','_toggleFieldChip','updateIncludeCount','updateEditableCount',
+  'loadMyTabDataView',
   'downloadImportDemoTemplate',
   'onDownloadCategoryChange','openColleagueProfile','closeColleagueProfileModal','saveProfileFieldVisibility',
   'saveColleagueCareerFields','toggleCareerHistory',

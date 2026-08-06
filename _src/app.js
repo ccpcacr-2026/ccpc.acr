@@ -568,15 +568,27 @@
     const myId = window.APP_USER && window.APP_USER.user_id;
     const navEl = document.getElementById('nav-student-portal');
     if (!myId || !navEl || navEl.style.display !== 'none') return;
-    fetch('/api/student-admin', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'get_my_access', payload: {}, user_id: myId })
-    }).then(r => r.ok ? r.json() : null).then(res => {
+    Promise.all([
+      fetch('/api/student-admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'get_my_access', payload: {}, user_id: myId })
+      }).then(r => r.ok ? r.json() : null).catch(() => null),
+      // Tab-data access (Data Access / Class Access / class-teacher-auto /
+      // linked Field Category — see getMyTabDataAccess) is a fourth,
+      // independent path into Student Portal, on /api/exec rather than
+      // /api/student-admin — a grantee with ONLY this (no field-category,
+      // no class-wide grant) would otherwise never see the nav link at all.
+      new Promise(resolve => {
+        google.script.run.withSuccessHandler(resolve).withFailureHandler(() => resolve([])).getMyTabDataAccess(myId);
+      }),
+    ]).then(([res, tabAccess]) => {
       const hasCategories = res && res.result === 'success' && Array.isArray(res.categories) && res.categories.length;
       const hasClassAccess = res && res.result === 'success' && Array.isArray(res.classAccess) && res.classAccess.length;
-      if (hasCategories || hasClassAccess) {
-        window._hasFieldCategoryAccess = true; // loadStudentPortalView's own role gate checks this too
+      const hasTabData = Array.isArray(tabAccess) && tabAccess.length > 0;
+      if (hasCategories || hasClassAccess) window._hasFieldCategoryAccess = true; // loadStudentPortalView's own role gate checks this too
+      if (hasTabData) window._hasTabDataAccess = true; // ditto — _studentPortalNavClick/loadStudentPortalView check this
+      if (hasCategories || hasClassAccess || hasTabData) {
         navEl.style.display = '';
         const container = document.getElementById('admin-links');
         if (container) container.classList.remove('hidden');
@@ -608,6 +620,13 @@
     { key: 'notices', label: 'Notices', icon: 'megaphone', erp: false, action: { type: 'native', fn: 'loadAdminNoticesView' } },
     { key: 'import', label: 'Import', icon: 'file-spreadsheet', erp: false, action: { type: 'native', fn: 'loadAdminImportView' } },
     { key: 'bus_tracker', label: 'Bus Tracker', icon: 'map-pin', erp: false, action: { type: 'native', fn: 'loadAdminBusTrackerView' } },
+    // Not admin-tab-visibility-gated like the rest — included whenever
+    // getMyTabDataAccess (a completely separate grant system: the global
+    // Data Access allowlist, Class Access, class-teacher-auto, or a linked
+    // Field Category) returns at least one tab for this account. See
+    // _loadAdminSubnav, which merges that check in alongside get_my_tab_access
+    // rather than the per-item admin_tab_visibility matrix these other items use.
+    { key: 'my_data', label: 'Student Data', icon: 'table', erp: false, action: { type: 'native', fn: 'loadMyTabDataView' } },
   ];
 
   // "Student Portal" is a pure expand/collapse subheader now — its own click
@@ -640,27 +659,44 @@
     const myId = window.APP_USER && window.APP_USER.user_id;
     const host = document.getElementById('erp-links');
     if (!myId || !host) return;
-    fetch('/api/student-admin', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'get_my_tab_access', payload: {}, user_id: myId })
-    }).then(r => r.ok ? r.json() : null).then(res => {
+    Promise.all([
+      fetch('/api/student-admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'get_my_tab_access', payload: {}, user_id: myId })
+      }).then(r => r.ok ? r.json() : null).catch(() => null),
+      // Student Data ('my_data') is a completely separate grant system
+      // (Data Access allowlist / Class Access / class-teacher-auto / linked
+      // Field Category — see getMyTabDataAccess) from the admin_tab_visibility
+      // matrix get_my_tab_access checks — merged into the same subnav list
+      // below rather than routed as a special case, so an account with
+      // BOTH kinds of access (e.g. also "+ Add Custom Form") sees both as
+      // sibling items instead of only ever reaching one of them.
+      new Promise(resolve => {
+        google.script.run.withSuccessHandler(resolve).withFailureHandler(() => resolve([])).getMyTabDataAccess(myId);
+      }),
+    ]).then(([res, tabAccess]) => {
       const erpTabs = (res && res.result === 'success' && Array.isArray(res.tabs)) ? res.tabs : [];
+      const hasTabData = Array.isArray(tabAccess) && tabAccess.length > 0;
       // get_my_tab_access now returns every admin-console tab the caller's
       // role clears (not just the original 5 ERP ones) — Admin/Student
       // Portal Admin still get every key via the matrix's own defaults, so
       // this alone decides sidebar visibility for every subnav item.
       window._adminTabAccess = erpTabs;
-      window._hasErpTabAccess = erpTabs.length > 0; // loadStudentPortalView's own role gate checks this too
-      const items = ADMIN_SUBNAV_ITEMS.filter(i => erpTabs.includes(i.key));
+      window._hasErpTabAccess = erpTabs.length > 0 || hasTabData; // loadStudentPortalView's own role gate checks this too
       // get_my_tab_access is account-scoped (any role the account holds
       // unlocks its tabs), not active-role-scoped — so a multi-role account
       // (e.g. Admin+Teacher) keeps getting tabs back even while viewing as
       // Teacher. Without this guard that reopens the sub-items list right
       // after updateSidebarForRole's own synchronous hide (see there), even
       // though the "Student Portal" header itself is correctly hidden for
-      // that active role — the exact orphaned-children bug reported.
-      if (!items.length || !_isModuleVisibleForRole('student_portal', activeRole)) { host.innerHTML = ''; host.classList.add('hidden'); return; }
+      // that active role — the exact orphaned-children bug reported. Tab-
+      // data access is deliberately exempt from this role gate (like the
+      // Viewer Panel path already is) since it's its own independent grant,
+      // unrelated to what role the account is currently viewing as.
+      const roleVisibleKeys = _isModuleVisibleForRole('student_portal', activeRole) ? erpTabs : [];
+      const items = ADMIN_SUBNAV_ITEMS.filter(i => roleVisibleKeys.includes(i.key) || (i.key === 'my_data' && hasTabData));
+      if (!items.length) { host.innerHTML = ''; host.classList.add('hidden'); return; }
       host.innerHTML = items.map(i =>
         `<a href="javascript:void(0)" onclick="${i.action.fn}(); closeMobileSidebar();" class="nav-link nav-sublink" id="nav-erp-${i.key}"><div class="nav-icon-box"><i data-lucide="${i.icon}" class="nav-icon"></i></div><span class="nav-text">${i.label}</span></a>`
       ).join('');
@@ -711,7 +747,6 @@
         if (['Teacher', 'Staff'].includes(role)) {
           const email = window.APP_USER ? window.APP_USER.email   : '';
           const uid   = window.APP_USER ? window.APP_USER.user_id : '';
-          initStudentTabDataSection(uid); // shows only if an admin granted this user access
           const cached = window._loginProfile;
           window._loginProfile = null;
           if (cached) {
@@ -742,71 +777,83 @@
 
   // ── Student Tab Data (delegated access) ──────────────────────────────────
   // Admins pick who may view/export a custom student tab's submissions (Student
-  // Portal Admin → Data → Data Access). If this user is on any tab's list, a
-  // "Student Data" card appears under their profile with a table + CSV export.
+  // Portal Admin → Data → Data Access). If this user is on any tab's list,
+  // "Student Data" is reachable as its own destination under the Student
+  // Portal nav (not auto-injected into their own profile page anymore — see
+  // _studentPortalNavClick/loadStudentPortalView for the routing that lands
+  // a grantee here, and _maybeRevealStudentPortalForGrantee for what reveals
+  // the nav link at all for an account with none of the other Student Portal
+  // access paths).
   let _stdTabData = null;
   let _stdTabView = 'table'; // 'table' | 'card'
 
-  function initStudentTabDataSection(uid) {
+  function loadMyTabDataView() {
+    _setViewHash('student_portal');
+    setActiveNavLink('nav-student-portal');
+    setContentHeader('Student Data', 'table');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    const uid = window.APP_USER ? window.APP_USER.user_id : '';
     if (!uid) return;
+    container.innerHTML = `<div class="text-center p-10"><i data-lucide="loader-2" class="h-6 w-6 animate-spin inline text-blue-600"></i></div>`;
+    lucide.createIcons();
     google.script.run
       .withSuccessHandler(tabs => {
-        if (!Array.isArray(tabs) || !tabs.length) return;
-        const host = document.getElementById('view-container');
-        if (!host || document.getElementById('std-tabdata-card')) return;
-
-        const card = document.createElement('div');
-        card.id = 'std-tabdata-card';
-        card.className = 'max-w-5xl mx-auto mt-6 bg-white border border-slate-200 rounded-2xl p-5';
-        card.innerHTML = `
-          <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
-            <div>
-              <div class="text-sm font-black text-slate-800">Student Data</div>
-              <div class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Custom tab submissions shared with you</div>
-            </div>
-            <div class="flex items-center gap-2 flex-wrap">
-              <select id="std-tabdata-select" class="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700"></select>
-              <button id="std-tabdata-load" class="px-4 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-black">Load</button>
-              <button id="std-tabdata-export" class="px-4 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-black" disabled>Export CSV</button>
-              <select id="std-tabdata-sort" class="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700">
-                <option value="">Sort: Default</option>
-                <option value="roll">Sort: Roll</option>
-                <option value="student_name">Sort: Name</option>
-                <option value="class">Sort: Class</option>
-                <option value="section">Sort: Section</option>
-                <option value="group">Sort: Group</option>
-                <option value="gender">Sort: Gender</option>
-              </select>
-              <select id="std-tabdata-filter" class="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700">
-                <option value="">Show: All</option>
-                <option value="filled">Show: Filled</option>
-                <option value="unfilled">Show: Not Filled</option>
-              </select>
-              <div class="flex rounded-lg border border-slate-200 overflow-hidden">
-                <button id="std-tabdata-viewtable" class="px-3 py-1.5 text-xs font-black bg-blue-600 text-white">Table</button>
-                <button id="std-tabdata-viewcard" class="px-3 py-1.5 text-xs font-black text-slate-500">Cards</button>
+        if (!Array.isArray(tabs) || !tabs.length) {
+          container.innerHTML = `<div class="text-center p-10 text-slate-400 font-bold text-sm">No custom tab data has been shared with you.</div>`;
+          return;
+        }
+        container.innerHTML = `
+          <div class="max-w-5xl mx-auto bg-white border border-slate-200 rounded-2xl p-5">
+            <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
+              <div>
+                <div class="text-sm font-black text-slate-800">Student Data</div>
+                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Custom tab submissions shared with you</div>
               </div>
-              <button id="std-tabdata-merge" class="px-4 py-1.5 rounded-lg border border-slate-200 text-slate-700 text-xs font-black">Merge Columns</button>
-              <button id="std-tabdata-print" class="px-4 py-1.5 rounded-lg bg-slate-800 text-white text-xs font-black">Print</button>
+              <div class="flex items-center gap-2 flex-wrap">
+                <select id="std-tabdata-select" class="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700"></select>
+                <button id="std-tabdata-load" class="px-4 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-black">Load</button>
+                <button id="std-tabdata-export" class="px-4 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-black" disabled>Export CSV</button>
+                <select id="std-tabdata-sort" class="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700">
+                  <option value="">Sort: Default</option>
+                  <option value="roll">Sort: Roll</option>
+                  <option value="student_name">Sort: Name</option>
+                  <option value="class">Sort: Class</option>
+                  <option value="section">Sort: Section</option>
+                  <option value="group">Sort: Group</option>
+                  <option value="gender">Sort: Gender</option>
+                </select>
+                <select id="std-tabdata-filter" class="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700">
+                  <option value="">Show: All</option>
+                  <option value="filled">Show: Filled</option>
+                  <option value="unfilled">Show: Not Filled</option>
+                </select>
+                <div class="flex rounded-lg border border-slate-200 overflow-hidden">
+                  <button id="std-tabdata-viewtable" class="px-3 py-1.5 text-xs font-black bg-blue-600 text-white">Table</button>
+                  <button id="std-tabdata-viewcard" class="px-3 py-1.5 text-xs font-black text-slate-500">Cards</button>
+                </div>
+                <button id="std-tabdata-merge" class="px-4 py-1.5 rounded-lg border border-slate-200 text-slate-700 text-xs font-black">Merge Columns</button>
+                <button id="std-tabdata-print" class="px-4 py-1.5 rounded-lg bg-slate-800 text-white text-xs font-black">Print</button>
+              </div>
             </div>
-          </div>
-          <div id="std-tabdata-count" class="text-xs font-bold text-slate-500 mb-2"></div>
-          <div id="std-tabdata-view" class="border border-slate-100 rounded-xl overflow-x-auto"></div>`;
-        host.appendChild(card);
+            <div id="std-tabdata-count" class="text-xs font-bold text-slate-500 mb-2"></div>
+            <div id="std-tabdata-view" class="border border-slate-100 rounded-xl overflow-x-auto"></div>
+          </div>`;
+        lucide.createIcons();
 
-        const sel = card.querySelector('#std-tabdata-select');
+        const sel = document.getElementById('std-tabdata-select');
         tabs.forEach(t => {
           const o = document.createElement('option');
           o.value = t.tab_name; o.textContent = t.tab_name;
           sel.appendChild(o);
         });
-        card.querySelector('#std-tabdata-load').addEventListener('click', () => loadStudentTabData(uid));
-        card.querySelector('#std-tabdata-export').addEventListener('click', exportStudentTabData);
-        card.querySelector('#std-tabdata-viewtable').addEventListener('click', () => _setStudentTabView('table'));
-        card.querySelector('#std-tabdata-viewcard').addEventListener('click', () => _setStudentTabView('card'));
-        card.querySelector('#std-tabdata-sort').addEventListener('change', (e) => _setStudentTabSort(e.target.value));
-        card.querySelector('#std-tabdata-filter').addEventListener('change', (e) => _setStudentTabFilter(e.target.value));
-        card.querySelector('#std-tabdata-merge').addEventListener('click', () => {
+        document.getElementById('std-tabdata-load').addEventListener('click', () => loadStudentTabData(uid));
+        document.getElementById('std-tabdata-export').addEventListener('click', exportStudentTabData);
+        document.getElementById('std-tabdata-viewtable').addEventListener('click', () => _setStudentTabView('table'));
+        document.getElementById('std-tabdata-viewcard').addEventListener('click', () => _setStudentTabView('card'));
+        document.getElementById('std-tabdata-sort').addEventListener('change', (e) => _setStudentTabSort(e.target.value));
+        document.getElementById('std-tabdata-filter').addEventListener('change', (e) => _setStudentTabFilter(e.target.value));
+        document.getElementById('std-tabdata-merge').addEventListener('click', () => {
           if (!_stdTabData) return;
           _openMergeColumnsModal({
             title: `Merge Columns — ${_stdTabData.tab}`,
@@ -815,7 +862,7 @@
             onChange: (m) => { _stdColumnMerges = m; _renderStudentTabData(); },
           });
         });
-        card.querySelector('#std-tabdata-print').addEventListener('click', () => {
+        document.getElementById('std-tabdata-print').addEventListener('click', () => {
           if (!_stdTabData) return;
           const { headers: dHeaders, rows: dRows } = _applyColumnMerges(_stdTabData.headers, _stdVisibleRows(), _stdColumnMerges);
           _openPrintColumnsModal({
@@ -829,7 +876,9 @@
           });
         });
       })
-      .withFailureHandler(() => {})
+      .withFailureHandler(() => {
+        container.innerHTML = `<div class="text-center p-10 text-rose-500 font-bold text-sm">Could not load your Student Data access.</div>`;
+      })
       .getMyTabDataAccess(uid);
   }
 
@@ -3787,12 +3836,24 @@
       }).catch(() => showToast('Not available in current role', 'error'));
       return;
     }
-    // Not role-visible — only a field-category grant (Viewer Panel) can
+    // Not role-visible — a field-category grant (Viewer Panel) or tab-data
+    // access (Student Data — Data Access/Class Access/class-teacher-auto/
+    // linked category, on /api/exec rather than /api/student-admin) can
     // still admit this account.
-    _adminFetch('get_my_access', {}).then(res => {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    Promise.all([
+      _adminFetch('get_my_access', {}),
+      new Promise(resolve => {
+        google.script.run.withSuccessHandler(resolve).withFailureHandler(() => resolve([])).getMyTabDataAccess(myId);
+      }),
+    ]).then(([res, tabAccess]) => {
       if (res && res.result === 'success' && Array.isArray(res.fields) && res.fields.length) {
         window._hasFieldCategoryAccess = true;
         loadViewerPanelView();
+      } else if (Array.isArray(tabAccess) && tabAccess.length) {
+        window._hasTabDataAccess = true;
+        _expandStudentPortalSubnav();
+        loadMyTabDataView();
       } else {
         showToast('Not available in current role', 'error');
       }
