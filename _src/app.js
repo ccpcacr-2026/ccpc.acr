@@ -196,6 +196,17 @@
     setTimeout(scrub, 1500);
     setTimeout(scrub, 3000);
   }
+  // type="number" isn't covered by the type="search" selector below, and
+  // the same browser-side autofill (logged-in user's own ID landing in an
+  // unrelated field) was reported on a Weight% number input too. Can't just
+  // widen the selector to every input[type="number"] app-wide though —
+  // plenty of number fields (Marks Entry, the existing-component edit
+  // cells) legitimately pre-fill with real saved data on render, and the
+  // scrub below would wipe that, mistaking real data for autofill. Instead
+  // this is opt-in: a field that should always start blank marks itself
+  // with data-autofill-guard, and only those get watched alongside
+  // type="search" (which is always blank-by-default in this app already).
+  const _AUTOFILL_GUARD_SELECTOR = 'input[type="search"], input[data-autofill-guard]';
   function _watchForAutofilledSearchFields() {
     const root = document.body;
     if (!root || root._autofillGuardInstalled) return;
@@ -203,8 +214,8 @@
     new MutationObserver(mutations => {
       mutations.forEach(m => m.addedNodes.forEach(node => {
         if (node.nodeType !== 1) return;
-        if (node.matches && node.matches('input[type="search"]')) _scrubAutofilledValue(node);
-        if (node.querySelectorAll) node.querySelectorAll('input[type="search"]').forEach(_scrubAutofilledValue);
+        if (node.matches && node.matches(_AUTOFILL_GUARD_SELECTOR)) _scrubAutofilledValue(node);
+        if (node.querySelectorAll) node.querySelectorAll(_AUTOFILL_GUARD_SELECTOR).forEach(_scrubAutofilledValue);
       }));
     }).observe(root, { childList: true, subtree: true });
   }
@@ -5868,9 +5879,9 @@
       <div id="ex-grades" style="display:none">
         <p class="font-black text-slate-800 text-sm flex items-center gap-2 mb-3"><i data-lucide="star" class="h-4 w-4 text-blue-600"></i>Grade Point List</p>
         <div class="grid grid-cols-2 md:grid-cols-6 gap-2 mb-3">
-          <input type="number" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-grade-gp" id="gsGp" placeholder="GP" step="0.1" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-          <input type="number" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-grade-min" id="gsMin" placeholder="Min %" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-          <input type="number" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-grade-max" id="gsMax" placeholder="Max %" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <input type="number" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-grade-gp" data-autofill-guard id="gsGp" placeholder="GP" step="0.1" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <input type="number" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-grade-min" data-autofill-guard id="gsMin" placeholder="Min %" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <input type="number" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-grade-max" data-autofill-guard id="gsMax" placeholder="Max %" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
           <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-grade-letter" id="gsLetter" placeholder="Letter (A+)" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
           <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-grade-label" id="gsLabel" placeholder="Label (Excellent)" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
           <button onclick="saveGradeScale()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+</button>
@@ -6126,9 +6137,9 @@
         <div class="flex items-center gap-2 mt-2 flex-wrap">
           <select id="csmsNewCompType-${s.id}" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">${_componentTypes.map(t => `<option value="${t.id}">${t.name}</option>`).join('')}</select>
           <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-newcomp-typename" id="csmsNewCompTypeName-${s.id}" placeholder="or type a new type name" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:160px">
-          <input type="number" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-newcomp-full" id="csmsNewFull-${s.id}" placeholder="Full" class="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-          <input type="number" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-newcomp-pass" id="csmsNewPass-${s.id}" placeholder="Pass" class="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-          <input type="number" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-newcomp-weight" id="csmsNewWeight-${s.id}" placeholder="Weight%" class="w-20 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <input type="number" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-newcomp-full" data-autofill-guard id="csmsNewFull-${s.id}" placeholder="Full" class="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <input type="number" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-newcomp-pass" data-autofill-guard id="csmsNewPass-${s.id}" placeholder="Pass" class="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <input type="number" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-newcomp-weight" data-autofill-guard id="csmsNewWeight-${s.id}" placeholder="Weight%" class="w-20 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
           <button onclick="addSubjectComponent(${pattern_id},${s.id})" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ Add</button>
           ${comps.length ? `<button onclick="copyComponentsToSelected(${s.id})" class="px-3 py-1.5 border border-blue-200 text-blue-600 rounded-lg font-black text-[10px] uppercase hover:bg-blue-50">Copy to Selected</button>` : ''}
         </div>
