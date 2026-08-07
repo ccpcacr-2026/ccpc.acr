@@ -323,6 +323,7 @@ const ADMIN_TAB_ACTIONS = {
   exams: new Set([
     'get_exam_terms', 'save_exam_term', 'archive_exam_term',
     'get_class_pattern_setup', 'get_class_patterns', 'save_class_pattern', 'save_class_pattern_map',
+    'get_class_pattern_usage', 'delete_class_pattern',
     'get_subjects', 'save_subject', 'delete_subject', 'get_subject_pattern_map', 'save_subject_pattern_map',
     'get_exam_component_types', 'save_exam_component_type', 'get_subject_components_setup', 'save_subject_component', 'delete_subject_component',
     'get_exam_patterns', 'save_exam_pattern', 'duplicate_exam_pattern', 'delete_exam_pattern',
@@ -1826,6 +1827,35 @@ export async function POST(req) {
     const r = (!existing?.error && existing.length)
       ? await sbExam(`class_pattern_map?id=eq.${existing[0].id}`, 'PATCH', rowData)
       : await sbExam('class_pattern_map', 'POST', rowData);
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  // Counts what a delete would affect before the frontend commits to it —
+  // class_pattern_map rows just get unassigned (pattern_id set null), but
+  // subject_pattern_map/subject_components cascade-delete on the FK, and an
+  // exam using this pattern would too, which is real result data. Deletion
+  // is blocked outright when exams exist rather than silently cascading.
+  if (action === 'get_class_pattern_usage') {
+    const { id } = payload;
+    const [mapRows, subjRows, examRows] = await Promise.all([
+      sbExam(`class_pattern_map?pattern_id=eq.${encodeURIComponent(id)}&select=id`),
+      sbExam(`subject_pattern_map?pattern_id=eq.${encodeURIComponent(id)}&select=id`),
+      sbExam(`exams?pattern_id=eq.${encodeURIComponent(id)}&select=id`),
+    ]);
+    return NextResponse.json({
+      result: 'success',
+      class_sections: Array.isArray(mapRows) ? mapRows.length : 0,
+      subjects: Array.isArray(subjRows) ? subjRows.length : 0,
+      exams: Array.isArray(examRows) ? examRows.length : 0,
+    });
+  }
+  if (action === 'delete_class_pattern') {
+    const { id } = payload;
+    const examRows = await sbExam(`exams?pattern_id=eq.${encodeURIComponent(id)}&select=id`);
+    if (Array.isArray(examRows) && examRows.length) {
+      return NextResponse.json({ result: 'error', message: `${examRows.length} exam(s) use this pattern — archive or reassign them first.` });
+    }
+    const r = await sbExam(`class_patterns?id=eq.${encodeURIComponent(id)}`, 'DELETE');
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
     return NextResponse.json({ result: 'success' });
   }

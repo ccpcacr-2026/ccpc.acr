@@ -6016,7 +6016,7 @@
       if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed to load', 'error'); return; }
       _classPatterns = res.patterns || [];
       _populateClassPatternSelects();
-      document.getElementById('classPatternsChips').innerHTML = _classPatterns.map(p => `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 text-slate-700 rounded-full text-[11px] font-bold border border-slate-200">${p.name} <i data-lucide="pencil" class="h-3 w-3 text-blue-500 cursor-pointer" title="Rename" onclick="renameClassPattern(${p.id})"></i><i data-lucide="list-checks" class="h-3 w-3 text-emerald-600 cursor-pointer" title="Manage subjects for this pattern" onclick="manageClassPatternSubjects(${p.id})"></i></span>`).join('') || '<span class="text-xs text-slate-400 font-bold italic">No patterns yet — add one above.</span>';
+      document.getElementById('classPatternsChips').innerHTML = _classPatterns.map(p => `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 text-slate-700 rounded-full text-[11px] font-bold border border-slate-200">${p.name} <i data-lucide="pencil" class="h-3 w-3 text-blue-500 cursor-pointer" title="Rename" onclick="renameClassPattern(${p.id})"></i><i data-lucide="list-checks" class="h-3 w-3 text-emerald-600 cursor-pointer" title="Manage subjects for this pattern" onclick="manageClassPatternSubjects(${p.id})"></i><i data-lucide="trash-2" class="h-3 w-3 text-red-500 cursor-pointer" title="Delete" onclick="deleteClassPattern(${p.id})"></i></span>`).join('') || '<span class="text-xs text-slate-400 font-bold italic">No patterns yet — add one above.</span>';
       lucide.createIcons();
       document.getElementById('classPatternBody').innerHTML = res.rows.map(r => `<tr class="border-b border-slate-50">
         <td class="py-1.5 px-3"><input type="checkbox" class="cp-row-cb" data-class="${r.class}" data-section="${r.section}" data-session="${r.session}" onchange="_updateClassPatternSelectedCount()"></td>
@@ -6076,6 +6076,23 @@
     switchExamsTab('ex-marks-setup');
     const sel = document.getElementById('csmsPatternSelect');
     if (sel) { sel.value = pattern_id; loadSubjectComponentsSetup(); }
+  }
+  function deleteClassPattern(id) {
+    const p = _classPatterns.find(x => x.id === id);
+    const name = p ? p.name : 'this pattern';
+    _adminFetch('get_class_pattern_usage', { id }).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed to check usage', 'error'); return; }
+      if (res.exams > 0) { showToast(`Can't delete "${name}" — ${res.exams} exam(s) use it. Archive or reassign them first.`, 'error'); return; }
+      const parts = [];
+      if (res.class_sections) parts.push(`${res.class_sections} class+section mapping(s) will be unassigned (not deleted)`);
+      if (res.subjects) parts.push(`${res.subjects} subject link(s) and their component setup will be permanently deleted`);
+      const warn = parts.length ? ' ' + parts.join('; ') + '.' : ' It has no class or subject links yet.';
+      if (!confirm(`Delete class pattern "${name}"?${warn}`)) return;
+      _adminFetch('delete_class_pattern', { id }).then(res2 => {
+        if (res2 && res2.result === 'success') { showToast('Pattern deleted'); loadClassPatternSetup(); }
+        else showToast((res2 && res2.message) || 'Failed', 'error');
+      });
+    });
   }
   function saveClassPatternMap(sel) {
     const { class: cls, section, session } = sel.dataset;
