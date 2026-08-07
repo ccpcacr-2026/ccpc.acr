@@ -108,7 +108,7 @@ const RESERVED = [
   'saveExamTerm','archiveExamTerm',
   'saveClassPattern','saveClassPatternMap',
   'toggleAllClassPatternRows','_updateClassPatternSelectedCount','bulkApplyClassPattern',
-  'saveSubject','deleteSubject','saveSubjectPatternMap',
+  'saveSubject','deleteSubject','saveSubjectPatternMap','toggleAllSubjectsForPattern',
   'loadSubjectComponentsSetup','toggleCsmsSubject','updateSubjectComponent',
   'deleteSubjectComponent','addSubjectComponent',
   'saveExamPattern','duplicateExamPattern','deleteExamPatternTemplate',

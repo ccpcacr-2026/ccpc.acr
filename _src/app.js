@@ -6029,10 +6029,13 @@
       const patterns = (mapRes && mapRes.result === 'success' && mapRes.patterns) || [];
       const mapRows = (mapRes && mapRes.result === 'success' && mapRes.map) || [];
       _subjectPatternMap = new Set(mapRows.map(m => `${m.subject_id}||${m.pattern_id}`));
-      document.getElementById('subjPatternHeaderRow').innerHTML = '<th class="py-2 px-3">Subject</th>' + patterns.map(p => `<th class="py-2 px-3 text-center">${p.name}</th>`).join('');
+      document.getElementById('subjPatternHeaderRow').innerHTML = '<th class="py-2 px-3">Subject</th>' + patterns.map(p => {
+        const allChecked = _subjects.length > 0 && _subjects.every(s => _subjectPatternMap.has(`${s.id}||${p.id}`));
+        return `<th class="py-2 px-3 text-center"><div class="flex flex-col items-center gap-1"><input type="checkbox" title="Select all for ${p.name}" onchange="toggleAllSubjectsForPattern(${p.id},this.checked,this)" ${allChecked ? 'checked' : ''}><span>${p.name}</span></div></th>`;
+      }).join('');
       document.getElementById('subjPatternBody').innerHTML = _subjects.map(s => `<tr class="border-b border-slate-50">
         <td class="py-1.5 px-3 font-bold">${s.name} <i data-lucide="trash-2" class="h-3 w-3 text-red-400 cursor-pointer inline ml-1" onclick="deleteSubject(${s.id})"></i></td>
-        ${patterns.map(p => `<td class="py-1.5 px-3 text-center"><input type="checkbox" onchange="saveSubjectPatternMap(${s.id},${p.id},this.checked)" ${_subjectPatternMap.has(`${s.id}||${p.id}`) ? 'checked' : ''}></td>`).join('')}
+        ${patterns.map(p => `<td class="py-1.5 px-3 text-center"><input type="checkbox" class="subj-pattern-cb-${p.id}" onchange="saveSubjectPatternMap(${s.id},${p.id},this.checked)" ${_subjectPatternMap.has(`${s.id}||${p.id}`) ? 'checked' : ''}></td>`).join('')}
       </tr>`).join('') || `<tr><td colspan="${patterns.length + 1}" class="p-3 text-slate-400 font-bold">No subjects yet.</td></tr>`;
       lucide.createIcons();
     });
@@ -6057,6 +6060,17 @@
   function saveSubjectPatternMap(subject_id, pattern_id, checked) {
     _adminFetch('save_subject_pattern_map', { subject_id, pattern_id, checked }).then(res => {
       if (!res || res.result !== 'success') showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+  function toggleAllSubjectsForPattern(pattern_id, checked, headerCb) {
+    const cbs = document.querySelectorAll(`.subj-pattern-cb-${pattern_id}`);
+    cbs.forEach(cb => { cb.checked = checked; cb.disabled = true; });
+    if (headerCb) headerCb.disabled = true;
+    showToast(`Saving ${_subjects.length} subjects…`);
+    Promise.all(_subjects.map(s => _adminFetch('save_subject_pattern_map', { subject_id: s.id, pattern_id, checked }))).then(results => {
+      const failed = results.filter(r => !r || r.result !== 'success');
+      showToast(failed.length ? `${_subjects.length - failed.length} of ${_subjects.length} updated — ${failed.length} failed` : `${_subjects.length} subjects updated`, failed.length ? 'error' : undefined);
+      loadSubjectSetup();
     });
   }
 
