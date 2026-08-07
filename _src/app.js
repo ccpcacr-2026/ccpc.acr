@@ -5714,6 +5714,7 @@
   let _examList = [];
   let _subjects = [];
   let _subjectPatternMap = new Set();
+  let _subjPatternTargetSelected = new Set();
   let _csmsExpanded = new Set();
   let _csmsSelected = new Set();
   let _csmsSubjects = [];
@@ -6041,11 +6042,19 @@
     Promise.all([_adminFetch('get_subjects', {}), _adminFetch('get_subject_pattern_map', {})]).then(([subRes, mapRes]) => {
       _subjects = (subRes && subRes.result === 'success' && subRes.subjects) || [];
       const patterns = (mapRes && mapRes.result === 'success' && mapRes.patterns) || [];
+      _classPatterns = patterns;
       const mapRows = (mapRes && mapRes.result === 'success' && mapRes.map) || [];
       _subjectPatternMap = new Set(mapRows.map(m => `${m.subject_id}||${m.pattern_id}`));
       document.getElementById('subjPatternHeaderRow').innerHTML = '<th class="py-2 px-3">Subject</th>' + patterns.map(p => {
         const allChecked = _subjects.length > 0 && _subjects.every(s => _subjectPatternMap.has(`${s.id}||${p.id}`));
-        return `<th class="py-2 px-3 text-center"><div class="flex flex-col items-center gap-1"><input type="checkbox" title="Select all for ${p.name}" onchange="toggleAllSubjectsForPattern(${p.id},this.checked,this)" ${allChecked ? 'checked' : ''}><span>${p.name}</span></div></th>`;
+        return `<th class="py-2 px-3 text-center"><div class="flex flex-col items-center gap-1">
+          <input type="checkbox" title="Select all for ${p.name}" onchange="toggleAllSubjectsForPattern(${p.id},this.checked,this)" ${allChecked ? 'checked' : ''}>
+          <span>${p.name}</span>
+          <div class="flex items-center gap-1">
+            <input type="checkbox" class="subj-pattern-target-cb" data-pattern-id="${p.id}" title="Select as copy target" ${_subjPatternTargetSelected.has(p.id) ? 'checked' : ''} onchange="_toggleSubjPatternTarget(${p.id},this.checked)">
+            <button onclick="copySubjectSelectionToSelected(${p.id})" title="Copy this pattern's checked subjects onto the selected target pattern(s)" class="text-[9px] font-black uppercase text-blue-600 underline">Copy</button>
+          </div>
+        </div></th>`;
       }).join('');
       document.getElementById('subjPatternBody').innerHTML = _subjects.map(s => `<tr class="border-b border-slate-50">
         <td class="py-1.5 px-3 font-bold">${s.name} <i data-lucide="trash-2" class="h-3 w-3 text-red-400 cursor-pointer inline ml-1" onclick="deleteSubject(${s.id})"></i></td>
@@ -6074,6 +6083,29 @@
   function saveSubjectPatternMap(subject_id, pattern_id, checked) {
     _adminFetch('save_subject_pattern_map', { subject_id, pattern_id, checked }).then(res => {
       if (!res || res.result !== 'success') showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+  function _toggleSubjPatternTarget(pattern_id, checked) {
+    if (checked) _subjPatternTargetSelected.add(pattern_id); else _subjPatternTargetSelected.delete(pattern_id);
+  }
+  function copySubjectSelectionToSelected(sourcePatternId) {
+    const targetIds = [..._subjPatternTargetSelected].filter(id => id !== sourcePatternId);
+    if (!targetIds.length) { showToast('Select at least one other class pattern as a target first', 'error'); return; }
+    const checkedSubjects = _subjects.filter(s => _subjectPatternMap.has(`${s.id}||${sourcePatternId}`));
+    if (!checkedSubjects.length) { showToast('This class pattern has no subjects checked to copy', 'error'); return; }
+    const sourceName = (_classPatterns.find(p => p.id === sourcePatternId) || {}).name || 'this pattern';
+    const targetNames = targetIds.map(id => (_classPatterns.find(p => p.id === id) || {}).name).filter(Boolean).join(', ');
+    if (!confirm(`Copy ${checkedSubjects.length} checked subject(s) from "${sourceName}" onto ${targetNames}? This only adds subjects — it won't uncheck anything already set on the target(s).`)) return;
+    const ops = [];
+    targetIds.forEach(pattern_id => {
+      checkedSubjects.forEach(s => ops.push(_adminFetch('save_subject_pattern_map', { subject_id: s.id, pattern_id, checked: true })));
+    });
+    showToast(`Copying to ${targetIds.length} class pattern(s)…`);
+    Promise.all(ops).then(results => {
+      const failed = results.filter(r => !r || r.result !== 'success');
+      showToast(failed.length ? `${ops.length - failed.length} of ${ops.length} saved — ${failed.length} failed` : `Copied to ${targetIds.length} class pattern(s)`, failed.length ? 'error' : undefined);
+      if (!failed.length) _subjPatternTargetSelected.clear();
+      loadSubjectSetup();
     });
   }
   function toggleAllSubjectsForPattern(pattern_id, checked, headerCb) {
