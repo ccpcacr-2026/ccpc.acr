@@ -106,7 +106,7 @@ const RESERVED = [
   // /Exam/Entry-Setup/Marks/Result rebuild)
   'loadAdminExamsView','switchExamsTab',
   'saveExamTerm','archiveExamTerm',
-  'saveClassPattern','saveClassPatternMap',
+  'saveClassPattern','saveClassPatternMap','renameClassPattern',
   'toggleAllClassPatternRows','_updateClassPatternSelectedCount','bulkApplyClassPattern',
   'saveSubject','deleteSubject','saveSubjectPatternMap','toggleAllSubjectsForPattern',
   '_toggleSubjPatternTarget','copySubjectSelectionToSelected',

@@ -5769,6 +5769,7 @@
           <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-classpattern-name" id="cpNewPatternName" placeholder="New pattern name (e.g. Six, Ten-Science)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:280px">
           <button onclick="saveClassPattern()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ Add Pattern</button>
         </div>
+        <div id="classPatternsChips" class="flex flex-wrap gap-2 mb-3"></div>
         <div class="flex items-center gap-2 mb-3 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
           <span class="text-[10px] font-black text-slate-500 uppercase">Apply to selected:</span>
           <select id="cpBulkPatternSelect" class="exam-pattern-select px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs"><option value="">Select class pattern…</option></select>
@@ -6011,6 +6012,8 @@
       if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed to load', 'error'); return; }
       _classPatterns = res.patterns || [];
       _populateClassPatternSelects();
+      document.getElementById('classPatternsChips').innerHTML = _classPatterns.map(p => `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 text-slate-700 rounded-full text-[11px] font-bold border border-slate-200">${p.name} <i data-lucide="pencil" class="h-3 w-3 text-blue-500 cursor-pointer" title="Rename" onclick="renameClassPattern(${p.id})"></i></span>`).join('') || '<span class="text-xs text-slate-400 font-bold italic">No patterns yet — add one above.</span>';
+      lucide.createIcons();
       document.getElementById('classPatternBody').innerHTML = res.rows.map(r => `<tr class="border-b border-slate-50">
         <td class="py-1.5 px-3"><input type="checkbox" class="cp-row-cb" data-class="${r.class}" data-section="${r.section}" data-session="${r.session}" onchange="_updateClassPatternSelectedCount()"></td>
         <td class="py-1.5 px-3 font-bold">${r.class}</td><td class="py-1.5 px-3">${r.section}</td><td class="py-1.5 px-3">${r.session || '—'}</td><td class="py-1.5 px-3">${r.count}</td>
@@ -6047,6 +6050,17 @@
     if (!name) return;
     _adminFetch('save_class_pattern', { name }).then(res => {
       if (res && res.result === 'success') { showToast('Pattern added'); document.getElementById('cpNewPatternName').value = ''; loadClassPatternSetup(); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+  function renameClassPattern(id) {
+    const p = _classPatterns.find(x => x.id === id);
+    const newName = prompt('Rename class pattern:', p ? p.name : '');
+    if (newName === null) return;
+    const trimmed = newName.trim();
+    if (!trimmed || (p && trimmed === p.name)) return;
+    _adminFetch('save_class_pattern', { id, name: trimmed }).then(res => {
+      if (res && res.result === 'success') { showToast('Pattern renamed'); loadClassPatternSetup(); }
       else showToast((res && res.message) || 'Failed', 'error');
     });
   }
