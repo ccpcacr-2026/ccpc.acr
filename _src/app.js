@@ -5715,6 +5715,8 @@
   let _subjects = [];
   let _subjectPatternMap = new Set();
   let _subjPatternTargetSelected = new Set();
+  let _bulkAssignSelectedSubjects = new Set();
+  let _bulkAssignSelectedPatterns = new Set();
   let _csmsExpanded = new Set();
   let _csmsSelected = new Set();
   let _csmsSubjects = [];
@@ -5788,6 +5790,25 @@
         <div class="flex items-center gap-2 mb-3">
           <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-subject-name" id="subjNewName" placeholder="New subject(s), comma-separated (e.g. Bangla, English, Math)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:280px">
           <button onclick="saveSubject()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ Add Subject</button>
+        </div>
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
+          <p class="font-black text-slate-800 text-xs mb-3 flex items-center gap-2"><i data-lucide="zap" class="h-4 w-4 text-blue-600"></i>Bulk Assign — pick any subjects, apply to any class patterns</p>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div>
+              <p class="text-[10px] font-black text-slate-500 uppercase mb-1">Subjects</p>
+              <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-bulkassign-subj-filter" placeholder="Filter subjects…" oninput="_filterBulkAssignList('bulkAssignSubjectList', this.value)" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mb-2">
+              <div id="bulkAssignSubjectList" class="flex flex-col gap-1 overflow-auto border border-slate-200 rounded-lg p-2" style="max-height:220px"></div>
+            </div>
+            <div>
+              <p class="text-[10px] font-black text-slate-500 uppercase mb-1">Class Patterns</p>
+              <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-bulkassign-pattern-filter" placeholder="Filter class patterns…" oninput="_filterBulkAssignList('bulkAssignPatternList', this.value)" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mb-2">
+              <div id="bulkAssignPatternList" class="flex flex-col gap-1 overflow-auto border border-slate-200 rounded-lg p-2" style="max-height:220px"></div>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 mt-3">
+            <button onclick="bulkAssignSubjectsToPatterns(true)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Check Selected</button>
+            <button onclick="bulkAssignSubjectsToPatterns(false)" class="px-3 py-2 border border-red-200 text-red-500 rounded-lg font-black text-[10px] uppercase hover:bg-red-50">Uncheck Selected</button>
+          </div>
         </div>
         <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:520px">
           <table class="w-full text-left border-collapse text-xs">
@@ -6060,7 +6081,35 @@
         <td class="py-1.5 px-3 font-bold">${s.name} <i data-lucide="trash-2" class="h-3 w-3 text-red-400 cursor-pointer inline ml-1" onclick="deleteSubject(${s.id})"></i></td>
         ${patterns.map(p => `<td class="py-1.5 px-3 text-center"><input type="checkbox" class="subj-pattern-cb-${p.id}" onchange="saveSubjectPatternMap(${s.id},${p.id},this.checked)" ${_subjectPatternMap.has(`${s.id}||${p.id}`) ? 'checked' : ''}></td>`).join('')}
       </tr>`).join('') || `<tr><td colspan="${patterns.length + 1}" class="p-3 text-slate-400 font-bold">No subjects yet.</td></tr>`;
+      document.getElementById('bulkAssignSubjectList').innerHTML = _subjects.map(s => `<label class="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer" data-filter-text="${s.name.toLowerCase()}"><input type="checkbox" onchange="_toggleBulkAssignSelection('subject',${s.id},this.checked)" ${_bulkAssignSelectedSubjects.has(s.id) ? 'checked' : ''}>${s.name}</label>`).join('') || '<span class="text-xs text-slate-400 italic">No subjects yet.</span>';
+      document.getElementById('bulkAssignPatternList').innerHTML = patterns.map(p => `<label class="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer" data-filter-text="${p.name.toLowerCase()}"><input type="checkbox" onchange="_toggleBulkAssignSelection('pattern',${p.id},this.checked)" ${_bulkAssignSelectedPatterns.has(p.id) ? 'checked' : ''}>${p.name}</label>`).join('') || '<span class="text-xs text-slate-400 italic">No class patterns yet.</span>';
       lucide.createIcons();
+    });
+  }
+  function _toggleBulkAssignSelection(kind, id, checked) {
+    const set = kind === 'subject' ? _bulkAssignSelectedSubjects : _bulkAssignSelectedPatterns;
+    if (checked) set.add(id); else set.delete(id);
+  }
+  function _filterBulkAssignList(listId, query) {
+    const q = query.trim().toLowerCase();
+    document.querySelectorAll(`#${listId} label`).forEach(label => {
+      label.style.display = !q || label.dataset.filterText.includes(q) ? '' : 'none';
+    });
+  }
+  function bulkAssignSubjectsToPatterns(checked) {
+    const subjectIds = [..._bulkAssignSelectedSubjects];
+    const patternIds = [..._bulkAssignSelectedPatterns];
+    if (!subjectIds.length || !patternIds.length) { showToast('Select at least one subject and one class pattern', 'error'); return; }
+    const verb = checked ? 'Check' : 'Uncheck';
+    if (!confirm(`${verb} ${subjectIds.length} subject(s) for ${patternIds.length} class pattern(s)? This affects ${subjectIds.length * patternIds.length} combination(s).`)) return;
+    const ops = [];
+    patternIds.forEach(pattern_id => subjectIds.forEach(subject_id => ops.push(_adminFetch('save_subject_pattern_map', { subject_id, pattern_id, checked }))));
+    showToast(`Saving ${ops.length} update(s)…`);
+    Promise.all(ops).then(results => {
+      const failed = results.filter(r => !r || r.result !== 'success');
+      showToast(failed.length ? `${ops.length - failed.length} of ${ops.length} saved — ${failed.length} failed` : `${verb}ed ${ops.length} combination(s)`, failed.length ? 'error' : undefined);
+      if (!failed.length) { _bulkAssignSelectedSubjects.clear(); _bulkAssignSelectedPatterns.clear(); }
+      loadSubjectSetup();
     });
   }
   function saveSubject() {
