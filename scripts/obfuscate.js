@@ -110,7 +110,7 @@ const RESERVED = [
   'toggleAllClassPatternRows','_updateClassPatternSelectedCount','bulkApplyClassPattern',
   'saveSubject','deleteSubject','saveSubjectPatternMap','toggleAllSubjectsForPattern',
   'loadSubjectComponentsSetup','toggleCsmsSubject','updateSubjectComponent',
-  'deleteSubjectComponent','addSubjectComponent','_toggleCsmsSelected','copyComponentsToSelected',
+  'deleteSubjectComponent','addSubjectComponent','_toggleCsmsSelected','copyComponentsToSelected','toggleAllCsmsSelected',
   'saveExamPattern','duplicateExamPattern','deleteExamPatternTemplate',
   'saveExamSetup','toggleExamSetupLock','toggleExamSetupArchive','openDuplicateExamModal',
   'loadEntrySheetsSetup','bulkToggleEntrySheets','assignEntrySheets','toggleOneEntrySheet',

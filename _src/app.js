@@ -5798,6 +5798,7 @@
 
       <div id="ex-marks-setup" style="display:none">
         <select id="csmsPatternSelect" class="exam-pattern-select px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mb-3" onchange="loadSubjectComponentsSetup()"><option value="">Select class pattern…</option></select>
+        <label class="flex items-center gap-1.5 text-[10px] font-black text-slate-500 uppercase cursor-pointer mb-2"><input type="checkbox" id="csmsSelectAll" onchange="toggleAllCsmsSelected(this.checked)">Select all subjects</label>
         <div id="csmsSubjectsList" class="flex flex-col gap-3"></div>
       </div>
 
@@ -6099,8 +6100,14 @@
       if (typesRes && typesRes.result === 'success') _componentTypes = typesRes.types || [];
       _csmsSubjects = (subRes && subRes.result === 'success' && subRes.subjects) || [];
       host.innerHTML = _csmsSubjects.map(s => _renderCsmsSubjectCard(pattern_id, s)).join('') || '<span class="text-xs text-slate-400 font-bold italic">No subjects checked for this pattern yet — set them in Subject Setup.</span>';
+      const selectAllCb = document.getElementById('csmsSelectAll');
+      if (selectAllCb) selectAllCb.checked = _csmsSubjects.length > 0 && _csmsSubjects.every(s => _csmsSelected.has(s.id));
       lucide.createIcons();
     });
+  }
+  function toggleAllCsmsSelected(checked) {
+    _csmsSubjects.forEach(s => { if (checked) _csmsSelected.add(s.id); else _csmsSelected.delete(s.id); });
+    document.querySelectorAll('.csms-select-cb').forEach(cb => { cb.checked = checked; });
   }
   function _renderCsmsSubjectCard(pattern_id, s) {
     const expanded = _csmsExpanded.has(s.id);
