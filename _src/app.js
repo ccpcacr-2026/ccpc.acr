@@ -5821,6 +5821,10 @@
 
       <div id="ex-marks-setup" style="display:none">
         <select id="csmsPatternSelect" class="exam-pattern-select px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mb-3" onchange="loadSubjectComponentsSetup()"><option value="">Select class pattern…</option></select>
+        <div id="csmsAddSubjectRow" class="flex items-center gap-2 mb-3" style="display:none">
+          <select id="csmsAddSubjectSelect" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></select>
+          <button onclick="addSubjectToPattern()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ Add Subject to This Pattern</button>
+        </div>
         <label class="flex items-center gap-1.5 text-[10px] font-black text-slate-500 uppercase cursor-pointer mb-2"><input type="checkbox" id="csmsSelectAll" onchange="toggleAllCsmsSelected(this.checked)">Select all subjects</label>
         <div id="csmsSubjectsList" class="flex flex-col gap-3"></div>
       </div>
@@ -6187,17 +6191,45 @@
   function loadSubjectComponentsSetup() {
     const pattern_id = document.getElementById('csmsPatternSelect').value;
     const host = document.getElementById('csmsSubjectsList');
-    if (!pattern_id) { host.innerHTML = ''; return; }
+    const addRow = document.getElementById('csmsAddSubjectRow');
+    if (!pattern_id) { host.innerHTML = ''; addRow.style.display = 'none'; return; }
     Promise.all([
       _adminFetch('get_subject_components_setup', { pattern_id }),
+      _adminFetch('get_subjects', {}),
       _componentTypes.length ? Promise.resolve({ result: 'success', types: _componentTypes }) : _adminFetch('get_exam_component_types', {}),
-    ]).then(([subRes, typesRes]) => {
+    ]).then(([subRes, allSubRes, typesRes]) => {
       if (typesRes && typesRes.result === 'success') _componentTypes = typesRes.types || [];
       _csmsSubjects = (subRes && subRes.result === 'success' && subRes.subjects) || [];
-      host.innerHTML = _csmsSubjects.map(s => _renderCsmsSubjectCard(pattern_id, s)).join('') || '<span class="text-xs text-slate-400 font-bold italic">No subjects checked for this pattern yet — set them in Subject Setup.</span>';
+      host.innerHTML = _csmsSubjects.map(s => _renderCsmsSubjectCard(pattern_id, s)).join('') || '<span class="text-xs text-slate-400 font-bold italic">No subjects checked for this pattern yet — add one below, or from Subject Setup.</span>';
       const selectAllCb = document.getElementById('csmsSelectAll');
       if (selectAllCb) selectAllCb.checked = _csmsSubjects.length > 0 && _csmsSubjects.every(s => _csmsSelected.has(s.id));
+
+      const allSubjects = (allSubRes && allSubRes.result === 'success' && allSubRes.subjects) || [];
+      const appliedIds = new Set(_csmsSubjects.map(s => s.id));
+      const notYetApplied = allSubjects.filter(s => !appliedIds.has(s.id));
+      const addSelect = document.getElementById('csmsAddSubjectSelect');
+      addSelect.innerHTML = notYetApplied.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+      addRow.style.display = notYetApplied.length ? '' : 'none';
+
       lucide.createIcons();
+    });
+  }
+  function addSubjectToPattern() {
+    const pattern_id = document.getElementById('csmsPatternSelect').value;
+    const subject_id = document.getElementById('csmsAddSubjectSelect').value;
+    if (!pattern_id || !subject_id) return;
+    _adminFetch('save_subject_pattern_map', { subject_id, pattern_id, checked: true }).then(res => {
+      if (res && res.result === 'success') { _csmsExpanded.add(Number(subject_id)); loadSubjectComponentsSetup(); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+  function removeSubjectFromPattern(subject_id) {
+    const pattern_id = document.getElementById('csmsPatternSelect').value;
+    const subjectName = (_csmsSubjects.find(s => s.id === subject_id) || {}).name || 'this subject';
+    if (!confirm(`Remove "${subjectName}" from this class pattern? Its component setup is kept, not deleted — re-adding it will bring the same setup back.`)) return;
+    _adminFetch('save_subject_pattern_map', { subject_id, pattern_id, checked: false }).then(res => {
+      if (res && res.result === 'success') loadSubjectComponentsSetup();
+      else showToast((res && res.message) || 'Failed', 'error');
     });
   }
   function toggleAllCsmsSelected(checked) {
@@ -6218,6 +6250,7 @@
         </div>
         <div class="flex items-center gap-2">
           <span class="text-[10px] font-bold uppercase ${weightSum === 100 ? 'text-emerald-500' : 'text-amber-500'}">${summary}</span>
+          <i data-lucide="x-circle" class="h-4 w-4 text-red-400 cursor-pointer" title="Remove from this class pattern" onclick="event.stopPropagation(); removeSubjectFromPattern(${s.id})"></i>
           <i data-lucide="${expanded ? 'chevron-up' : 'chevron-down'}" class="h-4 w-4 text-slate-400"></i>
         </div>
       </div>
