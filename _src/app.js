@@ -5704,6 +5704,8 @@
   let _subjects = [];
   let _subjectPatternMap = new Set();
   let _csmsExpanded = new Set();
+  let _csmsSelected = new Set();
+  let _csmsSubjects = [];
   let _entrySheetRows = [];
   let _meOpenSheets = [];
   let _examResults = [];
@@ -6084,8 +6086,8 @@
       _componentTypes.length ? Promise.resolve({ result: 'success', types: _componentTypes }) : _adminFetch('get_exam_component_types', {}),
     ]).then(([subRes, typesRes]) => {
       if (typesRes && typesRes.result === 'success') _componentTypes = typesRes.types || [];
-      const subjects = (subRes && subRes.result === 'success' && subRes.subjects) || [];
-      host.innerHTML = subjects.map(s => _renderCsmsSubjectCard(pattern_id, s)).join('') || '<span class="text-xs text-slate-400 font-bold italic">No subjects checked for this pattern yet — set them in Subject Setup.</span>';
+      _csmsSubjects = (subRes && subRes.result === 'success' && subRes.subjects) || [];
+      host.innerHTML = _csmsSubjects.map(s => _renderCsmsSubjectCard(pattern_id, s)).join('') || '<span class="text-xs text-slate-400 font-bold italic">No subjects checked for this pattern yet — set them in Subject Setup.</span>';
       lucide.createIcons();
     });
   }
@@ -6097,7 +6099,10 @@
     const summary = `${comps.length} component${comps.length === 1 ? '' : 's'} · full ${fullSum} · weight ${weightSum}%`;
     return `<div class="bg-white rounded-2xl border border-slate-200 p-4">
       <div class="flex items-center justify-between cursor-pointer" onclick="toggleCsmsSubject(${s.id})">
-        <p class="font-black text-slate-800 text-xs">${s.name}</p>
+        <div class="flex items-center gap-2">
+          <input type="checkbox" class="csms-select-cb" data-subject-id="${s.id}" title="Select as a copy target" ${_csmsSelected.has(s.id) ? 'checked' : ''} onclick="event.stopPropagation()" onchange="_toggleCsmsSelected(${s.id},this.checked)">
+          <p class="font-black text-slate-800 text-xs">${s.name}</p>
+        </div>
         <div class="flex items-center gap-2">
           <span class="text-[10px] font-bold uppercase ${weightSum === 100 ? 'text-emerald-500' : 'text-amber-500'}">${summary}</span>
           <i data-lucide="${expanded ? 'chevron-up' : 'chevron-down'}" class="h-4 w-4 text-slate-400"></i>
@@ -6125,9 +6130,40 @@
           <input type="number" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-newcomp-pass" id="csmsNewPass-${s.id}" placeholder="Pass" class="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
           <input type="number" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-newcomp-weight" id="csmsNewWeight-${s.id}" placeholder="Weight%" class="w-20 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
           <button onclick="addSubjectComponent(${pattern_id},${s.id})" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ Add</button>
+          ${comps.length ? `<button onclick="copyComponentsToSelected(${s.id})" class="px-3 py-1.5 border border-blue-200 text-blue-600 rounded-lg font-black text-[10px] uppercase hover:bg-blue-50">Copy to Selected</button>` : ''}
         </div>
       </div>` : ''}
     </div>`;
+  }
+  function _toggleCsmsSelected(subjectId, checked) {
+    if (checked) _csmsSelected.add(subjectId); else _csmsSelected.delete(subjectId);
+  }
+  function copyComponentsToSelected(sourceSubjectId) {
+    const pattern_id = document.getElementById('csmsPatternSelect').value;
+    const source = _csmsSubjects.find(s => s.id === sourceSubjectId);
+    if (!source || !(source.components || []).length) { showToast('This subject has no components to copy', 'error'); return; }
+    const targetIds = [..._csmsSelected].filter(id => id !== sourceSubjectId);
+    if (!targetIds.length) { showToast('Select at least one other subject first', 'error'); return; }
+    if (!confirm(`Copy ${source.components.length} component(s) from "${source.name}" to ${targetIds.length} selected subject(s)? Matching component types on those subjects will be overwritten.`)) return;
+    const ops = [];
+    targetIds.forEach(targetId => {
+      const target = _csmsSubjects.find(s => s.id === targetId);
+      const existingByType = new Map((target?.components || []).map(c => [String(c.component_type_id), c.id]));
+      source.components.forEach(c => {
+        ops.push(_adminFetch('save_subject_component', {
+          id: existingByType.get(String(c.component_type_id)),
+          pattern_id, subject_id: targetId, component_type_id: c.component_type_id,
+          full_marks: c.full_marks, pass_marks: c.pass_marks, weight_percent: c.weight_percent,
+        }));
+      });
+    });
+    showToast(`Copying to ${targetIds.length} subject(s)…`);
+    Promise.all(ops).then(results => {
+      const failed = results.filter(r => !r || r.result !== 'success');
+      showToast(failed.length ? `${ops.length - failed.length} of ${ops.length} saved — ${failed.length} failed` : `Copied to ${targetIds.length} subject(s)`, failed.length ? 'error' : undefined);
+      if (!failed.length) _csmsSelected.clear();
+      loadSubjectComponentsSetup();
+    });
   }
   function toggleCsmsSubject(subjectId) {
     if (_csmsExpanded.has(subjectId)) _csmsExpanded.delete(subjectId); else _csmsExpanded.add(subjectId);
