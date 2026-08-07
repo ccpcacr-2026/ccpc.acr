@@ -328,6 +328,7 @@ const ADMIN_TAB_ACTIONS = {
     'get_exam_component_types', 'save_exam_component_type', 'get_subject_components_setup', 'save_subject_component', 'delete_subject_component',
     'get_exam_patterns', 'save_exam_pattern', 'duplicate_exam_pattern', 'delete_exam_pattern',
     'get_exams', 'save_exam', 'lock_exam', 'archive_exam', 'duplicate_exam',
+    'get_exam_usage', 'clear_exam_marks', 'delete_exam',
     'get_exam_entry_sheets', 'save_exam_entry_sheets_bulk',
     'get_exam_marks_for_entry', 'save_exam_marks_bulk',
     'process_exam_result',
@@ -2032,6 +2033,39 @@ export async function POST(req) {
     })));
     if (newRows.length) await Promise.all(newRows.map(r => sbExam('exam_entry_sheets', 'POST', r)));
     return NextResponse.json({ result: 'success', exam: newExam });
+  }
+  // Deleting an exam is only allowed once it has zero entered marks — real
+  // result data shouldn't disappear as a side effect of deleting the exam
+  // record, so clearing marks is a separate, explicit step the admin must
+  // do first. exam_entry_sheets (just open/closed + assignment config, not
+  // academic data) still cascades away with the exam itself.
+  if (action === 'get_exam_usage') {
+    const { id } = payload;
+    const [marksRows, sheetsRows] = await Promise.all([
+      sbExam(`exam_marks?exam_id=eq.${encodeURIComponent(id)}&select=id`),
+      sbExam(`exam_entry_sheets?exam_id=eq.${encodeURIComponent(id)}&select=id`),
+    ]);
+    return NextResponse.json({
+      result: 'success',
+      marks: Array.isArray(marksRows) ? marksRows.length : 0,
+      entry_sheets: Array.isArray(sheetsRows) ? sheetsRows.length : 0,
+    });
+  }
+  if (action === 'clear_exam_marks') {
+    const { exam_id } = payload;
+    const r = await sbExam(`exam_marks?exam_id=eq.${encodeURIComponent(exam_id)}`, 'DELETE');
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'delete_exam') {
+    const { id } = payload;
+    const marksRows = await sbExam(`exam_marks?exam_id=eq.${encodeURIComponent(id)}&select=id`);
+    if (Array.isArray(marksRows) && marksRows.length) {
+      return NextResponse.json({ result: 'error', message: `${marksRows.length} mark(s) still entered — clear them first.` });
+    }
+    const r = await sbExam(`exams?id=eq.${encodeURIComponent(id)}`, 'DELETE');
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
   }
 
   // ── Marks Entry Setup — which subject+component+section sheets are open

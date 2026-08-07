@@ -6434,6 +6434,7 @@
             <button onclick="toggleExamSetupLock(${e.id}, ${!e.is_locked})" class="text-[10px] font-black uppercase text-red-500">${e.is_locked ? 'Unlock' : 'Lock'}</button>
             <button onclick="toggleExamSetupArchive(${e.id}, ${!e.is_archived})" class="text-[10px] font-black uppercase text-slate-500">${e.is_archived ? 'Unarchive' : 'Archive'}</button>
             <button onclick="openDuplicateExamModal(${e.id})" class="text-[10px] font-black uppercase text-blue-500">Duplicate</button>
+            <button onclick="deleteExamSetup(${e.id})" class="text-[10px] font-black uppercase text-red-500">Delete</button>
           </div>
         </div>`).join('') || '<span class="text-xs text-slate-400 font-bold italic">No exams yet.</span>';
       const opts = '<option value="">Select exam…</option>' + _examList.filter(e => !e.is_archived).map(e => `<option value="${e.id}">${e.exam_terms?.name || ''} · ${e.class_patterns?.name || ''}${e.is_locked ? ' 🔒' : ''}</option>`).join('');
@@ -6464,6 +6465,30 @@
     _adminFetch('duplicate_exam', { id, term_id, pattern_id }).then(res => {
       if (res && res.result === 'success') { showToast('Exam duplicated'); loadExamSetupList(); }
       else showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+  // Delete is only allowed once an exam has zero entered marks -- real
+  // result data shouldn't vanish as a side effect of removing the exam
+  // record. If marks exist, this offers to clear them first (a separate,
+  // explicit step) rather than cascading both away in one click.
+  function deleteExamSetup(id) {
+    _adminFetch('get_exam_usage', { id }).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed to check usage', 'error'); return; }
+      if (res.marks > 0) {
+        if (!confirm(`This exam has ${res.marks} entered mark(s). Delete requires clearing marks first — clear all ${res.marks} mark(s) now?`)) return;
+        _adminFetch('clear_exam_marks', { exam_id: id }).then(res2 => {
+          if (res2 && res2.result === 'success') showToast(`Cleared ${res.marks} mark(s) — click Delete again to remove the exam`);
+          else showToast((res2 && res2.message) || 'Failed', 'error');
+          loadExamSetupList();
+        });
+        return;
+      }
+      const sheetsNote = res.entry_sheets ? ` Its ${res.entry_sheets} entry sheet setting(s) will be removed too.` : '';
+      if (!confirm(`Delete this exam? It has no marks entered.${sheetsNote}`)) return;
+      _adminFetch('delete_exam', { id }).then(res2 => {
+        if (res2 && res2.result === 'success') { showToast('Exam deleted'); loadExamSetupList(); }
+        else showToast((res2 && res2.message) || 'Failed', 'error');
+      });
     });
   }
 
