@@ -113,7 +113,7 @@ const RESERVED = [
   'deleteSubjectComponent','addSubjectComponent','_toggleCsmsSelected','copyComponentsToSelected','toggleAllCsmsSelected',
   'saveExamPattern','duplicateExamPattern','deleteExamPatternTemplate',
   'saveExamSetup','toggleExamSetupLock','toggleExamSetupArchive','openDuplicateExamModal',
-  'loadEntrySheetsSetup','bulkToggleEntrySheets','assignEntrySheets','toggleOneEntrySheet',
+  'loadEntrySheetsSetup','bulkToggleEntrySheetsForClass','assignOneEntrySheet','toggleOneEntrySheet',
   'loadExamTerms','loadExamSetupList',
   'loadMarksEntryOptions','_populateMarksComponentSelect','_populateMarksSectionSelect',
   'loadMarksEntry','saveMarksEntry',

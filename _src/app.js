@@ -6313,7 +6313,9 @@
     });
   }
 
-  // ── Marks Entry Setup — open/assign subject+component sheets per section
+  // ── Marks Entry Setup — grouped by class+section, with each subject+
+  // component active for that section listed underneath (subjects against
+  // class, not the other way around) ─────────────────────────────────────
   function loadEntrySheetsSetup() {
     const exam_id = document.getElementById('mesExamSelect').value;
     const host = document.getElementById('entrySheetsSetupList');
@@ -6323,39 +6325,49 @@
       _entrySheetRows = res.rows || [];
       const groups = new Map();
       _entrySheetRows.forEach(r => {
-        const key = `${r.subject_id}||${r.component_type_id}`;
-        if (!groups.has(key)) groups.set(key, { subject_id: r.subject_id, subject_name: r.subject_name, component_type_id: r.component_type_id, component_name: r.component_name, sections: [] });
-        groups.get(key).sections.push(r);
+        const key = `${r.class}||${r.section}`;
+        if (!groups.has(key)) groups.set(key, { class: r.class, section: r.section, items: [] });
+        groups.get(key).items.push(r);
       });
       host.innerHTML = [...groups.values()].map(g => {
-        const openCount = g.sections.filter(s => s.is_open).length;
+        const openCount = g.items.filter(i => i.is_open).length;
         return `<div class="border border-slate-200 rounded-xl px-3 py-2">
           <div class="flex justify-between items-center">
-            <span class="font-black text-slate-800 text-xs">${g.subject_name} — ${g.component_name}</span>
-            <span class="text-[10px] font-bold text-slate-400">${openCount}/${g.sections.length} sections open</span>
+            <span class="font-black text-slate-800 text-xs">${g.class}-${g.section}</span>
+            <div class="flex items-center gap-2">
+              <span class="text-[10px] font-bold text-slate-400">${openCount}/${g.items.length} open</span>
+              <button onclick="bulkToggleEntrySheetsForClass(${exam_id},'${g.class}','${g.section}',true)" class="text-[10px] font-black uppercase text-emerald-600">Open All</button>
+              <button onclick="bulkToggleEntrySheetsForClass(${exam_id},'${g.class}','${g.section}',false)" class="text-[10px] font-black uppercase text-red-500">Close All</button>
+            </div>
           </div>
-          <div class="flex items-center gap-2 mt-2 flex-wrap">
-            <button onclick="bulkToggleEntrySheets(${exam_id},${g.subject_id},${g.component_type_id},true)" class="text-[10px] font-black uppercase text-emerald-600">Open All</button>
-            <button onclick="bulkToggleEntrySheets(${exam_id},${g.subject_id},${g.component_type_id},false)" class="text-[10px] font-black uppercase text-red-500">Close All</button>
-            <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-entrysheet-assign" placeholder="Assign to user_id (optional)" class="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:180px" onchange="assignEntrySheets(${exam_id},${g.subject_id},${g.component_type_id},this.value)">
-          </div>
-          <div class="flex flex-wrap gap-1.5 mt-2">
-            ${g.sections.map(s => `<label class="flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded border ${s.is_open ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-slate-200 text-slate-400'}"><input type="checkbox" ${s.is_open ? 'checked' : ''} onchange="toggleOneEntrySheet(${exam_id},${g.subject_id},${g.component_type_id},'${s.class}','${s.section}',this.checked)">${s.class}-${s.section}</label>`).join('')}
+          <div class="overflow-auto mt-2">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-1 pr-2">Open</th><th class="py-1 pr-2">Subject</th><th class="py-1 pr-2">Component</th><th class="py-1 pr-2">Assigned to</th></tr></thead>
+              <tbody>
+                ${g.items.map(i => `<tr class="border-t border-slate-50">
+                  <td class="py-1 pr-2"><input type="checkbox" ${i.is_open ? 'checked' : ''} onchange="toggleOneEntrySheet(${exam_id},${i.subject_id},${i.component_type_id},'${g.class}','${g.section}',this.checked)"></td>
+                  <td class="py-1 pr-2 font-bold">${i.subject_name}</td>
+                  <td class="py-1 pr-2">${i.component_name}</td>
+                  <td class="py-1 pr-2"><input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-entrysheet-assign" placeholder="user_id" value="${i.assigned_user_id || ''}" class="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:140px" onchange="assignOneEntrySheet(${exam_id},${i.subject_id},${i.component_type_id},'${g.class}','${g.section}',this.value)"></td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
           </div>
         </div>`;
       }).join('') || '<span class="text-xs text-slate-400 font-bold italic">No subjects/components active for this exam yet — check Exam Pattern Setup and Class-Subject Marks Setup.</span>';
     });
   }
-  function bulkToggleEntrySheets(exam_id, subject_id, component_type_id, is_open) {
-    const sections = _entrySheetRows.filter(r => r.subject_id === subject_id && r.component_type_id === component_type_id).map(r => ({ class: r.class, section: r.section }));
-    _adminFetch('save_exam_entry_sheets_bulk', { exam_id, subject_id, component_type_id, sections, is_open }).then(res => { if (res && res.result !== 'error') loadEntrySheetsSetup(); });
-  }
-  function assignEntrySheets(exam_id, subject_id, component_type_id, assigned_user_id) {
-    const rows = _entrySheetRows.filter(r => r.subject_id === subject_id && r.component_type_id === component_type_id);
-    Promise.all(rows.map(r => _adminFetch('save_exam_entry_sheets_bulk', { exam_id, subject_id, component_type_id, sections: [{ class: r.class, section: r.section }], is_open: r.is_open, assigned_user_id }))).then(() => { showToast('Assigned'); loadEntrySheetsSetup(); });
+  function bulkToggleEntrySheetsForClass(exam_id, cls, section, is_open) {
+    const items = _entrySheetRows.filter(r => r.class === cls && r.section === section);
+    Promise.all(items.map(r => _adminFetch('save_exam_entry_sheets_bulk', { exam_id, subject_id: r.subject_id, component_type_id: r.component_type_id, sections: [{ class: cls, section }], is_open, assigned_user_id: r.assigned_user_id }))).then(() => loadEntrySheetsSetup());
   }
   function toggleOneEntrySheet(exam_id, subject_id, component_type_id, cls, section, is_open) {
-    _adminFetch('save_exam_entry_sheets_bulk', { exam_id, subject_id, component_type_id, sections: [{ class: cls, section }], is_open }).then(res => { if (res && res.result !== 'error') loadEntrySheetsSetup(); });
+    const row = _entrySheetRows.find(r => r.subject_id === subject_id && r.component_type_id === component_type_id && r.class === cls && r.section === section);
+    _adminFetch('save_exam_entry_sheets_bulk', { exam_id, subject_id, component_type_id, sections: [{ class: cls, section }], is_open, assigned_user_id: row?.assigned_user_id }).then(res => { if (res && res.result !== 'error') loadEntrySheetsSetup(); });
+  }
+  function assignOneEntrySheet(exam_id, subject_id, component_type_id, cls, section, assigned_user_id) {
+    const row = _entrySheetRows.find(r => r.subject_id === subject_id && r.component_type_id === component_type_id && r.class === cls && r.section === section);
+    _adminFetch('save_exam_entry_sheets_bulk', { exam_id, subject_id, component_type_id, sections: [{ class: cls, section }], is_open: row?.is_open, assigned_user_id }).then(res => { if (res && res.result !== 'error') { showToast('Assigned'); loadEntrySheetsSetup(); } });
   }
 
   // ── Marks Entry — component-scoped, restricted to open sheets ──────────
