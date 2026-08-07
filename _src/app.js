@@ -6016,7 +6016,7 @@
       if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed to load', 'error'); return; }
       _classPatterns = res.patterns || [];
       _populateClassPatternSelects();
-      document.getElementById('classPatternsChips').innerHTML = _classPatterns.map(p => `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 text-slate-700 rounded-full text-[11px] font-bold border border-slate-200">${p.name} <i data-lucide="pencil" class="h-3 w-3 text-blue-500 cursor-pointer" title="Rename" onclick="renameClassPattern(${p.id})"></i></span>`).join('') || '<span class="text-xs text-slate-400 font-bold italic">No patterns yet — add one above.</span>';
+      document.getElementById('classPatternsChips').innerHTML = _classPatterns.map(p => `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 text-slate-700 rounded-full text-[11px] font-bold border border-slate-200">${p.name} <i data-lucide="pencil" class="h-3 w-3 text-blue-500 cursor-pointer" title="Rename" onclick="renameClassPattern(${p.id})"></i><i data-lucide="list-checks" class="h-3 w-3 text-emerald-600 cursor-pointer" title="Manage subjects for this pattern" onclick="manageClassPatternSubjects(${p.id})"></i></span>`).join('') || '<span class="text-xs text-slate-400 font-bold italic">No patterns yet — add one above.</span>';
       lucide.createIcons();
       document.getElementById('classPatternBody').innerHTML = res.rows.map(r => `<tr class="border-b border-slate-50">
         <td class="py-1.5 px-3"><input type="checkbox" class="cp-row-cb" data-class="${r.class}" data-section="${r.section}" data-session="${r.session}" onchange="_updateClassPatternSelectedCount()"></td>
@@ -6067,6 +6067,15 @@
       if (res && res.result === 'success') { showToast('Pattern renamed'); loadClassPatternSetup(); }
       else showToast((res && res.message) || 'Failed', 'error');
     });
+  }
+  // "Edit a class pattern" is split across two concerns handled by the two
+  // tabs that already do them well — renaming stays here, and subjects/
+  // components jump straight into Class-Subject Marks Setup with this exact
+  // pattern pre-selected, rather than duplicating that whole editor here.
+  function manageClassPatternSubjects(pattern_id) {
+    switchExamsTab('ex-marks-setup');
+    const sel = document.getElementById('csmsPatternSelect');
+    if (sel) { sel.value = pattern_id; loadSubjectComponentsSetup(); }
   }
   function saveClassPatternMap(sel) {
     const { class: cls, section, session } = sel.dataset;
