@@ -9033,7 +9033,7 @@
               <h2 class="text-sm font-black text-slate-800 tracking-tight leading-tight">Bus Tracker</h2>
               <p class="text-[10px] text-slate-400 font-bold flex items-center gap-1.5 mt-0.5">
                 <span class="h-1.5 w-1.5 rounded-full bg-blue-600 animate-pulse"></span>
-                Live · <span id="bt-toolbar-count">0</span> buses · <span id="bt-watching-count">0</span> watching
+                Live · <span id="bt-toolbar-count">0</span> buses · <span class="bt-watch-dot"></span><span id="bt-watching-count" class="bt-watch-count">0</span> watching
               </p>
             </div>
           </div>
