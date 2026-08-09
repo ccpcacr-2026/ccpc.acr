@@ -379,7 +379,8 @@
     inventory:     () => loadInventoryView(),
     inventory_admin: () => loadInventoryAdminView(),
     myclass:       () => loadMyClassView(),
-    student_portal:() => loadStudentPortalView()
+    student_portal:() => loadStudentPortalView(),
+    bus_tracker:   () => loadAdminBusTrackerView()
   };
 
   function _setViewHash(key) {
@@ -646,7 +647,6 @@
     { key: 'photo', label: 'Photo', icon: 'camera', erp: false, action: { type: 'native', fn: 'loadAdminPhotoView' } },
     { key: 'notices', label: 'Notices', icon: 'megaphone', erp: false, action: { type: 'native', fn: 'loadAdminNoticesView' } },
     { key: 'import', label: 'Import', icon: 'file-spreadsheet', erp: false, action: { type: 'native', fn: 'loadAdminImportView' } },
-    { key: 'bus_tracker', label: 'Bus Tracker', icon: 'map-pin', erp: false, action: { type: 'native', fn: 'loadAdminBusTrackerView' } },
     // Not admin-tab-visibility-gated like the rest — included whenever
     // getMyTabDataAccess (a completely separate grant system: the global
     // Data Access allowlist, Class Access, class-teacher-auto, or a linked
@@ -3911,7 +3911,7 @@
   const TAB_ACCESS_LABELS = {
     fees: 'Fees', attendance: 'Attendance', exams: 'Exams', payroll: 'Payroll (incl. Leave)', transport: 'Transport',
     setup: 'Setup', add_custom_form: '+ Add Custom Form', data: 'Data', access: 'Access',
-    history: 'History', photo: 'Photo', notices: 'Notices', import: 'Import', bus_tracker: 'Bus Tracker',
+    history: 'History', photo: 'Photo', notices: 'Notices', import: 'Import',
   };
   const TAB_ACCESS_ROLES = ['Student Portal Admin', 'HR', 'Principal', 'VP', 'Teacher', 'Staff', 'Class Teacher'];
   let _tabAccessDefaults = {}, _tabAccessMatrix = {};
@@ -8976,12 +8976,16 @@
     }));
   }
   function loadAdminBusTrackerView() {
-    if (!(window._adminTabAccess || []).includes('bus_tracker')) {
+    // Standalone module (MODULE_REGISTRY key 'bus_tracker') — no longer
+    // gated behind the Student Portal's admin_tab_visibility matrix; visible
+    // to every role by default (see MODULE_DEFAULTS), admin-configurable
+    // like any other module via System > Module Access.
+    if (!_isModuleVisibleForRole('bus_tracker', window.ACTIVE_ROLE)) {
       showToast('Not available in current role', 'error');
       return;
     }
-    _setViewHash('student_portal');
-    setActiveNavLink('nav-erp-bus_tracker');
+    _setViewHash('bus_tracker');
+    setActiveNavLink('nav-bus-tracker');
     setContentHeader('Bus Tracker', 'map-pin');
     const container = document.getElementById('view-container');
     if (!container) return;
@@ -10328,6 +10332,12 @@
     { key: 'student_portal',   label: 'Student Portal',     navId: 'nav-student-portal' },
     { key: 'inventory_admin',  label: 'Inventory Admin',    navId: 'nav-inventory-admin' },
     { key: 'committees',       label: 'My Assignments',     navId: 'nav-my-committees' },
+    // Standalone (not nested under Student Portal, unlike the rest of the old
+    // ADMIN_SUBNAV_ITEMS list) so every teacher/staff role sees it without an
+    // admin having to separately grant the "Student Portal" module AND the
+    // old bus_tracker admin_tab_visibility entry — GPS bus locations are
+    // useful to everyone, not an admin-only student-records feature.
+    { key: 'bus_tracker',      label: 'Bus Tracker',        navId: 'nav-bus-tracker' },
     { key: 'messages',         label: 'Messages',           navId: 'nav-messages' },
     { key: 'notifications',    label: 'Notifications',      navId: 'nav-notifications' },
     { key: 'users',            label: 'Users Directory',    navId: 'nav-users-directory' },
@@ -10345,6 +10355,7 @@
     student_portal:['Admin','Student Portal Admin','HR'],
     inventory_admin:['Admin','Inventory Admin'],
     committees:    ['Teacher','Staff'],
+    bus_tracker:   ALL_ROLES,
     messages:      ALL_ROLES,
     notifications: ALL_ROLES,
     users:         ALL_ROLES,
