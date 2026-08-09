@@ -314,6 +314,7 @@ function updateBusList(buses) {
       <div class="bt-list-item ${isSelected ? 'active' : ''} ${isChecked ? '' : 'dimmed'}" title="${bus.imei}" onclick='selectBus(${JSON.stringify(bus.imei)}, ${JSON.stringify(bus)})'>
         <div class="flex items-center gap-2">
           <input class="bt-check" type="checkbox" ${isChecked ? 'checked' : ''}
+                 style="width:15px!important;height:15px!important;min-width:15px!important;flex-shrink:0;accent-color:#2563eb!important;cursor:pointer"
                  onclick="event.stopPropagation()" onchange='toggleBusVisibility(${JSON.stringify(bus.imei)}, this.checked)'>
           <div class="bt-avatar ${mv ? 'moving' : 'idle'}"><i data-lucide="bus" class="h-3 w-3"></i></div>
           <div class="flex-1 min-w-0 text-xs font-black text-slate-800 truncate">${name}</div>
