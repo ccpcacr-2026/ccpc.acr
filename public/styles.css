@@ -892,6 +892,35 @@ button { user-select: none; }
 }
 #bus-map-container .bt-fit-btn:hover { background: #2563eb; color: #fff; }
 
+/* Subtle, cohesive tile tone — only the base map, never markers/circles */
+.leaflet-tile-pane { filter: saturate(0.9) brightness(1.02); }
+
+/* Zoom buttons: clean rounded pair instead of Leaflet's default squares */
+.leaflet-control-zoom {
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.1) !important;
+}
+.leaflet-control-zoom a {
+  width: 30px !important; height: 30px !important; line-height: 30px !important;
+  background: #fff !important; color: #475569 !important;
+  font-weight: 700 !important; border: none !important;
+}
+.leaflet-control-zoom a:hover { background: #f8fafc !important; color: #2563eb !important; }
+.leaflet-control-zoom-in { border-radius: 12px 12px 0 0 !important; }
+.leaflet-control-zoom-out { border-radius: 0 0 12px 12px !important; }
+
+/* Attribution: just a quiet pill in the corner, not a banner */
+.leaflet-control-attribution {
+  background: rgba(255,255,255,0.82) !important;
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  border: 1px solid #e2e8f0 !important; box-shadow: none !important;
+  border-radius: 999px !important;
+  padding: 2px 9px !important;
+  font-size: 9px !important; color: #94a3b8 !important;
+  line-height: 1.6;
+}
+.leaflet-control-attribution a { color: #94a3b8 !important; }
+
 .bt-empty, .bt-info-empty {
   color: #94a3b8; font-size: 11px; font-weight: 700;
   background: #fff; border: 1px solid #e2e8f0;
