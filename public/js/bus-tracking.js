@@ -256,24 +256,16 @@ function updateBusList(buses) {
     const mv = !!bus.isMoving;
     const isSelected = selectedBusImei === bus.imei;
     const spd = parseFloat(bus.speed) || 0;
-    const spdPct = Math.min(100, Math.round((spd / 80) * 100));
     const addr = (bus.address || 'Locating…');
 
     return `
-      <div class="bt-list-item ${isSelected ? 'active' : ''}" onclick='selectBus(${JSON.stringify(bus.imei)}, ${JSON.stringify(bus)})'>
-        <div class="flex items-center gap-2.5">
-          <div class="bt-avatar ${mv ? 'moving' : 'idle'}"><i data-lucide="bus" class="h-4 w-4"></i></div>
-          <div class="flex-1 min-w-0">
-            <div class="text-xs font-black text-slate-800 truncate">${name}</div>
-            <div class="text-[10px] text-slate-400 font-bold">${bus.imei}</div>
-          </div>
+      <div class="bt-list-item ${isSelected ? 'active' : ''}" title="${bus.imei}" onclick='selectBus(${JSON.stringify(bus.imei)}, ${JSON.stringify(bus)})'>
+        <div class="flex items-center gap-2">
+          <div class="bt-avatar ${mv ? 'moving' : 'idle'}"><i data-lucide="bus" class="h-3 w-3"></i></div>
+          <div class="flex-1 min-w-0 text-xs font-black text-slate-800 truncate">${name}</div>
           <div class="bt-dot ${mv ? 'moving' : 'idle'}"></div>
         </div>
-        <div class="mt-2">
-          <div class="flex justify-between text-[10px] font-bold text-slate-400 mb-1"><span>${mv ? 'Moving' : 'Idle'}</span><span>${spd} km/h</span></div>
-          <div class="bt-speed-track"><div class="bt-speed-fill ${mv ? 'moving' : 'idle'}" style="width:${spdPct}%"></div></div>
-        </div>
-        <div class="mt-2 text-[10px] text-slate-400 font-semibold truncate flex items-center gap-1"><i data-lucide="map-pin" class="h-3 w-3 text-blue-600 shrink-0"></i>${addr}</div>
+        <div class="bt-list-meta"><span class="spd ${mv ? 'moving' : 'idle'}">${mv ? `${spd} km/h` : 'Idle'}</span><span class="sep">·</span>${addr}</div>
       </div>
     `;
   }).join('');
