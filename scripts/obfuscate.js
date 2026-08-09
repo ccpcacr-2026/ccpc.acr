@@ -20,7 +20,7 @@ const RESERVED = [
   'switchInvAdminTab','openInventorySettingsEntity','openInventoryEntityForm',
   'saveInventoryEntityForm','closeInventoryEntityForm','deleteInventoryEntityRow',
   'openInventoryImportModal','closeInventoryImportModal','updateInventoryImportSample',
-  'previewInventoryImport','confirmInventoryImport',
+  'previewInventoryImport','confirmInventoryImport','downloadInventorySampleTemplate',
   'openInventoryProductDetail','openInventoryDistributeFor',
   'openInventoryQuickProductModal','selectInventoryRegistryProduct','submitInventoryRegistry',
   'selectInventoryDistributeProduct','submitInventoryDistribution','_invClearDistProduct',

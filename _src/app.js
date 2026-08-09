@@ -9261,11 +9261,13 @@
             <p class="font-black text-slate-800 text-sm" id="invImportTitle">Import from Excel</p>
             <button onclick="closeInventoryImportModal()" class="text-slate-400 hover:text-slate-600 text-xs font-black">✕</button>
           </div>
-          <div class="flex items-center gap-3 flex-wrap mb-3">
+          <div class="flex items-center gap-3 flex-wrap mb-1">
             <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Step 1 · Choose File</span>
             <input type="file" id="invImportFileInput" accept=".xlsx,.xls,.csv" class="text-xs font-bold" style="max-width:260px">
+            <button onclick="downloadInventorySampleTemplate()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Download Sample</button>
             <span id="invImportFileStatus" class="text-xs text-slate-400 font-bold"></span>
           </div>
+          <p class="text-[11px] text-slate-400 font-semibold mb-3">Not sure what format to use? Download the sample — its column headers exactly match what this importer auto-detects, so filling it in and re-uploading maps everything automatically.</p>
           <div id="invImportMappingSection" class="hidden mb-3">
             <div class="flex items-center justify-between mb-2">
               <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Step 2 · Match Columns</span>
@@ -9478,6 +9480,47 @@
   let _invImportEntity = null;
   let _invImportHeaders = [];
   let _invImportRows = [];
+
+  // Illustrative example values for common field names that repeat across
+  // entities (name/code/phone/address/...) — used only when a field has no
+  // .default of its own, so the downloaded template's sample row reads as
+  // real data instead of blanks.
+  const INV_FIELD_SAMPLE_HINTS = {
+    code: 'A-001', name: 'Sample Name', short_name: 'Short', short_form: 'pcs',
+    phone: '01700000000', contract_phone: '01700000000', address: '123 Example Road',
+    country: 'Bangladesh', district: 'Chattogram', contact_person: 'Contact Person Name',
+    designation: 'Designation', contact_designation: 'Designation', description: 'Description text',
+    location: 'Location text', source_id: 'SRC-001', reference_id: 'REF-001',
+    chairman_user_id: '12019183', assignee_user_id: '12019183', holder_id: '1',
+    title: 'Mr.', source: 'GENERAL', unit_type: 'Weight',
+  };
+  function _invSampleValueFor(f) {
+    if (f.type === 'boolean') return f.default ? 'Yes' : 'No';
+    if (f.type === 'radio') {
+      const opt = (f.options || []).find(o => o.value === f.default) || (f.options || [])[0];
+      return opt ? opt.label : '';
+    }
+    if (f.type === 'select') return `(existing ${f.label} name)`;
+    if (f.type === 'number') return f.default ?? 0;
+    if (f.default !== undefined && f.default !== '') return f.default;
+    return INV_FIELD_SAMPLE_HINTS[f.name] || f.label;
+  }
+  function downloadInventorySampleTemplate() {
+    const cfg = INV_ENTITIES[_invImportEntity];
+    if (!cfg) return;
+    const headerRow = cfg.fields.map(f => f.label);
+    const sampleRow = cfg.fields.map(f => String(_invSampleValueFor(f)));
+    const csv = [headerRow, sampleRow]
+      .map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
+      .join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${_invImportEntity}_import_template.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   function openInventoryImportModal(entityKey) {
     const cfg = INV_ENTITIES[entityKey];
