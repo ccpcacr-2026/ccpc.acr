@@ -9014,6 +9014,11 @@
     // correctly-flex-sized wrapper, then letting .bt-shell fill 100% of THAT,
     // gives an exact fit with zero guessing on both desktop and mobile.
     container.style.height = '100%';
+    // Same "full admin, or the delegated Student Portal Admin" standing used
+    // elsewhere near this module (see isFullAdmin at _studentPortalNavClick) —
+    // CSV export of the whole fleet's positions is an admin action, not
+    // something every role that can merely view the live map should have.
+    const canExportBuses = window.ACTIVE_ROLE === 'Admin' || window.ACTIVE_ROLE === 'Student Portal Admin';
     container.innerHTML = `
       <div class="bt-shell" style="height:100%">
         <div id="bus-map-container"></div>
@@ -9032,7 +9037,7 @@
               </p>
             </div>
           </div>
-          <button onclick="BusTracking.exportBusData()" class="px-3.5 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="download" class="h-3.5 w-3.5"></i>Export</button>
+          ${canExportBuses ? `<button onclick="BusTracking.exportBusData()" class="px-3.5 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="download" class="h-3.5 w-3.5"></i>Export</button>` : ''}
         </div>
 
         <button id="bt-fleet-toggle" onclick="toggleFleetSheet()" class="flex items-center gap-1.5 bg-white border border-slate-200 rounded-full shadow-sm px-3 py-2 font-black text-[10px] uppercase tracking-widest text-slate-600">
