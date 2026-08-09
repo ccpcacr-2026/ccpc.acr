@@ -503,17 +503,6 @@
     }, 1000);
   }
 
-  // Switch the active role view without re-logging in
-  function switchActiveRole(newRole) {
-    window.ACTIVE_ROLE = newRole;
-    window.USER_ROLE   = newRole;
-    const roleEl = document.getElementById('side-user-role');
-    if (roleEl) roleEl.textContent = newRole;
-    updateSidebarForRole(newRole);
-    setActiveNavLink('nav-dashboard');
-    loadDefaultView();
-  }
-
   function updateSidebarForRole(activeRole) {
     const allRoles   = window.USER_ROLES || [activeRole];
 
@@ -550,7 +539,11 @@
     _maybeRevealStudentPortalForGrantee(activeRole);
     _loadAdminSubnav(activeRole);
 
-    // Role switcher: only visible when user has more than one role
+    // Profile: read-only list of every role this account holds — only shown
+    // for multi-role accounts. No selection/switching here (the sidebar
+    // already exposes every role's modules at once via _hasModuleAccess
+    // above); this is purely informational, so it's rendered as small
+    // static tags rather than clickable buttons.
     const switcher = document.getElementById('role-switcher');
     const btnsEl   = document.getElementById('role-switcher-btns');
     if (!switcher) return;
@@ -561,27 +554,8 @@
     }
     switcher.classList.remove('hidden');
 
-    const roleColors = {
-      Teacher: 'from-blue-600 to-blue-500',
-      Staff:   'from-slate-600 to-slate-500',
-      HR:      'from-purple-600 to-purple-500',
-      Admin:   'from-slate-800 to-slate-700',
-      Principal:'from-indigo-600 to-indigo-500',
-      VP:      'from-indigo-500 to-indigo-400'
-    };
-
     if (btnsEl) {
-      btnsEl.innerHTML = allRoles.map(r => {
-        const isActive = r === activeRole;
-        const grad = roleColors[r] || 'from-slate-600 to-slate-500';
-        return `<button onclick="switchActiveRole('${r}')"
-          class="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-wider transition-all duration-300
-                 ${isActive ? `bg-gradient-to-r ${grad} text-white shadow-lg` : 'text-slate-500 hover:bg-white/5 hover:text-slate-200'}">
-          <span class="w-2 h-2 rounded-full shrink-0 ${isActive ? 'bg-white' : 'bg-slate-600'}"></span>
-          <span class="nav-text">${r}</span>
-          ${isActive ? '<span class="ml-auto nav-text text-[8px] opacity-70">Active</span>' : ''}
-        </button>`;
-      }).join('');
+      btnsEl.innerHTML = `<p class="px-1 text-[9px] font-bold tracking-wide" style="color:var(--sidebar-text-hover);">${allRoles.join(', ')}</p>`;
     }
   }
 

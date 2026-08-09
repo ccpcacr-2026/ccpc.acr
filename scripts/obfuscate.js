@@ -38,7 +38,7 @@ const RESERVED = [
   'openCommitteeEdit','openDetailsModal','openModal','openRecordsModal',
   'openTraceReport','removeRow','resetPassword','saveCommitteeEdit',
   'savePermRow','saveSettings','sendCommitteeChatMessage','setChatReply',
-  'switchActiveRole','switchAdminTab','switchSysTab','toggleAliasPanel','toggleEval',
+  'switchAdminTab','switchSysTab','toggleAliasPanel','toggleEval',
   'openClassTeacherSyncModal','closeClassTeacherSyncModal','saveClassTeacherSync','_copyUnfilledRolls',
   'openSubmissionStatusModal','closeSubmissionStatusModal','_toggleAdminSubRosterFilter','_clearAdminSubRosterFilters','_copyAdminUnfilledRolls',
   'exportClassTeacherList','_ctSyncFilterOptions','_ctSyncPick','_ctSyncClear','_ctSyncBlur',
