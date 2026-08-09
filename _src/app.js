@@ -380,7 +380,8 @@
     inventory_admin: () => loadInventoryAdminView(),
     myclass:       () => loadMyClassView(),
     student_portal:() => loadStudentPortalView(),
-    bus_tracker:   () => loadAdminBusTrackerView()
+    bus_tracker:   () => loadAdminBusTrackerView(),
+    profile:       () => openMyProfile()
   };
 
   function _setViewHash(key) {
@@ -539,19 +540,19 @@
     _maybeRevealStudentPortalForGrantee(activeRole);
     _loadAdminSubnav(activeRole);
 
-    // Profile: read-only list of every role this account holds — only shown
-    // for multi-role accounts. No selection/switching here (the sidebar
-    // already exposes every role's modules at once via _hasModuleAccess
-    // above); this is purely informational, so it's rendered as small
-    // static tags rather than clickable buttons.
+    // Profile: read-only list of every role this account holds, doubling as
+    // the entry point to that account's own personal-info editor (see
+    // openMyProfile — wired via onclick="openMyProfile()" on #role-switcher
+    // itself in app.html). Always shown, even for single-role accounts,
+    // since Admin's own loadDefaultView branch never lands on the personal
+    // info form the way Teacher/Staff's does — this is the only way an
+    // Admin-only account reaches its own profile. No role-selection here
+    // (the sidebar already exposes every role's modules at once via
+    // _hasModuleAccess above); the role list is purely informational,
+    // rendered as small static text rather than clickable buttons.
     const switcher = document.getElementById('role-switcher');
     const btnsEl   = document.getElementById('role-switcher-btns');
     if (!switcher) return;
-
-    if (allRoles.length <= 1) {
-      switcher.classList.add('hidden');
-      return;
-    }
     switcher.classList.remove('hidden');
 
     if (btnsEl) {
@@ -772,6 +773,36 @@
         }
       })
       .catch(e => { console.error('[CCPC] View load failed:', e); showLoading(false); });
+  }
+
+  // Personal-info editor for whichever account is logged in, reachable from
+  // the sidebar's "Profile" block regardless of role. loadDefaultView above
+  // already lands Teacher/Staff here as their dashboard, but Admin (and any
+  // other role) gets a different dashboard there instead — this is the only
+  // route back to one's own record for those roles. Reuses TeacherView.html
+  // (the same #teacherForm self-profile form) since every account, Admin
+  // included, is still a personnel record underneath its role.
+  function openMyProfile() {
+    _setViewHash('profile');
+    setActiveNavLink();
+    showLoading(true);
+    fetch('/views/TeacherView.html')
+      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+      .then(html => {
+        document.getElementById('view-container').innerHTML = html;
+        setContentHeader('My Profile', 'user');
+        lucide.createIcons();
+        const email = window.APP_USER ? window.APP_USER.email   : '';
+        const uid   = window.APP_USER ? window.APP_USER.user_id : '';
+        google.script.run
+          .withSuccessHandler(data => {
+            try { renderTeacherProfile(data); } catch (e) { console.error(e); }
+            showLoading(false);
+          })
+          .withFailureHandler(e => { console.error(e); showLoading(false); })
+          .getMyProfile(email, uid);
+      })
+      .catch(e => { console.error('[CCPC] Profile view load failed:', e); showLoading(false); });
   }
 
   // ── Student Tab Data (delegated access) ──────────────────────────────────
