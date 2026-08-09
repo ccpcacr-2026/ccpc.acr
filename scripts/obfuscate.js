@@ -21,6 +21,7 @@ const RESERVED = [
   'saveInventoryEntityForm','closeInventoryEntityForm','deleteInventoryEntityRow',
   'openInventoryImportModal','closeInventoryImportModal','updateInventoryImportSample',
   'previewInventoryImport','confirmInventoryImport','downloadInventorySampleTemplate',
+  '_invSettingsSearchInput',
   'openInventoryProductDetail','openInventoryDistributeFor',
   'openInventoryQuickProductModal','selectInventoryRegistryProduct','submitInventoryRegistry',
   'selectInventoryDistributeProduct','submitInventoryDistribution','_invClearDistProduct',

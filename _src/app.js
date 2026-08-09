@@ -9225,6 +9225,7 @@
   let _invCurrentEntity = null;
   let _invEntityRows = [];
   let _invEntityLookups = {};
+  let _invSettingsSearch = '';
   let _invEditingEntity = null; // null = modal closed, {} = new, {...row} = editing
   let _invEntityFormContext = 'settings'; // 'settings' | 'registry-quick-add' — where saving should return to
 
@@ -9321,6 +9322,7 @@
 
   function openInventorySettingsEntity(slug) {
     _invCurrentEntity = slug;
+    _invSettingsSearch = '';
     const menu = document.getElementById('invSettingsMenu');
     if (menu) Array.from(menu.children).forEach(btn => btn.classList.toggle('bg-slate-100', btn.dataset.slug === slug));
     const panel = document.getElementById('invSettingsPanel');
@@ -9351,20 +9353,19 @@
     return raw == null ? '' : raw;
   }
 
-  function _invRenderSettingsTable() {
+  function _invFilteredSettingsRows() {
     const cfg = INV_ENTITIES[_invCurrentEntity];
-    const panel = document.getElementById('invSettingsPanel');
-    if (!panel || !cfg) return;
-    const rows = _invEntityRows;
-    panel.innerHTML = `
-      <div class="flex items-center justify-between mb-4 gap-3">
-        <p class="text-sm font-black text-slate-800 uppercase tracking-widest">${_escHtml(cfg.title)}</p>
-        <div class="flex gap-2 shrink-0">
-          ${cfg.importKey ? `<button onclick="openInventoryImportModal('${_invCurrentEntity}')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all">Import from Excel</button>` : ''}
-          <button onclick="openInventoryEntityForm('${_invCurrentEntity}')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">+ Create New</button>
-        </div>
-      </div>
-      ${!rows.length ? `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">No records yet</div>` : `
+    const q = _invSettingsSearch.trim().toLowerCase();
+    if (!q || !cfg) return _invEntityRows;
+    return _invEntityRows.filter(r => cfg.columns.some(c => String(_invDisplayValue(c, r) ?? '').toLowerCase().includes(q)));
+  }
+
+  function _invSettingsTableBodyHtml() {
+    const cfg = INV_ENTITIES[_invCurrentEntity];
+    const rows = _invFilteredSettingsRows();
+    if (!_invEntityRows.length) return `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">No records yet</div>`;
+    if (!rows.length) return `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">No matches for "${_escHtml(_invSettingsSearch)}"</div>`;
+    return `
       <div class="overflow-x-auto">
         <table class="w-full text-left text-xs">
           <thead class="bg-slate-50"><tr>${cfg.columns.map(c => `<th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">${_escHtml(c.label)}</th>`).join('')}<th></th></tr></thead>
@@ -9376,7 +9377,30 @@
             </td>
           </tr>`).join('')}</tbody>
         </table>
-      </div>`}`;
+      </div>`;
+  }
+
+  function _invSettingsSearchInput(val) {
+    _invSettingsSearch = val;
+    const wrap = document.getElementById('invSettingsTableWrap');
+    if (wrap) wrap.innerHTML = _invSettingsTableBodyHtml();
+  }
+
+  function _invRenderSettingsTable() {
+    const cfg = INV_ENTITIES[_invCurrentEntity];
+    const panel = document.getElementById('invSettingsPanel');
+    if (!panel || !cfg) return;
+    const rows = _invEntityRows;
+    panel.innerHTML = `
+      <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
+        <p class="text-sm font-black text-slate-800 uppercase tracking-widest">${_escHtml(cfg.title)}</p>
+        <div class="flex gap-2 shrink-0 items-center">
+          ${rows.length ? `<input type="text" placeholder="Search…" value="${_escHtml(_invSettingsSearch)}" oninput="_invSettingsSearchInput(this.value)" class="w-44 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2.5">` : ''}
+          ${cfg.importKey ? `<button onclick="openInventoryImportModal('${_invCurrentEntity}')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all">Import from Excel</button>` : ''}
+          <button onclick="openInventoryEntityForm('${_invCurrentEntity}')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">+ Create New</button>
+        </div>
+      </div>
+      <div id="invSettingsTableWrap">${_invSettingsTableBodyHtml()}</div>`;
   }
 
   function _invFieldHtml(f, current) {
