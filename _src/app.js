@@ -9006,9 +9006,17 @@
     const container = document.getElementById('view-container');
     if (!container) return;
     if (window.BusTracking) window.BusTracking.resetBusMap();
+    // #view-container itself has no intrinsic height (it just grows with its
+    // content inside the shell's `flex-1 overflow-y-auto` wrapper) — a guessed
+    // calc(100vh - Npx) here was either too tall (scrollbar) or too short
+    // (dead space below the panel, since the guess never matched the actual
+    // chrome height). Stretching #view-container to 100% of that already-
+    // correctly-flex-sized wrapper, then letting .bt-shell fill 100% of THAT,
+    // gives an exact fit with zero guessing on both desktop and mobile.
+    container.style.height = '100%';
     container.innerHTML = `
-      <div class="flex flex-col gap-3" style="height:calc(100vh - 200px)">
-        <div class="flex items-center justify-between flex-wrap gap-2 bg-white border border-slate-200 rounded-2xl shadow-sm px-3.5 py-2.5 shrink-0">
+      <div class="bt-shell flex flex-col gap-3" style="height:100%">
+        <div id="bt-toolbar" class="flex items-center justify-between flex-wrap gap-2 bg-white border border-slate-200 rounded-2xl shadow-sm px-3.5 py-2.5 shrink-0">
           <div class="flex items-center gap-2.5">
             <div class="h-8 w-8 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-md shrink-0">
               <i data-lucide="bus" class="h-4 w-4"></i>
@@ -9017,18 +9025,18 @@
               <h2 class="text-sm font-black text-slate-800 tracking-tight leading-tight">Bus Tracker</h2>
               <p class="text-[10px] text-slate-400 font-bold flex items-center gap-1.5 mt-0.5">
                 <span class="h-1.5 w-1.5 rounded-full bg-blue-600 animate-pulse"></span>
-                Updated <span id="bus-data-timestamp">—</span>
+                Live · <span id="bt-toolbar-count">0</span> buses
               </p>
             </div>
           </div>
           <button onclick="BusTracking.exportBusData()" class="px-3.5 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="download" class="h-3.5 w-3.5"></i>Export</button>
         </div>
-        <div class="flex-1 min-h-0 flex flex-col md:flex-row gap-3">
-          <div class="flex-1 relative rounded-3xl border border-slate-200 shadow-sm overflow-hidden" style="min-height:320px">
+        <div class="bt-body flex-1 min-h-0 flex flex-col md:flex-row gap-3">
+          <div class="bt-map-wrap flex-1 relative rounded-3xl border border-slate-200 shadow-sm overflow-hidden" style="min-height:320px">
             <div id="bus-map-container" style="width:100%;height:100%"></div>
             <div id="geofenceAlerts" class="absolute top-3 left-3 right-16 z-[999] flex flex-col gap-2 pointer-events-none"></div>
           </div>
-          <div class="w-full md:w-[280px] shrink-0 flex flex-col gap-1.5 min-h-0">
+          <div id="bus-sidebar" class="w-full md:w-[280px] shrink-0 flex flex-col gap-1.5 min-h-0">
             <div id="bus-info-panel" class="shrink-0"></div>
             <div id="bus-list" class="flex-1 min-h-[80px] overflow-y-auto flex flex-col gap-1"></div>
           </div>
