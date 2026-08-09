@@ -879,69 +879,88 @@ button { user-select: none; }
   }
 }
 
-/* ── Bus Tracker (public/js/bus-tracking.js) — that file's own generated
-   markup uses a handful of Bootstrap utility/component classes (kept
-   file-content-unchanged since its map/marker/geofence/ETA logic doesn't
-   depend on them) but app.html carries no Bootstrap CSS. This scopes just
-   those classes, inside the Bus Tracker view only, to match the rest of
-   the Tailwind-based admin UI. ── */
-#bus-list .bus-list-item {
-  padding: 10px 12px;
-  border-radius: 14px;
-  border: 1px solid #e2e8f0;
-  background: #fff;
-  cursor: pointer;
-  transition: all 0.15s ease;
+/* ── Bus Tracker (public/js/bus-tracking.js) — scoped styles for the
+   list/info-panel/marker/alert markup that file generates. app.html
+   carries no Bootstrap, so everything here is bespoke Tailwind-adjacent
+   CSS rather than Bootstrap-class shims. ── */
+#bus-map-container .bt-fit-btn {
+  position: absolute; bottom: 16px; right: 12px; z-index: 1000;
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 14px; border-radius: 999px; border: none;
+  background: #fff; color: #334155; font-weight: 800; font-size: 11px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.12); cursor: pointer; transition: all 0.15s;
 }
-#bus-list .bus-list-item:hover { background: #f8fafc; }
-#bus-list .bus-list-item.active { border-color: #2563eb; background: #eff6ff; }
-#bus-info-panel .card, #bus-list .card {
-  border-radius: 20px;
-  border: 1px solid #e2e8f0;
-  background: #fff;
-  overflow: hidden;
+#bus-map-container .bt-fit-btn:hover { background: #2563eb; color: #fff; }
+
+.bt-empty, .bt-info-empty {
+  text-align: center; color: #94a3b8; font-size: 12px; font-weight: 700;
+  padding: 26px 14px; background: #fff; border: 1px solid #e2e8f0; border-radius: 20px;
 }
-#bus-info-panel .card-header {
-  padding: 14px 18px;
-  background: linear-gradient(135deg, #1e293b, #334155);
-  color: #fff;
+.bt-empty i, .bt-info-empty i { display: block; margin: 0 auto 8px; color: #cbd5e1; }
+
+.bt-list-item {
+  padding: 10px 12px; border-radius: 16px; border: 1px solid #e2e8f0;
+  background: #fff; cursor: pointer; transition: all 0.15s ease;
 }
-#bus-info-panel .card-body { padding: 16px 18px; }
-#bus-info-panel .badge {
-  display: inline-block;
-  padding: 3px 10px;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+.bt-list-item:hover { border-color: #93c5fd; background: #f8fafc; }
+.bt-list-item.active { border-color: #2563eb; background: #eff6ff; box-shadow: 0 0 0 3px rgba(37,99,235,0.12); }
+
+.bt-avatar {
+  width: 32px; height: 32px; border-radius: 10px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; color: #fff;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.15);
 }
-#bus-info-panel .badge.bg-danger { background: #fee2e2; color: #dc2626; }
-#bus-info-panel .badge.bg-success { background: #dcfce7; color: #16a34a; }
+.bt-avatar.moving { background: linear-gradient(135deg,#2563eb,#1d4ed8); }
+.bt-avatar.idle   { background: linear-gradient(135deg,#f59e0b,#d97706); }
+
+.bt-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.bt-dot.moving { background: #2563eb; animation: btPulse 2s infinite; }
+.bt-dot.idle   { background: #f59e0b; }
+@keyframes btPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+.bt-speed-track { height: 3px; background: #e2e8f0; border-radius: 3px; overflow: hidden; }
+.bt-speed-fill { height: 100%; border-radius: 3px; transition: width 0.5s cubic-bezier(0.4,0,0.2,1); }
+.bt-speed-fill.moving { background: linear-gradient(90deg,#2563eb,#3b82f6); }
+.bt-speed-fill.idle   { background: #f59e0b; width: 0 !important; }
+
+.bt-info-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 20px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
+.bt-info-head {
+  padding: 13px 16px; display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
+  background: linear-gradient(135deg,#eff6ff,#eef2ff); border-bottom: 1px solid #e2e8f0;
+}
+.bt-badge { padding: 4px 10px; border-radius: 999px; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0; }
+.bt-badge.moving { background: #dbeafe; color: #2563eb; }
+.bt-badge.idle   { background: #fef3c7; color: #b45309; }
+.bt-info-body { padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 9px; }
+.bt-stat { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 8px 10px; }
+.bt-stat-label { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; color: #94a3b8; }
+.bt-stat-val { font-size: 14px; font-weight: 800; color: #1e293b; margin-top: 2px; }
+.bt-info-addr { display: flex; gap: 7px; font-size: 11px; color: #475569; font-weight: 600; line-height: 1.4; }
+.bt-info-addr i { flex-shrink: 0; margin-top: 1px; }
+.bt-eta { display: flex; justify-content: space-between; align-items: center; gap: 8px; background: #eef2ff; border: 1px solid #e0e7ff; border-radius: 14px; padding: 8px 10px; font-size: 11px; font-weight: 700; color: #4338ca; }
+
+/* Leaflet markers */
+.bt-marker-wrap { position: relative; display: flex; flex-direction: column; align-items: center; }
+.bt-marker-pulse { position: absolute; inset: -6px; border-radius: 50%; border: 2px solid #2563eb; animation: btMarkerRing 2s ease-out infinite; pointer-events: none; }
+@keyframes btMarkerRing { 0% { transform: scale(0.9); opacity: 0.7; } 100% { transform: scale(1.6); opacity: 0; } }
+.bt-marker-circle { border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(0,0,0,0.28); position: relative; z-index: 1; border: 2px solid #fff; }
+.bt-marker-circle svg { width: 18px; height: 18px; fill: #fff; }
+.bt-marker-label { background: rgba(15,23,42,0.92); color: #fff; font-weight: 700; font-size: 10px; padding: 3px 9px; border-radius: 8px; white-space: nowrap; box-shadow: 0 4px 12px rgba(0,0,0,0.25); }
+.bt-marker-label::before { display: none; }
+
+/* Geofence alert toasts */
 #geofenceAlerts .alert {
-  position: relative;
-  padding: 10px 40px 10px 14px;
-  border-radius: 12px;
-  font-size: 12px;
-  font-weight: 700;
+  position: relative; pointer-events: auto;
+  padding: 8px 36px 8px 14px; border-radius: 999px;
+  font-size: 11px; font-weight: 700; box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+  animation: btSlideIn 0.3s ease;
 }
+@keyframes btSlideIn { from { transform: translateX(-16px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 #geofenceAlerts .alert-success { background: #dcfce7; color: #15803d; }
 #geofenceAlerts .alert-warning { background: #fef3c7; color: #b45309; }
 #geofenceAlerts .btn-close {
-  position: absolute;
-  right: 10px;
-  top: 50%;
-  transform: translateY(-50%);
-  background: transparent;
-  border: none;
-  font-size: 16px;
-  line-height: 1;
-  cursor: pointer;
-  opacity: 0.5;
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  background: transparent; border: none; font-size: 16px; line-height: 1;
+  cursor: pointer; opacity: 0.5;
 }
 #geofenceAlerts .btn-close:hover { opacity: 1; }
-#bus-info-panel .small, #bus-list .small { font-size: 11px; }
-#bus-info-panel .text-muted, #bus-list .text-muted { color: #94a3b8; }
-#bus-info-panel .fw-600, #bus-list .fw-600 { font-weight: 700; color: #1e293b; }
-#bus-info-panel .row.g-3 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 0; }
-#bus-info-panel .row.g-3 .col-12 { grid-column: 1 / -1; }

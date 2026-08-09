@@ -8987,25 +8987,36 @@
     if (!container) return;
     if (window.BusTracking) window.BusTracking.resetBusMap();
     container.innerHTML = `
-      <div class="mb-4 flex items-center justify-between flex-wrap gap-2">
-        <div>
-          <h2 class="text-2xl font-black text-slate-800 tracking-tight">Bus Tracker</h2>
-          <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Live GPS positions, geofence alerts, ETA</p>
+      <div class="flex flex-col gap-3" style="height:calc(100vh - 200px)">
+        <div class="flex items-center justify-between flex-wrap gap-2 bg-white border border-slate-200 rounded-2xl shadow-sm px-4 py-3 shrink-0">
+          <div class="flex items-center gap-3">
+            <div class="h-10 w-10 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-md shrink-0">
+              <i data-lucide="bus" class="h-5 w-5"></i>
+            </div>
+            <div>
+              <h2 class="text-sm font-black text-slate-800 tracking-tight leading-tight">Bus Tracker</h2>
+              <p class="text-[11px] text-slate-400 font-bold flex items-center gap-1.5 mt-0.5">
+                <span class="h-1.5 w-1.5 rounded-full bg-blue-600 animate-pulse"></span>
+                Updated <span id="bus-data-timestamp">—</span>
+              </p>
+            </div>
+          </div>
+          <button onclick="BusTracking.exportBusData()" class="px-4 py-2 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="download" class="h-3.5 w-3.5"></i>Export</button>
         </div>
-        <button onclick="BusTracking.exportBusData()" class="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Export CSV</button>
-      </div>
-      <div id="geofenceAlerts" class="flex flex-col gap-2 mb-3"></div>
-      <div class="grid md:grid-cols-3 gap-4" style="height:calc(100vh - 260px)">
-        <div class="md:col-span-2 rounded-3xl border border-slate-200 shadow-sm overflow-hidden" style="min-height:400px">
-          <div id="bus-map-container" style="width:100%;height:100%"></div>
-        </div>
-        <div class="flex flex-col gap-3 overflow-hidden">
-          <div id="bus-info-panel" class="shrink-0"></div>
-          <div id="bus-list" class="flex-1 overflow-y-auto flex flex-col gap-2 rounded-3xl border border-slate-200 p-2"></div>
+        <div class="flex-1 min-h-0 flex flex-col md:flex-row gap-3">
+          <div class="flex-1 relative rounded-3xl border border-slate-200 shadow-sm overflow-hidden" style="min-height:320px">
+            <div id="bus-map-container" style="width:100%;height:100%"></div>
+            <div id="geofenceAlerts" class="absolute top-3 left-3 right-16 z-[999] flex flex-col gap-2 pointer-events-none"></div>
+          </div>
+          <div class="w-full md:w-[300px] shrink-0 flex flex-col gap-2.5 min-h-0">
+            <div id="bus-info-panel" class="shrink-0"></div>
+            <div id="bus-list" class="flex-1 min-h-[80px] overflow-y-auto flex flex-col gap-2"></div>
+          </div>
         </div>
       </div>
     `;
-    document.getElementById('bus-info-panel').innerHTML = `<div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 text-center text-slate-400 font-bold text-xs">Select a bus to view details</div>`;
+    document.getElementById('bus-info-panel').innerHTML = `<div class="bt-info-empty"><i data-lucide="bus" class="h-6 w-6"></i>Select a bus to view details</div>`;
+    document.getElementById('bus-list').innerHTML = `<div class="bt-empty"><i data-lucide="radio" class="h-6 w-6"></i>Waiting for GPS data…</div>`;
     lucide.createIcons();
     ensureBusTrackingAssets().then(() => window.BusTracking.initBusMap()).catch(err => {
       container.innerHTML += `<div class="mt-3 p-4 bg-red-50 border border-red-200 rounded-xl text-xs font-bold text-red-600">${err.message}</div>`;
