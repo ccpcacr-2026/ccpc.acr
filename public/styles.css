@@ -398,17 +398,20 @@ button { user-select: none; }
    fallback, matching the original Aurora-era hardcoded dark-navy look. */
 :root {
   --sidebar-bg: linear-gradient(180deg,#0d1b2e 0%,#0a1628 60%,#080f1e 100%);
-  --sidebar-text: #64748b;
+  /* Brightened partway toward --sidebar-text-hover (same as applyTheme()'s
+     runtime blend, see app.js) so resting nav text is readable even before
+     the theme JS applies — not the original dim #64748b. */
+  --sidebar-text: #a3aec2;
   --sidebar-text-hover: #e2e8f0;
   --sidebar-icon-bg: rgba(255,255,255,0.04);
-  --sidebar-icon-color: #475569;
+  --sidebar-icon-color: #a3aec2;
   --sidebar-accent-1: #1d4ed8;
   --sidebar-accent-2: #4f46e5;
   --sidebar-accent-soft-1: rgba(37,99,235,0.22);
   --sidebar-accent-soft-2: rgba(99,102,241,0.14);
   --sidebar-accent-glow: rgba(99,102,241,0.18);
   --sidebar-accent-text: #a5b4fc;
-  --sidebar-section-label: #334155;
+  --sidebar-section-label: rgba(226,232,240,0.55);
   --sidebar-border: rgba(255,255,255,0.05);
 }
 #main-sidebar { background: var(--sidebar-bg) !important; }

@@ -109,20 +109,28 @@
     const alphas = [0.18, 0.16, 0.12, 0.12];
     const glow = accents.slice(0,4).map((c,i) =>
       `radial-gradient(${sizes[i]} at ${pos[i]}, ${_hexToRgba(c, alphas[i])}, transparent 62%)`).join(', ');
+    // Resting (non-hover/non-active) nav text used each preset's raw
+    // sidebarText, which several presets tuned quite dim against their own
+    // dark gradient for a subdued look — too low-contrast to read
+    // comfortably. Blended halfway toward that same preset's own
+    // sidebarTextHover instead of hand-retuning 14 presets' hex values —
+    // brighter and still on-theme, while the hover/active state (full
+    // sidebarTextHover) stays visibly more prominent.
+    const brightSidebarText = _mixHex(sidebarText, sidebarTextHover, 0.55);
     const root = document.documentElement.style;
     root.setProperty('--app-bg', bg);
     root.setProperty('--app-glow', glow);
     root.setProperty('--sidebar-bg', sidebarBg);
-    root.setProperty('--sidebar-text', sidebarText);
+    root.setProperty('--sidebar-text', brightSidebarText);
     root.setProperty('--sidebar-text-hover', sidebarTextHover);
-    root.setProperty('--sidebar-icon-color', sidebarText);
+    root.setProperty('--sidebar-icon-color', brightSidebarText);
     root.setProperty('--sidebar-accent-1', sidebarAccent);
     root.setProperty('--sidebar-accent-2', sidebarAccent);
     root.setProperty('--sidebar-accent-soft-1', _hexToRgba(sidebarAccent, 0.22));
     root.setProperty('--sidebar-accent-soft-2', _hexToRgba(sidebarAccent, 0.14));
     root.setProperty('--sidebar-accent-glow', _hexToRgba(sidebarAccent, 0.18));
     root.setProperty('--sidebar-accent-text', sidebarTextHover);
-    root.setProperty('--sidebar-section-label', _hexToRgba(sidebarText, 0.85));
+    root.setProperty('--sidebar-section-label', _hexToRgba(sidebarTextHover, 0.55));
     // Main content headings/subtext pick up a subtle tint of the theme's own
     // accent too — mostly neutral so contrast on the white/glass view cards
     // never suffers, but visibly shifting hue as the theme changes.
