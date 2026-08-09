@@ -938,6 +938,12 @@ button { user-select: none; }
   width: 14px; height: 14px; flex-shrink: 0; cursor: pointer;
   accent-color: #2563eb; border-radius: 3px;
 }
+/* Beats the global "Better touch targets" mobile rule (input[type=checkbox]
+   { width/height: 20px !important }) — 20px reads oversized against the
+   22px avatar in this compact row, so pin it back down on small screens. */
+#bus-list input.bt-check {
+  width: 15px !important; height: 15px !important;
+}
 
 .bt-avatar {
   width: 22px; height: 22px; border-radius: 6px; flex-shrink: 0;
