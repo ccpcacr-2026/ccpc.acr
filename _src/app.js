@@ -8985,7 +8985,7 @@
     });
     return Promise.all([cssReady, leafletReady]).then(() => new Promise((resolve, reject) => {
       const sc = document.createElement('script');
-      sc.src = '/js/bus-tracking.js';
+      sc.src = '/js/bus-tracking.js?v=' + Date.now();
       sc.onload = resolve;
       sc.onerror = () => reject(new Error('Could not load the bus tracker — check your connection and retry.'));
       document.head.appendChild(sc);
