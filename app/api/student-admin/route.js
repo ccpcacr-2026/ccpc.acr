@@ -305,6 +305,28 @@ async function _isAdmin(userId) {
   return roles.includes('Admin') || roles.includes('Student Portal Admin');
 }
 
+// ── SUPER ADMIN (hardcoded account allowlist, not a role) ─────────────────
+// A tier above 'Admin' for the handful of things too sensitive for the
+// normal role/tab-visibility system: Fees & financial records, and the GP
+// bus-tracker API credentials. Deliberately NOT a role in app_users.role —
+// a plain membership check against designated login ids, so an Admin
+// editing the role matrix (Permission Control) can never grant this to
+// themselves or anyone else. Never trust a client-claimed identity here;
+// user_id is only ever used to re-derive facts server-side. Add more ids
+// here as needed — no other code changes required.
+const SUPER_ADMIN_IDS = ['12019183'];
+function _isSuperAdmin(userId) {
+  return SUPER_ADMIN_IDS.includes(String(userId || '').trim());
+}
+// Actions requiring literal Super Admin — bypasses the normal 'Admin' pass-
+// through in _isTabAllowed/_isAdmin entirely, checked BEFORE either.
+const SUPER_ADMIN_ONLY_TABS = new Set(['fees']);
+const SUPER_ADMIN_ONLY_ACTIONS = new Set(['set_gp_credentials', 'test_gp_connection']);
+// Bus GPS positions/registry are useful to every teacher/staff account, not
+// just admins — open to anyone with a recognized staff account (any role),
+// distinct from both the tab-visibility matrix and the plain Admin gate.
+const STAFF_OPEN_ACTIONS = new Set(['get_tracking_config', 'get_bus_data']);
+
 // ── Per-tab module access (admin console nav pills) ──────────────────────
 // Which roles can use each tab is admin-configurable (see
 // get_admin_tab_visibility / save_admin_tab_visibility below), stored in
@@ -351,7 +373,6 @@ const ADMIN_TAB_ACTIONS = {
   photo: new Set(['get_student_basic', 'upload_photo']),
   notices: new Set(['get_notices_admin', 'save_notice', 'delete_notice', 'reorder_notices']),
   import: new Set(['get_student_data_headers', 'preview_bulk_import', 'bulk_import_new_students']),
-  bus_tracker: new Set(['get_tracking_config', 'get_bus_data']),
 };
 
 // Columns get_class_sections' dynamic (Assign Class Teacher) mode will never
@@ -392,7 +413,6 @@ const ADMIN_TAB_DEFAULTS = {
   photo: ['Admin', 'Student Portal Admin'],
   notices: ['Admin', 'Student Portal Admin'],
   import: ['Admin', 'Student Portal Admin'],
-  bus_tracker: ['Admin', 'Student Portal Admin'],
 };
 
 // An action can legitimately belong to more than one tab's Set (shared
@@ -622,7 +642,10 @@ export async function POST(req) {
     const roles = await _getUserRoles(user_id);
     if (!roles.length) return NextResponse.json({ result: 'success', tabs: [] });
     const matrix = await _getAdminTabVisibility();
-    const tabs = Object.keys(ADMIN_TAB_ACTIONS).filter(tab => _isTabAllowed(tab, roles, matrix));
+    let tabs = Object.keys(ADMIN_TAB_ACTIONS).filter(tab => _isTabAllowed(tab, roles, matrix));
+    // Super-Admin-only tabs never come back for anyone else, regardless of
+    // what the (Admin-editable) matrix says — see SUPER_ADMIN_ONLY_TABS.
+    if (!_isSuperAdmin(user_id)) tabs = tabs.filter(tab => !SUPER_ADMIN_ONLY_TABS.has(tab));
     return NextResponse.json({ result: 'success', tabs });
   }
 
@@ -661,7 +684,19 @@ export async function POST(req) {
   // admit a genuine viewer, same as it always has.
   const tabKeys = _tabKeysForAction(action);
   let isAdmin;
-  if (tabKeys.length) {
+  // Super-Admin-only wall — checked before the normal 'Admin' pass-through
+  // both branches below give, so it can't be bypassed by any role or by
+  // widening the (Admin-editable) tab-visibility matrix.
+  if (tabKeys.some(tk => SUPER_ADMIN_ONLY_TABS.has(tk)) || SUPER_ADMIN_ONLY_ACTIONS.has(action)) {
+    if (!_isSuperAdmin(user_id)) {
+      return NextResponse.json({ result: 'error', message: 'Super Admin access required.' }, { status: 403 });
+    }
+    isAdmin = true;
+  } else if (STAFF_OPEN_ACTIONS.has(action)) {
+    const roles = await _getUserRoles(user_id);
+    if (!roles.length) return NextResponse.json({ result: 'error', message: 'Not a recognized staff account.' }, { status: 403 });
+    isAdmin = true;
+  } else if (tabKeys.length) {
     const roles = await _getUserRoles(user_id);
     const matrix = await _getAdminTabVisibility();
     isAdmin = tabKeys.some(tk => _isTabAllowed(tk, roles, matrix));
@@ -2792,10 +2827,17 @@ export async function POST(req) {
     const map = {};
     rows.forEach(r => { map[r.key] = r.value; });
     const creds = map.gp_credentials || {};
+    // This action is now open to any staff account (STAFF_OPEN_ACTIONS) so
+    // the live bus map works for everyone — but the credentials themselves
+    // (including the raw api_key, previously returned unmasked here) stay
+    // Super-Admin-only. Everyone else gets the bus/place registries only.
+    const credentials = _isSuperAdmin(user_id)
+      ? { username: creds.username || '', password: creds.password ? '********' : '', environment: creds.environment || 'production', apiKey: creds.api_key || '' }
+      : { username: '', password: '', environment: creds.environment || 'production', apiKey: '' };
     return NextResponse.json({
       busRegistry:   (map.bus_registry   || []).map(r => [r.name, r.imei]),
       placeRegistry: (map.place_registry || []).map(r => [r.name, r.coords, r.radius]),
-      credentials:   { username: creds.username || '', password: creds.password ? '********' : '', environment: creds.environment || 'production', apiKey: creds.api_key || '' },
+      credentials,
     });
   }
   if (action === 'save_bus_registry') {

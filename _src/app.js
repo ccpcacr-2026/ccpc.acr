@@ -3908,8 +3908,11 @@
     });
   }
 
+  // 'fees' deliberately excluded — Fees/financial records are now Super-Admin-
+  // only (hardcoded server-side, see SUPER_ADMIN_ID in student-admin/route.js),
+  // no longer part of the admin-configurable per-role tab matrix this panel edits.
   const TAB_ACCESS_LABELS = {
-    fees: 'Fees', attendance: 'Attendance', exams: 'Exams', payroll: 'Payroll (incl. Leave)', transport: 'Transport',
+    attendance: 'Attendance', exams: 'Exams', payroll: 'Payroll (incl. Leave)', transport: 'Transport',
     setup: 'Setup', add_custom_form: '+ Add Custom Form', data: 'Data', access: 'Access',
     history: 'History', photo: 'Photo', notices: 'Notices', import: 'Import',
   };
@@ -6843,6 +6846,41 @@
       class="fees-tab-btn flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all whitespace-nowrap
              ${i === 0 ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50'}">${t.label}</button>`).join('');
 
+    // The GP API credentials themselves (not the live map, not the bus/place
+    // registry) are Super-Admin-only — the backend already rejects
+    // set_gp_credentials/test_gp_connection and blanks the stored values in
+    // get_tracking_config for anyone else, this just avoids showing a form
+    // that would silently fail to save for every other role.
+    const gpCredCardHtml = _isSuperAdmin() ? `
+          <div class="bg-white rounded-2xl border border-slate-200 p-4">
+            <p class="font-black text-slate-800 text-sm mb-3 flex items-center gap-2"><i data-lucide="shield" class="h-4 w-4 text-blue-600"></i>GP API Credentials</p>
+            <div class="flex flex-col gap-2">
+              <label class="text-[10px] font-black text-slate-400 uppercase">Username</label>
+              <input type="text" id="gpUsername" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm">
+              <label class="text-[10px] font-black text-slate-400 uppercase">Password</label>
+              <div class="relative">
+                <input type="password" id="gpPassword" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm">
+                <button type="button" onclick="toggleGPPassword()" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400"><i data-lucide="eye" id="gpPassIcon" class="h-4 w-4"></i></button>
+              </div>
+              <label class="text-[10px] font-black text-slate-400 uppercase">Environment</label>
+              <select id="gpEnvironment" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm"><option value="production">Production</option><option value="staging">Staging</option></select>
+              <label class="text-[10px] font-black text-slate-400 uppercase">Verification (username:password)</label>
+              <input type="text" id="gpPreEncoded" readonly class="px-3 py-2 bg-slate-100 border border-slate-200 rounded-lg font-bold text-sm text-slate-500">
+              <label class="text-[10px] font-black text-slate-400 uppercase">System Generated API Key (Base64)</label>
+              <input type="text" id="gpApiKeyDisplay" readonly class="px-3 py-2 bg-slate-100 border border-slate-200 rounded-lg font-bold text-sm text-slate-500">
+              <div class="flex gap-2 mt-1">
+                <button onclick="saveGPConfig()" class="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Update Credentials</button>
+                <button id="btnVerifyGp" onclick="verifyGPConnection()" title="Verify Connection" class="px-3 py-2.5 border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50"><i data-lucide="badge-check" class="h-4 w-4"></i></button>
+              </div>
+              <div id="gpStatus" class="text-center text-xs font-bold mt-1"></div>
+            </div>
+          </div>` : `
+          <div class="bg-white rounded-2xl border border-slate-200 p-4 flex flex-col items-center justify-center text-center gap-2 text-slate-400" style="min-height:220px">
+            <i data-lucide="lock" class="h-6 w-6"></i>
+            <p class="text-xs font-black uppercase tracking-widest">Super Admin Only</p>
+            <p class="text-[11px] font-bold max-w-[220px]">GP API credentials are restricted to the Super Admin account.</p>
+          </div>`;
+
     container.innerHTML = `
       <div class="mb-4">
         <h2 class="text-2xl font-black text-slate-800 tracking-tight">Transport</h2>
@@ -6891,29 +6929,7 @@
 
       <div id="transport-bus-config" style="display:none">
         <div class="grid md:grid-cols-2 gap-4">
-          <div class="bg-white rounded-2xl border border-slate-200 p-4">
-            <p class="font-black text-slate-800 text-sm mb-3 flex items-center gap-2"><i data-lucide="shield" class="h-4 w-4 text-blue-600"></i>GP API Credentials</p>
-            <div class="flex flex-col gap-2">
-              <label class="text-[10px] font-black text-slate-400 uppercase">Username</label>
-              <input type="text" id="gpUsername" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm">
-              <label class="text-[10px] font-black text-slate-400 uppercase">Password</label>
-              <div class="relative">
-                <input type="password" id="gpPassword" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm">
-                <button type="button" onclick="toggleGPPassword()" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400"><i data-lucide="eye" id="gpPassIcon" class="h-4 w-4"></i></button>
-              </div>
-              <label class="text-[10px] font-black text-slate-400 uppercase">Environment</label>
-              <select id="gpEnvironment" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm"><option value="production">Production</option><option value="staging">Staging</option></select>
-              <label class="text-[10px] font-black text-slate-400 uppercase">Verification (username:password)</label>
-              <input type="text" id="gpPreEncoded" readonly class="px-3 py-2 bg-slate-100 border border-slate-200 rounded-lg font-bold text-sm text-slate-500">
-              <label class="text-[10px] font-black text-slate-400 uppercase">System Generated API Key (Base64)</label>
-              <input type="text" id="gpApiKeyDisplay" readonly class="px-3 py-2 bg-slate-100 border border-slate-200 rounded-lg font-bold text-sm text-slate-500">
-              <div class="flex gap-2 mt-1">
-                <button onclick="saveGPConfig()" class="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Update Credentials</button>
-                <button id="btnVerifyGp" onclick="verifyGPConnection()" title="Verify Connection" class="px-3 py-2.5 border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50"><i data-lucide="badge-check" class="h-4 w-4"></i></button>
-              </div>
-              <div id="gpStatus" class="text-center text-xs font-bold mt-1"></div>
-            </div>
-          </div>
+          ${gpCredCardHtml}
           <div class="flex flex-col gap-4">
             <div class="bg-white rounded-2xl border border-slate-200 p-4">
               <div class="flex items-center justify-between mb-3">
@@ -10320,6 +10336,18 @@
   // Two-letter chips would collide with Admin ('AD') / each other — explicit abbreviations
   const ROLE_ABBR = { 'Admission Admin':'AA', 'Student Portal Admin':'SP', 'Canteen Admin':'CA', 'Inventory Admin':'IA' };
   function roleAbbr(r){ return ROLE_ABBR[r] || r.slice(0,2).toUpperCase(); }
+
+  // ── SUPER ADMIN (single hardcoded account, not a role) ───────────────────────
+  // A tier above 'Admin' for the handful of things too sensitive for the normal
+  // role/module system: Fees & financial records, and the GP bus-tracker API
+  // credentials. This client-side check is a UI convenience ONLY (hides forms
+  // that would otherwise silently 403) — the real boundary is server-side in
+  // app/api/student-admin/route.js's own SUPER_ADMIN_ID check, which never
+  // trusts anything the browser claims.
+  const SUPER_ADMIN_IDS = ['12019183'];
+  function _isSuperAdmin() {
+    return !!(window.APP_USER && SUPER_ADMIN_IDS.includes(String(window.APP_USER.user_id)));
+  }
 
   // ── MODULE VISIBILITY (Admin-configurable, System > Module Access) ──────────
   // Adding a future module (Fees, Grades, ...) is: add its nav link with an id,
