@@ -9015,8 +9015,11 @@
     // gives an exact fit with zero guessing on both desktop and mobile.
     container.style.height = '100%';
     container.innerHTML = `
-      <div class="bt-shell flex flex-col gap-3" style="height:100%">
-        <div id="bt-toolbar" class="flex items-center justify-between flex-wrap gap-2 bg-white border border-slate-200 rounded-2xl shadow-sm px-3.5 py-2.5 shrink-0">
+      <div class="bt-shell" style="height:100%">
+        <div id="bus-map-container"></div>
+        <div id="geofenceAlerts" class="flex flex-col gap-2 pointer-events-none"></div>
+
+        <div id="bt-toolbar" class="flex items-center justify-between flex-wrap gap-2 bg-white border border-slate-200 rounded-2xl shadow-sm px-3.5 py-2.5">
           <div class="flex items-center gap-2.5">
             <div class="h-8 w-8 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-md shrink-0">
               <i data-lucide="bus" class="h-4 w-4"></i>
@@ -9031,15 +9034,14 @@
           </div>
           <button onclick="BusTracking.exportBusData()" class="px-3.5 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="download" class="h-3.5 w-3.5"></i>Export</button>
         </div>
-        <div class="bt-body flex-1 min-h-0 flex flex-col md:flex-row gap-3">
-          <div class="bt-map-wrap flex-1 relative rounded-3xl border border-slate-200 shadow-sm overflow-hidden" style="min-height:320px">
-            <div id="bus-map-container" style="width:100%;height:100%"></div>
-            <div id="geofenceAlerts" class="absolute top-3 left-3 right-16 z-[999] flex flex-col gap-2 pointer-events-none"></div>
-          </div>
-          <div id="bus-sidebar" class="w-full md:w-[280px] shrink-0 flex flex-col gap-1.5 min-h-0">
-            <div id="bus-info-panel" class="shrink-0"></div>
-            <div id="bus-list" class="flex-1 min-h-[80px] overflow-y-auto flex flex-col gap-1"></div>
-          </div>
+
+        <button id="bt-fleet-toggle" onclick="toggleFleetSheet()" class="flex items-center gap-1.5 bg-white border border-slate-200 rounded-full shadow-sm px-3 py-2 font-black text-[10px] uppercase tracking-widest text-slate-600">
+          <i data-lucide="bus" class="h-3.5 w-3.5 text-blue-600"></i> <span id="bt-fleet-toggle-count">0</span> buses
+        </button>
+
+        <div id="bus-sidebar" class="flex flex-col">
+          <div id="bus-info-panel" class="shrink-0"></div>
+          <div id="bus-list" class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1"></div>
         </div>
       </div>
     `;
