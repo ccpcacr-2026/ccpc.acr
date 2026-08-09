@@ -5,6 +5,8 @@
 
 let map = null;
 let busMarkers = {};
+let allBusData = {};      // imei -> latest bus object, independent of map/selection state
+let selectedImeis = new Set(); // which buses are checked "visible" in the fleet list
 let geofenceCircles = {};
 let busUpdateInterval = null;
 let selectedBusImei = null;
@@ -41,7 +43,29 @@ function initBusMap() {
     if (window.lucide) lucide.createIcons();
   }
 
+  ensureFleetListHead();
   loadBusTrackingConfig();
+}
+
+/**
+ * Insert the "Fleet · All · None" header above the bus list once — done in
+ * JS rather than the host page's static markup so this file stays a single
+ * drop-in include (same pattern the map's own Fit-all button already uses).
+ */
+function ensureFleetListHead() {
+  const list = document.getElementById('bus-list');
+  if (!list || document.getElementById('bt-fleet-head')) return;
+  const head = document.createElement('div');
+  head.id = 'bt-fleet-head';
+  head.className = 'bt-fleet-head';
+  head.innerHTML = `
+    <span class="bt-fleet-title">Fleet <span class="bt-fleet-count" id="bt-fleet-count">0</span></span>
+    <div class="bt-fleet-actions">
+      <button type="button" onclick="selectAllBuses()">All</button>
+      <button type="button" onclick="selectNoneBuses()">None</button>
+    </div>
+  `;
+  list.parentElement.insertBefore(head, list);
 }
 
 /**
@@ -116,8 +140,24 @@ async function updateBusPositions() {
       return;
     }
 
-    response.data.forEach(bus => updateBusMarker(bus));
-    updateBusList(response.data);
+    // New buses default to visible/checked; buses no longer in the registry
+    // lose their marker and drop out of the list entirely.
+    const incomingImeis = new Set();
+    response.data.forEach(bus => {
+      incomingImeis.add(bus.imei);
+      if (!allBusData[bus.imei]) selectedImeis.add(bus.imei);
+      allBusData[bus.imei] = bus;
+    });
+    Object.keys(allBusData).forEach(imei => {
+      if (!incomingImeis.has(imei)) {
+        delete allBusData[imei];
+        selectedImeis.delete(imei);
+        removeMarker(imei);
+      }
+    });
+
+    redrawMarkers();
+    updateBusList(Object.values(allBusData));
 
     // Fit the map to wherever the buses actually are on the very first
     // successful load — the map's default view is a generic city center,
@@ -165,30 +205,38 @@ function busName(imei) {
   return imei;
 }
 
+function removeMarker(imei) {
+  if (busMarkers[imei]) { map.removeLayer(busMarkers[imei]); delete busMarkers[imei]; }
+}
+
 /**
- * Update or create bus marker on map
+ * Create/update/remove every bus's marker to match selectedImeis — the
+ * single place that reconciles "what's checked" with "what's on the map".
  */
-function updateBusMarker(bus) {
-  const { imei, lat, lng } = bus;
-  if (!imei || isNaN(lat) || isNaN(lng)) return;
+function redrawMarkers() {
+  Object.keys(allBusData).forEach(imei => {
+    const bus = allBusData[imei];
+    if (!selectedImeis.has(imei)) { removeMarker(imei); return; }
+    if (isNaN(bus.lat) || isNaN(bus.lng)) return;
 
-  const selected = selectedBusImei === imei;
-  const icon = busMarkerIcon(bus, selected);
-  const label = `<b>${busName(imei)}</b> · ${bus.isMoving ? `${bus.speed} km/h` : 'Idle'}`;
+    const selected = selectedBusImei === imei;
+    const icon = busMarkerIcon(bus, selected);
+    const label = `<b>${busName(imei)}</b> · ${bus.isMoving ? `${bus.speed} km/h` : 'Idle'}`;
 
-  if (busMarkers[imei]) {
-    busMarkers[imei].setLatLng([lat, lng]);
-    busMarkers[imei].setIcon(icon);
-    busMarkers[imei].setTooltipContent(label);
-  } else {
-    const marker = L.marker([lat, lng], { icon }).addTo(map);
-    marker.bindTooltip(label, { permanent: true, direction: 'top', className: 'bt-marker-label', offset: [0, selected ? -22 : -18] });
-    marker.on('click', () => selectBus(imei, bus));
-    busMarkers[imei] = marker;
-  }
-  busMarkers[imei].busData = bus; // kept for CSV export
+    if (busMarkers[imei]) {
+      busMarkers[imei].setLatLng([bus.lat, bus.lng]);
+      busMarkers[imei].setIcon(icon);
+      busMarkers[imei].setTooltipContent(label);
+    } else {
+      const marker = L.marker([bus.lat, bus.lng], { icon }).addTo(map);
+      marker.bindTooltip(label, { permanent: true, direction: 'top', className: 'bt-marker-label', offset: [0, selected ? -22 : -18] });
+      marker.on('click', () => selectBus(imei, allBusData[imei]));
+      busMarkers[imei] = marker;
+    }
+    busMarkers[imei].busData = bus; // kept for CSV export
 
-  checkGeofenceEvents(bus);
+    checkGeofenceEvents(bus);
+  });
 }
 
 /**
@@ -245,6 +293,9 @@ function updateBusList(buses) {
   const listContainer = document.getElementById('bus-list');
   if (!listContainer) return;
 
+  const countEl = document.getElementById('bt-fleet-count');
+  if (countEl) countEl.textContent = buses.length;
+
   if (!buses.length) {
     listContainer.innerHTML = `<div class="bt-empty"><i data-lucide="alert-circle" class="h-6 w-6"></i>No buses configured yet</div>`;
     if (window.lucide) lucide.createIcons();
@@ -255,12 +306,15 @@ function updateBusList(buses) {
     const name = busName(bus.imei);
     const mv = !!bus.isMoving;
     const isSelected = selectedBusImei === bus.imei;
+    const isChecked = selectedImeis.has(bus.imei);
     const spd = parseFloat(bus.speed) || 0;
     const addr = (bus.address || 'Locating…');
 
     return `
-      <div class="bt-list-item ${isSelected ? 'active' : ''}" title="${bus.imei}" onclick='selectBus(${JSON.stringify(bus.imei)}, ${JSON.stringify(bus)})'>
+      <div class="bt-list-item ${isSelected ? 'active' : ''} ${isChecked ? '' : 'dimmed'}" title="${bus.imei}" onclick='selectBus(${JSON.stringify(bus.imei)}, ${JSON.stringify(bus)})'>
         <div class="flex items-center gap-2">
+          <input class="bt-check" type="checkbox" ${isChecked ? 'checked' : ''}
+                 onclick="event.stopPropagation()" onchange="toggleBusVisibility(${JSON.stringify(bus.imei)}, this.checked)">
           <div class="bt-avatar ${mv ? 'moving' : 'idle'}"><i data-lucide="bus" class="h-3 w-3"></i></div>
           <div class="flex-1 min-w-0 text-xs font-black text-slate-800 truncate">${name}</div>
           <div class="bt-dot ${mv ? 'moving' : 'idle'}"></div>
@@ -273,10 +327,51 @@ function updateBusList(buses) {
 }
 
 /**
+ * Checkbox toggle for one bus's map visibility
+ */
+function toggleBusVisibility(imei, checked) {
+  if (checked) selectedImeis.add(imei);
+  else {
+    selectedImeis.delete(imei);
+    if (selectedBusImei === imei) closeBusDetails();
+  }
+  redrawMarkers();
+  updateBusList(Object.values(allBusData));
+}
+
+function selectAllBuses() {
+  Object.keys(allBusData).forEach(imei => selectedImeis.add(imei));
+  redrawMarkers();
+  updateBusList(Object.values(allBusData));
+  fitBusesInBounds();
+}
+
+function selectNoneBuses() {
+  selectedImeis.clear();
+  closeBusDetails();
+  redrawMarkers();
+  updateBusList(Object.values(allBusData));
+}
+
+function closeBusDetails() {
+  selectedBusImei = null;
+  const panel = document.getElementById('bus-info-panel');
+  if (panel) {
+    panel.innerHTML = `<div class="bt-info-empty"><i data-lucide="bus" class="h-4 w-4"></i>Select a bus to view details</div>`;
+    if (window.lucide) lucide.createIcons();
+  }
+}
+
+/**
  * Select a bus and highlight on map
  */
 function selectBus(imei, busData) {
   selectedBusImei = imei;
+
+  if (!selectedImeis.has(imei)) {
+    selectedImeis.add(imei);
+    redrawMarkers();
+  }
 
   if (busMarkers[imei]) {
     busMarkers[imei].setIcon(busMarkerIcon(busData, true));
@@ -284,7 +379,7 @@ function selectBus(imei, busData) {
   }
 
   updateBusInfoPanel(busData);
-  updateBusList(Object.values(busMarkers).map(m => m.busData).filter(Boolean));
+  updateBusList(Object.values(allBusData));
 }
 
 /**
@@ -354,7 +449,7 @@ function calculateETA(bus) {
 }
 
 /**
- * Fit all buses in map bounds
+ * Fit all currently visible (checked) buses in map bounds
  */
 function fitBusesInBounds() {
   if (Object.keys(busMarkers).length === 0) return;
@@ -429,9 +524,13 @@ function resetBusMap() {
   if (map) { try { map.remove(); } catch (_) {} }
   map = null;
   busMarkers = {};
+  allBusData = {};
+  selectedImeis = new Set();
   geofenceCircles = {};
   selectedBusImei = null;
   hasFittedOnce = false;
+  const head = document.getElementById('bt-fleet-head');
+  if (head) head.remove();
 }
 
 window.BusTracking = {
