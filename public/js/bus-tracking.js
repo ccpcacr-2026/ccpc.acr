@@ -14,6 +14,12 @@ let hasFittedOnce = false;
 
 const BUS_SVG = '<svg viewBox="0 0 24 24"><path d="M18 11h-1V7c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v10h1c0 1.1.9 2 2 2s2-.9 2-2h6c0 1.1.9 2 2 2s2-.9 2-2h1v-4c0-1.1-.9-2-2-2zM6 18c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm11 0c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-1-7H5V7h11v4z"/></svg>';
 
+// One id per browser tab, reused across polls (so the server counts this
+// tab once, not once per poll) but distinct from any other tab/device —
+// backs the "N watching" live-viewer count in the toolbar.
+const trackerId = sessionStorage.getItem('_bt_tid') || 'w' + Math.random().toString(36).slice(2, 10);
+sessionStorage.setItem('_bt_tid', trackerId);
+
 /**
  * Initialize Leaflet map
  */
@@ -190,7 +196,10 @@ function startBusTracking() {
  */
 async function updateBusPositions() {
   try {
-    const response = await portalFetch('get_bus_data', {});
+    const response = await portalFetch('get_bus_data', { tracker_id: trackerId });
+
+    const watchingEl = document.getElementById('bt-watching-count');
+    if (watchingEl && typeof response.trackers === 'number') watchingEl.textContent = response.trackers;
 
     if (!response.data || !Array.isArray(response.data)) {
       console.warn('Invalid bus data response');
