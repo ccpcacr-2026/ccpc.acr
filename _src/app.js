@@ -396,7 +396,7 @@
     // must still be able to reach it — loadStudentPortalView does its own
     // complete access check (role OR ERP-tab grant OR field-category
     // grant) and shows the same "not available" toast if none apply.
-    if (key && key !== 'student_portal' && MODULE_REGISTRY.some(m => m.key === key) && !_isModuleVisibleForRole(key, window.ACTIVE_ROLE)) {
+    if (key && key !== 'student_portal' && MODULE_REGISTRY.some(m => m.key === key) && !_hasModuleAccess(key)) {
       // Silently redirect to dashboard — no error toast for URL tampering
       loadDefaultView();
       return;
@@ -522,7 +522,7 @@
     // the same defaults this used to hardcode until an Admin saves a matrix.
     MODULE_REGISTRY.forEach(m => {
       const el = document.getElementById(m.navId);
-      if (el) el.style.display = _isModuleVisibleForRole(m.key, activeRole) ? '' : 'none';
+      if (el) el.style.display = _hasModuleAccess(m.key) ? '' : 'none';
     });
     // Hide a nav section's group container/label if every link inside it is hidden
     // (nav-sublink items under #erp-links are excluded — they're not gated
@@ -712,16 +712,14 @@
       window._adminTabAccess = erpTabs;
       window._hasErpTabAccess = erpTabs.length > 0 || hasTabData; // loadStudentPortalView's own role gate checks this too
       // get_my_tab_access is account-scoped (any role the account holds
-      // unlocks its tabs), not active-role-scoped — so a multi-role account
-      // (e.g. Admin+Teacher) keeps getting tabs back even while viewing as
-      // Teacher. Without this guard that reopens the sub-items list right
-      // after updateSidebarForRole's own synchronous hide (see there), even
-      // though the "Student Portal" header itself is correctly hidden for
-      // that active role — the exact orphaned-children bug reported. Tab-
-      // data access is deliberately exempt from this role gate (like the
-      // Viewer Panel path already is) since it's its own independent grant,
-      // unrelated to what role the account is currently viewing as.
-      const roleVisibleKeys = _isModuleVisibleForRole('student_portal', activeRole) ? erpTabs : [];
+      // unlocks its tabs) — gated here with the same account-wide
+      // _hasModuleAccess used for the "Student Portal" header itself, so
+      // the two stay in lockstep (no sub-items surviving under a hidden
+      // header, no header shown with an empty accordion). Tab-data access
+      // is deliberately exempt from this gate (like the Viewer Panel path
+      // already is) since it's its own independent grant, unrelated to
+      // which roles the account holds.
+      const roleVisibleKeys = _hasModuleAccess('student_portal') ? erpTabs : [];
       const items = ADMIN_SUBNAV_ITEMS.filter(i => roleVisibleKeys.includes(i.key) || (i.key === 'my_data' && hasTabData));
       if (!items.length) { host.innerHTML = ''; host.classList.add('hidden'); return; }
       host.innerHTML = items.map(i =>
@@ -3850,9 +3848,10 @@
   // rather than trusting window._hasErpTabAccess/_hasFieldCategoryAccess,
   // which may still be unset at this exact moment.
   function loadStudentPortalView() {
-    const isFullAdmin = window.ACTIVE_ROLE === 'Admin' || window.ACTIVE_ROLE === 'Student Portal Admin';
+    const myRoles = window.USER_ROLES || [window.ACTIVE_ROLE];
+    const isFullAdmin = myRoles.includes('Admin') || myRoles.includes('Student Portal Admin');
     if (isFullAdmin) { _expandStudentPortalSubnav(); loadAdminSetupView(); return; }
-    if (_isModuleVisibleForRole('student_portal', window.ACTIVE_ROLE)) {
+    if (_hasModuleAccess('student_portal')) {
       // Role-based grant (e.g. HR) — land on the first of the 5 ERP tabs
       // this account actually holds.
       _adminFetch('get_my_tab_access', {}).then(res => {
@@ -8996,7 +8995,7 @@
     // gated behind the Student Portal's admin_tab_visibility matrix; visible
     // to every role by default (see MODULE_DEFAULTS), admin-configurable
     // like any other module via System > Module Access.
-    if (!_isModuleVisibleForRole('bus_tracker', window.ACTIVE_ROLE)) {
+    if (!_hasModuleAccess('bus_tracker')) {
       showToast('Not available in current role', 'error');
       return;
     }
@@ -10482,6 +10481,18 @@
     const matrix  = _moduleVisibility || {};
     const allowed = matrix[moduleKey] || MODULE_DEFAULTS[moduleKey] || ALL_ROLES;
     return allowed.includes(role);
+  }
+
+  // Sidebar/routing visibility is account-wide, not scoped to whichever role
+  // happens to be "active" right now — a multi-role account (e.g. Teacher +
+  // Inventory Admin) should see every module any of its roles unlocks at
+  // once, not have to switch active role first to reveal the rest. The
+  // Role Switcher still exists for role-scoped in-view behavior (which
+  // admin subnav content loads, action-level permission checks, etc.) —
+  // this helper only decides whether a nav link / route is reachable at all.
+  function _hasModuleAccess(moduleKey) {
+    const roles = window.USER_ROLES || [window.ACTIVE_ROLE];
+    return roles.some(r => _isModuleVisibleForRole(moduleKey, r));
   }
 
   function _loadModuleVisibility(then) {
