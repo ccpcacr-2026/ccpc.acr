@@ -225,6 +225,26 @@ const ENTITIES = {
   },
 };
 
+// Auto-generated Code# prefix per entity — only the tables that actually
+// have a `code` column an admin might leave blank (see ENTITIES fields
+// above) get one; everything else is untouched.
+const CODE_PREFIXES = { products: 'PRD', groups: 'GRP', suppliers: 'SUP', consumers: 'CON' };
+
+// Next available `PREFIX-0001`-style code for a table, based on how many
+// rows already have a non-null code — not the row count or max id, so gaps
+// from deleted rows don't matter and codes never collide with a manually
+// typed one already in use (code has a unique constraint in Postgres; this
+// count-then-assign approach is a best-effort sequence, not a DB-level
+// atomic counter, but collisions are effectively impossible for the low,
+// single-admin-at-a-time write volume this app actually sees).
+async function _nextEntityCode(table) {
+  const prefix = CODE_PREFIXES[table];
+  if (!prefix) return null;
+  const rows = await sbInventory(`${table}?select=code&code=not.is.null`);
+  const n = Array.isArray(rows) ? rows.length : 0;
+  return `${prefix}-${String(n + 1).padStart(4, '0')}`;
+}
+
 function _settingsList(payload) {
   const cfg = ENTITIES[payload.entity];
   if (!cfg) return NextResponse.json({ result: 'error', message: 'Unknown entity' }, { status: 404 });
@@ -250,6 +270,11 @@ async function _settingsSave(payload) {
     const result = await sbInventory(`${cfg.table}?id=eq.${encodeURIComponent(body.id)}`, 'PATCH', row);
     if (result?.error) return NextResponse.json({ result: 'error', message: result.error }, { status: 500 });
     return NextResponse.json({ result: 'success', data: result });
+  }
+  // Only on create, never on edit — an existing row's code is never
+  // silently overwritten just because it was left blank in this save.
+  if ('code' in row && !row.code && CODE_PREFIXES[cfg.table]) {
+    row.code = await _nextEntityCode(cfg.table);
   }
   const result = await sbInventory(cfg.table, 'POST', row);
   if (result?.error) return NextResponse.json({ result: 'error', message: result.error }, { status: 500 });
@@ -550,6 +575,19 @@ async function _settingsImportConfirm(payload) {
     const existing = await _fetchExistingKeys(cfg.table, keyCol, keys);
     const toInsert = clean.filter(r => !existing.has(r[keyCol]));
     const toUpdate = updateExisting ? clean.filter(r => existing.has(r[keyCol])) : [];
+
+    // Auto-generate Code# for any new row that didn't map a code column —
+    // computed once up front (not per-row) so a whole batch of blanks gets
+    // a clean run of sequential numbers instead of every row re-counting
+    // the same not-yet-inserted table state.
+    if (fieldByName.code && CODE_PREFIXES[cfg.table]) {
+      const blanks = toInsert.filter(r => !r.code);
+      if (blanks.length) {
+        const existingCodes = await sbInventory(`${cfg.table}?select=code&code=not.is.null`);
+        let n = (Array.isArray(existingCodes) ? existingCodes.length : 0) + 1;
+        for (const r of blanks) { r.code = `${CODE_PREFIXES[cfg.table]}-${String(n).padStart(4, '0')}`; n++; }
+      }
+    }
 
     let inserted = 0;
     const errors = [];
