@@ -20,6 +20,19 @@ const BUS_SVG = '<svg viewBox="0 0 24 24"><path d="M18 11h-1V7c0-1.1-.9-2-2-2H5c
 const trackerId = sessionStorage.getItem('_bt_tid') || 'w' + Math.random().toString(36).slice(2, 10);
 sessionStorage.setItem('_bt_tid', trackerId);
 
+// Best-effort display label sent alongside every heartbeat so an Admin can
+// see WHO is watching, not just a count — client-supplied (not looked up
+// server-side), since this is a convenience display, not an access-control
+// surface. Falls back gracefully if login data isn't in the expected shape.
+const watcherLabel = (() => {
+  try {
+    const name = (window._loginProfile && window._loginProfile.full_name) || (window.APP_USER && window.APP_USER.user_id) || 'Staff';
+    const role = window.ACTIVE_ROLE || window.USER_ROLE || '';
+    return role ? `${name} (${role})` : String(name);
+  } catch (e) { return 'Staff'; }
+})();
+let currentWatchers = []; // latest [{label, lastSeen}] from the server, for the popover
+
 /**
  * Initialize Leaflet map
  */
@@ -196,10 +209,15 @@ function startBusTracking() {
  */
 async function updateBusPositions() {
   try {
-    const response = await portalFetch('get_bus_data', { tracker_id: trackerId });
+    const response = await portalFetch('get_bus_data', { tracker_id: trackerId, label: watcherLabel });
 
     const watchingEl = document.getElementById('bt-watching-count');
     if (watchingEl && typeof response.trackers === 'number') watchingEl.textContent = response.trackers;
+    if (Array.isArray(response.watchers)) {
+      currentWatchers = response.watchers;
+      const popover = document.getElementById('bt-watchers-popover');
+      if (popover && !popover.classList.contains('hidden')) renderWatchersList();
+    }
 
     if (!response.data || !Array.isArray(response.data)) {
       console.warn('Invalid bus data response');
@@ -622,6 +640,49 @@ function resetBusMap() {
   if (handle) handle.remove();
 }
 
+/**
+ * Admin-only "who's watching" popover — toggled by clicking the "N
+ * watching" text in the toolbar (only rendered clickable for Admin /
+ * Student Portal Admin, see loadAdminBusTrackerView's canExportBuses gate).
+ */
+function renderWatchersList() {
+  const popover = document.getElementById('bt-watchers-popover');
+  if (!popover) return;
+  if (!currentWatchers.length) {
+    popover.innerHTML = `<div style="font-size:11px;font-weight:800;color:#94a3b8;text-align:center;padding:10px 4px;">No one else is watching right now.</div>`;
+    return;
+  }
+  popover.innerHTML = `
+    <div style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.08em;color:#94a3b8;padding:2px 4px 8px;">Currently watching</div>
+    ${currentWatchers.map(w => `
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 4px;border-top:1px solid #f1f5f9;">
+        <span style="width:7px;height:7px;border-radius:999px;background:#22c55e;flex-shrink:0;"></span>
+        <span style="font-size:11.5px;font-weight:700;color:#334155;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtmlBt(w.label || 'Viewer')}</span>
+      </div>`).join('')}
+  `;
+}
+function escapeHtmlBt(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function _closeWatchersListOnOutsideClick(e) {
+  const popover = document.getElementById('bt-watchers-popover');
+  const trigger = document.getElementById('bt-watchers-trigger');
+  if (!popover || popover.classList.contains('hidden')) { document.removeEventListener('click', _closeWatchersListOnOutsideClick); return; }
+  if (popover.contains(e.target) || (trigger && trigger.contains(e.target))) return;
+  popover.classList.add('hidden');
+  document.removeEventListener('click', _closeWatchersListOnOutsideClick);
+}
+function toggleWatchersList() {
+  const popover = document.getElementById('bt-watchers-popover');
+  if (!popover) return;
+  const opening = popover.classList.contains('hidden');
+  popover.classList.toggle('hidden');
+  if (opening) {
+    renderWatchersList();
+    setTimeout(() => document.addEventListener('click', _closeWatchersListOnOutsideClick), 0);
+  } else {
+    document.removeEventListener('click', _closeWatchersListOnOutsideClick);
+  }
+}
+
 window.BusTracking = {
   initBusMap,
   stopBusTracking,
@@ -629,4 +690,5 @@ window.BusTracking = {
   exportBusData,
   selectBus,
   refreshMapSize,
+  toggleWatchersList,
 };

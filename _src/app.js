@@ -9208,11 +9208,15 @@
               <h2 class="text-sm font-black text-slate-800 tracking-tight leading-tight">Bus Tracker</h2>
               <p class="text-[10px] text-slate-400 font-bold flex items-center gap-1.5 mt-0.5">
                 <span class="h-1.5 w-1.5 rounded-full bg-blue-600 animate-pulse"></span>
-                Live · <span id="bt-toolbar-count">0</span> buses · <span class="bt-watch-dot"></span><span id="bt-watching-count" class="bt-watch-count">0</span> watching
+                Live · <span id="bt-toolbar-count">0</span> buses ·
+                ${canExportBuses
+                  ? `<span id="bt-watchers-trigger" onclick="BusTracking.toggleWatchersList()" class="flex items-center gap-1 cursor-pointer hover:text-blue-600 transition-colors" style="text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px"><span class="bt-watch-dot"></span><span id="bt-watching-count" class="bt-watch-count">0</span> watching</span>`
+                  : `<span class="bt-watch-dot"></span><span id="bt-watching-count" class="bt-watch-count">0</span> watching`}
               </p>
             </div>
           </div>
           ${canExportBuses ? `<button onclick="BusTracking.exportBusData()" class="px-3.5 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="download" class="h-3.5 w-3.5"></i>Export</button>` : ''}
+          ${canExportBuses ? `<div id="bt-watchers-popover" class="hidden" style="position:absolute;top:56px;left:14px;z-index:1000;background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 10px 30px rgba(15,23,42,0.15);min-width:220px;max-width:280px;max-height:260px;overflow-y:auto;padding:10px;"></div>` : ''}
         </div>
 
         <button id="bt-fleet-toggle" onclick="toggleFleetSheet()" class="flex items-center gap-1.5 bg-white border border-slate-200 rounded-full shadow-sm px-3 py-2 font-black text-[10px] uppercase tracking-widest text-slate-600">
