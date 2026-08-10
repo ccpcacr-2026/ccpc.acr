@@ -265,7 +265,10 @@ function busMarkerIcon(bus, selected) {
 
 function busName(imei) {
   if (window.busRegistry && Array.isArray(window.busRegistry)) {
-    const found = window.busRegistry.find(b => b[1] === imei);
+    // Registry rows are [name, plate_number, imei] — imei is index 2, not 1
+    // (it used to be a 2-element [name, imei] row before the Number Plate
+    // column was added; this lookup broke silently until fixed here).
+    const found = window.busRegistry.find(b => b[2] === imei);
     if (found) return found[0];
   }
   return imei;
