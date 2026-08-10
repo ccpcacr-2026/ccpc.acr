@@ -799,10 +799,34 @@
     const container = document.getElementById('view-container');
     if (!container) return;
 
-    const links = Array.from(document.querySelectorAll('#main-sidebar nav .nav-link:not(.nav-sublink)'))
-      .filter(el => el.style.display !== 'none');
+    // Grouped exactly like the PC sidebar: a single linear scan (in document
+    // order — querySelectorAll guarantees this even mixing selectors/depths)
+    // over every visible nav-link and every section-label text in the
+    // sidebar, bucketing links under whichever label most recently preceded
+    // them. This tolerates the sidebar's actual mixed nesting (some groups
+    // are wrapper <div>s with their own label+link-list, "General" is a
+    // bare label followed by a bare link-list, Dashboard/Routine have no
+    // label at all) without hardcoding that structure here — it just
+    // mirrors whatever's actually in the DOM, so new groups/labels added to
+    // the sidebar later show up here automatically.
+    // Profile lives in #role-switcher, a SIBLING of <nav> (not inside it —
+    // it's account-level, not a module), so it's prepended by hand into the
+    // first (unlabeled) group rather than picked up by the scan below.
+    const groups = [];
+    let current = { label: null, links: [] };
+    const profileLink = document.querySelector('#role-switcher:not(.hidden) .nav-link');
+    if (profileLink) current.links.push(profileLink);
+    document.querySelectorAll('#main-sidebar nav .nav-link:not(.nav-sublink), #main-sidebar nav .nav-section-label-text').forEach(node => {
+      if (node.classList.contains('nav-section-label-text')) {
+        if (current.links.length) groups.push(current);
+        current = { label: node.textContent, links: [] };
+      } else if (node.style.display !== 'none') {
+        current.links.push(node);
+      }
+    });
+    if (current.links.length) groups.push(current);
 
-    if (!links.length) {
+    if (!groups.length) {
       container.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">No modules available — contact your administrator</div>`;
       return;
     }
@@ -812,15 +836,18 @@
     // stayed tied to (and limited by) whatever theme was active; this way
     // the grid is always maximally colorful and never changes look when a
     // school switches themes. Same 8-color set as the student portal's
-    // grid, for visual consistency between the two apps.
+    // grid, for visual consistency between the two apps. Cycled across the
+    // WHOLE grid (a running index, not reset per group) so colors stay
+    // varied instead of every group's first tile always landing on indigo.
     const _homeAccents = ['#6366f1', '#10b981', '#f43f5e', '#f59e0b', '#0ea5e9', '#a855f7', '#14b8a6', '#f97316'];
+    let _tileIdx = 0;
 
-    container.innerHTML = `<div class="grid grid-cols-3 gap-3 pt-1">${links.map((el, idx) => {
+    const tileHtml = (el) => {
       const icon = el.querySelector('.nav-icon')?.getAttribute('data-lucide') || 'layout-grid';
       const label = el.querySelector('.nav-text')?.textContent || '';
       const isStudentPortal = el.id === 'nav-student-portal';
-      const onclick = isStudentPortal ? 'loadStudentPortalView()' : `document.getElementById('${el.id}').click()`;
-      const accent = _homeAccents[idx % _homeAccents.length];
+      const onclick = el === profileLink ? 'openMyProfile()' : isStudentPortal ? 'loadStudentPortalView()' : `document.getElementById('${el.id}').click()`;
+      const accent = _homeAccents[_tileIdx++ % _homeAccents.length];
       return `
         <button onclick="${onclick}" class="flex flex-col items-center justify-center gap-2.5 p-4 bg-white rounded-3xl shadow-sm hover:shadow-md active:scale-95 transition-all duration-150">
           <div class="w-14 h-14 rounded-2xl flex items-center justify-center" style="background:${_hexToRgba(accent, 0.14)};color:${accent};">
@@ -828,7 +855,13 @@
           </div>
           <span class="text-[10.5px] font-black text-slate-600 text-center leading-tight tracking-tight">${_escHtml(label)}</span>
         </button>`;
-    }).join('')}</div>`;
+    };
+
+    container.innerHTML = groups.map(g => `
+      <div class="mb-4">
+        ${g.label ? `<p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">${_escHtml(g.label)}</p>` : ''}
+        <div class="grid grid-cols-3 gap-3">${g.links.map(tileHtml).join('')}</div>
+      </div>`).join('');
     lucide.createIcons();
   }
 
