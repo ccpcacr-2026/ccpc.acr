@@ -6983,7 +6983,7 @@
               </div>
               <div class="overflow-auto">
                 <table class="w-full text-left border-collapse text-xs">
-                  <thead><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2">Bus Name</th><th class="py-2">IMEI Number</th><th></th></tr></thead>
+                  <thead><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2">Bus Name</th><th class="py-2">Number Plate</th><th class="py-2">IMEI Number</th><th></th></tr></thead>
                   <tbody id="busConfigBody"></tbody>
                 </table>
               </div>
@@ -7081,7 +7081,7 @@
     _adminFetch('get_tracking_config', {}).then(res => {
       if (res.busRegistry) {
         const tbody = document.getElementById('busConfigBody');
-        if (tbody) { tbody.innerHTML = ''; res.busRegistry.forEach(r => addBusRow({ name: r[0], imei: r[1] })); }
+        if (tbody) { tbody.innerHTML = ''; res.busRegistry.forEach(r => addBusRow({ name: r[0], plate: r[1], imei: r[2] })); }
       }
       if (res.placeRegistry) {
         const tbody = document.getElementById('placeConfigBody');
@@ -7133,11 +7133,12 @@
       s.className = `text-center text-xs font-bold mt-1 ${res.result === 'success' ? 'text-emerald-600' : 'text-red-500'}`;
     });
   }
-  function addBusRow(data = { name: '', imei: '' }) {
+  function addBusRow(data = { name: '', plate: '', imei: '' }) {
     const tbody = document.getElementById('busConfigBody');
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td class="py-1"><input type="text" class="b-name px-2 py-1 bg-slate-50 border border-slate-200 rounded font-bold text-xs" value="${data.name}"></td>
+      <td class="py-1"><input type="text" class="b-plate px-2 py-1 bg-slate-50 border border-slate-200 rounded font-bold text-xs" value="${data.plate || ''}"></td>
       <td class="py-1"><input type="text" class="b-imei px-2 py-1 bg-slate-50 border border-slate-200 rounded font-bold text-xs" value="${data.imei}"></td>
       <td class="py-1 text-right whitespace-nowrap">
         <button onclick="checkBusStatus(this)" class="px-2 py-1 border border-slate-200 text-slate-600 rounded text-[10px] font-black uppercase hover:bg-slate-50"><i data-lucide="radio" class="h-3 w-3 inline"></i> Check</button>
@@ -7159,7 +7160,7 @@
       lucide.createIcons();
       if (res.result === 'success') {
         const d = res.data;
-        alert(`BUS ONLINE\n\nName: ${tr.querySelector('.b-name').value}\nIMEI: ${imei}\nLocation: ${d.address}\nSpeed: ${d.speed} km/h\nEngine: ${d.engine}\nLast Update: ${d.time}`);
+        alert(`BUS ONLINE\n\nName: ${tr.querySelector('.b-name').value}\nPlate: ${tr.querySelector('.b-plate').value || '—'}\nIMEI: ${imei}\nLocation: ${d.address}\nSpeed: ${d.speed} km/h\nEngine: ${d.engine}\nLast Update: ${d.time}`);
       } else {
         const isAuthError = res.message.includes('401') || res.message.includes('403') || res.message.includes('Unauthorized');
         const header = isAuthError ? 'ACCESS DENIED (API ERROR)' : 'BUS NOT FOUND / OFFLINE';
@@ -7172,8 +7173,9 @@
     const rows = [];
     document.querySelectorAll('#busConfigBody tr').forEach(tr => {
       const name = tr.querySelector('.b-name').value.trim();
+      const plate = tr.querySelector('.b-plate').value.trim();
       const imei = tr.querySelector('.b-imei').value.trim();
-      if (name && imei) rows.push([name, imei]);
+      if (name && imei) rows.push([name, plate, imei]);
     });
     _adminFetch('save_bus_registry', { rows }).then(() => showToast('Registry updated'));
   }

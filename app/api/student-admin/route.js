@@ -2879,13 +2879,13 @@ export async function POST(req) {
       ? { username: creds.username || '', password: creds.password ? '********' : '', environment: creds.environment || 'production', apiKey: creds.api_key || '' }
       : { username: '', password: '', environment: creds.environment || 'production', apiKey: '' };
     return NextResponse.json({
-      busRegistry:   (map.bus_registry   || []).map(r => [r.name, r.imei]),
+      busRegistry:   (map.bus_registry   || []).map(r => [r.name, r.plate_number || '', r.imei]),
       placeRegistry: (map.place_registry || []).map(r => [r.name, r.coords, r.radius]),
       credentials,
     });
   }
   if (action === 'save_bus_registry') {
-    const value = (payload.rows || []).map(r => ({ name: r[0], imei: r[1] }));
+    const value = (payload.rows || []).map(r => ({ name: r[0], plate_number: r[1], imei: r[2] }));
     const r = await psSave('bus_registry', value);
     if (!r.ok) return NextResponse.json({ result: 'error', message: r.message });
     return NextResponse.json({ result: 'success' });
