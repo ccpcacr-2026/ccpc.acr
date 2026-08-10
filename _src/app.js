@@ -807,12 +807,13 @@
       return;
     }
 
-    // Cycle tiles through the CURRENT theme preset's own 4-color accent set
-    // (THEME_PRESETS[...].accents — already used for the app-bg glow) rather
-    // than a fixed hardcoded palette, so the grid stays colorful/vibrant
-    // while automatically matching whichever of the 14 themes a school has
-    // actually chosen, instead of clashing with it.
-    const _homeAccents = (THEME_PRESETS[(window.APP_THEME && window.APP_THEME.preset) || 'aurora'] || THEME_PRESETS.aurora).accents;
+    // Fixed rainbow palette, independent of the active theme — cycling
+    // through THEME_PRESETS' own 4-color accent set instead meant tiles
+    // stayed tied to (and limited by) whatever theme was active; this way
+    // the grid is always maximally colorful and never changes look when a
+    // school switches themes. Same 8-color set as the student portal's
+    // grid, for visual consistency between the two apps.
+    const _homeAccents = ['#6366f1', '#10b981', '#f43f5e', '#f59e0b', '#0ea5e9', '#a855f7', '#14b8a6', '#f97316'];
 
     container.innerHTML = `<div class="grid grid-cols-3 gap-3 pt-1">${links.map((el, idx) => {
       const icon = el.querySelector('.nav-icon')?.getAttribute('data-lucide') || 'layout-grid';
