@@ -390,7 +390,8 @@
     student_portal:() => loadStudentPortalView(),
     bus_tracker:   () => loadAdminBusTrackerView(),
     payroll:       () => loadAdminPayrollView(),
-    profile:       () => openMyProfile()
+    profile:       () => openMyProfile(),
+    ssc_result_analysis: () => loadSscResultAnalysisView()
   };
 
   function _setViewHash(key) {
@@ -10523,6 +10524,7 @@
     { key: 'system',           label: 'System',             navId: 'nav-system' },
     { key: 'student_portal',   label: 'Student Portal',     navId: 'nav-student-portal' },
     { key: 'inventory_admin',  label: 'Inventory Admin',    navId: 'nav-inventory-admin' },
+    { key: 'ssc_result_analysis', label: 'Analyse SSC Result', navId: 'nav-ssc-result-analysis' },
     { key: 'committees',       label: 'My Assignments',     navId: 'nav-my-committees' },
     // Standalone (not nested under Student Portal, unlike the rest of the old
     // ADMIN_SUBNAV_ITEMS list) so every teacher/staff role sees it without an
@@ -10546,6 +10548,7 @@
     system:        ['HR','Admin','Principal','VP'],
     student_portal:['Admin','Student Portal Admin','HR'],
     inventory_admin:['Admin','Inventory Admin'],
+    ssc_result_analysis: ['Admin','HR','Principal','VP'],
     committees:    ['Teacher','Staff'],
     bus_tracker:   ALL_ROLES,
     messages:      ALL_ROLES,
@@ -14952,4 +14955,623 @@
     setInterval(updateLastActiveHeartbeat, 2 * 60 * 1000);
     setInterval(refreshNotifBadge, 60 * 1000);
     setInterval(refreshMessagesBadge, 30 * 1000);
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  //  ANALYSE SSC RESULT — parses a BISE board result PDF (+ optional student
+  //  roster .docx) entirely client-side and generates an aggregated Excel
+  //  workbook for download. No server round-trip: PDF text extraction via
+  //  PDF.js, roster table extraction via JSZip, workbook writing via the
+  //  same SheetJS build already used for the bulk-import feature.
+  //
+  //  Two PDF layouts are auto-detected:
+  //    "detailed" — full subject-wise marks per roll (e.g. BISE Chattogram's
+  //                 institution printout: 116285[5.00]:101:T:142(A ),...)
+  //    "simple"   — roll + GPA only, no subject marks (e.g. the shorter
+  //                 "roll[gpa], roll[gpa], ... =N" printout)
+  //  Output is always the same 6-sheet workbook shape regardless of which
+  //  layout/roster data is available — missing data shows "-" or a short
+  //  note instead of the sheet/columns being dropped, so files stay
+  //  consistent to compare across schools/years.
+  // ══════════════════════════════════════════════════════════════════════
+
+  const SSC_SUBJECT_NAMES = {
+    "101": "Bangla", "107": "English", "109": "Mathematics",
+    "111": "Religion (Islam)", "112": "Religion (Hindu)", "113": "Religion (Buddhist)",
+    "114": "Religion (Christian)",
+    "154": "ICT", "150": "Bangladesh & Global Studies", "136": "Physics",
+    "137": "Chemistry", "138": "Biology", "126": "Higher Mathematics",
+    "127": "General Science", "146": "Accounting", "152": "Finance & Banking",
+    "143": "Business Entrepreneurship", "151": "Home Science",
+  };
+  const SSC_GRADE_ORDER = ["A+", "A", "A-", "B", "C", "D", "F"];
+  const SSC_SCIENCE_ORDER = ["101", "107", "109", "150", "111", "112", "113", "136", "137", "138", "126", "154"];
+  const SSC_BUSINESS_ORDER = ["101", "107", "109", "127", "111", "112", "113", "146", "152", "143", "154", "151"];
+  const SSC_COMBINED_ORDER = ["101", "107", "109", "154", "111", "112", "113", "150", "136", "137", "138", "126",
+                               "127", "146", "152", "143", "151"];
+
+  let _sscPdfFile = null;
+  let _sscRosterFile = null;
+
+  function loadSscResultAnalysisView() {
+    _setViewHash('ssc_result_analysis');
+    setActiveNavLink('nav-ssc-result-analysis');
+    setContentHeader('Analyse SSC Result', 'file-bar-chart');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    _sscPdfFile = null;
+    _sscRosterFile = null;
+    container.innerHTML = `
+      <div class="max-w-3xl mx-auto bg-white p-8 rounded-3xl shadow-2xl border border-slate-100">
+        <h2 class="text-2xl font-black text-slate-800 tracking-tight mb-1">Analyse SSC Result</h2>
+        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mb-6">
+          Upload a board result PDF to generate an aggregated-by-roll Excel workbook — runs entirely
+          in your browser, nothing is uploaded to a server.
+        </p>
+
+        <div class="space-y-5">
+          <div>
+            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">
+              1. Result PDF <span class="text-red-500">*</span>
+            </label>
+            <input type="file" id="sscPdfInput" accept=".pdf" onchange="handleSscPdfFile(event)"
+                   class="w-full text-xs font-bold file:mr-3 file:py-2.5 file:px-4 file:rounded-xl file:border-0
+                          file:bg-blue-50 file:text-blue-600 file:font-black file:text-[10px] file:uppercase
+                          file:tracking-widest hover:file:bg-blue-100 transition-all">
+            <p id="sscPdfStatus" class="text-xs text-slate-400 font-bold mt-1.5"></p>
+          </div>
+
+          <div>
+            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">
+              2. Student Roster .docx <span class="text-slate-300 normal-case font-bold">(optional — adds Name / Section / Version)</span>
+            </label>
+            <input type="file" id="sscRosterInput" accept=".docx" onchange="handleSscRosterFile(event)"
+                   class="w-full text-xs font-bold file:mr-3 file:py-2.5 file:px-4 file:rounded-xl file:border-0
+                          file:bg-slate-100 file:text-slate-600 file:font-black file:text-[10px] file:uppercase
+                          file:tracking-widest hover:file:bg-slate-200 transition-all">
+            <p id="sscRosterStatus" class="text-xs text-slate-400 font-bold mt-1.5"></p>
+          </div>
+
+          <button onclick="generateSscResultExcel()"
+                  class="w-full bg-blue-600 text-white font-black px-6 py-4 rounded-2xl hover:bg-black
+                         transition-all text-xs uppercase tracking-widest shadow-xl shadow-blue-500/20
+                         flex items-center justify-center gap-2">
+            <i data-lucide="file-spreadsheet" class="h-4 w-4"></i> Generate Excel Workbook
+          </button>
+
+          <div id="sscStatusBox" class="hidden rounded-2xl p-4 bg-slate-50 border border-slate-200">
+            <p id="sscStatus" class="text-xs font-bold text-slate-600"></p>
+          </div>
+        </div>
+      </div>
+    `;
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+  }
+
+  function handleSscPdfFile(e) {
+    _sscPdfFile = e.target.files[0] || null;
+    const status = document.getElementById('sscPdfStatus');
+    if (status) status.textContent = _sscPdfFile ? _sscPdfFile.name : '';
+  }
+
+  function handleSscRosterFile(e) {
+    _sscRosterFile = e.target.files[0] || null;
+    const status = document.getElementById('sscRosterStatus');
+    if (status) status.textContent = _sscRosterFile ? _sscRosterFile.name : '';
+  }
+
+  function _sscSetStatus(msg, isError) {
+    const box = document.getElementById('sscStatusBox');
+    const p = document.getElementById('sscStatus');
+    if (box) box.classList.remove('hidden');
+    if (p) { p.textContent = msg; p.className = 'text-xs font-bold ' + (isError ? 'text-red-500' : 'text-slate-600'); }
+  }
+
+  function ensurePDFJS() {
+    if (window.pdfjsLib) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const sc = document.createElement('script');
+      sc.src = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js';
+      sc.onload = () => {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+          'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+        resolve();
+      };
+      sc.onerror = () => reject(new Error('Could not load the PDF reader — check your connection and retry.'));
+      document.head.appendChild(sc);
+    });
+  }
+
+  function ensureSscJSZip() {
+    if (window.JSZip) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const sc = document.createElement('script');
+      sc.src = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';
+      sc.onload = resolve;
+      sc.onerror = () => reject(new Error('Could not load the DOCX reader — check your connection and retry.'));
+      document.head.appendChild(sc);
+    });
+  }
+
+  function _sscExtractPdfText(file) {
+    return file.arrayBuffer().then(buf =>
+      window.pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise
+    ).then(async (pdf) => {
+      let fullText = '';
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const tc = await page.getTextContent();
+        const items = tc.items.map(it => ({ str: it.str, x: it.transform[4], y: it.transform[5] }));
+        const lines = {};
+        for (const it of items) { const key = Math.round(it.y); (lines[key] = lines[key] || []).push(it); }
+        const sortedKeys = Object.keys(lines).map(Number).sort((a, b) => b - a);
+        fullText += sortedKeys.map(k => lines[k].sort((a, b) => a.x - b.x).map(it => it.str).join('')).join('\n') + '\n';
+      }
+      return fullText;
+    });
+  }
+
+  function _sscParseRosterDocx(file) {
+    return file.arrayBuffer().then(buf => window.JSZip.loadAsync(buf)).then(zip =>
+      zip.file('word/document.xml').async('string')
+    ).then(xmlText => {
+      const tblMatch = xmlText.match(/<w:tbl>[\s\S]*?<\/w:tbl>/);
+      if (!tblMatch) throw new Error('No table found in the roster document.');
+      const rowMatches = [...tblMatch[0].matchAll(/<w:tr\b[\s\S]*?<\/w:tr>/g)];
+      return rowMatches.map(rm => {
+        const cellMatches = [...rm[0].matchAll(/<w:tc\b[\s\S]*?<\/w:tc>/g)];
+        return cellMatches.map(cm => [...cm[0].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(t => t[1]).join(''));
+      });
+    });
+  }
+
+  function sscParseHeader(text) {
+    const header = {};
+    let m = text.match(/INSTITUTE NAME\s*:\s*(.+?)\((\d+)\)/);
+    if (m) { header.institution = m[1].trim(); header.eiin = m[2]; }
+    m = text.match(/Institution:\s*(.+?)\s*\(EIIN:\s*(\d+)\)/);
+    if (m) { header.institution = m[1].trim(); header.eiin = m[2]; }
+    m = text.match(/RESULTS? OF SSC EXAMINATION,\s*(\d{4})/);
+    if (m) header.year = m[1];
+    m = text.match(/APP\s*:\s*(\d+)/);
+    if (m) header.app = m[1];
+    m = text.match(/PASS\s*:\s*(\d+)/);
+    if (m) header.pass = m[1];
+    m = text.match(/GPA5\s*:\s*(\d+)/);
+    if (m) header.gpa5 = m[1];
+    m = text.match(/Examinee:\s*(\d+),\s*Appeared:\s*(\d+),\s*Passed:\s*(\d+),\s*Percentage of Pass:\s*([\d.]+),\s*GPA 5:\s*(\d+)/);
+    if (m) { header.examinee = m[1]; header.app = m[2]; header.pass = m[3]; header.percent = m[4]; header.gpa5 = m[5]; }
+    return header;
+  }
+
+  function sscDetectFormat(text) {
+    if (/\d{4,7}\[[^\]]+\]:\d+:T:\d+\(/.test(text)) return 'detailed';
+    if (/\d{4,7}\[[^\]]+\]\s*,/.test(text) || /\d{4,7}\[[^\]]+\]\s*$/m.test(text)) return 'simple';
+    return 'unknown';
+  }
+
+  function sscParseDetailed(text) {
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    let group = null;
+    const records = {};
+    const lineRe = /^(\d{4,7})\[([^\]]+)\]:(.*)$/;
+    const absRe = /^(\d{4,7})\[([^\]]+)\]\s*$/;
+    for (const line of lines) {
+      if (line.includes('UNSUCCESSFUL')) { group = 'UNSUCCESSFUL/OTHERS'; continue; }
+      if (line.endsWith(':') && (line === line.toUpperCase() || line.includes('STUDIES'))) {
+        if (!line.includes('EXAMINEES')) group = line.replace(/:$/, '').trim();
+        continue;
+      }
+      let m = line.match(lineRe);
+      if (m) {
+        const [, roll, gpa, rest] = m;
+        const subjects = {};
+        for (const part of rest.split(',')) {
+          const pm = part.trim().match(/(\d+):T:(\d+)\(([^)]+)\)/);
+          if (pm) subjects[pm[1]] = [pm[2].trim(), pm[3].trim()];
+        }
+        records[roll] = { group, gpa, status: 'PASS', subjects };
+        continue;
+      }
+      m = line.match(absRe);
+      if (m) records[m[1]] = { group, gpa: '', status: m[2].replace(/\.$/, ''), subjects: {} };
+    }
+    return records;
+  }
+
+  function sscParseSimple(text) {
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    let group = null;
+    const records = {};
+    for (const line of lines) {
+      if (line.includes('BUSINESS STUDIES') && /^-+\s*:/.test(line)) { group = 'BUSINESS STUDIES'; continue; }
+      if (line.includes('SCIENCE') && /^-+\s*:/.test(line) && !line.includes('BUSINESS')) { group = 'SCIENCE'; continue; }
+      if (line.includes('HUMANITIES') && /^-+\s*:/.test(line)) { group = 'HUMANITIES'; continue; }
+      if (line.includes('END OF RESULT')) { group = null; continue; }
+      if (group && /\d{4,7}\[/.test(line)) {
+        const cleaned = line.replace(/=\d+/g, '');
+        const re = /(\d{4,7})\[([^\]]+)\]/g;
+        let mm;
+        while ((mm = re.exec(cleaned)) !== null) {
+          const [, roll, gpaRaw] = mm;
+          const gpa = gpaRaw.trim();
+          const status = /^[\d.]+$/.test(gpa) ? 'PASS' : gpa.replace(/\.$/, '');
+          records[roll] = { group, gpa: status === 'PASS' ? gpa : '', status, subjects: {} };
+        }
+      }
+    }
+    return records;
+  }
+
+  function sscParseRosterRows(rows) {
+    if (!rows || !rows.length) return {};
+    const headerCells = rows[0].map(h => String(h || '').toLowerCase());
+    const findCol = (...keywords) => {
+      for (let i = 0; i < headerCells.length; i++) {
+        if (keywords.every(k => headerCells[i].includes(k))) return i;
+      }
+      return null;
+    };
+    const colName = findCol('name');
+    const colRoll = findCol('class') !== null ? findCol('class') : findCol('roll');
+    const colSec = findCol('sec');
+    const colReg = findCol('registration');
+    const colSsc = findCol('ssc', 'roll');
+    const colVer = findCol('version');
+    const colGender = findCol('gender');
+    const roster = {};
+    for (let i = 1; i < rows.length; i++) {
+      const cells = rows[i];
+      if (colSsc === null || colSsc >= cells.length) continue;
+      const sscRoll = String(cells[colSsc] || '').trim();
+      if (!sscRoll) continue;
+      roster[sscRoll] = {
+        name: colName !== null ? (cells[colName] || '') : '',
+        classRoll: colRoll !== null ? (cells[colRoll] || '') : '',
+        section: colSec !== null ? (cells[colSec] || '') : '',
+        regNo: colReg !== null ? (cells[colReg] || '') : '',
+        version: colVer !== null ? (cells[colVer] || '') : '',
+        gender: colGender !== null ? (cells[colGender] || '') : '',
+      };
+    }
+    return roster;
+  }
+
+  function sscGpaBand(gpa) {
+    if (gpa === '' || gpa === null || gpa === undefined) return 'F';
+    const g = parseFloat(gpa);
+    if (g === 5.0) return '5.00';
+    if (g >= 4.0 && g < 5.0) return '4-5';
+    if (g >= 3.5 && g < 4.0) return '3.5-4';
+    if (g >= 3.0 && g < 3.5) return '3-3.5';
+    if (g >= 2.0 && g < 3.0) return '2-3';
+    if (g >= 1.0 && g < 2.0) return '1-2';
+    return 'F';
+  }
+
+  function sscRound2(n) { return Math.round(n * 100) / 100; }
+  function sscPct(n, total) { return total ? sscRound2((n / total) * 100).toFixed(2) : '-'; }
+  function sscDash(n) { return n ? String(n) : '-'; }
+
+  function sscBuildSheets(records, roster, header) {
+    const fmt = Object.values(records).some(r => Object.keys(r.subjects).length) ? 'detailed' : 'simple';
+    const allCodes = fmt === 'detailed'
+      ? [...new Set(Object.values(records).flatMap(r => Object.keys(r.subjects)))].sort((a, b) => +a - +b)
+      : [];
+    const allRolls = Object.keys(records).sort((a, b) => +a - +b);
+    const haveVersion = Object.values(roster).some(v => v.version);
+    const sheets = [];
+
+    const aggHeaders = ['SSC Roll', 'Name', 'Class Roll', 'Section', 'Registration No', 'Version', 'Gender',
+                         'Group', 'GPA', 'Status'];
+    const subjHeaders = [];
+    for (const code of allCodes) {
+      const label = SSC_SUBJECT_NAMES[code] || `Subject ${code}`;
+      subjHeaders.push(`${label} (${code}) Mark`, `${label} (${code}) Grade`);
+    }
+    const aggRows = [aggHeaders.concat(subjHeaders)];
+    for (const roll of allRolls) {
+      const rec = records[roll];
+      const ros = roster[roll] || {};
+      const row = [roll, ros.name || '', ros.classRoll || '', ros.section || '', ros.regNo || '',
+                   ros.version || '', ros.gender || '', rec.group || '', rec.gpa, rec.status];
+      for (const code of allCodes) {
+        const s = rec.subjects[code];
+        row.push(s ? s[0] : '', s ? s[1] : '');
+      }
+      aggRows.push(row);
+    }
+    sheets.push({ name: 'Aggregated Result', rows: aggRows });
+
+    const bucket = () => ({ total: 0, gpa5: 0, pass: 0, abs: 0 });
+    const gv = {}, gStats = {};
+    for (const roll of allRolls) {
+      const rec = records[roll];
+      const ros = roster[roll] || {};
+      const g = rec.group || 'Unknown';
+      const ver = haveVersion ? (ros.version === 'EV' ? 'English' : 'Bangla') : '-';
+      for (const [store, key] of [[gStats, g], [gv, g + '|' + ver]]) {
+        const b = store[key] = store[key] || bucket();
+        b.total++;
+        if (rec.status === 'PASS') { b.pass++; if (parseFloat(rec.gpa) === 5.0) b.gpa5++; }
+        else b.abs++;
+      }
+    }
+    const knownGroups = Object.keys(gStats).filter(g => g !== 'UNSUCCESSFUL/OTHERS' && g !== 'Unknown');
+    const sumRows = [['Group', 'Version', 'Registered', 'Appeared', 'Pass', 'GPA-5', 'Absent']];
+    for (const g of knownGroups) {
+      if (haveVersion) {
+        for (const ver of ['Bangla', 'English']) {
+          const v = gv[g + '|' + ver];
+          if (v) sumRows.push([g, ver, v.total, v.total - v.abs, v.pass, v.gpa5, v.abs]);
+        }
+        const t = gStats[g];
+        sumRows.push([g, 'Total', t.total, t.total - t.abs, t.pass, t.gpa5, t.abs]);
+      } else {
+        const t = gStats[g];
+        sumRows.push([g, '-', t.total, t.total - t.abs, t.pass, t.gpa5, t.abs]);
+      }
+    }
+    for (const [g, t] of Object.entries(gStats)) {
+      if (knownGroups.includes(g)) continue;
+      sumRows.push([g, '-', t.total, t.total - t.abs, t.pass, t.gpa5, t.abs]);
+    }
+    const grand = bucket();
+    for (const t of Object.values(gStats)) { grand.total += t.total; grand.pass += t.pass; grand.gpa5 += t.gpa5; grand.abs += t.abs; }
+    sumRows.push(['TOTAL', '', grand.total, grand.total - grand.abs, grand.pass, grand.gpa5, grand.abs]);
+    sheets.push({ name: 'Summary', rows: sumRows });
+
+    const legendRows = [['Code', 'Subject Name']];
+    if (allCodes.length) allCodes.forEach(c => legendRows.push([c, SSC_SUBJECT_NAMES[c] || 'Unknown']));
+    else legendRows.push(['-', 'No subject codes available -- this PDF only lists Roll + GPA, no subject-wise marks.']);
+    sheets.push({ name: 'Subject Code Legend', rows: legendRows });
+
+    const subjStats = {};
+    allCodes.forEach(c => subjStats[c] = { marks: [], grades: {} });
+    for (const rec of Object.values(records)) {
+      for (const [code, [mark, grade]] of Object.entries(rec.subjects)) {
+        if (mark) subjStats[code].marks.push(+mark);
+        if (grade) subjStats[code].grades[grade] = (subjStats[code].grades[grade] || 0) + 1;
+      }
+    }
+    const swsRows = [['Code', 'Subject Name', 'Appeared', 'Highest Mark', 'Lowest Mark', 'Average Mark'].concat(SSC_GRADE_ORDER)];
+    if (allCodes.length) {
+      for (const code of allCodes) {
+        const st = subjStats[code];
+        const appeared = st.marks.length;
+        const row = [code, SSC_SUBJECT_NAMES[code] || `Subject ${code}`, appeared,
+                     appeared ? Math.max(...st.marks) : '', appeared ? Math.min(...st.marks) : '',
+                     appeared ? sscRound2(st.marks.reduce((a, b) => a + b, 0) / appeared) : ''];
+        SSC_GRADE_ORDER.forEach(g => row.push(st.grades[g] || 0));
+        swsRows.push(row);
+      }
+    } else {
+      swsRows.push(['-', 'No subject-wise mark data available in this PDF format.']);
+    }
+    sheets.push({ name: 'Subject-wise Summary', rows: swsRows });
+
+    const swvRows = [['Code', 'Subject Name', 'Group', 'Version', 'Appeared', 'Highest Mark', 'Lowest Mark', 'Average Mark'].concat(SSC_GRADE_ORDER)];
+    if (allCodes.length && haveVersion) {
+      const verStats = {};
+      for (const roll of allRolls) {
+        const rec = records[roll];
+        if (!knownGroups.includes(rec.group)) continue;
+        const ros = roster[roll] || {};
+        const verLabel = ros.version === 'EV' ? 'English' : 'Bangla';
+        for (const [code, [mark, grade]] of Object.entries(rec.subjects)) {
+          if (!grade) continue;
+          const key = code + '|' + rec.group + '|' + verLabel;
+          const st = verStats[key] = verStats[key] || { marks: [], grades: {} };
+          if (mark) st.marks.push(+mark);
+          st.grades[grade] = (st.grades[grade] || 0) + 1;
+        }
+      }
+      const codeGroups = {};
+      Object.keys(verStats).forEach(k => {
+        const [code, grp] = k.split('|');
+        (codeGroups[code] = codeGroups[code] || new Set()).add(grp);
+      });
+      const bs = (marks, grades) => {
+        const appeared = marks.length;
+        return [appeared, appeared ? Math.max(...marks) : '', appeared ? Math.min(...marks) : '',
+                appeared ? sscRound2(marks.reduce((a, b) => a + b, 0) / appeared) : ''];
+      };
+      for (const code of allCodes) {
+        const groupsPresent = [...(codeGroups[code] || [])].sort();
+        if (!groupsPresent.length) continue;
+        let overallMarks = [], overallGrades = {};
+        for (const grp of groupsPresent) {
+          let cMarks = [], cGrades = {};
+          for (const ver of ['Bangla', 'English']) {
+            const st = verStats[code + '|' + grp + '|' + ver];
+            if (!st) continue;
+            const [appeared, hi, lo, avg] = bs(st.marks, st.grades);
+            const row = [code, SSC_SUBJECT_NAMES[code] || `Subject ${code}`,
+                         grp.charAt(0) + grp.slice(1).toLowerCase(), ver, appeared, hi, lo, avg];
+            SSC_GRADE_ORDER.forEach(g => row.push(st.grades[g] || 0));
+            swvRows.push(row);
+            cMarks = cMarks.concat(st.marks);
+            for (const [g, n] of Object.entries(st.grades)) cGrades[g] = (cGrades[g] || 0) + n;
+          }
+          const [appeared, hi, lo, avg] = bs(cMarks, cGrades);
+          const row = [code, SSC_SUBJECT_NAMES[code] || `Subject ${code}`,
+                       grp.charAt(0) + grp.slice(1).toLowerCase(), 'Total', appeared, hi, lo, avg];
+          SSC_GRADE_ORDER.forEach(g => row.push(cGrades[g] || 0));
+          swvRows.push(row);
+          overallMarks = overallMarks.concat(cMarks);
+          for (const [g, n] of Object.entries(cGrades)) overallGrades[g] = (overallGrades[g] || 0) + n;
+        }
+        if (groupsPresent.length > 1) {
+          const [appeared, hi, lo, avg] = bs(overallMarks, overallGrades);
+          const row = [code, SSC_SUBJECT_NAMES[code] || `Subject ${code}`, 'Overall (Both Groups)', 'Total', appeared, hi, lo, avg];
+          SSC_GRADE_ORDER.forEach(g => row.push(overallGrades[g] || 0));
+          swvRows.push(row);
+        }
+      }
+    } else if (!allCodes.length) {
+      swvRows.push(['-', 'No subject-wise mark data available in this PDF format.']);
+    } else {
+      swvRows.push(['-', 'No Version data available -- provide a student roster .docx with a Version column to enable this breakdown.']);
+    }
+    sheets.push({ name: 'Subject-wise by Version', rows: swvRows });
+
+    sheets.push({ name: 'Report Analysis', rows: _sscBuildReportAnalysis(records, roster, header, allCodes, knownGroups, gStats, gv, haveVersion) });
+
+    return { sheets, fmt };
+  }
+
+  function _sscBuildReportAnalysis(records, roster, header, allCodes, knownGroups, gStats, gv, haveVersion) {
+    const rows = [];
+    const sec = (title) => { rows.push([]); rows.push([title]); };
+    const inst = header.institution || 'Institution';
+    const year = header.year || '';
+    rows.push([`SSC Result Summary ${year} -- ${inst}`]);
+
+    sec('1. SSC RESULT SUMMARY');
+    rows.push(['Group', 'Examinee', 'Passed', '% of Pass', 'GPA-5.00', '4<5', '3.5<4', '3<3.5', '2<3', '1<2', 'F']);
+    const bandsOf = (g) => {
+      const rec = {};
+      for (const roll of Object.keys(records)) {
+        const r = records[roll];
+        if (r.group !== g) continue;
+        const b = r.status === 'PASS' ? sscGpaBand(r.gpa) : 'F';
+        rec[b] = (rec[b] || 0) + 1;
+      }
+      return rec;
+    };
+    let grandEx = 0, grandPass = 0, grandBands = {};
+    for (const g of knownGroups) {
+      const t = gStats[g];
+      const bands = bandsOf(g);
+      rows.push([g, t.total, t.pass, sscPct(t.pass, t.total), sscDash(bands['5.00']), sscDash(bands['4-5']),
+                 sscDash(bands['3.5-4']), sscDash(bands['3-3.5']), sscDash(bands['2-3']), sscDash(bands['1-2']), sscDash(bands['F'])]);
+      grandEx += t.total; grandPass += t.pass;
+      for (const [k, v] of Object.entries(bands)) grandBands[k] = (grandBands[k] || 0) + v;
+    }
+    rows.push(['TOTAL', grandEx, grandPass, sscPct(grandPass, grandEx), sscDash(grandBands['5.00']), sscDash(grandBands['4-5']),
+               sscDash(grandBands['3.5-4']), sscDash(grandBands['3-3.5']), sscDash(grandBands['2-3']), sscDash(grandBands['1-2']), sscDash(grandBands['F'])]);
+
+    sec('2. VERSION-WISE RESULT ANALYSIS');
+    if (haveVersion) {
+      for (const g of knownGroups) {
+        rows.push([g]);
+        rows.push(['Version', 'GPA-5.00', '4<5', '3.5<4', '3<3.5', '2<3', '1<2', 'F', 'Total']);
+        let gt = { '5.00': 0, '4-5': 0, '3.5-4': 0, '3-3.5': 0, '2-3': 0, '1-2': 0, 'F': 0, total: 0 };
+        for (const ver of ['Bangla', 'English']) {
+          const v = gv[g + '|' + ver];
+          if (!v) continue;
+          const bands = {};
+          for (const roll of Object.keys(records)) {
+            const r = records[roll]; if (r.group !== g) continue;
+            const ros = roster[roll] || {};
+            const rv = ros.version === 'EV' ? 'English' : 'Bangla';
+            if (rv !== ver) continue;
+            const b = r.status === 'PASS' ? sscGpaBand(r.gpa) : 'F';
+            bands[b] = (bands[b] || 0) + 1;
+          }
+          rows.push([ver, sscDash(bands['5.00']), sscDash(bands['4-5']), sscDash(bands['3.5-4']), sscDash(bands['3-3.5']),
+                     sscDash(bands['2-3']), sscDash(bands['1-2']), sscDash(bands['F']), v.total]);
+          for (const k of Object.keys(gt)) if (k !== 'total') gt[k] += (bands[k] || 0);
+          gt.total += v.total;
+        }
+        rows.push(['Total', sscDash(gt['5.00']), sscDash(gt['4-5']), sscDash(gt['3.5-4']), sscDash(gt['3-3.5']),
+                   sscDash(gt['2-3']), sscDash(gt['1-2']), sscDash(gt['F']), gt.total]);
+        rows.push([]);
+      }
+    } else {
+      rows.push(['No Version data available -- provide a student roster .docx with a Version column to enable this breakdown.']);
+    }
+
+    sec('3. SUBJECT-WISE LETTER GRADE');
+    if (allCodes.length) {
+      const gradeStatsByGroup = {};
+      for (const rec of Object.values(records)) {
+        if (!knownGroups.includes(rec.group)) continue;
+        for (const [code, [mark, grade]] of Object.entries(rec.subjects)) {
+          if (!grade) continue;
+          const gg = gradeStatsByGroup[rec.group] = gradeStatsByGroup[rec.group] || {};
+          const cc = gg[code] = gg[code] || { total: 0, grades: {} };
+          cc.total++;
+          cc.grades[grade] = (cc.grades[grade] || 0) + 1;
+        }
+      }
+      const orderFor = (g) => g === 'SCIENCE' ? SSC_SCIENCE_ORDER : g === 'BUSINESS STUDIES' ? SSC_BUSINESS_ORDER : allCodes;
+      for (const g of knownGroups) {
+        rows.push([g]);
+        rows.push(['Subject', 'A+', 'A', 'A-', 'B', 'C', 'D', 'Total']);
+        for (const code of orderFor(g)) {
+          const cc = (gradeStatsByGroup[g] || {})[code];
+          if (!cc) continue;
+          rows.push([SSC_SUBJECT_NAMES[code] || `Subject ${code}`, sscDash(cc.grades['A+']), sscDash(cc.grades['A']),
+                     sscDash(cc.grades['A-']), sscDash(cc.grades['B']), sscDash(cc.grades['C']), sscDash(cc.grades['D']), cc.total]);
+        }
+        rows.push([]);
+      }
+    } else {
+      rows.push(['No subject-wise mark data available in this PDF format.']);
+    }
+
+    sec('4. SUBJECT-WISE A+ (ALL GROUPS COMBINED)');
+    if (allCodes.length) {
+      rows.push(['Subject', 'Total Students', 'A+', '%']);
+      const allGrades = {};
+      for (const rec of Object.values(records)) {
+        for (const [code, [mark, grade]] of Object.entries(rec.subjects)) {
+          if (!grade) continue;
+          const cc = allGrades[code] = allGrades[code] || { total: 0, aplus: 0 };
+          cc.total++;
+          if (grade === 'A+') cc.aplus++;
+        }
+      }
+      for (const code of SSC_COMBINED_ORDER) {
+        const cc = allGrades[code];
+        if (!cc) continue;
+        rows.push([SSC_SUBJECT_NAMES[code] || `Subject ${code}`, cc.total, cc.aplus, sscPct(cc.aplus, cc.total)]);
+      }
+    } else {
+      rows.push(['No subject-wise mark data available in this PDF format.']);
+    }
+
+    return rows;
+  }
+
+  function generateSscResultExcel() {
+    if (!_sscPdfFile) { showToast('Please choose a result PDF first', 'error'); return; }
+    _sscSetStatus('Loading PDF engine…');
+    let text, header, fmt, records, roster = {};
+    ensurePDFJS()
+      .then(() => { _sscSetStatus('Reading PDF…'); return _sscExtractPdfText(_sscPdfFile); })
+      .then(t => {
+        text = t;
+        header = sscParseHeader(text);
+        fmt = sscDetectFormat(text);
+        if (fmt === 'unknown') throw new Error('This PDF layout was not recognized as a BISE-style result printout.');
+        records = fmt === 'detailed' ? sscParseDetailed(text) : sscParseSimple(text);
+        _sscSetStatus(`Parsed ${Object.keys(records).length} roll entries (${fmt} format).`);
+        if (_sscRosterFile) {
+          _sscSetStatus('Reading roster…');
+          return ensureSscJSZip().then(() => _sscParseRosterDocx(_sscRosterFile)).then(rows => {
+            roster = sscParseRosterRows(rows);
+          });
+        }
+      })
+      .then(() => { _sscSetStatus('Building Excel workbook…'); return ensureXLSX(); })
+      .then(() => {
+        const { sheets } = sscBuildSheets(records, roster, header);
+        const wb = XLSX.utils.book_new();
+        for (const s of sheets) {
+          const ws = XLSX.utils.aoa_to_sheet(s.rows);
+          XLSX.utils.book_append_sheet(wb, ws, s.name.slice(0, 31));
+        }
+        const nameBits = [(header.institution || 'SSC-Result').replace(/\s+/g, '-'), header.year || ''].filter(Boolean);
+        const fileName = nameBits.join('-') + '-Aggregated.xlsx';
+        XLSX.writeFile(wb, fileName);
+        _sscSetStatus('Done — ' + fileName + ' downloaded.');
+        showToast('Excel workbook generated', 'success');
+      })
+      .catch(err => {
+        console.error(err);
+        _sscSetStatus('Error: ' + err.message, true);
+        showToast(err.message, 'error');
+      });
   }
