@@ -153,7 +153,7 @@ const RESERVED = [
   'openSummaryPrintModal','printSummaryData',
 
   // History/Photo/Notices/Import native ports (Phase 6, part 2)
-  'loadAdminHistoryView','debounceLoadEditHistory','loadEditHistory',
+  'loadAdminHistoryView','debounceLoadEditHistory','loadEditHistory','_historyPrevPage','_historyNextPage',
   'loadAdminPhotoView','loadStudentForPhoto','handleStudentPhotoSelect',
   'loadAdminNoticesView','addNoticeRow','previewNotice','saveNoticeRow',
   'deleteNoticeRow','moveNotice',

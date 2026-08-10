@@ -8198,6 +8198,8 @@
   // ══════════════════════════════════════════════════════════════════════
 
   let _historyDebounce = null;
+  let _historyOffset   = 0;
+  const _historyLimit  = 50;
 
   function loadAdminHistoryView() {
     if (!(window._adminTabAccess || []).includes('history')) {
@@ -8209,6 +8211,7 @@
     setContentHeader('History', 'clock');
     const container = document.getElementById('view-container');
     if (!container) return;
+    _historyOffset = 0;
     container.innerHTML = `
       <div class="mb-4">
         <h2 class="text-2xl font-black text-slate-800 tracking-tight">Edit History</h2>
@@ -8216,7 +8219,7 @@
       </div>
       <div class="grid grid-cols-1 md:grid-cols-4 gap-2 mb-3">
         <input type="search" id="historySearch" placeholder="Search Student ID, name, class, section, roll…" oninput="debounceLoadEditHistory()" class="md:col-span-3 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-history-search">
-        <button onclick="loadEditHistory()" class="px-3 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Search</button>
+        <button onclick="debounceLoadEditHistory(true)" class="px-3 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Search</button>
       </div>
       <div id="historyCount" class="text-xs font-black text-slate-500 mb-2"></div>
       <div class="overflow-auto border border-slate-200 rounded-xl">
@@ -8233,12 +8236,19 @@
           <tbody id="historyBody"></tbody>
         </table>
       </div>
+      <div id="historyPagination" class="flex items-center justify-center gap-3 mt-3"></div>
     `;
     lucide.createIcons();
     loadEditHistory();
   }
-  function debounceLoadEditHistory() {
+  // debounceLoadEditHistory(true) — an explicit new search (Search button, or
+  // Enter) skips the debounce delay; typing still debounces at 350ms. Either
+  // way a changed query always resets to page 1 — paging state from a
+  // different search wouldn't make sense to carry over.
+  function debounceLoadEditHistory(immediate) {
     if (_historyDebounce) clearTimeout(_historyDebounce);
+    _historyOffset = 0;
+    if (immediate) { loadEditHistory(); return; }
     _historyDebounce = setTimeout(loadEditHistory, 350);
   }
   function loadEditHistory() {
@@ -8248,11 +8258,17 @@
     if (!body) return;
     body.innerHTML = '<tr><td colspan="7" class="text-center p-6"><i data-lucide="loader-2" class="h-5 w-5 animate-spin inline text-blue-600"></i></td></tr>';
     lucide.createIcons();
-    _adminFetch('search_edit_history', { query: q }).then(res => {
-      if (!res || res.result !== 'success') { body.innerHTML = `<tr><td colspan="7" class="text-center text-red-500 font-bold p-6">${(res && res.message) || 'Could not load history'}</td></tr>`; return; }
+    // Search runs server-side against the full edit_history table (a
+    // PostgREST or=(...ilike...) filter, not a client-side filter over
+    // whatever page happens to be loaded) — offset/limit below only page
+    // through however many rows THAT search matched, never a pre-truncated
+    // subset of the table.
+    _adminFetch('search_edit_history', { query: q, offset: _historyOffset, limit: _historyLimit }).then(res => {
+      if (!res || res.result !== 'success') { body.innerHTML = `<tr><td colspan="7" class="text-center text-red-500 font-bold p-6">${(res && res.message) || 'Could not load history'}</td></tr>`; document.getElementById('historyPagination').innerHTML = ''; return; }
       const rows = res.rows || [];
-      if (countEl) countEl.textContent = `${rows.length} edit${rows.length === 1 ? '' : 's'}${q ? ` matching "${q}"` : ''}`;
-      if (!rows.length) { body.innerHTML = '<tr><td colspan="7" class="text-center text-slate-400 font-bold p-6">No edits found.</td></tr>'; return; }
+      const total = res.total || 0;
+      if (countEl) countEl.textContent = `${total} edit${total === 1 ? '' : 's'}${q ? ` matching "${q}"` : ''}`;
+      if (!rows.length) { body.innerHTML = '<tr><td colspan="7" class="text-center text-slate-400 font-bold p-6">No edits found.</td></tr>'; document.getElementById('historyPagination').innerHTML = ''; return; }
       body.innerHTML = rows.map(r => {
         const changes = Object.entries(r.edited_history || {}).map(([field, d]) => {
           if (d && d.changed) return `<span class="inline-block px-2 py-0.5 bg-slate-100 text-slate-500 rounded-full text-[10px] font-bold mr-1 mb-1">${field}: changed</span>`;
@@ -8271,7 +8287,29 @@
           <td class="py-1.5 px-3 text-slate-400 font-bold whitespace-nowrap">${when}</td>
         </tr>`;
       }).join('');
+      _renderHistoryPagination(total);
     }).catch(() => { body.innerHTML = '<tr><td colspan="7" class="text-center text-red-500 font-bold p-6">Network error</td></tr>'; });
+  }
+  function _renderHistoryPagination(total) {
+    const el = document.getElementById('historyPagination');
+    if (!el) return;
+    if (total <= _historyLimit) { el.innerHTML = ''; return; }
+    const totalPages = Math.max(1, Math.ceil(total / _historyLimit));
+    const curPage = Math.floor(_historyOffset / _historyLimit) + 1;
+    const btnCls = (enabled) => `px-3 py-1.5 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all ${enabled ? 'bg-slate-100 text-slate-600 hover:bg-slate-200' : 'bg-slate-50 text-slate-300 cursor-not-allowed'}`;
+    el.innerHTML = `
+      <button onclick="_historyPrevPage()" ${curPage <= 1 ? 'disabled' : ''} class="${btnCls(curPage > 1)}">Prev</button>
+      <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Page ${curPage} of ${totalPages}</span>
+      <button onclick="_historyNextPage()" ${curPage >= totalPages ? 'disabled' : ''} class="${btnCls(curPage < totalPages)}">Next</button>
+    `;
+  }
+  function _historyPrevPage() {
+    _historyOffset = Math.max(0, _historyOffset - _historyLimit);
+    loadEditHistory();
+  }
+  function _historyNextPage() {
+    _historyOffset += _historyLimit;
+    loadEditHistory();
   }
 
   // ══════════════════════════════════════════════════════════════════════
