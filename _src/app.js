@@ -391,7 +391,10 @@
     bus_tracker:   () => loadAdminBusTrackerView(),
     payroll:       () => loadAdminPayrollView(),
     profile:       () => openMyProfile(),
-    ssc_result_analysis: () => loadSscResultAnalysisView()
+    ssc_result_analysis: () => loadSscResultAnalysisView(),
+    home:          () => renderMobileHomeGrid(),
+    analytics:     () => loadAnalytics(),
+    permissions:   () => loadPermissionsPanel()
   };
 
   function _setViewHash(key) {
@@ -424,10 +427,14 @@
     document.getElementById('side-user-role').textContent = window.ACTIVE_ROLE;
     _renderSidebarUserCard();
     updateSidebarForRole(window.ACTIVE_ROLE);
-    _loadModuleVisibility(() => updateSidebarForRole(window.ACTIVE_ROLE));
+    _loadModuleVisibility(() => { updateSidebarForRole(window.ACTIVE_ROLE); _refreshHomeGridIfVisible(); });
     startSessionHeartbeat();
     loadAndApplyTheme();
     _initRealtime();
+    // A fresh mobile login with no saved hash lands on the app-launcher home
+    // grid instead of the Administration dashboard — desktop is untouched
+    // since this only fires when both conditions hold.
+    if (!window.location.hash && window.innerWidth < 768) _setViewHash('home');
     // Route to saved hash (supports refresh & bookmarked views)
     _routeByHash();
     window.addEventListener('hashchange', _routeByHash);
@@ -605,6 +612,7 @@
         navEl.style.display = '';
         const container = document.getElementById('admin-links');
         if (container) container.classList.remove('hidden');
+        _refreshHomeGridIfVisible();
       }
     }).catch(() => {});
   }
@@ -712,6 +720,7 @@
       // the broader Student Portal module at all.
       const payrollLink = document.getElementById('nav-payroll');
       if (payrollLink) payrollLink.style.display = erpTabs.includes('payroll') ? '' : 'none';
+      _refreshHomeGridIfVisible();
       // get_my_tab_access is account-scoped (any role the account holds
       // unlocks its tabs) — gated here with the same account-wide
       // _hasModuleAccess used for the "Student Portal" header itself, so
@@ -737,6 +746,27 @@
     document.querySelectorAll('.nav-link').forEach(el => el.classList.remove('active'));
     const active = document.getElementById(id);
     if (active) active.classList.add('active');
+    // Called by literally every module loader with no exceptions — the true
+    // universal choke point (more reliable than setContentHeader, which a
+    // couple of loaders skip), so this is where the mobile back/home icon
+    // gets kept in sync with whatever just navigated.
+    _syncMobileTopBarIcon();
+  }
+
+  // Mobile top-bar icon button doubles as "open menu" (on the app-launcher
+  // home grid) and "back to home" (inside any module) — one dispatcher
+  // instead of swapping the onclick attribute itself.
+  function _mobileTopBarNavClick() {
+    const key = location.hash.slice(1).split('?')[0] || '';
+    if (key === 'home' || key === '') openMobileSidebar();
+    else renderMobileHomeGrid();
+  }
+  function _syncMobileTopBarIcon() {
+    if (window.innerWidth >= 768) return;
+    const key = location.hash.slice(1).split('?')[0] || '';
+    const iconEl = document.getElementById('mobileTopBarNavIcon');
+    if (iconEl) iconEl.setAttribute('data-lucide', (key === 'home' || key === '') ? 'menu' : 'arrow-left');
+    if (window.lucide) lucide.createIcons();
   }
 
   function setContentHeader(title, icon) {
@@ -748,6 +778,58 @@
     if (r) r.textContent = window.ACTIVE_ROLE || window.USER_ROLE || '';
     const scroller = document.querySelector('main .overflow-y-auto');
     if (scroller) scroller.scrollTop = 0;
+  }
+
+  // ── Mobile app-launcher home grid ────────────────────────────────────────
+  // Mobile-only landing/navigation layer: a grid of big tiles, one per
+  // sidebar link currently visible (derived from the LIVE sidebar DOM, not
+  // a second parallel permission list — reuses whatever _hasModuleAccess /
+  // _loadAdminSubnav / module-visibility matrix already decided is
+  // visible, so it can never drift out of sync with the sidebar itself).
+  // Tapping a tile clicks the original sidebar <a>, reusing its exact
+  // existing onclick handler — except Student Portal, whose sidebar link
+  // only toggles an accordion (no equivalent surface here), so its tile
+  // calls loadStudentPortalView() directly instead (the same resolver
+  // _HASH_ROUTES.student_portal already uses).
+  function renderMobileHomeGrid() {
+    if (window.innerWidth >= 768) { loadDefaultView(); return; }
+    _setViewHash('home');
+    setActiveNavLink();
+    setContentHeader('Home', 'layout-grid');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+
+    const links = Array.from(document.querySelectorAll('#main-sidebar nav .nav-link:not(.nav-sublink)'))
+      .filter(el => el.style.display !== 'none');
+
+    if (!links.length) {
+      container.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">No modules available — contact your administrator</div>`;
+      return;
+    }
+
+    container.innerHTML = `<div class="grid grid-cols-3 gap-3 pt-2">${links.map(el => {
+      const icon = el.querySelector('.nav-icon')?.getAttribute('data-lucide') || 'layout-grid';
+      const label = el.querySelector('.nav-text')?.textContent || '';
+      const isStudentPortal = el.id === 'nav-student-portal';
+      const onclick = isStudentPortal ? 'loadStudentPortalView()' : `document.getElementById('${el.id}').click()`;
+      return `
+        <button onclick="${onclick}" class="flex flex-col items-center justify-center gap-2 p-4 bg-white rounded-2xl border border-slate-200 shadow-sm active:scale-95 transition-all">
+          <div class="w-12 h-12 rounded-2xl flex items-center justify-center" style="background:var(--sidebar-accent-glow,rgba(37,99,235,0.1));color:var(--sidebar-accent-1,#2563eb);">
+            <i data-lucide="${icon}" class="h-6 w-6"></i>
+          </div>
+          <span class="text-[10px] font-black text-slate-600 text-center leading-tight">${_escHtml(label)}</span>
+        </button>`;
+    }).join('')}</div>`;
+    lucide.createIcons();
+  }
+
+  // Re-draws the grid only if it's the currently visible screen — called
+  // from every async source that can reveal/hide a sidebar link after the
+  // grid's first paint (module-visibility matrix, per-account tab grants,
+  // field-category grants), so a tile never silently goes missing just
+  // because that fetch hadn't resolved yet when the grid first rendered.
+  function _refreshHomeGridIfVisible() {
+    if ((location.hash.slice(1).split('?')[0] || '') === 'home') renderMobileHomeGrid();
   }
 
   function loadDefaultView() {
@@ -10592,7 +10674,9 @@
 
   function loadPermissionsPanel() {
     if (window.ACTIVE_ROLE !== 'Admin') { showToast('Admin access only', 'error'); return; }
+    _setViewHash('permissions');
     setActiveNavLink('nav-permissions');
+    setContentHeader('Permission Control', 'shield-check');
     document.getElementById('view-container').innerHTML = `
       <div class="space-y-6">
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
@@ -10747,7 +10831,9 @@
 
   function loadAnalytics() {
     if (!_requireAdminRole()) return;
+    _setViewHash('analytics');
     setActiveNavLink('nav-analytics');
+    setContentHeader('Analytics', 'bar-chart-3');
     document.getElementById('view-container').innerHTML = `<div class="flex flex-col items-center justify-center py-24 text-slate-300">
       <div class="w-20 h-20 rounded-3xl bg-slate-100 flex items-center justify-center mb-6"><i data-lucide="bar-chart-3" class="h-10 w-10 text-slate-400"></i></div>
       <h2 class="text-xl font-black uppercase tracking-widest text-slate-600">Analytics Dashboard</h2>
