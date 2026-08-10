@@ -389,6 +389,7 @@
     myclass:       () => loadMyClassView(),
     student_portal:() => loadStudentPortalView(),
     bus_tracker:   () => loadAdminBusTrackerView(),
+    payroll:       () => loadAdminPayrollView(),
     profile:       () => openMyProfile()
   };
 
@@ -607,15 +608,16 @@
     }).catch(() => {});
   }
 
-  // All 13 destinations nested under "Student Portal" in the sidebar — every
-  // one a native view calling the same /api/student-admin backend directly
-  // via _adminFetch (no iframe anywhere in this app anymore). The 5 ERP-tab
-  // entries (erp:true) stay gated per-account by the admin-editable
-  // admin_tab_visibility matrix (get_my_tab_access, self-service — e.g. an
-  // HR account sees just "Payroll" without needing Admin/Student Portal
-  // Admin); the rest are shown to any Admin/Student Portal Admin. A plain
-  // grantee with neither of those (only a field-category grant) never sees
-  // this list at all — see _studentPortalNavClick/loadViewerPanelView.
+  // The 12 remaining destinations nested under "Student Portal" in the
+  // sidebar (Payroll split out to its own standalone top-level link — see
+  // #nav-payroll / loadAdminPayrollView) — every one a native view calling
+  // the same /api/student-admin backend directly via _adminFetch (no iframe
+  // anywhere in this app anymore). The 4 remaining ERP-tab entries (erp:true)
+  // stay gated per-account by the admin-editable admin_tab_visibility matrix
+  // (get_my_tab_access, self-service); the rest are shown to any Admin/
+  // Student Portal Admin. A plain grantee with neither of those (only a
+  // field-category grant) never sees this list at all — see
+  // _studentPortalNavClick/loadViewerPanelView.
   const ADMIN_SUBNAV_ITEMS = [
     { key: 'setup', label: 'Setup', icon: 'sliders-horizontal', erp: false, action: { type: 'native', fn: 'loadAdminSetupView' } },
     { key: 'add_custom_form', label: '+ Add Custom Form', icon: 'plus-circle', erp: false, action: { type: 'native', fn: 'loadAdminAddCustomFormView' } },
@@ -624,7 +626,14 @@
     { key: 'fees', label: 'Fees', icon: 'wallet', erp: true, action: { type: 'native', fn: 'loadAdminFeesView' } },
     { key: 'attendance', label: 'Attendance', icon: 'fingerprint', erp: true, action: { type: 'native', fn: 'loadAdminAttendanceView' } },
     { key: 'exams', label: 'Exams', icon: 'clipboard-list', erp: true, action: { type: 'native', fn: 'loadAdminExamsView' } },
-    { key: 'payroll', label: 'Payroll', icon: 'banknote', erp: true, action: { type: 'native', fn: 'loadAdminPayrollView' } },
+    // 'payroll' deliberately NOT here — it's a standalone top-level sidebar
+    // item now (see #nav-payroll / loadAdminPayrollView), same reasoning as
+    // bus_tracker's own split out of this list: salary/leave isn't really a
+    // "Student Portal" concern, and an HR-only account (Payroll defaults to
+    // Admin+HR — see TAB_ACCESS_LABELS/loadAdminAccessView) shouldn't have
+    // to open a "Student Portal" accordion to find it. Its account-scoped
+    // grant check (get_my_tab_access / window._adminTabAccess) is unchanged
+    // — only where the link lives moved, see _loadAdminSubnav below.
     { key: 'transport', label: 'Transport', icon: 'bus', erp: true, action: { type: 'native', fn: 'loadAdminTransportView' } },
     { key: 'history', label: 'History', icon: 'clock', erp: false, action: { type: 'native', fn: 'loadAdminHistoryView' } },
     { key: 'photo', label: 'Photo', icon: 'camera', erp: false, action: { type: 'native', fn: 'loadAdminPhotoView' } },
@@ -694,6 +703,14 @@
       // this alone decides sidebar visibility for every subnav item.
       window._adminTabAccess = erpTabs;
       window._hasErpTabAccess = erpTabs.length > 0 || hasTabData; // loadStudentPortalView's own role gate checks this too
+      // Payroll is a standalone top-level link now (not one of ADMIN_SUBNAV_ITEMS
+      // any more — see the comment there), so it's toggled directly here from
+      // the same account-scoped erpTabs this whole fetch already produced,
+      // independent of the Student Portal header's own _hasModuleAccess gate
+      // right below — an account can hold Payroll access without holding
+      // the broader Student Portal module at all.
+      const payrollLink = document.getElementById('nav-payroll');
+      if (payrollLink) payrollLink.style.display = erpTabs.includes('payroll') ? '' : 'none';
       // get_my_tab_access is account-scoped (any role the account holds
       // unlocks its tabs) — gated here with the same account-wide
       // _hasModuleAccess used for the "Student Portal" header itself, so
@@ -6708,8 +6725,23 @@
   ];
 
   function loadAdminPayrollView() {
-    _setViewHash('student_portal');
-    setActiveNavLink('nav-erp-payroll');
+    // Standalone module now (see #nav-payroll / ADMIN_SUBNAV_ITEMS' comment)
+    // — its own hash route means it's directly reachable by URL/refresh,
+    // possibly before _loadAdminSubnav's own async grant check has resolved
+    // window._adminTabAccess (same race loadStudentPortalView documents
+    // above it). Use it when already populated (the common case — clicking
+    // the sidebar link after login) and only pay for a fresh re-fetch when
+    // it isn't yet.
+    if (window._adminTabAccess) { _renderAdminPayrollView(window._adminTabAccess); return; }
+    _adminFetch('get_my_tab_access', {}).then(res => {
+      const tabs = (res && res.result === 'success' && Array.isArray(res.tabs)) ? res.tabs : [];
+      _renderAdminPayrollView(tabs);
+    }).catch(() => showToast('Not available in current role', 'error'));
+  }
+  function _renderAdminPayrollView(tabs) {
+    if (!tabs.includes('payroll')) { showToast('Not available in current role', 'error'); return; }
+    _setViewHash('payroll');
+    setActiveNavLink('nav-payroll');
     setContentHeader('Payroll', 'banknote');
     const container = document.getElementById('view-container');
     if (!container) return;
