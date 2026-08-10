@@ -807,17 +807,25 @@
       return;
     }
 
-    container.innerHTML = `<div class="grid grid-cols-3 gap-3 pt-2">${links.map(el => {
+    // Cycle tiles through the CURRENT theme preset's own 4-color accent set
+    // (THEME_PRESETS[...].accents — already used for the app-bg glow) rather
+    // than a fixed hardcoded palette, so the grid stays colorful/vibrant
+    // while automatically matching whichever of the 14 themes a school has
+    // actually chosen, instead of clashing with it.
+    const _homeAccents = (THEME_PRESETS[(window.APP_THEME && window.APP_THEME.preset) || 'aurora'] || THEME_PRESETS.aurora).accents;
+
+    container.innerHTML = `<div class="grid grid-cols-3 gap-3 pt-1">${links.map((el, idx) => {
       const icon = el.querySelector('.nav-icon')?.getAttribute('data-lucide') || 'layout-grid';
       const label = el.querySelector('.nav-text')?.textContent || '';
       const isStudentPortal = el.id === 'nav-student-portal';
       const onclick = isStudentPortal ? 'loadStudentPortalView()' : `document.getElementById('${el.id}').click()`;
+      const accent = _homeAccents[idx % _homeAccents.length];
       return `
-        <button onclick="${onclick}" class="flex flex-col items-center justify-center gap-2 p-4 bg-white rounded-2xl border border-slate-200 shadow-sm active:scale-95 transition-all">
-          <div class="w-12 h-12 rounded-2xl flex items-center justify-center" style="background:var(--sidebar-accent-glow,rgba(37,99,235,0.1));color:var(--sidebar-accent-1,#2563eb);">
-            <i data-lucide="${icon}" class="h-6 w-6"></i>
+        <button onclick="${onclick}" class="flex flex-col items-center justify-center gap-2.5 p-4 bg-white rounded-3xl shadow-sm hover:shadow-md active:scale-95 transition-all duration-150">
+          <div class="w-14 h-14 rounded-2xl flex items-center justify-center" style="background:${_hexToRgba(accent, 0.14)};color:${accent};">
+            <i data-lucide="${icon}" class="h-7 w-7"></i>
           </div>
-          <span class="text-[10px] font-black text-slate-600 text-center leading-tight">${_escHtml(label)}</span>
+          <span class="text-[10.5px] font-black text-slate-600 text-center leading-tight tracking-tight">${_escHtml(label)}</span>
         </button>`;
     }).join('')}</div>`;
     lucide.createIcons();
