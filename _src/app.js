@@ -2112,8 +2112,17 @@
       const myProfile = window.APP_USER && window.APP_USER.profile;
       const myFullName = (myProfile && myProfile.full_name) ? String(myProfile.full_name).trim().toLowerCase() : '';
       const match = _routineDirectory.find(d => d.fullName.trim().toLowerCase() === myFullName);
-      _routineShortname = match ? match.shortname : (_routineDirectory[0] ? _routineDirectory[0].shortname : null);
-      _routineMode = 'self';
+      // No silent fallback to _routineDirectory[0] here anymore — that used
+      // to show a DIFFERENT teacher's schedule under "Self" with zero
+      // indication anything was wrong, whenever this account's full_name
+      // didn't exactly match the routine directory's fullName column (any
+      // spelling/formatting difference between the login system and the
+      // Google Sheet). Land in 'other' mode with nothing pre-selected
+      // instead — _drawRoutineShell shows an explicit "couldn't find you"
+      // notice and the picker, rather than quietly lying about whose
+      // schedule is on screen.
+      _routineShortname = match ? match.shortname : null;
+      _routineMode = match ? 'self' : 'other';
       _drawRoutineShell();
     }).withFailureHandler(function () {
       container.innerHTML = `<div class="p-8 text-center text-red-400 text-xs font-bold">Could not load the teacher directory.</div>`;
@@ -2145,7 +2154,10 @@
             <div class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
               <span class="font-black text-slate-800">Name:</span><span class="font-bold text-slate-600">${myEntry.fullName}</span>
               <span class="font-black text-slate-800">Short Name:</span><span class="font-bold text-slate-600">${myEntry.shortname}</span>
-            </div>` : ''}
+            </div>` : `
+            <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs font-bold text-amber-800">
+              We couldn't automatically match your account to a name in the routine directory (your profile name may not exactly match the routine sheet). Pick your name below under "Other's" to view your own schedule — and ask an Admin to fix the name in the routine sheet so this works automatically next time.
+            </div>`}
 
           <div class="flex gap-2">
             <button id="routineModeSelf" onclick="_setRoutineMode('self')" class="flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">Self</button>
