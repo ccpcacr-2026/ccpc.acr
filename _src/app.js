@@ -2160,7 +2160,7 @@
               <span class="font-black text-slate-800">Short Name:</span><span class="font-bold text-slate-600">${myEntry.shortname}</span>
             </div>` : `
             <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs font-bold text-amber-800">
-              We couldn't automatically match your account to a name in the routine directory (your profile name may not exactly match the routine sheet). Pick your name below under "Other's" to view your own schedule — and ask an Admin to fix the name in the routine sheet so this works automatically next time.
+              We couldn't automatically match your account to the routine sheet (your profile's Short Name may not match the routine sheet's short name column). Pick your name below under "Other's" to view your own schedule — and ask an Admin to fix your Short Name so this works automatically next time.
             </div>`}
 
           <div class="flex gap-2">
