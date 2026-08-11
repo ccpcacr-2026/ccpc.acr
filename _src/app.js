@@ -2279,8 +2279,16 @@
         ${isCoord ? `
         <div id="routineAdjustPanel" class="hidden bg-white rounded-3xl border border-slate-200 shadow-sm p-5 space-y-4">
           <div class="flex items-center justify-between flex-wrap gap-1">
-            <h3 class="text-lg font-black text-slate-800">Adjustment Board</h3>
-            <span id="routineLatestPdf" class="text-xs font-bold text-blue-600 whitespace-nowrap"></span>
+            <div>
+              <h3 class="text-lg font-black text-slate-800">Adjustment Board</h3>
+              <p id="routineAdjustDateLabel" class="text-xs font-bold text-slate-400 mt-0.5"></p>
+            </div>
+            <div class="flex items-center gap-3">
+              <a id="routineAdjustSheetLink" href="#" target="_blank" rel="noopener" class="hidden flex items-center gap-1 text-xs font-bold text-blue-600 hover:underline whitespace-nowrap">
+                <i data-lucide="external-link" class="h-3 w-3"></i> View Sheet
+              </a>
+              <span id="routineLatestPdf" class="text-xs font-bold text-blue-600 whitespace-nowrap"></span>
+            </div>
           </div>
           <div class="flex flex-wrap gap-2">
             <button onclick="_openDailySetupPrompt()" class="flex items-center gap-1.5 px-4 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-emerald-700"><i data-lucide="calendar" class="h-3.5 w-3.5"></i>Setup New Day</button>
@@ -2614,6 +2622,23 @@
       // handler and skips the date-sync below entirely.
       const adjListEl = document.getElementById('routineAdjustmentsList');
       if (adjListEl && !adjListEl.classList.contains('hidden')) _renderAdjustmentsList(board);
+
+      // Cord/Admin need to see which working day the board below is for —
+      // it's the sheet's own D1 date (can lag behind the real calendar date,
+      // see below), not necessarily "today". Plus a direct link to the
+      // underlying Google Sheet, for anyone who wants to double-check the
+      // raw data rather than trust the app's rendering of it.
+      const adjDateLbl = document.getElementById('routineAdjustDateLabel');
+      if (adjDateLbl) {
+        adjDateLbl.textContent = (board && !board.error && board.isoDate)
+          ? `Adjusting for ${_formatRoutineDate(board.isoDate)}${board.weekday ? ' · ' + board.weekday : ''}`
+          : '';
+      }
+      const adjSheetLink = document.getElementById('routineAdjustSheetLink');
+      if (adjSheetLink) {
+        if (board && board.sheetUrl) { adjSheetLink.href = board.sheetUrl; adjSheetLink.classList.remove('hidden'); }
+        else adjSheetLink.classList.add('hidden');
+      }
 
       // The "Selected" sheet's own D1 date (board.isoDate) is the school's
       // actual working day — set via Setup New Day, and it can legitimately

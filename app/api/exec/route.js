@@ -1764,8 +1764,9 @@ const handlers = {
 
     const parsedDate = dateLabel ? new Date(dateLabel) : null;
     const isoDate = parsedDate && !isNaN(parsedDate) ? parsedDate.toISOString().slice(0, 10) : '';
+    const sheetUrl = `https://docs.google.com/spreadsheets/d/${cfg.routineSheetId}/edit`;
 
-    return { dateLabel, isoDate, weekday, periods: periodCols.map(p => p.label), periodColNumbers, rows: dataRows, adjustments };
+    return { dateLabel, isoDate, weekday, periods: periodCols.map(p => p.label), periodColNumbers, rows: dataRows, adjustments, sheetUrl };
   },
 
   // Free-teacher candidates for a given period, from the "Dropdown" sheet —
