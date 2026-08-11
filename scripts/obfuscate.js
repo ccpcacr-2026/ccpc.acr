@@ -15,7 +15,7 @@ const RESERVED = [
   'closeModal','closeRecordsModal','closeResetPassModal','confirmChangeMyPass',
   'confirmEditRole','confirmResetPassword','launchDashboard','loadDefaultView','loadMyCommittees',
   'loadInventoryView','loadInventoryAdminView','loadMyClassView','loadSystemView','logout','openChangeMyPassModal','openMobileSidebar','openMyProfile',
-  'renderMobileHomeGrid','_mobileTopBarNavClick',
+  'renderMobileHomeGrid','_mobileTopBarNavClick','_openStudentPortalMobileMenu',
   'switchRecordsTab','toggleSidebar',
   // Inventory Admin (native port of ccpc-inventory) — onclick-referenced
   'switchInvAdminTab','openInventorySettingsEntity','openInventoryEntityForm',

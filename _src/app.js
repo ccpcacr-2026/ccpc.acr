@@ -388,6 +388,7 @@
     inventory_admin: () => loadInventoryAdminView(),
     myclass:       () => loadMyClassView(),
     student_portal:() => loadStudentPortalView(),
+    student_portal_menu: () => _openStudentPortalMobileMenu(),
     bus_tracker:   () => loadAdminBusTrackerView(),
     payroll:       () => loadAdminPayrollView(),
     profile:       () => openMyProfile(),
@@ -759,6 +760,10 @@
   function _mobileTopBarNavClick() {
     const key = location.hash.slice(1).split('?')[0] || '';
     if (key === 'home' || key === '') openMobileSidebar();
+    // Any individual Student Portal sub-view (Setup, Data, Access, …) shares
+    // this same hash — back should return to the sub-menu of destinations,
+    // not jump all the way past it to Home.
+    else if (key === 'student_portal') _openStudentPortalMobileMenu();
     else renderMobileHomeGrid();
   }
   function _syncMobileTopBarIcon() {
@@ -789,8 +794,8 @@
   // Tapping a tile clicks the original sidebar <a>, reusing its exact
   // existing onclick handler — except Student Portal, whose sidebar link
   // only toggles an accordion (no equivalent surface here), so its tile
-  // calls loadStudentPortalView() directly instead (the same resolver
-  // _HASH_ROUTES.student_portal already uses).
+  // opens a mobile-only sub-menu of its own instead (see
+  // _openStudentPortalMobileMenu).
   function renderMobileHomeGrid() {
     if (window.innerWidth >= 768) { loadDefaultView(); return; }
     _setViewHash('home');
@@ -846,7 +851,7 @@
       const icon = el.querySelector('.nav-icon')?.getAttribute('data-lucide') || 'layout-grid';
       const label = el.querySelector('.nav-text')?.textContent || '';
       const isStudentPortal = el.id === 'nav-student-portal';
-      const onclick = el === profileLink ? 'openMyProfile()' : isStudentPortal ? 'loadStudentPortalView()' : `document.getElementById('${el.id}').click()`;
+      const onclick = el === profileLink ? 'openMyProfile()' : isStudentPortal ? '_openStudentPortalMobileMenu()' : `document.getElementById('${el.id}').click()`;
       const accent = _homeAccents[_tileIdx++ % _homeAccents.length];
       return `
         <button onclick="${onclick}" class="flex flex-col items-center justify-center gap-2.5 p-4 bg-white rounded-3xl shadow-sm hover:shadow-md active:scale-95 transition-all duration-150">
@@ -872,6 +877,48 @@
   // because that fetch hadn't resolved yet when the grid first rendered.
   function _refreshHomeGridIfVisible() {
     if ((location.hash.slice(1).split('?')[0] || '') === 'home') renderMobileHomeGrid();
+  }
+
+  // Mobile equivalent of expanding the "Student Portal" sidebar accordion.
+  // On PC, tapping the header just reveals the 12 sub-links right there in
+  // the sidebar; on mobile there's no equivalent always-visible surface, so
+  // the old behavior (jump straight into Setup) left no way back to any of
+  // the other 11 destinations. This renders the exact same set of sub-links
+  // #erp-links already has (populated by _loadAdminSubnav, so it's always in
+  // sync with whatever this account is actually allowed to see) as its own
+  // tile grid, one tap away from Home and one tap away from any sub-view via
+  // the back arrow (see _mobileTopBarNavClick).
+  function _openStudentPortalMobileMenu() {
+    if (window.innerWidth >= 768) { loadStudentPortalView(); return; }
+    const isFullAdmin = (window.USER_ROLES || [window.ACTIVE_ROLE]).some(r => ['Admin', 'Student Portal Admin'].includes(r));
+    if (!isFullAdmin && !window._hasErpTabAccess && window._hasFieldCategoryAccess) {
+      // Field-category-only grantee has no sub-menu to show — same shortcut
+      // _studentPortalNavClick already uses on PC.
+      loadViewerPanelView();
+      return;
+    }
+    const links = Array.from(document.querySelectorAll('#erp-links .nav-link.nav-sublink'));
+    if (!links.length) { loadStudentPortalView(); return; } // #erp-links not populated yet — fall back to the old direct-in behavior rather than showing an empty screen
+
+    _setViewHash('student_portal_menu');
+    setActiveNavLink('nav-student-portal');
+    setContentHeader('Student Portal', 'layout-grid');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    const accents = ['#6366f1', '#10b981', '#f43f5e', '#f59e0b', '#0ea5e9', '#a855f7', '#14b8a6', '#f97316'];
+    container.innerHTML = `<div class="grid grid-cols-3 gap-3">${links.map((el, i) => {
+      const icon = el.querySelector('.nav-icon')?.getAttribute('data-lucide') || 'layout-grid';
+      const label = el.querySelector('.nav-text')?.textContent || '';
+      const accent = accents[i % accents.length];
+      return `
+        <button onclick="${el.getAttribute('onclick')}" class="flex flex-col items-center justify-center gap-2.5 p-4 bg-white rounded-3xl shadow-sm hover:shadow-md active:scale-95 transition-all duration-150">
+          <div class="w-14 h-14 rounded-2xl flex items-center justify-center" style="background:${_hexToRgba(accent, 0.14)};color:${accent};">
+            <i data-lucide="${icon}" class="h-7 w-7"></i>
+          </div>
+          <span class="text-[10.5px] font-black text-slate-600 text-center leading-tight tracking-tight">${_escHtml(label)}</span>
+        </button>`;
+    }).join('')}</div>`;
+    lucide.createIcons();
   }
 
   function loadDefaultView() {
