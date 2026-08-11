@@ -2070,6 +2070,15 @@
 
   let _routineDirectory = [];
   let _routineShortname = null;
+  // Persisted per-device so a teacher doesn't have to re-pick every visit —
+  // there's no way to derive "which section a teacher belongs to" from their
+  // account today, so this starts as a plain manual choice.
+  let _routineSection = localStorage.getItem('ccpc_routine_section') || 'school';
+  const ROUTINE_SECTIONS = [
+    { key: 'school', label: 'School' },
+    { key: 'college', label: 'College' },
+    { key: 'honours', label: 'Honours' },
+  ];
 
   function _isRoutineCoordinator() {
     return (window.USER_ROLES || [window.ACTIVE_ROLE]).some(r => ['Cord', 'Admin'].includes(r));
@@ -2130,7 +2139,18 @@
       _drawRoutineShell();
     }).withFailureHandler(function () {
       container.innerHTML = `<div class="p-8 text-center text-red-400 text-xs font-bold">Could not load the teacher directory.</div>`;
-    }).getRoutineDirectory();
+    }).getRoutineDirectory(_routineSection);
+  }
+
+  // Switching sections is a full reload, not just a redraw — every one of
+  // the directory/weekly-routine/today's-board fetches below is scoped to
+  // whichever section is currently selected, so nothing carried over from
+  // the old section (shortname match, selected teacher, etc.) is safe to keep.
+  function _setRoutineSection(sectionKey) {
+    if (_routineSection === sectionKey) return;
+    _routineSection = sectionKey;
+    try { localStorage.setItem('ccpc_routine_section', sectionKey); } catch (e) {}
+    loadRoutineView();
   }
 
   function _drawRoutineShell() {
@@ -2151,6 +2171,10 @@
         <div>
           <h2 class="text-2xl font-black text-slate-800 tracking-tight">Routine</h2>
           <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Personal &amp; class schedule</p>
+        </div>
+
+        <div class="flex gap-2">
+          ${ROUTINE_SECTIONS.map(s => `<button onclick="_setRoutineSection('${s.key}')" class="flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${_routineSection === s.key ? 'bg-slate-800 text-white shadow' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}">${s.label}</button>`).join('')}
         </div>
 
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 space-y-4">
@@ -2183,9 +2207,14 @@
           <input type="date" id="routineDateInput" value="${todayIso}" onchange="this.dataset.userPicked='1'; _loadMyRoutinePeriods()"
             class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-center focus:ring-2 focus:ring-blue-600 outline-none">
 
-          <button onclick="_openWeeklyRoutineModal()" class="w-full py-2.5 border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50 flex items-center justify-center gap-1.5">
-            <i data-lucide="calendar-range" class="h-3.5 w-3.5"></i> View Full Week
-          </button>
+          <div class="flex gap-2">
+            <button onclick="_openWeeklyRoutineModal()" class="flex-1 py-2.5 border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50 flex items-center justify-center gap-1.5">
+              <i data-lucide="calendar-range" class="h-3.5 w-3.5"></i> Full Week
+            </button>
+            <button onclick="_openArchiveModal()" class="flex-1 py-2.5 border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50 flex items-center justify-center gap-1.5">
+              <i data-lucide="history" class="h-3.5 w-3.5"></i> Past Adjustments
+            </button>
+          </div>
 
           <p id="routineDayLabel" class="text-center font-black italic text-lg text-slate-800"></p>
 
@@ -2322,13 +2351,13 @@
           el.innerHTML = _renderPeriodBlocksHtml(weekRes.periods, dayData, row ? row.periods : null);
         }).withFailureHandler(function () {
           el.innerHTML = _renderPeriodBlocksHtml(weekRes.periods, dayData, null);
-        }).getTodayRoutineBoard();
+        }).getTodayRoutineBoard(_routineSection);
       } else {
         el.innerHTML = _renderPeriodBlocksHtml(weekRes.periods, dayData, null);
       }
     }).withFailureHandler(function () {
       el.innerHTML = '<div class="p-8 text-center text-red-400 text-xs font-bold">Network error loading routine.</div>';
-    }).getWeeklyRoutine(_routineShortname);
+    }).getWeeklyRoutine(_routineSection, _routineShortname);
   }
 
   // Full Sun-Sat grid straight from the master "Classes" sheet — the planned
@@ -2375,7 +2404,82 @@
     }).withFailureHandler(function () {
       const el = document.getElementById('weeklyRoutineBody');
       if (el) el.innerHTML = '<div class="text-red-400 text-xs font-bold text-center py-6">Network error.</div>';
-    }).getWeeklyRoutine(_routineShortname);
+    }).getWeeklyRoutine(_routineSection, _routineShortname);
+  }
+
+  // Read-only browser for the "archive" tab — many past days' adjustment
+  // boards stacked one after another, already auto-populated by the
+  // school's existing sheet automation. This app only ever reads it.
+  function _openArchiveModal() {
+    const existing = document.getElementById('archiveModal');
+    if (existing) existing.remove();
+    const modal = document.createElement('div');
+    modal.id = 'archiveModal';
+    modal.className = 'fixed inset-0 bg-black/40 z-[90] flex items-center justify-center p-4';
+    modal.innerHTML = `
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] overflow-y-auto p-6 space-y-4">
+        <div class="flex items-center justify-between">
+          <h3 class="text-lg font-black text-slate-800">Past Adjustments</h3>
+          <button onclick="document.getElementById('archiveModal').remove()" class="p-2 hover:bg-slate-100 rounded-xl"><i data-lucide="x" class="h-4 w-4"></i></button>
+        </div>
+        <div id="archiveDayList" class="flex flex-wrap gap-2">
+          <div class="text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest w-full">Loading…</div>
+        </div>
+        <div id="archiveDayBody" class="overflow-x-auto"></div>
+      </div>`;
+    document.body.appendChild(modal);
+    lucide.createIcons();
+    google.script.run.withSuccessHandler(function (days) {
+      const el = document.getElementById('archiveDayList');
+      if (!el) return;
+      if (!Array.isArray(days) || !days.length) { el.innerHTML = '<p class="text-center text-slate-400 text-xs font-bold py-6 w-full">No archived days found for this section.</p>'; return; }
+      const sorted = days.slice().sort((a, b) => b.date.localeCompare(a.date));
+      el.innerHTML = sorted.map(d => `
+        <button onclick='_loadArchiveDay(${JSON.stringify(d.date)})' data-archive-date="${d.date}" class="px-3 py-2 rounded-xl text-xs font-black border border-slate-200 hover:bg-slate-50 archive-day-btn">${d.dateLabel || d.date}${d.weekday ? ' &middot; ' + d.weekday.slice(0, 3) : ''}</button>`).join('');
+      if (sorted[0]) _loadArchiveDay(sorted[0].date);
+    }).withFailureHandler(function () {
+      const el = document.getElementById('archiveDayList');
+      if (el) el.innerHTML = '<p class="text-center text-red-400 text-xs font-bold py-6 w-full">Network error.</p>';
+    }).getArchivedAdjustmentDaysIndex(_routineSection);
+  }
+
+  function _loadArchiveDay(dateStr) {
+    document.querySelectorAll('.archive-day-btn').forEach(b => {
+      const active = b.dataset.archiveDate === dateStr;
+      b.classList.toggle('bg-slate-800', active);
+      b.classList.toggle('text-white', active);
+    });
+    const el = document.getElementById('archiveDayBody');
+    if (!el) return;
+    el.innerHTML = '<div class="text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>';
+    google.script.run.withSuccessHandler(function (res) {
+      const body = document.getElementById('archiveDayBody');
+      if (!body) return;
+      if (!res || res.error || !res.periods) { body.innerHTML = `<div class="text-red-400 text-xs font-bold text-center py-6">${(res && res.error) || 'Could not load this day.'}</div>`; return; }
+      const rows = res.rows || [];
+      if (!rows.length) { body.innerHTML = '<p class="text-slate-400 text-xs font-bold text-center py-6">No rows found for this date.</p>'; return; }
+      body.innerHTML = `
+        <table class="w-full text-xs border-collapse">
+          <thead><tr class="bg-slate-50">
+            <th class="px-3 py-2 text-left font-black text-slate-500 whitespace-nowrap">Name</th>
+            ${res.periods.map(p => `<th class="px-3 py-2 text-center font-black text-slate-500 whitespace-nowrap">${p}</th>`).join('')}
+          </tr></thead>
+          <tbody>
+            ${rows.map(r => `
+              <tr class="border-t border-slate-100">
+                <td class="px-3 py-2 font-black text-slate-700 whitespace-nowrap">${r.shortname}</td>
+                ${res.periods.map(p => {
+                  const val = r.periods[p] || '';
+                  const isAdjusted = val && !val.includes(';');
+                  return `<td class="px-3 py-2 text-center font-bold text-slate-600 ${isAdjusted ? 'bg-amber-50 text-amber-700 font-black' : ''}">${val || '—'}</td>`;
+                }).join('')}
+              </tr>`).join('')}
+          </tbody>
+        </table>`;
+    }).withFailureHandler(function () {
+      const body = document.getElementById('archiveDayBody');
+      if (body) body.innerHTML = '<div class="p-8 text-center text-red-400 text-xs font-bold">Network error.</div>';
+    }).getArchivedAdjustmentDay(_routineSection, dateStr);
   }
 
   let _routineBoardCache = null;
@@ -2455,7 +2559,7 @@
       if (silent) return;
       const el = document.getElementById('routineTeacherPicker');
       if (el) el.innerHTML = '<option value="">Network error loading today\'s schedule.</option>';
-    }).getTodayRoutineBoard();
+    }).getTodayRoutineBoard(_routineSection);
   }
 
   // Keeps the Cord/Admin adjustment board in sync with the sheet without any
@@ -2581,7 +2685,7 @@
     if (!el) return;
     google.script.run.withSuccessHandler(function (res) {
       if (res && res.url) el.innerHTML = `<a href="${res.url}" target="_blank" class="underline">Latest Notice PDF</a>`;
-    }).getLatestAdjustmentPdf();
+    }).getLatestAdjustmentPdf(_routineSection);
   }
 
   // Previous days' adjustment notices, from the "Adjustment link" sheet —
@@ -2620,7 +2724,7 @@
     }).withFailureHandler(function () {
       const el = document.getElementById('pdfHistoryBody');
       if (el) el.innerHTML = '<p class="text-center text-red-400 text-xs font-bold py-6">Network error.</p>';
-    }).getAdjustmentPdfHistory();
+    }).getAdjustmentPdfHistory(_routineSection);
   }
 
   function _openAdjustModal(shortname, periodLabel, currentValue) {
@@ -2664,7 +2768,7 @@
             return `<option value="${shortname.replace(/"/g, '&quot;')}">${o}</option>`;
           }).join('')
         : '<option value="">No free teachers found for this period</option>';
-    }).getSubstituteOptions(periodLabel);
+    }).getSubstituteOptions(_routineSection, periodLabel);
   }
 
   function _confirmAdjustment(shortname, periodLabel) {
@@ -2715,7 +2819,7 @@
       patchCache(previousValue);
       _renderTeacherPicker(_routineBoardCache);
       _loadMyRoutinePeriods();
-    }).submitClassAdjustment(myId, shortname, periodLabel, sub);
+    }).submitClassAdjustment(_routineSection, myId, shortname, periodLabel, sub);
   }
 
   function _openDailySetupPrompt() {
@@ -2758,7 +2862,7 @@
       const m = document.getElementById('dailySetupModal');
       if (m) m.remove();
       showToast('Network error', 'error');
-    }).runDailyRoutineSetup(myId, dateStr);
+    }).runDailyRoutineSetup(_routineSection, myId, dateStr);
   }
 
   function _generateAdjustmentPdf() {
@@ -2771,7 +2875,7 @@
       else showToast((res && res.message) || 'PDF generation failed', 'error');
     }).withFailureHandler(function () {
       showLoading(false); showToast('Network error', 'error');
-    }).generateAdjustmentPdf(myId);
+    }).generateAdjustmentPdf(_routineSection, myId);
   }
 
   // Grouped exactly like the profile edit form's own tabs (Personal/
@@ -2893,6 +2997,7 @@
       ...(canEdit ? [{ id: 'sys-register', label: 'Register', icon: 'user-plus' }] : []),
       ...(adminOnly ? [{ id: 'sys-modules', label: 'Module Access', icon: 'layout-grid' }] : []),
       ...(adminOnly ? [{ id: 'sys-profile-fields', label: 'Profile Privacy', icon: 'eye-off' }] : []),
+      ...(adminOnly ? [{ id: 'sys-routine-settings', label: 'Routine Settings', icon: 'calendar-clock' }] : []),
     ];
     const firstTab = tabs[0].id;
 
@@ -3054,12 +3159,89 @@
           </div>
         </div>` : ''}
 
+        <!-- Routine sheet/GAS addresses per section -->
+        ${adminOnly ? `
+        <div id="sys-routine-settings" style="display:none;" class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5">
+          <div class="flex items-center justify-between flex-wrap gap-3 mb-1">
+            <div>
+              <p class="font-black text-slate-800 text-sm">Routine sheet addresses per section</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">School falls back to the built-in sheet until configured — College/Honours stay unavailable until set here</p>
+            </div>
+            <button id="routineSettingsSaveBtn" onclick="saveRoutineSettings()" class="px-5 py-2.5 bg-blue-600 text-white text-[10px] font-black rounded-xl hover:bg-black transition-all uppercase tracking-widest shadow-lg shadow-blue-500/20 flex items-center gap-2">
+              <i data-lucide="save" class="h-3.5 w-3.5"></i> Save Changes
+            </button>
+          </div>
+          <div id="routineSettingsBody" class="grid gap-4 mt-4" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr));">
+            <p class="text-center text-slate-400 text-xs font-black uppercase tracking-widest py-8" style="grid-column:1/-1;">Loading…</p>
+          </div>
+        </div>` : ''}
+
       </div><!-- /scroll area -->
     </div>`;
 
     lucide.createIcons();
     _ensureStaffCache(() => loadUserData_forSystem());
-    if (adminOnly) { loadModuleAccessPanel(); loadProfileFieldVisibilityPanel(); }
+    if (adminOnly) { loadModuleAccessPanel(); loadProfileFieldVisibilityPanel(); loadRoutineSettingsPanel(); }
+  }
+
+  let _routineSettingsConfig = null;
+  const ROUTINE_SETTINGS_SECTIONS = [
+    { key: 'school',  label: 'School' },
+    { key: 'college', label: 'College' },
+    { key: 'honours', label: 'Honours' },
+  ];
+  const ROUTINE_SETTINGS_FIELDS = [
+    { key: 'routineSheetUrl', label: 'Routine Sheet Address', hint: 'Full Google Sheets link (or bare sheet ID) for the "Classes"/"Selected"/"Logged in info"/"Dropdown" tabs.' },
+    { key: 'gasUrl', label: 'Adjustment Apps Script URL', hint: 'The deployed Apps Script Web App /exec URL that writes adjustments to this section\'s sheet.' },
+    { key: 'archiveSheetUrl', label: 'Archive Adjustment Address', hint: 'Full Google Sheets link (or bare ID + gid) for the tab holding past days\' adjustment boards, stacked one after another.' },
+  ];
+
+  function loadRoutineSettingsPanel() {
+    google.script.run.withSuccessHandler(function (settings) {
+      _routineSettingsConfig = (settings && settings.routine_section_config) || {};
+      renderRoutineSettingsPanel();
+    }).withFailureHandler(function () {
+      _routineSettingsConfig = {};
+      renderRoutineSettingsPanel();
+    }).getSystemSettings();
+  }
+
+  function renderRoutineSettingsPanel() {
+    const host = document.getElementById('routineSettingsBody');
+    if (!host) return;
+    const cfg = _routineSettingsConfig || {};
+    host.innerHTML = ROUTINE_SETTINGS_SECTIONS.map(s => {
+      const sec = cfg[s.key] || {};
+      return `
+        <div class="border border-slate-200 rounded-2xl p-4 space-y-3">
+          <p class="font-black text-slate-800 text-xs uppercase tracking-widest">${s.label}</p>
+          ${ROUTINE_SETTINGS_FIELDS.map(f => `
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">${f.label}</label>
+              <input type="text" class="routine-settings-input w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-blue-600"
+                data-section="${s.key}" data-field="${f.key}" value="${_escHtml(sec[f.key] || '')}" placeholder="Paste here…">
+              <p class="text-[10px] text-slate-400 font-bold mt-1">${f.hint}</p>
+            </div>`).join('')}
+        </div>`;
+    }).join('');
+  }
+
+  function saveRoutineSettings() {
+    const cfg = {};
+    ROUTINE_SETTINGS_SECTIONS.forEach(s => { cfg[s.key] = {}; });
+    document.querySelectorAll('.routine-settings-input').forEach(inp => {
+      cfg[inp.dataset.section][inp.dataset.field] = inp.value.trim();
+    });
+    const btn = document.getElementById('routineSettingsSaveBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    google.script.run.withSuccessHandler(function () {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="save" class="h-3.5 w-3.5"></i> Save Changes'; lucide.createIcons(); }
+      _routineSettingsConfig = cfg;
+      showToast('Routine settings saved');
+    }).withFailureHandler(function () {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="save" class="h-3.5 w-3.5"></i> Save Changes'; lucide.createIcons(); }
+      showToast('Failed to save routine settings', 'error');
+    }).updateSystemSettings({ routine_section_config: cfg });
   }
 
   function loadModuleAccessPanel() {
@@ -3101,7 +3283,7 @@
   }
 
   function switchSysTab(tabId) {
-    const tabs = ['sys-users','sys-register','sys-modules','sys-profile-fields'];
+    const tabs = ['sys-users','sys-register','sys-modules','sys-profile-fields','sys-routine-settings'];
     tabs.forEach(id => {
       const panel = document.getElementById(id);
       const hdr   = document.getElementById(id + '-hdr');

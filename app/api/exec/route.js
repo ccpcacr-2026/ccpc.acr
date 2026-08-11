@@ -117,10 +117,53 @@ function _rtBroadcast(userId, event, payload = {}) {
 // deployed Apps Script web app, so both systems stay in sync on one source
 // of truth. We never reimplement the swap logic itself — only compute which
 // row/column to target and hand off to the already-live endpoint.
+//
+// The institution actually runs three divisions — School, College, Honours —
+// each with its own spreadsheet + Apps Script deployment. These two constants
+// are now only the fallback for the "school" section when an Admin hasn't
+// configured anything yet in System > Routine Settings (see
+// _getRoutineSectionConfig below, and routine_section_config in
+// system_settings). Never referenced directly anywhere else in this file.
 const ROUTINE_SHEET_ID = '11l3oc1mpbR8UerpDxCatzuhcBNqkbdNzWzOTiPPdKgk';
 const ROUTINE_GAS_URL  = 'https://script.google.com/macros/s/AKfycbyLXrJdZTvPrGYzt9fhBYa3IEUx5G5MrpyqBraVJR4RrDu0FFukdI8u7PupakA5an5AKA/exec';
+const ROUTINE_SECTIONS = ['school', 'college', 'honours'];
 const PERIOD_LABELS = ['1st','2nd','3rd','4th/junior tiffin','4th/senior tiffin','5th','6th','7th'];
 const WEEKDAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+// Accepts whatever an Admin pastes into a Routine Settings address field — a
+// full "https://docs.google.com/spreadsheets/d/{ID}/edit?gid={GID}" link, a
+// link without a gid, or a bare spreadsheet ID — and extracts {sheetId, gid}.
+// Storing only the raw pasted string (not separate ID/gid fields) means
+// there's nothing to keep in sync; this is the single place that ever parses it.
+function _parseSheetUrlOrId(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return null;
+  const idMatch = s.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  const gidMatch = s.match(/[#&?]gid=(\d+)/);
+  return { sheetId: idMatch ? idMatch[1] : s, gid: gidMatch ? gidMatch[1] : null };
+}
+
+// Resolves one section's {routineSheetId, gasUrl, archiveSheetId, archiveGid}
+// from system_settings' routine_section_config, falling back to the original
+// hardcoded school sheet/GAS URL for 'school' when nothing has been
+// configured yet (so this ships without breaking the one section already in
+// live use). College/Honours have no such fallback — an unconfigured section
+// returns nulls, and callers show a "not set up yet" state instead of erroring.
+async function _getRoutineSectionConfig(sectionKey) {
+  const key = ROUTINE_SECTIONS.includes(sectionKey) ? sectionKey : 'school';
+  const settingsRows = await supabaseRequest('system_settings?key=eq.routine_section_config');
+  const cfg = (Array.isArray(settingsRows) && settingsRows[0] && settingsRows[0].value) || {};
+  const section = cfg[key] || {};
+  const routine = _parseSheetUrlOrId(section.routineSheetUrl) || (key === 'school' ? { sheetId: ROUTINE_SHEET_ID, gid: null } : null);
+  const archive = _parseSheetUrlOrId(section.archiveSheetUrl);
+  const gasUrl = section.gasUrl || (key === 'school' ? ROUTINE_GAS_URL : '');
+  return {
+    routineSheetId: routine ? routine.sheetId : null,
+    gasUrl: gasUrl || null,
+    archiveSheetId: archive ? archive.sheetId : null,
+    archiveGid: archive ? archive.gid : null,
+  };
+}
 
 // ── CLASS TEACHER → STUDENT ROSTER ──────────────────────────────────────────
 // Authoritative class→teacher list lives in a separate Google Sheet (not the
@@ -163,10 +206,16 @@ function _parseCsv(text) {
 
 // Cache-bust with a timestamp — Google's gviz CSV export can otherwise return a
 // cached copy for a short window, which would hide a write that just happened.
-async function _fetchSheetRows(sheetName) {
-  const url = `https://docs.google.com/spreadsheets/d/${ROUTINE_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}&_=${Date.now()}`;
+// `selector` is { name } to pick a tab by name (every routine/adjustment tab)
+// or { gid } to pick it by tab id (the archive tab, which may live in a
+// wholly different spreadsheet than the section's main routine sheet).
+async function _fetchSheetRows(sheetId, selector) {
+  const tabParam = selector && selector.gid != null
+    ? `gid=${encodeURIComponent(selector.gid)}`
+    : `sheet=${encodeURIComponent((selector && selector.name) || '')}`;
+  const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&${tabParam}&_=${Date.now()}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(15000), cache: 'no-store' });
-  if (!res.ok) throw new Error(`Could not read sheet "${sheetName}" (HTTP ${res.status})`);
+  if (!res.ok) throw new Error(`Could not read sheet (HTTP ${res.status})`);
   return _parseCsv(await res.text());
 }
 
@@ -273,7 +322,10 @@ async function _getClassTeacherAssignments() {
     // sheet outage should never take down the DB-backed fallback below too.
     _fetchCsvByGid(CLASS_TEACHER_SHEET_ID, CLASS_TEACHER_SHEET_GID).catch(() => []),
     supabaseRequest('users_profile?select=teacher_id,full_name'),
-    handlers.getRoutineDirectory(),
+    // Class-teacher assignment has no section concept of its own — pinned to
+    // 'school' (the only section with a hardcoded fallback if unconfigured)
+    // rather than adding section-awareness to an unrelated feature.
+    handlers.getRoutineDirectory(['school']),
     // Admin-assignable fallback (student.class_teacher_assignments, managed
     // from the "Assign Class Teacher" admin view) — only ever fills in for a
     // class/section the sheet itself couldn't resolve a user for, never
@@ -394,9 +446,9 @@ function _extraCriteriaQS(extraCriteria) {
     .join('');
 }
 
-async function _callRoutineGas(params) {
+async function _callRoutineGas(gasUrl, params) {
   const qs = new URLSearchParams(params).toString();
-  const res = await fetch(`${ROUTINE_GAS_URL}?${qs}`, { signal: AbortSignal.timeout(20000) });
+  const res = await fetch(`${gasUrl}?${qs}`, { signal: AbortSignal.timeout(20000) });
   const text = await res.text();
   return { ok: res.ok, status: res.status, text };
 }
@@ -426,7 +478,10 @@ function _normalizeName(name) {
 
 async function _resolveUserIdsByShortnames(shortnames) {
   const [directory, profiles] = await Promise.all([
-    handlers.getRoutineDirectory(),
+    // Class-teacher assignment has no section concept of its own — pinned to
+    // 'school' (the only section with a hardcoded fallback if unconfigured)
+    // rather than adding section-awareness to an unrelated feature.
+    handlers.getRoutineDirectory(['school']),
     supabaseRequest('users_profile?select=teacher_id,full_name'),
   ]);
   const profileByName = {};
@@ -1587,10 +1642,16 @@ const handlers = {
   },
 
   // ── ROUTINE / CLASS ADJUSTMENT ("Cut & Toss") ───────────────────────────────
+  // Every handler below takes a leading sectionKey ('school'|'college'|
+  // 'honours') and resolves that section's own sheet/GAS addresses via
+  // _getRoutineSectionConfig before doing anything else — see System >
+  // Routine Settings for where an Admin configures those addresses.
 
   // Full staff directory with shortname mapping, sourced from the "Logged in info" sheet.
-  async getRoutineDirectory() {
-    const rows = await _fetchSheetRows('Logged in info');
+  async getRoutineDirectory([sectionKey]) {
+    const cfg = await _getRoutineSectionConfig(sectionKey);
+    if (!cfg.routineSheetId) return [];
+    const rows = await _fetchSheetRows(cfg.routineSheetId, { name: 'Logged in info' });
     const header = rows[0] || [];
     const fnIdx = header.findIndex(h => String(h).trim() === 'Full Name');
     const snIdx = header.findIndex(h => String(h).trim() === 'NAME IN SHORT');
@@ -1608,8 +1669,10 @@ const handlers = {
   },
 
   // Full week routine for one teacher, from the "Classes" master sheet.
-  async getWeeklyRoutine([shortname]) {
-    const rows = await _fetchSheetRows('Classes');
+  async getWeeklyRoutine([sectionKey, shortname]) {
+    const cfg = await _getRoutineSectionConfig(sectionKey);
+    if (!cfg.routineSheetId) return { error: 'This section has not been set up yet. Ask an Admin to configure it in System > Routine Settings.' };
+    const rows = await _fetchSheetRows(cfg.routineSheetId, { name: 'Classes' });
     const headerIdx = rows.findIndex(r => r.some(c => String(c).trim() === 'Name'));
     if (headerIdx < 0) return { error: 'Could not read Classes sheet header' };
     const header = rows[headerIdx];
@@ -1633,8 +1696,10 @@ const handlers = {
   // Today's live schedule ("Selected" sheet) + derived adjustments (diffed
   // against the matching weekday's master "Classes" routine — a cell that no
   // longer matches the master and contains no ";" is a swapped-in substitute).
-  async getTodayRoutineBoard() {
-    const rows = await _fetchSheetRows('Selected');
+  async getTodayRoutineBoard([sectionKey]) {
+    const cfg = await _getRoutineSectionConfig(sectionKey);
+    if (!cfg.routineSheetId) return { error: 'This section has not been set up yet. Ask an Admin to configure it in System > Routine Settings.' };
+    const rows = await _fetchSheetRows(cfg.routineSheetId, { name: 'Selected' });
     const headerIdx = rows.findIndex(r => r.some(c => String(c).trim() === 'Name'));
     if (headerIdx < 0) return { error: 'Could not read Selected sheet' };
     const header = rows[headerIdx];
@@ -1645,7 +1710,7 @@ const handlers = {
     const dateLabel = meta.find(c => /\d{4}/.test(String(c)) && !WEEKDAYS.includes(String(c).trim())) || '';
 
     // Master routine for the same weekday, keyed by shortname, for diffing
-    const classesRows = await _fetchSheetRows('Classes');
+    const classesRows = await _fetchSheetRows(cfg.routineSheetId, { name: 'Classes' });
     const cHeaderIdx = classesRows.findIndex(r => r.some(c => String(c).trim() === 'Name'));
     const cHeader = classesRows[cHeaderIdx] || [];
     const cNameIdx = cHeader.findIndex(c => String(c).trim() === 'Name');
@@ -1706,8 +1771,10 @@ const handlers = {
   // Free-teacher candidates for a given period, from the "Dropdown" sheet —
   // values are passed through byte-for-byte, matching what a human picking
   // from the same in-sheet dropdown would produce.
-  async getSubstituteOptions([periodLabel]) {
-    const rows = await _fetchSheetRows('Dropdown');
+  async getSubstituteOptions([sectionKey, periodLabel]) {
+    const cfg = await _getRoutineSectionConfig(sectionKey);
+    if (!cfg.routineSheetId) return [];
+    const rows = await _fetchSheetRows(cfg.routineSheetId, { name: 'Dropdown' });
     const header = rows[0] || [];
     const idx = header.findIndex(h => String(h).trim().toLowerCase() === String(periodLabel || '').trim().toLowerCase());
     if (idx < 0) return [];
@@ -1722,9 +1789,11 @@ const handlers = {
   // Reassign one period to a substitute — Cord/Admin only (checked server-side).
   // Delegates the actual sheet mutation to the existing, already-live Apps
   // Script web app so both the Kodular app and this portal share one code path.
-  async submitClassAdjustment([callerId, teacherShortname, periodLabel, substituteValue]) {
+  async submitClassAdjustment([sectionKey, callerId, teacherShortname, periodLabel, substituteValue]) {
     if (!(await _isCordOrAdmin(callerId))) return { success: false, message: 'Not authorized to make adjustments.' };
-    const board = await handlers.getTodayRoutineBoard();
+    const cfg = await _getRoutineSectionConfig(sectionKey);
+    if (!cfg.routineSheetId || !cfg.gasUrl) return { success: false, message: 'This section has not been set up yet. Ask an Admin to configure it in System > Routine Settings.' };
+    const board = await handlers.getTodayRoutineBoard([sectionKey]);
     if (board.error) return { success: false, message: board.error };
     const row = board.rows.find(r => r.shortname.toLowerCase() === String(teacherShortname || '').trim().toLowerCase());
     if (!row) return { success: false, message: `Could not find ${teacherShortname} in today's schedule.` };
@@ -1738,13 +1807,13 @@ const handlers = {
     const sto = String(substituteValue || '').split(' (')[0].trim();
     if (!sto) return { success: false, message: 'No substitute selected.' };
 
-    const gasRes = await _callRoutineGas({ action: 'write', row1: row.sheetRow, col, sto });
+    const gasRes = await _callRoutineGas(cfg.gasUrl, { action: 'write', row1: row.sheetRow, col, sto });
     if (!gasRes.ok) return { success: false, message: gasRes.text || 'Write request failed.' };
 
     // The Apps Script endpoint returns a generic success message even when its
     // internal logic silently does nothing — verify the cell actually changed
     // before reporting success back to the client.
-    const verifyBoard = await handlers.getTodayRoutineBoard();
+    const verifyBoard = await handlers.getTodayRoutineBoard([sectionKey]);
     const verifyRow = !verifyBoard.error && (verifyBoard.rows || []).find(r => r.shortname.toLowerCase() === row.shortname.toLowerCase());
     const newVal = verifyRow ? String(verifyRow.periods[periodLabel] || '').trim() : '';
     if (newVal.toLowerCase() === sto.toLowerCase()) {
@@ -1756,22 +1825,28 @@ const handlers = {
   },
 
   // Seed today's "Selected" sheet from the master "Classes" routine — Cord/Admin only.
-  async runDailyRoutineSetup([callerId, dateStr]) {
+  async runDailyRoutineSetup([sectionKey, callerId, dateStr]) {
     if (!(await _isCordOrAdmin(callerId))) return { success: false, message: 'Not authorized.' };
-    const gasRes = await _callRoutineGas({ action: 'setup', date: dateStr });
+    const cfg = await _getRoutineSectionConfig(sectionKey);
+    if (!cfg.gasUrl) return { success: false, message: 'This section has not been set up yet. Ask an Admin to configure it in System > Routine Settings.' };
+    const gasRes = await _callRoutineGas(cfg.gasUrl, { action: 'setup', date: dateStr });
     return { success: gasRes.ok, message: gasRes.text };
   },
 
   // Render today's adjustment notice as PDF — Cord/Admin only (generation has cost).
-  async generateAdjustmentPdf([callerId]) {
+  async generateAdjustmentPdf([sectionKey, callerId]) {
     if (!(await _isCordOrAdmin(callerId))) return { success: false, message: 'Not authorized.' };
-    const gasRes = await _callRoutineGas({ action: 'pdf' });
+    const cfg = await _getRoutineSectionConfig(sectionKey);
+    if (!cfg.gasUrl) return { success: false, message: 'This section has not been set up yet. Ask an Admin to configure it in System > Routine Settings.' };
+    const gasRes = await _callRoutineGas(cfg.gasUrl, { action: 'pdf' });
     return { success: gasRes.ok && !!gasRes.text, url: gasRes.text };
   },
 
   // Anyone can see the most recently generated adjustment PDF (read-only).
-  async getLatestAdjustmentPdf() {
-    const rows = await _fetchSheetRows('Adjustment link');
+  async getLatestAdjustmentPdf([sectionKey]) {
+    const cfg = await _getRoutineSectionConfig(sectionKey);
+    if (!cfg.routineSheetId) return null;
+    const rows = await _fetchSheetRows(cfg.routineSheetId, { name: 'Adjustment link' });
     if (rows.length < 2) return null;
     const [name, url, status] = rows[1];
     return { name: name || '', url: url || '', status: status || '' };
@@ -1784,8 +1859,10 @@ const handlers = {
   //   "Thu Jul 2, 2026,(PDF Created: Jul 5, 2026, 11:08 pm).pdf"
   // — the adjustment date the notice covers, and when it was generated —
   // split apart here so the UI doesn't have to parse it.
-  async getAdjustmentPdfHistory() {
-    const rows = await _fetchSheetRows('Adjustment link');
+  async getAdjustmentPdfHistory([sectionKey]) {
+    const cfg = await _getRoutineSectionConfig(sectionKey);
+    if (!cfg.routineSheetId) return [];
+    const rows = await _fetchSheetRows(cfg.routineSheetId, { name: 'Adjustment link' });
     if (rows.length < 2) return [];
     const header = rows[0];
     const nameIdx = header.findIndex(h => String(h).trim() === 'PDF Name');
@@ -1807,6 +1884,69 @@ const handlers = {
       });
     }
     return out;
+  },
+
+  // ── ROUTINE ARCHIVE (read-only browser) ─────────────────────────────────────
+  // A tab already maintained automatically by the school's existing Apps
+  // Script/Kodular system — NOT written by this app. Same column shape as
+  // getTodayRoutineBoard's "Selected" sheet (Name + period columns), but with
+  // many past days stacked one after another in the same tab, each day's
+  // block preceded by a date/weekday header row. We only ever read it.
+
+  // Fast pass: just the list of {date, weekday} blocks present, newest data
+  // first as found — no full per-day parse, mirrors getAdjustmentPdfHistory's
+  // list-first pattern so opening the browser doesn't parse the whole tab.
+  async getArchivedAdjustmentDaysIndex([sectionKey]) {
+    const cfg = await _getRoutineSectionConfig(sectionKey);
+    if (!cfg.archiveSheetId) return [];
+    const rows = await _fetchSheetRows(cfg.archiveSheetId, { gid: cfg.archiveGid, name: 'Sheet1' });
+    const days = [];
+    for (const r of rows) {
+      const dateCell = String((r || [])[0] || '').trim();
+      const m = dateCell.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (!m) continue;
+      const weekday = String(r[1] || r[2] || '').trim();
+      days.push({ date: `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`, dateLabel: dateCell, weekday });
+    }
+    return days;
+  },
+
+  // One day's block of teacher rows from the archive tab, same {periods,
+  // rows} shape as getTodayRoutineBoard so the client can reuse the same
+  // rendering it already has for today's board.
+  async getArchivedAdjustmentDay([sectionKey, dateStr]) {
+    const cfg = await _getRoutineSectionConfig(sectionKey);
+    if (!cfg.archiveSheetId) return { error: 'This section has no archive configured.' };
+    const rows = await _fetchSheetRows(cfg.archiveSheetId, { gid: cfg.archiveGid, name: 'Sheet1' });
+    // Find the header row nearest above the matching date block — the "Name"/
+    // period-column header repeats before every day's block in this sheet
+    // (confirmed against the live example), not just once at the very top.
+    let headerRow = null, headerIdx = -1, blockStart = -1;
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i] || [];
+      if (r.some(c => String(c).trim() === 'Name')) { headerRow = r; headerIdx = i; }
+      const dateCell = String(r[0] || '').trim();
+      const m = dateCell.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (m) {
+        const iso = `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+        if (iso === dateStr) { blockStart = i; break; }
+      }
+    }
+    if (blockStart < 0 || !headerRow) return { error: 'Could not find that date in the archive.' };
+    const nameIdx = headerRow.findIndex(c => String(c).trim() === 'Name');
+    const periodCols = _findPeriodCols(headerRow);
+    const dataRows = [];
+    for (let i = blockStart + 1; i < rows.length; i++) {
+      const r = rows[i] || [];
+      const dateCell = String(r[0] || '').trim();
+      if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(dateCell)) break; // next day's block starts here
+      const name = String(r[nameIdx] || '').trim();
+      if (!name) continue;
+      const periods = {};
+      periodCols.forEach(pc => { periods[pc.label] = String(r[pc.idx] || '').trim(); });
+      dataRows.push({ shortname: name, periods });
+    }
+    return { periods: periodCols.map(p => p.label), rows: dataRows };
   },
 
   // ── STUDENT TAB DATA (delegated access) ──────────────────────────────────────

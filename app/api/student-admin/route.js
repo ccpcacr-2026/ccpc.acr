@@ -167,7 +167,24 @@ async function sbExam(path, method = 'GET', body = null, extraHeaders = {}) {
 // source /api/exec's getRoutineDirectory reads. Local copies of the CSV
 // fetch/parse helpers, matching the project's accepted cross-route
 // duplication (ccpc-students carries its own copy too).
-const ROUTINE_SHEET_ID = '11l3oc1mpbR8UerpDxCatzuhcBNqkbdNzWzOTiPPdKgk';
+// This staff-directory search has no section (School/College/Honours)
+// concept of its own — always reads the 'school' section's configured
+// routine sheet (teacher.system_settings, key routine_section_config, same
+// table exec/route.js's _getRoutineSectionConfig uses), falling back to the
+// original hardcoded sheet if nothing's been configured yet in System >
+// Routine Settings. sb()'s extra-headers param crosses into the 'teacher'
+// schema for this one read — everything else in this file stays 'student'.
+const ROUTINE_SHEET_ID_FALLBACK = '11l3oc1mpbR8UerpDxCatzuhcBNqkbdNzWzOTiPPdKgk';
+
+async function _schoolRoutineSheetId() {
+  try {
+    const rows = await sb('system_settings?key=eq.routine_section_config', 'GET', null, { 'Accept-Profile': 'teacher' });
+    const cfg = (!rows?.error && rows[0] && rows[0].value && rows[0].value.school) || {};
+    const raw = String(cfg.routineSheetUrl || '').trim();
+    const idMatch = raw.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    return idMatch ? idMatch[1] : (raw || ROUTINE_SHEET_ID_FALLBACK);
+  } catch { return ROUTINE_SHEET_ID_FALLBACK; }
+}
 
 function _parseCsv(text) {
   const rows = [];
@@ -197,7 +214,8 @@ function _normalizeName(name) {
 // empty map so the staff directory still works, just without shortnames.
 async function _shortnameByName() {
   try {
-    const url = `https://docs.google.com/spreadsheets/d/${ROUTINE_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('Logged in info')}&_=${Date.now()}`;
+    const sheetId = await _schoolRoutineSheetId();
+    const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('Logged in info')}&_=${Date.now()}`;
     const res = await fetch(url, { signal: AbortSignal.timeout(15000), cache: 'no-store' });
     if (!res.ok) return {};
     const rows = _parseCsv(await res.text());

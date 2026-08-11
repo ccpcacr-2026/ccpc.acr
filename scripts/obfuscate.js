@@ -77,6 +77,7 @@ const RESERVED = [
   '_confirmAdjustment','_openDailySetupPrompt','_generateAdjustmentPdf',
   '_setRoutineMode','_selectAdjustTeacher','_toggleAdjustmentsList','_loadMyRoutinePeriods',
   '_confirmDailySetup','_openWeeklyRoutineModal','_setRoutineViewMode','_openPdfHistoryModal',
+  '_setRoutineSection','_openArchiveModal','_loadArchiveDay','saveRoutineSettings',
   'saveModuleVisibility',
   // inventory chain-of-custody
   '_invMarkNotifRead','_invOpenDistModal','_invCloseDistModal','_invSubmitDistribution',
