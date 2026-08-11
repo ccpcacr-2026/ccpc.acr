@@ -2166,8 +2166,9 @@
     const myEntry = _routineDirectory.find(d => String(d.shortname).trim().toLowerCase() === myShortname);
     const todayIso = new Date().toISOString().slice(0, 10);
 
+    _routineTopTab = 'my';
     container.innerHTML = `
-      <div class="space-y-6">
+      <div class="space-y-5">
         <div>
           <h2 class="text-2xl font-black text-slate-800 tracking-tight">Routine</h2>
           <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Personal &amp; class schedule</p>
@@ -2177,19 +2178,41 @@
           ${ROUTINE_SECTIONS.map(s => `<button onclick="_setRoutineSection('${s.key}')" class="flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${_routineSection === s.key ? 'bg-slate-800 text-white shadow' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}">${s.label}</button>`).join('')}
         </div>
 
-        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 space-y-4">
+        ${isCoord ? `
+        <div class="flex gap-2">
+          <button id="routineTopTabMy" onclick="_setRoutineTopTab('my')" class="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">
+            <i data-lucide="user" class="h-3.5 w-3.5"></i> My Routine
+          </button>
+          <button id="routineTopTabAdjust" onclick="_setRoutineTopTab('adjust')" class="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">
+            <i data-lucide="arrow-left-right" class="h-3.5 w-3.5"></i> Adjustment Board
+          </button>
+        </div>` : ''}
+
+        <div id="routineMyPanel" class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 space-y-4">
           ${myEntry ? `
-            <div class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-              <span class="font-black text-slate-800">Name:</span><span class="font-bold text-slate-600">${myEntry.fullName}</span>
-              <span class="font-black text-slate-800">Short Name:</span><span class="font-bold text-slate-600">${myEntry.shortname}</span>
+            <div class="flex items-center gap-3 text-xs">
+              <span class="font-black text-slate-800">${myEntry.fullName}</span>
+              <span class="px-2 py-0.5 bg-slate-100 rounded-full font-black text-slate-500">${myEntry.shortname}</span>
             </div>` : `
             <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs font-bold text-amber-800">
               We couldn't automatically match your account to the routine sheet (your profile's Short Name may not match the routine sheet's short name column). Pick your name below under "Other's" to view your own schedule — and ask an Admin to fix your Short Name so this works automatically next time.
             </div>`}
 
-          <div class="flex gap-2">
-            <button id="routineModeSelf" onclick="_setRoutineMode('self')" class="flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">Self</button>
-            <button id="routineModeOther" onclick="_setRoutineMode('other')" class="flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">Other's</button>
+          <div class="flex flex-wrap items-center gap-2">
+            <div class="flex rounded-xl border border-slate-200 overflow-hidden shrink-0">
+              <button id="routineModeSelf" onclick="_setRoutineMode('self')" class="px-3.5 py-2 text-xs font-black uppercase tracking-widest transition-all">Self</button>
+              <button id="routineModeOther" onclick="_setRoutineMode('other')" class="px-3.5 py-2 text-xs font-black uppercase tracking-widest transition-all">Other's</button>
+            </div>
+            <div class="flex rounded-xl border border-slate-200 overflow-hidden shrink-0">
+              <button id="routineViewSchedule" onclick="_setRoutineViewMode(false)" class="px-3.5 py-2 text-xs font-black uppercase tracking-widest transition-all">Routine</button>
+              <button id="routineViewAdjustment" onclick="_setRoutineViewMode(true)" class="px-3.5 py-2 text-xs font-black uppercase tracking-widest transition-all">Adjustments</button>
+            </div>
+            <input type="date" id="routineDateInput" value="${todayIso}" onchange="this.dataset.userPicked='1'; _loadMyRoutinePeriods()"
+              class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-center focus:ring-2 focus:ring-blue-600 outline-none shrink-0">
+            <div class="flex gap-1.5 ml-auto">
+              <button onclick="_openWeeklyRoutineModal()" title="Full Week" class="p-2.5 border border-slate-200 rounded-xl text-slate-500 hover:bg-slate-50"><i data-lucide="calendar-range" class="h-3.5 w-3.5"></i></button>
+              <button onclick="_openArchiveModal()" title="Past Adjustments" class="p-2.5 border border-slate-200 rounded-xl text-slate-500 hover:bg-slate-50"><i data-lucide="history" class="h-3.5 w-3.5"></i></button>
+            </div>
           </div>
 
           <div id="routineOtherPicker" class="${_routineMode === 'other' ? '' : 'hidden'}">
@@ -2197,23 +2220,6 @@
               class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-blue-600 outline-none shadow-sm">
               ${options || '<option value="">No teachers found</option>'}
             </select>
-          </div>
-
-          <div class="flex gap-2 border-t border-slate-100 pt-3">
-            <button id="routineViewSchedule" onclick="_setRoutineViewMode(false)" class="flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">Routine</button>
-            <button id="routineViewAdjustment" onclick="_setRoutineViewMode(true)" class="flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">Adjustments</button>
-          </div>
-
-          <input type="date" id="routineDateInput" value="${todayIso}" onchange="this.dataset.userPicked='1'; _loadMyRoutinePeriods()"
-            class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-center focus:ring-2 focus:ring-blue-600 outline-none">
-
-          <div class="flex gap-2">
-            <button onclick="_openWeeklyRoutineModal()" class="flex-1 py-2.5 border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50 flex items-center justify-center gap-1.5">
-              <i data-lucide="calendar-range" class="h-3.5 w-3.5"></i> Full Week
-            </button>
-            <button onclick="_openArchiveModal()" class="flex-1 py-2.5 border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50 flex items-center justify-center gap-1.5">
-              <i data-lucide="history" class="h-3.5 w-3.5"></i> Past Adjustments
-            </button>
           </div>
 
           <p id="routineDayLabel" class="text-center font-black italic text-lg text-slate-800"></p>
@@ -2224,18 +2230,16 @@
         </div>
 
         ${isCoord ? `
-        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 space-y-4">
+        <div id="routineAdjustPanel" class="hidden bg-white rounded-3xl border border-slate-200 shadow-sm p-5 space-y-4">
           <div class="flex items-center justify-between flex-wrap gap-1">
-            <h3 class="text-lg font-black text-slate-800">Adjustment Setup</h3>
+            <h3 class="text-lg font-black text-slate-800">Adjustment Board</h3>
             <span id="routineLatestPdf" class="text-xs font-bold text-blue-600 whitespace-nowrap"></span>
           </div>
-          <div class="flex gap-2">
-            <button onclick="_openDailySetupPrompt()" class="flex-1 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-emerald-700">Setup New Day</button>
-            <button onclick="_toggleAdjustmentsList()" class="flex-1 py-2.5 bg-amber-500 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-amber-600">View Today's Adjustments</button>
-          </div>
-          <div class="flex gap-2">
-            <button onclick="_generateAdjustmentPdf()" class="flex-1 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-50">Export As PDF</button>
-            <button onclick="_openPdfHistoryModal()" class="flex-1 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-50">PDF History</button>
+          <div class="flex flex-wrap gap-2">
+            <button onclick="_openDailySetupPrompt()" class="flex items-center gap-1.5 px-4 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-emerald-700"><i data-lucide="calendar" class="h-3.5 w-3.5"></i>Setup New Day</button>
+            <button onclick="_toggleAdjustmentsList()" class="flex items-center gap-1.5 px-4 py-2.5 bg-amber-500 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-amber-600"><i data-lucide="clipboard-list" class="h-3.5 w-3.5"></i>Today's Adjustments</button>
+            <button onclick="_generateAdjustmentPdf()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-50"><i data-lucide="download" class="h-3.5 w-3.5"></i>Export PDF</button>
+            <button onclick="_openPdfHistoryModal()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-50"><i data-lucide="history" class="h-3.5 w-3.5"></i>PDF History</button>
           </div>
 
           <div id="routineAdjustmentsList" class="hidden"></div>
@@ -2253,17 +2257,42 @@
     lucide.createIcons();
     _updateRoutineModeButtons();
     _updateRoutineViewButtons();
+    if (isCoord) _updateRoutineTopTabButtons();
     _loadRoutineBoard(false, true); // resolves the sheet's actual date first, then loads periods for it
     if (isCoord) { _loadLatestAdjustmentPdf(); _startRoutinePolling(); }
+  }
+
+  // Cord/Admin see two clearly separate top-level sections instead of one
+  // stacked below the other — "My Routine" (personal schedule) and
+  // "Adjustment Board" (the reassignment tool affecting everyone) are
+  // conceptually different tasks and shouldn't read as one continuous form.
+  let _routineTopTab = 'my';
+
+  function _setRoutineTopTab(tab) {
+    _routineTopTab = tab;
+    const myPanel = document.getElementById('routineMyPanel');
+    const adjPanel = document.getElementById('routineAdjustPanel');
+    if (myPanel) myPanel.classList.toggle('hidden', tab !== 'my');
+    if (adjPanel) adjPanel.classList.toggle('hidden', tab !== 'adjust');
+    _updateRoutineTopTabButtons();
+  }
+
+  function _updateRoutineTopTabButtons() {
+    const myBtn = document.getElementById('routineTopTabMy');
+    const adjBtn = document.getElementById('routineTopTabAdjust');
+    const active = 'bg-blue-600 text-white shadow-lg shadow-blue-500/20';
+    const inactive = 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50';
+    if (myBtn) myBtn.className = `flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${_routineTopTab === 'my' ? active : inactive}`;
+    if (adjBtn) adjBtn.className = `flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${_routineTopTab === 'adjust' ? active : inactive}`;
   }
 
   function _updateRoutineModeButtons() {
     const selfBtn = document.getElementById('routineModeSelf');
     const otherBtn = document.getElementById('routineModeOther');
-    const active = 'bg-blue-600 text-white shadow';
-    const inactive = 'bg-slate-100 text-slate-500 hover:bg-slate-200';
-    if (selfBtn) selfBtn.className = `flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${_routineMode === 'self' ? active : inactive}`;
-    if (otherBtn) otherBtn.className = `flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${_routineMode === 'other' ? active : inactive}`;
+    const active = 'bg-blue-600 text-white';
+    const inactive = 'bg-white text-slate-500 hover:bg-slate-50';
+    if (selfBtn) selfBtn.className = `px-3.5 py-2 text-xs font-black uppercase tracking-widest transition-all ${_routineMode === 'self' ? active : inactive}`;
+    if (otherBtn) otherBtn.className = `px-3.5 py-2 text-xs font-black uppercase tracking-widest transition-all ${_routineMode === 'other' ? active : inactive}`;
   }
 
   function _setRoutineMode(mode) {
@@ -2293,10 +2322,10 @@
   function _updateRoutineViewButtons() {
     const schedBtn = document.getElementById('routineViewSchedule');
     const adjBtn = document.getElementById('routineViewAdjustment');
-    const active = 'bg-blue-600 text-white shadow';
-    const inactive = 'bg-slate-100 text-slate-500 hover:bg-slate-200';
-    if (schedBtn) schedBtn.className = `flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${!_routineShowAdjustments ? active : inactive}`;
-    if (adjBtn) adjBtn.className = `flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${_routineShowAdjustments ? active : inactive}`;
+    const active = 'bg-blue-600 text-white';
+    const inactive = 'bg-white text-slate-500 hover:bg-slate-50';
+    if (schedBtn) schedBtn.className = `px-3.5 py-2 text-xs font-black uppercase tracking-widest transition-all ${!_routineShowAdjustments ? active : inactive}`;
+    if (adjBtn) adjBtn.className = `px-3.5 py-2 text-xs font-black uppercase tracking-widest transition-all ${_routineShowAdjustments ? active : inactive}`;
   }
 
   // Toggles between the plain scheduled routine and the same view merged
