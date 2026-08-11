@@ -2109,18 +2109,22 @@
 
     google.script.run.withSuccessHandler(function (directory) {
       _routineDirectory = Array.isArray(directory) ? directory : [];
+      // Matched by shortname, not full name — full names are free text and
+      // drift out of sync between the login system and the routine Google
+      // Sheet (spelling, "Md." vs "Mohammad", extra spaces, etc.); shortname
+      // is the compact canonical identifier both systems are meant to agree
+      // on, so it's the far more reliable key. No "Logged in info"
+      // full-name cross-reference involved here at all anymore.
       const myProfile = window.APP_USER && window.APP_USER.profile;
-      const myFullName = (myProfile && myProfile.full_name) ? String(myProfile.full_name).trim().toLowerCase() : '';
-      const match = _routineDirectory.find(d => d.fullName.trim().toLowerCase() === myFullName);
+      const myShortname = (myProfile && myProfile.shortname) ? String(myProfile.shortname).trim().toLowerCase() : '';
+      const match = _routineDirectory.find(d => String(d.shortname).trim().toLowerCase() === myShortname);
       // No silent fallback to _routineDirectory[0] here anymore — that used
       // to show a DIFFERENT teacher's schedule under "Self" with zero
-      // indication anything was wrong, whenever this account's full_name
-      // didn't exactly match the routine directory's fullName column (any
-      // spelling/formatting difference between the login system and the
-      // Google Sheet). Land in 'other' mode with nothing pre-selected
-      // instead — _drawRoutineShell shows an explicit "couldn't find you"
-      // notice and the picker, rather than quietly lying about whose
-      // schedule is on screen.
+      // indication anything was wrong, whenever this account's shortname
+      // didn't match the routine directory's shortname column. Land in
+      // 'other' mode with nothing pre-selected instead — _drawRoutineShell
+      // shows an explicit "couldn't find you" notice and the picker, rather
+      // than quietly lying about whose schedule is on screen.
       _routineShortname = match ? match.shortname : null;
       _routineMode = match ? 'self' : 'other';
       _drawRoutineShell();
@@ -2138,8 +2142,8 @@
       .map(d => `<option value="${d.shortname}" ${d.shortname === _routineShortname ? 'selected' : ''}>${d.fullName} (${d.shortname})</option>`)
       .join('');
     const myProfile = window.APP_USER && window.APP_USER.profile;
-    const myFullName = (myProfile && myProfile.full_name) ? String(myProfile.full_name).trim().toLowerCase() : '';
-    const myEntry = _routineDirectory.find(d => d.fullName.trim().toLowerCase() === myFullName);
+    const myShortname = (myProfile && myProfile.shortname) ? String(myProfile.shortname).trim().toLowerCase() : '';
+    const myEntry = _routineDirectory.find(d => String(d.shortname).trim().toLowerCase() === myShortname);
     const todayIso = new Date().toISOString().slice(0, 10);
 
     container.innerHTML = `
@@ -2240,8 +2244,8 @@
     _updateRoutineModeButtons();
     if (mode === 'self') {
       const myProfile = window.APP_USER && window.APP_USER.profile;
-      const myFullName = (myProfile && myProfile.full_name) ? String(myProfile.full_name).trim().toLowerCase() : '';
-      const match = _routineDirectory.find(d => d.fullName.trim().toLowerCase() === myFullName);
+      const myShortname = (myProfile && myProfile.shortname) ? String(myProfile.shortname).trim().toLowerCase() : '';
+      const match = _routineDirectory.find(d => String(d.shortname).trim().toLowerCase() === myShortname);
       if (match) _routineShortname = match.shortname;
     } else {
       const sel = document.getElementById('routineShortnameSelect');
