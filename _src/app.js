@@ -6315,8 +6315,8 @@
           </div>
         </div>
         <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:520px">
-          <table class="w-full text-left border-collapse text-xs">
-            <thead class="bg-slate-50"><tr id="subjPatternHeaderRow" class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Subject</th></tr></thead>
+          <table class="w-full text-left border-separate text-xs" style="border-spacing:0;">
+            <thead class="bg-slate-50"><tr id="subjPatternHeaderRow" class="text-[10px] font-black text-slate-500 uppercase"><th class="sticky top-0 left-0 z-20 bg-slate-50 py-2 px-3">Subject</th></tr></thead>
             <tbody id="subjPatternBody"></tbody>
           </table>
         </div>
@@ -6613,9 +6613,9 @@
       _classPatterns = patterns;
       const mapRows = (mapRes && mapRes.result === 'success' && mapRes.map) || [];
       _subjectPatternMap = new Set(mapRows.map(m => `${m.subject_id}||${m.pattern_id}`));
-      document.getElementById('subjPatternHeaderRow').innerHTML = '<th class="py-2 px-3">Subject</th>' + patterns.map(p => {
+      document.getElementById('subjPatternHeaderRow').innerHTML = '<th class="sticky top-0 left-0 z-20 bg-slate-50 py-2 px-3">Subject</th>' + patterns.map(p => {
         const allChecked = _subjects.length > 0 && _subjects.every(s => _subjectPatternMap.has(`${s.id}||${p.id}`));
-        return `<th class="py-2 px-3 text-center"><div class="flex flex-col items-center gap-1">
+        return `<th class="sticky top-0 z-10 bg-slate-50 py-2 px-3 text-center"><div class="flex flex-col items-center gap-1">
           <input type="checkbox" title="Select all for ${p.name}" onchange="toggleAllSubjectsForPattern(${p.id},this.checked,this)" ${allChecked ? 'checked' : ''}>
           <span>${p.name}</span>
           <div class="flex items-center gap-1">
@@ -6624,9 +6624,9 @@
           </div>
         </div></th>`;
       }).join('');
-      document.getElementById('subjPatternBody').innerHTML = _subjects.map(s => `<tr class="border-b border-slate-50">
-        <td class="py-1.5 px-3 font-bold">${s.name} <i data-lucide="trash-2" class="h-3 w-3 text-red-400 cursor-pointer inline ml-1" onclick="deleteSubject(${s.id})"></i></td>
-        ${patterns.map(p => `<td class="py-1.5 px-3 text-center"><input type="checkbox" class="subj-pattern-cb-${p.id}" onchange="saveSubjectPatternMap(${s.id},${p.id},this.checked)" ${_subjectPatternMap.has(`${s.id}||${p.id}`) ? 'checked' : ''}></td>`).join('')}
+      document.getElementById('subjPatternBody').innerHTML = _subjects.map(s => `<tr>
+        <td class="sticky left-0 z-10 bg-white border-b border-slate-50 py-1.5 px-3 font-bold">${s.name} <i data-lucide="trash-2" class="h-3 w-3 text-red-400 cursor-pointer inline ml-1" onclick="deleteSubject(${s.id})"></i></td>
+        ${patterns.map(p => `<td class="border-b border-slate-50 py-1.5 px-3 text-center"><input type="checkbox" class="subj-pattern-cb-${p.id}" onchange="saveSubjectPatternMap(${s.id},${p.id},this.checked)" ${_subjectPatternMap.has(`${s.id}||${p.id}`) ? 'checked' : ''}></td>`).join('')}
       </tr>`).join('') || `<tr><td colspan="${patterns.length + 1}" class="p-3 text-slate-400 font-bold">No subjects yet.</td></tr>`;
       document.getElementById('bulkAssignSubjectList').innerHTML = _subjects.map(s => `<label class="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer" data-filter-text="${s.name.toLowerCase()}"><input type="checkbox" onchange="_toggleBulkAssignSelection('subject',${s.id},this.checked)" ${_bulkAssignSelectedSubjects.has(s.id) ? 'checked' : ''}>${s.name}</label>`).join('') || '<span class="text-xs text-slate-400 italic">No subjects yet.</span>';
       document.getElementById('bulkAssignPatternList').innerHTML = patterns.map(p => `<label class="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer" data-filter-text="${p.name.toLowerCase()}"><input type="checkbox" onchange="_toggleBulkAssignSelection('pattern',${p.id},this.checked)" ${_bulkAssignSelectedPatterns.has(p.id) ? 'checked' : ''}>${p.name}</label>`).join('') || '<span class="text-xs text-slate-400 italic">No class patterns yet.</span>';
