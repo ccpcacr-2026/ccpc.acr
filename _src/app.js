@@ -10307,6 +10307,7 @@
     _invAdminFetch('product_history', { id: productId }).then(res => {
       if (!res || res.result !== 'success') { body.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml((res && res.message) || 'Failed to load')}</div>`; return; }
       const product = res.product, summary = res.summary, history = res.history || [];
+      const receiptHistory = res.receiptHistory || [];
       body.innerHTML = `
         <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
           <div>
@@ -10321,6 +10322,32 @@
           ${_invStatCard('Damaged', summary ? summary.damaged : 0)}
           ${_invStatCard('Remaining', summary ? summary.remaining : 0, true)}
         </div>
+        <p class="text-sm font-black text-slate-800 uppercase tracking-widest mb-3">Registry History</p>
+        ${!receiptHistory.length ? `<div class="bg-white rounded-3xl border border-slate-200 shadow-sm text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest mb-6">Nothing registered for this product yet</div>` : `
+        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-x-auto mb-6">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-slate-50"><tr>
+              <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Date</th>
+              <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Voucher No.</th>
+              <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Brand</th>
+              <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Category</th>
+              <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Qty</th>
+              <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Unit Price</th>
+              <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Remaining</th>
+              <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Voucher</th>
+            </tr></thead>
+            <tbody>${receiptHistory.map(r => `<tr class="border-t border-slate-50">
+              <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(r.purchase_date || (r.purchases && r.purchases.created_at) || '—')}</td>
+              <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(r.voucher_number || '—')}</td>
+              <td class="px-3 py-2.5 font-bold text-slate-700">${_escHtml(r.brand || '—')}</td>
+              <td class="px-3 py-2.5 font-bold text-slate-700">${_escHtml(r.category || '—')}</td>
+              <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(r.quantity || 0)}</td>
+              <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(r.unit_price || 0).toFixed(2)}</td>
+              <td class="px-3 py-2.5 font-black text-slate-800 text-right">${Number(r.qty_remaining || 0)}</td>
+              <td class="px-3 py-2.5">${r.voucher_photo_url ? `<a href="${r.voucher_photo_url}" target="_blank" class="text-blue-600 font-bold hover:underline">View</a>` : '—'}</td>
+            </tr>`).join('')}</tbody>
+          </table>
+        </div>`}
         <p class="text-sm font-black text-slate-800 uppercase tracking-widest mb-3">Distribution History</p>
         ${!history.length ? `<div class="bg-white rounded-3xl border border-slate-200 shadow-sm text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">This product hasn't been distributed yet</div>` : `
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-x-auto">
@@ -10330,7 +10357,10 @@
               <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Distribute No.</th>
               <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Recipient</th>
               <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Type</th>
+              <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Brand</th>
+              <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Category</th>
               <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Quantity</th>
+              <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Unit Price</th>
               <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Total Price</th>
             </tr></thead>
             <tbody>${history.map(h => `<tr class="border-t border-slate-50">
@@ -10338,7 +10368,10 @@
               <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml((h.distributions && h.distributions.distribute_no) || '—')}</td>
               <td class="px-3 py-2.5 font-bold text-slate-700">${_escHtml((h.distributions && h.distributions.consumers && h.distributions.consumers.name) || '—')}</td>
               <td class="px-3 py-2.5 font-bold text-slate-500 capitalize">${_escHtml((h.distributions && h.distributions.consumers && h.distributions.consumers.type) || '—')}</td>
+              <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml((h.purchase_items && h.purchase_items.brand) || '—')}</td>
+              <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml((h.purchase_items && h.purchase_items.category) || '—')}</td>
               <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(h.quantity || 0)}</td>
+              <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(h.unit_price || 0).toFixed(2)}</td>
               <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(h.total_price || 0).toFixed(2)}</td>
             </tr>`).join('')}</tbody>
           </table>
@@ -10357,10 +10390,14 @@
   let _invRegistryProducts = [];
   let _invRegistrySelectedProduct = null;
 
+  let _invRegistryVoucherPhotoBase64 = null;
+
   function loadInventoryRegistryPanel() {
     const body = document.getElementById('invAdminBody');
     if (!body) return;
     _invRegistrySelectedProduct = null;
+    _invRegistryVoucherPhotoBase64 = null;
+    const todayIso = new Date().toISOString().slice(0, 10);
     body.innerHTML = `
       <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 max-w-lg">
         <p class="text-sm font-black text-slate-800 uppercase tracking-widest mb-4">Receive Stock</p>
@@ -10377,6 +10414,33 @@
           <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Unit Price (optional)</label>
           <input id="invRegistryPrice" type="number" placeholder="0.00" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
         </div>
+        <div class="grid grid-cols-2 gap-3 mb-3">
+          <div>
+            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Voucher Number</label>
+            <input id="invRegistryVoucherNo" type="text" placeholder="e.g. V-1042" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
+          </div>
+          <div>
+            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Date of Purchase</label>
+            <input id="invRegistryPurchaseDate" type="date" value="${todayIso}" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3 mb-3">
+          <div>
+            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Brand (optional)</label>
+            <input id="invRegistryBrand" type="text" placeholder="e.g. Kent" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
+          </div>
+          <div>
+            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Category (optional)</label>
+            <input id="invRegistryCategory" type="text" placeholder="e.g. Stationery" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Voucher Photo (optional)</label>
+          <input type="file" id="invRegistryVoucherFile" accept="image/*" class="hidden" onchange="_invHandleVoucherPhotoSelect(event)">
+          <button type="button" onclick="document.getElementById('invRegistryVoucherFile').click()" class="w-full mt-1 px-3 py-2 border border-dashed border-slate-300 rounded-xl font-bold text-xs text-slate-500 hover:bg-slate-50 flex items-center justify-center gap-1.5">
+            <i data-lucide="upload" class="h-3.5 w-3.5"></i> <span id="invRegistryVoucherFileLabel">Attach voucher photo</span>
+          </button>
+        </div>
         <div class="mb-4">
           <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Remarks (optional)</label>
           <input id="invRegistryRemarks" type="text" placeholder="e.g. Donated, purchased, transferred…" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
@@ -10384,9 +10448,55 @@
         <div id="invRegistryStatus" class="text-xs font-bold mb-3"></div>
         <button id="invRegistrySubmitBtn" onclick="submitInventoryRegistry()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">Register Receipt</button>
       </div>`;
+    lucide.createIcons();
     const input = document.getElementById('invRegistryProductQuery');
     input.addEventListener('input', () => { _invRegistrySelectedProduct = null; _invRenderRegistryMatches(input.value.trim()); });
     _invAdminFetch('settings_list', { entity: 'products' }).then(res => { _invRegistryProducts = (res && res.data) || []; });
+  }
+
+  // Resize to a max dimension (no crop — a voucher is a document, not a
+  // portrait) and step down JPEG quality until under 130KB, same target/
+  // approach as handlePhotoSelect elsewhere in this file, minus the
+  // square-crop (which would cut off part of the voucher).
+  function _invHandleVoucherPhotoSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) { showToast('Voucher photo must be under 8 MB.', 'error'); event.target.value = ''; return; }
+    const label = document.getElementById('invRegistryVoucherFileLabel');
+    if (label) label.textContent = 'Processing…';
+    const reader = new FileReader();
+    reader.onload = function (e) {
+      const img = new Image();
+      img.onload = function () {
+        const maxDim = 1400;
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        const TARGET = 130 * 1024;
+        let base64 = '';
+        for (const q of [0.85, 0.70, 0.55, 0.40, 0.28, 0.18]) {
+          base64 = canvas.toDataURL('image/jpeg', q);
+          const approxBytes = Math.ceil((base64.length - base64.indexOf(',') - 1) * 0.75);
+          if (approxBytes <= TARGET) break;
+        }
+        const finalBytes = Math.ceil((base64.length - base64.indexOf(',') - 1) * 0.75);
+        if (finalBytes > TARGET) {
+          if (label) label.textContent = 'Attach voucher photo';
+          showToast('Could not compress voucher photo under 130 KB. Please use a smaller image.', 'error');
+          return;
+        }
+        _invRegistryVoucherPhotoBase64 = base64;
+        if (label) label.textContent = `Attached (${Math.round(finalBytes / 1024)} KB) — click to replace`;
+      };
+      img.onerror = function () {
+        if (label) label.textContent = 'Attach voucher photo';
+        showToast('Could not read that image.', 'error');
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
   }
 
   function _invRenderRegistryMatches(query) {
@@ -10433,20 +10543,24 @@
     if (!qty || qty <= 0) { if (statusEl) { statusEl.textContent = 'Enter a quantity greater than 0.'; statusEl.className = 'text-xs font-bold mb-3 text-red-500'; } return; }
     const unitPrice = document.getElementById('invRegistryPrice').value;
     const remarks = document.getElementById('invRegistryRemarks').value;
+    const voucherNumber = document.getElementById('invRegistryVoucherNo').value.trim();
+    const purchaseDate = document.getElementById('invRegistryPurchaseDate').value;
+    const brand = document.getElementById('invRegistryBrand').value.trim();
+    const category = document.getElementById('invRegistryCategory').value.trim();
     const btn = document.getElementById('invRegistrySubmitBtn');
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
     if (statusEl) { statusEl.textContent = ''; statusEl.className = 'text-xs font-bold mb-3'; }
     const productForMsg = _invRegistrySelectedProduct;
-    _invAdminFetch('registry_create', { product_id: productForMsg.id, quantity: qty, unit_price: unitPrice, remarks }).then(res => {
+    _invAdminFetch('registry_create', {
+      product_id: productForMsg.id, quantity: qty, unit_price: unitPrice, remarks,
+      voucher_number: voucherNumber, purchase_date: purchaseDate, brand, category,
+      voucher_photo_base64: _invRegistryVoucherPhotoBase64,
+    }).then(res => {
       if (btn) { btn.disabled = false; btn.textContent = 'Register Receipt'; }
       if (!res || res.result !== 'success') { if (statusEl) { statusEl.textContent = (res && res.message) || 'Save failed.'; statusEl.className = 'text-xs font-bold mb-3 text-red-500'; } return; }
       if (statusEl) { statusEl.textContent = `Received ${qty} × ${productForMsg.name}.`; statusEl.className = 'text-xs font-bold mb-3 text-emerald-600'; }
       showToast('Receipt registered', 'success');
-      _invRegistrySelectedProduct = null;
-      document.getElementById('invRegistryProductQuery').value = '';
-      document.getElementById('invRegistryQty').value = '';
-      document.getElementById('invRegistryPrice').value = '';
-      document.getElementById('invRegistryRemarks').value = '';
+      loadInventoryRegistryPanel();
     }).catch(err => {
       if (btn) { btn.disabled = false; btn.textContent = 'Register Receipt'; }
       if (statusEl) { statusEl.textContent = err.message || 'Network error.'; statusEl.className = 'text-xs font-bold mb-3 text-red-500'; }
@@ -10476,6 +10590,7 @@
           <input id="invDistProductQuery" type="text" placeholder="Search by name or code…" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
           <div id="invDistProductMatches" class="mt-1 max-h-40 overflow-y-auto flex flex-col rounded-lg"></div>
         </div>
+        <div id="invDistAttrWrap" class="hidden mb-3"></div>
         <div class="mb-3">
           <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Recipient Type</label>
           <div class="flex flex-wrap gap-3 mt-1.5">
@@ -10538,6 +10653,11 @@
     if (product) _invSelectDistProduct(product);
   }
 
+  // Populated per selected product by _invSelectDistProduct — only products
+  // with at least one tagged lot (see _productAttributeOptions) get a
+  // dropdown; everything else distributes exactly as it always has.
+  let _invDistAttrOptions = { brands: [], categories: [] };
+
   function _invSelectDistProduct(product) {
     _invDistSelectedProduct = product;
     const wrap = document.getElementById('invDistProductWrap');
@@ -10548,10 +10668,48 @@
         <span class="text-xs font-black text-slate-800">${_escHtml(product.name)}</span>
         <button onclick="_invClearDistProduct()" class="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600">Change</button>
       </div>`;
+    _invDistAttrOptions = { brands: [], categories: [] };
+    const attrWrap = document.getElementById('invDistAttrWrap');
+    if (attrWrap) attrWrap.classList.add('hidden');
+    _invAdminFetch('product_attribute_options', { product_id: product.id }).then(res => {
+      if (!res || res.result !== 'success' || _invDistSelectedProduct !== product) return;
+      _invDistAttrOptions = { brands: res.brands || [], categories: res.categories || [] };
+      _invRenderDistAttrDropdowns();
+    }).catch(() => {});
+  }
+
+  function _invRenderDistAttrDropdowns() {
+    const attrWrap = document.getElementById('invDistAttrWrap');
+    if (!attrWrap) return;
+    const { brands, categories } = _invDistAttrOptions;
+    if (!brands.length && !categories.length) { attrWrap.classList.add('hidden'); attrWrap.innerHTML = ''; return; }
+    attrWrap.classList.remove('hidden');
+    attrWrap.innerHTML = `
+      <div class="flex gap-3">
+        ${brands.length ? `
+          <div class="flex-1 min-w-0">
+            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Brand</label>
+            <select id="invDistBrandSelect" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
+              <option value="">--Select--</option>
+              ${brands.map(b => `<option value="${_escHtml(b)}">${_escHtml(b)}</option>`).join('')}
+            </select>
+          </div>` : ''}
+        ${categories.length ? `
+          <div class="flex-1 min-w-0">
+            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Category</label>
+            <select id="invDistCategorySelect" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
+              <option value="">--Select--</option>
+              ${categories.map(c => `<option value="${_escHtml(c)}">${_escHtml(c)}</option>`).join('')}
+            </select>
+          </div>` : ''}
+      </div>`;
   }
 
   function _invClearDistProduct() {
     _invDistSelectedProduct = null;
+    _invDistAttrOptions = { brands: [], categories: [] };
+    const attrWrap = document.getElementById('invDistAttrWrap');
+    if (attrWrap) { attrWrap.classList.add('hidden'); attrWrap.innerHTML = ''; }
     const wrap = document.getElementById('invDistProductWrap');
     if (!wrap) return;
     wrap.innerHTML = `
@@ -10619,12 +10777,20 @@
     if (!_invDistSelectedProduct) { setStatus('Pick a product.', true); return; }
     if (!consumerId) { setStatus('Pick a recipient.', true); return; }
     if (!qty || qty <= 0) { setStatus('Enter a quantity greater than 0.', true); return; }
+    // Brand/Category are only shown (and only required) when this product
+    // actually has lots tagged with them — see _invRenderDistAttrDropdowns.
+    const brandSel = document.getElementById('invDistBrandSelect');
+    const categorySel = document.getElementById('invDistCategorySelect');
+    const brand = brandSel ? brandSel.value : '';
+    const category = categorySel ? categorySel.value : '';
+    if (brandSel && !brand) { setStatus('Pick a brand for this product.', true); return; }
+    if (categorySel && !category) { setStatus('Pick a category for this product.', true); return; }
     const btn = document.getElementById('invDistSubmitBtn');
     if (btn) { btn.disabled = true; btn.textContent = 'Distributing…'; }
     setStatus('', false);
     const productForMsg = _invDistSelectedProduct;
     const consumerForMsg = _invDistConsumers.find(c => String(c.id) === String(consumerId));
-    _invAdminFetch('distribute_create', { product_id: productForMsg.id, consumer_id: consumerId, quantity: qty, remarks }).then(res => {
+    _invAdminFetch('distribute_create', { product_id: productForMsg.id, consumer_id: consumerId, quantity: qty, remarks, brand, category }).then(res => {
       if (btn) { btn.disabled = false; btn.textContent = 'Confirm Distribution'; }
       if (!res || res.result !== 'success') { setStatus((res && res.message) || 'Distribution failed.', true); return; }
       setStatus(`Distributed ${qty} × ${productForMsg.name} to ${consumerForMsg ? consumerForMsg.name : 'recipient'}.`, false);
@@ -10634,6 +10800,15 @@
       document.getElementById('invDistRemarks').value = '';
       const previewEl = document.getElementById('invDistNotifyPreview');
       if (previewEl) previewEl.classList.add('hidden');
+      // A lot may now be fully depleted — refresh brand/category options
+      // rather than leaving a stale (possibly now-empty) selection in place.
+      if (_invDistSelectedProduct === productForMsg) {
+        _invAdminFetch('product_attribute_options', { product_id: productForMsg.id }).then(r => {
+          if (!r || r.result !== 'success' || _invDistSelectedProduct !== productForMsg) return;
+          _invDistAttrOptions = { brands: r.brands || [], categories: r.categories || [] };
+          _invRenderDistAttrDropdowns();
+        }).catch(() => {});
+      }
     }).catch(err => {
       if (btn) { btn.disabled = false; btn.textContent = 'Confirm Distribution'; }
       setStatus(err.message || 'Network error.', true);

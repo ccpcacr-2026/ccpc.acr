@@ -309,29 +309,59 @@ async function _productsSummary(payload) {
 async function _productHistory(payload) {
   const id = payload.id;
   if (!id) return NextResponse.json({ result: 'error', message: 'id is required' }, { status: 400 });
-  const [productRows, summaryRows, historyRows] = await Promise.all([
+  const [productRows, summaryRows, historyRows, receiptRows] = await Promise.all([
     sbInventory(`products?id=eq.${encodeURIComponent(id)}&select=*`),
     sbInventory(`product_stock_summary?id=eq.${encodeURIComponent(id)}&select=*`),
     // distributions has two FKs into consumers (consumer_id = recipient,
     // from_consumer_id = second-hop source) — PostgREST can't auto-pick one
     // for the embed, so it must be named explicitly or this 300s as ambiguous.
-    sbInventory(`distribution_items?product_id=eq.${encodeURIComponent(id)}&select=*,distributions(*,consumers!distributions_consumer_id_fkey(name,type))&order=id.desc`),
+    // purchase_items is embedded too (via distribution_items.purchase_item_id)
+    // so each distribution row can show which lot/brand/category it was
+    // actually drawn from — the FIFO trace that decides its unit_price.
+    sbInventory(`distribution_items?product_id=eq.${encodeURIComponent(id)}&select=*,distributions(*,consumers!distributions_consumer_id_fkey(name,type)),purchase_items(brand,category,voucher_number)&order=id.desc`),
+    // Full registry (purchase) history for this product — every lot ever
+    // received, regardless of how much of it has since been distributed.
+    sbInventory(`purchase_items?product_id=eq.${encodeURIComponent(id)}&select=*,purchases(purchase_no,remarks,created_at)&order=id.desc`),
   ]);
   if (productRows?.error) return NextResponse.json({ result: 'error', message: productRows.error }, { status: 500 });
   if (!Array.isArray(productRows) || !productRows.length) return NextResponse.json({ result: 'error', message: 'Product not found' }, { status: 404 });
   if (historyRows?.error) return NextResponse.json({ result: 'error', message: historyRows.error }, { status: 500 });
+  if (receiptRows?.error) return NextResponse.json({ result: 'error', message: receiptRows.error }, { status: 500 });
   return NextResponse.json({
     result: 'success',
     product: productRows[0],
     summary: (Array.isArray(summaryRows) && summaryRows[0]) || null,
     history: Array.isArray(historyRows) ? historyRows : [],
+    receiptHistory: Array.isArray(receiptRows) ? receiptRows : [],
   });
+}
+
+// Mirrors uploadPhotoToDrive in app/api/exec/route.js, targeting the
+// 'vouchers' bucket instead of 'photos'. Filename is unique per registry
+// entry (unlike the photo upload's deterministic per-teacher name) since a
+// product can have many registry entries, each with its own voucher.
+async function _uploadVoucherPhoto(base64Data, fileName) {
+  const raw = base64Data.replace(/^data:[^;]+;base64,/, '');
+  const binary = Buffer.from(raw, 'base64');
+  const contentType = (base64Data.match(/data:([^;]+)/) || [])[1] || 'image/jpeg';
+  const uploadRes = await fetch(`${SB_URL}/storage/v1/object/vouchers/${fileName}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${SB_KEY}`, 'Content-Type': contentType, 'x-upsert': 'true' },
+    body: binary,
+  });
+  if (!uploadRes.ok) throw new Error(await uploadRes.text());
+  return `${SB_URL}/storage/v1/object/public/vouchers/${fileName}`;
 }
 
 // ── Registry (receive stock, ported verbatim) ───────────────────────────────
 // Simplified receiving: writes through the existing purchases/purchase_items
 // tables (no new schema needed for intake) — supplier/unit_price are
 // optional, unlike a fuller Purchase module a store admin might use later.
+// voucher_number/purchase_date/brand/category/voucher_photo are all optional
+// extra metadata captured per lot (per purchase_items row), same granularity
+// as unit_price — a product bought in two batches under two different
+// brands/prices ends up as two separate purchase_items rows, which is
+// exactly what FIFO distribution already keys off.
 async function _registryCreate(payload) {
   const productId = payload.product_id;
   const qty = Number(payload.quantity);
@@ -345,6 +375,16 @@ async function _registryCreate(payload) {
   if (purchase?.error) return NextResponse.json({ result: 'error', message: purchase.error }, { status: 500 });
   const purchaseId = purchase[0].id;
   const price = Number(payload.unit_price) || 0;
+
+  let voucherPhotoUrl = null;
+  if (payload.voucher_photo_base64) {
+    try {
+      voucherPhotoUrl = await _uploadVoucherPhoto(payload.voucher_photo_base64, `voucher_${purchaseId}_${Date.now()}.jpg`);
+    } catch (e) {
+      return NextResponse.json({ result: 'error', message: `Voucher photo upload failed: ${e.message}` }, { status: 500 });
+    }
+  }
+
   const item = await sbInventory('purchase_items', 'POST', {
     purchase_id: purchaseId,
     product_id: productId,
@@ -353,9 +393,29 @@ async function _registryCreate(payload) {
     qty_remaining: qty, // nothing distributed from this lot yet
     unit_price: price,
     final_amount: price * qty,
+    voucher_number: payload.voucher_number || null,
+    purchase_date: payload.purchase_date || new Date().toISOString().slice(0, 10),
+    brand: payload.brand || null,
+    category: payload.category || null,
+    voucher_photo_url: voucherPhotoUrl,
   });
   if (item?.error) return NextResponse.json({ result: 'error', message: item.error }, { status: 500 });
   return NextResponse.json({ result: 'success', purchase_id: purchaseId, purchase_item: item[0] });
+}
+
+// Distinct brand/category values still available (qty_remaining > 0) for a
+// product — the distribute form only shows a dropdown when this returns at
+// least one value for that dimension, so products nobody bothered to tag
+// with a brand/category keep working exactly as before (plain FIFO, no
+// forced selection).
+async function _productAttributeOptions(payload) {
+  const productId = payload.product_id;
+  if (!productId) return NextResponse.json({ result: 'error', message: 'product_id is required' }, { status: 400 });
+  const rows = await sbInventory(`purchase_items?product_id=eq.${encodeURIComponent(productId)}&qty_remaining=gt.0&select=brand,category`);
+  if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+  const brands = [...new Set((rows || []).map(r => r.brand).filter(Boolean))].sort();
+  const categories = [...new Set((rows || []).map(r => r.category).filter(Boolean))].sort();
+  return NextResponse.json({ result: 'success', brands, categories });
 }
 
 // ── Distribute (Central Store FIFO, ported verbatim) ────────────────────────
@@ -410,12 +470,19 @@ async function _distributeCreate(payload) {
 
   // FIFO across Central Store's lots for this product — oldest purchase
   // first. Keep BOTH sort keys: id.asc is the tiebreaker when two lots
-  // share a created_at timestamp.
-  const lots = await sbInventory(`purchase_items?product_id=eq.${encodeURIComponent(productId)}&qty_remaining=gt.0&select=*&order=created_at.asc,id.asc`);
+  // share a created_at timestamp. When the caller picked a brand/category
+  // (only possible when the product actually has lots tagged with one —
+  // see _productAttributeOptions), FIFO is scoped to just those matching
+  // lots instead of the product's stock as a whole, so a distribution never
+  // silently mixes brands the admin didn't select.
+  let lotsPath = `purchase_items?product_id=eq.${encodeURIComponent(productId)}&qty_remaining=gt.0&select=*&order=created_at.asc,id.asc`;
+  if (payload.brand) lotsPath += `&brand=eq.${encodeURIComponent(payload.brand)}`;
+  if (payload.category) lotsPath += `&category=eq.${encodeURIComponent(payload.category)}`;
+  const lots = await sbInventory(lotsPath);
   if (lots?.error) return NextResponse.json({ result: 'error', message: lots.error }, { status: 500 });
   const available = (Array.isArray(lots) ? lots : []).reduce((s, l) => s + Number(l.qty_remaining || 0), 0);
   if (available < qty) {
-    return NextResponse.json({ result: 'error', message: `Only ${available} in stock — cannot distribute ${qty}.` }, { status: 400 });
+    return NextResponse.json({ result: 'error', message: `Only ${available} in stock${payload.brand || payload.category ? ' for that brand/category' : ''} — cannot distribute ${qty}.` }, { status: 400 });
   }
 
   const receiverUserId = await _distResolveReceiverUserId(consumer);
@@ -642,6 +709,7 @@ export async function POST(req) {
   if (action === 'registry_create') return _registryCreate(payload);
   if (action === 'distribute_options') return _distributeOptions();
   if (action === 'distribute_create') return _distributeCreate(payload);
+  if (action === 'product_attribute_options') return _productAttributeOptions(payload);
 
   return NextResponse.json({ result: 'error', message: 'Unknown action' }, { status: 400 });
 }
