@@ -4,6 +4,15 @@
  * No changes needed to app.js — the existing GAS call patterns work as-is.
  */
 (function () {
+  // Matches the server's own internal budget for these (see
+  // runDailyRoutineSetup/_callRoutineGas in app/api/exec/route.js) plus a
+  // small margin — the server aborts its own upstream Apps Script call
+  // before this fires and returns a graceful "still working" response, so
+  // this timeout should in practice never actually trip for these.
+  const SLOW_GAS_FN_TIMEOUTS = {
+    runDailyRoutineSetup: 55000,
+  };
+
   function makeRunner() {
     let _success = null;
     let _failure = null;
@@ -27,8 +36,12 @@
           // own auto-hide just makes it silently disappear, no error shown).
           // Abort after 25s so withFailureHandler actually fires with a
           // message the user can act on, instead of the app just looking stuck.
+          // A short allowlist of known-slow functions (external Apps Script
+          // calls that can legitimately run for minutes, not seconds) get a
+          // longer budget instead — see SLOW_GAS_FN_TIMEOUTS below.
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 25000);
+          const timeoutMs = SLOW_GAS_FN_TIMEOUTS[prop] || 25000;
+          const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
           fetch('/api/exec', {
             method: 'POST',

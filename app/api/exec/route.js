@@ -1,6 +1,15 @@
 import { NextResponse } from 'next/server';
 import { supabaseRequest, castToArray } from '@/lib/supabase';
 
+// A full-day routine reseed (runDailyRoutineSetup) can legitimately take a
+// few minutes on the external Apps Script side — this raises the platform's
+// own kill switch to accommodate that. 60s is the highest value that's
+// guaranteed to work on every Vercel plan (Hobby's hard ceiling); even that
+// isn't always enough, which is why runDailyRoutineSetup below aborts its
+// own upstream call well before this fires and reports "still working"
+// instead of erroring — see _callRoutineGas's timedOut handling.
+export const maxDuration = 60;
+
 // Helper: convert empty/blank strings to null (used for date fields throughout)
 function d(val) { return (val && String(val).trim() !== '') ? val : null; }
 
@@ -446,11 +455,22 @@ function _extraCriteriaQS(extraCriteria) {
     .join('');
 }
 
-async function _callRoutineGas(gasUrl, params) {
+async function _callRoutineGas(gasUrl, params, timeoutMs = 20000) {
   const qs = new URLSearchParams(params).toString();
-  const res = await fetch(`${gasUrl}?${qs}`, { signal: AbortSignal.timeout(20000) });
-  const text = await res.text();
-  return { ok: res.ok, status: res.status, text };
+  try {
+    const res = await fetch(`${gasUrl}?${qs}`, { signal: AbortSignal.timeout(timeoutMs) });
+    const text = await res.text();
+    return { ok: res.ok, status: res.status, text };
+  } catch (e) {
+    // AbortSignal.timeout() rejects with a DOMException named 'TimeoutError'
+    // — distinguished from a real HTTP-level failure so a caller that can
+    // tolerate a slow-but-still-running script (runDailyRoutineSetup) can
+    // report "still working" instead of a hard failure. The Apps Script
+    // execution itself isn't stopped by us giving up on the HTTP response —
+    // it keeps running on Google's side regardless.
+    const timedOut = e && (e.name === 'TimeoutError' || e.name === 'AbortError');
+    return { ok: false, status: 0, text: timedOut ? '' : String((e && e.message) || e), timedOut };
+  }
 }
 
 async function _isCordOrAdmin(callerId) {
@@ -1825,11 +1845,18 @@ const handlers = {
   },
 
   // Seed today's "Selected" sheet from the master "Classes" routine — Cord/Admin only.
+  // A full reseed can legitimately take a few minutes on the Apps Script
+  // side. 50s leaves this function's own maxDuration (60s, see top of file)
+  // enough headroom to still return cleanly instead of being hard-killed by
+  // the platform — if the upstream call is still running past that, this
+  // reports "pending" rather than a hard failure; the client then polls
+  // getTodayRoutineBoard for the real outcome (see _confirmDailySetup).
   async runDailyRoutineSetup([sectionKey, callerId, dateStr]) {
     if (!(await _isCordOrAdmin(callerId))) return { success: false, message: 'Not authorized.' };
     const cfg = await _getRoutineSectionConfig(sectionKey);
     if (!cfg.gasUrl) return { success: false, message: 'This section has not been set up yet. Ask an Admin to configure it in System > Routine Settings.' };
-    const gasRes = await _callRoutineGas(cfg.gasUrl, { action: 'setup', date: dateStr });
+    const gasRes = await _callRoutineGas(cfg.gasUrl, { action: 'setup', date: dateStr }, 50000);
+    if (gasRes.timedOut) return { success: null, pending: true, message: 'Still working — a full day reseed can take a few minutes.' };
     return { success: gasRes.ok, message: gasRes.text };
   },
 

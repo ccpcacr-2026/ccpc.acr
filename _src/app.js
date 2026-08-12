@@ -2948,6 +2948,15 @@
   // routine — a much bigger blast radius — so it deliberately blocks and
   // waits for the real response instead of the optimistic non-blocking
   // pattern used for single-period adjustments.
+  //
+  // A full reseed can legitimately take a few minutes on the external Apps
+  // Script side (see runDailyRoutineSetup server-side) — long enough that
+  // neither our own request nor the server's own upstream call is
+  // guaranteed to still be open by the time it finishes. Rather than treat
+  // that as failure, a "pending" response (or even a dropped connection)
+  // falls through to polling the actual sheet until it confirms the
+  // reseed landed, or gives up gently after a while — never a hard error
+  // just because something took a while.
   function _confirmDailySetup() {
     const dateStr = document.getElementById('dailySetupDateInput').value;
     if (!dateStr) { showToast('Pick a date first', 'error'); return; }
@@ -2955,15 +2964,53 @@
     const btn = document.getElementById('dailySetupConfirmBtn');
     if (btn) { btn.disabled = true; btn.textContent = 'Setting up…'; btn.classList.add('opacity-60'); }
     google.script.run.withSuccessHandler(function (res) {
+      if (res && res.pending) {
+        showToast('Still working — this can take a few minutes. Checking…', 'info');
+        _pollDailySetupCompletion(dateStr, 0);
+        return;
+      }
       const m = document.getElementById('dailySetupModal');
       if (m) m.remove();
       if (res && res.success) { showToast('Daily setup complete', 'success'); _loadRoutineBoard(false, true); }
       else showToast((res && res.message) || 'Setup failed', 'error');
     }).withFailureHandler(function () {
+      // A dropped connection here doesn't mean the script itself failed —
+      // Apps Script keeps running on Google's side independent of whether
+      // our own request to it is still open. Poll for the real outcome
+      // instead of assuming the worst.
+      showToast('Connection lost — still checking whether setup completed…', 'info');
+      _pollDailySetupCompletion(dateStr, 0);
+    }).runDailyRoutineSetup(_routineSection, myId, dateStr);
+  }
+
+  const DAILY_SETUP_POLL_INTERVAL_MS = 8000;
+  const DAILY_SETUP_POLL_MAX_TRIES = 45; // ~6 minutes
+
+  function _pollDailySetupCompletion(dateStr, attempt) {
+    // Stops on its own once the user has dismissed the modal — no point
+    // polling in the background for a screen nobody's watching anymore.
+    if (!document.getElementById('dailySetupModal')) return;
+    const btn = document.getElementById('dailySetupConfirmBtn');
+    if (btn) btn.textContent = `Still working… (checked ${attempt + 1}×)`;
+    const giveUp = () => {
       const m = document.getElementById('dailySetupModal');
       if (m) m.remove();
-      showToast('Network error', 'error');
-    }).runDailyRoutineSetup(_routineSection, myId, dateStr);
+      showToast('Setup is taking longer than expected — it may still finish in the background. Check back shortly.', 'info');
+    };
+    const retryOrGiveUp = () => {
+      if (attempt + 1 >= DAILY_SETUP_POLL_MAX_TRIES) { giveUp(); return; }
+      setTimeout(() => _pollDailySetupCompletion(dateStr, attempt + 1), DAILY_SETUP_POLL_INTERVAL_MS);
+    };
+    google.script.run.withSuccessHandler(function (board) {
+      if (board && !board.error && board.isoDate === dateStr) {
+        const m = document.getElementById('dailySetupModal');
+        if (m) m.remove();
+        showToast('Daily setup complete', 'success');
+        _loadRoutineBoard(false, true);
+        return;
+      }
+      retryOrGiveUp();
+    }).withFailureHandler(retryOrGiveUp).getTodayRoutineBoard(_routineSection);
   }
 
   function _generateAdjustmentPdf() {
