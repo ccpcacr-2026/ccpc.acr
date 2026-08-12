@@ -2246,12 +2246,12 @@
             </div>`}
 
           <div class="space-y-2">
-            <div class="grid grid-cols-2 gap-2">
-              <div class="flex rounded-xl border border-slate-200 overflow-hidden">
+            <div class="flex gap-2">
+              <div class="flex-1 min-w-0 flex rounded-xl border border-slate-200 overflow-hidden">
                 <button id="routineModeSelf" onclick="_setRoutineMode('self')" class="flex-1 px-2 py-2 text-[10px] font-black uppercase tracking-wide transition-all">Self</button>
                 <button id="routineModeOther" onclick="_setRoutineMode('other')" class="flex-1 px-2 py-2 text-[10px] font-black uppercase tracking-wide transition-all">Other's</button>
               </div>
-              <div class="flex rounded-xl border border-slate-200 overflow-hidden">
+              <div class="flex-1 min-w-0 flex rounded-xl border border-slate-200 overflow-hidden">
                 <button id="routineViewSchedule" onclick="_setRoutineViewMode(false)" class="flex-1 px-2 py-2 text-[10px] font-black uppercase tracking-wide transition-all">Routine</button>
                 <button id="routineViewAdjustment" onclick="_setRoutineViewMode(true)" class="flex-1 px-2 py-2 text-[10px] font-black uppercase tracking-wide transition-all">Adjust</button>
               </div>
