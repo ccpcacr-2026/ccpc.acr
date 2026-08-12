@@ -1764,9 +1764,8 @@ const handlers = {
 
     const parsedDate = dateLabel ? new Date(dateLabel) : null;
     const isoDate = parsedDate && !isNaN(parsedDate) ? parsedDate.toISOString().slice(0, 10) : '';
-    const sheetUrl = `https://docs.google.com/spreadsheets/d/${cfg.routineSheetId}/edit`;
 
-    return { dateLabel, isoDate, weekday, periods: periodCols.map(p => p.label), periodColNumbers, rows: dataRows, adjustments, sheetUrl };
+    return { dateLabel, isoDate, weekday, periods: periodCols.map(p => p.label), periodColNumbers, rows: dataRows, adjustments };
   },
 
   // Free-teacher candidates for a given period, from the "Dropdown" sheet —
@@ -1841,16 +1840,6 @@ const handlers = {
     if (!cfg.gasUrl) return { success: false, message: 'This section has not been set up yet. Ask an Admin to configure it in System > Routine Settings.' };
     const gasRes = await _callRoutineGas(cfg.gasUrl, { action: 'pdf' });
     return { success: gasRes.ok && !!gasRes.text, url: gasRes.text };
-  },
-
-  // Anyone can see the most recently generated adjustment PDF (read-only).
-  async getLatestAdjustmentPdf([sectionKey]) {
-    const cfg = await _getRoutineSectionConfig(sectionKey);
-    if (!cfg.routineSheetId) return null;
-    const rows = await _fetchSheetRows(cfg.routineSheetId, { name: 'Adjustment link' });
-    if (rows.length < 2) return null;
-    const [name, url, status] = rows[1];
-    return { name: name || '', url: url || '', status: status || '' };
   },
 
   // Full history of generated adjustment PDFs (read-only) — the sheet

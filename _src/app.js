@@ -2280,23 +2280,15 @@
 
         ${isCoord ? `
         <div id="routineAdjustPanel" class="hidden bg-white rounded-3xl border border-slate-200 shadow-sm p-5 space-y-4">
-          <div class="flex items-center justify-between flex-wrap gap-1">
-            <div>
-              <h3 class="text-lg font-black text-slate-800">Adjustment Board</h3>
-              <p id="routineAdjustDateLabel" class="text-xs font-bold text-slate-400 mt-0.5"></p>
-            </div>
-            <div class="flex items-center gap-3">
-              <a id="routineAdjustSheetLink" href="#" target="_blank" rel="noopener" class="hidden flex items-center gap-1 text-xs font-bold text-blue-600 hover:underline whitespace-nowrap">
-                <i data-lucide="external-link" class="h-3 w-3"></i> View Sheet
-              </a>
-              <span id="routineLatestPdf" class="text-xs font-bold text-blue-600 whitespace-nowrap"></span>
-            </div>
+          <div>
+            <h3 class="text-lg font-black text-slate-800">Adjustment Board</h3>
+            <p id="routineAdjustDateLabel" class="text-xs font-bold text-slate-400 mt-0.5"></p>
           </div>
           <div class="flex flex-wrap gap-2">
             <button onclick="_openDailySetupPrompt()" class="flex items-center gap-1.5 px-4 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-emerald-700"><i data-lucide="calendar" class="h-3.5 w-3.5"></i>Setup New Day</button>
             <button onclick="_toggleAdjustmentsList()" class="flex items-center gap-1.5 px-4 py-2.5 bg-amber-500 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-amber-600"><i data-lucide="clipboard-list" class="h-3.5 w-3.5"></i>Today's Adjustments</button>
-            <button onclick="_generateAdjustmentPdf()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-50"><i data-lucide="download" class="h-3.5 w-3.5"></i>Export PDF</button>
-            <button onclick="_openPdfHistoryModal()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-50"><i data-lucide="history" class="h-3.5 w-3.5"></i>PDF History</button>
+            <button onclick="_generateAdjustmentPdf()" title="Export PDF" class="p-2.5 bg-white border border-slate-200 rounded-xl hover:bg-slate-50"><i data-lucide="download" class="h-3.5 w-3.5"></i></button>
+            <button onclick="_openPdfHistoryModal()" title="PDF History" class="p-2.5 bg-white border border-slate-200 rounded-xl hover:bg-slate-50"><i data-lucide="history" class="h-3.5 w-3.5"></i></button>
           </div>
 
           <div id="routineAdjustmentsList" class="hidden"></div>
@@ -2316,7 +2308,7 @@
     _updateRoutineViewButtons();
     if (isCoord) _updateRoutineTopTabButtons();
     _loadRoutineBoard(false, true); // resolves the sheet's actual date first, then loads periods for it
-    if (isCoord) { _loadLatestAdjustmentPdf(); _startRoutinePolling(); }
+    if (isCoord) _startRoutinePolling();
   }
 
   // Cord/Admin see two clearly separate top-level sections instead of one
@@ -2644,19 +2636,12 @@
 
       // Cord/Admin need to see which working day the board below is for —
       // it's the sheet's own D1 date (can lag behind the real calendar date,
-      // see below), not necessarily "today". Plus a direct link to the
-      // underlying Google Sheet, for anyone who wants to double-check the
-      // raw data rather than trust the app's rendering of it.
+      // see below), not necessarily "today".
       const adjDateLbl = document.getElementById('routineAdjustDateLabel');
       if (adjDateLbl) {
         adjDateLbl.textContent = (board && !board.error && board.isoDate)
           ? `Adjusting for ${_formatRoutineDate(board.isoDate)}${board.weekday ? ' · ' + board.weekday : ''}`
           : '';
-      }
-      const adjSheetLink = document.getElementById('routineAdjustSheetLink');
-      if (adjSheetLink) {
-        if (board && board.sheetUrl) { adjSheetLink.href = board.sheetUrl; adjSheetLink.classList.remove('hidden'); }
-        else adjSheetLink.classList.add('hidden');
       }
 
       // The "Selected" sheet's own D1 date (board.isoDate) is the school's
@@ -2798,14 +2783,6 @@
             </div>`).join('') : '<p class="text-center text-slate-400 text-xs py-2">No adjustments today</p>'}
         </div>
       </div>`;
-  }
-
-  function _loadLatestAdjustmentPdf() {
-    const el = document.getElementById('routineLatestPdf');
-    if (!el) return;
-    google.script.run.withSuccessHandler(function (res) {
-      if (res && res.url) el.innerHTML = `<a href="${res.url}" target="_blank" class="underline">Latest Notice PDF</a>`;
-    }).getLatestAdjustmentPdf(_routineSection);
   }
 
   // Previous days' adjustment notices, from the "Adjustment link" sheet —
@@ -2991,7 +2968,7 @@
     showToast('Generating PDF and uploading to Drive — this can take a moment…', 'info');
     google.script.run.withSuccessHandler(function (res) {
       showLoading(false);
-      if (res && res.success && res.url) { window.open(res.url, '_blank'); showToast('PDF generated', 'success'); _loadLatestAdjustmentPdf(); }
+      if (res && res.success && res.url) { window.open(res.url, '_blank'); showToast('PDF generated', 'success'); }
       else showToast((res && res.message) || 'PDF generation failed', 'error');
     }).withFailureHandler(function () {
       showLoading(false); showToast('Network error', 'error');
