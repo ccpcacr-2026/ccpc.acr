@@ -2245,20 +2245,22 @@
               We couldn't automatically match your account to the routine sheet (your profile's Short Name may not match the routine sheet's short name column). Pick your name below under "Other's" to view your own schedule — and ask an Admin to fix your Short Name so this works automatically next time.
             </div>`}
 
-          <div class="flex flex-wrap items-center gap-2">
-            <div class="flex rounded-xl border border-slate-200 overflow-hidden shrink-0">
-              <button id="routineModeSelf" onclick="_setRoutineMode('self')" class="px-3.5 py-2 text-xs font-black uppercase tracking-widest transition-all">Self</button>
-              <button id="routineModeOther" onclick="_setRoutineMode('other')" class="px-3.5 py-2 text-xs font-black uppercase tracking-widest transition-all">Other's</button>
+          <div class="space-y-2">
+            <div class="grid grid-cols-2 gap-2">
+              <div class="flex rounded-xl border border-slate-200 overflow-hidden">
+                <button id="routineModeSelf" onclick="_setRoutineMode('self')" class="flex-1 px-2 py-2 text-[10px] font-black uppercase tracking-wide transition-all">Self</button>
+                <button id="routineModeOther" onclick="_setRoutineMode('other')" class="flex-1 px-2 py-2 text-[10px] font-black uppercase tracking-wide transition-all">Other's</button>
+              </div>
+              <div class="flex rounded-xl border border-slate-200 overflow-hidden">
+                <button id="routineViewSchedule" onclick="_setRoutineViewMode(false)" class="flex-1 px-2 py-2 text-[10px] font-black uppercase tracking-wide transition-all">Routine</button>
+                <button id="routineViewAdjustment" onclick="_setRoutineViewMode(true)" class="flex-1 px-2 py-2 text-[10px] font-black uppercase tracking-wide transition-all">Adjust</button>
+              </div>
             </div>
-            <div class="flex rounded-xl border border-slate-200 overflow-hidden shrink-0">
-              <button id="routineViewSchedule" onclick="_setRoutineViewMode(false)" class="px-3.5 py-2 text-xs font-black uppercase tracking-widest transition-all">Routine</button>
-              <button id="routineViewAdjustment" onclick="_setRoutineViewMode(true)" class="px-3.5 py-2 text-xs font-black uppercase tracking-widest transition-all">Adjustments</button>
-            </div>
-            <input type="date" id="routineDateInput" value="${todayIso}" onchange="this.dataset.userPicked='1'; _loadMyRoutinePeriods()"
-              class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-center focus:ring-2 focus:ring-blue-600 outline-none shrink-0">
-            <div class="flex gap-1.5 ml-auto">
-              <button onclick="_openWeeklyRoutineModal()" title="Full Week" class="p-2.5 border border-slate-200 rounded-xl text-slate-500 hover:bg-slate-50"><i data-lucide="calendar-range" class="h-3.5 w-3.5"></i></button>
-              <button onclick="_openArchiveModal()" title="Past Adjustments" class="p-2.5 border border-slate-200 rounded-xl text-slate-500 hover:bg-slate-50"><i data-lucide="history" class="h-3.5 w-3.5"></i></button>
+            <div class="flex items-center gap-1.5">
+              <input type="date" id="routineDateInput" value="${todayIso}" onchange="this.dataset.userPicked='1'; _loadMyRoutinePeriods()"
+                class="flex-1 min-w-0 px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-center focus:ring-2 focus:ring-blue-600 outline-none">
+              <button onclick="_openWeeklyRoutineModal()" title="Full Week" class="shrink-0 p-2 border border-slate-200 rounded-xl text-slate-500 hover:bg-slate-50"><i data-lucide="calendar-range" class="h-3.5 w-3.5"></i></button>
+              <button onclick="_openArchiveModal()" title="Past Adjustments" class="shrink-0 p-2 border border-slate-200 rounded-xl text-slate-500 hover:bg-slate-50"><i data-lucide="history" class="h-3.5 w-3.5"></i></button>
             </div>
           </div>
 
@@ -2346,8 +2348,8 @@
     const otherBtn = document.getElementById('routineModeOther');
     const active = 'bg-blue-600 text-white';
     const inactive = 'bg-white text-slate-500 hover:bg-slate-50';
-    if (selfBtn) selfBtn.className = `px-3.5 py-2 text-xs font-black uppercase tracking-widest transition-all ${_routineMode === 'self' ? active : inactive}`;
-    if (otherBtn) otherBtn.className = `px-3.5 py-2 text-xs font-black uppercase tracking-widest transition-all ${_routineMode === 'other' ? active : inactive}`;
+    if (selfBtn) selfBtn.className = `flex-1 px-2 py-2 text-[10px] font-black uppercase tracking-wide transition-all ${_routineMode === 'self' ? active : inactive}`;
+    if (otherBtn) otherBtn.className = `flex-1 px-2 py-2 text-[10px] font-black uppercase tracking-wide transition-all ${_routineMode === 'other' ? active : inactive}`;
   }
 
   function _setRoutineMode(mode) {
@@ -2379,8 +2381,8 @@
     const adjBtn = document.getElementById('routineViewAdjustment');
     const active = 'bg-blue-600 text-white';
     const inactive = 'bg-white text-slate-500 hover:bg-slate-50';
-    if (schedBtn) schedBtn.className = `px-3.5 py-2 text-xs font-black uppercase tracking-widest transition-all ${!_routineShowAdjustments ? active : inactive}`;
-    if (adjBtn) adjBtn.className = `px-3.5 py-2 text-xs font-black uppercase tracking-widest transition-all ${_routineShowAdjustments ? active : inactive}`;
+    if (schedBtn) schedBtn.className = `flex-1 px-2 py-2 text-[10px] font-black uppercase tracking-wide transition-all ${!_routineShowAdjustments ? active : inactive}`;
+    if (adjBtn) adjBtn.className = `flex-1 px-2 py-2 text-[10px] font-black uppercase tracking-wide transition-all ${_routineShowAdjustments ? active : inactive}`;
   }
 
   // Toggles between the plain scheduled routine and the same view merged
