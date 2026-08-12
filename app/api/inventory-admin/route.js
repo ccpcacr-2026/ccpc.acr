@@ -137,9 +137,12 @@ const ENTITIES = {
     importKey: 'name',
     fields: [
       { name: 'name', label: 'Room Name', type: 'text', required: true },
+      { name: 'room_code', label: 'Room Code', type: 'text' },
       { name: 'building_id', label: 'Building', type: 'select', source: 'buildings', optionLabel: 'name' },
       { name: 'floor_id', label: 'Floor', type: 'select', source: 'floors', optionLabel: 'name' },
       { name: 'room_type_id', label: 'Room Type', type: 'select', source: 'room_types', optionLabel: 'name' },
+      { name: 'capacity', label: 'Seat Capacity', type: 'number' },
+      { name: 'remarks', label: 'Remarks', type: 'text' },
     ],
   },
   departments: {
