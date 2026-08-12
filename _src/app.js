@@ -9739,7 +9739,7 @@
   let _invEntityLookups = {};
   let _invSettingsSearch = '';
   let _invEditingEntity = null; // null = modal closed, {} = new, {...row} = editing
-  let _invEntityFormContext = 'settings'; // 'settings' | 'registry-quick-add' — where saving should return to
+  let _invEntityFormContext = 'settings'; // 'settings' | 'registry-quick-add' | 'distribute-quick-add' — where saving should return to
 
   function loadInventoryAdminView() {
     _setViewHash('inventory_admin');
@@ -9993,6 +9993,11 @@
       if (context === 'registry-quick-add') {
         const created = res.data && res.data[0];
         if (created) _invSelectRegistryProduct(created);
+        return;
+      }
+      if (context === 'distribute-quick-add') {
+        const created = res.data && res.data[0];
+        if (created) { _invDistConsumers.push(created); _invSelectDistConsumer(created.id); }
         return;
       }
       openInventorySettingsEntity(_invCurrentEntity);
@@ -10598,9 +10603,11 @@
           </div>
         </div>
         <div class="mb-3">
-          <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Recipient</label>
-          <select id="invDistConsumerSelect" onchange="_invUpdateDistNotifyPreview()" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1"><option value="">--Select--</option></select>
-          <p id="invDistNoConsumersMsg" class="hidden text-[11px] font-bold text-slate-400 mt-1"></p>
+          <div class="flex items-center justify-between">
+            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Recipient</label>
+            <button type="button" onclick="_invOpenCustomConsumerModal()" class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:underline">+ Add Custom</button>
+          </div>
+          <div id="invDistConsumerWrap"></div>
         </div>
         <div id="invDistNotifyPreview" class="hidden text-[11px] font-bold text-slate-500 bg-slate-50 rounded-lg px-3 py-2 mb-3"></div>
         <div class="mb-3">
@@ -10623,7 +10630,7 @@
         _invDistAssignments = (res && res.assignments) || [];
       }),
     ]).then(() => {
-      _invRenderDistConsumerOptions();
+      _invRenderConsumerPickerInput();
       if (_invDistributePreselectProduct) {
         const p = _invDistProducts.find(pp => String(pp.id) === String(_invDistributePreselectProduct));
         if (p) _invSelectDistProduct(p);
@@ -10724,33 +10731,87 @@
     return checked ? checked.value : 'person';
   }
 
-  function _invRenderDistConsumerOptions() {
+  // Text-searchable recipient picker — same input+matches-list pattern as
+  // the Product picker above, instead of a plain <select> now that the list
+  // routinely includes the whole staff directory (see _distributeOptions).
+  let _invDistSelectedConsumer = null;
+
+  function _invRenderConsumerPickerInput() {
+    const wrap = document.getElementById('invDistConsumerWrap');
+    if (!wrap) return;
+    wrap.innerHTML = `
+      <input id="invDistConsumerQuery" type="text" placeholder="Search by name…" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
+      <div id="invDistConsumerMatches" class="mt-1 max-h-40 overflow-y-auto flex flex-col rounded-lg"></div>`;
+    const input = document.getElementById('invDistConsumerQuery');
+    if (input) {
+      input.addEventListener('input', () => { _invDistSelectedConsumer = null; _invRenderDistConsumerMatches(input.value.trim()); _invUpdateDistNotifyPreview(); });
+      input.addEventListener('focus', () => _invRenderDistConsumerMatches(input.value.trim()));
+    }
+    _invRenderDistConsumerMatches('');
+  }
+
+  function _invRenderDistConsumerMatches(query) {
+    const host = document.getElementById('invDistConsumerMatches');
+    if (!host) return;
     const type = _invGetDistRecipientType();
     const wanted = type === 'person' ? PERSON_CONSUMER_TYPES : [type];
-    const filtered = _invDistConsumers.filter(c => wanted.includes(c.type));
-    const sel = document.getElementById('invDistConsumerSelect');
-    if (sel) sel.innerHTML = `<option value="">--Select--</option>` + filtered.map(c => `<option value="${c.id}">${_escHtml(c.name)}${c.type === 'committee' ? ' (Committee)' : ''}</option>`).join('');
-    const msg = document.getElementById('invDistNoConsumersMsg');
-    if (msg) {
-      if (!filtered.length) { msg.textContent = `No ${type} consumers set up yet — add one in Settings → Consumer Info.`; msg.classList.remove('hidden'); }
-      else msg.classList.add('hidden');
+    const pool = _invDistConsumers.filter(c => wanted.includes(c.type)).slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    const q = query.toLowerCase();
+    const matches = q ? pool.filter(c => `${c.name} ${c.designation || ''}`.toLowerCase().includes(q)) : pool;
+    if (!matches.length) {
+      host.innerHTML = `<div class="px-3 py-2 text-xs text-slate-400 font-bold">${pool.length ? 'No matches.' : `No ${type} consumers yet — use "+ Add Custom" above to add one.`}</div>`;
+      return;
     }
+    host.innerHTML = matches.slice(0, 30).map(c => {
+      const suffix = c.type === 'committee' ? ' (Committee)' : (c.designation ? ` — ${_escHtml(c.designation)}` : '');
+      return `<button type="button" onclick='_invSelectDistConsumer(${JSON.stringify(c.id)})' class="w-full text-left px-3 py-2 border-b border-slate-100 last:border-b-0 bg-white text-xs font-bold text-slate-700 hover:bg-slate-50">${_escHtml(c.name)}${suffix}</button>`;
+    }).join('');
+  }
+
+  function _invSelectDistConsumer(id) {
+    const c = _invDistConsumers.find(cc => String(cc.id) === String(id));
+    if (!c) return;
+    _invDistSelectedConsumer = c;
+    const wrap = document.getElementById('invDistConsumerWrap');
+    if (!wrap) return;
+    const suffix = c.type === 'committee' ? ' (Committee)' : (c.designation ? ` — ${_escHtml(c.designation)}` : '');
+    wrap.innerHTML = `
+      <div class="flex items-center gap-2 mt-1">
+        <span class="text-xs font-black text-slate-800">${_escHtml(c.name)}${suffix}</span>
+        <button type="button" onclick="_invClearDistConsumer()" class="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600">Change</button>
+      </div>`;
+    _invUpdateDistNotifyPreview();
+  }
+
+  function _invClearDistConsumer() {
+    _invDistSelectedConsumer = null;
+    _invRenderConsumerPickerInput();
+    const previewEl = document.getElementById('invDistNotifyPreview');
+    if (previewEl) previewEl.classList.add('hidden');
+  }
+
+  // Opens the same generic Settings entity form used everywhere else in
+  // Inventory Admin, prefilled with the currently-picked recipient type —
+  // for anyone the automatic staff-directory list (see _distributeOptions)
+  // doesn't cover: rooms, buildings, committees, or a person who genuinely
+  // isn't a ccpc-teachers account.
+  function _invOpenCustomConsumerModal() {
+    const type = _invGetDistRecipientType();
+    openInventoryEntityForm('consumers', null, { type });
+    _invEntityFormContext = 'distribute-quick-add';
+    const title = document.getElementById('invEntityFormTitle');
+    if (title) title.textContent = 'Add Custom Recipient';
   }
 
   function _invOnDistRecipientTypeChange() {
-    const sel = document.getElementById('invDistConsumerSelect');
-    if (sel) sel.value = '';
-    _invRenderDistConsumerOptions();
-    _invUpdateDistNotifyPreview();
+    _invClearDistConsumer();
   }
 
   // Client-side preview only — the server re-resolves authoritatively on submit.
   function _invUpdateDistNotifyPreview() {
-    const consumerId = document.getElementById('invDistConsumerSelect').value;
+    const consumer = _invDistSelectedConsumer;
     const previewEl = document.getElementById('invDistNotifyPreview');
     const remarksEl = document.getElementById('invDistRemarks');
-    if (!consumerId) { if (previewEl) previewEl.classList.add('hidden'); return; }
-    const consumer = _invDistConsumers.find(c => String(c.id) === String(consumerId));
     if (!consumer) { if (previewEl) previewEl.classList.add('hidden'); return; }
     let text;
     if (consumer.type === 'committee') {
@@ -10771,7 +10832,7 @@
   function submitInventoryDistribution() {
     const statusEl = document.getElementById('invDistStatus');
     const setStatus = (msg, isError) => { if (statusEl) { statusEl.textContent = msg; statusEl.className = 'text-xs font-bold mb-3' + (isError ? ' text-red-500' : ''); } };
-    const consumerId = document.getElementById('invDistConsumerSelect').value;
+    const consumerId = _invDistSelectedConsumer ? _invDistSelectedConsumer.id : '';
     const qty = Number(document.getElementById('invDistQty').value);
     const remarks = document.getElementById('invDistRemarks').value;
     if (!_invDistSelectedProduct) { setStatus('Pick a product.', true); return; }
@@ -10789,17 +10850,15 @@
     if (btn) { btn.disabled = true; btn.textContent = 'Distributing…'; }
     setStatus('', false);
     const productForMsg = _invDistSelectedProduct;
-    const consumerForMsg = _invDistConsumers.find(c => String(c.id) === String(consumerId));
+    const consumerForMsg = _invDistSelectedConsumer;
     _invAdminFetch('distribute_create', { product_id: productForMsg.id, consumer_id: consumerId, quantity: qty, remarks, brand, category }).then(res => {
       if (btn) { btn.disabled = false; btn.textContent = 'Confirm Distribution'; }
       if (!res || res.result !== 'success') { setStatus((res && res.message) || 'Distribution failed.', true); return; }
       setStatus(`Distributed ${qty} × ${productForMsg.name} to ${consumerForMsg ? consumerForMsg.name : 'recipient'}.`, false);
       showToast('Distribution recorded', 'success');
-      document.getElementById('invDistConsumerSelect').value = '';
+      _invClearDistConsumer();
       document.getElementById('invDistQty').value = '';
       document.getElementById('invDistRemarks').value = '';
-      const previewEl = document.getElementById('invDistNotifyPreview');
-      if (previewEl) previewEl.classList.add('hidden');
       // A lot may now be fully depleted — refresh brand/category options
       // rather than leaving a stale (possibly now-empty) selection in place.
       if (_invDistSelectedProduct === productForMsg) {

@@ -27,6 +27,7 @@ const RESERVED = [
   'openInventoryQuickProductModal','selectInventoryRegistryProduct','submitInventoryRegistry',
   'selectInventoryDistributeProduct','submitInventoryDistribution','_invClearDistProduct',
   '_invOnDistRecipientTypeChange','_invUpdateDistNotifyPreview','_invHandleVoucherPhotoSelect',
+  '_invOpenCustomConsumerModal','_invSelectDistConsumer','_invClearDistConsumer',
   // Analyse SSC Result — onclick-referenced
   'loadSscResultAnalysisView','handleSscPdfFile','handleSscRosterFile','generateSscResultExcel',
   // view HTML onclick

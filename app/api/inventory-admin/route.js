@@ -65,6 +65,17 @@ async function _isInventoryAdmin(userId) {
   return roles.includes('Admin') || roles.includes('Inventory Admin');
 }
 
+// Same raw-fetch pattern as _getUserRoles, generalized — reads from the
+// `teacher` schema (staff directory) instead of sbInventory's hardcoded
+// `inventory` schema.
+async function _teacherSchemaFetch(path) {
+  const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
+    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher' },
+  });
+  if (!res.ok) return [];
+  return res.json();
+}
+
 // ── Entity config (ported verbatim from ccpc-inventory/lib/entities.js) ─────
 // Server-side copy is authoritative for validation/defaulting in
 // settings_save (mirrors POST /api/settings/[entity]/route.js exactly). A
@@ -425,15 +436,67 @@ async function _productAttributeOptions(payload) {
 // header comment). This console can distribute any Central Store stock to
 // anyone, so it stays behind _isInventoryAdmin like every other action here.
 async function _distributeOptions() {
-  const [consumers, committees, assignments] = await Promise.all([
+  const [consumers, committees, assignments, profiles] = await Promise.all([
     sbInventory('consumers?select=*'),
     sbInventory('committees?select=*'),
     sbInventory('distributor_assignments?select=*'),
+    _teacherSchemaFetch('users_profile?select=teacher_id,full_name,designation&order=full_name.asc&limit=1000'),
   ]);
   if (consumers?.error) return NextResponse.json({ result: 'error', message: consumers.error }, { status: 500 });
   if (committees?.error) return NextResponse.json({ result: 'error', message: committees.error }, { status: 500 });
   if (assignments?.error) return NextResponse.json({ result: 'error', message: assignments.error }, { status: 500 });
-  return NextResponse.json({ result: 'success', consumers: consumers || [], committees: committees || [], assignments: assignments || [] });
+
+  // Every ccpc-teachers account is automatically a valid distribute
+  // recipient — no admin has to separately re-add them as a "custom"
+  // consumer first. Anyone already added manually (matched by reference_id)
+  // keeps their existing consumers row instead of being duplicated; these
+  // synthetic "auto:" entries only ever cover the gap. _distributeCreate
+  // lazily materializes a real consumers row the first time one is actually
+  // picked, so distribution_items/holder_stock never reference a fake id.
+  const existingByUserId = new Set(
+    (Array.isArray(consumers) ? consumers : [])
+      .filter(c => (c.type === 'teacher' || c.type === 'staff') && c.reference_id)
+      .map(c => String(c.reference_id))
+  );
+  const autoConsumers = (Array.isArray(profiles) ? profiles : [])
+    .filter(p => p.teacher_id && p.full_name && !existingByUserId.has(String(p.teacher_id)))
+    .map(p => ({
+      id: `auto:${p.teacher_id}`,
+      type: 'teacher',
+      reference_id: p.teacher_id,
+      name: p.full_name,
+      designation: p.designation || null,
+      auto: true,
+    }));
+
+  return NextResponse.json({
+    result: 'success',
+    consumers: [...(Array.isArray(consumers) ? consumers : []), ...autoConsumers],
+    committees: committees || [],
+    assignments: assignments || [],
+  });
+}
+
+// Turns a synthetic "auto:{teacher_id}" id (see _distributeOptions) into a
+// real consumers row, creating one on first use and reusing it on every
+// later distribution to the same person — get-or-create, not insert-every-
+// time, so repeated distributions to the same auto user don't pile up
+// duplicate consumer rows.
+async function _resolveAutoConsumer(consumerId) {
+  const teacherId = consumerId.slice('auto:'.length);
+  const existing = await sbInventory(`consumers?type=eq.teacher&reference_id=eq.${encodeURIComponent(teacherId)}&select=*&limit=1`);
+  if (Array.isArray(existing) && existing.length) return existing[0];
+  const profileRows = await _teacherSchemaFetch(`users_profile?teacher_id=eq.${encodeURIComponent(teacherId)}&select=full_name,designation&limit=1`);
+  const profile = (Array.isArray(profileRows) && profileRows[0]) || {};
+  const created = await sbInventory('consumers', 'POST', {
+    type: 'teacher',
+    reference_id: teacherId,
+    name: profile.full_name || teacherId,
+    designation: profile.designation || null,
+    is_active: true,
+  });
+  if (created?.error) throw new Error(created.error);
+  return created[0];
 }
 
 // committee -> its chairman, room/building -> whoever is assigned as its
@@ -462,11 +525,18 @@ async function _distributeCreate(payload) {
     return NextResponse.json({ result: 'error', message: 'Product, recipient, and a positive quantity are required.' }, { status: 400 });
   }
 
-  const consumerRows = await sbInventory(`consumers?id=eq.${encodeURIComponent(consumerId)}&select=*`);
-  if (consumerRows?.error || !Array.isArray(consumerRows) || !consumerRows.length) {
-    return NextResponse.json({ result: 'error', message: 'Recipient not found.' }, { status: 404 });
+  let consumer;
+  if (String(consumerId).startsWith('auto:')) {
+    try { consumer = await _resolveAutoConsumer(String(consumerId)); }
+    catch (e) { return NextResponse.json({ result: 'error', message: e.message }, { status: 500 }); }
+  } else {
+    const consumerRows = await sbInventory(`consumers?id=eq.${encodeURIComponent(consumerId)}&select=*`);
+    if (consumerRows?.error || !Array.isArray(consumerRows) || !consumerRows.length) {
+      return NextResponse.json({ result: 'error', message: 'Recipient not found.' }, { status: 404 });
+    }
+    consumer = consumerRows[0];
   }
-  const consumer = consumerRows[0];
+  if (!consumer) return NextResponse.json({ result: 'error', message: 'Recipient not found.' }, { status: 404 });
 
   // FIFO across Central Store's lots for this product — oldest purchase
   // first. Keep BOTH sort keys: id.asc is the tiebreaker when two lots
