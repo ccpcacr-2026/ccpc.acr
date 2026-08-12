@@ -2280,17 +2280,19 @@
 
         ${isCoord ? `
         <div id="routineAdjustPanel" class="hidden bg-white rounded-3xl border border-slate-200 shadow-sm p-5 space-y-4">
-          <div>
-            <h3 class="text-lg font-black text-slate-800">Adjustment Board</h3>
-            <p id="routineAdjustDateLabel" class="text-xs font-bold text-slate-400 mt-0.5"></p>
-          </div>
-          <div class="flex items-center gap-2">
-            <div class="grid grid-cols-2 gap-2 flex-1 min-w-0">
-              <button onclick="_openDailySetupPrompt()" class="flex items-center justify-center gap-1.5 px-2 py-2.5 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wide hover:bg-emerald-700"><i data-lucide="calendar" class="h-3.5 w-3.5 shrink-0"></i><span class="truncate">Setup New Day</span></button>
-              <button onclick="_toggleAdjustmentsList()" class="flex items-center justify-center gap-1.5 px-2 py-2.5 bg-amber-500 text-white rounded-xl text-[10px] font-black uppercase tracking-wide hover:bg-amber-600"><i data-lucide="clipboard-list" class="h-3.5 w-3.5 shrink-0"></i><span class="truncate">Today's Adj.</span></button>
+          <div class="flex items-start justify-between gap-2">
+            <div>
+              <h3 class="text-lg font-black text-slate-800">Adjustment Board</h3>
+              <p id="routineAdjustDateLabel" class="text-xs font-bold text-slate-400 mt-0.5"></p>
             </div>
-            <button onclick="_generateAdjustmentPdf()" title="Export PDF" class="shrink-0 p-2.5 bg-white border border-slate-200 rounded-xl hover:bg-slate-50"><i data-lucide="download" class="h-3.5 w-3.5"></i></button>
-            <button onclick="_openPdfHistoryModal()" title="PDF History" class="shrink-0 p-2.5 bg-white border border-slate-200 rounded-xl hover:bg-slate-50"><i data-lucide="history" class="h-3.5 w-3.5"></i></button>
+            <div class="flex gap-2 shrink-0">
+              <button onclick="_generateAdjustmentPdf()" title="Export PDF" class="p-2.5 bg-white border border-slate-200 rounded-xl hover:bg-slate-50"><i data-lucide="download" class="h-3.5 w-3.5"></i></button>
+              <button onclick="_openPdfHistoryModal()" title="PDF History" class="p-2.5 bg-white border border-slate-200 rounded-xl hover:bg-slate-50"><i data-lucide="history" class="h-3.5 w-3.5"></i></button>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="_openDailySetupPrompt()" class="flex items-center justify-center gap-1.5 px-2 py-2.5 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wide hover:bg-emerald-700"><i data-lucide="calendar" class="h-3.5 w-3.5 shrink-0"></i><span class="truncate">Setup New Day</span></button>
+            <button onclick="_toggleAdjustmentsList()" class="flex items-center justify-center gap-1.5 px-2 py-2.5 bg-amber-500 text-white rounded-xl text-[10px] font-black uppercase tracking-wide hover:bg-amber-600"><i data-lucide="clipboard-list" class="h-3.5 w-3.5 shrink-0"></i><span class="truncate">Today's Adj.</span></button>
           </div>
 
           <div id="routineAdjustmentsList" class="hidden"></div>
