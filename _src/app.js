@@ -2429,10 +2429,27 @@
       const dayData = weekRes.days[weekday] || {};
 
       if (wantAdjustments) {
+        // "Selected" only ever holds ONE live working day (board.isoDate,
+        // set via Setup New Day — not necessarily the browser's today()).
+        // Comparing the picked date against it decides where adjustments
+        // for that day actually live: on it → the live sheet; before it →
+        // that day has rolled off into the archive; after it → Setup New
+        // Day hasn't run for it yet, so there's nothing adjusted to show.
         google.script.run.withSuccessHandler(function (board) {
-          const isSameDay = board && !board.error && board.isoDate === dateStr;
-          const row = isSameDay ? (board.rows || []).find(r => r.shortname.toLowerCase() === _routineShortname.trim().toLowerCase()) : null;
-          el.innerHTML = _renderPeriodBlocksHtml(weekRes.periods, dayData, row ? row.periods : null);
+          const sheetDate = (board && !board.error) ? board.isoDate : '';
+          if (sheetDate && dateStr === sheetDate) {
+            const row = (board.rows || []).find(r => r.shortname.toLowerCase() === _routineShortname.trim().toLowerCase());
+            el.innerHTML = _renderPeriodBlocksHtml(weekRes.periods, dayData, row ? row.periods : null);
+          } else if (sheetDate && dateStr < sheetDate) {
+            google.script.run.withSuccessHandler(function (archiveRes) {
+              const arow = (archiveRes && !archiveRes.error) ? (archiveRes.rows || []).find(r => r.shortname.toLowerCase() === _routineShortname.trim().toLowerCase()) : null;
+              el.innerHTML = _renderPeriodBlocksHtml(weekRes.periods, dayData, arow ? arow.periods : null);
+            }).withFailureHandler(function () {
+              el.innerHTML = _renderPeriodBlocksHtml(weekRes.periods, dayData, null);
+            }).getArchivedAdjustmentDay(_routineSection, dateStr);
+          } else {
+            el.innerHTML = _renderPeriodBlocksHtml(weekRes.periods, dayData, null);
+          }
         }).withFailureHandler(function () {
           el.innerHTML = _renderPeriodBlocksHtml(weekRes.periods, dayData, null);
         }).getTodayRoutineBoard(_routineSection);
