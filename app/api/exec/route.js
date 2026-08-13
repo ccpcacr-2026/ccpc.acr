@@ -2541,7 +2541,7 @@ const handlers = {
   async getLessonPlans([callerId, scope, filters]) {
     if (!callerId) return { error: 'Not signed in.' };
     const f = filters || {};
-    let path = 'lesson_plans?select=id,class_name,subject,version,chapter,lesson_number,topic,is_shared,created_by,forked_from_id,updated_at';
+    let path = 'lesson_plans?select=id,class_name,subject,version,chapter,lesson_number,lesson_refs,topic,is_shared,created_by,forked_from_id,updated_at';
     path += scope === 'shared'
       ? `&is_shared=eq.true&created_by=neq.${encodeURIComponent(callerId)}`
       : `&created_by=eq.${encodeURIComponent(callerId)}`;
@@ -2594,19 +2594,47 @@ const handlers = {
     };
   },
 
+  // Chapter dropdown options for the web form's cascading picker — scoped to
+  // one Class+Subject+Version combo (unlike getLessonPlanFieldOptions above,
+  // which returns every chapter ever used, globally). Sourced from
+  // lesson_curricula (the authoritative breakdown table) unioned with
+  // whatever's already in lesson_plans for that combo, so the dropdown works
+  // even before a formal curriculum breakdown exists.
+  async getChapterOptions([callerId, class_name, subject, version]) {
+    if (!callerId) return { error: 'Not signed in.' };
+    if (!class_name || !subject) return { result: 'success', chapters: [] };
+    const versionFilter = version ? `&version=eq.${encodeURIComponent(version)}` : '';
+    const [curricula, plans] = await Promise.all([
+      supabaseRequest(`lesson_curricula?class_name=eq.${encodeURIComponent(class_name)}&subject=eq.${encodeURIComponent(subject)}${versionFilter}&select=chapter`),
+      supabaseRequest(`lesson_plans?class_name=eq.${encodeURIComponent(class_name)}&subject=eq.${encodeURIComponent(subject)}${versionFilter}&or=(created_by.eq.${encodeURIComponent(callerId)},is_shared.eq.true)&select=chapter`),
+    ]);
+    const chapters = new Set();
+    if (Array.isArray(curricula)) curricula.forEach(r => { if (r.chapter) chapters.add(r.chapter); });
+    if (Array.isArray(plans)) plans.forEach(r => { if (r.chapter) chapters.add(r.chapter); });
+    return { result: 'success', chapters: [...chapters].sort() };
+  },
+
   async saveLessonPlan([callerId, planId, payload]) {
     if (!callerId) return { result: 'error', message: 'Not signed in.' };
     const p = payload || {};
-    if (!p.class_name || !p.subject || !p.chapter) {
+    // lesson_refs (new, multi-chapter-capable UI) is the source of truth when
+    // present: [{ chapter, lesson_numbers: [1,2] }, ...]. chapter/lesson_number
+    // stay as flat columns, auto-derived from the first ref, so every existing
+    // display/filter/autocomplete path (and older callers like bulk import that
+    // still send flat chapter/lesson_number directly) keeps working unchanged.
+    const lessonRefs = Array.isArray(p.lesson_refs) ? p.lesson_refs.filter(r => r && r.chapter) : [];
+    const primaryChapter = p.chapter || (lessonRefs[0] && lessonRefs[0].chapter) || '';
+    const primaryLessonNumber = p.lesson_number || (lessonRefs[0] && Array.isArray(lessonRefs[0].lesson_numbers) && lessonRefs[0].lesson_numbers[0]) || null;
+    if (!p.class_name || !p.subject || !primaryChapter) {
       return { result: 'error', message: 'Class, Subject, and Chapter are required.' };
     }
     const row = {
       class_name: p.class_name, subject: p.subject, version: p.version || null,
-      chapter: p.chapter, lesson_number: p.lesson_number || null, topic: p.topic || null,
+      chapter: primaryChapter, lesson_number: primaryLessonNumber, topic: p.topic || null,
       time_minutes: p.time_minutes || null, teaching_aids: p.teaching_aids || null,
       method: p.method || null, learning_outcomes: p.learning_outcomes || null,
       phases: p.phases || null, self_reflection: p.self_reflection || null,
-      is_shared: !!p.is_shared, source: p.source || 'web',
+      is_shared: !!p.is_shared, source: p.source || 'web', lesson_refs: lessonRefs,
       updated_at: new Date().toISOString(),
     };
 

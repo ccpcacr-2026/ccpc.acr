@@ -86,8 +86,10 @@ const RESERVED = [
   'loadTextbooksView','_tbSetClass','_sylSetLevel',
   '_closePdfViewer','_tbOpenBook','_sylOpenDoc','_tbOpenPublication',
   '_lpToggleFavorite','_openCurriculumFormById','_lpDownloadTemplate','_lpHandleExcelUpload','_lpDuplicatePlan',
-  '_deleteLessonPlanForm','_lpLookupCurricula','_openCurriculumForm','_saveLessonPlanForm',
-  '_lpSelectCurriculum','_lpApplyLecture','_curAddLectureRow','_saveCurriculumForm',
+  '_deleteLessonPlanForm','_openCurriculumForm','_saveLessonPlanForm',
+  '_curAddLectureRow','_saveCurriculumForm',
+  '_lpOnClassChange','_lpLoadChapterOptions','_lpOnChapterSelect','_lpOnChapterOtherInput',
+  '_lpOnManualLessonInput','_lpToggleLessonNumber','_lpAddChapterBlock','_lpRemoveChapterBlock',
   // inventory chain-of-custody
   '_invMarkNotifRead','_invOpenDistModal','_invCloseDistModal','_invSubmitDistribution',
   '_invRenderRecipientOptions','_invUpdateNotifyPreview',

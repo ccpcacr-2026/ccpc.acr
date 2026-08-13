@@ -3876,6 +3876,10 @@
   // the card's own click-to-open <button>.
   function _lpPlanCardHtml(p) {
     const isFav = _lpFavoriteKeys.has(`lesson_plan:${p.id}`);
+    const firstRef = p.lesson_refs && p.lesson_refs[0];
+    const lessonNums = (firstRef && firstRef.lesson_numbers && firstRef.lesson_numbers.length) ? firstRef.lesson_numbers : (p.lesson_number ? [p.lesson_number] : []);
+    const lessonLabel = lessonNums.length ? ` (Lesson${lessonNums.length > 1 ? 's' : ''} ${lessonNums.join(', ')})` : '';
+    const extraChapters = (p.lesson_refs && p.lesson_refs.length > 1) ? ` +${p.lesson_refs.length - 1} more chapter${p.lesson_refs.length > 2 ? 's' : ''}` : '';
     return `
       <div class="relative bg-white rounded-2xl border border-slate-200 shadow-sm hover:border-blue-300 transition-all">
         <button type="button" onclick="_lpDuplicatePlan(${p.id})" title="Duplicate as a new plan" class="absolute top-3 right-10 p-1.5 rounded-lg hover:bg-slate-50 z-10"><i data-lucide="copy" class="h-4 w-4 text-slate-300"></i></button>
@@ -3883,7 +3887,7 @@
         <button onclick="_openLessonPlanForm(${p.id})" class="w-full text-left p-4">
           <div class="flex items-start justify-between gap-3 flex-wrap pr-16">
             <div>
-              <p class="font-black text-slate-800 text-sm">${_escHtml(p.class_name)} · ${_escHtml(p.subject)}${p.chapter ? ` · ${_escHtml(p.chapter)}` : ''}${p.lesson_number ? ` (Lesson ${p.lesson_number})` : ''}</p>
+              <p class="font-black text-slate-800 text-sm">${_escHtml(p.class_name)} · ${_escHtml(p.subject)}${p.chapter ? ` · ${_escHtml(p.chapter)}` : ''}${lessonLabel}${extraChapters}</p>
               <p class="text-xs text-slate-500 font-bold mt-0.5">${_escHtml(p.topic || 'Untitled topic')}${p.version ? ` · ${_escHtml(p.version)}` : ''}</p>
             </div>
             <div class="flex items-center gap-2 shrink-0">
@@ -4045,29 +4049,17 @@
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 space-y-4">
           <p class="text-sm font-black text-slate-800 uppercase tracking-widest">Lesson Details</p>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
+            <div id="lpClassField">
               <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Class *</label>
-              <input id="lpClass" list="lpFormClassOptions" type="text" value="${_escHtml(v.class_name || '')}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mt-1">
-              <datalist id="lpFormClassOptions">${_lpFieldOptions.class_name.map(x => `<option value="${_escHtml(x)}">`).join('')}</datalist>
+              ${_lpSelectHtml('lpClass', _lpClassOptionsList(), v.class_name || '', '_lpOnClassChange()', '_lpOnClassChange()')}
             </div>
-            <div>
+            <div id="lpSubjectField">
               <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Subject *</label>
-              <input id="lpSubject" list="lpFormSubjectOptions" type="text" value="${_escHtml(v.subject || '')}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mt-1">
-              <datalist id="lpFormSubjectOptions">${_lpFieldOptions.subject.map(x => `<option value="${_escHtml(x)}">`).join('')}</datalist>
+              ${_lpSelectHtml('lpSubject', _lpSubjectOptionsList(v.class_name || ''), v.subject || '', '_lpLoadChapterOptions()', '_lpLoadChapterOptions()')}
             </div>
-            <div>
+            <div id="lpVersionField">
               <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Version</label>
-              <input id="lpVersion" list="lpFormVersionOptions" type="text" placeholder="e.g. Bangla Version" value="${_escHtml(v.version || '')}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mt-1">
-              <datalist id="lpFormVersionOptions">${_lpFieldOptions.version.map(x => `<option value="${_escHtml(x)}">`).join('')}</datalist>
-            </div>
-            <div>
-              <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Chapter *</label>
-              <input id="lpChapter" list="lpFormChapterOptions" type="text" value="${_escHtml(v.chapter || '')}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mt-1">
-              <datalist id="lpFormChapterOptions">${_lpFieldOptions.chapter.map(x => `<option value="${_escHtml(x)}">`).join('')}</datalist>
-            </div>
-            <div>
-              <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Lesson Number</label>
-              <input id="lpLessonNumber" type="number" min="1" value="${_escHtml(v.lesson_number || '')}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mt-1">
+              ${_lpSelectHtml('lpVersion', _lpVersionOptionsList(), v.version || '', '_lpLoadChapterOptions()', '_lpLoadChapterOptions()')}
             </div>
             <div>
               <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Time (minutes)</label>
@@ -4078,11 +4070,12 @@
             <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Topic</label>
             <input id="lpTopic" type="text" value="${_escHtml(v.topic || '')}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mt-1">
           </div>
-          <div class="flex items-center gap-2">
-            <button type="button" onclick="_lpLookupCurricula()" class="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50"><i data-lucide="search" class="h-3.5 w-3.5"></i>Find Lecture Breakdown</button>
-            <button type="button" onclick="_openCurriculumForm()" class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:underline">+ Add/Edit Lecture Breakdown</button>
+          <div>
+            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Chapter &amp; Lesson(s) *</label>
+            <p class="text-[10px] text-slate-400 font-bold mt-0.5">Pick the chapter, then check the official lesson number(s) this plan covers. Learning outcomes fill in automatically from the curriculum breakdown.</p>
+            <div id="lpChapterBlocksWrap" class="space-y-2 mt-2"></div>
+            <button type="button" onclick="_lpAddChapterBlock()" class="mt-2 text-[10px] font-black text-blue-600 uppercase tracking-widest hover:underline">+ Add lesson(s) from another chapter</button>
           </div>
-          <div id="lpCurriculumWrap"></div>
           <div>
             <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Learning Outcomes</label>
             <textarea id="lpLearningOutcomes" rows="3" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mt-1">${_escHtml(v.learning_outcomes || '')}</textarea>
@@ -4126,6 +4119,7 @@
           <button id="lpSaveBtn" onclick="_saveLessonPlanForm()" class="px-5 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">${isDuplicate ? 'Create Lesson Plan' : (plan && isOwner) ? 'Save Changes' : (plan ? 'Save My Copy' : 'Create Lesson Plan')}</button>
         </div>
       </div>`;
+    _lpInitChapterBlocks(v);
     lucide.createIcons();
   }
 
@@ -4148,9 +4142,12 @@
       learner_activity: tr.querySelector('.lp-phase-learner').value.trim(),
       duration_minutes: Number(tr.querySelector('.lp-phase-duration').value) || null,
     }));
+    const lesson_refs = _lpChapterBlocks
+      .filter(b => b.chapter && b.lessonNumbers.length)
+      .map(b => ({ chapter: b.chapter, lesson_numbers: b.lessonNumbers.slice().sort((a, c) => a - c) }));
     return {
-      class_name: val('lpClass'), subject: val('lpSubject'), version: val('lpVersion'),
-      chapter: val('lpChapter'), lesson_number: Number(val('lpLessonNumber')) || null,
+      class_name: _lpSelectVal('lpClass'), subject: _lpSelectVal('lpSubject'), version: _lpSelectVal('lpVersion'),
+      lesson_refs,
       time_minutes: Number(val('lpTimeMinutes')) || null, topic: val('lpTopic'),
       learning_outcomes: val('lpLearningOutcomes'), teaching_aids: val('lpTeachingAids'),
       method: val('lpMethod'), self_reflection: val('lpSelfReflection'), phases,
@@ -4161,8 +4158,8 @@
 
   function _saveLessonPlanForm() {
     const payload = _lpCollectFormPayload();
-    if (!payload.class_name || !payload.subject || !payload.chapter) {
-      showToast('Class, Subject, and Chapter are required', 'error');
+    if (!payload.class_name || !payload.subject || !payload.lesson_refs.length) {
+      showToast('Class, Subject, and at least one Chapter with Lesson(s) checked are required', 'error');
       return;
     }
     const myId = window.APP_USER && window.APP_USER.user_id;
@@ -4198,13 +4195,14 @@
   // lesson plan is one structured record, not tabular rows). The parser
   // below reads back the exact row positions this generator writes, so
   // both must stay in lockstep if either changes.
-  const LP_XLSX_FIELD_IDS = ['lpClass', 'lpSubject', 'lpVersion', 'lpChapter', 'lpLessonNumber', 'lpTopic', 'lpTimeMinutes', 'lpTeachingAids', 'lpMethod', 'lpLearningOutcomes'];
   const LP_XLSX_PHASES_HEADER_ROW = 12;   // 0-based row index of the "Phase | Teacher's Activity | ..." header
   const LP_XLSX_SELF_REFLECTION_ROW = 22;
 
   function _lpDownloadTemplate() {
     ensureXLSX().then(() => {
       const val = _lpFormVal;
+      const primaryChapter = (_lpChapterBlocks[0] && _lpChapterBlocks[0].chapter) || '';
+      const primaryLessons = (_lpChapterBlocks[0] && _lpChapterBlocks[0].lessonNumbers.join(', ')) || '';
       const phaseRows = Array.from(document.querySelectorAll('#lpPhasesBody tr')).map(tr => [
         tr.querySelector('.lp-phase-name').value,
         tr.querySelector('.lp-phase-teacher').value,
@@ -4213,11 +4211,11 @@
       ]);
       const aoa = [
         ['Lesson Plan'],
-        ['Class', val('lpClass')],
-        ['Subject', val('lpSubject')],
-        ['Version', val('lpVersion')],
-        ['Chapter', val('lpChapter')],
-        ['Lesson Number', val('lpLessonNumber')],
+        ['Class', _lpSelectVal('lpClass')],
+        ['Subject', _lpSelectVal('lpSubject')],
+        ['Version', _lpSelectVal('lpVersion')],
+        ['Chapter', primaryChapter],
+        ['Lesson Number(s)', primaryLessons],
         ['Topic', val('lpTopic')],
         ['Time (minutes)', val('lpTimeMinutes')],
         ['Teaching Aids', val('lpTeachingAids')],
@@ -4250,7 +4248,19 @@
           const get = (r, c) => (rows[r] && rows[r][c] != null) ? String(rows[r][c]).trim() : '';
           const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
 
-          LP_XLSX_FIELD_IDS.forEach((id, i) => setVal(id, get(i + 1, 1)));
+          _lpSetSelectOrOther('lpClass', get(1, 1));
+          _lpOnClassChange();
+          _lpSetSelectOrOther('lpSubject', get(2, 1));
+          _lpSetSelectOrOther('lpVersion', get(3, 1));
+          const chapter = get(4, 1);
+          const lessonNumbers = get(5, 1).split(',').map(s => Number(s.trim())).filter(n => n > 0);
+          _lpChapterBlocks = chapter ? [{ chapter, lessonNumbers, curricula: [], loaded: true }] : [{ chapter: '', lessonNumbers: [], curricula: [], loaded: true }];
+          _lpRenderChapterBlocks();
+          setVal('lpTopic', get(6, 1));
+          setVal('lpTimeMinutes', get(7, 1));
+          setVal('lpTeachingAids', get(8, 1));
+          setVal('lpMethod', get(9, 1));
+          setVal('lpLearningOutcomes', get(10, 1));
 
           const trs = document.querySelectorAll('#lpPhasesBody tr');
           trs.forEach((tr, i) => {
@@ -4271,86 +4281,240 @@
     event.target.value = '';
   }
 
-  // ── Curriculum lookup (Lecture picker) ───────────────────────────────────
-  // Looks up any lecture-by-lecture breakdown(s) already entered for the
-  // current Class+Version+Subject+Chapter; picking a lecture auto-fills
-  // Lesson Number and Topic. Manual/explicit ("Find Lecture Breakdown"
-  // button), not auto-fired on every keystroke.
-  let _lpCurricula = [];
-
   function _lpFormVal(id) {
     const el = document.getElementById(id);
     return el ? el.value.trim() : '';
   }
 
-  function _lpLookupCurricula() {
-    const myId = window.APP_USER && window.APP_USER.user_id;
-    const filters = { class_name: _lpFormVal('lpClass'), version: _lpFormVal('lpVersion'), subject: _lpFormVal('lpSubject'), chapter: _lpFormVal('lpChapter') };
-    if (!filters.class_name || !filters.subject || !filters.chapter) { showToast('Fill in Class, Subject, and Chapter first', 'error'); return; }
-    const wrap = document.getElementById('lpCurriculumWrap');
-    if (wrap) wrap.innerHTML = '<p class="text-xs text-slate-400 font-bold">Looking up…</p>';
-    google.script.run.withSuccessHandler(res => {
-      if (!res || res.result !== 'success') { if (wrap) wrap.innerHTML = `<p class="text-xs text-red-400 font-bold">${_escHtml((res && res.error) || 'Lookup failed')}</p>`; return; }
-      _lpCurricula = res.curricula || [];
-      _lpRenderCurriculaPicker();
-    }).withFailureHandler(() => { if (wrap) wrap.innerHTML = '<p class="text-xs text-red-400 font-bold">Network error</p>'; }).getLessonCurricula(myId, filters);
+  // ── Class/Subject/Version dropdown sources ────────────────────────────────
+  // NCTB_BOOKS (Textbooks module, defined further down this file) is the
+  // official class/subject reference list — unioned with whatever teachers
+  // have already typed into past lesson plans, so nothing already in use is
+  // ever lost. Every dropdown also has a manual "Other" escape hatch.
+  function _lpClassOptionsList() {
+    return [...new Set([...NCTB_CLASS_ORDER, ..._lpFieldOptions.class_name])];
+  }
+  function _lpSubjectOptionsList(className) {
+    const nctb = (NCTB_BOOKS[className] || []).map(([name]) => name);
+    return [...new Set([...nctb, ..._lpFieldOptions.subject])];
+  }
+  function _lpVersionOptionsList() {
+    return [...new Set(['Bangla Version', 'English Version', ..._lpFieldOptions.version])];
   }
 
-  function _lpRenderCurriculaPicker() {
-    const wrap = document.getElementById('lpCurriculumWrap');
+  // Generic "dropdown with a manual Other option" markup, used for Class/
+  // Subject/Version. onSelectChange fires on the <select>; onOtherInput
+  // fires while typing in the Other text box — kept separate so typing
+  // there never re-renders (and steals focus from) the field itself.
+  function _lpSelectHtml(id, options, currentValue, onSelectChange, onOtherInput) {
+    const isOther = !!currentValue && !options.includes(currentValue);
+    return `
+      <select id="${id}" onchange="_lpToggleOther('${id}');${onSelectChange || ''}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mt-1">
+        <option value="">-- Select --</option>
+        ${options.map(o => `<option value="${_escHtml(o)}" ${o === currentValue ? 'selected' : ''}>${_escHtml(o)}</option>`).join('')}
+        <option value="__other__" ${isOther ? 'selected' : ''}>Other (type manually)</option>
+      </select>
+      <input id="${id}Other" type="text" value="${isOther ? _escHtml(currentValue) : ''}" placeholder="Type it in" oninput="${onOtherInput || ''}" class="${isOther ? '' : 'hidden'} w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mt-2">`;
+  }
+  function _lpToggleOther(id) {
+    const sel = document.getElementById(id);
+    const other = document.getElementById(id + 'Other');
+    if (sel && other) other.classList.toggle('hidden', sel.value !== '__other__');
+  }
+  function _lpSelectVal(id) {
+    const sel = document.getElementById(id);
+    if (!sel) return '';
+    if (sel.value === '__other__') { const o = document.getElementById(id + 'Other'); return o ? o.value.trim() : ''; }
+    return sel.value;
+  }
+  // Used by the single-plan Excel upload to drop a parsed value into one of
+  // these dropdowns — picks the matching option if one exists, else falls
+  // back to "Other" with the raw text.
+  function _lpSetSelectOrOther(id, value) {
+    const sel = document.getElementById(id);
+    if (!sel || !value) return;
+    const hasOption = Array.from(sel.options).some(o => o.value === value);
+    if (hasOption) { sel.value = value; }
+    else { sel.value = '__other__'; const other = document.getElementById(id + 'Other'); if (other) other.value = value; }
+    _lpToggleOther(id);
+  }
+  function _lpOnClassChange() {
+    // Subject options depend on Class — rebuild just that field in place.
+    const field = document.getElementById('lpSubjectField');
+    if (field) {
+      field.innerHTML = `<label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Subject *</label>` +
+        _lpSelectHtml('lpSubject', _lpSubjectOptionsList(_lpSelectVal('lpClass')), _lpSelectVal('lpSubject'), '_lpLoadChapterOptions()', '_lpLoadChapterOptions()');
+    }
+    _lpLoadChapterOptions();
+  }
+
+  // ── Chapter + Lesson(s) picker ─────────────────────────────────────────
+  // Cascades on Class+Subject+Version. Each "block" is one chapter this plan
+  // covers (almost always just one — "+ Add lesson(s) from another chapter"
+  // appends more for the rarer case where a single taught lesson spans
+  // chapters). Chapter options + each chapter's lesson checklist are sourced
+  // from lesson_curricula (the authoritative breakdown table); when nothing
+  // exists yet for a chapter, falls back to a plain manual-entry input so the
+  // form never blocks on that data being populated.
+  let _lpChapterOptionsCache = [];
+  let _lpChapterBlocks = [{ chapter: '', lessonNumbers: [], curricula: [], loaded: true }];
+  let _lpChapterOtherDebounce = null;
+
+  function _lpInitChapterBlocks(v) {
+    const refs = (v.lesson_refs && v.lesson_refs.length) ? v.lesson_refs
+      : (v.chapter ? [{ chapter: v.chapter, lesson_numbers: v.lesson_number ? [v.lesson_number] : [] }] : []);
+    _lpChapterBlocks = refs.length
+      ? refs.map(r => ({ chapter: r.chapter || '', lessonNumbers: (r.lesson_numbers || []).map(Number), curricula: [], loaded: true }))
+      : [{ chapter: '', lessonNumbers: [], curricula: [], loaded: true }];
+    _lpRenderChapterBlocks();
+    _lpLoadChapterOptions();
+  }
+
+  function _lpLoadChapterOptions() {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const className = _lpSelectVal('lpClass'), subject = _lpSelectVal('lpSubject'), version = _lpSelectVal('lpVersion');
+    if (!className || !subject) { _lpChapterOptionsCache = []; _lpRenderChapterBlocks(); return; }
+    google.script.run.withSuccessHandler(res => {
+      _lpChapterOptionsCache = (res && res.result === 'success') ? res.chapters : [];
+      _lpRenderChapterBlocks();
+    }).withFailureHandler(() => { _lpChapterOptionsCache = []; _lpRenderChapterBlocks(); }).getChapterOptions(myId, className, subject, version);
+  }
+
+  function _lpRenderChapterBlocks() {
+    const wrap = document.getElementById('lpChapterBlocksWrap');
     if (!wrap) return;
-    if (!_lpCurricula.length) {
-      wrap.innerHTML = '<p class="text-xs text-slate-400 font-bold">No lecture breakdown found for this chapter yet — use "+ Add/Edit Lecture Breakdown" to create one.</p>';
+    wrap.innerHTML = _lpChapterBlocks.map((b, i) => _lpChapterBlockHtml(b, i)).join('');
+    lucide.createIcons();
+    _lpChapterBlocks.forEach((b, i) => { if (b.chapter) _lpLoadLessonsForBlock(i); });
+  }
+
+  function _lpChapterBlockHtml(block, idx) {
+    const options = _lpChapterOptionsCache;
+    const isOther = !!block.chapter && !options.includes(block.chapter);
+    return `
+      <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+        <div class="flex items-center gap-2">
+          <div class="flex-1">
+            <select id="lpChapterSel${idx}" onchange="_lpOnChapterSelect(${idx}, this.value)" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none">
+              <option value="">${options.length ? '-- Select Chapter --' : '-- No chapters yet, pick Other to type one --'}</option>
+              ${options.map(o => `<option value="${_escHtml(o)}" ${o === block.chapter ? 'selected' : ''}>${_escHtml(o)}</option>`).join('')}
+              <option value="__other__" ${isOther ? 'selected' : ''}>Other (type manually)</option>
+            </select>
+          </div>
+          ${idx > 0 ? `<button type="button" onclick="_lpRemoveChapterBlock(${idx})" class="p-2 text-red-400 hover:bg-red-50 rounded-xl shrink-0"><i data-lucide="x" class="h-4 w-4"></i></button>` : ''}
+        </div>
+        <input id="lpChapterOther${idx}" type="text" value="${isOther ? _escHtml(block.chapter) : ''}" oninput="_lpOnChapterOtherInput(${idx}, this.value)" placeholder="Type chapter name" class="${isOther ? '' : 'hidden'} w-full px-3 py-2 bg-white border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none">
+        <div id="lpLessonWrap${idx}">${_lpLessonPickerHtml(block, idx)}</div>
+        ${block.chapter ? `<button type="button" onclick="_openCurriculumForm(null, '${_escJs(block.chapter)}')" class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:underline">+ Add/Edit Lecture Breakdown for this chapter</button>` : ''}
+      </div>`;
+  }
+
+  function _lpLessonPickerHtml(block, idx) {
+    if (!block.chapter) return '<p class="text-[10px] text-slate-400 font-bold">Pick a chapter first.</p>';
+    if (!block.loaded) return '<p class="text-[10px] text-slate-400 font-bold">Looking up lesson breakdown…</p>';
+    if (!block.curricula.length) {
+      return `
+        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Lesson Number(s)</label>
+        <input type="text" value="${_escHtml(block.lessonNumbers.join(', '))}" oninput="_lpOnManualLessonInput(${idx}, this.value)" placeholder="e.g. 1, 2" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl font-bold text-xs mt-1 focus:ring-2 focus:ring-blue-600 outline-none">
+        <p class="text-[10px] text-slate-400 font-bold mt-1">No official lesson breakdown found for this chapter yet — enter number(s) manually, or add a breakdown above.</p>`;
+    }
+    const lectures = (block.curricula[0].lectures || []).slice().sort((a, b) => Number(a.lecture_number) - Number(b.lecture_number));
+    return `
+      <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Lesson Number(s)</label>
+      <div class="space-y-1 mt-1">
+        ${lectures.map(l => `
+          <label class="flex items-start gap-2 text-xs font-bold text-slate-700 cursor-pointer">
+            <input type="checkbox" class="mt-0.5 w-3.5 h-3.5 rounded accent-blue-600 shrink-0" ${block.lessonNumbers.includes(Number(l.lecture_number)) ? 'checked' : ''} onchange="_lpToggleLessonNumber(${idx}, ${Number(l.lecture_number)}, this.checked)">
+            <span>Lesson ${_escHtml(l.lecture_number)}${l.topic ? ' — ' + _escHtml(l.topic) : ''}</span>
+          </label>`).join('')}
+      </div>`;
+  }
+
+  function _lpLoadLessonsForBlock(idx) {
+    const block = _lpChapterBlocks[idx];
+    if (!block || !block.chapter) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    block.loaded = false;
+    const filters = { class_name: _lpSelectVal('lpClass'), subject: _lpSelectVal('lpSubject'), version: _lpSelectVal('lpVersion'), chapter: block.chapter };
+    google.script.run.withSuccessHandler(res => {
+      block.loaded = true;
+      block.curricula = (res && res.result === 'success') ? (res.curricula || []) : [];
+      const w = document.getElementById('lpLessonWrap' + idx);
+      if (w) w.innerHTML = _lpLessonPickerHtml(block, idx);
+    }).withFailureHandler(() => {
+      block.loaded = true; block.curricula = [];
+      const w = document.getElementById('lpLessonWrap' + idx);
+      if (w) w.innerHTML = _lpLessonPickerHtml(block, idx);
+    }).getLessonCurricula(myId, filters);
+  }
+
+  function _lpOnChapterSelect(idx, value) {
+    const block = _lpChapterBlocks[idx];
+    if (!block) return;
+    if (value === '__other__') {
+      const other = document.getElementById('lpChapterOther' + idx);
+      if (other) other.classList.remove('hidden');
       return;
     }
-    const myId = window.APP_USER && window.APP_USER.user_id;
-    const multi = _lpCurricula.length > 1;
-    wrap.innerHTML = `
-      <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
-        ${multi ? `
-          <div>
-            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Breakdown</label>
-            <select id="lpCurriculumSelect" onchange="_lpSelectCurriculum(this.value)" class="w-full mt-1 px-3 py-2 bg-white border border-slate-200 rounded-xl font-bold text-xs">
-              ${_lpCurricula.map((c, i) => `<option value="${i}">${c.is_editable ? 'Editable' : 'Locked'} · ${(c.lectures || []).length} lectures${c.created_by === myId ? ' (mine)' : ''}</option>`).join('')}
-            </select>
-          </div>` : ''}
-        <div class="flex items-end gap-2">
-          <div class="flex-1">
-            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Lecture</label>
-            <select id="lpLectureSelect" onchange="_lpApplyLecture(this.value)" class="w-full mt-1 px-3 py-2 bg-white border border-slate-200 rounded-xl font-bold text-xs"><option value="">--Select--</option></select>
-          </div>
-          <button type="button" onclick="_openCurriculumForm(_lpCurricula[Number((document.getElementById('lpLectureSelect')||{}).dataset.curriculumIdx || 0)])" class="px-3 py-2 border border-slate-200 rounded-xl text-slate-500 hover:bg-white"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button>
-        </div>
-      </div>`;
-    lucide.createIcons();
-    _lpSelectCurriculum(0);
+    block.chapter = value; block.lessonNumbers = []; block.curricula = []; block.loaded = true;
+    _lpRenderChapterBlocks();
   }
 
-  function _lpSelectCurriculum(idx) {
-    const c = _lpCurricula[Number(idx)];
-    const sel = document.getElementById('lpLectureSelect');
-    if (!c || !sel) return;
-    const lectures = (c.lectures || []).slice().sort((a, b) => Number(a.lecture_number) - Number(b.lecture_number));
-    sel.innerHTML = '<option value="">--Select--</option>' + lectures.map(l => `<option value="${_escHtml(l.lecture_number)}">Lecture ${_escHtml(l.lecture_number)}${l.topic ? ' — ' + _escHtml(l.topic) : ''}</option>`).join('');
-    sel.dataset.curriculumIdx = idx;
+  function _lpOnChapterOtherInput(idx, value) {
+    const block = _lpChapterBlocks[idx];
+    if (!block) return;
+    block.chapter = value.trim(); block.lessonNumbers = []; block.curricula = []; block.loaded = true;
+    clearTimeout(_lpChapterOtherDebounce);
+    _lpChapterOtherDebounce = setTimeout(() => {
+      _lpRenderChapterBlocks();
+    }, 500);
   }
 
-  function _lpApplyLecture(lectureNumber) {
-    if (!lectureNumber) return;
-    const sel = document.getElementById('lpLectureSelect');
-    const c = _lpCurricula[Number(sel ? sel.dataset.curriculumIdx : 0)];
-    const lecture = c && (c.lectures || []).find(l => String(l.lecture_number) === String(lectureNumber));
+  function _lpOnManualLessonInput(idx, value) {
+    const block = _lpChapterBlocks[idx];
+    if (!block) return;
+    block.lessonNumbers = value.split(',').map(s => Number(s.trim())).filter(n => n > 0);
+  }
+
+  function _lpToggleLessonNumber(idx, num, checked) {
+    const block = _lpChapterBlocks[idx];
+    if (!block) return;
+    num = Number(num);
+    if (checked) { if (!block.lessonNumbers.includes(num)) block.lessonNumbers.push(num); }
+    else { block.lessonNumbers = block.lessonNumbers.filter(n => n !== num); }
+
+    // Auto-fill Topic (primary chapter, first checked lesson, only if still
+    // empty) and Learning Outcomes (any chapter, every checked lesson) from
+    // the curriculum breakdown.
+    const lecture = block.curricula[0] && (block.curricula[0].lectures || []).find(l => Number(l.lecture_number) === num);
     if (!lecture) return;
-    const numEl = document.getElementById('lpLessonNumber');
-    const topicEl = document.getElementById('lpTopic');
-    if (numEl) numEl.value = lecture.lecture_number;
-    if (topicEl && lecture.topic) topicEl.value = lecture.topic;
+    if (idx === 0 && checked) {
+      const topicEl = document.getElementById('lpTopic');
+      if (topicEl && !topicEl.value.trim() && lecture.topic) topicEl.value = lecture.topic;
+    }
+    const outcomeEl = document.getElementById('lpLearningOutcomes');
+    const line = (lecture.learning_outcome || '').trim();
+    if (!outcomeEl || !line) return;
+    if (checked) {
+      if (!outcomeEl.value.includes(line)) outcomeEl.value = outcomeEl.value.trim() ? outcomeEl.value.trim() + '\n' + line : line;
+    } else {
+      outcomeEl.value = outcomeEl.value.split('\n').filter(l => l.trim() !== line).join('\n');
+    }
+  }
+
+  function _lpAddChapterBlock() {
+    _lpChapterBlocks.push({ chapter: '', lessonNumbers: [], curricula: [], loaded: true });
+    _lpRenderChapterBlocks();
+  }
+  function _lpRemoveChapterBlock(idx) {
+    _lpChapterBlocks.splice(idx, 1);
+    _lpRenderChapterBlocks();
   }
 
   // ── Manage Curriculum (add / edit a lecture breakdown) ───────────────────
   let _curEditingId = null;
 
-  function _openCurriculumForm(existing) {
+  function _openCurriculumForm(existing, prefillChapter) {
     _curEditingId = existing ? existing.id : null;
     const existingEl = document.getElementById('curriculumFormModal');
     if (existingEl) existingEl.remove();
@@ -4365,10 +4529,10 @@
         </div>
         ${(existing && !existing.is_editable && existing.created_by !== (window.APP_USER && window.APP_USER.user_id)) ? `<div class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs font-bold text-amber-800">This breakdown is locked — saving changes will create your own copy instead of editing the original.</div>` : ''}
         <div class="grid grid-cols-2 gap-3">
-          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Class</label><input id="curClass" type="text" value="${_escHtml((existing && existing.class_name) || _lpFormVal('lpClass'))}" class="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></div>
-          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Version</label><input id="curVersion" type="text" value="${_escHtml((existing && existing.version) || _lpFormVal('lpVersion'))}" class="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></div>
-          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Subject</label><input id="curSubject" type="text" value="${_escHtml((existing && existing.subject) || _lpFormVal('lpSubject'))}" class="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></div>
-          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Chapter</label><input id="curChapter" type="text" value="${_escHtml((existing && existing.chapter) || _lpFormVal('lpChapter'))}" class="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></div>
+          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Class</label><input id="curClass" type="text" value="${_escHtml((existing && existing.class_name) || _lpSelectVal('lpClass'))}" class="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></div>
+          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Version</label><input id="curVersion" type="text" value="${_escHtml((existing && existing.version) || _lpSelectVal('lpVersion'))}" class="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></div>
+          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Subject</label><input id="curSubject" type="text" value="${_escHtml((existing && existing.subject) || _lpSelectVal('lpSubject'))}" class="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></div>
+          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Chapter</label><input id="curChapter" type="text" value="${_escHtml((existing && existing.chapter) || prefillChapter || '')}" class="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></div>
         </div>
         <div>
           <div class="flex items-center justify-between mb-1">
@@ -4386,21 +4550,24 @@
       </div>`;
     document.body.appendChild(modal);
     const existingLectures = (existing && existing.lectures) || [];
-    if (existingLectures.length) existingLectures.forEach(l => _curAddLectureRow(l.lecture_number, l.topic));
+    if (existingLectures.length) existingLectures.forEach(l => _curAddLectureRow(l.lecture_number, l.topic, l.learning_outcome));
     else _curAddLectureRow();
     lucide.createIcons();
   }
 
-  function _curAddLectureRow(lectureNumber, topic) {
+  function _curAddLectureRow(lectureNumber, topic, learningOutcome) {
     const body = document.getElementById('curLecturesBody');
     if (!body) return;
     const n = body.children.length + 1;
     const row = document.createElement('div');
-    row.className = 'flex gap-2 cur-lecture-row';
+    row.className = 'cur-lecture-row bg-white border border-slate-200 rounded-lg p-2 space-y-1.5';
     row.innerHTML = `
-      <input type="number" min="1" class="cur-lecture-number w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" value="${lectureNumber != null ? _escHtml(lectureNumber) : n}">
-      <input type="text" class="cur-lecture-topic flex-1 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" placeholder="Lecture topic" value="${topic ? _escHtml(topic) : ''}">
-      <button type="button" onclick="this.parentElement.remove()" class="p-1.5 text-red-400 hover:bg-red-50 rounded-lg"><i data-lucide="x" class="h-3.5 w-3.5"></i></button>`;
+      <div class="flex gap-2">
+        <input type="number" min="1" class="cur-lecture-number w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" value="${lectureNumber != null ? _escHtml(lectureNumber) : n}">
+        <input type="text" class="cur-lecture-topic flex-1 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" placeholder="Lesson topic" value="${topic ? _escHtml(topic) : ''}">
+        <button type="button" onclick="this.closest('.cur-lecture-row').remove()" class="p-1.5 text-red-400 hover:bg-red-50 rounded-lg shrink-0"><i data-lucide="x" class="h-3.5 w-3.5"></i></button>
+      </div>
+      <input type="text" class="cur-lecture-outcome w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" placeholder="Learning outcome for this lesson (optional)" value="${learningOutcome ? _escHtml(learningOutcome) : ''}">`;
     body.appendChild(row);
     lucide.createIcons();
   }
@@ -4411,6 +4578,7 @@
     const lectures = Array.from(document.querySelectorAll('.cur-lecture-row')).map(row => ({
       lecture_number: Number(row.querySelector('.cur-lecture-number').value) || null,
       topic: row.querySelector('.cur-lecture-topic').value.trim(),
+      learning_outcome: row.querySelector('.cur-lecture-outcome').value.trim(),
     })).filter(l => l.lecture_number);
     const payload = { class_name, subject, chapter, version: _lpFormVal('curVersion'), lectures, is_editable: !!(document.getElementById('curIsEditable') || {}).checked };
     const myId = window.APP_USER && window.APP_USER.user_id;
@@ -4423,7 +4591,7 @@
       showToast(res.forked ? 'Saved as your own breakdown' : 'Lecture breakdown saved', 'success');
       const modal = document.getElementById('curriculumFormModal');
       if (modal) modal.remove();
-      _lpLookupCurricula();
+      _lpLoadChapterOptions();
     }).withFailureHandler(() => {
       if (btn) { btn.disabled = false; btn.textContent = 'Save Breakdown'; }
       if (statusEl) { statusEl.textContent = 'Network error'; statusEl.className = 'text-xs font-bold text-red-500'; }
