@@ -92,11 +92,31 @@ been fetched yet:
    for files that hit the "can't scan for viruses" interstitial, proven
    earlier this session for files up to ~21MB; these are much bigger, so
    expect to need chunked/patient downloads).
-2. Render each page to PNG via `pymupdf` (`page.get_pixmap(dpi=150).save(...)`)
-   — no external binary dependency, proven working this session.
-3. Read each rendered page via vision, transcribe chapter headings, lesson
-   numbers (পাঠ-১, পাঠ-২...), topics, learning outcomes, page numbers, and
-   (for Math/Physics/Chemistry) any equations, into:
+   **Save the downloaded PDF permanently to `D:\NCTB books\<Class>\<Version>\<Subject> - Teacher's Guide.pdf`**
+   (e.g. `D:\NCTB books\Class One\English Version\Mathematics - Teacher's Guide.pdf`)
+   — one folder per class, one subfolder per version (use whichever version
+   tag that class/subject is being tagged with in `lesson_curricula`, per
+   the version-tagging rules above). This is a persistent local library
+   outside any session's scratchpad, so source PDFs never need re-downloading
+   across sessions/subagents — always check here first before hitting Google
+   Drive again.
+2. Read pages via vision. Two options, prefer (b) going forward:
+   a. Render each page to PNG via `pymupdf`
+      (`page.get_pixmap(dpi=130).save(...)`) then `Read` each image
+      individually — no external binary dependency, proven working, but
+      one page per tool call (high overhead across a whole book).
+   b. **Use the `Read` tool's native PDF support directly on the saved PDF**,
+      with the `pages` parameter (e.g. `pages: "1-20"`, max 20 pages per
+      call) — no rendering step needed, ~20x fewer tool calls per book.
+      Not yet fully verified against this project's known Bijoy-font
+      garbling issue (that issue was specifically in *text-layer*
+      extraction via `pypdf`/`pymupdf .get_text()`; native PDF vision
+      ingestion should read the rendered page correctly the same way the
+      PNG approach did, but confirm on the first chapter of a new subject
+      before trusting the rest of that book to it).
+3. Transcribe chapter headings, lesson numbers (পাঠ-১, পাঠ-২...), topics,
+   learning outcomes, page numbers, and (for Math/Physics/Chemistry) any
+   equations, into:
    ```json
    { "chapter": "...", "lectures": [
      { "lecture_number": 1, "topic": "...", "learning_outcome": "...",
