@@ -16448,7 +16448,7 @@
           </div>
         </div>
         <!-- Thread pane -->
-        <div id="msgThreadPane" class="flex-col flex-1 min-w-0 hidden md:flex">
+        <div id="msgThreadPane" class="flex-col flex-1 min-w-0">
           <div id="msgThreadEmpty" class="flex-1 flex flex-col items-center justify-center text-slate-300 gap-3 p-8">
             <div class="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center"><i data-lucide="messages-square" class="h-7 w-7"></i></div>
             <p class="text-xs font-black uppercase tracking-widest">Select a conversation</p>
@@ -16658,14 +16658,17 @@
     const { cls, label } = _presenceInfo(info.last_active);
     const mobile = window.innerWidth < 768;
 
-    // mobile: swap panes
+    // mobile: swap panes. threadPane's default visibility (hidden on mobile,
+    // flex on desktop) is defined in styles.css by #id, and shown here via a
+    // plain "msg-open" class rather than Tailwind's `hidden`/`md:flex` —
+    // app.html's global `.hidden{display:none!important}` always beats a
+    // non-important md:flex regardless of viewport, so that combination would
+    // leave the pane invisible on desktop too, forever, since desktop never
+    // removes a literal `hidden` class from it.
     const listPane = document.getElementById('msgListPane');
     const threadPane = document.getElementById('msgThreadPane');
-    if (mobile && listPane && threadPane) {
-      listPane.classList.add('hidden');
-      threadPane.classList.remove('hidden');
-      threadPane.classList.add('flex');
-    }
+    if (threadPane) threadPane.classList.add('msg-open');
+    if (mobile && listPane) listPane.classList.add('hidden');
     const empty = document.getElementById('msgThreadEmpty');
     const active = document.getElementById('msgThreadActive');
     if (empty) empty.classList.add('hidden');
@@ -16722,7 +16725,7 @@
     const listPane = document.getElementById('msgListPane');
     const threadPane = document.getElementById('msgThreadPane');
     if (listPane) listPane.classList.remove('hidden');
-    if (threadPane) { threadPane.classList.add('hidden'); threadPane.classList.remove('flex'); }
+    if (threadPane) threadPane.classList.remove('msg-open');
     _renderConversationList();
   }
 
