@@ -4564,6 +4564,47 @@
   const NCTB_CLASS_ORDER = ['One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine-Ten'];
   let _tbActiveClass = 'One';
 
+  // In-app PDF viewer — used by Textbooks/Curriculum/Publications so teachers can
+  // read a document without leaving the site; the modal's own Download link is the
+  // fallback for when they actually want the file. Google Drive "view" links need
+  // their own /preview form to embed in an iframe (the plain /view URL refuses to).
+  function _pdfEmbedUrl(url) {
+    const m = url.match(/drive\.google\.com\/file\/d\/([^/]+)/);
+    return m ? `https://drive.google.com/file/d/${m[1]}/preview` : url;
+  }
+  function _openPdfViewer(url, title) {
+    let modal = document.getElementById('pdfViewerModal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'pdfViewerModal';
+      modal.className = 'hidden fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[300] flex items-center justify-center p-2 sm:p-6';
+      modal.innerHTML = `
+        <div class="bg-white rounded-2xl w-full h-full sm:h-[90vh] max-w-5xl shadow-2xl flex flex-col overflow-hidden">
+          <div class="flex items-center justify-between gap-2 px-4 py-3 border-b border-slate-200 shrink-0">
+            <div id="pdfViewerTitle" class="text-sm font-bold text-slate-700 truncate"></div>
+            <div class="flex items-center gap-3 shrink-0">
+              <a id="pdfViewerDownload" href="#" target="_blank" rel="noopener" class="flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-700"><i data-lucide="download" class="h-4 w-4"></i>Download</a>
+              <button onclick="_closePdfViewer()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+            </div>
+          </div>
+          <iframe id="pdfViewerFrame" class="flex-1 w-full" style="border:0" src="" title="PDF viewer"></iframe>
+        </div>`;
+      modal.addEventListener('click', e => { if (e.target === modal) _closePdfViewer(); });
+      document.body.appendChild(modal);
+    }
+    document.getElementById('pdfViewerTitle').textContent = title || 'PDF';
+    document.getElementById('pdfViewerDownload').href = url;
+    document.getElementById('pdfViewerFrame').src = _pdfEmbedUrl(url);
+    modal.classList.remove('hidden');
+    lucide.createIcons();
+  }
+  function _closePdfViewer() {
+    const modal = document.getElementById('pdfViewerModal');
+    if (modal) modal.classList.add('hidden');
+    const frame = document.getElementById('pdfViewerFrame');
+    if (frame) frame.src = '';
+  }
+
   function loadTextbooksView() {
     _setViewHash('textbooks');
     setActiveNavLink('nav-textbooks');
@@ -4619,8 +4660,8 @@
   function _tbRenderPublications() {
     const host = document.getElementById('tbPublicationsList');
     if (!host) return;
-    host.innerHTML = NCTB_PUBLICATIONS.map(p => `
-      <a href="${p.pdf || p.detailUrl}" target="_blank" rel="noopener" class="flex items-center justify-between gap-3 bg-white border border-slate-200 rounded-xl px-4 py-3 hover:border-blue-300 transition-all">
+    host.innerHTML = NCTB_PUBLICATIONS.map((p, idx) => `
+      <div onclick="_tbOpenPublication(${idx})" class="flex items-center justify-between gap-3 bg-white border border-slate-200 rounded-xl px-4 py-3 hover:border-blue-300 transition-all cursor-pointer">
         <div class="min-w-0">
           <div class="text-xs font-bold text-slate-700 truncate">${_escHtml(p.title)}</div>
           <div class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">${p.date}</div>
@@ -4628,8 +4669,14 @@
         <div class="flex items-center gap-1 shrink-0 text-[10px] font-black uppercase tracking-wide ${p.pdf ? 'text-red-600' : 'text-slate-400'}">
           <i data-lucide="${p.pdf ? 'file-text' : 'external-link'}" class="h-3.5 w-3.5"></i>${p.pdf ? 'PDF' : 'View'}
         </div>
-      </a>`).join('');
+      </div>`).join('');
     lucide.createIcons();
+  }
+  function _tbOpenPublication(idx) {
+    const p = NCTB_PUBLICATIONS[idx];
+    if (!p) return;
+    if (p.pdf) _openPdfViewer(p.pdf, p.title);
+    else window.open(p.detailUrl, '_blank', 'noopener');
   }
 
   function _tbRenderClassTabs() {
@@ -4649,15 +4696,22 @@
     const list = document.getElementById('tbSubjectList');
     if (!list) return;
     const subjects = NCTB_BOOKS[className] || [];
-    list.innerHTML = subjects.map(([name, bnUrl, enUrl]) => `
+    list.innerHTML = subjects.map(([name, bnUrl, enUrl], idx) => `
       <div class="flex items-center justify-between gap-2 bg-white border border-slate-200 rounded-xl px-4 py-3 hover:border-blue-300 transition-all">
         <span class="text-xs font-bold text-slate-700">${_escHtml(name)}</span>
         <div class="flex items-center gap-1.5 shrink-0">
-          <a href="${bnUrl}" target="_blank" rel="noopener" class="flex items-center gap-1 bg-emerald-50 text-emerald-700 rounded-lg px-2 py-1 text-[10px] font-black uppercase tracking-wide hover:bg-emerald-100">বাংলা<i data-lucide="external-link" class="h-3 w-3"></i></a>
-          ${enUrl ? `<a href="${enUrl}" target="_blank" rel="noopener" class="flex items-center gap-1 bg-blue-50 text-blue-700 rounded-lg px-2 py-1 text-[10px] font-black uppercase tracking-wide hover:bg-blue-100">English<i data-lucide="external-link" class="h-3 w-3"></i></a>` : ''}
+          <button onclick="_tbOpenBook('${className}', ${idx}, 'bn')" class="flex items-center gap-1 bg-emerald-50 text-emerald-700 rounded-lg px-2 py-1 text-[10px] font-black uppercase tracking-wide hover:bg-emerald-100">বাংলা<i data-lucide="file-text" class="h-3 w-3"></i></button>
+          ${enUrl ? `<button onclick="_tbOpenBook('${className}', ${idx}, 'en')" class="flex items-center gap-1 bg-blue-50 text-blue-700 rounded-lg px-2 py-1 text-[10px] font-black uppercase tracking-wide hover:bg-blue-100">English<i data-lucide="file-text" class="h-3 w-3"></i></button>` : ''}
         </div>
       </div>`).join('');
     lucide.createIcons();
+  }
+  function _tbOpenBook(className, idx, lang) {
+    const entry = (NCTB_BOOKS[className] || [])[idx];
+    if (!entry) return;
+    const [name, bnUrl, enUrl] = entry;
+    const url = lang === 'en' ? enUrl : bnUrl;
+    if (url) _openPdfViewer(url, name + (lang === 'en' && enUrl ? ' (English)' : ''));
   }
 
   // National Curriculum (syllabus) documents, by level — nctb.gov.bd/pages/files/*,
@@ -4756,12 +4810,17 @@
     const list = document.getElementById('curSubjectList');
     if (!list) return;
     const subjects = NCTB_CURRICULUM[level] || [];
-    list.innerHTML = subjects.map(([name, url]) => `
-      <a href="${url}" target="_blank" rel="noopener" class="flex items-center justify-between gap-2 bg-white border border-slate-200 rounded-xl px-4 py-3 hover:border-purple-300 transition-all">
+    list.innerHTML = subjects.map(([name], idx) => `
+      <div onclick="_sylOpenDoc('${level}', ${idx})" class="flex items-center justify-between gap-2 bg-white border border-slate-200 rounded-xl px-4 py-3 hover:border-purple-300 transition-all cursor-pointer">
         <span class="text-xs font-bold text-slate-700">${_escHtml(name)}</span>
         <i data-lucide="file-text" class="h-3.5 w-3.5 text-purple-400 shrink-0"></i>
-      </a>`).join('');
+      </div>`).join('');
     lucide.createIcons();
+  }
+  function _sylOpenDoc(level, idx) {
+    const entry = (NCTB_CURRICULUM[level] || [])[idx];
+    if (!entry) return;
+    _openPdfViewer(entry[1], entry[0]);
   }
 
   // ── Admin's own "who filled it in / who hasn't" view (Data tab) — same
