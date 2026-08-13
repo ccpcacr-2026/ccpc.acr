@@ -83,7 +83,7 @@ const RESERVED = [
   'saveModuleVisibility',
   // lesson plan (My Lesson Plan) — list/form/curriculum/favorites/excel
   'loadLessonPlanView','_lpSetScope','_lpLoadList','_openLessonPlanForm',
-  'loadTextbooksView','_tbSetClass',
+  'loadTextbooksView','_tbSetClass','_sylSetLevel',
   '_lpToggleFavorite','_openCurriculumFormById','_lpDownloadTemplate','_lpHandleExcelUpload',
   '_deleteLessonPlanForm','_lpLookupCurricula','_openCurriculumForm','_saveLessonPlanForm',
   '_lpSelectCurriculum','_lpApplyLecture','_curAddLectureRow','_saveCurriculumForm',

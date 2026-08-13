@@ -4578,6 +4578,14 @@
         </div>
         <div id="tbClassTabs" class="flex flex-wrap gap-2 my-5"></div>
         <div id="tbSubjectList" class="grid grid-cols-1 sm:grid-cols-2 gap-2"></div>
+
+        <div class="mt-10">
+          <h2 class="text-lg font-black text-slate-800 tracking-tight">National Curriculum (Syllabus)</h2>
+          <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Subject-wise curriculum documents from nctb.gov.bd, by level</p>
+          <div id="curLevelTabs" class="flex flex-wrap gap-2 my-4"></div>
+          <div id="curSubjectList" class="grid grid-cols-1 sm:grid-cols-2 gap-2"></div>
+        </div>
+
         <div class="mt-10">
           <h2 class="text-lg font-black text-slate-800 tracking-tight">Official Publications &amp; Notices</h2>
           <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">From nctb.gov.bd/pages/publications</p>
@@ -4586,6 +4594,8 @@
       </div>`;
     _tbRenderClassTabs();
     _tbSetClass(_tbActiveClass);
+    _sylRenderLevelTabs();
+    _sylSetLevel(_sylActiveLevel);
     _tbRenderPublications();
   }
 
@@ -4647,6 +4657,110 @@
           ${enUrl ? `<a href="${enUrl}" target="_blank" rel="noopener" class="flex items-center gap-1 bg-blue-50 text-blue-700 rounded-lg px-2 py-1 text-[10px] font-black uppercase tracking-wide hover:bg-blue-100">English<i data-lucide="external-link" class="h-3 w-3"></i></a>` : ''}
         </div>
       </div>`).join('');
+    lucide.createIcons();
+  }
+
+  // National Curriculum (syllabus) documents, by level — nctb.gov.bd/pages/files/*,
+  // one PDF per subject (2011/2012 framework). Separate from NCTB_BOOKS (the actual
+  // student textbooks) — these are the subject curriculum/syllabus documents teachers
+  // reference for outcomes and content breakdown.
+  const NCTB_CURRICULUM = {
+    'Pre-Primary': [
+      ['প্রাক-প্রাথমিক স্তরের শিক্ষাক্রম', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/7fcca774d64845e0bc383f3d61cb9c66.pdf'],
+    ],
+    'Primary': [
+      ['সূচিপত্র ও মুখবন্ধ', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/afcfca096f594332b30b12e36d0c58a2.pdf'],
+      ['বাংলা', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/c0cd4755313546df9657d68ab35d349e.pdf'],
+      ['ইংরেজি', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/0f936f1341f44d6999da2b907e54b7fa.pdf'],
+      ['প্রাথমিক গণিত', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/9d5687ba10be40a8a17c631c69c6fc94.pdf'],
+      ['বাংলাদেশ ও বিশ্বপরিচয়', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/877f3b62b1114f3a8dc286c4035ca24f.pdf'],
+      ['প্রাথমিক বিজ্ঞান', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/5b2f95f054034d11b28018ae4ac074eb.pdf'],
+      ['ইসলাম ধর্ম ও নৈতিক শিক্ষা', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/e34c3a00ccd845bf833a9381578f44d4.pdf'],
+      ['হিন্দু ধর্ম ও ও নৈতিক শিক্ষা', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/cd56535742844d31973a69840f9af562.pdf'],
+      ['বৌদ্ধ ধর্ম ও নৈতিক শিক্ষা', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/1c53c5f3289c4672badaa3d68f3ed20a.pdf'],
+      ['খ্রিষ্টান ধর্ম ও নৈতিক শিক্ষা', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/2e1b55edc2334d1a9cea279c7e9fd7d5.pdf'],
+      ['শারীরিক শিক্ষা', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/ae90bf2cf88149649d73f7d4986950c7.pdf'],
+      ['সংগীত', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/e59593e37d4e44e3887c471e63fa6ded.pdf'],
+      ['চারু ও কারু কলা', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/5af8b12d0bf54af3a52933bc3790ca42.pdf'],
+    ],
+    'Secondary': [
+      ['বাংলা', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/3ce5065b7a324aee99b1a6343ae31303.pdf'],
+      ['ইংরেজি', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/afda21d8556d4dd3a2e78ec51ec72947.pdf'],
+      ['গণিত ও উচ্চতর গণিত', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/be50d8aff8d543459484e5a91a0fab38.pdf'],
+      ['কৃষি শিক্ষা', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/caf9e3e659454314b4e6817203aaa61e.pdf'],
+      ['চারু ও কারুকলা', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/6ce86cee9bd54d50b2146dc05dc6ef87.pdf'],
+      ['হিন্দু ধর্ম ও নৈতিক শিক্ষা', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/8907d1473ac04f2da68d61ac4ae9555a.pdf'],
+      ['বৌদ্ধ ধর্ম ও নৈতিক শিক্ষা', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/8ad34f99d2054f8ab7669896436b8bc6.pdf'],
+      ['ইসলাম ও নৈতিক শিক্ষা', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/c8b465c741804d73b888a8154cb65f7c.pdf'],
+      ['খ্রিষ্টান ধর্ম ও নৈতিক শিক্ষা', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/d911b345830346798ad4b2b1b45158d7.pdf'],
+      ['আইসিটি ও ক্যারিয়ার এডুকেশন', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/ca0d6bd886b745f1937524a89052a8b1.pdf'],
+      ['বিজ্ঞান শাখার বিষয়সমূহ', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/e39c58d357644bc4a54dd3de3b2bee7b.pdf'],
+      ['আইসিটি (ষষ্ঠ শ্রেণি)', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/bba604a37ec641d79c15a18dace2be5c.pdf'],
+      ['শারীরিক শিক্ষা', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/fda7f4051b1e44bf80c8272dc6836e8b.pdf'],
+      ['ব্যবসায় শিক্ষা', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/11864190242f469992a5afc751cc1fcd.pdf'],
+      ['মানবিক শাখার বিষয়সমূহ', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/cb8f3c5aae0b452e99488875554f0028.pdf'],
+      ['গার্হস্থ্যবিজ্ঞান', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/e5b3c1c1b02446b79ae42c50b197fa2a.pdf'],
+    ],
+    'Higher Secondary': [
+      ['বাংলা', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/753b3fc45ef74315b5bfa131f9487250.pdf'],
+      ['ইংরেজি', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/a34cc0adcff94af3a1d3d4f721a2be5c.pdf'],
+      ['উচ্চতর গণিত', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/9c44bb8ff649495698b093d3fe2b9f15.pdf'],
+      ['হিসাববিজ্ঞান', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/239c197cc00846d0a77f87f9d80942c4.pdf'],
+      ['কৃষিশিক্ষা', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/e5c53b5f188042919706346488c4d246.pdf'],
+      ['জীববিজ্ঞান', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/ca39e59575134a74b26a35b760d193eb.pdf'],
+      ['ব্যবসায় সংগঠন ও ব্যবস্থাপনা', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/a0573d329bab479d97688d174bbbb427.pdf'],
+      ['রসায়ন', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/a513203336f643b1b2630f4980537416.pdf'],
+      ['শিশুর বিকাশ', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/4123b86dc534431ba76c06333c12118c.pdf'],
+      ['পৌরনীতি ও সুশাসন', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/0abcebcdcd7549fb94958664fc4c082b.pdf'],
+      ['উচ্চাঙ্গ সঙ্গীত', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/a590df087dd4442cbeaa15867c7886b7.pdf'],
+      ['অর্থনীতি', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/3c29a64f687a4e8a8ba699636ab59bdb.pdf'],
+      ['ফিন্যান্স, ব্যাংকিং ও বিমা', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/c9be0dd8514e4c24b6a3020f72f6857b.pdf'],
+      ['খাদ্য ও পুষ্টি', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/03c10c26241f49fbb8e216b7295132fd.pdf'],
+      ['ভূগোল', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/87ef3839de964c3bb73234dc3e4930d5.pdf'],
+      ['ইতিহাস', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/4f06658e8d3b481da2802e8ec5a373f7.pdf'],
+      ['গৃহব্যবস্থাপনা ও পারিবারিক জীবন', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/124c90f15f024ba5bc174817c7a6a308.pdf'],
+      ['গার্হস্থ্যবিজ্ঞান', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/9fe6b970c94c471da7c436575fd3e488.pdf'],
+      ['তথ্য ও যোগাযোগ প্রযুক্তি', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/687441001bc74e04819378e555a6ed8f.pdf'],
+      ['ইসলাম শিক্ষা', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/a124bf2c89944bcca151e9c34f2fdb0f.pdf'],
+      ['ইসলামের ইতিহাস ও সংস্কৃতি', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/52a05717d43b4565a6e139064dbc3e82.pdf'],
+      ['লঘু সঙ্গীত', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/92b3a2e42d0346acab5a3a0487786033.pdf'],
+      ['যুক্তিবিদ্যা', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/3c6e6c526e4a47f083d56ccde2689da3.pdf'],
+      ['পদার্থবিদ্যা', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/28d03c592c2c4b208f7782d04c78e01d.pdf'],
+      ['শিল্পকলা ও বস্ত্রপরিচ্ছদ', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/8e3e7c4a24324a4798078138157f5e61.pdf'],
+      ['উৎপাদন ব্যবস্থাপনা ও বিপণন', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/f4259fbaee554f28a360eb38aa320d00.pdf'],
+      ['মনোবিজ্ঞান', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/792b4f8b64c04b2e9b20e49b55e79c02.pdf'],
+      ['সমাজকর্ম', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/659d5c2ef1a34e7b95b9aef58f2155a8.pdf'],
+      ['সমাজবিজ্ঞান', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/fcad95a8f40e4164af40928e2a4e13aa.pdf'],
+      ['মৃত্তিকাবিজ্ঞান', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/d428c6262d754be7973bf1acf451738a.pdf'],
+      ['পরিসংখ্যান', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/35855aec95824c73a6afe2672255f559.pdf'],
+      ['ট্যুরিজম ও হসপিটালিটি', 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/a60782747da643a7bb19c3d287638a9c.pdf'],
+    ],
+  };
+  const NCTB_CURRICULUM_LEVELS = ['Pre-Primary', 'Primary', 'Secondary', 'Higher Secondary'];
+  let _sylActiveLevel = 'Primary';
+
+  function _sylRenderLevelTabs() {
+    const host = document.getElementById('curLevelTabs');
+    if (!host) return;
+    host.innerHTML = NCTB_CURRICULUM_LEVELS.map(l => `<button id="curTab-${l.replace(/\s+/g, '')}" onclick="_sylSetLevel('${l}')" class="px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all">${l}</button>`).join('');
+  }
+
+  function _sylSetLevel(level) {
+    _sylActiveLevel = level;
+    const active = 'bg-purple-600 text-white shadow-lg shadow-purple-500/20';
+    const inactive = 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50';
+    NCTB_CURRICULUM_LEVELS.forEach(l => {
+      const btn = document.getElementById(`curTab-${l.replace(/\s+/g, '')}`);
+      if (btn) btn.className = `px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${l === level ? active : inactive}`;
+    });
+    const list = document.getElementById('curSubjectList');
+    if (!list) return;
+    const subjects = NCTB_CURRICULUM[level] || [];
+    list.innerHTML = subjects.map(([name, url]) => `
+      <a href="${url}" target="_blank" rel="noopener" class="flex items-center justify-between gap-2 bg-white border border-slate-200 rounded-xl px-4 py-3 hover:border-purple-300 transition-all">
+        <span class="text-xs font-bold text-slate-700">${_escHtml(name)}</span>
+        <i data-lucide="file-text" class="h-3.5 w-3.5 text-purple-400 shrink-0"></i>
+      </a>`).join('');
     lucide.createIcons();
   }
 
