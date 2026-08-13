@@ -15,6 +15,24 @@ depend on this data (dropdowns, checkboxes, AI generation context) already
 work correctly with *no* data present (graceful empty-state fallbacks), so
 nothing is blocked on this finishing.
 
+## Version tagging rules (CCPC-specific — confirmed with the user)
+
+- **Class Nursery, One, Two: `version` is always "English Version"**, never
+  "Bangla Version" — CCPC only runs these classes in the English Version
+  stream. This applies to the *tag*, not necessarily the source PDF: the
+  Bangla-medium NCTB Teacher's Guide content already extracted for Class One
+  Mathematics (Chapters 1-2) was confirmed fine to keep content-wise, just
+  retagged from Bangla to English Version (`lesson_curricula` ids 1-2,
+  corrected). Content in translation is equivalent; only the tag was wrong.
+- **Subjects NCTB only publishes one (Bangla-only) edition for** — e.g. বাংলা
+  (the Bangla language subject itself), ইসলাম শিক্ষা, সংস্কৃত, পালি, সংগীত,
+  আরবি — **insert the same chapter/lectures content as two rows**, one with
+  `version: "Bangla Version"` and one with `version: "English Version"`, so
+  the subject surfaces under the Chapter dropdown regardless of which
+  Version stream a lesson plan is being created for. (`lesson_curricula` has
+  one `version` per row, not a list — duplicating the row is the simplest
+  correct fix, no handler changes needed.)
+
 ## Source documents
 
 Two official NCTB document types are usable, at different levels of detail:
