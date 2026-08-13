@@ -4576,19 +4576,50 @@
           <h2 class="text-2xl font-black text-slate-800 tracking-tight">Textbooks</h2>
           <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Official NCTB 2026 books, Class One to Nine-Ten — each link opens the official PDF from nctb.gov.bd</p>
         </div>
-        <div class="flex flex-wrap gap-2 mt-3">
-          <a href="https://nctb.gov.bd/pages/static-pages/695b97ffc4774958d7b70329" target="_blank" rel="noopener" class="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg px-3 py-1.5 text-[11px] font-bold hover:bg-emerald-100 transition-all">
-            <i data-lucide="landmark" class="h-3.5 w-3.5"></i> NCTB.gov.bd — Browse Official Source Page
-          </a>
-          <a href="https://nctb.gov.bd/pages/publications" target="_blank" rel="noopener" class="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg px-3 py-1.5 text-[11px] font-bold hover:bg-emerald-100 transition-all">
-            <i data-lucide="landmark" class="h-3.5 w-3.5"></i> NCTB.gov.bd — Official Publications &amp; Notices
-          </a>
-        </div>
         <div id="tbClassTabs" class="flex flex-wrap gap-2 my-5"></div>
         <div id="tbSubjectList" class="grid grid-cols-1 sm:grid-cols-2 gap-2"></div>
+        <div class="mt-10">
+          <h2 class="text-lg font-black text-slate-800 tracking-tight">Official Publications &amp; Notices</h2>
+          <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">From nctb.gov.bd/pages/publications</p>
+          <div id="tbPublicationsList" class="space-y-2 mt-4"></div>
+        </div>
       </div>`;
     _tbRenderClassTabs();
     _tbSetClass(_tbActiveClass);
+    _tbRenderPublications();
+  }
+
+  // Official NCTB publications/notices list (nctb.gov.bd/pages/publications) — hardcoded
+  // since the source page is a small, hand-curated set of documents rather than a
+  // per-class catalog. pdf is the direct file link; when NCTB hasn't attached a file
+  // to a notice, detailUrl points at that notice's own page on nctb.gov.bd instead.
+  const NCTB_PUBLICATIONS = [
+    { title: '২০২০-২০২১ শিক্ষাবর্ষ থেকে একাদশ-দ্বাদশ শ্রেণির বাংলা প্রথম পত্র "সাহিত্যপাঠ" পাঠ্যপুস্তকের সিলেবাস', date: '01-10-2020',
+      pdf: 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/85170174e28642b2aa29caec0dc6e992.pdf' },
+    { title: '২০১৮ সালে অনুষ্ঠিতব্য এইচএসসি পর্যায়ের মনোবিজ্ঞান বিষয়ের পরিমার্জিত নম্বর বিভাজন ও প্রশ্নপত্র প্রণয়ন নির্দেশনা', date: '18-12-2017',
+      pdf: 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/dab7f631c4384693850e44f0132ca596.pdf' },
+    { title: 'বার্ষিক পাঠ পরিকল্পনা (প্রাথমিক) ২০১৭', date: '14-12-2017',
+      pdf: 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/accf0fc95e924a8fa7c2e8e5c12a8174.pdf' },
+    { title: 'বিদ্যালয়ের জন্য ক্লাস রুটিন-এর নমুনা', date: '08-11-2017',
+      pdf: 'https://objectstorage.ap-dcc-gazipur-1.oraclecloud15.com/n/axvjbnqprylg/b/V2Ministry/o/office-nctb/2024/12/2c978c09c44f4777b900991694d097ee.pdf' },
+    { title: 'ইংরেজি নমুনা প্রশ্ন ও নির্দেশিকা', date: '17-09-2017', pdf: null,
+      detailUrl: 'https://nctb.gov.bd/pages/publications/ইংরেজি-নমুনা-প্রশ্ন-ও-নির্দেশিকা-35df21-6922da5781fc96cef9eb6004' },
+  ];
+
+  function _tbRenderPublications() {
+    const host = document.getElementById('tbPublicationsList');
+    if (!host) return;
+    host.innerHTML = NCTB_PUBLICATIONS.map(p => `
+      <a href="${p.pdf || p.detailUrl}" target="_blank" rel="noopener" class="flex items-center justify-between gap-3 bg-white border border-slate-200 rounded-xl px-4 py-3 hover:border-blue-300 transition-all">
+        <div class="min-w-0">
+          <div class="text-xs font-bold text-slate-700 truncate">${_escHtml(p.title)}</div>
+          <div class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">${p.date}</div>
+        </div>
+        <div class="flex items-center gap-1 shrink-0 text-[10px] font-black uppercase tracking-wide ${p.pdf ? 'text-red-600' : 'text-slate-400'}">
+          <i data-lucide="${p.pdf ? 'file-text' : 'external-link'}" class="h-3.5 w-3.5"></i>${p.pdf ? 'PDF' : 'View'}
+        </div>
+      </a>`).join('');
+    lucide.createIcons();
   }
 
   function _tbRenderClassTabs() {
