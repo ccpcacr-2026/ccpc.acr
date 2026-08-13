@@ -388,6 +388,7 @@
     inventory_admin: () => loadInventoryAdminView(),
     myclass:       () => loadMyClassView(),
     lesson_plan:   () => loadLessonPlanView(),
+    textbooks:     () => loadTextbooksView(),
     student_portal:() => loadStudentPortalView(),
     student_portal_menu: () => _openStudentPortalMobileMenu(),
     bus_tracker:   () => loadAdminBusTrackerView(),
@@ -4396,6 +4397,161 @@
       if (btn) { btn.disabled = false; btn.textContent = 'Save Breakdown'; }
       if (statusEl) { statusEl.textContent = 'Network error'; statusEl.className = 'text-xs font-bold text-red-500'; }
     }).saveLessonCurriculum(myId, _curEditingId, payload);
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // TEXTBOOKS — reference catalog of official NCTB (Bangladesh National
+  // Curriculum and Textbook Board) books, Class One through Nine-Ten,
+  // linking out to nctbbooks.com's own book pages (Bangla/English/Madrasah
+  // PDF downloads) rather than hosting copies — titles/links only, no
+  // book content stored here.
+  // ═══════════════════════════════════════════════════════
+  const NCTB_BOOKS = {
+    'One': [
+      ['Bangla', 'bangla-class-one'], ['English for Today', 'english-for-today-class-one'],
+      ['Mathematics', 'mathematics-class-one'], ['Islamic Studies', 'islamic-studies-class-one'],
+      ['Arabic Studies', 'arabic-studies-class-one'],
+    ],
+    'Two': [
+      ['Bangla', 'bangla-class-two'], ['English for Today', 'english-for-today-class-two'],
+      ['Mathematics', 'mathematics-class-two'], ['Islamic Studies', 'islamic-studies-class-two'],
+      ['Arabic Studies', 'arabic-studies-class-two'],
+    ],
+    'Three': [
+      ['Bangla', 'bangla-class-three'], ['English for Today', 'english-for-today-class-three'],
+      ['Mathematics', 'mathematics-class-three'], ['Science', 'science-class-three'],
+      ['Bangladesh and Global Studies', 'bangladesh-and-global-studies-class-three'],
+      ['Islamic Studies', 'islamic-studies-class-three'], ['Hindu Religion', 'hindu-religion-class-three'],
+      ['Buddhist Religion', 'buddhist-religion-class-three'], ['Christian Religion', 'christian-religion-class-three'],
+      ['Arabic Studies', 'arabic-studies-class-three'],
+    ],
+    'Four': [
+      ['Bangla', 'bangla-class-four'], ['English for Today', 'english-for-today-class-four'],
+      ['Mathematics', 'mathematics-class-four'], ['Science', 'science-class-four'],
+      ['Bangladesh and Global Studies', 'bangladesh-and-global-studies-class-four'],
+      ['Islamic Studies', 'islamic-studies-class-four'], ['Hindu Religion', 'hindu-religion-class-four'],
+      ['Buddhist Religion', 'buddhist-religion-class-four'], ['Christian Religion', 'christian-religion-class-four'],
+      ['Arabic Studies', 'arabic-studies-class-four'],
+    ],
+    'Five': [
+      ['Bangla', 'bangla-class-five'], ['English for Today', 'english-for-today-class-five'],
+      ['Mathematics', 'mathematics-class-five'], ['Science', 'science-class-five'],
+      ['Bangladesh and Global Studies', 'bangladesh-and-global-studies-class-five'],
+      ['Islamic Studies', 'islamic-studies-class-five'], ['Hindu Religion', 'hindu-religion-class-five'],
+      ['Buddhist Religion', 'buddhist-religion-class-five'], ['Christian Religion', 'christian-religion-class-five'],
+      ['Arabic Studies', 'arabic-studies-class-five'],
+    ],
+    'Six': [
+      ['Bangla (Charupath)', 'bangla-class-six'], ['Bangla Anondo Path', 'bangla-anondo-path-class-six'],
+      ['Bangla Byakoron', 'bangla-byakoron-class-six'], ['English for Today', 'english-for-today-class-six'],
+      ['English Grammar and Composition', 'english-grammar-and-composition-class-six'],
+      ['Mathematics', 'mathematics-class-six'],
+      ['Information and Communication Technology', 'information-and-communication-technology-class-six'],
+      ['Bangladesh and Global Studies', 'bangladesh-and-global-studies-class-six'], ['Science', 'science-class-six'],
+      ['Physical Education', 'physical-education-class-six'], ['Work and Life', 'work-and-life-class-six'],
+      ['Agriculture Studies', 'agriculture-studies-class-six'], ['Home Science', 'home-science-class-six'],
+      ['Arts and Crafts', 'arts-and-crafts-class-six'], ['Islamic Studies', 'islamic-studies-class-six'],
+      ['Hindu Religion', 'hindu-religion-class-six'], ['Christian Religion', 'christian-religion-class-six'],
+      ['Buddhist Religion', 'buddhist-religion-class-six'], ['Arabic Studies', 'arabic-studies-class-six'],
+      ['Songskrito', 'songskrito-class-six'], ['Pali', 'pali-class-six'], ['Songit', 'songit-class-six'],
+      ['Minority Language and Culture', 'minority-language-and-culture-class-six'],
+    ],
+    'Seven': [
+      ['Bangla (Saptaborna)', 'bangla-class-seven'], ['Bangla Anondo Path', 'bangla-anondo-path-class-seven'],
+      ['Bangla Byakoron', 'bangla-byakoron-class-seven'], ['English for Today', 'english-for-today-class-seven'],
+      ['English Grammar and Composition', 'english-grammar-and-composition-class-seven'],
+      ['Mathematics', 'mathematics-class-seven'],
+      ['Information and Communication Technology', 'information-and-communication-technology-class-seven'],
+      ['Bangladesh and Global Studies', 'bangladesh-and-global-studies-class-seven'], ['Science', 'science-class-seven'],
+      ['Physical Education', 'physical-education-class-seven'], ['Work and Life', 'work-and-life-class-seven'],
+      ['Agriculture Studies', 'agriculture-studies-class-seven'], ['Home Science', 'home-science-class-seven'],
+      ['Arts and Crafts', 'arts-and-crafts-class-seven'], ['Islamic Studies', 'islamic-studies-class-seven'],
+      ['Hindu Religion', 'hindu-religion-class-seven'], ['Christian Religion', 'christian-religion-class-seven'],
+      ['Buddhist Religion', 'buddhist-religion-class-seven'], ['Arabic Studies', 'arabic-studies-class-seven'],
+      ['Songskrito', 'songskrito-class-seven'], ['Pali', 'pali-class-seven'], ['Songit', 'songit-class-seven'],
+      ['Minority Language and Culture', 'minority-language-and-culture-class-seven'],
+    ],
+    'Eight': [
+      ['Bangla Shahitto Konika', 'bangla-shahitto-konika-class-eight'], ['Bangla Anondo Path', 'bangla-anondo-path-class-eight'],
+      ['Bangla Byakoron', 'bangla-byakoron-class-eight'], ['English for Today', 'english-for-today-class-eight'],
+      ['English Grammar and Composition', 'english-grammar-and-composition-class-eight'],
+      ['Mathematics', 'mathematics-class-eight'],
+      ['Information and Communication Technology', 'information-and-communication-technology-class-eight'],
+      ['Bangladesh and Global Studies', 'bangladesh-and-global-studies-class-eight'], ['Science', 'science-class-eight'],
+      ['Physical Education', 'physical-education-class-eight'], ['Work and Life', 'work-and-life-class-eight'],
+      ['Agriculture Studies', 'agriculture-studies-class-eight'], ['Home Science', 'home-science-class-eight'],
+      ['Arts and Crafts', 'arts-and-crafts-class-eight'], ['Islamic Studies', 'islamic-studies-class-eight'],
+      ['Hindu Religion', 'hindu-religion-class-eight'], ['Christian Religion', 'christian-religion-class-eight'],
+      ['Buddhist Religion', 'buddhist-religion-class-eight'], ['Arabic Studies', 'arabic-studies-class-eight'],
+      ['Songskrito', 'songskrito-class-eight'], ['Pali', 'pali-class-eight'], ['Songit', 'songit-class-eight'],
+    ],
+    'Nine-Ten': [
+      ['Bangla Shahitto', 'bangla-shahitto-class-nine-ten'], ['Bangla Shohopath', 'bangla-shohopath-class-nine-ten'],
+      ['Bangla Byakoron', 'bangla-byakoron-class-nine-ten'], ['English for Today', 'english-for-today-class-nine-ten'],
+      ['English Grammar and Composition', 'english-grammar-and-composition-class-nine-ten'],
+      ['Mathematics', 'mathematics-class-nine-ten'],
+      ['Information and Communication Technology', 'information-and-communication-technology-class-nine-ten'],
+      ['Science', 'science-class-nine-ten'], ['Physics', 'physics-class-nine-ten'], ['Chemistry', 'chemistry-class-nine-ten'],
+      ['Biology', 'biology-class-nine-ten'], ['Higher Mathematics', 'higher-mathematics-class-nine-ten'],
+      ['Geography and Environment', 'geography-and-environment-class-nine-ten'], ['Economics', 'economics-class-nine-ten'],
+      ['Agriculture Studies', 'agriculture-studies-class-nine-ten'], ['Home Science', 'home-science-class-nine-ten'],
+      ['Civics and Citizenship', 'civics-and-citizenship-class-nine-ten'], ['Accounting', 'accounting-class-nine-ten'],
+      ['Finance and Banking', 'finance-and-banking-class-nine-ten'],
+      ['Business Entrepreneurship', 'business-entrepreneurship-class-nine-ten'],
+      ['Islamic Studies', 'islamic-studies-class-nine-ten'], ['Hindu Religion', 'hindu-religion-class-nine-ten'],
+      ['Buddhist Religion', 'buddhist-religion-class-nine-ten'], ['Christian Religion', 'christian-religion-class-nine-ten'],
+      ['Career Education', 'career-education-class-nine-ten'],
+      ['Bangladesh and Global Studies', 'bangladesh-and-global-studies-class-nine-ten'],
+      ['Arts and Crafts', 'arts-and-crafts-class-nine-ten'], ['History of Bangladesh', 'history-of-bangladesh-class-nine-ten'],
+      ['Physical Education', 'physical-education-class-nine-ten'], ['Arabic Studies', 'arabic-studies-class-nine-ten'],
+      ['Songskrito', 'songskrito-class-nine-ten'], ['Pali', 'pali-class-nine-ten'], ['Songit', 'songit-class-nine-ten'],
+    ],
+  };
+  const NCTB_CLASS_ORDER = ['One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine-Ten'];
+  let _tbActiveClass = 'One';
+
+  function loadTextbooksView() {
+    _setViewHash('textbooks');
+    setActiveNavLink('nav-textbooks');
+    setContentHeader('Textbooks', 'book-open');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    container.innerHTML = `
+      <div class="pt-4 max-w-4xl mx-auto pb-10">
+        <div>
+          <h2 class="text-2xl font-black text-slate-800 tracking-tight">Textbooks</h2>
+          <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Official NCTB books, Class One to Nine-Ten — opens the official book page (Bangla/English/Madrasah PDF)</p>
+        </div>
+        <div id="tbClassTabs" class="flex flex-wrap gap-2 my-5"></div>
+        <div id="tbSubjectList" class="grid grid-cols-1 sm:grid-cols-2 gap-2"></div>
+      </div>`;
+    _tbRenderClassTabs();
+    _tbSetClass(_tbActiveClass);
+  }
+
+  function _tbRenderClassTabs() {
+    const host = document.getElementById('tbClassTabs');
+    if (!host) return;
+    host.innerHTML = NCTB_CLASS_ORDER.map(c => `<button id="tbTab-${c}" onclick="_tbSetClass('${c}')" class="px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all">Class ${c}</button>`).join('');
+  }
+
+  function _tbSetClass(className) {
+    _tbActiveClass = className;
+    const active = 'bg-blue-600 text-white shadow-lg shadow-blue-500/20';
+    const inactive = 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50';
+    NCTB_CLASS_ORDER.forEach(c => {
+      const btn = document.getElementById(`tbTab-${c}`);
+      if (btn) btn.className = `px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${c === className ? active : inactive}`;
+    });
+    const list = document.getElementById('tbSubjectList');
+    if (!list) return;
+    const subjects = NCTB_BOOKS[className] || [];
+    list.innerHTML = subjects.map(([name, slug]) => `
+      <a href="https://nctbbooks.com/book/${slug}/" target="_blank" rel="noopener" class="flex items-center justify-between gap-2 bg-white border border-slate-200 rounded-xl px-4 py-3 hover:border-blue-300 transition-all">
+        <span class="text-xs font-bold text-slate-700">${_escHtml(name)}</span>
+        <i data-lucide="external-link" class="h-3.5 w-3.5 text-slate-400 shrink-0"></i>
+      </a>`).join('');
+    lucide.createIcons();
   }
 
   // ── Admin's own "who filled it in / who hasn't" view (Data tab) — same
@@ -11977,6 +12133,7 @@
     { key: 'ssc_result_analysis', label: 'Analyse SSC Result', navId: 'nav-ssc-result-analysis' },
     { key: 'committees',       label: 'My Assignments',     navId: 'nav-my-committees' },
     { key: 'lesson_plan',      label: 'My Lesson Plan',     navId: 'nav-lesson-plan' },
+    { key: 'textbooks',        label: 'Textbooks',          navId: 'nav-textbooks' },
     // Standalone (not nested under Student Portal, unlike the rest of the old
     // ADMIN_SUBNAV_ITEMS list) so every teacher/staff role sees it without an
     // admin having to separately grant the "Student Portal" module AND the
@@ -12002,6 +12159,7 @@
     ssc_result_analysis: ['Admin','HR','Principal','VP'],
     committees:    ['Teacher','Staff'],
     lesson_plan:   ['Teacher'],
+    textbooks:     ALL_ROLES,
     bus_tracker:   ALL_ROLES,
     messages:      ALL_ROLES,
     notifications: ALL_ROLES,
