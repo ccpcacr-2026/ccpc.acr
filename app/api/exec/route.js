@@ -2611,7 +2611,11 @@ const handlers = {
     };
 
     if (!planId) {
-      const created = await supabaseRequest('lesson_plans', 'post', { ...row, created_by: callerId });
+      // p.forked_from_id is set by the client's "Duplicate" action (teacher
+      // voluntarily starting a new plan from an existing one, own or shared) —
+      // distinct from the automatic fork below, which triggers on editing
+      // someone else's plan without an explicit duplicate step.
+      const created = await supabaseRequest('lesson_plans', 'post', { ...row, created_by: callerId, forked_from_id: p.forked_from_id || null });
       if (created?.error) return { result: 'error', message: created.details || created.error };
       return { result: 'success', plan: created[0], forked: false };
     }

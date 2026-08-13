@@ -3878,9 +3878,10 @@
     const isFav = _lpFavoriteKeys.has(`lesson_plan:${p.id}`);
     return `
       <div class="relative bg-white rounded-2xl border border-slate-200 shadow-sm hover:border-blue-300 transition-all">
+        <button type="button" onclick="_lpDuplicatePlan(${p.id})" title="Duplicate as a new plan" class="absolute top-3 right-10 p-1.5 rounded-lg hover:bg-slate-50 z-10"><i data-lucide="copy" class="h-4 w-4 text-slate-300"></i></button>
         <button type="button" onclick="_lpToggleFavorite('lesson_plan',${p.id})" title="${isFav ? 'Remove from Favorites' : 'Add to Favorites'}" class="absolute top-3 right-3 p-1.5 rounded-lg hover:bg-slate-50 z-10"><i data-lucide="star" class="h-4 w-4 ${isFav ? 'text-amber-400 fill-amber-400' : 'text-slate-300'}"></i></button>
         <button onclick="_openLessonPlanForm(${p.id})" class="w-full text-left p-4">
-          <div class="flex items-start justify-between gap-3 flex-wrap pr-8">
+          <div class="flex items-start justify-between gap-3 flex-wrap pr-16">
             <div>
               <p class="font-black text-slate-800 text-sm">${_escHtml(p.class_name)} · ${_escHtml(p.subject)}${p.chapter ? ` · ${_escHtml(p.chapter)}` : ''}${p.lesson_number ? ` (Lesson ${p.lesson_number})` : ''}</p>
               <p class="text-xs text-slate-500 font-bold mt-0.5">${_escHtml(p.topic || 'Untitled topic')}${p.version ? ` · ${_escHtml(p.version)}` : ''}</p>
@@ -3969,9 +3970,15 @@
   // values into the same open form instead of needing its own save path.
   let _lpEditingId = null;
   let _lpEditingOwner = null;
+  // Set only while the form is seeded from another plan via "Duplicate" (own or
+  // shared) — carried through to the next save as forked_from_id on the new row,
+  // then left alone (the server only reads it on insert). Cleared whenever a
+  // normal new/edit form opens so it can't leak into an unrelated later save.
+  let _lpDuplicateSourceId = null;
 
   function _openLessonPlanForm(id) {
     const myId = window.APP_USER && window.APP_USER.user_id;
+    _lpDuplicateSourceId = null;
     if (!id) {
       _lpEditingId = null;
       _lpEditingOwner = myId;
@@ -3986,11 +3993,30 @@
     }).withFailureHandler(() => showToast('Network error', 'error')).getLessonPlan(myId, id);
   }
 
-  function _lpRenderForm(plan) {
+  // "Duplicate" — start a brand new plan pre-filled from an existing one (yours
+  // or another teacher's shared plan), so reusing a lesson only means editing
+  // the parts that differ instead of retyping the whole thing. Distinct from the
+  // automatic fork-on-edit: that only triggers once you save changes to someone
+  // else's plan, whereas this is an explicit, one-click "use this as a starting
+  // point" from the list, for your own plans too (editing your own plan in place
+  // would otherwise just overwrite it — there was no way to branch off it).
+  function _lpDuplicatePlan(id) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.error) || 'Could not load that lesson plan', 'error'); return; }
+      _lpEditingId = null;
+      _lpEditingOwner = myId;
+      _lpDuplicateSourceId = res.plan.id;
+      _lpRenderForm(res.plan, true);
+      showToast('Duplicated — edit anything, then save to create your own new plan', 'success');
+    }).withFailureHandler(() => showToast('Network error', 'error')).getLessonPlan(myId, id);
+  }
+
+  function _lpRenderForm(plan, isDuplicate) {
     const container = document.getElementById('view-container');
     if (!container) return;
     const myId = window.APP_USER && window.APP_USER.user_id;
-    const isOwner = !plan || plan.created_by === myId;
+    const isOwner = isDuplicate || !plan || plan.created_by === myId;
     const phases = (plan && plan.phases && plan.phases.length) ? plan.phases : LESSON_PHASES.map(name => ({ phase: name, teacher_activity: '', learner_activity: '', duration_minutes: '' }));
     const v = plan || {};
 
@@ -3999,18 +4025,22 @@
         <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
           <button onclick="loadLessonPlanView()" class="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600">&larr; Back to Lesson Plans</button>
           <div class="flex gap-2">
+            ${(plan && !isDuplicate) ? `<button onclick="_lpDuplicatePlan(${plan.id})" title="Duplicate as a new plan" class="p-2.5 bg-white border border-slate-200 rounded-xl hover:bg-slate-50"><i data-lucide="copy" class="h-3.5 w-3.5"></i></button>` : ''}
             <button onclick="_lpDownloadTemplate()" title="Download Excel Template" class="p-2.5 bg-white border border-slate-200 rounded-xl hover:bg-slate-50"><i data-lucide="download" class="h-3.5 w-3.5"></i></button>
             <input type="file" id="lpExcelFile" accept=".xlsx,.xls" class="hidden" onchange="_lpHandleExcelUpload(event)">
             <button onclick="document.getElementById('lpExcelFile').click()" title="Upload Filled Excel" class="p-2.5 bg-white border border-slate-200 rounded-xl hover:bg-slate-50"><i data-lucide="upload" class="h-3.5 w-3.5"></i></button>
-            ${(plan && isOwner) ? `<button onclick="_deleteLessonPlanForm(${plan.id})" title="Delete" class="p-2.5 bg-white border border-red-200 text-red-500 rounded-xl hover:bg-red-50"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>` : ''}
+            ${(plan && isOwner && !isDuplicate) ? `<button onclick="_deleteLessonPlanForm(${plan.id})" title="Delete" class="p-2.5 bg-white border border-red-200 text-red-500 rounded-xl hover:bg-red-50"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>` : ''}
           </div>
         </div>
 
-        ${(plan && !isOwner) ? `
+        ${isDuplicate ? `
+          <div class="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs font-bold text-blue-800 mb-4">
+            Duplicated from ${_escHtml(plan.uploaded_by_name ? `${plan.uploaded_by_name}'s` : 'a')} plan — edit anything below, then save to create your own new lesson plan. The original is untouched.
+          </div>` : (plan && !isOwner) ? `
           <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs font-bold text-amber-800 mb-4">
             This is ${_escHtml(plan.uploaded_by_name || "another teacher")}'s shared lesson plan. Editing and saving will create <strong>your own copy</strong> — ${_escHtml(plan.uploaded_by_name || 'their')} original stays unchanged.
           </div>` : ''}
-        ${(plan && plan.forked_from_id) ? `<div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-bold text-slate-600 mb-4">Adapted from another teacher's shared plan.</div>` : ''}
+        ${(plan && plan.forked_from_id && !isDuplicate) ? `<div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-bold text-slate-600 mb-4">Adapted from another teacher's shared plan.</div>` : ''}
 
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 space-y-4">
           <p class="text-sm font-black text-slate-800 uppercase tracking-widest">Lesson Details</p>
@@ -4089,11 +4119,11 @@
 
         <div class="flex items-center justify-between mt-4 flex-wrap gap-3">
           <label class="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer">
-            <input type="checkbox" id="lpIsShared" class="w-4 h-4 rounded accent-blue-600" ${(isOwner && v.is_shared) ? 'checked' : ''}>
+            <input type="checkbox" id="lpIsShared" class="w-4 h-4 rounded accent-blue-600" ${(isOwner && v.is_shared && !isDuplicate) ? 'checked' : ''}>
             Share this plan (other teachers can view and reuse it)
           </label>
           <div id="lpFormStatus" class="text-xs font-bold"></div>
-          <button id="lpSaveBtn" onclick="_saveLessonPlanForm()" class="px-5 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">${(plan && isOwner) ? 'Save Changes' : (plan ? 'Save My Copy' : 'Create Lesson Plan')}</button>
+          <button id="lpSaveBtn" onclick="_saveLessonPlanForm()" class="px-5 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">${isDuplicate ? 'Create Lesson Plan' : (plan && isOwner) ? 'Save Changes' : (plan ? 'Save My Copy' : 'Create Lesson Plan')}</button>
         </div>
       </div>`;
     lucide.createIcons();
@@ -4125,6 +4155,7 @@
       learning_outcomes: val('lpLearningOutcomes'), teaching_aids: val('lpTeachingAids'),
       method: val('lpMethod'), self_reflection: val('lpSelfReflection'), phases,
       is_shared: !!(document.getElementById('lpIsShared') || {}).checked,
+      forked_from_id: _lpDuplicateSourceId || null,
     };
   }
 
