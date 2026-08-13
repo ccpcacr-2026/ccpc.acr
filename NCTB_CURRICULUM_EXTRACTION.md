@@ -90,6 +90,18 @@ read via vision**, then transcribed by hand into the structured shape above.
 | খ্রিষ্টধর্ম ও নৈতিক শিক্ষা | https://drive.google.com/file/d/1qplNgf_-kjC8q8WuHwlpr9jeFCMaTgYX/view |
 | বৌদ্ধধর্ম ও নৈতিক শিক্ষা | https://drive.google.com/file/d/1caMAZWYMC6_fE189_7cmR8dPWpce32Wp/view |
 
+**All 10 Class One Teacher's Guides are already downloaded and saved** to
+`D:\NCTB books\Class One\English Version\<Subject> - Teacher's Guide.pdf`
+(Mathematics, English, Bangla, Social Science and Elementary Science,
+Physical and Mental Health, Arts, Islamic Studies, Hindu Religion,
+Christian Religion, Buddhist Religion) — check there before re-downloading
+anything for Class One. Only Mathematics has been transcribed into
+`lesson_curricula` so far (18/18 chapters); the other 9 are downloaded but
+not yet read/transcribed. Hindu Religion (237MB) and Christian Religion
+(166MB) are unusually large for their page counts (90 and 68 pages) —
+verified by rendering their cover pages that this is just richly-illustrated
+content for Class One specifically, not multiple classes bundled together.
+
 Classes Two–Five: links to each class's subject-list page are known
 (from the class-list table), the per-subject links within each haven't
 been fetched yet:
@@ -127,21 +139,52 @@ been fetched yet:
       ingestion should read the rendered page correctly the same way the
       PNG approach did, but confirm on the first chapter of a new subject
       before trusting the rest of that book to it).
-3. Transcribe chapter headings, lesson numbers (পাঠ-১, পাঠ-২...), topics,
+3. **Some Teacher's Guide PDFs bundle more than one subject** — e.g. Class
+   One's "সামাজিক বিজ্ঞান ও প্রাথমিক বিজ্ঞান" is one PDF covering both
+   Social Science AND Elementary Science as NCTB's own combined-subject
+   naming (confirmed; this is intentional on NCTB's part, not a download
+   error). Before transcribing a new PDF, skim its table of contents /
+   opening pages far enough to confirm how many subjects (and which class
+   range, if any) it actually spans, and treat each subject as a fully
+   separate `lesson_curricula` `subject` value even when they share one
+   source file. Process one subject at a time within a bundled file — don't
+   try to transcribe the whole bundle in one continuous pass.
+4. **Combine Teacher's Guide + Textbook reading into the same pass per
+   subject**, rather than doing a full Teacher's-Guide-only extraction pass
+   now and a separate Textbook backfill pass later — reopening/re-rendering
+   the same subject's material twice (once per source) roughly doubles
+   rendering/reading cost for no benefit. For each chapter: read the
+   Teacher's Guide pages for that chapter (→ `elaborate_summary`,
+   `learning_outcome`), then immediately read the matching Textbook page(s)
+   for the same chapter (→ `textbook_context`, see field shape below) while
+   already oriented in that chapter, and insert both together in one
+   `lesson_curricula` row. The official student Textbook PDF link for a
+   subject (when one exists) is in `_src/app.js`'s `NCTB_BOOKS` map — not
+   every subject has a separate primary-level textbook (younger classes'
+   Arts/Health/Religion subjects may only have a Teacher's Guide with no
+   standalone student book; confirm before assuming one is missing by
+   mistake).
+5. Transcribe chapter headings, lesson numbers (পাঠ-১, পাঠ-২...), topics,
    learning outcomes, page numbers, and (for Math/Physics/Chemistry) any
    equations, into:
    ```json
    { "chapter": "...", "lectures": [
      { "lecture_number": 1, "topic": "...", "learning_outcome": "...",
-       "page_number": "12", "elaborate_summary": "..." }
+       "page_number": "12", "elaborate_summary": "...",
+       "textbook_context": "..." }
    ]}
    ```
-4. Load into `teacher.lesson_curricula` via the same insert path
+   `elaborate_summary` = Teacher's Guide (pedagogy/activities/examples).
+   `textbook_context` = student Textbook (exact examples/numbers/exercises/
+   images on the referenced page(s)). Both are compact text, written so the
+   AI draft generator never needs to re-read either source PDF at
+   generation time (see `_lessonPlanDraftPrompt` in `app/api/exec/route.js`).
+6. Load into `teacher.lesson_curricula` via the same insert path
    `saveLessonCurriculum` uses (class_name/subject/version/chapter/lectures/
    is_editable) — either through the existing UI form one chapter at a time,
    or a one-off seed script hitting the Supabase REST endpoint directly for
    bulk loading once a whole subject's data is transcribed.
-5. Check off progress below.
+7. Check off progress below.
 
 ## Progress checklist
 
