@@ -4621,13 +4621,13 @@
   function loadTextbooksView() {
     _setViewHash('textbooks');
     setActiveNavLink('nav-textbooks');
-    setContentHeader('Textbooks', 'book-open');
+    setContentHeader('NCTB Books', 'book-open');
     const container = document.getElementById('view-container');
     if (!container) return;
     container.innerHTML = `
       <div class="pt-4 max-w-4xl mx-auto pb-10">
         <div>
-          <h2 class="text-2xl font-black text-slate-800 tracking-tight">Textbooks</h2>
+          <h2 class="text-2xl font-black text-slate-800 tracking-tight">NCTB Books</h2>
           <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Official NCTB 2026 books, Class One to Nine-Ten — each link opens the official PDF from nctb.gov.bd</p>
         </div>
         <div id="tbClassTabs" class="flex flex-wrap gap-2 my-5"></div>
@@ -12415,7 +12415,7 @@
     { key: 'ssc_result_analysis', label: 'Analyse SSC Result', navId: 'nav-ssc-result-analysis' },
     { key: 'committees',       label: 'My Assignments',     navId: 'nav-my-committees' },
     { key: 'lesson_plan',      label: 'My Lesson Plan',     navId: 'nav-lesson-plan' },
-    { key: 'textbooks',        label: 'Textbooks',          navId: 'nav-textbooks' },
+    { key: 'textbooks',        label: 'NCTB Books',         navId: 'nav-textbooks' },
     // Standalone (not nested under Student Portal, unlike the rest of the old
     // ADMIN_SUBNAV_ITEMS list) so every teacher/staff role sees it without an
     // admin having to separately grant the "Student Portal" module AND the
