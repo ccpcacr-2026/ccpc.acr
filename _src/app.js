@@ -4567,10 +4567,16 @@
   // In-app PDF viewer — used by Textbooks/Curriculum/Publications so teachers can
   // read a document without leaving the site; the modal's own Download link is the
   // fallback for when they actually want the file. Google Drive "view" links need
-  // their own /preview form to embed in an iframe (the plain /view URL refuses to).
+  // their own /preview form to embed nicely. Direct PDF URLs (curriculum/publications,
+  // hosted on NCTB's own object storage) get routed through Google's generic Docs
+  // Viewer instead of embedding the raw file — a bare <iframe src="*.pdf"> falls back
+  // to the browser's own PDF plugin, which has its own toolbar/scrollbars and looks
+  // like a foreign embedded object rather than part of the page; Docs Viewer renders
+  // the same clean, consistent chrome Drive's own /preview uses.
   function _pdfEmbedUrl(url) {
     const m = url.match(/drive\.google\.com\/file\/d\/([^/]+)/);
-    return m ? `https://drive.google.com/file/d/${m[1]}/preview` : url;
+    if (m) return `https://drive.google.com/file/d/${m[1]}/preview`;
+    return `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`;
   }
   function _openPdfViewer(url, title) {
     let modal = document.getElementById('pdfViewerModal');
