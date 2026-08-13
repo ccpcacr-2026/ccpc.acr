@@ -4570,19 +4570,21 @@
   //
   // Some of the older curriculum/publication PDFs (2011-2017) were typeset with a
   // legacy Bijoy-encoded font rather than Unicode — the font is embedded IN the PDF
-  // so the raw file always displays correctly (any PDF renderer just draws the
-  // embedded glyphs). Google's Docs Viewer, though, re-extracts the text to reflow
-  // it in its own chrome, which reinterprets those Bijoy byte codes as if they were
-  // Unicode and turns the Bangla text to garbage. So: default to the browser's own
-  // native PDF renderer (always correct, whatever the source font) and only offer
-  // Docs Viewer's nicer chrome as an opt-in toggle for documents that don't hit this.
-  let _pdfUseDocsViewer = false;
-  let _pdfCurrentUrl = null;
-  function _pdfEmbedUrl(url, forceDocsViewer) {
+  // so the file always renders correctly through a real PDF engine (confirmed by
+  // rasterizing one directly with MuPDF — the Bangla comes out perfectly). Two
+  // things this rules out for non-Drive PDFs: (a) Google's Docs Viewer, which
+  // re-extracts the text to reflow it in its own chrome and reinterprets those
+  // Bijoy byte codes as Unicode, turning the Bangla to garbage; (b) a bare
+  // <iframe src="*.pdf">, which falls back to the *browser's* own PDF plugin —
+  // renders correctly, but its toolbar/chrome looks like a foreign embedded object
+  // next to the Drive-preview-based Textbooks viewer. Mozilla's own pdf.js viewer
+  // gives the same clean, consistent chrome as Drive's preview while still being a
+  // real PDF engine (correct on embedded/legacy-encoded fonts) — used for any PDF
+  // that isn't Drive-hosted.
+  function _pdfEmbedUrl(url) {
     const m = url.match(/drive\.google\.com\/file\/d\/([^/]+)/);
     if (m) return `https://drive.google.com/file/d/${m[1]}/preview`;
-    if (forceDocsViewer) return `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`;
-    return url;
+    return `https://mozilla.github.io/pdf.js/web/viewer.html?file=${encodeURIComponent(url)}`;
   }
   function _openPdfViewer(url, title) {
     let modal = document.getElementById('pdfViewerModal');
@@ -4600,7 +4602,6 @@
               <div id="pdfViewerTitle" class="text-sm font-bold text-slate-700 truncate"></div>
             </div>
             <div class="flex items-center gap-3 shrink-0">
-              <button id="pdfViewerToggle" onclick="_pdfToggleViewer()" class="hidden items-center gap-1 text-xs font-bold text-purple-600 hover:text-purple-700"><i data-lucide="layers" class="h-4 w-4"></i><span class="hidden sm:inline">Alternate view</span></button>
               <a id="pdfViewerDownload" href="#" target="_blank" rel="noopener" class="flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-700"><i data-lucide="download" class="h-4 w-4"></i><span class="hidden sm:inline">Download</span></a>
               <button onclick="_closePdfViewer()" class="text-slate-400 hover:text-slate-700 p-1"><i data-lucide="x" class="h-5 w-5"></i></button>
             </div>
@@ -4610,29 +4611,18 @@
       modal.addEventListener('click', e => { if (e.target === modal) _closePdfViewer(); });
       document.body.appendChild(modal);
     }
-    _pdfCurrentUrl = url;
-    _pdfUseDocsViewer = false;
-    const isDrive = /drive\.google\.com\/file\/d\//.test(url);
     document.getElementById('pdfViewerTitle').textContent = title || 'PDF';
     document.getElementById('pdfViewerDownload').href = url;
-    document.getElementById('pdfViewerFrame').src = _pdfEmbedUrl(url, false);
-    document.getElementById('pdfViewerToggle').classList.toggle('hidden', isDrive);
-    document.getElementById('pdfViewerToggle').classList.toggle('flex', !isDrive);
+    document.getElementById('pdfViewerFrame').src = _pdfEmbedUrl(url);
     modal.classList.remove('hidden');
     document.body.style.overflow = 'hidden';
     lucide.createIcons();
-  }
-  function _pdfToggleViewer() {
-    if (!_pdfCurrentUrl) return;
-    _pdfUseDocsViewer = !_pdfUseDocsViewer;
-    document.getElementById('pdfViewerFrame').src = _pdfEmbedUrl(_pdfCurrentUrl, _pdfUseDocsViewer);
   }
   function _closePdfViewer() {
     const modal = document.getElementById('pdfViewerModal');
     if (modal) modal.classList.add('hidden');
     const frame = document.getElementById('pdfViewerFrame');
     if (frame) frame.src = '';
-    _pdfCurrentUrl = null;
     document.body.style.overflow = '';
   }
 
