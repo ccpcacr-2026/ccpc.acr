@@ -4577,14 +4577,19 @@
     if (!modal) {
       modal = document.createElement('div');
       modal.id = 'pdfViewerModal';
-      modal.className = 'hidden fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[300] flex items-center justify-center p-2 sm:p-6';
+      // NOTE: never combine `flex items-center justify-between` on one element in
+      // this app — styles.css forces flex-wrap+1rem-gap on that exact combo below
+      // 768px, which breaks any such row on mobile. Use a flex-1 spacer div instead.
+      modal.className = 'hidden fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[1200] flex items-center justify-center sm:p-6';
       modal.innerHTML = `
-        <div class="bg-white rounded-2xl w-full h-full sm:h-[90vh] max-w-5xl shadow-2xl flex flex-col overflow-hidden">
-          <div class="flex items-center justify-between gap-2 px-4 py-3 border-b border-slate-200 shrink-0">
-            <div id="pdfViewerTitle" class="text-sm font-bold text-slate-700 truncate"></div>
+        <div class="bg-white w-full h-full sm:h-[90vh] sm:max-w-5xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+          <div class="flex items-center gap-2 px-3 sm:px-4 py-3 border-b border-slate-200 shrink-0">
+            <div class="flex-1 min-w-0">
+              <div id="pdfViewerTitle" class="text-sm font-bold text-slate-700 truncate"></div>
+            </div>
             <div class="flex items-center gap-3 shrink-0">
-              <a id="pdfViewerDownload" href="#" target="_blank" rel="noopener" class="flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-700"><i data-lucide="download" class="h-4 w-4"></i>Download</a>
-              <button onclick="_closePdfViewer()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+              <a id="pdfViewerDownload" href="#" target="_blank" rel="noopener" class="flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-700"><i data-lucide="download" class="h-4 w-4"></i><span class="hidden sm:inline">Download</span></a>
+              <button onclick="_closePdfViewer()" class="text-slate-400 hover:text-slate-700 p-1"><i data-lucide="x" class="h-5 w-5"></i></button>
             </div>
           </div>
           <iframe id="pdfViewerFrame" class="flex-1 w-full" style="border:0" src="" title="PDF viewer"></iframe>
@@ -4596,6 +4601,7 @@
     document.getElementById('pdfViewerDownload').href = url;
     document.getElementById('pdfViewerFrame').src = _pdfEmbedUrl(url);
     modal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
     lucide.createIcons();
   }
   function _closePdfViewer() {
@@ -4603,6 +4609,7 @@
     if (modal) modal.classList.add('hidden');
     const frame = document.getElementById('pdfViewerFrame');
     if (frame) frame.src = '';
+    document.body.style.overflow = '';
   }
 
   function loadTextbooksView() {
