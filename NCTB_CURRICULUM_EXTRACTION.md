@@ -115,7 +115,22 @@ been fetched yet:
 - [ ] Confirm/locate Secondary + Higher Secondary source documents
 - [ ] Pre-Primary — source opened, subjects enumerated
 - [~] Class One — 10 subjects identified
-  - [~] Mathematics (485MB, 184 pages, 18 chapters) — **Chapters 1-11 loaded into `lesson_curricula` (id 1-11), 79 lessons total, tagged `version: "English Version"` per CCPC's Nursery-Two rule.** Chapter 11 ("নিজে করি: সংখ্যা ও গণনা" / Self-Practice — Numbers and Counting, textbook pages 79-81, 4 lessons — declared count matched actual) is a pure review/independent-practice chapter consolidating Chapters 6, 9, 10 (no new content), plus introduces the number line. **Note from Chapter 5: its stated "পাঠ সংখ্যা" header undercounted (said 11, actually 13) — don't trust that figure as an early-stop signal, keep reading until a new "অধ্যায়" (chapter) header actually appears.** Chapter 12 starts at PDF page ~142 (textbook page ~82). Chapters 12-18 remaining (see সূচিপত্র on rendered page index 6 of the downloaded PDF for the full chapter list/page ranges). Chapter length varies a lot so far: 1-2 had 4 each, 3 had 16, 4 had 13, 5 had 13, 6 had 3, 7 had 7, 8 had 4, 9 had 7, 10 had 4, 11 had 4 — pace accordingly.
+  - [~] Mathematics (485MB, 184 pages, 18 chapters) — **Chapters 1-13 loaded into `lesson_curricula` (id 1-13), 88 lessons total, tagged `version: "English Version"` per CCPC's Nursery-Two rule.** Chapter 13 ("প্যাটার্ন" / Pattern, textbook pages 86-91, 5 lessons — declared count matched actual) covers shape/letter/number pattern recognition and creation, tying back to Chapter 12's shapes. **Note from Chapter 5: its stated "পাঠ সংখ্যা" header undercounted (said 11, actually 13) — don't trust that figure as an early-stop signal, keep reading until a new "অধ্যায়" (chapter) header actually appears.** Chapter 14 starts at PDF page ~156 (textbook page ~92). Chapters 14-18 remaining (see সূচিপত্র on rendered page index 6 of the downloaded PDF for the full chapter list/page ranges). Chapter length varies a lot so far: 1-2 had 4 each, 3 had 16, 4 had 13, 5 had 13, 6 had 3, 7 had 7, 8 had 4, 9 had 7, 10 had 4, 11 had 4, 12 had 4, 13 had 5 — pace accordingly.
+
+### Delegation note (added when context grew large mid-extraction)
+
+Each rendered page-image costs ~1,200-2,000 tokens read directly in a
+conversation; a chapter (5-20 pages) costs ~10K-40K tokens. To avoid one
+conversation thread ballooning across dozens of chapters/subjects/classes,
+**remaining chapters should be delegated to background subagents** (Sonnet,
+not Haiku — accuracy on legacy Bijoy-font Bangla OCR and catching source
+inconsistencies, like Chapter 5's undercounted lesson total, matters more
+than cost here). Each subagent gets a fresh context budget, does its own
+render→read→transcribe→insert cycle following the exact pattern established
+in `scratchpad/insert_ch*.js` (Node script writing directly to
+`lesson_curricula` via the Supabase REST API using `.env.local`'s service
+key), and reports back only a short summary — keeping the orchestrating
+thread small regardless of how many chapters/subjects/classes remain.
   - [ ] Bangla, English, Social & Elementary Science, Physical & Mental Health, Arts, Islamic Studies, Hindu Religion, Christian Religion, Buddhist Religion — not started
 - [ ] Class Two — subject list not yet fetched (page link known: 69afb81aa52ffd47032d0757)
 - [ ] Class Three — subject list not yet fetched (page link known: 69afb842138848bf0fa5e79b)
