@@ -2530,6 +2530,248 @@ const handlers = {
     return { result: r?.error ? 'error' : 'success' };
   },
 
+  // ── LESSON PLAN ──────────────────────────────────────────────────────────
+  // Teacher-authored lesson plans (Bloom's Taxonomy + 5E Model format). Any
+  // teacher can mark their own plan "shared" so others can browse and reuse
+  // it — but editing someone ELSE's shared plan always forks into a new row
+  // under the editor's own name (see saveLessonPlan) rather than overwriting
+  // the original author's plan. Enforced here server-side, not trusted to
+  // the client, matching this file's usual authorization pattern.
+
+  async getLessonPlans([callerId, scope, filters]) {
+    if (!callerId) return { error: 'Not signed in.' };
+    const f = filters || {};
+    let path = 'lesson_plans?select=id,class_name,subject,version,chapter,lesson_number,topic,is_shared,created_by,forked_from_id,updated_at';
+    path += scope === 'shared'
+      ? `&is_shared=eq.true&created_by=neq.${encodeURIComponent(callerId)}`
+      : `&created_by=eq.${encodeURIComponent(callerId)}`;
+    if (f.class_name) path += `&class_name=eq.${encodeURIComponent(f.class_name)}`;
+    if (f.subject) path += `&subject=eq.${encodeURIComponent(f.subject)}`;
+    path += '&order=updated_at.desc&limit=500';
+    const rows = await supabaseRequest(path);
+    if (rows?.error) return { error: rows.details || rows.error };
+    const list = Array.isArray(rows) ? rows : [];
+
+    // Uploader display names — only needed for the Shared Library (My Plans
+    // is always the caller themselves), same profile-join pattern as
+    // getAllUsersWithPresence.
+    if (scope === 'shared' && list.length) {
+      const ids = [...new Set(list.map(r => r.created_by))];
+      const profiles = await supabaseRequest(`users_profile?teacher_id=in.(${ids.map(encodeURIComponent).join(',')})&select=teacher_id,full_name`);
+      const nameById = {};
+      if (Array.isArray(profiles)) profiles.forEach(p => { nameById[p.teacher_id] = p.full_name; });
+      list.forEach(r => { r.uploaded_by_name = nameById[r.created_by] || r.created_by; });
+    }
+    return { result: 'success', plans: list };
+  },
+
+  async getLessonPlan([callerId, id]) {
+    if (!callerId || !id) return { error: 'Missing plan id.' };
+    const rows = await supabaseRequest(`lesson_plans?id=eq.${encodeURIComponent(id)}&select=*`);
+    if (rows?.error) return { error: rows.details || rows.error };
+    const plan = Array.isArray(rows) && rows[0];
+    if (!plan) return { error: 'Lesson plan not found.' };
+    if (plan.created_by !== callerId && !plan.is_shared) return { error: 'This lesson plan is private to its author.' };
+    return { result: 'success', plan };
+  },
+
+  // Distinct values already in use, scoped to whatever this caller can see
+  // (their own plans + anyone's shared ones) — powers the Class/Subject/
+  // Version/Chapter autocomplete instead of a separate master-data table
+  // (mirrors _productAttributeOptions in the Inventory module).
+  async getLessonPlanFieldOptions([callerId]) {
+    if (!callerId) return { error: 'Not signed in.' };
+    const rows = await supabaseRequest(`lesson_plans?or=(created_by.eq.${encodeURIComponent(callerId)},is_shared.eq.true)&select=class_name,subject,version,chapter`);
+    if (rows?.error) return { error: rows.details || rows.error };
+    const list = Array.isArray(rows) ? rows : [];
+    const uniq = key => [...new Set(list.map(r => r[key]).filter(Boolean))].sort();
+    return {
+      result: 'success',
+      class_name: uniq('class_name'),
+      subject: uniq('subject'),
+      version: uniq('version'),
+      chapter: uniq('chapter'),
+    };
+  },
+
+  async saveLessonPlan([callerId, planId, payload]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    const p = payload || {};
+    if (!p.class_name || !p.subject || !p.chapter) {
+      return { result: 'error', message: 'Class, Subject, and Chapter are required.' };
+    }
+    const row = {
+      class_name: p.class_name, subject: p.subject, version: p.version || null,
+      chapter: p.chapter, lesson_number: p.lesson_number || null, topic: p.topic || null,
+      time_minutes: p.time_minutes || null, teaching_aids: p.teaching_aids || null,
+      method: p.method || null, learning_outcomes: p.learning_outcomes || null,
+      phases: p.phases || null, self_reflection: p.self_reflection || null,
+      is_shared: !!p.is_shared, source: p.source || 'web',
+      updated_at: new Date().toISOString(),
+    };
+
+    if (!planId) {
+      const created = await supabaseRequest('lesson_plans', 'post', { ...row, created_by: callerId });
+      if (created?.error) return { result: 'error', message: created.details || created.error };
+      return { result: 'success', plan: created[0], forked: false };
+    }
+
+    const existingRows = await supabaseRequest(`lesson_plans?id=eq.${encodeURIComponent(planId)}&select=id,created_by`);
+    if (existingRows?.error) return { result: 'error', message: existingRows.details || existingRows.error };
+    const existing = Array.isArray(existingRows) && existingRows[0];
+    if (!existing) return { result: 'error', message: 'Lesson plan not found.' };
+
+    if (existing.created_by === callerId) {
+      const updated = await supabaseRequest(`lesson_plans?id=eq.${encodeURIComponent(planId)}`, 'patch', row);
+      if (updated?.error) return { result: 'error', message: updated.details || updated.error };
+      return { result: 'success', plan: updated[0], forked: false };
+    }
+
+    // Editing a plan that isn't the caller's own — never overwrite the
+    // original author's row. Fork it: a brand new row owned by the caller,
+    // starting private (they can choose to share their own copy).
+    const forked = await supabaseRequest('lesson_plans', 'post', {
+      ...row, is_shared: false, created_by: callerId, forked_from_id: planId,
+    });
+    if (forked?.error) return { result: 'error', message: forked.details || forked.error };
+    return { result: 'success', plan: forked[0], forked: true };
+  },
+
+  async deleteLessonPlan([callerId, id]) {
+    if (!callerId || !id) return { result: 'error', message: 'Missing plan id.' };
+    const rows = await supabaseRequest(`lesson_plans?id=eq.${encodeURIComponent(id)}&select=created_by`);
+    if (rows?.error) return { result: 'error', message: rows.details || rows.error };
+    const plan = Array.isArray(rows) && rows[0];
+    if (!plan) return { result: 'error', message: 'Lesson plan not found.' };
+    if (plan.created_by !== callerId && !(await _isCordOrAdmin(callerId))) {
+      return { result: 'error', message: 'Only the author (or an Admin) can delete this lesson plan.' };
+    }
+    const deleted = await supabaseRequest(`lesson_plans?id=eq.${encodeURIComponent(id)}`, 'delete');
+    if (deleted?.error) return { result: 'error', message: deleted.details || deleted.error };
+    return { result: 'success' };
+  },
+
+  // ── LESSON CURRICULA ─────────────────────────────────────────────────────
+  // The lecture-by-lecture breakdown of a chapter (class+version+subject+
+  // chapter -> [{lecture_number, topic}]), used to power the Lecture picker
+  // in the Lesson Plan form. Unlike lesson_plans (fork on any non-owner
+  // edit), a curriculum row can be edited in place by ANY teacher while
+  // is_editable=true — the whole point is collaborative refinement of a
+  // shared syllabus breakdown. Only once it's marked not-editable (locked
+  // by whoever set that) does a non-owner's edit fork into their own copy,
+  // same mechanic as lesson_plans just gated on the flag instead of
+  // ownership. Multiple curricula can exist for the same class+version+
+  // subject+chapter (e.g. one locked "official" one plus teachers' own
+  // variants) — the client shows a picker when more than one matches.
+
+  async getLessonCurricula([callerId, filters]) {
+    if (!callerId) return { error: 'Not signed in.' };
+    const f = filters || {};
+    let path = 'lesson_curricula?select=*';
+    if (f.class_name) path += `&class_name=eq.${encodeURIComponent(f.class_name)}`;
+    if (f.version) path += `&version=eq.${encodeURIComponent(f.version)}`;
+    if (f.subject) path += `&subject=eq.${encodeURIComponent(f.subject)}`;
+    if (f.chapter) path += `&chapter=eq.${encodeURIComponent(f.chapter)}`;
+    path += '&order=created_at.asc';
+    const rows = await supabaseRequest(path);
+    if (rows?.error) return { error: rows.details || rows.error };
+    return { result: 'success', curricula: Array.isArray(rows) ? rows : [] };
+  },
+
+  async saveLessonCurriculum([callerId, id, payload]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    const p = payload || {};
+    if (!p.class_name || !p.subject || !p.chapter) {
+      return { result: 'error', message: 'Class, Subject, and Chapter are required.' };
+    }
+    const row = {
+      class_name: p.class_name, subject: p.subject, version: p.version || null,
+      chapter: p.chapter, lectures: p.lectures || [], is_editable: p.is_editable !== false,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (!id) {
+      const created = await supabaseRequest('lesson_curricula', 'post', { ...row, created_by: callerId });
+      if (created?.error) return { result: 'error', message: created.details || created.error };
+      return { result: 'success', curriculum: created[0], forked: false };
+    }
+
+    const existingRows = await supabaseRequest(`lesson_curricula?id=eq.${encodeURIComponent(id)}&select=id,created_by,is_editable`);
+    if (existingRows?.error) return { result: 'error', message: existingRows.details || existingRows.error };
+    const existing = Array.isArray(existingRows) && existingRows[0];
+    if (!existing) return { result: 'error', message: 'Curriculum entry not found.' };
+
+    if (existing.is_editable || existing.created_by === callerId) {
+      const updated = await supabaseRequest(`lesson_curricula?id=eq.${encodeURIComponent(id)}`, 'patch', row);
+      if (updated?.error) return { result: 'error', message: updated.details || updated.error };
+      return { result: 'success', curriculum: updated[0], forked: false };
+    }
+
+    // Locked by someone else — fork into a new row instead of editing
+    // theirs. Starts not-editable-by-others (only the forker owns it) until
+    // they choose to open it up.
+    const forked = await supabaseRequest('lesson_curricula', 'post', {
+      ...row, is_editable: false, created_by: callerId, forked_from_id: id,
+    });
+    if (forked?.error) return { result: 'error', message: forked.details || forked.error };
+    return { result: 'success', curriculum: forked[0], forked: true };
+  },
+
+  async deleteLessonCurriculum([callerId, id]) {
+    if (!callerId || !id) return { result: 'error', message: 'Missing id.' };
+    const rows = await supabaseRequest(`lesson_curricula?id=eq.${encodeURIComponent(id)}&select=created_by`);
+    if (rows?.error) return { result: 'error', message: rows.details || rows.error };
+    const row = Array.isArray(rows) && rows[0];
+    if (!row) return { result: 'error', message: 'Curriculum entry not found.' };
+    if (row.created_by !== callerId && !(await _isCordOrAdmin(callerId))) {
+      return { result: 'error', message: 'Only the author (or an Admin) can delete this.' };
+    }
+    const deleted = await supabaseRequest(`lesson_curricula?id=eq.${encodeURIComponent(id)}`, 'delete');
+    if (deleted?.error) return { result: 'error', message: deleted.details || deleted.error };
+    return { result: 'success' };
+  },
+
+  // ── LESSON PLAN FAVORITES ────────────────────────────────────────────────
+  // Bookmarks a lesson plan or curriculum entry (someone else's shared item,
+  // or the caller's own) into the caller's personal "quick access" list —
+  // independent of ownership, so a teacher can build up a working set of
+  // useful plans/breakdowns without forking or copying anything.
+
+  async toggleLessonFavorite([callerId, itemType, itemId, favorited]) {
+    if (!callerId || !itemType || !itemId) return { result: 'error', message: 'Missing parameters.' };
+    if (favorited) {
+      const created = await supabaseRequest('lesson_favorites?on_conflict=user_id,item_type,item_id', 'post', {
+        user_id: callerId, item_type: itemType, item_id: itemId,
+      });
+      if (created?.error) return { result: 'error', message: created.details || created.error };
+    } else {
+      const deleted = await supabaseRequest(`lesson_favorites?user_id=eq.${encodeURIComponent(callerId)}&item_type=eq.${encodeURIComponent(itemType)}&item_id=eq.${encodeURIComponent(itemId)}`, 'delete');
+      if (deleted?.error) return { result: 'error', message: deleted.details || deleted.error };
+    }
+    return { result: 'success' };
+  },
+
+  async getMyLessonFavorites([callerId]) {
+    if (!callerId) return { error: 'Not signed in.' };
+    const favRows = await supabaseRequest(`lesson_favorites?user_id=eq.${encodeURIComponent(callerId)}&select=item_type,item_id&order=created_at.desc`);
+    if (favRows?.error) return { error: favRows.details || favRows.error };
+    const favs = Array.isArray(favRows) ? favRows : [];
+    const planIds = favs.filter(f => f.item_type === 'lesson_plan').map(f => f.item_id);
+    const curriculumIds = favs.filter(f => f.item_type === 'curriculum').map(f => f.item_id);
+
+    const [plans, curricula] = await Promise.all([
+      planIds.length
+        ? supabaseRequest(`lesson_plans?id=in.(${planIds.join(',')})&select=id,class_name,subject,version,chapter,lesson_number,topic,is_shared,created_by,updated_at`)
+        : Promise.resolve([]),
+      curriculumIds.length
+        ? supabaseRequest(`lesson_curricula?id=in.(${curriculumIds.join(',')})&select=*`)
+        : Promise.resolve([]),
+    ]);
+    if (plans?.error) return { error: plans.details || plans.error };
+    if (curricula?.error) return { error: curricula.details || curricula.error };
+    return { result: 'success', plans: Array.isArray(plans) ? plans : [], curricula: Array.isArray(curricula) ? curricula : [] };
+  },
+
   // ── LEGACY COMPAT ─────────────────────────────────────────────────────────────
   // getInitialDashboardData was used by old shim before role-specific views were added
 
