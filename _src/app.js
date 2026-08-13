@@ -3418,6 +3418,37 @@
       _aiSettings = (res && res.result === 'success') ? res : { active: null, enabled: [], providers: [] };
       renderAiSettingsPanel();
     }).withFailureHandler(() => { _aiSettings = { active: null, enabled: [], providers: [] }; renderAiSettingsPanel(); }).getAiModelSettings(myId);
+    _loadAiUsageLog();
+  }
+
+  function _loadAiUsageLog() {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const host = document.getElementById('aiUsageLogBody');
+    if (host) host.innerHTML = `<p class="text-[10px] text-slate-400 font-bold p-3">Loading…</p>`;
+    google.script.run.withSuccessHandler(res => {
+      _renderAiUsageLog((res && res.result === 'success') ? res.items : []);
+    }).withFailureHandler(() => _renderAiUsageLog([])).getAiGenerationLog(myId, 50);
+  }
+
+  function _renderAiUsageLog(items) {
+    const host = document.getElementById('aiUsageLogBody');
+    if (!host) return;
+    if (!items.length) { host.innerHTML = `<p class="text-[10px] text-slate-400 font-bold p-3">No AI generations yet.</p>`; return; }
+    host.innerHTML = `<div class="overflow-x-auto"><table class="w-full text-xs">
+      <thead><tr class="text-left text-[9px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-200">
+        <th class="py-2 pr-3">When</th><th class="py-2 pr-3">Teacher</th><th class="py-2 pr-3">Model</th><th class="py-2 pr-3">Class / Subject / Chapter</th><th class="py-2 pr-3">Status</th>
+      </tr></thead>
+      <tbody>${items.map(it => `
+        <tr class="border-b border-slate-100">
+          <td class="py-2 pr-3 font-bold text-slate-500 whitespace-nowrap">${it.created_at ? new Date(it.created_at).toLocaleString() : ''}</td>
+          <td class="py-2 pr-3 font-bold text-slate-700">${_escHtml(it.user_name || it.user_id || '')}</td>
+          <td class="py-2 pr-3 font-bold text-slate-500">${_escHtml(it.model || '')}</td>
+          <td class="py-2 pr-3 text-slate-500">${_escHtml([it.class_name, it.subject, it.chapter].filter(Boolean).join(' / '))}</td>
+          <td class="py-2 pr-3">${it.success
+            ? '<span class="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600">Success</span>'
+            : `<span class="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-red-50 text-red-500" title="${_escHtml(it.error_message || '')}">Failed</span>`}</td>
+        </tr>`).join('')}</tbody>
+    </table></div>`;
   }
 
   function renderAiSettingsPanel() {
@@ -3449,7 +3480,14 @@
       </div>
       <button id="aiSettingsSaveBtn" onclick="_saveAiActiveModel()" class="px-5 py-2.5 bg-blue-600 text-white text-[10px] font-black rounded-xl hover:bg-black transition-all uppercase tracking-widest shadow-lg shadow-blue-500/20 flex items-center gap-2 w-fit">
         <i data-lucide="save" class="h-3.5 w-3.5"></i> Save Active Model
-      </button>`;
+      </button>
+      <div class="border-t border-slate-200 pt-4">
+        <div class="flex items-center gap-2 mb-2">
+          <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest flex-1">Recent Usage — who's generating, with what model</label>
+          <button type="button" onclick="_loadAiUsageLog()" class="p-1.5 text-slate-400 hover:bg-slate-100 rounded-lg" title="Refresh"><i data-lucide="refresh-cw" class="h-3.5 w-3.5"></i></button>
+        </div>
+        <div id="aiUsageLogBody" class="border border-slate-200 rounded-2xl p-1"></div>
+      </div>`;
     lucide.createIcons();
   }
 
@@ -4382,6 +4420,7 @@
       topic: _lpFormVal('lpTopic'), learning_outcomes: _lpFormVal('lpLearningOutcomes'),
       book_url: bookUrl, page_number: lecture ? lecture.page_number : null,
       elaborate_summary: lecture ? lecture.elaborate_summary : null,
+      textbook_context: lecture ? lecture.textbook_context : null,
     });
   }
 
@@ -4920,12 +4959,12 @@
       </div>`;
     document.body.appendChild(modal);
     const existingLectures = (existing && existing.lectures) || [];
-    if (existingLectures.length) existingLectures.forEach(l => _curAddLectureRow(l.lecture_number, l.topic, l.learning_outcome, l.page_number, l.elaborate_summary));
+    if (existingLectures.length) existingLectures.forEach(l => _curAddLectureRow(l.lecture_number, l.topic, l.learning_outcome, l.page_number, l.elaborate_summary, l.textbook_context));
     else _curAddLectureRow();
     lucide.createIcons();
   }
 
-  function _curAddLectureRow(lectureNumber, topic, learningOutcome, pageNumber, elaborateSummary) {
+  function _curAddLectureRow(lectureNumber, topic, learningOutcome, pageNumber, elaborateSummary, textbookContext) {
     const body = document.getElementById('curLecturesBody');
     if (!body) return;
     const n = body.children.length + 1;
@@ -4939,7 +4978,8 @@
         <button type="button" onclick="this.closest('.cur-lecture-row').remove()" class="p-1.5 text-red-400 hover:bg-red-50 rounded-lg shrink-0"><i data-lucide="x" class="h-3.5 w-3.5"></i></button>
       </div>
       <input type="text" class="cur-lecture-outcome w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" placeholder="Learning outcome for this lesson (optional)" value="${learningOutcome ? _escHtml(learningOutcome) : ''}">
-      <textarea rows="2" class="cur-lecture-summary w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" placeholder="Elaborate lesson summary (optional) — the actual content/explanation for this lesson, including any equations for Math/Physics/Chemistry, so an AI generator can draft precisely against it">${elaborateSummary ? _escHtml(elaborateSummary) : ''}</textarea>`;
+      <textarea rows="2" class="cur-lecture-summary w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" placeholder="Elaborate lesson summary from the Teacher's Guide (optional) — the pedagogical content/explanation for this lesson, including any equations for Math/Physics/Chemistry, so an AI generator can draft precisely against it">${elaborateSummary ? _escHtml(elaborateSummary) : ''}</textarea>
+      <textarea rows="2" class="cur-lecture-textbook w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" placeholder="Textbook page context (optional) — a compact description of what's actually on the student textbook page(s) above: specific examples, numbers, exercises, images, so the AI grounds the draft in both sources without needing to re-read the raw PDF">${textbookContext ? _escHtml(textbookContext) : ''}</textarea>`;
     body.appendChild(row);
     lucide.createIcons();
   }
@@ -4953,6 +4993,7 @@
       learning_outcome: row.querySelector('.cur-lecture-outcome').value.trim(),
       page_number: row.querySelector('.cur-lecture-page').value.trim(),
       elaborate_summary: row.querySelector('.cur-lecture-summary').value.trim(),
+      textbook_context: row.querySelector('.cur-lecture-textbook').value.trim(),
     })).filter(l => l.lecture_number);
     const payload = { class_name, subject, chapter, version: _lpFormVal('curVersion'), lectures, is_editable: !!(document.getElementById('curIsEditable') || {}).checked };
     const myId = window.APP_USER && window.APP_USER.user_id;

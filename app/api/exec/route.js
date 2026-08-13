@@ -532,7 +532,8 @@ Chapter: ${c.chapter || ''}
 Topic: ${c.topic || '(not given — infer a reasonable topic for this chapter)'}
 ${c.learning_outcomes ? `Existing learning outcomes to build on: ${c.learning_outcomes}` : ''}
 ${reference ? `\n${reference}\nUse the textbook and page(s) above as the precise source — align content, terminology, and (for Math/Physics/Chemistry) exact equations to what's actually on those pages rather than inventing generic content.` : ''}
-${c.elaborate_summary ? `\nElaborate lesson content to draft against (this is the actual textbook content for this lesson, including any equations — treat it as ground truth, not a suggestion):\n${c.elaborate_summary}` : ''}
+${c.elaborate_summary ? `\nTeacher's Guide content for this lesson (pedagogical approach, activities, examples used — treat as ground truth, not a suggestion):\n${c.elaborate_summary}` : ''}
+${c.textbook_context ? `\nStudent textbook page content for this lesson (the exact examples, numbers, exercises, and images printed on the referenced page(s) — treat as ground truth, not a suggestion):\n${c.textbook_context}` : ''}
 
 Return ONLY valid JSON, no markdown fencing, no commentary, in exactly this shape:
 {
@@ -551,6 +552,17 @@ Return ONLY valid JSON, no markdown fencing, no commentary, in exactly this shap
     {"phase": "Closing", "teacher_activity": "string", "learner_activity": "string", "duration_minutes": number}
   ]
 }`;
+}
+
+async function _logAiGeneration(userId, model, ctx, success, errorMessage) {
+  try {
+    await supabaseRequest('ai_generation_log', 'post', [{
+      user_id: userId || null, model: model || null,
+      class_name: ctx.class_name || null, subject: ctx.subject || null,
+      chapter: ctx.chapter || null, version: ctx.version || null,
+      success: !!success, error_message: errorMessage || null,
+    }]);
+  } catch (_) { /* logging failures must never block generation */ }
 }
 
 function _parseAiJson(text) {
@@ -1433,7 +1445,7 @@ const handlers = {
       configured: !!(storedKeys[id] || process.env[meta.envKey]),
       source: storedKeys[id] ? 'database' : (process.env[meta.envKey] ? 'env' : null),
     }));
-    return { result: 'success', active: modelSettings.active || null, enabled: modelSettings.enabled || [], providers };
+    return { result: 'success', active: modelSettings.active || 'claude-haiku', enabled: modelSettings.enabled && modelSettings.enabled.length ? modelSettings.enabled : Object.keys(AI_PROVIDERS), providers };
   },
 
   async saveAiModelSettings([callerId, settings]) {
@@ -1459,18 +1471,40 @@ const handlers = {
   async generateLessonPlanDraft([callerId, context]) {
     if (!callerId) return { result: 'error', message: 'Not signed in.' };
     const rows = await supabaseRequest(`system_settings?key=eq.ai_model_settings&select=value`);
-    const active = (Array.isArray(rows) && rows[0] && rows[0].value && rows[0].value.active) || null;
-    if (!active || !AI_PROVIDER_FN[active]) return { result: 'error', message: 'No AI model is set up yet — ask an Admin to configure one under Settings.' };
+    const active = (Array.isArray(rows) && rows[0] && rows[0].value && rows[0].value.active) || 'claude-haiku';
+    const c = context || {};
+    if (!active || !AI_PROVIDER_FN[active]) {
+      await _logAiGeneration(callerId, active, c, false, 'No AI model is set up yet');
+      return { result: 'error', message: 'No AI model is set up yet — ask an Admin to configure one under Settings.' };
+    }
     const apiKey = await _getAiProviderKey(active);
-    if (!apiKey) return { result: 'error', message: `No API key configured for ${(AI_PROVIDERS[active] || {}).label || active}.` };
+    if (!apiKey) {
+      await _logAiGeneration(callerId, active, c, false, 'No API key configured');
+      return { result: 'error', message: `No API key configured for ${(AI_PROVIDERS[active] || {}).label || active}.` };
+    }
     try {
-      const prompt = _lessonPlanDraftPrompt(context);
+      const prompt = _lessonPlanDraftPrompt(c);
       const raw = await AI_PROVIDER_FN[active](apiKey, prompt);
       const draft = _parseAiJson(raw);
+      await _logAiGeneration(callerId, active, c, true, null);
       return { result: 'success', draft };
     } catch (err) {
+      await _logAiGeneration(callerId, active, c, false, String(err.message || err).slice(0, 500));
       return { result: 'error', message: 'AI generation failed: ' + (err.message || err) };
     }
+  },
+
+  async getAiGenerationLog([callerId, limit]) {
+    if (!(await _isAdmin(callerId))) return { result: 'error', message: 'Admin access required.' };
+    const n = Math.min(Number(limit) || 50, 200);
+    const [logRows, profiles] = await Promise.all([
+      supabaseRequest(`ai_generation_log?select=*&order=created_at.desc&limit=${n}`),
+      supabaseRequest('users_profile?select=teacher_id,full_name'),
+    ]);
+    const nameMap = {};
+    (Array.isArray(profiles) ? profiles : []).forEach(p => { nameMap[p.teacher_id] = p.full_name; });
+    const items = (Array.isArray(logRows) ? logRows : []).map(r => ({ ...r, user_name: nameMap[r.user_id] || r.user_id }));
+    return { result: 'success', items };
   },
 
   // ── COMMITTEES ──────────────────────────────────────────────────────────────

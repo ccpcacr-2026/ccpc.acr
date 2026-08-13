@@ -4,10 +4,23 @@
 
 Populate `teacher.lesson_curricula` (one row per Class+Subject+Version+Chapter,
 a `lectures` jsonb array of `{lecture_number, topic, learning_outcome,
-page_number, elaborate_summary}`) with the *official* NCTB breakdown for
-every class × subject, so the Lesson Plan module's Chapter/Lesson(s) picker
-and the AI draft generator have real data to work from instead of staying
-empty until teachers type it in one plan at a time.
+page_number, elaborate_summary, textbook_context}`) with the *official* NCTB
+breakdown for every class × subject, so the Lesson Plan module's
+Chapter/Lesson(s) picker and the AI draft generator have real data to work
+from instead of staying empty until teachers type it in one plan at a time.
+
+`elaborate_summary` is sourced from the **Teacher's Guide** (pedagogical
+approach/activities/examples); `textbook_context` is sourced from the
+**student Textbook** (the exact examples/numbers/exercises/images printed on
+the referenced page(s)). Both are compact, pre-written text stored per
+lesson specifically so that generating a lesson plan later never needs to
+re-read or re-process the raw source PDFs — the AI prompt (`generateLessonPlanDraft`
+→ `_lessonPlanDraftPrompt` in `app/api/exec/route.js`) uses only these small
+stored strings plus the `book_url`, keeping token usage per generation low
+regardless of how large the source PDFs were. `textbook_context` is optional
+and not yet populated for any already-extracted chapter (all existing rows
+have Teacher's-Guide-derived fields only) — see "Textbook context backfill"
+below for the plan to add it.
 
 This is large, ongoing work — tracked here and done in batches across
 multiple sessions, not in one pass. Parts of the Lesson Plan module that

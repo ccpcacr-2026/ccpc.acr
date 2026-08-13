@@ -91,7 +91,7 @@ const RESERVED = [
   '_lpOnClassChange','_lpLoadChapterOptions','_lpOnChapterSelect','_lpOnChapterOtherInput',
   '_lpOnManualLessonInput','_lpToggleLessonNumber','_lpAddChapterBlock','_lpRemoveChapterBlock',
   'loadLessonPlanBulkImportView','_lpBulkDownloadTemplate','_lpBulkPreview','_lpBulkConfirmImport',
-  '_lpGenerateWithAi','_saveAiActiveModel','_saveAiProviderKey','_clearAiProviderKey',
+  '_lpGenerateWithAi','_saveAiActiveModel','_saveAiProviderKey','_clearAiProviderKey','_loadAiUsageLog',
   // inventory chain-of-custody
   '_invMarkNotifRead','_invOpenDistModal','_invCloseDistModal','_invSubmitDistribution',
   '_invRenderRecipientOptions','_invUpdateNotifyPreview',
