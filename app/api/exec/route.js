@@ -2683,6 +2683,44 @@ const handlers = {
     return { result: 'success' };
   },
 
+  // Bulk import (100-1000+ plans from a single Excel file, one row per
+  // plan — see the client's _lpBulk* functions for the column-mapping UI).
+  // Chunked so a single huge file can't blow past PostgREST/Vercel payload
+  // or timeout limits; each chunk's failure is reported without aborting
+  // the rest, so one bad row doesn't sink the whole import.
+  async bulkImportLessonPlans([callerId, rows]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    const list = Array.isArray(rows) ? rows : [];
+    if (!list.length) return { result: 'error', message: 'No rows to import.' };
+
+    const CHUNK_SIZE = 200;
+    let inserted = 0, failed = 0;
+    const errors = [];
+    for (let i = 0; i < list.length; i += CHUNK_SIZE) {
+      const chunk = list.slice(i, i + CHUNK_SIZE)
+        .filter(p => p && p.class_name && p.subject && p.chapter)
+        .map(p => ({
+          class_name: p.class_name, subject: p.subject, version: p.version || null,
+          chapter: p.chapter, lesson_number: p.lesson_number || null,
+          lesson_refs: Array.isArray(p.lesson_refs) ? p.lesson_refs : [],
+          topic: p.topic || null, time_minutes: p.time_minutes || null,
+          teaching_aids: p.teaching_aids || null, method: p.method || null,
+          learning_outcomes: p.learning_outcomes || null, phases: p.phases || null,
+          self_reflection: p.self_reflection || null, is_shared: !!p.is_shared,
+          source: 'bulk_excel', created_by: callerId,
+        }));
+      if (!chunk.length) continue;
+      const created = await supabaseRequest('lesson_plans', 'post', chunk);
+      if (created?.error) {
+        failed += chunk.length;
+        errors.push(`Rows ${i + 1}-${i + chunk.length}: ${created.details || created.error}`);
+      } else {
+        inserted += Array.isArray(created) ? created.length : chunk.length;
+      }
+    }
+    return { result: failed ? 'partial' : 'success', inserted, failed, errors };
+  },
+
   // ── LESSON CURRICULA ─────────────────────────────────────────────────────
   // The lecture-by-lecture breakdown of a chapter (class+version+subject+
   // chapter -> [{lecture_number, topic}]), used to power the Lecture picker

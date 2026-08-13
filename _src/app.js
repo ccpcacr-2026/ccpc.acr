@@ -3794,7 +3794,10 @@
             <button id="lpTabShared" onclick="_lpSetScope('shared')" class="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">Shared Library</button>
             <button id="lpTabFavorites" onclick="_lpSetScope('favorites')" class="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-1.5"><i data-lucide="star" class="h-3.5 w-3.5"></i>Favorites</button>
           </div>
-          <button onclick="_openLessonPlanForm(null)" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>New Lesson Plan</button>
+          <div class="flex gap-2">
+            <button onclick="loadLessonPlanBulkImportView()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-white border border-slate-200 hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="upload-cloud" class="h-3.5 w-3.5"></i>Bulk Import</button>
+            <button onclick="_openLessonPlanForm(null)" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>New Lesson Plan</button>
+          </div>
         </div>
         <div id="lpFilterRow" class="flex flex-wrap gap-2 mb-4">
           <input id="lpFilterClass" list="lpClassOptions" type="text" placeholder="Filter by Class…" oninput="_lpLoadList()" class="px-3 py-2 bg-white border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none w-44">
@@ -3810,6 +3813,222 @@
     _lpUpdateTabButtons();
     _lpLoadFieldOptions();
     _lpRefreshFavoriteKeys(() => _lpLoadList());
+  }
+
+  // ── Bulk Import (100-1000+ plans from one Excel file) ────────────────────
+  // Mirrors the column-header-mapping pattern already used by the Student
+  // bulk importer (initBulkImport/getImportMapping/buildMappedImportRows,
+  // ~line 10400) — auto-guesses each column by header name, editable before
+  // import, so real-world spreadsheets with reordered/extra columns still
+  // work. Distinct from the single-plan Excel template above (that one is
+  // fixed-row-position, one file = one plan, loaded into the open form).
+  const LP_BULK_HEADER_COLUMNS = [
+    ['class_name', 'Class'], ['subject', 'Subject'], ['version', 'Version'],
+    ['chapter', 'Chapter'], ['lesson_numbers', 'Lesson Number(s)'],
+    ['topic', 'Topic'], ['time_minutes', 'Time (minutes)'],
+    ['teaching_aids', 'Teaching Aids'], ['method', 'Method'],
+    ['learning_outcomes', 'Learning Outcomes'],
+  ];
+  const LP_BULK_PHASE_COLUMNS = LESSON_PHASES.flatMap((name, i) => [
+    [`phase${i}_teacher`, `${name} — Teacher's Activity`],
+    [`phase${i}_learner`, `${name} — Learner's Activity`],
+    [`phase${i}_duration`, `${name} — Duration (min)`],
+  ]);
+  const LP_BULK_FOOTER_COLUMNS = [
+    ['self_reflection', 'Self-Reflection'], ['is_shared', 'Share? (Y/N)'],
+  ];
+  const LP_BULK_ALL_COLUMNS = [...LP_BULK_HEADER_COLUMNS, ...LP_BULK_PHASE_COLUMNS, ...LP_BULK_FOOTER_COLUMNS];
+  const LP_BULK_REQUIRED = ['class_name', 'subject', 'chapter'];
+  let LP_BULK_HEADERS = [];
+  let LP_BULK_ROWS = [];
+
+  function loadLessonPlanBulkImportView() {
+    _setViewHash('lesson_plan');
+    setActiveNavLink('nav-lesson-plan');
+    setContentHeader('Bulk Import Lesson Plans', 'upload-cloud');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    LP_BULK_HEADERS = []; LP_BULK_ROWS = [];
+    container.innerHTML = `
+      <div class="pt-4 max-w-4xl mx-auto pb-10">
+        <button onclick="loadLessonPlanView()" class="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600 mb-4">&larr; Back to Lesson Plans</button>
+
+        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 space-y-3">
+          <p class="text-sm font-black text-slate-800 uppercase tracking-widest">1. Get the Template</p>
+          <p class="text-xs text-slate-500 font-bold">One row per lesson plan — Class/Subject/Chapter are required, everything else optional. Fill in as many rows as you like.</p>
+          <button onclick="_lpBulkDownloadTemplate()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-white border border-slate-200 hover:bg-slate-50 flex items-center gap-1.5"><i data-lucide="download" class="h-3.5 w-3.5"></i>Download Bulk Import Template</button>
+        </div>
+
+        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 mt-4 space-y-3">
+          <p class="text-sm font-black text-slate-800 uppercase tracking-widest">2. Upload Your Filled File</p>
+          <input type="file" id="lpBulkFileInput" accept=".xlsx,.xls" class="text-xs font-bold">
+          <p id="lpBulkFileStatus" class="text-xs text-slate-400 font-bold"></p>
+        </div>
+
+        <div id="lpBulkMappingSection" class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 mt-4 space-y-3 hidden">
+          <p class="text-sm font-black text-slate-800 uppercase tracking-widest">3. Confirm Columns</p>
+          <p id="lpBulkRowCount" class="text-xs text-slate-400 font-bold"></p>
+          <div id="lpBulkMappingList" class="space-y-1 max-h-96 overflow-y-auto pr-1"></div>
+          <button onclick="_lpBulkPreview()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black">Preview Import</button>
+        </div>
+
+        <div id="lpBulkPreviewSection" class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 mt-4 space-y-3 hidden">
+          <p class="text-sm font-black text-slate-800 uppercase tracking-widest">4. Confirm &amp; Import</p>
+          <div id="lpBulkPreviewSummary" class="grid grid-cols-2 md:grid-cols-3 gap-3"></div>
+          <button id="lpBulkConfirmBtn" onclick="_lpBulkConfirmImport()" class="px-5 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black">Import</button>
+        </div>
+
+        <div id="lpBulkResultSection" class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 mt-4 hidden"></div>
+      </div>`;
+    lucide.createIcons();
+    const input = document.getElementById('lpBulkFileInput');
+    if (input) input.addEventListener('change', _lpBulkHandleFile);
+  }
+
+  function _lpBulkNormKey(s) {
+    return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  }
+
+  function _lpBulkDownloadTemplate() {
+    ensureXLSX().then(() => {
+      const headerRow = LP_BULK_ALL_COLUMNS.map(([, label]) => label);
+      const sample = { class_name: 'Six', subject: 'Mathematics', version: 'Bangla Version', chapter: 'Chapter 1', lesson_numbers: '1, 2', is_shared: 'N' };
+      const sampleRow = LP_BULK_ALL_COLUMNS.map(([key]) => sample[key] || '');
+      const ws = XLSX.utils.aoa_to_sheet([headerRow, sampleRow]);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Lesson Plans');
+      XLSX.writeFile(wb, 'lesson_plans_bulk_import_template.xlsx');
+    }).catch(err => showToast(err.message || 'Could not prepare the download', 'error'));
+  }
+
+  function _lpBulkHandleFile(e) {
+    const file = e.target.files[0];
+    const status = document.getElementById('lpBulkFileStatus');
+    ['lpBulkMappingSection', 'lpBulkPreviewSection', 'lpBulkResultSection'].forEach(id => { const el = document.getElementById(id); if (el) el.classList.add('hidden'); });
+    if (!file) return;
+    if (status) status.textContent = 'Reading file…';
+    const reader = new FileReader();
+    reader.onload = evt => {
+      ensureXLSX().then(() => {
+        try {
+          const wb = XLSX.read(evt.target.result, { type: 'array' });
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const grid = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+          if (!grid.length) { if (status) status.textContent = 'File appears to be empty.'; return; }
+          LP_BULK_HEADERS = grid[0].map(h => String(h || '').trim());
+          LP_BULK_ROWS = grid.slice(1).filter(r => r.some(c => String(c || '').trim() !== ''));
+          if (status) status.textContent = `${file.name} — ${LP_BULK_ROWS.length} rows, ${LP_BULK_HEADERS.length} columns.`;
+          _lpBulkRenderMapping();
+        } catch (err) {
+          if (status) status.textContent = 'Could not read this file: ' + err.message;
+        }
+      }).catch(err => { if (status) status.textContent = err.message; });
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function _lpBulkRenderMapping() {
+    const section = document.getElementById('lpBulkMappingSection');
+    const list = document.getElementById('lpBulkMappingList');
+    const rowCount = document.getElementById('lpBulkRowCount');
+    if (!section || !list) return;
+    rowCount.textContent = `${LP_BULK_ROWS.length} rows detected`;
+    list.innerHTML = LP_BULK_ALL_COLUMNS.map(([col, label]) => {
+      const guessIdx = LP_BULK_HEADERS.findIndex(h => _lpBulkNormKey(h) === _lpBulkNormKey(label));
+      const required = LP_BULK_REQUIRED.includes(col);
+      const options = ['<option value="-1">— Skip —</option>'].concat(LP_BULK_HEADERS.map((h, i) => `<option value="${i}" ${i === guessIdx ? 'selected' : ''}>${_escHtml(h || '(blank header)')}</option>`));
+      return `<div class="grid grid-cols-12 gap-2 items-center py-1 lp-bulk-map-row" data-col="${col}">
+        <div class="col-span-5"><span class="font-bold text-xs text-slate-700">${_escHtml(label)}${required ? ' <span class="text-red-500">*</span>' : ''}</span></div>
+        <div class="col-span-7"><select class="lp-bulk-map-select w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">${options.join('')}</select></div>
+      </div>`;
+    }).join('');
+    section.classList.remove('hidden');
+    document.getElementById('lpBulkPreviewSection').classList.add('hidden');
+    document.getElementById('lpBulkResultSection').classList.add('hidden');
+  }
+
+  function _lpBulkGetMapping() {
+    const mapping = {};
+    document.querySelectorAll('.lp-bulk-map-row').forEach(row => {
+      const col = row.dataset.col;
+      const idx = parseInt(row.querySelector('.lp-bulk-map-select').value, 10);
+      if (idx >= 0) mapping[col] = idx;
+    });
+    return mapping;
+  }
+
+  function _lpBulkBuildRows() {
+    const mapping = _lpBulkGetMapping();
+    const get = (r, col) => (mapping[col] != null) ? String(r[mapping[col]] ?? '').trim() : '';
+    return LP_BULK_ROWS.map(r => {
+      const phases = LESSON_PHASES.map((name, i) => ({
+        phase: name,
+        teacher_activity: get(r, `phase${i}_teacher`),
+        learner_activity: get(r, `phase${i}_learner`),
+        duration_minutes: Number(get(r, `phase${i}_duration`)) || null,
+      }));
+      const chapter = get(r, 'chapter');
+      const lessonNumbers = get(r, 'lesson_numbers').split(',').map(s => Number(s.trim())).filter(n => n > 0);
+      return {
+        class_name: get(r, 'class_name'), subject: get(r, 'subject'), version: get(r, 'version'),
+        chapter, lesson_number: lessonNumbers[0] || null,
+        lesson_refs: chapter ? [{ chapter, lesson_numbers: lessonNumbers }] : [],
+        topic: get(r, 'topic'), time_minutes: Number(get(r, 'time_minutes')) || null,
+        teaching_aids: get(r, 'teaching_aids'), method: get(r, 'method'),
+        learning_outcomes: get(r, 'learning_outcomes'), phases,
+        self_reflection: get(r, 'self_reflection'),
+        is_shared: /^(y|yes|true|1)$/i.test(get(r, 'is_shared')),
+      };
+    });
+  }
+
+  function _lpBulkPreview() {
+    const mapping = _lpBulkGetMapping();
+    const missing = LP_BULK_REQUIRED.filter(c => !(c in mapping));
+    if (missing.length) { showToast('Map these columns first: ' + missing.map(c => (LP_BULK_ALL_COLUMNS.find(([k]) => k === c) || [, c])[1]).join(', '), 'error'); return; }
+    const rows = _lpBulkBuildRows();
+    const valid = rows.filter(r => r.class_name && r.subject && r.chapter);
+    const invalid = rows.length - valid.length;
+    const summary = document.getElementById('lpBulkPreviewSummary');
+    summary.innerHTML = `
+      <div class="p-3 border border-slate-200 rounded-xl"><div class="text-[10px] font-black text-slate-400 uppercase">Total Rows</div><div class="text-xl font-black text-slate-800">${rows.length}</div></div>
+      <div class="p-3 border border-slate-200 rounded-xl"><div class="text-[10px] font-black text-slate-400 uppercase">Will Import</div><div class="text-xl font-black text-emerald-600">${valid.length}</div></div>
+      <div class="p-3 border border-slate-200 rounded-xl"><div class="text-[10px] font-black text-slate-400 uppercase">Missing Required Fields</div><div class="text-xl font-black text-red-500">${invalid}</div></div>`;
+    const confirmBtn = document.getElementById('lpBulkConfirmBtn');
+    confirmBtn.disabled = valid.length === 0;
+    confirmBtn.textContent = valid.length ? `Import ${valid.length} Lesson Plan${valid.length === 1 ? '' : 's'}` : 'Nothing to import';
+    document.getElementById('lpBulkPreviewSection').classList.remove('hidden');
+    document.getElementById('lpBulkResultSection').classList.add('hidden');
+  }
+
+  function _lpBulkConfirmImport() {
+    const rows = _lpBulkBuildRows().filter(r => r.class_name && r.subject && r.chapter);
+    if (!rows.length) { showToast('Nothing to import', 'error'); return; }
+    if (!confirm(`Import ${rows.length} lesson plan(s) now? This cannot be undone in bulk — plans would need deleting one at a time.`)) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const btn = document.getElementById('lpBulkConfirmBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Importing…'; }
+    google.script.run.withSuccessHandler(res => {
+      if (!res || (res.result !== 'success' && res.result !== 'partial')) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Retry Import'; }
+        showToast((res && res.message) || 'Import failed', 'error');
+        return;
+      }
+      const resultSection = document.getElementById('lpBulkResultSection');
+      resultSection.innerHTML = `
+        <h3 class="font-black text-slate-800 mb-3">Import Complete</h3>
+        <ul class="text-xs font-bold text-slate-600 space-y-1 list-disc pl-4">
+          <li>${res.inserted} lesson plan(s) imported</li>
+          ${res.failed ? `<li class="text-red-500">${res.failed} row(s) failed</li>` : ''}
+        </ul>
+        ${res.errors && res.errors.length ? `<div class="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs font-bold text-amber-700 space-y-1">${res.errors.slice(0, 10).map(e => `<div>${_escHtml(e)}</div>`).join('')}</div>` : ''}`;
+      resultSection.classList.remove('hidden');
+      if (btn) { btn.disabled = true; btn.textContent = 'Done'; }
+      showToast(`Imported ${res.inserted} lesson plan(s)`, 'success');
+    }).withFailureHandler(() => {
+      if (btn) { btn.disabled = false; btn.textContent = 'Retry Import'; }
+      showToast('Network error during import', 'error');
+    }).bulkImportLessonPlans(myId, rows);
   }
 
   function _lpUpdateTabButtons() {
