@@ -10651,7 +10651,7 @@
         <div class="mb-3">
           <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Recipient Type</label>
           <div class="flex flex-wrap gap-3 mt-1.5">
-            ${['room', 'building', 'person', 'committee'].map(t => `<label class="flex items-center gap-1.5 text-xs font-bold text-slate-600"><input type="radio" name="invDistRecipientType" value="${t}" onchange="_invOnDistRecipientTypeChange()" ${t === 'person' ? 'checked' : ''}> ${t.charAt(0).toUpperCase() + t.slice(1)}</label>`).join('')}
+            ${['room', 'building', 'floor', 'person', 'committee'].map(t => `<label class="flex items-center gap-1.5 text-xs font-bold text-slate-600"><input type="radio" name="invDistRecipientType" value="${t}" onchange="_invOnDistRecipientTypeChange()" ${t === 'person' ? 'checked' : ''}> ${t.charAt(0).toUpperCase() + t.slice(1)}</label>`).join('')}
           </div>
         </div>
         <div class="mb-3">
@@ -10660,6 +10660,11 @@
             <button type="button" onclick="_invOpenCustomConsumerModal()" class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:underline">+ Add Custom</button>
           </div>
           <div id="invDistConsumerWrap"></div>
+        </div>
+        <div id="invDistResponsibleWrap" class="hidden mb-3">
+          <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Responsible Person <span class="text-red-500">*</span></label>
+          <p class="text-[10px] text-slate-400 font-bold mb-1">A room/building/floor can't be accountable on its own — pick who's responsible for stock handed to it.</p>
+          <div id="invDistResponsiblePickerWrap"></div>
         </div>
         <div id="invDistNotifyPreview" class="hidden text-[11px] font-bold text-slate-500 bg-slate-50 rounded-lg px-3 py-2 mb-3"></div>
         <div class="mb-3">
@@ -10833,6 +10838,7 @@
         <button type="button" onclick="_invClearDistConsumer()" class="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600">Change</button>
       </div>`;
     _invUpdateDistNotifyPreview();
+    _invSyncResponsiblePersonVisibility();
   }
 
   function _invClearDistConsumer() {
@@ -10840,6 +10846,83 @@
     _invRenderConsumerPickerInput();
     const previewEl = document.getElementById('invDistNotifyPreview');
     if (previewEl) previewEl.classList.add('hidden');
+    _invSyncResponsiblePersonVisibility();
+  }
+
+  // Room/building/floor recipients require a real person accountable for
+  // whatever's handed to that space (see _distributeCreate's server-side
+  // enforcement) — shown/hidden and pre-filled here based on whatever's
+  // already selected as the recipient.
+  let _invDistSelectedResponsible = null;
+
+  function _invSyncResponsiblePersonVisibility() {
+    const wrap = document.getElementById('invDistResponsibleWrap');
+    if (!wrap) return;
+    const c = _invDistSelectedConsumer;
+    const needsResponsible = c && ['room', 'building', 'floor'].includes(c.type);
+    wrap.classList.toggle('hidden', !needsResponsible);
+    if (!needsResponsible) { _invDistSelectedResponsible = null; return; }
+
+    // Pre-fill from any existing distributor_assignments row for this
+    // holder — an admin re-distributing to the same room shouldn't have to
+    // re-pick the same person every time, but can still change it here.
+    const existing = _invDistAssignments.find(a => a.holder_type === c.type && String(a.holder_id) === String(c.reference_id));
+    if (existing) {
+      const person = _invDistConsumers.find(p => (p.type === 'teacher' || p.type === 'staff') && String(p.reference_id) === String(existing.assignee_user_id));
+      _invDistSelectedResponsible = person || { id: existing.assignee_user_id, reference_id: existing.assignee_user_id, name: existing.assignee_user_id, designation: null };
+      _invRenderResponsiblePersonSelected();
+    } else {
+      _invDistSelectedResponsible = null;
+      _invRenderResponsiblePickerInput();
+    }
+  }
+
+  function _invRenderResponsiblePickerInput() {
+    const wrap = document.getElementById('invDistResponsiblePickerWrap');
+    if (!wrap) return;
+    wrap.innerHTML = `
+      <input id="invDistResponsibleQuery" type="text" placeholder="Search staff by name…" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
+      <div id="invDistResponsibleMatches" class="mt-1 max-h-40 overflow-y-auto flex flex-col rounded-lg"></div>`;
+    const input = document.getElementById('invDistResponsibleQuery');
+    if (input) {
+      input.addEventListener('input', () => _invRenderResponsibleMatches(input.value.trim()));
+      input.addEventListener('focus', () => _invRenderResponsibleMatches(input.value.trim()));
+    }
+    _invRenderResponsibleMatches('');
+  }
+
+  function _invRenderResponsibleMatches(query) {
+    const host = document.getElementById('invDistResponsibleMatches');
+    if (!host) return;
+    const pool = _invDistConsumers.filter(c => PERSON_CONSUMER_TYPES.includes(c.type)).slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    const q = query.toLowerCase();
+    const matches = q ? pool.filter(c => `${c.name} ${c.designation || ''}`.toLowerCase().includes(q)) : pool;
+    host.innerHTML = matches.length
+      ? matches.slice(0, 30).map(c => `<button type="button" onclick='_invSelectResponsiblePerson(${JSON.stringify(c.id)})' class="w-full text-left px-3 py-2 border-b border-slate-100 last:border-b-0 bg-white text-xs font-bold text-slate-700 hover:bg-slate-50">${_escHtml(c.name)}${c.designation ? ` — ${_escHtml(c.designation)}` : ''}</button>`).join('')
+      : `<div class="px-3 py-2 text-xs text-slate-400 font-bold">No matches.</div>`;
+  }
+
+  function _invSelectResponsiblePerson(id) {
+    const c = _invDistConsumers.find(cc => String(cc.id) === String(id));
+    if (!c) return;
+    _invDistSelectedResponsible = c;
+    _invRenderResponsiblePersonSelected();
+  }
+
+  function _invRenderResponsiblePersonSelected() {
+    const wrap = document.getElementById('invDistResponsiblePickerWrap');
+    if (!wrap || !_invDistSelectedResponsible) return;
+    const c = _invDistSelectedResponsible;
+    wrap.innerHTML = `
+      <div class="flex items-center gap-2 mt-1">
+        <span class="text-xs font-black text-slate-800">${_escHtml(c.name)}${c.designation ? ` — ${_escHtml(c.designation)}` : ''}</span>
+        <button type="button" onclick="_invClearResponsiblePerson()" class="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600">Change</button>
+      </div>`;
+  }
+
+  function _invClearResponsiblePerson() {
+    _invDistSelectedResponsible = null;
+    _invRenderResponsiblePickerInput();
   }
 
   // Opens the same generic Settings entity form used everywhere else in
@@ -10870,9 +10953,8 @@
       const committee = _invDistCommittees.find(c => String(c.id) === String(consumer.reference_id));
       text = committee && committee.chairman_user_id ? `${committee.chairman_user_id} (chairman of ${committee.name})` : 'No chairman set for this committee yet — no one will be notified.';
       if (remarksEl) remarksEl.value = `Committee: ${consumer.name}`;
-    } else if (consumer.type === 'room' || consumer.type === 'building') {
-      const a = _invDistAssignments.find(x => x.holder_type === consumer.type && String(x.holder_id) === String(consumer.reference_id));
-      text = a ? a.assignee_user_id : 'No distributor assigned yet — no one will be notified.';
+    } else if (consumer.type === 'room' || consumer.type === 'building' || consumer.type === 'floor') {
+      text = _invDistSelectedResponsible ? `${_invDistSelectedResponsible.name} (responsible person)` : 'Pick a responsible person below — no one will be notified until you do.';
     } else if (consumer.type === 'teacher' || consumer.type === 'staff') {
       text = consumer.reference_id || 'No ccpc-teachers user_id set on this consumer — no one will be notified.';
     } else {
@@ -10898,16 +10980,30 @@
     const category = categorySel ? categorySel.value : '';
     if (brandSel && !brand) { setStatus('Pick a brand for this product.', true); return; }
     if (categorySel && !category) { setStatus('Pick a category for this product.', true); return; }
+    // Room/Building/Floor recipients must have a responsible person, either
+    // freshly picked or pre-filled from an existing assignment — see
+    // _invSyncResponsiblePersonVisibility.
+    const needsResponsible = ['room', 'building', 'floor'].includes(_invDistSelectedConsumer.type);
+    if (needsResponsible && !_invDistSelectedResponsible) { setStatus('Pick a responsible person for this room/building/floor.', true); return; }
+    const responsibleUserId = _invDistSelectedResponsible ? _invDistSelectedResponsible.reference_id : '';
     const btn = document.getElementById('invDistSubmitBtn');
     if (btn) { btn.disabled = true; btn.textContent = 'Distributing…'; }
     setStatus('', false);
     const productForMsg = _invDistSelectedProduct;
     const consumerForMsg = _invDistSelectedConsumer;
-    _invAdminFetch('distribute_create', { product_id: productForMsg.id, consumer_id: consumerId, quantity: qty, remarks, brand, category }).then(res => {
+    _invAdminFetch('distribute_create', { product_id: productForMsg.id, consumer_id: consumerId, quantity: qty, remarks, brand, category, responsible_user_id: responsibleUserId }).then(res => {
       if (btn) { btn.disabled = false; btn.textContent = 'Confirm Distribution'; }
       if (!res || res.result !== 'success') { setStatus((res && res.message) || 'Distribution failed.', true); return; }
       setStatus(`Distributed ${qty} × ${productForMsg.name} to ${consumerForMsg ? consumerForMsg.name : 'recipient'}.`, false);
       showToast('Distribution recorded', 'success');
+      // Keep the local assignments cache in sync with what the server just
+      // upserted, so distributing to the same room/building/floor again in
+      // this session pre-fills correctly instead of looking stale.
+      if (needsResponsible && responsibleUserId) {
+        const existingA = _invDistAssignments.find(a => a.holder_type === consumerForMsg.type && String(a.holder_id) === String(consumerForMsg.reference_id));
+        if (existingA) existingA.assignee_user_id = responsibleUserId;
+        else _invDistAssignments.push({ holder_type: consumerForMsg.type, holder_id: consumerForMsg.reference_id, assignee_user_id: responsibleUserId });
+      }
       _invClearDistConsumer();
       document.getElementById('invDistQty').value = '';
       document.getElementById('invDistRemarks').value = '';

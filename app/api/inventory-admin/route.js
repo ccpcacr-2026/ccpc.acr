@@ -201,10 +201,11 @@ const ENTITIES = {
           { value: 'student', label: 'Student' },
           { value: 'room', label: 'Room' },
           { value: 'building', label: 'Building' },
+          { value: 'floor', label: 'Floor' },
           { value: 'committee', label: 'Committee' },
           { value: 'others', label: 'Others' },
         ] },
-      { name: 'reference_id', label: "Reference ID (Teacher/Staff: their ccpc-teachers user_id · Room/Building: its Settings ID · Committee: its Committee ID)", type: 'text' },
+      { name: 'reference_id', label: "Reference ID (Teacher/Staff: their ccpc-teachers user_id · Room/Building/Floor: its Settings ID · Committee: its Committee ID)", type: 'text' },
       { name: 'code', label: 'Code#', type: 'text' },
       { name: 'name', label: 'Name', type: 'text', required: true },
       { name: 'location', label: 'Consumer Location', type: 'text' },
@@ -232,6 +233,7 @@ const ENTITIES = {
         options: [
           { value: 'room', label: 'Room' },
           { value: 'building', label: 'Building' },
+          { value: 'floor', label: 'Floor' },
           { value: 'committee', label: 'Committee' },
         ] },
       { name: 'holder_id', label: 'Holder', type: 'text', required: true },
@@ -439,30 +441,34 @@ async function _productAttributeOptions(payload) {
 // header comment). This console can distribute any Central Store stock to
 // anyone, so it stays behind _isInventoryAdmin like every other action here.
 async function _distributeOptions() {
-  const [consumers, committees, assignments, profiles] = await Promise.all([
+  const [consumers, committees, assignments, profiles, rooms, buildings, floors] = await Promise.all([
     sbInventory('consumers?select=*'),
     sbInventory('committees?select=*'),
     sbInventory('distributor_assignments?select=*'),
     _teacherSchemaFetch('users_profile?select=teacher_id,full_name,designation&order=full_name.asc&limit=1000'),
+    sbInventory('rooms?select=id,name,room_code,building_id,floor_id'),
+    sbInventory('buildings?select=id,name,short_name'),
+    sbInventory('floors?select=id,name,building_id'),
   ]);
   if (consumers?.error) return NextResponse.json({ result: 'error', message: consumers.error }, { status: 500 });
   if (committees?.error) return NextResponse.json({ result: 'error', message: committees.error }, { status: 500 });
   if (assignments?.error) return NextResponse.json({ result: 'error', message: assignments.error }, { status: 500 });
 
-  // Every ccpc-teachers account is automatically a valid distribute
-  // recipient — no admin has to separately re-add them as a "custom"
-  // consumer first. Anyone already added manually (matched by reference_id)
-  // keeps their existing consumers row instead of being duplicated; these
-  // synthetic "auto:" entries only ever cover the gap. _distributeCreate
-  // lazily materializes a real consumers row the first time one is actually
+  // Every ccpc-teachers account, and every room/building/floor already in
+  // the system, is automatically a valid distribute recipient — no admin
+  // has to separately re-add them as a "custom" consumer first. Anyone/
+  // anything already added manually (matched by reference_id) keeps its
+  // existing consumers row instead of being duplicated; these synthetic
+  // "auto..." entries only ever cover the gap. _distributeCreate lazily
+  // materializes a real consumers row the first time one is actually
   // picked, so distribution_items/holder_stock never reference a fake id.
-  const existingByUserId = new Set(
+  const existingByRef = new Set(
     (Array.isArray(consumers) ? consumers : [])
-      .filter(c => (c.type === 'teacher' || c.type === 'staff') && c.reference_id)
-      .map(c => String(c.reference_id))
+      .filter(c => c.reference_id)
+      .map(c => `${c.type}|${c.reference_id}`)
   );
   const autoConsumers = (Array.isArray(profiles) ? profiles : [])
-    .filter(p => p.teacher_id && p.full_name && !existingByUserId.has(String(p.teacher_id)))
+    .filter(p => p.teacher_id && p.full_name && !existingByRef.has(`teacher|${p.teacher_id}`) && !existingByRef.has(`staff|${p.teacher_id}`))
     .map(p => ({
       id: `auto:${p.teacher_id}`,
       type: 'teacher',
@@ -472,45 +478,102 @@ async function _distributeOptions() {
       auto: true,
     }));
 
+  const buildingById = new Map((Array.isArray(buildings) ? buildings : []).map(b => [b.id, b]));
+  const floorById = new Map((Array.isArray(floors) ? floors : []).map(f => [f.id, f]));
+
+  const autoBuildings = (Array.isArray(buildings) ? buildings : [])
+    .filter(b => !existingByRef.has(`building|${b.id}`))
+    .map(b => ({ id: `auto-building:${b.id}`, type: 'building', reference_id: b.id, name: b.name, auto: true }));
+  const autoFloors = (Array.isArray(floors) ? floors : [])
+    .filter(f => !existingByRef.has(`floor|${f.id}`))
+    .map(f => {
+      const b = buildingById.get(f.building_id);
+      return { id: `auto-floor:${f.id}`, type: 'floor', reference_id: f.id, name: b ? `${f.name} (${b.name})` : f.name, auto: true };
+    });
+  const autoRooms = (Array.isArray(rooms) ? rooms : [])
+    .filter(r => !existingByRef.has(`room|${r.id}`))
+    .map(r => {
+      const b = buildingById.get(r.building_id);
+      const f = floorById.get(r.floor_id);
+      const where = [f && f.name, b && b.name].filter(Boolean).join(', ');
+      return { id: `auto-room:${r.id}`, type: 'room', reference_id: r.id, name: `${r.room_code ? r.room_code + ' — ' : ''}${r.name}${where ? ` (${where})` : ''}`, auto: true };
+    });
+
   return NextResponse.json({
     result: 'success',
-    consumers: [...(Array.isArray(consumers) ? consumers : []), ...autoConsumers],
+    consumers: [...(Array.isArray(consumers) ? consumers : []), ...autoConsumers, ...autoBuildings, ...autoFloors, ...autoRooms],
     committees: committees || [],
     assignments: assignments || [],
   });
 }
 
-// Turns a synthetic "auto:{teacher_id}" id (see _distributeOptions) into a
-// real consumers row, creating one on first use and reusing it on every
-// later distribution to the same person — get-or-create, not insert-every-
-// time, so repeated distributions to the same auto user don't pile up
+// Turns a synthetic "auto:{teacher_id}" / "auto-room:{id}" / "auto-building:
+// {id}" / "auto-floor:{id}" id (see _distributeOptions) into a real
+// consumers row, creating one on first use and reusing it on every later
+// distribution to the same recipient — get-or-create, not insert-every-
+// time, so repeated distributions to the same auto recipient don't pile up
 // duplicate consumer rows.
 async function _resolveAutoConsumer(consumerId) {
-  const teacherId = consumerId.slice('auto:'.length);
-  const existing = await sbInventory(`consumers?type=eq.teacher&reference_id=eq.${encodeURIComponent(teacherId)}&select=*&limit=1`);
+  const [prefix, rawId] = consumerId.startsWith('auto-')
+    ? [consumerId.slice(5, consumerId.indexOf(':')), consumerId.slice(consumerId.indexOf(':') + 1)]
+    : ['teacher', consumerId.slice('auto:'.length)];
+
+  const existing = await sbInventory(`consumers?type=eq.${prefix}&reference_id=eq.${encodeURIComponent(rawId)}&select=*&limit=1`);
   if (Array.isArray(existing) && existing.length) return existing[0];
-  const profileRows = await _teacherSchemaFetch(`users_profile?teacher_id=eq.${encodeURIComponent(teacherId)}&select=full_name,designation&limit=1`);
-  const profile = (Array.isArray(profileRows) && profileRows[0]) || {};
+
+  let name = rawId, designation = null;
+  if (prefix === 'teacher') {
+    const profileRows = await _teacherSchemaFetch(`users_profile?teacher_id=eq.${encodeURIComponent(rawId)}&select=full_name,designation&limit=1`);
+    const profile = (Array.isArray(profileRows) && profileRows[0]) || {};
+    name = profile.full_name || rawId;
+    designation = profile.designation || null;
+  } else if (prefix === 'building') {
+    const rows = await sbInventory(`buildings?id=eq.${encodeURIComponent(rawId)}&select=name&limit=1`);
+    name = (Array.isArray(rows) && rows[0] && rows[0].name) || rawId;
+  } else if (prefix === 'floor') {
+    const rows = await sbInventory(`floors?id=eq.${encodeURIComponent(rawId)}&select=name,buildings(name)&limit=1`);
+    const f = Array.isArray(rows) && rows[0];
+    name = f ? `${f.name}${f.buildings ? ` (${f.buildings.name})` : ''}` : rawId;
+  } else if (prefix === 'room') {
+    const rows = await sbInventory(`rooms?id=eq.${encodeURIComponent(rawId)}&select=name,room_code&limit=1`);
+    const r = Array.isArray(rows) && rows[0];
+    name = r ? `${r.room_code ? r.room_code + ' — ' : ''}${r.name}` : rawId;
+  }
+
   const created = await sbInventory('consumers', 'POST', {
-    type: 'teacher',
-    reference_id: teacherId,
-    name: profile.full_name || teacherId,
-    designation: profile.designation || null,
+    type: prefix,
+    reference_id: rawId,
+    name,
+    designation,
     is_active: true,
   });
   if (created?.error) throw new Error(created.error);
   return created[0];
 }
 
-// committee -> its chairman, room/building -> whoever is assigned as its
-// distributor, teacher/staff -> their own reference_id (expected to hold
-// their real ccpc-teachers user_id). Student/others resolve to null.
+// Room/building/floor recipients need a real person accountable for
+// whatever's handed to that space — get-or-create the distributor_
+// assignments row for this holder, updating the assignee if a different
+// person was picked this time. Called only after a responsible_user_id has
+// already been confirmed present (see _distributeCreate).
+async function _upsertDistributorAssignment(holderType, holderId, assigneeUserId) {
+  const existing = await sbInventory(`distributor_assignments?holder_type=eq.${holderType}&holder_id=eq.${encodeURIComponent(holderId)}&select=id&limit=1`);
+  if (Array.isArray(existing) && existing.length) {
+    await sbInventory(`distributor_assignments?id=eq.${existing[0].id}`, 'PATCH', { assignee_user_id: assigneeUserId });
+  } else {
+    await sbInventory('distributor_assignments', 'POST', { holder_type: holderType, holder_id: holderId, assignee_user_id: assigneeUserId });
+  }
+}
+
+// committee -> its chairman, room/building/floor -> whoever is assigned as
+// its distributor, teacher/staff -> their own reference_id (expected to
+// hold their real ccpc-teachers user_id). Student/others resolve to null.
 async function _distResolveReceiverUserId(consumer) {
   if (consumer.type === 'committee') {
     const rows = await sbInventory(`committees?id=eq.${encodeURIComponent(consumer.reference_id)}&select=chairman_user_id`);
     return (Array.isArray(rows) && rows[0]?.chairman_user_id) || null;
   }
-  if (consumer.type === 'room' || consumer.type === 'building') {
+  if (consumer.type === 'room' || consumer.type === 'building' || consumer.type === 'floor') {
     const rows = await sbInventory(`distributor_assignments?holder_type=eq.${consumer.type}&holder_id=eq.${encodeURIComponent(consumer.reference_id)}&select=assignee_user_id&limit=1`);
     return (Array.isArray(rows) && rows[0]?.assignee_user_id) || null;
   }
@@ -529,7 +592,7 @@ async function _distributeCreate(payload) {
   }
 
   let consumer;
-  if (String(consumerId).startsWith('auto:')) {
+  if (String(consumerId).startsWith('auto:') || String(consumerId).startsWith('auto-')) {
     try { consumer = await _resolveAutoConsumer(String(consumerId)); }
     catch (e) { return NextResponse.json({ result: 'error', message: e.message }, { status: 500 }); }
   } else {
@@ -540,6 +603,21 @@ async function _distributeCreate(payload) {
     consumer = consumerRows[0];
   }
   if (!consumer) return NextResponse.json({ result: 'error', message: 'Recipient not found.' }, { status: 404 });
+
+  // A room/building/floor can't act on its own — someone has to actually be
+  // accountable for whatever's handed over to that space. If no one's
+  // assigned yet, the caller must supply responsible_user_id (the client
+  // only lets the admin skip this when an assignment already exists).
+  if (consumer.type === 'room' || consumer.type === 'building' || consumer.type === 'floor') {
+    const existingAssignment = await sbInventory(`distributor_assignments?holder_type=eq.${consumer.type}&holder_id=eq.${encodeURIComponent(consumer.reference_id)}&select=assignee_user_id&limit=1`);
+    const hasAssignment = Array.isArray(existingAssignment) && existingAssignment.length;
+    if (!payload.responsible_user_id && !hasAssignment) {
+      return NextResponse.json({ result: 'error', message: 'A responsible person must be assigned for this room/building/floor before distributing to it.' }, { status: 400 });
+    }
+    if (payload.responsible_user_id) {
+      await _upsertDistributorAssignment(consumer.type, consumer.reference_id, payload.responsible_user_id);
+    }
+  }
 
   // FIFO across Central Store's lots for this product — oldest purchase
   // first. Keep BOTH sort keys: id.asc is the tiebreaker when two lots
