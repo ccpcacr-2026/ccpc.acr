@@ -4522,6 +4522,14 @@
           <h2 class="text-2xl font-black text-slate-800 tracking-tight">Textbooks</h2>
           <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Official NCTB books, Class One to Nine-Ten — opens the official book page (Bangla/English/Madrasah PDF)</p>
         </div>
+        <div class="flex flex-wrap gap-2 mt-3">
+          <a href="https://nctb.gov.bd/pages/static-pages/695b97ffc4774958d7b70329" target="_blank" rel="noopener" class="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg px-3 py-1.5 text-[11px] font-bold hover:bg-emerald-100 transition-all">
+            <i data-lucide="landmark" class="h-3.5 w-3.5"></i> NCTB.gov.bd — Official 2026 Textbook List
+          </a>
+          <a href="https://nctb.gov.bd/pages/publications" target="_blank" rel="noopener" class="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg px-3 py-1.5 text-[11px] font-bold hover:bg-emerald-100 transition-all">
+            <i data-lucide="landmark" class="h-3.5 w-3.5"></i> NCTB.gov.bd — Official Publications &amp; Notices
+          </a>
+        </div>
         <div id="tbClassTabs" class="flex flex-wrap gap-2 my-5"></div>
         <div id="tbSubjectList" class="grid grid-cols-1 sm:grid-cols-2 gap-2"></div>
       </div>`;
