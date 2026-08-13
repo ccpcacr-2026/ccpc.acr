@@ -38,7 +38,7 @@ read via vision**, then transcribed by hand into the structured shape above.
 
 | Level | Document | Status | Notes |
 |---|---|---|---|
-| Primary (Class 1–5) | 2026 শিক্ষক সহায়িকা, per-class per-subject | **Source found**, not yet downloaded/read | See nctb.gov.bd/pages/static-pages/69afd52278d3473aba19414d → one link per class → one link per subject (Google Drive). Class One alone lists ~10 subjects. **Files are huge** — Class One Bangla TG is 188MB, almost certainly scanned images throughout. |
+| Primary (Class 1–5) | 2026 শিক্ষক সহায়িকা, per-class per-subject | **In progress** — Class One Mathematics: Chapters 1-2 of 18 done | See nctb.gov.bd/pages/static-pages/69afd52278d3473aba19414d → one link per class → one link per subject (Google Drive). Class One alone lists ~10 subjects. **Files are huge** — Class One Bangla TG is 188MB, Mathematics TG is 485MB (184 pages), almost certainly scanned images throughout. Google Drive's "can't scan for viruses" interstitial needs the confirm-token workaround (extract `confirm`/`uuid` fields from the warning page's form, then GET `https://drive.usercontent.google.com/download?id=...&export=download&confirm=...&uuid=...`) — the plain `uc?export=download` shortcut used earlier this session for smaller files doesn't work at this size. |
 | Primary (Class 1–5) | 2017 বার্ষিক পাঠ পরিকল্পনা, all subjects merged | Downloaded (188 pages), not yet read/transcribed | Local copy from this session's earlier work. Useful as a page-number/pacing cross-reference once the Teacher's Guide extraction is underway. |
 | Pre-Primary | 2026 শিক্ষক সহায়িকা | **Source found**, not yet opened | nctb.gov.bd/pages/static-pages/69afb878ed85d1024840b2ec |
 | Secondary (Class 6–10) | — | **Not yet found** | The combined 2026 "Pre-primary, Primary and Secondary" Teachers' Guide list page only actually lists Pre-Primary and Primary links — Secondary isn't published there yet (or lives elsewhere). First step when resuming: search nctb.gov.bd again for a secondary-specific 2026 Teacher's Guide, or fall back to the already-downloaded "মাধ্যমিক স্তরের শিক্ষাক্রম" curriculum/syllabus PDFs (2012 edition, downloaded this session) to check whether those go down to lesson-level granularity despite being framework/syllabus documents rather than a Teacher's Guide. |
@@ -96,10 +96,24 @@ been fetched yet:
 
 - [ ] Confirm/locate Secondary + Higher Secondary source documents
 - [ ] Pre-Primary — source opened, subjects enumerated
-- [ ] Class One — 10 subjects identified; 0 downloaded/transcribed
-- [ ] Class Two — subject list not yet fetched
-- [ ] Class Three — subject list not yet fetched
-- [ ] Class Four — subject list not yet fetched
-- [ ] Class Five — subject list not yet fetched
+- [~] Class One — 10 subjects identified
+  - [~] Mathematics (485MB, 184 pages, 18 chapters) — **Chapters 1-2 loaded into `lesson_curricula` (id 1, 2), 8 lessons total.** Chapters 3-18 remaining (see সূচিপত্র on rendered page index 6 of the downloaded PDF for the full chapter list/page ranges — TOC already read, just needs each chapter's lesson pages rendered+read+transcribed the same way as 1-2).
+  - [ ] Bangla, English, Social & Elementary Science, Physical & Mental Health, Arts, Islamic Studies, Hindu Religion, Christian Religion, Buddhist Religion — not started
+- [ ] Class Two — subject list not yet fetched (page link known: 69afb81aa52ffd47032d0757)
+- [ ] Class Three — subject list not yet fetched (page link known: 69afb842138848bf0fa5e79b)
+- [ ] Class Four — subject list not yet fetched (page link known: 69afb8a7e79e59e52d1be566)
+- [ ] Class Five — subject list not yet fetched (page link known: 69afb8d3a938e1f3ef6312d0)
 - [ ] Class Six–Eight — blocked on source discovery
 - [ ] Class Nine-Ten — blocked on source discovery
+
+### Verified working end-to-end
+
+Confirmed the full pipeline works correctly with real data: downloaded the
+Mathematics TG → rendered pages → read via vision → transcribed 2 chapters
+(8 lessons, with page numbers and learning outcomes) → inserted into
+`teacher.lesson_curricula` via direct Supabase REST POST → verified
+queryable back out. This data is now live — the Lesson Plan form's Chapter
+dropdown for Class One + Mathematics + Bangla Version shows these 2
+chapters today, with real checkbox lesson lists and auto-filled learning
+outcomes. The remaining work is purely repetition of this same proven
+process across many more chapters/subjects/classes.
