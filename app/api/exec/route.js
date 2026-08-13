@@ -535,12 +535,15 @@ ${reference ? `\n${reference}\nUse the textbook and page(s) above as the precise
 ${c.elaborate_summary ? `\nTeacher's Guide content for this lesson (pedagogical approach, activities, examples used — treat as ground truth, not a suggestion):\n${c.elaborate_summary}` : ''}
 ${c.textbook_context ? `\nStudent textbook page content for this lesson (the exact examples, numbers, exercises, and images printed on the referenced page(s) — treat as ground truth, not a suggestion):\n${c.textbook_context}` : ''}
 
+If — and only if — you are confident you know a real, specific, well-established educational YouTube video genuinely relevant to this exact topic (e.g. from a well-known educational channel), include its full URL as "youtube_video_url". The teacher will see an embedded preview of whatever URL you give before deciding to attach it, so a wrong or fabricated link is not harmful — it will simply fail to preview and get ignored — but do not put effort into guessing when you have no real candidate in mind; use null in that case rather than inventing a plausible-looking URL.
+
 Return ONLY valid JSON, no markdown fencing, no commentary, in exactly this shape:
 {
   "topic": "string",
   "learning_outcomes": "string",
   "teaching_aids": "string",
   "method": "string",
+  "youtube_video_url": "string or null",
   "phases": [
     {"phase": "Greetings", "teacher_activity": "string", "learner_activity": "string", "duration_minutes": number},
     {"phase": "Engagement", "teacher_activity": "string", "learner_activity": "string", "duration_minutes": number},
@@ -2744,7 +2747,7 @@ const handlers = {
   async getLessonPlans([callerId, scope, filters]) {
     if (!callerId) return { error: 'Not signed in.' };
     const f = filters || {};
-    let path = 'lesson_plans?select=id,class_name,subject,version,chapter,lesson_number,lesson_refs,topic,is_shared,created_by,forked_from_id,updated_at';
+    let path = 'lesson_plans?select=id,class_name,subject,version,chapter,lesson_number,lesson_refs,topic,is_shared,created_by,forked_from_id,updated_at,youtube_url';
     path += scope === 'shared'
       ? `&is_shared=eq.true&created_by=neq.${encodeURIComponent(callerId)}`
       : `&created_by=eq.${encodeURIComponent(callerId)}`;
@@ -2838,6 +2841,7 @@ const handlers = {
       method: p.method || null, learning_outcomes: p.learning_outcomes || null,
       phases: p.phases || null, self_reflection: p.self_reflection || null,
       is_shared: !!p.is_shared, source: p.source || 'web', lesson_refs: lessonRefs,
+      youtube_url: p.youtube_url || null,
       updated_at: new Date().toISOString(),
     };
 

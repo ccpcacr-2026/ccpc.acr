@@ -4246,6 +4246,7 @@
               <p class="text-xs text-slate-500 font-bold mt-0.5">${_escHtml(p.topic || 'Untitled topic')}${p.version ? ` · ${_escHtml(p.version)}` : ''}</p>
             </div>
             <div class="flex items-center gap-2 shrink-0">
+              ${p.youtube_url ? '<span title="Has a related video" class="px-2 py-0.5 bg-indigo-50 text-indigo-600 text-[9px] font-black uppercase rounded-full flex items-center gap-1"><i data-lucide=\'play-circle\' class=\'h-3 w-3\'></i>Video</span>' : ''}
               ${p.is_shared ? '<span class="px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[9px] font-black uppercase rounded-full">Shared</span>' : ''}
               ${p.forked_from_id ? '<span class="px-2 py-0.5 bg-amber-50 text-amber-600 text-[9px] font-black uppercase rounded-full">Adapted</span>' : ''}
             </div>
@@ -4334,6 +4335,12 @@
   // then left alone (the server only reads it on insert). Cleared whenever a
   // normal new/edit form opens so it can't leak into an unrelated later save.
   let _lpDuplicateSourceId = null;
+  // YouTube video attach flow: _lpYoutubeUrl is the saved/attached value (goes
+  // into the payload on save); _lpPendingYoutubeUrl is an AI suggestion shown
+  // as an embedded preview the teacher must explicitly Attach or Ignore —
+  // never auto-attached, since the AI can't verify the link is real.
+  let _lpYoutubeUrl = null;
+  let _lpPendingYoutubeUrl = null;
 
   function _openLessonPlanForm(id) {
     const myId = window.APP_USER && window.APP_USER.user_id;
@@ -4411,6 +4418,7 @@
           tr.querySelector('.lp-phase-duration').value = p.duration_minutes || '';
         });
       }
+      if (d.youtube_video_url && !_lpYoutubeUrl) { _lpPendingYoutubeUrl = d.youtube_video_url; _lpRenderYoutubeSection(); }
       showToast('Draft generated — review and edit before saving', 'success');
     }).withFailureHandler(() => {
       if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="sparkles" class="h-3.5 w-3.5"></i>Generate with AI'; lucide.createIcons(); }
@@ -4499,6 +4507,10 @@
               <input id="lpMethod" type="text" value="${_escHtml(v.method || '')}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mt-1">
             </div>
           </div>
+          <div>
+            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Related Video</label>
+            <div id="lpVideoSection" class="mt-1"></div>
+          </div>
         </div>
 
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 mt-4 overflow-x-auto">
@@ -4529,7 +4541,71 @@
         </div>
       </div>`;
     _lpInitChapterBlocks(v);
+    _lpYoutubeUrl = v.youtube_url || null;
+    _lpPendingYoutubeUrl = null;
+    _lpRenderYoutubeSection();
     lucide.createIcons();
+  }
+
+  function _lpYoutubeVideoId(url) {
+    const m = String(url || '').match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([a-zA-Z0-9_-]{6,})/);
+    return m ? m[1] : null;
+  }
+
+  function _lpRenderYoutubeSection() {
+    const host = document.getElementById('lpVideoSection');
+    if (!host) return;
+    if (_lpYoutubeUrl) {
+      const id = _lpYoutubeVideoId(_lpYoutubeUrl);
+      const qrSrc = 'https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=' + encodeURIComponent(_lpYoutubeUrl);
+      host.innerHTML = `
+        <div class="border border-emerald-200 bg-emerald-50 rounded-2xl p-3 flex flex-wrap gap-3 items-start">
+          ${id ? `<iframe class="rounded-xl shrink-0" width="200" height="113" src="https://www.youtube.com/embed/${id}" title="Related video" frameborder="0" allowfullscreen></iframe>` : ''}
+          <div class="flex flex-col items-center gap-1 shrink-0">
+            <img src="${qrSrc}" alt="QR code linking to the video" class="w-[90px] h-[90px] rounded-lg bg-white border border-emerald-200 p-1">
+            <span class="text-[9px] font-black text-emerald-700 uppercase tracking-widest">Scan to watch</span>
+          </div>
+          <div class="flex-1 min-w-[140px] space-y-1.5">
+            <p class="text-[10px] font-black text-emerald-700 uppercase tracking-widest">Video attached — QR code will show on this plan</p>
+            <a href="${_escHtml(_lpYoutubeUrl)}" target="_blank" rel="noopener" class="text-[10px] font-bold text-blue-600 hover:underline break-all">${_escHtml(_lpYoutubeUrl)}</a>
+            <button type="button" onclick="_lpRemoveYoutubeVideo()" class="block text-[10px] font-black text-red-500 uppercase tracking-widest hover:underline">Remove</button>
+          </div>
+        </div>`;
+    } else if (_lpPendingYoutubeUrl) {
+      const id = _lpYoutubeVideoId(_lpPendingYoutubeUrl);
+      host.innerHTML = `
+        <div class="border border-indigo-200 bg-indigo-50 rounded-2xl p-3 flex flex-wrap gap-3 items-start">
+          ${id
+            ? `<iframe class="rounded-xl shrink-0" width="200" height="113" src="https://www.youtube.com/embed/${id}" title="Suggested video preview" frameborder="0" allowfullscreen></iframe>`
+            : `<div class="w-[200px] h-[113px] shrink-0 rounded-xl bg-white border border-indigo-200 flex items-center justify-center text-[10px] font-bold text-slate-400 text-center px-2">Couldn't parse this as a YouTube link — check it plays before attaching</div>`}
+          <div class="flex-1 min-w-[140px] space-y-1.5">
+            <p class="text-[10px] font-black text-indigo-700 uppercase tracking-widest">AI-suggested video — check it's actually relevant before attaching</p>
+            <a href="${_escHtml(_lpPendingYoutubeUrl)}" target="_blank" rel="noopener" class="text-[10px] font-bold text-blue-600 hover:underline break-all">${_escHtml(_lpPendingYoutubeUrl)}</a>
+            <div class="flex gap-2 pt-1">
+              <button type="button" onclick="_lpAttachYoutubeVideo()" class="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-emerald-700">Attach</button>
+              <button type="button" onclick="_lpIgnoreYoutubeVideo()" class="px-3 py-1.5 bg-white border border-slate-200 text-slate-500 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-slate-50">Ignore</button>
+            </div>
+          </div>
+        </div>`;
+    } else {
+      host.innerHTML = `<p class="text-[10px] text-slate-400 font-bold">None yet — use "Generate with AI" to get a suggestion, if one exists for this topic.</p>`;
+    }
+  }
+
+  function _lpAttachYoutubeVideo() {
+    _lpYoutubeUrl = _lpPendingYoutubeUrl;
+    _lpPendingYoutubeUrl = null;
+    _lpRenderYoutubeSection();
+  }
+
+  function _lpIgnoreYoutubeVideo() {
+    _lpPendingYoutubeUrl = null;
+    _lpRenderYoutubeSection();
+  }
+
+  function _lpRemoveYoutubeVideo() {
+    _lpYoutubeUrl = null;
+    _lpRenderYoutubeSection();
   }
 
   function _lpRenderPhaseRows(phases) {
@@ -4560,6 +4636,7 @@
       time_minutes: Number(val('lpTimeMinutes')) || null, topic: val('lpTopic'),
       learning_outcomes: val('lpLearningOutcomes'), teaching_aids: val('lpTeachingAids'),
       method: val('lpMethod'), self_reflection: val('lpSelfReflection'), phases,
+      youtube_url: _lpYoutubeUrl || null,
       is_shared: !!(document.getElementById('lpIsShared') || {}).checked,
       forked_from_id: _lpDuplicateSourceId || null,
     };

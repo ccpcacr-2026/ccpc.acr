@@ -92,6 +92,7 @@ const RESERVED = [
   '_lpOnManualLessonInput','_lpToggleLessonNumber','_lpAddChapterBlock','_lpRemoveChapterBlock',
   'loadLessonPlanBulkImportView','_lpBulkDownloadTemplate','_lpBulkPreview','_lpBulkConfirmImport',
   '_lpGenerateWithAi','_saveAiActiveModel','_saveAiProviderKey','_clearAiProviderKey','_loadAiUsageLog',
+  '_lpAttachYoutubeVideo','_lpIgnoreYoutubeVideo','_lpRemoveYoutubeVideo',
   // inventory chain-of-custody
   '_invMarkNotifRead','_invOpenDistModal','_invCloseDistModal','_invSubmitDistribution',
   '_invRenderRecipientOptions','_invUpdateNotifyPreview',
