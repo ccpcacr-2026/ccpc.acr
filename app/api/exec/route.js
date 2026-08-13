@@ -481,6 +481,122 @@ async function _isCordOrAdmin(callerId) {
   return roles.some(r => ['Cord', 'Admin'].includes(r));
 }
 
+// Stricter than _isCordOrAdmin above — API keys are more sensitive than the
+// things Cord is normally trusted with, so this gates AI provider setup to
+// the top Admin role only, matching the client's adminOnly = role==='Admin'
+// gate on the Module Access / Profile Fields / Routine Settings panels.
+async function _isAdmin(callerId) {
+  if (!callerId) return false;
+  const users = await supabaseRequest(`app_users?user_id=eq.${encodeURIComponent(callerId)}&select=role`);
+  const role = Array.isArray(users) && users[0] ? users[0].role : '';
+  return String(role || '').split(',').map(r => r.trim()).includes('Admin');
+}
+
+// ── AI lesson-plan draft generation ─────────────────────────────────────────
+// Pluggable across providers so adding a new one later is just: write one
+// _callXxx function below, add its entry to AI_PROVIDERS/AI_PROVIDER_FN, add
+// its API key — the Super Admin dropdown and the client's "Generate" button
+// don't need to change. API keys are never returned to the client: they're
+// stored in system_settings under a key ('ai_provider_keys') that only the
+// handlers below ever read, separate from ai_model_settings (the active
+// model + enabled list, which IS safe to return — no secret material in it).
+// A provider's key can also come from an env var as a zero-UI-setup fallback
+// (checked only if nothing's stored in the DB for that provider).
+const AI_PROVIDERS = {
+  'claude-haiku': { label: 'Claude Haiku', envKey: 'ANTHROPIC_API_KEY' },
+  'gemini-flash': { label: 'Gemini Flash', envKey: 'GOOGLE_AI_API_KEY' },
+  'gpt-4o-mini':  { label: 'GPT-4o Mini',  envKey: 'OPENAI_API_KEY' },
+};
+
+async function _getAiProviderKeys() {
+  const rows = await supabaseRequest(`system_settings?key=eq.ai_provider_keys&select=value`);
+  return (Array.isArray(rows) && rows[0] && rows[0].value) || {};
+}
+
+async function _getAiProviderKey(provider) {
+  const stored = await _getAiProviderKeys();
+  const meta = AI_PROVIDERS[provider];
+  return (stored && stored[provider]) || (meta && process.env[meta.envKey]) || null;
+}
+
+function _lessonPlanDraftPrompt(ctx) {
+  const c = ctx || {};
+  const reference = [
+    c.book_url ? `Official textbook: ${c.book_url}` : '',
+    c.page_number ? `Page(s) covered by this lesson: ${c.page_number}` : '',
+  ].filter(Boolean).join('\n');
+  return `You are helping a Bangladeshi school teacher draft a lesson plan in the Bloom's Taxonomy + 5E Model format used by NCTB schools.
+Class: ${c.class_name || ''}
+Subject: ${c.subject || ''}
+Chapter: ${c.chapter || ''}
+Topic: ${c.topic || '(not given — infer a reasonable topic for this chapter)'}
+${c.learning_outcomes ? `Existing learning outcomes to build on: ${c.learning_outcomes}` : ''}
+${reference ? `\n${reference}\nUse the textbook and page(s) above as the precise source — align content, terminology, and (for Math/Physics/Chemistry) exact equations to what's actually on those pages rather than inventing generic content.` : ''}
+${c.elaborate_summary ? `\nElaborate lesson content to draft against (this is the actual textbook content for this lesson, including any equations — treat it as ground truth, not a suggestion):\n${c.elaborate_summary}` : ''}
+
+Return ONLY valid JSON, no markdown fencing, no commentary, in exactly this shape:
+{
+  "topic": "string",
+  "learning_outcomes": "string",
+  "teaching_aids": "string",
+  "method": "string",
+  "phases": [
+    {"phase": "Greetings", "teacher_activity": "string", "learner_activity": "string", "duration_minutes": number},
+    {"phase": "Engagement", "teacher_activity": "string", "learner_activity": "string", "duration_minutes": number},
+    {"phase": "Exploration", "teacher_activity": "string", "learner_activity": "string", "duration_minutes": number},
+    {"phase": "Explanation and Elaboration", "teacher_activity": "string", "learner_activity": "string", "duration_minutes": number},
+    {"phase": "Evaluation", "teacher_activity": "string", "learner_activity": "string", "duration_minutes": number},
+    {"phase": "Summarization", "teacher_activity": "string", "learner_activity": "string", "duration_minutes": number},
+    {"phase": "Assignment/Homework", "teacher_activity": "string", "learner_activity": "string", "duration_minutes": number},
+    {"phase": "Closing", "teacher_activity": "string", "learner_activity": "string", "duration_minutes": number}
+  ]
+}`;
+}
+
+function _parseAiJson(text) {
+  const cleaned = String(text || '').replace(/```json\s*|```\s*/g, '').trim();
+  return JSON.parse(cleaned);
+}
+
+async function _callClaudeHaiku(apiKey, prompt) {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 2000, messages: [{ role: 'user', content: prompt }] }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error((data && data.error && data.error.message) || 'Claude request failed');
+  return data.content[0].text;
+}
+
+async function _callGeminiFlash(apiKey, prompt) {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${encodeURIComponent(apiKey)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error((data && data.error && data.error.message) || 'Gemini request failed');
+  return data.candidates[0].content.parts[0].text;
+}
+
+async function _callGpt4oMini(apiKey, prompt) {
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }] }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error((data && data.error && data.error.message) || 'OpenAI request failed');
+  return data.choices[0].message.content;
+}
+
+const AI_PROVIDER_FN = {
+  'claude-haiku': _callClaudeHaiku,
+  'gemini-flash': _callGeminiFlash,
+  'gpt-4o-mini': _callGpt4oMini,
+};
+
 // A routine shortname (e.g. "SR") only means something against the "Logged in
 // info" sheet, which cross-references reliably to Supabase only by full_name
 // (its own "Teacher's ID"/email columns don't match app_users/users_profile
@@ -1302,6 +1418,59 @@ const handlers = {
   async updateSystemSettings([data]) {
     const payloads = Object.entries(data).map(([key, value]) => ({ key, value }));
     return supabaseRequest('system_settings?on_conflict=key', 'post', payloads);
+  },
+
+  // ── AI lesson-plan draft generation (Admin-only setup, any teacher can generate) ──
+  async getAiModelSettings([callerId]) {
+    if (!(await _isAdmin(callerId))) return { result: 'error', message: 'Admin access required.' };
+    const rows = await supabaseRequest(`system_settings?key=in.(ai_model_settings,ai_provider_keys)&select=key,value`);
+    const map = {};
+    if (Array.isArray(rows)) rows.forEach(r => { map[r.key] = r.value; });
+    const modelSettings = map.ai_model_settings || {};
+    const storedKeys = map.ai_provider_keys || {};
+    const providers = Object.entries(AI_PROVIDERS).map(([id, meta]) => ({
+      id, label: meta.label,
+      configured: !!(storedKeys[id] || process.env[meta.envKey]),
+      source: storedKeys[id] ? 'database' : (process.env[meta.envKey] ? 'env' : null),
+    }));
+    return { result: 'success', active: modelSettings.active || null, enabled: modelSettings.enabled || [], providers };
+  },
+
+  async saveAiModelSettings([callerId, settings]) {
+    if (!(await _isAdmin(callerId))) return { result: 'error', message: 'Admin access required.' };
+    const s = settings || {};
+    const value = { active: s.active || null, enabled: Array.isArray(s.enabled) ? s.enabled : [] };
+    const saved = await supabaseRequest('system_settings?on_conflict=key', 'post', [{ key: 'ai_model_settings', value }]);
+    if (saved?.error) return { result: 'error', message: saved.details || saved.error };
+    return { result: 'success' };
+  },
+
+  // apiKey === '' clears a stored key (falls back to the env var, if any).
+  async saveAiProviderKey([callerId, provider, apiKey]) {
+    if (!(await _isAdmin(callerId))) return { result: 'error', message: 'Admin access required.' };
+    if (!AI_PROVIDERS[provider]) return { result: 'error', message: 'Unknown provider.' };
+    const existing = await _getAiProviderKeys();
+    if (apiKey) existing[provider] = apiKey; else delete existing[provider];
+    const saved = await supabaseRequest('system_settings?on_conflict=key', 'post', [{ key: 'ai_provider_keys', value: existing }]);
+    if (saved?.error) return { result: 'error', message: saved.details || saved.error };
+    return { result: 'success' };
+  },
+
+  async generateLessonPlanDraft([callerId, context]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    const rows = await supabaseRequest(`system_settings?key=eq.ai_model_settings&select=value`);
+    const active = (Array.isArray(rows) && rows[0] && rows[0].value && rows[0].value.active) || null;
+    if (!active || !AI_PROVIDER_FN[active]) return { result: 'error', message: 'No AI model is set up yet — ask an Admin to configure one under Settings.' };
+    const apiKey = await _getAiProviderKey(active);
+    if (!apiKey) return { result: 'error', message: `No API key configured for ${(AI_PROVIDERS[active] || {}).label || active}.` };
+    try {
+      const prompt = _lessonPlanDraftPrompt(context);
+      const raw = await AI_PROVIDER_FN[active](apiKey, prompt);
+      const draft = _parseAiJson(raw);
+      return { result: 'success', draft };
+    } catch (err) {
+      return { result: 'error', message: 'AI generation failed: ' + (err.message || err) };
+    }
   },
 
   // ── COMMITTEES ──────────────────────────────────────────────────────────────

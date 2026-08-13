@@ -3148,6 +3148,7 @@
       ...(adminOnly ? [{ id: 'sys-modules', label: 'Module Access', icon: 'layout-grid' }] : []),
       ...(adminOnly ? [{ id: 'sys-profile-fields', label: 'Profile Privacy', icon: 'eye-off' }] : []),
       ...(adminOnly ? [{ id: 'sys-routine-settings', label: 'Routine Settings', icon: 'calendar-clock' }] : []),
+      ...(adminOnly ? [{ id: 'sys-ai-settings', label: 'AI Lesson Plans', icon: 'sparkles' }] : []),
     ];
     const firstTab = tabs[0].id;
 
@@ -3326,12 +3327,22 @@
           </div>
         </div>` : ''}
 
+        <!-- AI lesson-plan draft generator: active model + per-provider credentials -->
+        ${adminOnly ? `
+        <div id="sys-ai-settings" style="display:none;" class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5">
+          <p class="font-black text-slate-800 text-sm">AI Lesson Plan Draft Generator</p>
+          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Pick the active model and set up its API key here — teachers just click Generate, no setup on their end. Adding a new provider later only needs a developer change; this panel just plugs a key into whichever ones already exist.</p>
+          <div id="aiSettingsBody" class="space-y-4 mt-4">
+            <p class="text-center text-slate-400 text-xs font-black uppercase tracking-widest py-8">Loading…</p>
+          </div>
+        </div>` : ''}
+
       </div><!-- /scroll area -->
     </div>`;
 
     lucide.createIcons();
     _ensureStaffCache(() => loadUserData_forSystem());
-    if (adminOnly) { loadModuleAccessPanel(); loadProfileFieldVisibilityPanel(); loadRoutineSettingsPanel(); }
+    if (adminOnly) { loadModuleAccessPanel(); loadProfileFieldVisibilityPanel(); loadRoutineSettingsPanel(); loadAiSettingsPanel(); }
   }
 
   let _routineSettingsConfig = null;
@@ -3394,6 +3405,93 @@
     }).updateSystemSettings({ routine_section_config: cfg });
   }
 
+  // ── AI Lesson Plan Draft Generator settings ───────────────────────────────
+  // API keys never come back from the server (see getAiModelSettings on the
+  // exec route) — only per-provider {label, configured, source} flags, so
+  // this panel can show "which providers are ready" without ever holding the
+  // actual key material client-side.
+  let _aiSettings = { active: null, enabled: [], providers: [] };
+
+  function loadAiSettingsPanel() {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      _aiSettings = (res && res.result === 'success') ? res : { active: null, enabled: [], providers: [] };
+      renderAiSettingsPanel();
+    }).withFailureHandler(() => { _aiSettings = { active: null, enabled: [], providers: [] }; renderAiSettingsPanel(); }).getAiModelSettings(myId);
+  }
+
+  function renderAiSettingsPanel() {
+    const host = document.getElementById('aiSettingsBody');
+    if (!host) return;
+    const s = _aiSettings;
+    host.innerHTML = `
+      <div>
+        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Model</label>
+        <select id="aiActiveModel" class="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+          <option value="">-- None (Generate button hidden from teachers) --</option>
+          ${s.providers.filter(p => p.configured).map(p => `<option value="${p.id}" ${p.id === s.active ? 'selected' : ''}>${_escHtml(p.label)}</option>`).join('')}
+        </select>
+        <p class="text-[10px] text-slate-400 font-bold mt-1">Only providers with a key set below can be picked as active.</p>
+      </div>
+      <div class="space-y-3">
+        ${s.providers.map(p => `
+          <div class="border border-slate-200 rounded-2xl p-3">
+            <div class="flex items-center gap-2 flex-wrap">
+              <p class="font-black text-slate-700 text-xs flex-1 min-w-0">${_escHtml(p.label)}</p>
+              <span class="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full shrink-0 ${p.configured ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-400'}">${p.configured ? (p.source === 'env' ? 'Configured (env var)' : 'Configured') : 'Not set up'}</span>
+            </div>
+            <div class="flex gap-2 mt-2 flex-wrap">
+              <input type="password" class="ai-key-input flex-1 min-w-[160px] px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" data-provider="${p.id}" placeholder="${p.configured ? 'Enter a new key to replace it' : 'Paste API key'}" autocomplete="off">
+              <button type="button" onclick="_saveAiProviderKey('${p.id}')" class="px-3 py-2 bg-slate-800 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-black shrink-0">Save</button>
+              ${p.source === 'database' ? `<button type="button" onclick="_clearAiProviderKey('${p.id}')" class="px-3 py-2 border border-red-200 text-red-500 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-red-50 shrink-0">Clear</button>` : ''}
+            </div>
+          </div>`).join('')}
+      </div>
+      <button id="aiSettingsSaveBtn" onclick="_saveAiActiveModel()" class="px-5 py-2.5 bg-blue-600 text-white text-[10px] font-black rounded-xl hover:bg-black transition-all uppercase tracking-widest shadow-lg shadow-blue-500/20 flex items-center gap-2 w-fit">
+        <i data-lucide="save" class="h-3.5 w-3.5"></i> Save Active Model
+      </button>`;
+    lucide.createIcons();
+  }
+
+  function _saveAiActiveModel() {
+    const sel = document.getElementById('aiActiveModel');
+    const active = sel ? sel.value : '';
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const btn = document.getElementById('aiSettingsSaveBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    google.script.run.withSuccessHandler(res => {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="save" class="h-3.5 w-3.5"></i> Save Active Model'; lucide.createIcons(); }
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Save failed', 'error'); return; }
+      _aiSettings.active = active || null;
+      showToast('Active AI model saved');
+    }).withFailureHandler(() => {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="save" class="h-3.5 w-3.5"></i> Save Active Model'; lucide.createIcons(); }
+      showToast('Network error', 'error');
+    }).saveAiModelSettings(myId, { active: active || null, enabled: _aiSettings.providers.filter(p => p.configured).map(p => p.id) });
+  }
+
+  function _saveAiProviderKey(providerId) {
+    const input = document.querySelector(`.ai-key-input[data-provider="${providerId}"]`);
+    const key = input ? input.value.trim() : '';
+    if (!key) { showToast('Enter a key first', 'error'); return; }
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Save failed', 'error'); return; }
+      showToast('API key saved');
+      loadAiSettingsPanel();
+    }).withFailureHandler(() => showToast('Network error', 'error')).saveAiProviderKey(myId, providerId, key);
+  }
+
+  function _clearAiProviderKey(providerId) {
+    if (!confirm('Clear this stored API key? (Falls back to the environment variable, if one is set)')) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Clear failed', 'error'); return; }
+      showToast('API key cleared');
+      loadAiSettingsPanel();
+    }).withFailureHandler(() => showToast('Network error', 'error')).saveAiProviderKey(myId, providerId, '');
+  }
+
   function loadModuleAccessPanel() {
     const render = () => {
       const tbody = document.getElementById('moduleAccessBody');
@@ -3433,7 +3531,7 @@
   }
 
   function switchSysTab(tabId) {
-    const tabs = ['sys-users','sys-register','sys-modules','sys-profile-fields','sys-routine-settings'];
+    const tabs = ['sys-users','sys-register','sys-modules','sys-profile-fields','sys-routine-settings','sys-ai-settings'];
     tabs.forEach(id => {
       const panel = document.getElementById(id);
       const hdr   = document.getElementById(id + '-hdr');
@@ -4235,6 +4333,58 @@
     }).withFailureHandler(() => showToast('Network error', 'error')).getLessonPlan(myId, id);
   }
 
+  // Fills Topic/Learning Outcomes/Teaching Aids/Method/Phases from an AI
+  // draft, using whatever's already known: the exact official textbook link
+  // (resolved from NCTB_BOOKS by Class+Subject+Version) and, if the primary
+  // chapter has a matching curriculum breakdown with a checked lesson, that
+  // lesson's page number + elaborate summary — so the model drafts against
+  // real page/content instead of guessing generically. Always fills straight
+  // into the open form fields; nothing is saved until the teacher reviews
+  // and hits Save themselves.
+  function _lpGenerateWithAi() {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const className = _lpSelectVal('lpClass'), subject = _lpSelectVal('lpSubject'), version = _lpSelectVal('lpVersion');
+    const primaryBlock = _lpChapterBlocks[0] || { chapter: '', lessonNumbers: [], curricula: [] };
+    const chapter = primaryBlock.chapter || '';
+    if (!className || !subject || !chapter) { showToast('Pick Class, Subject, and Chapter first', 'error'); return; }
+
+    const subjectEntry = (NCTB_BOOKS[className] || []).find(([name]) => name === subject);
+    const bookUrl = subjectEntry ? ((/english/i.test(version) && subjectEntry[2]) ? subjectEntry[2] : subjectEntry[1]) : null;
+    const lecture = primaryBlock.curricula[0] && (primaryBlock.curricula[0].lectures || []).find(l => primaryBlock.lessonNumbers.includes(Number(l.lecture_number)));
+
+    const btn = document.getElementById('lpGenerateBtn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader-2" class="h-3.5 w-3.5 animate-spin"></i> Generating…'; lucide.createIcons(); }
+    google.script.run.withSuccessHandler(res => {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="sparkles" class="h-3.5 w-3.5"></i>Generate with AI'; lucide.createIcons(); }
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Generation failed', 'error'); return; }
+      const d = res.draft || {};
+      const setVal = (id, val) => { const el = document.getElementById(id); if (el && val != null) el.value = val; };
+      setVal('lpTopic', d.topic);
+      setVal('lpLearningOutcomes', d.learning_outcomes);
+      setVal('lpTeachingAids', d.teaching_aids);
+      setVal('lpMethod', d.method);
+      if (Array.isArray(d.phases)) {
+        const trs = document.querySelectorAll('#lpPhasesBody tr');
+        trs.forEach((tr, i) => {
+          const p = d.phases[i];
+          if (!p) return;
+          tr.querySelector('.lp-phase-teacher').value = p.teacher_activity || '';
+          tr.querySelector('.lp-phase-learner').value = p.learner_activity || '';
+          tr.querySelector('.lp-phase-duration').value = p.duration_minutes || '';
+        });
+      }
+      showToast('Draft generated — review and edit before saving', 'success');
+    }).withFailureHandler(() => {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="sparkles" class="h-3.5 w-3.5"></i>Generate with AI'; lucide.createIcons(); }
+      showToast('Network error', 'error');
+    }).generateLessonPlanDraft(myId, {
+      class_name: className, subject, chapter, version,
+      topic: _lpFormVal('lpTopic'), learning_outcomes: _lpFormVal('lpLearningOutcomes'),
+      book_url: bookUrl, page_number: lecture ? lecture.page_number : null,
+      elaborate_summary: lecture ? lecture.elaborate_summary : null,
+    });
+  }
+
   function _lpRenderForm(plan, isDuplicate) {
     const container = document.getElementById('view-container');
     if (!container) return;
@@ -4248,6 +4398,7 @@
         <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
           <button onclick="loadLessonPlanView()" class="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600">&larr; Back to Lesson Plans</button>
           <div class="flex gap-2">
+            <button id="lpGenerateBtn" onclick="_lpGenerateWithAi()" title="Fill Topic/Outcomes/Aids/Method/Phases from an AI draft — review and edit before saving" class="flex items-center gap-1.5 px-3 py-2.5 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-xl hover:bg-indigo-100 font-black text-[10px] uppercase tracking-widest"><i data-lucide="sparkles" class="h-3.5 w-3.5"></i>Generate with AI</button>
             ${(plan && !isDuplicate) ? `<button onclick="_lpDuplicatePlan(${plan.id})" title="Duplicate as a new plan" class="p-2.5 bg-white border border-slate-200 rounded-xl hover:bg-slate-50"><i data-lucide="copy" class="h-3.5 w-3.5"></i></button>` : ''}
             <button onclick="_lpDownloadTemplate()" title="Download Excel Template" class="p-2.5 bg-white border border-slate-200 rounded-xl hover:bg-slate-50"><i data-lucide="download" class="h-3.5 w-3.5"></i></button>
             <input type="file" id="lpExcelFile" accept=".xlsx,.xls" class="hidden" onchange="_lpHandleExcelUpload(event)">
@@ -4769,12 +4920,12 @@
       </div>`;
     document.body.appendChild(modal);
     const existingLectures = (existing && existing.lectures) || [];
-    if (existingLectures.length) existingLectures.forEach(l => _curAddLectureRow(l.lecture_number, l.topic, l.learning_outcome));
+    if (existingLectures.length) existingLectures.forEach(l => _curAddLectureRow(l.lecture_number, l.topic, l.learning_outcome, l.page_number, l.elaborate_summary));
     else _curAddLectureRow();
     lucide.createIcons();
   }
 
-  function _curAddLectureRow(lectureNumber, topic, learningOutcome) {
+  function _curAddLectureRow(lectureNumber, topic, learningOutcome, pageNumber, elaborateSummary) {
     const body = document.getElementById('curLecturesBody');
     if (!body) return;
     const n = body.children.length + 1;
@@ -4782,11 +4933,13 @@
     row.className = 'cur-lecture-row bg-white border border-slate-200 rounded-lg p-2 space-y-1.5';
     row.innerHTML = `
       <div class="flex gap-2">
-        <input type="number" min="1" class="cur-lecture-number w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" value="${lectureNumber != null ? _escHtml(lectureNumber) : n}">
+        <input type="number" min="1" class="cur-lecture-number w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" value="${lectureNumber != null ? _escHtml(lectureNumber) : n}" title="Lesson number">
         <input type="text" class="cur-lecture-topic flex-1 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" placeholder="Lesson topic" value="${topic ? _escHtml(topic) : ''}">
+        <input type="text" class="cur-lecture-page w-20 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" placeholder="Page(s)" value="${pageNumber ? _escHtml(pageNumber) : ''}" title="Textbook page number(s), e.g. 12 or 12-14">
         <button type="button" onclick="this.closest('.cur-lecture-row').remove()" class="p-1.5 text-red-400 hover:bg-red-50 rounded-lg shrink-0"><i data-lucide="x" class="h-3.5 w-3.5"></i></button>
       </div>
-      <input type="text" class="cur-lecture-outcome w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" placeholder="Learning outcome for this lesson (optional)" value="${learningOutcome ? _escHtml(learningOutcome) : ''}">`;
+      <input type="text" class="cur-lecture-outcome w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" placeholder="Learning outcome for this lesson (optional)" value="${learningOutcome ? _escHtml(learningOutcome) : ''}">
+      <textarea rows="2" class="cur-lecture-summary w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" placeholder="Elaborate lesson summary (optional) — the actual content/explanation for this lesson, including any equations for Math/Physics/Chemistry, so an AI generator can draft precisely against it">${elaborateSummary ? _escHtml(elaborateSummary) : ''}</textarea>`;
     body.appendChild(row);
     lucide.createIcons();
   }
@@ -4798,6 +4951,8 @@
       lecture_number: Number(row.querySelector('.cur-lecture-number').value) || null,
       topic: row.querySelector('.cur-lecture-topic').value.trim(),
       learning_outcome: row.querySelector('.cur-lecture-outcome').value.trim(),
+      page_number: row.querySelector('.cur-lecture-page').value.trim(),
+      elaborate_summary: row.querySelector('.cur-lecture-summary').value.trim(),
     })).filter(l => l.lecture_number);
     const payload = { class_name, subject, chapter, version: _lpFormVal('curVersion'), lectures, is_editable: !!(document.getElementById('curIsEditable') || {}).checked };
     const myId = window.APP_USER && window.APP_USER.user_id;
