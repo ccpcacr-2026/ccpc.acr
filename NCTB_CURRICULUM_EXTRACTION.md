@@ -115,7 +115,7 @@ been fetched yet:
 - [ ] Confirm/locate Secondary + Higher Secondary source documents
 - [ ] Pre-Primary — source opened, subjects enumerated
 - [~] Class One — 10 subjects identified
-  - [~] Mathematics (485MB, 184 pages, 18 chapters) — **Chapters 1-2 loaded into `lesson_curricula` (id 1, 2), 8 lessons total.** Chapters 3-18 remaining (see সূচিপত্র on rendered page index 6 of the downloaded PDF for the full chapter list/page ranges — TOC already read, just needs each chapter's lesson pages rendered+read+transcribed the same way as 1-2).
+  - [~] Mathematics (485MB, 184 pages, 18 chapters) — **Chapters 1-3 loaded into `lesson_curricula` (id 1-3), 24 lessons total, tagged `version: "English Version"` per CCPC's Nursery-Two rule.** Chapters 4-18 remaining (see সূচিপত্র on rendered page index 6 of the downloaded PDF for the full chapter list/page ranges — TOC already read, just needs each chapter's lesson pages rendered+read+transcribed the same way as 1-3). Chapter 3 alone had 16 lessons — chapter length varies a lot (chapters 1-2 had 4 each), pace accordingly.
   - [ ] Bangla, English, Social & Elementary Science, Physical & Mental Health, Arts, Islamic Studies, Hindu Religion, Christian Religion, Buddhist Religion — not started
 - [ ] Class Two — subject list not yet fetched (page link known: 69afb81aa52ffd47032d0757)
 - [ ] Class Three — subject list not yet fetched (page link known: 69afb842138848bf0fa5e79b)
