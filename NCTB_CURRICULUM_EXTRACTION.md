@@ -218,7 +218,18 @@ thread small regardless of how many chapters/subjects/classes remain.
     - **Unit 5 (Rhymes and Sounds) — COMPLETE, live as id 22, 8/8 sessions** (3 Lessons: Animal Sounds (3 sessions), Where Do You Live? (2 sessions), A Family Tree (3 sessions) — matches the pre-verified TOC map exactly; confirmed against the genuine "THE END" marker on TG printed page 172, immediately after Lesson 3 Session 03's closing). **Gotcha found and corrected**: the TG's own page citation for Lesson 3 ("Page: 92,93,94") is wrong — the Textbook's actual last content page is 92 (visually marked "The End" in place of a page number); Lesson 3's real printed content spans only pages 91-92 (Activity A family-member portraits on 91, Activity B family-tree diagram + Activity C draw-your-own-tree on 92). Lesson 3 Sessions 02-03 (TG's Activities D/E/F: a "Family" song and a group family-tree drawing task) have no further printed textbook pages to cite — reuses/extends page 92's material via audio/oral practice, transcribed faithfully as such rather than inventing new page content. `page_number` fields use the verified actual pages (91-92), not the TG's inflated citation. Both `elaborate_summary` (TG) and `textbook_context` (TB) populated for all 8. TG PDF pages read: 170-180 (printed pages 162-172, the book's final pages). TB PDF pages read: 90-97 (printed pages 86-92, plus back-cover pages confirming the book ends there).
     - **All three delegated units (3, 4, 5) now complete: ids 20/21/22, 23 sessions total.** Combined with Unit 1 (id 19, 9 sessions) and Unit 2 (handled by a separate parallel subagent), Class One English for Today extraction is now fully covered pending Unit 2's confirmation.
   - [ ] Bangla, Social & Elementary Science, Physical & Mental Health, Arts, Islamic Studies, Hindu Religion, Christian Religion, Buddhist Religion — not started
-- [ ] Class Two — subject list not yet fetched (page link known: 69afb81aa52ffd47032d0757)
+- [~] Class Two — subject list + Teacher's Guide links fetched (see `NCTB_TEXTBOOK_LINKS.md` / earlier in this file for TG links); Textbook links for Bangla/English/Math already in `NCTB_BOOKS`. **English for Today TOC already known** (user-supplied, source "english_compressed.pdf" — the 2026-edition student textbook), saving the "locate table of contents" step whenever this subject is picked up:
+  - Unit 1: Greetings, Introductions, and Farewells — 3 lessons (pages 1-4)
+  - Unit 2: The Alphabet, Words and Numbers — 13 lessons (pages 6-30)
+  - Unit 3: Commands, Instructions, and Requests — 3 lessons (pages 31-35)
+  - Unit 4: Asking and Answering Questions — 5 lessons (pages 36-41)
+  - Unit 5: Days of The Week — 6 lessons (pages 42-52)
+  - Unit 6: Let's Play with Sounds — 4 lessons (pages 55-61)
+  - Unit 7: Colours, Shapes, and Signs — 6 lessons (pages 63-72)
+  - Unit 8: My Family, Friends and I — 5 lessons (pages 75-83)
+  - Unit 9: Animals and Birds — 4 lessons (pages 84-91)
+  - Unit 10: Story Time — 2 lessons (pages 93-96)
+  (51 lessons total across 10 units — per-lesson topic/page only; still need the Teacher's Guide read alongside these Textbook pages for `learning_outcome`/`elaborate_summary`, same combined-pass method as everything else.)
 - [ ] Class Three — subject list not yet fetched (page link known: 69afb842138848bf0fa5e79b)
 - [ ] Class Four — subject list not yet fetched (page link known: 69afb8a7e79e59e52d1be566)
 - [ ] Class Five — subject list not yet fetched (page link known: 69afb8d3a938e1f3ef6312d0)
