@@ -1,66 +1,112 @@
-# NCTB Textbook PDF Links — All Classes, All Subjects
+# NCTB PDF Links — All Classes, All Subjects
 
-Official student Textbook PDFs, as already wired into `_src/app.js`'s `NCTB_BOOKS` map (used by the NCTB Books / Textbooks module and the Lesson Plan AI generator's book-reference resolution). Where two links are listed, the first is the Bangla edition and the second is the English edition of the same subject.
+Official NCTB PDFs: **Teacher's Guide** (the curriculum-extraction source — chapter/lesson breakdown, learning outcomes, teaching activities) and **Textbook** (the student book — as already wired into `_src/app.js`'s `NCTB_BOOKS` map, used by the NCTB Books module and the Lesson Plan AI generator's book-reference resolution). Where two Textbook links are listed, the first is the Bangla edition and the second is the English edition of the same subject.
+
+Teacher's Guide links are confirmed for **Classes One-Five (Primary)** and, separately, **Classes Six-Nine (Secondary)** — Class Ten's own Teacher's Guide page hasn't been located yet. **Important:** the Secondary Teacher's Guides use NCTB's newer curriculum structure (13 subjects per class: Bangla, English, Math, Science, History & Social Science, Digital Technology, Health Protection, Life & Livelihood, Arts & Culture, and four religion subjects) — this does **not** line up subject-for-subject with the older-curriculum Textbook links below (which have ~20 more granular subjects per class, e.g. separate Bangla Grammar/Composition books, ICT, Physical Education, Agriculture, Arabic, etc.). They're shown as separate tables per class rather than force-paired.
 
 ## Class One
 
-| Subject | Textbook link(s) |
-|---|---|
-| Bangla | https://drive.google.com/file/d/1hf-W5GVlAy3cHstFlozNBuE2oz7u9YXy/view |
-| English for Today | https://drive.google.com/file/d/1UX9fbOBUKrf3mMh6E0I-Gw2emoQV-XWy/view |
-| Mathematics | https://drive.google.com/file/d/1V5eBwsQYrG-6qajVZUwwetml5Oezl10r/view (Bangla) · https://drive.google.com/file/d/1D8QeLW7SZ2d7oPJM3TmQei9_bOEet2i5/view (English) |
+| Subject | Teacher's Guide | Textbook link(s) |
+|---|---|---|
+| Bangla | https://drive.google.com/file/d/1z82Lbbd5WgFBARNv3z2sdwMevU-sb1lh/view | https://drive.google.com/file/d/1hf-W5GVlAy3cHstFlozNBuE2oz7u9YXy/view |
+| English for Today | https://drive.google.com/file/d/1Mup_y0SbRjj0d9KTc0eVVPLCfN8rpKXF/view | https://drive.google.com/file/d/1UX9fbOBUKrf3mMh6E0I-Gw2emoQV-XWy/view |
+| Mathematics | https://drive.google.com/file/d/1TxCEvcPdfcsWQ96lIq_dm3zYTVSM9ut5/view | https://drive.google.com/file/d/1V5eBwsQYrG-6qajVZUwwetml5Oezl10r/view (Bangla) · https://drive.google.com/file/d/1D8QeLW7SZ2d7oPJM3TmQei9_bOEet2i5/view (English) |
+| Social Science and Elementary Science | https://drive.google.com/file/d/1Lhy-gp84hzFHuq5pLmffxTK_69I-Fp0n/view | — |
+| Physical and Mental Health | https://drive.google.com/file/d/1qlTd2xVkb74KXhuLKi39c6Z-tPSaB5Fa/view | — |
+| Arts | https://drive.google.com/file/d/13_ygYo8r-_2dfOL911iZr1h5kFH1AsUw/view | — |
+| Islamic Studies | https://drive.google.com/file/d/1N85-88foVrvRa0lUJ2iTIWREo7dilMvh/view | — |
+| Hindu Religion | https://drive.google.com/file/d/1j3qyb5acQMWC6VCFjDDjKG7urUllZ825/view | — |
+| Christian Religion | https://drive.google.com/file/d/1qplNgf_-kjC8q8WuHwlpr9jeFCMaTgYX/view | — |
+| Buddhist Religion | https://drive.google.com/file/d/1caMAZWYMC6_fE189_7cmR8dPWpce32Wp/view | — |
+
+*Also cached locally at `D:\NCTB books\Class One\English Version\` (Teacher's Guides for all 10 subjects, Textbooks for English and Bangla).*
 
 ## Class Two
 
-| Subject | Textbook link(s) |
-|---|---|
-| Bangla | https://drive.google.com/file/d/1XKPmmrgK1vVSjybgbzu_RZMCOVXqFHH3/view |
-| English for Today | https://drive.google.com/file/d/1timM9_-X87oqE-C5yCsV5kYf2JKydzEK/view |
-| Mathematics | https://drive.google.com/file/d/1QY1URkKhpoAqVTuPRaLHgBJZ7_3lGpyq/view (Bangla) · https://drive.google.com/file/d/1yofkAU1FjyoYcx2nZGEqhlnH4xbE9YHJ/view (English) |
+| Subject | Teacher's Guide | Textbook link(s) |
+|---|---|---|
+| Bangla | https://drive.google.com/file/d/1sZQJiVpOzjfAGnH8A0mWtOILiVXj6B1n/view | https://drive.google.com/file/d/1XKPmmrgK1vVSjybgbzu_RZMCOVXqFHH3/view |
+| English for Today | https://drive.google.com/file/d/1-4t31Op9AVuyGF4aBXfZakgS5Npdnfn_/view | https://drive.google.com/file/d/1timM9_-X87oqE-C5yCsV5kYf2JKydzEK/view |
+| Mathematics | https://drive.google.com/file/d/1pzPDiJKVNt-FKzqJVNG-p1WSkB1fLuqm/view | https://drive.google.com/file/d/1QY1URkKhpoAqVTuPRaLHgBJZ7_3lGpyq/view · https://drive.google.com/file/d/1yofkAU1FjyoYcx2nZGEqhlnH4xbE9YHJ/view |
+| Environment, Society & Science | https://drive.google.com/file/d/1ke3Edjmb7xWTh6TdAWJ3mMznS105fbTE/view | — |
+| Physical and Mental Health | https://drive.google.com/file/d/1Fi5hYKYQju_-Nuz5wlO5lcpUHcC-c8XM/view | — |
+| Arts | https://drive.google.com/file/d/1TEsgFfVkTJhLWVucBJAGzV6qeUHh54XS/view | — |
+| Islamic Studies | https://drive.google.com/file/d/102u2K4u--z3taZRj0AUyxUpN9THaF3vD/view | — |
+| Hindu Religion | https://drive.google.com/file/d/1HJLJImxxTR-bcHeUp4hImjUn_fso_e1h/view | — |
+| Christian Religion | https://drive.google.com/file/d/1FjI3_6IOU4FcvswOw5fzPawfwy_W6wCA/view | — |
+| Buddhist Religion | https://drive.google.com/file/d/1YuGeWli-4M2pwFRlsactU3ILjONQgoaL/view | — |
+
+*English for Today also cached locally at `D:\NCTB books\Class Two\English Version\` (Teacher's Guide + Textbook). A full unit/lesson table of contents for this subject is already documented in `NCTB_CURRICULUM_EXTRACTION.md`.*
 
 ## Class Three
 
-| Subject | Textbook link(s) |
-|---|---|
-| Bangla | https://drive.google.com/file/d/1Je1KylPoJBiYt-lW5qqaH8BszIk0VJVz/view |
-| English for Today | https://drive.google.com/file/d/1gy7q4njDpOKGULXzGQVvhq2ZGpZMOfif/view |
-| Mathematics | https://drive.google.com/file/d/1sd7ebdMkuU6Wv0BUgccqYV4UxpwUmTyC/view (Bangla) · https://drive.google.com/file/d/115wNAy7MFdjmux9UvW7YzCwTYe8-tF-n/view (English) |
-| Science | https://drive.google.com/file/d/1jn-X5lOgECnoypp29eYtYAw_DHZ9qhm6/view (Bangla) · https://drive.google.com/file/d/1Z_dMhkriUM96PjEHDbuWoZ6J6wHmzXFk/view (English) |
-| Bangladesh and Global Studies | https://drive.google.com/file/d/15XHREkEQf7PioxmaVo7fW-EWLRKYrDEw/view (Bangla) · https://drive.google.com/file/d/1WWn8zYXo56hGUYzl20_TJokOgr05ltig/view (English) |
-| Islamic Studies | https://drive.google.com/file/d/1KSegBPjHNygGuJJE77byNjBAv-HNvz9y/view (Bangla) · https://drive.google.com/file/d/1_guOxSH27DQo8TWnoe5d0oeoF69jROfT/view (English) |
-| Hindu Religion | https://drive.google.com/file/d/1MnUeQUpgNz83fslF3lCT-ttuWaPkrRs0/view (Bangla) · https://drive.google.com/file/d/1xSpVBi0VNZEqb1N1prIjqC945StT8Jvm/view (English) |
-| Buddhist Religion | https://drive.google.com/file/d/1hStfhnRzkyVi-LIJ65Z2XNn-Ul-2wfC2/view (Bangla) · https://drive.google.com/file/d/1hPTTEmTG2XqcwYNAkEOq6PG13ulQC6in/view (English) |
-| Christian Religion | https://drive.google.com/file/d/1g5celNzNGe0pLzfT28PWxCIEg1pmOg_Y/view (Bangla) · https://drive.google.com/file/d/1FoJO18h0TmwupjFBoLjAJlJW1gwYdoRn/view (English) |
+| Subject | Teacher's Guide | Textbook link(s) |
+|---|---|---|
+| Bangla | https://drive.google.com/file/d/1kXEZqsaPJ0GwAME3juy_B4KHHERipxZc/view | https://drive.google.com/file/d/1Je1KylPoJBiYt-lW5qqaH8BszIk0VJVz/view |
+| English for Today | https://drive.google.com/file/d/1E9jyzAn7sPH2Xz6VxPr5UVqNeCdObny2/view | https://drive.google.com/file/d/1gy7q4njDpOKGULXzGQVvhq2ZGpZMOfif/view |
+| Mathematics | https://drive.google.com/file/d/1HfGfQqwEV-32Yp6cosj5-j0DMVb-Krgt/view | https://drive.google.com/file/d/1sd7ebdMkuU6Wv0BUgccqYV4UxpwUmTyC/view · https://drive.google.com/file/d/115wNAy7MFdjmux9UvW7YzCwTYe8-tF-n/view |
+| Bangladesh and Global Studies | https://drive.google.com/file/d/1TOKiZpK_DMbxZeRBvkvMQUQxJr-9qZwE/view | https://drive.google.com/file/d/15XHREkEQf7PioxmaVo7fW-EWLRKYrDEw/view · https://drive.google.com/file/d/1WWn8zYXo56hGUYzl20_TJokOgr05ltig/view |
+| Physical and Mental Health | https://drive.google.com/file/d/1-Ulqh1bpiScmjTjdjo6ylRaKoBYr0iEt/view | — |
+| Arts | https://drive.google.com/file/d/1-KheXOQxRnb2_yRbvH9x8kdbxXn23uIy/view | — |
+| Islamic Studies | https://drive.google.com/file/d/1IkMOYlk_1zQl_HlpT4KhOAcdvb95HOLX/view | https://drive.google.com/file/d/1KSegBPjHNygGuJJE77byNjBAv-HNvz9y/view · https://drive.google.com/file/d/1_guOxSH27DQo8TWnoe5d0oeoF69jROfT/view |
+| Hindu Religion | https://drive.google.com/file/d/1ZBYmaclV16yttxLd1uzL0FGUPMZi5l9R/view | https://drive.google.com/file/d/1MnUeQUpgNz83fslF3lCT-ttuWaPkrRs0/view · https://drive.google.com/file/d/1xSpVBi0VNZEqb1N1prIjqC945StT8Jvm/view |
+| Christian Religion | https://drive.google.com/file/d/1iDGkRuByno3YF5g5AsnHPxftTUNdQccg/view | https://drive.google.com/file/d/1g5celNzNGe0pLzfT28PWxCIEg1pmOg_Y/view · https://drive.google.com/file/d/1FoJO18h0TmwupjFBoLjAJlJW1gwYdoRn/view |
+| Buddhist Religion | https://drive.google.com/file/d/1Oas568cYoAwEN9NwuppuFLXeXsz4jYm2/view | https://drive.google.com/file/d/1hStfhnRzkyVi-LIJ65Z2XNn-Ul-2wfC2/view · https://drive.google.com/file/d/1hPTTEmTG2XqcwYNAkEOq6PG13ulQC6in/view |
+| Science | https://drive.google.com/file/d/14EaojszIkJ14ozeprB1nelLm940yAkG9/view | https://drive.google.com/file/d/1jn-X5lOgECnoypp29eYtYAw_DHZ9qhm6/view · https://drive.google.com/file/d/1Z_dMhkriUM96PjEHDbuWoZ6J6wHmzXFk/view |
 
 ## Class Four
 
-| Subject | Textbook link(s) |
-|---|---|
-| Bangla | https://drive.google.com/file/d/1X5GZzzBUU7bPZU6k9cdY3FyPf7wkZgOI/view |
-| English for Today | https://drive.google.com/file/d/1uDrBEoEo2DNbVnTIrMTTqr4pTsaGml-4/view |
-| Mathematics | https://drive.google.com/file/d/1xF9mIw5rJce8_5D-lC6kepBms-ZwLxp6/view (Bangla) · https://drive.google.com/file/d/1ACMCZw6qi8cC-K8n7Q7Na7jiFEKHzmiY/view (English) |
-| Science | https://drive.google.com/file/d/1c4IxTVZLnNXnI1t2aCWSKWuHCxT988NL/view (Bangla) · https://drive.google.com/file/d/1ZZW1CKVkRWykvMTDeaVa5BP_PXbbOoHf/view (English) |
-| Bangladesh and Global Studies | https://drive.google.com/file/d/1WwAgcX-CxgYEZv9kmjDDW5M-qzSJFxa3/view (Bangla) · https://drive.google.com/file/d/1vy3VXo5sKbdgsnsXBcJKIm3vOi0XpR5w/view (English) |
-| Islamic Studies | https://drive.google.com/file/d/1sZupwNI7-P5rWtUlA0CYy28TxmHJXpZ2/view (Bangla) · https://drive.google.com/file/d/1xmARvGHyEiEr7GQtnyrVqhXVDfb_Y7mc/view (English) |
-| Hindu Religion | https://drive.google.com/file/d/1YWpeZDJccxTUQ2li1w-VgWOVIrH_xYVo/view (Bangla) · https://drive.google.com/file/d/1L_SsS_xzhGjTHedEJyB1oQCWXJrMkwS7/view (English) |
-| Buddhist Religion | https://drive.google.com/file/d/1JxBSAPEYJ2sS3KqSQLB6MJo7wR3mNjQw/view (Bangla) · https://drive.google.com/file/d/1rhuwqA0wqOkyyxj6OwV8qlyR6OHg848I/view (English) |
-| Christian Religion | https://drive.google.com/file/d/1TSukmeDPLFBuuQEf8GsEe77d4h7tVNrQ/view (Bangla) · https://drive.google.com/file/d/1xAk2RlKFAsk9BBfqDBzqJhA8c3GxMCFn/view (English) |
+| Subject | Teacher's Guide | Textbook link(s) |
+|---|---|---|
+| Bangla | https://drive.google.com/file/d/10CQ6qPlrjcLtRTuojnrLzn4rfNGDxn2-/view | https://drive.google.com/file/d/1X5GZzzBUU7bPZU6k9cdY3FyPf7wkZgOI/view |
+| English for Today | https://drive.google.com/file/d/14nw7TlTpro-z7tgLrn7lLP792L01C4Ud/view | https://drive.google.com/file/d/1uDrBEoEo2DNbVnTIrMTTqr4pTsaGml-4/view |
+| Mathematics | https://drive.google.com/file/d/1QSBISugTVNxECKKe9_RPq-ZrgvtRIO3L/view | https://drive.google.com/file/d/1xF9mIw5rJce8_5D-lC6kepBms-ZwLxp6/view · https://drive.google.com/file/d/1ACMCZw6qi8cC-K8n7Q7Na7jiFEKHzmiY/view |
+| Bangladesh and Global Studies | https://drive.google.com/file/d/1PWGb-sDdyPGNVYTqgafVulNfckgR-4o8/view | https://drive.google.com/file/d/1WwAgcX-CxgYEZv9kmjDDW5M-qzSJFxa3/view · https://drive.google.com/file/d/1vy3VXo5sKbdgsnsXBcJKIm3vOi0XpR5w/view |
+| Physical and Mental Health | https://drive.google.com/file/d/1gvpShh-eQcxjaU28Tc7vIqu97traewP_/view | — |
+| Arts | https://drive.google.com/file/d/1V9VJ-MLVGQYrHYqGhBf43GxPFGXVTNko/view | — |
+| Islamic Studies | https://drive.google.com/file/d/1lkLJfDtkOMz3WyfBF-beTHP7OcqFUIuj/view | https://drive.google.com/file/d/1sZupwNI7-P5rWtUlA0CYy28TxmHJXpZ2/view · https://drive.google.com/file/d/1xmARvGHyEiEr7GQtnyrVqhXVDfb_Y7mc/view |
+| Hindu Religion | https://drive.google.com/file/d/1HefX26JYDD-diT0bt-aTHBDS_hIMARNi/view | https://drive.google.com/file/d/1YWpeZDJccxTUQ2li1w-VgWOVIrH_xYVo/view · https://drive.google.com/file/d/1L_SsS_xzhGjTHedEJyB1oQCWXJrMkwS7/view |
+| Christian Religion | https://drive.google.com/file/d/19m32u8G0aF7tnX3VncOcHAeapHXRPsCU/view | https://drive.google.com/file/d/1TSukmeDPLFBuuQEf8GsEe77d4h7tVNrQ/view · https://drive.google.com/file/d/1xAk2RlKFAsk9BBfqDBzqJhA8c3GxMCFn/view |
+| Buddhist Religion | https://drive.google.com/file/d/1L7_z7xAN-swAk6sizCj8MG6SZ6kxEeCC/view | https://drive.google.com/file/d/1JxBSAPEYJ2sS3KqSQLB6MJo7wR3mNjQw/view · https://drive.google.com/file/d/1rhuwqA0wqOkyyxj6OwV8qlyR6OHg848I/view |
+| Science | https://drive.google.com/file/d/1GGin1JzFY9AXPvqdDOecwZb6zu8ZFUjS/view | https://drive.google.com/file/d/1c4IxTVZLnNXnI1t2aCWSKWuHCxT988NL/view · https://drive.google.com/file/d/1ZZW1CKVkRWykvMTDeaVa5BP_PXbbOoHf/view |
 
 ## Class Five
 
-| Subject | Textbook link(s) |
-|---|---|
-| Bangla | https://drive.google.com/file/d/1tl5r94UF_9NeFC9poSv5Fdv3pTF_Qr_g/view |
-| English for Today | https://drive.google.com/file/d/1zMTa3Xo26hByw7UJdAubIJlMg-jEZLMX/view |
-| Mathematics | https://drive.google.com/file/d/1H4X4rFWz2gnNHBdPfBUcBw-E0tuHpLLR/view (Bangla) · https://drive.google.com/file/d/1HjEGQQLJdkehaeSol_0P83KhhelWlWZm/view (English) |
-| Science | https://drive.google.com/file/d/14ejrQyTTMfy5JDPDcnPOcekBAn1b9Kdf/view (Bangla) · https://drive.google.com/file/d/1uxtq4cD70VUTyQxkcnOBvBYj2WpzX3sh/view (English) |
-| Bangladesh and Global Studies | https://drive.google.com/file/d/1GHzZDKLvGcS6M-13XtcPZu2nOsnfkVwN/view (Bangla) · https://drive.google.com/file/d/1SEHFKa4Kb_cue9o1cWQ_SVbYTrC-2Vma/view (English) |
-| Islamic Studies | https://drive.google.com/file/d/1SS08MLyximWuSMTPOph_NflIIMFR2OkV/view (Bangla) · https://drive.google.com/file/d/1mCvL6jWupWQAWIMzEWAkrVYjP8e50UGj/view (English) |
-| Hindu Religion | https://drive.google.com/file/d/1FjsZYJPhB4PeUyu_BXqubCBKSAdlp4Lp/view (Bangla) · https://drive.google.com/file/d/1Y74qy6zbzCzNMWhKxyfUbflPTvX7DOI-/view (English) |
-| Buddhist Religion | https://drive.google.com/file/d/1RypAhZAcSGOz88-2zhAMHVzbueMPbaiC/view (Bangla) · https://drive.google.com/file/d/1qsASAatkPTl0sRfKMhUTBmI71n6HcLhU/view (English) |
-| Christian Religion | https://drive.google.com/file/d/1JZQ7ZkTHdfG9WdRKtT06E3BQrLOKg42a/view (Bangla) · https://drive.google.com/file/d/1NAv4_y4ymUfQDLurRBDrmPSXEixOWavX/view (English) |
+| Subject | Teacher's Guide | Textbook link(s) |
+|---|---|---|
+| Bangla | https://drive.google.com/file/d/1BLEh5sgRwr3XnYsiS7QNnRdzm-9juRS3/view | https://drive.google.com/file/d/1tl5r94UF_9NeFC9poSv5Fdv3pTF_Qr_g/view |
+| English for Today | https://drive.google.com/file/d/19tk0j33f3dzlRk4QM7a9I10mtCvmvQKz/view | https://drive.google.com/file/d/1zMTa3Xo26hByw7UJdAubIJlMg-jEZLMX/view |
+| Mathematics | https://drive.google.com/file/d/1kx3y1zs-UXtEXr-dSlNBhbTgODMlKgyd/view | https://drive.google.com/file/d/1H4X4rFWz2gnNHBdPfBUcBw-E0tuHpLLR/view · https://drive.google.com/file/d/1HjEGQQLJdkehaeSol_0P83KhhelWlWZm/view |
+| Bangladesh and Global Studies | https://drive.google.com/file/d/1QeitjaNMjomWIqAvs7B5fn5ospDk0PQK/view | https://drive.google.com/file/d/1GHzZDKLvGcS6M-13XtcPZu2nOsnfkVwN/view · https://drive.google.com/file/d/1SEHFKa4Kb_cue9o1cWQ_SVbYTrC-2Vma/view |
+| Physical and Mental Health | https://drive.google.com/file/d/1Izm_Gm510ccNI5Pu8UtnzSSFho5mSOFG/view | — |
+| Arts | https://drive.google.com/file/d/1g875d8f2GAT_FgxfLNBxowSmAwABs1L1/view | — |
+| Islamic Studies | https://drive.google.com/file/d/1rmtr2B5or_5DFKlq4nU1xVrBrq8NBFde/view | https://drive.google.com/file/d/1SS08MLyximWuSMTPOph_NflIIMFR2OkV/view · https://drive.google.com/file/d/1mCvL6jWupWQAWIMzEWAkrVYjP8e50UGj/view |
+| Hindu Religion | https://drive.google.com/file/d/1iIjDz51iFw0QiT7NQCJB0HmghLZ-SsDU/view | https://drive.google.com/file/d/1FjsZYJPhB4PeUyu_BXqubCBKSAdlp4Lp/view · https://drive.google.com/file/d/1Y74qy6zbzCzNMWhKxyfUbflPTvX7DOI-/view |
+| Christian Religion | https://drive.google.com/file/d/1JnDiPO6H4Jfq4gQ3yfE24ngW0AaD8yGS/view | https://drive.google.com/file/d/1JZQ7ZkTHdfG9WdRKtT06E3BQrLOKg42a/view · https://drive.google.com/file/d/1NAv4_y4ymUfQDLurRBDrmPSXEixOWavX/view |
+| Buddhist Religion | https://drive.google.com/file/d/1-01lIb6-Mx79M-JSL-I9csRfjuUvp4ZT/view | https://drive.google.com/file/d/1RypAhZAcSGOz88-2zhAMHVzbueMPbaiC/view · https://drive.google.com/file/d/1qsASAatkPTl0sRfKMhUTBmI71n6HcLhU/view |
+| Science | https://drive.google.com/file/d/1Uwit34rDdfUOsynkw522MwFmgzagjoOM/view | https://drive.google.com/file/d/14ejrQyTTMfy5JDPDcnPOcekBAn1b9Kdf/view · https://drive.google.com/file/d/1uxtq4cD70VUTyQxkcnOBvBYj2WpzX3sh/view |
 
 ## Class Six
+
+**Teacher's Guide** (newer 2026 curriculum, 13 subjects):
+
+| Subject | Teacher's Guide |
+|---|---|
+| Bangla | https://drive.google.com/file/d/1q306s7-ag5iQFRKp9bXLbwIzH9lt9qRy/view |
+| English | https://drive.google.com/file/d/14L1uChr0cwOcJ5QqCiH-3LWHAI3TOV0s/view |
+| Mathematics | https://drive.google.com/file/d/1RDfJC8OUtyVylnvkxDDx069SWtxjumPm/view |
+| Science | https://drive.google.com/file/d/1o9WiehgGho0Hxen0oH0pyXEwuPV3WYUP/view |
+| History and Social Science | https://drive.google.com/file/d/1-6RZnmR3FrcvmUrckEwgguRU6O4yRu30/view |
+| Digital Technology | https://drive.google.com/file/d/1GdtMZx5IzEVPvhowvnau-20Vo1nKL1ME/view |
+| Health Protection | https://drive.google.com/file/d/1g5y0P0yDOPyZdcLSHn27RFgGww6usfQx/view |
+| Life and Livelihood | https://drive.google.com/file/d/15zwaC-8dtCdttbOJtgv76KKaEHGIfqV-/view |
+| Arts and Culture | https://drive.google.com/file/d/1qPDG6G9J-xBXDdPbUFIGXtjaLd1hTbZb/view |
+| Islamic Studies | https://drive.google.com/file/d/1da6QbVD2gqQZvt3QEMJVBVMaFD_vOd2I/view |
+| Hindu Religion | https://drive.google.com/file/d/1hY4_PMCByodrfD_ZDBmpc1U77A83IJoA/view |
+| Christian Religion | https://drive.google.com/file/d/1HWJj6Fxc5Uc5r20xJDTHEyVNCSizyYWU/view |
+| Buddhist Religion | https://drive.google.com/file/d/1ZWCQP5ec0QvJlGbBEHGjTljyMR788GFJ/view |
+
+**Textbook** (older curriculum structure — not yet reconciled with the list above):
 
 | Subject | Textbook link(s) |
 |---|---|
@@ -89,6 +135,26 @@ Official student Textbook PDFs, as already wired into `_src/app.js`'s `NCTB_BOOK
 
 ## Class Seven
 
+**Teacher's Guide** (newer 2026 curriculum, 13 subjects):
+
+| Subject | Teacher's Guide |
+|---|---|
+| Bangla | https://drive.google.com/file/d/10C3wpGoRx6HrjGI23OzoQ65Z-GrUiYBz/view |
+| English | https://drive.google.com/file/d/1V3EzHBVfPWCqjPxUjZXk8_X0puEjXcXl/view |
+| Mathematics | https://drive.google.com/file/d/1iMuiI3YscoOYWFcO4Ad13PkynXRBC4Tm/view |
+| Science | https://drive.google.com/file/d/1bqR9xvvMkbSNy4uSLZ6fkB5OoPvIY5Ec/view |
+| History and Social Science | https://drive.google.com/file/d/1c-NcsjK4QolRjNXJqpxI9JkutYJ75mvj/view |
+| Digital Technology | https://drive.google.com/file/d/1F_6yr-ZOGj6jyLStZKJmszNbmAGyHh1f/view |
+| Health Protection | https://drive.google.com/file/d/1Gij6umQv0YGx4vG4AY8HU8YtSaJFkDFq/view |
+| Life and Livelihood | https://drive.google.com/file/d/15Ye57isgEoU7MFGJ7WrGzh9D__eBs3Zz/view |
+| Arts and Culture | https://drive.google.com/file/d/1PMYB4gLyFqj-lsyAYFzJ6zuuUeLRud4E/view |
+| Islamic Studies | https://drive.google.com/file/d/1tUa0T89A673Qm_eBMab3RxasPH35FQkJ/view |
+| Hindu Religion | https://drive.google.com/file/d/1qMZakpmE5-mMX7eQPOSmN21xOARvcd9E/view |
+| Christian Religion | https://drive.google.com/file/d/1_kP_djQdRv32mxutxchRglkjzlKLUqik/view |
+| Buddhist Religion | https://drive.google.com/file/d/1Nkt87sthMi3Zo7LQ_X72XA36dYLbLpXe/view |
+
+**Textbook** (older curriculum structure — not yet reconciled with the list above):
+
 | Subject | Textbook link(s) |
 |---|---|
 | Bangla (Saptaborna) | https://drive.google.com/file/d/1ckEB1y0SGO10-pfmplYFbxEUlOAWZ6tx/view |
@@ -116,6 +182,26 @@ Official student Textbook PDFs, as already wired into `_src/app.js`'s `NCTB_BOOK
 
 ## Class Eight
 
+**Teacher's Guide** (newer 2026 curriculum, 13 subjects):
+
+| Subject | Teacher's Guide |
+|---|---|
+| Bangla | https://drive.google.com/file/d/1oJXp-7BiL4rK39STuyBcCRCFTD1VqJG6/view |
+| English | https://drive.google.com/file/d/1X6Z5L2Ipg6rkxDC8sAQOporUj0RbjUTY/view |
+| Mathematics | https://drive.google.com/file/d/1MBUzXPAl5JQ_iMjyhgz2euNiy-9A4dsM/view |
+| Science | https://drive.google.com/file/d/1DTxN_x2JRdyGFoGdJ2c4lB7NksU19WPx/view |
+| History and Social Science | https://drive.google.com/file/d/1eu-Gx-XBUxBKMUygIS_uiyMVvXo4eY1J/view |
+| Digital Technology | https://drive.google.com/file/d/15rDl1goY7s8ryhh-nLOofeLItFIQiAGE/view |
+| Health Protection | https://drive.google.com/file/d/1OQBv958mfxkXBb4ckaZh4dqwu5QGTuXv/view |
+| Life and Livelihood | https://drive.google.com/file/d/1n0vrZyijHGo2w0J4nFeQ3yT-JzbCpNSu/view |
+| Arts and Culture | https://drive.google.com/file/d/1sGUyjkiE0z9mBKOcn9PHvgDXnX2xe9t6/view |
+| Islamic Studies | https://drive.google.com/file/d/1lVZ5MBilZxqIDXYL2X_0cf-D3Y9VmJsv/view |
+| Hindu Religion | https://drive.google.com/file/d/1-Ik7oNghw7mR95AuqOx1nfLAp3Y9ZMQ9/view |
+| Christian Religion | https://drive.google.com/file/d/1j_6Rd1Dv3WdoEElGBlbGt_0ZeR3MEPA_/view |
+| Buddhist Religion | https://drive.google.com/file/d/1PVwv4FgdR5wxp5LNbxOWGVdEmfVpOH_8/view |
+
+**Textbook** (older curriculum structure — not yet reconciled with the list above):
+
 | Subject | Textbook link(s) |
 |---|---|
 | Bangla Shahitto Konika | https://drive.google.com/file/d/1CRDDFTH32XZoy78SrFQ3m8wUujbLeuFY/view |
@@ -142,6 +228,26 @@ Official student Textbook PDFs, as already wired into `_src/app.js`'s `NCTB_BOOK
 | Songit | https://drive.google.com/file/d/1_ASqZJZq6TXOEVYd1qATbZcH25S2AtfT/view |
 
 ## Class Nine-Ten
+
+**Teacher's Guide for Class Nine** (newer 2026 curriculum, 13 subjects — published as its own grade, not combined with Ten; **Class Ten's Teacher's Guide page hasn't been located yet**):
+
+| Subject | Teacher's Guide (Class Nine) |
+|---|---|
+| Bangla | https://drive.google.com/file/d/1JvTRuk49S_LdoISps7GoWP9Y2Hq0hqLY/view |
+| English | https://drive.google.com/file/d/1iRw34DzlSgyZIF14tUv3GJXqEjJcfC_B/view |
+| Mathematics | https://drive.google.com/file/d/17vcKemjxFJ7Y1twloSvQqYM5MdArPnD6/view |
+| Science | https://drive.google.com/file/d/1azgXUqYfVejVQaVq7vBdXALTcuYICFdC/view |
+| History and Social Science | https://drive.google.com/file/d/11hfYpuVdMCI73i-DqIb2L1e72_hqS3i6/view |
+| Digital Technology | https://drive.google.com/file/d/1DnUn6EbKAvTyz8xVBrU1Hgd364icxliX/view |
+| Health Protection | https://drive.google.com/file/d/15ToQBDcJL_hGaPe6fSLUQmJj0jWJ8sO-/view |
+| Life and Livelihood | https://drive.google.com/file/d/1DOX6cKSMdCeBqTttT4wOvDw0mbAN9YOU/view |
+| Arts and Culture | https://drive.google.com/file/d/13Mo4Xn2gq04byyqWgClgxVnQDtWxy5l7/view |
+| Islamic Studies | https://drive.google.com/file/d/1XgUqn6kjXlDHJblv6owGUoftdyyLkNRi/view |
+| Hindu Religion | https://drive.google.com/file/d/182NWuiXoFKqAtbDgrmI1GBvaDOo5whe4/view |
+| Christian Religion | https://drive.google.com/file/d/1O2U4MeD490ZslT1ns_WHbGAc1kM2xjTT/view |
+| Buddhist Religion | https://drive.google.com/file/d/1oDlLy2TduUB7gqc-sX2Jow9QZ57DKrHu/view |
+
+**Textbook** (older curriculum structure, combined Nine-Ten edition — not yet reconciled with the list above):
 
 | Subject | Textbook link(s) |
 |---|---|
@@ -181,4 +287,4 @@ Official student Textbook PDFs, as already wired into `_src/app.js`'s `NCTB_BOOK
 
 ---
 
-Source: `_src/app.js`'s `NCTB_BOOKS` map (already live in the app's NCTB Books module). Pre-Primary textbook links not yet located. For Teacher's Guide links (the curriculum-extraction source, confirmed for Classes One-Five only — not yet located for Six-Nine-Ten), see `NCTB_CURRICULUM_EXTRACTION.md` in this same directory.
+Sources: Teacher's Guide links from nctb.gov.bd's (and nctb.portal.gov.bd's) per-class Teacher's Guide list pages; Textbook links from `_src/app.js`'s `NCTB_BOOKS` map. Pre-Primary Teacher's Guide and Class Ten's own Teacher's Guide are not yet located — see `NCTB_CURRICULUM_EXTRACTION.md` for search status.
