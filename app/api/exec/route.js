@@ -613,6 +613,65 @@ Return ONLY valid JSON, no markdown fencing, no commentary, in exactly this shap
 }`;
 }
 
+// ── Non-AI translation (free Google Translate web endpoint, no API key) ───
+// Used by the Lesson Plan import's auto-translate flow — deliberately NOT
+// routed through this app's Admin-configured AI providers above, since that
+// requires an Admin to have set up a key and costs per call. This is plain
+// machine translation (same engine translate.google.com's web UI itself
+// calls), field-by-field, with a small concurrency cap so a chapter-sized
+// batch (~8 lessons) doesn't hammer the endpoint or the request all at once.
+
+async function _googleTranslateOne(text, targetLangCode) {
+  const s = String(text || '').trim();
+  if (!s) return '';
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(targetLangCode)}&dt=t&q=${encodeURIComponent(s)}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+  if (!res.ok) throw new Error('Translate request failed (' + res.status + ')');
+  const data = await res.json();
+  return Array.isArray(data) && Array.isArray(data[0]) ? data[0].map(seg => seg[0]).join('') : s;
+}
+
+// Runs `fn` over `items` with at most `limit` in flight at once — a minimal
+// concurrency pool since no queue/throttle library is otherwise used in
+// this codebase, just enough to avoid firing 100+ requests simultaneously.
+async function _mapWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+// Which text fields actually get translated on a lesson object — chapter/
+// topic/teaching_aids/method/learning_outcomes plus every phase's
+// teacher_activity/learner_activity. Deliberately excludes class_name and
+// subject (this app's existing convention keeps those in English even on
+// Bangla-medium rows — "Six" / "Science" — only the content changes
+// language) and the phase "name" itself (Greetings/Engagement/etc. stay
+// fixed English keys the rest of the app matches against by exact string).
+function _translatableFieldPaths(item) {
+  const paths = ['chapter', 'topic', 'teaching_aids', 'method', 'learning_outcomes'];
+  const phases = Array.isArray(item.phases) ? item.phases : [];
+  const phasePaths = [];
+  phases.forEach((_, i) => { phasePaths.push(`phases.${i}.teacher_activity`, `phases.${i}.learner_activity`); });
+  return [...paths, ...phasePaths];
+}
+
+function _getPath(obj, path) {
+  return path.split('.').reduce((o, k) => (o == null ? o : o[k]), obj);
+}
+function _setPath(obj, path, value) {
+  const keys = path.split('.');
+  let o = obj;
+  for (let i = 0; i < keys.length - 1; i++) o = o[keys[i]];
+  o[keys[keys.length - 1]] = value;
+}
+
 async function _logAiGeneration(userId, model, ctx, success, errorMessage) {
   try {
     await supabaseRequest('ai_generation_log', 'post', [{
@@ -1525,6 +1584,42 @@ const handlers = {
     const saved = await supabaseRequest('system_settings?on_conflict=key', 'post', [{ key: 'ai_provider_keys', value: existing }]);
     if (saved?.error) return { result: 'error', message: saved.details || saved.error };
     return { result: 'success' };
+  },
+
+  // Auto-translates a batch of already-parsed NotebookLM lesson objects to
+  // the other language via the free (no API key) Google Translate endpoint
+  // — see _googleTranslateOne above. Quality is plain machine translation,
+  // not NCTB-terminology-aware like the careful manual translations done
+  // elsewhere in this app — good enough for a fast side-by-side preview the
+  // teacher reviews before importing, not a substitute for one.
+  async translateLessonPlanBatch([callerId, items, targetVersion]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    const list = Array.isArray(items) ? items : [];
+    if (!list.length) return { result: 'error', message: 'Nothing to translate.' };
+    const targetLangCode = targetVersion === 'Bangla Version' ? 'bn' : 'en';
+
+    // Flatten every (item, field path) pair across the whole batch into one
+    // job list so the concurrency cap applies globally, not per-lesson.
+    const jobs = [];
+    const translated = list.map(item => JSON.parse(JSON.stringify(item)));
+    translated.forEach((item, itemIdx) => {
+      _translatableFieldPaths(item).forEach(path => {
+        const text = _getPath(item, path);
+        if (text) jobs.push({ itemIdx, path, text });
+      });
+    });
+
+    try {
+      await _mapWithConcurrency(jobs, 6, async job => {
+        const result = await _googleTranslateOne(job.text, targetLangCode);
+        _setPath(translated[job.itemIdx], job.path, result);
+      });
+    } catch (err) {
+      return { result: 'error', message: 'Translation failed: ' + (err.message || err) };
+    }
+
+    translated.forEach(item => { item.version = targetVersion; });
+    return { result: 'success', items: translated };
   },
 
   async generateLessonPlanDraft([callerId, context]) {

@@ -4288,7 +4288,7 @@ Work through the whole book and give me the complete JSON array covering every l
 
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 mt-4 space-y-3">
           <p class="text-sm font-black text-slate-800 uppercase tracking-widest">2. Paste the JSON</p>
-          <p class="text-xs text-slate-500 font-bold">Paste NotebookLM's reply into whichever side(s) you generated. Fill only one to import it alone, or run the prompt twice (English + Bangla prompt from step 1) and fill both to preview them side by side, lesson by lesson, and choose per-lesson (or all at once) which language(s) to actually import — no AI translation involved, this just compares what NotebookLM already gave you for each language.</p>
+          <p class="text-xs text-slate-500 font-bold">Paste NotebookLM's reply into whichever side(s) you generated. Fill only one to import it alone, fill both (English + Bangla prompt from step 1) to compare what NotebookLM gave you for each, or fill just one and hit "Auto-Translate" below — it detects which language you pasted and machine-translates it into the other side automatically, no AI setup or second NotebookLM run needed, so you get an instant side-by-side either way.</p>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <p class="text-[10px] font-black text-slate-400 uppercase mb-1">English Version JSON</p>
@@ -4299,7 +4299,10 @@ Work through the whole book and give me the complete JSON array covering every l
               <textarea id="lpJsonInputBn" rows="10" placeholder='[{"class_name":"Six","subject":"Science","version":"Bangla Version","chapter":"প্রথম অধ্যায়...","lesson_number":1,"topic":"...","...":"..."}]' class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xs focus:ring-2 focus:ring-blue-600 outline-none"></textarea>
             </div>
           </div>
-          <button onclick="_lpJsonPreview()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black">Parse &amp; Preview</button>
+          <div class="flex flex-wrap gap-2">
+            <button onclick="_lpJsonPreview()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black">Parse &amp; Preview</button>
+            <button id="lpJsonAutoTranslateBtn" onclick="_lpJsonAutoTranslate()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-white border border-slate-200 hover:bg-slate-50 flex items-center gap-1.5"><i data-lucide="languages" class="h-3.5 w-3.5"></i>Auto-Translate the Empty Side</button>
+          </div>
           <p id="lpJsonStatus" class="text-xs font-bold"></p>
         </div>
 
@@ -4432,6 +4435,78 @@ Work through the whole book and give me the complete JSON array covering every l
     const rows = _lpJsonBuildRows(items);
     const list = rows.map((row, i) => ({ row, errors: perLesson[i].errors, warnings: perLesson[i].warnings, selected: !perLesson[i].errors.length }));
     return { list, error: null };
+  }
+
+  // Bangla Unicode block is U+0980–U+09FF — checking a handful of items'
+  // topic/learning_outcomes text for any character in that range is enough
+  // to tell Bangla from English NotebookLM output without needing the
+  // (occasionally wrong or missing) "version" field.
+  function _lpDetectLang(items) {
+    const sample = items.slice(0, 5).map(it => `${it.topic || ''} ${it.learning_outcomes || ''}`).join(' ');
+    return /[ঀ-৿]/.test(sample) ? 'bn' : 'en';
+  }
+
+  // Detects which side is filled, machine-translates it (free Google
+  // Translate endpoint, server-side — see translateLessonPlanBatch in
+  // app/api/exec/route.js) into the other language in small chunks with a
+  // visible progress count, fills the empty textarea with the result, then
+  // runs the normal preview so it shows up paired side by side exactly like
+  // a manually-pasted second side would.
+  function _lpJsonAutoTranslate() {
+    const enRaw = document.getElementById('lpJsonInputEn').value.trim();
+    const bnRaw = document.getElementById('lpJsonInputBn').value.trim();
+    const status = document.getElementById('lpJsonStatus');
+    if (enRaw && bnRaw) { status.textContent = 'Both sides already have content — nothing to auto-translate.'; status.className = 'text-xs font-bold text-amber-600'; return; }
+    if (!enRaw && !bnRaw) { status.textContent = 'Paste one side\'s JSON first, then Auto-Translate.'; status.className = 'text-xs font-bold text-red-500'; return; }
+
+    const sourceRaw = enRaw || bnRaw;
+    let items;
+    try {
+      const parsed = _lpJsonParseInput(sourceRaw);
+      items = Array.isArray(parsed) ? parsed : [parsed];
+      if (!items.length) throw new Error('The pasted JSON is an empty array.');
+    } catch (err) {
+      status.textContent = err.message; status.className = 'text-xs font-bold text-red-500'; return;
+    }
+
+    const detectedLang = _lpDetectLang(items);
+    const targetVersion = detectedLang === 'bn' ? 'English Version' : 'Bangla Version';
+    const targetTextareaId = detectedLang === 'bn' ? 'lpJsonInputEn' : 'lpJsonInputBn';
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const btn = document.getElementById('lpJsonAutoTranslateBtn');
+    if (btn) btn.disabled = true;
+
+    const CHUNK_SIZE = 4;
+    const chunks = [];
+    for (let i = 0; i < items.length; i += CHUNK_SIZE) chunks.push(items.slice(i, i + CHUNK_SIZE));
+    const translatedChunks = [];
+
+    function runChunk(i) {
+      if (i >= chunks.length) {
+        document.getElementById(targetTextareaId).value = JSON.stringify(translatedChunks.flat(), null, 2);
+        if (btn) btn.disabled = false;
+        status.textContent = `Translated ${items.length} lesson(s) to ${targetVersion} — review below, then Parse & Preview.`;
+        status.className = 'text-xs font-bold text-emerald-600';
+        return;
+      }
+      status.textContent = `Translating batch ${i + 1}/${chunks.length}… (detected ${detectedLang === 'bn' ? 'Bangla' : 'English'} input)`;
+      status.className = 'text-xs font-bold text-slate-500';
+      google.script.run.withSuccessHandler(res => {
+        if (!res || res.result !== 'success') {
+          if (btn) btn.disabled = false;
+          status.textContent = (res && res.message) || 'Translation failed';
+          status.className = 'text-xs font-bold text-red-500';
+          return;
+        }
+        translatedChunks.push(res.items);
+        runChunk(i + 1);
+      }).withFailureHandler(() => {
+        if (btn) btn.disabled = false;
+        status.textContent = 'Network error during translation — already-translated batches were kept, retry to continue.';
+        status.className = 'text-xs font-bold text-red-500';
+      }).translateLessonPlanBatch(myId, chunks[i], targetVersion);
+    }
+    runChunk(0);
   }
 
   // Pairs the two sides up by position — the Nth lesson pasted on the
