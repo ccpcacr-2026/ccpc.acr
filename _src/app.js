@@ -4546,7 +4546,8 @@
           </div>
           <div>
             <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Topic</label>
-            <input id="lpTopic" type="text" value="${_escHtml(v.topic || '')}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mt-1">
+            <input id="lpTopic" type="text" list="lpTopicOptions" value="${_escHtml(v.topic || '')}" placeholder="Type, or pick from the selected chapter's lessons below" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mt-1">
+            <datalist id="lpTopicOptions"></datalist>
           </div>
           <div>
             <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Chapter &amp; Lesson(s) *</label>
@@ -5309,6 +5310,7 @@
     wrap.innerHTML = _lpChapterBlocks.map((b, i) => _lpChapterBlockHtml(b, i)).join('');
     lucide.createIcons();
     _lpChapterBlocks.forEach((b, i) => { if (b.chapter) _lpLoadLessonsForBlock(i); });
+    _lpRefreshTopicOptions();
   }
 
   function _lpChapterBlockHtml(block, idx) {
@@ -5364,11 +5366,27 @@
       block.curricula = (res && res.result === 'success') ? (res.curricula || []) : [];
       const w = document.getElementById('lpLessonWrap' + idx);
       if (w) w.innerHTML = _lpLessonPickerHtml(block, idx);
+      _lpRefreshTopicOptions();
     }).withFailureHandler(() => {
       block.loaded = true; block.curricula = [];
       const w = document.getElementById('lpLessonWrap' + idx);
       if (w) w.innerHTML = _lpLessonPickerHtml(block, idx);
+      _lpRefreshTopicOptions();
     }).getLessonCurricula(myId, filters);
+  }
+
+  // Populates the Topic field's suggestion dropdown (<datalist>) from every
+  // lecture in the currently selected chapter(s) — so "Topic" isn't just a
+  // blank box the teacher has to remember curriculum wording for; it can be
+  // picked straight from the same lesson breakdown the checkboxes use.
+  function _lpRefreshTopicOptions() {
+    const dl = document.getElementById('lpTopicOptions');
+    if (!dl) return;
+    const topics = new Set();
+    _lpChapterBlocks.forEach(block => {
+      (block.curricula[0] && block.curricula[0].lectures || []).forEach(l => { if (l.topic) topics.add(l.topic); });
+    });
+    dl.innerHTML = [...topics].map(t => `<option value="${_escHtml(t)}"></option>`).join('');
   }
 
   function _lpOnChapterSelect(idx, value) {
