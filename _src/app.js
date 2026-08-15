@@ -4342,6 +4342,38 @@
   let _lpYoutubeUrl = null;
   let _lpPendingYoutubeUrl = null;
 
+  // Two ways to look at an open lesson plan: 'print' (read-only A4 preview,
+  // default whenever an existing saved plan is opened) and 'table' (the
+  // editable 5E form, default for new/duplicated plans since there's nothing
+  // to preview until fields are filled in). Switching from table→print
+  // captures whatever's currently typed into the form so nothing unsaved is
+  // lost; switching print→table is always safe since print view has no inputs.
+  let _lpCurrentPlan = null;
+  let _lpCurrentIsDuplicate = false;
+  let _lpViewMode = 'table';
+
+  function _lpRenderCurrentView() {
+    if (_lpViewMode === 'print') _lpRenderPrintView(_lpCurrentPlan, _lpCurrentIsDuplicate);
+    else _lpRenderTableView(_lpCurrentPlan, _lpCurrentIsDuplicate);
+  }
+
+  function _lpSwitchView(mode) {
+    if (mode === _lpViewMode) return;
+    if (_lpViewMode === 'table' && document.getElementById('lpPhasesBody')) {
+      _lpCurrentPlan = Object.assign({}, _lpCurrentPlan, _lpCollectFormPayload());
+    }
+    _lpViewMode = mode;
+    _lpRenderCurrentView();
+  }
+
+  function _lpViewToggleHtml() {
+    return `
+      <div class="flex gap-1 mb-4 bg-slate-100 rounded-xl p-1 w-fit">
+        <button onclick="_lpSwitchView('print')" class="px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${_lpViewMode === 'print' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}">Print View</button>
+        <button onclick="_lpSwitchView('table')" class="px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${_lpViewMode === 'table' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}">Table View</button>
+      </div>`;
+  }
+
   function _openLessonPlanForm(id) {
     const myId = window.APP_USER && window.APP_USER.user_id;
     _lpDuplicateSourceId = null;
@@ -4433,6 +4465,13 @@
   }
 
   function _lpRenderForm(plan, isDuplicate) {
+    _lpCurrentPlan = plan || null;
+    _lpCurrentIsDuplicate = !!isDuplicate;
+    _lpViewMode = (plan && !isDuplicate) ? 'print' : 'table';
+    _lpRenderCurrentView();
+  }
+
+  function _lpRenderTableView(plan, isDuplicate) {
     const container = document.getElementById('view-container');
     if (!container) return;
     const myId = window.APP_USER && window.APP_USER.user_id;
@@ -4450,9 +4489,12 @@
             <button onclick="_lpDownloadTemplate()" title="Download Excel Template" class="p-2.5 bg-white border border-slate-200 rounded-xl hover:bg-slate-50"><i data-lucide="download" class="h-3.5 w-3.5"></i></button>
             <input type="file" id="lpExcelFile" accept=".xlsx,.xls" class="hidden" onchange="_lpHandleExcelUpload(event)">
             <button onclick="document.getElementById('lpExcelFile').click()" title="Upload Filled Excel" class="p-2.5 bg-white border border-slate-200 rounded-xl hover:bg-slate-50"><i data-lucide="upload" class="h-3.5 w-3.5"></i></button>
+            <button onclick="_lpPrintPlan()" title="Print / Export A4 Lesson Plan" class="p-2.5 bg-white border border-slate-200 rounded-xl hover:bg-slate-50"><i data-lucide="printer" class="h-3.5 w-3.5"></i></button>
             ${(plan && isOwner && !isDuplicate) ? `<button onclick="_deleteLessonPlanForm(${plan.id})" title="Delete" class="p-2.5 bg-white border border-red-200 text-red-500 rounded-xl hover:bg-red-50"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>` : ''}
           </div>
         </div>
+
+        ${_lpViewToggleHtml()}
 
         ${isDuplicate ? `
           <div class="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs font-bold text-blue-800 mb-4">
@@ -4609,13 +4651,20 @@
   }
 
   function _lpRenderPhaseRows(phases) {
-    return phases.map((p, i) => `
-      <tr class="border-t border-slate-100">
+    const html = phases.map((p, i) => `
+      <tr class="border-t border-slate-100 align-top">
         <td class="px-2 py-1.5 font-black text-slate-700 whitespace-nowrap">${_escHtml(p.phase || LESSON_PHASES[i] || '')}<input type="hidden" class="lp-phase-name" value="${_escHtml(p.phase || LESSON_PHASES[i] || '')}"></td>
-        <td class="px-2 py-1.5"><input type="text" class="lp-phase-teacher w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" value="${_escHtml(p.teacher_activity || '')}"></td>
-        <td class="px-2 py-1.5"><input type="text" class="lp-phase-learner w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" value="${_escHtml(p.learner_activity || '')}"></td>
+        <td class="px-2 py-1.5"><textarea rows="2" class="lp-phase-teacher lp-autogrow w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs resize-y" oninput="_lpAutoGrow(this)">${_escHtml(p.teacher_activity || '')}</textarea></td>
+        <td class="px-2 py-1.5"><textarea rows="2" class="lp-phase-learner lp-autogrow w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs resize-y" oninput="_lpAutoGrow(this)">${_escHtml(p.learner_activity || '')}</textarea></td>
         <td class="px-2 py-1.5"><input type="number" min="0" class="lp-phase-duration w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" value="${_escHtml(p.duration_minutes || '')}"></td>
       </tr>`).join('');
+    setTimeout(() => document.querySelectorAll('.lp-autogrow').forEach(_lpAutoGrow), 0);
+    return html;
+  }
+
+  function _lpAutoGrow(el) {
+    el.style.height = 'auto';
+    el.style.height = (el.scrollHeight + 2) + 'px';
   }
 
   function _lpCollectFormPayload() {
@@ -4640,6 +4689,163 @@
       is_shared: !!(document.getElementById('lpIsShared') || {}).checked,
       forked_from_id: _lpDuplicateSourceId || null,
     };
+  }
+
+  // =========================================================
+  //  PRINT / EXPORT — A4 LESSON PLAN (school template format)
+  // =========================================================
+  // Reads from the live table-view form when it's on screen (so edits not
+  // yet saved still show up), otherwise falls back to the last-loaded plan
+  // (used when already in read-only print view, where there's no form).
+  function _lpGetPrintPayload() {
+    if (_lpViewMode === 'table' && document.getElementById('lpPhasesBody')) return _lpCollectFormPayload();
+    return _lpCurrentPlan || {};
+  }
+
+  function _lpBuildPrintHtml(payload) {
+    const profile = window._loginProfile || {};
+    const chapterLine = (payload.lesson_refs || [])
+      .map(r => r.chapter + (r.lesson_numbers && r.lesson_numbers.length ? ' (Lesson ' + r.lesson_numbers.join(', ') + ')' : ''))
+      .join('; ');
+
+    const esc = (typeof _escHtml === 'function') ? _escHtml : (s => String(s == null ? '' : s));
+    const U = (val, w) => `<span class="uv${val ? ' has-val' : ''}"${w ? ' style="min-width:' + w + '"' : ''}>${esc(val || '')}</span>`;
+
+    const phaseLabels = {
+      'Greetings': 'Greetings',
+      'Engagement': 'Engagement Phase',
+      'Exploration': 'Exploration Phase',
+      'Explanation and Elaboration': 'Explanation and Elaboration (Lesson Presentation)',
+      'Evaluation': 'Evaluation',
+      'Summarization': 'Summarization',
+      'Assignment/Homework': 'Assignment/Homework',
+      'Closing': 'Declaration of next topic and conclusion of the class',
+    };
+
+    const phaseRows = (payload.phases || []).map(p => `
+      <tr>
+        <td class="ph-name">${esc(phaseLabels[p.phase] || p.phase || '')}</td>
+        <td>${esc(p.teacher_activity || '')}</td>
+        <td>${esc(p.learner_activity || '')}</td>
+        <td class="dur">${p.duration_minutes ? esc(p.duration_minutes) + ' min' : ''}</td>
+      </tr>`).join('');
+
+    const reflectionLines = (payload.self_reflection || '').trim();
+
+    const css = `
+      @page { size: A4 portrait; margin: 14mm 16mm; }
+      *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+      body{font-family:Arial,Helvetica,sans-serif;font-size:9.5pt;color:#000;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+      .page{min-height:269mm;}
+      .hdr{text-align:center;border-bottom:2pt solid #000;padding-bottom:6pt;margin-bottom:8pt;}
+      .hdr .main{font-size:13pt;font-weight:900;letter-spacing:.03em;}
+      .hdr .sub{font-size:9.5pt;font-weight:700;margin-top:3pt;}
+      .meta{display:grid;grid-template-columns:1fr 1fr;gap:4pt 16pt;margin-bottom:8pt;font-size:9.5pt;}
+      .meta .fi{display:flex;gap:4pt;}
+      .meta .lbl{font-weight:700;white-space:nowrap;}
+      .uv{border-bottom:1pt solid #000;display:inline-block;min-width:60pt;padding-bottom:1pt;flex:1;}
+      .uv.has-val{font-weight:600;}
+      .sec-title{font-size:9.5pt;font-weight:900;text-transform:uppercase;margin:8pt 0 3pt;border-bottom:1pt solid #999;padding-bottom:2pt;}
+      .lo-box{font-size:9pt;line-height:1.5;border:1pt solid #000;padding:6pt 8pt;min-height:24pt;white-space:pre-wrap;}
+      .gen-grid{display:grid;grid-template-columns:auto 1fr;gap:3pt 8pt;font-size:9pt;margin-top:2pt;}
+      .gen-grid .lbl{font-weight:700;white-space:nowrap;}
+      table{width:100%;border-collapse:collapse;font-size:8.3pt;margin-top:4pt;}
+      th{border:1pt solid #000;padding:4pt 5pt;font-weight:700;background:#eee;font-size:7.8pt;text-align:left;text-transform:uppercase;}
+      td{border:1pt solid #000;padding:4pt 5pt;vertical-align:top;line-height:1.35;}
+      td.ph-name{font-weight:700;white-space:nowrap;width:15%;}
+      td.dur{width:9%;text-align:center;white-space:nowrap;}
+      .refl{font-size:9pt;border:1pt solid #000;padding:6pt 8pt;margin-top:4pt;min-height:40pt;white-space:pre-wrap;line-height:1.6;}
+      .refl-default{color:#333;}
+      .footer-note{margin-top:10pt;font-size:7.5pt;color:#555;text-align:center;}
+      @media screen{body{padding:10mm;background:#f0f0f0;}
+      .page{background:#fff;padding:14mm 16mm;margin:0 auto;max-width:210mm;box-shadow:0 2px 8px rgba(0,0,0,.2);}}`;
+
+    const html = `
+      <div class="page">
+        <div class="hdr">
+          <div class="main">CHATTOGRAM CANTONMENT PUBLIC COLLEGE</div>
+          <div class="sub">LESSON PLAN &mdash; Combining Bloom's Taxonomy and the 5E Model</div>
+        </div>
+
+        <div class="meta">
+          <div class="fi"><span class="lbl">Name:</span> ${U(profile.full_name, '140pt')}</div>
+          <div class="fi"><span class="lbl">Department:</span> ${U(profile.school_college, '140pt')}</div>
+          <div class="fi"><span class="lbl">Class:</span> ${U(payload.class_name, '90pt')}</div>
+          <div class="fi"><span class="lbl">Subject:</span> ${U(payload.subject, '90pt')}</div>
+          <div class="fi"><span class="lbl">Version:</span> ${U(payload.version, '90pt')}</div>
+          <div class="fi"><span class="lbl">Time:</span> ${U(payload.time_minutes ? payload.time_minutes + ' minutes' : '', '90pt')}</div>
+        </div>
+        <div class="fi" style="margin-bottom:6pt;"><span class="lbl">Chapter &amp; Lesson(s):</span> ${U(chapterLine, '200pt')}</div>
+        <div class="fi" style="margin-bottom:6pt;"><span class="lbl">Topic:</span> ${U(payload.topic, '200pt')}</div>
+
+        <div class="sec-title">Learning Outcomes &mdash; After this class the students will be able to&hellip;</div>
+        <div class="lo-box">${esc(payload.learning_outcomes || '')}</div>
+
+        <div class="sec-title">General Class Management</div>
+        <div class="gen-grid">
+          <div class="lbl">Teaching Aids:</div><div>${esc(payload.teaching_aids || '')}</div>
+          <div class="lbl">Method:</div><div>${esc(payload.method || '')}</div>
+        </div>
+
+        <div class="sec-title">Lesson Phases</div>
+        <table>
+          <thead><tr><th>Phase</th><th>Teacher's Activity</th><th>Learner's Activity</th><th>Duration</th></tr></thead>
+          <tbody>${phaseRows}</tbody>
+        </table>
+
+        <div class="sec-title">Self-Reflection</div>
+        <div class="refl">${reflectionLines ? esc(reflectionLines) : `<span class="refl-default">1. What went well?&nbsp;&nbsp;&nbsp;2. What didn't?&nbsp;&nbsp;&nbsp;3. Any possible improvement (if any)</span>`}</div>
+
+        <div class="footer-note">Chattogram Cantonment Public College, Bayezid, Chattogram</div>
+      </div>`;
+
+    return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+      <title>Lesson Plan &mdash; ${esc(payload.topic || payload.subject || 'CCPC')}</title>
+      <style>${css}</style></head><body>${html}</body></html>`;
+  }
+
+  function _lpPrintPlan() {
+    const fullHtml = _lpBuildPrintHtml(_lpGetPrintPayload());
+    const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const win = window.open(url, '_blank', 'width=900,height=700');
+    if (!win) {
+      showToast('Popup blocked - please allow popups for this site and try again', 'error');
+      URL.revokeObjectURL(url);
+      return;
+    }
+    win.focus();
+    setTimeout(function() { win.print(); setTimeout(function() { URL.revokeObjectURL(url); }, 1000); }, 800);
+  }
+
+  function _lpRenderPrintView(plan, isDuplicate) {
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const isOwner = isDuplicate || !plan || plan.created_by === myId;
+    const fullHtml = _lpBuildPrintHtml(plan || {});
+
+    container.innerHTML = `
+      <div class="pt-4 max-w-4xl mx-auto pb-10">
+        <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+          <button onclick="loadLessonPlanView()" class="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600">&larr; Back to Lesson Plans</button>
+          <div class="flex gap-2">
+            ${(plan && plan.id && !isDuplicate) ? `<button onclick="_lpDuplicatePlan(${plan.id})" title="Duplicate as a new plan" class="p-2.5 bg-white border border-slate-200 rounded-xl hover:bg-slate-50"><i data-lucide="copy" class="h-3.5 w-3.5"></i></button>` : ''}
+            <button onclick="_lpPrintPlan()" title="Print / Export A4 PDF" class="flex items-center gap-1.5 px-3 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-black font-black text-[10px] uppercase tracking-widest"><i data-lucide="printer" class="h-3.5 w-3.5"></i>Print / Export</button>
+            ${(plan && plan.id && isOwner && !isDuplicate) ? `<button onclick="_deleteLessonPlanForm(${plan.id})" title="Delete" class="p-2.5 bg-white border border-red-200 text-red-500 rounded-xl hover:bg-red-50"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>` : ''}
+          </div>
+        </div>
+
+        ${_lpViewToggleHtml()}
+
+        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden" style="height:80vh;">
+          <iframe id="lpPrintFrame" title="Lesson plan preview" style="width:100%;height:100%;border:0;"></iframe>
+        </div>
+      </div>`;
+
+    const frame = document.getElementById('lpPrintFrame');
+    if (frame) frame.srcdoc = fullHtml;
+    lucide.createIcons();
   }
 
   function _saveLessonPlanForm() {
