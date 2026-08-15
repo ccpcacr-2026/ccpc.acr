@@ -4822,6 +4822,62 @@
     return code;
   }
 
+  // Deep, saturated colors on purpose — light/pastel tones wash out to near-
+  // nothing on a black-and-white printer (most staff-room printers), whereas
+  // dark solid fills with white text stay high-contrast in grayscale too.
+  // -webkit-print-color-adjust:exact keeps browsers from silently dropping
+  // these backgrounds when printing.
+  function _lpPrintCss(isBn) {
+    const bodyFont = isBn ? "'Noto Sans Bengali','Nirmala UI','Vrinda',Georgia,serif" : "Georgia,'Times New Roman',serif";
+    const uiFont = isBn ? "'Noto Sans Bengali','Nirmala UI','Vrinda',Arial,sans-serif" : "Arial,Helvetica,sans-serif";
+    return `
+      @page { size: A4 portrait; margin: 13mm 15mm; }
+      *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+      body{font-family:${uiFont};font-size:9.3pt;line-height:1.4;color:#111;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+      .page{min-height:271mm;position:relative;}
+
+      .hdr{background:#0b2545;color:#fff;text-align:center;padding:9pt 86pt 9pt 14pt;border-radius:3pt;margin-bottom:9pt;}
+      .hdr .main{font-family:${bodyFont};font-size:14.5pt;font-weight:700;letter-spacing:.02em;}
+      .hdr .sub{font-family:${uiFont};font-size:8.8pt;font-weight:700;margin-top:3pt;color:#cfe0ff;letter-spacing:.03em;}
+
+      .corner-box{position:absolute;top:0;right:0;display:flex;flex-direction:column;align-items:stretch;gap:4pt;}
+      .code-box{background:#7c2d12;color:#fff;border-radius:3pt;padding:4pt 9pt;text-align:center;min-width:74pt;}
+      .code-box .lbl{font-size:6.3pt;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#fbd5c6;}
+      .code-box .val{font-family:${uiFont};font-size:10pt;font-weight:900;margin-top:1pt;letter-spacing:.01em;}
+      .qr-box{text-align:center;border:1.5pt solid #0b2545;border-radius:3pt;padding:4pt;background:#fff;}
+      .qr-box img{width:64pt;height:64pt;display:block;margin:0 auto;}
+      .qr-box .cap{font-size:6pt;font-weight:700;color:#0b2545;margin-top:2pt;text-transform:uppercase;letter-spacing:.05em;}
+
+      .meta{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5pt 14pt;margin-bottom:9pt;font-size:9pt;background:#f2f6fc;border:1pt solid #cddaf0;border-radius:3pt;padding:7pt 10pt;}
+      .meta .fi{display:flex;gap:4pt;align-items:baseline;}
+      .meta .lbl{font-weight:700;white-space:nowrap;color:#0b2545;font-size:7.6pt;text-transform:uppercase;letter-spacing:.04em;}
+      .fi.wide{grid-column:1/-1;}
+      .uv{border-bottom:1pt solid #9fb3d1;display:inline-block;min-width:60pt;padding-bottom:1pt;flex:1;font-weight:600;}
+      .uv.has-val{color:#0b2545;}
+
+      .sec-title{font-family:${uiFont};font-size:9.3pt;font-weight:900;text-transform:uppercase;letter-spacing:.04em;color:#0b2545;margin:11pt 0 4pt;padding-left:7pt;border-left:4pt solid #065f46;}
+      .lo-box{font-size:9pt;line-height:1.55;border:1pt solid #cddaf0;border-left:4pt solid #065f46;border-radius:0 3pt 3pt 0;padding:7pt 9pt;min-height:24pt;white-space:pre-wrap;background:#fbfdff;}
+      .gen-grid{display:grid;grid-template-columns:auto 1fr;gap:4pt 10pt;font-size:9pt;margin-top:3pt;}
+      .gen-grid .lbl{font-weight:700;white-space:nowrap;color:#0b2545;}
+
+      table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:8.2pt;margin-top:5pt;}
+      th{border:1pt solid #0b2545;padding:5pt 6pt;font-weight:700;background:#0b2545;color:#fff;font-size:7.6pt;text-align:left;text-transform:uppercase;letter-spacing:.03em;word-wrap:break-word;}
+      td{border:1pt solid #b9c8e2;padding:5pt 6pt;vertical-align:top;line-height:1.4;word-wrap:break-word;overflow-wrap:break-word;}
+      tbody tr:nth-child(even) td{background:#f2f6fc;}
+      th:nth-child(1),td.ph-name{width:12%;}
+      th:nth-child(2),th:nth-child(3){width:37%;}
+      th:nth-child(4),td.dur{width:8%;}
+      td.ph-name{font-weight:700;color:#7c2d12;}
+      td.dur{text-align:center;white-space:nowrap;font-weight:700;color:#065f46;}
+
+      .refl{font-size:9pt;border:1pt solid #cddaf0;border-left:4pt solid #7c2d12;border-radius:0 3pt 3pt 0;padding:7pt 9pt;margin-top:5pt;min-height:38pt;white-space:pre-wrap;line-height:1.6;background:#fbfdff;}
+      .refl-default{color:#555;font-style:italic;}
+      .footer-note{margin-top:12pt;padding-top:5pt;border-top:1.5pt solid #0b2545;font-size:7.3pt;font-weight:700;color:#0b2545;text-align:center;letter-spacing:.03em;}
+
+      @media screen{body{padding:10mm;background:#e8edf5;}
+      .page{background:#fff;padding:13mm 15mm;margin:0 auto;max-width:210mm;box-shadow:0 3px 14px rgba(11,37,69,.18);border-radius:4pt;}}`;
+  }
+
   function _lpBuildPrintHtml(payload) {
     const profile = window._loginProfile || {};
     const isBn = /bangla/i.test(payload.version || '');
@@ -4847,43 +4903,7 @@
 
     const reflectionLines = (payload.self_reflection || '').trim();
 
-    const css = `
-      @page { size: A4 portrait; margin: 14mm 16mm; }
-      *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-      body{font-family:${isBn ? "'Noto Sans Bengali','Nirmala UI','Vrinda',Arial,sans-serif" : 'Arial,Helvetica,sans-serif'};font-size:9.5pt;color:#000;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
-      .page{min-height:269mm;position:relative;}
-      .corner-box{position:absolute;top:0;right:0;display:flex;flex-direction:column;align-items:center;gap:3pt;}
-      .code-box{border:1pt solid #000;padding:4pt 8pt;font-size:8pt;font-weight:700;text-align:center;min-width:70pt;}
-      .code-box .lbl{font-size:6.5pt;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#555;}
-      .code-box .val{font-size:9pt;font-weight:900;margin-top:1pt;}
-      .qr-box{text-align:center;}
-      .qr-box img{width:70pt;height:70pt;display:block;}
-      .qr-box .cap{font-size:6pt;font-weight:700;color:#555;margin-top:1pt;}
-      .hdr{text-align:center;border-bottom:2pt solid #000;padding-bottom:6pt;margin-bottom:8pt;}
-      .hdr .main{font-size:13pt;font-weight:900;letter-spacing:.03em;}
-      .hdr .sub{font-size:9.5pt;font-weight:700;margin-top:3pt;}
-      .meta{display:grid;grid-template-columns:1fr 1fr;gap:4pt 16pt;margin-bottom:8pt;font-size:9.5pt;}
-      .meta .fi{display:flex;gap:4pt;}
-      .meta .lbl{font-weight:700;white-space:nowrap;}
-      .uv{border-bottom:1pt solid #000;display:inline-block;min-width:60pt;padding-bottom:1pt;flex:1;}
-      .uv.has-val{font-weight:600;}
-      .sec-title{font-size:9.5pt;font-weight:900;text-transform:uppercase;margin:8pt 0 3pt;border-bottom:1pt solid #999;padding-bottom:2pt;}
-      .lo-box{font-size:9pt;line-height:1.5;border:1pt solid #000;padding:6pt 8pt;min-height:24pt;white-space:pre-wrap;}
-      .gen-grid{display:grid;grid-template-columns:auto 1fr;gap:3pt 8pt;font-size:9pt;margin-top:2pt;}
-      .gen-grid .lbl{font-weight:700;white-space:nowrap;}
-      table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:8.3pt;margin-top:4pt;}
-      th{border:1pt solid #000;padding:4pt 5pt;font-weight:700;background:#eee;font-size:7.8pt;text-align:left;text-transform:uppercase;word-wrap:break-word;}
-      td{border:1pt solid #000;padding:4pt 5pt;vertical-align:top;line-height:1.35;word-wrap:break-word;overflow-wrap:break-word;}
-      th:nth-child(1),td.ph-name{width:11%;}
-      th:nth-child(2),th:nth-child(3){width:38%;}
-      th:nth-child(4),td.dur{width:8%;}
-      td.ph-name{font-weight:700;}
-      td.dur{text-align:center;white-space:nowrap;}
-      .refl{font-size:9pt;border:1pt solid #000;padding:6pt 8pt;margin-top:4pt;min-height:40pt;white-space:pre-wrap;line-height:1.6;}
-      .refl-default{color:#333;}
-      .footer-note{margin-top:10pt;font-size:7.5pt;color:#555;text-align:center;}
-      @media screen{body{padding:10mm;background:#f0f0f0;}
-      .page{background:#fff;padding:14mm 16mm;margin:0 auto;max-width:210mm;box-shadow:0 2px 8px rgba(0,0,0,.2);}}`;
+    const css = _lpPrintCss(isBn);
 
     const html = `
       <div class="page">
@@ -4905,9 +4925,9 @@
           <div class="fi"><span class="lbl">${esc(L.period)}</span> ${U(payload.period, '90pt')}</div>
           <div class="fi"><span class="lbl">${esc(L.version)}</span> ${U(payload.version, '90pt')}</div>
           <div class="fi"><span class="lbl">${esc(L.time)}</span> ${U(payload.time_minutes ? payload.time_minutes + ' ' + L.minutes : '', '90pt')}</div>
+          <div class="fi wide"><span class="lbl">${esc(L.chapterLessons)}</span> ${U(chapterLine, '160pt')}</div>
+          <div class="fi wide"><span class="lbl">${esc(L.topic)}</span> ${U(payload.topic, '160pt')}</div>
         </div>
-        <div class="fi" style="margin-bottom:6pt;"><span class="lbl">${esc(L.chapterLessons)}</span> ${U(chapterLine, '200pt')}</div>
-        <div class="fi" style="margin-bottom:6pt;"><span class="lbl">${esc(L.topic)}</span> ${U(payload.topic, '200pt')}</div>
 
         <div class="sec-title">${esc(L.learningOutcomes)}</div>
         <div class="lo-box">${esc(payload.learning_outcomes || '')}</div>
