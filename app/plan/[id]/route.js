@@ -270,7 +270,7 @@ export async function GET(request, { params }) {
       </table>
 
       <div class="footer-note">${esc(L.footer)}</div>
-      ${(profile && profile.full_name) ? `<div class="footer-credit">${esc(L.preparedBy)} ${esc(profile.full_name)}</div>` : ''}
+      <div class="footer-credit">${(profile && profile.full_name) ? esc(L.preparedBy) + ' ' + esc(profile.full_name) + ' &middot; ' : ''}&copy; CCPC, ${new Date().getFullYear()}</div>
     </div>
     ${autoFitScript(dims.contentHeightMm)}
     </body></html>`;
