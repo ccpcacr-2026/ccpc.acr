@@ -4702,32 +4702,80 @@
     return _lpCurrentPlan || {};
   }
 
+  // Label sets for the two print-view languages. Which one is used is decided
+  // purely by the plan's own `version` field ("Bangla Version" vs "English
+  // Version") — never by app UI language — so a Bangla-version plan always
+  // prints in Bangla and an English-version plan always prints in English.
+  const _LP_PRINT_LABELS = {
+    en: {
+      college: 'CHATTOGRAM CANTONMENT PUBLIC COLLEGE',
+      subtitle: "LESSON PLAN — Combining Bloom's Taxonomy and the 5E Model",
+      name: 'Name:', department: 'Department:', class: 'Class:', subject: 'Subject:',
+      version: 'Version:', time: 'Time:', minutes: 'minutes',
+      chapterLessons: 'Chapter & Lesson(s):', topic: 'Topic:',
+      lessonWord: 'Lesson',
+      learningOutcomes: 'Learning Outcomes — After this class the students will be able to…',
+      generalMgmt: 'General Class Management', teachingAids: 'Teaching Aids:', method: 'Method:',
+      lessonPhases: 'Lesson Phases', thPhase: 'Phase', thTeacher: "Teacher's Activity",
+      thLearner: "Learner's Activity", thDuration: 'Duration', min: 'min',
+      selfReflection: 'Self-Reflection',
+      reflDefault: "1. What went well?&nbsp;&nbsp;&nbsp;2. What didn't?&nbsp;&nbsp;&nbsp;3. Any possible improvement (if any)",
+      footer: 'Chattogram Cantonment Public College, Bayezid, Chattogram',
+      phases: {
+        'Greetings': 'Greetings',
+        'Engagement': 'Engagement Phase',
+        'Exploration': 'Exploration Phase',
+        'Explanation and Elaboration': 'Explanation and Elaboration (Lesson Presentation)',
+        'Evaluation': 'Evaluation',
+        'Summarization': 'Summarization',
+        'Assignment/Homework': 'Assignment/Homework',
+        'Closing': 'Declaration of next topic and conclusion of the class',
+      },
+    },
+    bn: {
+      college: 'চট্টগ্রাম ক্যান্টনমেন্ট পাবলিক কলেজ',
+      subtitle: 'পাঠ পরিকল্পনা — ব্লুমস ট্যাক্সোনমি ও 5E মডেলের সমন্বয়ে',
+      name: 'নাম:', department: 'বিভাগ:', class: 'শ্রেণি:', subject: 'বিষয়:',
+      version: 'ভার্সন:', time: 'সময়:', minutes: 'মিনিট',
+      chapterLessons: 'অধ্যায় ও পাঠ:', topic: 'আলোচ্য বিষয়:',
+      lessonWord: 'পাঠ',
+      learningOutcomes: 'শেখার ফলাফল — এই পাঠ শেষে শিক্ষার্থীরা যা পারবে',
+      generalMgmt: 'সাধারণ শ্রেণি ব্যবস্থাপনা', teachingAids: 'শিক্ষা উপকরণ:', method: 'পদ্ধতি:',
+      lessonPhases: 'পাঠের ধাপসমূহ', thPhase: 'ধাপ', thTeacher: 'শিক্ষকের কার্যক্রম',
+      thLearner: 'শিক্ষার্থীর কার্যক্রম', thDuration: 'সময়কাল', min: 'মিনিট',
+      selfReflection: 'আত্ম-পর্যালোচনা',
+      reflDefault: '১. কতটা ভালো হলো?&nbsp;&nbsp;&nbsp;২. কতটা খারাপ হলো?&nbsp;&nbsp;&nbsp;৩. উন্নতির সম্ভাবনা আছে কিনা (যদি থাকে)',
+      footer: 'চট্টগ্রাম ক্যান্টনমেন্ট পাবলিক কলেজ, বায়েজিদ, চট্টগ্রাম',
+      phases: {
+        'Greetings': 'শুভেচ্ছা বিনিময়',
+        'Engagement': 'সম্পৃক্তকরণ পর্যায়',
+        'Exploration': 'অনুসন্ধান পর্যায়',
+        'Explanation and Elaboration': 'ব্যাখ্যা ও বিস্তারণ (পাঠ উপস্থাপন)',
+        'Evaluation': 'মূল্যায়ন',
+        'Summarization': 'সারসংক্ষেপ',
+        'Assignment/Homework': 'এসাইনমেন্ট/বাড়ির কাজ',
+        'Closing': 'পরবর্তী পাঠ ঘোষণা ও ক্লাস সমাপ্তি',
+      },
+    },
+  };
+
   function _lpBuildPrintHtml(payload) {
     const profile = window._loginProfile || {};
+    const isBn = /bangla/i.test(payload.version || '');
+    const L = isBn ? _LP_PRINT_LABELS.bn : _LP_PRINT_LABELS.en;
     const chapterLine = (payload.lesson_refs || [])
-      .map(r => r.chapter + (r.lesson_numbers && r.lesson_numbers.length ? ' (Lesson ' + r.lesson_numbers.join(', ') + ')' : ''))
+      .map(r => r.chapter + (r.lesson_numbers && r.lesson_numbers.length ? ' (' + L.lessonWord + ' ' + r.lesson_numbers.join(', ') + ')' : ''))
       .join('; ');
 
     const esc = (typeof _escHtml === 'function') ? _escHtml : (s => String(s == null ? '' : s));
     const U = (val, w) => `<span class="uv${val ? ' has-val' : ''}"${w ? ' style="min-width:' + w + '"' : ''}>${esc(val || '')}</span>`;
 
-    const phaseLabels = {
-      'Greetings': 'Greetings',
-      'Engagement': 'Engagement Phase',
-      'Exploration': 'Exploration Phase',
-      'Explanation and Elaboration': 'Explanation and Elaboration (Lesson Presentation)',
-      'Evaluation': 'Evaluation',
-      'Summarization': 'Summarization',
-      'Assignment/Homework': 'Assignment/Homework',
-      'Closing': 'Declaration of next topic and conclusion of the class',
-    };
-
     const phaseRows = (payload.phases || []).map(p => `
       <tr>
-        <td class="ph-name">${esc(phaseLabels[p.phase] || p.phase || '')}</td>
+        <td class="ph-name">${esc(L.phases[p.phase] || p.phase || '')}</td>
         <td>${esc(p.teacher_activity || '')}</td>
         <td>${esc(p.learner_activity || '')}</td>
-        <td class="dur">${p.duration_minutes ? esc(p.duration_minutes) + ' min' : ''}</td>
+        <td class="dur">${p.duration_minutes ? esc(p.duration_minutes) + ' ' + L.min : ''}</td>
       </tr>`).join('');
 
     const reflectionLines = (payload.self_reflection || '').trim();
@@ -4735,7 +4783,7 @@
     const css = `
       @page { size: A4 portrait; margin: 14mm 16mm; }
       *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-      body{font-family:Arial,Helvetica,sans-serif;font-size:9.5pt;color:#000;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+      body{font-family:${isBn ? "'Noto Sans Bengali','Nirmala UI','Vrinda',Arial,sans-serif" : 'Arial,Helvetica,sans-serif'};font-size:9.5pt;color:#000;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
       .page{min-height:269mm;}
       .hdr{text-align:center;border-bottom:2pt solid #000;padding-bottom:6pt;margin-bottom:8pt;}
       .hdr .main{font-size:13pt;font-weight:900;letter-spacing:.03em;}
@@ -4749,11 +4797,14 @@
       .lo-box{font-size:9pt;line-height:1.5;border:1pt solid #000;padding:6pt 8pt;min-height:24pt;white-space:pre-wrap;}
       .gen-grid{display:grid;grid-template-columns:auto 1fr;gap:3pt 8pt;font-size:9pt;margin-top:2pt;}
       .gen-grid .lbl{font-weight:700;white-space:nowrap;}
-      table{width:100%;border-collapse:collapse;font-size:8.3pt;margin-top:4pt;}
-      th{border:1pt solid #000;padding:4pt 5pt;font-weight:700;background:#eee;font-size:7.8pt;text-align:left;text-transform:uppercase;}
-      td{border:1pt solid #000;padding:4pt 5pt;vertical-align:top;line-height:1.35;}
-      td.ph-name{font-weight:700;white-space:nowrap;width:15%;}
-      td.dur{width:9%;text-align:center;white-space:nowrap;}
+      table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:8.3pt;margin-top:4pt;}
+      th{border:1pt solid #000;padding:4pt 5pt;font-weight:700;background:#eee;font-size:7.8pt;text-align:left;text-transform:uppercase;word-wrap:break-word;}
+      td{border:1pt solid #000;padding:4pt 5pt;vertical-align:top;line-height:1.35;word-wrap:break-word;overflow-wrap:break-word;}
+      th:nth-child(1),td.ph-name{width:11%;}
+      th:nth-child(2),th:nth-child(3){width:38%;}
+      th:nth-child(4),td.dur{width:8%;}
+      td.ph-name{font-weight:700;}
+      td.dur{text-align:center;white-space:nowrap;}
       .refl{font-size:9pt;border:1pt solid #000;padding:6pt 8pt;margin-top:4pt;min-height:40pt;white-space:pre-wrap;line-height:1.6;}
       .refl-default{color:#333;}
       .footer-note{margin-top:10pt;font-size:7.5pt;color:#555;text-align:center;}
@@ -4763,44 +4814,44 @@
     const html = `
       <div class="page">
         <div class="hdr">
-          <div class="main">CHATTOGRAM CANTONMENT PUBLIC COLLEGE</div>
-          <div class="sub">LESSON PLAN &mdash; Combining Bloom's Taxonomy and the 5E Model</div>
+          <div class="main">${esc(L.college)}</div>
+          <div class="sub">${esc(L.subtitle)}</div>
         </div>
 
         <div class="meta">
-          <div class="fi"><span class="lbl">Name:</span> ${U(profile.full_name, '140pt')}</div>
-          <div class="fi"><span class="lbl">Department:</span> ${U(profile.school_college, '140pt')}</div>
-          <div class="fi"><span class="lbl">Class:</span> ${U(payload.class_name, '90pt')}</div>
-          <div class="fi"><span class="lbl">Subject:</span> ${U(payload.subject, '90pt')}</div>
-          <div class="fi"><span class="lbl">Version:</span> ${U(payload.version, '90pt')}</div>
-          <div class="fi"><span class="lbl">Time:</span> ${U(payload.time_minutes ? payload.time_minutes + ' minutes' : '', '90pt')}</div>
+          <div class="fi"><span class="lbl">${esc(L.name)}</span> ${U(profile.full_name, '140pt')}</div>
+          <div class="fi"><span class="lbl">${esc(L.department)}</span> ${U(profile.school_college, '140pt')}</div>
+          <div class="fi"><span class="lbl">${esc(L.class)}</span> ${U(payload.class_name, '90pt')}</div>
+          <div class="fi"><span class="lbl">${esc(L.subject)}</span> ${U(payload.subject, '90pt')}</div>
+          <div class="fi"><span class="lbl">${esc(L.version)}</span> ${U(payload.version, '90pt')}</div>
+          <div class="fi"><span class="lbl">${esc(L.time)}</span> ${U(payload.time_minutes ? payload.time_minutes + ' ' + L.minutes : '', '90pt')}</div>
         </div>
-        <div class="fi" style="margin-bottom:6pt;"><span class="lbl">Chapter &amp; Lesson(s):</span> ${U(chapterLine, '200pt')}</div>
-        <div class="fi" style="margin-bottom:6pt;"><span class="lbl">Topic:</span> ${U(payload.topic, '200pt')}</div>
+        <div class="fi" style="margin-bottom:6pt;"><span class="lbl">${esc(L.chapterLessons)}</span> ${U(chapterLine, '200pt')}</div>
+        <div class="fi" style="margin-bottom:6pt;"><span class="lbl">${esc(L.topic)}</span> ${U(payload.topic, '200pt')}</div>
 
-        <div class="sec-title">Learning Outcomes &mdash; After this class the students will be able to&hellip;</div>
+        <div class="sec-title">${esc(L.learningOutcomes)}</div>
         <div class="lo-box">${esc(payload.learning_outcomes || '')}</div>
 
-        <div class="sec-title">General Class Management</div>
+        <div class="sec-title">${esc(L.generalMgmt)}</div>
         <div class="gen-grid">
-          <div class="lbl">Teaching Aids:</div><div>${esc(payload.teaching_aids || '')}</div>
-          <div class="lbl">Method:</div><div>${esc(payload.method || '')}</div>
+          <div class="lbl">${esc(L.teachingAids)}</div><div>${esc(payload.teaching_aids || '')}</div>
+          <div class="lbl">${esc(L.method)}</div><div>${esc(payload.method || '')}</div>
         </div>
 
-        <div class="sec-title">Lesson Phases</div>
+        <div class="sec-title">${esc(L.lessonPhases)}</div>
         <table>
-          <thead><tr><th>Phase</th><th>Teacher's Activity</th><th>Learner's Activity</th><th>Duration</th></tr></thead>
+          <thead><tr><th>${esc(L.thPhase)}</th><th>${esc(L.thTeacher)}</th><th>${esc(L.thLearner)}</th><th>${esc(L.thDuration)}</th></tr></thead>
           <tbody>${phaseRows}</tbody>
         </table>
 
-        <div class="sec-title">Self-Reflection</div>
-        <div class="refl">${reflectionLines ? esc(reflectionLines) : `<span class="refl-default">1. What went well?&nbsp;&nbsp;&nbsp;2. What didn't?&nbsp;&nbsp;&nbsp;3. Any possible improvement (if any)</span>`}</div>
+        <div class="sec-title">${esc(L.selfReflection)}</div>
+        <div class="refl">${reflectionLines ? esc(reflectionLines) : `<span class="refl-default">${L.reflDefault}</span>`}</div>
 
-        <div class="footer-note">Chattogram Cantonment Public College, Bayezid, Chattogram</div>
+        <div class="footer-note">${esc(L.footer)}</div>
       </div>`;
 
-    return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
-      <title>Lesson Plan &mdash; ${esc(payload.topic || payload.subject || 'CCPC')}</title>
+    return `<!DOCTYPE html><html lang="${isBn ? 'bn' : 'en'}"><head><meta charset="UTF-8">
+      <title>${isBn ? 'পাঠ পরিকল্পনা' : 'Lesson Plan'} &mdash; ${esc(payload.topic || payload.subject || 'CCPC')}</title>
       <style>${css}</style></head><body>${html}</body></html>`;
   }
 
