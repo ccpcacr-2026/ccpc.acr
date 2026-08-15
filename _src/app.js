@@ -4176,17 +4176,30 @@
   }
 
   // ── Import from NotebookLM (paste JSON) ───────────────────────────────────
-  // NotebookLM-generated lesson plans come back as a JSON array of chapter
-  // batches: [{ chapter, lesson_numbers:[1,2], topic, time_minutes,
-  // teaching_aids, method, learning_outcomes, phases:[{phase,
+  // NotebookLM-generated lesson plans come back as a JSON array: [{
+  // class_name, subject, version, chapter, lesson_numbers:[1,2], topic,
+  // time_minutes, teaching_aids, method, learning_outcomes, phases:[{phase,
   // teacher_activity, learner_activity, duration_minutes} x8] }, ...]. This
   // view lets a teacher paste that array directly (no manual spreadsheet
-  // reformatting) and applies one Class/Subject/Version to the whole batch,
-  // since NotebookLM's output doesn't include those. Reuses the same
-  // bulkImportLessonPlans server endpoint as the Excel bulk importer.
+  // reformatting). Class/Subject/Version are read straight out of the JSON
+  // (the prompt requires NotebookLM to state them on every lesson) rather
+  // than a separate dropdown here — a hand-picked dropdown next to a
+  // hand-typed prompt is two independent chances to say the wrong class,
+  // and they can silently disagree; reading it from the model's own reply
+  // removes that mismatch entirely. Reuses the same bulkImportLessonPlans
+  // server endpoint as the Excel bulk importer.
   let LP_JSON_ROWS = [];
 
-  const LP_NOTEBOOKLM_PROMPT = `You are creating complete, ready-to-teach lesson plans from the uploaded textbook (NCTB), following the Bloom's Taxonomy + 5E Model format used in Bangladeshi NCTB schools.
+  // Two variants (Bangla / English) rather than one prompt that asks
+  // NotebookLM to infer the medium from the textbook — telling it directly
+  // which version to produce, and requiring every field's actual text
+  // (not just the version label) to be written in that language, is more
+  // reliable than inference and matches how this app's own Bangla-medium
+  // lesson plans are written (activities in Bangla script, not just a
+  // Bangla version tag on English content).
+  function _lpBuildNotebookPrompt(versionLabel, languageInstruction) {
+    return `You are creating complete, ready-to-teach lesson plans from the uploaded textbook (NCTB), following the Bloom's Taxonomy + 5E Model format used in Bangladeshi NCTB schools.
+This textbook is the ${versionLabel} edition. ${languageInstruction} Set "version" to exactly "${versionLabel}" on every lesson object below — never guess or vary it mid-book. Also confirm the Class (grade) and Subject from the textbook itself, and repeat those two exact values on every lesson object's class_name/subject fields.
 Go through the book chapter by chapter, and within each chapter, lesson by lesson (following the book's own chapter/section divisions). Do not skip ahead or sample — work through the whole book systematically.
 RULES:
 Ground every lesson plan strictly in what is actually in the uploaded textbook for that specific section — the topic, the actual examples, the actual equations/formulas as written (preserve exact notation, units, and numerical values — do not round, simplify, or substitute a different but "similar" equation).
@@ -4197,6 +4210,9 @@ Be specific to this exact lesson's content, not generic filler — mention the a
 OUTPUT FORMAT:
 For every lesson, output one JSON object, and collect all lessons into a single JSON array:
 {
+"class_name": "Class/grade exactly as the textbook states it, e.g. Six or Nine-Ten",
+"subject": "Subject exactly as the textbook states it",
+"version": "${versionLabel}",
 "chapter": "Chapter title and number, exactly as given in the book",
 "lesson_number": 1,
 "topic": "The specific lesson topic/subsection title",
@@ -4215,10 +4231,35 @@ For every lesson, output one JSON object, and collect all lessons into a single 
 {"phase": "Closing", "teacher_activity": "string", "learner_activity": "string", "duration_minutes": number}
 ]
 }
-Work through the whole book and give me the complete JSON array covering every lesson, not a sample. If the book is too long for one response, stop cleanly at a chapter boundary, tell me exactly which chapter/lesson you stopped at, and I'll ask you to continue from there.`;
+Work through the whole book and give me the complete JSON array covering every lesson, not a sample. If the book is too long for one response, stop cleanly at a chapter boundary and tell me exactly which chapter/lesson you stopped at. Every time you stop, end your reply with nothing else after this exact line on its own, so it's the one obvious thing to click/tap to keep going: Continue with the next chapter.`;
+  }
+
+  const LP_NOTEBOOKLM_PROMPT_BN = _lpBuildNotebookPrompt(
+    'Bangla Version',
+    'Write every field\'s actual text — topic, learning_outcomes, teaching_aids, method, and every phase\'s teacher_activity/learner_activity — in Bangla (বাংলা), using the same NCTB terminology the textbook itself uses. Only JSON keys and the phase names (Greetings, Engagement, Exploration, Explanation and Elaboration, Evaluation, Summarization, Assignment/Homework, Closing) stay in English, exactly as shown below.'
+  );
+  const LP_NOTEBOOKLM_PROMPT_EN = _lpBuildNotebookPrompt(
+    'English Version',
+    'Write every field in English.'
+  );
+
+  let _lpJsonPromptLang = 'en'; // 'en' | 'bn'
+
+  function _lpJsonSetPromptLang(lang) {
+    _lpJsonPromptLang = lang;
+    const ta = document.getElementById('lpJsonPromptText');
+    if (ta) ta.value = lang === 'bn' ? LP_NOTEBOOKLM_PROMPT_BN : LP_NOTEBOOKLM_PROMPT_EN;
+    const enBtn = document.getElementById('lpJsonPromptLangEn');
+    const bnBtn = document.getElementById('lpJsonPromptLangBn');
+    const active = 'bg-blue-600 text-white border-transparent';
+    const inactive = 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50';
+    if (enBtn) enBtn.className = `px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border ${lang === 'en' ? active : inactive}`;
+    if (bnBtn) bnBtn.className = `px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border ${lang === 'bn' ? active : inactive}`;
+  }
 
   function _lpCopyNotebookPrompt() {
-    navigator.clipboard.writeText(LP_NOTEBOOKLM_PROMPT).then(() => {
+    const text = _lpJsonPromptLang === 'bn' ? LP_NOTEBOOKLM_PROMPT_BN : LP_NOTEBOOKLM_PROMPT_EN;
+    navigator.clipboard.writeText(text).then(() => {
       showToast('Prompt copied — paste it into NotebookLM', 'success');
     }).catch(() => showToast('Could not copy automatically — select the text and copy manually', 'error'));
   }
@@ -4230,37 +4271,32 @@ Work through the whole book and give me the complete JSON array covering every l
     const container = document.getElementById('view-container');
     if (!container) return;
     LP_JSON_ROWS = [];
+    _lpJsonPromptLang = 'en';
     container.innerHTML = `
       <div class="pt-4 max-w-4xl mx-auto pb-10">
         <button onclick="loadLessonPlanView()" class="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600 mb-4">&larr; Back to Lesson Plans</button>
 
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 space-y-3">
           <p class="text-sm font-black text-slate-800 uppercase tracking-widest">1. Copy the NotebookLM Prompt</p>
-          <p class="text-xs text-slate-500 font-bold">Upload the NCTB textbook to NotebookLM, paste this prompt, and it will generate the JSON array in the exact format this importer expects.</p>
-          <textarea id="lpJsonPromptText" readonly rows="6" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-[11px] leading-relaxed outline-none resize-none">${_escHtml(LP_NOTEBOOKLM_PROMPT)}</textarea>
+          <p class="text-xs text-slate-500 font-bold">Upload the NCTB textbook to NotebookLM, paste this prompt, and it will generate the JSON array in the exact format this importer expects — including the Class, Subject, and Version on every lesson, so there's no separate manual dropdown here to accidentally mismatch what you actually asked NotebookLM for. Pick whichever matches the textbook you're uploading — a Bangla-medium book needs Bangla-language output, not just a Bangla label on English text.</p>
+          <div class="flex gap-2">
+            <button id="lpJsonPromptLangEn" onclick="_lpJsonSetPromptLang('en')" class="px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border bg-blue-600 text-white border-transparent">English Version Prompt</button>
+            <button id="lpJsonPromptLangBn" onclick="_lpJsonSetPromptLang('bn')" class="px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border bg-white text-slate-500 border-slate-200 hover:bg-slate-50">Bangla Version Prompt</button>
+          </div>
+          <textarea id="lpJsonPromptText" readonly rows="6" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-[11px] leading-relaxed outline-none resize-none">${_escHtml(LP_NOTEBOOKLM_PROMPT_EN)}</textarea>
           <button onclick="_lpCopyNotebookPrompt()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-white border border-slate-200 hover:bg-slate-50 flex items-center gap-1.5"><i data-lucide="copy" class="h-3.5 w-3.5"></i>Copy Prompt</button>
         </div>
 
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 mt-4 space-y-3">
-          <p class="text-sm font-black text-slate-800 uppercase tracking-widest">2. Class / Subject / Version</p>
-          <p class="text-xs text-slate-500 font-bold">NotebookLM's output doesn't include these, so pick them once here — they'll be applied to every lesson in the pasted batch.</p>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div><label class="text-[10px] font-black text-slate-400 uppercase">Class</label>${_lpSelectHtml('lpJsonClass', _lpClassOptionsList(), '', '_lpJsonOnClassChange()')}</div>
-            <div><label class="text-[10px] font-black text-slate-400 uppercase">Subject</label>${_lpSelectHtml('lpJsonSubject', _lpSubjectOptionsList(''), '')}</div>
-            <div><label class="text-[10px] font-black text-slate-400 uppercase">Version</label>${_lpSelectHtml('lpJsonVersion', _lpVersionOptionsList(), '')}</div>
-          </div>
-        </div>
-
-        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 mt-4 space-y-3">
-          <p class="text-sm font-black text-slate-800 uppercase tracking-widest">3. Paste the JSON</p>
+          <p class="text-sm font-black text-slate-800 uppercase tracking-widest">2. Paste the JSON</p>
           <p class="text-xs text-slate-500 font-bold">Paste NotebookLM's reply here — the JSON array of lesson objects it generated from the prompt above. If it stopped mid-book, paste each continuation batch separately and import them one at a time.</p>
-          <textarea id="lpJsonInput" rows="10" placeholder='[{"chapter":"Chapter One: ...","lesson_number":1,"topic":"...","page_reference":"...","learning_outcomes":"...","teaching_aids":"...","method":"...","phases":[{"phase":"Greetings","teacher_activity":"...","learner_activity":"...","duration_minutes":2}, ...]}]' class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xs focus:ring-2 focus:ring-blue-600 outline-none"></textarea>
+          <textarea id="lpJsonInput" rows="10" placeholder='[{"class_name":"Six","subject":"Science","version":"Bangla Version","chapter":"Chapter One: ...","lesson_number":1,"topic":"...","page_reference":"...","learning_outcomes":"...","teaching_aids":"...","method":"...","phases":[{"phase":"Greetings","teacher_activity":"...","learner_activity":"...","duration_minutes":2}, ...]}]' class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xs focus:ring-2 focus:ring-blue-600 outline-none"></textarea>
           <button onclick="_lpJsonPreview()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black">Parse &amp; Preview</button>
           <p id="lpJsonStatus" class="text-xs font-bold"></p>
         </div>
 
         <div id="lpJsonPreviewSection" class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 mt-4 space-y-3 hidden">
-          <p class="text-sm font-black text-slate-800 uppercase tracking-widest">4. Confirm &amp; Import</p>
+          <p class="text-sm font-black text-slate-800 uppercase tracking-widest">3. Confirm &amp; Import</p>
           <div id="lpJsonPreviewSummary" class="grid grid-cols-2 md:grid-cols-3 gap-3"></div>
           <div id="lpJsonPreviewList" class="text-xs font-bold text-slate-600 space-y-1 max-h-64 overflow-y-auto pr-1"></div>
           <button id="lpJsonConfirmBtn" onclick="_lpJsonConfirmImport()" class="px-5 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black">Import</button>
@@ -4270,12 +4306,6 @@ Work through the whole book and give me the complete JSON array covering every l
       </div>`;
     lucide.createIcons();
     _lpLoadFieldOptions();
-  }
-
-  function _lpJsonOnClassChange() {
-    const cls = _lpSelectVal('lpJsonClass');
-    const subjSel = document.getElementById('lpJsonSubject');
-    if (subjSel) subjSel.outerHTML = _lpSelectHtml('lpJsonSubject', _lpSubjectOptionsList(cls), '');
   }
 
   // Accepts either a bare array, or NotebookLM's occasional habit of wrapping
@@ -4302,6 +4332,9 @@ Work through the whole book and give me the complete JSON array covering every l
     const errors = [], warnings = [];
     const label = `Lesson ${idx + 1}`;
     if (!item || typeof item !== 'object') return { errors: [`${label}: not a valid object`], warnings };
+    if (!String(item.class_name || item.class || '').trim()) errors.push(`${label}: missing "class_name"`);
+    if (!String(item.subject || '').trim()) errors.push(`${label}: missing "subject"`);
+    if (!String(item.version || '').trim()) warnings.push(`${label}: missing "version" — will import with no version set`);
     if (!String(item.chapter || '').trim()) errors.push(`${label}: missing "chapter"`);
     if (!String(item.topic || '').trim()) errors.push(`${label}: missing "topic"`);
     if (item.lesson_number == null && !(Array.isArray(item.lesson_numbers) && item.lesson_numbers.length)) warnings.push(`${label}: no "lesson_number" — will import without one`);
@@ -4338,7 +4371,13 @@ Work through the whole book and give me the complete JSON array covering every l
     return { perLesson, errorCount, warningCount, okCount };
   }
 
-  function _lpJsonBuildRows(items, className, subject, version) {
+  // Class/Subject/Version now come from the JSON itself (the prompt requires
+  // NotebookLM to include them on every lesson) rather than a separate
+  // dropdown the teacher fills in by hand — a hand-picked dropdown next to a
+  // hand-typed prompt is two independent chances to say "Six" when you meant
+  // "Seven", and they can silently disagree. Reading it straight out of the
+  // model's own reply removes that whole class of mismatch.
+  function _lpJsonBuildRows(items) {
     return items.map(item => {
       const chapter = String(item.chapter || '').trim();
       const lessonNumbers = (Array.isArray(item.lesson_numbers) ? item.lesson_numbers : [item.lesson_number]).map(Number).filter(n => n > 0).sort((a, b) => a - b);
@@ -4352,7 +4391,9 @@ Work through the whole book and give me the complete JSON array covering every l
         };
       });
       return {
-        class_name: className, subject, version,
+        class_name: String(item.class_name || item.class || '').trim(),
+        subject: String(item.subject || '').trim(),
+        version: String(item.version || '').trim(),
         chapter, lesson_number: lessonNumbers[0] || null,
         lesson_refs: chapter ? [{ chapter, lesson_numbers: lessonNumbers }] : [],
         topic: item.topic || '', time_minutes: Number(item.time_minutes) || 40,
@@ -4365,10 +4406,8 @@ Work through the whole book and give me the complete JSON array covering every l
 
   function _lpJsonPreview() {
     const status = document.getElementById('lpJsonStatus');
-    const className = _lpSelectVal('lpJsonClass'), subject = _lpSelectVal('lpJsonSubject'), version = _lpSelectVal('lpJsonVersion');
     document.getElementById('lpJsonPreviewSection').classList.add('hidden');
     document.getElementById('lpJsonResultSection').classList.add('hidden');
-    if (!className || !subject || !version) { if (status) { status.textContent = 'Pick a Class, Subject, and Version first.'; status.className = 'text-xs font-bold text-red-500'; } return; }
     let items;
     try {
       const parsed = _lpJsonParseInput(document.getElementById('lpJsonInput').value.trim());
@@ -4385,8 +4424,8 @@ Work through the whole book and give me the complete JSON array covering every l
     const { perLesson, errorCount, warningCount, okCount } = _lpJsonValidateItems(items);
     const rejectedIdx = new Set(perLesson.map((r, i) => r.errors.length ? i : -1).filter(i => i >= 0));
     const keptItems = items.filter((_, i) => !rejectedIdx.has(i));
-    LP_JSON_ROWS = _lpJsonBuildRows(keptItems, className, subject, version);
-    const valid = LP_JSON_ROWS.filter(r => r.chapter && r.topic);
+    LP_JSON_ROWS = _lpJsonBuildRows(keptItems);
+    const valid = LP_JSON_ROWS.filter(r => r.class_name && r.subject && r.chapter && r.topic);
 
     if (status) {
       status.textContent = errorCount
@@ -4438,7 +4477,7 @@ Work through the whole book and give me the complete JSON array covering every l
   }
 
   function _lpJsonConfirmImport() {
-    const rows = LP_JSON_ROWS.filter(r => r.chapter && r.topic);
+    const rows = LP_JSON_ROWS.filter(r => r.class_name && r.subject && r.chapter && r.topic);
     if (!rows.length) { showToast('Nothing to import', 'error'); return; }
     if (!confirm(`Import ${rows.length} lesson plan(s) now? This cannot be undone in bulk — plans would need deleting one at a time.`)) return;
     const myId = window.APP_USER && window.APP_USER.user_id;
@@ -4638,6 +4677,28 @@ Work through the whole book and give me the complete JSON array covering every l
     }).getForumPosts(myId, { cursor: _forumCursor, post_type: _forumFilterType || null, limit: 20 });
   }
 
+  // Jumps straight to one post — used when a notification click needs to
+  // land on the specific post it's about, which might be many pages back in
+  // the normal feed's pagination. Loads the whole Forum view fresh (so
+  // Load More still works normally from there), then prepends just this
+  // post above the regular feed and auto-expands its replies.
+  function _forumOpenPostFromNotification(postId) {
+    loadForumView();
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success' || !res.post) { showToast('This post is no longer available', 'error'); return; }
+      const post = res.post;
+      if (!_forumPosts.some(p => p.id === post.id)) _forumPosts = [post, ...(_forumPosts || [])];
+      const feed = document.getElementById('forumFeed');
+      if (feed && !feed.querySelector(`[data-post-id="${post.id}"]`)) {
+        feed.insertAdjacentHTML('afterbegin', _forumPostCardHtml(post));
+        lucide.createIcons();
+      }
+      const card = document.querySelector(`.forum-card[data-post-id="${post.id}"]`);
+      if (card) { card.scrollIntoView({ behavior: 'smooth', block: 'center' }); card.classList.add('ring-2', 'ring-indigo-400'); setTimeout(() => card.classList.remove('ring-2', 'ring-indigo-400'), 2000); }
+      _forumToggleReplies(post.id);
+    }).withFailureHandler(() => showToast('Could not open this post', 'error')).getForumPost(postId);
+  }
+
   function _forumPostCardHtml(post) {
     const myId = window.APP_USER && window.APP_USER.user_id;
     const isOwner = post.author_id === myId;
@@ -4660,15 +4721,20 @@ Work through the whole book and give me the complete JSON array covering every l
               ${tagged.length ? `<div class="flex flex-wrap gap-1 mt-1">${tagged.map(uid => `<span class="text-[10px] font-black text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded-full">@${_escHtml(_forumUserName(uid))}</span>`).join('')}</div>` : ''}
               ${post.body ? `<p class="text-sm text-slate-700 font-semibold mt-1.5 whitespace-pre-wrap">${_escHtml(post.body)}</p>` : ''}
             </div>
-            ${!isSystem && (isOwner || _forumIsAdmin()) ? `
+            ${(() => {
+              const canDelete = !isSystem && (isOwner || _forumIsAdmin());
+              const canPin = !isSystem && _forumCanPin();
+              if (!canDelete && !canPin) return '';
+              return `
             <div class="relative shrink-0">
               <button onclick="_forumToggleMenu('${post.id}')" class="p-1.5 hover:bg-slate-100 rounded-full"><i data-lucide="more-horizontal" class="h-4 w-4 text-slate-400"></i></button>
               <div id="forumMenu-${post.id}" class="hidden absolute right-0 top-8 bg-white border border-slate-200 rounded-xl shadow-lg py-1 z-10 min-w-[140px]">
                 ${isOwner ? `<button onclick="_forumEditPost('${post.id}')" class="w-full text-left px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50">Edit</button>` : ''}
-                <button onclick="_forumDeletePost('${post.id}')" class="w-full text-left px-3 py-2 text-xs font-bold text-red-500 hover:bg-red-50">Delete</button>
-                ${_forumIsAdmin() ? `<button onclick="_forumPinPost('${post.id}', ${!post.is_pinned})" class="w-full text-left px-3 py-2 text-xs font-bold text-amber-600 hover:bg-amber-50">${post.is_pinned ? 'Unpin' : 'Pin'}</button>` : ''}
+                ${canDelete ? `<button onclick="_forumDeletePost('${post.id}')" class="w-full text-left px-3 py-2 text-xs font-bold text-red-500 hover:bg-red-50">Delete</button>` : ''}
+                ${canPin ? `<button onclick="_forumPinPost('${post.id}', ${!post.is_pinned})" class="w-full text-left px-3 py-2 text-xs font-bold text-amber-600 hover:bg-amber-50">${post.is_pinned ? 'Unpin' : '⭐ Pin as Important'}</button>` : ''}
               </div>
-            </div>` : ''}
+            </div>`;
+            })()}
           </div>
           ${photos.length ? `<div class="grid ${photos.length === 1 ? 'grid-cols-1' : 'grid-cols-2'} gap-1.5 mt-3 rounded-2xl overflow-hidden">${photos.map(p => `<img src="${_escHtml(p.url || p)}" onclick="_forumOpenLightbox('${_escHtml(p.url || p)}')" class="w-full h-40 object-cover cursor-pointer hover:opacity-90 transition-opacity">`).join('')}</div>` : ''}
           ${(post.file_attachments || []).length ? `<div class="flex flex-col gap-1.5 mt-3">${post.file_attachments.map(f => `<a href="${_escHtml(f.url)}" target="_blank" rel="noopener" download class="flex items-center gap-2 px-3 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl transition-colors"><i data-lucide="file-down" class="h-4 w-4 text-indigo-500 shrink-0"></i><span class="flex-1 min-w-0 truncate text-xs font-bold text-slate-700">${_escHtml(f.name)}</span><span class="text-[10px] font-black text-slate-400 shrink-0">${_forumFormatBytes(f.size_bytes || 0)}</span></a>`).join('')}</div>` : ''}
@@ -4688,6 +4754,13 @@ Work through the whole book and give me the complete JSON array covering every l
   function _forumIsAdmin() {
     const role = String((window.APP_USER && window.APP_USER.role) || '');
     return /Admin|Cord/.test(role);
+  }
+  // Pin permission is broader than delete — Admin/VP/Cord can highlight any
+  // post, matching _isForumModerator server-side, but that doesn't imply
+  // they can delete someone else's content (still Admin/Cord + owner only).
+  function _forumCanPin() {
+    const role = String((window.APP_USER && window.APP_USER.role) || '');
+    return /Admin|VP|Cord/.test(role);
   }
 
   function _forumToggleMenu(postId) {
@@ -18019,6 +18092,27 @@ Work through the whole book and give me the complete JSON array covering every l
     loadNotificationsView();
   }
 
+  // Which notification types have somewhere to actually navigate to, and
+  // where — kept as one lookup table so adding a new notify-able feature
+  // later just means adding an entry here, not touching the render logic.
+  const NOTIF_ROUTES = {
+    forum_post:   n => _forumOpenPostFromNotification(n.data && n.data.post_id),
+    forum_mention: n => _forumOpenPostFromNotification(n.data && n.data.post_id),
+    forum_reply:  n => _forumOpenPostFromNotification(n.data && n.data.post_id),
+    mention:      n => openCommChat(n.data && n.data.committee_id, n.data && n.data.committee_name),
+    committee_closed: n => openCommChat(n.data && n.data.committee_id, n.data && n.data.committee_name),
+    class_adjusted: () => loadRoutineView(),
+  };
+  function _notifIsNavigable(n) {
+    return !!(n && n.type && NOTIF_ROUTES[n.type] && n.data);
+  }
+  function _notifNavigate(n) {
+    const route = n && n.type && NOTIF_ROUTES[n.type];
+    if (!route) return;
+    if (!n.is_read) google.script.run.withSuccessHandler(() => refreshNotifBadge()).withFailureHandler(() => {}).markNotificationRead(n.id);
+    route(n);
+  }
+
   function loadNotificationsView() {
     _setViewHash('notifications');
     setActiveNavLink('nav-notifications');
@@ -18055,18 +18149,19 @@ Work through the whole book and give me the complete JSON array covering every l
       list.innerHTML = notifs.map(n => {
         const isUnread = !n.is_read;
         const timeStr = n.created_at ? new Date(n.created_at).toLocaleString('en-BD',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true}) : '—';
-        return `<div class="flex items-start gap-4 p-4 rounded-2xl border transition-all ${isUnread ? 'bg-blue-50 border-blue-200 border-l-4' : 'bg-white border-slate-100 hover:bg-slate-50'}">
+        const clickable = _notifIsNavigable(n);
+        return `<div ${clickable ? `onclick="_notifNavigate(${_escHtml(JSON.stringify(n))})" class="cursor-pointer` : `class="`}flex items-start gap-4 p-4 rounded-2xl border transition-all ${isUnread ? 'bg-blue-50 border-blue-200 border-l-4' : 'bg-white border-slate-100 hover:bg-slate-50'}">
           <div class="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${isUnread ? 'bg-blue-100' : 'bg-slate-100'}">
             <i data-lucide="bell" class="h-3.5 w-3.5 ${isUnread ? 'text-blue-600' : 'text-slate-400'}"></i>
           </div>
           <div class="flex-1 min-w-0">
             <p class="font-black text-slate-800 text-sm">${n.title||'Notification'}</p>
             <p class="text-xs text-slate-500 font-bold mt-0.5">${n.message||''}</p>
-            <p class="text-[10px] text-slate-400 mt-1">${timeStr}</p>
+            <p class="text-[10px] text-slate-400 mt-1">${timeStr}${clickable ? ' · Tap to open' : ''}</p>
           </div>
           <div class="flex flex-col items-end gap-2 shrink-0">
             <span class="px-2 py-0.5 text-[9px] font-black uppercase rounded-full ${isUnread ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'}">${isUnread ? 'Unread' : 'Read'}</span>
-            ${isUnread ? `<button onclick="markNotifRead('${n.id}')" class="text-[9px] font-black text-blue-500 hover:text-blue-700 uppercase tracking-widest">Mark Read</button>` : ''}
+            ${isUnread ? `<button onclick="event.stopPropagation(); markNotifRead('${n.id}')" class="text-[9px] font-black text-blue-500 hover:text-blue-700 uppercase tracking-widest">Mark Read</button>` : ''}
           </div>
         </div>`;
       }).join('');

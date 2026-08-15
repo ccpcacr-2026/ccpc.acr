@@ -520,6 +520,17 @@ async function _createSystemForumPost(callerId, body, meta) {
   } catch (e) { /* best-effort — a failed system post must never fail the caller's real action */ }
 }
 
+// Pin permission is deliberately broader than _isCordOrAdmin (delete/edit
+// gate elsewhere in Forum) — Admin/VP/Cord can highlight a post, but that
+// doesn't imply they can delete someone else's content.
+async function _isForumModerator(callerId) {
+  if (!callerId) return false;
+  const users = await supabaseRequest(`app_users?user_id=eq.${encodeURIComponent(callerId)}&select=role`);
+  const role = Array.isArray(users) && users[0] ? users[0].role : '';
+  const roles = String(role || '').split(',').map(r => r.trim());
+  return roles.some(r => ['Admin', 'VP', 'Cord'].includes(r));
+}
+
 function _forumLessonPlanSummary(row) {
   const cls = row.class_name || '?', subj = row.subject || '?';
   const chapter = row.chapter || (Array.isArray(row.lesson_refs) && row.lesson_refs[0] && row.lesson_refs[0].chapter) || '';
@@ -3153,10 +3164,10 @@ const handlers = {
     return { result: 'success' };
   },
 
-  // Admin-only — pins float to the top of the feed regardless of activity,
+  // Admin/VP/Cord only — pins float to the top of the feed regardless of activity,
   // for durable announcements (school holiday notices etc).
   async pinForumPost([callerId, postId, pinned]) {
-    if (!(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Only an Admin can pin posts.' };
+    if (!(await _isForumModerator(callerId))) return { result: 'error', message: 'Only an Admin, VP, or Cord can pin posts.' };
     const updated = await supabaseRequest(`forum_posts?id=eq.${encodeURIComponent(postId)}`, 'patch', { is_pinned: !!pinned });
     if (updated?.error) return { result: 'error', message: updated.details || updated.error };
     return { result: 'success' };
@@ -3174,6 +3185,18 @@ const handlers = {
     const posts = await supabaseRequest(path);
     if (posts?.error) return { result: 'error', message: posts.details || posts.error };
     return { result: 'success', posts: Array.isArray(posts) ? posts : [] };
+  },
+
+  // Fetches a single post by id — used when a notification click needs to
+  // jump straight to the post it's about, which might be many pages back in
+  // the normal feed's pagination.
+  async getForumPost([postId]) {
+    if (!postId) return { result: 'error', message: 'Missing post id.' };
+    const rows = await supabaseRequest(`forum_posts?id=eq.${encodeURIComponent(postId)}&select=*`);
+    if (rows?.error) return { result: 'error', message: rows.details || rows.error };
+    const post = Array.isArray(rows) && rows[0];
+    if (!post) return { result: 'error', message: 'This post no longer exists.' };
+    return { result: 'success', post };
   },
 
   async getForumReplies([postId]) {
