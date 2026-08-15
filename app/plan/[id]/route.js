@@ -16,7 +16,7 @@ const LABELS = {
     name: 'Name:', department: 'Department:', class: 'Class:', subject: 'Subject:',
     version: 'Version:', time: 'Time:', minutes: 'minutes',
     date: 'Date:', period: 'Period:',
-    chapterLessons: 'Chapter & Lesson(s):', topic: 'Topic:', lessonWord: 'Lesson',
+    chapterLessons: 'Chapter, Lesson & Topic:', topic: 'Topic:', lessonWord: 'Lesson',
     learningOutcomes: 'Learning Outcomes — After this class the students will be able to…',
     generalMgmt: 'General Class Management', teachingAids: 'Teaching Aids:', method: 'Method:',
     lessonPhases: 'Lesson Phases', thPhase: 'Phase', thTeacher: "Teacher's Activity",
@@ -37,7 +37,7 @@ const LABELS = {
     name: 'নাম:', department: 'বিভাগ:', class: 'শ্রেণি:', subject: 'বিষয়:',
     version: 'ভার্সন:', time: 'সময়:', minutes: 'মিনিট',
     date: 'তারিখ:', period: 'পিরিয়ড:',
-    chapterLessons: 'অধ্যায় ও পাঠ:', topic: 'আলোচ্য বিষয়:', lessonWord: 'পাঠ',
+    chapterLessons: 'অধ্যায়, পাঠ ও বিষয়:', topic: 'আলোচ্য বিষয়:', lessonWord: 'পাঠ',
     learningOutcomes: 'শেখার ফলাফল — এই পাঠ শেষে শিক্ষার্থীরা যা পারবে',
     generalMgmt: 'সাধারণ শ্রেণি ব্যবস্থাপনা', teachingAids: 'শিক্ষা উপকরণ:', method: 'পদ্ধতি:',
     lessonPhases: 'পাঠের ধাপসমূহ', thPhase: 'ধাপ', thTeacher: 'শিক্ষকের কার্যক্রম',
@@ -155,9 +155,11 @@ export async function GET(request, { params }) {
     profile = Array.isArray(profRows) && profRows[0];
   }
 
+  // Lesson number and Topic describe the same thing, so they're shown as one
+  // combined line rather than two rows that just restate each other.
   const chapterLine = (plan.lesson_refs || [])
     .map(r => r.chapter + (r.lesson_numbers && r.lesson_numbers.length ? ' (' + L.lessonWord + ' ' + r.lesson_numbers.join(', ') + ')' : ''))
-    .join('; ');
+    .join('; ') + (plan.topic ? ' — ' + plan.topic : '');
 
   const lessonCode = (plan.lesson_code && plan.lesson_code.trim()) || autoLessonCode(plan);
   const weekday = plan.class_date
@@ -198,15 +200,12 @@ export async function GET(request, { params }) {
     .hdr-logo{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:44pt;}
     .hdr-logo img{height:100%;width:auto;max-width:100%;display:block;background:#fff;border-radius:2pt;padding:2pt;object-fit:contain;}
 
-    .meta{display:flex;align-items:stretch;gap:10pt;margin-bottom:9pt;font-size:9pt;background:#f2f6fc;border:1pt solid #cddaf0;border-radius:3pt;padding:7pt 10pt;max-width:100%;}
-    .meta-grid{flex:1;min-width:0;display:grid;grid-template-columns:1fr 1fr 1fr;gap:5pt 14pt;}
+    .meta{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5pt 14pt;margin-bottom:9pt;font-size:9pt;background:#f2f6fc;border:1pt solid #cddaf0;border-radius:3pt;padding:7pt 10pt;}
     .meta .fi{display:flex;gap:4pt;align-items:baseline;min-width:0;}
     .meta .lbl{font-weight:700;white-space:nowrap;color:#0b2545;font-size:7.6pt;text-transform:uppercase;letter-spacing:.04em;flex-shrink:0;}
     .fi.wide{grid-column:1/-1;}
     .uv{border-bottom:1pt solid #9fb3d1;display:inline-block;min-width:0;padding-bottom:1pt;flex:1;font-weight:600;color:#0b2545;overflow-wrap:break-word;}
-    .code-box{flex-shrink:0;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;min-width:82pt;padding-left:10pt;border-left:1pt solid #cddaf0;}
-    .code-box .lbl{font-size:7.6pt;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#0b2545;}
-    .code-box .val{font-family:${uiFont};font-size:10.5pt;font-weight:900;margin-top:2pt;letter-spacing:.01em;color:#7c2d12;}
+    .uv.code-val{color:#7c2d12;font-weight:900;}
 
     .sec-title{font-family:${uiFont};font-size:9.3pt;font-weight:900;text-transform:uppercase;letter-spacing:.04em;color:#0b2545;margin:11pt 0 4pt;padding-left:7pt;border-left:4pt solid #065f46;}
     .lo-box{font-size:9pt;line-height:1.55;border:1pt solid #cddaf0;border-left:4pt solid #065f46;border-radius:0 3pt 3pt 0;padding:7pt 9pt;min-height:24pt;white-space:pre-wrap;background:#fbfdff;}
@@ -240,19 +239,16 @@ export async function GET(request, { params }) {
         <div class="hdr-logo"></div>
       </div>
       <div class="meta">
-        <div class="meta-grid">
-          <div class="fi"><span class="lbl">${esc(L.name)}</span> <span class="uv">${esc((profile && profile.full_name) || '')}</span></div>
-          <div class="fi"><span class="lbl">${esc(L.department)}</span> <span class="uv">${esc((profile && profile.school_college) || '')}</span></div>
-          <div class="fi"><span class="lbl">${esc(L.class)}</span> <span class="uv">${esc(plan.class_name || '')}</span></div>
-          <div class="fi"><span class="lbl">${esc(L.subject)}</span> <span class="uv">${esc(plan.subject || '')}</span></div>
-          <div class="fi"><span class="lbl">${esc(L.date)}</span> <span class="uv">${esc(plan.class_date || '')}${weekday ? ' (' + esc(weekday) + ')' : ''}</span></div>
-          <div class="fi"><span class="lbl">${esc(L.period)}</span> <span class="uv">${esc(plan.period || '')}</span></div>
-          <div class="fi"><span class="lbl">${esc(L.version)}</span> <span class="uv">${esc(plan.version || '')}</span></div>
-          <div class="fi"><span class="lbl">${esc(L.time)}</span> <span class="uv">${plan.time_minutes ? esc(plan.time_minutes) + ' ' + L.minutes : ''}</span></div>
-          <div class="fi wide"><span class="lbl">${esc(L.chapterLessons)}</span> <span class="uv">${esc(chapterLine)}</span></div>
-          <div class="fi wide"><span class="lbl">${esc(L.topic)}</span> <span class="uv">${esc(plan.topic || '')}</span></div>
-        </div>
-        <div class="code-box"><div class="lbl">${isBn ? 'পাঠ কোড' : 'Lesson Code'}</div><div class="val">${esc(lessonCode)}</div></div>
+        <div class="fi"><span class="lbl">${esc(L.name)}</span> <span class="uv">${esc((profile && profile.full_name) || '')}</span></div>
+        <div class="fi"><span class="lbl">${esc(L.department)}</span> <span class="uv">${esc((profile && profile.school_college) || '')}</span></div>
+        <div class="fi"><span class="lbl">${esc(L.class)}</span> <span class="uv">${esc(plan.class_name || '')}</span></div>
+        <div class="fi"><span class="lbl">${esc(L.subject)}</span> <span class="uv">${esc(plan.subject || '')}</span></div>
+        <div class="fi"><span class="lbl">${esc(L.date)}</span> <span class="uv">${esc(plan.class_date || '')}${weekday ? ' (' + esc(weekday) + ')' : ''}</span></div>
+        <div class="fi"><span class="lbl">${esc(L.period)}</span> <span class="uv">${esc(plan.period || '')}</span></div>
+        <div class="fi"><span class="lbl">${esc(L.version)}</span> <span class="uv">${esc(plan.version || '')}</span></div>
+        <div class="fi"><span class="lbl">${esc(L.time)}</span> <span class="uv">${plan.time_minutes ? esc(plan.time_minutes) + ' ' + L.minutes : ''}</span></div>
+        <div class="fi"><span class="lbl">${isBn ? 'পাঠ কোড' : 'Lesson Code'}</span> <span class="uv code-val">${esc(lessonCode)}</span></div>
+        <div class="fi wide"><span class="lbl">${esc(L.chapterLessons)}</span> <span class="uv">${esc(chapterLine)}</span></div>
       </div>
 
       <div class="sec-title">${esc(L.learningOutcomes)}</div>
