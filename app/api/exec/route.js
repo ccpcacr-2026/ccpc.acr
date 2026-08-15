@@ -531,6 +531,28 @@ async function _isForumModerator(callerId) {
   return roles.some(r => ['Admin', 'VP', 'Cord'].includes(r));
 }
 
+// A section='student' post is visible to: Admin/VP/Cord (see everything),
+// the post's own author, or a class teacher whose class_teacher_assignments
+// row matches the post's targeted class (and section, when the audience is
+// narrowed to one). class_teacher_assignments columns confirmed at the
+// existing get_class_teacher_assignments handler: class, section,
+// extra_criteria, user_id.
+async function _forumFilterStudentVisible(callerId, posts) {
+  const studentPosts = posts.filter(p => p.section === 'student');
+  if (!studentPosts.length) return posts;
+  if (await _isForumModerator(callerId)) return posts;
+  const assignments = await supabaseRequest(`class_teacher_assignments?user_id=eq.${encodeURIComponent(callerId)}&select=class,section`);
+  const myAssignments = Array.isArray(assignments) ? assignments : [];
+  const ownsClass = (cls, sec) => myAssignments.some(a =>
+    a.class === cls && (!sec || !a.section || a.section === sec));
+  return posts.filter(p => {
+    if (p.section !== 'student') return true;
+    if (p.author_id === callerId) return true;
+    const aud = p.audience || {};
+    return !!aud.class && ownsClass(aud.class, aud.section);
+  });
+}
+
 function _forumLessonPlanSummary(row) {
   const cls = row.class_name || '?', subj = row.subject || '?';
   const chapter = row.chapter || (Array.isArray(row.lesson_refs) && row.lesson_refs[0] && row.lesson_refs[0].chapter) || '';
@@ -1917,6 +1939,70 @@ const handlers = {
     return handlers.uploadPhotoToDrive([base64Data, fileName, teacherId]);
   },
 
+  // ── STUDENT MESSAGE HISTORY (oversight) ────────────────────────────────────────
+  // Student-side sending happens in the separate ccpc-students app, writing
+  // into this same direct_messages table with the same 'student:<id>' prefix
+  // convention _forumUserName-style code elsewhere in this codebase uses to
+  // namespace a student identity distinct from app_users.user_id. This is
+  // the read-only oversight side: Admin/VP/Cord see every student thread;
+  // a plain Teacher only sees threads for students in a class they're the
+  // class teacher of (class_teacher_assignments).
+
+  async getStudentMessageThreads([callerId]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    const isModerator = await _isForumModerator(callerId);
+    let studentIdFilter = null;
+    if (!isModerator) {
+      const assignments = await supabaseRequest(`class_teacher_assignments?user_id=eq.${encodeURIComponent(callerId)}&select=class,section`);
+      const myAssignments = Array.isArray(assignments) ? assignments : [];
+      if (!myAssignments.length) return { result: 'success', threads: [] };
+      const orClauses = myAssignments.map(a => a.section ? `and(class.eq.${encodeURIComponent(a.class)},section.eq.${encodeURIComponent(a.section)})` : `class.eq.${encodeURIComponent(a.class)}`).join(',');
+      // students_data lives in the `student` schema, not `teacher`.
+      const students = await _sbStudent(`students_data?or=(${orClauses})&select=student_id`);
+      studentIdFilter = new Set((Array.isArray(students) ? students : []).map(s => String(s.student_id)));
+      if (!studentIdFilter.size) return { result: 'success', threads: [] };
+    }
+    const msgs = await supabaseRequest(`direct_messages?or=(sender_id.like.student:*,recipient_id.like.student:*)&order=created_at.desc&limit=1000`);
+    if (msgs?.error) return { result: 'error', message: msgs.details || msgs.error };
+    const list = Array.isArray(msgs) ? msgs : [];
+    const seen = new Map();
+    list.forEach(m => {
+      const studentSide = String(m.sender_id || '').startsWith('student:') ? m.sender_id : m.recipient_id;
+      if (!String(studentSide || '').startsWith('student:')) return;
+      const studentId = studentSide.slice('student:'.length);
+      if (studentIdFilter && !studentIdFilter.has(studentId)) return;
+      if (!seen.has(studentId)) seen.set(studentId, { student_id: studentId, last_message: m.message, last_at: m.created_at, unread: 0 });
+      if (!m.is_read && m.recipient_id !== studentSide) seen.get(studentId).unread++;
+    });
+    const studentIds = [...seen.keys()];
+    if (studentIds.length) {
+      const profiles = await _sbStudent(`students_data?student_id=in.(${studentIds.map(encodeURIComponent).join(',')})&select=student_id,student_name,class,section,roll`);
+      (Array.isArray(profiles) ? profiles : []).forEach(p => {
+        const t = seen.get(String(p.student_id));
+        if (t) Object.assign(t, { student_name: p.student_name, class: p.class, section: p.section, roll: p.roll });
+      });
+    }
+    return { result: 'success', threads: [...seen.values()].sort((a, b) => new Date(b.last_at) - new Date(a.last_at)) };
+  },
+
+  async getStudentMessageThread([callerId, studentId]) {
+    if (!callerId || !studentId) return { result: 'error', message: 'Missing student id.' };
+    if (!(await _isForumModerator(callerId))) {
+      const [assignments, studentRows] = await Promise.all([
+        supabaseRequest(`class_teacher_assignments?user_id=eq.${encodeURIComponent(callerId)}&select=class,section`),
+        _sbStudent(`students_data?student_id=eq.${encodeURIComponent(studentId)}&select=class,section`),
+      ]);
+      const myAssignments = Array.isArray(assignments) ? assignments : [];
+      const student = Array.isArray(studentRows) && studentRows[0];
+      const owns = student && myAssignments.some(a => a.class === student.class && (!a.section || !student.section || a.section === student.section));
+      if (!owns) return { result: 'error', message: 'You are not the class teacher for this student.' };
+    }
+    const sid = 'student:' + studentId;
+    const msgs = await supabaseRequest(`direct_messages?or=(sender_id.eq.${encodeURIComponent(sid)},recipient_id.eq.${encodeURIComponent(sid)})&order=created_at.asc&limit=500`);
+    if (msgs?.error) return { result: 'error', message: msgs.details || msgs.error };
+    return { result: 'success', messages: Array.isArray(msgs) ? msgs : [] };
+  },
+
   // ── CONNECTION TEST ───────────────────────────────────────────────────────────
 
   async testConnection() {
@@ -3170,6 +3256,26 @@ const handlers = {
     return { result: 'success', path: signed.path, token: signed.token, url: supabaseStoragePublicUrl('forum', path) };
   },
 
+  // Powers the Student-section composer's audience picker — live search over
+  // students_data (columns confirmed via class_teacher_assignments/portal
+  // code elsewhere: student_id, student_name, class, section, roll,
+  // session), returning just enough to render "id — name" checkboxes.
+  async searchStudentsForAudience([callerId, filters]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    const f = filters || {};
+    if (!f.class) return { result: 'success', students: [] };
+    let path = `students_data?select=student_id,student_name,class,section,roll,session&class=eq.${encodeURIComponent(f.class)}&order=roll.asc&limit=300`;
+    if (f.section) path += `&section=eq.${encodeURIComponent(f.section)}`;
+    if (f.session) path += `&session=eq.${encodeURIComponent(f.session)}`;
+    if (f.roll) path += `&roll=eq.${encodeURIComponent(f.roll)}`;
+    // students_data lives in the separate `student` Postgres schema, not
+    // `teacher` — supabaseRequest() always targets `teacher`, so this needs
+    // the cross-schema helper (_sbStudent, already used by the class-teacher
+    // handlers elsewhere in this file) instead.
+    const rows = await _sbStudent(path);
+    return { result: 'success', students: Array.isArray(rows) ? rows : [] };
+  },
+
   async uploadForumPhoto([callerId, dataUrl, filename]) {
     if (!callerId) return { result: 'error', message: 'Not signed in.' };
     const match = /^data:([^;]+);base64,(.+)$/.exec(String(dataUrl || ''));
@@ -3202,31 +3308,55 @@ const handlers = {
     }
 
     const taggedIds = Array.isArray(p.tagged_user_ids) ? [...new Set(p.tagged_user_ids.filter(Boolean))] : [];
+    const section = ['system', 'teacher', 'student'].includes(p.section) ? p.section : 'teacher';
+    const audience = (section === 'student' && p.audience && p.audience.class) ? {
+      mode: p.audience.mode || 'class', session: p.audience.session || null,
+      class: p.audience.class, section: p.audience.section || null,
+      student_ids: Array.isArray(p.audience.student_ids) ? p.audience.student_ids.map(String) : [],
+    } : {};
+    if (section === 'student' && !audience.class) return { result: 'error', message: 'Pick a Class (and optionally Section) for who this post is for.' };
     const now = new Date().toISOString();
     const created = await supabaseRequest('forum_posts', 'post', {
       author_id: callerId, post_type: p.post_type || 'post', body: body || null,
       photo_urls: photoUrls, file_attachments: fileAttachments, tagged_user_ids: taggedIds,
-      is_system: false, is_pinned: false, last_activity_at: now, created_at: now,
+      is_system: false, is_pinned: false, section, audience,
+      last_activity_at: now, created_at: now,
     });
     if (created?.error) return { result: 'error', message: created.details || created.error };
     const post = created[0];
 
-    // Broadcast to everyone, plus a distinct @mention notification for
-    // tagged users (so their bell shows "you were tagged", not just
-    // "someone posted") — fire-and-forget, doesn't block the response.
-    const allIds = await _forumAllUserIds();
-    const others = allIds.filter(id => id !== callerId);
-    _forumNotify(others.filter(id => !taggedIds.includes(id)), {
-      type: 'forum_post', title: 'New Forum Post',
-      message: body ? (body.length > 100 ? body.slice(0, 100) + '…' : body) : 'shared a photo',
-      data: { post_id: post.id },
-    });
-    if (taggedIds.length) {
-      _forumNotify(taggedIds, {
-        type: 'forum_mention', title: 'You were tagged in a forum post',
-        message: body ? (body.length > 100 ? body.slice(0, 100) + '…' : body) : 'tagged you in a photo post',
-        data: { post_id: post.id },
+    // Broadcast to everyone for a Teacher-section post (plus a distinct
+    // @mention notification for tagged users); a Student-section post only
+    // notifies whoever can actually see it — Admin/VP/Cord plus the class
+    // teacher(s) of the targeted class/section — never a school-wide blast
+    // about one class's content. Fire-and-forget either way.
+    const bodyPreview = body ? (body.length > 100 ? body.slice(0, 100) + '…' : body) : 'shared a photo';
+    if (section === 'student') {
+      const [moderatorIds, classTeacherRows] = await Promise.all([
+        supabaseRequest(`app_users?select=user_id,role`).then(rows => (Array.isArray(rows) ? rows : []).filter(u => String(u.role || '').split(',').map(r => r.trim()).some(r => ['Admin', 'VP', 'Cord'].includes(r))).map(u => u.user_id)),
+        supabaseRequest(`class_teacher_assignments?class=eq.${encodeURIComponent(audience.class)}&select=user_id,section`),
+      ]);
+      const relevantTeacherIds = (Array.isArray(classTeacherRows) ? classTeacherRows : [])
+        .filter(a => !audience.section || !a.section || a.section === audience.section)
+        .map(a => a.user_id);
+      const recipients = [...new Set([...moderatorIds, ...relevantTeacherIds, ...taggedIds])].filter(id => id !== callerId);
+      _forumNotify(recipients, {
+        type: 'forum_post', title: `New Student Forum Post — ${audience.class}${audience.section ? '/' + audience.section : ''}`,
+        message: bodyPreview, data: { post_id: post.id },
       });
+    } else {
+      const allIds = await _forumAllUserIds();
+      const others = allIds.filter(id => id !== callerId);
+      _forumNotify(others.filter(id => !taggedIds.includes(id)), {
+        type: 'forum_post', title: 'New Forum Post', message: bodyPreview, data: { post_id: post.id },
+      });
+      if (taggedIds.length) {
+        _forumNotify(taggedIds, {
+          type: 'forum_mention', title: 'You were tagged in a forum post',
+          message: body ? (body.length > 100 ? body.slice(0, 100) + '…' : body) : 'tagged you in a photo post',
+          data: { post_id: post.id },
+        });
+      }
     }
     return { result: 'success', post };
   },
@@ -3271,15 +3401,37 @@ const handlers = {
   // cursor = ISO timestamp of the last-seen post's created_at (or null for
   // page 1) — simple keyset pagination, newest first, pinned posts always
   // surface on page 1 above the fold regardless of recency.
+  // sort: 'recent' (default, cursor-paginated on created_at) or 'popular'
+  // (ordered by reaction_count/reply_count, offset-paginated instead — a
+  // popularity ranking isn't a stable cursor key the way created_at is, so
+  // switching sort modes switches pagination strategy too). Pinned posts
+  // always come first regardless of sort. section='student' posts are
+  // audience-restricted (see _forumCanSeeStudentPost) and filtered in JS
+  // after the fetch since the visibility check needs the caller's own
+  // class_teacher_assignments, which PostgREST can't join into one query.
   async getForumPosts([callerId, filters]) {
     const f = filters || {};
     const cutoff = new Date(Date.now() - 122 * 24 * 60 * 60 * 1000).toISOString(); // ~4 months
-    let path = `forum_posts?last_activity_at=gte.${cutoff}&select=*&order=is_pinned.desc,created_at.desc&limit=${f.limit || 20}`;
+    const wantSection = f.section || null;
+    const fetchLimit = wantSection === 'student' ? (f.limit || 20) * 3 : (f.limit || 20); // over-fetch since some rows get filtered out by visibility
+    let path = `forum_posts?last_activity_at=gte.${cutoff}&select=*&limit=${fetchLimit}`;
     if (f.post_type) path += `&post_type=eq.${encodeURIComponent(f.post_type)}`;
-    if (f.cursor) path += `&created_at=lt.${encodeURIComponent(f.cursor)}`;
+    if (wantSection) path += `&section=eq.${encodeURIComponent(wantSection)}`;
+    if (f.q) path += `&body=ilike.*${encodeURIComponent(String(f.q).replace(/[*]/g, ''))}*`;
+    if (f.sort === 'popular') {
+      path += `&order=is_pinned.desc,reaction_count.desc,reply_count.desc,created_at.desc&offset=${f.offset || 0}`;
+    } else {
+      path += `&order=is_pinned.desc,created_at.desc`;
+      if (f.cursor) path += `&created_at=lt.${encodeURIComponent(f.cursor)}`;
+    }
     const posts = await supabaseRequest(path);
     if (posts?.error) return { result: 'error', message: posts.details || posts.error };
-    return { result: 'success', posts: Array.isArray(posts) ? posts : [] };
+    let list = Array.isArray(posts) ? posts : [];
+    if (wantSection === 'student') {
+      list = await _forumFilterStudentVisible(callerId, list);
+      list = list.slice(0, f.limit || 20);
+    }
+    return { result: 'success', posts: list };
   },
 
   // Fetches a single post by id — used when a notification click needs to

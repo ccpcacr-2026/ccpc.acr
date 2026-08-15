@@ -105,6 +105,9 @@ const RESERVED = [
   '_forumLoadMore','_forumToggleMenu','_forumEditPost','_forumDeletePost','_forumPinPost',
   '_forumOpenLightbox','_forumCloseLightbox','_forumTogglePicker','_forumReact','_forumToggleReplies',
   '_forumCopyPost','_forumShowReplyBox','_forumSubmitReply',
+  '_forumSetSection','_forumSetSort','_forumOnSearchInput',
+  '_forumAudienceSetMode','_forumAudienceSearchStudents','_forumAudienceToggleStudent',
+  'loadStudentMessageHistoryView','_studentMsgOpenThread',
   // inventory chain-of-custody
   '_invMarkNotifRead','_invOpenDistModal','_invCloseDistModal','_invSubmitDistribution',
   '_invRenderRecipientOptions','_invUpdateNotifyPreview',

@@ -389,6 +389,7 @@
     myclass:       () => loadMyClassView(),
     lesson_plan:   () => loadLessonPlanView(),
     forum:         () => loadForumView(),
+    student_message_history: () => loadStudentMessageHistoryView(),
     textbooks:     () => loadTextbooksView(),
     student_portal:() => loadStudentPortalView(),
     student_portal_menu: () => _openStudentPortalMobileMenu(),
@@ -4730,11 +4731,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   const FORUM_PHOTO_TARGET_BYTES = 130 * 1024;
   const FORUM_MAX_PHOTOS = 6;
 
+  const FORUM_SECTIONS = [
+    { key: 'teacher', label: 'Teacher', emoji: '🧑‍🏫' },
+    { key: 'student', label: 'Student', emoji: '🎓' },
+    { key: 'system',  label: 'System',  emoji: '🔔' },
+  ];
+
   let _forumPosts = [];
-  let _forumCursor = null;
+  let _forumCursor = null;      // 'recent' sort pagination key
+  let _forumOffset = 0;         // 'popular' sort pagination key
   let _forumFilterType = '';
+  let _forumSection = 'teacher';
+  let _forumSort = 'recent';    // 'recent' | 'popular'
+  let _forumSearchQuery = '';
+  let _forumSearchDebounce = null;
   let _forumHasMore = true;
   let _forumLoading = false;
+  let _forumScrollObserver = null;
   let _forumRepliesCache = {}; // postId -> replies[]
   let _forumOpenReplyThreads = new Set();
   let _forumComposerType = 'post';
@@ -4743,6 +4756,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   const FORUM_MAX_FILE_BYTES = 50 * 1024 * 1024;
   let _forumComposerTagged = []; // [user_id]
   let _forumMentionState = null; // {start, query} while typing "@..."
+  let _forumComposerAudience = null; // {mode, session, class, section, student_ids} — Student section only
+  let _forumAudienceStudents = [];   // last searchStudentsForAudience() result, for the checkbox list
 
   function _forumTypeMeta(key) {
     return FORUM_POST_TYPES.find(t => t.key === key) || { key: 'post', label: 'Post', emoji: '📢', grad: 'from-slate-500 to-slate-600' };
@@ -4784,22 +4799,38 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     setContentHeader('Forum', 'messages-square');
     const container = document.getElementById('view-container');
     if (!container) return;
-    _forumPosts = []; _forumCursor = null; _forumHasMore = true; _forumRepliesCache = {}; _forumOpenReplyThreads = new Set();
+    _forumPosts = []; _forumCursor = null; _forumOffset = 0; _forumHasMore = true; _forumRepliesCache = {}; _forumOpenReplyThreads = new Set();
     container.innerHTML = `
       <div class="pt-4 max-w-2xl mx-auto pb-16">
+        <div class="flex gap-2 mb-4 bg-slate-100 rounded-2xl p-1">
+          ${FORUM_SECTIONS.map(s => `<button onclick="_forumSetSection('${s.key}')" id="forumSectionBtn-${s.key}" class="flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${_forumSection === s.key ? 'bg-white shadow text-slate-800' : 'text-slate-400 hover:text-slate-600'}">${s.emoji} ${_escHtml(s.label)}</button>`).join('')}
+        </div>
+
         <div class="forum-composer-trigger bg-white rounded-3xl border border-slate-200 shadow-sm p-4 mb-5 flex items-center gap-3 cursor-pointer hover:shadow-md transition-all" onclick="_forumOpenComposer()">
           <div class="h-10 w-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-black text-sm shrink-0">${_escHtml((window.APP_USER && window.APP_USER.full_name || '?').charAt(0))}</div>
-          <div class="flex-1 px-4 py-2.5 bg-slate-50 rounded-full text-slate-400 font-bold text-sm">Share something with everyone…</div>
+          <div class="flex-1 px-4 py-2.5 bg-slate-50 rounded-full text-slate-400 font-bold text-sm">${_forumSection === 'student' ? 'Post something for a class/student group…' : 'Share something with everyone…'}</div>
           <i data-lucide="image-plus" class="h-5 w-5 text-slate-300"></i>
         </div>
 
-        <div id="forumFilterRow" class="flex gap-2 overflow-x-auto pb-1 mb-5">
-          <button onclick="_forumSetFilter('')" class="forum-filter-chip ${_forumFilterType === '' ? 'active' : ''}" data-type="">✨ All</button>
-          ${FORUM_POST_TYPES.map(t => `<button onclick="_forumSetFilter('${t.key}')" class="forum-filter-chip ${_forumFilterType === t.key ? 'active' : ''}" data-type="${t.key}">${t.emoji} ${_escHtml(t.label)}</button>`).join('')}
+        <div class="relative mb-4">
+          <i data-lucide="search" class="h-4 w-4 text-slate-300 absolute left-3 top-1/2 -translate-y-1/2"></i>
+          <input id="forumSearchInput" type="text" placeholder="Search the forum…" oninput="_forumOnSearchInput(this.value)" class="w-full pl-9 pr-3 py-2.5 bg-white border border-slate-200 rounded-xl font-bold text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+        </div>
+
+        <div class="flex items-center justify-between gap-2 mb-3">
+          <div id="forumFilterRow" class="flex gap-2 overflow-x-auto pb-1 flex-1">
+            <button onclick="_forumSetFilter('')" class="forum-filter-chip ${_forumFilterType === '' ? 'active' : ''}" data-type="">✨ All</button>
+            ${FORUM_POST_TYPES.map(t => `<button onclick="_forumSetFilter('${t.key}')" class="forum-filter-chip ${_forumFilterType === t.key ? 'active' : ''}" data-type="${t.key}">${t.emoji} ${_escHtml(t.label)}</button>`).join('')}
+          </div>
+          <div class="flex gap-1 bg-slate-100 rounded-full p-1 shrink-0">
+            <button onclick="_forumSetSort('recent')" id="forumSortBtn-recent" class="px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${_forumSort === 'recent' ? 'bg-white shadow text-slate-800' : 'text-slate-400'}">Recent</button>
+            <button onclick="_forumSetSort('popular')" id="forumSortBtn-popular" class="px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${_forumSort === 'popular' ? 'bg-white shadow text-slate-800' : 'text-slate-400'}">Popular</button>
+          </div>
         </div>
 
         <div id="forumFeed" class="flex flex-col gap-4"></div>
         <div id="forumFeedFooter" class="text-center py-6"></div>
+        <div id="forumScrollSentinel" class="h-1"></div>
       </div>
 
       <div id="forumComposerModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 p-4">
@@ -4814,6 +4845,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="relative">
             <textarea id="forumComposerBody" rows="4" placeholder="What's on your mind? Use @ to tag someone…" oninput="_forumOnComposerInput(this)" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-sm focus:ring-2 focus:ring-indigo-500 outline-none resize-none"></textarea>
             <div id="forumMentionDropdown" class="hidden absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-40 overflow-y-auto z-10"></div>
+          </div>
+          <div id="forumAudienceSection" class="hidden mt-3 p-3 rounded-xl border border-indigo-200 bg-indigo-50/40 space-y-2">
+            <p class="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Who is this post for?</p>
+            <div class="flex gap-2 flex-wrap">
+              <button onclick="_forumAudienceSetMode('class')" id="forumAudModeBtn-class" class="px-2.5 py-1 rounded-full text-[10px] font-black uppercase border">Whole Class</button>
+              <button onclick="_forumAudienceSetMode('class_section')" id="forumAudModeBtn-class_section" class="px-2.5 py-1 rounded-full text-[10px] font-black uppercase border">Class + Section</button>
+              <button onclick="_forumAudienceSetMode('students')" id="forumAudModeBtn-students" class="px-2.5 py-1 rounded-full text-[10px] font-black uppercase border">Specific Students</button>
+            </div>
+            <div class="grid grid-cols-3 gap-2">
+              <input id="forumAudSession" placeholder="Session" oninput="_forumAudienceSearchStudents()" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+              <input id="forumAudClass" placeholder="Class (e.g. Six)" oninput="_forumAudienceSearchStudents()" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+              <input id="forumAudSectionInput" placeholder="Section (e.g. A)" oninput="_forumAudienceSearchStudents()" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+            </div>
+            <div id="forumAudRollRow" class="hidden"><input id="forumAudRoll" placeholder="Roll (optional, narrows the list)" oninput="_forumAudienceSearchStudents()" class="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold"></div>
+            <div id="forumAudStudentList" class="hidden max-h-40 overflow-y-auto space-y-1"></div>
+            <p id="forumAudSummary" class="text-[10px] font-bold text-slate-500"></p>
           </div>
           <div id="forumTaggedChips" class="flex flex-wrap gap-1.5 mt-2"></div>
           <div id="forumPhotoPreviews" class="grid grid-cols-3 gap-2 mt-3"></div>
@@ -4841,15 +4888,67 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     lucide.createIcons();
     _ensureStaffCache(() => {});
     _forumMaybeCleanup();
+    _forumSetupInfiniteScroll();
     _forumLoadMore();
+  }
+
+  // IntersectionObserver on a 1px sentinel below the feed — fires
+  // _forumLoadMore() automatically as it scrolls into view, replacing a
+  // click-triggered "Load More" button with continuous scroll. Re-created
+  // per loadForumView() mount (old one, if any, is disconnected first) so a
+  // stale observer never fires into a torn-down view.
+  function _forumSetupInfiniteScroll() {
+    if (_forumScrollObserver) _forumScrollObserver.disconnect();
+    const sentinel = document.getElementById('forumScrollSentinel');
+    if (!sentinel || !window.IntersectionObserver) return;
+    _forumScrollObserver = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting) _forumLoadMore();
+    }, { rootMargin: '600px' });
+    _forumScrollObserver.observe(sentinel);
+  }
+
+  function _forumResetFeed() {
+    _forumPosts = []; _forumCursor = null; _forumOffset = 0; _forumHasMore = true;
+    const feed = document.getElementById('forumFeed');
+    if (feed) feed.innerHTML = '';
+    const footer = document.getElementById('forumFeedFooter');
+    if (footer) footer.innerHTML = '';
   }
 
   function _forumSetFilter(type) {
     _forumFilterType = type;
     document.querySelectorAll('.forum-filter-chip').forEach(el => el.classList.toggle('active', el.dataset.type === type));
-    _forumPosts = []; _forumCursor = null; _forumHasMore = true;
-    document.getElementById('forumFeed').innerHTML = '';
+    _forumResetFeed();
     _forumLoadMore();
+  }
+
+  function _forumSetSection(section) {
+    _forumSection = section;
+    FORUM_SECTIONS.forEach(s => {
+      const btn = document.getElementById(`forumSectionBtn-${s.key}`);
+      if (btn) btn.className = `flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${_forumSection === s.key ? 'bg-white shadow text-slate-800' : 'text-slate-400 hover:text-slate-600'}`;
+    });
+    const trigger = document.querySelector('.forum-composer-trigger > div.flex-1');
+    if (trigger) trigger.textContent = section === 'student' ? 'Post something for a class/student group…' : 'Share something with everyone…';
+    _forumResetFeed();
+    _forumLoadMore();
+  }
+
+  function _forumSetSort(sort) {
+    _forumSort = sort;
+    ['recent', 'popular'].forEach(s => {
+      const btn = document.getElementById(`forumSortBtn-${s}`);
+      if (btn) btn.className = `px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${_forumSort === s ? 'bg-white shadow text-slate-800' : 'text-slate-400'}`;
+    });
+    _forumResetFeed();
+    _forumLoadMore();
+  }
+
+  // Debounced (350ms) so every keystroke doesn't fire a request.
+  function _forumOnSearchInput(value) {
+    _forumSearchQuery = value.trim();
+    clearTimeout(_forumSearchDebounce);
+    _forumSearchDebounce = setTimeout(() => { _forumResetFeed(); _forumLoadMore(); }, 350);
   }
 
   function _forumLoadMore() {
@@ -4858,26 +4957,36 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const footer = document.getElementById('forumFeedFooter');
     if (footer) footer.innerHTML = `<span class="text-xs font-black text-slate-400 uppercase tracking-widest">Loading…</span>`;
     const myId = window.APP_USER && window.APP_USER.user_id;
+    const filters = {
+      section: _forumSection, post_type: _forumFilterType || null, sort: _forumSort,
+      q: _forumSearchQuery || null, limit: 20,
+    };
+    if (_forumSort === 'popular') filters.offset = _forumOffset; else filters.cursor = _forumCursor;
     google.script.run.withSuccessHandler(res => {
       _forumLoading = false;
-      const posts = (res && res.posts) || [];
+      if (!res || res.result !== 'success') {
+        if (footer) footer.innerHTML = `<span class="text-xs font-black text-red-400">${_escHtml((res && res.message) || 'Could not load the feed')}</span>`;
+        return;
+      }
+      const posts = res.posts || [];
       _forumHasMore = posts.length >= 20;
       _forumCursor = posts.length ? posts[posts.length - 1].created_at : _forumCursor;
+      _forumOffset += posts.length;
       _forumPosts = _forumPosts.concat(posts);
       const feed = document.getElementById('forumFeed');
       if (feed) {
         if (!_forumPosts.length) {
-          feed.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Nothing here yet — be the first to post!</div>`;
+          feed.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">${_forumSearchQuery ? 'No posts match your search' : 'Nothing here yet — be the first to post!'}</div>`;
         } else {
           feed.insertAdjacentHTML('beforeend', posts.map(_forumPostCardHtml).join(''));
         }
       }
-      if (footer) footer.innerHTML = _forumHasMore ? `<button onclick="_forumLoadMore()" class="px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest bg-white border border-slate-200 hover:bg-slate-50">Load More</button>` : '';
+      if (footer) footer.innerHTML = _forumHasMore ? '' : (_forumPosts.length ? `<span class="text-xs font-black text-slate-300 uppercase tracking-widest">You're all caught up</span>` : '');
       lucide.createIcons();
     }).withFailureHandler(() => {
       _forumLoading = false;
-      if (footer) footer.innerHTML = `<span class="text-xs font-black text-red-400">Could not load the feed</span>`;
-    }).getForumPosts(myId, { cursor: _forumCursor, post_type: _forumFilterType || null, limit: 20 });
+      if (footer) footer.innerHTML = `<span class="text-xs font-black text-red-400">Network error loading the feed</span>`;
+    }).getForumPosts(myId, filters);
   }
 
   // Jumps straight to one post — used when a notification click needs to
@@ -4912,6 +5021,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return `
       <div class="forum-card bg-white rounded-3xl border ${isSystem ? 'border-slate-100 bg-slate-50/60' : 'border-slate-200'} shadow-sm overflow-hidden" data-post-id="${post.id}">
         ${post.is_pinned ? `<div class="px-4 py-1.5 bg-amber-50 text-amber-700 text-[10px] font-black uppercase tracking-widest flex items-center gap-1"><i data-lucide="pin" class="h-3 w-3"></i>Pinned</div>` : ''}
+        ${post.section === 'student' && post.audience && post.audience.class ? `<div class="px-4 py-1.5 bg-indigo-50 text-indigo-600 text-[10px] font-black uppercase tracking-widest flex items-center gap-1"><i data-lucide="graduation-cap" class="h-3 w-3"></i>${_escHtml(post.audience.class)}${post.audience.section ? '/' + _escHtml(post.audience.section) : ''}${post.audience.mode === 'students' && Array.isArray(post.audience.student_ids) ? ` · ${post.audience.student_ids.length} student(s)` : ' · whole class'}</div>` : ''}
         <div class="p-4">
           <div class="flex items-start gap-3">
             <div class="h-10 w-10 rounded-full bg-gradient-to-br ${meta.grad} flex items-center justify-center text-white font-black text-sm shrink-0">${isSystem ? '🔔' : _escHtml(_forumUserName(post.author_id).charAt(0))}</div>
@@ -5116,11 +5226,85 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _forumSelectType('post');
     _forumRenderComposerPhotos();
     _forumRenderComposerFiles();
+    document.getElementById('forumAudienceSection').classList.toggle('hidden', _forumSection !== 'student');
+    if (_forumSection === 'student') { _forumAudienceInit(); _forumAudienceSetMode('class'); }
     _ensureStaffCache(() => {});
   }
   function _forumCloseComposer() {
     document.getElementById('forumComposerModal').classList.add('hidden');
     document.getElementById('forumComposerModal').classList.remove('flex');
+  }
+
+  // ── Student-section audience picker ────────────────────────────────────
+  // Who a Student-section post is visible to — a whole class, one class+
+  // section, or specific students hand-picked via a live session+class+
+  // section+roll search (searchStudentsForAudience, server-side). Server
+  // enforces the actual visibility rule (_forumFilterStudentVisible in
+  // app/api/exec/route.js) — this is just building the audience object the
+  // post is tagged with.
+
+  function _forumAudienceInit() {
+    _forumComposerAudience = { mode: 'class', session: '', class: '', section: '', student_ids: [] };
+    _forumAudienceStudents = [];
+    ['forumAudSession', 'forumAudClass', 'forumAudSectionInput', 'forumAudRoll'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  }
+
+  function _forumAudienceSetMode(mode) {
+    _forumComposerAudience.mode = mode;
+    ['class', 'class_section', 'students'].forEach(m => {
+      const btn = document.getElementById(`forumAudModeBtn-${m}`);
+      if (btn) btn.className = `px-2.5 py-1 rounded-full text-[10px] font-black uppercase border ${mode === m ? 'bg-indigo-600 text-white border-transparent' : 'border-slate-200 text-slate-500'}`;
+    });
+    document.getElementById('forumAudRollRow').classList.toggle('hidden', mode !== 'students');
+    document.getElementById('forumAudStudentList').classList.toggle('hidden', mode !== 'students');
+    const secInput = document.getElementById('forumAudSectionInput');
+    if (secInput) secInput.disabled = (mode === 'class');
+    if (mode === 'class') _forumComposerAudience.section = '';
+    if (mode === 'students') _forumAudienceSearchStudents();
+    _forumAudienceUpdateSummary();
+  }
+
+  function _forumAudienceSearchStudents() {
+    const session = document.getElementById('forumAudSession').value.trim();
+    const cls = document.getElementById('forumAudClass').value.trim();
+    const section = document.getElementById('forumAudSectionInput').value.trim();
+    const rollEl = document.getElementById('forumAudRoll');
+    const roll = rollEl ? rollEl.value.trim() : '';
+    _forumComposerAudience.session = session; _forumComposerAudience.class = cls; _forumComposerAudience.section = section;
+    _forumAudienceUpdateSummary();
+    if (_forumComposerAudience.mode !== 'students' || !cls) { _forumAudienceStudents = []; document.getElementById('forumAudStudentList').innerHTML = ''; return; }
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      _forumAudienceStudents = (res && res.students) || [];
+      _forumRenderAudienceStudentList();
+    }).withFailureHandler(() => {}).searchStudentsForAudience(myId, { session, class: cls, section, roll });
+  }
+
+  function _forumRenderAudienceStudentList() {
+    const el = document.getElementById('forumAudStudentList');
+    if (!el) return;
+    el.innerHTML = _forumAudienceStudents.map(s => `<label class="flex items-center gap-2 px-2 py-1 hover:bg-white rounded-lg cursor-pointer">
+      <input type="checkbox" ${_forumComposerAudience.student_ids.includes(String(s.student_id)) ? 'checked' : ''} onchange="_forumAudienceToggleStudent('${s.student_id}', this.checked)">
+      <span class="text-xs font-bold text-slate-700">${_escHtml(s.roll || '')} — ${_escHtml(s.student_name || s.student_id)}</span>
+    </label>`).join('') || `<p class="text-[10px] text-slate-400 px-2">No students found for this class/section.</p>`;
+    _forumAudienceUpdateSummary();
+  }
+
+  function _forumAudienceToggleStudent(id, checked) {
+    id = String(id);
+    if (checked) { if (!_forumComposerAudience.student_ids.includes(id)) _forumComposerAudience.student_ids.push(id); }
+    else { _forumComposerAudience.student_ids = _forumComposerAudience.student_ids.filter(x => x !== id); }
+    _forumAudienceUpdateSummary();
+  }
+
+  function _forumAudienceUpdateSummary() {
+    const el = document.getElementById('forumAudSummary');
+    if (!el || !_forumComposerAudience) return;
+    const a = _forumComposerAudience;
+    if (!a.class) { el.textContent = 'Enter a class to target.'; return; }
+    if (a.mode === 'class') el.textContent = `Visible to: ${a.class} (all sections)`;
+    else if (a.mode === 'class_section') el.textContent = `Visible to: ${a.class}${a.section ? '/' + a.section : ''}`;
+    else el.textContent = `Visible to: ${a.student_ids.length} selected student(s) in ${a.class}${a.section ? '/' + a.section : ''}`;
   }
 
   function _forumSelectType(key) {
@@ -5337,12 +5521,99 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         }).withFailureHandler(() => {
           if (btn) { btn.disabled = false; btn.textContent = 'Post to Forum'; }
           showToast('Network error while posting', 'error');
-        }).createForumPost(myId, { post_type: _forumComposerType, body, photo_urls: photoUrls, file_attachments: fileAttachments, tagged_user_ids: _forumComposerTagged });
+        }).createForumPost(myId, { post_type: _forumComposerType, body, photo_urls: photoUrls, file_attachments: fileAttachments, tagged_user_ids: _forumComposerTagged, section: _forumSection, audience: _forumSection === 'student' ? _forumComposerAudience : null });
       })
       .catch(err => {
         if (btn) { btn.disabled = false; btn.textContent = 'Post to Forum'; }
         showToast(err.message || 'Could not upload photos/files', 'error');
       });
+  }
+
+  // ── STUDENT MESSAGE HISTORY (Admin/VP/Cord/class-teacher oversight) ───────
+  // Read-only view of student<->teacher message threads — the actual
+  // sending happens in the separate ccpc-students app; this just surfaces
+  // what's already in the shared `direct_messages` table for oversight.
+  // Server (getStudentMessageThreads/getStudentMessageThread in
+  // app/api/exec/route.js) does all the access scoping: Admin/VP/Cord see
+  // every thread, a plain Teacher only sees students in a class they're the
+  // class teacher of (class_teacher_assignments) — this view just renders
+  // whatever the server hands back, no client-side filtering.
+
+  let _studentMsgThreads = [];
+
+  function loadStudentMessageHistoryView() {
+    _setViewHash('student_message_history');
+    setActiveNavLink('nav-student-message-history');
+    setContentHeader('Message History', 'message-circle-heart');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    container.innerHTML = `
+      <div class="pt-4 max-w-3xl mx-auto pb-10">
+        <p class="text-xs text-slate-500 font-bold mb-4">Read-only oversight of student &lt;-&gt; teacher messages. Students send/read these in the separate Student Portal login — this just shows what's already there for the students you're responsible for.</p>
+        <div id="studentMsgThreadList" class="flex flex-col gap-2">
+          <div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>
+        </div>
+        <div id="studentMsgThreadView" class="hidden mt-4 bg-white rounded-3xl border border-slate-200 shadow-sm p-4"></div>
+      </div>`;
+    lucide.createIcons();
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      const list = document.getElementById('studentMsgThreadList');
+      if (!list) return;
+      if (!res || res.result !== 'success') { list.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml((res && res.message) || 'Failed to load')}</div>`; return; }
+      _studentMsgThreads = res.threads || [];
+      if (!_studentMsgThreads.length) { list.innerHTML = `<div class="bg-white rounded-3xl border border-slate-200 shadow-sm text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">No student message threads yet</div>`; return; }
+      list.innerHTML = _studentMsgThreads.map(t => `
+        <div onclick="_studentMsgOpenThread('${t.student_id}')" class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex items-center gap-3 cursor-pointer hover:shadow-md transition-all">
+          <div class="h-10 w-10 rounded-full bg-gradient-to-br from-sky-500 to-blue-600 flex items-center justify-center text-white font-black text-sm shrink-0">${_escHtml((t.student_name || '?').charAt(0))}</div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2">
+              <span class="font-black text-slate-800 text-sm">${_escHtml(t.student_name || t.student_id)}</span>
+              <span class="text-[10px] text-slate-400 font-bold">${_escHtml(t.class || '')}${t.section ? '/' + _escHtml(t.section) : ''}${t.roll ? ' · Roll ' + _escHtml(String(t.roll)) : ''}</span>
+            </div>
+            <p class="text-xs text-slate-500 font-bold truncate">${_escHtml(t.last_message || '')}</p>
+          </div>
+          <div class="flex flex-col items-end gap-1 shrink-0">
+            <span class="text-[10px] text-slate-400 font-bold">${_forumTimeAgo(t.last_at)}</span>
+            ${t.unread ? `<span class="min-w-[18px] h-[18px] px-1 bg-blue-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">${t.unread}</span>` : ''}
+          </div>
+        </div>`).join('');
+    }).withFailureHandler(() => {
+      const list = document.getElementById('studentMsgThreadList');
+      if (list) list.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">Network error</div>`;
+    }).getStudentMessageThreads(myId);
+  }
+
+  function _studentMsgOpenThread(studentId) {
+    const thread = _studentMsgThreads.find(t => t.student_id === studentId);
+    const view = document.getElementById('studentMsgThreadView');
+    if (!view) return;
+    view.classList.remove('hidden');
+    view.innerHTML = `<div class="text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`;
+    view.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { view.innerHTML = `<div class="text-center py-8 text-red-400 text-xs font-black uppercase">${_escHtml((res && res.message) || 'Failed to load')}</div>`; return; }
+      const msgs = res.messages || [];
+      const sid = 'student:' + studentId;
+      view.innerHTML = `
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="font-black text-slate-800">${_escHtml((thread && thread.student_name) || studentId)}</h3>
+          <button onclick="document.getElementById('studentMsgThreadView').classList.add('hidden')" class="p-1.5 hover:bg-slate-100 rounded-full"><i data-lucide="x" class="h-4 w-4"></i></button>
+        </div>
+        <div class="flex flex-col gap-2 max-h-96 overflow-y-auto">
+          ${msgs.length ? msgs.map(m => {
+            const fromStudent = m.sender_id === sid;
+            return `<div class="flex ${fromStudent ? 'justify-start' : 'justify-end'}">
+              <div class="max-w-[75%] px-3 py-2 rounded-2xl ${fromStudent ? 'bg-slate-100 text-slate-700' : 'bg-blue-500 text-white'}">
+                <p class="text-xs font-bold whitespace-pre-wrap">${_escHtml(m.message || '')}</p>
+                <p class="text-[9px] mt-1 opacity-60">${new Date(m.created_at).toLocaleString('en-BD', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}</p>
+              </div>
+            </div>`;
+          }).join('') : `<p class="text-center text-xs text-slate-300 font-black uppercase tracking-widest py-8">No messages</p>`}
+        </div>`;
+      lucide.createIcons();
+    }).withFailureHandler(() => { view.innerHTML = `<div class="text-center py-8 text-red-400 text-xs font-black uppercase">Network error</div>`; }).getStudentMessageThread(myId, studentId);
   }
 
   function _lpUpdateTabButtons() {
@@ -14814,6 +15085,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { key: 'committees',       label: 'My Assignments',     navId: 'nav-my-committees' },
     { key: 'lesson_plan',      label: 'My Lesson Plan',     navId: 'nav-lesson-plan' },
     { key: 'forum',            label: 'Forum',              navId: 'nav-forum' },
+    { key: 'student_message_history', label: 'Message History', navId: 'nav-student-message-history' },
     { key: 'textbooks',        label: 'NCTB Books',         navId: 'nav-textbooks' },
     // Standalone (not nested under Student Portal, unlike the rest of the old
     // ADMIN_SUBNAV_ITEMS list) so every teacher/staff role sees it without an
@@ -14841,6 +15113,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     committees:    ['Teacher','Staff'],
     lesson_plan:   ['Teacher'],
     forum:         ALL_ROLES,
+    student_message_history: ['Admin','VP','Cord','Principal','Teacher'],
     textbooks:     ALL_ROLES,
     bus_tracker:   ALL_ROLES,
     messages:      ALL_ROLES,
