@@ -4228,24 +4228,9 @@ OUTPUT FORMAT — one JSON object per lesson, collected into a single JSON array
 {"phase": "Closing", "teacher_activity": "string", "learner_activity": "string", "duration_minutes": number}
 ]
 },
-"bn": {
-"chapter": "Chapter title/number in Bangla (বাংলা), same NCTB terminology the textbook uses",
-"topic": "Lesson topic in Bangla",
-"learning_outcomes": "string (Bangla)", "teaching_aids": "string (Bangla)", "method": "string (Bangla)",
-"phases": [
-{"phase": "Greetings", "teacher_activity": "string (Bangla)", "learner_activity": "string (Bangla)", "duration_minutes": number},
-{"phase": "Engagement", "teacher_activity": "string (Bangla)", "learner_activity": "string (Bangla)", "duration_minutes": number},
-{"phase": "Exploration", "teacher_activity": "string (Bangla)", "learner_activity": "string (Bangla)", "duration_minutes": number},
-{"phase": "Explanation and Elaboration", "teacher_activity": "string (Bangla)", "learner_activity": "string (Bangla)", "duration_minutes": number},
-{"phase": "Evaluation", "teacher_activity": "string (Bangla)", "learner_activity": "string (Bangla)", "duration_minutes": number},
-{"phase": "Summarization", "teacher_activity": "string (Bangla)", "learner_activity": "string (Bangla)", "duration_minutes": number},
-{"phase": "Assignment/Homework", "teacher_activity": "string (Bangla)", "learner_activity": "string (Bangla)", "duration_minutes": number},
-{"phase": "Closing", "teacher_activity": "string (Bangla)", "learner_activity": "string (Bangla)", "duration_minutes": number}
-]
+"bn": same 5 fields + 8 phases as "en" above, fully in Bangla (বাংলা): chapter, topic, learning_outcomes, teaching_aids, method, every teacher_activity/learner_activity. Phase names + duration_minutes stay identical to "en".
 }
-}
-Note: the "phase" field itself and its 8 values always stay in English (Greetings, Engagement, etc.) in both "en" and "bn" blocks — only teacher_activity/learner_activity text changes language.
-Work through the whole book, complete JSON array, not a sample. If too long for one response, stop cleanly at a chapter boundary and say exactly where. Every time you stop, end with nothing else after this exact line, so it's the one obvious thing to click/tap to continue: Continue with the next chapter.`;
+Give the complete array, not a sample. If too long, stop cleanly at a chapter boundary and say where. End every stop with nothing after this line, so it's the one thing to click to continue: Continue with the next chapter.`;
 
   function _lpCopyNotebookPrompt() {
     navigator.clipboard.writeText(LP_NOTEBOOKLM_PROMPT).then(() => {
