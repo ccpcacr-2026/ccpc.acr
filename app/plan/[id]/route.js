@@ -164,7 +164,12 @@ export async function GET(request, { params }) {
     ? new Date(plan.class_date + 'T00:00:00').toLocaleDateString(isBn ? 'bn-BD' : 'en-US', { weekday: 'long' })
     : '';
 
-  const phaseRows = (plan.phases || []).map(p => `
+  // Greetings/Closing are the same procedural bookend every lesson — printed
+  // output only needs the actual lecture content, not the classroom-
+  // management formalities.
+  const phaseRows = (plan.phases || [])
+    .filter(p => p.phase !== 'Greetings' && p.phase !== 'Closing')
+    .map(p => `
     <tr>
       <td class="ph-name">${esc(L.phases[p.phase] || p.phase || '')}</td>
       <td>${esc(p.teacher_activity || '')}</td>

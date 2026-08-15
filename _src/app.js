@@ -4749,7 +4749,7 @@
       name: 'Name:', department: 'Department:', class: 'Class:', subject: 'Subject:',
       version: 'Version:', time: 'Time:', minutes: 'minutes',
       date: 'Date:', period: 'Period:',
-      chapterLessons: 'Chapter & Lesson(s):', topic: 'Topic:',
+      chapterLessons: 'Chapter, Lesson & Topic:', topic: 'Topic:',
       lessonWord: 'Lesson', scanMe: 'Scan to open',
       learningOutcomes: 'Learning Outcomes — After this class the students will be able to…',
       generalMgmt: 'General Class Management', teachingAids: 'Teaching Aids:', method: 'Method:',
@@ -4775,7 +4775,7 @@
       name: 'নাম:', department: 'বিভাগ:', class: 'শ্রেণি:', subject: 'বিষয়:',
       version: 'ভার্সন:', time: 'সময়:', minutes: 'মিনিট',
       date: 'তারিখ:', period: 'পিরিয়ড:',
-      chapterLessons: 'অধ্যায় ও পাঠ:', topic: 'আলোচ্য বিষয়:',
+      chapterLessons: 'অধ্যায়, পাঠ ও বিষয়:', topic: 'আলোচ্য বিষয়:',
       lessonWord: 'পাঠ', scanMe: 'স্ক্যান করুন',
       learningOutcomes: 'শেখার ফলাফল — এই পাঠ শেষে শিক্ষার্থীরা যা পারবে',
       generalMgmt: 'সাধারণ শ্রেণি ব্যবস্থাপনা', teachingAids: 'শিক্ষা উপকরণ:', method: 'পদ্ধতি:',
@@ -4939,9 +4939,13 @@
     const isBn = /bangla/i.test(payload.version || '');
     const L = isBn ? _LP_PRINT_LABELS.bn : _LP_PRINT_LABELS.en;
     const dims = _lpPageDims(pageSize);
+    // Lesson number and Topic describe the same thing (the checkbox picker in
+    // the table view already labels each lesson "Lesson N — Topic"), so the
+    // print output shows them as one combined line instead of two rows that
+    // just restate each other.
     const chapterLine = (payload.lesson_refs || [])
       .map(r => r.chapter + (r.lesson_numbers && r.lesson_numbers.length ? ' (' + L.lessonWord + ' ' + r.lesson_numbers.join(', ') + ')' : ''))
-      .join('; ');
+      .join('; ') + (payload.topic ? ' — ' + payload.topic : '');
     const lessonCode = (payload.lesson_code && payload.lesson_code.trim()) || _lpAutoLessonCode(payload);
     const weekday = _lpWeekdayName(payload.class_date || '', isBn);
     const logoSrc = window.location.origin + '/logo.jpg';
@@ -4951,7 +4955,12 @@
     const esc = (typeof _escHtml === 'function') ? _escHtml : (s => String(s == null ? '' : s));
     const U = (val, w) => `<span class="uv${val ? ' has-val' : ''}"${w ? ' style="min-width:' + w + '"' : ''}>${esc(val || '')}</span>`;
 
-    const phaseRows = (payload.phases || []).map(p => `
+    // Greetings/Closing are the same procedural bookend every lesson —
+    // printed output only needs the actual lecture content (Engagement
+    // through Assignment/Homework), not the classroom-management formalities.
+    const phaseRows = (payload.phases || [])
+      .filter(p => p.phase !== 'Greetings' && p.phase !== 'Closing')
+      .map(p => `
       <tr>
         <td class="ph-name">${esc(L.phases[p.phase] || p.phase || '')}</td>
         <td>${esc(p.teacher_activity || '')}</td>
@@ -4985,7 +4994,6 @@
             <div class="fi"><span class="lbl">${esc(L.version)}</span> ${U(payload.version)}</div>
             <div class="fi"><span class="lbl">${esc(L.time)}</span> ${U(payload.time_minutes ? payload.time_minutes + ' ' + L.minutes : '')}</div>
             <div class="fi wide"><span class="lbl">${esc(L.chapterLessons)}</span> ${U(chapterLine)}</div>
-            <div class="fi wide"><span class="lbl">${esc(L.topic)}</span> ${U(payload.topic)}</div>
           </div>
           <div class="code-box"><div class="lbl">${isBn ? 'পাঠ কোড' : 'Lesson Code'}</div><div class="val">${esc(lessonCode)}</div></div>
         </div>
