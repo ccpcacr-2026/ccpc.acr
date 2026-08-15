@@ -4188,7 +4188,6 @@
   // and they can silently disagree; reading it from the model's own reply
   // removes that mismatch entirely. Reuses the same bulkImportLessonPlans
   // server endpoint as the Excel bulk importer.
-  let LP_JSON_ROWS = [];
 
   // Two variants (Bangla / English) rather than one prompt that asks
   // NotebookLM to infer the medium from the textbook — telling it directly
@@ -4270,7 +4269,7 @@ Work through the whole book and give me the complete JSON array covering every l
     setContentHeader('Import from NotebookLM', 'sparkles');
     const container = document.getElementById('view-container');
     if (!container) return;
-    LP_JSON_ROWS = [];
+    LP_JSON_PAIRS = [];
     _lpJsonPromptLang = 'en';
     container.innerHTML = `
       <div class="pt-4 max-w-4xl mx-auto pb-10">
@@ -4289,16 +4288,26 @@ Work through the whole book and give me the complete JSON array covering every l
 
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 mt-4 space-y-3">
           <p class="text-sm font-black text-slate-800 uppercase tracking-widest">2. Paste the JSON</p>
-          <p class="text-xs text-slate-500 font-bold">Paste NotebookLM's reply here — the JSON array of lesson objects it generated from the prompt above. If it stopped mid-book, paste each continuation batch separately and import them one at a time.</p>
-          <textarea id="lpJsonInput" rows="10" placeholder='[{"class_name":"Six","subject":"Science","version":"Bangla Version","chapter":"Chapter One: ...","lesson_number":1,"topic":"...","page_reference":"...","learning_outcomes":"...","teaching_aids":"...","method":"...","phases":[{"phase":"Greetings","teacher_activity":"...","learner_activity":"...","duration_minutes":2}, ...]}]' class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xs focus:ring-2 focus:ring-blue-600 outline-none"></textarea>
+          <p class="text-xs text-slate-500 font-bold">Paste NotebookLM's reply into whichever side(s) you generated. Fill only one to import it alone, or run the prompt twice (English + Bangla prompt from step 1) and fill both to preview them side by side, lesson by lesson, and choose per-lesson (or all at once) which language(s) to actually import — no AI translation involved, this just compares what NotebookLM already gave you for each language.</p>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <p class="text-[10px] font-black text-slate-400 uppercase mb-1">English Version JSON</p>
+              <textarea id="lpJsonInputEn" rows="10" placeholder='[{"class_name":"Six","subject":"Science","version":"English Version","chapter":"Chapter One: ...","lesson_number":1,"topic":"...","...":"..."}]' class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xs focus:ring-2 focus:ring-blue-600 outline-none"></textarea>
+            </div>
+            <div>
+              <p class="text-[10px] font-black text-slate-400 uppercase mb-1">Bangla Version JSON</p>
+              <textarea id="lpJsonInputBn" rows="10" placeholder='[{"class_name":"Six","subject":"Science","version":"Bangla Version","chapter":"প্রথম অধ্যায়...","lesson_number":1,"topic":"...","...":"..."}]' class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xs focus:ring-2 focus:ring-blue-600 outline-none"></textarea>
+            </div>
+          </div>
           <button onclick="_lpJsonPreview()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black">Parse &amp; Preview</button>
           <p id="lpJsonStatus" class="text-xs font-bold"></p>
         </div>
 
         <div id="lpJsonPreviewSection" class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 mt-4 space-y-3 hidden">
-          <p class="text-sm font-black text-slate-800 uppercase tracking-widest">3. Confirm &amp; Import</p>
-          <div id="lpJsonPreviewSummary" class="grid grid-cols-2 md:grid-cols-3 gap-3"></div>
-          <div id="lpJsonPreviewList" class="text-xs font-bold text-slate-600 space-y-1 max-h-64 overflow-y-auto pr-1"></div>
+          <p class="text-sm font-black text-slate-800 uppercase tracking-widest">3. Review &amp; Import</p>
+          <div id="lpJsonPreviewSummary" class="grid grid-cols-2 md:grid-cols-4 gap-3"></div>
+          <div id="lpJsonBulkSelectRow" class="flex flex-wrap gap-2 hidden"></div>
+          <div id="lpJsonPreviewList" class="flex flex-col gap-2 max-h-[32rem] overflow-y-auto pr-1"></div>
           <button id="lpJsonConfirmBtn" onclick="_lpJsonConfirmImport()" class="px-5 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black">Import</button>
         </div>
 
@@ -4404,57 +4413,123 @@ Work through the whole book and give me the complete JSON array covering every l
     });
   }
 
+  // Parses+validates+builds one language's textarea into a flat list of
+  // { row, errors, warnings, selected } — reused for whichever side(s) are
+  // filled in. selected defaults to true unless the item was rejected
+  // outright (hard errors: no chapter/topic/phases).
+  function _lpJsonProcessSide(rawText) {
+    const raw = (rawText || '').trim();
+    if (!raw) return { list: null, error: null };
+    let items;
+    try {
+      const parsed = _lpJsonParseInput(raw);
+      items = Array.isArray(parsed) ? parsed : [parsed];
+      if (!items.length) throw new Error('This side\'s JSON is an empty array.');
+    } catch (err) {
+      return { list: null, error: err.message };
+    }
+    const { perLesson } = _lpJsonValidateItems(items);
+    const rows = _lpJsonBuildRows(items);
+    const list = rows.map((row, i) => ({ row, errors: perLesson[i].errors, warnings: perLesson[i].warnings, selected: !perLesson[i].errors.length }));
+    return { list, error: null };
+  }
+
+  // Pairs the two sides up by position — the Nth lesson pasted on the
+  // English side lines up with the Nth on the Bangla side, since both are
+  // expected to walk the same textbook chapter-by-chapter in the same
+  // order. If the two sides have different lengths (e.g. one stopped mid-
+  // chapter), the shorter side just shows "— not provided —" for the rest
+  // rather than mis-pairing anything.
+  let LP_JSON_PAIRS = [];
+
   function _lpJsonPreview() {
     const status = document.getElementById('lpJsonStatus');
     document.getElementById('lpJsonPreviewSection').classList.add('hidden');
     document.getElementById('lpJsonResultSection').classList.add('hidden');
-    let items;
-    try {
-      const parsed = _lpJsonParseInput(document.getElementById('lpJsonInput').value.trim());
-      items = Array.isArray(parsed) ? parsed : [parsed];
-      if (!items.length) throw new Error('The pasted JSON is an empty array.');
-    } catch (err) {
-      if (status) { status.textContent = err.message; status.className = 'text-xs font-bold text-red-500'; }
-      return;
-    }
 
-    // Format check runs first — anything with a hard error (no chapter/topic/
-    // phases) is rejected outright and never reaches the importable set, so
-    // a malformed NotebookLM reply can't silently create broken lesson plans.
-    const { perLesson, errorCount, warningCount, okCount } = _lpJsonValidateItems(items);
-    const rejectedIdx = new Set(perLesson.map((r, i) => r.errors.length ? i : -1).filter(i => i >= 0));
-    const keptItems = items.filter((_, i) => !rejectedIdx.has(i));
-    LP_JSON_ROWS = _lpJsonBuildRows(keptItems);
-    const valid = LP_JSON_ROWS.filter(r => r.class_name && r.subject && r.chapter && r.topic);
+    const enResult = _lpJsonProcessSide(document.getElementById('lpJsonInputEn').value);
+    const bnResult = _lpJsonProcessSide(document.getElementById('lpJsonInputBn').value);
+    if (enResult.error && bnResult.error) { status.textContent = 'English: ' + enResult.error + ' | Bangla: ' + bnResult.error; status.className = 'text-xs font-bold text-red-500'; return; }
+    if (!enResult.list && !bnResult.list) { status.textContent = 'Paste at least one side\'s JSON first.'; status.className = 'text-xs font-bold text-red-500'; return; }
+    if (enResult.error) { status.textContent = 'English side error (ignored, Bangla side loaded): ' + enResult.error; status.className = 'text-xs font-bold text-amber-600'; }
+    else if (bnResult.error) { status.textContent = 'Bangla side error (ignored, English side loaded): ' + bnResult.error; status.className = 'text-xs font-bold text-amber-600'; }
+    else { status.textContent = 'Parsed successfully.'; status.className = 'text-xs font-bold text-emerald-600'; }
 
-    if (status) {
-      status.textContent = errorCount
-        ? `Parsed ${items.length} lesson(s) — ${rejectedIdx.size} rejected for bad format, ${warningCount} warning(s) on the rest.`
-        : `Parsed ${items.length} lesson(s) — format looks good${warningCount ? ` (${warningCount} minor warning(s))` : ''}.`;
-      status.className = `text-xs font-bold ${errorCount ? 'text-red-500' : (warningCount ? 'text-amber-600' : 'text-emerald-600')}`;
-    }
+    const enList = enResult.list || [], bnList = bnResult.list || [];
+    const pairCount = Math.max(enList.length, bnList.length);
+    LP_JSON_PAIRS = Array.from({ length: pairCount }, (_, i) => ({ en: enList[i] || null, bn: bnList[i] || null }));
+
+    _lpJsonRenderPreview();
+    document.getElementById('lpJsonPreviewSection').classList.remove('hidden');
+  }
+
+  function _lpJsonRenderPreview() {
+    const enList = LP_JSON_PAIRS.map(p => p.en).filter(Boolean);
+    const bnList = LP_JSON_PAIRS.map(p => p.bn).filter(Boolean);
+    const bothCount = LP_JSON_PAIRS.filter(p => p.en && p.bn).length;
+    const selectedCount = LP_JSON_PAIRS.reduce((n, p) => n + (p.en && p.en.selected ? 1 : 0) + (p.bn && p.bn.selected ? 1 : 0), 0);
 
     const summary = document.getElementById('lpJsonPreviewSummary');
     summary.innerHTML = `
-      <div class="p-3 border border-slate-200 rounded-xl"><div class="text-[10px] font-black text-slate-400 uppercase">Total Parsed</div><div class="text-xl font-black text-slate-800">${items.length}</div></div>
-      <div class="p-3 border border-slate-200 rounded-xl"><div class="text-[10px] font-black text-slate-400 uppercase">Will Import</div><div class="text-xl font-black text-emerald-600">${valid.length}</div></div>
-      <div class="p-3 border border-slate-200 rounded-xl"><div class="text-[10px] font-black text-slate-400 uppercase">Rejected (Bad Format)</div><div class="text-xl font-black text-red-500">${rejectedIdx.size}</div></div>
-      <div class="p-3 border border-slate-200 rounded-xl"><div class="text-[10px] font-black text-slate-400 uppercase">Clean, No Warnings</div><div class="text-xl font-black text-slate-800">${okCount}</div></div>
-      <div class="p-3 border border-slate-200 rounded-xl"><div class="text-[10px] font-black text-slate-400 uppercase">Warnings</div><div class="text-xl font-black text-amber-600">${warningCount}</div></div>`;
+      <div class="p-3 border border-slate-200 rounded-xl"><div class="text-[10px] font-black text-slate-400 uppercase">English Parsed</div><div class="text-xl font-black text-slate-800">${enList.length}</div></div>
+      <div class="p-3 border border-slate-200 rounded-xl"><div class="text-[10px] font-black text-slate-400 uppercase">Bangla Parsed</div><div class="text-xl font-black text-slate-800">${bnList.length}</div></div>
+      <div class="p-3 border border-slate-200 rounded-xl"><div class="text-[10px] font-black text-slate-400 uppercase">Paired (Both Sides)</div><div class="text-xl font-black text-indigo-600">${bothCount}</div></div>
+      <div class="p-3 border border-slate-200 rounded-xl"><div class="text-[10px] font-black text-slate-400 uppercase">Selected to Import</div><div class="text-xl font-black text-emerald-600">${selectedCount}</div></div>`;
 
-    const reportRows = perLesson.map((r, i) => {
-      const item = items[i];
-      const heading = `${_escHtml((item && item.chapter) || '(no chapter)')} — ${_escHtml((item && item.topic) || '(no topic)')}`;
-      if (!r.errors.length && !r.warnings.length) return `<div class="text-emerald-600">✓ Lesson ${i + 1}: ${heading}</div>`;
-      const lines = [...r.errors.map(e => `<div class="text-red-500 pl-4">✗ ${_escHtml(e)}</div>`), ...r.warnings.map(w => `<div class="text-amber-600 pl-4">⚠ ${_escHtml(w)}</div>`)];
-      return `<div class="${r.errors.length ? 'text-red-500' : 'text-amber-600'} font-black">${r.errors.length ? '✗ Rejected' : '⚠ Warning'} — Lesson ${i + 1}: ${heading}</div>${lines.join('')}`;
-    });
-    document.getElementById('lpJsonPreviewList').innerHTML = reportRows.join('');
+    const bulkRow = document.getElementById('lpJsonBulkSelectRow');
+    if (bothCount > 0) {
+      bulkRow.classList.remove('hidden');
+      bulkRow.innerHTML = `
+        <button onclick="_lpJsonBulkSelect('both')" class="px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest bg-indigo-50 text-indigo-600 hover:bg-indigo-100">Select Both Languages</button>
+        <button onclick="_lpJsonBulkSelect('en')" class="px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest bg-blue-50 text-blue-600 hover:bg-blue-100">English Only</button>
+        <button onclick="_lpJsonBulkSelect('bn')" class="px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest bg-emerald-50 text-emerald-600 hover:bg-emerald-100">Bangla Only</button>
+        <button onclick="_lpJsonBulkSelect('none')" class="px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest bg-slate-100 text-slate-500 hover:bg-slate-200">Deselect All</button>`;
+    } else {
+      bulkRow.classList.add('hidden');
+    }
+
+    const cell = (item, lang, idx) => {
+      if (!item) return `<div class="p-3 rounded-xl border border-dashed border-slate-200 text-[11px] font-bold text-slate-300 italic">— not provided —</div>`;
+      const hasErrors = item.errors.length > 0;
+      const badge = hasErrors ? '✗ Rejected' : (item.warnings.length ? '⚠ Warning' : '✓ OK');
+      const badgeColor = hasErrors ? 'text-red-500' : (item.warnings.length ? 'text-amber-600' : 'text-emerald-600');
+      return `<div class="p-3 rounded-xl border ${hasErrors ? 'border-red-200 bg-red-50/40' : 'border-slate-200'}">
+        <label class="flex items-start gap-2 cursor-pointer">
+          <input type="checkbox" ${item.selected ? 'checked' : ''} ${hasErrors ? 'disabled' : ''} onchange="_lpJsonTogglePair(${idx}, '${lang}', this.checked)" class="mt-0.5">
+          <div class="min-w-0">
+            <div class="text-[9px] font-black uppercase ${badgeColor}">${badge}</div>
+            <div class="text-xs font-black text-slate-800 truncate">${_escHtml(item.row.chapter || '(no chapter)')}</div>
+            <div class="text-[11px] font-bold text-slate-500 truncate">${_escHtml(item.row.topic || '(no topic)')}</div>
+            ${hasErrors ? `<div class="text-[10px] text-red-500 mt-1">${item.errors.map(_escHtml).join('; ')}</div>` : ''}
+          </div>
+        </label>
+      </div>`;
+    };
+
+    document.getElementById('lpJsonPreviewList').innerHTML = LP_JSON_PAIRS.map((p, i) => `
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+        ${cell(p.en, 'en', i)}
+        ${cell(p.bn, 'bn', i)}
+      </div>`).join('');
 
     const confirmBtn = document.getElementById('lpJsonConfirmBtn');
-    confirmBtn.disabled = valid.length === 0;
-    confirmBtn.textContent = valid.length ? `Import ${valid.length} Lesson Plan${valid.length === 1 ? '' : 's'}` : 'Nothing to import';
-    document.getElementById('lpJsonPreviewSection').classList.remove('hidden');
+    confirmBtn.disabled = selectedCount === 0;
+    confirmBtn.textContent = selectedCount ? `Import ${selectedCount} Lesson Plan${selectedCount === 1 ? '' : 's'}` : 'Nothing selected to import';
+  }
+
+  function _lpJsonTogglePair(idx, lang, checked) {
+    const item = LP_JSON_PAIRS[idx] && LP_JSON_PAIRS[idx][lang];
+    if (!item || item.errors.length) return;
+    item.selected = checked;
+    _lpJsonRenderPreview();
+  }
+
+  function _lpJsonBulkSelect(mode) {
+    LP_JSON_PAIRS.forEach(p => {
+      if (p.en && !p.en.errors.length) p.en.selected = (mode === 'both' || mode === 'en');
+      if (p.bn && !p.bn.errors.length) p.bn.selected = (mode === 'both' || mode === 'bn');
+    });
+    _lpJsonRenderPreview();
   }
 
   // Groups the rows actually sent to the server by Class · Subject, listing
@@ -4477,7 +4552,10 @@ Work through the whole book and give me the complete JSON array covering every l
   }
 
   function _lpJsonConfirmImport() {
-    const rows = LP_JSON_ROWS.filter(r => r.class_name && r.subject && r.chapter && r.topic);
+    const rows = LP_JSON_PAIRS.flatMap(p => [p.en, p.bn])
+      .filter(item => item && item.selected && !item.errors.length)
+      .map(item => item.row)
+      .filter(r => r.class_name && r.subject && r.chapter && r.topic);
     if (!rows.length) { showToast('Nothing to import', 'error'); return; }
     if (!confirm(`Import ${rows.length} lesson plan(s) now? This cannot be undone in bulk — plans would need deleting one at a time.`)) return;
     const myId = window.APP_USER && window.APP_USER.user_id;

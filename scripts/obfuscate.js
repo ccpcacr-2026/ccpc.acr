@@ -96,6 +96,7 @@ const RESERVED = [
   '_lpAttachYoutubeVideo','_lpIgnoreYoutubeVideo','_lpRemoveYoutubeVideo',
   'loadLessonPlanJsonImportView',
   '_lpCopyNotebookPrompt','_lpJsonSetPromptLang','_lpJsonPreview','_lpJsonConfirmImport',
+  '_lpJsonTogglePair','_lpJsonBulkSelect',
   '_notifNavigate',
   // forum module — posts/replies/reactions/mentions/photos/files
   'loadForumView','_forumOpenComposer','_forumSetFilter','_forumCloseComposer','_forumSelectType',
