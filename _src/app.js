@@ -4201,7 +4201,7 @@
 This textbook is the ${versionLabel} edition. ${languageInstruction} Set "version" to exactly "${versionLabel}" on every lesson object below — never guess or vary it mid-book. Also confirm the Class (grade) and Subject from the textbook itself, and repeat those two exact values on every lesson object's class_name/subject fields.
 Go through the book chapter by chapter, and within each chapter, lesson by lesson (following the book's own chapter/section divisions). Do not skip ahead or sample — work through the whole book systematically.
 RULES:
-Ground every lesson plan strictly in what is actually in the uploaded textbook for that specific section — the topic, the actual examples, the actual equations/formulas as written (preserve exact notation, units, and numerical values — do not round, simplify, or substitute a different but "similar" equation).
+Ground every lesson plan strictly in the uploaded textbook for that section — topic, examples, equations/formulas as written (preserve exact notation, units, values — never round, simplify, or substitute a "similar" equation).
 Do not invent activities, examples, or numbers that aren't implied by the actual textbook content for that lesson.
 If a specific field isn't determinable from the source (e.g. no explicit learning outcome is stated), write a reasonable one derived from the section's actual content, and note it was inferred rather than presenting it as if verbatim from the book.
 The 8 phase durations must sum to a realistic class period (40-45 minutes).
