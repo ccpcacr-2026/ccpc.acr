@@ -4151,6 +4151,7 @@
         showToast((res && res.message) || 'Import failed', 'error');
         return;
       }
+      const summaryText = _lpImportSummaryText(rows);
       const resultSection = document.getElementById('lpBulkResultSection');
       resultSection.innerHTML = `
         <h3 class="font-black text-slate-800 mb-3">Import Complete</h3>
@@ -4158,10 +4159,11 @@
           <li>${res.inserted} lesson plan(s) imported</li>
           ${res.failed ? `<li class="text-red-500">${res.failed} row(s) failed</li>` : ''}
         </ul>
+        ${summaryText ? `<div class="mt-3 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-600">${summaryText}</div>` : ''}
         ${res.errors && res.errors.length ? `<div class="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs font-bold text-amber-700 space-y-1">${res.errors.slice(0, 10).map(e => `<div>${_escHtml(e)}</div>`).join('')}</div>` : ''}`;
       resultSection.classList.remove('hidden');
       if (btn) { btn.disabled = true; btn.textContent = 'Done'; }
-      showToast(`Imported ${res.inserted} lesson plan(s)`, 'success');
+      showToast(`Imported ${res.inserted} lesson plan(s) — ${summaryText}`, 'success', 6000);
     }).withFailureHandler(() => {
       if (btn) { btn.disabled = false; btn.textContent = 'Retry Import'; }
       showToast('Network error during import', 'error');
@@ -4411,6 +4413,25 @@ Work through the whole book and give me the complete JSON array covering every l
     document.getElementById('lpJsonPreviewSection').classList.remove('hidden');
   }
 
+  // Groups the rows actually sent to the server by Class · Subject, listing
+  // each chapter touched with its lesson count, e.g. "Six · Science: Chapter
+  // One (3), Chapter Two (2)" — used to make the post-import toast specific
+  // instead of just a bare count.
+  function _lpImportSummaryText(rows) {
+    const groups = new Map();
+    rows.forEach(r => {
+      const key = `${r.class_name || '—'} · ${r.subject || '—'}`;
+      if (!groups.has(key)) groups.set(key, new Map());
+      const chapters = groups.get(key);
+      const chap = r.chapter || '(no chapter)';
+      chapters.set(chap, (chapters.get(chap) || 0) + 1);
+    });
+    return Array.from(groups.entries()).map(([key, chapters]) => {
+      const chapterList = Array.from(chapters.entries()).map(([c, n]) => `${_escHtml(c)} (${n} lesson${n === 1 ? '' : 's'})`).join(', ');
+      return `<strong>${_escHtml(key)}</strong>: ${chapterList}`;
+    }).join('<br>');
+  }
+
   function _lpJsonConfirmImport() {
     const rows = LP_JSON_ROWS.filter(r => r.chapter && r.topic);
     if (!rows.length) { showToast('Nothing to import', 'error'); return; }
@@ -4424,6 +4445,7 @@ Work through the whole book and give me the complete JSON array covering every l
         showToast((res && res.message) || 'Import failed', 'error');
         return;
       }
+      const summaryText = _lpImportSummaryText(rows);
       const resultSection = document.getElementById('lpJsonResultSection');
       resultSection.innerHTML = `
         <h3 class="font-black text-slate-800 mb-3">Import Complete</h3>
@@ -4431,10 +4453,11 @@ Work through the whole book and give me the complete JSON array covering every l
           <li>${res.inserted} lesson plan(s) imported</li>
           ${res.failed ? `<li class="text-red-500">${res.failed} row(s) failed</li>` : ''}
         </ul>
+        ${summaryText ? `<div class="mt-3 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-600">${summaryText}</div>` : ''}
         ${res.errors && res.errors.length ? `<div class="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs font-bold text-amber-700 space-y-1">${res.errors.slice(0, 10).map(e => `<div>${_escHtml(e)}</div>`).join('')}</div>` : ''}`;
       resultSection.classList.remove('hidden');
       if (btn) { btn.disabled = true; btn.textContent = 'Done'; }
-      showToast(`Imported ${res.inserted} lesson plan(s)`, 'success');
+      showToast(`Imported ${res.inserted} lesson plan(s) — ${summaryText}`, 'success', 6000);
     }).withFailureHandler(() => {
       if (btn) { btn.disabled = false; btn.textContent = 'Retry Import'; }
       showToast('Network error during import', 'error');
@@ -14598,7 +14621,7 @@ Work through the whole book and give me the complete JSON array covering every l
   }
 
   // ── TOAST & CONFIRM ──────────────────────────────────────────────────────────
-  function showToast(msg, type = 'success') {
+  function showToast(msg, type = 'success', durationMs = 3200) {
     const icons = { success:'check-circle', error:'x-circle', info:'info' };
     const c = document.getElementById('toast-container');
     if (!c) return;
@@ -14607,7 +14630,7 @@ Work through the whole book and give me the complete JSON array covering every l
     t.innerHTML = `<i data-lucide="${icons[type]||'check-circle'}" class="h-4 w-4 shrink-0"></i><span>${msg}</span>`;
     c.appendChild(t);
     if (typeof lucide !== 'undefined') lucide.createIcons();
-    setTimeout(() => { t.style.transition='opacity .3s,transform .3s'; t.style.opacity='0'; t.style.transform='translateX(110%)'; setTimeout(() => t.remove(), 320); }, 3200);
+    setTimeout(() => { t.style.transition='opacity .3s,transform .3s'; t.style.opacity='0'; t.style.transform='translateX(110%)'; setTimeout(() => t.remove(), 320); }, durationMs);
   }
 
   function showConfirm(msg, onConfirm) {
