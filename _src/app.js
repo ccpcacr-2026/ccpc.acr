@@ -3922,7 +3922,11 @@
     setContentHeader('My Lesson Plan', 'notebook-pen');
     const container = document.getElementById('view-container');
     if (!container) return;
-    _lpScope = 'mine';
+    // _lpScope is intentionally left as whatever it already was — this view
+    // remounts on "← Back to Lesson Plans" from the form/print/table/import
+    // views, and switching the user back to "My Plans" from "Shared Library"
+    // (or vice versa) on every back-navigation would be as disorienting as
+    // losing the filters. Only _lpSetScope (an explicit tab click) changes it.
     container.innerHTML = `
       <div class="pt-4 max-w-5xl mx-auto pb-10">
         <div class="flex items-center justify-between flex-wrap gap-3 mb-5">
@@ -3945,7 +3949,11 @@
     lucide.createIcons();
     _lpUpdateTabButtons();
     _lpLoadFieldOptions(); // populates _lpFieldOptions for the composer form's Class/Subject/Version dropdowns
-    _lpFilterState = { class_name: '', version: '', subject: '', chapter: '' };
+    // Deliberately NOT resetting _lpFilterState here — this view remounts every
+    // time "← Back to Lesson Plans" is pressed from the form/print/table/import
+    // views, and the whole point is landing back on the same filtered list the
+    // user came from, not a blank slate. Only _lpSetScope (switching My Plans/
+    // Shared/Favorites) and the explicit Clear button reset the filters.
     _lpRefreshFavoriteKeys(() => _lpLoadFilterOptions());
   }
 
