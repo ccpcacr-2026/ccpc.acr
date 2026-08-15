@@ -2747,7 +2747,7 @@ const handlers = {
   async getLessonPlans([callerId, scope, filters]) {
     if (!callerId) return { error: 'Not signed in.' };
     const f = filters || {};
-    let path = 'lesson_plans?select=id,class_name,subject,version,chapter,lesson_number,lesson_refs,topic,is_shared,created_by,forked_from_id,updated_at,youtube_url';
+    let path = 'lesson_plans?select=id,class_name,subject,version,chapter,lesson_number,lesson_refs,topic,is_shared,created_by,forked_from_id,updated_at,youtube_url,lesson_code,class_date,period';
     path += scope === 'shared'
       ? `&is_shared=eq.true&created_by=neq.${encodeURIComponent(callerId)}`
       : `&created_by=eq.${encodeURIComponent(callerId)}`;
@@ -2841,7 +2841,8 @@ const handlers = {
       method: p.method || null, learning_outcomes: p.learning_outcomes || null,
       phases: p.phases || null, self_reflection: p.self_reflection || null,
       is_shared: !!p.is_shared, source: p.source || 'web', lesson_refs: lessonRefs,
-      youtube_url: p.youtube_url || null,
+      youtube_url: p.youtube_url || null, lesson_code: (p.lesson_code || '').trim() || null,
+      class_date: p.class_date || null, period: (p.period || '').trim() || null,
       updated_at: new Date().toISOString(),
     };
 

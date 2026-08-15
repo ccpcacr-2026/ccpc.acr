@@ -4525,6 +4525,21 @@
               <input id="lpTimeMinutes" type="number" min="1" value="${_escHtml(v.time_minutes || '')}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mt-1">
             </div>
           </div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Date</label>
+              <input id="lpClassDate" type="date" value="${_escHtml(v.class_date || '')}" oninput="_lpUpdateWeekdayBadge()" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mt-1">
+              <p id="lpWeekdayBadge" class="text-[10px] text-slate-400 font-bold mt-1">${_lpWeekdayName(v.class_date || '')}</p>
+            </div>
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Period</label>
+              <input id="lpPeriod" type="text" placeholder="e.g. 3rd" value="${_escHtml(v.period || '')}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mt-1">
+            </div>
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Lesson Code</label>
+              <input id="lpLessonCode" type="text" placeholder="Leave blank to auto-generate" value="${_escHtml(v.lesson_code || '')}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mt-1">
+            </div>
+          </div>
           <div>
             <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Topic</label>
             <input id="lpTopic" type="text" value="${_escHtml(v.topic || '')}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mt-1">
@@ -4650,6 +4665,21 @@
     _lpRenderYoutubeSection();
   }
 
+  function _lpWeekdayName(dateStr, isBn) {
+    if (!dateStr) return '';
+    const d = new Date(dateStr + 'T00:00:00');
+    if (isNaN(d)) return '';
+    return d.toLocaleDateString(isBn ? 'bn-BD' : 'en-US', { weekday: 'long' });
+  }
+
+  function _lpUpdateWeekdayBadge() {
+    const el = document.getElementById('lpClassDate');
+    const badge = document.getElementById('lpWeekdayBadge');
+    if (!el || !badge) return;
+    const isBn = /bangla/i.test(_lpSelectVal('lpVersion') || '');
+    badge.textContent = _lpWeekdayName(el.value, isBn);
+  }
+
   function _lpRenderPhaseRows(phases) {
     const html = phases.map((p, i) => `
       <tr class="border-t border-slate-100 align-top">
@@ -4680,12 +4710,14 @@
       .filter(b => b.chapter && b.lessonNumbers.length)
       .map(b => ({ chapter: b.chapter, lesson_numbers: b.lessonNumbers.slice().sort((a, c) => a - c) }));
     return {
+      id: _lpEditingId || null,
       class_name: _lpSelectVal('lpClass'), subject: _lpSelectVal('lpSubject'), version: _lpSelectVal('lpVersion'),
       lesson_refs,
       time_minutes: Number(val('lpTimeMinutes')) || null, topic: val('lpTopic'),
       learning_outcomes: val('lpLearningOutcomes'), teaching_aids: val('lpTeachingAids'),
       method: val('lpMethod'), self_reflection: val('lpSelfReflection'), phases,
       youtube_url: _lpYoutubeUrl || null,
+      lesson_code: val('lpLessonCode'), class_date: val('lpClassDate'), period: val('lpPeriod'),
       is_shared: !!(document.getElementById('lpIsShared') || {}).checked,
       forked_from_id: _lpDuplicateSourceId || null,
     };
@@ -4712,8 +4744,9 @@
       subtitle: "LESSON PLAN — Combining Bloom's Taxonomy and the 5E Model",
       name: 'Name:', department: 'Department:', class: 'Class:', subject: 'Subject:',
       version: 'Version:', time: 'Time:', minutes: 'minutes',
+      date: 'Date:', period: 'Period:',
       chapterLessons: 'Chapter & Lesson(s):', topic: 'Topic:',
-      lessonWord: 'Lesson',
+      lessonWord: 'Lesson', scanMe: 'Scan to open',
       learningOutcomes: 'Learning Outcomes — After this class the students will be able to…',
       generalMgmt: 'General Class Management', teachingAids: 'Teaching Aids:', method: 'Method:',
       lessonPhases: 'Lesson Phases', thPhase: 'Phase', thTeacher: "Teacher's Activity",
@@ -4737,8 +4770,9 @@
       subtitle: 'পাঠ পরিকল্পনা — ব্লুমস ট্যাক্সোনমি ও 5E মডেলের সমন্বয়ে',
       name: 'নাম:', department: 'বিভাগ:', class: 'শ্রেণি:', subject: 'বিষয়:',
       version: 'ভার্সন:', time: 'সময়:', minutes: 'মিনিট',
+      date: 'তারিখ:', period: 'পিরিয়ড:',
       chapterLessons: 'অধ্যায় ও পাঠ:', topic: 'আলোচ্য বিষয়:',
-      lessonWord: 'পাঠ',
+      lessonWord: 'পাঠ', scanMe: 'স্ক্যান করুন',
       learningOutcomes: 'শেখার ফলাফল — এই পাঠ শেষে শিক্ষার্থীরা যা পারবে',
       generalMgmt: 'সাধারণ শ্রেণি ব্যবস্থাপনা', teachingAids: 'শিক্ষা উপকরণ:', method: 'পদ্ধতি:',
       lessonPhases: 'পাঠের ধাপসমূহ', thPhase: 'ধাপ', thTeacher: 'শিক্ষকের কার্যক্রম',
@@ -4759,6 +4793,35 @@
     },
   };
 
+  // Turns a stored chapter name ("Chapter Seven: Waves and Sound" or its
+  // Bangla equivalent "সপ্তম অধ্যায়: ...") into a 2-digit chapter number for
+  // the short lesson code, without needing a lookup table keyed by subject.
+  function _lpChapterNumberShort(chapter) {
+    if (!chapter) return '';
+    const digit = chapter.match(/\d+/);
+    if (digit) return digit[0].padStart(2, '0');
+    const en = ['One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen'];
+    const bn = ['প্রথম', 'দ্বিতীয়', 'তৃতীয়', 'চতুর্থ', 'পঞ্চম', 'ষষ্ঠ', 'সপ্তম', 'অষ্টম', 'নবম', 'দশম', 'একাদশ', 'দ্বাদশ', 'ত্রয়োদশ'];
+    for (let i = 0; i < en.length; i++) if (chapter.indexOf(en[i]) !== -1) return String(i + 1).padStart(2, '0');
+    for (let i = 0; i < bn.length; i++) if (chapter.indexOf(bn[i]) !== -1) return String(i + 1).padStart(2, '0');
+    return '';
+  }
+
+  // Auto-generated fallback used whenever the "Lesson Code" field is left
+  // blank — e.g. "9-10-PHY-CH07-L3". Purely derived from fields already on
+  // the plan, so it needs no extra input and stays stable across saves.
+  function _lpAutoLessonCode(payload) {
+    const classShort = (payload.class_name || '').replace(/[^A-Za-z0-9-]/g, '').slice(0, 6);
+    const subjShort = (payload.subject || '').replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase();
+    const ref = (payload.lesson_refs || [])[0] || {};
+    const chNum = _lpChapterNumberShort(ref.chapter || '');
+    const lessonNums = (ref.lesson_numbers || []).join(',');
+    let code = [classShort, subjShort].filter(Boolean).join('-');
+    if (chNum) code += (code ? '-' : '') + 'CH' + chNum;
+    if (lessonNums) code += (code ? '-' : '') + 'L' + lessonNums;
+    return code;
+  }
+
   function _lpBuildPrintHtml(payload) {
     const profile = window._loginProfile || {};
     const isBn = /bangla/i.test(payload.version || '');
@@ -4766,6 +4829,10 @@
     const chapterLine = (payload.lesson_refs || [])
       .map(r => r.chapter + (r.lesson_numbers && r.lesson_numbers.length ? ' (' + L.lessonWord + ' ' + r.lesson_numbers.join(', ') + ')' : ''))
       .join('; ');
+    const lessonCode = (payload.lesson_code && payload.lesson_code.trim()) || _lpAutoLessonCode(payload);
+    const weekday = _lpWeekdayName(payload.class_date || '', isBn);
+    const shareUrl = payload.id ? (window.location.origin + '/plan/' + payload.id) : '';
+    const qrSrc = shareUrl ? 'https://api.qrserver.com/v1/create-qr-code/?size=110x110&data=' + encodeURIComponent(shareUrl) : '';
 
     const esc = (typeof _escHtml === 'function') ? _escHtml : (s => String(s == null ? '' : s));
     const U = (val, w) => `<span class="uv${val ? ' has-val' : ''}"${w ? ' style="min-width:' + w + '"' : ''}>${esc(val || '')}</span>`;
@@ -4784,7 +4851,14 @@
       @page { size: A4 portrait; margin: 14mm 16mm; }
       *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
       body{font-family:${isBn ? "'Noto Sans Bengali','Nirmala UI','Vrinda',Arial,sans-serif" : 'Arial,Helvetica,sans-serif'};font-size:9.5pt;color:#000;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
-      .page{min-height:269mm;}
+      .page{min-height:269mm;position:relative;}
+      .corner-box{position:absolute;top:0;right:0;display:flex;flex-direction:column;align-items:center;gap:3pt;}
+      .code-box{border:1pt solid #000;padding:4pt 8pt;font-size:8pt;font-weight:700;text-align:center;min-width:70pt;}
+      .code-box .lbl{font-size:6.5pt;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#555;}
+      .code-box .val{font-size:9pt;font-weight:900;margin-top:1pt;}
+      .qr-box{text-align:center;}
+      .qr-box img{width:70pt;height:70pt;display:block;}
+      .qr-box .cap{font-size:6pt;font-weight:700;color:#555;margin-top:1pt;}
       .hdr{text-align:center;border-bottom:2pt solid #000;padding-bottom:6pt;margin-bottom:8pt;}
       .hdr .main{font-size:13pt;font-weight:900;letter-spacing:.03em;}
       .hdr .sub{font-size:9.5pt;font-weight:700;margin-top:3pt;}
@@ -4813,6 +4887,10 @@
 
     const html = `
       <div class="page">
+        <div class="corner-box">
+          <div class="code-box"><div class="lbl">${isBn ? 'পাঠ কোড' : 'Lesson Code'}</div><div class="val">${esc(lessonCode)}</div></div>
+          ${qrSrc ? `<div class="qr-box"><img src="${qrSrc}" alt="QR code linking to this lesson plan"><div class="cap">${esc(L.scanMe)}</div></div>` : ''}
+        </div>
         <div class="hdr">
           <div class="main">${esc(L.college)}</div>
           <div class="sub">${esc(L.subtitle)}</div>
@@ -4823,6 +4901,8 @@
           <div class="fi"><span class="lbl">${esc(L.department)}</span> ${U(profile.school_college, '140pt')}</div>
           <div class="fi"><span class="lbl">${esc(L.class)}</span> ${U(payload.class_name, '90pt')}</div>
           <div class="fi"><span class="lbl">${esc(L.subject)}</span> ${U(payload.subject, '90pt')}</div>
+          <div class="fi"><span class="lbl">${esc(L.date)}</span> ${U(payload.class_date ? payload.class_date + (weekday ? ' (' + weekday + ')' : '') : '', '110pt')}</div>
+          <div class="fi"><span class="lbl">${esc(L.period)}</span> ${U(payload.period, '90pt')}</div>
           <div class="fi"><span class="lbl">${esc(L.version)}</span> ${U(payload.version, '90pt')}</div>
           <div class="fi"><span class="lbl">${esc(L.time)}</span> ${U(payload.time_minutes ? payload.time_minutes + ' ' + L.minutes : '', '90pt')}</div>
         </div>
