@@ -4529,19 +4529,21 @@
               <input id="lpTimeMinutes" type="number" min="1" value="${_escHtml(v.time_minutes || '')}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mt-1">
             </div>
           </div>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Date</label>
               <input id="lpClassDate" type="date" value="${_escHtml(v.class_date || '')}" oninput="_lpUpdateWeekdayBadge()" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mt-1">
               <p id="lpWeekdayBadge" class="text-[10px] text-slate-400 font-bold mt-1">${_lpWeekdayName(v.class_date || '')}</p>
             </div>
-            <div>
-              <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Period</label>
-              <input id="lpPeriod" type="text" placeholder="e.g. 3rd" value="${_escHtml(v.period || '')}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mt-1">
-            </div>
-            <div>
-              <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Lesson Code</label>
-              <input id="lpLessonCode" type="text" placeholder="Leave blank to auto-generate" value="${_escHtml(v.lesson_code || '')}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mt-1">
+            <div class="space-y-3">
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Period</label>
+                <input id="lpPeriod" type="text" placeholder="e.g. 3rd" value="${_escHtml(v.period || '')}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mt-1">
+              </div>
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Lesson Code</label>
+                <input id="lpLessonCode" type="text" placeholder="Leave blank to auto-generate" value="${_escHtml(v.lesson_code || '')}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs text-[#7c2d12] focus:ring-2 focus:ring-blue-600 outline-none mt-1">
+              </div>
             </div>
           </div>
           <div>
