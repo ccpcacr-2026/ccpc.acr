@@ -3937,20 +3937,16 @@
             <button onclick="_openLessonPlanForm(null)" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>New Lesson Plan</button>
           </div>
         </div>
-        <div id="lpFilterRow" class="flex flex-wrap gap-2 mb-4">
-          <input id="lpFilterClass" list="lpClassOptions" type="text" placeholder="Filter by Class…" oninput="_lpLoadList()" class="px-3 py-2 bg-white border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none w-44">
-          <datalist id="lpClassOptions"></datalist>
-          <input id="lpFilterSubject" list="lpSubjectOptions" type="text" placeholder="Filter by Subject…" oninput="_lpLoadList()" class="px-3 py-2 bg-white border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none w-44">
-          <datalist id="lpSubjectOptions"></datalist>
-        </div>
+        <div id="lpFilterRow" class="flex flex-wrap items-center gap-2 mb-4"></div>
         <div id="lpListBody" class="flex flex-col gap-2">
           <div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>
         </div>
       </div>`;
     lucide.createIcons();
     _lpUpdateTabButtons();
-    _lpLoadFieldOptions();
-    _lpRefreshFavoriteKeys(() => _lpLoadList());
+    _lpLoadFieldOptions(); // populates _lpFieldOptions for the composer form's Class/Subject/Version dropdowns
+    _lpFilterState = { class_name: '', version: '', subject: '', chapter: '' };
+    _lpRefreshFavoriteKeys(() => _lpLoadFilterOptions());
   }
 
   // ── Bulk Import (100-1000+ plans from one Excel file) ────────────────────
@@ -5082,7 +5078,7 @@ Work through the whole book and give me the complete JSON array covering every l
     const filterRow = document.getElementById('lpFilterRow');
     if (filterRow) filterRow.classList.toggle('hidden', scope === 'favorites');
     if (scope === 'favorites') _lpLoadFavorites();
-    else _lpLoadList();
+    else { _lpFilterState = { class_name: '', version: '', subject: '', chapter: '' }; _lpLoadFilterOptions(); }
   }
 
   function _lpLoadFieldOptions() {
@@ -5090,26 +5086,82 @@ Work through the whole book and give me the complete JSON array covering every l
     google.script.run.withSuccessHandler(res => {
       if (!res || res.result !== 'success') return;
       _lpFieldOptions = res;
-      const classHost = document.getElementById('lpClassOptions');
-      const subjectHost = document.getElementById('lpSubjectOptions');
-      if (classHost) classHost.innerHTML = res.class_name.map(v => `<option value="${_escHtml(v)}">`).join('');
-      if (subjectHost) subjectHost.innerHTML = res.subject.map(v => `<option value="${_escHtml(v)}">`).join('');
     }).withFailureHandler(() => {}).getLessonPlanFieldOptions(myId);
+  }
+
+  // ── List filter row: cascading Class → Version → Subject → Chapter ────────
+  // Each dropdown only reveals once its predecessor is chosen, and only ever
+  // offers values that actually occur among lesson plans visible in the
+  // current scope (mine/shared) and preceding selections — never a static
+  // list, so a filter can't offer a combination with zero matching plans.
+  // Server-side: getLessonPlanFilterOptions in app/api/exec/route.js.
+  let _lpFilterState = { class_name: '', version: '', subject: '', chapter: '' };
+  let _lpFilterOptions = { class_name: [], version: [], subject: [], chapter: [] };
+
+  const LP_FILTER_STEPS = [
+    { key: 'class_name', label: 'Class' },
+    { key: 'version',    label: 'Version' },
+    { key: 'subject',    label: 'Subject' },
+    { key: 'chapter',    label: 'Chapter' },
+  ];
+
+  function _lpRenderFilterRow() {
+    const row = document.getElementById('lpFilterRow');
+    if (!row) return;
+    const anyActive = LP_FILTER_STEPS.some(s => _lpFilterState[s.key]);
+    let html = '';
+    for (const step of LP_FILTER_STEPS) {
+      // A step shows once every step before it has a value (the first step
+      // always shows) — this is what makes selections reveal one at a time.
+      const idx = LP_FILTER_STEPS.indexOf(step);
+      const unlocked = LP_FILTER_STEPS.slice(0, idx).every(s => _lpFilterState[s.key]);
+      if (!unlocked) break;
+      const options = _lpFilterOptions[step.key] || [];
+      html += `<select onchange="_lpOnFilterChange('${step.key}', this.value)" class="px-3 py-2 bg-white border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none">
+        <option value="">${_escHtml(step.label)}${options.length ? ` (${options.length})` : ''}…</option>
+        ${options.map(v => `<option value="${_escHtml(v)}" ${_lpFilterState[step.key] === v ? 'selected' : ''}>${_escHtml(v)}</option>`).join('')}
+      </select>`;
+    }
+    if (anyActive) html += `<button onclick="_lpClearFilters()" class="px-3 py-2 text-xs font-black text-slate-400 hover:text-slate-600 flex items-center gap-1"><i data-lucide="x" class="h-3.5 w-3.5"></i>Clear</button>`;
+    row.innerHTML = html;
+    lucide.createIcons();
+  }
+
+  function _lpOnFilterChange(key, value) {
+    const idx = LP_FILTER_STEPS.findIndex(s => s.key === key);
+    // Picking an earlier step invalidates every step after it (a new Class
+    // can't keep the old Subject's selection) — reset them so the cascade
+    // re-reveals from scratch instead of showing a stale, now-meaningless value.
+    LP_FILTER_STEPS.forEach((s, i) => { _lpFilterState[s.key] = i < idx ? _lpFilterState[s.key] : (i === idx ? value : ''); });
+    _lpLoadFilterOptions();
+  }
+
+  function _lpClearFilters() {
+    _lpFilterState = { class_name: '', version: '', subject: '', chapter: '' };
+    _lpLoadFilterOptions();
+  }
+
+  function _lpLoadFilterOptions() {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { _lpFilterOptions = { class_name: [], version: [], subject: [], chapter: [] }; }
+      else { _lpFilterOptions = res; }
+      _lpRenderFilterRow();
+      _lpLoadList();
+    }).withFailureHandler(() => { _lpRenderFilterRow(); _lpLoadList(); }).getLessonPlanFilterOptions(myId, _lpScope, _lpFilterState);
   }
 
   function _lpLoadList() {
     const myId = window.APP_USER && window.APP_USER.user_id;
     const body = document.getElementById('lpListBody');
     if (!body) return;
-    const classFilter = (document.getElementById('lpFilterClass') || {}).value || '';
-    const subjectFilter = (document.getElementById('lpFilterSubject') || {}).value || '';
     body.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`;
     google.script.run.withSuccessHandler(res => {
       if (!res || res.result !== 'success') { body.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml((res && res.error) || 'Failed to load')}</div>`; return; }
       _lpRenderList(res.plans || []);
     }).withFailureHandler(() => {
       body.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">Network error</div>`;
-    }).getLessonPlans(myId, _lpScope, { class_name: classFilter, subject: subjectFilter });
+    }).getLessonPlans(myId, _lpScope, _lpFilterState);
   }
 
   function _lpRenderList(plans) {

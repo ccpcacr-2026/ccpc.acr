@@ -2797,7 +2797,9 @@ const handlers = {
       ? `&is_shared=eq.true&created_by=neq.${encodeURIComponent(callerId)}`
       : `&created_by=eq.${encodeURIComponent(callerId)}`;
     if (f.class_name) path += `&class_name=eq.${encodeURIComponent(f.class_name)}`;
+    if (f.version) path += `&version=eq.${encodeURIComponent(f.version)}`;
     if (f.subject) path += `&subject=eq.${encodeURIComponent(f.subject)}`;
+    if (f.chapter) path += `&chapter=eq.${encodeURIComponent(f.chapter)}`;
     path += '&order=updated_at.desc&limit=500';
     const rows = await supabaseRequest(path);
     if (rows?.error) return { error: rows.details || rows.error };
@@ -2843,6 +2845,48 @@ const handlers = {
       version: uniq('version'),
       chapter: uniq('chapter'),
     };
+  },
+
+  // Cascading list-filter options — Class → Version → Subject → Chapter,
+  // each level's dropdown scoped to only the values that actually appear
+  // among lesson plans matching the levels already picked (and the current
+  // scope: 'mine' or 'shared', same visibility rule as getLessonPlans
+  // itself) — never a static/global list, so a filter never offers a combo
+  // with zero results. Four small parallel queries rather than one big
+  // fetch-everything-and-slice-client-side, since the visible list can run
+  // into the hundreds of rows (see getLessonPlans' limit=500).
+  async getLessonPlanFilterOptions([callerId, scope, filters]) {
+    if (!callerId) return { error: 'Not signed in.' };
+    const f = filters || {};
+    const visibility = scope === 'shared'
+      ? `is_shared=eq.true&created_by=neq.${encodeURIComponent(callerId)}`
+      : `created_by=eq.${encodeURIComponent(callerId)}`;
+    const buildPath = (col, precedingFilters) => {
+      let path = `lesson_plans?select=${col}&${visibility}`;
+      precedingFilters.forEach(([k, v]) => { if (v) path += `&${k}=eq.${encodeURIComponent(v)}`; });
+      return path;
+    };
+    const uniq = (rows, key) => Array.isArray(rows) ? [...new Set(rows.map(r => r[key]).filter(Boolean))].sort() : [];
+
+    const classRows = await supabaseRequest(buildPath('class_name', []));
+    if (classRows?.error) return { error: classRows.details || classRows.error };
+    const result = { result: 'success', class_name: uniq(classRows, 'class_name'), version: [], subject: [], chapter: [] };
+    if (!f.class_name) return result;
+
+    const versionRows = await supabaseRequest(buildPath('version', [['class_name', f.class_name]]));
+    if (versionRows?.error) return { error: versionRows.details || versionRows.error };
+    result.version = uniq(versionRows, 'version');
+    if (!f.version) return result;
+
+    const subjectRows = await supabaseRequest(buildPath('subject', [['class_name', f.class_name], ['version', f.version]]));
+    if (subjectRows?.error) return { error: subjectRows.details || subjectRows.error };
+    result.subject = uniq(subjectRows, 'subject');
+    if (!f.subject) return result;
+
+    const chapterRows = await supabaseRequest(buildPath('chapter', [['class_name', f.class_name], ['version', f.version], ['subject', f.subject]]));
+    if (chapterRows?.error) return { error: chapterRows.details || chapterRows.error };
+    result.chapter = uniq(chapterRows, 'chapter');
+    return result;
   },
 
   // Chapter dropdown options for the web form's cascading picker — scoped to
