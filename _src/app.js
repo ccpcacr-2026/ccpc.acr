@@ -5018,7 +5018,7 @@
         <div class="refl">${reflectionLines ? esc(reflectionLines) : `<span class="refl-default">${L.reflDefault}</span>`}</div>
 
         <div class="footer-note">${esc(L.footer)}</div>
-        <div class="footer-credit">${profile.full_name ? esc(L.preparedBy) + ' ' + esc(profile.full_name) + ' &middot; ' : ''}${esc(L.platform)} &copy; ${new Date().getFullYear()}</div>
+        ${profile.full_name ? `<div class="footer-credit">${esc(L.preparedBy)} ${esc(profile.full_name)}</div>` : ''}
       </div>`;
 
     return `<!DOCTYPE html><html lang="${isBn ? 'bn' : 'en'}"><head><meta charset="UTF-8">
