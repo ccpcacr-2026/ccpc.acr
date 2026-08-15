@@ -18092,25 +18092,27 @@ Work through the whole book and give me the complete JSON array covering every l
     loadNotificationsView();
   }
 
-  // Which notification types have somewhere to actually navigate to, and
-  // where — kept as one lookup table so adding a new notify-able feature
-  // later just means adding an entry here, not touching the render logic.
-  const NOTIF_ROUTES = {
-    forum_post:   n => _forumOpenPostFromNotification(n.data && n.data.post_id),
-    forum_mention: n => _forumOpenPostFromNotification(n.data && n.data.post_id),
-    forum_reply:  n => _forumOpenPostFromNotification(n.data && n.data.post_id),
-    mention:      n => openCommChat(n.data && n.data.committee_id, n.data && n.data.committee_name),
-    committee_closed: n => openCommChat(n.data && n.data.committee_id, n.data && n.data.committee_name),
-    class_adjusted: () => loadRoutineView(),
-  };
-  function _notifIsNavigable(n) {
-    return !!(n && n.type && NOTIF_ROUTES[n.type] && n.data);
+  // Routes by the SHAPE of n.data rather than an exact n.type string match —
+  // any notification carrying a post_id goes to that forum post/reply
+  // (forum_post/forum_mention/forum_reply all carry the same shape), any
+  // carrying a committee_id opens that committee's chat (mention/
+  // committee_closed), class_adjusted has no id to deep-link to so it just
+  // opens Routine. This is deliberately loose so a notification type added
+  // later works automatically as long as its data uses these same field
+  // names, instead of needing every type spelled out in a lookup table.
+  function _notifRoute(n) {
+    const d = (n && n.data) || {};
+    if (d.post_id) return () => _forumOpenPostFromNotification(d.post_id);
+    if (d.committee_id) return () => openCommChat(d.committee_id, d.committee_name);
+    if (n && n.type === 'class_adjusted') return () => loadRoutineView();
+    return null;
   }
+  // Every notification is clickable (marks itself read), and additionally
+  // navigates when _notifRoute finds somewhere relevant to go.
   function _notifNavigate(n) {
-    const route = n && n.type && NOTIF_ROUTES[n.type];
-    if (!route) return;
     if (!n.is_read) google.script.run.withSuccessHandler(() => refreshNotifBadge()).withFailureHandler(() => {}).markNotificationRead(n.id);
-    route(n);
+    const route = _notifRoute(n);
+    if (route) route();
   }
 
   function loadNotificationsView() {
@@ -18149,15 +18151,15 @@ Work through the whole book and give me the complete JSON array covering every l
       list.innerHTML = notifs.map(n => {
         const isUnread = !n.is_read;
         const timeStr = n.created_at ? new Date(n.created_at).toLocaleString('en-BD',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true}) : '—';
-        const clickable = _notifIsNavigable(n);
-        return `<div ${clickable ? `onclick="_notifNavigate(${_escHtml(JSON.stringify(n))})" class="cursor-pointer` : `class="`}flex items-start gap-4 p-4 rounded-2xl border transition-all ${isUnread ? 'bg-blue-50 border-blue-200 border-l-4' : 'bg-white border-slate-100 hover:bg-slate-50'}">
+        const hasRoute = !!_notifRoute(n);
+        return `<div onclick="_notifNavigate(${_escHtml(JSON.stringify(n))})" class="cursor-pointer active:scale-[0.99] flex items-start gap-4 p-4 rounded-2xl border transition-all ${isUnread ? 'bg-blue-50 border-blue-200 border-l-4' : 'bg-white border-slate-100 hover:bg-slate-50'}">
           <div class="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${isUnread ? 'bg-blue-100' : 'bg-slate-100'}">
             <i data-lucide="bell" class="h-3.5 w-3.5 ${isUnread ? 'text-blue-600' : 'text-slate-400'}"></i>
           </div>
           <div class="flex-1 min-w-0">
             <p class="font-black text-slate-800 text-sm">${n.title||'Notification'}</p>
             <p class="text-xs text-slate-500 font-bold mt-0.5">${n.message||''}</p>
-            <p class="text-[10px] text-slate-400 mt-1">${timeStr}${clickable ? ' · Tap to open' : ''}</p>
+            <p class="text-[10px] text-slate-400 mt-1">${timeStr}${hasRoute ? ' · Tap to open' : ''}</p>
           </div>
           <div class="flex flex-col items-end gap-2 shrink-0">
             <span class="px-2 py-0.5 text-[9px] font-black uppercase rounded-full ${isUnread ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'}">${isUnread ? 'Unread' : 'Read'}</span>
