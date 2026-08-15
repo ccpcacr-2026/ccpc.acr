@@ -89,8 +89,56 @@ function notFoundHtml(L) {
     <body><div class="box"><h1>${esc(L.notAvailTitle)}</h1><p>${esc(L.notAvailBody)}</p></div></body></html>`;
 }
 
+// pageSize: 'A4' (210×297mm, default) or 'Legal' (215.9×355.6mm), picked via
+// ?size=legal. Kept in lockstep with _lpPageDims in _src/app.js.
+function pageDims(pageSize) {
+  const isLegal = pageSize === 'Legal';
+  const pageHeightMm = isLegal ? 355.6 : 297;
+  const pageWidthMm = isLegal ? 215.9 : 210;
+  return { cssName: isLegal ? 'legal' : 'A4', pageWidthMm, pageHeightMm, contentHeightMm: pageHeightMm - 26 };
+}
+
+// Shrinks oversized paragraphs before falling back to scaling the whole page
+// — see _lpAutoFitScript in _src/app.js for the full rationale; identical
+// logic duplicated here since this route has no access to that client bundle.
+function autoFitScript(contentHeightMm) {
+  return `<script>(function(){
+    function fit(){
+      var page = document.querySelector('.page');
+      if (!page) return;
+      var probe = document.createElement('div');
+      probe.style.cssText = 'position:absolute;visibility:hidden;height:${contentHeightMm}mm;width:0;';
+      document.body.appendChild(probe);
+      var budget = probe.offsetHeight;
+      document.body.removeChild(probe);
+      var candidates = Array.prototype.slice.call(page.querySelectorAll('td,.lo-box'));
+      var MIN_PX = 8.7, tries = 0;
+      function contentHeight(){ return page.scrollHeight; }
+      while (contentHeight() > budget && tries < 80) {
+        tries++;
+        var target = null, targetScrollH = 0, targetSize = 0;
+        candidates.forEach(function(el){
+          var size = parseFloat(window.getComputedStyle(el).fontSize);
+          if (size > MIN_PX && el.scrollHeight > targetScrollH) { target = el; targetScrollH = el.scrollHeight; targetSize = size; }
+        });
+        if (target) { target.style.fontSize = (targetSize - 0.5) + 'px'; continue; }
+        break;
+      }
+      if (contentHeight() > budget) {
+        var ratio = Math.max(budget / contentHeight(), 0.5);
+        page.style.transformOrigin = 'top left';
+        page.style.transform = 'scale(' + ratio + ')';
+        page.style.width = (100 / ratio) + '%';
+      }
+    }
+    if (document.readyState === 'complete') fit(); else window.addEventListener('load', fit);
+  })();</script>`;
+}
+
 export async function GET(request, { params }) {
   const { id } = await params;
+  const { searchParams } = new URL(request.url);
+  const dims = pageDims(searchParams.get('size') === 'legal' ? 'Legal' : 'A4');
   const rows = await supabaseRequest(`lesson_plans?id=eq.${encodeURIComponent(id)}&is_shared=eq.true&select=*`);
   const plan = Array.isArray(rows) && rows[0];
 
@@ -133,14 +181,17 @@ export async function GET(request, { params }) {
   // the internal app's print builder (_lpPrintCss in _src/app.js) so a plan
   // looks identical whether opened from the app or scanned from its QR code.
   const css = `
-    @page { size: A4 portrait; margin: 13mm 15mm; }
+    @page { size: ${dims.cssName} portrait; margin: 13mm 15mm; }
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
     body{font-family:${uiFont};font-size:9.3pt;line-height:1.4;color:#111;background:#e8edf5;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
-    .page{min-height:271mm;position:relative;background:#fff;padding:13mm 15mm;margin:10mm auto;max-width:210mm;box-shadow:0 3px 14px rgba(11,37,69,.18);border-radius:4pt;}
+    .page{min-height:${dims.contentHeightMm}mm;max-height:${dims.contentHeightMm}mm;overflow:hidden;position:relative;background:#fff;padding:13mm 15mm;margin:10mm auto;max-width:${dims.pageWidthMm}mm;box-shadow:0 3px 14px rgba(11,37,69,.18);border-radius:4pt;}
 
-    .hdr{background:#0b2545;color:#fff;text-align:center;padding:9pt 86pt 9pt 14pt;border-radius:3pt;margin-bottom:9pt;}
+    .hdr{background:#0b2545;color:#fff;text-align:center;padding:9pt 86pt 9pt 62pt;border-radius:3pt;margin-bottom:9pt;}
     .hdr .main{font-family:${bodyFont};font-size:14.5pt;font-weight:700;letter-spacing:.02em;}
     .hdr .sub{font-family:${uiFont};font-size:8.8pt;font-weight:700;margin-top:3pt;color:#cfe0ff;letter-spacing:.03em;}
+
+    .logo-box{position:absolute;top:0;left:0;width:46pt;height:46pt;background:#fff;border-radius:3pt;padding:3pt;display:flex;align-items:center;justify-content:center;}
+    .logo-box img{max-width:100%;max-height:100%;object-fit:contain;}
 
     .code-box{position:absolute;top:0;right:0;background:#7c2d12;color:#fff;border-radius:3pt;padding:4pt 9pt;text-align:center;min-width:74pt;}
     .code-box .lbl{font-size:6.3pt;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#fbd5c6;}
@@ -175,6 +226,7 @@ export async function GET(request, { params }) {
     <title>${isBn ? 'পাঠ পরিকল্পনা' : 'Lesson Plan'} &mdash; ${esc(plan.topic || plan.subject || 'CCPC')}</title>
     <style>${css}</style></head><body>
     <div class="page">
+      <div class="logo-box"><img src="/logo.jpg" alt="College Logo"></div>
       <div class="code-box"><div class="lbl">${isBn ? 'পাঠ কোড' : 'Lesson Code'}</div><div class="val">${esc(lessonCode)}</div></div>
       <div class="hdr">
         <div class="main">${esc(L.college)}</div>
@@ -210,6 +262,7 @@ export async function GET(request, { params }) {
 
       <div class="footer-note">${esc(L.footer)}</div>
     </div>
+    ${autoFitScript(dims.contentHeightMm)}
     </body></html>`;
 
   return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });

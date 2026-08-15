@@ -4351,6 +4351,10 @@
   let _lpCurrentPlan = null;
   let _lpCurrentIsDuplicate = false;
   let _lpViewMode = 'table';
+  // Which page size the currently open plan prints on — 'A4' (default) or
+  // 'Legal'. A per-open choice rather than a saved field, since it's a
+  // printing preference, not part of the lesson plan's content.
+  let _lpPageSize = 'A4';
 
   function _lpRenderCurrentView() {
     if (_lpViewMode === 'print') _lpRenderPrintView(_lpCurrentPlan, _lpCurrentIsDuplicate);
@@ -4827,18 +4831,33 @@
   // dark solid fills with white text stay high-contrast in grayscale too.
   // -webkit-print-color-adjust:exact keeps browsers from silently dropping
   // these backgrounds when printing.
-  function _lpPrintCss(isBn) {
+  // pageSize: 'A4' (210×297mm) or 'Legal' (215.9×355.6mm). Both use the same
+  // 13mm/15mm margins; contentHeightMm is what's left for actual content and
+  // is also what the one-page auto-fit script (see _LP_AUTOFIT_SCRIPT) uses
+  // as its budget, so this one value drives both the CSS and the JS shrink.
+  function _lpPageDims(pageSize) {
+    const isLegal = pageSize === 'Legal';
+    const pageHeightMm = isLegal ? 355.6 : 297;
+    const pageWidthMm = isLegal ? 215.9 : 210;
+    return { isLegal, cssName: isLegal ? 'legal' : 'A4', pageWidthMm, pageHeightMm, contentHeightMm: pageHeightMm - 26 };
+  }
+
+  function _lpPrintCss(isBn, pageSize) {
     const bodyFont = isBn ? "'Noto Sans Bengali','Nirmala UI','Vrinda',Georgia,serif" : "Georgia,'Times New Roman',serif";
     const uiFont = isBn ? "'Noto Sans Bengali','Nirmala UI','Vrinda',Arial,sans-serif" : "Arial,Helvetica,sans-serif";
+    const dims = _lpPageDims(pageSize);
     return `
-      @page { size: A4 portrait; margin: 13mm 15mm; }
+      @page { size: ${dims.cssName} portrait; margin: 13mm 15mm; }
       *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
       body{font-family:${uiFont};font-size:9.3pt;line-height:1.4;color:#111;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
-      .page{min-height:271mm;position:relative;}
+      .page{min-height:${dims.contentHeightMm}mm;max-height:${dims.contentHeightMm}mm;overflow:hidden;position:relative;}
 
-      .hdr{background:#0b2545;color:#fff;text-align:center;padding:9pt 86pt 9pt 14pt;border-radius:3pt;margin-bottom:9pt;}
+      .hdr{background:#0b2545;color:#fff;text-align:center;padding:9pt 86pt 9pt 62pt;border-radius:3pt;margin-bottom:9pt;}
       .hdr .main{font-family:${bodyFont};font-size:14.5pt;font-weight:700;letter-spacing:.02em;}
       .hdr .sub{font-family:${uiFont};font-size:8.8pt;font-weight:700;margin-top:3pt;color:#cfe0ff;letter-spacing:.03em;}
+
+      .logo-box{position:absolute;top:0;left:0;width:46pt;height:46pt;background:#fff;border-radius:3pt;padding:3pt;display:flex;align-items:center;justify-content:center;}
+      .logo-box img{max-width:100%;max-height:100%;object-fit:contain;}
 
       .corner-box{position:absolute;top:0;right:0;display:flex;flex-direction:column;align-items:stretch;gap:4pt;}
       .code-box{background:#7c2d12;color:#fff;border-radius:3pt;padding:4pt 9pt;text-align:center;min-width:74pt;}
@@ -4875,18 +4894,61 @@
       .footer-note{margin-top:12pt;padding-top:5pt;border-top:1.5pt solid #0b2545;font-size:7.3pt;font-weight:700;color:#0b2545;text-align:center;letter-spacing:.03em;}
 
       @media screen{body{padding:10mm;background:#e8edf5;}
-      .page{background:#fff;padding:13mm 15mm;margin:0 auto;max-width:210mm;box-shadow:0 3px 14px rgba(11,37,69,.18);border-radius:4pt;}}`;
+      .page{background:#fff;padding:13mm 15mm;margin:0 auto;max-width:${dims.pageWidthMm}mm;box-shadow:0 3px 14px rgba(11,37,69,.18);border-radius:4pt;}}`;
   }
 
-  function _lpBuildPrintHtml(payload) {
+  // Shrinks oversized paragraphs (long teacher/learner activity cells,
+  // Learning Outcomes) one at a time — largest first — before falling back
+  // to scaling the whole page down, so a single long paragraph never forces
+  // a second sheet while everything else prints at normal size. Runs client-
+  // side inside the printed document itself (popup / iframe / public share
+  // page all get this embedded), since only the browser doing the actual
+  // layout knows the true rendered height.
+  function _lpAutoFitScript(contentHeightMm) {
+    return `<script>(function(){
+      function fit(){
+        var page = document.querySelector('.page');
+        if (!page) return;
+        var probe = document.createElement('div');
+        probe.style.cssText = 'position:absolute;visibility:hidden;height:${contentHeightMm}mm;width:0;';
+        document.body.appendChild(probe);
+        var budget = probe.offsetHeight;
+        document.body.removeChild(probe);
+        var candidates = Array.prototype.slice.call(page.querySelectorAll('td,.lo-box,.refl'));
+        var MIN_PX = 8.7, tries = 0;
+        function contentHeight(){ return page.scrollHeight; }
+        while (contentHeight() > budget && tries < 80) {
+          tries++;
+          var target = null, targetScrollH = 0, targetSize = 0;
+          candidates.forEach(function(el){
+            var size = parseFloat(window.getComputedStyle(el).fontSize);
+            if (size > MIN_PX && el.scrollHeight > targetScrollH) { target = el; targetScrollH = el.scrollHeight; targetSize = size; }
+          });
+          if (target) { target.style.fontSize = (targetSize - 0.5) + 'px'; continue; }
+          break;
+        }
+        if (contentHeight() > budget) {
+          var ratio = Math.max(budget / contentHeight(), 0.5);
+          page.style.transformOrigin = 'top left';
+          page.style.transform = 'scale(' + ratio + ')';
+          page.style.width = (100 / ratio) + '%';
+        }
+      }
+      if (document.readyState === 'complete') fit(); else window.addEventListener('load', fit);
+    })();</script>`;
+  }
+
+  function _lpBuildPrintHtml(payload, pageSize) {
     const profile = window._loginProfile || {};
     const isBn = /bangla/i.test(payload.version || '');
     const L = isBn ? _LP_PRINT_LABELS.bn : _LP_PRINT_LABELS.en;
+    const dims = _lpPageDims(pageSize);
     const chapterLine = (payload.lesson_refs || [])
       .map(r => r.chapter + (r.lesson_numbers && r.lesson_numbers.length ? ' (' + L.lessonWord + ' ' + r.lesson_numbers.join(', ') + ')' : ''))
       .join('; ');
     const lessonCode = (payload.lesson_code && payload.lesson_code.trim()) || _lpAutoLessonCode(payload);
     const weekday = _lpWeekdayName(payload.class_date || '', isBn);
+    const logoSrc = window.location.origin + '/logo.jpg';
     const shareUrl = payload.id ? (window.location.origin + '/plan/' + payload.id) : '';
     const qrSrc = shareUrl ? 'https://api.qrserver.com/v1/create-qr-code/?size=110x110&data=' + encodeURIComponent(shareUrl) : '';
 
@@ -4903,10 +4965,11 @@
 
     const reflectionLines = (payload.self_reflection || '').trim();
 
-    const css = _lpPrintCss(isBn);
+    const css = _lpPrintCss(isBn, pageSize);
 
     const html = `
       <div class="page">
+        <div class="logo-box"><img src="${logoSrc}" alt="College Logo"></div>
         <div class="corner-box">
           <div class="code-box"><div class="lbl">${isBn ? 'পাঠ কোড' : 'Lesson Code'}</div><div class="val">${esc(lessonCode)}</div></div>
           ${qrSrc ? `<div class="qr-box"><img src="${qrSrc}" alt="QR code linking to this lesson plan"><div class="cap">${esc(L.scanMe)}</div></div>` : ''}
@@ -4952,11 +5015,16 @@
 
     return `<!DOCTYPE html><html lang="${isBn ? 'bn' : 'en'}"><head><meta charset="UTF-8">
       <title>${isBn ? 'পাঠ পরিকল্পনা' : 'Lesson Plan'} &mdash; ${esc(payload.topic || payload.subject || 'CCPC')}</title>
-      <style>${css}</style></head><body>${html}</body></html>`;
+      <style>${css}</style></head><body>${html}${_lpAutoFitScript(dims.contentHeightMm)}</body></html>`;
+  }
+
+  function _lpSetPageSize(size) {
+    _lpPageSize = size;
+    if (_lpViewMode === 'print') _lpRenderPrintView(_lpCurrentPlan, _lpCurrentIsDuplicate);
   }
 
   function _lpPrintPlan() {
-    const fullHtml = _lpBuildPrintHtml(_lpGetPrintPayload());
+    const fullHtml = _lpBuildPrintHtml(_lpGetPrintPayload(), _lpPageSize);
     const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const win = window.open(url, '_blank', 'width=900,height=700');
@@ -4974,7 +5042,7 @@
     if (!container) return;
     const myId = window.APP_USER && window.APP_USER.user_id;
     const isOwner = isDuplicate || !plan || plan.created_by === myId;
-    const fullHtml = _lpBuildPrintHtml(plan || {});
+    const fullHtml = _lpBuildPrintHtml(plan || {}, _lpPageSize);
 
     container.innerHTML = `
       <div class="pt-4 max-w-4xl mx-auto pb-10">
@@ -4982,12 +5050,18 @@
           <button onclick="loadLessonPlanView()" class="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600">&larr; Back to Lesson Plans</button>
           <div class="flex gap-2">
             ${(plan && plan.id && !isDuplicate) ? `<button onclick="_lpDuplicatePlan(${plan.id})" title="Duplicate as a new plan" class="p-2.5 bg-white border border-slate-200 rounded-xl hover:bg-slate-50"><i data-lucide="copy" class="h-3.5 w-3.5"></i></button>` : ''}
-            <button onclick="_lpPrintPlan()" title="Print / Export A4 PDF" class="flex items-center gap-1.5 px-3 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-black font-black text-[10px] uppercase tracking-widest"><i data-lucide="printer" class="h-3.5 w-3.5"></i>Print / Export</button>
+            <button onclick="_lpPrintPlan()" title="Print / Export PDF" class="flex items-center gap-1.5 px-3 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-black font-black text-[10px] uppercase tracking-widest"><i data-lucide="printer" class="h-3.5 w-3.5"></i>Print / Export</button>
             ${(plan && plan.id && isOwner && !isDuplicate) ? `<button onclick="_deleteLessonPlanForm(${plan.id})" title="Delete" class="p-2.5 bg-white border border-red-200 text-red-500 rounded-xl hover:bg-red-50"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>` : ''}
           </div>
         </div>
 
-        ${_lpViewToggleHtml()}
+        <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+          ${_lpViewToggleHtml()}
+          <div class="flex gap-1 bg-slate-100 rounded-xl p-1 w-fit">
+            <button onclick="_lpSetPageSize('A4')" class="px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${_lpPageSize === 'A4' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}">A4</button>
+            <button onclick="_lpSetPageSize('Legal')" class="px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${_lpPageSize === 'Legal' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}">Legal</button>
+          </div>
+        </div>
 
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden" style="height:80vh;">
           <iframe id="lpPrintFrame" title="Lesson plan preview" style="width:100%;height:100%;border:0;"></iframe>
