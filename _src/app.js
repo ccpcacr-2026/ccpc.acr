@@ -4761,7 +4761,7 @@
       selfReflection: 'Self-Reflection',
       reflDefault: "1. What went well?&nbsp;&nbsp;&nbsp;2. What didn't?&nbsp;&nbsp;&nbsp;3. Any possible improvement (if any)",
       footer: 'Chattogram Cantonment Public College, Bayezid, Chattogram',
-      preparedBy: 'Prepared by', platform: 'CCPC Faculty Portal',
+      preparedBy: 'Prepared by', platform: 'Generated via NotebookLM',
       phases: {
         'Greetings': 'Greetings',
         'Engagement': 'Engagement Phase',
@@ -4788,7 +4788,7 @@
       selfReflection: 'আত্ম-পর্যালোচনা',
       reflDefault: '১. কতটা ভালো হলো?&nbsp;&nbsp;&nbsp;২. কতটা খারাপ হলো?&nbsp;&nbsp;&nbsp;৩. উন্নতির সম্ভাবনা আছে কিনা (যদি থাকে)',
       footer: 'চট্টগ্রাম ক্যান্টনমেন্ট পাবলিক কলেজ, বায়েজিদ, চট্টগ্রাম',
-      preparedBy: 'প্রস্তুতকারী', platform: 'সিসিপিসি ফ্যাকাল্টি পোর্টাল',
+      preparedBy: 'প্রস্তুতকারী', platform: 'নোটবুকএলএম দ্বারা তৈরি',
       phases: {
         'Greetings': 'শুভেচ্ছা বিনিময়',
         'Engagement': 'সম্পৃক্তকরণ পর্যায়',

@@ -22,7 +22,7 @@ const LABELS = {
     lessonPhases: 'Lesson Phases', thPhase: 'Phase', thTeacher: "Teacher's Activity",
     thLearner: "Learner's Activity", thDuration: 'Duration', min: 'min',
     footer: 'Chattogram Cantonment Public College, Bayezid, Chattogram',
-    preparedBy: 'Prepared by', platform: 'CCPC Faculty Portal',
+    preparedBy: 'Prepared by', platform: 'Generated via NotebookLM',
     notAvailTitle: 'Lesson plan not available',
     notAvailBody: "This link is either invalid or the plan hasn't been shared publicly.",
     phases: {
@@ -44,7 +44,7 @@ const LABELS = {
     lessonPhases: 'পাঠের ধাপসমূহ', thPhase: 'ধাপ', thTeacher: 'শিক্ষকের কার্যক্রম',
     thLearner: 'শিক্ষার্থীর কার্যক্রম', thDuration: 'সময়কাল', min: 'মিনিট',
     footer: 'চট্টগ্রাম ক্যান্টনমেন্ট পাবলিক কলেজ, বায়েজিদ, চট্টগ্রাম',
-    preparedBy: 'প্রস্তুতকারী', platform: 'সিসিপিসি ফ্যাকাল্টি পোর্টাল',
+    preparedBy: 'প্রস্তুতকারী', platform: 'নোটবুকএলএম দ্বারা তৈরি',
     notAvailTitle: 'পাঠ পরিকল্পনা পাওয়া যায়নি',
     notAvailBody: 'এই লিংকটি সঠিক নয় অথবা পাঠ পরিকল্পনাটি প্রকাশ্যে শেয়ার করা হয়নি।',
     phases: {
