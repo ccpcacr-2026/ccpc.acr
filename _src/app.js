@@ -4852,27 +4852,23 @@
       body{font-family:${uiFont};font-size:9.3pt;line-height:1.4;color:#111;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
       .page{min-height:${dims.contentHeightMm}mm;max-height:${dims.contentHeightMm}mm;overflow:hidden;position:relative;}
 
-      .hdr{background:#0b2545;color:#fff;text-align:center;padding:9pt 86pt 9pt 62pt;border-radius:3pt;margin-bottom:9pt;}
+      .hdr{background:#0b2545;color:#fff;display:flex;align-items:stretch;gap:10pt;padding:6pt 10pt;border-radius:3pt;margin-bottom:9pt;}
+      .hdr-text{flex:1;display:flex;flex-direction:column;justify-content:center;text-align:center;}
       .hdr .main{font-family:${bodyFont};font-size:14.5pt;font-weight:700;letter-spacing:.02em;}
       .hdr .sub{font-family:${uiFont};font-size:8.8pt;font-weight:700;margin-top:3pt;color:#cfe0ff;letter-spacing:.03em;}
+      .hdr-logo,.hdr-qr{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:44pt;}
+      .hdr-logo img,.hdr-qr img{height:100%;width:auto;max-width:100%;display:block;background:#fff;border-radius:2pt;padding:2pt;object-fit:contain;}
 
-      .logo-box{position:absolute;top:0;left:0;width:46pt;height:46pt;background:#fff;border-radius:3pt;padding:3pt;display:flex;align-items:center;justify-content:center;}
-      .logo-box img{max-width:100%;max-height:100%;object-fit:contain;}
-
-      .corner-box{position:absolute;top:0;right:0;display:flex;flex-direction:column;align-items:stretch;gap:4pt;}
-      .code-box{background:#7c2d12;color:#fff;border-radius:3pt;padding:4pt 9pt;text-align:center;min-width:74pt;}
-      .code-box .lbl{font-size:6.3pt;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#fbd5c6;}
-      .code-box .val{font-family:${uiFont};font-size:10pt;font-weight:900;margin-top:1pt;letter-spacing:.01em;}
-      .qr-box{text-align:center;border:1.5pt solid #0b2545;border-radius:3pt;padding:4pt;background:#fff;}
-      .qr-box img{width:64pt;height:64pt;display:block;margin:0 auto;}
-      .qr-box .cap{font-size:6pt;font-weight:700;color:#0b2545;margin-top:2pt;text-transform:uppercase;letter-spacing:.05em;}
-
-      .meta{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5pt 14pt;margin-bottom:9pt;font-size:9pt;background:#f2f6fc;border:1pt solid #cddaf0;border-radius:3pt;padding:7pt 10pt;}
+      .meta{display:flex;align-items:stretch;gap:10pt;margin-bottom:9pt;font-size:9pt;background:#f2f6fc;border:1pt solid #cddaf0;border-radius:3pt;padding:7pt 10pt;}
+      .meta-grid{flex:1;display:grid;grid-template-columns:1fr 1fr 1fr;gap:5pt 14pt;}
       .meta .fi{display:flex;gap:4pt;align-items:baseline;}
       .meta .lbl{font-weight:700;white-space:nowrap;color:#0b2545;font-size:7.6pt;text-transform:uppercase;letter-spacing:.04em;}
       .fi.wide{grid-column:1/-1;}
       .uv{border-bottom:1pt solid #9fb3d1;display:inline-block;min-width:60pt;padding-bottom:1pt;flex:1;font-weight:600;}
       .uv.has-val{color:#0b2545;}
+      .code-box{flex-shrink:0;background:#7c2d12;color:#fff;border-radius:3pt;padding:6pt 12pt;text-align:center;display:flex;flex-direction:column;justify-content:center;align-items:center;min-width:78pt;}
+      .code-box .lbl{font-size:6.3pt;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#fbd5c6;}
+      .code-box .val{font-family:${uiFont};font-size:10pt;font-weight:900;margin-top:1pt;letter-spacing:.01em;}
 
       .sec-title{font-family:${uiFont};font-size:9.3pt;font-weight:900;text-transform:uppercase;letter-spacing:.04em;color:#0b2545;margin:11pt 0 4pt;padding-left:7pt;border-left:4pt solid #065f46;}
       .lo-box{font-size:9pt;line-height:1.55;border:1pt solid #cddaf0;border-left:4pt solid #065f46;border-radius:0 3pt 3pt 0;padding:7pt 9pt;min-height:24pt;white-space:pre-wrap;background:#fbfdff;}
@@ -4969,27 +4965,29 @@
 
     const html = `
       <div class="page">
-        <div class="logo-box"><img src="${logoSrc}" alt="College Logo"></div>
-        <div class="corner-box">
-          <div class="code-box"><div class="lbl">${isBn ? 'পাঠ কোড' : 'Lesson Code'}</div><div class="val">${esc(lessonCode)}</div></div>
-          ${qrSrc ? `<div class="qr-box"><img src="${qrSrc}" alt="QR code linking to this lesson plan"><div class="cap">${esc(L.scanMe)}</div></div>` : ''}
-        </div>
         <div class="hdr">
-          <div class="main">${esc(L.college)}</div>
-          <div class="sub">${esc(L.subtitle)}</div>
+          <div class="hdr-logo"><img src="${logoSrc}" alt="College Logo"></div>
+          <div class="hdr-text">
+            <div class="main">${esc(L.college)}</div>
+            <div class="sub">${esc(L.subtitle)}</div>
+          </div>
+          ${qrSrc ? `<div class="hdr-qr"><img src="${qrSrc}" alt="QR code linking to this lesson plan"></div>` : `<div class="hdr-logo"></div>`}
         </div>
 
         <div class="meta">
-          <div class="fi"><span class="lbl">${esc(L.name)}</span> ${U(profile.full_name, '140pt')}</div>
-          <div class="fi"><span class="lbl">${esc(L.department)}</span> ${U(profile.school_college, '140pt')}</div>
-          <div class="fi"><span class="lbl">${esc(L.class)}</span> ${U(payload.class_name, '90pt')}</div>
-          <div class="fi"><span class="lbl">${esc(L.subject)}</span> ${U(payload.subject, '90pt')}</div>
-          <div class="fi"><span class="lbl">${esc(L.date)}</span> ${U(payload.class_date ? payload.class_date + (weekday ? ' (' + weekday + ')' : '') : '', '110pt')}</div>
-          <div class="fi"><span class="lbl">${esc(L.period)}</span> ${U(payload.period, '90pt')}</div>
-          <div class="fi"><span class="lbl">${esc(L.version)}</span> ${U(payload.version, '90pt')}</div>
-          <div class="fi"><span class="lbl">${esc(L.time)}</span> ${U(payload.time_minutes ? payload.time_minutes + ' ' + L.minutes : '', '90pt')}</div>
-          <div class="fi wide"><span class="lbl">${esc(L.chapterLessons)}</span> ${U(chapterLine, '160pt')}</div>
-          <div class="fi wide"><span class="lbl">${esc(L.topic)}</span> ${U(payload.topic, '160pt')}</div>
+          <div class="meta-grid">
+            <div class="fi"><span class="lbl">${esc(L.name)}</span> ${U(profile.full_name, '140pt')}</div>
+            <div class="fi"><span class="lbl">${esc(L.department)}</span> ${U(profile.school_college, '140pt')}</div>
+            <div class="fi"><span class="lbl">${esc(L.class)}</span> ${U(payload.class_name, '90pt')}</div>
+            <div class="fi"><span class="lbl">${esc(L.subject)}</span> ${U(payload.subject, '90pt')}</div>
+            <div class="fi"><span class="lbl">${esc(L.date)}</span> ${U(payload.class_date ? payload.class_date + (weekday ? ' (' + weekday + ')' : '') : '', '110pt')}</div>
+            <div class="fi"><span class="lbl">${esc(L.period)}</span> ${U(payload.period, '90pt')}</div>
+            <div class="fi"><span class="lbl">${esc(L.version)}</span> ${U(payload.version, '90pt')}</div>
+            <div class="fi"><span class="lbl">${esc(L.time)}</span> ${U(payload.time_minutes ? payload.time_minutes + ' ' + L.minutes : '', '90pt')}</div>
+            <div class="fi wide"><span class="lbl">${esc(L.chapterLessons)}</span> ${U(chapterLine, '160pt')}</div>
+            <div class="fi wide"><span class="lbl">${esc(L.topic)}</span> ${U(payload.topic, '160pt')}</div>
+          </div>
+          <div class="code-box"><div class="lbl">${isBn ? 'পাঠ কোড' : 'Lesson Code'}</div><div class="val">${esc(lessonCode)}</div></div>
         </div>
 
         <div class="sec-title">${esc(L.learningOutcomes)}</div>
