@@ -4859,12 +4859,12 @@
       .hdr-logo,.hdr-qr{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:44pt;}
       .hdr-logo img,.hdr-qr img{height:100%;width:auto;max-width:100%;display:block;background:#fff;border-radius:2pt;padding:2pt;object-fit:contain;}
 
-      .meta{display:flex;align-items:stretch;gap:10pt;margin-bottom:9pt;font-size:9pt;background:#f2f6fc;border:1pt solid #cddaf0;border-radius:3pt;padding:7pt 10pt;}
-      .meta-grid{flex:1;display:grid;grid-template-columns:1fr 1fr 1fr;gap:5pt 14pt;}
-      .meta .fi{display:flex;gap:4pt;align-items:baseline;}
-      .meta .lbl{font-weight:700;white-space:nowrap;color:#0b2545;font-size:7.6pt;text-transform:uppercase;letter-spacing:.04em;}
+      .meta{display:flex;align-items:stretch;gap:10pt;margin-bottom:9pt;font-size:9pt;background:#f2f6fc;border:1pt solid #cddaf0;border-radius:3pt;padding:7pt 10pt;max-width:100%;}
+      .meta-grid{flex:1;min-width:0;display:grid;grid-template-columns:1fr 1fr 1fr;gap:5pt 14pt;}
+      .meta .fi{display:flex;gap:4pt;align-items:baseline;min-width:0;}
+      .meta .lbl{font-weight:700;white-space:nowrap;color:#0b2545;font-size:7.6pt;text-transform:uppercase;letter-spacing:.04em;flex-shrink:0;}
       .fi.wide{grid-column:1/-1;}
-      .uv{border-bottom:1pt solid #9fb3d1;display:inline-block;min-width:60pt;padding-bottom:1pt;flex:1;font-weight:600;}
+      .uv{border-bottom:1pt solid #9fb3d1;display:inline-block;min-width:0;padding-bottom:1pt;flex:1;font-weight:600;overflow-wrap:break-word;}
       .uv.has-val{color:#0b2545;}
       .code-box{flex-shrink:0;background:#7c2d12;color:#fff;border-radius:3pt;padding:6pt 12pt;text-align:center;display:flex;flex-direction:column;justify-content:center;align-items:center;min-width:78pt;}
       .code-box .lbl{font-size:6.3pt;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#fbd5c6;}
@@ -4976,16 +4976,16 @@
 
         <div class="meta">
           <div class="meta-grid">
-            <div class="fi"><span class="lbl">${esc(L.name)}</span> ${U(profile.full_name, '140pt')}</div>
-            <div class="fi"><span class="lbl">${esc(L.department)}</span> ${U(profile.school_college, '140pt')}</div>
-            <div class="fi"><span class="lbl">${esc(L.class)}</span> ${U(payload.class_name, '90pt')}</div>
-            <div class="fi"><span class="lbl">${esc(L.subject)}</span> ${U(payload.subject, '90pt')}</div>
-            <div class="fi"><span class="lbl">${esc(L.date)}</span> ${U(payload.class_date ? payload.class_date + (weekday ? ' (' + weekday + ')' : '') : '', '110pt')}</div>
-            <div class="fi"><span class="lbl">${esc(L.period)}</span> ${U(payload.period, '90pt')}</div>
-            <div class="fi"><span class="lbl">${esc(L.version)}</span> ${U(payload.version, '90pt')}</div>
-            <div class="fi"><span class="lbl">${esc(L.time)}</span> ${U(payload.time_minutes ? payload.time_minutes + ' ' + L.minutes : '', '90pt')}</div>
-            <div class="fi wide"><span class="lbl">${esc(L.chapterLessons)}</span> ${U(chapterLine, '160pt')}</div>
-            <div class="fi wide"><span class="lbl">${esc(L.topic)}</span> ${U(payload.topic, '160pt')}</div>
+            <div class="fi"><span class="lbl">${esc(L.name)}</span> ${U(profile.full_name)}</div>
+            <div class="fi"><span class="lbl">${esc(L.department)}</span> ${U(profile.school_college)}</div>
+            <div class="fi"><span class="lbl">${esc(L.class)}</span> ${U(payload.class_name)}</div>
+            <div class="fi"><span class="lbl">${esc(L.subject)}</span> ${U(payload.subject)}</div>
+            <div class="fi"><span class="lbl">${esc(L.date)}</span> ${U(payload.class_date ? payload.class_date + (weekday ? ' (' + weekday + ')' : '') : '')}</div>
+            <div class="fi"><span class="lbl">${esc(L.period)}</span> ${U(payload.period)}</div>
+            <div class="fi"><span class="lbl">${esc(L.version)}</span> ${U(payload.version)}</div>
+            <div class="fi"><span class="lbl">${esc(L.time)}</span> ${U(payload.time_minutes ? payload.time_minutes + ' ' + L.minutes : '')}</div>
+            <div class="fi wide"><span class="lbl">${esc(L.chapterLessons)}</span> ${U(chapterLine)}</div>
+            <div class="fi wide"><span class="lbl">${esc(L.topic)}</span> ${U(payload.topic)}</div>
           </div>
           <div class="code-box"><div class="lbl">${isBn ? 'পাঠ কোড' : 'Lesson Code'}</div><div class="val">${esc(lessonCode)}</div></div>
         </div>
