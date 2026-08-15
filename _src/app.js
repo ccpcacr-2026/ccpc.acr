@@ -4299,6 +4299,15 @@ Work through the whole book and give me the complete JSON array covering every l
               <textarea id="lpJsonInputBn" rows="10" placeholder='[{"class_name":"Six","subject":"Science","version":"Bangla Version","chapter":"প্রথম অধ্যায়...","lesson_number":1,"topic":"...","...":"..."}]' class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xs focus:ring-2 focus:ring-blue-600 outline-none"></textarea>
             </div>
           </div>
+          <details class="rounded-xl border border-slate-200 p-3">
+            <summary class="text-[10px] font-black text-slate-500 uppercase tracking-widest cursor-pointer">Fallback Class / Subject / Version (only used for lessons whose JSON doesn't already specify them)</summary>
+            <p class="text-[11px] text-slate-400 font-bold mt-2 mb-2">Older NotebookLM replies (from before this importer required class_name/subject/version on every lesson) won't have these fields — fill them in here and they'll be applied only where an individual lesson is missing its own value. A lesson that already specifies its own class_name/subject/version is never overridden by this.</p>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div><label class="text-[10px] font-black text-slate-400 uppercase">Class</label>${_lpSelectHtml('lpJsonFallbackClass', _lpClassOptionsList(), '', '_lpJsonOnFallbackClassChange()')}</div>
+              <div><label class="text-[10px] font-black text-slate-400 uppercase">Subject</label>${_lpSelectHtml('lpJsonFallbackSubject', _lpSubjectOptionsList(''), '')}</div>
+              <div><label class="text-[10px] font-black text-slate-400 uppercase">Version</label>${_lpSelectHtml('lpJsonFallbackVersion', _lpVersionOptionsList(), '')}</div>
+            </div>
+          </details>
           <div class="flex flex-wrap gap-2">
             <button onclick="_lpJsonPreview()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black">Parse &amp; Preview</button>
             <button id="lpJsonAutoTranslateBtn" onclick="_lpJsonAutoTranslate()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-white border border-slate-200 hover:bg-slate-50 flex items-center gap-1.5"><i data-lucide="languages" class="h-3.5 w-3.5"></i>Auto-Translate the Empty Side</button>
@@ -4420,6 +4429,31 @@ Work through the whole book and give me the complete JSON array covering every l
   // { row, errors, warnings, selected } — reused for whichever side(s) are
   // filled in. selected defaults to true unless the item was rejected
   // outright (hard errors: no chapter/topic/phases).
+  function _lpJsonOnFallbackClassChange() {
+    const cls = _lpSelectVal('lpJsonFallbackClass');
+    const subjSel = document.getElementById('lpJsonFallbackSubject');
+    if (subjSel) subjSel.outerHTML = _lpSelectHtml('lpJsonFallbackSubject', _lpSubjectOptionsList(cls), '');
+  }
+
+  // Only fills in whatever a lesson's own JSON is missing — a lesson that
+  // already has its own class_name/subject/version keeps them untouched.
+  // Needed because older NotebookLM replies (from before the prompt
+  // required these fields per-lesson) have none of them at all, and
+  // without this fallback every single lesson from such a paste gets
+  // rejected outright with nothing importable and nothing to select.
+  function _lpJsonApplyFallback(items) {
+    const fallbackClass = _lpSelectVal('lpJsonFallbackClass');
+    const fallbackSubject = _lpSelectVal('lpJsonFallbackSubject');
+    const fallbackVersion = _lpSelectVal('lpJsonFallbackVersion');
+    if (!fallbackClass && !fallbackSubject && !fallbackVersion) return items;
+    return items.map(item => ({
+      ...item,
+      class_name: item.class_name || item.class || fallbackClass || item.class_name,
+      subject: item.subject || fallbackSubject || item.subject,
+      version: item.version || fallbackVersion || item.version,
+    }));
+  }
+
   function _lpJsonProcessSide(rawText) {
     const raw = (rawText || '').trim();
     if (!raw) return { list: null, error: null };
@@ -4431,6 +4465,7 @@ Work through the whole book and give me the complete JSON array covering every l
     } catch (err) {
       return { list: null, error: err.message };
     }
+    items = _lpJsonApplyFallback(items);
     const { perLesson } = _lpJsonValidateItems(items);
     const rows = _lpJsonBuildRows(items);
     const list = rows.map((row, i) => ({ row, errors: perLesson[i].errors, warnings: perLesson[i].warnings, selected: !perLesson[i].errors.length }));
