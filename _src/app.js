@@ -3932,6 +3932,7 @@
           </div>
           <div class="flex gap-2">
             <button onclick="loadLessonPlanBulkImportView()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-white border border-slate-200 hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="upload-cloud" class="h-3.5 w-3.5"></i>Bulk Import</button>
+            <button onclick="loadLessonPlanJsonImportView()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-white border border-slate-200 hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="sparkles" class="h-3.5 w-3.5"></i>Import from NotebookLM</button>
             <button onclick="_openLessonPlanForm(null)" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>New Lesson Plan</button>
           </div>
         </div>
@@ -4151,6 +4152,279 @@
         return;
       }
       const resultSection = document.getElementById('lpBulkResultSection');
+      resultSection.innerHTML = `
+        <h3 class="font-black text-slate-800 mb-3">Import Complete</h3>
+        <ul class="text-xs font-bold text-slate-600 space-y-1 list-disc pl-4">
+          <li>${res.inserted} lesson plan(s) imported</li>
+          ${res.failed ? `<li class="text-red-500">${res.failed} row(s) failed</li>` : ''}
+        </ul>
+        ${res.errors && res.errors.length ? `<div class="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs font-bold text-amber-700 space-y-1">${res.errors.slice(0, 10).map(e => `<div>${_escHtml(e)}</div>`).join('')}</div>` : ''}`;
+      resultSection.classList.remove('hidden');
+      if (btn) { btn.disabled = true; btn.textContent = 'Done'; }
+      showToast(`Imported ${res.inserted} lesson plan(s)`, 'success');
+    }).withFailureHandler(() => {
+      if (btn) { btn.disabled = false; btn.textContent = 'Retry Import'; }
+      showToast('Network error during import', 'error');
+    }).bulkImportLessonPlans(myId, rows);
+  }
+
+  // ── Import from NotebookLM (paste JSON) ───────────────────────────────────
+  // NotebookLM-generated lesson plans come back as a JSON array of chapter
+  // batches: [{ chapter, lesson_numbers:[1,2], topic, time_minutes,
+  // teaching_aids, method, learning_outcomes, phases:[{phase,
+  // teacher_activity, learner_activity, duration_minutes} x8] }, ...]. This
+  // view lets a teacher paste that array directly (no manual spreadsheet
+  // reformatting) and applies one Class/Subject/Version to the whole batch,
+  // since NotebookLM's output doesn't include those. Reuses the same
+  // bulkImportLessonPlans server endpoint as the Excel bulk importer.
+  let LP_JSON_ROWS = [];
+
+  const LP_NOTEBOOKLM_PROMPT = `You are creating complete, ready-to-teach lesson plans from the uploaded textbook (NCTB), following the Bloom's Taxonomy + 5E Model format used in Bangladeshi NCTB schools.
+Go through the book chapter by chapter, and within each chapter, lesson by lesson (following the book's own chapter/section divisions). Do not skip ahead or sample — work through the whole book systematically.
+RULES:
+Ground every lesson plan strictly in what is actually in the uploaded textbook for that specific section — the topic, the actual examples, the actual equations/formulas as written (preserve exact notation, units, and numerical values — do not round, simplify, or substitute a different but "similar" equation).
+Do not invent activities, examples, or numbers that aren't implied by the actual textbook content for that lesson.
+If a specific field isn't determinable from the source (e.g. no explicit learning outcome is stated), write a reasonable one derived from the section's actual content, and note it was inferred rather than presenting it as if verbatim from the book.
+The 8 phase durations must sum to a realistic class period (40-45 minutes).
+Be specific to this exact lesson's content, not generic filler — mention the actual named quantities, formulas, or experiments described in that section.
+OUTPUT FORMAT:
+For every lesson, output one JSON object, and collect all lessons into a single JSON array:
+{
+"chapter": "Chapter title and number, exactly as given in the book",
+"lesson_number": 1,
+"topic": "The specific lesson topic/subsection title",
+"page_reference": "Page number(s) this lesson covers in the textbook",
+"learning_outcomes": "What the student should be able to do/explain/calculate after this lesson, grounded in the section's actual content",
+"teaching_aids": "Specific materials/apparatus/diagrams this lesson would realistically need, based on what the section describes (e.g. named lab equipment, specific diagrams from the book)",
+"method": "The overall teaching approach for this lesson (e.g. demonstration, problem-solving practice, derivation-and-example)",
+"phases": [
+{"phase": "Greetings", "teacher_activity": "string", "learner_activity": "string", "duration_minutes": number},
+{"phase": "Engagement", "teacher_activity": "string", "learner_activity": "string", "duration_minutes": number},
+{"phase": "Exploration", "teacher_activity": "string", "learner_activity": "string", "duration_minutes": number},
+{"phase": "Explanation and Elaboration", "teacher_activity": "string", "learner_activity": "string", "duration_minutes": number},
+{"phase": "Evaluation", "teacher_activity": "string", "learner_activity": "string", "duration_minutes": number},
+{"phase": "Summarization", "teacher_activity": "string", "learner_activity": "string", "duration_minutes": number},
+{"phase": "Assignment/Homework", "teacher_activity": "string", "learner_activity": "string", "duration_minutes": number},
+{"phase": "Closing", "teacher_activity": "string", "learner_activity": "string", "duration_minutes": number}
+]
+}
+Work through the whole book and give me the complete JSON array covering every lesson, not a sample. If the book is too long for one response, stop cleanly at a chapter boundary, tell me exactly which chapter/lesson you stopped at, and I'll ask you to continue from there.`;
+
+  function _lpCopyNotebookPrompt() {
+    navigator.clipboard.writeText(LP_NOTEBOOKLM_PROMPT).then(() => {
+      showToast('Prompt copied — paste it into NotebookLM', 'success');
+    }).catch(() => showToast('Could not copy automatically — select the text and copy manually', 'error'));
+  }
+
+  function loadLessonPlanJsonImportView() {
+    _setViewHash('lesson_plan');
+    setActiveNavLink('nav-lesson-plan');
+    setContentHeader('Import from NotebookLM', 'sparkles');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    LP_JSON_ROWS = [];
+    container.innerHTML = `
+      <div class="pt-4 max-w-4xl mx-auto pb-10">
+        <button onclick="loadLessonPlanView()" class="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600 mb-4">&larr; Back to Lesson Plans</button>
+
+        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 space-y-3">
+          <p class="text-sm font-black text-slate-800 uppercase tracking-widest">1. Copy the NotebookLM Prompt</p>
+          <p class="text-xs text-slate-500 font-bold">Upload the NCTB textbook to NotebookLM, paste this prompt, and it will generate the JSON array in the exact format this importer expects.</p>
+          <textarea id="lpJsonPromptText" readonly rows="6" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-[11px] leading-relaxed outline-none resize-none">${_escHtml(LP_NOTEBOOKLM_PROMPT)}</textarea>
+          <button onclick="_lpCopyNotebookPrompt()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-white border border-slate-200 hover:bg-slate-50 flex items-center gap-1.5"><i data-lucide="copy" class="h-3.5 w-3.5"></i>Copy Prompt</button>
+        </div>
+
+        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 mt-4 space-y-3">
+          <p class="text-sm font-black text-slate-800 uppercase tracking-widest">2. Class / Subject / Version</p>
+          <p class="text-xs text-slate-500 font-bold">NotebookLM's output doesn't include these, so pick them once here — they'll be applied to every lesson in the pasted batch.</p>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div><label class="text-[10px] font-black text-slate-400 uppercase">Class</label>${_lpSelectHtml('lpJsonClass', _lpClassOptionsList(), '', '_lpJsonOnClassChange()')}</div>
+            <div><label class="text-[10px] font-black text-slate-400 uppercase">Subject</label>${_lpSelectHtml('lpJsonSubject', _lpSubjectOptionsList(''), '')}</div>
+            <div><label class="text-[10px] font-black text-slate-400 uppercase">Version</label>${_lpSelectHtml('lpJsonVersion', _lpVersionOptionsList(), '')}</div>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 mt-4 space-y-3">
+          <p class="text-sm font-black text-slate-800 uppercase tracking-widest">3. Paste the JSON</p>
+          <p class="text-xs text-slate-500 font-bold">Paste NotebookLM's reply here — the JSON array of lesson objects it generated from the prompt above. If it stopped mid-book, paste each continuation batch separately and import them one at a time.</p>
+          <textarea id="lpJsonInput" rows="10" placeholder='[{"chapter":"Chapter One: ...","lesson_number":1,"topic":"...","page_reference":"...","learning_outcomes":"...","teaching_aids":"...","method":"...","phases":[{"phase":"Greetings","teacher_activity":"...","learner_activity":"...","duration_minutes":2}, ...]}]' class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xs focus:ring-2 focus:ring-blue-600 outline-none"></textarea>
+          <button onclick="_lpJsonPreview()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black">Parse &amp; Preview</button>
+          <p id="lpJsonStatus" class="text-xs font-bold"></p>
+        </div>
+
+        <div id="lpJsonPreviewSection" class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 mt-4 space-y-3 hidden">
+          <p class="text-sm font-black text-slate-800 uppercase tracking-widest">4. Confirm &amp; Import</p>
+          <div id="lpJsonPreviewSummary" class="grid grid-cols-2 md:grid-cols-3 gap-3"></div>
+          <div id="lpJsonPreviewList" class="text-xs font-bold text-slate-600 space-y-1 max-h-64 overflow-y-auto pr-1"></div>
+          <button id="lpJsonConfirmBtn" onclick="_lpJsonConfirmImport()" class="px-5 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black">Import</button>
+        </div>
+
+        <div id="lpJsonResultSection" class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 mt-4 hidden"></div>
+      </div>`;
+    lucide.createIcons();
+    _lpLoadFieldOptions();
+  }
+
+  function _lpJsonOnClassChange() {
+    const cls = _lpSelectVal('lpJsonClass');
+    const subjSel = document.getElementById('lpJsonSubject');
+    if (subjSel) subjSel.outerHTML = _lpSelectHtml('lpJsonSubject', _lpSubjectOptionsList(cls), '');
+  }
+
+  // Accepts either a bare array, or NotebookLM's occasional habit of wrapping
+  // it in prose ("Here are the lesson plans: [...]") — pulls out the first
+  // top-level [...] block if JSON.parse on the raw text fails.
+  function _lpJsonParseInput(raw) {
+    try { return JSON.parse(raw); } catch (e) { /* fall through */ }
+    const start = raw.indexOf('[');
+    const end = raw.lastIndexOf(']');
+    if (start >= 0 && end > start) {
+      try { return JSON.parse(raw.slice(start, end + 1)); } catch (e) { /* fall through */ }
+    }
+    throw new Error('Could not parse this as JSON. Make sure you pasted the full array, including the [ and ] brackets.');
+  }
+
+  // Checks each parsed lesson object against the shape the NotebookLM prompt
+  // asks for (chapter/topic/lesson_number present, all 8 phases present with
+  // matching names in order, each phase has both activities and a positive
+  // duration, and the 8 durations sum to a realistic 40-45min period). Returns
+  // { errors, warnings } per item — errors block that lesson from importing
+  // (missing chapter/topic, no phases at all), warnings surface but don't
+  // block (odd duration total, a blank activity field, extra/renamed phases).
+  function _lpJsonValidateItem(item, idx) {
+    const errors = [], warnings = [];
+    const label = `Lesson ${idx + 1}`;
+    if (!item || typeof item !== 'object') return { errors: [`${label}: not a valid object`], warnings };
+    if (!String(item.chapter || '').trim()) errors.push(`${label}: missing "chapter"`);
+    if (!String(item.topic || '').trim()) errors.push(`${label}: missing "topic"`);
+    if (item.lesson_number == null && !(Array.isArray(item.lesson_numbers) && item.lesson_numbers.length)) warnings.push(`${label}: no "lesson_number" — will import without one`);
+    if (!String(item.learning_outcomes || '').trim()) warnings.push(`${label}: missing "learning_outcomes"`);
+    if (!String(item.teaching_aids || '').trim()) warnings.push(`${label}: missing "teaching_aids"`);
+    if (!String(item.method || '').trim()) warnings.push(`${label}: missing "method"`);
+
+    const phases = Array.isArray(item.phases) ? item.phases : [];
+    if (!phases.length) {
+      errors.push(`${label}: missing "phases" array`);
+    } else {
+      if (phases.length !== LESSON_PHASES.length) warnings.push(`${label}: expected ${LESSON_PHASES.length} phases, found ${phases.length}`);
+      let durationSum = 0, sawDuration = false;
+      LESSON_PHASES.forEach((name, i) => {
+        const p = phases.find(x => x && x.phase === name) || phases[i];
+        if (!p) { warnings.push(`${label}: missing phase "${name}"`); return; }
+        if (p.phase !== name) warnings.push(`${label}: phase ${i + 1} named "${p.phase}", expected "${name}"`);
+        if (!String(p.teacher_activity || '').trim()) warnings.push(`${label}: "${name}" has no teacher_activity`);
+        if (!String(p.learner_activity || '').trim()) warnings.push(`${label}: "${name}" has no learner_activity`);
+        const dur = Number(p.duration_minutes);
+        if (!(dur > 0)) warnings.push(`${label}: "${name}" has no valid duration_minutes`);
+        else { durationSum += dur; sawDuration = true; }
+      });
+      if (sawDuration && (durationSum < 35 || durationSum > 50)) warnings.push(`${label}: phase durations sum to ${durationSum} min (expected ~40-45)`);
+    }
+    return { errors, warnings };
+  }
+
+  function _lpJsonValidateItems(items) {
+    const perLesson = items.map((item, i) => _lpJsonValidateItem(item, i));
+    const errorCount = perLesson.reduce((n, r) => n + r.errors.length, 0);
+    const warningCount = perLesson.reduce((n, r) => n + r.warnings.length, 0);
+    const okCount = perLesson.filter(r => !r.errors.length && !r.warnings.length).length;
+    return { perLesson, errorCount, warningCount, okCount };
+  }
+
+  function _lpJsonBuildRows(items, className, subject, version) {
+    return items.map(item => {
+      const chapter = String(item.chapter || '').trim();
+      const lessonNumbers = (Array.isArray(item.lesson_numbers) ? item.lesson_numbers : [item.lesson_number]).map(Number).filter(n => n > 0).sort((a, b) => a - b);
+      const phases = LESSON_PHASES.map((name, i) => {
+        const src = (Array.isArray(item.phases) && (item.phases.find(p => p.phase === name) || item.phases[i])) || {};
+        return {
+          phase: name,
+          teacher_activity: src.teacher_activity || '',
+          learner_activity: src.learner_activity || '',
+          duration_minutes: Number(src.duration_minutes) || null,
+        };
+      });
+      return {
+        class_name: className, subject, version,
+        chapter, lesson_number: lessonNumbers[0] || null,
+        lesson_refs: chapter ? [{ chapter, lesson_numbers: lessonNumbers }] : [],
+        topic: item.topic || '', time_minutes: Number(item.time_minutes) || 40,
+        teaching_aids: item.teaching_aids || '', method: item.method || '',
+        learning_outcomes: item.learning_outcomes || '', phases,
+        self_reflection: null, is_shared: true, source: 'notebooklm_import',
+      };
+    });
+  }
+
+  function _lpJsonPreview() {
+    const status = document.getElementById('lpJsonStatus');
+    const className = _lpSelectVal('lpJsonClass'), subject = _lpSelectVal('lpJsonSubject'), version = _lpSelectVal('lpJsonVersion');
+    document.getElementById('lpJsonPreviewSection').classList.add('hidden');
+    document.getElementById('lpJsonResultSection').classList.add('hidden');
+    if (!className || !subject || !version) { if (status) { status.textContent = 'Pick a Class, Subject, and Version first.'; status.className = 'text-xs font-bold text-red-500'; } return; }
+    let items;
+    try {
+      const parsed = _lpJsonParseInput(document.getElementById('lpJsonInput').value.trim());
+      items = Array.isArray(parsed) ? parsed : [parsed];
+      if (!items.length) throw new Error('The pasted JSON is an empty array.');
+    } catch (err) {
+      if (status) { status.textContent = err.message; status.className = 'text-xs font-bold text-red-500'; }
+      return;
+    }
+
+    // Format check runs first — anything with a hard error (no chapter/topic/
+    // phases) is rejected outright and never reaches the importable set, so
+    // a malformed NotebookLM reply can't silently create broken lesson plans.
+    const { perLesson, errorCount, warningCount, okCount } = _lpJsonValidateItems(items);
+    const rejectedIdx = new Set(perLesson.map((r, i) => r.errors.length ? i : -1).filter(i => i >= 0));
+    const keptItems = items.filter((_, i) => !rejectedIdx.has(i));
+    LP_JSON_ROWS = _lpJsonBuildRows(keptItems, className, subject, version);
+    const valid = LP_JSON_ROWS.filter(r => r.chapter && r.topic);
+
+    if (status) {
+      status.textContent = errorCount
+        ? `Parsed ${items.length} lesson(s) — ${rejectedIdx.size} rejected for bad format, ${warningCount} warning(s) on the rest.`
+        : `Parsed ${items.length} lesson(s) — format looks good${warningCount ? ` (${warningCount} minor warning(s))` : ''}.`;
+      status.className = `text-xs font-bold ${errorCount ? 'text-red-500' : (warningCount ? 'text-amber-600' : 'text-emerald-600')}`;
+    }
+
+    const summary = document.getElementById('lpJsonPreviewSummary');
+    summary.innerHTML = `
+      <div class="p-3 border border-slate-200 rounded-xl"><div class="text-[10px] font-black text-slate-400 uppercase">Total Parsed</div><div class="text-xl font-black text-slate-800">${items.length}</div></div>
+      <div class="p-3 border border-slate-200 rounded-xl"><div class="text-[10px] font-black text-slate-400 uppercase">Will Import</div><div class="text-xl font-black text-emerald-600">${valid.length}</div></div>
+      <div class="p-3 border border-slate-200 rounded-xl"><div class="text-[10px] font-black text-slate-400 uppercase">Rejected (Bad Format)</div><div class="text-xl font-black text-red-500">${rejectedIdx.size}</div></div>
+      <div class="p-3 border border-slate-200 rounded-xl"><div class="text-[10px] font-black text-slate-400 uppercase">Clean, No Warnings</div><div class="text-xl font-black text-slate-800">${okCount}</div></div>
+      <div class="p-3 border border-slate-200 rounded-xl"><div class="text-[10px] font-black text-slate-400 uppercase">Warnings</div><div class="text-xl font-black text-amber-600">${warningCount}</div></div>`;
+
+    const reportRows = perLesson.map((r, i) => {
+      const item = items[i];
+      const heading = `${_escHtml((item && item.chapter) || '(no chapter)')} — ${_escHtml((item && item.topic) || '(no topic)')}`;
+      if (!r.errors.length && !r.warnings.length) return `<div class="text-emerald-600">✓ Lesson ${i + 1}: ${heading}</div>`;
+      const lines = [...r.errors.map(e => `<div class="text-red-500 pl-4">✗ ${_escHtml(e)}</div>`), ...r.warnings.map(w => `<div class="text-amber-600 pl-4">⚠ ${_escHtml(w)}</div>`)];
+      return `<div class="${r.errors.length ? 'text-red-500' : 'text-amber-600'} font-black">${r.errors.length ? '✗ Rejected' : '⚠ Warning'} — Lesson ${i + 1}: ${heading}</div>${lines.join('')}`;
+    });
+    document.getElementById('lpJsonPreviewList').innerHTML = reportRows.join('');
+
+    const confirmBtn = document.getElementById('lpJsonConfirmBtn');
+    confirmBtn.disabled = valid.length === 0;
+    confirmBtn.textContent = valid.length ? `Import ${valid.length} Lesson Plan${valid.length === 1 ? '' : 's'}` : 'Nothing to import';
+    document.getElementById('lpJsonPreviewSection').classList.remove('hidden');
+  }
+
+  function _lpJsonConfirmImport() {
+    const rows = LP_JSON_ROWS.filter(r => r.chapter && r.topic);
+    if (!rows.length) { showToast('Nothing to import', 'error'); return; }
+    if (!confirm(`Import ${rows.length} lesson plan(s) now? This cannot be undone in bulk — plans would need deleting one at a time.`)) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const btn = document.getElementById('lpJsonConfirmBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Importing…'; }
+    google.script.run.withSuccessHandler(res => {
+      if (!res || (res.result !== 'success' && res.result !== 'partial')) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Retry Import'; }
+        showToast((res && res.message) || 'Import failed', 'error');
+        return;
+      }
+      const resultSection = document.getElementById('lpJsonResultSection');
       resultSection.innerHTML = `
         <h3 class="font-black text-slate-800 mb-3">Import Complete</h3>
         <ul class="text-xs font-bold text-slate-600 space-y-1 list-disc pl-4">

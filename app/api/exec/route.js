@@ -2915,7 +2915,7 @@ const handlers = {
           teaching_aids: p.teaching_aids || null, method: p.method || null,
           learning_outcomes: p.learning_outcomes || null, phases: p.phases || null,
           self_reflection: p.self_reflection || null, is_shared: !!p.is_shared,
-          source: 'bulk_excel', created_by: callerId,
+          source: p.source || 'bulk_excel', created_by: callerId,
         }));
       if (!chunk.length) continue;
       const created = await supabaseRequest('lesson_plans', 'post', chunk);
