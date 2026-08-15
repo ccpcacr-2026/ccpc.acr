@@ -1137,4 +1137,20 @@ button { user-select: none; }
     padding: 8px 0 6px; cursor: pointer; flex-shrink: 0;
   }
   .bt-sheet-grip { width: 36px; height: 4px; border-radius: 2px; background: #e2e8f0; }
+
+/* ── Forum module ──────────────────────────────────────────────────────── */
+.forum-filter-chip {
+  padding: 8px 14px; border-radius: 999px; font-size: 11px; font-weight: 900;
+  text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap;
+  background: #fff; border: 1px solid #e2e8f0; color: #64748b;
+  transition: all 0.16s; flex-shrink: 0;
+}
+.forum-filter-chip:hover { border-color: #a5b4fc; color: #4f46e5; }
+.forum-filter-chip.active {
+  background: linear-gradient(135deg, #6366f1, #a855f7); color: #fff;
+  border-color: transparent; box-shadow: 0 4px 14px rgba(99,102,241,0.35);
+}
+.forum-composer-trigger:hover { transform: translateY(-1px); }
+.forum-card { transition: box-shadow 0.16s; }
+.forum-card:hover { box-shadow: 0 4px 20px rgba(15,23,42,0.06); }
 }

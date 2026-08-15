@@ -93,6 +93,15 @@ const RESERVED = [
   'loadLessonPlanBulkImportView','_lpBulkDownloadTemplate','_lpBulkPreview','_lpBulkConfirmImport',
   '_lpGenerateWithAi','_saveAiActiveModel','_saveAiProviderKey','_clearAiProviderKey','_loadAiUsageLog',
   '_lpAttachYoutubeVideo','_lpIgnoreYoutubeVideo','_lpRemoveYoutubeVideo',
+  'loadLessonPlanJsonImportView',
+  '_lpCopyNotebookPrompt','_lpJsonOnClassChange','_lpJsonPreview','_lpJsonConfirmImport',
+  // forum module — posts/replies/reactions/mentions/photos/files
+  'loadForumView','_forumOpenComposer','_forumSetFilter','_forumCloseComposer','_forumSelectType',
+  '_forumOnComposerInput','_forumInsertMention','_forumRemoveTag','_forumHandlePhotoSelect',
+  '_forumRemoveComposerPhoto','_forumHandleFileSelect','_forumRemoveComposerFile','_forumSubmitPost',
+  '_forumLoadMore','_forumToggleMenu','_forumEditPost','_forumDeletePost','_forumPinPost',
+  '_forumOpenLightbox','_forumCloseLightbox','_forumTogglePicker','_forumReact','_forumToggleReplies',
+  '_forumCopyPost','_forumShowReplyBox','_forumSubmitReply',
   // inventory chain-of-custody
   '_invMarkNotifRead','_invOpenDistModal','_invCloseDistModal','_invSubmitDistribution',
   '_invRenderRecipientOptions','_invUpdateNotifyPreview',

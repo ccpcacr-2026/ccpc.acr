@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabaseRequest, castToArray } from '@/lib/supabase';
+import { supabaseRequest, castToArray, supabaseStorageUpload, supabaseStoragePublicUrl, supabaseStorageRemove, supabaseCreateSignedUploadUrl } from '@/lib/supabase';
 
 // A full-day routine reseed (runDailyRoutineSetup) can legitimately take a
 // few minutes on the external Apps Script side — this raises the platform's
@@ -479,6 +479,51 @@ async function _isCordOrAdmin(callerId) {
   const role = Array.isArray(users) && users[0] ? users[0].role : '';
   const roles = String(role || '').split(',').map(r => r.trim());
   return roles.some(r => ['Cord', 'Admin'].includes(r));
+}
+
+// ── FORUM helpers ────────────────────────────────────────────────────────
+// Shared by the human-post RPCs below and by the system-post hooks inside
+// saveLessonPlan/bulkImportLessonPlans further down this file.
+
+// Every signed-in user is a forum recipient for a broadcast post — reuses
+// the same app_users source the committee-closed notification fan-out uses
+// (route.js ~1594) rather than introducing a separate "all staff" query.
+async function _forumAllUserIds() {
+  const users = await supabaseRequest('app_users?select=user_id');
+  return (Array.isArray(users) ? users : []).map(u => u.user_id).filter(Boolean);
+}
+
+async function _forumNotify(recipientIds, notif) {
+  const ids = [...new Set((recipientIds || []).filter(Boolean))];
+  if (!ids.length) return;
+  const rows = ids.map(uid => ({
+    user_id: uid, type: notif.type, title: notif.title, message: notif.message,
+    data: notif.data || {}, is_read: false, created_at: new Date().toISOString(),
+  }));
+  await supabaseRequest('notifications', 'post', rows);
+}
+
+// System posts (auto-generated when a lesson plan is created/imported/
+// exported) are attributed to the real teacher who triggered them
+// (is_system:true styles them distinctly client-side) but deliberately
+// never call _forumNotify — the whole point is a quiet audit-trail post,
+// not another notification for everyone to dismiss.
+async function _createSystemForumPost(callerId, body, meta) {
+  if (!callerId || !body) return;
+  try {
+    await supabaseRequest('forum_posts', 'post', {
+      author_id: callerId, post_type: 'system', body,
+      photo_urls: [], tagged_user_ids: [], is_system: true,
+      is_pinned: false, data: meta || {},
+      last_activity_at: new Date().toISOString(), created_at: new Date().toISOString(),
+    });
+  } catch (e) { /* best-effort — a failed system post must never fail the caller's real action */ }
+}
+
+function _forumLessonPlanSummary(row) {
+  const cls = row.class_name || '?', subj = row.subject || '?';
+  const chapter = row.chapter || (Array.isArray(row.lesson_refs) && row.lesson_refs[0] && row.lesson_refs[0].chapter) || '';
+  return chapter ? `${cls} · ${subj} — ${chapter}` : `${cls} · ${subj}`;
 }
 
 // Stricter than _isCordOrAdmin above — API keys are more sensitive than the
@@ -2853,6 +2898,7 @@ const handlers = {
       // someone else's plan without an explicit duplicate step.
       const created = await supabaseRequest('lesson_plans', 'post', { ...row, created_by: callerId, forked_from_id: p.forked_from_id || null });
       if (created?.error) return { result: 'error', message: created.details || created.error };
+      _createSystemForumPost(callerId, `📝 New lesson plan created: ${_forumLessonPlanSummary(row)}`, { lesson_plan_id: created[0] && created[0].id, action: 'created' });
       return { result: 'success', plan: created[0], forked: false };
     }
 
@@ -2874,6 +2920,7 @@ const handlers = {
       ...row, is_shared: false, created_by: callerId, forked_from_id: planId,
     });
     if (forked?.error) return { result: 'error', message: forked.details || forked.error };
+    _createSystemForumPost(callerId, `📝 New lesson plan created: ${_forumLessonPlanSummary(row)}`, { lesson_plan_id: forked[0] && forked[0].id, action: 'forked' });
     return { result: 'success', plan: forked[0], forked: true };
   },
 
@@ -2904,6 +2951,7 @@ const handlers = {
     const CHUNK_SIZE = 200;
     let inserted = 0, failed = 0;
     const errors = [];
+    const importSummary = {}; // { 'Class · Subject': { Chapter: count, ... } }
     for (let i = 0; i < list.length; i += CHUNK_SIZE) {
       const chunk = list.slice(i, i + CHUNK_SIZE)
         .filter(p => p && p.class_name && p.subject && p.chapter)
@@ -2924,9 +2972,316 @@ const handlers = {
         errors.push(`Rows ${i + 1}-${i + chunk.length}: ${created.details || created.error}`);
       } else {
         inserted += Array.isArray(created) ? created.length : chunk.length;
+        (Array.isArray(created) ? created : []).forEach(r => {
+          const key = `${r.class_name || '?'} · ${r.subject || '?'}`;
+          const chapter = r.chapter || '?';
+          if (!importSummary[key]) importSummary[key] = {};
+          importSummary[key][chapter] = (importSummary[key][chapter] || 0) + 1;
+        });
       }
     }
+    // One summary post for the whole import, not one per row — e.g.
+    // "📥 Imported 81 lesson plan(s): Six · Science: Chapter One (9), ..."
+    if (inserted > 0) {
+      const parts = Object.entries(importSummary).map(([key, chapters]) =>
+        `${key}: ${Object.entries(chapters).map(([c, n]) => `${c} (${n})`).join(', ')}`);
+      const isNotebookLm = list.some(r => r && r.source === 'notebooklm_import');
+      _createSystemForumPost(callerId, `${isNotebookLm ? '🤖' : '📥'} Imported ${inserted} lesson plan(s) — ${parts.join(' | ')}`, { action: 'imported', inserted, source: isNotebookLm ? 'notebooklm_import' : 'bulk_excel' });
+    }
     return { result: failed ? 'partial' : 'success', inserted, failed, errors };
+  },
+
+  // ── FORUM ────────────────────────────────────────────────────────────────
+  // A staff-wide social feed: posts (post/question/fact/birthday/thanks/
+  // greeting), threaded replies (one level of nesting via parent_reply_id),
+  // emoji reactions, @mentions, and photos (client pre-compresses to ~130KB
+  // before calling uploadForumPhoto). Human posts broadcast a notification
+  // to every user (plus an extra @mention notification for tagged users);
+  // system posts (is_system:true, created via _createSystemForumPost above)
+  // never do. Posts "expire" after 4 months with no reply/reaction — see
+  // getForumPosts' activity filter and cleanupExpiredForumPosts below; there
+  // is no cron in this app, so cleanup runs opportunistically, throttled
+  // client-side to once/day (see _forumMaybeCleanup in _src/app.js).
+
+  // General file attachments (any type, up to 50MB, expire after 1 month —
+  // independent of the post's own 4-month reply/reaction-inactivity expiry,
+  // see cleanupExpiredForumPosts). Large files can't go through the base64-
+  // JSON /api/exec gateway (Vercel body-size limit), so this only issues a
+  // signed upload URL — the browser does the actual PUT straight to
+  // Supabase Storage via _sbClient.storage.from('forum').uploadToSignedUrl().
+  async getForumFileUploadUrl([callerId, filename, sizeBytes]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    const MAX_BYTES = 50 * 1024 * 1024;
+    if (Number(sizeBytes) > MAX_BYTES) return { result: 'error', message: 'Files must be 50MB or smaller.' };
+    const safeName = String(filename || 'file').replace(/[^a-zA-Z0-9._-]/g, '_').slice(-80);
+    const path = `${callerId}/files/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safeName}`;
+    const signed = await supabaseCreateSignedUploadUrl('forum', path);
+    if (signed?.error) return { result: 'error', message: signed.details || signed.error };
+    return { result: 'success', path: signed.path, token: signed.token, url: supabaseStoragePublicUrl('forum', path) };
+  },
+
+  async uploadForumPhoto([callerId, dataUrl, filename]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    const match = /^data:([^;]+);base64,(.+)$/.exec(String(dataUrl || ''));
+    if (!match) return { result: 'error', message: 'Invalid image data.' };
+    const [, contentType, base64] = match;
+    const buffer = Buffer.from(base64, 'base64');
+    if (buffer.length > 200 * 1024) return { result: 'error', message: 'Photo is larger than expected after compression — please retry.' };
+    const safeName = String(filename || 'photo').replace(/[^a-zA-Z0-9._-]/g, '_').slice(-60);
+    const path = `${callerId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safeName}`;
+    const uploaded = await supabaseStorageUpload('forum', path, buffer, contentType);
+    if (uploaded?.error) return { result: 'error', message: uploaded.details || uploaded.error };
+    return { result: 'success', url: supabaseStoragePublicUrl('forum', path), path };
+  },
+
+  async createForumPost([callerId, payload]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    const p = payload || {};
+    const body = String(p.body || '').trim();
+    const photoUrls = Array.isArray(p.photo_urls) ? p.photo_urls.slice(0, 6) : [];
+    const fileAttachments = Array.isArray(p.file_attachments) ? p.file_attachments.slice(0, 5).map(f => ({
+      name: f.name, path: f.path, url: f.url, size_bytes: f.size_bytes, uploaded_at: new Date().toISOString(),
+    })) : [];
+    if (!body && !photoUrls.length && !fileAttachments.length) return { result: 'error', message: 'Write something, or add a photo/file first.' };
+
+    // Light anti-spam guard — one post per 10 seconds per user, not a hard
+    // rate limit, just enough to stop accidental double-submits/spam-clicks.
+    const recent = await supabaseRequest(`forum_posts?author_id=eq.${encodeURIComponent(callerId)}&is_system=eq.false&order=created_at.desc&limit=1&select=created_at`);
+    if (Array.isArray(recent) && recent[0] && (Date.now() - new Date(recent[0].created_at).getTime()) < 10000) {
+      return { result: 'error', message: 'Please wait a few seconds before posting again.' };
+    }
+
+    const taggedIds = Array.isArray(p.tagged_user_ids) ? [...new Set(p.tagged_user_ids.filter(Boolean))] : [];
+    const now = new Date().toISOString();
+    const created = await supabaseRequest('forum_posts', 'post', {
+      author_id: callerId, post_type: p.post_type || 'post', body: body || null,
+      photo_urls: photoUrls, file_attachments: fileAttachments, tagged_user_ids: taggedIds,
+      is_system: false, is_pinned: false, last_activity_at: now, created_at: now,
+    });
+    if (created?.error) return { result: 'error', message: created.details || created.error };
+    const post = created[0];
+
+    // Broadcast to everyone, plus a distinct @mention notification for
+    // tagged users (so their bell shows "you were tagged", not just
+    // "someone posted") — fire-and-forget, doesn't block the response.
+    const allIds = await _forumAllUserIds();
+    const others = allIds.filter(id => id !== callerId);
+    _forumNotify(others.filter(id => !taggedIds.includes(id)), {
+      type: 'forum_post', title: 'New Forum Post',
+      message: body ? (body.length > 100 ? body.slice(0, 100) + '…' : body) : 'shared a photo',
+      data: { post_id: post.id },
+    });
+    if (taggedIds.length) {
+      _forumNotify(taggedIds, {
+        type: 'forum_mention', title: 'You were tagged in a forum post',
+        message: body ? (body.length > 100 ? body.slice(0, 100) + '…' : body) : 'tagged you in a photo post',
+        data: { post_id: post.id },
+      });
+    }
+    return { result: 'success', post };
+  },
+
+  async editForumPost([callerId, postId, body]) {
+    if (!callerId || !postId) return { result: 'error', message: 'Missing post id.' };
+    const rows = await supabaseRequest(`forum_posts?id=eq.${encodeURIComponent(postId)}&select=author_id,is_system`);
+    const post = Array.isArray(rows) && rows[0];
+    if (!post) return { result: 'error', message: 'Post not found.' };
+    if (post.author_id !== callerId) return { result: 'error', message: 'Only the author can edit this post.' };
+    const updated = await supabaseRequest(`forum_posts?id=eq.${encodeURIComponent(postId)}`, 'patch', {
+      body: String(body || '').trim() || null, edited_at: new Date().toISOString(),
+    });
+    if (updated?.error) return { result: 'error', message: updated.details || updated.error };
+    return { result: 'success', post: updated[0] };
+  },
+
+  async deleteForumPost([callerId, postId]) {
+    if (!callerId || !postId) return { result: 'error', message: 'Missing post id.' };
+    const rows = await supabaseRequest(`forum_posts?id=eq.${encodeURIComponent(postId)}&select=author_id,photo_urls,file_attachments`);
+    const post = Array.isArray(rows) && rows[0];
+    if (!post) return { result: 'error', message: 'Post not found.' };
+    if (post.author_id !== callerId && !(await _isCordOrAdmin(callerId))) {
+      return { result: 'error', message: 'Only the author (or an Admin) can delete this post.' };
+    }
+    const deleted = await supabaseRequest(`forum_posts?id=eq.${encodeURIComponent(postId)}`, 'delete');
+    if (deleted?.error) return { result: 'error', message: deleted.details || deleted.error };
+    const paths = [...(post.photo_urls || []), ...(post.file_attachments || [])].map(u => (u.path || u)).filter(p => typeof p === 'string');
+    if (paths.length) supabaseStorageRemove('forum', paths);
+    return { result: 'success' };
+  },
+
+  // Admin-only — pins float to the top of the feed regardless of activity,
+  // for durable announcements (school holiday notices etc).
+  async pinForumPost([callerId, postId, pinned]) {
+    if (!(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Only an Admin can pin posts.' };
+    const updated = await supabaseRequest(`forum_posts?id=eq.${encodeURIComponent(postId)}`, 'patch', { is_pinned: !!pinned });
+    if (updated?.error) return { result: 'error', message: updated.details || updated.error };
+    return { result: 'success' };
+  },
+
+  // cursor = ISO timestamp of the last-seen post's created_at (or null for
+  // page 1) — simple keyset pagination, newest first, pinned posts always
+  // surface on page 1 above the fold regardless of recency.
+  async getForumPosts([callerId, filters]) {
+    const f = filters || {};
+    const cutoff = new Date(Date.now() - 122 * 24 * 60 * 60 * 1000).toISOString(); // ~4 months
+    let path = `forum_posts?last_activity_at=gte.${cutoff}&select=*&order=is_pinned.desc,created_at.desc&limit=${f.limit || 20}`;
+    if (f.post_type) path += `&post_type=eq.${encodeURIComponent(f.post_type)}`;
+    if (f.cursor) path += `&created_at=lt.${encodeURIComponent(f.cursor)}`;
+    const posts = await supabaseRequest(path);
+    if (posts?.error) return { result: 'error', message: posts.details || posts.error };
+    return { result: 'success', posts: Array.isArray(posts) ? posts : [] };
+  },
+
+  async getForumReplies([postId]) {
+    if (!postId) return { result: 'error', message: 'Missing post id.' };
+    const replies = await supabaseRequest(`forum_replies?post_id=eq.${encodeURIComponent(postId)}&select=*&order=created_at.asc`);
+    if (replies?.error) return { result: 'error', message: replies.details || replies.error };
+    return { result: 'success', replies: Array.isArray(replies) ? replies : [] };
+  },
+
+  async createForumReply([callerId, postId, parentReplyId, body, photoUrls, taggedUserIds]) {
+    if (!callerId || !postId) return { result: 'error', message: 'Missing post id.' };
+    const text = String(body || '').trim();
+    const photos = Array.isArray(photoUrls) ? photoUrls.slice(0, 4) : [];
+    if (!text && !photos.length) return { result: 'error', message: 'Write a reply first.' };
+    const taggedIds = Array.isArray(taggedUserIds) ? [...new Set(taggedUserIds.filter(Boolean))] : [];
+    const now = new Date().toISOString();
+    const created = await supabaseRequest('forum_replies', 'post', {
+      post_id: postId, parent_reply_id: parentReplyId || null, author_id: callerId,
+      body: text, photo_urls: photos, tagged_user_ids: taggedIds, created_at: now,
+    });
+    if (created?.error) return { result: 'error', message: created.details || created.error };
+
+    const postRows = await supabaseRequest(`forum_posts?id=eq.${encodeURIComponent(postId)}&select=author_id,reply_count`);
+    const post = Array.isArray(postRows) && postRows[0];
+    await supabaseRequest(`forum_posts?id=eq.${encodeURIComponent(postId)}`, 'patch', {
+      reply_count: ((post && post.reply_count) || 0) + 1, last_activity_at: now,
+    });
+
+    const notifyIds = new Set(taggedIds);
+    if (post && post.author_id && post.author_id !== callerId) notifyIds.add(post.author_id);
+    notifyIds.delete(callerId);
+    if (notifyIds.size) {
+      _forumNotify([...notifyIds], {
+        type: 'forum_reply', title: 'New reply on a forum post',
+        message: text ? (text.length > 100 ? text.slice(0, 100) + '…' : text) : 'replied with a photo',
+        data: { post_id: postId },
+      });
+    }
+    return { result: 'success', reply: created[0] };
+  },
+
+  async editForumReply([callerId, replyId, body]) {
+    if (!callerId || !replyId) return { result: 'error', message: 'Missing reply id.' };
+    const rows = await supabaseRequest(`forum_replies?id=eq.${encodeURIComponent(replyId)}&select=author_id`);
+    const reply = Array.isArray(rows) && rows[0];
+    if (!reply) return { result: 'error', message: 'Reply not found.' };
+    if (reply.author_id !== callerId) return { result: 'error', message: 'Only the author can edit this reply.' };
+    const updated = await supabaseRequest(`forum_replies?id=eq.${encodeURIComponent(replyId)}`, 'patch', {
+      body: String(body || '').trim(), edited_at: new Date().toISOString(),
+    });
+    if (updated?.error) return { result: 'error', message: updated.details || updated.error };
+    return { result: 'success', reply: updated[0] };
+  },
+
+  async deleteForumReply([callerId, replyId]) {
+    if (!callerId || !replyId) return { result: 'error', message: 'Missing reply id.' };
+    const rows = await supabaseRequest(`forum_replies?id=eq.${encodeURIComponent(replyId)}&select=author_id,post_id,photo_urls`);
+    const reply = Array.isArray(rows) && rows[0];
+    if (!reply) return { result: 'error', message: 'Reply not found.' };
+    if (reply.author_id !== callerId && !(await _isCordOrAdmin(callerId))) {
+      return { result: 'error', message: 'Only the author (or an Admin) can delete this reply.' };
+    }
+    const deleted = await supabaseRequest(`forum_replies?id=eq.${encodeURIComponent(replyId)}`, 'delete');
+    if (deleted?.error) return { result: 'error', message: deleted.details || deleted.error };
+    const postRows = await supabaseRequest(`forum_posts?id=eq.${encodeURIComponent(reply.post_id)}&select=reply_count`);
+    const post = Array.isArray(postRows) && postRows[0];
+    if (post) await supabaseRequest(`forum_posts?id=eq.${encodeURIComponent(reply.post_id)}`, 'patch', { reply_count: Math.max(0, (post.reply_count || 1) - 1) });
+    const paths = (reply.photo_urls || []).map(u => (u.path || u)).filter(p => typeof p === 'string');
+    if (paths.length) supabaseStorageRemove('forum', paths);
+    return { result: 'success' };
+  },
+
+  // Toggle: reacting again with the same emoji removes it (matches the
+  // unique(post_id,reply_id,user_id,emoji) constraint) — one click adds,
+  // a second click of the same emoji retracts it.
+  async toggleForumReaction([callerId, postId, replyId, emoji]) {
+    if (!callerId || (!postId && !replyId)) return { result: 'error', message: 'Missing target.' };
+    const targetCol = postId ? 'post_id' : 'reply_id';
+    const targetId = postId || replyId;
+    const existing = await supabaseRequest(`forum_reactions?${targetCol}=eq.${encodeURIComponent(targetId)}&user_id=eq.${encodeURIComponent(callerId)}&emoji=eq.${encodeURIComponent(emoji)}&select=id`);
+    if (existing?.error) return { result: 'error', message: existing.details || existing.error };
+    const table = postId ? 'forum_posts' : 'forum_replies';
+    const countRows = await supabaseRequest(`${table}?id=eq.${encodeURIComponent(targetId)}&select=${postId ? 'reaction_count' : 'id'}`);
+    if (countRows?.error) return { result: 'error', message: countRows.details || countRows.error };
+    const current = postId ? ((Array.isArray(countRows) && countRows[0] && countRows[0].reaction_count) || 0) : null;
+    let removed = false;
+    if (Array.isArray(existing) && existing.length) {
+      const del = await supabaseRequest(`forum_reactions?id=eq.${encodeURIComponent(existing[0].id)}`, 'delete');
+      if (del?.error) return { result: 'error', message: del.details || del.error };
+      removed = true;
+    } else {
+      const ins = await supabaseRequest('forum_reactions', 'post', { post_id: postId || null, reply_id: replyId || null, user_id: callerId, emoji: emoji || '👍' });
+      if (ins?.error) return { result: 'error', message: ins.details || ins.error };
+    }
+    if (postId) {
+      await supabaseRequest(`forum_posts?id=eq.${encodeURIComponent(postId)}`, 'patch', {
+        reaction_count: Math.max(0, current + (removed ? -1 : 1)), last_activity_at: new Date().toISOString(),
+      });
+    }
+    return { result: 'success', removed };
+  },
+
+  // Client calls this at most once/day (localStorage-throttled) the first
+  // time the Forum view mounts — actually deletes posts past the 4-month
+  // inactivity cutoff and their Storage photos, reclaiming space. Expired
+  // posts are already invisible via getForumPosts' activity filter before
+  // this ever runs, so this is cleanup, not a correctness requirement.
+  async cleanupExpiredForumPosts() {
+    const postCutoff = new Date(Date.now() - 122 * 24 * 60 * 60 * 1000).toISOString(); // ~4 months
+    const fileCutoff = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString();  // 1 month
+
+    // Pass 1: whole posts past the 4-month inactivity cutoff — delete the
+    // post (cascades to its replies/reactions) and every photo/file it held.
+    const expired = await supabaseRequest(`forum_posts?last_activity_at=lt.${postCutoff}&select=id,photo_urls,file_attachments`);
+    let removedPosts = 0;
+    if (Array.isArray(expired) && expired.length) {
+      const allPaths = expired.flatMap(p => [...(p.photo_urls || []), ...(p.file_attachments || [])].map(u => (u.path || u)).filter(x => typeof x === 'string'));
+      if (allPaths.length) await supabaseStorageRemove('forum', allPaths);
+      for (const p of expired) await supabaseRequest(`forum_posts?id=eq.${encodeURIComponent(p.id)}`, 'delete');
+      removedPosts = expired.length;
+    }
+
+    // Pass 2: files attached to still-active posts, but the file itself is
+    // past its own 1-month clock — strip just the file_attachments entry
+    // and remove the object from Storage, leaving the rest of the post
+    // (text, photos, replies) intact. Photos are exempt — they follow the
+    // post's own 4-month activity clock, handled in Pass 1 above.
+    const activePosts = await supabaseRequest(`forum_posts?last_activity_at=gte.${postCutoff}&select=id,file_attachments`);
+    const withFiles = (Array.isArray(activePosts) ? activePosts : []).filter(p => Array.isArray(p.file_attachments) && p.file_attachments.length);
+    let removedFiles = 0;
+    for (const post of withFiles) {
+      const keep = [], drop = [];
+      for (const f of (post.file_attachments || [])) (new Date(f.uploaded_at).toISOString() < fileCutoff ? drop : keep).push(f);
+      if (!drop.length) continue;
+      const dropPaths = drop.map(f => f.path).filter(Boolean);
+      if (dropPaths.length) await supabaseStorageRemove('forum', dropPaths);
+      await supabaseRequest(`forum_posts?id=eq.${encodeURIComponent(post.id)}`, 'patch', { file_attachments: keep });
+      removedFiles += drop.length;
+    }
+
+    return { result: 'success', removed: removedPosts, removedFiles };
+  },
+
+  // Fired client-side when a teacher uses Print/Export on a lesson plan
+  // (that action never round-trips through the server otherwise, so this
+  // is the one lesson-plan system-post hook that lives in the client rather
+  // than inside saveLessonPlan/bulkImportLessonPlans).
+  async logLessonPlanExport([callerId, planSummary]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    const s = planSummary || {};
+    _createSystemForumPost(callerId, `🖨️ Lesson plan exported/printed: ${_forumLessonPlanSummary(s)}`, { action: 'exported', lesson_plan_id: s.id || null });
+    return { result: 'success' };
   },
 
   // ── LESSON CURRICULA ─────────────────────────────────────────────────────
