@@ -4761,6 +4761,7 @@
       selfReflection: 'Self-Reflection',
       reflDefault: "1. What went well?&nbsp;&nbsp;&nbsp;2. What didn't?&nbsp;&nbsp;&nbsp;3. Any possible improvement (if any)",
       footer: 'Chattogram Cantonment Public College, Bayezid, Chattogram',
+      preparedBy: 'Prepared by', platform: 'CCPC Faculty Portal',
       phases: {
         'Greetings': 'Greetings',
         'Engagement': 'Engagement Phase',
@@ -4787,6 +4788,7 @@
       selfReflection: 'আত্ম-পর্যালোচনা',
       reflDefault: '১. কতটা ভালো হলো?&nbsp;&nbsp;&nbsp;২. কতটা খারাপ হলো?&nbsp;&nbsp;&nbsp;৩. উন্নতির সম্ভাবনা আছে কিনা (যদি থাকে)',
       footer: 'চট্টগ্রাম ক্যান্টনমেন্ট পাবলিক কলেজ, বায়েজিদ, চট্টগ্রাম',
+      preparedBy: 'প্রস্তুতকারী', platform: 'সিসিপিসি ফ্যাকাল্টি পোর্টাল',
       phases: {
         'Greetings': 'শুভেচ্ছা বিনিময়',
         'Engagement': 'সম্পৃক্তকরণ পর্যায়',
@@ -4888,6 +4890,7 @@
       .refl{font-size:9pt;border:1pt solid #cddaf0;border-left:4pt solid #7c2d12;border-radius:0 3pt 3pt 0;padding:7pt 9pt;margin-top:5pt;min-height:38pt;white-space:pre-wrap;line-height:1.6;background:#fbfdff;}
       .refl-default{color:#555;font-style:italic;}
       .footer-note{margin-top:12pt;padding-top:5pt;border-top:1.5pt solid #0b2545;font-size:7.3pt;font-weight:700;color:#0b2545;text-align:center;letter-spacing:.03em;}
+      .footer-credit{margin-top:2pt;font-size:6.5pt;font-weight:600;color:#5a6b85;letter-spacing:0;text-transform:none;}
 
       @media screen{body{padding:10mm;background:#e8edf5;}
       .page{background:#fff;padding:13mm 15mm;margin:0 auto;max-width:${dims.pageWidthMm}mm;box-shadow:0 3px 14px rgba(11,37,69,.18);border-radius:4pt;}}`;
@@ -5015,6 +5018,7 @@
         <div class="refl">${reflectionLines ? esc(reflectionLines) : `<span class="refl-default">${L.reflDefault}</span>`}</div>
 
         <div class="footer-note">${esc(L.footer)}</div>
+        <div class="footer-credit">${profile.full_name ? esc(L.preparedBy) + ' ' + esc(profile.full_name) + ' &middot; ' : ''}${esc(L.platform)} &copy; ${new Date().getFullYear()}</div>
       </div>`;
 
     return `<!DOCTYPE html><html lang="${isBn ? 'bn' : 'en'}"><head><meta charset="UTF-8">
