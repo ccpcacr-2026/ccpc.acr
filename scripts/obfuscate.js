@@ -95,7 +95,7 @@ const RESERVED = [
   '_lpGenerateWithAi','_saveAiActiveModel','_saveAiProviderKey','_clearAiProviderKey','_loadAiUsageLog',
   '_lpAttachYoutubeVideo','_lpIgnoreYoutubeVideo','_lpRemoveYoutubeVideo',
   'loadLessonPlanJsonImportView',
-  '_lpCopyNotebookPrompt','_lpJsonSetPromptLang','_lpJsonPreview','_lpJsonConfirmImport',
+  '_lpCopyNotebookPrompt','_lpJsonPreview','_lpJsonConfirmImport',
   '_lpJsonTogglePair','_lpJsonBulkSelect','_lpJsonAutoTranslate','_lpJsonOnFallbackClassChange',
   '_notifNavigate',
   // forum module — posts/replies/reactions/mentions/photos/files

@@ -4189,36 +4189,34 @@
   // removes that mismatch entirely. Reuses the same bulkImportLessonPlans
   // server endpoint as the Excel bulk importer.
 
-  // Two variants (Bangla / English) rather than one prompt that asks
-  // NotebookLM to infer the medium from the textbook — telling it directly
-  // which version to produce, and requiring every field's actual text
-  // (not just the version label) to be written in that language, is more
-  // reliable than inference and matches how this app's own Bangla-medium
-  // lesson plans are written (activities in Bangla script, not just a
-  // Bangla version tag on English content).
-  function _lpBuildNotebookPrompt(versionLabel, languageInstruction) {
-    return `You are creating complete, ready-to-teach lesson plans from the uploaded textbook (NCTB), following the Bloom's Taxonomy + 5E Model format used in Bangladeshi NCTB schools.
-This textbook is the ${versionLabel} edition. ${languageInstruction} Set "version" to exactly "${versionLabel}" on every lesson object below — never guess or vary it mid-book. Also confirm the Class (grade) and Subject from the textbook itself, and repeat those two exact values on every lesson object's class_name/subject fields.
-Go through the book chapter by chapter, and within each chapter, lesson by lesson (following the book's own chapter/section divisions). Do not skip ahead or sample — work through the whole book systematically.
+  // One prompt asking NotebookLM to produce BOTH languages together, per
+  // lesson, in one JSON object — not two separate prompt runs fed through
+  // machine translation afterward. NotebookLM is grounded in the actual
+  // textbook and generates each language's content directly, so quality
+  // beats translating one side after the fact (the auto-translate button
+  // below is still there as a fallback, but this is the primary path now).
+  // The client splits each combined item into two rows (see
+  // _lpJsonSplitCombinedItem) — same downstream preview/selection/import
+  // pipeline either way.
+  const LP_NOTEBOOKLM_PROMPT = `You are creating complete, ready-to-teach lesson plans from the uploaded textbook (NCTB), following the Bloom's Taxonomy + 5E Model format used in Bangladeshi NCTB schools.
+For every lesson, produce BOTH an English Version and a Bangla Version of its content — not a translation done separately afterward, but your own direct, textbook-grounded generation in each language. Confirm the Class (grade) and Subject from the textbook itself, and repeat those two exact values on every lesson object's class_name/subject fields (these stay in English in both versions — only the "en"/"bn" content blocks below differ by language).
+Go through the book chapter by chapter, lesson by lesson (the book's own divisions). Do not skip ahead or sample — work through the whole book.
 RULES:
-Ground every lesson plan strictly in the uploaded textbook for that section — topic, examples, equations/formulas as written (preserve exact notation, units, values — never round, simplify, or substitute a "similar" equation).
-Do not invent activities, examples, or numbers that aren't implied by the actual textbook content for that lesson.
-If a specific field isn't determinable from the source (e.g. no explicit learning outcome is stated), write a reasonable one derived from the section's actual content, and note it was inferred rather than presenting it as if verbatim from the book.
-The 8 phase durations must sum to a realistic class period (40-45 minutes).
-Be specific to this exact lesson's content, not generic filler — mention the actual named quantities, formulas, or experiments described in that section.
-OUTPUT FORMAT:
-For every lesson, output one JSON object, and collect all lessons into a single JSON array:
+Ground every lesson strictly in the textbook for that section — topic, examples, equations/formulas as written (preserve exact notation, units, values — never round, simplify, or substitute a "similar" equation). Same rule for both language versions: same underlying facts, correctly expressed in each language.
+Do not invent activities, examples, or numbers not implied by the actual textbook content.
+If a field isn't determinable from the source, write a reasonable one derived from the section's actual content, and note it was inferred.
+The 8 phase durations must sum to 40-45 minutes, same total in both versions.
+Be specific, not generic filler — name the actual quantities, formulas, or experiments in that section.
+OUTPUT FORMAT — one JSON object per lesson, collected into a single JSON array:
 {
-"class_name": "Class/grade exactly as the textbook states it, e.g. Six or Nine-Ten",
+"class_name": "e.g. Six or Nine-Ten",
 "subject": "Subject exactly as the textbook states it",
-"version": "${versionLabel}",
-"chapter": "Chapter title and number, exactly as given in the book",
 "lesson_number": 1,
-"topic": "The specific lesson topic/subsection title",
-"page_reference": "Page number(s) this lesson covers in the textbook",
-"learning_outcomes": "What the student should be able to do/explain/calculate after this lesson, grounded in the section's actual content",
-"teaching_aids": "Specific materials/apparatus/diagrams this lesson would realistically need, based on what the section describes (e.g. named lab equipment, specific diagrams from the book)",
-"method": "The overall teaching approach for this lesson (e.g. demonstration, problem-solving practice, derivation-and-example)",
+"page_reference": "Page number(s) this lesson covers",
+"en": {
+"chapter": "Chapter title/number in English",
+"topic": "Lesson topic in English",
+"learning_outcomes": "string", "teaching_aids": "string", "method": "string",
 "phases": [
 {"phase": "Greetings", "teacher_activity": "string", "learner_activity": "string", "duration_minutes": number},
 {"phase": "Engagement", "teacher_activity": "string", "learner_activity": "string", "duration_minutes": number},
@@ -4229,36 +4227,28 @@ For every lesson, output one JSON object, and collect all lessons into a single 
 {"phase": "Assignment/Homework", "teacher_activity": "string", "learner_activity": "string", "duration_minutes": number},
 {"phase": "Closing", "teacher_activity": "string", "learner_activity": "string", "duration_minutes": number}
 ]
+},
+"bn": {
+"chapter": "Chapter title/number in Bangla (বাংলা), same NCTB terminology the textbook uses",
+"topic": "Lesson topic in Bangla",
+"learning_outcomes": "string (Bangla)", "teaching_aids": "string (Bangla)", "method": "string (Bangla)",
+"phases": [
+{"phase": "Greetings", "teacher_activity": "string (Bangla)", "learner_activity": "string (Bangla)", "duration_minutes": number},
+{"phase": "Engagement", "teacher_activity": "string (Bangla)", "learner_activity": "string (Bangla)", "duration_minutes": number},
+{"phase": "Exploration", "teacher_activity": "string (Bangla)", "learner_activity": "string (Bangla)", "duration_minutes": number},
+{"phase": "Explanation and Elaboration", "teacher_activity": "string (Bangla)", "learner_activity": "string (Bangla)", "duration_minutes": number},
+{"phase": "Evaluation", "teacher_activity": "string (Bangla)", "learner_activity": "string (Bangla)", "duration_minutes": number},
+{"phase": "Summarization", "teacher_activity": "string (Bangla)", "learner_activity": "string (Bangla)", "duration_minutes": number},
+{"phase": "Assignment/Homework", "teacher_activity": "string (Bangla)", "learner_activity": "string (Bangla)", "duration_minutes": number},
+{"phase": "Closing", "teacher_activity": "string (Bangla)", "learner_activity": "string (Bangla)", "duration_minutes": number}
+]
 }
-Work through the whole book and give me the complete JSON array covering every lesson, not a sample. If the book is too long for one response, stop cleanly at a chapter boundary and tell me exactly which chapter/lesson you stopped at. Every time you stop, end your reply with nothing else after this exact line on its own, so it's the one obvious thing to click/tap to keep going: Continue with the next chapter.`;
-  }
-
-  const LP_NOTEBOOKLM_PROMPT_BN = _lpBuildNotebookPrompt(
-    'Bangla Version',
-    'Write every field\'s actual text — topic, learning_outcomes, teaching_aids, method, and every phase\'s teacher_activity/learner_activity — in Bangla (বাংলা), using the same NCTB terminology the textbook itself uses. Only JSON keys and the phase names (Greetings, Engagement, Exploration, Explanation and Elaboration, Evaluation, Summarization, Assignment/Homework, Closing) stay in English, exactly as shown below.'
-  );
-  const LP_NOTEBOOKLM_PROMPT_EN = _lpBuildNotebookPrompt(
-    'English Version',
-    'Write every field in English.'
-  );
-
-  let _lpJsonPromptLang = 'en'; // 'en' | 'bn'
-
-  function _lpJsonSetPromptLang(lang) {
-    _lpJsonPromptLang = lang;
-    const ta = document.getElementById('lpJsonPromptText');
-    if (ta) ta.value = lang === 'bn' ? LP_NOTEBOOKLM_PROMPT_BN : LP_NOTEBOOKLM_PROMPT_EN;
-    const enBtn = document.getElementById('lpJsonPromptLangEn');
-    const bnBtn = document.getElementById('lpJsonPromptLangBn');
-    const active = 'bg-blue-600 text-white border-transparent';
-    const inactive = 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50';
-    if (enBtn) enBtn.className = `px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border ${lang === 'en' ? active : inactive}`;
-    if (bnBtn) bnBtn.className = `px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border ${lang === 'bn' ? active : inactive}`;
-  }
+}
+Note: the "phase" field itself and its 8 values always stay in English (Greetings, Engagement, etc.) in both "en" and "bn" blocks — only teacher_activity/learner_activity text changes language.
+Work through the whole book, complete JSON array, not a sample. If too long for one response, stop cleanly at a chapter boundary and say exactly where. Every time you stop, end with nothing else after this exact line, so it's the one obvious thing to click/tap to continue: Continue with the next chapter.`;
 
   function _lpCopyNotebookPrompt() {
-    const text = _lpJsonPromptLang === 'bn' ? LP_NOTEBOOKLM_PROMPT_BN : LP_NOTEBOOKLM_PROMPT_EN;
-    navigator.clipboard.writeText(text).then(() => {
+    navigator.clipboard.writeText(LP_NOTEBOOKLM_PROMPT).then(() => {
       showToast('Prompt copied — paste it into NotebookLM', 'success');
     }).catch(() => showToast('Could not copy automatically — select the text and copy manually', 'error'));
   }
@@ -4270,32 +4260,27 @@ Work through the whole book and give me the complete JSON array covering every l
     const container = document.getElementById('view-container');
     if (!container) return;
     LP_JSON_PAIRS = [];
-    _lpJsonPromptLang = 'en';
     container.innerHTML = `
       <div class="pt-4 max-w-4xl mx-auto pb-10">
         <button onclick="loadLessonPlanView()" class="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600 mb-4">&larr; Back to Lesson Plans</button>
 
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 space-y-3">
           <p class="text-sm font-black text-slate-800 uppercase tracking-widest">1. Copy the NotebookLM Prompt</p>
-          <p class="text-xs text-slate-500 font-bold">Upload the NCTB textbook to NotebookLM, paste this prompt, and it will generate the JSON array in the exact format this importer expects — including the Class, Subject, and Version on every lesson, so there's no separate manual dropdown here to accidentally mismatch what you actually asked NotebookLM for. Pick whichever matches the textbook you're uploading — a Bangla-medium book needs Bangla-language output, not just a Bangla label on English text.</p>
-          <div class="flex gap-2">
-            <button id="lpJsonPromptLangEn" onclick="_lpJsonSetPromptLang('en')" class="px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border bg-blue-600 text-white border-transparent">English Version Prompt</button>
-            <button id="lpJsonPromptLangBn" onclick="_lpJsonSetPromptLang('bn')" class="px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border bg-white text-slate-500 border-slate-200 hover:bg-slate-50">Bangla Version Prompt</button>
-          </div>
-          <textarea id="lpJsonPromptText" readonly rows="6" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-[11px] leading-relaxed outline-none resize-none">${_escHtml(LP_NOTEBOOKLM_PROMPT_EN)}</textarea>
+          <p class="text-xs text-slate-500 font-bold">Upload the NCTB textbook to NotebookLM and paste this prompt. It generates BOTH the English and Bangla version of every lesson together — NotebookLM's own textbook-grounded generation in each language, not a translation done afterward — and this importer automatically splits each lesson into its two versions for you to review side by side.</p>
+          <textarea id="lpJsonPromptText" readonly rows="6" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-[11px] leading-relaxed outline-none resize-none">${_escHtml(LP_NOTEBOOKLM_PROMPT)}</textarea>
           <button onclick="_lpCopyNotebookPrompt()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-white border border-slate-200 hover:bg-slate-50 flex items-center gap-1.5"><i data-lucide="copy" class="h-3.5 w-3.5"></i>Copy Prompt</button>
         </div>
 
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 mt-4 space-y-3">
           <p class="text-sm font-black text-slate-800 uppercase tracking-widest">2. Paste the JSON</p>
-          <p class="text-xs text-slate-500 font-bold">Paste NotebookLM's reply into whichever side(s) you generated. Fill only one to import it alone, fill both (English + Bangla prompt from step 1) to compare what NotebookLM gave you for each, or fill just one and hit "Auto-Translate" below — it detects which language you pasted and machine-translates it into the other side automatically, no AI setup or second NotebookLM run needed, so you get an instant side-by-side either way.</p>
+          <p class="text-xs text-slate-500 font-bold">Paste NotebookLM's reply into either box below — it's automatically split into English and Bangla for the side-by-side preview. (Older single-language JSON, or a separately-generated second side, still works too: fill one box for that language alone, or fill both to compare two independently-generated replies. "Auto-Translate" further below is only a fallback for when you have just one language and can't regenerate with NotebookLM.)</p>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <p class="text-[10px] font-black text-slate-400 uppercase mb-1">English Version JSON</p>
-              <textarea id="lpJsonInputEn" rows="10" placeholder='[{"class_name":"Six","subject":"Science","version":"English Version","chapter":"Chapter One: ...","lesson_number":1,"topic":"...","...":"..."}]' class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xs focus:ring-2 focus:ring-blue-600 outline-none"></textarea>
+              <p class="text-[10px] font-black text-slate-400 uppercase mb-1">Paste Here (combined EN+BN, or English-only)</p>
+              <textarea id="lpJsonInputEn" rows="10" placeholder='[{"class_name":"Six","subject":"Science","lesson_number":1,"page_reference":"1-3","en":{"chapter":"...","topic":"...","...":"..."},"bn":{"chapter":"...","topic":"...","...":"..."}}]' class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xs focus:ring-2 focus:ring-blue-600 outline-none"></textarea>
             </div>
             <div>
-              <p class="text-[10px] font-black text-slate-400 uppercase mb-1">Bangla Version JSON</p>
+              <p class="text-[10px] font-black text-slate-400 uppercase mb-1">Bangla-Only JSON (optional, if generated separately)</p>
               <textarea id="lpJsonInputBn" rows="10" placeholder='[{"class_name":"Six","subject":"Science","version":"Bangla Version","chapter":"প্রথম অধ্যায়...","lesson_number":1,"topic":"...","...":"..."}]' class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xs focus:ring-2 focus:ring-blue-600 outline-none"></textarea>
             </div>
           </div>
@@ -4454,22 +4439,52 @@ Work through the whole book and give me the complete JSON array covering every l
     }));
   }
 
-  function _lpJsonProcessSide(rawText) {
+  // Splits a NotebookLM item into its English/Bangla flat sub-items when
+  // it's in the combined format the current prompt asks for (top-level
+  // "en"/"bn" blocks sharing class_name/subject/lesson_number/
+  // page_reference). Returns null for old-format flat items (a single
+  // language, no en/bn keys), so the caller falls back to treating the
+  // whole item as one language the old way.
+  function _lpJsonSplitCombinedItem(item) {
+    if (!item || (!item.en && !item.bn)) return null;
+    const shared = { class_name: item.class_name, subject: item.subject, lesson_number: item.lesson_number, page_reference: item.page_reference };
+    return {
+      en: item.en ? { ...shared, ...item.en, version: item.en.version || 'English Version' } : null,
+      bn: item.bn ? { ...shared, ...item.bn, version: item.bn.version || 'Bangla Version' } : null,
+    };
+  }
+
+  function _lpJsonProcessOne(flatItem) {
+    const applied = _lpJsonApplyFallback([flatItem])[0];
+    const { perLesson } = _lpJsonValidateItems([applied]);
+    const row = _lpJsonBuildRows([applied])[0];
+    return { row, errors: perLesson[0].errors, warnings: perLesson[0].warnings, selected: !perLesson[0].errors.length };
+  }
+
+  // Parses one textarea into pairs. A combined-format item becomes one
+  // {en, bn} pair sourced from the SAME item — no positional guessing
+  // needed, they're already correctly matched. An old-format flat item
+  // becomes a single-sided pair, defaulting to `legacyLang` (box 1 = 'en',
+  // box 2 = 'bn') so JSON from before this importer supported the combined
+  // format still works exactly as it did.
+  function _lpJsonParsePairs(rawText, legacyLang) {
     const raw = (rawText || '').trim();
-    if (!raw) return { list: null, error: null };
+    if (!raw) return { pairs: null, error: null };
     let items;
     try {
       const parsed = _lpJsonParseInput(raw);
       items = Array.isArray(parsed) ? parsed : [parsed];
       if (!items.length) throw new Error('This side\'s JSON is an empty array.');
     } catch (err) {
-      return { list: null, error: err.message };
+      return { pairs: null, error: err.message };
     }
-    items = _lpJsonApplyFallback(items);
-    const { perLesson } = _lpJsonValidateItems(items);
-    const rows = _lpJsonBuildRows(items);
-    const list = rows.map((row, i) => ({ row, errors: perLesson[i].errors, warnings: perLesson[i].warnings, selected: !perLesson[i].errors.length }));
-    return { list, error: null };
+    const pairs = items.map(item => {
+      const split = _lpJsonSplitCombinedItem(item);
+      if (split) return { en: split.en ? _lpJsonProcessOne(split.en) : null, bn: split.bn ? _lpJsonProcessOne(split.bn) : null };
+      const processed = _lpJsonProcessOne(item);
+      return legacyLang === 'bn' ? { en: null, bn: processed } : { en: processed, bn: null };
+    });
+    return { pairs, error: null };
   }
 
   // Bangla Unicode block is U+0980–U+09FF — checking a handful of items'
@@ -4557,17 +4572,32 @@ Work through the whole book and give me the complete JSON array covering every l
     document.getElementById('lpJsonPreviewSection').classList.add('hidden');
     document.getElementById('lpJsonResultSection').classList.add('hidden');
 
-    const enResult = _lpJsonProcessSide(document.getElementById('lpJsonInputEn').value);
-    const bnResult = _lpJsonProcessSide(document.getElementById('lpJsonInputBn').value);
-    if (enResult.error && bnResult.error) { status.textContent = 'English: ' + enResult.error + ' | Bangla: ' + bnResult.error; status.className = 'text-xs font-bold text-red-500'; return; }
-    if (!enResult.list && !bnResult.list) { status.textContent = 'Paste at least one side\'s JSON first.'; status.className = 'text-xs font-bold text-red-500'; return; }
-    if (enResult.error) { status.textContent = 'English side error (ignored, Bangla side loaded): ' + enResult.error; status.className = 'text-xs font-bold text-amber-600'; }
-    else if (bnResult.error) { status.textContent = 'Bangla side error (ignored, English side loaded): ' + bnResult.error; status.className = 'text-xs font-bold text-amber-600'; }
+    const boxA = _lpJsonParsePairs(document.getElementById('lpJsonInputEn').value, 'en');
+    const boxB = _lpJsonParsePairs(document.getElementById('lpJsonInputBn').value, 'bn');
+    if (boxA.error && boxB.error) { status.textContent = 'Box 1: ' + boxA.error + ' | Box 2: ' + boxB.error; status.className = 'text-xs font-bold text-red-500'; return; }
+    if (!boxA.pairs && !boxB.pairs) { status.textContent = 'Paste at least one box\'s JSON first.'; status.className = 'text-xs font-bold text-red-500'; return; }
+    if (boxA.error) { status.textContent = 'First box error (ignored, second box loaded): ' + boxA.error; status.className = 'text-xs font-bold text-amber-600'; }
+    else if (boxB.error) { status.textContent = 'Second box error (ignored, first box loaded): ' + boxB.error; status.className = 'text-xs font-bold text-amber-600'; }
     else { status.textContent = 'Parsed successfully.'; status.className = 'text-xs font-bold text-emerald-600'; }
 
-    const enList = enResult.list || [], bnList = bnResult.list || [];
-    const pairCount = Math.max(enList.length, bnList.length);
-    LP_JSON_PAIRS = Array.from({ length: pairCount }, (_, i) => ({ en: enList[i] || null, bn: bnList[i] || null }));
+    // Combined-format items from either box already arrive as complete
+    // {en, bn} pairs — no merging needed. Old-format flat items only fill
+    // one side, so a same-index flat item from the OTHER box slots into
+    // whichever side is still empty (this is what reconstructs the classic
+    // two-box English+Bangla pairing for legacy pastes). Anything left over
+    // becomes its own trailing pair instead of overwriting an already-
+    // filled slot.
+    const pairsA = boxA.pairs || [];
+    const pairsB = boxB.pairs || [];
+    const merged = pairsA.map(p => ({ ...p }));
+    const extra = [];
+    pairsB.forEach((p, i) => {
+      const target = merged[i];
+      if (target && !target.en && p.en) { target.en = p.en; return; }
+      if (target && !target.bn && p.bn) { target.bn = p.bn; return; }
+      extra.push(p);
+    });
+    LP_JSON_PAIRS = [...merged, ...extra];
 
     _lpJsonRenderPreview();
     document.getElementById('lpJsonPreviewSection').classList.remove('hidden');
