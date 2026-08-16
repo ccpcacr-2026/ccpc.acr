@@ -816,10 +816,20 @@ async function _settingsImportConfirm(payload) {
       }
     }
 
+    // PostgREST's bulk insert (a POST with an array body) requires every
+    // object in the array to have the exact same set of keys — but
+    // cleanRow above only ever set a key when that cell actually had a
+    // value, so one row missing e.g. "value" and another not missing it
+    // produced mismatched shapes and a batch-wide PGRST102 "All object
+    // keys must match" error. Pad every insert row out to the full field
+    // list (missing ones -> null) right before sending.
+    const allFieldNames = cfg.fields.map(f => f.name);
+    const normalizeForInsert = row => Object.fromEntries(allFieldNames.map(name => [name, row[name] !== undefined ? row[name] : null]));
+
     let inserted = 0;
     const errors = [];
     for (let i = 0; i < toInsert.length; i += CHUNK_IN) {
-      const chunk = toInsert.slice(i, i + CHUNK_IN);
+      const chunk = toInsert.slice(i, i + CHUNK_IN).map(normalizeForInsert);
       const res = await sbInventory(cfg.table, 'POST', chunk);
       if (res?.error) errors.push(res.error); else inserted += chunk.length;
     }
