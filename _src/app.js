@@ -3930,21 +3930,23 @@
     // losing the filters. Only _lpSetScope (an explicit tab click) changes it.
     container.innerHTML = `
       <div class="pt-4 max-w-7xl mx-auto pb-10">
-        <div class="flex items-center justify-between flex-wrap gap-3 mb-5">
-          <div class="flex gap-2">
-            <button id="lpTabMine" onclick="_lpSetScope('mine')" class="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">My Plans</button>
-            <button id="lpTabShared" onclick="_lpSetScope('shared')" class="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">Shared Library</button>
-            <button id="lpTabFavorites" onclick="_lpSetScope('favorites')" class="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-1.5"><i data-lucide="star" class="h-3.5 w-3.5"></i>Favorites</button>
+        <div class="sticky top-0 z-20 bg-white/95 backdrop-blur rounded-2xl shadow-sm px-4 py-3 mb-5 -mx-1">
+          <div class="flex items-center justify-between flex-wrap gap-3">
+            <div class="flex gap-2">
+              <button id="lpTabMine" onclick="_lpSetScope('mine')" class="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">My Plans</button>
+              <button id="lpTabShared" onclick="_lpSetScope('shared')" class="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">Shared Library</button>
+              <button id="lpTabFavorites" onclick="_lpSetScope('favorites')" class="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-1.5"><i data-lucide="star" class="h-3.5 w-3.5"></i>Favorites</button>
+            </div>
+            <div class="flex gap-2">
+              <button onclick="loadLessonPlanBulkImportView()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-white border border-slate-200 hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="upload-cloud" class="h-3.5 w-3.5"></i>Bulk Import</button>
+              <button onclick="loadLessonPlanJsonImportView()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-white border border-slate-200 hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="sparkles" class="h-3.5 w-3.5"></i>Import from NotebookLM</button>
+              <button onclick="_openLessonPlanForm(null)" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>New Lesson Plan</button>
+            </div>
           </div>
-          <div class="flex gap-2">
-            <button onclick="loadLessonPlanBulkImportView()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-white border border-slate-200 hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="upload-cloud" class="h-3.5 w-3.5"></i>Bulk Import</button>
-            <button onclick="loadLessonPlanJsonImportView()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-white border border-slate-200 hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="sparkles" class="h-3.5 w-3.5"></i>Import from NotebookLM</button>
-            <button onclick="_openLessonPlanForm(null)" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>New Lesson Plan</button>
-          </div>
+          <div id="lpFilterRow" class="flex flex-wrap items-center gap-2 mt-3"></div>
         </div>
         <div class="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-5 items-start">
           <div class="min-w-0">
-            <div id="lpFilterRow" class="flex flex-wrap items-center gap-2 mb-4"></div>
             <div id="lpListBody" class="flex flex-col gap-2">
               <div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>
             </div>
@@ -4308,13 +4310,27 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // Accepts either a bare array, or NotebookLM's occasional habit of wrapping
   // it in prose ("Here are the lesson plans: [...]") — pulls out the first
   // top-level [...] block if JSON.parse on the raw text fails.
+  // NotebookLM occasionally drops the opening quote on a string value (seen
+  // in practice on Bangla text specifically) — e.g. "learner_activity": ১টি
+  // ...শিখা।", instead of "learner_activity": "১টি...শিখা।",. Only rewrites
+  // text that's already anchored to a real `"key":` pattern (a plain
+  // snake_case identifier immediately before the colon), never a bare colon
+  // — a chapter title like "Chapter Two: Ratios and Percentages" has a
+  // colon INSIDE the string value, which must never be touched.
+  function _lpJsonRepairMissingQuotes(raw) {
+    return raw.replace(/("[a-zA-Z_]+"\s*:\s*)([^\s"\[{\-\d][^"]*?)("\s*[,}\]])/g, '$1"$2$3');
+  }
+
   function _lpJsonParseInput(raw) {
     try { return JSON.parse(raw); } catch (e) { /* fall through */ }
     const start = raw.indexOf('[');
     const end = raw.lastIndexOf(']');
     if (start >= 0 && end > start) {
-      try { return JSON.parse(raw.slice(start, end + 1)); } catch (e) { /* fall through */ }
+      const slice = raw.slice(start, end + 1);
+      try { return JSON.parse(slice); } catch (e) { /* fall through */ }
+      try { return JSON.parse(_lpJsonRepairMissingQuotes(slice)); } catch (e) { /* fall through */ }
     }
+    try { return JSON.parse(_lpJsonRepairMissingQuotes(raw)); } catch (e) { /* fall through */ }
     throw new Error('Could not parse this as JSON. Make sure you pasted the full array, including the [ and ] brackets.');
   }
 
@@ -4573,10 +4589,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('lpJsonPreviewSection').classList.add('hidden');
     document.getElementById('lpJsonResultSection').classList.add('hidden');
 
-    const boxA = _lpJsonParsePairs(document.getElementById('lpJsonInputEn').value, 'en');
-    const boxB = _lpJsonParsePairs(document.getElementById('lpJsonInputBn').value, 'bn');
+    const boxARaw = document.getElementById('lpJsonInputEn').value.trim();
+    const boxBRaw = document.getElementById('lpJsonInputBn').value.trim();
+    // Distinguish "nothing pasted" from "pasted but failed to parse" — the
+    // old check only looked at whether pairs came back null, which is also
+    // true for a parse failure with the other box empty, so a real JSON
+    // syntax error was being reported as if nothing had been pasted at all.
+    if (!boxARaw && !boxBRaw) { status.textContent = 'Paste at least one box\'s JSON first.'; status.className = 'text-xs font-bold text-red-500'; return; }
+    const boxA = _lpJsonParsePairs(boxARaw, 'en');
+    const boxB = _lpJsonParsePairs(boxBRaw, 'bn');
     if (boxA.error && boxB.error) { status.textContent = 'Box 1: ' + boxA.error + ' | Box 2: ' + boxB.error; status.className = 'text-xs font-bold text-red-500'; return; }
-    if (!boxA.pairs && !boxB.pairs) { status.textContent = 'Paste at least one box\'s JSON first.'; status.className = 'text-xs font-bold text-red-500'; return; }
+    if (boxA.error && !boxBRaw) { status.textContent = boxA.error; status.className = 'text-xs font-bold text-red-500'; return; }
+    if (boxB.error && !boxARaw) { status.textContent = boxB.error; status.className = 'text-xs font-bold text-red-500'; return; }
     if (boxA.error) { status.textContent = 'First box error (ignored, second box loaded): ' + boxA.error; status.className = 'text-xs font-bold text-amber-600'; }
     else if (boxB.error) { status.textContent = 'Second box error (ignored, first box loaded): ' + boxB.error; status.className = 'text-xs font-bold text-amber-600'; }
     else { status.textContent = 'Parsed successfully.'; status.className = 'text-xs font-bold text-emerald-600'; }
