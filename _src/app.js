@@ -687,7 +687,22 @@
     // _loadAdminSubnav, which merges that check in alongside get_my_tab_access
     // rather than the per-item admin_tab_visibility matrix these other items use.
     { key: 'my_data', label: 'Student Data', icon: 'table', erp: false, action: { type: 'native', fn: 'loadMyTabDataView' } },
+    // Forum already exists as a top-level "General" sidebar link, but the
+    // Student section of it (targeted posts/messages for a class/student
+    // group) is squarely a Student Portal concern — staff kept looking for
+    // it inside this accordion and not finding it. Not gated by the ERP
+    // admin_tab_visibility matrix like the items above (a plain Teacher
+    // browsing Student Portal has no erpTabs at all) — see the
+    // 'student_forum' special-case in _loadAdminSubnav's filter below,
+    // same pattern as 'my_data'.
+    { key: 'student_forum', label: 'Student Forum', icon: 'messages-square', erp: false, action: { type: 'native', fn: 'loadStudentPortalForumView' } },
+    { key: 'student_message_history', label: 'Message History', icon: 'message-circle-heart', erp: false, action: { type: 'native', fn: 'loadStudentMessageHistoryView' } },
   ];
+
+  function loadStudentPortalForumView() {
+    _forumSection = 'student';
+    loadForumView();
+  }
 
   // "Student Portal" is a pure expand/collapse subheader now — its own click
   // never navigates anywhere, it just shows/hides the 14 items nested under
@@ -762,7 +777,16 @@
       // already is) since it's its own independent grant, unrelated to
       // which roles the account holds.
       const roleVisibleKeys = _hasModuleAccess('student_portal') ? erpTabs : [];
-      const items = ADMIN_SUBNAV_ITEMS.filter(i => roleVisibleKeys.includes(i.key) || (i.key === 'my_data' && hasTabData));
+      // Forum (Student section) and Message History both already exist as
+      // top-level "General" sidebar links, but staff kept looking for them
+      // inside the Student Portal accordion specifically and not finding
+      // them there. Shown here whenever this account has Student Portal
+      // access at all (full module access OR tab-data-only grant, same
+      // reach as 'my_data' just above) — not restricted to a narrow list of
+      // erpTabs like the admin_tab_visibility-gated items above, since a
+      // plain Teacher browsing Student Portal typically has none of those.
+      const showPortalShortcuts = _hasModuleAccess('student_portal') || hasTabData;
+      const items = ADMIN_SUBNAV_ITEMS.filter(i => roleVisibleKeys.includes(i.key) || (i.key === 'my_data' && hasTabData) || (['student_forum', 'student_message_history'].includes(i.key) && showPortalShortcuts));
       if (!items.length) { host.innerHTML = ''; host.classList.add('hidden'); return; }
       host.innerHTML = items.map(i =>
         `<a href="javascript:void(0)" onclick="${i.action.fn}(); closeMobileSidebar();" class="nav-link nav-sublink" id="nav-erp-${i.key}"><div class="nav-icon-box"><i data-lucide="${i.icon}" class="nav-icon"></i></div><span class="nav-text">${i.label}</span></a>`
