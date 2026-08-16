@@ -4312,6 +4312,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
 
         <div id="lpJsonResultSection" class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 mt-4 hidden"></div>
+      </div>
+
+      <div id="lpJsonEditModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-5">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="font-black text-slate-800 text-lg">Review &amp; Edit This Lesson</h3>
+            <button onclick="_lpJsonCloseEditModal()" class="p-1.5 hover:bg-slate-100 rounded-full"><i data-lucide="x" class="h-5 w-5"></i></button>
+          </div>
+          <div id="lpJsonEditIssues" class="text-xs font-bold space-y-1 mb-2"></div>
+          <p class="text-[11px] text-slate-400 font-bold mb-2">Edit the raw JSON for just this one lesson, then Save Changes to re-check it — no need to re-paste the whole array.</p>
+          <textarea id="lpJsonEditTextarea" rows="16" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xs focus:ring-2 focus:ring-blue-600 outline-none"></textarea>
+          <p id="lpJsonEditStatus" class="text-xs font-bold mt-2"></p>
+          <button onclick="_lpJsonSaveEditedItem()" class="w-full mt-3 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-widest bg-blue-600 text-white hover:bg-black">Save Changes</button>
+        </div>
       </div>`;
     lucide.createIcons();
     _lpLoadFieldOptions();
@@ -4485,7 +4499,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const applied = _lpJsonApplyFallback([flatItem])[0];
     const { perLesson } = _lpJsonValidateItems([applied]);
     const row = _lpJsonBuildRows([applied])[0];
-    return { row, errors: perLesson[0].errors, warnings: perLesson[0].warnings, selected: !perLesson[0].errors.length };
+    // `raw` keeps the pre-fallback item exactly as parsed — what
+    // _lpJsonEditItem shows/edits, so re-saving re-runs the fallback and
+    // validation fresh rather than editing an already-merged value.
+    return { row, raw: flatItem, errors: perLesson[0].errors, warnings: perLesson[0].warnings, selected: !perLesson[0].errors.length };
   }
 
   // Parses one textarea into pairs. A combined-format item becomes one
@@ -4666,18 +4683,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const cell = (item, lang, idx) => {
       if (!item) return `<div class="p-3 rounded-xl border border-dashed border-slate-200 text-[11px] font-bold text-slate-300 italic">— not provided —</div>`;
       const hasErrors = item.errors.length > 0;
-      const badge = hasErrors ? '✗ Rejected' : (item.warnings.length ? '⚠ Warning' : '✓ OK');
-      const badgeColor = hasErrors ? 'text-red-500' : (item.warnings.length ? 'text-amber-600' : 'text-emerald-600');
-      return `<div class="p-3 rounded-xl border ${hasErrors ? 'border-red-200 bg-red-50/40' : 'border-slate-200'}">
-        <label class="flex items-start gap-2 cursor-pointer">
-          <input type="checkbox" ${item.selected ? 'checked' : ''} ${hasErrors ? 'disabled' : ''} onchange="_lpJsonTogglePair(${idx}, '${lang}', this.checked)" class="mt-0.5">
-          <div class="min-w-0">
-            <div class="text-[9px] font-black uppercase ${badgeColor}">${badge}</div>
-            <div class="text-xs font-black text-slate-800 truncate">${_escHtml(item.row.chapter || '(no chapter)')}</div>
-            <div class="text-[11px] font-bold text-slate-500 truncate">${_escHtml(item.row.topic || '(no topic)')}</div>
-            ${hasErrors ? `<div class="text-[10px] text-red-500 mt-1">${item.errors.map(_escHtml).join('; ')}</div>` : ''}
-          </div>
-        </label>
+      const hasWarnings = item.warnings.length > 0;
+      const badge = hasErrors ? '✗ Rejected' : (hasWarnings ? '⚠ Warning' : '✓ OK');
+      const badgeColor = hasErrors ? 'text-red-500' : (hasWarnings ? 'text-amber-600' : 'text-emerald-600');
+      return `<div class="p-3 rounded-xl border ${hasErrors ? 'border-red-200 bg-red-50/40' : (hasWarnings ? 'border-amber-200 bg-amber-50/30' : 'border-slate-200')}">
+        <div class="flex items-start gap-2">
+          <label class="flex items-start gap-2 cursor-pointer flex-1 min-w-0">
+            <input type="checkbox" ${item.selected ? 'checked' : ''} ${hasErrors ? 'disabled' : ''} onchange="_lpJsonTogglePair(${idx}, '${lang}', this.checked)" class="mt-0.5">
+            <div class="min-w-0">
+              <div class="text-[9px] font-black uppercase ${badgeColor}">${badge}</div>
+              <div class="text-xs font-black text-slate-800 truncate">${_escHtml(item.row.chapter || '(no chapter)')}</div>
+              <div class="text-[11px] font-bold text-slate-500 truncate">${_escHtml(item.row.topic || '(no topic)')}</div>
+            </div>
+          </label>
+          <button onclick="_lpJsonEditItem(${idx}, '${lang}')" title="Review / edit this lesson's raw JSON" class="shrink-0 p-1.5 rounded-lg hover:bg-white border border-transparent hover:border-slate-200"><i data-lucide="pencil" class="h-3.5 w-3.5 text-slate-400"></i></button>
+        </div>
+        ${hasErrors ? `<div class="text-[10px] text-red-500 mt-1.5 pl-6">${item.errors.map(_escHtml).join('; ')}</div>` : ''}
+        ${hasWarnings ? `<div class="text-[10px] text-amber-600 mt-1 pl-6">${item.warnings.map(_escHtml).join('; ')}</div>` : ''}
       </div>`;
     };
 
@@ -4686,6 +4708,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         ${cell(p.en, 'en', i)}
         ${cell(p.bn, 'bn', i)}
       </div>`).join('');
+    lucide.createIcons();
 
     const confirmBtn = document.getElementById('lpJsonConfirmBtn');
     confirmBtn.disabled = selectedCount === 0;
@@ -4705,6 +4728,54 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (p.bn && !p.bn.errors.length) p.bn.selected = (mode === 'both' || mode === 'bn');
     });
     _lpJsonRenderPreview();
+  }
+
+  // Lets a teacher fix a rejected/warned lesson right in the preview —
+  // edits the raw JSON for just that one lesson (chapter/topic/phases/
+  // whatever's wrong) and re-runs it through the same validate+build
+  // pipeline as the initial paste, instead of forcing a full re-paste of
+  // the whole array to fix one lesson's missing field.
+  let _lpJsonEditTarget = null; // {idx, lang}
+
+  function _lpJsonEditItem(idx, lang) {
+    const item = LP_JSON_PAIRS[idx] && LP_JSON_PAIRS[idx][lang];
+    if (!item) return;
+    _lpJsonEditTarget = { idx, lang };
+    const issues = document.getElementById('lpJsonEditIssues');
+    issues.innerHTML = [
+      ...item.errors.map(e => `<div class="text-red-500">✗ ${_escHtml(e)}</div>`),
+      ...item.warnings.map(w => `<div class="text-amber-600">⚠ ${_escHtml(w)}</div>`),
+    ].join('') || `<div class="text-emerald-600">✓ No issues</div>`;
+    document.getElementById('lpJsonEditTextarea').value = JSON.stringify(item.raw, null, 2);
+    document.getElementById('lpJsonEditStatus').textContent = '';
+    const modal = document.getElementById('lpJsonEditModal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+  }
+
+  function _lpJsonCloseEditModal() {
+    _lpJsonEditTarget = null;
+    const modal = document.getElementById('lpJsonEditModal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+  }
+
+  function _lpJsonSaveEditedItem() {
+    if (!_lpJsonEditTarget) return;
+    const status = document.getElementById('lpJsonEditStatus');
+    let parsed;
+    try {
+      parsed = JSON.parse(document.getElementById('lpJsonEditTextarea').value);
+    } catch (err) {
+      status.textContent = 'Invalid JSON: ' + err.message;
+      status.className = 'text-xs font-bold text-red-500 mt-2';
+      return;
+    }
+    const { idx, lang } = _lpJsonEditTarget;
+    LP_JSON_PAIRS[idx][lang] = _lpJsonProcessOne(parsed);
+    _lpJsonCloseEditModal();
+    _lpJsonRenderPreview();
+    showToast('Lesson updated — re-checked for issues', 'success');
   }
 
   // Groups the rows actually sent to the server by Class · Subject, listing

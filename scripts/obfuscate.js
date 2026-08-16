@@ -96,7 +96,8 @@ const RESERVED = [
   '_lpAttachYoutubeVideo','_lpIgnoreYoutubeVideo','_lpRemoveYoutubeVideo',
   'loadLessonPlanJsonImportView',
   '_lpCopyNotebookPrompt','_lpJsonPreview','_lpJsonConfirmImport',
-  '_lpJsonTogglePair','_lpJsonBulkSelect','_lpJsonAutoTranslate','_lpJsonOnFallbackClassChange',
+  '_lpJsonTogglePair','_lpJsonBulkSelect','_lpJsonAutoTranslate',
+  '_lpJsonEditItem','_lpJsonCloseEditModal','_lpJsonSaveEditedItem','_lpJsonOnFallbackClassChange',
   '_notifNavigate',
   // forum module — posts/replies/reactions/mentions/photos/files
   'loadForumView','_forumOpenComposer','_forumSetFilter','_forumCloseComposer','_forumSelectType',
