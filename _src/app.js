@@ -14547,17 +14547,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       columns: [
         { key: 'unit_id', label: 'Unit', lookup: 'units', lookupLabel: 'name' },
         { key: 'unit_type', label: 'Unit Type' },
-        { key: 'value', label: 'Value' },
+        { key: 'value', label: 'Base Value' },
         { key: 'convert_from_unit_id', label: 'Convert From', lookup: 'units', lookupLabel: 'name' },
-        { key: 'from_value', label: 'Value' },
+        { key: 'from_value', label: 'Converted Value' },
         { key: 'convert_to_unit_id', label: 'Convert To', lookup: 'units', lookupLabel: 'name' },
       ],
+      // 'value' and 'from_value' MUST have distinct labels — see the
+      // matching comment on the server config (app/api/inventory-admin/
+      // route.js) for why: a shared "Value" label broke Excel import when
+      // a file also had two columns literally titled "Value".
       fields: [
         { name: 'unit_id', label: 'Unit', type: 'select', source: 'units', optionLabel: 'name' },
         { name: 'unit_type', label: 'Unit Type', type: 'text' },
-        { name: 'value', label: 'Value', type: 'number', default: 0 },
+        { name: 'value', label: 'Base Value', type: 'number', default: 0 },
         { name: 'convert_from_unit_id', label: 'Convert From', type: 'select', source: 'units', optionLabel: 'name' },
-        { name: 'from_value', label: 'Value', type: 'number', default: 0 },
+        { name: 'from_value', label: 'Converted Value', type: 'number', default: 0 },
         { name: 'convert_to_unit_id', label: 'Convert To', type: 'select', source: 'units', optionLabel: 'name' },
       ] },
     buildings: { label: 'Building', title: 'BUILDING', importKey: 'name',
@@ -15153,8 +15157,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const rowCount = document.getElementById('invImportRowCount');
     if (!section || !list || !cfg) return;
     rowCount.textContent = `${_invImportRows.length} rows detected`;
+    // Two fields can share the same label (Unit Conversion's "Value"
+    // appears twice — the base quantity and the converted-to quantity) —
+    // if the file ALSO has two columns literally titled the same thing,
+    // matching by text alone made every such field guess the same FIRST
+    // column, silently discarding the second one's data entirely. Tracked
+    // here so each field's guess skips whatever an earlier field in this
+    // same pass already claimed.
+    const claimedIdx = new Set();
     list.innerHTML = cfg.fields.map(f => {
-      const guessIdx = _invImportHeaders.findIndex(h => normImportKey(h) === normImportKey(f.name) || normImportKey(h) === normImportKey(f.label));
+      const guessIdx = _invImportHeaders.findIndex((h, i) => !claimedIdx.has(i) && (normImportKey(h) === normImportKey(f.name) || normImportKey(h) === normImportKey(f.label)));
+      if (guessIdx >= 0) claimedIdx.add(guessIdx);
       const required = f.name === cfg.importKey;
       const options = ['<option value="-1">— Skip —</option>'].concat(_invImportHeaders.map((h, i) => `<option value="${i}" ${i === guessIdx ? 'selected' : ''}>${_escHtml(h || '(blank header)')}</option>`));
       const sample = guessIdx >= 0 && _invImportRows[0] ? String(_invImportRows[0][guessIdx] ?? '') : '';

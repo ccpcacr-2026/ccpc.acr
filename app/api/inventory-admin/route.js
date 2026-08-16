@@ -112,9 +112,15 @@ const ENTITIES = {
     fields: [
       { name: 'unit_id', label: 'Unit', type: 'select', source: 'units', optionLabel: 'name' },
       { name: 'unit_type', label: 'Unit Type', type: 'text' },
-      { name: 'value', label: 'Value', type: 'number', default: 0 },
+      // 'value' and 'from_value' MUST have distinct labels — they used to
+      // both be "Value", which broke Excel import: a file with two columns
+      // literally titled "Value" (base quantity + converted quantity)
+      // matched both fields to the same first column, so from_value's real
+      // data (e.g. "1000" for kg->g) was silently discarded and every row
+      // imported it as whatever the first Value column held instead.
+      { name: 'value', label: 'Base Value', type: 'number', default: 0 },
       { name: 'convert_from_unit_id', label: 'Convert From', type: 'select', source: 'units', optionLabel: 'name' },
-      { name: 'from_value', label: 'Value', type: 'number', default: 0 },
+      { name: 'from_value', label: 'Converted Value', type: 'number', default: 0 },
       { name: 'convert_to_unit_id', label: 'Convert To', type: 'select', source: 'units', optionLabel: 'name' },
     ],
   },
