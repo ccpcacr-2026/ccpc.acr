@@ -381,77 +381,89 @@
     localStorage.setItem('sidebar_collapsed', sidebar.classList.contains('sidebar-collapsed'));
   }
 
-  // --- MOBILE HARDWARE/GESTURE BACK BUTTON CLOSES THE OPEN MODAL/DRAWER ---
-  // On a phone, pressing Back (or swiping back) with a modal or the sidebar
-  // drawer open normally leaves the app/page entirely — jarring for
-  // something the user expects to just close, like it would in a native
-  // app. Fixed generically, with no changes needed to any individual
-  // modal's own open/close code: every modal in this app (both the fixed
-  // ones in app.html and the many created on the fly via
-  // document.createElement) uses an id ending in "Modal", and is shown/
-  // hidden either by toggling a "hidden" class or by being appended to/
-  // removed from the DOM — a MutationObserver watching for exactly those
-  // two things is a complete, self-maintaining list of "things Back should
-  // close," verified against every modal pattern already used in this file.
-  // Each time one opens, a history entry is pushed; Back later pops it,
-  // which fires 'popstate' here instead of actually navigating away, and
-  // we close the modal ourselves. If the modal gets closed some other way
-  // first (its own X/Cancel/outside-click), the now-stale history entry is
-  // silently consumed with one history.back() so Back still only ever
-  // takes the user one real step back, never two.
+  // --- MOBILE HARDWARE/GESTURE BACK BUTTON ---
+  // Two things Back should do on a phone instead of its browser default of
+  // leaving the app/page entirely:
+  //   1. Close whatever modal/drawer is open (see _modalBackStack below).
+  //   2. Otherwise, if inside any module (not already on the app-launcher
+  //      Home screen), navigate to Home — the same thing tapping the
+  //      top-bar's own back arrow already does (_mobileTopBarNavClick),
+  //      reused here rather than reimplemented, so both stay consistent
+  //      (e.g. a Student Portal sub-view's one-level-at-a-time behavior
+  //      via _openStudentPortalMobileMenu is automatically respected).
+  // Both push a history entry when they become "active" and consume it via
+  // popstate; checked in that order on every Back press since a modal open
+  // while inside a module should close the modal first, not jump home in
+  // the same press. Once on Home with nothing open, Back has nothing left
+  // to intercept and falls through to the browser's normal behavior — the
+  // in-app back arrow itself is gone by then too (_syncMobileTopBarIcon
+  // swaps it for the menu icon), so there's nothing on screen implying
+  // Back should do anything else at that point either.
+  const _modalBackStack = []; // [{el}], in the order modals were opened
+  let _mobileHomeGuardActive = false;
+
+  function _isTrackedModalId(id) { return !!id && (/Modal$/.test(id) || id === 'main-sidebar'); }
+  function _isModalOpen(el) {
+    return el.id === 'main-sidebar' ? !el.classList.contains('-translate-x-full') : !el.classList.contains('hidden');
+  }
+  function _genericCloseModal(el) {
+    if (!el || !el.isConnected) return;
+    if (el.id === 'main-sidebar') { closeMobileSidebar(); return; }
+    // Just re-hide it (app.html's global .hidden{display:none!important}
+    // covers every modal variant, including the ones normally toggled via
+    // a "flex" class rather than "hidden") — deliberately never el.remove()
+    // here even for modals whose OWN close normally does that (they always
+    // remove-then-recreate on their next open anyway, so a stale hidden
+    // node left behind by a back-button close is harmless and gets cleaned
+    // up then); removing a modal that's meant to persist and just toggle
+    // visibility (e.g. lpJsonEditModal) would instead break its next open —
+    // a getElementById on a since-removed id returning null.
+    el.classList.add('hidden');
+  }
+  function _onModalOpened(el) {
+    if (_modalBackStack.some(x => x.el === el)) return;
+    history.pushState({ _modalGuard: true }, '');
+    _modalBackStack.push({ el });
+  }
+  function _onModalClosed(el) {
+    const idx = _modalBackStack.findIndex(x => x.el === el);
+    if (idx === -1) return; // already popped by the popstate handler below
+    _modalBackStack.splice(idx, 1);
+    // Closed by something other than the back button (its own X/Cancel/
+    // outside-click) — consume the history entry pushed when it opened, so
+    // Back still means one real step, never a leftover extra one.
+    history.back();
+  }
+
+  // Called from setActiveNavLink (the true universal choke point every
+  // module load already runs through) — pushes the Home-guard entry the
+  // first time a mobile session leaves Home, and consumes it (silently, if
+  // reached by something other than the back button) once it returns.
+  function _trackMobileHomeGuard(onHome) {
+    if (window.innerWidth >= 768) return; // desktop: Back should behave normally, no guard
+    if (!onHome) {
+      if (!_mobileHomeGuardActive) { history.pushState({ _homeGuard: true }, ''); _mobileHomeGuardActive = true; }
+    } else if (_mobileHomeGuardActive) {
+      _mobileHomeGuardActive = false;
+      history.back(); // consume it — reached Home by tapping something, not by Back
+    }
+  }
+
+  window.addEventListener('popstate', () => {
+    if (_modalBackStack.length) { _genericCloseModal(_modalBackStack.pop().el); return; }
+    if (_mobileHomeGuardActive) { _mobileHomeGuardActive = false; _mobileTopBarNavClick(); }
+  });
+
   (function () {
-    const _modalBackStack = []; // [{el}], in the order modals were opened
-    const _isTrackedModalId = id => !!id && (/Modal$/.test(id) || id === 'main-sidebar');
-    const _isOpen = el => el.id === 'main-sidebar'
-      ? !el.classList.contains('-translate-x-full')
-      : !el.classList.contains('hidden');
-
-    function _genericCloseModal(el) {
-      if (!el || !el.isConnected) return;
-      if (el.id === 'main-sidebar') { closeMobileSidebar(); return; }
-      // Just re-hide it (app.html's global .hidden{display:none!important}
-      // covers every modal variant, including the ones normally toggled
-      // via a "flex" class rather than "hidden") — deliberately never
-      // el.remove() here even for the modals whose OWN close normally does
-      // that (they always remove-then-recreate on their next open anyway,
-      // so a stale hidden node left behind by a back-button close is
-      // harmless and gets cleaned up then); removing a modal that's meant
-      // to persist and just toggle visibility (e.g. lpJsonEditModal) would
-      // instead break its next open — a getElementById on a since-removed
-      // id returning null.
-      el.classList.add('hidden');
-    }
-
-    window.addEventListener('popstate', () => {
-      if (!_modalBackStack.length) return;
-      const top = _modalBackStack.pop();
-      _genericCloseModal(top.el);
-    });
-
-    function _onObservedOpen(el) {
-      if (_modalBackStack.some(x => x.el === el)) return;
-      history.pushState({ _modalGuard: true }, '');
-      _modalBackStack.push({ el });
-    }
-    function _onObservedClose(el) {
-      const idx = _modalBackStack.findIndex(x => x.el === el);
-      if (idx === -1) return; // already popped by the popstate handler above
-      _modalBackStack.splice(idx, 1);
-      // Closed by something other than the back button (its own X/Cancel/
-      // outside-click) — consume the history entry pushed when it opened,
-      // so Back still means "leave the app" once, not twice.
-      history.back();
-    }
-
     const observer = new MutationObserver(mutations => {
       mutations.forEach(m => {
         if (m.type === 'attributes' && m.attributeName === 'class') {
           const el = m.target;
           if (el.nodeType !== 1 || !_isTrackedModalId(el.id)) return;
-          if (_isOpen(el)) _onObservedOpen(el); else _onObservedClose(el);
+          if (_isModalOpen(el)) _onModalOpened(el); else _onModalClosed(el);
         } else if (m.type === 'childList') {
-          m.addedNodes.forEach(el => { if (el.nodeType === 1 && _isTrackedModalId(el.id) && _isOpen(el)) _onObservedOpen(el); });
-          m.removedNodes.forEach(el => { if (el.nodeType === 1 && _isTrackedModalId(el.id)) _onObservedClose(el); });
+          m.addedNodes.forEach(el => { if (el.nodeType === 1 && _isTrackedModalId(el.id) && _isModalOpen(el)) _onModalOpened(el); });
+          m.removedNodes.forEach(el => { if (el.nodeType === 1 && _isTrackedModalId(el.id)) _onModalClosed(el); });
         }
       });
     });
@@ -885,6 +897,8 @@
     // couple of loaders skip), so this is where the mobile back/home icon
     // gets kept in sync with whatever just navigated.
     _syncMobileTopBarIcon();
+    const key = location.hash.slice(1).split('?')[0] || '';
+    _trackMobileHomeGuard(key === 'home' || key === '');
   }
 
   // Mobile top-bar icon button doubles as "open menu" (on the app-launcher
