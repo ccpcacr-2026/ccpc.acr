@@ -3956,12 +3956,12 @@
           <div id="lpFilterRow" class="flex flex-wrap items-center gap-2 mt-3"></div>
         </div>
         <div class="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-5 items-start">
-          <div class="min-w-0">
+          <div class="min-w-0 order-2 lg:order-1">
             <div id="lpListBody" class="flex flex-col gap-2">
               <div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>
             </div>
           </div>
-          <div id="lpSummarySidebar" class="lg:sticky lg:top-4 flex flex-col gap-3"></div>
+          <div id="lpSummarySidebar" class="order-1 lg:order-2 sticky top-28 flex flex-col gap-3 z-10"></div>
         </div>
       </div>`;
     lucide.createIcons();
@@ -5833,13 +5833,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     body.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`;
     google.script.run.withSuccessHandler(res => {
       if (!res || res.result !== 'success') { body.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml((res && res.error) || 'Failed to load')}</div>`; return; }
-      _lpRenderList(res.plans || []);
+      _lpRenderList(res.plans || [], res.total);
     }).withFailureHandler(() => {
       body.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">Network error</div>`;
     }).getLessonPlans(myId, _lpScope, _lpFilterState);
   }
 
-  function _lpRenderList(plans) {
+  function _lpRenderList(plans, total) {
     const body = document.getElementById('lpListBody');
     if (!body) return;
     if (!plans.length) {
@@ -5848,17 +5848,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       body.innerHTML = plans.map(p => _lpPlanCardHtml(p)).join('');
     }
     lucide.createIcons();
-    _lpRenderSummarySidebar(plans);
+    _lpRenderSummarySidebar(plans, total);
   }
 
   // Quick-glance stats for whatever's currently filtered/visible in the
   // list — total count plus a breakdown by Class, Subject, and Version,
-  // and the chapters with the most plans. Purely derived from the same
-  // `plans` array already being rendered, no extra request.
-  function _lpRenderSummarySidebar(plans) {
+  // and the chapters with the most plans. Breakdown is purely derived from
+  // the same `plans` array already being rendered, no extra request; `total`
+  // comes from the server's own count query (getLessonPlans caps the actual
+  // rows returned at 500, so `total` can be larger than plans.length —
+  // shown as "Showing 500 of 1234" rather than silently implying 500 is
+  // everything).
+  function _lpRenderSummarySidebar(plans, total) {
     const sidebar = document.getElementById('lpSummarySidebar');
     if (!sidebar) return;
     if (!plans.length) { sidebar.innerHTML = ''; return; }
+    const grandTotal = Number.isFinite(total) ? total : plans.length;
     const countBy = key => {
       const counts = {};
       plans.forEach(p => { const v = p[key] || '—'; counts[v] = (counts[v] || 0) + 1; });
@@ -5879,8 +5884,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     sidebar.innerHTML = `
       <div class="bg-gradient-to-br from-blue-600 to-indigo-600 rounded-2xl shadow-sm p-4 text-white">
         <p class="text-[10px] font-black uppercase tracking-widest opacity-80">Showing</p>
-        <p class="text-3xl font-black">${plans.length}</p>
-        <p class="text-[10px] font-bold opacity-80">lesson plan${plans.length === 1 ? '' : 's'}</p>
+        <p class="text-3xl font-black">${plans.length}${grandTotal > plans.length ? `<span class="text-base font-bold opacity-70"> of ${grandTotal}</span>` : ''}</p>
+        <p class="text-[10px] font-bold opacity-80">lesson plan${grandTotal === 1 ? '' : 's'}</p>
       </div>
       ${breakdownHtml('By Class', countBy('class_name'), 6)}
       ${breakdownHtml('By Subject', countBy('subject'), 6)}

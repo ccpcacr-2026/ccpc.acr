@@ -255,6 +255,30 @@ async function _fetchCsvByGid(sheetId, gid) {
   return _parseCsv(await res.text());
 }
 
+// Exact row count for a filtered query, without fetching the rows
+// themselves — supabaseRequest() only ever returns the parsed body, so this
+// does its own minimal fetch (Range: 0-0, just one row) with
+// Prefer: count=exact and reads the total off the Content-Range response
+// header (PostgREST's format: "0-0/1234"). Used so a capped/paginated list
+// (e.g. Lesson Plan's 500-row cap) can still show "Showing 500 of 1234"
+// instead of silently pretending 500 is everything.
+async function _countRows(path) {
+  try {
+    const res = await fetch(`${process.env.SUPABASE_URL}/rest/v1/${path}`, {
+      headers: {
+        apikey: process.env.SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}`,
+        'Accept-Profile': 'teacher',
+        Prefer: 'count=exact',
+        Range: '0-0',
+      },
+    });
+    const range = res.headers.get('content-range'); // "0-0/1234"
+    const total = range && range.includes('/') ? Number(range.split('/')[1]) : null;
+    return Number.isFinite(total) ? total : null;
+  } catch (e) { return null; }
+}
+
 // Cross-schema GET into the `student` schema (same Supabase project, service
 // key, Accept-Profile header) — same pattern as student-admin/route.js's own
 // sb() helper. Free-standing so it's shared by every class-teacher handler
@@ -2992,8 +3016,9 @@ const handlers = {
     if (f.version) path += `&version=eq.${encodeURIComponent(f.version)}`;
     if (f.subject) path += `&subject=eq.${encodeURIComponent(f.subject)}`;
     if (f.chapter) path += `&chapter=eq.${encodeURIComponent(f.chapter)}`;
+    const countPath = path.replace('select=id,class_name,subject,version,chapter,lesson_number,lesson_refs,topic,is_shared,created_by,forked_from_id,updated_at,youtube_url,lesson_code,class_date,period', 'select=id');
     path += '&order=updated_at.desc&limit=500';
-    const rows = await supabaseRequest(path);
+    const [rows, totalCount] = await Promise.all([supabaseRequest(path), _countRows(countPath)]);
     if (rows?.error) return { error: rows.details || rows.error };
     const list = Array.isArray(rows) ? rows : [];
 
@@ -3007,7 +3032,7 @@ const handlers = {
       if (Array.isArray(profiles)) profiles.forEach(p => { nameById[p.teacher_id] = p.full_name; });
       list.forEach(r => { r.uploaded_by_name = nameById[r.created_by] || r.created_by; });
     }
-    return { result: 'success', plans: list };
+    return { result: 'success', plans: list, total: totalCount != null ? totalCount : list.length };
   },
 
   async getLessonPlan([callerId, id]) {
