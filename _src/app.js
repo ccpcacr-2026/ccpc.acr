@@ -6631,6 +6631,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return `
       @page { size: ${dims.cssName} portrait; margin: 13mm 15mm; }
       *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+      .mv{border-top:1px solid currentColor;padding-top:0.5pt;}
+      sup,sub{font-size:75%;}
       body{font-family:${uiFont};font-size:9.3pt;line-height:1.4;color:#111;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
       .page{min-height:${dims.contentHeightMm}mm;max-height:${dims.contentHeightMm}mm;overflow:hidden;position:relative;}
 
@@ -6714,6 +6716,46 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     })();</script>`;
   }
 
+  // NotebookLM's math-lesson output embeds raw LaTeX (\sqrt{}, \frac{}{},
+  // \times, \dot{} for repeating decimals, ^{}/_{} etc.) since that's what
+  // it was trained to produce for math content — but the print view is
+  // plain HTML, not a LaTeX renderer, so left as-is it shows the literal
+  // backslash markup instead of a math sign. Converts the common subset
+  // used in school-level lesson content to real Unicode symbols / HTML
+  // sup/sub so e.g. \sqrt{x} reads as an actual root sign over x. Escapes
+  // HTML first (backslashes/braces aren't touched by escaping) so this is
+  // safe to insert directly, same as _escHtml elsewhere.
+  function _lpMathify(raw) {
+    let s = _escHtml(raw);
+    s = s.replace(/\\left|\\right/g, '');
+    s = s.replace(/\\[()[\]]/g, '');
+    s = s.replace(/\$\$?/g, '');
+    // \dot{35} / \dot3 -> combining dot above each digit/char (repeating decimal notation)
+    s = s.replace(/\\dot\{([^{}]*)\}/g, (m, g) => g.split('').map(c => c + '̇').join(''));
+    s = s.replace(/\\dot([0-9a-zA-Z])/g, (m, c) => c + '̇');
+    // \sqrt{x} / \sqrt[n]{x} -> root sign
+    s = s.replace(/\\sqrt\[([^\]]*)\]\{([^{}]*)\}/g, (m, n, x) => '<sup>' + n + '</sup>&radic;<span class="mv">' + x + '</span>');
+    s = s.replace(/\\sqrt\{([^{}]*)\}/g, (m, x) => '&radic;<span class="mv">' + x + '</span>');
+    // \frac{a}{b} -> stacked-looking fraction via sup/sub
+    s = s.replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, (m, a, b) => '<sup>' + a + '</sup>&frasl;<sub>' + b + '</sub>');
+    // ^{x} / ^x, _{x} / _x -> super/subscript
+    s = s.replace(/\^\{([^{}]*)\}/g, (m, g) => '<sup>' + g + '</sup>');
+    s = s.replace(/\^([0-9a-zA-Z+\-])/g, (m, c) => '<sup>' + c + '</sup>');
+    s = s.replace(/_\{([^{}]*)\}/g, (m, g) => '<sub>' + g + '</sub>');
+    s = s.replace(/_([0-9a-zA-Z+\-])/g, (m, c) => '<sub>' + c + '</sub>');
+    const SYMS = {
+      times: '&times;', div: '&divide;', pm: '&plusmn;', mp: '&#8723;', cdot: '&middot;',
+      neq: '&ne;', leq: '&le;', geq: '&ge;', approx: '&asymp;', infty: '&infin;',
+      pi: '&pi;', alpha: '&alpha;', beta: '&beta;', gamma: '&gamma;', theta: '&theta;',
+      Delta: '&Delta;', angle: '&ang;', degree: '&deg;', circ: '&deg;', perp: '&perp;',
+      parallel: '&parallel;', sum: '&sum;', int: '&int;', rightarrow: '&rarr;',
+      Rightarrow: '&rArr;', leftrightarrow: '&harr;', therefore: '&there4;', because: '&#8757;'
+    };
+    s = s.replace(/\\([A-Za-z]+)/g, (m, name) => (name in SYMS) ? SYMS[name] : name);
+    s = s.replace(/\\/g, '');
+    return s;
+  }
+
   function _lpBuildPrintHtml(payload, pageSize) {
     // _myProfileStable (never cleared) takes priority over _loginProfile
     // (a one-shot cache openMyProfile() nulls out after first use) — see
@@ -6738,6 +6780,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
     const esc = (typeof _escHtml === 'function') ? _escHtml : (s => String(s == null ? '' : s));
     const U = (val, w) => `<span class="uv${val ? ' has-val' : ''}"${w ? ' style="min-width:' + w + '"' : ''}>${esc(val || '')}</span>`;
+    const UM = (val, w) => `<span class="uv${val ? ' has-val' : ''}"${w ? ' style="min-width:' + w + '"' : ''}>${_lpMathify(val || '')}</span>`;
 
     // Greetings/Closing are the same procedural bookend every lesson —
     // printed output only needs the actual lecture content (Engagement
@@ -6747,8 +6790,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       .map(p => `
       <tr>
         <td class="ph-name">${esc(L.phases[p.phase] || p.phase || '')}</td>
-        <td>${esc(p.teacher_activity || '')}</td>
-        <td>${esc(p.learner_activity || '')}</td>
+        <td>${_lpMathify(p.teacher_activity || '')}</td>
+        <td>${_lpMathify(p.learner_activity || '')}</td>
         <td class="dur">${p.duration_minutes ? esc(p.duration_minutes) + ' ' + L.min : ''}</td>
       </tr>`).join('');
 
@@ -6777,16 +6820,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="fi"><span class="lbl">${esc(L.version)}</span> ${U(payload.version)}</div>
           <div class="fi"><span class="lbl">${esc(L.time)}</span> ${U(payload.time_minutes ? payload.time_minutes + ' ' + L.minutes : '')}</div>
           <div class="fi"><span class="lbl">${isBn ? 'পাঠ কোড' : 'Lesson Code'}</span> <span class="uv code-val has-val">${esc(lessonCode)}</span></div>
-          <div class="fi wide"><span class="lbl">${esc(L.chapterLessons)}</span> ${U(chapterLine)}</div>
+          <div class="fi wide"><span class="lbl">${esc(L.chapterLessons)}</span> ${UM(chapterLine)}</div>
         </div>
 
         <div class="sec-title">${esc(L.learningOutcomes)}</div>
-        <div class="lo-box">${esc(payload.learning_outcomes || '')}</div>
+        <div class="lo-box">${_lpMathify(payload.learning_outcomes || '')}</div>
 
         <div class="sec-title">${esc(L.generalMgmt)}</div>
         <div class="gen-grid">
-          <div class="lbl">${esc(L.teachingAids)}</div><div>${esc(payload.teaching_aids || '')}</div>
-          <div class="lbl">${esc(L.method)}</div><div>${esc(payload.method || '')}</div>
+          <div class="lbl">${esc(L.teachingAids)}</div><div>${_lpMathify(payload.teaching_aids || '')}</div>
+          <div class="lbl">${esc(L.method)}</div><div>${_lpMathify(payload.method || '')}</div>
         </div>
 
         <div class="sec-title">${esc(L.lessonPhases)}</div>
