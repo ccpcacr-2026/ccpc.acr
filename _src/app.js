@@ -462,9 +462,26 @@
   // via the same self-service getMyProfile lookup the profile-edit view
   // uses, falling back gracefully to just ID+email if that account has no
   // personnel record at all (e.g. an IT-only Admin login).
+  // Resets every avatar spot (sidebar card, mobile top bar, profile page
+  // photo box) back to its placeholder — called before loading whichever
+  // user is now signed in, so a fresh login/role-switch can never show the
+  // PREVIOUS session's photo just because setProfilePhoto() only ever
+  // overwrites the <img> src and was never called to clear it when the new
+  // account happens to have no photo of its own (this was a real bug: one
+  // teacher's dashboard was showing a different, previously-logged-in
+  // teacher's photo).
+  function _clearProfilePhoto() {
+    [['photoPreviewImg', 'photoPlaceholder'], ['mobileUserAvatar', 'mobileUserAvatarPh'], ['side-user-photo', 'side-user-photo-ph']].forEach(([imgId, phId]) => {
+      const img = document.getElementById(imgId), ph = document.getElementById(phId);
+      if (img) { img.removeAttribute('src'); img.classList.add('hidden'); delete img.dataset.fileId; }
+      if (ph) ph.classList.remove('hidden');
+    });
+  }
+
   function _renderSidebarUserCard() {
     const u = window.APP_USER;
     if (!u) return;
+    _clearProfilePhoto();
     const nameEl  = document.getElementById('side-user-name');
     const metaEl  = document.getElementById('side-user-meta');
     const emailEl = document.getElementById('side-user-email');
@@ -4345,19 +4362,42 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return raw.replace(/("[a-zA-Z_]+"\s*:\s*)([^\s"\[{\-\d][^"]*?)("\s*[,}\]])/g, '$1"$2$3');
   }
 
-  // Math-heavy lessons (seen in practice on Class 9-10 Math prompts) often
-  // come back with raw LaTeX like \(...\), \dot{3}, \times embedded in a
-  // string value — a backslash followed by anything other than the 8
-  // characters JSON actually recognizes as an escape (" \ / b f n r t u) is
-  // a hard parse error, not just a formatting quirk. Doubles any such
-  // backslash so it becomes a literal backslash in the resulting string
-  // (the LaTeX text itself is preserved as plain text, just not rendered —
-  // good enough for a lesson plan field, and far better than refusing the
-  // whole paste). Backslashes that already form a valid escape (\n, \", a
-  // stray \times where \t happens to be a real escape, etc.) are left
-  // alone since touching those would corrupt otherwise-valid content.
-  function _lpJsonRepairBadBackslashes(raw) {
-    return raw.replace(/\\(?!["\\/bfnrtu])/g, '\\\\');
+  // Character-level pass (tracks whether we're inside a JSON string as it
+  // scans) that fixes the two most common ways NotebookLM's output breaks
+  // strict JSON, in one pass instead of two separate best-effort regexes:
+  //   1. A backslash followed by anything other than the 8 characters JSON
+  //      actually recognizes as an escape (" \ / b f n r t u) — e.g. raw
+  //      LaTeX like \(...\), \dot{3} from math-heavy lessons — is a hard
+  //      parse error ("Bad escaped character"). Doubled so it survives as a
+  //      literal backslash in the resulting text instead of breaking the
+  //      whole paste. A legit escape (\n, \", a stray \times where \t
+  //      happens to be a real escape, etc.) is left untouched.
+  //   2. A raw control character (an actual newline/tab typed inside a
+  //      string value, not the two-character \n escape) — also a hard
+  //      parse error ("Bad control character") — replaced with its proper
+  //      escaped form.
+  function _lpJsonSanitize(raw) {
+    let out = '';
+    let inString = false;
+    for (let i = 0; i < raw.length; i++) {
+      const ch = raw[i];
+      if (!inString) { if (ch === '"') inString = true; out += ch; continue; }
+      if (ch === '"') { inString = false; out += ch; continue; }
+      if (ch === '\\') {
+        const next = raw[i + 1];
+        if (next && '"\\/bfnrtu'.includes(next)) { out += ch + next; i++; continue; }
+        out += '\\\\';
+        continue;
+      }
+      const code = ch.charCodeAt(0);
+      if (code < 0x20) {
+        const map = { 10: '\\n', 13: '\\r', 9: '\\t', 8: '\\b', 12: '\\f' };
+        out += map[code] || ('\\u' + code.toString(16).padStart(4, '0'));
+        continue;
+      }
+      out += ch;
+    }
+    return out;
   }
 
   function _lpJsonParseInput(raw) {
@@ -4367,9 +4407,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const attempts = [];
     if (start >= 0 && end > start) {
       const slice = raw.slice(start, end + 1);
-      attempts.push(slice, _lpJsonRepairBadBackslashes(slice), _lpJsonRepairMissingQuotes(slice), _lpJsonRepairMissingQuotes(_lpJsonRepairBadBackslashes(slice)));
+      attempts.push(slice, _lpJsonSanitize(slice), _lpJsonRepairMissingQuotes(slice), _lpJsonRepairMissingQuotes(_lpJsonSanitize(slice)));
     }
-    attempts.push(raw, _lpJsonRepairBadBackslashes(raw), _lpJsonRepairMissingQuotes(_lpJsonRepairBadBackslashes(raw)));
+    attempts.push(raw, _lpJsonSanitize(raw), _lpJsonRepairMissingQuotes(_lpJsonSanitize(raw)));
     for (const candidate of attempts) {
       try { return JSON.parse(candidate); } catch (e) { /* try next */ }
     }
