@@ -6074,9 +6074,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _lpListPlans = [];
   let _lpListSelected = new Set();
 
+  // String()-compared, not ===, since created_by round-trips through
+  // PostgREST/Postgres and can come back as a different JS type (e.g. a
+  // numeric id as a JS number) than window.APP_USER.user_id's original
+  // type — a strict === would silently treat every plan as "not mine".
   function _lpListCanManage(p) {
     const myId = window.APP_USER && window.APP_USER.user_id;
-    return _lpIsAdmin() || p.created_by === myId;
+    return _lpIsAdmin() || (p.created_by != null && myId != null && String(p.created_by) === String(myId));
   }
 
   function _lpListManageableIds() {
@@ -6424,7 +6428,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const container = document.getElementById('view-container');
     if (!container) return;
     const myId = window.APP_USER && window.APP_USER.user_id;
-    const isOwner = isDuplicate || !plan || plan.created_by === myId;
+    const isOwner = isDuplicate || !plan || String(plan.created_by) === String(myId);
     const canManage = isOwner || _lpIsAdmin();
     const phases = (plan && plan.phases && plan.phases.length) ? plan.phases : LESSON_PHASES.map(name => ({ phase: name, teacher_activity: '', learner_activity: '', duration_minutes: '' }));
     const v = plan || {};
@@ -7101,7 +7105,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const container = document.getElementById('view-container');
     if (!container) return;
     const myId = window.APP_USER && window.APP_USER.user_id;
-    const isOwner = isDuplicate || !plan || plan.created_by === myId;
+    const isOwner = isDuplicate || !plan || String(plan.created_by) === String(myId);
     const canManage = isOwner || _lpIsAdmin();
     const fullHtml = _lpBuildPrintHtml(plan || {}, _lpPageSize);
 
