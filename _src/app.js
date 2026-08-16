@@ -14954,7 +14954,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function deleteInventoryEntityRow(entityKey, id) {
     if (!confirm('Delete this record?')) return;
     _invAdminFetch('settings_delete', { entity: entityKey, id }).then(res => {
-      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Delete failed.', 'error'); return; }
+      if (!res || res.result !== 'success') {
+        const msg = (res && res.message) || 'Delete failed.';
+        // The consumers -> distributions block reason lists the actual
+        // blocking distribution(s), one per line — a toast truncates/
+        // auto-dismisses long text before it can be read; alert() waits
+        // for the user and keeps the line breaks intact.
+        if (msg.includes('\n')) alert(msg); else showToast(msg, 'error');
+        return;
+      }
       showToast('Deleted', 'success');
       openInventorySettingsEntity(entityKey);
     }).catch(err => showToast(err.message || 'Delete failed.', 'error'));

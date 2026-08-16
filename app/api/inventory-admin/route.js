@@ -314,7 +314,10 @@ async function _settingsDelete(payload) {
   if (!cfg) return NextResponse.json({ result: 'error', message: 'Unknown entity' }, { status: 404 });
   if (!payload.id) return NextResponse.json({ result: 'error', message: 'id is required' }, { status: 400 });
   const result = await sbInventory(`${cfg.table}?id=eq.${encodeURIComponent(payload.id)}`, 'DELETE');
-  if (result?.error) return NextResponse.json({ result: 'error', message: _friendlyDeleteError(result.error) }, { status: 500 });
+  if (result?.error) {
+    const message = await _friendlyDeleteError(result.error, payload.entity, payload.id);
+    return NextResponse.json({ result: 'error', message }, { status: 500 });
+  }
   return NextResponse.json({ result: 'success' });
 }
 
@@ -323,21 +326,35 @@ async function _settingsDelete(payload) {
 // has Distribution history) surfaced that raw as literally
 // {"code":"23503","details":"Key (id)=(16) is still referenced from table
 // \"distributions\".",...} straight in the UI, which reads as a crash, not
-// an explanation. Detects that specific case and rewrites it into what
-// actually happened and what to do instead — falls back to the raw text
-// for anything else, so an unexpected error is never silently swallowed.
-function _friendlyDeleteError(raw) {
-  try {
-    const parsed = JSON.parse(raw);
-    if (parsed.code === '23503') {
-      const m = /still referenced from table "([^"]+)"/.exec(parsed.details || '');
-      const refTable = m ? m[1].replace(/_/g, ' ') : 'other records';
-      return `Can't delete — this is still referenced by existing ${refTable}. Remove or reassign those first, or set it Inactive instead of deleting it.`;
-    }
-    return parsed.message || raw;
-  } catch (e) {
-    return raw;
+// an explanation. Rewrites it into what actually happened; for the
+// consumers -> distributions case specifically (the one this app's own
+// "Distribute" flow can create), also looks up and names the actual
+// blocking distribution(s) — a bare "something references this" is no
+// help finding it when it isn't showing up anywhere obvious in the UI
+// (e.g. it's an old/fully-processed one not in whatever list the user's
+// currently looking at).
+async function _friendlyDeleteError(raw, entity, id) {
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch (e) { return raw; }
+  if (parsed.code !== '23503') return parsed.message || raw;
+  const m = /still referenced from table "([^"]+)"/.exec(parsed.details || '');
+  const refTable = m ? m[1] : null;
+  if (entity === 'consumers' && refTable === 'distributions') {
+    try {
+      const rows = await sbInventory(
+        `distributions?or=(consumer_id.eq.${encodeURIComponent(id)},from_consumer_id.eq.${encodeURIComponent(id)})&select=id,created_at,distribution_items(quantity,products(name))&order=created_at.desc&limit=5`
+      );
+      if (!rows?.error && Array.isArray(rows) && rows.length) {
+        const lines = rows.map(r => {
+          const items = (r.distribution_items || []).map(it => `${it.products ? it.products.name : 'item'} x${it.quantity}`).join(', ') || 'distribution';
+          return `#${r.id} (${String(r.created_at || '').slice(0, 10)}): ${items}`;
+        });
+        return `Can't delete — still referenced by ${rows.length} distribution(s):\n${lines.join('\n')}\n\nGo to Distribute and remove/reassign those first, or set this consumer Inactive instead.`;
+      }
+    } catch (e) { /* fall through to the generic message below */ }
   }
+  const refLabel = refTable ? refTable.replace(/_/g, ' ') : 'other records';
+  return `Can't delete — this is still referenced by existing ${refLabel}. Remove or reassign those first, or set it Inactive instead of deleting it.`;
 }
 
 // ── Stock Overview + Product Detail (read-only, ported verbatim) ───────────
