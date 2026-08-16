@@ -14698,7 +14698,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const container = document.getElementById('view-container');
     if (!container) return;
     container.innerHTML = `
-      <div class="flex flex-wrap gap-2 mb-4">
+      <div class="sticky top-0 z-20 bg-white/95 backdrop-blur flex flex-wrap gap-2 mb-4 py-2 -mx-1 px-1">
         <button id="invAdminTab_stock" onclick="switchInvAdminTab('stock')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all">Stock Overview</button>
         <button id="invAdminTab_registry" onclick="switchInvAdminTab('registry')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all">Registry</button>
         <button id="invAdminTab_distribute" onclick="switchInvAdminTab('distribute')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all">Distribute</button>
@@ -14898,7 +14898,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!panel || !cfg) return;
     const rows = _invEntityRows;
     panel.innerHTML = `
-      <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
+      <div class="sticky top-16 z-10 bg-white -mx-5 -mt-5 px-5 pt-5 pb-4 mb-4 flex items-center justify-between gap-3 flex-wrap">
         <p class="text-sm font-black text-slate-800 uppercase tracking-widest">${_escHtml(cfg.title)}</p>
         <div class="flex gap-2 shrink-0 items-center">
           ${rows.length ? `<input type="text" placeholder="Search…" value="${_escHtml(_invSettingsSearch)}" oninput="_invSettingsSearchInput(this.value)" class="w-44 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2.5">` : ''}
