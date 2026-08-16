@@ -3941,8 +3941,13 @@
     'Evaluation', 'Summarization', 'Assignment/Homework', 'Closing',
   ];
 
-  let _lpScope = 'mine'; // 'mine' | 'shared'
+  let _lpScope = 'mine'; // 'mine' | 'shared' | 'all' | 'favorites'
   let _lpFieldOptions = { class_name: [], subject: [], version: [], chapter: [] };
+
+  function _lpIsAdmin() {
+    const role = String((window.APP_USER && window.APP_USER.role) || '');
+    return /Admin|Cord/.test(role);
+  }
 
   function loadLessonPlanView() {
     _setViewHash('lesson_plan');
@@ -3962,15 +3967,18 @@
             <div class="flex gap-2">
               <button id="lpTabMine" onclick="_lpSetScope('mine')" class="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">My Plans</button>
               <button id="lpTabShared" onclick="_lpSetScope('shared')" class="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">Shared Library</button>
+              ${_lpIsAdmin() ? `<button id="lpTabAll" onclick="_lpSetScope('all')" class="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">All Plans</button>` : ''}
               <button id="lpTabFavorites" onclick="_lpSetScope('favorites')" class="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-1.5"><i data-lucide="star" class="h-3.5 w-3.5"></i>Favorites</button>
             </div>
             <div class="flex gap-2">
+              <button onclick="loadLessonPlanDuplicatesView()" title="Find lesson plans that look like duplicates" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-white border border-slate-200 hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="copy-check" class="h-3.5 w-3.5"></i>Duplicates</button>
               <button onclick="loadLessonPlanBulkImportView()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-white border border-slate-200 hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="upload-cloud" class="h-3.5 w-3.5"></i>Bulk Import</button>
               <button onclick="loadLessonPlanJsonImportView()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-white border border-slate-200 hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="sparkles" class="h-3.5 w-3.5"></i>Import from NotebookLM</button>
               <button onclick="_openLessonPlanForm(null)" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>New Lesson Plan</button>
             </div>
           </div>
           <div id="lpFilterRow" class="flex flex-wrap items-center gap-2 mt-3"></div>
+          <div id="lpOwnerFilterRow" class="flex flex-wrap items-center gap-2 mt-2"></div>
         </div>
         <div class="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-5 items-start">
           <div class="min-w-0 order-2 lg:order-1">
@@ -3984,6 +3992,8 @@
     lucide.createIcons();
     _lpUpdateTabButtons();
     _lpLoadFieldOptions(); // populates _lpFieldOptions for the composer form's Class/Subject/Version dropdowns
+    _lpLoadOwnerOptions();
+    if (_lpScope !== 'favorites') _lpRenderOwnerFilterRow();
     // Deliberately NOT resetting _lpFilterState here — this view remounts every
     // time "← Back to Lesson Plans" is pressed from the form/print/table/import
     // views, and the whole point is landing back on the same filtered list the
@@ -5799,9 +5809,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const inactive = 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50';
     const mineBtn = document.getElementById('lpTabMine');
     const sharedBtn = document.getElementById('lpTabShared');
+    const allBtn = document.getElementById('lpTabAll');
     const favBtn = document.getElementById('lpTabFavorites');
     if (mineBtn) mineBtn.className = `px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${_lpScope === 'mine' ? active : inactive}`;
     if (sharedBtn) sharedBtn.className = `px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${_lpScope === 'shared' ? active : inactive}`;
+    if (allBtn) allBtn.className = `px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${_lpScope === 'all' ? active : inactive}`;
     if (favBtn) favBtn.className = `px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${_lpScope === 'favorites' ? active : inactive}`;
   }
 
@@ -5810,8 +5822,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _lpUpdateTabButtons();
     const filterRow = document.getElementById('lpFilterRow');
     if (filterRow) filterRow.classList.toggle('hidden', scope === 'favorites');
-    if (scope === 'favorites') _lpLoadFavorites();
-    else { _lpFilterState = { class_name: '', version: '', subject: '', chapter: '' }; _lpLoadFilterOptions(); }
+    _lpOwnerFilter = { owner: '', search: '' };
+    if (scope === 'favorites') { _lpRenderOwnerFilterRow(); _lpLoadFavorites(); }
+    else {
+      _lpFilterState = { class_name: '', version: '', subject: '', chapter: '' };
+      _lpLoadOwnerOptions();
+      _lpLoadFilterOptions();
+    }
   }
 
   function _lpLoadFieldOptions() {
@@ -5889,12 +5906,116 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const body = document.getElementById('lpListBody');
     if (!body) return;
     body.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`;
+    const filters = Object.assign({}, _lpFilterState, _lpOwnerFilter);
     google.script.run.withSuccessHandler(res => {
       if (!res || res.result !== 'success') { body.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml((res && res.error) || 'Failed to load')}</div>`; return; }
       _lpRenderList(res.plans || [], res.total);
     }).withFailureHandler(() => {
       body.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">Network error</div>`;
-    }).getLessonPlans(myId, _lpScope, _lpFilterState);
+    }).getLessonPlans(myId, _lpScope, filters);
+  }
+
+  // ── Owner filter: dropdown of known owners + free-text search ─────────────
+  // Owner narrows to one exact author (populated from real data — only
+  // authors that actually have plans visible in this scope), the text box
+  // does a free-text search over topic/chapter/lesson code — independent
+  // filters, combinable with each other and the Class/Subject cascade above.
+  // Only shown for Shared Library and (Admin-only) All Plans, since "My
+  // Plans" is always the caller themselves.
+  let _lpOwnerFilter = { owner: '', search: '' };
+  let _lpOwnerOptions = [];
+
+  function _lpLoadOwnerOptions() {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      _lpOwnerOptions = (res && res.result === 'success') ? res.owners : [];
+      _lpRenderOwnerFilterRow();
+    }).withFailureHandler(() => { _lpOwnerOptions = []; _lpRenderOwnerFilterRow(); }).getLessonPlanOwners(myId, _lpScope);
+  }
+
+  function _lpRenderOwnerFilterRow() {
+    const row = document.getElementById('lpOwnerFilterRow');
+    if (!row) return;
+    if (_lpScope === 'mine' || _lpScope === 'favorites') { row.innerHTML = ''; return; }
+    row.innerHTML = `
+      <select onchange="_lpOnOwnerChange(this.value)" class="px-3 py-2 bg-white border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none">
+        <option value="">Owner (${_lpOwnerOptions.length})…</option>
+        ${_lpOwnerOptions.map(o => `<option value="${_escHtml(o.id)}" ${_lpOwnerFilter.owner === o.id ? 'selected' : ''}>${_escHtml(o.name)}</option>`).join('')}
+      </select>
+      <input type="text" value="${_escHtml(_lpOwnerFilter.search)}" oninput="_lpOnOwnerSearchInput(this.value)" placeholder="Search topic, chapter, lesson code…" class="px-3 py-2 bg-white border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none w-56">
+      ${(_lpOwnerFilter.owner || _lpOwnerFilter.search) ? `<button onclick="_lpClearOwnerFilter()" class="px-3 py-2 text-xs font-black text-slate-400 hover:text-slate-600 flex items-center gap-1"><i data-lucide="x" class="h-3.5 w-3.5"></i>Clear</button>` : ''}`;
+    lucide.createIcons();
+  }
+
+  function _lpOnOwnerChange(value) {
+    _lpOwnerFilter.owner = value;
+    _lpRenderOwnerFilterRow();
+    _lpLoadList();
+  }
+
+  let _lpOwnerSearchDebounce = null;
+  function _lpOnOwnerSearchInput(value) {
+    _lpOwnerFilter.search = value;
+    clearTimeout(_lpOwnerSearchDebounce);
+    _lpOwnerSearchDebounce = setTimeout(_lpLoadList, 350);
+  }
+
+  function _lpClearOwnerFilter() {
+    _lpOwnerFilter = { owner: '', search: '' };
+    _lpRenderOwnerFilterRow();
+    _lpLoadList();
+  }
+
+  // ── Admin: reassign a lesson plan's owner ──────────────────────────────────
+  // Fetches the full school-wide owner list (scope 'all') rather than
+  // whatever's cached from the current view's scope, since the picker needs
+  // every possible teacher regardless of what filter/tab the admin got here
+  // from.
+  function _lpOpenReassignOwner(planId) {
+    const existing = document.getElementById('lpReassignOwnerModal');
+    if (existing) existing.remove();
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const modal = document.createElement('div');
+    modal.id = 'lpReassignOwnerModal';
+    modal.className = 'fixed inset-0 bg-black/40 z-[90] flex items-center justify-center p-4';
+    modal.innerHTML = `
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-black text-slate-800 uppercase tracking-widest">Reassign Owner</h3>
+          <button onclick="document.getElementById('lpReassignOwnerModal').remove()" class="p-2 hover:bg-slate-100 rounded-xl"><i data-lucide="x" class="h-4 w-4"></i></button>
+        </div>
+        <div id="lpReassignOwnerBody" class="text-center py-6 text-slate-400 text-xs font-black uppercase tracking-widest">Loading owners…</div>
+      </div>`;
+    document.body.appendChild(modal);
+    lucide.createIcons();
+    google.script.run.withSuccessHandler(res => {
+      const body = document.getElementById('lpReassignOwnerBody');
+      if (!body) return;
+      const owners = (res && res.result === 'success') ? res.owners : [];
+      if (!owners.length) { body.innerHTML = `<p class="text-xs font-bold text-red-500">No owners found.</p>`; return; }
+      body.innerHTML = `
+        <select id="lpReassignOwnerSelect" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none">
+          ${owners.map(o => `<option value="${_escHtml(o.id)}">${_escHtml(o.name)}</option>`).join('')}
+        </select>
+        <button onclick="_lpConfirmReassignOwner(${planId})" class="w-full mt-3 px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">Reassign</button>`;
+    }).withFailureHandler(() => {
+      const body = document.getElementById('lpReassignOwnerBody');
+      if (body) body.innerHTML = `<p class="text-xs font-bold text-red-500">Network error.</p>`;
+    }).getLessonPlanOwners(myId, 'all');
+  }
+
+  function _lpConfirmReassignOwner(planId) {
+    const select = document.getElementById('lpReassignOwnerSelect');
+    if (!select || !select.value) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      const modal = document.getElementById('lpReassignOwnerModal');
+      if (modal) modal.remove();
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed to reassign owner', 'error'); return; }
+      showToast('Owner reassigned', 'success');
+      if (_lpCurrentPlan && _lpCurrentPlan.id === planId) { _lpCurrentPlan.created_by = select.value; _lpRenderCurrentView(); }
+      else loadLessonPlanView();
+    }).withFailureHandler(() => { showToast('Network error', 'error'); }).reassignLessonPlanOwner(myId, planId, select.value);
   }
 
   function _lpRenderList(plans, total) {
@@ -6208,6 +6329,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!container) return;
     const myId = window.APP_USER && window.APP_USER.user_id;
     const isOwner = isDuplicate || !plan || plan.created_by === myId;
+    const canManage = isOwner || _lpIsAdmin();
     const phases = (plan && plan.phases && plan.phases.length) ? plan.phases : LESSON_PHASES.map(name => ({ phase: name, teacher_activity: '', learner_activity: '', duration_minutes: '' }));
     const v = plan || {};
 
@@ -6223,7 +6345,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <input type="file" id="lpExcelFile" accept=".xlsx,.xls" class="hidden" onchange="_lpHandleExcelUpload(event)">
             <button onclick="document.getElementById('lpExcelFile').click()" title="Upload Filled Excel" class="p-2.5 bg-white border border-slate-200 rounded-xl hover:bg-slate-50"><i data-lucide="upload" class="h-3.5 w-3.5"></i></button>
             <button onclick="_lpPrintPlan()" title="Print / Export A4 Lesson Plan" class="p-2.5 bg-white border border-slate-200 rounded-xl hover:bg-slate-50"><i data-lucide="printer" class="h-3.5 w-3.5"></i></button>
-            ${(plan && isOwner && !isDuplicate) ? `<button onclick="_deleteLessonPlanForm(${plan.id})" title="Delete" class="p-2.5 bg-white border border-red-200 text-red-500 rounded-xl hover:bg-red-50"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>` : ''}
+            ${(plan && !isOwner && _lpIsAdmin() && !isDuplicate) ? `<button onclick="_lpOpenReassignOwner(${plan.id})" title="Reassign owner (Admin)" class="p-2.5 bg-white border border-amber-200 text-amber-600 rounded-xl hover:bg-amber-50"><i data-lucide="user-cog" class="h-3.5 w-3.5"></i></button>` : ''}
+            ${(plan && canManage && !isDuplicate) ? `<button onclick="_deleteLessonPlanForm(${plan.id})" title="Delete" class="p-2.5 bg-white border border-red-200 text-red-500 rounded-xl hover:bg-red-50"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>` : ''}
           </div>
         </div>
 
@@ -6883,6 +7006,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!container) return;
     const myId = window.APP_USER && window.APP_USER.user_id;
     const isOwner = isDuplicate || !plan || plan.created_by === myId;
+    const canManage = isOwner || _lpIsAdmin();
     const fullHtml = _lpBuildPrintHtml(plan || {}, _lpPageSize);
 
     container.innerHTML = `
@@ -6892,7 +7016,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex gap-2">
             ${(plan && plan.id && !isDuplicate) ? `<button onclick="_lpDuplicatePlan(${plan.id})" title="Duplicate as a new plan" class="p-2.5 bg-white border border-slate-200 rounded-xl hover:bg-slate-50"><i data-lucide="copy" class="h-3.5 w-3.5"></i></button>` : ''}
             <button onclick="_lpPrintPlan()" title="Print / Export PDF" class="flex items-center gap-1.5 px-3 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-black font-black text-[10px] uppercase tracking-widest"><i data-lucide="printer" class="h-3.5 w-3.5"></i>Print / Export</button>
-            ${(plan && plan.id && isOwner && !isDuplicate) ? `<button onclick="_deleteLessonPlanForm(${plan.id})" title="Delete" class="p-2.5 bg-white border border-red-200 text-red-500 rounded-xl hover:bg-red-50"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>` : ''}
+            ${(plan && plan.id && !isOwner && _lpIsAdmin() && !isDuplicate) ? `<button onclick="_lpOpenReassignOwner(${plan.id})" title="Reassign owner (Admin)" class="p-2.5 bg-white border border-amber-200 text-amber-600 rounded-xl hover:bg-amber-50"><i data-lucide="user-cog" class="h-3.5 w-3.5"></i></button>` : ''}
+            ${(plan && plan.id && canManage && !isDuplicate) ? `<button onclick="_deleteLessonPlanForm(${plan.id})" title="Delete" class="p-2.5 bg-white border border-red-200 text-red-500 rounded-xl hover:bg-red-50"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>` : ''}
           </div>
         </div>
 
@@ -6935,6 +7060,146 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
       if (statusEl) { statusEl.textContent = 'Network error'; statusEl.className = 'text-xs font-bold text-red-500'; }
     }).saveLessonPlan(myId, _lpEditingId, payload);
+  }
+
+  // ── Duplicate lesson plans finder ──────────────────────────────────────────
+  // Groups plans sharing Class+Subject+Version+Chapter+Lesson Number — the
+  // natural key a lesson plan should be unique on — surfacing them together
+  // with a checkbox-based "select some/all, delete" cleanup flow so a batch
+  // of accidental double-imports doesn't need one confirm click per row.
+  // Server scopes this to the caller's own plans, or (Admin/Cord) every
+  // plan school-wide — see getLessonPlanDuplicates in route.js.
+  let _lpDupGroups = [];
+  let _lpDupSelected = new Set();
+
+  function loadLessonPlanDuplicatesView() {
+    _setViewHash('lesson_plan_duplicates');
+    setActiveNavLink('nav-lesson-plan');
+    setContentHeader('Duplicate Lesson Plans', 'copy-check');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    _lpDupSelected = new Set();
+    container.innerHTML = `
+      <div class="pt-4 max-w-5xl mx-auto pb-10">
+        <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+          <button onclick="loadLessonPlanView()" class="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600">&larr; Back to Lesson Plans</button>
+        </div>
+        <div id="lpDupToolbar"></div>
+        <div id="lpDupBody" class="flex flex-col gap-4 mt-4">
+          <div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Scanning for duplicates…</div>
+        </div>
+      </div>`;
+    lucide.createIcons();
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') {
+        document.getElementById('lpDupBody').innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml((res && res.error) || 'Failed to load')}</div>`;
+        return;
+      }
+      _lpDupGroups = res.groups || [];
+      _lpDupRender();
+    }).withFailureHandler(() => {
+      document.getElementById('lpDupBody').innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">Network error</div>`;
+    }).getLessonPlanDuplicates(myId);
+  }
+
+  function _lpDupAllIds() { return _lpDupGroups.flatMap(g => g.plans.map(p => p.id)); }
+
+  function _lpDupRenderToolbar() {
+    const toolbar = document.getElementById('lpDupToolbar');
+    if (!toolbar) return;
+    const allIds = _lpDupAllIds();
+    const n = _lpDupSelected.size;
+    toolbar.innerHTML = `
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3 flex items-center justify-between flex-wrap gap-3">
+        <label class="flex items-center gap-2 text-xs font-black text-slate-600 uppercase tracking-widest cursor-pointer">
+          <input type="checkbox" onchange="_lpDupToggleAll(this.checked)" ${allIds.length && n === allIds.length ? 'checked' : ''} class="h-4 w-4 rounded">
+          Select All (${allIds.length} plans in ${_lpDupGroups.length} duplicate groups)
+        </label>
+        <button onclick="_lpDupDeleteSelected()" ${n ? '' : 'disabled'} class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-white transition-all flex items-center gap-1.5 ${n ? 'bg-red-500 hover:bg-red-600' : 'bg-slate-200 cursor-not-allowed'}"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i>Delete Selected (${n})</button>
+      </div>`;
+    lucide.createIcons();
+  }
+
+  function _lpDupRender() {
+    _lpDupRenderToolbar();
+    const body = document.getElementById('lpDupBody');
+    if (!body) return;
+    if (!_lpDupGroups.length) {
+      body.innerHTML = `<div class="bg-white rounded-3xl border border-slate-200 shadow-sm text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">No duplicate lesson plans found</div>`;
+      return;
+    }
+    body.innerHTML = _lpDupGroups.map((g, gi) => {
+      const groupIds = g.plans.map(p => p.id);
+      const allSelected = groupIds.every(id => _lpDupSelected.has(id));
+      return `
+      <div class="bg-white rounded-2xl border border-amber-200 shadow-sm overflow-hidden">
+        <div class="px-4 py-3 bg-amber-50 border-b border-amber-200 flex items-center justify-between flex-wrap gap-2">
+          <label class="flex items-center gap-2 text-xs font-black text-amber-800 cursor-pointer">
+            <input type="checkbox" onchange="_lpDupToggleGroup(${gi}, this.checked)" ${allSelected ? 'checked' : ''} class="h-4 w-4 rounded">
+            ${_escHtml(g.class_name)} &middot; ${_escHtml(g.subject)}${g.version ? ' &middot; ' + _escHtml(g.version) : ''} &middot; ${_escHtml(g.chapter)} &middot; Lesson ${_escHtml(g.lesson_number)}
+          </label>
+          <span class="text-[10px] font-black text-amber-700 uppercase tracking-widest">${g.count} copies found</span>
+        </div>
+        <div class="divide-y divide-slate-100">
+          ${g.plans.map(p => `
+            <div class="px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
+              <label class="flex items-center gap-2.5 min-w-0 cursor-pointer flex-1">
+                <input type="checkbox" onchange="_lpDupToggle(${p.id}, this.checked)" ${_lpDupSelected.has(p.id) ? 'checked' : ''} class="h-4 w-4 rounded shrink-0">
+                <span class="min-w-0">
+                  <span class="block text-xs font-bold text-slate-700 truncate">${_escHtml(p.topic || '(no topic)')}</span>
+                  <span class="block text-[10px] text-slate-400 font-bold">${_escHtml(p.owner_name || p.created_by)} &middot; updated ${_escHtml((p.updated_at || '').slice(0, 10))}${p.is_shared ? ' &middot; Shared' : ''}</span>
+                </span>
+              </label>
+              <div class="flex gap-1.5 shrink-0">
+                <button onclick="_openLessonPlanForm(${p.id})" title="Edit" class="p-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button>
+                <button onclick="_lpDupDeleteOne(${p.id})" title="Delete" class="p-2 bg-white border border-red-200 text-red-500 rounded-lg hover:bg-red-50"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+              </div>
+            </div>`).join('')}
+        </div>
+      </div>`;
+    }).join('');
+    lucide.createIcons();
+  }
+
+  function _lpDupToggle(id, checked) {
+    if (checked) _lpDupSelected.add(id); else _lpDupSelected.delete(id);
+    _lpDupRenderToolbar();
+    _lpDupRender();
+  }
+
+  function _lpDupToggleGroup(gi, checked) {
+    const group = _lpDupGroups[gi];
+    if (!group) return;
+    group.plans.forEach(p => { if (checked) _lpDupSelected.add(p.id); else _lpDupSelected.delete(p.id); });
+    _lpDupRender();
+  }
+
+  function _lpDupToggleAll(checked) {
+    _lpDupSelected = checked ? new Set(_lpDupAllIds()) : new Set();
+    _lpDupRender();
+  }
+
+  function _lpDupDeleteOne(id) {
+    if (!confirm('Delete this lesson plan? This cannot be undone.')) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Delete failed', 'error'); return; }
+      showToast('Lesson plan deleted', 'success');
+      loadLessonPlanDuplicatesView();
+    }).withFailureHandler(() => showToast('Network error', 'error')).deleteLessonPlan(myId, id);
+  }
+
+  function _lpDupDeleteSelected() {
+    const ids = [..._lpDupSelected];
+    if (!ids.length) return;
+    if (!confirm(`Delete ${ids.length} selected lesson plan${ids.length > 1 ? 's' : ''}? This cannot be undone.`)) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Delete failed', 'error'); return; }
+      showToast(`${res.deletedCount} lesson plan${res.deletedCount === 1 ? '' : 's'} deleted${res.skippedCount ? `, ${res.skippedCount} skipped (not yours)` : ''}`, 'success');
+      loadLessonPlanDuplicatesView();
+    }).withFailureHandler(() => showToast('Network error', 'error')).deleteLessonPlansBulk(myId, ids);
   }
 
   function _deleteLessonPlanForm(id) {

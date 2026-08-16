@@ -3008,24 +3008,39 @@ const handlers = {
   async getLessonPlans([callerId, scope, filters]) {
     if (!callerId) return { error: 'Not signed in.' };
     const f = filters || {};
+    // 'all' is Admin/Cord-only — every plan regardless of author/shared
+    // status, so Admin can search, review, and manage the whole school's
+    // lesson plans (duplicate cleanup, ownership reassignment, etc.), not
+    // just their own + whatever's been explicitly shared.
+    const wantsAll = scope === 'all';
+    if (wantsAll && !(await _isCordOrAdmin(callerId))) return { error: 'Admin access required.' };
     let path = 'lesson_plans?select=id,class_name,subject,version,chapter,lesson_number,lesson_refs,topic,is_shared,created_by,forked_from_id,updated_at,youtube_url,lesson_code,class_date,period';
-    path += scope === 'shared'
-      ? `&is_shared=eq.true&created_by=neq.${encodeURIComponent(callerId)}`
-      : `&created_by=eq.${encodeURIComponent(callerId)}`;
+    if (wantsAll) {
+      // no visibility filter — every row
+    } else {
+      path += scope === 'shared'
+        ? `&is_shared=eq.true&created_by=neq.${encodeURIComponent(callerId)}`
+        : `&created_by=eq.${encodeURIComponent(callerId)}`;
+    }
     if (f.class_name) path += `&class_name=eq.${encodeURIComponent(f.class_name)}`;
     if (f.version) path += `&version=eq.${encodeURIComponent(f.version)}`;
     if (f.subject) path += `&subject=eq.${encodeURIComponent(f.subject)}`;
     if (f.chapter) path += `&chapter=eq.${encodeURIComponent(f.chapter)}`;
+    if (f.owner) path += `&created_by=eq.${encodeURIComponent(f.owner)}`;
+    if (f.search) {
+      const term = String(f.search).trim();
+      if (term) path += `&or=(topic.ilike.*${encodeURIComponent(term)}*,chapter.ilike.*${encodeURIComponent(term)}*,lesson_code.ilike.*${encodeURIComponent(term)}*)`;
+    }
     const countPath = path.replace('select=id,class_name,subject,version,chapter,lesson_number,lesson_refs,topic,is_shared,created_by,forked_from_id,updated_at,youtube_url,lesson_code,class_date,period', 'select=id');
     path += '&order=updated_at.desc&limit=500';
     const [rows, totalCount] = await Promise.all([supabaseRequest(path), _countRows(countPath)]);
     if (rows?.error) return { error: rows.details || rows.error };
     const list = Array.isArray(rows) ? rows : [];
 
-    // Uploader display names — only needed for the Shared Library (My Plans
-    // is always the caller themselves), same profile-join pattern as
-    // getAllUsersWithPresence.
-    if (scope === 'shared' && list.length) {
+    // Uploader display names — only needed for the Shared Library and Admin's
+    // All Plans view (My Plans is always the caller themselves), same
+    // profile-join pattern as getAllUsersWithPresence.
+    if ((scope === 'shared' || wantsAll) && list.length) {
       const ids = [...new Set(list.map(r => r.created_by))];
       const profiles = await supabaseRequest(`users_profile?teacher_id=in.(${ids.map(encodeURIComponent).join(',')})&select=teacher_id,full_name`);
       const nameById = {};
@@ -3033,6 +3048,74 @@ const handlers = {
       list.forEach(r => { r.uploaded_by_name = nameById[r.created_by] || r.created_by; });
     }
     return { result: 'success', plans: list, total: totalCount != null ? totalCount : list.length };
+  },
+
+  // Owner dropdown for the search-by-owner filter and the Admin ownership
+  // reassignment picker — distinct authors among lesson plans this caller
+  // can see (their own + shared) for regular teachers, or literally every
+  // author school-wide for Admin/Cord.
+  async getLessonPlanOwners([callerId, scope]) {
+    if (!callerId) return { error: 'Not signed in.' };
+    const isAdmin = await _isCordOrAdmin(callerId);
+    const visibility = (scope === 'all' && isAdmin)
+      ? ''
+      : `&or=(created_by.eq.${encodeURIComponent(callerId)},is_shared.eq.true)`;
+    const rows = await supabaseRequest(`lesson_plans?select=created_by${visibility}`);
+    if (rows?.error) return { error: rows.details || rows.error };
+    const ids = [...new Set((Array.isArray(rows) ? rows : []).map(r => r.created_by).filter(Boolean))];
+    if (!ids.length) return { result: 'success', owners: [] };
+    const profiles = await supabaseRequest(`users_profile?teacher_id=in.(${ids.map(encodeURIComponent).join(',')})&select=teacher_id,full_name`);
+    const nameById = {};
+    if (Array.isArray(profiles)) profiles.forEach(p => { nameById[p.teacher_id] = p.full_name; });
+    const owners = ids.map(id => ({ id, name: nameById[id] || id })).sort((a, b) => a.name.localeCompare(b.name));
+    return { result: 'success', owners };
+  },
+
+  // Admin/Cord-only: reassign an existing lesson plan to a different owner,
+  // e.g. correcting a plan that was authored/imported under the wrong
+  // teacher's account. Plain patch of created_by — the plan's content is
+  // untouched.
+  async reassignLessonPlanOwner([callerId, planId, newOwnerId]) {
+    if (!callerId || !planId || !newOwnerId) return { result: 'error', message: 'Missing plan or new owner.' };
+    if (!(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Admin access required.' };
+    const updated = await supabaseRequest(`lesson_plans?id=eq.${encodeURIComponent(planId)}`, 'patch', { created_by: newOwnerId });
+    if (updated?.error) return { result: 'error', message: updated.details || updated.error };
+    if (!updated[0]) return { result: 'error', message: 'Lesson plan not found.' };
+    return { result: 'success', plan: updated[0] };
+  },
+
+  // Duplicate-lesson-plan finder. Two plans are treated as duplicates when
+  // they share Class+Subject+Version+Chapter+Lesson Number (the natural key
+  // a lesson plan should be unique on) — a common artifact of repeated JSON/
+  // Excel bulk imports or the same lesson entered twice by hand. Admin/Cord
+  // see duplicates across the whole school; a regular teacher only sees
+  // duplicates among their own plans, since that's the only set they're
+  // allowed to clean up themselves.
+  async getLessonPlanDuplicates([callerId]) {
+    if (!callerId) return { error: 'Not signed in.' };
+    const isAdmin = await _isCordOrAdmin(callerId);
+    const visibility = isAdmin ? '' : `&created_by=eq.${encodeURIComponent(callerId)}`;
+    const rows = await supabaseRequest(`lesson_plans?select=id,class_name,subject,version,chapter,lesson_number,topic,created_by,updated_at,is_shared${visibility}`);
+    if (rows?.error) return { error: rows.details || rows.error };
+    const list = Array.isArray(rows) ? rows : [];
+    const groups = {};
+    list.forEach(r => {
+      if (!r.class_name || !r.subject || !r.chapter || !r.lesson_number) return;
+      const key = [r.class_name, r.subject, r.version || '', r.chapter, r.lesson_number].join('||');
+      (groups[key] = groups[key] || []).push(r);
+    });
+    const dupGroups = Object.values(groups).filter(g => g.length > 1);
+    if (!dupGroups.length) return { result: 'success', groups: [] };
+    const ids = [...new Set(dupGroups.flat().map(r => r.created_by).filter(Boolean))];
+    const profiles = ids.length ? await supabaseRequest(`users_profile?teacher_id=in.(${ids.map(encodeURIComponent).join(',')})&select=teacher_id,full_name`) : [];
+    const nameById = {};
+    if (Array.isArray(profiles)) profiles.forEach(p => { nameById[p.teacher_id] = p.full_name; });
+    dupGroups.forEach(g => g.forEach(r => { r.owner_name = nameById[r.created_by] || r.created_by; }));
+    dupGroups.sort((a, b) => b.length - a.length);
+    return { result: 'success', groups: dupGroups.map(g => ({
+      class_name: g[0].class_name, subject: g[0].subject, version: g[0].version,
+      chapter: g[0].chapter, lesson_number: g[0].lesson_number, count: g.length, plans: g,
+    })) };
   },
 
   async getLessonPlan([callerId, id]) {
@@ -3168,7 +3251,10 @@ const handlers = {
     const existing = Array.isArray(existingRows) && existingRows[0];
     if (!existing) return { result: 'error', message: 'Lesson plan not found.' };
 
-    if (existing.created_by === callerId) {
+    // Admin/Cord editing someone else's plan (e.g. fixing a duplicate or a
+    // data-entry mistake flagged in the Duplicates view) edits in place,
+    // same as the author would — an Admin correction isn't a new plan.
+    if (existing.created_by === callerId || await _isCordOrAdmin(callerId)) {
       const updated = await supabaseRequest(`lesson_plans?id=eq.${encodeURIComponent(planId)}`, 'patch', row);
       if (updated?.error) return { result: 'error', message: updated.details || updated.error };
       return { result: 'success', plan: updated[0], forked: false };
@@ -3197,6 +3283,26 @@ const handlers = {
     const deleted = await supabaseRequest(`lesson_plans?id=eq.${encodeURIComponent(id)}`, 'delete');
     if (deleted?.error) return { result: 'error', message: deleted.details || deleted.error };
     return { result: 'success' };
+  },
+
+  // Multi-select delete — used by the Duplicates view's "select all" +
+  // delete flow, so cleaning up a whole batch of near-identical imported
+  // plans doesn't take one confirm-click per row. Same per-row permission
+  // rule as the single-delete RPC (author or Admin/Cord); ids the caller
+  // isn't allowed to delete are silently skipped and reported back rather
+  // than failing the whole batch.
+  async deleteLessonPlansBulk([callerId, ids]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    const list = Array.isArray(ids) ? ids.filter(Boolean) : [];
+    if (!list.length) return { result: 'error', message: 'No lesson plans selected.' };
+    const isAdmin = await _isCordOrAdmin(callerId);
+    const rows = await supabaseRequest(`lesson_plans?id=in.(${list.map(encodeURIComponent).join(',')})&select=id,created_by`);
+    if (rows?.error) return { result: 'error', message: rows.details || rows.error };
+    const allowedIds = (Array.isArray(rows) ? rows : []).filter(r => isAdmin || r.created_by === callerId).map(r => r.id);
+    if (!allowedIds.length) return { result: 'error', message: 'You are not allowed to delete any of the selected plans.' };
+    const deleted = await supabaseRequest(`lesson_plans?id=in.(${allowedIds.map(encodeURIComponent).join(',')})`, 'delete');
+    if (deleted?.error) return { result: 'error', message: deleted.details || deleted.error };
+    return { result: 'success', deletedCount: allowedIds.length, skippedCount: list.length - allowedIds.length };
   },
 
   // Bulk import (100-1000+ plans from a single Excel file, one row per

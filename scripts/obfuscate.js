@@ -84,6 +84,9 @@ const RESERVED = [
   // lesson plan (My Lesson Plan) — list/form/curriculum/favorites/excel
   'loadLessonPlanView','_lpSetScope','_lpLoadList','_openLessonPlanForm',
   '_lpOnFilterChange','_lpClearFilters',
+  '_lpOnOwnerChange','_lpOnOwnerSearchInput','_lpClearOwnerFilter',
+  '_lpOpenReassignOwner','_lpConfirmReassignOwner',
+  'loadLessonPlanDuplicatesView','_lpDupToggle','_lpDupToggleGroup','_lpDupToggleAll','_lpDupDeleteOne','_lpDupDeleteSelected',
   'loadTextbooksView','_tbSetClass','_sylSetLevel',
   '_closePdfViewer','_tbOpenBook','_sylOpenDoc','_tbOpenPublication',
   '_lpToggleFavorite','_openCurriculumFormById','_lpDownloadTemplate','_lpHandleExcelUpload','_lpDuplicatePlan',
