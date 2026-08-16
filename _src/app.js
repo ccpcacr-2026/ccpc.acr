@@ -6867,10 +6867,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       body{font-family:${uiFont};font-size:${S('9pt', '10.4pt')};line-height:${S('1.35', '1.5')};color:#111;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
       .page{min-height:${dims.contentHeightMm}mm;max-height:${dims.contentHeightMm}mm;overflow:hidden;position:relative;}
 
-      .hdr{background:#0b2545;color:#fff;display:flex;align-items:stretch;gap:10pt;padding:6pt 10pt;border-radius:3pt;margin-bottom:${S('7pt', '9pt')};}
+      .hdr{background:#fff;color:#000;border:1pt solid #0b2545;display:flex;align-items:stretch;gap:10pt;padding:6pt 10pt;border-radius:3pt;margin-bottom:${S('7pt', '9pt')};}
       .hdr-text{flex:1;display:flex;flex-direction:column;justify-content:center;text-align:center;}
-      .hdr .main{font-family:${bodyFont};font-size:${S('14pt', '16pt')};font-weight:700;letter-spacing:.02em;}
-      .hdr .sub{font-family:${uiFont};font-size:${S('8.4pt', '9.6pt')};font-weight:700;margin-top:3pt;color:#cfe0ff;letter-spacing:.03em;}
+      .hdr .main{font-family:${bodyFont};font-size:${S('14pt', '16pt')};font-weight:700;letter-spacing:.02em;color:#000;}
+      .hdr .sub{font-family:${uiFont};font-size:${S('8.4pt', '9.6pt')};font-weight:700;margin-top:3pt;color:#000;letter-spacing:.03em;}
       .hdr-logo,.hdr-qr{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:44pt;}
       .hdr-logo img,.hdr-qr img{height:100%;width:auto;max-width:100%;display:block;background:#fff;border-radius:2pt;padding:2pt;object-fit:contain;}
 
@@ -6899,7 +6899,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
          share of the extra Legal-page room (bigger font AND more row
          padding, not just font). */
       table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:${S('8.2pt', '9.6pt')};margin-top:4pt;}
-      th{border:1pt solid #0b2545;padding:${S('4.5pt 6pt', '6.5pt 8pt')};font-weight:700;background:#0b2545;color:#fff;font-size:${S('7.3pt', '8.4pt')};text-align:left;text-transform:uppercase;letter-spacing:.03em;word-wrap:break-word;}
+      th{border:1pt solid #0b2545;padding:${S('4.5pt 6pt', '6.5pt 8pt')};font-weight:700;background:#fff;color:#000;font-size:${S('7.3pt', '8.4pt')};text-align:left;text-transform:uppercase;letter-spacing:.03em;word-wrap:break-word;}
       td{border:1pt solid #b9c8e2;padding:${S('4.5pt 6pt', '6.5pt 8pt')};vertical-align:top;line-height:${S('1.4', '1.55')};word-wrap:break-word;overflow-wrap:break-word;}
       tbody tr:nth-child(even) td{background:#f2f6fc;}
       th:nth-child(1),td.ph-name{width:12%;}
