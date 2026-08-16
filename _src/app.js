@@ -922,7 +922,12 @@
       <div class="mb-4">
         ${g.label ? `<p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">${_escHtml(g.label)}</p>` : ''}
         <div class="grid grid-cols-3 gap-3">${g.links.map(tileHtml).join('')}</div>
-      </div>`).join('');
+      </div>`).join('')
+      // Designer credit — mobile has no always-visible sidebar to anchor it
+      // in (off-canvas, hidden by default), so it only shows here, at the
+      // bottom of the one mobile-only screen that's roughly this app's
+      // "home" — deliberately the smallest text in the UI.
+      + `<p class="text-center text-[8px] text-slate-400 font-bold mt-2 mb-1">Designed &amp; Developed by: Md. Mamunur Rashid, CCPC</p>`;
     lucide.createIcons();
   }
 
