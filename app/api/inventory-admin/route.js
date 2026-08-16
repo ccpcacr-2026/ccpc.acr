@@ -314,8 +314,30 @@ async function _settingsDelete(payload) {
   if (!cfg) return NextResponse.json({ result: 'error', message: 'Unknown entity' }, { status: 404 });
   if (!payload.id) return NextResponse.json({ result: 'error', message: 'id is required' }, { status: 400 });
   const result = await sbInventory(`${cfg.table}?id=eq.${encodeURIComponent(payload.id)}`, 'DELETE');
-  if (result?.error) return NextResponse.json({ result: 'error', message: result.error }, { status: 500 });
+  if (result?.error) return NextResponse.json({ result: 'error', message: _friendlyDeleteError(result.error) }, { status: 500 });
   return NextResponse.json({ result: 'success' });
+}
+
+// sbInventory's error is the raw PostgREST response text (a JSON string) —
+// a foreign-key violation (code 23503, e.g. deleting a Consumer that still
+// has Distribution history) surfaced that raw as literally
+// {"code":"23503","details":"Key (id)=(16) is still referenced from table
+// \"distributions\".",...} straight in the UI, which reads as a crash, not
+// an explanation. Detects that specific case and rewrites it into what
+// actually happened and what to do instead — falls back to the raw text
+// for anything else, so an unexpected error is never silently swallowed.
+function _friendlyDeleteError(raw) {
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed.code === '23503') {
+      const m = /still referenced from table "([^"]+)"/.exec(parsed.details || '');
+      const refTable = m ? m[1].replace(/_/g, ' ') : 'other records';
+      return `Can't delete — this is still referenced by existing ${refTable}. Remove or reassign those first, or set it Inactive instead of deleting it.`;
+    }
+    return parsed.message || raw;
+  } catch (e) {
+    return raw;
+  }
 }
 
 // ── Stock Overview + Product Detail (read-only, ported verbatim) ───────────
