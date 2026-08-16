@@ -4492,16 +4492,27 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return String(raw || '').trim().replace(/^(class|grade)\s+/i, '').trim();
   }
 
+  // NotebookLM's answers are grounded in the source textbook/document and
+  // carry that document's inline citation markers along with the text it
+  // quoted — e.g. "...আলোচনা করা [১০৪]।" (Bangla digits) or "...discussed
+  // [104]." (Latin digits), where [১০৪]/[104] is a page/passage reference
+  // that means nothing outside the source document. Strips any [digits]
+  // marker (either digit script) and the space before it, from every free-
+  // text field pulled into a lesson plan.
+  function _lpStripRefNumbers(s) {
+    return String(s || '').replace(/\s*\[[0-9০-৯]+\]/g, '').trim();
+  }
+
   function _lpJsonBuildRows(items) {
     return items.map(item => {
-      const chapter = String(item.chapter || '').trim();
+      const chapter = _lpStripRefNumbers(item.chapter || '');
       const lessonNumbers = (Array.isArray(item.lesson_numbers) ? item.lesson_numbers : [item.lesson_number]).map(Number).filter(n => n > 0).sort((a, b) => a - b);
       const phases = LESSON_PHASES.map((name, i) => {
         const src = (Array.isArray(item.phases) && (item.phases.find(p => p.phase === name) || item.phases[i])) || {};
         return {
           phase: name,
-          teacher_activity: src.teacher_activity || '',
-          learner_activity: src.learner_activity || '',
+          teacher_activity: _lpStripRefNumbers(src.teacher_activity || ''),
+          learner_activity: _lpStripRefNumbers(src.learner_activity || ''),
           duration_minutes: Number(src.duration_minutes) || null,
         };
       });
@@ -4511,9 +4522,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         version: String(item.version || '').trim(),
         chapter, lesson_number: lessonNumbers[0] || null,
         lesson_refs: chapter ? [{ chapter, lesson_numbers: lessonNumbers }] : [],
-        topic: item.topic || '', time_minutes: Number(item.time_minutes) || 40,
-        teaching_aids: item.teaching_aids || '', method: item.method || '',
-        learning_outcomes: item.learning_outcomes || '', phases,
+        topic: _lpStripRefNumbers(item.topic || ''), time_minutes: Number(item.time_minutes) || 40,
+        teaching_aids: _lpStripRefNumbers(item.teaching_aids || ''), method: _lpStripRefNumbers(item.method || ''),
+        learning_outcomes: _lpStripRefNumbers(item.learning_outcomes || ''), phases,
         self_reflection: null, is_shared: true, source: 'notebooklm_import',
       };
     });
