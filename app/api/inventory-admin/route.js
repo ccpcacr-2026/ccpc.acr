@@ -158,6 +158,8 @@ const ENTITIES = {
     fields: [
       { name: 'code', label: 'Code#', type: 'text' },
       { name: 'name', label: 'Product Name', type: 'text', required: true },
+      { name: 'register_no', label: 'Register No.', type: 'text' },
+      { name: 'page_no', label: 'Page No.', type: 'text' },
       { name: 'group_id', label: 'Group', type: 'select', source: 'groups', optionLabel: 'name' },
       { name: 'unit_id', label: 'Unit Type', type: 'select', source: 'units', optionLabel: 'name' },
       { name: 'type', label: 'Type', type: 'radio', default: 'consumable',

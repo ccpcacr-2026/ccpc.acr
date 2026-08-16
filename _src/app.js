@@ -14597,6 +14597,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     products: { label: 'Product', title: 'PRODUCT INFO', importKey: 'name',
       columns: [
         { key: 'code', label: 'Code#' }, { key: 'name', label: 'Product Name' },
+        { key: 'register_no', label: 'Register No.' }, { key: 'page_no', label: 'Page No.' },
         { key: 'group_id', label: 'Group', lookup: 'groups', lookupLabel: 'name' },
         { key: 'unit_id', label: 'Unit', lookup: 'units', lookupLabel: 'name' },
         { key: 'is_active', label: 'Active' },
@@ -14604,6 +14605,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       fields: [
         { name: 'code', label: 'Code#', type: 'text' },
         { name: 'name', label: 'Product Name', type: 'text', required: true },
+        { name: 'register_no', label: 'Register No.', type: 'text' },
+        { name: 'page_no', label: 'Page No.', type: 'text' },
         { name: 'group_id', label: 'Group', type: 'select', source: 'groups', optionLabel: 'name' },
         { name: 'unit_id', label: 'Unit Type', type: 'select', source: 'units', optionLabel: 'name' },
         { name: 'type', label: 'Type', type: 'radio', default: 'consumable',
@@ -15261,6 +15264,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div>
             <button onclick="switchInvAdminTab('stock')" class="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600">&larr; Back to Stock Overview</button>
             <p class="text-lg font-black text-slate-800 mt-1">${_escHtml(product.name)}</p>
+            ${(product.register_no || product.page_no) ? `<p class="text-[10px] font-bold text-slate-400 mt-0.5">${product.register_no ? `Register No. ${_escHtml(product.register_no)}` : ''}${product.register_no && product.page_no ? ' · ' : ''}${product.page_no ? `Page No. ${_escHtml(product.page_no)}` : ''}</p>` : ''}
           </div>
           <button onclick="openInventoryDistributeFor(${product.id})" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all shrink-0">+ New Distribution</button>
         </div>
