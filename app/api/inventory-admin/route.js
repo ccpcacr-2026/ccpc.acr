@@ -505,6 +505,57 @@ async function _distributeList() {
   return NextResponse.json({ result: 'success', data: Array.isArray(rows) ? rows : [] });
 }
 
+// Deleting a distribution isn't just removing rows — it drew stock via
+// FIFO (decrementing purchase_items.qty_remaining) and credited the
+// recipient's holder_stock at the time it was created, so both of those
+// have to be reversed here or the delete would silently leave stock
+// accounting wrong (remaining understated on the lots it drew from,
+// overstated on the recipient's holding). Per-item: add the quantity back
+// to its original lot, subtract it from that recipient+product's
+// holder_stock (never below 0 — the recipient may have already further
+// distributed/consumed some of it, in which case this is a best-effort
+// reversal, not a guarantee).
+async function _distributeDeleteOne(id) {
+  const distRows = await sbInventory(`distributions?id=eq.${encodeURIComponent(id)}&select=id,consumer_id`);
+  if (distRows?.error) return distRows.error;
+  const distribution = Array.isArray(distRows) && distRows[0];
+  if (!distribution) return null; // already gone — nothing to reverse, treat as success
+
+  const items = await sbInventory(`distribution_items?distribution_id=eq.${encodeURIComponent(id)}&select=id,product_id,purchase_item_id,quantity`);
+  if (items?.error) return items.error;
+
+  for (const item of (Array.isArray(items) ? items : [])) {
+    if (item.purchase_item_id) {
+      const lotRows = await sbInventory(`purchase_items?id=eq.${encodeURIComponent(item.purchase_item_id)}&select=qty_remaining`);
+      const lot = Array.isArray(lotRows) && lotRows[0];
+      if (lot) await sbInventory(`purchase_items?id=eq.${encodeURIComponent(item.purchase_item_id)}`, 'PATCH', { qty_remaining: Number(lot.qty_remaining || 0) + Number(item.quantity || 0) });
+    }
+    if (distribution.consumer_id) {
+      const holdRows = await sbInventory(`holder_stock?consumer_id=eq.${encodeURIComponent(distribution.consumer_id)}&product_id=eq.${encodeURIComponent(item.product_id)}&select=id,quantity`);
+      const hold = Array.isArray(holdRows) && holdRows[0];
+      if (hold) await sbInventory(`holder_stock?id=eq.${hold.id}`, 'PATCH', { quantity: Math.max(0, Number(hold.quantity || 0) - Number(item.quantity || 0)) });
+    }
+  }
+
+  const delItems = await sbInventory(`distribution_items?distribution_id=eq.${encodeURIComponent(id)}`, 'DELETE');
+  if (delItems?.error) return delItems.error;
+  const delDist = await sbInventory(`distributions?id=eq.${encodeURIComponent(id)}`, 'DELETE');
+  if (delDist?.error) return delDist.error;
+  return null;
+}
+
+async function _distributeDelete(payload) {
+  const ids = Array.isArray(payload.ids) ? payload.ids : (payload.id ? [payload.id] : []);
+  if (!ids.length) return NextResponse.json({ result: 'error', message: 'No distribution(s) selected.' });
+  let deletedCount = 0;
+  const errors = [];
+  for (const id of ids) {
+    const err = await _distributeDeleteOne(id);
+    if (err) errors.push(`#${id}: ${err}`); else deletedCount++;
+  }
+  return NextResponse.json({ result: errors.length ? 'partial' : 'success', deletedCount, errors });
+}
+
 async function _distributeOptions() {
   const [consumers, committees, assignments, profiles, rooms, buildings, floors] = await Promise.all([
     sbInventory('consumers?select=*'),
@@ -1029,6 +1080,7 @@ export async function POST(req) {
   if (action === 'product_history') return _productHistory(payload);
   if (action === 'registry_create') return _registryCreate(payload);
   if (action === 'distribute_list') return _distributeList();
+  if (action === 'distribute_delete') return _distributeDelete(payload);
   if (action === 'distribute_options') return _distributeOptions();
   if (action === 'distribute_create') return _distributeCreate(payload);
   if (action === 'product_attribute_options') return _productAttributeOptions(payload);

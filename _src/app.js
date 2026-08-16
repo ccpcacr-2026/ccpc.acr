@@ -15605,10 +15605,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   let _invDistributeRows = [];
   let _invDistributeSearch = '';
+  let _invDistributeSelected = new Set();
 
   function loadInventoryDistributeList() {
     const body = document.getElementById('invAdminBody');
     if (!body) return;
+    _invDistributeSelected = new Set();
     body.innerHTML = `
       <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
         <p class="text-sm font-black text-slate-800 uppercase tracking-widest">Distribute</p>
@@ -15617,6 +15619,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button onclick="openInventoryDistributeForm()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">+ New Distribution</button>
         </div>
       </div>
+      <div id="invDistributeToolbar"></div>
       <div id="invDistributeListWrap">${`<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`}</div>`;
     _invAdminFetch('distribute_list', {}).then(res => {
       _invDistributeRows = (res && res.data) || [];
@@ -15629,26 +15632,57 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _invRenderDistributeList();
   }
 
+  function _invDistributeToggleSelect(id, checked) {
+    if (checked) _invDistributeSelected.add(id); else _invDistributeSelected.delete(id);
+    _invRenderDistributeToolbar();
+    const row = document.getElementById('invDistributeRow_' + id);
+    if (row) row.classList.toggle('bg-blue-50', checked);
+  }
+
+  function _invDistributeToggleAll(checked) {
+    const q = _invDistributeSearch.trim().toLowerCase();
+    const visible = !q ? _invDistributeRows : _invDistributeRows.filter(r => _invDistributeMatchesSearch(r, q));
+    _invDistributeSelected = checked ? new Set(visible.map(r => r.id)) : new Set();
+    _invRenderDistributeList();
+  }
+
+  function _invRenderDistributeToolbar() {
+    const host = document.getElementById('invDistributeToolbar');
+    if (!host) return;
+    const n = _invDistributeSelected.size;
+    host.innerHTML = n ? `
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-2.5 mb-2 flex items-center justify-between flex-wrap gap-3">
+        <span class="text-[10px] font-black text-slate-500 uppercase tracking-widest">${n} selected</span>
+        <button onclick="_invDistributeDeleteSelected()" class="px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest bg-red-500 text-white hover:bg-red-600 transition-all">Delete Selected (${n})</button>
+      </div>` : '';
+  }
+
+  function _invDistributeMatchesSearch(r, q) {
+    const itemsText = (r.distribution_items || []).map(it => (it.products && it.products.name) || '').join(' ');
+    return `${r.distribute_no || ''} ${(r.consumers && r.consumers.name) || ''} ${itemsText} ${r.remarks || ''}`.toLowerCase().includes(q);
+  }
+
   function _invRenderDistributeList() {
     const wrap = document.getElementById('invDistributeListWrap');
     if (!wrap) return;
     const q = _invDistributeSearch.trim().toLowerCase();
-    const rows = !q ? _invDistributeRows : _invDistributeRows.filter(r => {
-      const itemsText = (r.distribution_items || []).map(it => (it.products && it.products.name) || '').join(' ');
-      return `${r.distribute_no || ''} ${(r.consumers && r.consumers.name) || ''} ${itemsText} ${r.remarks || ''}`.toLowerCase().includes(q);
-    });
+    const rows = !q ? _invDistributeRows : _invDistributeRows.filter(r => _invDistributeMatchesSearch(r, q));
+    _invRenderDistributeToolbar();
     if (!rows.length) { wrap.innerHTML = `<div class="bg-white rounded-3xl border border-slate-200 shadow-sm text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">${_invDistributeRows.length ? 'No matches' : 'No distributions yet'}</div>`; return; }
+    const allChecked = rows.length && rows.every(r => _invDistributeSelected.has(r.id));
     wrap.innerHTML = `
       <div class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-x-auto">
         <table class="w-full text-left text-xs">
           <thead class="bg-slate-50"><tr>
+            <th class="px-3 py-2.5"><input type="checkbox" onchange="_invDistributeToggleAll(this.checked)" ${allChecked ? 'checked' : ''}></th>
             <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Date</th>
             <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">No.</th>
             <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Recipient</th>
             <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Items</th>
             <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Remarks</th>
           </tr></thead>
-          <tbody>${rows.map(r => `<tr class="border-t border-slate-50">
+          <tbody>${rows.map(r => `<tr id="invDistributeRow_${r.id}" class="border-t border-slate-50 ${_invDistributeSelected.has(r.id) ? 'bg-blue-50' : ''}">
+            <td class="px-3 py-2.5"><input type="checkbox" onchange="_invDistributeToggleSelect(${r.id}, this.checked)" ${_invDistributeSelected.has(r.id) ? 'checked' : ''}></td>
             <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(String(r.created_at || '').slice(0, 10))}</td>
             <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(r.distribute_no || '—')}</td>
             <td class="px-3 py-2.5 font-bold text-slate-700">${_escHtml((r.consumers && r.consumers.name) || '—')}${r.consumers && r.consumers.type ? ` <span class="text-slate-400">(${_escHtml(r.consumers.type)})</span>` : ''}</td>
@@ -15657,6 +15691,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </tr>`).join('')}</tbody>
         </table>
       </div>`;
+  }
+
+  // Deleting a distribution reverses the stock it moved (see
+  // _distributeDeleteOne server-side) — not just row deletion, so this is
+  // a real undo, not merely hiding history.
+  function _invDistributeDeleteSelected() {
+    const ids = [..._invDistributeSelected];
+    if (!ids.length) return;
+    if (!confirm(`Delete ${ids.length} selected distribution${ids.length > 1 ? 's' : ''}? This reverses the stock they moved (adds it back to the source lot, removes it from the recipient's holding) and cannot be undone.`)) return;
+    _invAdminFetch('distribute_delete', { ids }).then(res => {
+      if (!res || (res.result !== 'success' && res.result !== 'partial')) { showToast((res && res.message) || 'Delete failed', 'error'); return; }
+      showToast(`${res.deletedCount} distribution${res.deletedCount === 1 ? '' : 's'} deleted${res.errors && res.errors.length ? `, ${res.errors.length} failed` : ''}`, res.errors && res.errors.length ? 'error' : 'success');
+      loadInventoryDistributeList();
+    }).catch(err => showToast(err.message || 'Delete failed', 'error'));
   }
 
   function openInventoryDistributeForm() {
