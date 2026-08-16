@@ -3975,7 +3975,16 @@
     // (or vice versa) on every back-navigation would be as disorienting as
     // losing the filters. Only _lpSetScope (an explicit tab click) changes it.
     const tabBtn = 'px-2.5 py-1.5 lg:px-4 lg:py-2.5 rounded-lg lg:rounded-xl text-[10px] lg:text-xs font-black uppercase tracking-widest transition-all';
-    const actionBtn = 'px-2.5 py-2 lg:px-4 lg:py-2.5 rounded-lg lg:rounded-xl font-black text-[9px] lg:text-[10px] uppercase tracking-widest bg-white border border-slate-200 hover:bg-slate-50 transition-all flex items-center gap-1 lg:gap-1.5 whitespace-nowrap';
+    // "group" + the label span's max-w-0→max-w-[Npx] on group-hover is a
+    // pure-CSS hover-to-expand pill: icon-only by default at every screen
+    // size (compact), and on a mouse hover the label slides out — touch
+    // devices with no hover just keep seeing the icon (title attribute is
+    // still there as an a11y/long-press fallback). Deliberately NOT gated
+    // by a screen-size breakpoint anymore — the previous "hidden lg:inline"
+    // approach is what caused these buttons to vanish entirely at some
+    // viewport widths.
+    const actionBtn = 'group px-2.5 py-2 lg:px-3 lg:py-2.5 rounded-lg lg:rounded-xl font-black text-[9px] lg:text-[10px] uppercase tracking-widest bg-white border border-slate-200 hover:bg-slate-50 transition-all duration-300 flex items-center gap-0 hover:gap-1.5 whitespace-nowrap overflow-hidden';
+    const actionLabel = 'inline-block max-w-0 group-hover:max-w-[10rem] overflow-hidden transition-all duration-300';
     // Duplicates/Clean Ref Numbers/Bulk Import/Import from NotebookLM —
     // always rendered inline (never hidden behind a breakpoint-gated "More"
     // menu, which turned out to be unreliable: at some viewport widths
@@ -3983,10 +3992,10 @@
     // trigger showed up, hiding these options entirely). flex-wrap already
     // lets them wrap onto a second line on a narrow screen instead.
     const moreActions = `
-      <button onclick="loadLessonPlanDuplicatesView()" title="Find lesson plans that look like duplicates" class="${actionBtn}"><i data-lucide="copy-check" class="h-3.5 w-3.5 shrink-0"></i><span class="hidden lg:inline">Duplicates</span></button>
-      ${_lpIsAdmin() ? `<button onclick="_lpCleanupRefNumbers()" title="Strip leftover [reference number] citation markers from already-saved lesson plans" class="${actionBtn}"><i data-lucide="eraser" class="h-3.5 w-3.5 shrink-0"></i><span class="hidden lg:inline">Clean Ref Numbers</span></button>` : ''}
-      <button onclick="loadLessonPlanBulkImportView()" title="Bulk Import" class="${actionBtn}"><i data-lucide="upload-cloud" class="h-3.5 w-3.5 shrink-0"></i><span class="hidden lg:inline">Bulk Import</span></button>
-      <button onclick="loadLessonPlanJsonImportView()" title="Import from NotebookLM" class="${actionBtn}"><i data-lucide="sparkles" class="h-3.5 w-3.5 shrink-0"></i><span class="hidden lg:inline">Import from NotebookLM</span></button>`;
+      <button onclick="loadLessonPlanDuplicatesView()" title="Find lesson plans that look like duplicates" class="${actionBtn}"><i data-lucide="copy-check" class="h-3.5 w-3.5 shrink-0"></i><span class="${actionLabel}">Duplicates</span></button>
+      ${_lpIsAdmin() ? `<button onclick="_lpCleanupRefNumbers()" title="Strip leftover [reference number] citation markers from already-saved lesson plans" class="${actionBtn}"><i data-lucide="eraser" class="h-3.5 w-3.5 shrink-0"></i><span class="${actionLabel}">Clean Ref Numbers</span></button>` : ''}
+      <button onclick="loadLessonPlanBulkImportView()" title="Bulk Import" class="${actionBtn}"><i data-lucide="upload-cloud" class="h-3.5 w-3.5 shrink-0"></i><span class="${actionLabel}">Bulk Import</span></button>
+      <button onclick="loadLessonPlanJsonImportView()" title="Import from NotebookLM" class="${actionBtn}"><i data-lucide="sparkles" class="h-3.5 w-3.5 shrink-0"></i><span class="${actionLabel}">Import from NotebookLM</span></button>`;
     container.innerHTML = `
       <div class="pt-4 max-w-7xl mx-auto pb-10">
         <div class="sticky top-0 z-20 bg-white/95 backdrop-blur rounded-2xl shadow-sm px-2.5 py-2.5 lg:px-4 lg:py-3 mb-5 -mx-1">
