@@ -778,29 +778,81 @@ async function _settingsImportConfirm(payload) {
   const keyCol = cfg.importKey;
   const rows = Array.isArray(payload.rows) ? payload.rows : [];
   const updateExisting = !!payload.update_existing;
+  const createMissingLookups = !!payload.create_missing_lookups;
   if (!rows.length) return NextResponse.json({ result: 'error', message: 'No rows to import.' });
 
   try {
     const fieldByName = Object.fromEntries(cfg.fields.map(f => [f.name, f]));
-    const lookupSources = [...new Set(cfg.fields.filter(f => f.type === 'select').map(f => f.source))];
-    const lookupMaps = {};
-    for (const source of lookupSources) {
-      const srcCfg = ENTITIES[source];
-      const optionLabel = cfg.fields.find(f => f.source === source).optionLabel;
-      // Units in particular (Unit Conversion's Unit/Convert From/Convert To
-      // columns) are just as often written in a spreadsheet by their
-      // abbreviation ("kg", "pcs") as by their full name ("Kilogram",
-      // "Piece") — match either, so a real-world file using short forms
-      // doesn't silently fail to resolve every row.
-      const hasShortForm = srcCfg.fields.some(f => f.name === 'short_form');
-      const list = await sbInventory(`${srcCfg.table}?select=id,${optionLabel}${hasShortForm ? ',short_form' : ''}`);
-      if (list?.error) throw new Error(list.error);
-      const map = new Map();
-      list.forEach(r => {
-        map.set(String(r[optionLabel]).toLowerCase(), r.id);
-        if (hasShortForm && r.short_form) map.set(String(r.short_form).toLowerCase(), r.id);
-      });
-      lookupMaps[source] = map;
+    const selectFields = cfg.fields.filter(f => f.type === 'select');
+    const lookupSources = [...new Set(selectFields.map(f => f.source))];
+    const buildLookupMaps = async () => {
+      const maps = {};
+      for (const source of lookupSources) {
+        const srcCfg = ENTITIES[source];
+        const optionLabel = cfg.fields.find(f => f.source === source).optionLabel;
+        // Units in particular (Unit Conversion's Unit/Convert From/Convert
+        // To columns) are just as often written in a spreadsheet by their
+        // abbreviation ("kg", "pcs") as by their full name ("Kilogram",
+        // "Piece") — match either, so a real-world file using short forms
+        // doesn't silently fail to resolve every row.
+        const hasShortForm = srcCfg.fields.some(f => f.name === 'short_form');
+        const list = await sbInventory(`${srcCfg.table}?select=id,${optionLabel}${hasShortForm ? ',short_form' : ''}`);
+        if (list?.error) throw new Error(list.error);
+        const map = new Map();
+        list.forEach(r => {
+          map.set(String(r[optionLabel]).toLowerCase(), r.id);
+          if (hasShortForm && r.short_form) map.set(String(r.short_form).toLowerCase(), r.id);
+        });
+        maps[source] = map;
+      }
+      return maps;
+    };
+    let lookupMaps = await buildLookupMaps();
+
+    // Scan for select-field cell text that doesn't match anything, BEFORE
+    // touching the target table at all. First time through (no
+    // create_missing_lookups flag yet), stop here and hand the caller back
+    // the distinct list to confirm with the user — "kg"/"MT"/"bx" etc. not
+    // existing yet is common when a file uses abbreviations the Units table
+    // hasn't been given as a Short Form. Only once the caller re-sends the
+    // exact same rows with create_missing_lookups:true do we actually
+    // create them (as a new row per source table, named after the literal
+    // spreadsheet text) and proceed with the import in the same request.
+    if (!createMissingLookups) {
+      const missingBySource = {};
+      for (const row of rows) {
+        for (const field of selectFields) {
+          const raw = String(row[field.name] || '').trim();
+          if (!raw) continue;
+          if (lookupMaps[field.source].has(raw.toLowerCase())) continue;
+          const set = missingBySource[field.source] || (missingBySource[field.source] = new Set());
+          set.add(raw);
+        }
+      }
+      const sourceLabels = { units: 'Unit' };
+      const missing = Object.entries(missingBySource)
+        .filter(([, set]) => set.size)
+        .map(([source, set]) => ({ source, label: sourceLabels[source] || source, values: [...set] }));
+      if (missing.length) {
+        return NextResponse.json({ result: 'needs_confirmation', missing });
+      }
+    } else {
+      for (const source of lookupSources) {
+        const srcCfg = ENTITIES[source];
+        const optionLabel = cfg.fields.find(f => f.source === source).optionLabel;
+        const toCreate = new Set();
+        for (const row of rows) {
+          for (const field of selectFields.filter(f => f.source === source)) {
+            const raw = String(row[field.name] || '').trim();
+            if (raw && !lookupMaps[source].has(raw.toLowerCase())) toCreate.add(raw);
+          }
+        }
+        if (toCreate.size) {
+          const created = await sbInventory(srcCfg.table, 'POST', [...toCreate].map(name => ({ [optionLabel]: name })));
+          if (created?.error) throw new Error(created.error);
+          lookupMaps = await buildLookupMaps(); // pick up the rows we just created
+        }
+      }
     }
 
     let skippedMissingKey = 0, skippedDuplicateInFile = 0;

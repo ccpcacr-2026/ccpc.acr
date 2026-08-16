@@ -15175,16 +15175,33 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }).catch(err => showToast((err && err.message) || 'Network error during preview', 'error'));
   }
 
-  function confirmInventoryImport() {
+  function confirmInventoryImport(createMissingLookups) {
     const rows = _invBuildMappedImportRows();
     const updateExisting = document.getElementById('invImportUpdateExisting').checked;
     const btn = document.getElementById('invImportConfirmBtn');
-    const confirmMsg = updateExisting
-      ? 'Import new records AND update existing records with the mapped columns from this file?'
-      : 'Import new records now? Existing records will be left untouched.';
-    if (!confirm(confirmMsg)) return;
+    // Only ask the "import now?" question the first time through — once
+    // the user has already confirmed creating missing units and we're
+    // re-sending the same rows, don't ask twice.
+    if (!createMissingLookups) {
+      const confirmMsg = updateExisting
+        ? 'Import new records AND update existing records with the mapped columns from this file?'
+        : 'Import new records now? Existing records will be left untouched.';
+      if (!confirm(confirmMsg)) return;
+    }
     if (btn) { btn.disabled = true; btn.textContent = 'Importing…'; }
-    _invAdminFetch('settings_import_confirm', { entity: _invImportEntity, rows, update_existing: updateExisting }).then(res => {
+    _invAdminFetch('settings_import_confirm', { entity: _invImportEntity, rows, update_existing: updateExisting, create_missing_lookups: !!createMissingLookups }).then(res => {
+      // The file references Unit/Convert From/Convert To (or any other
+      // select-field) text that doesn't match an existing record yet —
+      // nothing was imported or created; ask before doing either.
+      if (res && res.result === 'needs_confirmation') {
+        const lines = res.missing.map(m => `${m.label}: ${m.values.join(', ')}`).join('\n');
+        if (confirm(`These don't exist yet and will be created:\n\n${lines}\n\nCreate them and continue the import?`)) {
+          confirmInventoryImport(true);
+        } else {
+          if (btn) { btn.disabled = false; btn.textContent = `Import ${rows.length} New Record${rows.length === 1 ? '' : 's'}`; }
+        }
+        return;
+      }
       if (!res || (res.result !== 'success' && res.result !== 'partial')) {
         if (btn) { btn.disabled = false; btn.textContent = 'Retry Import'; }
         showToast((res && res.message) || 'Import failed', 'error');
