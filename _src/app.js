@@ -3949,6 +3949,20 @@
     return /Admin|Cord/.test(role);
   }
 
+  // Mobile-only "More actions" dropdown (Duplicates/Clean Ref Numbers/Bulk
+  // Import/Import from NotebookLM) — these show as a plain inline row on
+  // sm+ screens, folded behind this menu below sm so the header stays
+  // compact on a phone.
+  function _lpToggleMoreMenu() {
+    const menu = document.getElementById('lpMoreMenu');
+    if (menu) menu.classList.toggle('hidden');
+  }
+  document.addEventListener('click', e => {
+    const menu = document.getElementById('lpMoreMenu');
+    if (!menu || menu.classList.contains('hidden')) return;
+    if (!menu.parentElement.contains(e.target)) menu.classList.add('hidden');
+  });
+
   // Admin-only one-time cleanup: strips leftover [reference number] citation
   // markers (see _lpStripRefNumbers, applied to new imports going forward)
   // from lesson plans that were already saved before that fix shipped.
@@ -3974,26 +3988,41 @@
     // views, and switching the user back to "My Plans" from "Shared Library"
     // (or vice versa) on every back-navigation would be as disorienting as
     // losing the filters. Only _lpSetScope (an explicit tab click) changes it.
+    const tabBtn = 'px-2.5 py-1.5 sm:px-4 sm:py-2.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-widest transition-all';
+    const actionBtn = 'px-2.5 py-2 sm:px-4 sm:py-2.5 rounded-lg sm:rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest bg-white border border-slate-200 hover:bg-slate-50 transition-all flex items-center gap-1 sm:gap-1.5 whitespace-nowrap';
+    // Duplicates/Clean Ref Numbers/Bulk Import/Import from NotebookLM are
+    // secondary actions — folded into a "More" dropdown below sm so the
+    // header doesn't turn into a wall of buttons on a phone, while desktop
+    // keeps them as a normal inline row (same onclick handlers, just shown
+    // in two different containers rather than duplicating logic).
+    const moreActions = `
+      <button onclick="loadLessonPlanDuplicatesView()" title="Find lesson plans that look like duplicates" class="${actionBtn}"><i data-lucide="copy-check" class="h-3.5 w-3.5 shrink-0"></i><span>Duplicates</span></button>
+      ${_lpIsAdmin() ? `<button onclick="_lpCleanupRefNumbers()" title="Strip leftover [reference number] citation markers from already-saved lesson plans" class="${actionBtn}"><i data-lucide="eraser" class="h-3.5 w-3.5 shrink-0"></i><span>Clean Ref Numbers</span></button>` : ''}
+      <button onclick="loadLessonPlanBulkImportView()" class="${actionBtn}"><i data-lucide="upload-cloud" class="h-3.5 w-3.5 shrink-0"></i><span>Bulk Import</span></button>
+      <button onclick="loadLessonPlanJsonImportView()" class="${actionBtn}"><i data-lucide="sparkles" class="h-3.5 w-3.5 shrink-0"></i><span>Import from NotebookLM</span></button>`;
     container.innerHTML = `
       <div class="pt-4 max-w-7xl mx-auto pb-10">
-        <div class="sticky top-0 z-20 bg-white/95 backdrop-blur rounded-2xl shadow-sm px-4 py-3 mb-5 -mx-1">
-          <div class="flex items-center justify-between flex-wrap gap-3">
-            <div class="flex gap-2">
-              <button id="lpTabMine" onclick="_lpSetScope('mine')" class="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">My Plans</button>
-              <button id="lpTabShared" onclick="_lpSetScope('shared')" class="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">Shared Library</button>
-              ${_lpIsAdmin() ? `<button id="lpTabAll" onclick="_lpSetScope('all')" class="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">All Plans</button>` : ''}
-              <button id="lpTabFavorites" onclick="_lpSetScope('favorites')" class="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-1.5"><i data-lucide="star" class="h-3.5 w-3.5"></i>Favorites</button>
+        <div class="sticky top-0 z-20 bg-white/95 backdrop-blur rounded-2xl shadow-sm px-2.5 py-2.5 sm:px-4 sm:py-3 mb-5 -mx-1">
+          <div class="flex items-center justify-between flex-wrap gap-2 sm:gap-3">
+            <div class="flex gap-1.5 sm:gap-2 flex-wrap">
+              <button id="lpTabMine" onclick="_lpSetScope('mine')" class="${tabBtn}">My Plans</button>
+              <button id="lpTabShared" onclick="_lpSetScope('shared')" class="${tabBtn}">Shared Library</button>
+              ${_lpIsAdmin() ? `<button id="lpTabAll" onclick="_lpSetScope('all')" class="${tabBtn}">All Plans</button>` : ''}
+              <button id="lpTabFavorites" onclick="_lpSetScope('favorites')" class="${tabBtn} flex items-center gap-1"><i data-lucide="star" class="h-3.5 w-3.5"></i><span class="hidden sm:inline">Favorites</span></button>
             </div>
-            <div class="flex gap-2">
-              <button onclick="loadLessonPlanDuplicatesView()" title="Find lesson plans that look like duplicates" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-white border border-slate-200 hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="copy-check" class="h-3.5 w-3.5"></i>Duplicates</button>
-              ${_lpIsAdmin() ? `<button onclick="_lpCleanupRefNumbers()" title="Strip leftover [reference number] citation markers from already-saved lesson plans" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-white border border-slate-200 hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="eraser" class="h-3.5 w-3.5"></i>Clean Ref Numbers</button>` : ''}
-              <button onclick="loadLessonPlanBulkImportView()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-white border border-slate-200 hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="upload-cloud" class="h-3.5 w-3.5"></i>Bulk Import</button>
-              <button onclick="loadLessonPlanJsonImportView()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-white border border-slate-200 hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="sparkles" class="h-3.5 w-3.5"></i>Import from NotebookLM</button>
-              <button onclick="_openLessonPlanForm(null)" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>New Lesson Plan</button>
+            <div class="flex gap-1.5 sm:gap-2 items-center">
+              <div class="hidden sm:flex gap-2">${moreActions}</div>
+              <div class="relative sm:hidden">
+                <button onclick="_lpToggleMoreMenu()" title="More actions" class="p-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"><i data-lucide="more-vertical" class="h-4 w-4"></i></button>
+                <div id="lpMoreMenu" class="hidden absolute right-0 mt-1 w-52 bg-white border border-slate-200 rounded-xl shadow-lg z-30 p-1.5 flex flex-col gap-1">${moreActions}</div>
+              </div>
+              <button onclick="_openLessonPlanForm(null)" class="px-2.5 py-2 sm:px-4 sm:py-2.5 rounded-lg sm:rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all flex items-center gap-1 sm:gap-1.5 whitespace-nowrap"><i data-lucide="plus" class="h-3.5 w-3.5 shrink-0"></i><span class="hidden sm:inline">New Lesson Plan</span></button>
             </div>
           </div>
-          <div id="lpFilterRow" class="flex flex-wrap items-center gap-2 mt-3"></div>
-          <div id="lpOwnerFilterRow" class="flex flex-wrap items-center gap-2 mt-2"></div>
+          <div class="flex flex-wrap items-center justify-between gap-2 mt-3">
+            <div id="lpFilterRow" class="flex flex-wrap items-center gap-2"></div>
+            <div id="lpOwnerFilterRow" class="flex flex-wrap items-center gap-2 sm:ml-auto"></div>
+          </div>
         </div>
         <div class="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-5 items-start">
           <div class="min-w-0 order-2 lg:order-1">
@@ -5834,14 +5863,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _lpUpdateTabButtons() {
     const active = 'bg-blue-600 text-white shadow-lg shadow-blue-500/20';
     const inactive = 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50';
+    const tabBtn = 'px-2.5 py-1.5 sm:px-4 sm:py-2.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-widest transition-all';
     const mineBtn = document.getElementById('lpTabMine');
     const sharedBtn = document.getElementById('lpTabShared');
     const allBtn = document.getElementById('lpTabAll');
     const favBtn = document.getElementById('lpTabFavorites');
-    if (mineBtn) mineBtn.className = `px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${_lpScope === 'mine' ? active : inactive}`;
-    if (sharedBtn) sharedBtn.className = `px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${_lpScope === 'shared' ? active : inactive}`;
-    if (allBtn) allBtn.className = `px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${_lpScope === 'all' ? active : inactive}`;
-    if (favBtn) favBtn.className = `px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${_lpScope === 'favorites' ? active : inactive}`;
+    if (mineBtn) mineBtn.className = `${tabBtn} ${_lpScope === 'mine' ? active : inactive}`;
+    if (sharedBtn) sharedBtn.className = `${tabBtn} ${_lpScope === 'shared' ? active : inactive}`;
+    if (allBtn) allBtn.className = `${tabBtn} ${_lpScope === 'all' ? active : inactive}`;
+    if (favBtn) favBtn.className = `${tabBtn} flex items-center gap-1 ${_lpScope === 'favorites' ? active : inactive}`;
   }
 
   function _lpSetScope(scope) {
@@ -5895,12 +5925,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const unlocked = LP_FILTER_STEPS.slice(0, idx).every(s => _lpFilterState[s.key]);
       if (!unlocked) break;
       const options = _lpFilterOptions[step.key] || [];
-      html += `<select onchange="_lpOnFilterChange('${step.key}', this.value)" class="px-3 py-2 bg-white border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none">
+      html += `<select onchange="_lpOnFilterChange('${step.key}', this.value)" class="px-2.5 py-1.5 sm:px-3 sm:py-2 bg-white border border-slate-200 rounded-lg sm:rounded-xl font-bold text-[11px] sm:text-xs focus:ring-2 focus:ring-blue-600 outline-none max-w-[8rem] sm:max-w-none">
         <option value="">${_escHtml(step.label)}${options.length ? ` (${options.length})` : ''}…</option>
         ${options.map(v => `<option value="${_escHtml(v)}" ${_lpFilterState[step.key] === v ? 'selected' : ''}>${_escHtml(v)}</option>`).join('')}
       </select>`;
     }
-    if (anyActive) html += `<button onclick="_lpClearFilters()" class="px-3 py-2 text-xs font-black text-slate-400 hover:text-slate-600 flex items-center gap-1"><i data-lucide="x" class="h-3.5 w-3.5"></i>Clear</button>`;
+    if (anyActive) html += `<button onclick="_lpClearFilters()" class="px-2 py-1.5 sm:px-3 sm:py-2 text-[11px] sm:text-xs font-black text-slate-400 hover:text-slate-600 flex items-center gap-1"><i data-lucide="x" class="h-3.5 w-3.5"></i><span class="hidden sm:inline">Clear</span></button>`;
     row.innerHTML = html;
     lucide.createIcons();
   }
@@ -5966,12 +5996,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!row) return;
     if (_lpScope === 'mine' || _lpScope === 'favorites') { row.innerHTML = ''; return; }
     row.innerHTML = `
-      <select onchange="_lpOnOwnerChange(this.value)" class="px-3 py-2 bg-white border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none">
+      <select onchange="_lpOnOwnerChange(this.value)" class="px-2.5 py-1.5 sm:px-3 sm:py-2 bg-white border border-slate-200 rounded-lg sm:rounded-xl font-bold text-[11px] sm:text-xs focus:ring-2 focus:ring-blue-600 outline-none max-w-[9.5rem] sm:max-w-none">
         <option value="">Owner (${_lpOwnerOptions.length})…</option>
         ${_lpOwnerOptions.map(o => `<option value="${_escHtml(o.id)}" ${_lpOwnerFilter.owner === o.id ? 'selected' : ''}>${_escHtml(o.name)}</option>`).join('')}
       </select>
-      <input type="text" value="${_escHtml(_lpOwnerFilter.search)}" oninput="_lpOnOwnerSearchInput(this.value)" placeholder="Search topic, chapter, lesson code…" class="px-3 py-2 bg-white border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none w-56">
-      ${(_lpOwnerFilter.owner || _lpOwnerFilter.search) ? `<button onclick="_lpClearOwnerFilter()" class="px-3 py-2 text-xs font-black text-slate-400 hover:text-slate-600 flex items-center gap-1"><i data-lucide="x" class="h-3.5 w-3.5"></i>Clear</button>` : ''}`;
+      <input type="text" value="${_escHtml(_lpOwnerFilter.search)}" oninput="_lpOnOwnerSearchInput(this.value)" placeholder="Search topic, chapter…" class="px-2.5 py-1.5 sm:px-3 sm:py-2 bg-white border border-slate-200 rounded-lg sm:rounded-xl font-bold text-[11px] sm:text-xs focus:ring-2 focus:ring-blue-600 outline-none w-32 sm:w-56">
+      ${(_lpOwnerFilter.owner || _lpOwnerFilter.search) ? `<button onclick="_lpClearOwnerFilter()" class="px-2 py-1.5 sm:px-3 sm:py-2 text-[11px] sm:text-xs font-black text-slate-400 hover:text-slate-600 flex items-center gap-1"><i data-lucide="x" class="h-3.5 w-3.5"></i><span class="hidden sm:inline">Clear</span></button>` : ''}`;
     lucide.createIcons();
   }
 
