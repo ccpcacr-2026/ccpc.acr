@@ -3997,6 +3997,7 @@
         </div>
         <div class="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-5 items-start">
           <div class="min-w-0 order-2 lg:order-1">
+            <div id="lpListToolbar"></div>
             <div id="lpListBody" class="flex flex-col gap-2">
               <div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>
             </div>
@@ -5849,6 +5850,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const filterRow = document.getElementById('lpFilterRow');
     if (filterRow) filterRow.classList.toggle('hidden', scope === 'favorites');
     _lpOwnerFilter = { owner: '', search: '' };
+    _lpListSelected = new Set();
     if (scope === 'favorites') { _lpRenderOwnerFilterRow(); _lpLoadFavorites(); }
     else {
       _lpFilterState = { class_name: '', version: '', subject: '', chapter: '' };
@@ -6047,13 +6049,79 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _lpRenderList(plans, total) {
     const body = document.getElementById('lpListBody');
     if (!body) return;
+    _lpListPlans = plans;
+    // Selection is scoped to whatever's currently loaded — a plan that
+    // scrolls out of the current filter/scope shouldn't stay "selected"
+    // for a bulk-delete the user can no longer see.
+    const visibleIds = new Set(plans.map(p => p.id));
+    _lpListSelected = new Set([..._lpListSelected].filter(id => visibleIds.has(id)));
     if (!plans.length) {
       body.innerHTML = `<div class="bg-white rounded-3xl border border-slate-200 shadow-sm text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">${_lpScope === 'mine' ? "You haven't created any lesson plans yet" : 'No shared lesson plans match these filters'}</div>`;
     } else {
       body.innerHTML = plans.map(p => _lpPlanCardHtml(p)).join('');
     }
     lucide.createIcons();
+    _lpRenderListToolbar();
     _lpRenderSummarySidebar(plans, total);
+  }
+
+  // ── Multi-select delete for the main list (My Plans / Shared Library /
+  // All Plans) ────────────────────────────────────────────────────────────
+  // A checkbox only appears on a card the caller is actually allowed to
+  // delete (their own plan, or any plan if Admin/Cord — same rule the
+  // single delete button already uses), so "Select All" never selects
+  // plans the bulk-delete RPC would just skip.
+  let _lpListPlans = [];
+  let _lpListSelected = new Set();
+
+  function _lpListCanManage(p) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    return _lpIsAdmin() || p.created_by === myId;
+  }
+
+  function _lpListManageableIds() {
+    return _lpListPlans.filter(_lpListCanManage).map(p => p.id);
+  }
+
+  function _lpRenderListToolbar() {
+    const toolbar = document.getElementById('lpListToolbar');
+    if (!toolbar) return;
+    const manageableIds = _lpListManageableIds();
+    if (!manageableIds.length) { toolbar.innerHTML = ''; return; }
+    const n = _lpListSelected.size;
+    const allSelected = manageableIds.length && manageableIds.every(id => _lpListSelected.has(id));
+    toolbar.innerHTML = `
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-2.5 mb-2 flex items-center justify-between flex-wrap gap-3">
+        <label class="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-widest cursor-pointer">
+          <input type="checkbox" onchange="_lpListToggleAll(this.checked)" ${allSelected ? 'checked' : ''} class="h-4 w-4 rounded">
+          Select All (${manageableIds.length})
+        </label>
+        ${n ? `<button onclick="_lpListDeleteSelected()" class="px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest bg-red-500 text-white hover:bg-red-600 transition-all flex items-center gap-1.5"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i>Delete Selected (${n})</button>` : ''}
+      </div>`;
+    lucide.createIcons();
+  }
+
+  function _lpListToggleSelect(id, checked) {
+    if (checked) _lpListSelected.add(id); else _lpListSelected.delete(id);
+    _lpRenderListToolbar();
+  }
+
+  function _lpListToggleAll(checked) {
+    _lpListSelected = checked ? new Set(_lpListManageableIds()) : new Set();
+    _lpRenderList(_lpListPlans, _lpListPlans.length);
+  }
+
+  function _lpListDeleteSelected() {
+    const ids = [..._lpListSelected];
+    if (!ids.length) return;
+    if (!confirm(`Delete ${ids.length} selected lesson plan${ids.length > 1 ? 's' : ''}? This cannot be undone.`)) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Delete failed', 'error'); return; }
+      showToast(`${res.deletedCount} lesson plan${res.deletedCount === 1 ? '' : 's'} deleted${res.skippedCount ? `, ${res.skippedCount} skipped` : ''}`, 'success');
+      _lpListSelected = new Set();
+      _lpLoadList();
+    }).withFailureHandler(() => showToast('Network error', 'error')).deleteLessonPlansBulk(myId, ids);
   }
 
   // Quick-glance stats for whatever's currently filtered/visible in the
@@ -6105,15 +6173,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // the card's own click-to-open <button>.
   function _lpPlanCardHtml(p) {
     const isFav = _lpFavoriteKeys.has(`lesson_plan:${p.id}`);
+    const canManage = _lpListCanManage(p);
     const firstRef = p.lesson_refs && p.lesson_refs[0];
     const lessonNums = (firstRef && firstRef.lesson_numbers && firstRef.lesson_numbers.length) ? firstRef.lesson_numbers : (p.lesson_number ? [p.lesson_number] : []);
     const lessonLabel = lessonNums.length ? ` (Lesson${lessonNums.length > 1 ? 's' : ''} ${lessonNums.join(', ')})` : '';
     const extraChapters = (p.lesson_refs && p.lesson_refs.length > 1) ? ` +${p.lesson_refs.length - 1} more chapter${p.lesson_refs.length > 2 ? 's' : ''}` : '';
     return `
-      <div class="relative bg-white rounded-2xl border border-slate-200 shadow-sm hover:border-blue-300 transition-all">
+      <div class="relative bg-white rounded-2xl border ${_lpListSelected.has(p.id) ? 'border-blue-400 ring-2 ring-blue-100' : 'border-slate-200'} shadow-sm hover:border-blue-300 transition-all">
+        ${canManage ? `<input type="checkbox" onchange="_lpListToggleSelect(${p.id}, this.checked)" ${_lpListSelected.has(p.id) ? 'checked' : ''} title="Select for bulk delete" class="absolute top-3 left-3 h-4 w-4 rounded z-10">` : ''}
         <button type="button" onclick="_lpDuplicatePlan(${p.id})" title="Duplicate as a new plan" class="absolute top-3 right-10 p-1.5 rounded-lg hover:bg-slate-50 z-10"><i data-lucide="copy" class="h-4 w-4 text-slate-300"></i></button>
         <button type="button" onclick="_lpToggleFavorite('lesson_plan',${p.id})" title="${isFav ? 'Remove from Favorites' : 'Add to Favorites'}" class="absolute top-3 right-3 p-1.5 rounded-lg hover:bg-slate-50 z-10"><i data-lucide="star" class="h-4 w-4 ${isFav ? 'text-amber-400 fill-amber-400' : 'text-slate-300'}"></i></button>
-        <button onclick="_openLessonPlanForm(${p.id})" class="w-full text-left p-4">
+        <button onclick="_openLessonPlanForm(${p.id})" class="w-full text-left p-4 ${canManage ? 'pl-9' : ''}">
           <div class="flex items-start justify-between gap-3 flex-wrap pr-16">
             <div>
               <p class="font-black text-slate-800 text-sm">${_escHtml(p.class_name)} · ${_escHtml(p.subject)}${p.chapter ? ` · ${_escHtml(p.chapter)}` : ''}${lessonLabel}${extraChapters}</p>
