@@ -6851,37 +6851,56 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const bodyFont = isBn ? "'Noto Sans Bengali','Nirmala UI','Vrinda',Georgia,serif" : "Georgia,'Times New Roman',serif";
     const uiFont = isBn ? "'Noto Sans Bengali','Nirmala UI','Vrinda',Arial,sans-serif" : "Arial,Helvetica,sans-serif";
     const dims = _lpPageDims(pageSize);
+    // Legal is 58.6mm taller than A4 at the same width — rather than let the
+    // Lesson Phases table just end early and leave a blank gap at the
+    // bottom, every size below scales up on Legal so the extra page height
+    // goes into readable font size and breathing room, not empty space.
+    // S(a4value, legalValue) picks per pageSize; each pair is deliberately
+    // tuned (not a flat multiplier) since the header/table/footer don't all
+    // need the same amount of extra room.
+    const S = (a4, legal) => dims.isLegal ? legal : a4;
     return `
       @page { size: ${dims.cssName} portrait; margin: 13mm 15mm; }
       *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
       .mv{border-top:1px solid currentColor;padding-top:0.5pt;}
       sup,sub{font-size:75%;}
-      body{font-family:${uiFont};font-size:9.3pt;line-height:1.4;color:#111;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+      body{font-family:${uiFont};font-size:${S('9pt', '10.4pt')};line-height:${S('1.35', '1.5')};color:#111;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
       .page{min-height:${dims.contentHeightMm}mm;max-height:${dims.contentHeightMm}mm;overflow:hidden;position:relative;}
 
-      .hdr{background:#0b2545;color:#fff;display:flex;align-items:stretch;gap:10pt;padding:6pt 10pt;border-radius:3pt;margin-bottom:9pt;}
+      .hdr{background:#0b2545;color:#fff;display:flex;align-items:stretch;gap:10pt;padding:6pt 10pt;border-radius:3pt;margin-bottom:${S('7pt', '9pt')};}
       .hdr-text{flex:1;display:flex;flex-direction:column;justify-content:center;text-align:center;}
-      .hdr .main{font-family:${bodyFont};font-size:14.5pt;font-weight:700;letter-spacing:.02em;}
-      .hdr .sub{font-family:${uiFont};font-size:8.8pt;font-weight:700;margin-top:3pt;color:#cfe0ff;letter-spacing:.03em;}
+      .hdr .main{font-family:${bodyFont};font-size:${S('14pt', '16pt')};font-weight:700;letter-spacing:.02em;}
+      .hdr .sub{font-family:${uiFont};font-size:${S('8.4pt', '9.6pt')};font-weight:700;margin-top:3pt;color:#cfe0ff;letter-spacing:.03em;}
       .hdr-logo,.hdr-qr{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:44pt;}
       .hdr-logo img,.hdr-qr img{height:100%;width:auto;max-width:100%;display:block;background:#fff;border-radius:2pt;padding:2pt;object-fit:contain;}
 
-      .meta{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5pt 14pt;margin-bottom:9pt;font-size:9pt;background:#f2f6fc;border:1pt solid #cddaf0;border-radius:3pt;padding:7pt 10pt;}
+      /* Info section (Name/Department/Class/... grid) — tight line spacing
+         is the point here, so gap/padding/margin all trim down from the
+         original, then bump back up (though still tighter than before) on
+         Legal so it doesn't look sparse on the taller page. */
+      .meta{display:grid;grid-template-columns:1fr 1fr 1fr;gap:${S('2pt 14pt', '3.5pt 16pt')};margin-bottom:${S('6pt', '8pt')};font-size:${S('8.6pt', '10pt')};background:#f2f6fc;border:1pt solid #cddaf0;border-radius:3pt;padding:${S('5pt 10pt', '7pt 12pt')};}
       .meta .fi{display:flex;gap:4pt;align-items:baseline;min-width:0;}
-      .meta .lbl{font-weight:700;white-space:nowrap;color:#0b2545;font-size:7.6pt;text-transform:uppercase;letter-spacing:.04em;flex-shrink:0;}
+      .meta .lbl{font-weight:700;white-space:nowrap;color:#0b2545;font-size:${S('7.3pt', '8.3pt')};text-transform:uppercase;letter-spacing:.04em;flex-shrink:0;}
       .fi.wide{grid-column:1/-1;}
       .uv{border-bottom:1pt solid #9fb3d1;display:inline-block;min-width:0;padding-bottom:1pt;flex:1;font-weight:600;overflow-wrap:break-word;}
       .uv.has-val{color:#0b2545;}
       .uv.code-val{color:#7c2d12;font-weight:900;}
 
-      .sec-title{font-family:${uiFont};font-size:9.3pt;font-weight:900;text-transform:uppercase;letter-spacing:.04em;color:#0b2545;margin:11pt 0 4pt;padding-left:7pt;border-left:4pt solid #065f46;}
-      .lo-box{font-size:9pt;line-height:1.55;border:1pt solid #cddaf0;border-left:4pt solid #065f46;border-radius:0 3pt 3pt 0;padding:7pt 9pt;min-height:24pt;white-space:pre-wrap;background:#fbfdff;}
-      .gen-grid{display:grid;grid-template-columns:auto 1fr;gap:4pt 10pt;font-size:9pt;margin-top:3pt;}
+      /* Section headers — smaller and tighter than before across the board
+         (Learning Outcomes / General Class Management / Lesson Phases /
+         Self-Reflection), freeing vertical room for the actual content,
+         especially the phases table. */
+      .sec-title{font-family:${uiFont};font-size:${S('7.8pt', '8.8pt')};font-weight:900;text-transform:uppercase;letter-spacing:.04em;color:#0b2545;margin:${S('7pt 0 3pt', '9pt 0 4pt')};padding-left:6pt;border-left:3.5pt solid #065f46;}
+      .lo-box{font-size:${S('8.6pt', '10pt')};line-height:${S('1.45', '1.6')};border:1pt solid #cddaf0;border-left:4pt solid #065f46;border-radius:0 3pt 3pt 0;padding:${S('6pt 9pt', '8pt 10pt')};min-height:${S('20pt', '26pt')};white-space:pre-wrap;background:#fbfdff;}
+      .gen-grid{display:grid;grid-template-columns:auto 1fr;gap:${S('3pt 10pt', '4.5pt 12pt')};font-size:${S('8.6pt', '10pt')};margin-top:3pt;}
       .gen-grid .lbl{font-weight:700;white-space:nowrap;color:#0b2545;}
 
-      table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:8.2pt;margin-top:5pt;}
-      th{border:1pt solid #0b2545;padding:5pt 6pt;font-weight:700;background:#0b2545;color:#fff;font-size:7.6pt;text-align:left;text-transform:uppercase;letter-spacing:.03em;word-wrap:break-word;}
-      td{border:1pt solid #b9c8e2;padding:5pt 6pt;vertical-align:top;line-height:1.4;word-wrap:break-word;overflow-wrap:break-word;}
+      /* Lesson Phases — the section that matters most, gets the largest
+         share of the extra Legal-page room (bigger font AND more row
+         padding, not just font). */
+      table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:${S('8.2pt', '9.6pt')};margin-top:4pt;}
+      th{border:1pt solid #0b2545;padding:${S('4.5pt 6pt', '6.5pt 8pt')};font-weight:700;background:#0b2545;color:#fff;font-size:${S('7.3pt', '8.4pt')};text-align:left;text-transform:uppercase;letter-spacing:.03em;word-wrap:break-word;}
+      td{border:1pt solid #b9c8e2;padding:${S('4.5pt 6pt', '6.5pt 8pt')};vertical-align:top;line-height:${S('1.4', '1.55')};word-wrap:break-word;overflow-wrap:break-word;}
       tbody tr:nth-child(even) td{background:#f2f6fc;}
       th:nth-child(1),td.ph-name{width:12%;}
       th:nth-child(2),th:nth-child(3){width:37%;}
@@ -6889,10 +6908,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       td.ph-name{font-weight:700;color:#7c2d12;}
       td.dur{text-align:center;white-space:nowrap;font-weight:700;color:#065f46;}
 
-      .refl{font-size:9pt;border:1pt solid #cddaf0;border-left:4pt solid #7c2d12;border-radius:0 3pt 3pt 0;padding:7pt 9pt;margin-top:5pt;min-height:38pt;white-space:pre-wrap;line-height:1.6;background:#fbfdff;}
+      .refl{font-size:${S('8.6pt', '10pt')};border:1pt solid #cddaf0;border-left:4pt solid #7c2d12;border-radius:0 3pt 3pt 0;padding:${S('6pt 9pt', '8pt 10pt')};margin-top:4pt;min-height:${S('32pt', '40pt')};white-space:pre-wrap;line-height:${S('1.55', '1.7')};background:#fbfdff;}
       .refl-default{color:#555;font-style:italic;}
-      .footer-note{margin-top:12pt;padding-top:5pt;border-top:1.5pt solid #0b2545;font-size:7.3pt;font-weight:700;color:#0b2545;text-align:center;letter-spacing:.03em;}
-      .footer-credit{margin-top:2pt;font-size:6.5pt;font-weight:600;color:#5a6b85;letter-spacing:0;text-transform:none;}
+
+      /* Footer trimmed to the bare minimum (~0.5mm of actual whitespace
+         above it) so essentially all remaining page height goes to the
+         Lesson Phases table above instead of the credit line. */
+      .footer-note{margin-top:1.4pt;padding-top:0.7pt;border-top:0.75pt solid #0b2545;font-size:6pt;font-weight:700;color:#0b2545;text-align:center;letter-spacing:.02em;}
+      .footer-credit{margin-top:0.5pt;font-size:5.3pt;font-weight:600;color:#5a6b85;letter-spacing:0;text-transform:none;text-align:center;}
 
       @media screen{body{padding:10mm;background:#e8edf5;}
       .page{background:#fff;padding:13mm 15mm;margin:0 auto;max-width:${dims.pageWidthMm}mm;box-shadow:0 3px 14px rgba(11,37,69,.18);border-radius:4pt;}}`;
