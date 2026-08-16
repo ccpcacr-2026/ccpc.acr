@@ -312,13 +312,30 @@ async function _settingsSave(payload) {
 async function _settingsDelete(payload) {
   const cfg = ENTITIES[payload.entity];
   if (!cfg) return NextResponse.json({ result: 'error', message: 'Unknown entity' }, { status: 404 });
-  if (!payload.id) return NextResponse.json({ result: 'error', message: 'id is required' }, { status: 400 });
-  const result = await sbInventory(`${cfg.table}?id=eq.${encodeURIComponent(payload.id)}`, 'DELETE');
-  if (result?.error) {
-    const message = await _friendlyDeleteError(result.error, payload.entity, payload.id);
-    return NextResponse.json({ result: 'error', message }, { status: 500 });
+  const ids = Array.isArray(payload.ids) ? payload.ids : (payload.id ? [payload.id] : []);
+  if (!ids.length) return NextResponse.json({ result: 'error', message: 'id is required' }, { status: 400 });
+
+  // Single-id call keeps its original shape (result:'error'/'success' +
+  // message) for the existing single-row Delete button; a bulk call
+  // (ids.length > 1, or the caller explicitly sent ids) gets a per-row
+  // tally instead, same shape the other bulk-delete flows in this app use.
+  if (!Array.isArray(payload.ids)) {
+    const result = await sbInventory(`${cfg.table}?id=eq.${encodeURIComponent(ids[0])}`, 'DELETE');
+    if (result?.error) {
+      const message = await _friendlyDeleteError(result.error, payload.entity, ids[0]);
+      return NextResponse.json({ result: 'error', message }, { status: 500 });
+    }
+    return NextResponse.json({ result: 'success' });
   }
-  return NextResponse.json({ result: 'success' });
+
+  let deletedCount = 0;
+  const errors = [];
+  for (const id of ids) {
+    const result = await sbInventory(`${cfg.table}?id=eq.${encodeURIComponent(id)}`, 'DELETE');
+    if (result?.error) errors.push(`#${id}: ${await _friendlyDeleteError(result.error, payload.entity, id)}`);
+    else deletedCount++;
+  }
+  return NextResponse.json({ result: errors.length ? 'partial' : 'success', deletedCount, errors });
 }
 
 // sbInventory's error is the raw PostgREST response text (a JSON string) —

@@ -26,6 +26,7 @@ const RESERVED = [
   'openInventoryProductDetail','openInventoryDistributeFor','openInventoryDistributeForm',
   'loadInventoryDistributeList','_invDistributeSearchInput',
   '_invDistributeToggleSelect','_invDistributeToggleAll','_invDistributeDeleteSelected',
+  '_invSettingsToggleSelect','_invSettingsToggleAll','_invSettingsDeleteSelected',
   'openInventoryQuickProductModal','selectInventoryRegistryProduct','submitInventoryRegistry',
   'selectInventoryDistributeProduct','submitInventoryDistribution','_invClearDistProduct',
   '_invOnDistRecipientTypeChange','_invUpdateDistNotifyPreview','_invHandleVoucherPhotoSelect',

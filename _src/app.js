@@ -14781,6 +14781,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function openInventorySettingsEntity(slug) {
     _invCurrentEntity = slug;
     _invSettingsSearch = '';
+    _invSettingsSelected = new Set();
     const menu = document.getElementById('invSettingsMenu');
     if (menu) Array.from(menu.children).forEach(btn => btn.classList.toggle('bg-slate-100', btn.dataset.slug === slug));
     const panel = document.getElementById('invSettingsPanel');
@@ -14818,16 +14819,59 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return _invEntityRows.filter(r => cfg.columns.some(c => String(_invDisplayValue(c, r) ?? '').toLowerCase().includes(q)));
   }
 
+  // Multi-select bulk delete — generic across every Settings entity
+  // (Products, Unit Conversion, Suppliers, Consumers, ...), same pattern
+  // used for the Distribute list and Lesson Plan list elsewhere in this
+  // app. Selection is scoped to the current entity and reset whenever it
+  // changes (openInventorySettingsEntity) or the row set reloads.
+  let _invSettingsSelected = new Set();
+
+  function _invSettingsToggleSelect(id, checked) {
+    if (checked) _invSettingsSelected.add(id); else _invSettingsSelected.delete(id);
+    const wrap = document.getElementById('invSettingsTableWrap');
+    if (wrap) wrap.innerHTML = _invSettingsTableBodyHtml();
+  }
+
+  function _invSettingsToggleAll(checked) {
+    const rows = _invFilteredSettingsRows();
+    _invSettingsSelected = checked ? new Set(rows.map(r => r.id)) : new Set();
+    const wrap = document.getElementById('invSettingsTableWrap');
+    if (wrap) wrap.innerHTML = _invSettingsTableBodyHtml();
+  }
+
+  function _invSettingsDeleteSelected() {
+    const ids = [..._invSettingsSelected];
+    if (!ids.length) return;
+    if (!confirm(`Delete ${ids.length} selected record${ids.length > 1 ? 's' : ''}? This cannot be undone.`)) return;
+    _invAdminFetch('settings_delete', { entity: _invCurrentEntity, ids }).then(res => {
+      if (!res || (res.result !== 'success' && res.result !== 'partial')) { showToast((res && res.message) || 'Delete failed', 'error'); return; }
+      const failedMsgs = (res.errors || []);
+      showToast(`${res.deletedCount} deleted${failedMsgs.length ? `, ${failedMsgs.length} failed` : ''}`, failedMsgs.length ? 'error' : 'success');
+      if (failedMsgs.length) alert(failedMsgs.join('\n'));
+      _invSettingsSelected = new Set();
+      openInventorySettingsEntity(_invCurrentEntity);
+    }).catch(err => showToast(err.message || 'Delete failed', 'error'));
+  }
+
   function _invSettingsTableBodyHtml() {
     const cfg = INV_ENTITIES[_invCurrentEntity];
     const rows = _invFilteredSettingsRows();
     if (!_invEntityRows.length) return `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">No records yet</div>`;
     if (!rows.length) return `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">No matches for "${_escHtml(_invSettingsSearch)}"</div>`;
+    const n = _invSettingsSelected.size;
+    const allChecked = rows.length && rows.every(r => _invSettingsSelected.has(r.id));
     return `
+      ${n ? `<div class="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-2.5 mb-2 flex items-center justify-between flex-wrap gap-3">
+        <span class="text-[10px] font-black text-slate-500 uppercase tracking-widest">${n} selected</span>
+        <button onclick="_invSettingsDeleteSelected()" class="px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest bg-red-500 text-white hover:bg-red-600 transition-all">Delete Selected (${n})</button>
+      </div>` : ''}
       <div class="overflow-x-auto">
         <table class="w-full text-left text-xs">
-          <thead class="bg-slate-50"><tr>${cfg.columns.map(c => `<th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">${_escHtml(c.label)}</th>`).join('')}<th></th></tr></thead>
-          <tbody>${rows.map(r => `<tr class="border-t border-slate-50">
+          <thead class="bg-slate-50"><tr>
+            <th class="px-3 py-2.5"><input type="checkbox" onchange="_invSettingsToggleAll(this.checked)" ${allChecked ? 'checked' : ''}></th>
+            ${cfg.columns.map(c => `<th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">${_escHtml(c.label)}</th>`).join('')}<th></th></tr></thead>
+          <tbody>${rows.map(r => `<tr class="border-t border-slate-50 ${_invSettingsSelected.has(r.id) ? 'bg-blue-50' : ''}">
+            <td class="px-3 py-2.5"><input type="checkbox" onchange="_invSettingsToggleSelect(${r.id}, this.checked)" ${_invSettingsSelected.has(r.id) ? 'checked' : ''}></td>
             ${cfg.columns.map(c => `<td class="px-3 py-2.5 font-bold text-slate-600">${_escHtml(_invDisplayValue(c, r))}</td>`).join('')}
             <td class="px-3 py-2.5 text-right whitespace-nowrap">
               <button onclick="openInventoryEntityForm('${_invCurrentEntity}', ${r.id})" class="text-blue-600 font-black text-[10px] uppercase tracking-widest mr-3">Edit</button>
