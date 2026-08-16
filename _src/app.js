@@ -3949,6 +3949,20 @@
     return /Admin|Cord/.test(role);
   }
 
+  // Admin-only one-time cleanup: strips leftover [reference number] citation
+  // markers (see _lpStripRefNumbers, applied to new imports going forward)
+  // from lesson plans that were already saved before that fix shipped.
+  function _lpCleanupRefNumbers() {
+    if (!confirm('Scan every saved lesson plan and strip any leftover [reference number] citation markers (e.g. [১০৪]) from the text? This edits saved plans in place.')) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    showToast('Scanning lesson plans…', 'info');
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Cleanup failed', 'error'); return; }
+      showToast(`Scanned ${res.scanned} plans — cleaned ${res.fixed}`, 'success');
+      if (_lpScope) _lpLoadList();
+    }).withFailureHandler(() => showToast('Network error', 'error')).cleanupLessonPlanReferenceNumbers(myId);
+  }
+
   function loadLessonPlanView() {
     _setViewHash('lesson_plan');
     setActiveNavLink('nav-lesson-plan');
@@ -3972,6 +3986,7 @@
             </div>
             <div class="flex gap-2">
               <button onclick="loadLessonPlanDuplicatesView()" title="Find lesson plans that look like duplicates" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-white border border-slate-200 hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="copy-check" class="h-3.5 w-3.5"></i>Duplicates</button>
+              ${_lpIsAdmin() ? `<button onclick="_lpCleanupRefNumbers()" title="Strip leftover [reference number] citation markers from already-saved lesson plans" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-white border border-slate-200 hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="eraser" class="h-3.5 w-3.5"></i>Clean Ref Numbers</button>` : ''}
               <button onclick="loadLessonPlanBulkImportView()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-white border border-slate-200 hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="upload-cloud" class="h-3.5 w-3.5"></i>Bulk Import</button>
               <button onclick="loadLessonPlanJsonImportView()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-white border border-slate-200 hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="sparkles" class="h-3.5 w-3.5"></i>Import from NotebookLM</button>
               <button onclick="_openLessonPlanForm(null)" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>New Lesson Plan</button>

@@ -87,6 +87,7 @@ const RESERVED = [
   '_lpOnOwnerChange','_lpOnOwnerSearchInput','_lpClearOwnerFilter',
   '_lpOpenReassignOwner','_lpConfirmReassignOwner',
   'loadLessonPlanDuplicatesView','_lpDupToggle','_lpDupToggleGroup','_lpDupToggleAll','_lpDupDeleteOne','_lpDupDeleteSelected',
+  '_lpCleanupRefNumbers',
   'loadTextbooksView','_tbSetClass','_sylSetLevel',
   '_closePdfViewer','_tbOpenBook','_sylOpenDoc','_tbOpenPublication',
   '_lpToggleFavorite','_openCurriculumFormById','_lpDownloadTemplate','_lpHandleExcelUpload','_lpDuplicatePlan',

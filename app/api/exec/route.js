@@ -3189,6 +3189,46 @@ const handlers = {
     return result;
   },
 
+  // One-time cleanup for lesson plans imported BEFORE the JSON-import
+  // pipeline started stripping NotebookLM's inline citation markers (e.g.
+  // "...আলোচনা করা [১০৪]।" or "...discussed [104]."; see _lpStripRefNumbers
+  // client-side, which now strips these going forward). Re-runs the same
+  // strip against every already-saved row's free-text fields, patching only
+  // rows that actually had a marker — safe to re-run any time, a no-op once
+  // the data's clean. Admin/Cord-only since it rewrites other teachers'
+  // plans too.
+  async cleanupLessonPlanReferenceNumbers([callerId]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    if (!(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Admin access required.' };
+    const strip = s => (typeof s === 'string' ? s.replace(/\s*\[[0-9০-৯]+\]/g, '').trim() : s);
+    const rows = await supabaseRequest('lesson_plans?select=id,topic,chapter,teaching_aids,method,learning_outcomes,phases');
+    if (rows?.error) return { result: 'error', message: rows.details || rows.error };
+    const list = Array.isArray(rows) ? rows : [];
+    let fixed = 0;
+    for (const r of list) {
+      const patch = {};
+      const topic = strip(r.topic); if (topic !== r.topic) patch.topic = topic;
+      const chapter = strip(r.chapter); if (chapter !== r.chapter) patch.chapter = chapter;
+      const teachingAids = strip(r.teaching_aids); if (teachingAids !== r.teaching_aids) patch.teaching_aids = teachingAids;
+      const method = strip(r.method); if (method !== r.method) patch.method = method;
+      const outcomes = strip(r.learning_outcomes); if (outcomes !== r.learning_outcomes) patch.learning_outcomes = outcomes;
+      if (Array.isArray(r.phases)) {
+        let phasesChanged = false;
+        const phases = r.phases.map(p => {
+          const ta = strip(p && p.teacher_activity), la = strip(p && p.learner_activity);
+          if (p && (ta !== p.teacher_activity || la !== p.learner_activity)) { phasesChanged = true; return { ...p, teacher_activity: ta, learner_activity: la }; }
+          return p;
+        });
+        if (phasesChanged) patch.phases = phases;
+      }
+      if (Object.keys(patch).length) {
+        const updated = await supabaseRequest(`lesson_plans?id=eq.${encodeURIComponent(r.id)}`, 'patch', patch);
+        if (!updated?.error) fixed++;
+      }
+    }
+    return { result: 'success', scanned: list.length, fixed };
+  },
+
   // Chapter dropdown options for the web form's cascading picker — scoped to
   // one Class+Subject+Version combo (unlike getLessonPlanFieldOptions above,
   // which returns every chapter ever used, globally). Sourced from
