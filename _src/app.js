@@ -14854,6 +14854,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <p class="text-sm font-black text-slate-800 uppercase tracking-widest">${_escHtml(cfg.title)}</p>
         <div class="flex gap-2 shrink-0 items-center">
           ${rows.length ? `<input type="text" placeholder="Search…" value="${_escHtml(_invSettingsSearch)}" oninput="_invSettingsSearchInput(this.value)" class="w-44 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2.5">` : ''}
+          ${cfg.importKey ? `<button onclick="exportInventoryEntity('${_invCurrentEntity}')" title="Download every current row as an Excel file — edit it and re-upload via Import" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all">Export to Excel</button>` : ''}
           ${cfg.importKey ? `<button onclick="openInventoryImportModal('${_invCurrentEntity}')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all">Import from Excel</button>` : ''}
           <button onclick="openInventoryEntityForm('${_invCurrentEntity}')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">+ Create New</button>
         </div>
@@ -15007,6 +15008,35 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     a.download = `${_invImportEntity}_import_template.csv`;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  // Downloads every currently-loaded row of an entity (Products, Suppliers,
+  // etc.) as an Excel file the user can edit and hand straight back to
+  // "Import from Excel" — headers are the fields' own labels, which the
+  // import mapping's auto-guess (normImportKey matching against f.name OR
+  // f.label) already recognizes, so re-uploading the unmodified file maps
+  // every column correctly with no manual re-mapping needed. Values are
+  // exported exactly as stored (a select field like Group/Unit exports its
+  // raw id, not the human-readable name) so a re-import round-trips
+  // perfectly for an unedited row; editing a select column would need the
+  // correct id, not its label — every other field type (text/number/
+  // boolean/radio) is plain, safely human-editable text.
+  function exportInventoryEntity(entityKey) {
+    const cfg = INV_ENTITIES[entityKey];
+    if (!cfg) return;
+    if (!_invEntityRows.length) { showToast('Nothing to export yet', 'error'); return; }
+    ensureXLSX().then(() => {
+      const headers = cfg.fields.map(f => f.label);
+      const rows = _invEntityRows.map(r => cfg.fields.map(f => {
+        const v = r[f.name];
+        if (f.type === 'boolean') return (v === true || v === 'true') ? 'true' : 'false';
+        return v == null ? '' : String(v);
+      }));
+      const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, cfg.label.slice(0, 31));
+      XLSX.writeFile(wb, `${entityKey}_export.xlsx`);
+    }).catch(err => showToast(err.message || 'Could not build the export file', 'error'));
   }
 
   function openInventoryImportModal(entityKey) {

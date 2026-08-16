@@ -20,7 +20,7 @@ const RESERVED = [
   // Inventory Admin (native port of ccpc-inventory) — onclick-referenced
   'switchInvAdminTab','openInventorySettingsEntity','openInventoryEntityForm',
   'saveInventoryEntityForm','closeInventoryEntityForm','deleteInventoryEntityRow',
-  'openInventoryImportModal','closeInventoryImportModal','updateInventoryImportSample',
+  'openInventoryImportModal','closeInventoryImportModal','updateInventoryImportSample','exportInventoryEntity',
   'previewInventoryImport','confirmInventoryImport','downloadInventorySampleTemplate',
   '_invSettingsSearchInput',
   'openInventoryProductDetail','openInventoryDistributeFor',
