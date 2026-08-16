@@ -6866,6 +6866,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       sup,sub{font-size:75%;}
       body{font-family:${uiFont};font-size:${S('9pt', '10.4pt')};line-height:${S('1.35', '1.5')};color:#111;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
       .page{min-height:${dims.contentHeightMm}mm;max-height:${dims.contentHeightMm}mm;overflow:hidden;position:relative;}
+      .page-inner{transform-origin:top left;}
 
       .hdr{background:#fff;color:#000;border:1pt solid #0b2545;display:flex;align-items:stretch;gap:10pt;padding:6pt 10pt;border-radius:3pt;margin-bottom:${S('7pt', '9pt')};}
       .hdr-text{flex:1;display:flex;flex-direction:column;justify-content:center;text-align:center;}
@@ -6921,26 +6922,40 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       .page{background:#fff;padding:13mm 15mm;margin:0 auto;max-width:${dims.pageWidthMm}mm;box-shadow:0 3px 14px rgba(11,37,69,.18);border-radius:4pt;}}`;
   }
 
-  // Shrinks oversized paragraphs (long teacher/learner activity cells,
-  // Learning Outcomes) one at a time — largest first — before falling back
-  // to scaling the whole page down, so a single long paragraph never forces
-  // a second sheet while everything else prints at normal size. Runs client-
-  // side inside the printed document itself (popup / iframe / public share
-  // page all get this embedded), since only the browser doing the actual
-  // layout knows the true rendered height.
+  // Fits the printed content to exactly one page in BOTH directions: shrinks
+  // oversized paragraphs (long teacher/learner activity cells, Learning
+  // Outcomes) one at a time — largest first — if content overflows, or
+  // grows them if content falls well short of the page (a short lesson with
+  // few phases would otherwise leave a big empty gap at the bottom, since
+  // nothing here ever intentionally scales UP without this pass). Headers/
+  // labels/footer are deliberately excluded from growth so they stay small
+  // regardless of how much page is left to fill — only actual lesson
+  // content (phase cells, Learning Outcomes, Self-Reflection) grows.
+  // Operates on #page-inner (a plain, unsized wrapper) rather than .page
+  // itself: .page has a hard-fixed height (min-height=max-height) and
+  // overflow:hidden that defines the actual printed page boundary, so a
+  // transform on it wouldn't change the space it reserves — the shrink/grow
+  // transform has to act on something INSIDE that fixed box instead, or the
+  // browser's print engine keeps pagination decisions based on the
+  // untransformed layout size and spills extra content onto a near-empty
+  // second sheet. Runs client-side inside the printed document itself
+  // (popup / iframe / public share page all get this embedded), since only
+  // the browser doing the actual layout knows the true rendered height.
   function _lpAutoFitScript(contentHeightMm) {
     return `<script>(function(){
       function fit(){
         var page = document.querySelector('.page');
-        if (!page) return;
+        var inner = document.querySelector('.page-inner');
+        if (!page || !inner) return;
         var probe = document.createElement('div');
         probe.style.cssText = 'position:absolute;visibility:hidden;height:${contentHeightMm}mm;width:0;';
         document.body.appendChild(probe);
         var budget = probe.offsetHeight;
         document.body.removeChild(probe);
-        var candidates = Array.prototype.slice.call(page.querySelectorAll('td,.lo-box,.refl'));
-        var MIN_PX = 8.7, tries = 0;
-        function contentHeight(){ return page.scrollHeight; }
+        var candidates = Array.prototype.slice.call(inner.querySelectorAll('td,.lo-box,.refl'));
+        var MIN_PX = 8.7, MAX_PX = 15, tries = 0;
+        function contentHeight(){ return inner.scrollHeight; }
+
         while (contentHeight() > budget && tries < 80) {
           tries++;
           var target = null, targetScrollH = 0, targetSize = 0;
@@ -6952,10 +6967,26 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           break;
         }
         if (contentHeight() > budget) {
-          var ratio = Math.max(budget / contentHeight(), 0.5);
-          page.style.transformOrigin = 'top left';
-          page.style.transform = 'scale(' + ratio + ')';
-          page.style.width = (100 / ratio) + '%';
+          var shrinkRatio = Math.max(budget / contentHeight(), 0.5);
+          inner.style.transform = 'scale(' + shrinkRatio + ')';
+          inner.style.width = (100 / shrinkRatio) + '%';
+          return;
+        }
+
+        tries = 0;
+        while (contentHeight() < budget * 0.94 && tries < 150) {
+          tries++;
+          var grew = false;
+          candidates.forEach(function(el){
+            var size = parseFloat(window.getComputedStyle(el).fontSize);
+            if (size < MAX_PX) { el.style.fontSize = (size + 0.3) + 'px'; grew = true; }
+          });
+          if (!grew) break;
+        }
+        if (contentHeight() < budget * 0.94 && contentHeight() > 0) {
+          var growRatio = Math.min(budget / contentHeight(), 1.3);
+          inner.style.width = (100 / growRatio) + '%';
+          inner.style.transform = 'scale(' + growRatio + ')';
         }
       }
       if (document.readyState === 'complete') fit(); else window.addEventListener('load', fit);
@@ -7046,7 +7077,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const css = _lpPrintCss(isBn, pageSize);
 
     const html = `
-      <div class="page">
+      <div class="page"><div class="page-inner">
         <div class="hdr">
           <div class="hdr-logo"><img src="${logoSrc}" alt="College Logo"></div>
           <div class="hdr-text">
@@ -7089,7 +7120,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
         <div class="footer-note">${esc(L.footer)}</div>
         <div class="footer-credit">${profile.full_name ? esc(L.preparedBy) + ' ' + esc(profile.full_name) + ' &middot; ' : ''}&copy; CCPC, ${new Date().getFullYear()}</div>
-      </div>`;
+      </div></div>`;
 
     return `<!DOCTYPE html><html lang="${isBn ? 'bn' : 'en'}"><head><meta charset="UTF-8">
       <title>${isBn ? 'পাঠ পরিকল্পনা' : 'Lesson Plan'} &mdash; ${esc(payload.topic || payload.subject || 'CCPC')}</title>
