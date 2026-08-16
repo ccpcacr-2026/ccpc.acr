@@ -99,6 +99,13 @@ const ENTITIES = {
   },
   unit_conversions: {
     table: 'unit_conversions',
+    // Unlike every other importable entity, nothing here is a natural
+    // unique identifier — it's a conversion RULE, not a named record. Using
+    // unit_type (a free-text label like "Weight" or "Box to Piece") as the
+    // import key is a pragmatic choice: it gives the generic import engine
+    // something to de-duplicate/match-existing-rows against, at the cost of
+    // needing distinct unit_type text per rule to avoid rows colliding.
+    importKey: 'unit_type',
     fields: [
       { name: 'unit_id', label: 'Unit', type: 'select', source: 'units', optionLabel: 'name' },
       { name: 'unit_type', label: 'Unit Type', type: 'text' },

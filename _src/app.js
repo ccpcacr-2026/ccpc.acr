@@ -14543,7 +14543,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     units: { label: 'Unit', title: 'UNIT', importKey: 'name',
       columns: [{ key: 'name', label: 'Unit' }, { key: 'short_form', label: 'Short Form' }],
       fields: [{ name: 'name', label: 'Unit', type: 'text', required: true }, { name: 'short_form', label: 'Short Form', type: 'text' }] },
-    unit_conversions: { label: 'Unit Conversion', title: 'UNIT CONVERSION',
+    unit_conversions: { label: 'Unit Conversion', title: 'UNIT CONVERSION', importKey: 'unit_type',
       columns: [
         { key: 'unit_id', label: 'Unit', lookup: 'units', lookupLabel: 'name' },
         { key: 'unit_type', label: 'Unit Type' },
