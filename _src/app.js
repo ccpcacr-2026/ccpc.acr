@@ -3929,7 +3929,7 @@
     // (or vice versa) on every back-navigation would be as disorienting as
     // losing the filters. Only _lpSetScope (an explicit tab click) changes it.
     container.innerHTML = `
-      <div class="pt-4 max-w-5xl mx-auto pb-10">
+      <div class="pt-4 max-w-7xl mx-auto pb-10">
         <div class="flex items-center justify-between flex-wrap gap-3 mb-5">
           <div class="flex gap-2">
             <button id="lpTabMine" onclick="_lpSetScope('mine')" class="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">My Plans</button>
@@ -3942,9 +3942,14 @@
             <button onclick="_openLessonPlanForm(null)" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>New Lesson Plan</button>
           </div>
         </div>
-        <div id="lpFilterRow" class="flex flex-wrap items-center gap-2 mb-4"></div>
-        <div id="lpListBody" class="flex flex-col gap-2">
-          <div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>
+        <div class="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-5 items-start">
+          <div class="min-w-0">
+            <div id="lpFilterRow" class="flex flex-wrap items-center gap-2 mb-4"></div>
+            <div id="lpListBody" class="flex flex-col gap-2">
+              <div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>
+            </div>
+          </div>
+          <div id="lpSummarySidebar" class="lg:sticky lg:top-4 flex flex-col gap-3"></div>
         </div>
       </div>`;
     lucide.createIcons();
@@ -5734,10 +5739,49 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!body) return;
     if (!plans.length) {
       body.innerHTML = `<div class="bg-white rounded-3xl border border-slate-200 shadow-sm text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">${_lpScope === 'mine' ? "You haven't created any lesson plans yet" : 'No shared lesson plans match these filters'}</div>`;
-      return;
+    } else {
+      body.innerHTML = plans.map(p => _lpPlanCardHtml(p)).join('');
     }
-    body.innerHTML = plans.map(p => _lpPlanCardHtml(p)).join('');
     lucide.createIcons();
+    _lpRenderSummarySidebar(plans);
+  }
+
+  // Quick-glance stats for whatever's currently filtered/visible in the
+  // list — total count plus a breakdown by Class, Subject, and Version,
+  // and the chapters with the most plans. Purely derived from the same
+  // `plans` array already being rendered, no extra request.
+  function _lpRenderSummarySidebar(plans) {
+    const sidebar = document.getElementById('lpSummarySidebar');
+    if (!sidebar) return;
+    if (!plans.length) { sidebar.innerHTML = ''; return; }
+    const countBy = key => {
+      const counts = {};
+      plans.forEach(p => { const v = p[key] || '—'; counts[v] = (counts[v] || 0) + 1; });
+      return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    };
+    const breakdownHtml = (title, entries, max) => `
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">${_escHtml(title)}</p>
+        <div class="flex flex-col gap-1.5">
+          ${entries.slice(0, max).map(([label, n]) => `
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-xs font-bold text-slate-600 truncate">${_escHtml(label)}</span>
+              <span class="text-xs font-black text-slate-800 shrink-0">${n}</span>
+            </div>`).join('')}
+          ${entries.length > max ? `<span class="text-[10px] text-slate-400 font-bold">+${entries.length - max} more</span>` : ''}
+        </div>
+      </div>`;
+    sidebar.innerHTML = `
+      <div class="bg-gradient-to-br from-blue-600 to-indigo-600 rounded-2xl shadow-sm p-4 text-white">
+        <p class="text-[10px] font-black uppercase tracking-widest opacity-80">Showing</p>
+        <p class="text-3xl font-black">${plans.length}</p>
+        <p class="text-[10px] font-bold opacity-80">lesson plan${plans.length === 1 ? '' : 's'}</p>
+      </div>
+      ${breakdownHtml('By Class', countBy('class_name'), 6)}
+      ${breakdownHtml('By Subject', countBy('subject'), 6)}
+      ${breakdownHtml('By Version', countBy('version'), 4)}
+      ${breakdownHtml('Top Chapters', countBy('chapter'), 5)}
+    `;
   }
 
   // Shared row markup for a lesson plan card — used by both the My Plans/
@@ -5970,6 +6014,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         });
       }
       if (d.youtube_video_url && !_lpYoutubeUrl) { _lpPendingYoutubeUrl = d.youtube_video_url; _lpRenderYoutubeSection(); }
+      _lpUpdatePhaseSummary();
       showToast('Draft generated — review and edit before saving', 'success');
     }).withFailureHandler(() => {
       if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="sparkles" class="h-3.5 w-3.5"></i>Generate with AI'; lucide.createIcons(); }
@@ -5999,7 +6044,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const v = plan || {};
 
     container.innerHTML = `
-      <div class="pt-4 max-w-3xl mx-auto pb-10">
+      <div class="pt-4 max-w-6xl mx-auto pb-10 grid grid-cols-1 lg:grid-cols-[1fr_260px] gap-5 items-start">
+      <div class="min-w-0">
         <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
           <button onclick="loadLessonPlanView()" class="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600">&larr; Back to Lesson Plans</button>
           <div class="flex gap-2">
@@ -6029,19 +6075,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div id="lpClassField">
               <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Class *</label>
-              ${_lpSelectHtml('lpClass', _lpClassOptionsList(), v.class_name || '', '_lpOnClassChange()', '_lpOnClassChange()')}
+              ${_lpSelectHtml('lpClass', _lpClassOptionsList(), v.class_name || '', '_lpOnClassChange();_lpUpdatePhaseSummary()', '_lpOnClassChange();_lpUpdatePhaseSummary()')}
             </div>
             <div id="lpSubjectField">
               <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Subject *</label>
-              ${_lpSelectHtml('lpSubject', _lpSubjectOptionsList(v.class_name || ''), v.subject || '', '_lpLoadChapterOptions()', '_lpLoadChapterOptions()')}
+              ${_lpSelectHtml('lpSubject', _lpSubjectOptionsList(v.class_name || ''), v.subject || '', '_lpLoadChapterOptions();_lpUpdatePhaseSummary()', '_lpLoadChapterOptions();_lpUpdatePhaseSummary()')}
             </div>
             <div id="lpVersionField">
               <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Version</label>
-              ${_lpSelectHtml('lpVersion', _lpVersionOptionsList(), v.version || '', '_lpLoadChapterOptions()', '_lpLoadChapterOptions()')}
+              ${_lpSelectHtml('lpVersion', _lpVersionOptionsList(), v.version || '', '_lpLoadChapterOptions();_lpUpdatePhaseSummary()', '_lpLoadChapterOptions();_lpUpdatePhaseSummary()')}
             </div>
             <div>
               <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Time (minutes)</label>
-              <input id="lpTimeMinutes" type="number" min="1" value="${_escHtml(v.time_minutes || '')}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mt-1">
+              <input id="lpTimeMinutes" type="number" min="1" value="${_escHtml(v.time_minutes || '')}" oninput="_lpUpdatePhaseSummary()" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mt-1">
             </div>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -6063,7 +6109,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
           <div>
             <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Topic</label>
-            <input id="lpTopic" type="text" list="lpTopicOptions" value="${_escHtml(v.topic || '')}" placeholder="Type, or pick from the selected chapter's lessons below" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mt-1">
+            <input id="lpTopic" type="text" list="lpTopicOptions" value="${_escHtml(v.topic || '')}" oninput="_lpUpdatePhaseSummary()" placeholder="Type, or pick from the selected chapter's lessons below" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mt-1">
             <datalist id="lpTopicOptions"></datalist>
           </div>
           <div>
@@ -6118,12 +6164,60 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div id="lpFormStatus" class="text-xs font-bold"></div>
           <button id="lpSaveBtn" onclick="_saveLessonPlanForm()" class="px-5 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">${isDuplicate ? 'Create Lesson Plan' : (plan && isOwner) ? 'Save Changes' : (plan ? 'Save My Copy' : 'Create Lesson Plan')}</button>
         </div>
+      </div>
+      <div id="lpPhaseSummarySidebar" class="lg:sticky lg:top-4 flex flex-col gap-3"></div>
       </div>`;
     _lpInitChapterBlocks(v);
     _lpYoutubeUrl = v.youtube_url || null;
     _lpPendingYoutubeUrl = null;
     _lpRenderYoutubeSection();
     lucide.createIcons();
+    setTimeout(_lpUpdatePhaseSummary, 0);
+  }
+
+  // Live-updating recap beside the phase editor — Class/Subject/Chapter/
+  // Topic/Version at a glance, plus each of the 8 phases' duration and a
+  // running total, so a teacher can see the whole lesson's time budget
+  // without scrolling the phase table itself. Recomputed on every phase
+  // duration keystroke (see the oninput on .lp-phase-duration below) and
+  // once on initial render.
+  function _lpUpdatePhaseSummary() {
+    const sidebar = document.getElementById('lpPhaseSummarySidebar');
+    if (!sidebar) return;
+    const val = id => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+    const rows = document.querySelectorAll('#lpPhasesBody tr');
+    const phaseRows = Array.from(rows).map(tr => ({
+      name: tr.querySelector('.lp-phase-name').value,
+      duration: Number(tr.querySelector('.lp-phase-duration').value) || 0,
+    }));
+    const totalMinutes = phaseRows.reduce((sum, p) => sum + p.duration, 0);
+    const plannedMinutes = Number(val('lpTimeMinutes')) || 0;
+    const overBudget = plannedMinutes > 0 && totalMinutes > plannedMinutes;
+    sidebar.innerHTML = `
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">This Lesson</p>
+        <div class="space-y-1 text-xs font-bold text-slate-600">
+          <p><span class="text-slate-400">Class:</span> ${_escHtml(_lpSelectVal('lpClass') || '—')}</p>
+          <p><span class="text-slate-400">Subject:</span> ${_escHtml(_lpSelectVal('lpSubject') || '—')}</p>
+          <p><span class="text-slate-400">Version:</span> ${_escHtml(_lpSelectVal('lpVersion') || '—')}</p>
+          <p class="truncate"><span class="text-slate-400">Topic:</span> ${_escHtml(val('lpTopic') || '—')}</p>
+        </div>
+      </div>
+      <div class="bg-gradient-to-br ${overBudget ? 'from-amber-500 to-orange-600' : 'from-blue-600 to-indigo-600'} rounded-2xl shadow-sm p-4 text-white">
+        <p class="text-[10px] font-black uppercase tracking-widest opacity-80">${overBudget ? 'Over Planned Time' : 'Total Phase Time'}</p>
+        <p class="text-3xl font-black">${totalMinutes}<span class="text-sm font-bold opacity-70"> min</span></p>
+        ${plannedMinutes ? `<p class="text-[10px] font-bold opacity-80">Planned: ${plannedMinutes} min</p>` : ''}
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Phase Breakdown</p>
+        <div class="flex flex-col gap-1.5">
+          ${phaseRows.map(p => `
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-xs font-bold text-slate-600 truncate">${_escHtml(p.name)}</span>
+              <span class="text-xs font-black ${p.duration ? 'text-slate-800' : 'text-slate-300'} shrink-0">${p.duration || '—'}${p.duration ? ' min' : ''}</span>
+            </div>`).join('')}
+        </div>
+      </div>`;
   }
 
   function _lpYoutubeVideoId(url) {
@@ -6208,9 +6302,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <td class="px-2 py-1.5 font-black text-slate-700 whitespace-nowrap">${_escHtml(p.phase || LESSON_PHASES[i] || '')}<input type="hidden" class="lp-phase-name" value="${_escHtml(p.phase || LESSON_PHASES[i] || '')}"></td>
         <td class="px-2 py-1.5"><textarea rows="2" class="lp-phase-teacher lp-autogrow w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs resize-y" oninput="_lpAutoGrow(this)">${_escHtml(p.teacher_activity || '')}</textarea></td>
         <td class="px-2 py-1.5"><textarea rows="2" class="lp-phase-learner lp-autogrow w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs resize-y" oninput="_lpAutoGrow(this)">${_escHtml(p.learner_activity || '')}</textarea></td>
-        <td class="px-2 py-1.5"><input type="number" min="0" class="lp-phase-duration w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" value="${_escHtml(p.duration_minutes || '')}"></td>
+        <td class="px-2 py-1.5"><input type="number" min="0" class="lp-phase-duration w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" value="${_escHtml(p.duration_minutes || '')}" oninput="_lpUpdatePhaseSummary()"></td>
       </tr>`).join('');
-    setTimeout(() => document.querySelectorAll('.lp-autogrow').forEach(_lpAutoGrow), 0);
+    setTimeout(() => { document.querySelectorAll('.lp-autogrow').forEach(_lpAutoGrow); _lpUpdatePhaseSummary(); }, 0);
     return html;
   }
 
@@ -6720,6 +6814,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           });
 
           setVal('lpSelfReflection', get(LP_XLSX_SELF_REFLECTION_ROW, 1));
+          _lpUpdatePhaseSummary();
           showToast('Excel data loaded — review and Save to confirm', 'success');
         } catch (err) {
           showToast('Could not read that file: ' + (err.message || err), 'error');

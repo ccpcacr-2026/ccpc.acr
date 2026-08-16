@@ -89,7 +89,7 @@ const RESERVED = [
   '_lpToggleFavorite','_openCurriculumFormById','_lpDownloadTemplate','_lpHandleExcelUpload','_lpDuplicatePlan',
   '_deleteLessonPlanForm','_openCurriculumForm','_saveLessonPlanForm',
   '_curAddLectureRow','_saveCurriculumForm',
-  '_lpOnClassChange','_lpLoadChapterOptions','_lpOnChapterSelect','_lpOnChapterOtherInput',
+  '_lpOnClassChange','_lpLoadChapterOptions','_lpOnChapterSelect','_lpOnChapterOtherInput','_lpUpdatePhaseSummary',
   '_lpOnManualLessonInput','_lpToggleLessonNumber','_lpAddChapterBlock','_lpRemoveChapterBlock',
   'loadLessonPlanBulkImportView','_lpBulkDownloadTemplate','_lpBulkPreview','_lpBulkConfirmImport',
   '_lpGenerateWithAi','_saveAiActiveModel','_saveAiProviderKey','_clearAiProviderKey','_loadAiUsageLog',
