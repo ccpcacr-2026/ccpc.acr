@@ -4345,16 +4345,34 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return raw.replace(/("[a-zA-Z_]+"\s*:\s*)([^\s"\[{\-\d][^"]*?)("\s*[,}\]])/g, '$1"$2$3');
   }
 
+  // Math-heavy lessons (seen in practice on Class 9-10 Math prompts) often
+  // come back with raw LaTeX like \(...\), \dot{3}, \times embedded in a
+  // string value — a backslash followed by anything other than the 8
+  // characters JSON actually recognizes as an escape (" \ / b f n r t u) is
+  // a hard parse error, not just a formatting quirk. Doubles any such
+  // backslash so it becomes a literal backslash in the resulting string
+  // (the LaTeX text itself is preserved as plain text, just not rendered —
+  // good enough for a lesson plan field, and far better than refusing the
+  // whole paste). Backslashes that already form a valid escape (\n, \", a
+  // stray \times where \t happens to be a real escape, etc.) are left
+  // alone since touching those would corrupt otherwise-valid content.
+  function _lpJsonRepairBadBackslashes(raw) {
+    return raw.replace(/\\(?!["\\/bfnrtu])/g, '\\\\');
+  }
+
   function _lpJsonParseInput(raw) {
     try { return JSON.parse(raw); } catch (e) { /* fall through */ }
     const start = raw.indexOf('[');
     const end = raw.lastIndexOf(']');
+    const attempts = [];
     if (start >= 0 && end > start) {
       const slice = raw.slice(start, end + 1);
-      try { return JSON.parse(slice); } catch (e) { /* fall through */ }
-      try { return JSON.parse(_lpJsonRepairMissingQuotes(slice)); } catch (e) { /* fall through */ }
+      attempts.push(slice, _lpJsonRepairBadBackslashes(slice), _lpJsonRepairMissingQuotes(slice), _lpJsonRepairMissingQuotes(_lpJsonRepairBadBackslashes(slice)));
     }
-    try { return JSON.parse(_lpJsonRepairMissingQuotes(raw)); } catch (e) { /* fall through */ }
+    attempts.push(raw, _lpJsonRepairBadBackslashes(raw), _lpJsonRepairMissingQuotes(_lpJsonRepairBadBackslashes(raw)));
+    for (const candidate of attempts) {
+      try { return JSON.parse(candidate); } catch (e) { /* try next */ }
+    }
     throw new Error('Could not parse this as JSON. Make sure you pasted the full array, including the [ and ] brackets.');
   }
 
