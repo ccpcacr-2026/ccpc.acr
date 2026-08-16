@@ -4025,13 +4025,13 @@
           </div>
         </div>
         <div class="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-5 items-start">
-          <div class="min-w-0 order-2 lg:order-1">
+          <div class="min-w-0">
             <div id="lpListToolbar"></div>
             <div id="lpListBody" class="flex flex-col gap-2">
               <div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>
             </div>
           </div>
-          <div id="lpSummarySidebar" class="order-1 lg:order-2 sticky top-28 flex flex-col gap-3 z-10"></div>
+          <div id="lpSummarySidebar" class="mt-4 lg:mt-0 lg:sticky lg:top-28 flex flex-col gap-3 z-10"></div>
         </div>
       </div>`;
     lucide.createIcons();
