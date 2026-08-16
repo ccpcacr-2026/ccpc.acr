@@ -279,6 +279,16 @@
           window.ACTIVE_ROLE = res.role;
           window.USER_ROLE   = res.role;
           if (res.profile) window._loginProfile = res.profile; // pre-loaded scalar profile
+          // window._loginProfile is a ONE-SHOT cache — openMyProfile() nulls
+          // it out the moment "My Profile" is viewed once (see ~952 below),
+          // since that was its only intended consumer. Anything else reading
+          // it later in the session (e.g. the lesson-plan print header's
+          // "Name:" field) would silently go blank the first time a teacher
+          // visits their own profile. window._myProfileStable is a second,
+          // NEVER-cleared copy fetched independently right here so print/
+          // export always has a name to show regardless of what else in the
+          // session has consumed the one-shot cache.
+          google.script.run.withSuccessHandler(p => { window._myProfileStable = p; }).withFailureHandler(() => {}).getMyProfile(res.email, res.user_id);
           localStorage.setItem('ccpc_user_id', id);
           localStorage.setItem('ccpc_pass', pass);
           // Login screen only ever gets hidden (never unmounted), so its
@@ -6571,7 +6581,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   function _lpBuildPrintHtml(payload, pageSize) {
-    const profile = window._loginProfile || {};
+    // _myProfileStable (never cleared) takes priority over _loginProfile
+    // (a one-shot cache openMyProfile() nulls out after first use) — see
+    // the comment where _myProfileStable is populated at login, in
+    // performLogin's success handler.
+    const profile = window._myProfileStable || window._loginProfile || {};
     const isBn = /bangla/i.test(payload.version || '');
     const L = isBn ? _LP_PRINT_LABELS.bn : _LP_PRINT_LABELS.en;
     const dims = _lpPageDims(pageSize);
