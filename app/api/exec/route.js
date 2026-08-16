@@ -3346,6 +3346,28 @@ const handlers = {
         type: 'forum_post', title: `New Student Forum Post — ${audience.class}${audience.section ? '/' + audience.section : ''}`,
         message: bodyPreview, data: { post_id: post.id },
       });
+
+      // Also notify the actual targeted students — resolved from the
+      // audience (explicit student_ids for "students" mode, or every
+      // student_id matching the class/class+section for the other two
+      // modes) — using the same 'student:<id>' identity prefix
+      // getStudentMessageThreads/direct_messages already rely on. Student-
+      // side notification reading happens in the separate ccpc-students
+      // app; this just writes the row with the same data.post_id a click-
+      // through needs, in the same shared `notifications` table.
+      let targetStudentIds = audience.student_ids || [];
+      if (audience.mode !== 'students') {
+        let path = `students_data?select=student_id&class=eq.${encodeURIComponent(audience.class)}`;
+        if (audience.section) path += `&section=eq.${encodeURIComponent(audience.section)}`;
+        const students = await _sbStudent(path);
+        targetStudentIds = (Array.isArray(students) ? students : []).map(s => String(s.student_id));
+      }
+      if (targetStudentIds.length) {
+        _forumNotify(targetStudentIds.map(id => 'student:' + id), {
+          type: 'forum_post', title: `New Forum Post — ${audience.class}${audience.section ? '/' + audience.section : ''}`,
+          message: bodyPreview, data: { post_id: post.id },
+        });
+      }
     } else {
       const allIds = await _forumAllUserIds();
       const others = allIds.filter(id => id !== callerId);
