@@ -15593,13 +15593,80 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _invDistAssignments = [];
   let _invDistSelectedProduct = null;
 
+  // Tab landing: a plain "Distribute" click shows the distribution history
+  // list with a "+ New Distribution" button; arriving via
+  // openInventoryDistributeFor (the Product Detail page's own "+ New
+  // Distribution" button, which preselects a product) skips straight to
+  // the form instead, same as it always has.
   function loadInventoryDistributePanel() {
+    if (_invDistributePreselectProduct) { openInventoryDistributeForm(); return; }
+    loadInventoryDistributeList();
+  }
+
+  let _invDistributeRows = [];
+  let _invDistributeSearch = '';
+
+  function loadInventoryDistributeList() {
+    const body = document.getElementById('invAdminBody');
+    if (!body) return;
+    body.innerHTML = `
+      <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
+        <p class="text-sm font-black text-slate-800 uppercase tracking-widest">Distribute</p>
+        <div class="flex gap-2 shrink-0 items-center">
+          <input type="text" id="invDistributeSearchInput" placeholder="Search…" value="${_escHtml(_invDistributeSearch)}" oninput="_invDistributeSearchInput(this.value)" class="w-44 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2.5">
+          <button onclick="openInventoryDistributeForm()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">+ New Distribution</button>
+        </div>
+      </div>
+      <div id="invDistributeListWrap">${`<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`}</div>`;
+    _invAdminFetch('distribute_list', {}).then(res => {
+      _invDistributeRows = (res && res.data) || [];
+      _invRenderDistributeList();
+    });
+  }
+
+  function _invDistributeSearchInput(val) {
+    _invDistributeSearch = val;
+    _invRenderDistributeList();
+  }
+
+  function _invRenderDistributeList() {
+    const wrap = document.getElementById('invDistributeListWrap');
+    if (!wrap) return;
+    const q = _invDistributeSearch.trim().toLowerCase();
+    const rows = !q ? _invDistributeRows : _invDistributeRows.filter(r => {
+      const itemsText = (r.distribution_items || []).map(it => (it.products && it.products.name) || '').join(' ');
+      return `${r.distribute_no || ''} ${(r.consumers && r.consumers.name) || ''} ${itemsText} ${r.remarks || ''}`.toLowerCase().includes(q);
+    });
+    if (!rows.length) { wrap.innerHTML = `<div class="bg-white rounded-3xl border border-slate-200 shadow-sm text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">${_invDistributeRows.length ? 'No matches' : 'No distributions yet'}</div>`; return; }
+    wrap.innerHTML = `
+      <div class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-x-auto">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-slate-50"><tr>
+            <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Date</th>
+            <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">No.</th>
+            <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Recipient</th>
+            <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Items</th>
+            <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Remarks</th>
+          </tr></thead>
+          <tbody>${rows.map(r => `<tr class="border-t border-slate-50">
+            <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(String(r.created_at || '').slice(0, 10))}</td>
+            <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(r.distribute_no || '—')}</td>
+            <td class="px-3 py-2.5 font-bold text-slate-700">${_escHtml((r.consumers && r.consumers.name) || '—')}${r.consumers && r.consumers.type ? ` <span class="text-slate-400">(${_escHtml(r.consumers.type)})</span>` : ''}</td>
+            <td class="px-3 py-2.5 font-bold text-slate-700">${_escHtml((r.distribution_items || []).map(it => `${(it.products && it.products.name) || 'item'} x${it.quantity}`).join(', ') || '—')}</td>
+            <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(r.remarks || '—')}</td>
+          </tr>`).join('')}</tbody>
+        </table>
+      </div>`;
+  }
+
+  function openInventoryDistributeForm() {
     const body = document.getElementById('invAdminBody');
     if (!body) return;
     _invDistSelectedProduct = null;
     body.innerHTML = `
       <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 max-w-lg">
-        <p class="text-sm font-black text-slate-800 uppercase tracking-widest mb-4">Distribute</p>
+        <button onclick="loadInventoryDistributeList()" class="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600 mb-3 block">&larr; Back to Distribution List</button>
+        <p class="text-sm font-black text-slate-800 uppercase tracking-widest mb-4">New Distribution</p>
         <div class="mb-3" id="invDistProductWrap">
           <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Product</label>
           <input id="invDistProductQuery" type="text" placeholder="Search by name or code…" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">

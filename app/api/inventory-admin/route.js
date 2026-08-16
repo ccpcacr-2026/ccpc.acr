@@ -491,6 +491,20 @@ async function _productAttributeOptions(payload) {
 // getConsumerOptions, which only feeds the self-service second-hop UI (see
 // header comment). This console can distribute any Central Store stock to
 // anyone, so it stays behind _isInventoryAdmin like every other action here.
+// Distribution history for the Distribute tab's list view — most recent
+// first, each row carrying its recipient (consumers) and line items
+// (distribution_items -> products) embedded so the list needs exactly one
+// request. Search is client-side (same pattern as the Settings entity
+// lists) over whatever this page fetches — not paginated server-side
+// since a school's distribution volume doesn't call for it yet.
+async function _distributeList() {
+  const rows = await sbInventory(
+    `distributions?select=id,distribute_no,created_at,remarks,consumers(name,type),distribution_items(quantity,products(name))&order=created_at.desc&limit=500`
+  );
+  if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+  return NextResponse.json({ result: 'success', data: Array.isArray(rows) ? rows : [] });
+}
+
 async function _distributeOptions() {
   const [consumers, committees, assignments, profiles, rooms, buildings, floors] = await Promise.all([
     sbInventory('consumers?select=*'),
@@ -1014,6 +1028,7 @@ export async function POST(req) {
   if (action === 'products_summary') return _productsSummary(payload);
   if (action === 'product_history') return _productHistory(payload);
   if (action === 'registry_create') return _registryCreate(payload);
+  if (action === 'distribute_list') return _distributeList();
   if (action === 'distribute_options') return _distributeOptions();
   if (action === 'distribute_create') return _distributeCreate(payload);
   if (action === 'product_attribute_options') return _productAttributeOptions(payload);
