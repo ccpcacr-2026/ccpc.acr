@@ -514,7 +514,7 @@ async function _createSystemForumPost(callerId, body, meta) {
     await supabaseRequest('forum_posts', 'post', {
       author_id: callerId, post_type: 'system', body,
       photo_urls: [], tagged_user_ids: [], is_system: true,
-      is_pinned: false, data: meta || {},
+      is_pinned: false, section: 'system', data: meta || {},
       last_activity_at: new Date().toISOString(), created_at: new Date().toISOString(),
     });
   } catch (e) { /* best-effort — a failed system post must never fail the caller's real action */ }
@@ -3308,7 +3308,9 @@ const handlers = {
     }
 
     const taggedIds = Array.isArray(p.tagged_user_ids) ? [...new Set(p.tagged_user_ids.filter(Boolean))] : [];
-    const section = ['system', 'teacher', 'student'].includes(p.section) ? p.section : 'teacher';
+    // 'system' is reserved for _createSystemForumPost — a human-authored
+    // post can never claim that section, no matter what the client sends.
+    const section = ['teacher', 'student'].includes(p.section) ? p.section : 'teacher';
     const audience = (section === 'student' && p.audience && p.audience.class) ? {
       mode: p.audience.mode || 'class', session: p.audience.session || null,
       class: p.audience.class, section: p.audience.section || null,
