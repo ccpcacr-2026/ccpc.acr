@@ -4210,7 +4210,7 @@ The 8 phase durations must sum to 40-45 minutes, same total in both versions.
 Be specific, not generic filler — name the actual quantities, formulas, or experiments in that section.
 OUTPUT FORMAT — one JSON object per lesson, collected into a single JSON array:
 {
-"class_name": "e.g. Six or Nine-Ten",
+"class_name": "bare grade name only, e.g. Six or Nine-Ten — never prefixed, not 'Class Six' or 'Grade Six'",
 "subject": "Subject exactly as the textbook states it",
 "lesson_number": 1,
 "page_reference": "Page number(s) this lesson covers",
@@ -4369,6 +4369,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // hand-typed prompt is two independent chances to say "Six" when you meant
   // "Seven", and they can silently disagree. Reading it straight out of the
   // model's own reply removes that whole class of mismatch.
+  // NotebookLM sometimes writes "Class Four" / "class: Four" / "Grade Four"
+  // instead of the bare "Four" this app's Class field actually uses
+  // (NCTB_CLASS_ORDER — "Six", "Nine-Ten", etc., never prefixed) — strip a
+  // leading "Class "/"Grade " (case-insensitive) so the importer doesn't
+  // silently create a new, wrong class value like "Class Four" alongside
+  // the real "Four".
+  function _lpNormalizeClassName(raw) {
+    return String(raw || '').trim().replace(/^(class|grade)\s+/i, '').trim();
+  }
+
   function _lpJsonBuildRows(items) {
     return items.map(item => {
       const chapter = String(item.chapter || '').trim();
@@ -4383,7 +4393,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         };
       });
       return {
-        class_name: String(item.class_name || item.class || '').trim(),
+        class_name: _lpNormalizeClassName(item.class_name || item.class),
         subject: String(item.subject || '').trim(),
         version: String(item.version || '').trim(),
         chapter, lesson_number: lessonNumbers[0] || null,
