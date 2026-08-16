@@ -100,12 +100,15 @@ const ENTITIES = {
   unit_conversions: {
     table: 'unit_conversions',
     // Unlike every other importable entity, nothing here is a natural
-    // unique identifier — it's a conversion RULE, not a named record. Using
-    // unit_type (a free-text label like "Weight" or "Box to Piece") as the
-    // import key is a pragmatic choice: it gives the generic import engine
-    // something to de-duplicate/match-existing-rows against, at the cost of
-    // needing distinct unit_type text per rule to avoid rows colliding.
+    // unique identifier — it's a conversion RULE, not a named record, and
+    // many legitimate rules share the same unit_type (e.g. several rules
+    // all labeled "Weight"). importKey stays set to unit_type purely so
+    // the import UI has a required column to map to and a per-row label
+    // for warnings — insertOnly:true tells _settingsImportConfirm/
+    // _settingsImportPreview to skip all existing-record matching/
+    // dedup-by-key entirely and just insert every valid row as new.
     importKey: 'unit_type',
+    insertOnly: true,
     fields: [
       { name: 'unit_id', label: 'Unit', type: 'select', source: 'units', optionLabel: 'name' },
       { name: 'unit_type', label: 'Unit Type', type: 'text' },
@@ -748,8 +751,18 @@ async function _settingsImportPreview(payload) {
   if (!cfg) return NextResponse.json({ result: 'error', message: 'Unknown entity' }, { status: 404 });
   if (!cfg.importKey) return NextResponse.json({ result: 'error', message: 'Import is not supported for this entity' }, { status: 400 });
   const keyCol = cfg.importKey;
-  const keys = Array.isArray(payload.keys) ? [...new Set(payload.keys.map(k => String(k).trim()).filter(Boolean))] : [];
-  if (!keys.length) return NextResponse.json({ result: 'error', message: `No ${keyCol} values found in the mapped file.` });
+  const rawKeys = Array.isArray(payload.keys) ? payload.keys.map(k => String(k).trim()).filter(Boolean) : [];
+  if (!rawKeys.length) return NextResponse.json({ result: 'error', message: `No ${keyCol} values found in the mapped file.` });
+  // insertOnly entities (Unit Conversion) have no natural unique identifier
+  // — importKey there is a descriptive label, not a key rows should be
+  // deduplicated or matched-as-"already exists" against (many legitimate
+  // rules share the same one, e.g. Unit Type "Weight"). Every row with a
+  // non-blank key is simply counted as new; existing-record matching is
+  // skipped entirely, matching what _settingsImportConfirm actually does.
+  if (cfg.insertOnly) {
+    return NextResponse.json({ result: 'success', totalCount: rawKeys.length, existingCount: 0, newCount: rawKeys.length });
+  }
+  const keys = [...new Set(rawKeys)];
   try {
     const existing = await _fetchExistingKeys(cfg.table, keyCol, keys);
     return NextResponse.json({ result: 'success', totalCount: keys.length, existingCount: existing.size, newCount: keys.length - existing.size });
@@ -793,6 +806,11 @@ async function _settingsImportConfirm(payload) {
     let skippedMissingKey = 0, skippedDuplicateInFile = 0;
     const seenInFile = new Set();
     const clean = [];
+    // insertOnly entities (Unit Conversion) have no field that's actually
+    // unique per row — many legitimate rules share the same Unit Type — so
+    // two rows with the same key text are NOT a duplicate to skip here,
+    // just two different rules that happen to share a label.
+    const dedupeByKey = !cfg.insertOnly;
     // A select field (Unit, Convert From, Convert To, …) whose cell had
     // TEXT that didn't match any existing record's name previously failed
     // silently — _coerceValue just returns undefined, the column gets
@@ -805,8 +823,10 @@ async function _settingsImportConfirm(payload) {
     for (const row of rows) {
       const key = String(row[keyCol] || '').trim();
       if (!key) { skippedMissingKey++; continue; }
-      if (seenInFile.has(key)) { skippedDuplicateInFile++; continue; }
-      seenInFile.add(key);
+      if (dedupeByKey) {
+        if (seenInFile.has(key)) { skippedDuplicateInFile++; continue; }
+        seenInFile.add(key);
+      }
       const cleanRow = {};
       for (const [k, v] of Object.entries(row)) {
         const field = fieldByName[k];
@@ -821,10 +841,12 @@ async function _settingsImportConfirm(payload) {
       clean.push(cleanRow);
     }
 
-    const keys = clean.map(r => r[keyCol]);
-    const existing = await _fetchExistingKeys(cfg.table, keyCol, keys);
-    const toInsert = clean.filter(r => !existing.has(r[keyCol]));
-    const toUpdate = updateExisting ? clean.filter(r => existing.has(r[keyCol])) : [];
+    // insertOnly: every cleaned row is a new rule, full stop — no
+    // "does this already exist" concept without a real unique key to
+    // check it against.
+    const existing = cfg.insertOnly ? new Set() : await _fetchExistingKeys(cfg.table, keyCol, clean.map(r => r[keyCol]));
+    const toInsert = cfg.insertOnly ? clean : clean.filter(r => !existing.has(r[keyCol]));
+    const toUpdate = (!cfg.insertOnly && updateExisting) ? clean.filter(r => existing.has(r[keyCol])) : [];
 
     // Auto-generate Code# for any new row that didn't map a code column —
     // computed once up front (not per-row) so a whole batch of blanks gets

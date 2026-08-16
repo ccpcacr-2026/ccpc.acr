@@ -14543,7 +14543,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     units: { label: 'Unit', title: 'UNIT', importKey: 'name',
       columns: [{ key: 'name', label: 'Unit' }, { key: 'short_form', label: 'Short Form' }],
       fields: [{ name: 'name', label: 'Unit', type: 'text', required: true }, { name: 'short_form', label: 'Short Form', type: 'text' }] },
-    unit_conversions: { label: 'Unit Conversion', title: 'UNIT CONVERSION', importKey: 'unit_type',
+    unit_conversions: { label: 'Unit Conversion', title: 'UNIT CONVERSION', importKey: 'unit_type', insertOnly: true,
       columns: [
         { key: 'unit_id', label: 'Unit', lookup: 'units', lookupLabel: 'name' },
         { key: 'unit_type', label: 'Unit Type' },
@@ -14733,7 +14733,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <span id="invImportRowCount" class="text-xs text-slate-400 font-bold"></span>
             </div>
             <div id="invImportMappingList" class="flex flex-col gap-2"></div>
-            <label class="flex items-center gap-2 mt-3 mb-2 text-xs font-bold text-slate-600"><input type="checkbox" id="invImportUpdateExisting">Also update existing records (fills mapped columns instead of skipping)</label>
+            <label id="invImportUpdateExistingRow" class="flex items-center gap-2 mt-3 mb-2 text-xs font-bold text-slate-600"><input type="checkbox" id="invImportUpdateExisting">Also update existing records (fills mapped columns instead of skipping)</label>
             <button onclick="previewInventoryImport()" class="px-4 py-2.5 bg-slate-800 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Preview Import</button>
           </div>
           <div id="invImportPreviewSection" class="hidden mb-3">
@@ -15052,6 +15052,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const status = document.getElementById('invImportFileStatus');
     if (status) status.textContent = '';
     ['invImportMappingSection', 'invImportPreviewSection', 'invImportResultSection'].forEach(id => { const el = document.getElementById(id); if (el) el.classList.add('hidden'); });
+    // insertOnly entities (Unit Conversion) have no real "already exists"
+    // concept to match against — every row is always a new rule — so the
+    // update-existing option would be misleading here; hide it entirely.
+    const updateRow = document.getElementById('invImportUpdateExistingRow');
+    const updateChk = document.getElementById('invImportUpdateExisting');
+    if (updateRow) updateRow.classList.toggle('hidden', !!cfg.insertOnly);
+    if (updateChk) updateChk.checked = false;
     const modal = document.getElementById('invImportModal');
     if (modal) modal.classList.remove('hidden');
   }
@@ -15150,14 +15157,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _invAdminFetch('settings_import_preview', { entity: _invImportEntity, keys }).then(res => {
       if (!res || res.result !== 'success') { showToast((res && res.message) || 'Preview failed', 'error'); return; }
       const noKeyCount = rows.length - keys.length;
-      const updateExisting = document.getElementById('invImportUpdateExisting').checked;
+      const updateExisting = !cfg.insertOnly && document.getElementById('invImportUpdateExisting').checked;
       const summary = document.getElementById('invImportPreviewSummary');
       const existingLabel = updateExisting ? 'Existing (will update)' : 'Existing (skip)';
       const existingColor = updateExisting ? 'text-blue-600' : 'text-amber-600';
       summary.innerHTML = `
         <div class="p-3 border border-slate-200 rounded-xl"><div class="text-[10px] font-black text-slate-400 uppercase">Total Rows</div><div class="text-xl font-black text-slate-800">${rows.length}</div></div>
         <div class="p-3 border border-slate-200 rounded-xl"><div class="text-[10px] font-black text-slate-400 uppercase">New</div><div class="text-xl font-black text-emerald-600">${res.newCount}</div></div>
-        <div class="p-3 border border-slate-200 rounded-xl"><div class="text-[10px] font-black text-slate-400 uppercase">${existingLabel}</div><div class="text-xl font-black ${existingColor}">${res.existingCount}</div></div>
+        ${cfg.insertOnly ? '' : `<div class="p-3 border border-slate-200 rounded-xl"><div class="text-[10px] font-black text-slate-400 uppercase">${existingLabel}</div><div class="text-xl font-black ${existingColor}">${res.existingCount}</div></div>`}
         ${noKeyCount ? `<div class="p-3 border border-slate-200 rounded-xl"><div class="text-[10px] font-black text-slate-400 uppercase">Missing Key</div><div class="text-xl font-black text-red-500">${noKeyCount}</div></div>` : ''}`;
       const confirmBtn = document.getElementById('invImportConfirmBtn');
       const totalAction = res.newCount + (updateExisting ? res.existingCount : 0);
