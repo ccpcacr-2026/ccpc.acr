@@ -5899,6 +5899,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _diaryComposerType = 'discipline';
   let _diaryAudience = null;   // {mode, session, class, section, student_ids}
   let _diaryAudienceStudents = [];
+  let _diaryClassSectionOptions = { classes: [], sections: {} }; // Class -> [Section] dropdown data, from real student records
 
   function loadDiaryView() {
     _setViewHash('student_portal');
@@ -5923,8 +5924,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </div>
             <div class="grid grid-cols-3 gap-2">
               <input id="diaryAudSession" placeholder="Session" oninput="_diaryAudienceSearchStudents()" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
-              <input id="diaryAudClass" placeholder="Class (e.g. Six)" oninput="_diaryAudienceSearchStudents()" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
-              <input id="diaryAudSectionInput" placeholder="Section (e.g. A)" oninput="_diaryAudienceSearchStudents()" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+              <select id="diaryAudClass" onchange="_diaryOnClassChange()" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold"><option value="">Class…</option></select>
+              <select id="diaryAudSectionInput" onchange="_diaryAudienceSearchStudents()" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold"><option value="">Section…</option></select>
             </div>
             <div id="diaryAudRollRow" class="hidden"><input id="diaryAudRoll" placeholder="Roll or ID (optional, narrows the list)" oninput="_diaryAudienceSearchStudents()" class="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold"></div>
             <div id="diaryAudStudentList" class="hidden max-h-40 overflow-y-auto space-y-1"></div>
@@ -5967,6 +5968,34 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _diaryAudience = { mode: 'class', session: '', class: '', section: '', student_ids: [] };
     _diaryAudienceStudents = [];
     ['diaryAudSession', 'diaryAudClass', 'diaryAudSectionInput', 'diaryAudRoll'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    _diaryLoadClassSectionOptions();
+  }
+
+  // Class/Section dropdowns, sourced from real student records (never a
+  // static list) — cascading: picking a Class narrows Section's options to
+  // only the sections that class actually has.
+  function _diaryLoadClassSectionOptions() {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') return;
+      _diaryClassSectionOptions = { classes: res.classes || [], sections: res.sections || {} };
+      const classSel = document.getElementById('diaryAudClass');
+      if (classSel) classSel.innerHTML = `<option value="">Class…</option>` + _diaryClassSectionOptions.classes.map(c => `<option value="${_escHtml(c)}">${_escHtml(c)}</option>`).join('');
+      _diaryRenderSectionOptions();
+    }).withFailureHandler(() => {}).getClassSectionOptions(myId);
+  }
+
+  function _diaryRenderSectionOptions() {
+    const cls = document.getElementById('diaryAudClass');
+    const secSel = document.getElementById('diaryAudSectionInput');
+    if (!secSel) return;
+    const sections = (cls && _diaryClassSectionOptions.sections[cls.value]) || [];
+    secSel.innerHTML = `<option value="">Section…</option>` + sections.map(s => `<option value="${_escHtml(s)}">${_escHtml(s)}</option>`).join('');
+  }
+
+  function _diaryOnClassChange() {
+    _diaryRenderSectionOptions();
+    _diaryAudienceSearchStudents();
   }
 
   function _diaryAudienceSetMode(mode) {

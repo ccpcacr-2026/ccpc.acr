@@ -3572,6 +3572,26 @@ const handlers = {
     return { result: 'success', students: Array.isArray(rows) ? rows : [] };
   },
 
+  // Distinct Class → [Sections] straight from real student records, for
+  // audience-picker dropdowns (Diary, and anywhere else that targets a
+  // class/section) — never a static list, so a class with no students
+  // enrolled yet just doesn't appear rather than offering a dead end.
+  async getClassSectionOptions([callerId]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    const rows = await _sbStudent('students_data?select=class,section&limit=10000');
+    if (rows?.error) return { result: 'error', message: rows.details || rows.error };
+    const byClass = {};
+    (Array.isArray(rows) ? rows : []).forEach(r => {
+      if (!r.class) return;
+      const set = byClass[r.class] || (byClass[r.class] = new Set());
+      if (r.section) set.add(r.section);
+    });
+    const classes = Object.keys(byClass).sort();
+    const sections = {};
+    classes.forEach(c => { sections[c] = [...byClass[c]].sort(); });
+    return { result: 'success', classes, sections };
+  },
+
   async uploadForumPhoto([callerId, dataUrl, filename]) {
     if (!callerId) return { result: 'error', message: 'Not signed in.' };
     const match = /^data:([^;]+);base64,(.+)$/.exec(String(dataUrl || ''));
