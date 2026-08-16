@@ -697,6 +697,7 @@
     // same pattern as 'my_data'.
     { key: 'student_forum', label: 'Student Forum', icon: 'messages-square', erp: false, action: { type: 'native', fn: 'loadStudentPortalForumView' } },
     { key: 'student_message_history', label: 'Message History', icon: 'message-circle-heart', erp: false, action: { type: 'native', fn: 'loadStudentMessageHistoryView' } },
+    { key: 'student_diary', label: 'Diary', icon: 'notebook-tabs', erp: false, action: { type: 'native', fn: 'loadDiaryView' } },
   ];
 
   function loadStudentPortalForumView() {
@@ -786,7 +787,7 @@
       // erpTabs like the admin_tab_visibility-gated items above, since a
       // plain Teacher browsing Student Portal typically has none of those.
       const showPortalShortcuts = _hasModuleAccess('student_portal') || hasTabData;
-      const items = ADMIN_SUBNAV_ITEMS.filter(i => roleVisibleKeys.includes(i.key) || (i.key === 'my_data' && hasTabData) || (['student_forum', 'student_message_history'].includes(i.key) && showPortalShortcuts));
+      const items = ADMIN_SUBNAV_ITEMS.filter(i => roleVisibleKeys.includes(i.key) || (i.key === 'my_data' && hasTabData) || (['student_forum', 'student_message_history', 'student_diary'].includes(i.key) && showPortalShortcuts));
       if (!items.length) { host.innerHTML = ''; host.classList.add('hidden'); return; }
       host.innerHTML = items.map(i =>
         `<a href="javascript:void(0)" onclick="${i.action.fn}(); closeMobileSidebar();" class="nav-link nav-sublink" id="nav-erp-${i.key}"><div class="nav-icon-box"><i data-lucide="${i.icon}" class="nav-icon"></i></div><span class="nav-text">${i.label}</span></a>`
@@ -5874,6 +5875,240 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>`;
       lucide.createIcons();
     }).withFailureHandler(() => { view.innerHTML = `<div class="text-center py-8 text-red-400 text-xs font-black uppercase">Network error</div>`; }).getStudentMessageThread(myId, studentId);
+  }
+
+  // ── STUDENT DIARY ────────────────────────────────────────────────────────
+  // Any teacher can report a discipline case, a compliment/good report, or a
+  // wish/greeting for a specific student/class/section, or assign homework/
+  // a to-do the same way — one composer, an entry-type switch changes which
+  // extra fields show (Subject + Due Date for Homework only). Audience
+  // picker is the same Whole Class / Class+Section / Specific Students
+  // pattern as the Forum's Student section (own _diaryAudience* state here
+  // rather than reusing the Forum's, so the two composers don't collide).
+  // Server (createDiaryEntry/getDiaryEntries in app/api/exec/route.js)
+  // notifies the targeted students via the shared `notifications` table —
+  // actual student-side reading happens in the separate ccpc-students app.
+  const DIARY_ENTRY_TYPES = [
+    { key: 'discipline', label: 'Discipline', emoji: '🚨', grad: 'from-red-500 to-rose-600' },
+    { key: 'compliment', label: 'Compliment', emoji: '🌟', grad: 'from-amber-400 to-orange-500' },
+    { key: 'wish', label: 'Wish', emoji: '🎉', grad: 'from-fuchsia-500 to-purple-600' },
+    { key: 'homework', label: 'Homework / To-do', emoji: '📚', grad: 'from-blue-500 to-indigo-600' },
+  ];
+  let _diaryScope = 'mine'; // 'mine' | 'oversight'
+  let _diaryEntries = [];
+  let _diaryComposerType = 'discipline';
+  let _diaryAudience = null;   // {mode, session, class, section, student_ids}
+  let _diaryAudienceStudents = [];
+
+  function loadDiaryView() {
+    _setViewHash('student_portal');
+    setActiveNavLink('nav-erp-student_diary');
+    setContentHeader('Diary', 'notebook-tabs');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    _diaryComposerType = 'discipline';
+    container.innerHTML = `
+      <div class="pt-4 max-w-3xl mx-auto pb-10">
+        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-4 mb-5">
+          <h3 class="font-black text-slate-800 text-sm mb-3">New Diary Entry</h3>
+          <div class="flex gap-1.5 flex-wrap mb-3">
+            ${DIARY_ENTRY_TYPES.map(t => `<button onclick="_diarySelectType('${t.key}')" id="diaryTypeBtn-${t.key}" class="px-3 py-1.5 rounded-full text-xs font-black border-2 transition-all ${_diaryComposerType === t.key ? `bg-gradient-to-r ${t.grad} text-white border-transparent` : 'border-slate-200 text-slate-500 hover:border-slate-300'}">${t.emoji} ${_escHtml(t.label)}</button>`).join('')}
+          </div>
+          <div class="p-3 rounded-xl border border-indigo-200 bg-indigo-50/40 space-y-2 mb-3">
+            <p class="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Who is this for?</p>
+            <div class="flex gap-2 flex-wrap">
+              <button onclick="_diaryAudienceSetMode('class')" id="diaryAudModeBtn-class" class="px-2.5 py-1 rounded-full text-[10px] font-black uppercase border">Whole Class</button>
+              <button onclick="_diaryAudienceSetMode('class_section')" id="diaryAudModeBtn-class_section" class="px-2.5 py-1 rounded-full text-[10px] font-black uppercase border">Class + Section</button>
+              <button onclick="_diaryAudienceSetMode('students')" id="diaryAudModeBtn-students" class="px-2.5 py-1 rounded-full text-[10px] font-black uppercase border">Specific Student(s)</button>
+            </div>
+            <div class="grid grid-cols-3 gap-2">
+              <input id="diaryAudSession" placeholder="Session" oninput="_diaryAudienceSearchStudents()" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+              <input id="diaryAudClass" placeholder="Class (e.g. Six)" oninput="_diaryAudienceSearchStudents()" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+              <input id="diaryAudSectionInput" placeholder="Section (e.g. A)" oninput="_diaryAudienceSearchStudents()" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+            </div>
+            <div id="diaryAudRollRow" class="hidden"><input id="diaryAudRoll" placeholder="Roll or ID (optional, narrows the list)" oninput="_diaryAudienceSearchStudents()" class="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold"></div>
+            <div id="diaryAudStudentList" class="hidden max-h-40 overflow-y-auto space-y-1"></div>
+            <p id="diaryAudSummary" class="text-[10px] font-bold text-slate-500"></p>
+          </div>
+          <div id="diaryHomeworkFields" class="hidden grid grid-cols-2 gap-2 mb-3">
+            <input id="diarySubject" placeholder="Subject (e.g. Mathematics)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold">
+            <input id="diaryDueDate" type="date" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold">
+          </div>
+          <textarea id="diaryMessage" rows="3" placeholder="Write the diary note / homework / to-do…" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-sm focus:ring-2 focus:ring-indigo-500 outline-none resize-none"></textarea>
+          <button id="diarySubmitBtn" onclick="_diarySubmit()" class="mt-3 w-full px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">Submit Diary Entry</button>
+        </div>
+
+        <div class="flex gap-2 mb-3">
+          <button onclick="_diarySetScope('mine')" id="diaryTabMine" class="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">My Entries</button>
+          <button onclick="_diarySetScope('oversight')" id="diaryTabOversight" class="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">Oversight</button>
+        </div>
+        <div id="diaryList" class="flex flex-col gap-2">
+          <div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>
+        </div>
+      </div>`;
+    lucide.createIcons();
+    _diaryAudienceInit();
+    _diaryAudienceSetMode('class');
+    _diarySetScope('mine');
+  }
+
+  function _diarySelectType(key) {
+    _diaryComposerType = key;
+    DIARY_ENTRY_TYPES.forEach(t => {
+      const btn = document.getElementById(`diaryTypeBtn-${t.key}`);
+      if (!btn) return;
+      btn.className = `px-3 py-1.5 rounded-full text-xs font-black border-2 transition-all ${key === t.key ? `bg-gradient-to-r ${t.grad} text-white border-transparent` : 'border-slate-200 text-slate-500 hover:border-slate-300'}`;
+    });
+    const hwFields = document.getElementById('diaryHomeworkFields');
+    if (hwFields) hwFields.classList.toggle('hidden', key !== 'homework');
+  }
+
+  function _diaryAudienceInit() {
+    _diaryAudience = { mode: 'class', session: '', class: '', section: '', student_ids: [] };
+    _diaryAudienceStudents = [];
+    ['diaryAudSession', 'diaryAudClass', 'diaryAudSectionInput', 'diaryAudRoll'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  }
+
+  function _diaryAudienceSetMode(mode) {
+    _diaryAudience.mode = mode;
+    ['class', 'class_section', 'students'].forEach(m => {
+      const btn = document.getElementById(`diaryAudModeBtn-${m}`);
+      if (btn) btn.className = `px-2.5 py-1 rounded-full text-[10px] font-black uppercase border ${mode === m ? 'bg-indigo-600 text-white border-transparent' : 'border-slate-200 text-slate-500'}`;
+    });
+    document.getElementById('diaryAudRollRow').classList.toggle('hidden', mode !== 'students');
+    document.getElementById('diaryAudStudentList').classList.toggle('hidden', mode !== 'students');
+    const secInput = document.getElementById('diaryAudSectionInput');
+    if (secInput) secInput.disabled = (mode === 'class');
+    if (mode === 'class') _diaryAudience.section = '';
+    if (mode === 'students') _diaryAudienceSearchStudents();
+    _diaryAudienceUpdateSummary();
+  }
+
+  function _diaryAudienceSearchStudents() {
+    const session = document.getElementById('diaryAudSession').value.trim();
+    const cls = document.getElementById('diaryAudClass').value.trim();
+    const section = document.getElementById('diaryAudSectionInput').value.trim();
+    const rollEl = document.getElementById('diaryAudRoll');
+    const roll = rollEl ? rollEl.value.trim() : '';
+    _diaryAudience.session = session; _diaryAudience.class = cls; _diaryAudience.section = section;
+    _diaryAudienceUpdateSummary();
+    if (_diaryAudience.mode !== 'students' || !cls) { _diaryAudienceStudents = []; document.getElementById('diaryAudStudentList').innerHTML = ''; return; }
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      _diaryAudienceStudents = (res && res.students) || [];
+      _diaryRenderAudienceStudentList();
+    }).withFailureHandler(() => {}).searchStudentsForAudience(myId, { session, class: cls, section, roll });
+  }
+
+  function _diaryRenderAudienceStudentList() {
+    const el = document.getElementById('diaryAudStudentList');
+    if (!el) return;
+    el.innerHTML = _diaryAudienceStudents.map(s => `<label class="flex items-center gap-2 px-2 py-1 hover:bg-white rounded-lg cursor-pointer">
+      <input type="checkbox" ${_diaryAudience.student_ids.includes(String(s.student_id)) ? 'checked' : ''} onchange="_diaryAudienceToggleStudent('${s.student_id}', this.checked)">
+      <span class="text-xs font-bold text-slate-700">${_escHtml(s.roll || s.student_id)} — ${_escHtml(s.student_name || s.student_id)} <span class="text-slate-400">(ID: ${_escHtml(s.student_id)})</span></span>
+    </label>`).join('') || `<p class="text-[10px] text-slate-400 px-2">No students found for this class/section.</p>`;
+    _diaryAudienceUpdateSummary();
+  }
+
+  function _diaryAudienceToggleStudent(id, checked) {
+    id = String(id);
+    if (checked) { if (!_diaryAudience.student_ids.includes(id)) _diaryAudience.student_ids.push(id); }
+    else { _diaryAudience.student_ids = _diaryAudience.student_ids.filter(x => x !== id); }
+    _diaryAudienceUpdateSummary();
+  }
+
+  function _diaryAudienceUpdateSummary() {
+    const el = document.getElementById('diaryAudSummary');
+    if (!el || !_diaryAudience) return;
+    const a = _diaryAudience;
+    if (!a.class) { el.textContent = 'Enter a class to target.'; return; }
+    if (a.mode === 'class') el.textContent = `For: ${a.class} (all sections)`;
+    else if (a.mode === 'class_section') el.textContent = `For: ${a.class}${a.section ? '/' + a.section : ''}`;
+    else el.textContent = `For: ${a.student_ids.length} selected student(s) in ${a.class}${a.section ? '/' + a.section : ''}`;
+  }
+
+  function _diarySubmit() {
+    const message = document.getElementById('diaryMessage').value.trim();
+    if (!message) { showToast('Write a message first', 'error'); return; }
+    if (!_diaryAudience || !_diaryAudience.class) { showToast('Pick a Class this entry is for', 'error'); return; }
+    if (_diaryAudience.mode === 'students' && !_diaryAudience.student_ids.length) { showToast('Pick at least one student', 'error'); return; }
+    const btn = document.getElementById('diarySubmitBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const payload = {
+      entry_type: _diaryComposerType, audience: _diaryAudience, message,
+      subject: _diaryComposerType === 'homework' ? (document.getElementById('diarySubject').value || '').trim() : '',
+      due_date: _diaryComposerType === 'homework' ? (document.getElementById('diaryDueDate').value || '') : '',
+    };
+    google.script.run.withSuccessHandler(res => {
+      if (btn) { btn.disabled = false; btn.textContent = 'Submit Diary Entry'; }
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not submit', 'error'); return; }
+      showToast('Diary entry submitted', 'success');
+      document.getElementById('diaryMessage').value = '';
+      const subjEl = document.getElementById('diarySubject'); if (subjEl) subjEl.value = '';
+      const dueEl = document.getElementById('diaryDueDate'); if (dueEl) dueEl.value = '';
+      if (_diaryScope === 'mine') _diaryLoadList();
+    }).withFailureHandler(() => {
+      if (btn) { btn.disabled = false; btn.textContent = 'Submit Diary Entry'; }
+      showToast('Network error while submitting', 'error');
+    }).createDiaryEntry(myId, payload);
+  }
+
+  function _diarySetScope(scope) {
+    _diaryScope = scope;
+    const active = 'bg-blue-600 text-white shadow-lg shadow-blue-500/20';
+    const inactive = 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50';
+    const mineBtn = document.getElementById('diaryTabMine');
+    const overBtn = document.getElementById('diaryTabOversight');
+    if (mineBtn) mineBtn.className = `px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${scope === 'mine' ? active : inactive}`;
+    if (overBtn) overBtn.className = `px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${scope === 'oversight' ? active : inactive}`;
+    _diaryLoadList();
+  }
+
+  function _diaryLoadList() {
+    const list = document.getElementById('diaryList');
+    if (!list) return;
+    list.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { list.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml((res && res.message) || 'Failed to load')}</div>`; return; }
+      _diaryEntries = res.entries || [];
+      if (!_diaryEntries.length) { list.innerHTML = `<div class="bg-white rounded-3xl border border-slate-200 shadow-sm text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">${_diaryScope === 'mine' ? "You haven't logged any diary entries yet" : 'No diary entries visible to you yet'}</div>`; return; }
+      list.innerHTML = _diaryEntries.map(e => _diaryEntryCardHtml(e)).join('');
+      lucide.createIcons();
+    }).withFailureHandler(() => { list.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">Network error</div>`; }).getDiaryEntries(myId, _diaryScope, {});
+  }
+
+  function _diaryEntryCardHtml(e) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const t = DIARY_ENTRY_TYPES.find(x => x.key === e.entry_type) || DIARY_ENTRY_TYPES[0];
+    const a = e.audience || {};
+    const audienceLabel = a.mode === 'students' ? `${(a.student_ids || []).length} student(s) in ${a.class}${a.section ? '/' + a.section : ''}`
+      : `${a.class}${a.section ? '/' + a.section : ''}${a.mode === 'class' ? ' (all sections)' : ''}`;
+    const canDelete = e.teacher_id === myId || _lpIsAdmin();
+    return `
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+        <div class="flex items-start justify-between gap-3 flex-wrap">
+          <div class="flex items-center gap-2">
+            <span class="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-gradient-to-r ${t.grad} text-white">${t.emoji} ${_escHtml(t.label)}</span>
+            <span class="text-[10px] font-bold text-slate-500">${_escHtml(audienceLabel)}</span>
+          </div>
+          ${canDelete ? `<button onclick="_diaryDeleteEntry(${e.id})" title="Delete" class="p-1.5 hover:bg-red-50 rounded-lg text-red-400 hover:text-red-600"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>` : ''}
+        </div>
+        ${e.subject || e.due_date ? `<p class="text-[10px] font-bold text-slate-400 mt-2">${e.subject ? _escHtml(e.subject) : ''}${e.subject && e.due_date ? ' · ' : ''}${e.due_date ? 'Due ' + _escHtml(e.due_date) : ''}</p>` : ''}
+        <p class="text-sm font-semibold text-slate-700 mt-2 whitespace-pre-wrap">${_escHtml(e.message || '')}</p>
+        <p class="text-[10px] text-slate-400 font-bold mt-2">${e.teacher_name ? `By ${_escHtml(e.teacher_name)} · ` : ''}${_forumTimeAgo(e.created_at)}</p>
+      </div>`;
+  }
+
+  function _diaryDeleteEntry(id) {
+    if (!confirm('Delete this diary entry?')) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Delete failed', 'error'); return; }
+      showToast('Entry deleted', 'success');
+      _diaryLoadList();
+    }).withFailureHandler(() => showToast('Network error', 'error')).deleteDiaryEntry(myId, id);
   }
 
   function _lpUpdateTabButtons() {

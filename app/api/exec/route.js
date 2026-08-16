@@ -86,6 +86,8 @@ const PRIVILEGED_ROLES = ['HR', 'VP', 'Admin', 'Principal', 'Cord'];
 // saveColleagueCareer, which also hard-blocks self-edits server-side.
 const CAREER_EDIT_ROLES = ['HR', 'VP', 'Principal', 'Cord', 'Admin'];
 const CAREER_FIELDS = ['institution_law_breaking', 'civil_law_breaking'];
+const DIARY_ENTRY_TYPES = ['discipline', 'compliment', 'wish', 'homework'];
+const DIARY_LABELS = { discipline: 'Discipline Report', compliment: 'Compliment / Good Report', wish: 'Wish / Greeting', homework: 'Homework / To-do' };
 
 // Field Category row_filter check (student.field_access_grants.row_filter,
 // { column: [values] }, AND across columns, IN within each) — local copy
@@ -2025,6 +2027,129 @@ const handlers = {
     const msgs = await supabaseRequest(`direct_messages?or=(sender_id.eq.${encodeURIComponent(sid)},recipient_id.eq.${encodeURIComponent(sid)})&order=created_at.asc&limit=500`);
     if (msgs?.error) return { result: 'error', message: msgs.details || msgs.error };
     return { result: 'success', messages: Array.isArray(msgs) ? msgs : [] };
+  },
+
+  // ── STUDENT DIARY ────────────────────────────────────────────────────────
+  // Any teacher can report a diary entry (discipline case, compliment/good
+  // report, wish/greeting) or assign homework/a to-do straight to a student,
+  // a whole class, or a class+section — same audience shape as the Forum's
+  // Student section (mode/session/class/section/student_ids), reusing
+  // searchStudentsForAudience for the picker. Entries live in a new
+  // `student_diary_entries` table; the actual student-side reading happens
+  // in the separate ccpc-students app via the shared `notifications` table
+  // (same 'student:<id>' identity prefix convention used everywhere else
+  // student-facing). See DIARY_ENTRY_TYPES/DIARY_LABELS near the top of
+  // this file.
+
+  async createDiaryEntry([callerId, payload]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    const p = payload || {};
+    const entryType = DIARY_ENTRY_TYPES.includes(p.entry_type) ? p.entry_type : null;
+    if (!entryType) return { result: 'error', message: 'Pick an entry type.' };
+    const message = String(p.message || '').trim();
+    if (!message) return { result: 'error', message: 'Write a message first.' };
+    const a = p.audience || {};
+    if (!a.class) return { result: 'error', message: 'Pick a Class (and optionally Section/Student) this entry is for.' };
+    const audience = {
+      mode: a.mode || 'class', session: a.session || null, class: a.class, section: a.section || null,
+      student_ids: Array.isArray(a.student_ids) ? a.student_ids.map(String) : [],
+    };
+    if (audience.mode === 'students' && !audience.student_ids.length) return { result: 'error', message: 'Pick at least one student.' };
+    const row = {
+      teacher_id: callerId, entry_type: entryType, audience,
+      subject: (p.subject || '').trim() || null, message,
+      due_date: p.due_date || null, created_at: new Date().toISOString(),
+    };
+    const created = await supabaseRequest('student_diary_entries', 'post', row);
+    if (created?.error) return { result: 'error', message: created.details || created.error };
+    const entry = created[0];
+
+    // Resolve the actual targeted students (explicit list for "students"
+    // mode, or every student_id matching class/class+section otherwise) —
+    // same resolution createForumPost already does for its Student section.
+    let targetStudentIds = audience.student_ids;
+    if (audience.mode !== 'students') {
+      let path = `students_data?select=student_id&class=eq.${encodeURIComponent(audience.class)}`;
+      if (audience.section) path += `&section=eq.${encodeURIComponent(audience.section)}`;
+      const students = await _sbStudent(path);
+      targetStudentIds = (Array.isArray(students) ? students : []).map(s => String(s.student_id));
+    }
+    const label = DIARY_LABELS[entryType];
+    const preview = message.length > 100 ? message.slice(0, 100) + '…' : message;
+    if (targetStudentIds.length) {
+      _forumNotify(targetStudentIds.map(id => 'student:' + id), {
+        type: 'diary_entry', title: `${label} — ${audience.class}${audience.section ? '/' + audience.section : ''}`,
+        message: preview, data: { diary_entry_id: entry.id, entry_type: entryType },
+      });
+    }
+    // Discipline reports also alert Admin/VP/Cord and the class's own
+    // teacher(s) — the one diary type where oversight matters at the
+    // moment it's filed, not just whenever someone next opens the
+    // oversight list. Compliments/wishes/homework don't need this — they'd
+    // just be inbox noise for every discipline case's worth of routine
+    // homework.
+    if (entryType === 'discipline') {
+      const [moderatorIds, classTeacherRows] = await Promise.all([
+        supabaseRequest(`app_users?select=user_id,role`).then(rows => (Array.isArray(rows) ? rows : []).filter(u => String(u.role || '').split(',').map(r => r.trim()).some(r => ['Admin', 'VP', 'Cord'].includes(r))).map(u => u.user_id)),
+        supabaseRequest(`class_teacher_assignments?class=eq.${encodeURIComponent(audience.class)}&select=user_id,section`),
+      ]);
+      const relevantTeacherIds = (Array.isArray(classTeacherRows) ? classTeacherRows : [])
+        .filter(a2 => !audience.section || !a2.section || a2.section === audience.section).map(a2 => a2.user_id);
+      const recipients = [...new Set([...moderatorIds, ...relevantTeacherIds])].filter(id => id !== callerId);
+      _forumNotify(recipients, {
+        type: 'diary_discipline', title: `Discipline Report Filed — ${audience.class}${audience.section ? '/' + audience.section : ''}`,
+        message: preview, data: { diary_entry_id: entry.id },
+      });
+    }
+    return { result: 'success', entry };
+  },
+
+  // scope: 'mine' (entries this teacher authored) | 'oversight' (Admin/VP/
+  // Cord see everything, a plain Teacher sees entries for classes they're
+  // the class teacher of — empty list otherwise, same access rule as
+  // getStudentMessageThreads).
+  async getDiaryEntries([callerId, scope, filters]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    const f = filters || {};
+    let path = 'student_diary_entries?select=*';
+    if (scope === 'oversight') {
+      if (!(await _isForumModerator(callerId))) {
+        const assignments = await supabaseRequest(`class_teacher_assignments?user_id=eq.${encodeURIComponent(callerId)}&select=class,section`);
+        const myAssignments = Array.isArray(assignments) ? assignments : [];
+        if (!myAssignments.length) return { result: 'success', entries: [] };
+        const classes = [...new Set(myAssignments.map(a => a.class))];
+        path += `&audience->>class=in.(${classes.map(encodeURIComponent).join(',')})`;
+      }
+    } else {
+      path += `&teacher_id=eq.${encodeURIComponent(callerId)}`;
+    }
+    if (f.entry_type) path += `&entry_type=eq.${encodeURIComponent(f.entry_type)}`;
+    path += '&order=created_at.desc&limit=300';
+    const rows = await supabaseRequest(path);
+    if (rows?.error) return { result: 'error', message: rows.details || rows.error };
+    const list = Array.isArray(rows) ? rows : [];
+    if (scope === 'oversight' && list.length) {
+      const ids = [...new Set(list.map(r => r.teacher_id))];
+      const profiles = await supabaseRequest(`users_profile?teacher_id=in.(${ids.map(encodeURIComponent).join(',')})&select=teacher_id,full_name`);
+      const nameById = {};
+      if (Array.isArray(profiles)) profiles.forEach(p2 => { nameById[p2.teacher_id] = p2.full_name; });
+      list.forEach(r => { r.teacher_name = nameById[r.teacher_id] || r.teacher_id; });
+    }
+    return { result: 'success', entries: list };
+  },
+
+  async deleteDiaryEntry([callerId, id]) {
+    if (!callerId || !id) return { result: 'error', message: 'Missing entry id.' };
+    const rows = await supabaseRequest(`student_diary_entries?id=eq.${encodeURIComponent(id)}&select=teacher_id`);
+    if (rows?.error) return { result: 'error', message: rows.details || rows.error };
+    const entry = Array.isArray(rows) && rows[0];
+    if (!entry) return { result: 'error', message: 'Entry not found.' };
+    if (entry.teacher_id !== callerId && !(await _isCordOrAdmin(callerId))) {
+      return { result: 'error', message: 'Only the author (or an Admin) can delete this entry.' };
+    }
+    const deleted = await supabaseRequest(`student_diary_entries?id=eq.${encodeURIComponent(id)}`, 'delete');
+    if (deleted?.error) return { result: 'error', message: deleted.details || deleted.error };
+    return { result: 'success' };
   },
 
   // ── CONNECTION TEST ───────────────────────────────────────────────────────────

@@ -174,6 +174,7 @@ const RESERVED = [
   // Setup tab native port (tab builder)
   'loadAdminSetupView','loadAdminAddCustomFormView','_toggleFieldChip','updateIncludeCount','updateEditableCount',
   'loadMyTabDataView','loadStudentPortalForumView',
+  'loadDiaryView','_diarySelectType','_diaryAudienceSetMode','_diaryAudienceSearchStudents','_diaryAudienceToggleStudent','_diarySubmit','_diarySetScope','_diaryDeleteEntry',
   'downloadImportDemoTemplate',
   'onDownloadCategoryChange','openColleagueProfile','closeColleagueProfileModal','saveProfileFieldVisibility',
   'saveColleagueCareerFields','toggleCareerHistory',
