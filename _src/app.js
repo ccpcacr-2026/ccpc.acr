@@ -15192,7 +15192,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <li>${res.skipped_missing_key} skipped — missing key field</li>
           <li>${res.skipped_duplicate_in_file} skipped — duplicate within the file</li>
         </ul>
-        ${res.errors && res.errors.length ? `<div class="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs font-bold text-amber-700">Some batches failed: ${_escHtml(res.errors.join('; '))}</div>` : ''}`;
+        ${res.errors && res.errors.length ? `<div class="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs font-bold text-amber-700">Some batches failed: ${_escHtml(res.errors.join('; '))}</div>` : ''}
+        ${res.warnings && res.warnings.length ? `<div class="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs font-bold text-amber-700"><p class="mb-1">${res.warnings.length} cell(s) left blank — the text didn't match any existing record:</p><ul class="list-disc pl-4 space-y-0.5">${res.warnings.map(w => `<li>${_escHtml(w)}</li>`).join('')}</ul></div>` : ''}`;
       resultSection.classList.remove('hidden');
       if (btn) { btn.disabled = true; btn.textContent = 'Done'; }
       showToast(updateExisting ? `Imported ${res.inserted} new, updated ${res.updated} existing` : `Imported ${res.inserted} new record(s)`, 'success');

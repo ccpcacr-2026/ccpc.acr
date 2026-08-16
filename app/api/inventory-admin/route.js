@@ -774,14 +774,34 @@ async function _settingsImportConfirm(payload) {
     for (const source of lookupSources) {
       const srcCfg = ENTITIES[source];
       const optionLabel = cfg.fields.find(f => f.source === source).optionLabel;
-      const list = await sbInventory(`${srcCfg.table}?select=id,${optionLabel}`);
+      // Units in particular (Unit Conversion's Unit/Convert From/Convert To
+      // columns) are just as often written in a spreadsheet by their
+      // abbreviation ("kg", "pcs") as by their full name ("Kilogram",
+      // "Piece") — match either, so a real-world file using short forms
+      // doesn't silently fail to resolve every row.
+      const hasShortForm = srcCfg.fields.some(f => f.name === 'short_form');
+      const list = await sbInventory(`${srcCfg.table}?select=id,${optionLabel}${hasShortForm ? ',short_form' : ''}`);
       if (list?.error) throw new Error(list.error);
-      lookupMaps[source] = new Map(list.map(r => [String(r[optionLabel]).toLowerCase(), r.id]));
+      const map = new Map();
+      list.forEach(r => {
+        map.set(String(r[optionLabel]).toLowerCase(), r.id);
+        if (hasShortForm && r.short_form) map.set(String(r.short_form).toLowerCase(), r.id);
+      });
+      lookupMaps[source] = map;
     }
 
     let skippedMissingKey = 0, skippedDuplicateInFile = 0;
     const seenInFile = new Set();
     const clean = [];
+    // A select field (Unit, Convert From, Convert To, …) whose cell had
+    // TEXT that didn't match any existing record's name previously failed
+    // silently — _coerceValue just returns undefined, the column gets
+    // skipped, and the row saves with that link blank with no indication
+    // why. Tracked here (only for a genuinely non-blank cell that failed to
+    // resolve — an actually-blank cell is not a warning, just an omitted
+    // column) and surfaced in the response so a typo/mismatched unit name
+    // shows up as an explicit warning instead of a silent blank.
+    const unresolvedLookups = [];
     for (const row of rows) {
       const key = String(row[keyCol] || '').trim();
       if (!key) { skippedMissingKey++; continue; }
@@ -792,7 +812,10 @@ async function _settingsImportConfirm(payload) {
         const field = fieldByName[k];
         if (!field) continue;
         const coerced = _coerceValue(field, v, lookupMaps);
-        if (coerced !== undefined) cleanRow[k] = coerced;
+        if (coerced !== undefined) { cleanRow[k] = coerced; continue; }
+        if (field.type === 'select' && String(v || '').trim() !== '') {
+          unresolvedLookups.push(`${key} — "${field.label}": no ${field.label} named "${String(v).trim()}"`);
+        }
       }
       cleanRow[keyCol] = key;
       clean.push(cleanRow);
@@ -848,12 +871,13 @@ async function _settingsImportConfirm(payload) {
     }
 
     return NextResponse.json({
-      result: errors.length ? 'partial' : 'success',
+      result: (errors.length || unresolvedLookups.length) ? 'partial' : 'success',
       inserted, updated,
       skipped_existing: updateExisting ? 0 : existing.size,
       skipped_missing_key: skippedMissingKey,
       skipped_duplicate_in_file: skippedDuplicateInFile,
       errors,
+      warnings: unresolvedLookups,
     });
   } catch (e) {
     return NextResponse.json({ result: 'error', message: e.message }, { status: 500 });
