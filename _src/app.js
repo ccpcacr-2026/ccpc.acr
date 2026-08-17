@@ -9486,16 +9486,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!modal) {
       modal = document.createElement('div');
       modal.id = 'studentDetailModal';
-      modal.className = 'hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 sm:p-4';
-      modal.innerHTML = `<div class="bg-white w-full sm:max-w-xl sm:rounded-2xl rounded-t-3xl max-h-[92vh] overflow-y-auto shadow-2xl">
-        <div class="sticky top-0 z-10 bg-white flex items-center justify-between px-4 py-3 border-b border-slate-100">
+      modal.className = 'hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 pt-10 sm:p-4';
+      modal.innerHTML = `<div class="bg-white w-full sm:max-w-xl sm:rounded-2xl rounded-t-3xl max-h-[82vh] sm:max-h-[85vh] overflow-y-auto shadow-2xl flex flex-col">
+        <div class="sticky top-0 z-10 bg-white flex items-center justify-between px-4 py-3 border-b border-slate-100 shrink-0">
           <div class="flex items-center gap-2.5 min-w-0">
             <div id="studentDetailAvatar"></div>
             <p class="font-black text-slate-800 text-sm truncate" id="studentDetailTitle">Student</p>
           </div>
           <button onclick="closeStudentProfile()" class="shrink-0 w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center"><i data-lucide="x" class="h-4 w-4"></i></button>
         </div>
-        <div id="studentDetailBody" class="p-4"><div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div></div>
+        <div id="studentDetailBody" class="p-4 overflow-y-auto"><div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div></div>
       </div>`;
       document.body.appendChild(modal);
     }
@@ -9544,7 +9544,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         body.innerHTML = `
           <div class="flex flex-col gap-4">
             ${(fatherTel || motherTel) ? `
-            <div class="grid ${fatherTel && motherTel ? 'grid-cols-2' : 'grid-cols-1'} gap-2">
+            <div style="display:grid;grid-template-columns:${fatherTel && motherTel ? 'repeat(2,1fr)' : '1fr'};gap:8px">
               ${fatherTel ? `<a href="tel:${fatherTel}" class="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-white" style="background:linear-gradient(135deg,#059669,#22c55e)">
                 <div class="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center shrink-0"><i data-lucide="phone-call" class="h-4 w-4"></i></div>
                 <div class="min-w-0"><p class="text-[9px] font-black uppercase tracking-widest opacity-90">Father</p><p class="text-xs font-black truncate">${p.father_phone}</p></div>
@@ -9557,7 +9557,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
             <div class="bg-slate-50 border border-slate-100 rounded-2xl p-3.5">
               <p class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-2.5 flex items-center gap-1.5"><i data-lucide="user-round" class="h-3.5 w-3.5"></i>Profile</p>
-              <div class="grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-2.5 text-xs">
+              <div style="display:grid;grid-template-columns:repeat(2,1fr);column-gap:12px;row-gap:10px" class="text-xs">
                 ${[['Class', p.class],['Section', p.section],['Group', p.group],['Roll', p.roll],['Gender', p.gender],['Version', p.version],['Shift', p.shift],
                    ['Balance', p.balance],['Card Status', p.card_status]]
                   .map(([l, v]) => `<div><p class="text-slate-400 font-bold text-[9px] uppercase tracking-wide">${l}</p><p class="font-black text-slate-800 mt-0.5">${v ?? '—'}</p></div>`).join('')}
@@ -9597,7 +9597,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             ${res.customTabs.map(t => `
               <details class="bg-slate-50 border border-slate-100 rounded-2xl overflow-hidden">
                 <summary class="px-3.5 py-2.5 text-[10px] font-black text-purple-600 uppercase tracking-widest cursor-pointer flex items-center gap-1.5"><i data-lucide="file-text" class="h-3.5 w-3.5"></i>${t.tab_name}</summary>
-                <div class="grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-2.5 text-xs p-3.5 border-t border-slate-200">
+                <div style="display:grid;grid-template-columns:repeat(2,1fr);column-gap:12px;row-gap:10px" class="text-xs p-3.5 border-t border-slate-200">
                   ${t.fields.filter(f => f.type !== 'group_label' && t.data[f.data_key] !== undefined && t.data[f.data_key] !== null && t.data[f.data_key] !== '').map(f => `
                     <div><p class="text-slate-400 font-bold text-[9px] uppercase tracking-wide">${_fieldLabel(f)}</p><p class="font-black text-slate-800 mt-0.5">${t.data[f.data_key] ?? '—'}</p></div>`).join('')}
                 </div>
