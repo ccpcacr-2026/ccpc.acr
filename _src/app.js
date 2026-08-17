@@ -337,6 +337,23 @@
   // logout() re-inserts the exact same node so the login form still works.
   let _detachedLoginScreen = null;
 
+  // Only meaningful inside the packaged native app, where this portal and
+  // the student portal are the SAME installed app switching which live URL
+  // its WebView is pointed at — navigating like this keeps this origin's
+  // localStorage/session untouched, so coming back later doesn't require
+  // logging in again. Irrelevant (and hidden) in a normal browser tab.
+  function switchToStudentPortal() {
+    window.location.href = 'https://ccpc-portal.vercel.app';
+  }
+  (function () {
+    if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
+      document.addEventListener('DOMContentLoaded', () => {
+        const btn = document.getElementById('switch-portal-btn');
+        if (btn) btn.classList.remove('hidden');
+      });
+    }
+  })();
+
   function logout() {
     if (window.confirm("Are you sure you want to sign out?")) {
       localStorage.removeItem('ccpc_user_id');
