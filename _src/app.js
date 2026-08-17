@@ -14618,6 +14618,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       columns: [
         { key: 'code', label: 'Code#' }, { key: 'name', label: 'Product Name' },
         { key: 'register_no', label: 'Register No.' }, { key: 'page_no', label: 'Page No.' },
+        { key: 'depreciation_rate_percent', label: 'Depr. %/Yr' },
         { key: 'group_id', label: 'Group', lookup: 'groups', lookupLabel: 'name' },
         { key: 'unit_id', label: 'Unit', lookup: 'units', lookupLabel: 'name' },
         { key: 'is_active', label: 'Active' },
@@ -14627,6 +14628,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         { name: 'name', label: 'Product Name', type: 'text', required: true },
         { name: 'register_no', label: 'Register No.', type: 'text' },
         { name: 'page_no', label: 'Page No.', type: 'text' },
+        { name: 'depreciation_rate_percent', label: 'Depreciation %/Year', type: 'number', default: 0 },
         { name: 'group_id', label: 'Group', type: 'select', source: 'groups', optionLabel: 'name' },
         { name: 'unit_id', label: 'Unit Type', type: 'select', source: 'units', optionLabel: 'name' },
         { name: 'type', label: 'Type', type: 'radio', default: 'consumable',
@@ -14719,6 +14721,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <button id="invAdminTab_registry" onclick="switchInvAdminTab('registry')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all">Registry</button>
         <button id="invAdminTab_distribute" onclick="switchInvAdminTab('distribute')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all">Distribute</button>
         <button id="invAdminTab_settings" onclick="switchInvAdminTab('settings')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all">Settings</button>
+        <button id="invAdminTab_reports" onclick="switchInvAdminTab('reports')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all">Reports</button>
       </div>
       <div id="invAdminBody"></div>
 
@@ -14772,7 +14775,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function switchInvAdminTab(tab) {
     _invAdminActiveTab = tab;
-    ['stock', 'registry', 'distribute', 'settings'].forEach(t => {
+    ['stock', 'registry', 'distribute', 'settings', 'reports'].forEach(t => {
       const btn = document.getElementById('invAdminTab_' + t);
       if (!btn) return;
       btn.classList.toggle('bg-blue-600', t === tab);
@@ -14796,6 +14799,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>`;
       return;
     }
+    if (tab === 'reports') { loadInventoryReportsPanel(); return; }
   }
 
   function openInventorySettingsEntity(slug) {
@@ -15472,6 +15476,202 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function openInventoryDistributeFor(productId) {
     _invDistributePreselectProduct = productId;
     switchInvAdminTab('distribute');
+  }
+
+  // ── Reports ──────────────────────────────────────────────────────────────
+  // Five report types, each: an optional date range, a Generate button, an
+  // on-screen table + totals, and an Export to Excel button (only enabled
+  // once a report has actually been generated) — same ensureXLSX() export
+  // idiom used everywhere else in this app.
+  const INV_REPORTS = [
+    { key: 'product_value_summary', label: 'Product Value Summary', desc: 'Current estimated value of stock on hand, applying each product\'s yearly depreciation rate to how long each purchased lot has been held.', dateRange: false },
+    { key: 'stock_overview', label: 'Stock Overview', desc: 'A downloadable snapshot of every product\'s received/distributed/damaged/remaining quantities and stock value.', dateRange: false },
+    { key: 'distributions', label: 'Distribution Report', desc: 'Everything distributed out in a date range — recipient, items, quantities.', dateRange: true },
+    { key: 'registry', label: 'Registry (Purchases) Report', desc: 'Everything received into stock in a date range — lot, brand/category, quantity, unit price.', dateRange: true },
+    { key: 'consumer_holdings', label: 'Consumer Holdings', desc: 'Who currently holds what — every non-zero balance across every room/person/committee.', dateRange: false },
+  ];
+  let _invReportActive = null;
+  let _invReportData = null;
+  let _invReportTotals = null;
+
+  function loadInventoryReportsPanel() {
+    const body = document.getElementById('invAdminBody');
+    if (!body) return;
+    _invReportActive = null;
+    _invReportData = null;
+    body.innerHTML = `
+      <div class="grid md:grid-cols-4 gap-4">
+        <div class="md:col-span-1 bg-white rounded-3xl border border-slate-200 shadow-sm p-2 flex flex-col gap-1 max-h-[70vh] overflow-y-auto" id="invReportsMenu">
+          ${INV_REPORTS.map(r => `<button data-key="${r.key}" onclick="_invSelectReport('${r.key}')" class="text-left px-3 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all">${_escHtml(r.label)}</button>`).join('')}
+        </div>
+        <div class="md:col-span-3 bg-white rounded-3xl border border-slate-200 shadow-sm p-5" id="invReportsPanel">
+          <div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Pick a report on the left</div>
+        </div>
+      </div>`;
+  }
+
+  function _invSelectReport(key) {
+    _invReportActive = key;
+    _invReportData = null;
+    const cfg = INV_REPORTS.find(r => r.key === key);
+    const menu = document.getElementById('invReportsMenu');
+    if (menu) Array.from(menu.children).forEach(btn => btn.classList.toggle('bg-slate-100', btn.dataset.key === key));
+    const panel = document.getElementById('invReportsPanel');
+    if (!panel || !cfg) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const monthAgo = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+    panel.innerHTML = `
+      <p class="text-sm font-black text-slate-800 uppercase tracking-widest mb-1">${_escHtml(cfg.label)}</p>
+      <p class="text-xs text-slate-400 font-bold mb-4">${_escHtml(cfg.desc)}</p>
+      <div class="flex items-end gap-3 flex-wrap mb-4">
+        ${cfg.dateRange ? `
+          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">From</label><input type="date" id="invReportFrom" value="${monthAgo}" class="block bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1"></div>
+          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">To</label><input type="date" id="invReportTo" value="${today}" class="block bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1"></div>
+        ` : ''}
+        <button onclick="_invGenerateReport()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">Generate</button>
+        <button id="invReportExportBtn" onclick="_invExportReport()" disabled class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-400 cursor-not-allowed transition-all">Export to Excel</button>
+      </div>
+      <div id="invReportResult"></div>`;
+  }
+
+  function _invGenerateReport() {
+    const cfg = INV_REPORTS.find(r => r.key === _invReportActive);
+    if (!cfg) return;
+    const result = document.getElementById('invReportResult');
+    const exportBtn = document.getElementById('invReportExportBtn');
+    if (result) result.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Generating…</div>`;
+    const payload = cfg.dateRange ? { from: document.getElementById('invReportFrom').value, to: document.getElementById('invReportTo').value } : {};
+    _invAdminFetch('report_' + cfg.key, payload).then(res => {
+      if (!res || res.result !== 'success') { if (result) result.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml((res && res.message) || 'Failed to generate')}</div>`; return; }
+      _invReportData = res.data || [];
+      _invReportTotals = res.totals || null;
+      if (exportBtn) { exportBtn.disabled = !_invReportData.length; exportBtn.className = `px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest border transition-all ${_invReportData.length ? 'border-slate-200 text-slate-600 hover:bg-slate-50' : 'border-slate-200 text-slate-400 cursor-not-allowed'}`; }
+      _invRenderReportResult();
+    }).catch(err => { if (result) result.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml(err.message || 'Network error')}</div>`; });
+  }
+
+  const _invMoney = n => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  function _invRenderReportResult() {
+    const result = document.getElementById('invReportResult');
+    if (!result) return;
+    const rows = _invReportData || [];
+    if (!rows.length) { result.innerHTML = `<div class="bg-slate-50 rounded-2xl text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">No data for this report</div>`; return; }
+    const table = (headers, bodyHtml) => `
+      <div class="overflow-x-auto rounded-2xl border border-slate-200">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-slate-50"><tr>${headers.map(h => `<th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest${h.right ? ' text-right' : ''}">${_escHtml(h.label)}</th>`).join('')}</tr></thead>
+          <tbody>${bodyHtml}</tbody>
+        </table>
+      </div>`;
+    if (_invReportActive === 'product_value_summary') {
+      const t = _invReportTotals || {};
+      const moneyCard = (label, value, highlight) => `<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">${_escHtml(label)}</p>
+        <p class="text-xl font-black ${highlight ? 'text-emerald-600' : 'text-slate-800'}">${_invMoney(value)}</p>
+      </div>`;
+      result.innerHTML = `
+        <div class="grid grid-cols-3 gap-3 mb-4">
+          ${moneyCard('Original Value', t.original_value)}
+          ${moneyCard('Current Value', t.current_value, true)}
+          ${moneyCard('Total Depreciation', t.depreciation_amount)}
+        </div>
+        ${table(
+          [{ label: 'Product' }, { label: 'Qty on Hand', right: true }, { label: 'Rate %/Yr', right: true }, { label: 'Original Value', right: true }, { label: 'Current Value', right: true }, { label: 'Depreciation', right: true }],
+          rows.map(r => `<tr class="border-t border-slate-50">
+            <td class="px-3 py-2.5 font-bold text-slate-700">${_escHtml(r.name)}${r.code ? ` <span class="text-slate-400">(${_escHtml(r.code)})</span>` : ''}</td>
+            <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(r.qty_on_hand)}</td>
+            <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(r.depreciation_rate_percent)}</td>
+            <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${_invMoney(r.original_value)}</td>
+            <td class="px-3 py-2.5 font-black text-slate-800 text-right">${_invMoney(r.current_value)}</td>
+            <td class="px-3 py-2.5 font-bold text-amber-600 text-right">${_invMoney(r.depreciation_amount)}</td>
+          </tr>`).join('')
+        )}`;
+    } else if (_invReportActive === 'stock_overview') {
+      result.innerHTML = table(
+        [{ label: 'Code' }, { label: 'Product' }, { label: 'Received', right: true }, { label: 'Distributed', right: true }, { label: 'Damaged', right: true }, { label: 'Remaining', right: true }, { label: 'Unit Price', right: true }],
+        rows.map(r => `<tr class="border-t border-slate-50">
+          <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(r.code || '—')}</td>
+          <td class="px-3 py-2.5 font-bold text-slate-700">${_escHtml(r.name)}</td>
+          <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(r.received || 0)}</td>
+          <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(r.distributed || 0)}</td>
+          <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(r.damaged || 0)}</td>
+          <td class="px-3 py-2.5 font-black text-slate-800 text-right">${Number(r.remaining || 0)}</td>
+          <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${_invMoney(r.latest_unit_price)}</td>
+        </tr>`).join('')
+      );
+    } else if (_invReportActive === 'distributions') {
+      result.innerHTML = table(
+        [{ label: 'Date' }, { label: 'No.' }, { label: 'Recipient' }, { label: 'Items' }, { label: 'Value', right: true }],
+        rows.map(r => {
+          const items = (r.distribution_items || []);
+          const value = items.reduce((s, it) => s + Number(it.total_price || 0), 0);
+          return `<tr class="border-t border-slate-50">
+            <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(String(r.created_at || '').slice(0, 10))}</td>
+            <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(r.distribute_no || '—')}</td>
+            <td class="px-3 py-2.5 font-bold text-slate-700">${_escHtml((r.consumers && r.consumers.name) || '—')}</td>
+            <td class="px-3 py-2.5 font-bold text-slate-700">${_escHtml(items.map(it => `${(it.products && it.products.name) || 'item'} x${it.quantity}`).join(', ') || '—')}</td>
+            <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${_invMoney(value)}</td>
+          </tr>`;
+        }).join('')
+      );
+    } else if (_invReportActive === 'registry') {
+      result.innerHTML = table(
+        [{ label: 'Date' }, { label: 'Product' }, { label: 'Brand/Category' }, { label: 'Voucher' }, { label: 'Qty', right: true }, { label: 'Unit Price', right: true }, { label: 'Total', right: true }],
+        rows.map(r => `<tr class="border-t border-slate-50">
+          <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(String(r.created_at || '').slice(0, 10))}</td>
+          <td class="px-3 py-2.5 font-bold text-slate-700">${_escHtml((r.products && r.products.name) || '—')}</td>
+          <td class="px-3 py-2.5 font-bold text-slate-600">${_escHtml([r.brand, r.category].filter(Boolean).join(' / ') || '—')}</td>
+          <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(r.voucher_number || '—')}</td>
+          <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(r.quantity || 0)}</td>
+          <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${_invMoney(r.unit_price)}</td>
+          <td class="px-3 py-2.5 font-black text-slate-800 text-right">${_invMoney(Number(r.quantity || 0) * Number(r.unit_price || 0))}</td>
+        </tr>`).join('')
+      );
+    } else if (_invReportActive === 'consumer_holdings') {
+      result.innerHTML = table(
+        [{ label: 'Recipient' }, { label: 'Type' }, { label: 'Product' }, { label: 'Quantity', right: true }, { label: 'Last Updated' }],
+        rows.map(r => `<tr class="border-t border-slate-50">
+          <td class="px-3 py-2.5 font-bold text-slate-700">${_escHtml((r.consumers && r.consumers.name) || '—')}</td>
+          <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml((r.consumers && r.consumers.type) || '—')}</td>
+          <td class="px-3 py-2.5 font-bold text-slate-700">${_escHtml((r.products && r.products.name) || '—')}</td>
+          <td class="px-3 py-2.5 font-black text-slate-800 text-right">${Number(r.quantity || 0)}</td>
+          <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(String(r.updated_at || '').slice(0, 10))}</td>
+        </tr>`).join('')
+      );
+    }
+  }
+
+  function _invExportReport() {
+    const cfg = INV_REPORTS.find(r => r.key === _invReportActive);
+    if (!cfg || !_invReportData || !_invReportData.length) return;
+    ensureXLSX().then(() => {
+      let headers, aoaRows;
+      if (_invReportActive === 'product_value_summary') {
+        headers = ['Product', 'Code', 'Qty on Hand', 'Rate %/Yr', 'Original Value', 'Current Value', 'Depreciation'];
+        aoaRows = _invReportData.map(r => [r.name, r.code || '', r.qty_on_hand, r.depreciation_rate_percent, r.original_value.toFixed(2), r.current_value.toFixed(2), r.depreciation_amount.toFixed(2)]);
+      } else if (_invReportActive === 'stock_overview') {
+        headers = ['Code', 'Product', 'Received', 'Distributed', 'Damaged', 'Remaining', 'Unit Price'];
+        aoaRows = _invReportData.map(r => [r.code || '', r.name, r.received || 0, r.distributed || 0, r.damaged || 0, r.remaining || 0, Number(r.latest_unit_price || 0).toFixed(2)]);
+      } else if (_invReportActive === 'distributions') {
+        headers = ['Date', 'No.', 'Recipient', 'Items', 'Value'];
+        aoaRows = _invReportData.map(r => {
+          const items = (r.distribution_items || []);
+          const value = items.reduce((s, it) => s + Number(it.total_price || 0), 0);
+          return [String(r.created_at || '').slice(0, 10), r.distribute_no || '', (r.consumers && r.consumers.name) || '', items.map(it => `${(it.products && it.products.name) || 'item'} x${it.quantity}`).join(', '), value.toFixed(2)];
+        });
+      } else if (_invReportActive === 'registry') {
+        headers = ['Date', 'Product', 'Brand', 'Category', 'Voucher', 'Qty', 'Unit Price', 'Total'];
+        aoaRows = _invReportData.map(r => [String(r.created_at || '').slice(0, 10), (r.products && r.products.name) || '', r.brand || '', r.category || '', r.voucher_number || '', r.quantity || 0, Number(r.unit_price || 0).toFixed(2), (Number(r.quantity || 0) * Number(r.unit_price || 0)).toFixed(2)]);
+      } else if (_invReportActive === 'consumer_holdings') {
+        headers = ['Recipient', 'Type', 'Product', 'Quantity', 'Last Updated'];
+        aoaRows = _invReportData.map(r => [(r.consumers && r.consumers.name) || '', (r.consumers && r.consumers.type) || '', (r.products && r.products.name) || '', r.quantity || 0, String(r.updated_at || '').slice(0, 10)]);
+      }
+      const ws = XLSX.utils.aoa_to_sheet([headers, ...aoaRows]);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, cfg.label.slice(0, 31));
+      XLSX.writeFile(wb, `${cfg.key}_report.xlsx`);
+    }).catch(err => showToast(err.message || 'Could not build the export file', 'error'));
   }
 
   // ── Registry (receive stock) ────────────────────────────────────────────

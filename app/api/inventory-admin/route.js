@@ -176,6 +176,14 @@ const ENTITIES = {
       { name: 'name', label: 'Product Name', type: 'text', required: true },
       { name: 'register_no', label: 'Register No.', type: 'text' },
       { name: 'page_no', label: 'Page No.', type: 'text' },
+      // Yearly declining-balance depreciation rate for this product, e.g.
+      // 10 means "loses 10% of its remaining value every year" — used by
+      // the Product Value Summary report to estimate current value of
+      // stock still on hand, not just what it originally cost. 0 = no
+      // depreciation (the right default for ordinary consumables; only
+      // fixed/durable assets — furniture, electronics — typically get a
+      // real rate set here).
+      { name: 'depreciation_rate_percent', label: 'Depreciation %/Year', type: 'number', default: 0 },
       { name: 'group_id', label: 'Group', type: 'select', source: 'groups', optionLabel: 'name' },
       { name: 'unit_id', label: 'Unit Type', type: 'select', source: 'units', optionLabel: 'name' },
       { name: 'type', label: 'Type', type: 'radio', default: 'consumable',
@@ -381,6 +389,109 @@ async function _friendlyDeleteError(raw, entity, id) {
 }
 
 // ── Stock Overview + Product Detail (read-only, ported verbatim) ───────────
+// ── Reports ──────────────────────────────────────────────────────────────
+
+// Declining-balance depreciation: current_value = original_value *
+// (1 - rate/100) ^ years_owned, applied per LOT (not per product as a
+// whole) since different purchase batches of the same product were
+// bought at different times/prices and should age independently — a lot
+// bought 3 years ago has depreciated more than one bought last month,
+// even though they're the same product. Only stock still on hand
+// (qty_remaining) is valued; distributed stock is no longer this
+// inventory's asset. rate 0 (the default for ordinary consumables) means
+// current_value === original_value, i.e. no depreciation at all.
+async function _reportProductValueSummary() {
+  const [products, lots] = await Promise.all([
+    sbInventory('products?select=id,code,name,depreciation_rate_percent&order=name.asc'),
+    sbInventory('purchase_items?qty_remaining=gt.0&select=product_id,qty_remaining,unit_price,created_at'),
+  ]);
+  if (products?.error) return NextResponse.json({ result: 'error', message: products.error }, { status: 500 });
+  if (lots?.error) return NextResponse.json({ result: 'error', message: lots.error }, { status: 500 });
+
+  const lotsByProduct = new Map();
+  (Array.isArray(lots) ? lots : []).forEach(l => {
+    const arr = lotsByProduct.get(l.product_id) || [];
+    arr.push(l);
+    lotsByProduct.set(l.product_id, arr);
+  });
+
+  const now = Date.now();
+  const data = [];
+  for (const p of (Array.isArray(products) ? products : [])) {
+    const productLots = lotsByProduct.get(p.id);
+    if (!productLots || !productLots.length) continue; // no stock on hand — nothing to value
+    const rate = Number(p.depreciation_rate_percent || 0) / 100;
+    let qty = 0, originalValue = 0, currentValue = 0;
+    for (const lot of productLots) {
+      const lotQty = Number(lot.qty_remaining || 0);
+      const price = Number(lot.unit_price || 0);
+      const years = Math.max(0, (now - new Date(lot.created_at).getTime()) / (365.25 * 24 * 3600 * 1000));
+      const depreciatedPrice = rate > 0 ? price * Math.pow(1 - rate, years) : price;
+      qty += lotQty;
+      originalValue += lotQty * price;
+      currentValue += lotQty * depreciatedPrice;
+    }
+    data.push({
+      id: p.id, code: p.code, name: p.name, depreciation_rate_percent: p.depreciation_rate_percent || 0,
+      qty_on_hand: qty, original_value: originalValue, current_value: currentValue,
+      depreciation_amount: originalValue - currentValue,
+    });
+  }
+  data.sort((a, b) => b.current_value - a.current_value);
+  const totals = data.reduce((s, r) => ({
+    original_value: s.original_value + r.original_value,
+    current_value: s.current_value + r.current_value,
+    depreciation_amount: s.depreciation_amount + r.depreciation_amount,
+  }), { original_value: 0, current_value: 0, depreciation_amount: 0 });
+  return NextResponse.json({ result: 'success', data, totals });
+}
+
+// Same rows the Stock Overview screen already shows, exposed as its own
+// report for the Reports tab's "export everything" workflow (the screen
+// itself has no export button, since it's meant for browsing/search, not
+// a downloadable snapshot).
+async function _reportStockOverview() {
+  const rows = await sbInventory('product_stock_summary?select=*&order=name.asc');
+  if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+  return NextResponse.json({ result: 'success', data: Array.isArray(rows) ? rows : [] });
+}
+
+// Distribution history restricted to a date range — same shape
+// distribute_list already returns, just filtered, for "what went out last
+// month/term/year" instead of the full unbounded history.
+async function _reportDistributions(payload) {
+  const { from, to } = payload;
+  let path = 'distributions?select=id,distribute_no,created_at,remarks,consumers(name,type),distribution_items(quantity,unit_price,total_price,products(name,code))&order=created_at.desc&limit=2000';
+  if (from) path += `&created_at=gte.${encodeURIComponent(from)}`;
+  if (to) path += `&created_at=lte.${encodeURIComponent(to + 'T23:59:59')}`;
+  const rows = await sbInventory(path);
+  if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+  return NextResponse.json({ result: 'success', data: Array.isArray(rows) ? rows : [] });
+}
+
+// What came INTO stock in a date range — the receiving-side counterpart
+// to the distribution report above, for "what did we purchase/receive
+// last month/term/year."
+async function _reportRegistry(payload) {
+  const { from, to } = payload;
+  let path = 'purchase_items?select=id,brand,category,quantity,qty_remaining,unit_price,voucher_number,created_at,products(name,code)&order=created_at.desc&limit=2000';
+  if (from) path += `&created_at=gte.${encodeURIComponent(from)}`;
+  if (to) path += `&created_at=lte.${encodeURIComponent(to + 'T23:59:59')}`;
+  const rows = await sbInventory(path);
+  if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+  return NextResponse.json({ result: 'success', data: Array.isArray(rows) ? rows : [] });
+}
+
+// Who is currently holding what — every non-zero holder_stock row, e.g.
+// "which rooms/teachers/committees currently have how much of which
+// product," for an accountability/asset-tracking check independent of any
+// one product's or consumer's own detail page.
+async function _reportConsumerHoldings() {
+  const rows = await sbInventory('holder_stock?quantity=gt.0&select=quantity,updated_at,consumers(name,type),products(name,code)&order=updated_at.desc&limit=2000');
+  if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+  return NextResponse.json({ result: 'success', data: Array.isArray(rows) ? rows : [] });
+}
+
 async function _productsSummary(payload) {
   const q = (payload.q || '').trim();
   let path = 'product_stock_summary?select=*&order=name.asc';
@@ -1104,6 +1215,11 @@ export async function POST(req) {
   if (action === 'registry_create') return _registryCreate(payload);
   if (action === 'distribute_list') return _distributeList();
   if (action === 'distribute_delete') return _distributeDelete(payload);
+  if (action === 'report_product_value_summary') return _reportProductValueSummary();
+  if (action === 'report_stock_overview') return _reportStockOverview();
+  if (action === 'report_distributions') return _reportDistributions(payload);
+  if (action === 'report_registry') return _reportRegistry(payload);
+  if (action === 'report_consumer_holdings') return _reportConsumerHoldings();
   if (action === 'distribute_options') return _distributeOptions();
   if (action === 'distribute_create') return _distributeCreate(payload);
   if (action === 'product_attribute_options') return _productAttributeOptions(payload);
