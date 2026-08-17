@@ -4113,13 +4113,18 @@
     const present = all.filter(s => s.status === 'present').length;
     const absent = all.filter(s => s.status === 'absent').length;
     const others = all.length - present - absent;
+    const allPresent = all.length > 0 && present === all.length;
     if (countsHost) countsHost.innerHTML = `
-      <div class="grid grid-cols-4 gap-2 text-center">
+      <div class="grid grid-cols-4 gap-2 text-center mb-3">
         <div class="bg-slate-50 rounded-xl py-2"><div class="text-lg font-black text-slate-800">${all.length}</div><div class="text-[9px] font-black text-slate-400 uppercase">Total</div></div>
         <div class="bg-emerald-50 rounded-xl py-2"><div class="text-lg font-black text-emerald-600">${present}</div><div class="text-[9px] font-black text-emerald-500 uppercase">Present</div></div>
         <div class="bg-red-50 rounded-xl py-2"><div class="text-lg font-black text-red-500">${absent}</div><div class="text-[9px] font-black text-red-400 uppercase">Absent</div></div>
         <div class="bg-amber-50 rounded-xl py-2"><div class="text-lg font-black text-amber-600">${others}</div><div class="text-[9px] font-black text-amber-500 uppercase">Others</div></div>
-      </div>`;
+      </div>
+      <label class="flex items-center gap-2 cursor-pointer select-none">
+        <input type="checkbox" id="myStudentsSelectAll" ${allPresent ? 'checked' : ''} onchange="_markAllMyStudentsPresent(this.checked)" class="w-4 h-4 accent-emerald-600">
+        <span class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Mark All Present</span>
+      </label>`;
 
     body.innerHTML = classes.map(c => `
       <div class="mb-4">
@@ -4127,21 +4132,53 @@
         <div class="flex flex-col gap-1.5">
           ${c.students.map(s => {
             const meta = MY_STUDENTS_STATUS_META[s.status] || MY_STUDENTS_STATUS_META.absent;
+            const isPresent = s.status === 'present';
+            const isOther = s.status !== 'present' && s.status !== 'absent';
             const tel = String(s.phone_number || s.father_phone || s.mother_phone || '').replace(/[\s\-()]/g, '');
             return `
-            <div class="flex items-center gap-2.5 border border-slate-200 rounded-xl px-2.5 py-2">
+            <div class="flex items-center gap-2 border border-slate-200 rounded-xl px-2.5 py-2">
               ${_avatar(s.student_name, s.photo, 'w-9 h-9')}
               <div class="flex-1 min-w-0">
                 <p class="text-xs font-black text-slate-800 truncate">${_escHtml(s.student_name || '')}</p>
                 <p class="text-[10px] font-bold text-slate-400">Roll ${_escHtml(s.roll || '—')} · ${_escHtml(s.student_id)}${tel ? ` · <a href="tel:${_escHtml(tel)}" onclick="event.stopPropagation()" class="text-blue-500">${_escHtml(tel)}</a>` : ''}</p>
               </div>
-              ${s.is_override ? '<span class="text-[8px] font-black text-slate-400 uppercase bg-slate-100 rounded px-1.5 py-0.5">Edited</span>' : ''}
-              <button onclick="_openMyStudentStatusPicker('${_escHtml(s.student_id)}')" class="shrink-0 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest ${meta.cls}">${meta.label}</button>
+              ${isOther ? `<span class="shrink-0 text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${meta.cls}">${meta.short}</span>` : ''}
+              <button onclick="_toggleMyStudentPresence('${_escHtml(s.student_id)}')" title="Toggle Present/Absent" class="shrink-0 relative w-11 h-6 rounded-full transition-colors ${isPresent ? 'bg-emerald-500' : 'bg-red-400'}">
+                <span class="absolute top-0.5 ${isPresent ? 'right-0.5' : 'left-0.5'} w-5 h-5 bg-white rounded-full shadow transition-all"></span>
+              </button>
+              <button onclick="_openMyStudentStatusPicker('${_escHtml(s.student_id)}')" title="More statuses" class="shrink-0 w-7 h-7 rounded-full border border-blue-200 text-blue-600 flex items-center justify-center hover:bg-blue-50"><i data-lucide="plus" class="h-3.5 w-3.5"></i></button>
             </div>`;
           }).join('')}
         </div>
       </div>`).join('');
     lucide.createIcons();
+  }
+
+  function _toggleMyStudentPresence(studentId) {
+    const all = ((_myStudentsData && _myStudentsData.classes) || []).flatMap(c => c.students);
+    const student = all.find(s => s.student_id === studentId);
+    if (!student) return;
+    _setMyStudentStatus(studentId, student.status === 'present' ? 'absent' : 'present');
+  }
+
+  function _markAllMyStudentsPresent(checked) {
+    if (!checked) { _renderMyStudentsAttendance(); return; } // unchecking is just visual, no bulk "unmark" action
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    if (!myId) return;
+    const box = document.getElementById('myStudentsSelectAll');
+    if (box) box.disabled = true;
+    google.script.run
+      .withSuccessHandler(res => {
+        if (box) box.disabled = false;
+        if (!res || !res.success) { showToast((res && res.message) || 'Failed', 'error'); return; }
+        loadMyStudentsAttendance();
+        showToast('Everyone marked present');
+      })
+      .withFailureHandler(() => {
+        if (box) box.disabled = false;
+        showToast('Network error', 'error');
+      })
+      .setMyClassAllPresent(myId);
   }
 
   function _openMyStudentStatusPicker(studentId) {

@@ -2849,6 +2849,43 @@ const handlers = {
     return { success: true, status: (Array.isArray(presentRows) && presentRows.length) ? 'present' : 'absent' };
   },
 
+  // "Mark All Present" quick action (the top checkbox) — forces every
+  // student in every one of the caller's own classes to an explicit
+  // 'present' override, one write per student. Scoped the same way as
+  // everything else here: only the caller's OWN resolved classes, never a
+  // class/roster supplied by the client.
+  async setMyClassAllPresent([userId]) {
+    if (!userId) return { success: false, message: 'Not logged in.' };
+    const assignments = await _getClassTeacherAssignments();
+    const mine = assignments.filter(a => a.resolvedUserId === userId);
+    if (!mine.length) return { success: false, message: 'You are not currently assigned as a class teacher.' };
+    const today = new Date().toISOString().slice(0, 10);
+
+    const rosters = await Promise.all(mine.map(async ({ className, section, extraCriteria }) => {
+      const studentClass = CLASS_TEACHER_NAME_TO_STUDENT_CLASS[className] || className;
+      const studentSection = CLASS_TEACHER_SECTION_ALIASES[section] || section;
+      const students = await _sbStudent(
+        `students_data?class=eq.${encodeURIComponent(studentClass)}&section=eq.${encodeURIComponent(studentSection)}${_extraCriteriaQS(extraCriteria)}&select=student_id`
+      );
+      return Array.isArray(students) ? students.map(s => s.student_id) : [];
+    }));
+    const studentIds = Array.from(new Set(rosters.flat()));
+    if (!studentIds.length) return { success: true, count: 0 };
+
+    const existingRows = await _sbStudent(
+      `manual_attendance_overrides?date=eq.${today}&student_id=in.(${studentIds.map(encodeURIComponent).join(',')})&select=student_id`
+    );
+    const existingSet = new Set((Array.isArray(existingRows) ? existingRows : []).map(r => r.student_id));
+
+    await Promise.all(studentIds.map(sid => {
+      const rowData = { student_id: sid, date: today, status: 'present', marked_by: userId };
+      return existingSet.has(sid)
+        ? _sbStudentWrite(`manual_attendance_overrides?student_id=eq.${encodeURIComponent(sid)}&date=eq.${today}`, 'PATCH', rowData)
+        : _sbStudentWrite('manual_attendance_overrides', 'POST', rowData);
+    }));
+    return { success: true, count: studentIds.length };
+  },
+
   // ── CLASS TEACHER → ATTENDANCE REPORT ─────────────────────────────────────
   // Same authorization shape as getMyClassRoster: class/section is never
   // accepted from the client, only re-derived from the CALLER's own
