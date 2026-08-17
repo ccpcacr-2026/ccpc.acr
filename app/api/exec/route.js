@@ -194,6 +194,28 @@ const CLASS_TEACHER_NAME_TO_STUDENT_CLASS = {
 };
 const CLASS_TEACHER_SECTION_ALIASES = { 'BS-EV': 'BS-E' };
 
+// Manual per-student overrides a class teacher can apply on top of the
+// ESP32-device-derived present/absent baseline (see getMyClassTodayAttendance).
+const MY_CLASS_ATTENDANCE_STATUSES = new Set(['present', 'absent', 'late', 'missing', 'late_absent', 'leave']);
+
+// Authorization gate for the per-student attendance-marking endpoints below:
+// re-derives the caller's own class-teacher assignments (never trusts a
+// class from the client) and confirms the target student actually sits in
+// one of them, so a teacher can only ever mark their own students.
+async function _isCallerStudentAuthorized(userId, studentId) {
+  const assignments = await _getClassTeacherAssignments();
+  const mine = assignments.filter(a => a.resolvedUserId === userId);
+  for (const { className, section, extraCriteria } of mine) {
+    const studentClass = CLASS_TEACHER_NAME_TO_STUDENT_CLASS[className] || className;
+    const studentSection = CLASS_TEACHER_SECTION_ALIASES[section] || section;
+    const rows = await _sbStudent(
+      `students_data?student_id=eq.${encodeURIComponent(studentId)}&class=eq.${encodeURIComponent(studentClass)}&section=eq.${encodeURIComponent(studentSection)}${_extraCriteriaQS(extraCriteria)}&select=student_id`
+    );
+    if (Array.isArray(rows) && rows.length) return true;
+  }
+  return false;
+}
+
 // Minimal RFC4180 CSV parser — gviz always quotes every field
 function _parseCsv(text) {
   const rows = [];
@@ -2760,6 +2782,73 @@ const handlers = {
     return { classes };
   },
 
+  // ── CLASS TEACHER → TODAY'S ATTENDANCE (mark/revert) ─────────────────────
+  // "Present" by default means the ESP32/NFC device logged them today
+  // (student.attendance_records) — a class teacher can override that per
+  // student to any of MY_CLASS_ATTENDANCE_STATUSES, which writes/overwrites
+  // a row in manual_attendance_overrides. Reverting just DELETEs that
+  // override row rather than trying to restore a remembered "previous"
+  // value — the device-derived status underneath was never touched, so
+  // deleting the override naturally falls back to it. This mirrors (and
+  // shares the roster query with) getMyClassRoster; a student outside every
+  // one of the caller's own assigned classes is never a valid target,
+  // checked server-side, never trusted from the client.
+  async getMyClassTodayAttendance([userId]) {
+    if (!userId) return { classes: [] };
+    const today = new Date().toISOString().slice(0, 10);
+    const assignments = await _getClassTeacherAssignments();
+    const mine = assignments.filter(a => a.resolvedUserId === userId);
+    if (!mine.length) return { classes: [] };
+
+    const [presentRows, overrideRows] = await Promise.all([
+      _sbStudent(`attendance_records?date=eq.${today}&select=student_id`),
+      _sbStudent(`manual_attendance_overrides?date=eq.${today}&select=student_id,status`),
+    ]);
+    const presentSet = new Set((Array.isArray(presentRows) ? presentRows : []).map(p => p.student_id));
+    const overrideMap = {};
+    (Array.isArray(overrideRows) ? overrideRows : []).forEach(o => { overrideMap[o.student_id] = o.status; });
+
+    const classes = await Promise.all(mine.map(async ({ classKey, className, section, extraCriteria }) => {
+      const studentClass = CLASS_TEACHER_NAME_TO_STUDENT_CLASS[className] || className;
+      const studentSection = CLASS_TEACHER_SECTION_ALIASES[section] || section;
+      const students = await _sbStudent(
+        `students_data?class=eq.${encodeURIComponent(studentClass)}&section=eq.${encodeURIComponent(studentSection)}${_extraCriteriaQS(extraCriteria)}` +
+        `&select=student_id,student_name,roll,phone_number,father_phone,mother_phone,photo&order=roll.asc`
+      );
+      const roster = (Array.isArray(students) ? students : []).map(s => {
+        const override = overrideMap[s.student_id];
+        const status = override || (presentSet.has(s.student_id) ? 'present' : 'absent');
+        return { ...s, status, is_override: !!override };
+      });
+      return { classKey, className, section, students: roster };
+    }));
+    return { classes, date: today };
+  },
+
+  async setMyClassStudentAttendance([userId, studentId, status]) {
+    if (!userId || !studentId) return { success: false, message: 'Missing student.' };
+    if (!MY_CLASS_ATTENDANCE_STATUSES.has(status)) return { success: false, message: 'Invalid status.' };
+    if (!(await _isCallerStudentAuthorized(userId, studentId))) return { success: false, message: 'Not your student.' };
+    const today = new Date().toISOString().slice(0, 10);
+    const existing = await _sbStudent(`manual_attendance_overrides?student_id=eq.${encodeURIComponent(studentId)}&date=eq.${today}`);
+    const rowData = { student_id: studentId, date: today, status, marked_by: userId };
+    const r = (Array.isArray(existing) && existing.length)
+      ? await _sbStudentWrite(`manual_attendance_overrides?student_id=eq.${encodeURIComponent(studentId)}&date=eq.${today}`, 'PATCH', rowData)
+      : await _sbStudentWrite('manual_attendance_overrides', 'POST', rowData);
+    if (r && r.error) return { success: false, message: r.error };
+    return { success: true, status };
+  },
+
+  async revertMyClassStudentAttendance([userId, studentId]) {
+    if (!userId || !studentId) return { success: false, message: 'Missing student.' };
+    if (!(await _isCallerStudentAuthorized(userId, studentId))) return { success: false, message: 'Not your student.' };
+    const today = new Date().toISOString().slice(0, 10);
+    const r = await _sbStudentWrite(`manual_attendance_overrides?student_id=eq.${encodeURIComponent(studentId)}&date=eq.${today}`, 'DELETE');
+    if (r && r.error) return { success: false, message: r.error };
+    const presentRows = await _sbStudent(`attendance_records?date=eq.${today}&student_id=eq.${encodeURIComponent(studentId)}&select=student_id`);
+    return { success: true, status: (Array.isArray(presentRows) && presentRows.length) ? 'present' : 'absent' };
+  },
+
   // ── CLASS TEACHER → ATTENDANCE REPORT ─────────────────────────────────────
   // Same authorization shape as getMyClassRoster: class/section is never
   // accepted from the client, only re-derived from the CALLER's own
@@ -2817,16 +2906,23 @@ const handlers = {
       });
 
       const students_summary = roster.map(s => {
-        let present = 0, absent = 0;
+        // "absent" here means fee-liable absence — a class teacher marking
+        // specific days 'leave' (via My Students → Leave Apply) pulls those
+        // days out of the fee entirely without touching the attendance %,
+        // which still treats a leave day as not-present. late/missing/
+        // late_absent are still fee-liable, same as a plain absence.
+        let present = 0, absent = 0, leave = 0;
         allDates.forEach(dt => {
           const ov = overrideByStudentDate[`${s.student_id}||${dt}`];
           const status = ov || (presentByDate[dt] && presentByDate[dt].has(s.student_id) ? 'present' : 'absent');
-          if (status === 'present') present++; else absent++;
+          if (status === 'present') present++;
+          else if (status === 'leave') leave++;
+          else absent++;
         });
         const total = allDates.length;
         return {
           student_id: s.student_id, student_name: s.student_name, roll: s.roll,
-          present, absent, total,
+          present, absent, leave, total,
           percentage: total ? Math.round((present / total) * 1000) / 10 : 0,
           absent_fee: Math.round(absent * absentFeeAmount * 100) / 100,
         };

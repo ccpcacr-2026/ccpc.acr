@@ -3808,7 +3808,7 @@
       <div class="flex flex-wrap items-center justify-between gap-2 mb-5">
         <div id="myClassTabButtons" class="flex flex-wrap gap-2"></div>
         <div class="flex flex-wrap gap-2">
-          <button onclick="openMyClassAttendanceReport('day')" class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all">
+          <button onclick="openMyStudentsAttendance()" class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all">
             <i data-lucide="calendar-check" class="h-3 w-3"></i>Today's Attendance
           </button>
           <button onclick="openMyClassAttendanceReport()" class="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all">
@@ -3999,19 +3999,20 @@
         body.innerHTML = classes.map(c => `
           <div class="mb-6">
             <p class="font-black text-slate-800 text-sm uppercase tracking-widest mb-1">${_escHtml(c.classKey)}</p>
-            <p class="text-[10px] text-slate-400 font-bold mb-2">${c.dates.length} school day${c.dates.length === 1 ? '' : 's'} in range${feeAmount ? ` · Absent fee ৳${feeAmount}/day` : ''}</p>
+            <p class="text-[10px] text-slate-400 font-bold mb-2">${c.dates.length} school day${c.dates.length === 1 ? '' : 's'} in range${feeAmount ? ` · Absent fee ৳${feeAmount}/day · Leave days (via Leave Apply) are fee-exempt` : ''}</p>
             <div class="overflow-auto border border-slate-200 rounded-xl">
               <table class="w-full text-left border-collapse text-xs">
-                <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Roll</th><th class="py-2 px-3">Name</th><th class="py-2 px-3">Present</th><th class="py-2 px-3">Absent</th><th class="py-2 px-3">%</th>${feeAmount ? '<th class="py-2 px-3">Absent Fee</th>' : ''}</tr></thead>
+                <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Roll</th><th class="py-2 px-3">Name</th><th class="py-2 px-3">Present</th><th class="py-2 px-3">Absent</th><th class="py-2 px-3">Leave</th><th class="py-2 px-3">%</th>${feeAmount ? '<th class="py-2 px-3">Absent Fee</th>' : ''}</tr></thead>
                 <tbody>
                   ${c.students.map(s => `<tr class="border-b border-slate-50">
                     <td class="py-1.5 px-3">${_escHtml(s.roll || '')}</td>
                     <td class="py-1.5 px-3">${_escHtml(s.student_name || '')}</td>
                     <td class="py-1.5 px-3 text-emerald-600 font-black">${s.present}</td>
                     <td class="py-1.5 px-3 text-red-500 font-black">${s.absent}</td>
+                    <td class="py-1.5 px-3 text-sky-500 font-black">${s.leave || 0}</td>
                     <td class="py-1.5 px-3 font-black ${s.percentage < 75 ? 'text-red-500' : 'text-slate-700'}">${s.percentage}%</td>
                     ${feeAmount ? `<td class="py-1.5 px-3 font-black text-amber-600">৳${s.absent_fee}</td>` : ''}
-                  </tr>`).join('') || `<tr><td colspan="${feeAmount ? 6 : 5}" class="p-3 text-slate-400 font-bold text-xs">No students found for this class</td></tr>`}
+                  </tr>`).join('') || `<tr><td colspan="${feeAmount ? 7 : 6}" class="p-3 text-slate-400 font-bold text-xs">No students found for this class</td></tr>`}
                 </tbody>
               </table>
             </div>
@@ -4027,10 +4028,10 @@
     const res = _myClassAttReport;
     const classes = (res && res.classes) || [];
     if (!classes.length) { showToast('Generate a report first', 'error'); return; }
-    const lines = [['Class', 'Roll', 'Name', 'Present', 'Absent', 'Total Days', 'Percentage', 'Absent Fee'].join(',')];
+    const lines = [['Class', 'Roll', 'Name', 'Present', 'Absent', 'Leave', 'Total Days', 'Percentage', 'Absent Fee'].join(',')];
     classes.forEach(c => {
       c.students.forEach(s => {
-        lines.push([c.classKey, s.roll || '', `"${String(s.student_name || '').replace(/"/g, '""')}"`, s.present, s.absent, s.total, s.percentage, s.absent_fee].join(','));
+        lines.push([c.classKey, s.roll || '', `"${String(s.student_name || '').replace(/"/g, '""')}"`, s.present, s.absent, s.leave || 0, s.total, s.percentage, s.absent_fee].join(','));
       });
     });
     const [from, to] = _mcaResolveRange();
@@ -4043,6 +4044,161 @@
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+  }
+
+  // ── My Class → My Students (today's attendance, live edit) ───────────────
+  // Distinct from the report above: this is TODAY only, read-write, and
+  // shows exactly what's already in Supabase right now (ESP32-device
+  // present/absent, or whatever a class teacher has manually overridden it
+  // to) rather than a historical rollup. Colors mirror the status set:
+  // present=emerald, absent=red, late=amber, missing=purple,
+  // late_absent=orange, leave=sky.
+  const MY_STUDENTS_STATUS_META = {
+    present:     { label: 'Present',     short: 'P',  cls: 'bg-emerald-600 text-white' },
+    absent:      { label: 'Absent',      short: 'A',  cls: 'bg-red-500 text-white' },
+    late:        { label: 'Late',        short: 'La', cls: 'bg-amber-500 text-white' },
+    missing:     { label: 'Missing',     short: 'Mi', cls: 'bg-purple-500 text-white' },
+    late_absent: { label: 'Late Absent', short: 'LA', cls: 'bg-orange-500 text-white' },
+    leave:       { label: 'Leave',       short: 'Lv', cls: 'bg-sky-500 text-white' },
+  };
+  let _myStudentsData = null; // last fetched {classes, date}
+
+  function openMyStudentsAttendance() {
+    const overlay = document.createElement('div');
+    overlay.id = 'myStudentsOverlay';
+    overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
+    overlay.innerHTML = `
+      <div class="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+        <div class="p-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+          <p class="font-black text-slate-800 text-sm">My Students — Today's Attendance</p>
+          <button onclick="document.getElementById('myStudentsOverlay').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="h-4 w-4"></i></button>
+        </div>
+        <div id="myStudentsCounts" class="p-4 border-b border-slate-100 shrink-0"></div>
+        <div id="myStudentsBody" class="p-4 overflow-y-auto flex-1">
+          <div class="text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    lucide.createIcons();
+    loadMyStudentsAttendance();
+  }
+
+  function loadMyStudentsAttendance() {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    if (!myId) return;
+    const body = document.getElementById('myStudentsBody');
+    google.script.run
+      .withSuccessHandler(res => {
+        _myStudentsData = res;
+        _renderMyStudentsAttendance();
+      })
+      .withFailureHandler(() => {
+        if (body) body.innerHTML = `<div class="text-center py-8 text-red-400 text-xs font-black uppercase tracking-widest">Failed to load</div>`;
+      })
+      .getMyClassTodayAttendance(myId);
+  }
+
+  function _renderMyStudentsAttendance() {
+    const body = document.getElementById('myStudentsBody');
+    const countsHost = document.getElementById('myStudentsCounts');
+    if (!body) return;
+    const res = _myStudentsData;
+    const classes = (res && res.classes) || [];
+    if (!classes.length) {
+      body.innerHTML = `<div class="text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">You are not currently assigned as a class teacher</div>`;
+      if (countsHost) countsHost.innerHTML = '';
+      return;
+    }
+    const all = classes.flatMap(c => c.students);
+    const present = all.filter(s => s.status === 'present').length;
+    const absent = all.filter(s => s.status === 'absent').length;
+    const others = all.length - present - absent;
+    if (countsHost) countsHost.innerHTML = `
+      <div class="grid grid-cols-4 gap-2 text-center">
+        <div class="bg-slate-50 rounded-xl py-2"><div class="text-lg font-black text-slate-800">${all.length}</div><div class="text-[9px] font-black text-slate-400 uppercase">Total</div></div>
+        <div class="bg-emerald-50 rounded-xl py-2"><div class="text-lg font-black text-emerald-600">${present}</div><div class="text-[9px] font-black text-emerald-500 uppercase">Present</div></div>
+        <div class="bg-red-50 rounded-xl py-2"><div class="text-lg font-black text-red-500">${absent}</div><div class="text-[9px] font-black text-red-400 uppercase">Absent</div></div>
+        <div class="bg-amber-50 rounded-xl py-2"><div class="text-lg font-black text-amber-600">${others}</div><div class="text-[9px] font-black text-amber-500 uppercase">Others</div></div>
+      </div>`;
+
+    body.innerHTML = classes.map(c => `
+      <div class="mb-4">
+        ${classes.length > 1 ? `<p class="font-black text-slate-800 text-xs uppercase tracking-widest mb-2">${_escHtml(c.classKey)}</p>` : ''}
+        <div class="flex flex-col gap-1.5">
+          ${c.students.map(s => {
+            const meta = MY_STUDENTS_STATUS_META[s.status] || MY_STUDENTS_STATUS_META.absent;
+            const tel = String(s.phone_number || s.father_phone || s.mother_phone || '').replace(/[\s\-()]/g, '');
+            return `
+            <div class="flex items-center gap-2.5 border border-slate-200 rounded-xl px-2.5 py-2">
+              ${_avatar(s.student_name, s.photo, 'w-9 h-9')}
+              <div class="flex-1 min-w-0">
+                <p class="text-xs font-black text-slate-800 truncate">${_escHtml(s.student_name || '')}</p>
+                <p class="text-[10px] font-bold text-slate-400">Roll ${_escHtml(s.roll || '—')} · ${_escHtml(s.student_id)}${tel ? ` · <a href="tel:${_escHtml(tel)}" onclick="event.stopPropagation()" class="text-blue-500">${_escHtml(tel)}</a>` : ''}</p>
+              </div>
+              ${s.is_override ? '<span class="text-[8px] font-black text-slate-400 uppercase bg-slate-100 rounded px-1.5 py-0.5">Edited</span>' : ''}
+              <button onclick="_openMyStudentStatusPicker('${_escHtml(s.student_id)}')" class="shrink-0 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest ${meta.cls}">${meta.label}</button>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`).join('');
+    lucide.createIcons();
+  }
+
+  function _openMyStudentStatusPicker(studentId) {
+    const all = ((_myStudentsData && _myStudentsData.classes) || []).flatMap(c => c.students);
+    const student = all.find(s => s.student_id === studentId);
+    if (!student) return;
+    document.getElementById('myStudentStatusOverlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'myStudentStatusOverlay';
+    overlay.className = 'fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40 p-4';
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+    overlay.innerHTML = `
+      <div class="bg-white rounded-2xl w-full max-w-sm p-4">
+        <p class="font-black text-slate-800 text-sm mb-1">${_escHtml(student.student_name || '')}</p>
+        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Select Attendance Status</p>
+        <div class="grid grid-cols-2 gap-2">
+          ${Object.entries(MY_STUDENTS_STATUS_META).map(([key, meta]) => `
+            <button onclick="_setMyStudentStatus('${_escHtml(studentId)}','${key}')" class="py-3 rounded-xl font-black text-xs uppercase tracking-widest ${meta.cls}">${meta.label}</button>`).join('')}
+        </div>
+        ${student.is_override ? `<button onclick="_revertMyStudentStatus('${_escHtml(studentId)}')" class="w-full mt-2 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-500 hover:bg-slate-50">Revert to Device Status</button>` : ''}
+        <button onclick="document.getElementById('myStudentStatusOverlay').remove()" class="w-full mt-2 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-slate-100 text-slate-500 hover:bg-slate-200">Cancel</button>
+      </div>`;
+    document.body.appendChild(overlay);
+  }
+
+  function _setMyStudentStatus(studentId, status) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    document.getElementById('myStudentStatusOverlay')?.remove();
+    google.script.run
+      .withSuccessHandler(res => {
+        if (!res || !res.success) { showToast((res && res.message) || 'Failed to update', 'error'); return; }
+        _applyMyStudentStatusLocally(studentId, status, true);
+        showToast('Attendance updated');
+      })
+      .withFailureHandler(() => showToast('Network error', 'error'))
+      .setMyClassStudentAttendance(myId, studentId, status);
+  }
+
+  function _revertMyStudentStatus(studentId) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    document.getElementById('myStudentStatusOverlay')?.remove();
+    google.script.run
+      .withSuccessHandler(res => {
+        if (!res || !res.success) { showToast((res && res.message) || 'Failed to revert', 'error'); return; }
+        _applyMyStudentStatusLocally(studentId, res.status, false);
+        showToast('Reverted to device status');
+      })
+      .withFailureHandler(() => showToast('Network error', 'error'))
+      .revertMyClassStudentAttendance(myId, studentId);
+  }
+
+  function _applyMyStudentStatusLocally(studentId, status, isOverride) {
+    if (!_myStudentsData) return;
+    _myStudentsData.classes.forEach(c => {
+      c.students.forEach(s => { if (s.student_id === studentId) { s.status = status; s.is_override = isOverride; } });
+    });
+    _renderMyStudentsAttendance();
   }
 
   // At-a-glance view of one custom tab across the whole class — opened from

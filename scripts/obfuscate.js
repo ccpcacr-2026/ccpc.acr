@@ -16,6 +16,7 @@ const RESERVED = [
   'confirmEditRole','confirmResetPassword','launchDashboard','loadDefaultView','loadMyCommittees',
   'loadInventoryView','loadInventoryAdminView','loadMyClassView','loadSystemView','logout','openChangeMyPassModal','openMobileSidebar','openMyProfile','switchToStudentPortal',
   'saveDeviceClassAssignment','openMyClassAttendanceReport','generateMyClassAttendanceReport','exportMyClassAttendanceReportCsv','_mcaSetMode','saveAbsentFeeSetting','loadTodaysAttendance',
+  'openMyStudentsAttendance','_openMyStudentStatusPicker','_setMyStudentStatus','_revertMyStudentStatus',
   'renderMobileHomeGrid','_mobileTopBarNavClick','_openStudentPortalMobileMenu',
   'switchRecordsTab','toggleSidebar',
   // Inventory Admin (native port of ccpc-inventory) — onclick-referenced
