@@ -3853,33 +3853,22 @@
           return `
           <div>
             <p class="font-black text-slate-800 text-sm uppercase tracking-widest mb-3">${c.classKey}<span class="text-slate-400 font-bold"> · ${sorted.length} students</span></p>
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div class="flex flex-col gap-1.5">
               ${sorted.length ? sorted.map(s => {
                 const fatherTel = String(s.father_phone || '').replace(/[\s\-()]/g, '');
                 const motherTel = String(s.mother_phone || '').replace(/[\s\-()]/g, '');
+                const tel = fatherTel || motherTel;
                 return `
                 <div onclick='openStudentProfile(${JSON.stringify(s.student_id)})'
-                  class="cursor-pointer bg-white border border-slate-200 rounded-xl p-4 hover:border-blue-300 hover:shadow-lg transition-all">
-                  <div class="flex items-center gap-3 mb-3">
-                    ${_avatar(s.student_name, s.photo, 'w-12 h-12')}
-                    <div class="flex-1 min-w-0">
-                      <p class="text-sm font-black text-slate-800 truncate">${s.student_name || ''}</p>
-                      <p class="text-[10px] font-black text-blue-600 uppercase tracking-widest">Roll ${s.roll || '—'} <span class="text-slate-400">· ${s.gender || ''}</span></p>
-                    </div>
+                  class="cursor-pointer flex items-center gap-2.5 bg-white border border-slate-200 rounded-xl px-2.5 py-2 hover:border-blue-300 hover:shadow-sm transition-all">
+                  ${_avatar(s.student_name, s.photo, 'w-9 h-9')}
+                  <div class="flex-1 min-w-0">
+                    <p class="text-xs font-black text-slate-800 truncate">${s.student_name || ''}</p>
+                    <p class="text-[10px] font-bold text-slate-400 truncate">Roll ${s.roll || '—'}${fatherTel ? ` · Father ${fatherTel}` : ''}${!fatherTel && motherTel ? ` · Mother ${motherTel}` : ''}</p>
                   </div>
-                  <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">${[s.version, s.shift].filter(Boolean).join(' / ')}</p>
-                  <div class="pt-2 border-t border-slate-50 flex flex-col gap-1">
-                    <div class="flex items-center justify-between">
-                      <span class="text-[10px] font-bold text-slate-500 flex items-center gap-1.5"><i data-lucide="user" class="h-3 w-3 text-slate-300"></i>Father: ${s.father_phone || '—'}</span>
-                      ${fatherTel ? `<a href="tel:${fatherTel}" title="Call Father" onclick="event.stopPropagation()" class="text-slate-300 hover:text-blue-600 transition-colors shrink-0"><i data-lucide="phone" class="h-3.5 w-3.5"></i></a>` : ''}
-                    </div>
-                    <div class="flex items-center justify-between">
-                      <span class="text-[10px] font-bold text-slate-500 flex items-center gap-1.5"><i data-lucide="user" class="h-3 w-3 text-slate-300"></i>Mother: ${s.mother_phone || '—'}</span>
-                      ${motherTel ? `<a href="tel:${motherTel}" title="Call Mother" onclick="event.stopPropagation()" class="text-slate-300 hover:text-blue-600 transition-colors shrink-0"><i data-lucide="phone" class="h-3.5 w-3.5"></i></a>` : ''}
-                    </div>
-                  </div>
+                  ${tel ? `<a href="tel:${tel}" title="Call" onclick="event.stopPropagation()" class="shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-white" style="background:linear-gradient(135deg,#059669,#22c55e)"><i data-lucide="phone" class="h-3.5 w-3.5"></i></a>` : ''}
                 </div>`;
-              }).join('') : `<div class="col-span-full text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">No students found for this class</div>`}
+              }).join('') : `<div class="text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">No students found for this class</div>`}
             </div>
           </div>`;
         }).join('');
@@ -4204,30 +4193,58 @@
     document.body.appendChild(overlay);
   }
 
+  // Optimistic: the row updates the instant you tap, before the server has
+  // even responded — a save/revert round trip is a few hundred ms on a
+  // real network, which reads as "laggy" for something meant to feel like
+  // a light switch. Snapshots the prior {status,is_override} so a failed
+  // request can put the row back exactly as it was, rather than leaving it
+  // showing a status that was never actually saved.
   function _setMyStudentStatus(studentId, status) {
     const myId = window.APP_USER && window.APP_USER.user_id;
     document.getElementById('myStudentStatusOverlay')?.remove();
+    const prev = _snapshotMyStudentStatus(studentId);
+    _applyMyStudentStatusLocally(studentId, status, true);
     google.script.run
       .withSuccessHandler(res => {
-        if (!res || !res.success) { showToast((res && res.message) || 'Failed to update', 'error'); return; }
-        _applyMyStudentStatusLocally(studentId, status, true);
-        showToast('Attendance updated');
+        if (!res || !res.success) {
+          if (prev) _applyMyStudentStatusLocally(studentId, prev.status, prev.is_override);
+          showToast((res && res.message) || 'Failed to update', 'error');
+        }
       })
-      .withFailureHandler(() => showToast('Network error', 'error'))
+      .withFailureHandler(() => {
+        if (prev) _applyMyStudentStatusLocally(studentId, prev.status, prev.is_override);
+        showToast('Network error', 'error');
+      })
       .setMyClassStudentAttendance(myId, studentId, status);
   }
 
   function _revertMyStudentStatus(studentId) {
     const myId = window.APP_USER && window.APP_USER.user_id;
     document.getElementById('myStudentStatusOverlay')?.remove();
+    const prev = _snapshotMyStudentStatus(studentId);
+    // Best local guess while the request is in flight — corrected to the
+    // server's own answer (device-derived present/absent) the moment it replies.
+    _applyMyStudentStatusLocally(studentId, 'absent', false);
     google.script.run
       .withSuccessHandler(res => {
-        if (!res || !res.success) { showToast((res && res.message) || 'Failed to revert', 'error'); return; }
+        if (!res || !res.success) {
+          if (prev) _applyMyStudentStatusLocally(studentId, prev.status, prev.is_override);
+          showToast((res && res.message) || 'Failed to revert', 'error');
+          return;
+        }
         _applyMyStudentStatusLocally(studentId, res.status, false);
-        showToast('Reverted to device status');
       })
-      .withFailureHandler(() => showToast('Network error', 'error'))
+      .withFailureHandler(() => {
+        if (prev) _applyMyStudentStatusLocally(studentId, prev.status, prev.is_override);
+        showToast('Network error', 'error');
+      })
       .revertMyClassStudentAttendance(myId, studentId);
+  }
+
+  function _snapshotMyStudentStatus(studentId) {
+    const all = ((_myStudentsData && _myStudentsData.classes) || []).flatMap(c => c.students);
+    const s = all.find(x => x.student_id === studentId);
+    return s ? { status: s.status, is_override: s.is_override } : null;
   }
 
   function _applyMyStudentStatusLocally(studentId, status, isOverride) {

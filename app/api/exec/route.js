@@ -344,6 +344,29 @@ async function _sbStudentAllRows(path) {
   return all;
 }
 
+// Single-round-trip upsert — path must include `?on_conflict=<cols>`.
+// Cuts the check-then-PATCH-or-POST pattern used elsewhere down to one
+// request, which matters for the My Students toggle: that round trip
+// happens on every single tap, so shaving it to one call (plus the
+// authorization check) is the difference between "instant" and "laggy".
+async function _sbStudentUpsert(path, payload) {
+  const res = await fetch(`${process.env.SUPABASE_URL}/rest/v1/${path}`, {
+    method: 'POST',
+    headers: {
+      apikey: process.env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}`,
+      'Content-Type': 'application/json',
+      'Accept-Profile': 'student',
+      'Content-Profile': 'student',
+      Prefer: 'resolution=merge-duplicates,return=representation',
+    },
+    body: JSON.stringify(payload),
+  });
+  const text = await res.text();
+  if (res.status >= 400) return { error: 'Supabase Error', details: text, status: res.status };
+  return text ? JSON.parse(text) : null;
+}
+
 // Write counterpart to _sbStudent (GET-only above) — needed by
 // applyClassTeacherSync below, the only exec/route.js handler that writes
 // into the `student` schema directly rather than through student-admin/route.js.
@@ -2830,11 +2853,9 @@ const handlers = {
     if (!MY_CLASS_ATTENDANCE_STATUSES.has(status)) return { success: false, message: 'Invalid status.' };
     if (!(await _isCallerStudentAuthorized(userId, studentId))) return { success: false, message: 'Not your student.' };
     const today = new Date().toISOString().slice(0, 10);
-    const existing = await _sbStudent(`manual_attendance_overrides?student_id=eq.${encodeURIComponent(studentId)}&date=eq.${today}`);
-    const rowData = { student_id: studentId, date: today, status, marked_by: userId };
-    const r = (Array.isArray(existing) && existing.length)
-      ? await _sbStudentWrite(`manual_attendance_overrides?student_id=eq.${encodeURIComponent(studentId)}&date=eq.${today}`, 'PATCH', rowData)
-      : await _sbStudentWrite('manual_attendance_overrides', 'POST', rowData);
+    const r = await _sbStudentUpsert('manual_attendance_overrides?on_conflict=student_id,date', {
+      student_id: studentId, date: today, status, marked_by: userId,
+    });
     if (r && r.error) return { success: false, message: r.error };
     return { success: true, status };
   },
@@ -2872,17 +2893,12 @@ const handlers = {
     const studentIds = Array.from(new Set(rosters.flat()));
     if (!studentIds.length) return { success: true, count: 0 };
 
-    const existingRows = await _sbStudent(
-      `manual_attendance_overrides?date=eq.${today}&student_id=in.(${studentIds.map(encodeURIComponent).join(',')})&select=student_id`
-    );
-    const existingSet = new Set((Array.isArray(existingRows) ? existingRows : []).map(r => r.student_id));
-
-    await Promise.all(studentIds.map(sid => {
-      const rowData = { student_id: sid, date: today, status: 'present', marked_by: userId };
-      return existingSet.has(sid)
-        ? _sbStudentWrite(`manual_attendance_overrides?student_id=eq.${encodeURIComponent(sid)}&date=eq.${today}`, 'PATCH', rowData)
-        : _sbStudentWrite('manual_attendance_overrides', 'POST', rowData);
-    }));
+    // One batched upsert instead of one request per student — a single
+    // POST with on_conflict handles the whole roster's insert-or-update in
+    // one round trip.
+    const rows = studentIds.map(sid => ({ student_id: sid, date: today, status: 'present', marked_by: userId }));
+    const r = await _sbStudentUpsert('manual_attendance_overrides?on_conflict=student_id,date', rows);
+    if (r && r.error) return { success: false, message: r.error };
     return { success: true, count: studentIds.length };
   },
 
