@@ -3807,9 +3807,14 @@
     container.innerHTML = `<div class="pt-4 max-w-5xl mx-auto pb-10">
       <div class="flex flex-wrap items-center justify-between gap-2 mb-5">
         <div id="myClassTabButtons" class="flex flex-wrap gap-2"></div>
-        <button onclick="openMyClassAttendanceReport()" class="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all">
-          <i data-lucide="clipboard-list" class="h-3 w-3"></i>Attendance Report
-        </button>
+        <div class="flex flex-wrap gap-2">
+          <button onclick="openMyClassAttendanceReport('day')" class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all">
+            <i data-lucide="calendar-check" class="h-3 w-3"></i>Today's Attendance
+          </button>
+          <button onclick="openMyClassAttendanceReport()" class="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all">
+            <i data-lucide="clipboard-list" class="h-3 w-3"></i>Attendance Report
+          </button>
+        </div>
       </div>
       <div id="myClassBody" class="flex flex-col gap-6">
         <div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>
@@ -3894,7 +3899,8 @@
 
   let _mcaMode = 'range'; // 'day' | 'range' | 'month'
 
-  function openMyClassAttendanceReport() {
+  function openMyClassAttendanceReport(forceMode) {
+    if (forceMode) _mcaMode = forceMode;
     const today = new Date();
     const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
     const fmt = dt => dt.toISOString().slice(0, 10);
@@ -11124,7 +11130,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <input type="text" id="attClass" placeholder="Class" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
           <input type="text" id="attSection" placeholder="Section (optional)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
           <input type="date" id="attDate" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
-          <button onclick="loadAttendanceReport()" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Load</button>
+          <div class="flex gap-2">
+            <button onclick="loadTodaysAttendance()" class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all"><i data-lucide="calendar-check" class="h-3 w-3"></i>Today</button>
+            <button onclick="loadAttendanceReport()" class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Load</button>
+          </div>
         </div>
         <div id="attSummary" class="mb-2 font-black text-slate-700 text-xs"></div>
         <div class="overflow-auto border border-slate-200 rounded-xl">
@@ -11193,6 +11202,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (tabId === 'att-punchlog') loadPunchLog();
   }
 
+  function loadTodaysAttendance() {
+    const dateEl = document.getElementById('attDate');
+    if (dateEl) dateEl.value = new Date().toISOString().slice(0, 10);
+    if (!document.getElementById('attClass').value.trim()) { showToast('Enter a class first', 'error'); return; }
+    loadAttendanceReport();
+  }
   function loadAttendanceReport() {
     const clsEl = document.getElementById('attClass');
     if (!clsEl) return;
