@@ -15,6 +15,7 @@
   },
   "devDependencies": {
     "@capacitor/android": "^8.5.0",
+    "@capacitor/assets": "^3.0.5",
     "javascript-obfuscator": "^5.4.3",
     "terser": "^5.48.0"
   }
