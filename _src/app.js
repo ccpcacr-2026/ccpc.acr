@@ -6939,7 +6939,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
           <div>
             <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Topic</label>
-            <input id="lpTopic" type="text" list="lpTopicOptions" value="${_escHtml(v.topic || '')}" oninput="_lpUpdatePhaseSummary()" placeholder="Type, or pick from the selected chapter's lessons below" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mt-1">
+            <input id="lpTopic" type="text" list="lpTopicOptions" value="${_escHtml(v.topic || '')}" oninput="_lpUpdatePhaseSummary()" placeholder="Type, or pick from the selected chapter's lessons below" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-lp-topic" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none mt-1">
             <datalist id="lpTopicOptions"></datalist>
           </div>
           <div>
