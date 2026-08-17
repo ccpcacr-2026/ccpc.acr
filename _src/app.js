@@ -419,7 +419,7 @@
   const _modalBackStack = []; // [{el}], in the order modals were opened
   let _mobileHomeGuardActive = false;
 
-  function _isTrackedModalId(id) { return !!id && (/Modal$/.test(id) || id === 'main-sidebar'); }
+  function _isTrackedModalId(id) { return !!id && (/(Modal|Overlay)$/.test(id) || id === 'main-sidebar'); }
   function _isModalOpen(el) {
     return el.id === 'main-sidebar' ? !el.classList.contains('-translate-x-full') : !el.classList.contains('hidden');
   }
@@ -3805,16 +3805,14 @@
     if (!myId) return;
 
     container.innerHTML = `<div class="pt-4 max-w-5xl mx-auto pb-10">
-      <div class="flex flex-wrap items-center justify-between gap-2 mb-5">
-        <div id="myClassTabButtons" class="flex flex-wrap gap-2"></div>
-        <div class="flex flex-wrap gap-2">
-          <button onclick="openMyStudentsAttendance()" class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all">
-            <i data-lucide="calendar-check" class="h-3 w-3"></i>Today's Attendance
-          </button>
-          <button onclick="openMyClassAttendanceReport()" class="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all">
-            <i data-lucide="clipboard-list" class="h-3 w-3"></i>Attendance Report
-          </button>
-        </div>
+      <div class="flex flex-nowrap items-center gap-2 mb-5 overflow-x-auto pb-1" style="scrollbar-width:none">
+        <button onclick="openMyStudentsAttendance()" class="shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest text-white transition-all whitespace-nowrap" style="background:linear-gradient(135deg,#4f46e5,#0ea5e9)">
+          <i data-lucide="calendar-check" class="h-3 w-3"></i>Today's Attendance
+        </button>
+        <button onclick="openMyClassAttendanceReport()" class="shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest text-white transition-all whitespace-nowrap" style="background:linear-gradient(135deg,#059669,#22c55e)">
+          <i data-lucide="clipboard-list" class="h-3 w-3"></i>Attendance Report
+        </button>
+        <div id="myClassTabButtons" class="flex flex-nowrap gap-2"></div>
       </div>
       <div id="myClassBody" class="flex flex-col gap-6">
         <div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>
@@ -3828,7 +3826,7 @@
           const tabs = (res && res.tabs) || [];
           btnHost.innerHTML = tabs.map(t => `
             <button onclick='openClassTabTable(${JSON.stringify(t.tab_name).replace(/'/g, "&#39;")})'
-              class="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] font-black text-slate-600 uppercase tracking-widest hover:border-blue-300 hover:text-blue-600 transition-all">
+              class="shrink-0 whitespace-nowrap flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] font-black text-slate-600 uppercase tracking-widest hover:border-blue-300 hover:text-blue-600 transition-all">
               <i data-lucide="table" class="h-3 w-3"></i>${t.tab_name}
             </button>`).join('');
           lucide.createIcons();
@@ -3904,6 +3902,7 @@
     const today = new Date();
     const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
     const fmt = dt => dt.toISOString().slice(0, 10);
+    document.getElementById('myClassAttOverlay')?.remove();
     const overlay = document.createElement('div');
     overlay.id = 'myClassAttOverlay';
     overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
@@ -4054,16 +4053,17 @@
   // present=emerald, absent=red, late=amber, missing=purple,
   // late_absent=orange, leave=sky.
   const MY_STUDENTS_STATUS_META = {
-    present:     { label: 'Present',     short: 'P',  cls: 'bg-emerald-600 text-white' },
-    absent:      { label: 'Absent',      short: 'A',  cls: 'bg-red-500 text-white' },
-    late:        { label: 'Late',        short: 'La', cls: 'bg-amber-500 text-white' },
-    missing:     { label: 'Missing',     short: 'Mi', cls: 'bg-purple-500 text-white' },
-    late_absent: { label: 'Late Absent', short: 'LA', cls: 'bg-orange-500 text-white' },
-    leave:       { label: 'Leave',       short: 'Lv', cls: 'bg-sky-500 text-white' },
+    present:     { label: 'Present',     short: 'P',  cls: 'text-white', bg: 'linear-gradient(135deg,#059669,#22c55e)' },
+    absent:      { label: 'Absent',      short: 'A',  cls: 'text-white', bg: 'linear-gradient(135deg,#dc2626,#f43f5e)' },
+    late:        { label: 'Late',        short: 'La', cls: 'text-white', bg: 'linear-gradient(135deg,#d97706,#fbbf24)' },
+    missing:     { label: 'Missing',     short: 'Mi', cls: 'text-white', bg: 'linear-gradient(135deg,#7c3aed,#d946ef)' },
+    late_absent: { label: 'Late Absent', short: 'LA', cls: 'text-white', bg: 'linear-gradient(135deg,#c2410c,#fb923c)' },
+    leave:       { label: 'Leave',       short: 'Lv', cls: 'text-white', bg: 'linear-gradient(135deg,#0284c7,#38bdf8)' },
   };
   let _myStudentsData = null; // last fetched {classes, date}
 
   function openMyStudentsAttendance() {
+    document.getElementById('myStudentsOverlay')?.remove();
     const overlay = document.createElement('div');
     overlay.id = 'myStudentsOverlay';
     overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
@@ -4116,14 +4116,14 @@
     const allPresent = all.length > 0 && present === all.length;
     if (countsHost) countsHost.innerHTML = `
       <div class="grid grid-cols-4 gap-2 text-center mb-3">
-        <div class="bg-slate-50 rounded-xl py-2"><div class="text-lg font-black text-slate-800">${all.length}</div><div class="text-[9px] font-black text-slate-400 uppercase">Total</div></div>
-        <div class="bg-emerald-50 rounded-xl py-2"><div class="text-lg font-black text-emerald-600">${present}</div><div class="text-[9px] font-black text-emerald-500 uppercase">Present</div></div>
-        <div class="bg-red-50 rounded-xl py-2"><div class="text-lg font-black text-red-500">${absent}</div><div class="text-[9px] font-black text-red-400 uppercase">Absent</div></div>
-        <div class="bg-amber-50 rounded-xl py-2"><div class="text-lg font-black text-amber-600">${others}</div><div class="text-[9px] font-black text-amber-500 uppercase">Others</div></div>
+        <div class="rounded-xl py-2 text-white" style="background:linear-gradient(135deg,#334155,#64748b)"><div class="text-lg font-black">${all.length}</div><div class="text-[9px] font-black uppercase opacity-90">Total</div></div>
+        <div class="rounded-xl py-2 text-white" style="background:${MY_STUDENTS_STATUS_META.present.bg}"><div class="text-lg font-black">${present}</div><div class="text-[9px] font-black uppercase opacity-90">Present</div></div>
+        <div class="rounded-xl py-2 text-white" style="background:${MY_STUDENTS_STATUS_META.absent.bg}"><div class="text-lg font-black">${absent}</div><div class="text-[9px] font-black uppercase opacity-90">Absent</div></div>
+        <div class="rounded-xl py-2 text-white" style="background:linear-gradient(135deg,#b45309,#f59e0b)"><div class="text-lg font-black">${others}</div><div class="text-[9px] font-black uppercase opacity-90">Others</div></div>
       </div>
       <label class="flex items-center gap-2 cursor-pointer select-none">
         <input type="checkbox" id="myStudentsSelectAll" ${allPresent ? 'checked' : ''} onchange="_markAllMyStudentsPresent(this.checked)" class="w-4 h-4 accent-emerald-600">
-        <span class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Mark All Present</span>
+        <span class="text-[10px] font-black text-slate-600 uppercase tracking-widest">Mark All Present</span>
       </label>`;
 
     body.innerHTML = classes.map(c => `
@@ -4136,17 +4136,17 @@
             const isOther = s.status !== 'present' && s.status !== 'absent';
             const tel = String(s.phone_number || s.father_phone || s.mother_phone || '').replace(/[\s\-()]/g, '');
             return `
-            <div class="flex items-center gap-2 border border-slate-200 rounded-xl px-2.5 py-2">
+            <div class="flex items-center gap-2 border border-slate-200 rounded-xl px-2.5 py-2 bg-white">
               ${_avatar(s.student_name, s.photo, 'w-9 h-9')}
               <div class="flex-1 min-w-0">
-                <p class="text-xs font-black text-slate-800 truncate">${_escHtml(s.student_name || '')}</p>
-                <p class="text-[10px] font-bold text-slate-400">Roll ${_escHtml(s.roll || '—')} · ${_escHtml(s.student_id)}${tel ? ` · <a href="tel:${_escHtml(tel)}" onclick="event.stopPropagation()" class="text-blue-500">${_escHtml(tel)}</a>` : ''}</p>
+                <p class="text-xs font-black text-slate-900 truncate">${_escHtml(s.student_name || '')}</p>
+                <p class="text-[10px] font-bold text-slate-500">Roll ${_escHtml(s.roll || '—')} · ${_escHtml(s.student_id)}${tel ? ` · <a href="tel:${_escHtml(tel)}" onclick="event.stopPropagation()" class="text-blue-600">${_escHtml(tel)}</a>` : ''}</p>
               </div>
-              ${isOther ? `<span class="shrink-0 text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${meta.cls}">${meta.short}</span>` : ''}
-              <button onclick="_toggleMyStudentPresence('${_escHtml(s.student_id)}')" title="Toggle Present/Absent" class="shrink-0 relative w-11 h-6 rounded-full transition-colors ${isPresent ? 'bg-emerald-500' : 'bg-red-400'}">
+              ${isOther ? `<span class="shrink-0 text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${meta.cls}" style="background:${meta.bg}">${meta.short}</span>` : ''}
+              <button onclick="_toggleMyStudentPresence('${_escHtml(s.student_id)}')" title="Toggle Present/Absent" class="shrink-0 relative w-11 h-6 rounded-full transition-colors" style="background:${isPresent ? MY_STUDENTS_STATUS_META.present.bg : MY_STUDENTS_STATUS_META.absent.bg}">
                 <span class="absolute top-0.5 ${isPresent ? 'right-0.5' : 'left-0.5'} w-5 h-5 bg-white rounded-full shadow transition-all"></span>
               </button>
-              <button onclick="_openMyStudentStatusPicker('${_escHtml(s.student_id)}')" title="More statuses" class="shrink-0 w-7 h-7 rounded-full border border-blue-200 text-blue-600 flex items-center justify-center hover:bg-blue-50"><i data-lucide="plus" class="h-3.5 w-3.5"></i></button>
+              <button onclick="_openMyStudentStatusPicker('${_escHtml(s.student_id)}')" title="More statuses" class="shrink-0 w-7 h-7 rounded-full text-white flex items-center justify-center" style="background:linear-gradient(135deg,#4f46e5,#0ea5e9)"><i data-lucide="plus" class="h-3.5 w-3.5"></i></button>
             </div>`;
           }).join('')}
         </div>
@@ -8396,7 +8396,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div class="space-y-1 mt-1">
         ${lectures.map(l => `
           <label class="flex items-start gap-2 text-xs font-bold text-slate-700 cursor-pointer">
-            <input type="checkbox" class="mt-0.5 w-3.5 h-3.5 rounded accent-blue-600 shrink-0" ${block.lessonNumbers.includes(Number(l.lecture_number)) ? 'checked' : ''} onchange="_lpToggleLessonNumber(${idx}, ${Number(l.lecture_number)}, this.checked)">
+            <input type="checkbox" class="mt-0.5 w-3.5 h-3.5 rounded accent-blue-600 shrink-0" style="transform:scale(0.85)" ${block.lessonNumbers.includes(Number(l.lecture_number)) ? 'checked' : ''} onchange="_lpToggleLessonNumber(${idx}, ${Number(l.lecture_number)}, this.checked)">
             <span>Lesson ${_escHtml(l.lecture_number)}${l.topic ? ' — ' + _escHtml(l.topic) : ''}</span>
           </label>`).join('')}
       </div>`;
