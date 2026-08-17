@@ -430,9 +430,15 @@
     if (idx === -1) return; // already popped by the popstate handler below
     _modalBackStack.splice(idx, 1);
     // Closed by something other than the back button (its own X/Cancel/
-    // outside-click) — consume the history entry pushed when it opened, so
-    // Back still means one real step, never a leftover extra one.
-    history.back();
+    // outside-click) — the history entry pushed when it opened is now
+    // stale, but it's deliberately left in place rather than consumed with
+    // history.back(): if this was the very first thing opened in this page
+    // load (nothing else pushed earlier this session), going back would
+    // navigate past the app's own starting point entirely — out of the
+    // SPA, not just closing the modal — which is worse than the minor cost
+    // of one harmless extra no-op Back press later (the stale entry has no
+    // tracked modal/guard left to act on, so popping it here does nothing
+    // and the press after it behaves normally).
   }
 
   // Called from setActiveNavLink (the true universal choke point every
@@ -444,8 +450,18 @@
     if (!onHome) {
       if (!_mobileHomeGuardActive) { history.pushState({ _homeGuard: true }, ''); _mobileHomeGuardActive = true; }
     } else if (_mobileHomeGuardActive) {
+      // Reached Home by tapping the in-app back arrow (not the hardware/
+      // gesture Back button) — just drop the flag, deliberately WITHOUT
+      // history.back(): if this module was the very first thing loaded
+      // this page load (e.g. a refresh restoring the last-open module,
+      // which this app explicitly supports — see _routeByHash), there is
+      // no earlier same-session Home entry to land on, and history.back()
+      // would navigate straight out of the app instead. That previously
+      // made the in-app back arrow appear to "not work" (or worse, exit
+      // the app) the moment it was tapped from a freshly-loaded module.
+      // The pushed entry is left stale in the browser's history; the only
+      // cost is one harmless no-op Back press later, never a broken one.
       _mobileHomeGuardActive = false;
-      history.back(); // consume it — reached Home by tapping something, not by Back
     }
   }
 
@@ -6503,7 +6519,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     toolbar.innerHTML = `
       <div class="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-2.5 mb-2 flex items-center justify-between flex-wrap gap-3">
         <label class="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-widest cursor-pointer">
-          <input type="checkbox" onchange="_lpListToggleAll(this.checked)" ${allSelected ? 'checked' : ''} class="h-4 w-4 rounded">
+          <input type="checkbox" onchange="_lpListToggleAll(this.checked)" ${allSelected ? 'checked' : ''} class="h-3.5 w-3.5 rounded" style="accent-color:#2563eb">
           Select All (${manageableIds.length})
         </label>
         ${n ? `<button onclick="_lpListDeleteSelected()" class="px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest bg-red-500 text-white hover:bg-red-600 transition-all flex items-center gap-1.5"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i>Delete Selected (${n})</button>` : ''}
@@ -6590,7 +6606,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const extraChapters = (p.lesson_refs && p.lesson_refs.length > 1) ? ` +${p.lesson_refs.length - 1} more chapter${p.lesson_refs.length > 2 ? 's' : ''}` : '';
     return `
       <div class="relative bg-white rounded-2xl border ${_lpListSelected.has(p.id) ? 'border-blue-400 ring-2 ring-blue-100' : 'border-slate-200'} shadow-sm hover:border-blue-300 transition-all">
-        ${canManage ? `<input type="checkbox" onchange="_lpListToggleSelect(${p.id}, this.checked)" ${_lpListSelected.has(p.id) ? 'checked' : ''} title="Select for bulk delete" class="absolute top-3 left-3 h-4 w-4 rounded z-10">` : ''}
+        ${canManage ? `<input type="checkbox" onchange="_lpListToggleSelect(${p.id}, this.checked)" ${_lpListSelected.has(p.id) ? 'checked' : ''} title="Select for bulk delete" class="absolute top-3 left-3 h-3.5 w-3.5 rounded z-10" style="accent-color:#2563eb">` : ''}
         <button type="button" onclick="_lpDuplicatePlan(${p.id})" title="Duplicate as a new plan" class="absolute top-3 right-10 p-1.5 rounded-lg hover:bg-slate-50 z-10"><i data-lucide="copy" class="h-4 w-4 text-slate-300"></i></button>
         <button type="button" onclick="_lpToggleFavorite('lesson_plan',${p.id})" title="${isFav ? 'Remove from Favorites' : 'Add to Favorites'}" class="absolute top-3 right-3 p-1.5 rounded-lg hover:bg-slate-50 z-10"><i data-lucide="star" class="h-4 w-4 ${isFav ? 'text-amber-400 fill-amber-400' : 'text-slate-300'}"></i></button>
         <button onclick="_openLessonPlanForm(${p.id})" class="w-full text-left p-4 ${canManage ? 'pl-9' : ''}">
@@ -7673,7 +7689,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     toolbar.innerHTML = `
       <div class="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3 flex items-center justify-between flex-wrap gap-3">
         <label class="flex items-center gap-2 text-xs font-black text-slate-600 uppercase tracking-widest cursor-pointer">
-          <input type="checkbox" onchange="_lpDupToggleAll(this.checked)" ${allIds.length && n === allIds.length ? 'checked' : ''} class="h-4 w-4 rounded">
+          <input type="checkbox" onchange="_lpDupToggleAll(this.checked)" ${allIds.length && n === allIds.length ? 'checked' : ''} class="h-3.5 w-3.5 rounded" style="accent-color:#2563eb">
           Select All (${allIds.length} plans in ${_lpDupGroups.length} duplicate groups)
         </label>
         <button onclick="_lpDupDeleteSelected()" ${n ? '' : 'disabled'} class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-white transition-all flex items-center gap-1.5 ${n ? 'bg-red-500 hover:bg-red-600' : 'bg-slate-200 cursor-not-allowed'}"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i>Delete Selected (${n})</button>
@@ -7696,7 +7712,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div class="bg-white rounded-2xl border border-amber-200 shadow-sm overflow-hidden">
         <div class="px-4 py-3 bg-amber-50 border-b border-amber-200 flex items-center justify-between flex-wrap gap-2">
           <label class="flex items-center gap-2 text-xs font-black text-amber-800 cursor-pointer">
-            <input type="checkbox" onchange="_lpDupToggleGroup(${gi}, this.checked)" ${allSelected ? 'checked' : ''} class="h-4 w-4 rounded">
+            <input type="checkbox" onchange="_lpDupToggleGroup(${gi}, this.checked)" ${allSelected ? 'checked' : ''} class="h-3.5 w-3.5 rounded" style="accent-color:#d97706">
             ${_escHtml(g.class_name)} &middot; ${_escHtml(g.subject)}${g.version ? ' &middot; ' + _escHtml(g.version) : ''} &middot; ${_escHtml(g.chapter)} &middot; Lesson ${_escHtml(g.lesson_number)}
           </label>
           <span class="text-[10px] font-black text-amber-700 uppercase tracking-widest">${g.count} copies found</span>
@@ -7705,7 +7721,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           ${g.plans.map(p => `
             <div class="px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
               <label class="flex items-center gap-2.5 min-w-0 cursor-pointer flex-1">
-                <input type="checkbox" onchange="_lpDupToggle(${p.id}, this.checked)" ${_lpDupSelected.has(p.id) ? 'checked' : ''} class="h-4 w-4 rounded shrink-0">
+                <input type="checkbox" onchange="_lpDupToggle(${p.id}, this.checked)" ${_lpDupSelected.has(p.id) ? 'checked' : ''} class="h-3.5 w-3.5 rounded shrink-0" style="accent-color:#2563eb">
                 <span class="min-w-0">
                   <span class="block text-xs font-bold text-slate-700 truncate">${_escHtml(p.topic || '(no topic)')}</span>
                   <span class="block text-[10px] text-slate-400 font-bold">${_escHtml(p.owner_name || p.created_by)} &middot; updated ${_escHtml((p.updated_at || '').slice(0, 10))}${p.is_shared ? ' &middot; Shared' : ''}</span>
