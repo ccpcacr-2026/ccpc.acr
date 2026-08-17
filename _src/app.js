@@ -3805,7 +3805,12 @@
     if (!myId) return;
 
     container.innerHTML = `<div class="pt-4 max-w-5xl mx-auto pb-10">
-      <div id="myClassTabButtons" class="flex flex-wrap gap-2 mb-5"></div>
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-5">
+        <div id="myClassTabButtons" class="flex flex-wrap gap-2"></div>
+        <button onclick="openMyClassAttendanceReport()" class="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all">
+          <i data-lucide="clipboard-list" class="h-3 w-3"></i>Attendance Report
+        </button>
+      </div>
       <div id="myClassBody" class="flex flex-col gap-6">
         <div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>
       </div>
@@ -3882,6 +3887,156 @@
         if (body) body.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">Failed to load class roster</div>`;
       })
       .getMyClassRoster(myId);
+  }
+
+  // ── My Class → Attendance Report ─────────────────────────────────────────
+  let _myClassAttReport = null; // last fetched report, kept for CSV export
+
+  let _mcaMode = 'range'; // 'day' | 'range' | 'month'
+
+  function openMyClassAttendanceReport() {
+    const today = new Date();
+    const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const fmt = dt => dt.toISOString().slice(0, 10);
+    const overlay = document.createElement('div');
+    overlay.id = 'myClassAttOverlay';
+    overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
+    overlay.innerHTML = `
+      <div class="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+        <div class="p-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+          <p class="font-black text-slate-800 text-sm">Attendance Report</p>
+          <button onclick="document.getElementById('myClassAttOverlay').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="h-4 w-4"></i></button>
+        </div>
+        <div class="p-4 border-b border-slate-100 shrink-0">
+          <div class="flex gap-1.5 mb-3">
+            ${[['day', 'Daywise'], ['range', 'Range'], ['month', 'Monthly']].map(([m, label]) => `
+              <button onclick="_mcaSetMode('${m}')" id="mcaMode_${m}" class="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${_mcaMode === m ? 'bg-blue-600 text-white' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50'}">${label}</button>`).join('')}
+          </div>
+          <div class="flex flex-wrap items-end gap-2">
+            <div id="mcaDayField" class="${_mcaMode === 'day' ? '' : 'hidden'}">
+              <label class="text-[10px] font-black text-slate-400 uppercase">Date</label>
+              <input type="date" id="mcaDay" value="${fmt(today)}" class="block px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mt-1">
+            </div>
+            <div id="mcaMonthField" class="${_mcaMode === 'month' ? '' : 'hidden'}">
+              <label class="text-[10px] font-black text-slate-400 uppercase">Month</label>
+              <input type="month" id="mcaMonth" value="${fmt(today).slice(0, 7)}" class="block px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mt-1">
+            </div>
+            <div id="mcaRangeFields" class="flex flex-wrap items-end gap-2 ${_mcaMode === 'range' ? '' : 'hidden'}">
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase">From</label>
+                <input type="date" id="mcaFrom" value="${fmt(firstOfMonth)}" class="block px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mt-1">
+              </div>
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase">To</label>
+                <input type="date" id="mcaTo" value="${fmt(today)}" class="block px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mt-1">
+              </div>
+            </div>
+            <button onclick="generateMyClassAttendanceReport()" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Generate</button>
+            <button onclick="exportMyClassAttendanceReportCsv()" class="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Export CSV</button>
+          </div>
+        </div>
+        <div id="mcaBody" class="p-4 overflow-y-auto flex-1">
+          <div class="text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">Pick a date range and Generate.</div>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    lucide.createIcons();
+    generateMyClassAttendanceReport();
+  }
+
+  function _mcaSetMode(mode) {
+    _mcaMode = mode;
+    ['day', 'range', 'month'].forEach(m => {
+      const btn = document.getElementById('mcaMode_' + m);
+      if (btn) btn.className = btn.className.replace(/bg-blue-600 text-white|bg-white text-slate-400 border border-slate-200 hover:bg-slate-50/, m === mode ? 'bg-blue-600 text-white' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50');
+    });
+    const dayF = document.getElementById('mcaDayField'), monthF = document.getElementById('mcaMonthField'), rangeF = document.getElementById('mcaRangeFields');
+    if (dayF) dayF.classList.toggle('hidden', mode !== 'day');
+    if (monthF) monthF.classList.toggle('hidden', mode !== 'month');
+    if (rangeF) rangeF.classList.toggle('hidden', mode !== 'range');
+  }
+
+  // Resolves whichever mode's inputs are showing down to a plain [from, to]
+  // pair — the server RPC only ever deals in a date range, day/month are
+  // just client-side convenience shapes around that same call.
+  function _mcaResolveRange() {
+    if (_mcaMode === 'day') {
+      const d = document.getElementById('mcaDay').value;
+      return [d, d];
+    }
+    if (_mcaMode === 'month') {
+      const m = document.getElementById('mcaMonth').value; // "YYYY-MM"
+      if (!m) return [null, null];
+      const [y, mo] = m.split('-').map(Number);
+      const from = `${m}-01`;
+      const lastDay = new Date(y, mo, 0).getDate();
+      const to = `${m}-${String(lastDay).padStart(2, '0')}`;
+      return [from, to];
+    }
+    return [document.getElementById('mcaFrom').value, document.getElementById('mcaTo').value];
+  }
+
+  function generateMyClassAttendanceReport() {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const [from, to] = _mcaResolveRange();
+    const body = document.getElementById('mcaBody');
+    if (!myId || !from || !to) return;
+    if (body) body.innerHTML = `<div class="text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`;
+    google.script.run
+      .withSuccessHandler(res => {
+        _myClassAttReport = res;
+        if (!body) return;
+        const classes = (res && res.classes) || [];
+        const feeAmount = (res && res.absentFeeAmount) || 0;
+        if (res && res.error) { body.innerHTML = `<div class="text-center py-8 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml(res.error)}</div>`; return; }
+        if (!classes.length) { body.innerHTML = `<div class="text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">You are not currently assigned as a class teacher</div>`; return; }
+        body.innerHTML = classes.map(c => `
+          <div class="mb-6">
+            <p class="font-black text-slate-800 text-sm uppercase tracking-widest mb-1">${_escHtml(c.classKey)}</p>
+            <p class="text-[10px] text-slate-400 font-bold mb-2">${c.dates.length} school day${c.dates.length === 1 ? '' : 's'} in range${feeAmount ? ` · Absent fee ৳${feeAmount}/day` : ''}</p>
+            <div class="overflow-auto border border-slate-200 rounded-xl">
+              <table class="w-full text-left border-collapse text-xs">
+                <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Roll</th><th class="py-2 px-3">Name</th><th class="py-2 px-3">Present</th><th class="py-2 px-3">Absent</th><th class="py-2 px-3">%</th>${feeAmount ? '<th class="py-2 px-3">Absent Fee</th>' : ''}</tr></thead>
+                <tbody>
+                  ${c.students.map(s => `<tr class="border-b border-slate-50">
+                    <td class="py-1.5 px-3">${_escHtml(s.roll || '')}</td>
+                    <td class="py-1.5 px-3">${_escHtml(s.student_name || '')}</td>
+                    <td class="py-1.5 px-3 text-emerald-600 font-black">${s.present}</td>
+                    <td class="py-1.5 px-3 text-red-500 font-black">${s.absent}</td>
+                    <td class="py-1.5 px-3 font-black ${s.percentage < 75 ? 'text-red-500' : 'text-slate-700'}">${s.percentage}%</td>
+                    ${feeAmount ? `<td class="py-1.5 px-3 font-black text-amber-600">৳${s.absent_fee}</td>` : ''}
+                  </tr>`).join('') || `<tr><td colspan="${feeAmount ? 6 : 5}" class="p-3 text-slate-400 font-bold text-xs">No students found for this class</td></tr>`}
+                </tbody>
+              </table>
+            </div>
+          </div>`).join('');
+      })
+      .withFailureHandler(() => {
+        if (body) body.innerHTML = `<div class="text-center py-8 text-red-400 text-xs font-black uppercase tracking-widest">Failed to load report</div>`;
+      })
+      .getMyClassAttendanceReport(myId, from, to);
+  }
+
+  function exportMyClassAttendanceReportCsv() {
+    const res = _myClassAttReport;
+    const classes = (res && res.classes) || [];
+    if (!classes.length) { showToast('Generate a report first', 'error'); return; }
+    const lines = [['Class', 'Roll', 'Name', 'Present', 'Absent', 'Total Days', 'Percentage', 'Absent Fee'].join(',')];
+    classes.forEach(c => {
+      c.students.forEach(s => {
+        lines.push([c.classKey, s.roll || '', `"${String(s.student_name || '').replace(/"/g, '""')}"`, s.present, s.absent, s.total, s.percentage, s.absent_fee].join(','));
+      });
+    });
+    const [from, to] = _mcaResolveRange();
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `attendance-report-${from}-to-${to}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   }
 
   // At-a-glance view of one custom tab across the whole class — opened from
@@ -10949,9 +11104,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
              ${i === 0 ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50'}">${t.label}</button>`).join('');
 
     container.innerHTML = `
-      <div class="mb-4">
-        <h2 class="text-2xl font-black text-slate-800 tracking-tight">Attendance</h2>
-        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Daily report, devices, punch log</p>
+      <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 class="text-2xl font-black text-slate-800 tracking-tight">Attendance</h2>
+          <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Daily report, devices, punch log</p>
+        </div>
+        <div class="flex items-end gap-1.5">
+          <div>
+            <label class="text-[10px] font-black text-slate-400 uppercase">Absent Fee (৳/day)</label>
+            <input type="number" min="0" step="0.01" id="absentFeeAmount" class="block w-28 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs mt-1" placeholder="0">
+          </div>
+          <button onclick="saveAbsentFeeSetting()" class="px-3 py-2 bg-slate-800 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button>
+        </div>
       </div>
       <div class="flex flex-wrap gap-2 mb-5">${tabBar}</div>
 
@@ -10978,6 +11142,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
         <p class="text-xs text-slate-400 font-bold mb-3">ESP32 is the primary attendance channel. ZKTeco or other biometric terminals are optional additional devices, not a replacement.</p>
         <div id="attendanceDevicesList" class="flex flex-col gap-2"><span class="text-xs text-slate-400 font-bold italic">Loading…</span></div>
+
+        <div class="flex items-center justify-between mt-6 mb-3">
+          <p class="font-black text-slate-800 text-sm flex items-center gap-2"><i data-lucide="wifi" class="h-4 w-4 text-emerald-600"></i>ESP32 Heartbeat Devices</p>
+        </div>
+        <p class="text-xs text-slate-400 font-bold mb-3">Every ESP32 unit registers itself here automatically the first time it pings in — nothing to add manually. Assign each one to the class it sits in front of.</p>
+        <div id="deviceHealthList" class="flex flex-col gap-2"><span class="text-xs text-slate-400 font-bold italic">Loading…</span></div>
       </div>
 
       <div id="att-punchlog" style="display:none">
@@ -10995,6 +11165,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     `;
     lucide.createIcons();
     loadAttendanceReport();
+    _adminFetch('get_absent_fee_setting', {}).then(res => {
+      const el = document.getElementById('absentFeeAmount');
+      if (el && res && res.result === 'success') el.value = res.amount || '';
+    });
+  }
+  function saveAbsentFeeSetting() {
+    const amount = Number(document.getElementById('absentFeeAmount').value) || 0;
+    _adminFetch('save_absent_fee_setting', { amount }).then(res => {
+      if (res && res.result === 'success') showToast('Absent fee saved');
+      else showToast((res && res.message) || 'Save failed', 'error');
+    });
   }
 
   function switchAttendanceTab(tabId) {
@@ -11054,6 +11235,77 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button onclick="deleteAttendanceDevice(${d.id})" class="w-7 h-7 flex items-center justify-center rounded-lg border border-red-200 text-red-500 hover:bg-red-50"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
         </div>`).join('') : '<span class="text-xs text-slate-400 font-bold italic">No devices registered yet.</span>';
       lucide.createIcons();
+    });
+    loadDeviceHealthList();
+  }
+
+  // ── ESP32 heartbeat devices (auto-discovered, class-assignable) ─────────
+  let _dhClassOptions = null; // cached distinct class list, fetched once
+
+  function _dhParseStatus(status) {
+    // Firmware packs its status as "[V:x] [NM:y] [timestamp] Act: ... | ...".
+    // Pull out just Up/Temp/In-Out for a compact glance — full string still
+    // available via the row's title attribute for anyone who wants it all.
+    const s = String(status || '');
+    const pick = re => { const m = s.match(re); return m ? m[1].trim() : null; };
+    return {
+      uptime: pick(/Up:\s*([^|]+)/i),
+      temp: pick(/Temp:\s*([^|]+)/i),
+      inOut: pick(/In\/Out:\s*([^|]+)/i),
+    };
+  }
+
+  function loadDeviceHealthList() {
+    Promise.all([
+      _adminFetch('get_device_health_list', {}),
+      _dhClassOptions ? Promise.resolve(null) : _adminFetch('get_class_sections', {}),
+    ]).then(([res, classRes]) => {
+      if (classRes) {
+        const rows = Array.isArray(classRes) ? classRes : [];
+        _dhClassOptions = Array.from(new Set(rows.map(r => r.class).filter(Boolean))).sort();
+      }
+      const devices = (res && res.result === 'success' && res.devices) || [];
+      const host = document.getElementById('deviceHealthList');
+      if (!host) return;
+      host.innerHTML = devices.length ? devices.map(d => _deviceHealthRowHtml(d)).join('') : '<span class="text-xs text-slate-400 font-bold italic">No ESP32 devices have reported in yet.</span>';
+      lucide.createIcons();
+    });
+  }
+
+  function _deviceHealthRowHtml(d) {
+    const key = d.device_hash || String(d.id);
+    const parsed = _dhParseStatus(d.status);
+    const displayName = d.device_name_by_system || d.device_name || 'Unnamed device';
+    const classOpts = (_dhClassOptions || []).map(c => `<option value="${_escHtml(c)}" ${d.assigned_class === c ? 'selected' : ''}>${_escHtml(c)}</option>`).join('');
+    return `
+      <div class="border border-slate-200 rounded-xl px-3 py-2.5" title="${_escHtml(d.status || '')}">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="min-w-0">
+            <span class="font-black text-slate-800 text-xs">${_escHtml(displayName)}</span>
+            ${d.device_hash ? `<span class="text-[9px] font-bold text-slate-300 ml-1">#${_escHtml(d.device_hash.slice(-6))}</span>` : ''}
+            <div class="text-[10px] text-slate-400 font-bold mt-0.5">
+              ${d.created_at ? 'Last seen ' + new Date(d.created_at).toLocaleString() : 'Never reported'}
+              ${parsed.uptime ? ' · Up ' + _escHtml(parsed.uptime) : ''}${parsed.temp ? ' · ' + _escHtml(parsed.temp) : ''}${parsed.inOut ? ' · In/Out ' + _escHtml(parsed.inOut) : ''}
+            </div>
+          </div>
+          <div class="flex items-center gap-1.5 shrink-0">
+            <select id="dhClass_${_escHtml(key)}" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
+              <option value="">Unassigned</option>
+              ${classOpts}
+            </select>
+            <input id="dhSection_${_escHtml(key)}" type="text" value="${_escHtml(d.assigned_section || '')}" placeholder="Section" class="w-20 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
+            <button onclick="saveDeviceClassAssignment('${_escHtml(key)}', ${d.device_hash ? `'${_escHtml(d.device_hash)}'` : 'null'}, ${d.id})" class="px-2.5 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function saveDeviceClassAssignment(key, device_hash, id) {
+    const assigned_class = document.getElementById('dhClass_' + key).value;
+    const assigned_section = document.getElementById('dhSection_' + key).value.trim();
+    _adminFetch('save_device_class_assignment', { device_hash, id, assigned_class, assigned_section }).then(res => {
+      if (res && res.result === 'success') { showToast('Assignment saved'); loadDeviceHealthList(); }
+      else showToast((res && res.message) || 'Save failed', 'error');
     });
   }
   function openAttendanceDeviceEditor() {

@@ -2760,6 +2760,83 @@ const handlers = {
     return { classes };
   },
 
+  // ── CLASS TEACHER → ATTENDANCE REPORT ─────────────────────────────────────
+  // Same authorization shape as getMyClassRoster: class/section is never
+  // accepted from the client, only re-derived from the CALLER's own
+  // class-teacher assignments. For each of the caller's classes, pulls the
+  // roster plus every attendance_records/manual_attendance_overrides row in
+  // [fromDate, toDate] and folds it into one present/absent count per
+  // student — the report itself (day-by-day breakdown, CSV, printing) is
+  // built client-side from this summary, nothing is persisted here.
+  async getMyClassAttendanceReport([userId, fromDate, toDate]) {
+    if (!userId) return { classes: [] };
+    if (!fromDate || !toDate) return { classes: [], error: 'fromDate and toDate required.' };
+    const assignments = await _getClassTeacherAssignments();
+    const mine = assignments.filter(a => a.resolvedUserId === userId);
+    if (!mine.length) return { classes: [] };
+
+    const feeRows = await supabaseRequest('system_settings?key=eq.attendance_absent_fee&select=value').catch(() => null);
+    const absentFeeAmount = (Array.isArray(feeRows) && feeRows[0] && feeRows[0].value && Number(feeRows[0].value.amount)) || 0;
+
+    const classes = await Promise.all(mine.map(async ({ classKey, className, section, extraCriteria }) => {
+      const studentClass = CLASS_TEACHER_NAME_TO_STUDENT_CLASS[className] || className;
+      const studentSection = CLASS_TEACHER_SECTION_ALIASES[section] || section;
+      const [students, presentRows, overrideRows] = await Promise.all([
+        _sbStudent(
+          `students_data?class=eq.${encodeURIComponent(studentClass)}&section=eq.${encodeURIComponent(studentSection)}${_extraCriteriaQS(extraCriteria)}` +
+          `&select=student_id,student_name,roll&order=roll.asc`
+        ),
+        _sbStudent(`attendance_records?date=gte.${encodeURIComponent(fromDate)}&date=lte.${encodeURIComponent(toDate)}&select=student_id,date`),
+        _sbStudent(`manual_attendance_overrides?date=gte.${encodeURIComponent(fromDate)}&date=lte.${encodeURIComponent(toDate)}&select=student_id,date,status`),
+      ]);
+      const roster = Array.isArray(students) ? students : [];
+      const rosterIds = new Set(roster.map(s => s.student_id));
+
+      // "Was this a school day at all" is judged school-wide (any student's
+      // device punch or manual override that date), not just this one
+      // class's roster — a class where every single student happened to be
+      // absent on a real school day must still count that day, not silently
+      // drop it because nobody in the roster has a row for it.
+      const allPresentRows = Array.isArray(presentRows) ? presentRows : [];
+      const allOverrideRows = Array.isArray(overrideRows) ? overrideRows : [];
+      const allDates = Array.from(new Set([
+        ...allPresentRows.map(p => p.date),
+        ...allOverrideRows.map(o => o.date),
+      ])).sort();
+
+      // date -> Set(student_id) present via device; overrides win per (student,date)
+      const presentByDate = {};
+      allPresentRows.forEach(p => {
+        if (!rosterIds.has(p.student_id)) return;
+        (presentByDate[p.date] = presentByDate[p.date] || new Set()).add(p.student_id);
+      });
+      const overrideByStudentDate = {};
+      allOverrideRows.forEach(o => {
+        if (!rosterIds.has(o.student_id)) return;
+        overrideByStudentDate[`${o.student_id}||${o.date}`] = o.status;
+      });
+
+      const students_summary = roster.map(s => {
+        let present = 0, absent = 0;
+        allDates.forEach(dt => {
+          const ov = overrideByStudentDate[`${s.student_id}||${dt}`];
+          const status = ov || (presentByDate[dt] && presentByDate[dt].has(s.student_id) ? 'present' : 'absent');
+          if (status === 'present') present++; else absent++;
+        });
+        const total = allDates.length;
+        return {
+          student_id: s.student_id, student_name: s.student_name, roll: s.roll,
+          present, absent, total,
+          percentage: total ? Math.round((present / total) * 1000) / 10 : 0,
+          absent_fee: Math.round(absent * absentFeeAmount * 100) / 100,
+        };
+      });
+
+      return { classKey, className, section, dates: allDates, students: students_summary };
+    }));
+    return { classes, absentFeeAmount };
+  },
+
   // ── CLASS TEACHER SYNC (bulk admin tool, "Staff Access & Roles" panel) ──
   // Surfaces _getClassTeacherAssignments' own sheet+DB merge for manual
   // review instead of silent internal resolution: every class/section the

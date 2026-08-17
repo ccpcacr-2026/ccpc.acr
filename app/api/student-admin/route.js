@@ -389,7 +389,7 @@ const STAFF_OPEN_ACTIONS = new Set(['get_tracking_config', 'get_bus_data']);
 // the caller only needs to clear ONE of them, not all.
 const ADMIN_TAB_ACTIONS = {
   fees: new Set(['get_fee_types', 'save_fee_type', 'delete_fee_type', 'get_fee_structures', 'save_fee_structure', 'delete_fee_structure', 'get_late_fee_rules', 'save_late_fee_rule', 'delete_late_fee_rule', 'generate_classwise_fees', 'generate_individual_fee', 'remove_individual_fee', 'set_discount', 'get_discounts', 'set_partial_split', 'record_payment', 'get_student_fees', 'get_defaulters_list', 'get_fees_collection_report', 'get_fee_accounts', 'save_fee_account', 'record_account_transaction', 'get_account_register']),
-  attendance: new Set(['get_attendance_report', 'save_manual_attendance', 'save_bulk_manual_attendance', 'get_staff_attendance_report', 'get_attendance_devices', 'save_attendance_device', 'delete_attendance_device', 'get_punch_log']),
+  attendance: new Set(['get_attendance_report', 'save_manual_attendance', 'save_bulk_manual_attendance', 'get_staff_attendance_report', 'get_attendance_devices', 'save_attendance_device', 'delete_attendance_device', 'get_punch_log', 'get_device_health_list', 'save_device_class_assignment', 'get_class_sections', 'get_absent_fee_setting', 'save_absent_fee_setting']),
   exams: new Set([
     'get_exam_terms', 'save_exam_term', 'archive_exam_term',
     'get_class_pattern_setup', 'get_class_patterns', 'save_class_pattern', 'save_class_pattern_map',
@@ -1784,6 +1784,59 @@ export async function POST(req) {
   }
   if (action === 'delete_attendance_device') {
     const r = await sb(`attendance_devices?id=eq.${encodeURIComponent(payload.id)}`, 'DELETE');
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // ── ESP32 heartbeat devices (student.device_health) ─────────────────────
+  // Distinct from attendance_devices above (manually-registered ZKTeco-style
+  // terminals) — these rows are written automatically by each ESP32 unit's
+  // own heartbeat (see device_health's upsert-by-device_hash contract), so
+  // there's nothing to "add" here, only to assign: which class a given
+  // physical unit is sitting in front of. One row per device_hash (the
+  // table itself is a heartbeat log, not a device registry, so this
+  // collapses it down to each hash's latest ping).
+  if (action === 'get_device_health_list') {
+    const rows = await sb('device_health?select=*&order=created_at.desc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    const seen = new Set();
+    const devices = [];
+    (Array.isArray(rows) ? rows : []).forEach(r => {
+      const key = r.device_hash || `legacy-${r.id}`;
+      if (seen.has(key)) return; // already have this hash's latest row (rows are newest-first)
+      seen.add(key);
+      devices.push(r);
+    });
+    return NextResponse.json({ result: 'success', devices });
+  }
+  if (action === 'save_device_class_assignment') {
+    const { id, device_hash, assigned_class, assigned_section } = payload || {};
+    if (!id && !device_hash) return NextResponse.json({ result: 'error', message: 'id or device_hash required.' });
+    const filter = device_hash ? `device_hash=eq.${encodeURIComponent(device_hash)}` : `id=eq.${encodeURIComponent(id)}`;
+    const r = await sb(`device_health?${filter}`, 'PATCH', {
+      assigned_class: assigned_class || null,
+      assigned_section: assigned_section || null,
+    });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Absent fee setting (teacher.system_settings, key attendance_absent_fee) ─
+  // A flat per-absent-day amount an Admin sets once here; the class-teacher
+  // attendance report (getMyClassAttendanceReport, app/api/exec/route.js)
+  // reads the same key to compute each student's fee total — one setting,
+  // two readers.
+  if (action === 'get_absent_fee_setting') {
+    const rows = await sbTeacher('system_settings?key=eq.attendance_absent_fee&select=value');
+    const amount = (!rows?.error && rows[0] && rows[0].value && Number(rows[0].value.amount)) || 0;
+    return NextResponse.json({ result: 'success', amount });
+  }
+  if (action === 'save_absent_fee_setting') {
+    const amount = Number(payload?.amount) || 0;
+    const existing = await sbTeacher('system_settings?key=eq.attendance_absent_fee');
+    const r = (!existing?.error && existing.length)
+      ? await sbTeacher('system_settings?key=eq.attendance_absent_fee', 'PATCH', { value: { amount } })
+      : await sbTeacher('system_settings', 'POST', [{ key: 'attendance_absent_fee', value: { amount } }]);
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
     return NextResponse.json({ result: 'success' });
   }
