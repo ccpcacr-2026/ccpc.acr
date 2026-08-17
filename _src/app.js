@@ -3795,6 +3795,18 @@
   //  master class-teacher sheet (ID match first, shortname
   //  fallback — resolved server-side, never from client input).
   // ═══════════════════════════════════════════════════════
+  // "My Class" landing is a tile grid (same visual language as the Student
+  // Portal mobile menu — see _openStudentPortalMobileMenu) rather than
+  // dumping attendance controls + the full roster onto one crowded screen:
+  // Today's Attendance / Attendance Report / My Students as fixed tiles,
+  // plus one tile per admin-configured custom tab, discovered the same way
+  // the old horizontal tab-button row did (getEnabledPortalTabs).
+  const MY_CLASS_GRID_TILES = [
+    { label: "Today's Attendance", icon: 'calendar-check', accent: '#4f46e5', action: "openMyStudentsAttendance()" },
+    { label: 'Attendance Report',  icon: 'clipboard-list',  accent: '#059669', action: "openMyClassAttendanceReport()" },
+    { label: 'My Students',        icon: 'users',           accent: '#a855f7', action: "openMyClassRoster()" },
+  ];
+
   function loadMyClassView() {
     _setViewHash('myclass');
     setActiveNavLink('nav-my-class');
@@ -3804,36 +3816,51 @@
     const myId = window.APP_USER && window.APP_USER.user_id;
     if (!myId) return;
 
+    const tileHtml = t => `
+      <button onclick="${t.action}" class="flex flex-col items-center justify-center gap-2.5 p-4 bg-white rounded-3xl shadow-sm hover:shadow-md active:scale-95 transition-all duration-150">
+        <div class="w-14 h-14 rounded-2xl flex items-center justify-center" style="background:${_hexToRgba(t.accent, 0.14)};color:${t.accent};">
+          <i data-lucide="${t.icon}" class="h-7 w-7"></i>
+        </div>
+        <span class="text-[10.5px] font-black text-slate-600 text-center leading-tight tracking-tight">${_escHtml(t.label)}</span>
+      </button>`;
+
+    container.innerHTML = `<div class="pt-4 max-w-3xl mx-auto pb-10">
+      <div id="myClassGrid" class="grid grid-cols-3 gap-3">${MY_CLASS_GRID_TILES.map(tileHtml).join('')}</div>
+    </div>`;
+    lucide.createIcons();
+
+    google.script.run
+      .withSuccessHandler(res => {
+        const grid = document.getElementById('myClassGrid');
+        if (!grid) return;
+        const tabs = (res && res.tabs) || [];
+        const accents = ['#f43f5e', '#f59e0b', '#0ea5e9', '#14b8a6', '#f97316'];
+        grid.innerHTML += tabs.map((t, i) => tileHtml({
+          label: t.tab_name, icon: 'table', accent: accents[i % accents.length],
+          action: `openClassTabTable(${JSON.stringify(t.tab_name).replace(/"/g, '&quot;')})`,
+        })).join('');
+        lucide.createIcons();
+      })
+      .withFailureHandler(() => {})
+      .getEnabledPortalTabs();
+  }
+
+  function openMyClassRoster() {
+    _setViewHash('myclass');
+    setActiveNavLink('nav-my-class');
+    setContentHeader('My Students', 'users');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    if (!myId) return;
+
     container.innerHTML = `<div class="pt-4 max-w-5xl mx-auto pb-10">
-      <div class="flex flex-nowrap items-center gap-2 mb-5 overflow-x-auto pb-1" style="scrollbar-width:none">
-        <button onclick="openMyStudentsAttendance()" class="shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest text-white transition-all whitespace-nowrap" style="background:linear-gradient(135deg,#4f46e5,#0ea5e9)">
-          <i data-lucide="calendar-check" class="h-3 w-3"></i>Today's Attendance
-        </button>
-        <button onclick="openMyClassAttendanceReport()" class="shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest text-white transition-all whitespace-nowrap" style="background:linear-gradient(135deg,#059669,#22c55e)">
-          <i data-lucide="clipboard-list" class="h-3 w-3"></i>Attendance Report
-        </button>
-        <div id="myClassTabButtons" class="flex flex-nowrap gap-2"></div>
-      </div>
+      <button onclick="loadMyClassView()" class="flex items-center gap-1.5 mb-4 text-[10px] font-black text-slate-500 uppercase tracking-widest hover:text-blue-600 transition-all"><i data-lucide="arrow-left" class="h-3.5 w-3.5"></i>My Class</button>
       <div id="myClassBody" class="flex flex-col gap-6">
         <div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>
       </div>
     </div>`;
-
-    google.script.run
-      .withSuccessHandler(res => {
-        const btnHost = document.getElementById('myClassTabButtons');
-        if (btnHost) {
-          const tabs = (res && res.tabs) || [];
-          btnHost.innerHTML = tabs.map(t => `
-            <button onclick='openClassTabTable(${JSON.stringify(t.tab_name).replace(/'/g, "&#39;")})'
-              class="shrink-0 whitespace-nowrap flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] font-black text-slate-600 uppercase tracking-widest hover:border-blue-300 hover:text-blue-600 transition-all">
-              <i data-lucide="table" class="h-3 w-3"></i>${t.tab_name}
-            </button>`).join('');
-          lucide.createIcons();
-        }
-      })
-      .withFailureHandler(() => {})
-      .getEnabledPortalTabs();
+    lucide.createIcons();
 
     google.script.run
       .withSuccessHandler(res => {
