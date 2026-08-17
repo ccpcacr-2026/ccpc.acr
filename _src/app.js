@@ -4515,6 +4515,18 @@
     }).withFailureHandler(() => showToast('Network error', 'error')).cleanupLessonPlanReferenceNumbers(myId);
   }
 
+  function _lpToggleMoreMenu() {
+    const menu = document.getElementById('lpMoreMenu');
+    if (!menu) return;
+    const opening = menu.classList.contains('hidden');
+    menu.classList.toggle('hidden', !opening);
+    if (opening) {
+      setTimeout(() => document.addEventListener('click', function closeIt(e) {
+        if (!menu.contains(e.target)) { menu.classList.add('hidden'); document.removeEventListener('click', closeIt); }
+      }), 0);
+    }
+  }
+
   function loadLessonPlanView() {
     _setViewHash('lesson_plan');
     setActiveNavLink('nav-lesson-plan');
@@ -4548,6 +4560,15 @@
       ${_lpIsAdmin() ? `<button onclick="_lpCleanupRefNumbers()" title="Strip leftover [reference number] citation markers from already-saved lesson plans" class="${actionBtn}"><i data-lucide="eraser" class="h-3.5 w-3.5 shrink-0"></i><span class="${actionLabel}">Clean Ref Numbers</span></button>` : ''}
       <button onclick="loadLessonPlanBulkImportView()" title="Bulk Import" class="${actionBtn}"><i data-lucide="upload-cloud" class="h-3.5 w-3.5 shrink-0"></i><span class="${actionLabel}">Bulk Import</span></button>
       <button onclick="loadLessonPlanJsonImportView()" title="Import from NotebookLM" class="${actionBtn}"><i data-lucide="sparkles" class="h-3.5 w-3.5 shrink-0"></i><span class="${actionLabel}">Import from NotebookLM</span></button>`;
+    // Mobile: same 3-4 actions collapsed behind a single labeled "More"
+    // button instead of a row of unlabeled icons (title= tooltips never show
+    // on touch, so that row was pure guesswork on a phone) — text labels
+    // stay visible here since there's no hover state to reveal them on tap.
+    const moreActionsMobile = `
+      <button onclick="loadLessonPlanDuplicatesView()" class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-slate-50 text-left"><i data-lucide="copy-check" class="h-4 w-4 text-slate-400"></i><span class="text-xs font-bold text-slate-700">Find Duplicates</span></button>
+      ${_lpIsAdmin() ? `<button onclick="_lpCleanupRefNumbers()" class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-slate-50 text-left"><i data-lucide="eraser" class="h-4 w-4 text-slate-400"></i><span class="text-xs font-bold text-slate-700">Clean Ref Numbers</span></button>` : ''}
+      <button onclick="loadLessonPlanBulkImportView()" class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-slate-50 text-left"><i data-lucide="upload-cloud" class="h-4 w-4 text-slate-400"></i><span class="text-xs font-bold text-slate-700">Bulk Import</span></button>
+      <button onclick="loadLessonPlanJsonImportView()" class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-slate-50 text-left"><i data-lucide="sparkles" class="h-4 w-4 text-slate-400"></i><span class="text-xs font-bold text-slate-700">Import from NotebookLM</span></button>`;
     container.innerHTML = `
       <div class="pt-4 max-w-7xl mx-auto pb-10">
         <div class="sticky top-0 z-20 bg-white/95 backdrop-blur rounded-2xl shadow-sm px-2.5 py-2.5 lg:px-4 lg:py-3 mb-5 -mx-1">
@@ -4559,7 +4580,11 @@
               <button id="lpTabFavorites" onclick="_lpSetScope('favorites')" class="${tabBtn} flex items-center gap-1"><i data-lucide="star" class="h-3.5 w-3.5"></i><span class="hidden lg:inline">Favorites</span></button>
             </div>
             <div class="flex gap-1.5 lg:gap-2 items-center flex-wrap">
-              ${moreActions}
+              <div class="hidden lg:flex gap-1.5 lg:gap-2 items-center flex-wrap">${moreActions}</div>
+              <div class="relative lg:hidden">
+                <button onclick="_lpToggleMoreMenu()" class="w-9 h-9 rounded-lg bg-white border border-slate-200 flex items-center justify-center"><i data-lucide="more-vertical" class="h-4 w-4 text-slate-500"></i></button>
+                <div id="lpMoreMenu" class="hidden absolute right-0 top-full mt-1.5 w-56 bg-white rounded-2xl border border-slate-200 shadow-xl p-1.5 z-30">${moreActionsMobile}</div>
+              </div>
               <button onclick="_openLessonPlanForm(null)" class="px-2.5 py-2 lg:px-4 lg:py-2.5 rounded-lg lg:rounded-xl font-black text-[9px] lg:text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all flex items-center gap-1 lg:gap-1.5 whitespace-nowrap"><i data-lucide="plus" class="h-3.5 w-3.5 shrink-0"></i><span class="hidden lg:inline">New Lesson Plan</span></button>
             </div>
           </div>
@@ -6932,23 +6957,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const n = _lpListSelected.size;
     const allSelected = manageableIds.length && manageableIds.every(id => _lpListSelected.has(id));
     toolbar.innerHTML = `
-      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-2.5 mb-2 flex items-center justify-between flex-wrap gap-3">
-        <label class="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-widest cursor-pointer">
-          <input type="checkbox" onchange="_lpListToggleAll(this.checked)" ${allSelected ? 'checked' : ''} class="h-3.5 w-3.5 rounded" style="accent-color:#2563eb">
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm px-3 py-2 mb-2 flex items-center justify-between flex-wrap gap-2">
+        <button type="button" onclick="_lpListToggleAll()" class="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-widest">
+          <span class="ccb ${allSelected ? 'ccb-on' : ''}">${allSelected ? '<i data-lucide="check"></i>' : ''}</span>
           Select All (${manageableIds.length})
-        </label>
-        ${n ? `<button onclick="_lpListDeleteSelected()" class="px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest bg-red-500 text-white hover:bg-red-600 transition-all flex items-center gap-1.5"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i>Delete Selected (${n})</button>` : ''}
+        </button>
+        ${n ? `<button onclick="_lpListDeleteSelected()" class="px-3 py-1.5 rounded-lg font-black text-[10px] uppercase tracking-widest bg-red-500 text-white hover:bg-red-600 transition-all flex items-center gap-1.5"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i>Delete (${n})</button>` : ''}
       </div>`;
     lucide.createIcons();
   }
 
-  function _lpListToggleSelect(id, checked) {
-    if (checked) _lpListSelected.add(id); else _lpListSelected.delete(id);
-    _lpRenderListToolbar();
+  function _lpListToggleSelect(id) {
+    if (_lpListSelected.has(id)) _lpListSelected.delete(id); else _lpListSelected.add(id);
+    _lpRenderList(_lpListPlans, _lpListPlans.length);
   }
 
-  function _lpListToggleAll(checked) {
-    _lpListSelected = checked ? new Set(_lpListManageableIds()) : new Set();
+  function _lpListToggleAll() {
+    const manageableIds = _lpListManageableIds();
+    const allSelected = manageableIds.length && manageableIds.every(id => _lpListSelected.has(id));
+    _lpListSelected = allSelected ? new Set() : new Set(manageableIds);
     _lpRenderList(_lpListPlans, _lpListPlans.length);
   }
 
@@ -7017,27 +7044,27 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const canManage = _lpListCanManage(p);
     const firstRef = p.lesson_refs && p.lesson_refs[0];
     const lessonNums = (firstRef && firstRef.lesson_numbers && firstRef.lesson_numbers.length) ? firstRef.lesson_numbers : (p.lesson_number ? [p.lesson_number] : []);
-    const lessonLabel = lessonNums.length ? ` (Lesson${lessonNums.length > 1 ? 's' : ''} ${lessonNums.join(', ')})` : '';
-    const extraChapters = (p.lesson_refs && p.lesson_refs.length > 1) ? ` +${p.lesson_refs.length - 1} more chapter${p.lesson_refs.length > 2 ? 's' : ''}` : '';
+    const lessonLabel = lessonNums.length ? ` (L${lessonNums.join(',')})` : '';
+    const extraChapters = (p.lesson_refs && p.lesson_refs.length > 1) ? ` +${p.lesson_refs.length - 1}` : '';
+    const selected = _lpListSelected.has(p.id);
+    const statusChip = p.is_shared
+      ? '<span class="px-1.5 py-0.5 rounded text-[8px] font-black uppercase shrink-0" style="background:#d1fae5;color:#059669">Shared</span>'
+      : p.forked_from_id
+        ? '<span class="px-1.5 py-0.5 rounded text-[8px] font-black uppercase shrink-0" style="background:#fef3c7;color:#b45309">Adapted</span>'
+        : '';
     return `
-      <div class="relative bg-white rounded-2xl border ${_lpListSelected.has(p.id) ? 'border-blue-400 ring-2 ring-blue-100' : 'border-slate-200'} shadow-sm hover:border-blue-300 transition-all">
-        ${canManage ? `<input type="checkbox" onchange="_lpListToggleSelect(${p.id}, this.checked)" ${_lpListSelected.has(p.id) ? 'checked' : ''} title="Select for bulk delete" class="absolute top-3 left-3 h-3.5 w-3.5 rounded z-10" style="accent-color:#2563eb">` : ''}
-        <button type="button" onclick="_lpDuplicatePlan(${p.id})" title="Duplicate as a new plan" class="absolute top-3 right-10 p-1.5 rounded-lg hover:bg-slate-50 z-10"><i data-lucide="copy" class="h-4 w-4 text-slate-300"></i></button>
-        <button type="button" onclick="_lpToggleFavorite('lesson_plan',${p.id})" title="${isFav ? 'Remove from Favorites' : 'Add to Favorites'}" class="absolute top-3 right-3 p-1.5 rounded-lg hover:bg-slate-50 z-10"><i data-lucide="star" class="h-4 w-4 ${isFav ? 'text-amber-400 fill-amber-400' : 'text-slate-300'}"></i></button>
-        <button onclick="_openLessonPlanForm(${p.id})" class="w-full text-left p-4 ${canManage ? 'pl-9' : ''}">
-          <div class="flex items-start justify-between gap-3 flex-wrap pr-16">
-            <div>
-              <p class="font-black text-slate-800 text-sm">${_escHtml(p.class_name)} · ${_escHtml(p.subject)}${p.chapter ? ` · ${_escHtml(p.chapter)}` : ''}${lessonLabel}${extraChapters}</p>
-              <p class="text-xs text-slate-500 font-bold mt-0.5">${_escHtml(p.topic || 'Untitled topic')}${p.version ? ` · ${_escHtml(p.version)}` : ''}</p>
-            </div>
-            <div class="flex items-center gap-2 shrink-0">
-              ${p.youtube_url ? '<span title="Has a related video" class="px-2 py-0.5 bg-indigo-50 text-indigo-600 text-[9px] font-black uppercase rounded-full flex items-center gap-1"><i data-lucide=\'play-circle\' class=\'h-3 w-3\'></i>Video</span>' : ''}
-              ${p.is_shared ? '<span class="px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[9px] font-black uppercase rounded-full">Shared</span>' : ''}
-              ${p.forked_from_id ? '<span class="px-2 py-0.5 bg-amber-50 text-amber-600 text-[9px] font-black uppercase rounded-full">Adapted</span>' : ''}
-            </div>
-          </div>
-          <p class="text-[10px] text-slate-400 font-bold mt-2">${p.uploaded_by_name ? `By ${_escHtml(p.uploaded_by_name)} · ` : ''}Updated ${_escHtml((p.updated_at || '').slice(0, 10))}</p>
+      <div class="flex items-center gap-2 bg-white rounded-xl border ${selected ? 'border-blue-400 ring-2 ring-blue-100' : 'border-slate-200'} px-2 py-2 hover:border-blue-300 transition-all">
+        ${canManage ? `<button type="button" onclick="_lpListToggleSelect(${p.id})" class="ccb ${selected ? 'ccb-on' : ''}">${selected ? '<i data-lucide="check"></i>' : ''}</button>` : ''}
+        <button onclick="_openLessonPlanForm(${p.id})" class="flex-1 min-w-0 text-left">
+          <p class="font-black text-slate-800 text-xs truncate">${_escHtml(p.class_name)} · ${_escHtml(p.subject)}${p.chapter ? ` · ${_escHtml(p.chapter)}` : ''}${lessonLabel}${extraChapters}</p>
+          <p class="text-[10px] text-slate-500 font-bold truncate">${_escHtml(p.topic || 'Untitled topic')}${p.version ? ` · ${_escHtml(p.version)}` : ''} · ${_escHtml((p.updated_at || '').slice(0, 10))}</p>
         </button>
+        <div class="flex items-center gap-1 shrink-0">
+          ${p.youtube_url ? '<i data-lucide="play-circle" title="Has a related video" class="h-3.5 w-3.5 text-indigo-400"></i>' : ''}
+          ${statusChip}
+          <button type="button" onclick="_lpToggleFavorite('lesson_plan',${p.id})" title="${isFav ? 'Remove from Favorites' : 'Add to Favorites'}" class="w-7 h-7 rounded-lg hover:bg-slate-50 flex items-center justify-center"><i data-lucide="star" class="h-3.5 w-3.5 ${isFav ? 'text-amber-400 fill-amber-400' : 'text-slate-300'}"></i></button>
+          <button type="button" onclick="_lpDuplicatePlan(${p.id})" title="Duplicate as a new plan" class="w-7 h-7 rounded-lg hover:bg-slate-50 flex items-center justify-center"><i data-lucide="copy" class="h-3.5 w-3.5 text-slate-300"></i></button>
+        </div>
       </div>`;
   }
 
@@ -8438,11 +8465,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return `
       <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Lesson Number(s)</label>
       <div class="space-y-1 mt-1">
-        ${lectures.map(l => `
-          <label class="flex items-start gap-2 text-xs font-bold text-slate-700 cursor-pointer">
-            <input type="checkbox" class="mt-0.5 w-3.5 h-3.5 rounded accent-blue-600 shrink-0" style="transform:scale(0.85)" ${block.lessonNumbers.includes(Number(l.lecture_number)) ? 'checked' : ''} onchange="_lpToggleLessonNumber(${idx}, ${Number(l.lecture_number)}, this.checked)">
+        ${lectures.map(l => {
+          const checked = block.lessonNumbers.includes(Number(l.lecture_number));
+          return `
+          <button type="button" onclick="_lpToggleLessonNumber(${idx}, ${Number(l.lecture_number)}, ${!checked})" class="flex items-start gap-2 text-xs font-bold text-slate-700 text-left w-full">
+            <span class="ccb mt-0.5 ${checked ? 'ccb-on' : ''}">${checked ? '<i data-lucide="check"></i>' : ''}</span>
             <span>Lesson ${_escHtml(l.lecture_number)}${l.topic ? ' — ' + _escHtml(l.topic) : ''}</span>
-          </label>`).join('')}
+          </button>`;
+        }).join('')}
       </div>`;
   }
 
@@ -8514,6 +8544,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     num = Number(num);
     if (checked) { if (!block.lessonNumbers.includes(num)) block.lessonNumbers.push(num); }
     else { block.lessonNumbers = block.lessonNumbers.filter(n => n !== num); }
+    // Custom checkbox (see _lpLessonPickerHtml) has no native checked-state
+    // of its own — re-render this block so the checkmark actually reflects
+    // the toggle just applied above.
+    const wrap = document.getElementById('lpLessonWrap' + idx);
+    if (wrap) { wrap.innerHTML = _lpLessonPickerHtml(block, idx); lucide.createIcons(); }
 
     // Auto-fill Topic (primary chapter, first checked lesson, only if still
     // empty) and Learning Outcomes (any chapter, every checked lesson) from
