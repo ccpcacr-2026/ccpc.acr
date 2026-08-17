@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">CCPC Faculty Portal</string>
+    <string name="title_activity_main">CCPC Faculty Portal</string>
+    <string name="package_name">com.ccpc.facultyportal</string>
+    <string name="custom_url_scheme">com.ccpc.facultyportal</string>
+</resources>

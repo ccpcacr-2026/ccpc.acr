@@ -9,9 +9,12 @@
     "start": "next start"
   },
   "dependencies": {
+    "@capacitor/cli": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
     "next": "^15.0.0"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.5.0",
     "javascript-obfuscator": "^5.4.3",
     "terser": "^5.48.0"
   }

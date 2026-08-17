@@ -1,0 +1,9 @@
+{
+  "appId": "com.ccpc.facultyportal",
+  "appName": "CCPC Faculty Portal",
+  "webDir": "public",
+  "server": {
+    "url": "https://ccpc-acr.vercel.app",
+    "cleartext": false
+  }
+}
