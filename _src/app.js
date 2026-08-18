@@ -15373,6 +15373,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const match = list.find(r => String(r.id) === String(raw));
       return match ? (match[col.lookupLabel] ?? '') : '';
     }
+    // Products list: a blank rate isn't "0%" — it means "inherit from
+    // Group" (see _reportProductValueSummary for the same fallback chain).
+    // Shows the inherited number here too, not just in the value-summary
+    // report, so this table isn't misleadingly blank for every product
+    // that's relying on its group's default.
+    if (_invCurrentEntity === 'products' && col.key === 'depreciation_rate_percent' && (raw === null || raw === undefined)) {
+      const groups = _invEntityLookups['groups'] || [];
+      const group = groups.find(g => String(g.id) === String(row.group_id));
+      const groupRate = group ? group.depreciation_rate_percent : null;
+      return (groupRate === null || groupRate === undefined) ? '' : `${groupRate} (group)`;
+    }
     if (raw === true) return 'Yes';
     if (raw === false) return 'No';
     return raw == null ? '' : raw;
