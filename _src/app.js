@@ -4515,18 +4515,6 @@
     }).withFailureHandler(() => showToast('Network error', 'error')).cleanupLessonPlanReferenceNumbers(myId);
   }
 
-  function _lpToggleMoreMenu() {
-    const menu = document.getElementById('lpMoreMenu');
-    if (!menu) return;
-    const opening = menu.classList.contains('hidden');
-    menu.classList.toggle('hidden', !opening);
-    if (opening) {
-      setTimeout(() => document.addEventListener('click', function closeIt(e) {
-        if (!menu.contains(e.target)) { menu.classList.add('hidden'); document.removeEventListener('click', closeIt); }
-      }), 0);
-    }
-  }
-
   function loadLessonPlanView() {
     _setViewHash('lesson_plan');
     setActiveNavLink('nav-lesson-plan');
@@ -4560,15 +4548,6 @@
       ${_lpIsAdmin() ? `<button onclick="_lpCleanupRefNumbers()" title="Strip leftover [reference number] citation markers from already-saved lesson plans" class="${actionBtn}"><i data-lucide="eraser" class="h-3.5 w-3.5 shrink-0"></i><span class="${actionLabel}">Clean Ref Numbers</span></button>` : ''}
       <button onclick="loadLessonPlanBulkImportView()" title="Bulk Import" class="${actionBtn}"><i data-lucide="upload-cloud" class="h-3.5 w-3.5 shrink-0"></i><span class="${actionLabel}">Bulk Import</span></button>
       <button onclick="loadLessonPlanJsonImportView()" title="Import from NotebookLM" class="${actionBtn}"><i data-lucide="sparkles" class="h-3.5 w-3.5 shrink-0"></i><span class="${actionLabel}">Import from NotebookLM</span></button>`;
-    // Mobile: same 3-4 actions collapsed behind a single labeled "More"
-    // button instead of a row of unlabeled icons (title= tooltips never show
-    // on touch, so that row was pure guesswork on a phone) — text labels
-    // stay visible here since there's no hover state to reveal them on tap.
-    const moreActionsMobile = `
-      <button onclick="loadLessonPlanDuplicatesView()" class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-slate-50 text-left"><i data-lucide="copy-check" class="h-4 w-4 text-slate-400"></i><span class="text-xs font-bold text-slate-700">Find Duplicates</span></button>
-      ${_lpIsAdmin() ? `<button onclick="_lpCleanupRefNumbers()" class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-slate-50 text-left"><i data-lucide="eraser" class="h-4 w-4 text-slate-400"></i><span class="text-xs font-bold text-slate-700">Clean Ref Numbers</span></button>` : ''}
-      <button onclick="loadLessonPlanBulkImportView()" class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-slate-50 text-left"><i data-lucide="upload-cloud" class="h-4 w-4 text-slate-400"></i><span class="text-xs font-bold text-slate-700">Bulk Import</span></button>
-      <button onclick="loadLessonPlanJsonImportView()" class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-slate-50 text-left"><i data-lucide="sparkles" class="h-4 w-4 text-slate-400"></i><span class="text-xs font-bold text-slate-700">Import from NotebookLM</span></button>`;
     container.innerHTML = `
       <div class="pt-4 max-w-7xl mx-auto pb-10">
         <div class="sticky top-0 z-20 bg-white/95 backdrop-blur rounded-2xl shadow-sm px-2.5 py-2.5 lg:px-4 lg:py-3 mb-5 -mx-1">
@@ -4580,11 +4559,7 @@
               <button id="lpTabFavorites" onclick="_lpSetScope('favorites')" class="${tabBtn} flex items-center gap-1"><i data-lucide="star" class="h-3.5 w-3.5"></i><span class="hidden lg:inline">Favorites</span></button>
             </div>
             <div class="flex gap-1.5 lg:gap-2 items-center flex-wrap">
-              <div class="hidden lg:flex gap-1.5 lg:gap-2 items-center flex-wrap">${moreActions}</div>
-              <div class="relative lg:hidden">
-                <button onclick="_lpToggleMoreMenu()" class="w-9 h-9 rounded-lg bg-white border border-slate-200 flex items-center justify-center"><i data-lucide="more-vertical" class="h-4 w-4 text-slate-500"></i></button>
-                <div id="lpMoreMenu" class="hidden absolute right-0 top-full mt-1.5 w-56 bg-white rounded-2xl border border-slate-200 shadow-xl p-1.5 z-30">${moreActionsMobile}</div>
-              </div>
+              ${moreActions}
               <button onclick="_openLessonPlanForm(null)" class="px-2.5 py-2 lg:px-4 lg:py-2.5 rounded-lg lg:rounded-xl font-black text-[9px] lg:text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all flex items-center gap-1 lg:gap-1.5 whitespace-nowrap"><i data-lucide="plus" class="h-3.5 w-3.5 shrink-0"></i><span class="hidden lg:inline">New Lesson Plan</span></button>
             </div>
           </div>
