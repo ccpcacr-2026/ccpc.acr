@@ -87,6 +87,11 @@ const ENTITIES = {
     fields: [
       { name: 'code', label: 'Code#', type: 'text' },
       { name: 'name', label: 'Group', type: 'text', required: true },
+      // Default depreciation rate for every product in this group that
+      // doesn't set its own rate — see products.depreciation_rate_percent
+      // below. Blank/unset here means those products fall all the way back
+      // to 0% (no depreciation), same as today.
+      { name: 'depreciation_rate_percent', label: 'Depreciation %/Year (default)', type: 'number' },
     ],
   },
   units: {
@@ -179,11 +184,12 @@ const ENTITIES = {
       // Yearly declining-balance depreciation rate for this product, e.g.
       // 10 means "loses 10% of its remaining value every year" — used by
       // the Product Value Summary report to estimate current value of
-      // stock still on hand, not just what it originally cost. 0 = no
-      // depreciation (the right default for ordinary consumables; only
-      // fixed/durable assets — furniture, electronics — typically get a
-      // real rate set here).
-      { name: 'depreciation_rate_percent', label: 'Depreciation %/Year', type: 'number', default: 0 },
+      // stock still on hand, not just what it originally cost. Left blank,
+      // this falls back to the product's Group's own default rate, and
+      // finally to 0% (no depreciation) if neither is set — see
+      // _reportProductValueSummary. No `default` here on purpose: a blank
+      // save must become null ("inherit"), not an explicit 0.
+      { name: 'depreciation_rate_percent', label: 'Depreciation %/Year (blank = use Group default)', type: 'number' },
       { name: 'group_id', label: 'Group', type: 'select', source: 'groups', optionLabel: 'name' },
       { name: 'unit_id', label: 'Unit Type', type: 'select', source: 'units', optionLabel: 'name' },
       { name: 'type', label: 'Type', type: 'radio', default: 'consumable',
@@ -401,12 +407,16 @@ async function _friendlyDeleteError(raw, entity, id) {
 // inventory's asset. rate 0 (the default for ordinary consumables) means
 // current_value === original_value, i.e. no depreciation at all.
 async function _reportProductValueSummary() {
-  const [products, lots] = await Promise.all([
-    sbInventory('products?select=id,code,name,depreciation_rate_percent&order=name.asc'),
+  const [products, groups, lots] = await Promise.all([
+    sbInventory('products?select=id,code,name,group_id,depreciation_rate_percent&order=name.asc'),
+    sbInventory('groups?select=id,depreciation_rate_percent'),
     sbInventory('purchase_items?qty_remaining=gt.0&select=product_id,qty_remaining,unit_price,created_at'),
   ]);
   if (products?.error) return NextResponse.json({ result: 'error', message: products.error }, { status: 500 });
+  if (groups?.error) return NextResponse.json({ result: 'error', message: groups.error }, { status: 500 });
   if (lots?.error) return NextResponse.json({ result: 'error', message: lots.error }, { status: 500 });
+
+  const groupRateById = new Map((Array.isArray(groups) ? groups : []).map(g => [g.id, g.depreciation_rate_percent]));
 
   const lotsByProduct = new Map();
   (Array.isArray(lots) ? lots : []).forEach(l => {
@@ -420,7 +430,20 @@ async function _reportProductValueSummary() {
   for (const p of (Array.isArray(products) ? products : [])) {
     const productLots = lotsByProduct.get(p.id);
     if (!productLots || !productLots.length) continue; // no stock on hand — nothing to value
-    const rate = Number(p.depreciation_rate_percent || 0) / 100;
+
+    // Resolve the effective rate: the product's own rate if it set one,
+    // else its group's default, else 0% (no depreciation) — same
+    // fallback chain as the plan this implements.
+    let effectiveRate, rateSource;
+    if (p.depreciation_rate_percent !== null && p.depreciation_rate_percent !== undefined) {
+      effectiveRate = p.depreciation_rate_percent; rateSource = 'product';
+    } else {
+      const groupRate = groupRateById.get(p.group_id);
+      if (groupRate !== null && groupRate !== undefined) { effectiveRate = groupRate; rateSource = 'group'; }
+      else { effectiveRate = 0; rateSource = 'none'; }
+    }
+    const rate = Number(effectiveRate || 0) / 100;
+
     let qty = 0, originalValue = 0, currentValue = 0;
     for (const lot of productLots) {
       const lotQty = Number(lot.qty_remaining || 0);
@@ -432,7 +455,7 @@ async function _reportProductValueSummary() {
       currentValue += lotQty * depreciatedPrice;
     }
     data.push({
-      id: p.id, code: p.code, name: p.name, depreciation_rate_percent: p.depreciation_rate_percent || 0,
+      id: p.id, code: p.code, name: p.name, depreciation_rate_percent: effectiveRate, rate_source: rateSource,
       qty_on_hand: qty, original_value: originalValue, current_value: currentValue,
       depreciation_amount: originalValue - currentValue,
     });

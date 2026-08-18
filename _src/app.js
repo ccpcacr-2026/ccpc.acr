@@ -15092,8 +15092,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // rendering (list columns + form fields), same split as the source app.
   const INV_ENTITIES = {
     groups: { label: 'Group', title: 'GROUP', importKey: 'name',
-      columns: [{ key: 'code', label: 'Code#' }, { key: 'name', label: 'Group' }],
-      fields: [{ name: 'code', label: 'Code#', type: 'text' }, { name: 'name', label: 'Group', type: 'text', required: true }] },
+      columns: [{ key: 'code', label: 'Code#' }, { key: 'name', label: 'Group' }, { key: 'depreciation_rate_percent', label: 'Depr. %/Yr (default)' }],
+      fields: [
+        { name: 'code', label: 'Code#', type: 'text' },
+        { name: 'name', label: 'Group', type: 'text', required: true },
+        { name: 'depreciation_rate_percent', label: 'Depreciation %/Year (default for this group)', type: 'number' },
+      ] },
     units: { label: 'Unit', title: 'UNIT', importKey: 'name',
       columns: [{ key: 'name', label: 'Unit' }, { key: 'short_form', label: 'Short Form' }],
       fields: [{ name: 'name', label: 'Unit', type: 'text', required: true }, { name: 'short_form', label: 'Short Form', type: 'text' }] },
@@ -15166,7 +15170,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         { name: 'name', label: 'Product Name', type: 'text', required: true },
         { name: 'register_no', label: 'Register No.', type: 'text' },
         { name: 'page_no', label: 'Page No.', type: 'text' },
-        { name: 'depreciation_rate_percent', label: 'Depreciation %/Year', type: 'number', default: 0 },
+        { name: 'depreciation_rate_percent', label: 'Depreciation %/Year (blank = use Group default)', type: 'number' },
         { name: 'group_id', label: 'Group', type: 'select', source: 'groups', optionLabel: 'name' },
         { name: 'unit_id', label: 'Unit Type', type: 'select', source: 'units', optionLabel: 'name' },
         { name: 'type', label: 'Type', type: 'radio', default: 'consumable',
@@ -16119,7 +16123,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           rows.map(r => `<tr class="border-t border-slate-50">
             <td class="px-3 py-2.5 font-bold text-slate-700">${_escHtml(r.name)}${r.code ? ` <span class="text-slate-400">(${_escHtml(r.code)})</span>` : ''}</td>
             <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(r.qty_on_hand)}</td>
-            <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(r.depreciation_rate_percent)}</td>
+            <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(r.depreciation_rate_percent)}${r.rate_source === 'group' ? ' <span class="text-[9px] text-indigo-400 font-black uppercase">(group)</span>' : ''}</td>
             <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${_invMoney(r.original_value)}</td>
             <td class="px-3 py-2.5 font-black text-slate-800 text-right">${_invMoney(r.current_value)}</td>
             <td class="px-3 py-2.5 font-bold text-amber-600 text-right">${_invMoney(r.depreciation_amount)}</td>
