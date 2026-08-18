@@ -15382,7 +15382,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const groups = _invEntityLookups['groups'] || [];
       const group = groups.find(g => String(g.id) === String(row.group_id));
       const groupRate = group ? group.depreciation_rate_percent : null;
-      return (groupRate === null || groupRate === undefined) ? '' : `${groupRate} (group)`;
+      return (groupRate === null || groupRate === undefined) ? '' : `${groupRate}% (group)`;
     }
     if (raw === true) return 'Yes';
     if (raw === false) return 'No';
@@ -16134,7 +16134,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           rows.map(r => `<tr class="border-t border-slate-50">
             <td class="px-3 py-2.5 font-bold text-slate-700">${_escHtml(r.name)}${r.code ? ` <span class="text-slate-400">(${_escHtml(r.code)})</span>` : ''}</td>
             <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(r.qty_on_hand)}</td>
-            <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(r.depreciation_rate_percent)}${r.rate_source === 'group' ? ' <span class="text-[9px] text-indigo-400 font-black uppercase">(group)</span>' : ''}</td>
+            <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(r.depreciation_rate_percent)}%${r.rate_source === 'group' ? ' <span class="text-[9px] text-indigo-400 font-black uppercase">(group)</span>' : ''}</td>
             <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${_invMoney(r.original_value)}</td>
             <td class="px-3 py-2.5 font-black text-slate-800 text-right">${_invMoney(r.current_value)}</td>
             <td class="px-3 py-2.5 font-bold text-amber-600 text-right">${_invMoney(r.depreciation_amount)}</td>
