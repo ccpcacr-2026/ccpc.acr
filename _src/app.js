@@ -15065,7 +15065,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="BusTracking.exportBusData()" class="px-3.5 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="download" class="h-3.5 w-3.5"></i>Export</button>
           </div>` : ''}
           ${canExportBuses ? `<div id="bt-watchers-popover" class="hidden" style="position:absolute;top:56px;left:14px;z-index:1000;background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 10px 30px rgba(15,23,42,0.15);min-width:220px;max-width:280px;max-height:260px;overflow-y:auto;padding:10px;"></div>` : ''}
-          ${canExportBuses ? `<div id="bt-route-panel" class="hidden" style="position:absolute;top:56px;right:14px;z-index:1000;background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 10px 30px rgba(15,23,42,0.15);min-width:230px;padding:12px;">
+          ${canExportBuses ? `<div id="bt-route-panel" class="hidden" style="position:absolute;top:56px;right:14px;z-index:1000;background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 10px 30px rgba(15,23,42,0.15);min-width:260px;max-width:300px;max-height:75vh;overflow-y:auto;padding:12px;">
             <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Route History</p>
             <label class="text-[9px] font-black text-slate-400 uppercase">Bus</label>
             <select id="bt-route-bus" class="w-full bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs px-2.5 py-1.5 mt-1 mb-2"></select>
@@ -15076,6 +15076,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <button onclick="BusTracking.clearRouteHistory()" class="px-2.5 py-1.5 rounded-lg font-black text-[9px] uppercase tracking-widest border border-slate-200 text-slate-500 hover:bg-slate-50 transition-all">Clear</button>
             </div>
             <p id="bt-route-status" class="text-[9px] text-slate-400 font-bold mt-1.5"></p>
+            <div id="bt-route-summary" class="mt-2"></div>
           </div>` : ''}
         </div>
 

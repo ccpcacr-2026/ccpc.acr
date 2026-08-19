@@ -718,9 +718,6 @@ function _routeSpeedColor(spd) {
   const s = Math.round(parseFloat(spd)) || 0;
   return (ROUTE_SPEED_BUCKETS.find(b => s <= b.max) || ROUTE_SPEED_BUCKETS[ROUTE_SPEED_BUCKETS.length - 1]).color;
 }
-function _routeLegendHtml() {
-  return ROUTE_SPEED_BUCKETS.map(b => `<span style="display:inline-flex;align-items:center;gap:4px;margin-right:8px"><span style="width:9px;height:9px;border-radius:50%;background:${b.color};display:inline-block"></span>${b.label}</span>`).join('');
-}
 // Compass bearing (0=N, 90=E) from one [lat,lng] to the next — fallback
 // for points whose reported `heading` is missing/blank.
 function _bearingBetween(a, b) {
@@ -786,11 +783,27 @@ async function showRouteHistory() {
     // colored by the speed at its starting point — a single flat-colored
     // line can't show where the bus was crawling/jammed/waiting along the
     // way, only where it went.
-    for (let i = 0; i < latlngs.length - 1; i++) {
-      const seg = L.polyline([latlngs[i], latlngs[i + 1]], { color: _routeSpeedColor(points[i].speed), weight: 5, opacity: 0.9 }).addTo(map);
+    // Slow/jam/waiting segments are drawn last (on top) — at low zoom
+    // (whole-day routes cover a wide area, so fitBounds zooms well out)
+    // short segments can sit almost on top of their neighbors, and a
+    // solid run of fast/green segments would otherwise visually bury the
+    // one red/gray blip that's actually the interesting part.
+    const bucketIndexOf = spd => { const s = Math.round(parseFloat(spd)) || 0; return ROUTE_SPEED_BUCKETS.findIndex(b => s <= b.max); };
+    const segOrder = points.map((_, i) => i).slice(0, -1)
+      .sort((a, b) => bucketIndexOf(points[b].speed) - bucketIndexOf(points[a].speed));
+    for (const i of segOrder) {
+      const seg = L.polyline([latlngs[i], latlngs[i + 1]], { color: _routeSpeedColor(points[i].speed), weight: 6, opacity: 1 }).addTo(map);
       seg.bindTooltip(`${Math.round(parseFloat(points[i].speed)) || 0} km/h · ${points[i].location_time}`, { sticky: true });
       routePolylines.push(seg);
     }
+    // Colored dots at every point too — guarantees the speed coloring
+    // reads clearly even where segments are too short to see as a line at
+    // the route's overall zoom level (dense clusters of pings while
+    // waiting/idling, in particular).
+    points.forEach((p, i) => {
+      const dot = L.circleMarker(latlngs[i], { radius: 3.5, color: '#fff', weight: 1, fillColor: _routeSpeedColor(p.speed), fillOpacity: 1 }).addTo(map);
+      routePolylines.push(dot);
+    });
     // Direction arrows along the route — "smart" in that the stride
     // between arrows scales with how many points the day has, so a short
     // hop gets a few arrows and a long day-long route doesn't get
@@ -818,10 +831,76 @@ async function showRouteHistory() {
     routeMarkers.push(L.marker(latlngs[latlngs.length - 1], { icon: endIcon }).addTo(map).bindTooltip('End · ' + points[points.length - 1].location_time));
     const bounds = L.latLngBounds(latlngs);
     map.fitBounds(bounds, { padding: [40, 40] });
-    if (status) status.innerHTML = `${points.length} points · ${points[0].location_time} → ${points[points.length - 1].location_time}<div style="margin-top:4px;font-size:10px;line-height:1.6">${_routeLegendHtml()}</div>`;
+    if (status) status.textContent = `${points.length} points · ${points[0].location_time} → ${points[points.length - 1].location_time}`;
+    const summaryEl = document.getElementById('bt-route-summary');
+    if (summaryEl) summaryEl.innerHTML = _routeSummaryHtml(points);
   } catch (e) {
     if (status) status.textContent = e.message || 'Network error.';
   }
+}
+
+// Haversine distance in meters between two [lat,lng] points.
+function _haversineM(a, b) {
+  const R = 6371000, toRad = d => d * Math.PI / 180;
+  const dLat = toRad(b[0] - a[0]), dLng = toRad(b[1] - a[1]);
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a[0])) * Math.cos(toRad(b[0])) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
+}
+function _routeParseTime(s) { const d = new Date(String(s).replace(' ', 'T')); return isNaN(d) ? null : d; }
+function _fmtDuration(ms) {
+  const mins = Math.round(ms / 60000);
+  if (mins < 60) return `${mins} min`;
+  return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+}
+
+// Detail list under the map/legend — distance, elapsed vs. moving time,
+// average/top speed, and how long the bus spent in each speed bucket
+// (waiting/jam/slow/moderate/fast), plus a count of distinct waiting
+// spells (a proxy for "how many times it got stuck"), all derived from
+// the same points array the colored polyline/arrows already use — no
+// extra fetch needed.
+function _routeSummaryHtml(points) {
+  let distanceM = 0;
+  const bucketMs = {}; ROUTE_SPEED_BUCKETS.forEach(b => { bucketMs[b.label] = 0; });
+  let waitingSpells = 0, inWaitingSpell = false;
+  let maxSpeed = 0;
+  for (let i = 0; i < points.length; i++) {
+    const spd = Math.round(parseFloat(points[i].speed)) || 0;
+    if (spd > maxSpeed) maxSpeed = spd;
+    const bucket = ROUTE_SPEED_BUCKETS.find(b => spd <= b.max) || ROUTE_SPEED_BUCKETS[ROUTE_SPEED_BUCKETS.length - 1];
+    const isWaiting = bucket === ROUTE_SPEED_BUCKETS[0];
+    if (isWaiting && !inWaitingSpell) waitingSpells++;
+    inWaitingSpell = isWaiting;
+    if (i < points.length - 1) {
+      distanceM += _haversineM([points[i].lat, points[i].lng], [points[i + 1].lat, points[i + 1].lng]);
+      const t1 = _routeParseTime(points[i].location_time), t2 = _routeParseTime(points[i + 1].location_time);
+      if (t1 && t2 && t2 > t1) bucketMs[bucket.label] += (t2 - t1);
+    }
+  }
+  const t0 = _routeParseTime(points[0].location_time), tN = _routeParseTime(points[points.length - 1].location_time);
+  const totalMs = (t0 && tN) ? (tN - t0) : 0;
+  const movingMs = totalMs - bucketMs[ROUTE_SPEED_BUCKETS[0].label];
+  const distanceKm = distanceM / 1000;
+  const avgSpeed = totalMs > 0 ? (distanceKm / (totalMs / 3600000)) : 0;
+  const rows = [
+    ['Distance', `${distanceKm.toFixed(1)} km`],
+    ['Total Duration', totalMs ? _fmtDuration(totalMs) : '—'],
+    ['Moving Time', totalMs ? _fmtDuration(Math.max(0, movingMs)) : '—'],
+    ['Avg Speed', `${avgSpeed.toFixed(1)} km/h`],
+    ['Top Speed', `${maxSpeed} km/h`],
+    ['Waiting Spells', String(waitingSpells)],
+  ];
+  const bucketRows = ROUTE_SPEED_BUCKETS
+    .filter(b => bucketMs[b.label] > 0)
+    .map(b => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:${b.color};display:inline-block;flex:none"></span><span style="color:#64748b">${b.label}</span></span><span style="font-weight:800;color:#334155">${_fmtDuration(bucketMs[b.label])}</span></div>`)
+    .join('');
+  return `
+    <p style="font-size:9px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Route Summary</p>
+    <div style="display:flex;flex-direction:column;gap:3px;font-size:10.5px;margin-bottom:6px">
+      ${rows.map(([label, value]) => `<div style="display:flex;justify-content:space-between;gap:8px"><span style="color:#64748b">${label}</span><span style="font-weight:800;color:#334155">${value}</span></div>`).join('')}
+    </div>
+    <p style="font-size:9px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Time by Speed</p>
+    <div style="display:flex;flex-direction:column;gap:3px;font-size:10.5px">${bucketRows}</div>`;
 }
 
 function clearRouteHistory() {
@@ -831,6 +910,8 @@ function clearRouteHistory() {
   routeMarkers = [];
   const status = document.getElementById('bt-route-status');
   if (status) status.textContent = '';
+  const summaryEl = document.getElementById('bt-route-summary');
+  if (summaryEl) summaryEl.innerHTML = '';
 }
 
 // The Clear button specifically means "I'm done with the route" — bring
