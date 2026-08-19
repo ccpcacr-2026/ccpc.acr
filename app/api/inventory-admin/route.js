@@ -527,11 +527,18 @@ async function _productsSummary(payload) {
     const esc = encodeURIComponent(q);
     path += `&or=(name.ilike.*${esc}*,code.ilike.*${esc}*)`;
   }
-  const rows = await sbInventory(path);
+  const [rows, units, products] = await Promise.all([
+    sbInventory(path),
+    sbInventory('units?select=id,short_form'),
+    // product_stock_summary is a view with no is_active column of its own —
+    // fetched separately so Stock Overview can use the same active/inactive
+    // tinting as the Product Info list (see _invRenderStockTable).
+    sbInventory('products?select=id,is_active'),
+  ]);
   if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
-  const units = await sbInventory('units?select=id,short_form');
   const unitMap = new Map((Array.isArray(units) ? units : []).map(u => [u.id, u.short_form]));
-  const data = (rows || []).map(r => ({ ...r, unit: unitMap.get(r.unit_id) || '' }));
+  const activeMap = new Map((Array.isArray(products) ? products : []).map(p => [p.id, p.is_active]));
+  const data = (rows || []).map(r => ({ ...r, unit: unitMap.get(r.unit_id) || '', is_active: activeMap.get(r.id) }));
   return NextResponse.json({ result: 'success', data });
 }
 

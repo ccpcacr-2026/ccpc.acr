@@ -16213,8 +16213,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       wrap.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">No products found</div>`;
       return;
     }
+    // Same active/inactive tinting + bold name(code) per unit styling as
+    // the Product Info Settings list (see _invProductRowTint et al.) —
+    // Stock Overview is read-only (no edit/delete), so it only borrows the
+    // visual language, not the action icons.
     wrap.innerHTML = `
-      <div class="overflow-x-auto">
+      <div class="inv-desktop-block overflow-x-auto">
         <table class="w-full text-left text-xs">
           <thead class="bg-slate-50"><tr>
             <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Code</th>
@@ -16224,21 +16228,39 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Damaged</th>
             <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Remaining</th>
             ${showPrice ? `<th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Unit Price</th><th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Stock Value</th>` : ''}
+            <th class="px-3 py-2.5"></th>
           </tr></thead>
           <tbody>${rows.map(r => {
             const price = Number(r.latest_unit_price || 0);
             const remaining = Number(r.remaining || 0);
-            return `<tr class="border-t border-slate-50">
-              <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(r.code || '—')}</td>
-              <td class="px-3 py-2.5 font-bold text-blue-600"><button onclick="openInventoryProductDetail(${r.id})" class="hover:underline">${_escHtml(r.name)}</button></td>
+            const active = r.is_active !== false;
+            return `<tr class="border-t border-slate-50 ${active ? 'bg-emerald-50' : 'bg-red-50'}">
+              <td class="px-3 py-2.5 font-bold text-slate-600">${_escHtml(r.code || '—')}</td>
+              <td class="px-3 py-2.5 font-black text-slate-800"><button onclick="openInventoryProductDetail(${r.id})" class="hover:underline">${_escHtml(r.name)}</button> <span class="font-bold ${active ? 'text-emerald-600' : 'text-red-500'}">per ${_escHtml(r.unit || 'unit')}</span></td>
               <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(r.received || 0)}</td>
               <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(r.distributed || 0)}</td>
               <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(r.damaged || 0)}</td>
               <td class="px-3 py-2.5 font-black text-slate-800 text-right">${remaining} ${_escHtml(r.unit || '')}</td>
               ${showPrice ? `<td class="px-3 py-2.5 font-bold text-slate-600 text-right">${price ? price.toFixed(2) : '—'}</td><td class="px-3 py-2.5 font-bold text-slate-600 text-right">${price ? (price * remaining).toFixed(2) : '—'}</td>` : ''}
+              <td class="px-3 py-2.5"><span class="w-2 h-2 rounded-full inline-block ${active ? 'bg-emerald-500' : 'bg-red-500'}"></span></td>
             </tr>`;
           }).join('')}</tbody>
         </table>
+      </div>
+      <div class="md:hidden flex flex-col gap-1.5">
+        ${rows.map(r => {
+          const price = Number(r.latest_unit_price || 0);
+          const remaining = Number(r.remaining || 0);
+          const active = r.is_active !== false;
+          return `
+        <div class="rounded-xl border border-slate-200 px-2.5 py-2 ${active ? 'bg-emerald-50' : 'bg-red-50'}">
+          <p class="text-xs font-black text-slate-800 mb-0.5"><button onclick="openInventoryProductDetail(${r.id})" class="hover:underline">${_escHtml(r.name)}</button>${r.code ? ` <span class="font-bold text-slate-500">(${_escHtml(r.code)})</span>` : ''} <span class="font-bold ${active ? 'text-emerald-600' : 'text-red-500'}">per ${_escHtml(r.unit || 'unit')}</span></p>
+          <p class="text-[10px] text-slate-500 font-bold">Received: ${Number(r.received || 0)} · Distributed: ${Number(r.distributed || 0)} · Damaged: ${Number(r.damaged || 0)}</p>
+          <p class="text-[10px] text-slate-500 font-bold">Remaining: ${remaining} ${_escHtml(r.unit || '')}</p>
+          ${showPrice ? `<p class="text-[10px] text-slate-500 font-bold">Unit Price: ${price ? price.toFixed(2) : '—'} · Stock Value: ${price ? (price * remaining).toFixed(2) : '—'}</p>` : ''}
+          <div class="flex items-center gap-1.5 mt-1"><span class="w-2 h-2 rounded-full ${active ? 'bg-emerald-500' : 'bg-red-500'}"></span><span class="text-[9px] font-bold text-slate-400 uppercase">${active ? 'Active' : 'Inactive'}</span></div>
+        </div>`;
+        }).join('')}
       </div>`;
   }
 
