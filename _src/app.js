@@ -16279,13 +16279,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <p class="text-xs text-slate-400 font-bold mb-4">${_escHtml(cfg.desc)}</p>
       <div class="flex items-end gap-3 flex-wrap mb-4">
         ${cfg.dateRange ? `
-          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">From</label><input type="date" id="invReportFrom" value="${monthAgo}" class="block bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1"></div>
-          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">To</label><input type="date" id="invReportTo" value="${today}" class="block bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1"></div>
+          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">From</label><input type="date" id="invReportFrom" value="${monthAgo}" onchange="_invGenerateReport()" class="block bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1"></div>
+          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">To</label><input type="date" id="invReportTo" value="${today}" onchange="_invGenerateReport()" class="block bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1"></div>
         ` : ''}
-        <button onclick="_invGenerateReport()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">Generate</button>
         <button id="invReportExportBtn" onclick="_invExportReport()" disabled class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-400 cursor-not-allowed transition-all">Export to Excel</button>
       </div>
       <div id="invReportResult"></div>`;
+    // Picking a report tab generates it immediately — no separate button
+    // press needed for the common case; date-range reports still
+    // regenerate themselves on their own via the onchange handlers above
+    // whenever From/To actually changes.
+    _invGenerateReport();
   }
 
   function _invGenerateReport() {
