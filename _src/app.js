@@ -15370,7 +15370,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _invOpenMobileSection(tab) {
     document.getElementById('invAdminMobileGrid')?.classList.add('hidden');
     const back = document.getElementById('invAdminMobileBack');
-    if (back) { back.classList.remove('hidden'); back.classList.add('flex'); }
+    // Tints the back button with the same accent color as the tile just
+    // tapped (see INV_ADMIN_MOBILE_TILES) so it's visually obvious which
+    // section you're now inside of, not just a generic "‹ back" — a plain
+    // uniform gray back bar looked identical at every depth.
+    const tile = INV_ADMIN_MOBILE_TILES.find(t => t.tab === tab);
+    if (back) {
+      back.classList.remove('hidden'); back.classList.add('flex');
+      if (tile) { back.style.background = _hexToRgba(tile.accent, 0.12); back.style.color = tile.accent; back.style.borderRadius = '10px'; back.style.padding = '8px 12px'; }
+    }
     // invAdminBody's base class (inv-desktop-block) hides it below the md
     // breakpoint by design (that's what keeps it off until a tile is
     // tapped) — an inline style is what actually overrides that here, not
@@ -15387,7 +15395,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _invShowMobileGrid() {
     document.getElementById('invAdminMobileGrid')?.classList.remove('hidden');
     const back = document.getElementById('invAdminMobileBack');
-    if (back) { back.classList.add('hidden'); back.classList.remove('flex'); }
+    if (back) { back.classList.add('hidden'); back.classList.remove('flex'); back.removeAttribute('style'); }
     const bodyEl = document.getElementById('invAdminBody');
     if (bodyEl) bodyEl.style.display = '';
   }
@@ -15432,17 +15440,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (tab === 'reports') { loadInventoryReportsPanel(); return; }
   }
 
+  const INV_SETTINGS_ACCENTS = ['#6366f1', '#10b981', '#f43f5e', '#f59e0b', '#0ea5e9', '#a855f7', '#14b8a6', '#f97316'];
+  function _invSettingsAccentFor(slug) {
+    const idx = INV_SETTINGS_MENU.findIndex(m => m.slug === slug);
+    return INV_SETTINGS_ACCENTS[(idx < 0 ? 0 : idx) % INV_SETTINGS_ACCENTS.length];
+  }
   function _invRenderSettingsMobileGrid() {
     const grid = document.getElementById('invSettingsMobileGrid');
     if (!grid) return;
-    const accents = ['#6366f1', '#10b981', '#f43f5e', '#f59e0b', '#0ea5e9', '#a855f7', '#14b8a6', '#f97316'];
-    grid.innerHTML = INV_SETTINGS_MENU.map((m, i) => `
+    grid.innerHTML = INV_SETTINGS_MENU.map(m => {
+      const accent = _invSettingsAccentFor(m.slug);
+      return `
       <button onclick="openInventorySettingsEntity('${m.slug}')" class="flex flex-col items-center justify-center gap-2 p-3 bg-white rounded-3xl shadow-sm hover:shadow-md active:scale-95 transition-all duration-150">
-        <div class="w-11 h-11 rounded-xl flex items-center justify-center" style="background:${_hexToRgba(accents[i % accents.length], 0.14)};color:${accents[i % accents.length]};">
+        <div class="w-11 h-11 rounded-xl flex items-center justify-center" style="background:${_hexToRgba(accent, 0.14)};color:${accent};">
           <i data-lucide="${INV_SETTINGS_ICONS[m.slug] || 'folder'}" class="h-5 w-5"></i>
         </div>
         <span class="text-[9.5px] font-black text-slate-600 text-center leading-tight tracking-tight">${_escHtml(m.label)}</span>
-      </button>`).join('');
+      </button>`;
+    }).join('');
     lucide.createIcons();
   }
   // Pure visual action — also used as the stored backFn a hardware Back
@@ -15451,7 +15466,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _invSettingsShowMobileGrid() {
     document.getElementById('invSettingsMobileGrid')?.classList.remove('hidden');
     const back = document.getElementById('invSettingsMobileBack');
-    if (back) { back.classList.add('hidden'); back.classList.remove('flex'); }
+    if (back) { back.classList.add('hidden'); back.classList.remove('flex'); back.removeAttribute('style'); }
     const panelEl = document.getElementById('invSettingsPanel');
     if (panelEl) panelEl.style.display = '';
   }
@@ -15477,7 +15492,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (menu) Array.from(menu.children).forEach(btn => btn.classList.toggle('bg-slate-100', btn.dataset.slug === slug));
     document.getElementById('invSettingsMobileGrid')?.classList.add('hidden');
     const mobileBack = document.getElementById('invSettingsMobileBack');
-    if (mobileBack) { mobileBack.classList.remove('hidden'); mobileBack.classList.add('flex'); }
+    if (mobileBack) {
+      mobileBack.classList.remove('hidden'); mobileBack.classList.add('flex');
+      const accent = _invSettingsAccentFor(slug);
+      mobileBack.style.background = _hexToRgba(accent, 0.12); mobileBack.style.color = accent;
+      mobileBack.style.borderRadius = '10px'; mobileBack.style.padding = '8px 12px';
+    }
     // Same reasoning as _invOpenMobileSection: invSettingsPanel's base class
     // (inv-desktop-block) hides it below md by design, so an inline style
     // is what forces it visible here, not a hidden-class toggle.
@@ -16731,6 +16751,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Recipient</th>
             <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Items</th>
             <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Remarks</th>
+            <th></th>
           </tr></thead>
           <tbody>${rows.map(r => `<tr id="invDistributeRow_${r.id}" class="border-t border-slate-50 ${_invDistributeSelected.has(r.id) ? 'bg-blue-50' : ''}">
             <td class="px-3 py-2.5"><button type="button" onclick="_invDistributeToggleSelect(${r.id})" class="ccb ${_invDistributeSelected.has(r.id) ? 'ccb-on' : ''}">${_invDistributeSelected.has(r.id) ? '<i data-lucide="check"></i>' : ''}</button></td>
@@ -16739,6 +16760,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <td class="px-3 py-2.5 font-bold text-slate-700">${_escHtml((r.consumers && r.consumers.name) || '—')}${r.consumers && r.consumers.type ? ` <span class="text-slate-400">(${_escHtml(r.consumers.type)})</span>` : ''}</td>
             <td class="px-3 py-2.5 font-bold text-slate-700">${_escHtml((r.distribution_items || []).map(it => `${(it.products && it.products.name) || 'item'} x${it.quantity}`).join(', ') || '—')}</td>
             <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(r.remarks || '—')}</td>
+            <td class="px-3 py-2.5 text-right"><button onclick="_invOpenDistributeEditModal(${r.id})" class="text-blue-600 font-black text-[10px] uppercase tracking-widest">Edit</button></td>
           </tr>`).join('')}</tbody>
         </table>
       </div>
@@ -16754,9 +16776,60 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <p class="text-[10px] text-slate-500 font-bold truncate">#${_escHtml(r.distribute_no || '—')} · ${_escHtml((r.distribution_items || []).map(it => `${(it.products && it.products.name) || 'item'} x${it.quantity}`).join(', ') || '—')}</p>
             ${r.remarks ? `<p class="text-[10px] text-slate-400 font-bold truncate">${_escHtml(r.remarks)}</p>` : ''}
           </div>
+          <button onclick="_invOpenDistributeEditModal(${r.id})" class="shrink-0 text-blue-600 font-black text-[9px] uppercase tracking-tight leading-none mt-0.5">Edit</button>
         </div>`).join('')}
       </div>`;
     lucide.createIcons();
+  }
+
+  // Deliberately narrow, matching the server: product/quantity/recipient
+  // moved real stock (holder_stock, purchase_items.qty_remaining), and
+  // changing them here would desync stock from what's on record without
+  // the same reversal logic Delete already has. To correct those, delete
+  // (reverses the stock) and create a new distribution instead — this
+  // modal only ever touches metadata with zero stock consequence.
+  function _invOpenDistributeEditModal(id) {
+    const row = _invDistributeRows.find(r => r.id === id);
+    if (!row) return;
+    document.getElementById('invDistributeEditModal')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'invDistributeEditModal';
+    overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+    overlay.innerHTML = `
+      <div class="bg-white rounded-2xl p-5 w-full max-w-sm">
+        <p class="font-black text-slate-800 text-sm mb-1">Edit Distribution #${_escHtml(row.distribute_no || id)}</p>
+        <p class="text-[10px] text-slate-400 font-bold mb-3">Product, quantity and recipient can't be changed here — delete and re-create the distribution for those (Delete reverses the stock it moved; editing them directly here would not).</p>
+        <div class="flex flex-col gap-3">
+          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Date</label><input type="date" id="invDistEditDate" value="${_escHtml(row.distribute_date || '')}" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1"></div>
+          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Bill No.</label><input type="text" id="invDistEditBillNo" value="${_escHtml(row.bill_no || '')}" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1"></div>
+          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Received By</label><input type="text" id="invDistEditReceivedBy" value="${_escHtml(row.received_by || '')}" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1"></div>
+          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Remarks</label><input type="text" id="invDistEditRemarks" value="${_escHtml(row.remarks || '')}" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1"></div>
+        </div>
+        <div id="invDistEditStatus" class="text-xs font-bold mt-2"></div>
+        <div class="flex gap-2 justify-end mt-4">
+          <button onclick="document.getElementById('invDistributeEditModal').remove()" class="px-4 py-2 rounded-lg text-slate-500 text-xs font-black">Cancel</button>
+          <button onclick="_invSaveDistributeEdit(${id})" class="px-4 py-2 rounded-lg bg-blue-600 text-white text-xs font-black">Save</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+  }
+
+  function _invSaveDistributeEdit(id) {
+    const values = {
+      distribute_date: document.getElementById('invDistEditDate').value,
+      bill_no: document.getElementById('invDistEditBillNo').value.trim(),
+      received_by: document.getElementById('invDistEditReceivedBy').value.trim(),
+      remarks: document.getElementById('invDistEditRemarks').value.trim(),
+    };
+    const status = document.getElementById('invDistEditStatus');
+    if (status) status.textContent = 'Saving…';
+    _invAdminFetch('distribute_update_meta', { id, values }).then(res => {
+      if (!res || res.result !== 'success') { if (status) status.textContent = (res && res.message) || 'Save failed.'; return; }
+      document.getElementById('invDistributeEditModal')?.remove();
+      showToast('Saved');
+      loadInventoryDistributeList();
+    }).catch(err => { if (status) status.textContent = err.message || 'Save failed.'; });
   }
 
   // Deleting a distribution reverses the stock it moved (see

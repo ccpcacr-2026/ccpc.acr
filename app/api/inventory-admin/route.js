@@ -661,7 +661,7 @@ async function _productAttributeOptions(payload) {
 // since a school's distribution volume doesn't call for it yet.
 async function _distributeList() {
   const rows = await sbInventory(
-    `distributions?select=id,distribute_no,created_at,remarks,consumers!distributions_consumer_id_fkey(name,type),distribution_items(quantity,products(name))&order=created_at.desc&limit=500`
+    `distributions?select=id,distribute_no,created_at,remarks,distribute_date,bill_no,received_by,consumers!distributions_consumer_id_fkey(name,type),distribution_items(quantity,products(name))&order=created_at.desc&limit=500`
   );
   if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
   return NextResponse.json({ result: 'success', data: Array.isArray(rows) ? rows : [] });
@@ -716,6 +716,29 @@ async function _distributeDelete(payload) {
     if (err) errors.push(`#${id}: ${err}`); else deletedCount++;
   }
   return NextResponse.json({ result: errors.length ? 'partial' : 'success', deletedCount, errors });
+}
+
+// Deliberately narrow: a distribution's product/quantity/recipient drive
+// real stock movement (holder_stock, purchase_items.qty_remaining) — the
+// same reason _distributeDeleteOne has to reverse those effects rather
+// than just delete the row. Changing them after the fact would desync
+// stock from what's actually on record without the same reversal logic,
+// so this only ever touches plain metadata that carries no stock
+// consequence at all. Correcting the product/qty/recipient of a mistaken
+// entry is still delete (reverses it) + re-create (the existing, already-
+// correct path for that).
+const DISTRIBUTE_EDITABLE_META_FIELDS = ['remarks', 'distribute_date', 'bill_no', 'received_by'];
+async function _distributeUpdateMeta(payload) {
+  const { id, values } = payload || {};
+  if (!id) return NextResponse.json({ result: 'error', message: 'id is required.' });
+  const row = {};
+  for (const f of DISTRIBUTE_EDITABLE_META_FIELDS) {
+    if (values && Object.prototype.hasOwnProperty.call(values, f)) row[f] = values[f] || null;
+  }
+  if (!Object.keys(row).length) return NextResponse.json({ result: 'error', message: 'Nothing to update.' });
+  const result = await sbInventory(`distributions?id=eq.${encodeURIComponent(id)}`, 'PATCH', row);
+  if (result?.error) return NextResponse.json({ result: 'error', message: result.error }, { status: 500 });
+  return NextResponse.json({ result: 'success' });
 }
 
 async function _distributeOptions() {
@@ -1243,6 +1266,7 @@ export async function POST(req) {
   if (action === 'registry_create') return _registryCreate(payload);
   if (action === 'distribute_list') return _distributeList();
   if (action === 'distribute_delete') return _distributeDelete(payload);
+  if (action === 'distribute_update_meta') return _distributeUpdateMeta(payload);
   if (action === 'report_product_value_summary') return _reportProductValueSummary();
   if (action === 'report_stock_overview') return _reportStockOverview();
   if (action === 'report_distributions') return _reportDistributions(payload);
