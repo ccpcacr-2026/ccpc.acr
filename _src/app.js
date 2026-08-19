@@ -15622,9 +15622,33 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }).catch(err => showToast(err.message || 'Delete failed', 'error'));
   }
 
+  // Products get a bespoke active/inactive-tinted layout (name+code+unit,
+  // depreciation with its group/product source, register/page/group) on
+  // both the desktop row and the mobile card — every other entity keeps
+  // the generic column-driven rendering in this function.
+  function _invProductDeprText(r) {
+    if (r.depreciation_rate_percent !== null && r.depreciation_rate_percent !== undefined) {
+      return `${r.depreciation_rate_percent}% by product`;
+    }
+    const groups = _invEntityLookups['groups'] || [];
+    const group = groups.find(g => String(g.id) === String(r.group_id));
+    const groupRate = group ? group.depreciation_rate_percent : null;
+    return (groupRate === null || groupRate === undefined) ? '—' : `${groupRate}% by group`;
+  }
+  function _invProductUnitName(r) { const u = (_invEntityLookups['units'] || []).find(uu => String(uu.id) === String(r.unit_id)); return u ? u.name : ''; }
+  function _invProductGroupName(r) { const g = (_invEntityLookups['groups'] || []).find(gg => String(gg.id) === String(r.group_id)); return g ? g.name : ''; }
+  function _invProductRowTint(r) { return r.is_active ? 'bg-emerald-50' : 'bg-red-50'; }
+  function _invProductActionIcons(r) {
+    return `
+      <span class="w-2 h-2 rounded-full shrink-0 ${r.is_active ? 'bg-emerald-500' : 'bg-red-500'}" title="${r.is_active ? 'Active' : 'Inactive'}"></span>
+      <button onclick="openInventoryEntityForm('${_invCurrentEntity}', ${r.id})" title="Edit" class="w-6 h-6 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 flex items-center justify-center transition-all"><i data-lucide="pencil" class="h-3 w-3"></i></button>
+      <button onclick="deleteInventoryEntityRow('${_invCurrentEntity}', ${r.id})" title="Delete" class="w-6 h-6 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 flex items-center justify-center transition-all"><i data-lucide="trash-2" class="h-3 w-3"></i></button>`;
+  }
+
   function _invSettingsTableBodyHtml() {
     const cfg = INV_ENTITIES[_invCurrentEntity];
     const rows = _invFilteredSettingsRows();
+    const isProducts = _invCurrentEntity === 'products';
     if (!_invEntityRows.length) return `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">No records yet</div>`;
     if (!rows.length) return `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">No matches for "${_escHtml(_invSettingsSearch)}"</div>`;
     const n = _invSettingsSelected.size;
@@ -15639,9 +15663,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <thead class="bg-slate-50"><tr>
             <th class="px-3 py-2.5"><button type="button" onclick="_invSettingsToggleAll()" class="ccb ${allChecked ? 'ccb-on' : ''}">${allChecked ? '<i data-lucide="check"></i>' : ''}</button></th>
             ${cfg.columns.map(c => `<th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest whitespace-nowrap">${_escHtml(c.label)}</th>`).join('')}<th></th></tr></thead>
-          <tbody>${rows.map(r => `<tr class="border-t border-slate-50 ${_invSettingsSelected.has(r.id) ? 'bg-blue-50' : ''}">
+          <tbody>${rows.map(r => `<tr class="border-t border-slate-50 ${_invSettingsSelected.has(r.id) ? 'bg-blue-50' : (isProducts ? _invProductRowTint(r) : '')}">
             <td class="px-3 py-2.5"><button type="button" onclick="_invSettingsToggleSelect(${r.id})" class="ccb ${_invSettingsSelected.has(r.id) ? 'ccb-on' : ''}">${_invSettingsSelected.has(r.id) ? '<i data-lucide="check"></i>' : ''}</button></td>
-            ${cfg.columns.map(c => `<td class="px-3 py-2.5 font-bold text-slate-600 whitespace-nowrap">${_escHtml(_invDisplayValue(c, r))}</td>`).join('')}
+            ${isProducts ? `
+            <td class="px-3 py-2.5 font-bold text-slate-600 whitespace-nowrap">${_escHtml(r.code || '—')}</td>
+            <td class="px-3 py-2.5 font-black text-slate-800 whitespace-nowrap">${_escHtml(r.name)} <span class="font-bold ${r.is_active ? 'text-emerald-600' : 'text-red-500'}">per ${_escHtml(_invProductUnitName(r) || 'unit')}</span></td>
+            <td class="px-3 py-2.5 font-bold text-slate-600 whitespace-nowrap">${_escHtml(r.register_no || '—')}</td>
+            <td class="px-3 py-2.5 font-bold text-slate-600 whitespace-nowrap">${_escHtml(r.page_no || '—')}</td>
+            <td class="px-3 py-2.5 font-bold text-slate-600 whitespace-nowrap">${_escHtml(_invProductDeprText(r))}</td>
+            <td class="px-3 py-2.5 font-bold text-slate-600 whitespace-nowrap">${_escHtml(_invProductGroupName(r) || '—')}</td>
+            <td class="px-3 py-2.5 font-bold text-slate-600 whitespace-nowrap">${_escHtml(_invProductUnitName(r) || '—')}</td>
+            <td class="px-3 py-2.5 whitespace-nowrap"><span class="w-2 h-2 rounded-full inline-block ${r.is_active ? 'bg-emerald-500' : 'bg-red-500'}"></span></td>
+            ` : cfg.columns.map(c => `<td class="px-3 py-2.5 font-bold text-slate-600 whitespace-nowrap">${_escHtml(_invDisplayValue(c, r))}</td>`).join('')}
             <td class="px-3 py-2.5 text-right whitespace-nowrap">
               <button onclick="openInventoryEntityForm('${_invCurrentEntity}', ${r.id})" class="text-blue-600 font-black text-[10px] uppercase tracking-widest mr-3">Edit</button>
               <button onclick="deleteInventoryEntityRow('${_invCurrentEntity}', ${r.id})" class="text-red-500 font-black text-[10px] uppercase tracking-widest">Delete</button>
@@ -15655,6 +15688,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <span class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Select All</span>
         </button>
         ${rows.map(r => {
+          if (isProducts) {
+            return `
+        <div class="flex items-start gap-2 rounded-xl border border-slate-200 px-2.5 py-2 ${_invProductRowTint(r)} ${_invSettingsSelected.has(r.id) ? 'ring-2 ring-blue-300' : ''}">
+          <button type="button" onclick="_invSettingsToggleSelect(${r.id})" class="ccb mt-0.5 ${_invSettingsSelected.has(r.id) ? 'ccb-on' : ''}">${_invSettingsSelected.has(r.id) ? '<i data-lucide="check"></i>' : ''}</button>
+          <div class="flex-1 min-w-0">
+            <p class="text-xs font-black text-slate-800 mb-0.5">${_escHtml(r.name)}${r.code ? ` <span class="font-bold text-slate-500">(${_escHtml(r.code)})</span>` : ''} <span class="font-bold ${r.is_active ? 'text-emerald-600' : 'text-red-500'}">per ${_escHtml(_invProductUnitName(r) || 'unit')}</span></p>
+            <p class="text-[10px] text-slate-500 font-bold">Dep. per Year: ${_escHtml(_invProductDeprText(r))}</p>
+            <p class="text-[10px] text-slate-500 font-bold">Register no: ${_escHtml(r.register_no || '—')}</p>
+            <p class="text-[10px] text-slate-500 font-bold">Page no: ${_escHtml(r.page_no || '—')}</p>
+            <p class="text-[10px] text-slate-500 font-bold">Group: ${_escHtml(_invProductGroupName(r) || '—')}</p>
+            <div class="flex items-center gap-2 mt-1.5">${_invProductActionIcons(r)}</div>
+          </div>
+        </div>`;
+          }
           // Title = the "name"-ish column if this entity has one, else the
           // first column at all, shown bold on its own line; every other
           // column wraps naturally underneath as its own "Label: value" —
