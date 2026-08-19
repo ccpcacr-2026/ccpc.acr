@@ -308,6 +308,10 @@ function removeMarker(imei) {
  * single place that reconciles "what's checked" with "what's on the map".
  */
 function redrawMarkers() {
+  // While Route History is open the 30s poll would otherwise keep calling
+  // this and silently re-adding every live pin right back — so this has
+  // to be checked here, not just in _hideLiveBusMarkers's one-off sweep.
+  if (_liveMarkersHidden) { Object.keys(busMarkers).forEach(imei => removeMarker(imei)); return; }
   Object.keys(allBusData).forEach(imei => {
     const bus = allBusData[imei];
     if (!selectedImeis.has(imei)) { removeMarker(imei); return; }
@@ -732,7 +736,28 @@ function toggleRoutePanel() {
   const panel = document.getElementById('bt-route-panel');
   if (!panel) return;
   panel.classList.toggle('hidden');
-  if (!panel.classList.contains('hidden')) renderRouteBusOptions();
+  if (!panel.classList.contains('hidden')) {
+    renderRouteBusOptions();
+    _hideLiveBusMarkers();
+  } else {
+    clearRouteHistory();
+    _showLiveBusMarkers();
+  }
+}
+
+// Route history and the live fleet's own moving pins fighting for the
+// same map at once is just clutter — the live pins hide the moment the
+// Route panel opens and come back exactly as they were (redrawMarkers
+// reconciles from selectedImeis, so no separate "what was showing"
+// bookkeeping is needed here) once the route/panel is gone.
+let _liveMarkersHidden = false;
+function _hideLiveBusMarkers() {
+  _liveMarkersHidden = true;
+  Object.keys(busMarkers).forEach(imei => removeMarker(imei));
+}
+function _showLiveBusMarkers() {
+  _liveMarkersHidden = false;
+  redrawMarkers();
 }
 
 function renderRouteBusOptions() {
@@ -808,6 +833,16 @@ function clearRouteHistory() {
   if (status) status.textContent = '';
 }
 
+// The Clear button specifically means "I'm done with the route" — bring
+// the live fleet back. Plain clearRouteHistory() alone stays as the
+// reset-before-redraw step showRouteHistory already used (that one must
+// NOT bring live pins back, since a new route is about to be hidden
+// behind in a moment anyway).
+function clearRouteHistoryAndShowLive() {
+  clearRouteHistory();
+  _showLiveBusMarkers();
+}
+
 window.BusTracking = {
   initBusMap,
   stopBusTracking,
@@ -818,5 +853,5 @@ window.BusTracking = {
   toggleWatchersList,
   toggleRoutePanel,
   showRouteHistory,
-  clearRouteHistory,
+  clearRouteHistory: clearRouteHistoryAndShowLive,
 };
