@@ -16679,6 +16679,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _invDistCommittees = [];
   let _invDistAssignments = [];
   let _invDistSelectedProduct = null;
+  // Real, live committees (with actual member lists) come from the HR
+  // committee_groups table — inventory's own `committees` table only ever
+  // stored a single chairman_user_id, so it can't support "pick any member
+  // as the recipient." _invDistSelectedHrCommittee/_invDistChairmanOverride
+  // track the current committee-recipient pick separately from
+  // _invDistSelectedConsumer's normal person/room/building/floor flow.
+  let _invHrCommittees = [];
+  let _invDistSelectedHrCommittee = null;
+  let _invDistChairmanOverride = '';
 
   // Tab landing: a plain "Distribute" click shows the distribution history
   // list with a "+ New Distribution" button; arriving via
@@ -16797,54 +16806,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     lucide.createIcons();
   }
 
-  // Deliberately narrow, matching the server: product/quantity/recipient
-  // moved real stock (holder_stock, purchase_items.qty_remaining), and
-  // changing them here would desync stock from what's on record without
-  // the same reversal logic Delete already has. To correct those, delete
-  // (reverses the stock) and create a new distribution instead — this
-  // modal only ever touches metadata with zero stock consequence.
+  // Opens the same New Distribution form pre-filled with this row's
+  // existing values — see openInventoryDistributeForm/_invDistEditingId.
   function _invOpenDistributeEditModal(id) {
     const row = _invDistributeRows.find(r => r.id === id);
     if (!row) return;
-    document.getElementById('invDistributeEditModal')?.remove();
-    const overlay = document.createElement('div');
-    overlay.id = 'invDistributeEditModal';
-    overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
-    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
-    overlay.innerHTML = `
-      <div class="bg-white rounded-2xl p-5 w-full max-w-sm">
-        <p class="font-black text-slate-800 text-sm mb-1">Edit Distribution #${_escHtml(row.distribute_no || id)}</p>
-        <p class="text-[10px] text-slate-400 font-bold mb-3">Product, quantity and recipient can't be changed here — delete and re-create the distribution for those (Delete reverses the stock it moved; editing them directly here would not).</p>
-        <div class="flex flex-col gap-3">
-          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Date</label><input type="date" id="invDistEditDate" value="${_escHtml(row.distribute_date || '')}" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1"></div>
-          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Bill No.</label><input type="text" id="invDistEditBillNo" value="${_escHtml(row.bill_no || '')}" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1"></div>
-          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Received By</label><input type="text" id="invDistEditReceivedBy" value="${_escHtml(row.received_by || '')}" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1"></div>
-          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Remarks</label><input type="text" id="invDistEditRemarks" value="${_escHtml(row.remarks || '')}" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1"></div>
-        </div>
-        <div id="invDistEditStatus" class="text-xs font-bold mt-2"></div>
-        <div class="flex gap-2 justify-end mt-4">
-          <button onclick="document.getElementById('invDistributeEditModal').remove()" class="px-4 py-2 rounded-lg text-slate-500 text-xs font-black">Cancel</button>
-          <button onclick="_invSaveDistributeEdit(${id})" class="px-4 py-2 rounded-lg bg-blue-600 text-white text-xs font-black">Save</button>
-        </div>
-      </div>`;
-    document.body.appendChild(overlay);
-  }
-
-  function _invSaveDistributeEdit(id) {
-    const values = {
-      distribute_date: document.getElementById('invDistEditDate').value,
-      bill_no: document.getElementById('invDistEditBillNo').value.trim(),
-      received_by: document.getElementById('invDistEditReceivedBy').value.trim(),
-      remarks: document.getElementById('invDistEditRemarks').value.trim(),
-    };
-    const status = document.getElementById('invDistEditStatus');
-    if (status) status.textContent = 'Saving…';
-    _invAdminFetch('distribute_update_meta', { id, values }).then(res => {
-      if (!res || res.result !== 'success') { if (status) status.textContent = (res && res.message) || 'Save failed.'; return; }
-      document.getElementById('invDistributeEditModal')?.remove();
-      showToast('Saved');
-      loadInventoryDistributeList();
-    }).catch(err => { if (status) status.textContent = err.message || 'Save failed.'; });
+    openInventoryDistributeForm(row);
   }
 
   // Deleting a distribution reverses the stock it moved (see
@@ -16861,14 +16828,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }).catch(err => showToast(err.message || 'Delete failed', 'error'));
   }
 
-  function openInventoryDistributeForm() {
+  // Editing a distribution now reuses this exact form pre-filled with its
+  // existing values instead of a separate metadata-only modal — product/
+  // quantity/recipient are editable too since Save (see
+  // submitInventoryDistribution) runs the same reverse-then-recreate the
+  // Delete+re-create workflow already relied on, just as one step.
+  let _invDistEditingId = null;
+
+  function openInventoryDistributeForm(editRow) {
     const body = document.getElementById('invAdminBody');
     if (!body) return;
     _invDistSelectedProduct = null;
+    _invDistEditingId = editRow ? editRow.id : null;
     body.innerHTML = `
       <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 max-w-lg">
         <button onclick="loadInventoryDistributeList()" class="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600 mb-3 block">&larr; Back to Distribution List</button>
-        <p class="text-sm font-black text-slate-800 uppercase tracking-widest mb-4">New Distribution</p>
+        <p class="text-sm font-black text-slate-800 uppercase tracking-widest mb-4">${editRow ? `Edit Distribution #${_escHtml(editRow.distribute_no || editRow.id)}` : 'New Distribution'}</p>
         <div class="mb-3" id="invDistProductWrap">
           <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Product</label>
           <input id="invDistProductQuery" type="text" placeholder="Search by name or code…" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
@@ -16878,7 +16853,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div class="mb-3">
           <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Recipient Type</label>
           <div class="flex flex-wrap gap-3 mt-1.5">
-            ${['room', 'building', 'floor', 'person', 'committee'].map(t => `<label class="flex items-center gap-1.5 text-xs font-bold text-slate-600"><input type="radio" name="invDistRecipientType" value="${t}" onchange="_invOnDistRecipientTypeChange()" ${t === 'person' ? 'checked' : ''}> ${t.charAt(0).toUpperCase() + t.slice(1)}</label>`).join('')}
+            ${['room', 'building', 'floor', 'person', 'committee'].map(t => `<label class="flex items-center gap-1.5 text-xs font-bold text-slate-600"><input type="radio" name="invDistRecipientType" value="${t}" onchange="_invOnDistRecipientTypeChange()" ${t === (editRow ? editRow.consumers?.type || 'person' : 'person') ? 'checked' : ''}> ${t.charAt(0).toUpperCase() + t.slice(1)}</label>`).join('')}
           </div>
         </div>
         <div class="mb-3">
@@ -16896,14 +16871,28 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div id="invDistNotifyPreview" class="hidden text-[11px] font-bold text-slate-500 bg-slate-50 rounded-lg px-3 py-2 mb-3"></div>
         <div class="mb-3">
           <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Quantity</label>
-          <input id="invDistQty" type="number" min="1" placeholder="e.g. 10" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
+          <input id="invDistQty" type="number" min="1" placeholder="e.g. 10" value="${editRow ? _escHtml(String(_invDistEditRowQty(editRow))) : ''}" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
+        </div>
+        <div class="grid grid-cols-2 gap-3 mb-3">
+          <div>
+            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Date</label>
+            <input id="invDistDate" type="date" value="${_escHtml((editRow && editRow.distribute_date) || '')}" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
+          </div>
+          <div>
+            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Bill No.</label>
+            <input id="invDistBillNo" type="text" value="${_escHtml((editRow && editRow.bill_no) || '')}" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Received By</label>
+          <input id="invDistReceivedBy" type="text" value="${_escHtml((editRow && editRow.received_by) || '')}" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
         </div>
         <div class="mb-4">
           <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Remarks</label>
-          <input id="invDistRemarks" type="text" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
+          <input id="invDistRemarks" type="text" value="${_escHtml((editRow && editRow.remarks) || '')}" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
         </div>
         <div id="invDistStatus" class="text-xs font-bold mb-3"></div>
-        <button id="invDistSubmitBtn" onclick="submitInventoryDistribution()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">Confirm Distribution</button>
+        <button id="invDistSubmitBtn" onclick="submitInventoryDistribution()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">${editRow ? 'Save Changes' : 'Confirm Distribution'}</button>
       </div>`;
     _invWireDistProductInput();
     Promise.all([
@@ -16913,14 +16902,39 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         _invDistCommittees = (res && res.committees) || [];
         _invDistAssignments = (res && res.assignments) || [];
       }),
+      new Promise(resolve => {
+        google.script.run
+          .withSuccessHandler(rows => { _invHrCommittees = (Array.isArray(rows) ? rows : []).filter(g => g.status !== 'archived'); resolve(); })
+          .withFailureHandler(() => { _invHrCommittees = []; resolve(); })
+          .getUserCommittees();
+      }),
     ]).then(() => {
       _invRenderConsumerPickerInput();
+      if (editRow) {
+        const firstItem = (editRow.distribution_items || [])[0];
+        const product = firstItem && firstItem.product_id
+          ? _invDistProducts.find(pp => String(pp.id) === String(firstItem.product_id))
+          : null;
+        if (product) _invSelectDistProduct(product);
+        if (editRow.consumers) {
+          const existing = _invDistConsumers.find(c => String(c.id) === String(editRow.consumer_id));
+          if (existing) _invSelectDistConsumer(existing.id);
+        }
+        return;
+      }
       if (_invDistributePreselectProduct) {
         const p = _invDistProducts.find(pp => String(pp.id) === String(_invDistributePreselectProduct));
         if (p) _invSelectDistProduct(p);
         _invDistributePreselectProduct = null;
       }
     });
+  }
+
+  // Multi-lot FIFO distributions can have several distribution_items rows
+  // for the same product (one per lot drawn from) — sum them for the
+  // single Quantity field shown here.
+  function _invDistEditRowQty(row) {
+    return (row.distribution_items || []).reduce((s, it) => s + Number(it.quantity || 0), 0);
   }
 
   function _invWireDistProductInput() {
@@ -17038,6 +17052,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const host = document.getElementById('invDistConsumerMatches');
     if (!host) return;
     const type = _invGetDistRecipientType();
+    if (type === 'committee') { _invRenderHrCommitteeMatches(query); return; }
     const wanted = type === 'person' ? PERSON_CONSUMER_TYPES : [type];
     const pool = _invDistConsumers.filter(c => wanted.includes(c.type)).slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     const q = query.toLowerCase();
@@ -17070,10 +17085,76 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function _invClearDistConsumer() {
     _invDistSelectedConsumer = null;
+    _invDistSelectedHrCommittee = null;
+    _invDistChairmanOverride = '';
     _invRenderConsumerPickerInput();
     const previewEl = document.getElementById('invDistNotifyPreview');
     if (previewEl) previewEl.classList.add('hidden');
     _invSyncResponsiblePersonVisibility();
+  }
+
+  // Live committees, text-searchable, sourced from the real HR committee
+  // system (committee_groups — has actual member lists) rather than
+  // inventory's own committees table (name + a single chairman_user_id,
+  // no members). "How much is possible" per committee is shown as its
+  // member count, the only capacity-like figure a committee actually has.
+  function _invRenderHrCommitteeMatches(query) {
+    const host = document.getElementById('invDistConsumerMatches');
+    if (!host) return;
+    const pool = _invHrCommittees.slice().sort((a, b) => (a.committee_name || '').localeCompare(b.committee_name || ''));
+    const q = query.toLowerCase();
+    const matches = q
+      ? pool.filter(g => `${g.committee_name || ''} ${g.sub_committee || ''}`.toLowerCase().includes(q))
+      : pool;
+    if (!matches.length) {
+      host.innerHTML = `<div class="px-3 py-2 text-xs text-slate-400 font-bold">${pool.length ? 'No matches.' : 'No committees yet — create one under My Committees.'}</div>`;
+      return;
+    }
+    host.innerHTML = matches.slice(0, 30).map(g => {
+      const members = Array.isArray(g.members_list) ? g.members_list : [];
+      const label = g.sub_committee ? `${g.committee_name} — ${g.sub_committee}` : g.committee_name;
+      return `<button type="button" onclick='_invSelectHrCommittee(${JSON.stringify(g.id)})' class="w-full text-left px-3 py-2 border-b border-slate-100 last:border-b-0 bg-white text-xs font-bold text-slate-700 hover:bg-slate-50">${_escHtml(label)} <span class="text-slate-400 font-semibold">(${members.length} member${members.length === 1 ? '' : 's'})</span></button>`;
+    }).join('');
+  }
+
+  function _invSelectHrCommittee(id) {
+    const g = _invHrCommittees.find(gg => String(gg.id) === String(id));
+    if (!g) return;
+    _invDistSelectedHrCommittee = g;
+    const members = Array.isArray(g.members_list) ? g.members_list : [];
+    const chairman = members.find(m => m.role === 'chairman') || members[0] || null;
+    _invDistChairmanOverride = chairman ? chairman.user_id : '';
+    _invDistSelectedConsumer = {
+      id: `auto-hrcommittee:${g.id}`,
+      type: 'committee',
+      reference_id: g.id,
+      name: g.sub_committee ? `${g.committee_name} — ${g.sub_committee}` : g.committee_name,
+    };
+    _invRenderHrCommitteeSelected();
+    _invSyncResponsiblePersonVisibility();
+  }
+
+  function _invRenderHrCommitteeSelected() {
+    const wrap = document.getElementById('invDistConsumerWrap');
+    if (!wrap) return;
+    const g = _invDistSelectedHrCommittee;
+    const members = g && Array.isArray(g.members_list) ? g.members_list : [];
+    const label = g ? (g.sub_committee ? `${g.committee_name} — ${g.sub_committee}` : g.committee_name) : '';
+    wrap.innerHTML = `
+      <div class="flex items-center gap-2 mt-1">
+        <span class="text-xs font-black text-slate-800">${_escHtml(label)} <span class="text-slate-400 font-semibold">(${members.length} member${members.length === 1 ? '' : 's'})</span></span>
+        <button type="button" onclick="_invClearDistConsumer()" class="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600">Change</button>
+      </div>
+      <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2 block">Notify</label>
+      <select id="invDistChairmanOverride" onchange="_invOnChairmanOverrideChange(this.value)" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
+        ${members.map(m => `<option value="${_escHtml(m.user_id)}" ${m.user_id === _invDistChairmanOverride ? 'selected' : ''}>${_escHtml(m.name || m.user_id)}${m.role === 'chairman' ? ' (Chairman)' : ''}</option>`).join('')}
+      </select>`;
+    _invUpdateDistNotifyPreview();
+  }
+
+  function _invOnChairmanOverrideChange(userId) {
+    _invDistChairmanOverride = userId;
+    _invUpdateDistNotifyPreview();
   }
 
   // Room/building/floor recipients require a real person accountable for
@@ -17177,8 +17258,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!consumer) { if (previewEl) previewEl.classList.add('hidden'); return; }
     let text;
     if (consumer.type === 'committee') {
-      const committee = _invDistCommittees.find(c => String(c.id) === String(consumer.reference_id));
-      text = committee && committee.chairman_user_id ? `${committee.chairman_user_id} (chairman of ${committee.name})` : 'No chairman set for this committee yet — no one will be notified.';
+      const g = _invDistSelectedHrCommittee;
+      const members = g && Array.isArray(g.members_list) ? g.members_list : [];
+      const picked = members.find(m => m.user_id === _invDistChairmanOverride);
+      text = picked ? `${picked.name || picked.user_id}${picked.role === 'chairman' ? ' (chairman' : ' (member'} of ${g.committee_name})` : 'No member selected — no one will be notified.';
       if (remarksEl) remarksEl.value = `Committee: ${consumer.name}`;
     } else if (consumer.type === 'room' || consumer.type === 'building' || consumer.type === 'floor') {
       text = _invDistSelectedResponsible ? `${_invDistSelectedResponsible.name} (responsible person)` : 'Pick a responsible person below — no one will be notified until you do.';
@@ -17213,16 +17296,26 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const needsResponsible = ['room', 'building', 'floor'].includes(_invDistSelectedConsumer.type);
     if (needsResponsible && !_invDistSelectedResponsible) { setStatus('Pick a responsible person for this room/building/floor.', true); return; }
     const responsibleUserId = _invDistSelectedResponsible ? _invDistSelectedResponsible.reference_id : '';
+    const distributeDate = document.getElementById('invDistDate').value;
+    const billNo = document.getElementById('invDistBillNo').value.trim();
+    const receivedBy = document.getElementById('invDistReceivedBy').value.trim();
+    const isEditing = !!_invDistEditingId;
     const btn = document.getElementById('invDistSubmitBtn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Distributing…'; }
+    if (btn) { btn.disabled = true; btn.textContent = isEditing ? 'Saving…' : 'Distributing…'; }
     setStatus('', false);
     const productForMsg = _invDistSelectedProduct;
     const consumerForMsg = _invDistSelectedConsumer;
-    _invAdminFetch('distribute_create', { product_id: productForMsg.id, consumer_id: consumerId, quantity: qty, remarks, brand, category, responsible_user_id: responsibleUserId }).then(res => {
-      if (btn) { btn.disabled = false; btn.textContent = 'Confirm Distribution'; }
-      if (!res || res.result !== 'success') { setStatus((res && res.message) || 'Distribution failed.', true); return; }
-      setStatus(`Distributed ${qty} × ${productForMsg.name} to ${consumerForMsg ? consumerForMsg.name : 'recipient'}.`, false);
-      showToast('Distribution recorded', 'success');
+    const receiverOverride = _invDistSelectedConsumer.type === 'committee' ? _invDistChairmanOverride : '';
+    const payload = {
+      product_id: productForMsg.id, consumer_id: consumerId, quantity: qty, remarks, brand, category,
+      responsible_user_id: responsibleUserId, receiver_user_id_override: receiverOverride,
+      distribute_date: distributeDate, bill_no: billNo, received_by: receivedBy,
+    };
+    if (isEditing) payload.id = _invDistEditingId;
+    _invAdminFetch(isEditing ? 'distribute_update_full' : 'distribute_create', payload).then(res => {
+      if (btn) { btn.disabled = false; btn.textContent = isEditing ? 'Save Changes' : 'Confirm Distribution'; }
+      if (!res || res.result !== 'success') { setStatus((res && res.message) || (isEditing ? 'Save failed.' : 'Distribution failed.'), true); return; }
+      showToast(isEditing ? 'Distribution updated' : 'Distribution recorded', 'success');
       // Keep the local assignments cache in sync with what the server just
       // upserted, so distributing to the same room/building/floor again in
       // this session pre-fills correctly instead of looking stale.
@@ -17231,6 +17324,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         if (existingA) existingA.assignee_user_id = responsibleUserId;
         else _invDistAssignments.push({ holder_type: consumerForMsg.type, holder_id: consumerForMsg.reference_id, assignee_user_id: responsibleUserId });
       }
+      if (isEditing) { _invDistEditingId = null; loadInventoryDistributeList(); return; }
+      setStatus(`Distributed ${qty} × ${productForMsg.name} to ${consumerForMsg ? consumerForMsg.name : 'recipient'}.`, false);
       _invClearDistConsumer();
       document.getElementById('invDistQty').value = '';
       document.getElementById('invDistRemarks').value = '';
@@ -17244,7 +17339,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         }).catch(() => {});
       }
     }).catch(err => {
-      if (btn) { btn.disabled = false; btn.textContent = 'Confirm Distribution'; }
+      if (btn) { btn.disabled = false; btn.textContent = isEditing ? 'Save Changes' : 'Confirm Distribution'; }
       setStatus(err.message || 'Network error.', true);
     });
   }

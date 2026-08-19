@@ -661,7 +661,7 @@ async function _productAttributeOptions(payload) {
 // since a school's distribution volume doesn't call for it yet.
 async function _distributeList() {
   const rows = await sbInventory(
-    `distributions?select=id,distribute_no,created_at,remarks,distribute_date,bill_no,received_by,consumers!distributions_consumer_id_fkey(name,type),distribution_items(quantity,products(name))&order=created_at.desc&limit=500`
+    `distributions?select=id,distribute_no,created_at,remarks,distribute_date,bill_no,received_by,consumer_id,consumers!distributions_consumer_id_fkey(name,type),distribution_items(product_id,quantity,products(name))&order=created_at.desc&limit=500`
   );
   if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
   return NextResponse.json({ result: 'success', data: Array.isArray(rows) ? rows : [] });
@@ -718,27 +718,24 @@ async function _distributeDelete(payload) {
   return NextResponse.json({ result: errors.length ? 'partial' : 'success', deletedCount, errors });
 }
 
-// Deliberately narrow: a distribution's product/quantity/recipient drive
-// real stock movement (holder_stock, purchase_items.qty_remaining) — the
-// same reason _distributeDeleteOne has to reverse those effects rather
-// than just delete the row. Changing them after the fact would desync
-// stock from what's actually on record without the same reversal logic,
-// so this only ever touches plain metadata that carries no stock
-// consequence at all. Correcting the product/qty/recipient of a mistaken
-// entry is still delete (reverses it) + re-create (the existing, already-
-// correct path for that).
-const DISTRIBUTE_EDITABLE_META_FIELDS = ['remarks', 'distribute_date', 'bill_no', 'received_by'];
-async function _distributeUpdateMeta(payload) {
-  const { id, values } = payload || {};
+// Full edit (product/quantity/recipient included) reverses the original
+// entry's stock effects and re-creates it fresh via _distributeCreate,
+// rather than trying to diff and patch stock in place — the exact same
+// "delete reverses, create re-applies" logic already used everywhere else
+// here, just run as one step from the client's point of view. Best-effort
+// like _distributeDeleteOne: if the create half fails after the reverse
+// already succeeded, the admin is left with the original entry gone and
+// nothing recreated — acceptable at this app's scale/write volume, same
+// tradeoff already accepted for plain deletes.
+async function _distributeUpdateFull(payload) {
+  const id = payload && payload.id;
   if (!id) return NextResponse.json({ result: 'error', message: 'id is required.' });
-  const row = {};
-  for (const f of DISTRIBUTE_EDITABLE_META_FIELDS) {
-    if (values && Object.prototype.hasOwnProperty.call(values, f)) row[f] = values[f] || null;
-  }
-  if (!Object.keys(row).length) return NextResponse.json({ result: 'error', message: 'Nothing to update.' });
-  const result = await sbInventory(`distributions?id=eq.${encodeURIComponent(id)}`, 'PATCH', row);
-  if (result?.error) return NextResponse.json({ result: 'error', message: result.error }, { status: 500 });
-  return NextResponse.json({ result: 'success' });
+  const existing = await sbInventory(`distributions?id=eq.${encodeURIComponent(id)}&select=id`);
+  if (existing?.error) return NextResponse.json({ result: 'error', message: existing.error }, { status: 500 });
+  if (!Array.isArray(existing) || !existing.length) return NextResponse.json({ result: 'error', message: 'Distribution not found.' }, { status: 404 });
+  const revErr = await _distributeDeleteOne(id);
+  if (revErr) return NextResponse.json({ result: 'error', message: `Could not reverse the original entry: ${revErr}` }, { status: 500 });
+  return _distributeCreate(payload);
 }
 
 async function _distributeOptions() {
@@ -818,12 +815,21 @@ async function _resolveAutoConsumer(consumerId) {
   const [prefix, rawId] = consumerId.startsWith('auto-')
     ? [consumerId.slice(5, consumerId.indexOf(':')), consumerId.slice(consumerId.indexOf(':') + 1)]
     : ['teacher', consumerId.slice('auto:'.length)];
+  // hrcommittee consumers map onto the plain 'committee' consumer type —
+  // 'hrcommittee' is only a prefix distinguishing this id's source (the HR
+  // committee_groups table, teacher schema) from inventory's own committees
+  // table, not a separate consumer type.
+  const consumerType = prefix === 'hrcommittee' ? 'committee' : prefix;
 
-  const existing = await sbInventory(`consumers?type=eq.${prefix}&reference_id=eq.${encodeURIComponent(rawId)}&select=*&limit=1`);
+  const existing = await sbInventory(`consumers?type=eq.${consumerType}&reference_id=eq.${encodeURIComponent(rawId)}&select=*&limit=1`);
   if (Array.isArray(existing) && existing.length) return existing[0];
 
   let name = rawId, designation = null;
-  if (prefix === 'teacher') {
+  if (prefix === 'hrcommittee') {
+    const rows = await _teacherSchemaFetch(`committee_groups?id=eq.${encodeURIComponent(rawId)}&select=committee_name,sub_committee&limit=1`);
+    const g = Array.isArray(rows) && rows[0];
+    name = g ? (g.sub_committee ? `${g.committee_name} — ${g.sub_committee}` : g.committee_name) : rawId;
+  } else if (prefix === 'teacher') {
     const profileRows = await _teacherSchemaFetch(`users_profile?teacher_id=eq.${encodeURIComponent(rawId)}&select=full_name,designation&limit=1`);
     const profile = (Array.isArray(profileRows) && profileRows[0]) || {};
     name = profile.full_name || rawId;
@@ -842,7 +848,7 @@ async function _resolveAutoConsumer(consumerId) {
   }
 
   const created = await sbInventory('consumers', 'POST', {
-    type: prefix,
+    type: consumerType,
     reference_id: rawId,
     name,
     designation,
@@ -937,7 +943,15 @@ async function _distributeCreate(payload) {
     return NextResponse.json({ result: 'error', message: `Only ${available} in stock${payload.brand || payload.category ? ' for that brand/category' : ''} — cannot distribute ${qty}.` }, { status: 400 });
   }
 
-  const receiverUserId = await _distResolveReceiverUserId(consumer);
+  // Committee recipients now source from the HR committee_groups table
+  // (real member lists) instead of inventory's own single-chairman
+  // committees table — the client already knows who to notify (the
+  // committee's chairman by default, or whichever member the admin picked
+  // instead) and sends it directly rather than making the server re-derive
+  // it from a table that may not even have a matching row.
+  const receiverUserId = payload.receiver_user_id_override
+    ? String(payload.receiver_user_id_override)
+    : await _distResolveReceiverUserId(consumer);
 
   const distribution = await sbInventory('distributions', 'POST', {
     distribute_no: `DIST-${Date.now()}`,
@@ -945,6 +959,9 @@ async function _distributeCreate(payload) {
     entry_type: 'fifo',
     receiver_user_id: receiverUserId,
     remarks: payload.remarks || (consumer.type === 'committee' ? `Committee: ${consumer.name}` : null),
+    distribute_date: payload.distribute_date || null,
+    bill_no: payload.bill_no || null,
+    received_by: payload.received_by || null,
   });
   if (distribution?.error) return NextResponse.json({ result: 'error', message: distribution.error }, { status: 500 });
   const distributionId = distribution[0].id;
@@ -1266,7 +1283,7 @@ export async function POST(req) {
   if (action === 'registry_create') return _registryCreate(payload);
   if (action === 'distribute_list') return _distributeList();
   if (action === 'distribute_delete') return _distributeDelete(payload);
-  if (action === 'distribute_update_meta') return _distributeUpdateMeta(payload);
+  if (action === 'distribute_update_full') return _distributeUpdateFull(payload);
   if (action === 'report_product_value_summary') return _reportProductValueSummary();
   if (action === 'report_stock_overview') return _reportStockOverview();
   if (action === 'report_distributions') return _reportDistributions(payload);
