@@ -710,9 +710,9 @@ let routeMarkers = [];
 const ROUTE_SPEED_BUCKETS = [
   { max: 2, color: '#6b7280', label: 'Waiting/Stopped (≤2 km/h)' },
   { max: 10, color: '#ef4444', label: 'Jam (3–10 km/h)' },
-  { max: 25, color: '#f97316', label: 'Slow (11–25 km/h)' },
-  { max: 45, color: '#eab308', label: 'Moderate (26–45 km/h)' },
-  { max: Infinity, color: '#22c55e', label: 'Fast (46+ km/h)' },
+  { max: 20, color: '#f97316', label: 'Slow (11–20 km/h)' },
+  { max: 30, color: '#eab308', label: 'Moderate (21–30 km/h)' },
+  { max: Infinity, color: '#22c55e', label: 'Fast (31+ km/h)' },
 ];
 function _routeSpeedColor(spd) {
   const s = Math.round(parseFloat(spd)) || 0;
@@ -890,17 +890,19 @@ function _routeSummaryHtml(points) {
     ['Top Speed', `${maxSpeed} km/h`],
     ['Waiting Spells', String(waitingSpells)],
   ];
+  // Plain block rows, not flex — guaranteed one-per-line regardless of any
+  // surrounding flex/inline context this panel's markup might sit inside.
   const bucketRows = ROUTE_SPEED_BUCKETS
     .filter(b => bucketMs[b.label] > 0)
-    .map(b => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:${b.color};display:inline-block;flex:none"></span><span style="color:#64748b">${b.label}</span></span><span style="font-weight:800;color:#334155">${_fmtDuration(bucketMs[b.label])}</span></div>`)
+    .map(b => `<div style="display:block;width:100%;margin-bottom:3px"><span style="width:8px;height:8px;border-radius:50%;background:${b.color};display:inline-block;margin-right:5px"></span><span style="color:#64748b">${b.label}:</span> <span style="font-weight:800;color:#334155">${_fmtDuration(bucketMs[b.label])}</span></div>`)
     .join('');
   return `
     <p style="font-size:9px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Route Summary</p>
-    <div style="display:flex;flex-direction:column;gap:3px;font-size:10.5px;margin-bottom:6px">
-      ${rows.map(([label, value]) => `<div style="display:flex;justify-content:space-between;gap:8px"><span style="color:#64748b">${label}</span><span style="font-weight:800;color:#334155">${value}</span></div>`).join('')}
+    <div style="font-size:10.5px;margin-bottom:6px">
+      ${rows.map(([label, value]) => `<div style="display:block;width:100%;margin-bottom:3px"><span style="color:#64748b">${label}:</span> <span style="font-weight:800;color:#334155">${value}</span></div>`).join('')}
     </div>
     <p style="font-size:9px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Time by Speed</p>
-    <div style="display:flex;flex-direction:column;gap:3px;font-size:10.5px">${bucketRows}</div>`;
+    <div style="font-size:10.5px">${bucketRows}</div>`;
 }
 
 function clearRouteHistory() {
