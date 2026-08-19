@@ -15535,23 +15535,33 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </table>
       </div>
       <div class="md:hidden flex flex-col gap-1.5">
-        ${rows.map(r => `
-        <div class="flex items-start gap-2 bg-white rounded-xl border border-slate-200 px-2.5 py-2 ${_invSettingsSelected.has(r.id) ? 'ring-2 ring-blue-100 border-blue-300' : ''}">
-          <button type="button" onclick="_invSettingsToggleSelect(${r.id})" class="ccb mt-0.5 ${_invSettingsSelected.has(r.id) ? 'ccb-on' : ''}">${_invSettingsSelected.has(r.id) ? '<i data-lucide="check"></i>' : ''}</button>
+        ${rows.map(r => {
+          // Title = the "name"-ish column if this entity has one, else the
+          // first column at all; every OTHER column collapses into a single
+          // truncated subtitle line instead of one line per column — a
+          // Product with 8 columns was rendering as an 8-line card before,
+          // taller than the old table row it was meant to replace.
+          const nameCol = cfg.columns.find(c => /name$/i.test(c.key)) || cfg.columns[0];
+          const title = _invDisplayValue(nameCol, r) || '—';
+          const subParts = cfg.columns.filter(c => c !== nameCol).map(c => {
+            const v = _invDisplayValue(c, r);
+            if (v === '' || v === null || v === undefined) return null;
+            if (v === 'No') return null; // booleans: only worth flagging when true/"Yes", "No" is the unremarkable default
+            return v === 'Yes' ? c.label : `${c.label}: ${v}`;
+          }).filter(Boolean);
+          return `
+        <div class="flex items-center gap-2 bg-white rounded-xl border border-slate-200 px-2.5 py-2 ${_invSettingsSelected.has(r.id) ? 'ring-2 ring-blue-100 border-blue-300' : ''}">
+          <button type="button" onclick="_invSettingsToggleSelect(${r.id})" class="ccb ${_invSettingsSelected.has(r.id) ? 'ccb-on' : ''}">${_invSettingsSelected.has(r.id) ? '<i data-lucide="check"></i>' : ''}</button>
           <div class="flex-1 min-w-0">
-            <div class="flex flex-wrap gap-x-2 gap-y-0.5">
-              ${cfg.columns.map(c => {
-                const v = _invDisplayValue(c, r);
-                if (v === '' || v === null || v === undefined) return '';
-                return `<span class="text-[11px] font-bold text-slate-700"><span class="text-slate-400 font-black uppercase text-[9px]">${_escHtml(c.label)}:</span> ${_escHtml(v)}</span>`;
-              }).join('')}
-            </div>
+            <p class="text-xs font-black text-slate-800 truncate">${_escHtml(title)}</p>
+            ${subParts.length ? `<p class="text-[10px] text-slate-500 font-bold truncate">${_escHtml(subParts.join(' · '))}</p>` : ''}
           </div>
           <div class="flex flex-col items-end gap-0.5 shrink-0">
             <button onclick="openInventoryEntityForm('${_invCurrentEntity}', ${r.id})" class="text-blue-600 font-black text-[9px] uppercase tracking-tight leading-none">Edit</button>
             <button onclick="deleteInventoryEntityRow('${_invCurrentEntity}', ${r.id})" class="text-red-500 font-black text-[9px] uppercase tracking-tight leading-none">Delete</button>
           </div>
-        </div>`).join('')}
+        </div>`;
+        }).join('')}
       </div>`;
   }
 
