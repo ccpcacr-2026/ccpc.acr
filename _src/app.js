@@ -15264,7 +15264,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const container = document.getElementById('view-container');
     if (!container) return;
     container.innerHTML = `
-      <div class="hidden md:flex sticky top-0 z-20 bg-white/95 backdrop-blur flex-nowrap gap-2 mb-4 py-2 -mx-1 px-1 overflow-x-auto" style="scrollbar-width:none">
+      <div class="inv-desktop-flex sticky top-0 z-20 bg-white/95 backdrop-blur flex-nowrap gap-2 mb-4 py-2 -mx-1 px-1 overflow-x-auto" style="scrollbar-width:none">
         <button id="invAdminTab_stock" onclick="switchInvAdminTab('stock')" class="shrink-0 whitespace-nowrap px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all"><i data-lucide="package" class="h-3.5 w-3.5 inline -mt-0.5 mr-1"></i>Stock</button>
         <button id="invAdminTab_registry" onclick="switchInvAdminTab('registry')" class="shrink-0 whitespace-nowrap px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all"><i data-lucide="clipboard-list" class="h-3.5 w-3.5 inline -mt-0.5 mr-1"></i>Registry</button>
         <button id="invAdminTab_distribute" onclick="switchInvAdminTab('distribute')" class="shrink-0 whitespace-nowrap px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all"><i data-lucide="send" class="h-3.5 w-3.5 inline -mt-0.5 mr-1"></i>Distribute</button>
@@ -15273,7 +15273,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
       <div id="invAdminMobileGrid" class="md:hidden grid grid-cols-3 gap-3 mb-4"></div>
       <button id="invAdminMobileBack" onclick="_invShowMobileGrid()" class="md:hidden hidden items-center gap-1.5 mb-4 text-[10px] font-black text-slate-500 uppercase tracking-widest"><i data-lucide="arrow-left" class="h-3.5 w-3.5"></i>Inventory Admin</button>
-      <div id="invAdminBody" class="hidden md:block"></div>
+      <div id="invAdminBody" class="inv-desktop-block"></div>
 
       <div id="invEntityFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
         <div class="bg-white rounded-2xl p-5 w-full max-w-lg max-h-[85vh] overflow-y-auto">
@@ -15351,14 +15351,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('invAdminMobileGrid')?.classList.add('hidden');
     const back = document.getElementById('invAdminMobileBack');
     if (back) { back.classList.remove('hidden'); back.classList.add('flex'); }
-    document.getElementById('invAdminBody')?.classList.remove('hidden');
+    // invAdminBody's base class (inv-desktop-block) hides it below the md
+    // breakpoint by design (that's what keeps it off until a tile is
+    // tapped) — an inline style is what actually overrides that here, not
+    // a hidden/inv-desktop-block class dance which would fight itself.
+    const bodyEl = document.getElementById('invAdminBody');
+    if (bodyEl) bodyEl.style.display = 'block';
     switchInvAdminTab(tab);
   }
   function _invShowMobileGrid() {
     document.getElementById('invAdminMobileGrid')?.classList.remove('hidden');
     const back = document.getElementById('invAdminMobileBack');
     if (back) { back.classList.add('hidden'); back.classList.remove('flex'); }
-    document.getElementById('invAdminBody')?.classList.add('hidden');
+    const bodyEl = document.getElementById('invAdminBody');
+    if (bodyEl) bodyEl.style.display = '';
   }
 
   function switchInvAdminTab(tab) {
@@ -15380,10 +15386,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div id="invSettingsMobileGrid" class="md:hidden grid grid-cols-3 gap-3 mb-4"></div>
         <button id="invSettingsMobileBack" onclick="_invSettingsShowMobileGrid()" class="md:hidden hidden items-center gap-1.5 mb-4 text-[10px] font-black text-slate-500 uppercase tracking-widest"><i data-lucide="arrow-left" class="h-3.5 w-3.5"></i>Categories</button>
         <div class="grid md:grid-cols-4 gap-4">
-          <div class="hidden md:flex md:col-span-1 bg-white rounded-3xl border border-slate-200 shadow-sm p-2 flex-col gap-1 max-h-[70vh] overflow-y-auto" id="invSettingsMenu">
+          <div class="inv-desktop-flex md:col-span-1 bg-white rounded-3xl border border-slate-200 shadow-sm p-2 flex-col gap-1 max-h-[70vh] overflow-y-auto" id="invSettingsMenu">
             ${INV_SETTINGS_MENU.map(m => `<button data-slug="${m.slug}" onclick="openInventorySettingsEntity('${m.slug}')" class="text-left px-3 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all">${_escHtml(m.label)}</button>`).join('')}
           </div>
-          <div class="hidden md:block md:col-span-3 bg-white rounded-3xl border border-slate-200 shadow-sm p-5" id="invSettingsPanel">
+          <div class="inv-desktop-block md:col-span-3 bg-white rounded-3xl border border-slate-200 shadow-sm p-5" id="invSettingsPanel">
             <div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Pick a category on the left</div>
           </div>
         </div>`;
@@ -15410,7 +15416,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('invSettingsMobileGrid')?.classList.remove('hidden');
     const back = document.getElementById('invSettingsMobileBack');
     if (back) { back.classList.add('hidden'); back.classList.remove('flex'); }
-    document.getElementById('invSettingsPanel')?.classList.add('hidden');
+    const panelEl = document.getElementById('invSettingsPanel');
+    if (panelEl) panelEl.style.display = '';
   }
 
   function openInventorySettingsEntity(slug) {
@@ -15422,7 +15429,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('invSettingsMobileGrid')?.classList.add('hidden');
     const mobileBack = document.getElementById('invSettingsMobileBack');
     if (mobileBack) { mobileBack.classList.remove('hidden'); mobileBack.classList.add('flex'); }
-    document.getElementById('invSettingsPanel')?.classList.remove('hidden');
+    // Same reasoning as _invOpenMobileSection: invSettingsPanel's base class
+    // (inv-desktop-block) hides it below md by design, so an inline style
+    // is what forces it visible here, not a hidden-class toggle.
+    const panelForceShow = document.getElementById('invSettingsPanel');
+    if (panelForceShow) panelForceShow.style.display = 'block';
     const panel = document.getElementById('invSettingsPanel');
     if (panel) panel.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`;
     const cfg = INV_ENTITIES[slug];
@@ -15519,7 +15530,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <span class="text-[10px] font-black text-slate-500 uppercase tracking-widest">${n} selected</span>
         <button onclick="_invSettingsDeleteSelected()" class="px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest bg-red-500 text-white hover:bg-red-600 transition-all">Delete Selected (${n})</button>
       </div>` : ''}
-      <div class="hidden md:block overflow-x-auto">
+      <div class="inv-desktop-block overflow-x-auto">
         <table class="w-full text-left text-xs">
           <thead class="bg-slate-50"><tr>
             <th class="px-3 py-2.5"><button type="button" onclick="_invSettingsToggleAll()" class="ccb ${allChecked ? 'ccb-on' : ''}">${allChecked ? '<i data-lucide="check"></i>' : ''}</button></th>
@@ -16636,7 +16647,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!rows.length) { wrap.innerHTML = `<div class="bg-white rounded-3xl border border-slate-200 shadow-sm text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">${_invDistributeRows.length ? 'No matches' : 'No distributions yet'}</div>`; return; }
     const allChecked = rows.length && rows.every(r => _invDistributeSelected.has(r.id));
     wrap.innerHTML = `
-      <div class="hidden md:block bg-white rounded-3xl border border-slate-200 shadow-sm overflow-x-auto">
+      <div class="inv-desktop-block bg-white rounded-3xl border border-slate-200 shadow-sm overflow-x-auto">
         <table class="w-full text-left text-xs">
           <thead class="bg-slate-50"><tr>
             <th class="px-3 py-2.5"><button type="button" onclick="_invDistributeToggleAll()" class="ccb ${allChecked ? 'ccb-on' : ''}">${allChecked ? '<i data-lucide="check"></i>' : ''}</button></th>
