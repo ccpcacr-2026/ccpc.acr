@@ -15577,7 +15577,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!panel || !cfg) return;
     const rows = _invEntityRows;
     panel.innerHTML = `
-      <div class="sticky top-16 z-10 bg-white -mx-5 -mt-5 px-5 pt-5 pb-3 mb-4">
+      <div class="md:sticky md:top-16 md:z-10 bg-white -mx-5 -mt-5 px-5 pt-5 pb-3 mb-4">
         <div class="flex items-center justify-between gap-2 mb-2.5">
           <p class="text-sm font-black text-slate-800 uppercase tracking-widest truncate">${_escHtml(cfg.title)}</p>
           <button onclick="openInventoryEntityForm('${_invCurrentEntity}')" class="shrink-0 flex items-center gap-1 px-3.5 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest text-white transition-all whitespace-nowrap" style="background:linear-gradient(135deg,#2563eb,#4f46e5)"><i data-lucide="plus" class="h-3.5 w-3.5"></i>New</button>
