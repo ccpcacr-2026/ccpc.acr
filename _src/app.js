@@ -15242,6 +15242,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { slug: 'room_types', label: 'Room Type' }, { slug: 'departments', label: 'Department' },
     { slug: 'distributor_assignments', label: 'Distributor Assignments' },
   ];
+  const INV_SETTINGS_ICONS = {
+    products: 'boxes', suppliers: 'truck', consumers: 'user-check', committees: 'users',
+    groups: 'shapes', units: 'ruler', unit_conversions: 'repeat',
+    rooms: 'door-open', buildings: 'building-2', floors: 'layers',
+    room_types: 'tag', departments: 'network', distributor_assignments: 'user-cog',
+  };
 
   let _invAdminActiveTab = 'stock';
   let _invCurrentEntity = null;
@@ -15258,14 +15264,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const container = document.getElementById('view-container');
     if (!container) return;
     container.innerHTML = `
-      <div class="sticky top-0 z-20 bg-white/95 backdrop-blur flex flex-nowrap gap-2 mb-4 py-2 -mx-1 px-1 overflow-x-auto" style="scrollbar-width:none">
+      <div class="hidden md:flex sticky top-0 z-20 bg-white/95 backdrop-blur flex-nowrap gap-2 mb-4 py-2 -mx-1 px-1 overflow-x-auto" style="scrollbar-width:none">
         <button id="invAdminTab_stock" onclick="switchInvAdminTab('stock')" class="shrink-0 whitespace-nowrap px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all"><i data-lucide="package" class="h-3.5 w-3.5 inline -mt-0.5 mr-1"></i>Stock</button>
         <button id="invAdminTab_registry" onclick="switchInvAdminTab('registry')" class="shrink-0 whitespace-nowrap px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all"><i data-lucide="clipboard-list" class="h-3.5 w-3.5 inline -mt-0.5 mr-1"></i>Registry</button>
         <button id="invAdminTab_distribute" onclick="switchInvAdminTab('distribute')" class="shrink-0 whitespace-nowrap px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all"><i data-lucide="send" class="h-3.5 w-3.5 inline -mt-0.5 mr-1"></i>Distribute</button>
         <button id="invAdminTab_settings" onclick="switchInvAdminTab('settings')" class="shrink-0 whitespace-nowrap px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all"><i data-lucide="settings-2" class="h-3.5 w-3.5 inline -mt-0.5 mr-1"></i>Settings</button>
         <button id="invAdminTab_reports" onclick="switchInvAdminTab('reports')" class="shrink-0 whitespace-nowrap px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all"><i data-lucide="bar-chart-3" class="h-3.5 w-3.5 inline -mt-0.5 mr-1"></i>Reports</button>
       </div>
-      <div id="invAdminBody"></div>
+      <div id="invAdminMobileGrid" class="md:hidden grid grid-cols-3 gap-3 mb-4"></div>
+      <button id="invAdminMobileBack" onclick="_invShowMobileGrid()" class="md:hidden hidden items-center gap-1.5 mb-4 text-[10px] font-black text-slate-500 uppercase tracking-widest"><i data-lucide="arrow-left" class="h-3.5 w-3.5"></i>Inventory Admin</button>
+      <div id="invAdminBody" class="hidden md:block"></div>
 
       <div id="invEntityFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
         <div class="bg-white rounded-2xl p-5 w-full max-w-lg max-h-[85vh] overflow-y-auto">
@@ -15312,7 +15320,45 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     lucide.createIcons();
     const importFileInput = document.getElementById('invImportFileInput');
     if (importFileInput) importFileInput.addEventListener('change', _invHandleImportFile);
+    _invRenderMobileGrid();
     switchInvAdminTab(_invAdminActiveTab || 'stock');
+  }
+
+  // Mobile landing: a tile grid (same visual language as the Student Portal
+  // mobile menu) instead of the desktop pill tab bar — tapping a tile opens
+  // that section and swaps in a "‹ Inventory Admin" back button, rather
+  // than trying to cram 5 tabs into one scrollable row on a phone.
+  const INV_ADMIN_MOBILE_TILES = [
+    { tab: 'stock', label: 'Stock Overview', icon: 'package', accent: '#0ea5e9' },
+    { tab: 'registry', label: 'Registry', icon: 'clipboard-list', accent: '#6366f1' },
+    { tab: 'distribute', label: 'Distribute', icon: 'send', accent: '#10b981' },
+    { tab: 'settings', label: 'Settings', icon: 'settings-2', accent: '#f59e0b' },
+    { tab: 'reports', label: 'Reports', icon: 'bar-chart-3', accent: '#f43f5e' },
+  ];
+  function _invRenderMobileGrid() {
+    const grid = document.getElementById('invAdminMobileGrid');
+    if (!grid) return;
+    grid.innerHTML = INV_ADMIN_MOBILE_TILES.map(t => `
+      <button onclick="_invOpenMobileSection('${t.tab}')" class="flex flex-col items-center justify-center gap-2.5 p-4 bg-white rounded-3xl shadow-sm hover:shadow-md active:scale-95 transition-all duration-150">
+        <div class="w-14 h-14 rounded-2xl flex items-center justify-center" style="background:${_hexToRgba(t.accent, 0.14)};color:${t.accent};">
+          <i data-lucide="${t.icon}" class="h-7 w-7"></i>
+        </div>
+        <span class="text-[10.5px] font-black text-slate-600 text-center leading-tight tracking-tight">${_escHtml(t.label)}</span>
+      </button>`).join('');
+    lucide.createIcons();
+  }
+  function _invOpenMobileSection(tab) {
+    document.getElementById('invAdminMobileGrid')?.classList.add('hidden');
+    const back = document.getElementById('invAdminMobileBack');
+    if (back) { back.classList.remove('hidden'); back.classList.add('flex'); }
+    document.getElementById('invAdminBody')?.classList.remove('hidden');
+    switchInvAdminTab(tab);
+  }
+  function _invShowMobileGrid() {
+    document.getElementById('invAdminMobileGrid')?.classList.remove('hidden');
+    const back = document.getElementById('invAdminMobileBack');
+    if (back) { back.classList.add('hidden'); back.classList.remove('flex'); }
+    document.getElementById('invAdminBody')?.classList.add('hidden');
   }
 
   function switchInvAdminTab(tab) {
@@ -15331,17 +15377,40 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (tab === 'distribute') { loadInventoryDistributePanel(); return; }
     if (tab === 'settings') {
       body.innerHTML = `
+        <div id="invSettingsMobileGrid" class="md:hidden grid grid-cols-3 gap-3 mb-4"></div>
+        <button id="invSettingsMobileBack" onclick="_invSettingsShowMobileGrid()" class="md:hidden hidden items-center gap-1.5 mb-4 text-[10px] font-black text-slate-500 uppercase tracking-widest"><i data-lucide="arrow-left" class="h-3.5 w-3.5"></i>Categories</button>
         <div class="grid md:grid-cols-4 gap-4">
-          <div class="md:col-span-1 bg-white rounded-3xl border border-slate-200 shadow-sm p-2 flex flex-col gap-1 max-h-[70vh] overflow-y-auto" id="invSettingsMenu">
+          <div class="hidden md:flex md:col-span-1 bg-white rounded-3xl border border-slate-200 shadow-sm p-2 flex-col gap-1 max-h-[70vh] overflow-y-auto" id="invSettingsMenu">
             ${INV_SETTINGS_MENU.map(m => `<button data-slug="${m.slug}" onclick="openInventorySettingsEntity('${m.slug}')" class="text-left px-3 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all">${_escHtml(m.label)}</button>`).join('')}
           </div>
-          <div class="md:col-span-3 bg-white rounded-3xl border border-slate-200 shadow-sm p-5" id="invSettingsPanel">
+          <div class="hidden md:block md:col-span-3 bg-white rounded-3xl border border-slate-200 shadow-sm p-5" id="invSettingsPanel">
             <div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Pick a category on the left</div>
           </div>
         </div>`;
+      _invRenderSettingsMobileGrid();
       return;
     }
     if (tab === 'reports') { loadInventoryReportsPanel(); return; }
+  }
+
+  function _invRenderSettingsMobileGrid() {
+    const grid = document.getElementById('invSettingsMobileGrid');
+    if (!grid) return;
+    const accents = ['#6366f1', '#10b981', '#f43f5e', '#f59e0b', '#0ea5e9', '#a855f7', '#14b8a6', '#f97316'];
+    grid.innerHTML = INV_SETTINGS_MENU.map((m, i) => `
+      <button onclick="openInventorySettingsEntity('${m.slug}')" class="flex flex-col items-center justify-center gap-2 p-3 bg-white rounded-3xl shadow-sm hover:shadow-md active:scale-95 transition-all duration-150">
+        <div class="w-11 h-11 rounded-xl flex items-center justify-center" style="background:${_hexToRgba(accents[i % accents.length], 0.14)};color:${accents[i % accents.length]};">
+          <i data-lucide="${INV_SETTINGS_ICONS[m.slug] || 'folder'}" class="h-5 w-5"></i>
+        </div>
+        <span class="text-[9.5px] font-black text-slate-600 text-center leading-tight tracking-tight">${_escHtml(m.label)}</span>
+      </button>`).join('');
+    lucide.createIcons();
+  }
+  function _invSettingsShowMobileGrid() {
+    document.getElementById('invSettingsMobileGrid')?.classList.remove('hidden');
+    const back = document.getElementById('invSettingsMobileBack');
+    if (back) { back.classList.add('hidden'); back.classList.remove('flex'); }
+    document.getElementById('invSettingsPanel')?.classList.add('hidden');
   }
 
   function openInventorySettingsEntity(slug) {
@@ -15350,6 +15419,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _invSettingsSelected = new Set();
     const menu = document.getElementById('invSettingsMenu');
     if (menu) Array.from(menu.children).forEach(btn => btn.classList.toggle('bg-slate-100', btn.dataset.slug === slug));
+    document.getElementById('invSettingsMobileGrid')?.classList.add('hidden');
+    const mobileBack = document.getElementById('invSettingsMobileBack');
+    if (mobileBack) { mobileBack.classList.remove('hidden'); mobileBack.classList.add('flex'); }
+    document.getElementById('invSettingsPanel')?.classList.remove('hidden');
     const panel = document.getElementById('invSettingsPanel');
     if (panel) panel.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`;
     const cfg = INV_ENTITIES[slug];
@@ -15446,7 +15519,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <span class="text-[10px] font-black text-slate-500 uppercase tracking-widest">${n} selected</span>
         <button onclick="_invSettingsDeleteSelected()" class="px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest bg-red-500 text-white hover:bg-red-600 transition-all">Delete Selected (${n})</button>
       </div>` : ''}
-      <div class="overflow-x-auto">
+      <div class="hidden md:block overflow-x-auto">
         <table class="w-full text-left text-xs">
           <thead class="bg-slate-50"><tr>
             <th class="px-3 py-2.5"><button type="button" onclick="_invSettingsToggleAll()" class="ccb ${allChecked ? 'ccb-on' : ''}">${allChecked ? '<i data-lucide="check"></i>' : ''}</button></th>
@@ -15460,6 +15533,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </td>
           </tr>`).join('')}</tbody>
         </table>
+      </div>
+      <div class="md:hidden flex flex-col gap-1.5">
+        ${rows.map(r => `
+        <div class="flex items-start gap-2 bg-white rounded-xl border border-slate-200 px-2.5 py-2 ${_invSettingsSelected.has(r.id) ? 'ring-2 ring-blue-100 border-blue-300' : ''}">
+          <button type="button" onclick="_invSettingsToggleSelect(${r.id})" class="ccb mt-0.5 ${_invSettingsSelected.has(r.id) ? 'ccb-on' : ''}">${_invSettingsSelected.has(r.id) ? '<i data-lucide="check"></i>' : ''}</button>
+          <div class="flex-1 min-w-0">
+            <div class="flex flex-wrap gap-x-2 gap-y-0.5">
+              ${cfg.columns.map(c => {
+                const v = _invDisplayValue(c, r);
+                if (v === '' || v === null || v === undefined) return '';
+                return `<span class="text-[11px] font-bold text-slate-700"><span class="text-slate-400 font-black uppercase text-[9px]">${_escHtml(c.label)}:</span> ${_escHtml(v)}</span>`;
+              }).join('')}
+            </div>
+          </div>
+          <div class="flex flex-col items-end gap-0.5 shrink-0">
+            <button onclick="openInventoryEntityForm('${_invCurrentEntity}', ${r.id})" class="text-blue-600 font-black text-[9px] uppercase tracking-tight leading-none">Edit</button>
+            <button onclick="deleteInventoryEntityRow('${_invCurrentEntity}', ${r.id})" class="text-red-500 font-black text-[9px] uppercase tracking-tight leading-none">Delete</button>
+          </div>
+        </div>`).join('')}
       </div>`;
   }
 
@@ -16464,17 +16556,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _invRenderDistributeList();
   }
 
-  function _invDistributeToggleSelect(id, checked) {
-    if (checked) _invDistributeSelected.add(id); else _invDistributeSelected.delete(id);
-    _invRenderDistributeToolbar();
-    const row = document.getElementById('invDistributeRow_' + id);
-    if (row) row.classList.toggle('bg-blue-50', checked);
+  function _invDistributeToggleSelect(id) {
+    if (_invDistributeSelected.has(id)) _invDistributeSelected.delete(id); else _invDistributeSelected.add(id);
+    _invRenderDistributeList();
   }
 
-  function _invDistributeToggleAll(checked) {
+  function _invDistributeToggleAll() {
     const q = _invDistributeSearch.trim().toLowerCase();
     const visible = !q ? _invDistributeRows : _invDistributeRows.filter(r => _invDistributeMatchesSearch(r, q));
-    _invDistributeSelected = checked ? new Set(visible.map(r => r.id)) : new Set();
+    const allChecked = visible.length && visible.every(r => _invDistributeSelected.has(r.id));
+    _invDistributeSelected = allChecked ? new Set() : new Set(visible.map(r => r.id));
     _invRenderDistributeList();
   }
 
@@ -16503,10 +16594,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!rows.length) { wrap.innerHTML = `<div class="bg-white rounded-3xl border border-slate-200 shadow-sm text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">${_invDistributeRows.length ? 'No matches' : 'No distributions yet'}</div>`; return; }
     const allChecked = rows.length && rows.every(r => _invDistributeSelected.has(r.id));
     wrap.innerHTML = `
-      <div class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-x-auto">
+      <div class="hidden md:block bg-white rounded-3xl border border-slate-200 shadow-sm overflow-x-auto">
         <table class="w-full text-left text-xs">
           <thead class="bg-slate-50"><tr>
-            <th class="px-3 py-2.5"><input type="checkbox" onchange="_invDistributeToggleAll(this.checked)" ${allChecked ? 'checked' : ''}></th>
+            <th class="px-3 py-2.5"><button type="button" onclick="_invDistributeToggleAll()" class="ccb ${allChecked ? 'ccb-on' : ''}">${allChecked ? '<i data-lucide="check"></i>' : ''}</button></th>
             <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Date</th>
             <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">No.</th>
             <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Recipient</th>
@@ -16514,7 +16605,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Remarks</th>
           </tr></thead>
           <tbody>${rows.map(r => `<tr id="invDistributeRow_${r.id}" class="border-t border-slate-50 ${_invDistributeSelected.has(r.id) ? 'bg-blue-50' : ''}">
-            <td class="px-3 py-2.5"><input type="checkbox" onchange="_invDistributeToggleSelect(${r.id}, this.checked)" ${_invDistributeSelected.has(r.id) ? 'checked' : ''}></td>
+            <td class="px-3 py-2.5"><button type="button" onclick="_invDistributeToggleSelect(${r.id})" class="ccb ${_invDistributeSelected.has(r.id) ? 'ccb-on' : ''}">${_invDistributeSelected.has(r.id) ? '<i data-lucide="check"></i>' : ''}</button></td>
             <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(String(r.created_at || '').slice(0, 10))}</td>
             <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(r.distribute_no || '—')}</td>
             <td class="px-3 py-2.5 font-bold text-slate-700">${_escHtml((r.consumers && r.consumers.name) || '—')}${r.consumers && r.consumers.type ? ` <span class="text-slate-400">(${_escHtml(r.consumers.type)})</span>` : ''}</td>
@@ -16522,7 +16613,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(r.remarks || '—')}</td>
           </tr>`).join('')}</tbody>
         </table>
+      </div>
+      <div class="md:hidden flex flex-col gap-1.5">
+        ${rows.map(r => `
+        <div class="flex items-start gap-2 bg-white rounded-xl border border-slate-200 px-2.5 py-2 ${_invDistributeSelected.has(r.id) ? 'ring-2 ring-blue-100 border-blue-300' : ''}">
+          <button type="button" onclick="_invDistributeToggleSelect(${r.id})" class="ccb mt-0.5 ${_invDistributeSelected.has(r.id) ? 'ccb-on' : ''}">${_invDistributeSelected.has(r.id) ? '<i data-lucide="check"></i>' : ''}</button>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center justify-between gap-2">
+              <p class="text-xs font-black text-slate-800 truncate">${_escHtml((r.consumers && r.consumers.name) || '—')}${r.consumers && r.consumers.type ? ` <span class="text-slate-400 font-bold">(${_escHtml(r.consumers.type)})</span>` : ''}</p>
+              <span class="text-[9px] font-black text-slate-400 shrink-0">${_escHtml(String(r.created_at || '').slice(0, 10))}</span>
+            </div>
+            <p class="text-[10px] text-slate-500 font-bold truncate">#${_escHtml(r.distribute_no || '—')} · ${_escHtml((r.distribution_items || []).map(it => `${(it.products && it.products.name) || 'item'} x${it.quantity}`).join(', ') || '—')}</p>
+            ${r.remarks ? `<p class="text-[10px] text-slate-400 font-bold truncate">${_escHtml(r.remarks)}</p>` : ''}
+          </div>
+        </div>`).join('')}
       </div>`;
+    lucide.createIcons();
   }
 
   // Deleting a distribution reverses the stock it moved (see
