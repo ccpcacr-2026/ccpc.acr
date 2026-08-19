@@ -482,8 +482,28 @@
     }
   }
 
+  // Mobile drill-down stack for multi-level tile grids that live INSIDE a
+  // single module rather than being separate modules of their own — e.g.
+  // Inventory Admin's grid → section, and Settings' category grid → entity
+  // table. Same push-a-history-entry-consume-via-popstate shape as the
+  // modal/home-guard stacks above, checked in between them (a modal open
+  // should still close first; a drill-down level should still close before
+  // falling all the way back to Home) so Back steps out one level at a
+  // time instead of jumping straight to Home from three levels deep.
+  const _invNavStack = []; // [fn, ...] — each entry closes exactly one level
+  function _invPushNavLevel(backFn) {
+    if (window.innerWidth >= 768) return; // desktop: no drill-down grids, nothing to guard
+    history.pushState({ _invNavGuard: true }, '');
+    _invNavStack.push(backFn);
+  }
+  function _invGoBackOneLevel() {
+    const backFn = _invNavStack.pop();
+    if (backFn) backFn();
+  }
+
   window.addEventListener('popstate', () => {
     if (_modalBackStack.length) { _genericCloseModal(_modalBackStack.pop().el); return; }
+    if (_invNavStack.length) { _invGoBackOneLevel(); return; }
     if (_mobileHomeGuardActive) { _mobileHomeGuardActive = false; _mobileTopBarNavClick(); }
   });
 
@@ -15272,7 +15292,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <button id="invAdminTab_reports" onclick="switchInvAdminTab('reports')" class="shrink-0 whitespace-nowrap px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all"><i data-lucide="bar-chart-3" class="h-3.5 w-3.5 inline -mt-0.5 mr-1"></i>Reports</button>
       </div>
       <div id="invAdminMobileGrid" class="md:hidden grid grid-cols-3 gap-3 mb-4"></div>
-      <button id="invAdminMobileBack" onclick="_invShowMobileGrid()" class="md:hidden hidden items-center gap-1.5 mb-4 text-[10px] font-black text-slate-500 uppercase tracking-widest"><i data-lucide="arrow-left" class="h-3.5 w-3.5"></i>Inventory Admin</button>
+      <button id="invAdminMobileBack" onclick="_invExitToTopGrid()" class="md:hidden hidden items-center gap-1.5 mb-4 text-[10px] font-black text-slate-500 uppercase tracking-widest"><i data-lucide="arrow-left" class="h-3.5 w-3.5"></i>Inventory Admin</button>
       <div id="invAdminBody" class="inv-desktop-block"></div>
 
       <div id="invEntityFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -15358,13 +15378,26 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const bodyEl = document.getElementById('invAdminBody');
     if (bodyEl) bodyEl.style.display = 'block';
     switchInvAdminTab(tab);
+    _invPushNavLevel(_invShowMobileGrid);
   }
+  // Pure visual action — also used as the stored backFn a hardware Back
+  // press invokes via _invGoBackOneLevel, so it must NOT touch _invNavStack
+  // itself (that popstate path already popped its own entry before calling
+  // this; touching the stack again here would double-pop).
   function _invShowMobileGrid() {
     document.getElementById('invAdminMobileGrid')?.classList.remove('hidden');
     const back = document.getElementById('invAdminMobileBack');
     if (back) { back.classList.add('hidden'); back.classList.remove('flex'); }
     const bodyEl = document.getElementById('invAdminBody');
     if (bodyEl) bodyEl.style.display = '';
+  }
+  // On-screen "‹ Inventory Admin" button — always means "all the way back
+  // to the root grid" regardless of how many levels deep we were (e.g.
+  // inside a Settings entity table two levels in), so it clears every
+  // pending drill-down level, not just one.
+  function _invExitToTopGrid() {
+    _invNavStack.length = 0;
+    _invShowMobileGrid();
   }
 
   function switchInvAdminTab(tab) {
@@ -15384,7 +15417,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (tab === 'settings') {
       body.innerHTML = `
         <div id="invSettingsMobileGrid" class="md:hidden grid grid-cols-3 gap-3 mb-4"></div>
-        <button id="invSettingsMobileBack" onclick="_invSettingsShowMobileGrid()" class="md:hidden hidden items-center gap-1.5 mb-4 text-[10px] font-black text-slate-500 uppercase tracking-widest"><i data-lucide="arrow-left" class="h-3.5 w-3.5"></i>Categories</button>
+        <button id="invSettingsMobileBack" onclick="_invSettingsExitToGrid()" class="md:hidden hidden items-center gap-1.5 mb-4 text-[10px] font-black text-slate-500 uppercase tracking-widest"><i data-lucide="arrow-left" class="h-3.5 w-3.5"></i>Categories</button>
         <div class="grid md:grid-cols-4 gap-4">
           <div class="inv-desktop-flex md:col-span-1 bg-white rounded-3xl border border-slate-200 shadow-sm p-2 flex-col gap-1 max-h-[70vh] overflow-y-auto" id="invSettingsMenu">
             ${INV_SETTINGS_MENU.map(m => `<button data-slug="${m.slug}" onclick="openInventorySettingsEntity('${m.slug}')" class="text-left px-3 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all">${_escHtml(m.label)}</button>`).join('')}
@@ -15412,6 +15445,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </button>`).join('');
     lucide.createIcons();
   }
+  // Pure visual action — also used as the stored backFn a hardware Back
+  // press invokes via _invGoBackOneLevel; must not touch _invNavStack
+  // itself for the same reason as _invShowMobileGrid above.
   function _invSettingsShowMobileGrid() {
     document.getElementById('invSettingsMobileGrid')?.classList.remove('hidden');
     const back = document.getElementById('invSettingsMobileBack');
@@ -15419,8 +15455,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const panelEl = document.getElementById('invSettingsPanel');
     if (panelEl) panelEl.style.display = '';
   }
+  // On-screen "‹ Categories" button — only this innermost level, so it
+  // pops just its own entry (there may still be an outer section-level
+  // entry pending underneath it in the stack).
+  function _invSettingsExitToGrid() {
+    if (_invNavStack.length) _invNavStack.pop();
+    _invSettingsShowMobileGrid();
+  }
 
   function openInventorySettingsEntity(slug) {
+    // Save/delete call this again on the SAME entity just to refresh the
+    // table, not to "enter" it a second time — a nav level must only be
+    // pushed on a genuine grid→entity transition, or every save would add
+    // a phantom level and Back would need an extra, visually-inert press
+    // to work through it.
+    const isFreshEntry = !document.getElementById('invSettingsMobileGrid')?.classList.contains('hidden');
     _invCurrentEntity = slug;
     _invSettingsSearch = '';
     _invSettingsSelected = new Set();
@@ -15434,6 +15483,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // is what forces it visible here, not a hidden-class toggle.
     const panelForceShow = document.getElementById('invSettingsPanel');
     if (panelForceShow) panelForceShow.style.display = 'block';
+    if (isFreshEntry) _invPushNavLevel(_invSettingsShowMobileGrid);
     const panel = document.getElementById('invSettingsPanel');
     if (panel) panel.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`;
     const cfg = INV_ENTITIES[slug];

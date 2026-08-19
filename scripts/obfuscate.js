@@ -22,7 +22,7 @@ const RESERVED = [
   'switchRecordsTab','toggleSidebar',
   // Inventory Admin (native port of ccpc-inventory) — onclick-referenced
   'switchInvAdminTab','openInventorySettingsEntity','openInventoryEntityForm',
-  '_invOpenMobileSection','_invShowMobileGrid','_invSettingsShowMobileGrid',
+  '_invOpenMobileSection','_invShowMobileGrid','_invSettingsShowMobileGrid','_invExitToTopGrid','_invSettingsExitToGrid',
   'saveInventoryEntityForm','closeInventoryEntityForm','deleteInventoryEntityRow',
   'openInventoryImportModal','closeInventoryImportModal','updateInventoryImportSample','exportInventoryEntity',
   'previewInventoryImport','confirmInventoryImport','downloadInventorySampleTemplate',
