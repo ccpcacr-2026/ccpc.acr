@@ -484,7 +484,12 @@ async function _reportStockOverview() {
 // month/term/year" instead of the full unbounded history.
 async function _reportDistributions(payload) {
   const { from, to } = payload;
-  let path = 'distributions?select=id,distribute_no,created_at,remarks,consumers(name,type),distribution_items(quantity,unit_price,total_price,products(name,code))&order=created_at.desc&limit=2000';
+  // `consumers!distributions_consumer_id_fkey` disambiguates which of the
+  // two FKs from distributions to consumers to embed (consumer_id, the
+  // recipient) — distributions also has from_consumer_id (consumer-to-
+  // consumer re-distributions), and PostgREST refuses an unqualified
+  // consumers(...) embed once a table has more than one path to it.
+  let path = 'distributions?select=id,distribute_no,created_at,remarks,consumers!distributions_consumer_id_fkey(name,type),distribution_items(quantity,unit_price,total_price,products(name,code))&order=created_at.desc&limit=2000';
   if (from) path += `&created_at=gte.${encodeURIComponent(from)}`;
   if (to) path += `&created_at=lte.${encodeURIComponent(to + 'T23:59:59')}`;
   const rows = await sbInventory(path);
@@ -656,7 +661,7 @@ async function _productAttributeOptions(payload) {
 // since a school's distribution volume doesn't call for it yet.
 async function _distributeList() {
   const rows = await sbInventory(
-    `distributions?select=id,distribute_no,created_at,remarks,consumers(name,type),distribution_items(quantity,products(name))&order=created_at.desc&limit=500`
+    `distributions?select=id,distribute_no,created_at,remarks,consumers!distributions_consumer_id_fkey(name,type),distribution_items(quantity,products(name))&order=created_at.desc&limit=500`
   );
   if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
   return NextResponse.json({ result: 'success', data: Array.isArray(rows) ? rows : [] });
