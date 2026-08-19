@@ -40,6 +40,13 @@ function initBusMap() {
   const mapContainer = document.getElementById('bus-map-container');
   if (!mapContainer) return;
 
+  // `map` persists across re-entries into the Bus Tracker view (only built
+  // once, guarded below), but hasFittedOnce gated the auto-fit to a single
+  // page-session-wide fire — so clicking away and back skipped it on every
+  // visit after the first. Resetting here makes every fresh click into Bus
+  // Tracker fit-all again on its next successful data load.
+  hasFittedOnce = false;
+
   // Default center (Dhaka, Bangladesh)
   const defaultLat = 23.8103;
   const defaultLng = 90.4125;
@@ -308,7 +315,7 @@ function redrawMarkers() {
 
     const selected = selectedBusImei === imei;
     const icon = busMarkerIcon(bus, selected);
-    const label = `<b>${busName(imei)}</b> · ${bus.isMoving ? `${bus.speed} km/h` : 'Idle'}`;
+    const label = `<b>${busName(imei)}</b> · ${bus.isMoving ? `${Math.round(bus.speed) || 0} km/h` : 'Idle'}`;
 
     if (busMarkers[imei]) {
       busMarkers[imei].setLatLng([bus.lat, bus.lng]);
@@ -410,7 +417,7 @@ function updateBusList(buses) {
     const mv = !!bus.isMoving;
     const isSelected = selectedBusImei === bus.imei;
     const isChecked = selectedImeis.has(bus.imei);
-    const spd = parseFloat(bus.speed) || 0;
+    const spd = Math.round(parseFloat(bus.speed)) || 0;
     const addr = (bus.address || 'Locating…');
 
     return `
@@ -496,7 +503,7 @@ function updateBusInfoPanel(bus) {
 
   const name = busName(bus.imei);
   const mv = !!bus.isMoving;
-  const spd = parseFloat(bus.speed) || 0;
+  const spd = Math.round(parseFloat(bus.speed)) || 0;
   const etaHtml = calculateETA(bus);
 
   panel.innerHTML = `
@@ -590,7 +597,7 @@ function exportBusData() {
       bus.imei,
       bus.lat,
       bus.lng,
-      bus.speed,
+      Math.round(parseFloat(bus.speed)) || 0,
       bus.isMoving ? 'Moving' : 'Stationary',
       bus.address,
     ];
@@ -683,6 +690,65 @@ function toggleWatchersList() {
   }
 }
 
+/**
+ * Route History (admin only) — plots where a bus actually drove on one day,
+ * from student.bus_location_history (the same table the background poller
+ * already writes a point to every ~30s a bus moves >20m; only a rolling 3
+ * days is kept — see get_bus_route_history / the poller's own cleanup).
+ * No separate "journey" storage needed since every ping is already saved.
+ */
+let routePolyline = null;
+let routeMarkers = [];
+
+function toggleRoutePanel() {
+  const panel = document.getElementById('bt-route-panel');
+  if (!panel) return;
+  panel.classList.toggle('hidden');
+  if (!panel.classList.contains('hidden')) renderRouteBusOptions();
+}
+
+function renderRouteBusOptions() {
+  const sel = document.getElementById('bt-route-bus');
+  if (!sel || sel.options.length) return; // populate once; allBusData is stable enough for a picker
+  const buses = Object.values(allBusData).sort((a, b) => busName(a.imei).localeCompare(busName(b.imei), undefined, { numeric: true }));
+  sel.innerHTML = buses.map(b => `<option value="${b.imei}">${busName(b.imei)}</option>`).join('');
+  const dateInput = document.getElementById('bt-route-date');
+  if (dateInput && !dateInput.value) dateInput.value = new Date().toISOString().slice(0, 10);
+}
+
+async function showRouteHistory() {
+  const imei = document.getElementById('bt-route-bus')?.value;
+  const date = document.getElementById('bt-route-date')?.value;
+  const status = document.getElementById('bt-route-status');
+  if (!imei || !date) return;
+  if (status) status.textContent = 'Loading…';
+  clearRouteHistory();
+  try {
+    const res = await portalFetch('get_bus_route_history', { imei, date });
+    if (!res || res.result !== 'success') { if (status) status.textContent = (res && res.message) || 'Failed to load.'; return; }
+    const points = (res.points || []).filter(p => p.lat && p.lng);
+    if (!points.length) { if (status) status.textContent = 'No route data for that day (only the last 3 days are kept).'; return; }
+    const latlngs = points.map(p => [p.lat, p.lng]);
+    routePolyline = L.polyline(latlngs, { color: '#2563eb', weight: 4, opacity: 0.85 }).addTo(map);
+    const startIcon = L.divIcon({ className: '', html: '<div style="width:14px;height:14px;border-radius:50%;background:#10b981;border:2px solid #fff;box-shadow:0 0 0 2px #10b981"></div>' });
+    const endIcon = L.divIcon({ className: '', html: '<div style="width:14px;height:14px;border-radius:50%;background:#ef4444;border:2px solid #fff;box-shadow:0 0 0 2px #ef4444"></div>' });
+    routeMarkers.push(L.marker(latlngs[0], { icon: startIcon }).addTo(map).bindTooltip('Start · ' + points[0].location_time));
+    routeMarkers.push(L.marker(latlngs[latlngs.length - 1], { icon: endIcon }).addTo(map).bindTooltip('End · ' + points[points.length - 1].location_time));
+    map.fitBounds(routePolyline.getBounds(), { padding: [40, 40] });
+    if (status) status.textContent = `${points.length} points · ${points[0].location_time} → ${points[points.length - 1].location_time}`;
+  } catch (e) {
+    if (status) status.textContent = e.message || 'Network error.';
+  }
+}
+
+function clearRouteHistory() {
+  if (routePolyline) { map.removeLayer(routePolyline); routePolyline = null; }
+  routeMarkers.forEach(m => map.removeLayer(m));
+  routeMarkers = [];
+  const status = document.getElementById('bt-route-status');
+  if (status) status.textContent = '';
+}
+
 window.BusTracking = {
   initBusMap,
   stopBusTracking,
@@ -691,4 +757,7 @@ window.BusTracking = {
   selectBus,
   refreshMapSize,
   toggleWatchersList,
+  toggleRoutePanel,
+  showRouteHistory,
+  clearRouteHistory,
 };

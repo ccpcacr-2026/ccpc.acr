@@ -15060,8 +15060,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               </p>
             </div>
           </div>
-          ${canExportBuses ? `<button onclick="BusTracking.exportBusData()" class="px-3.5 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="download" class="h-3.5 w-3.5"></i>Export</button>` : ''}
+          ${canExportBuses ? `<div class="flex items-center gap-2">
+            <button onclick="BusTracking.toggleRoutePanel()" class="px-3.5 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="route" class="h-3.5 w-3.5"></i>Route</button>
+            <button onclick="BusTracking.exportBusData()" class="px-3.5 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="download" class="h-3.5 w-3.5"></i>Export</button>
+          </div>` : ''}
           ${canExportBuses ? `<div id="bt-watchers-popover" class="hidden" style="position:absolute;top:56px;left:14px;z-index:1000;background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 10px 30px rgba(15,23,42,0.15);min-width:220px;max-width:280px;max-height:260px;overflow-y:auto;padding:10px;"></div>` : ''}
+          ${canExportBuses ? `<div id="bt-route-panel" class="hidden" style="position:absolute;top:56px;right:14px;z-index:1000;background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 10px 30px rgba(15,23,42,0.15);min-width:230px;padding:12px;">
+            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Route History</p>
+            <label class="text-[9px] font-black text-slate-400 uppercase">Bus</label>
+            <select id="bt-route-bus" class="w-full bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs px-2.5 py-1.5 mt-1 mb-2"></select>
+            <label class="text-[9px] font-black text-slate-400 uppercase">Date</label>
+            <input type="date" id="bt-route-date" class="w-full bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs px-2.5 py-1.5 mt-1 mb-2">
+            <div class="flex gap-1.5">
+              <button onclick="BusTracking.showRouteHistory()" class="flex-1 px-2.5 py-1.5 rounded-lg font-black text-[9px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">Show</button>
+              <button onclick="BusTracking.clearRouteHistory()" class="px-2.5 py-1.5 rounded-lg font-black text-[9px] uppercase tracking-widest border border-slate-200 text-slate-500 hover:bg-slate-50 transition-all">Clear</button>
+            </div>
+            <p id="bt-route-status" class="text-[9px] text-slate-400 font-bold mt-1.5"></p>
+          </div>` : ''}
         </div>
 
         <button id="bt-fleet-toggle" onclick="toggleFleetSheet()" class="flex items-center gap-1.5 bg-white border border-slate-200 rounded-full shadow-sm px-3 py-2 font-black text-[10px] uppercase tracking-widest text-slate-600">

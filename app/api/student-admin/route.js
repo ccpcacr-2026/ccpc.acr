@@ -3019,7 +3019,7 @@ export async function POST(req) {
           name: b.name, imei: b.imei,
           lat: parseFloat(d.latitude || 0),
           lng: parseFloat(d.longitude || 0),
-          speed: String(spd), isMoving: spd > 2,
+          speed: String(Math.round(spd)), isMoving: spd > 2,
           engine: !!d.engineStatus,
           address: d.address || 'Unknown location',
           time: d.locationTime || '',
@@ -3031,6 +3031,24 @@ export async function POST(req) {
     } catch (e) {
       return NextResponse.json({ result: 'error', message: e.message });
     }
+  }
+
+  // Admin-only: the route a bus actually drove on one day, plotted from
+  // student.bus_location_history — the same table the background poller
+  // (ccpc-students /api/bus-log) already writes a point to every time a
+  // bus moves >20m, so this needs no separate "journey" storage of its
+  // own. That table only keeps a rolling 3 days (see the poller's own
+  // cleanup), so `date` outside that window will just come back empty.
+  if (action === 'get_bus_route_history') {
+    if (!(await _isAdmin(user_id))) return NextResponse.json({ result: 'error', message: 'Admin access required.' }, { status: 403 });
+    const { imei, date } = payload || {};
+    if (!imei || !date) return NextResponse.json({ result: 'error', message: 'imei and date required.' });
+    const dayStart = `${date} 00:00:00`, dayEnd = `${date} 23:59:59`;
+    const rows = await sb(
+      `bus_location_history?imei=eq.${encodeURIComponent(imei)}&location_time=gte.${encodeURIComponent(dayStart)}&location_time=lte.${encodeURIComponent(dayEnd)}&select=lat,lng,speed,heading,location_time&order=location_time.asc&limit=5000`
+    );
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', points: Array.isArray(rows) ? rows : [] });
   }
 
   if (action === 'check_bus') {
