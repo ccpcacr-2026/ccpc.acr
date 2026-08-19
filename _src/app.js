@@ -15537,10 +15537,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div class="md:hidden flex flex-col gap-1.5">
         ${rows.map(r => {
           // Title = the "name"-ish column if this entity has one, else the
-          // first column at all; every OTHER column collapses into a single
-          // truncated subtitle line instead of one line per column — a
-          // Product with 8 columns was rendering as an 8-line card before,
-          // taller than the old table row it was meant to replace.
+          // first column at all, shown bold on its own line; every other
+          // column wraps naturally underneath as its own "Label: value" —
+          // multi-line is fine (this is a phone, not a table row), it just
+          // has to stay within the screen width, never force a horizontal
+          // scroll or truncate real information away.
           const nameCol = cfg.columns.find(c => /name$/i.test(c.key)) || cfg.columns[0];
           const title = _invDisplayValue(nameCol, r) || '—';
           const subParts = cfg.columns.filter(c => c !== nameCol).map(c => {
@@ -15550,11 +15551,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             return v === 'Yes' ? c.label : `${c.label}: ${v}`;
           }).filter(Boolean);
           return `
-        <div class="flex items-center gap-2 bg-white rounded-xl border border-slate-200 px-2.5 py-2 ${_invSettingsSelected.has(r.id) ? 'ring-2 ring-blue-100 border-blue-300' : ''}">
-          <button type="button" onclick="_invSettingsToggleSelect(${r.id})" class="ccb ${_invSettingsSelected.has(r.id) ? 'ccb-on' : ''}">${_invSettingsSelected.has(r.id) ? '<i data-lucide="check"></i>' : ''}</button>
+        <div class="flex items-start gap-2 bg-white rounded-xl border border-slate-200 px-2.5 py-2 ${_invSettingsSelected.has(r.id) ? 'ring-2 ring-blue-100 border-blue-300' : ''}">
+          <button type="button" onclick="_invSettingsToggleSelect(${r.id})" class="ccb mt-0.5 ${_invSettingsSelected.has(r.id) ? 'ccb-on' : ''}">${_invSettingsSelected.has(r.id) ? '<i data-lucide="check"></i>' : ''}</button>
           <div class="flex-1 min-w-0">
-            <p class="text-xs font-black text-slate-800 truncate">${_escHtml(title)}</p>
-            ${subParts.length ? `<p class="text-[10px] text-slate-500 font-bold truncate">${_escHtml(subParts.join(' · '))}</p>` : ''}
+            <p class="text-xs font-black text-slate-800 mb-0.5">${_escHtml(title)}</p>
+            ${subParts.length ? `<div class="flex flex-col gap-0.5">${subParts.map(p => `<p class="text-[10px] text-slate-500 font-bold break-words">${_escHtml(p)}</p>`).join('')}</div>` : ''}
           </div>
           <div class="flex flex-col items-end gap-0.5 shrink-0">
             <button onclick="openInventoryEntityForm('${_invCurrentEntity}', ${r.id})" class="text-blue-600 font-black text-[9px] uppercase tracking-tight leading-none">Edit</button>
