@@ -697,8 +697,36 @@ function toggleWatchersList() {
  * days is kept — see get_bus_route_history / the poller's own cleanup).
  * No separate "journey" storage needed since every ping is already saved.
  */
-let routePolyline = null;
+let routePolylines = [];
 let routeMarkers = [];
+
+// Speed buckets for the multicolor route line — same GPS speed field
+// already shown elsewhere, just bucketed here to make jams/waits jump out
+// visually instead of reading as a single flat-colored path.
+const ROUTE_SPEED_BUCKETS = [
+  { max: 2, color: '#6b7280', label: 'Waiting/Stopped (≤2 km/h)' },
+  { max: 10, color: '#ef4444', label: 'Jam (3–10 km/h)' },
+  { max: 25, color: '#f97316', label: 'Slow (11–25 km/h)' },
+  { max: 45, color: '#eab308', label: 'Moderate (26–45 km/h)' },
+  { max: Infinity, color: '#22c55e', label: 'Fast (46+ km/h)' },
+];
+function _routeSpeedColor(spd) {
+  const s = Math.round(parseFloat(spd)) || 0;
+  return (ROUTE_SPEED_BUCKETS.find(b => s <= b.max) || ROUTE_SPEED_BUCKETS[ROUTE_SPEED_BUCKETS.length - 1]).color;
+}
+function _routeLegendHtml() {
+  return ROUTE_SPEED_BUCKETS.map(b => `<span style="display:inline-flex;align-items:center;gap:4px;margin-right:8px"><span style="width:9px;height:9px;border-radius:50%;background:${b.color};display:inline-block"></span>${b.label}</span>`).join('');
+}
+// Compass bearing (0=N, 90=E) from one [lat,lng] to the next — fallback
+// for points whose reported `heading` is missing/blank.
+function _bearingBetween(a, b) {
+  const [lat1, lng1] = a, [lat2, lng2] = b;
+  if (lat1 === lat2 && lng1 === lng2) return null;
+  const toRad = d => d * Math.PI / 180;
+  const y = Math.sin(toRad(lng2 - lng1)) * Math.cos(toRad(lat2));
+  const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) - Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(toRad(lng2 - lng1));
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
 
 function toggleRoutePanel() {
   const panel = document.getElementById('bt-route-panel');
@@ -729,20 +757,51 @@ async function showRouteHistory() {
     const points = (res.points || []).filter(p => p.lat && p.lng);
     if (!points.length) { if (status) status.textContent = 'No route data for that day (only the last 3 days are kept).'; return; }
     const latlngs = points.map(p => [p.lat, p.lng]);
-    routePolyline = L.polyline(latlngs, { color: '#2563eb', weight: 4, opacity: 0.85 }).addTo(map);
+    // One short polyline segment per gap between consecutive points, each
+    // colored by the speed at its starting point — a single flat-colored
+    // line can't show where the bus was crawling/jammed/waiting along the
+    // way, only where it went.
+    for (let i = 0; i < latlngs.length - 1; i++) {
+      const seg = L.polyline([latlngs[i], latlngs[i + 1]], { color: _routeSpeedColor(points[i].speed), weight: 5, opacity: 0.9 }).addTo(map);
+      seg.bindTooltip(`${Math.round(parseFloat(points[i].speed)) || 0} km/h · ${points[i].location_time}`, { sticky: true });
+      routePolylines.push(seg);
+    }
+    // Direction arrows along the route — "smart" in that the stride
+    // between arrows scales with how many points the day has, so a short
+    // hop gets a few arrows and a long day-long route doesn't get
+    // cluttered with one every ~30s. Bearing prefers the bus's own
+    // reported heading (compass-accurate at low speed, where consecutive
+    // GPS fixes are too close together to derive a reliable bearing from)
+    // and only falls back to the two-point bearing when heading is
+    // missing.
+    const arrowStride = Math.max(1, Math.round(latlngs.length / 20));
+    for (let i = 0; i < latlngs.length - 1; i += arrowStride) {
+      const bearing = (points[i].heading !== null && points[i].heading !== undefined && points[i].heading !== '')
+        ? Number(points[i].heading)
+        : _bearingBetween(latlngs[i], latlngs[i + 1]);
+      if (bearing === null) continue;
+      const color = _routeSpeedColor(points[i].speed);
+      const arrowIcon = L.divIcon({
+        className: '', iconSize: [16, 16], iconAnchor: [8, 8],
+        html: `<div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:11px solid ${color};filter:drop-shadow(0 0 1px #fff);transform:rotate(${bearing}deg)"></div>`,
+      });
+      routeMarkers.push(L.marker(latlngs[i], { icon: arrowIcon, interactive: false }).addTo(map));
+    }
     const startIcon = L.divIcon({ className: '', html: '<div style="width:14px;height:14px;border-radius:50%;background:#10b981;border:2px solid #fff;box-shadow:0 0 0 2px #10b981"></div>' });
     const endIcon = L.divIcon({ className: '', html: '<div style="width:14px;height:14px;border-radius:50%;background:#ef4444;border:2px solid #fff;box-shadow:0 0 0 2px #ef4444"></div>' });
     routeMarkers.push(L.marker(latlngs[0], { icon: startIcon }).addTo(map).bindTooltip('Start · ' + points[0].location_time));
     routeMarkers.push(L.marker(latlngs[latlngs.length - 1], { icon: endIcon }).addTo(map).bindTooltip('End · ' + points[points.length - 1].location_time));
-    map.fitBounds(routePolyline.getBounds(), { padding: [40, 40] });
-    if (status) status.textContent = `${points.length} points · ${points[0].location_time} → ${points[points.length - 1].location_time}`;
+    const bounds = L.latLngBounds(latlngs);
+    map.fitBounds(bounds, { padding: [40, 40] });
+    if (status) status.innerHTML = `${points.length} points · ${points[0].location_time} → ${points[points.length - 1].location_time}<div style="margin-top:4px;font-size:10px;line-height:1.6">${_routeLegendHtml()}</div>`;
   } catch (e) {
     if (status) status.textContent = e.message || 'Network error.';
   }
 }
 
 function clearRouteHistory() {
-  if (routePolyline) { map.removeLayer(routePolyline); routePolyline = null; }
+  routePolylines.forEach(p => map.removeLayer(p));
+  routePolylines = [];
   routeMarkers.forEach(m => map.removeLayer(m));
   routeMarkers = [];
   const status = document.getElementById('bt-route-status');
