@@ -15258,12 +15258,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const container = document.getElementById('view-container');
     if (!container) return;
     container.innerHTML = `
-      <div class="sticky top-0 z-20 bg-white/95 backdrop-blur flex flex-wrap gap-2 mb-4 py-2 -mx-1 px-1">
-        <button id="invAdminTab_stock" onclick="switchInvAdminTab('stock')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all">Stock Overview</button>
-        <button id="invAdminTab_registry" onclick="switchInvAdminTab('registry')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all">Registry</button>
-        <button id="invAdminTab_distribute" onclick="switchInvAdminTab('distribute')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all">Distribute</button>
-        <button id="invAdminTab_settings" onclick="switchInvAdminTab('settings')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all">Settings</button>
-        <button id="invAdminTab_reports" onclick="switchInvAdminTab('reports')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all">Reports</button>
+      <div class="sticky top-0 z-20 bg-white/95 backdrop-blur flex flex-nowrap gap-2 mb-4 py-2 -mx-1 px-1 overflow-x-auto" style="scrollbar-width:none">
+        <button id="invAdminTab_stock" onclick="switchInvAdminTab('stock')" class="shrink-0 whitespace-nowrap px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all"><i data-lucide="package" class="h-3.5 w-3.5 inline -mt-0.5 mr-1"></i>Stock</button>
+        <button id="invAdminTab_registry" onclick="switchInvAdminTab('registry')" class="shrink-0 whitespace-nowrap px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all"><i data-lucide="clipboard-list" class="h-3.5 w-3.5 inline -mt-0.5 mr-1"></i>Registry</button>
+        <button id="invAdminTab_distribute" onclick="switchInvAdminTab('distribute')" class="shrink-0 whitespace-nowrap px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all"><i data-lucide="send" class="h-3.5 w-3.5 inline -mt-0.5 mr-1"></i>Distribute</button>
+        <button id="invAdminTab_settings" onclick="switchInvAdminTab('settings')" class="shrink-0 whitespace-nowrap px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all"><i data-lucide="settings-2" class="h-3.5 w-3.5 inline -mt-0.5 mr-1"></i>Settings</button>
+        <button id="invAdminTab_reports" onclick="switchInvAdminTab('reports')" class="shrink-0 whitespace-nowrap px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all"><i data-lucide="bar-chart-3" class="h-3.5 w-3.5 inline -mt-0.5 mr-1"></i>Reports</button>
       </div>
       <div id="invAdminBody"></div>
 
@@ -15361,6 +15361,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     ]).then(([res]) => {
       _invEntityRows = (res && res.data) || [];
       _invRenderSettingsTable();
+      lucide.createIcons();
     }).catch(err => {
       if (panel) panel.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml(err.message || 'Failed to load')}</div>`;
     });
@@ -15403,17 +15404,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // changes (openInventorySettingsEntity) or the row set reloads.
   let _invSettingsSelected = new Set();
 
-  function _invSettingsToggleSelect(id, checked) {
-    if (checked) _invSettingsSelected.add(id); else _invSettingsSelected.delete(id);
+  function _invSettingsToggleSelect(id) {
+    if (_invSettingsSelected.has(id)) _invSettingsSelected.delete(id); else _invSettingsSelected.add(id);
     const wrap = document.getElementById('invSettingsTableWrap');
     if (wrap) wrap.innerHTML = _invSettingsTableBodyHtml();
+    lucide.createIcons();
   }
 
-  function _invSettingsToggleAll(checked) {
+  function _invSettingsToggleAll() {
     const rows = _invFilteredSettingsRows();
-    _invSettingsSelected = checked ? new Set(rows.map(r => r.id)) : new Set();
+    const allChecked = rows.length && rows.every(r => _invSettingsSelected.has(r.id));
+    _invSettingsSelected = allChecked ? new Set() : new Set(rows.map(r => r.id));
     const wrap = document.getElementById('invSettingsTableWrap');
     if (wrap) wrap.innerHTML = _invSettingsTableBodyHtml();
+    lucide.createIcons();
   }
 
   function _invSettingsDeleteSelected() {
@@ -15445,11 +15449,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div class="overflow-x-auto">
         <table class="w-full text-left text-xs">
           <thead class="bg-slate-50"><tr>
-            <th class="px-3 py-2.5"><input type="checkbox" onchange="_invSettingsToggleAll(this.checked)" ${allChecked ? 'checked' : ''}></th>
-            ${cfg.columns.map(c => `<th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">${_escHtml(c.label)}</th>`).join('')}<th></th></tr></thead>
+            <th class="px-3 py-2.5"><button type="button" onclick="_invSettingsToggleAll()" class="ccb ${allChecked ? 'ccb-on' : ''}">${allChecked ? '<i data-lucide="check"></i>' : ''}</button></th>
+            ${cfg.columns.map(c => `<th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest whitespace-nowrap">${_escHtml(c.label)}</th>`).join('')}<th></th></tr></thead>
           <tbody>${rows.map(r => `<tr class="border-t border-slate-50 ${_invSettingsSelected.has(r.id) ? 'bg-blue-50' : ''}">
-            <td class="px-3 py-2.5"><input type="checkbox" onchange="_invSettingsToggleSelect(${r.id}, this.checked)" ${_invSettingsSelected.has(r.id) ? 'checked' : ''}></td>
-            ${cfg.columns.map(c => `<td class="px-3 py-2.5 font-bold text-slate-600">${_escHtml(_invDisplayValue(c, r))}</td>`).join('')}
+            <td class="px-3 py-2.5"><button type="button" onclick="_invSettingsToggleSelect(${r.id})" class="ccb ${_invSettingsSelected.has(r.id) ? 'ccb-on' : ''}">${_invSettingsSelected.has(r.id) ? '<i data-lucide="check"></i>' : ''}</button></td>
+            ${cfg.columns.map(c => `<td class="px-3 py-2.5 font-bold text-slate-600 whitespace-nowrap">${_escHtml(_invDisplayValue(c, r))}</td>`).join('')}
             <td class="px-3 py-2.5 text-right whitespace-nowrap">
               <button onclick="openInventoryEntityForm('${_invCurrentEntity}', ${r.id})" class="text-blue-600 font-black text-[10px] uppercase tracking-widest mr-3">Edit</button>
               <button onclick="deleteInventoryEntityRow('${_invCurrentEntity}', ${r.id})" class="text-red-500 font-black text-[10px] uppercase tracking-widest">Delete</button>
@@ -15471,13 +15475,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!panel || !cfg) return;
     const rows = _invEntityRows;
     panel.innerHTML = `
-      <div class="sticky top-16 z-10 bg-white -mx-5 -mt-5 px-5 pt-5 pb-4 mb-4 flex items-center justify-between gap-3 flex-wrap">
-        <p class="text-sm font-black text-slate-800 uppercase tracking-widest">${_escHtml(cfg.title)}</p>
-        <div class="flex gap-2 shrink-0 items-center">
-          ${rows.length ? `<input type="text" placeholder="Search…" value="${_escHtml(_invSettingsSearch)}" oninput="_invSettingsSearchInput(this.value)" class="w-44 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2.5">` : ''}
-          ${cfg.importKey ? `<button onclick="exportInventoryEntity('${_invCurrentEntity}')" title="Download every current row as an Excel file — edit it and re-upload via Import" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all">Export to Excel</button>` : ''}
-          ${cfg.importKey ? `<button onclick="openInventoryImportModal('${_invCurrentEntity}')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all">Import from Excel</button>` : ''}
-          <button onclick="openInventoryEntityForm('${_invCurrentEntity}')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">+ Create New</button>
+      <div class="sticky top-16 z-10 bg-white -mx-5 -mt-5 px-5 pt-5 pb-3 mb-4">
+        <div class="flex items-center justify-between gap-2 mb-2.5">
+          <p class="text-sm font-black text-slate-800 uppercase tracking-widest truncate">${_escHtml(cfg.title)}</p>
+          <button onclick="openInventoryEntityForm('${_invCurrentEntity}')" class="shrink-0 flex items-center gap-1 px-3.5 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest text-white transition-all whitespace-nowrap" style="background:linear-gradient(135deg,#2563eb,#4f46e5)"><i data-lucide="plus" class="h-3.5 w-3.5"></i>New</button>
+        </div>
+        <div class="flex flex-nowrap gap-2 overflow-x-auto" style="scrollbar-width:none">
+          ${rows.length ? `<input type="text" placeholder="Search…" value="${_escHtml(_invSettingsSearch)}" oninput="_invSettingsSearchInput(this.value)" class="shrink-0 w-36 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2">` : ''}
+          ${cfg.importKey ? `<button onclick="exportInventoryEntity('${_invCurrentEntity}')" title="Download every current row as an Excel file — edit it and re-upload via Import" class="shrink-0 flex items-center gap-1 whitespace-nowrap px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all"><i data-lucide="download" class="h-3.5 w-3.5"></i>Export</button>` : ''}
+          ${cfg.importKey ? `<button onclick="openInventoryImportModal('${_invCurrentEntity}')" class="shrink-0 flex items-center gap-1 whitespace-nowrap px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all"><i data-lucide="upload" class="h-3.5 w-3.5"></i>Import</button>` : ''}
         </div>
       </div>
       <div id="invSettingsTableWrap">${_invSettingsTableBodyHtml()}</div>`;
