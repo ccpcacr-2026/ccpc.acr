@@ -15582,16 +15582,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!panel || !cfg) return;
     const rows = _invEntityRows;
     panel.innerHTML = `
-      <div id="invSettingsHeaderBar" class="sticky top-0 z-10 bg-white -mx-5 -mt-5 px-5 pt-5 pb-3 mb-4">
-        <div class="flex items-center justify-between gap-2 mb-2.5">
-          <p class="text-sm font-black text-slate-800 uppercase tracking-widest truncate">${_escHtml(cfg.title)}</p>
-          <button onclick="openInventoryEntityForm('${_invCurrentEntity}')" class="shrink-0 flex items-center gap-1 px-3.5 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest text-white transition-all whitespace-nowrap" style="background:linear-gradient(135deg,#2563eb,#4f46e5)"><i data-lucide="plus" class="h-3.5 w-3.5 shrink-0"></i><span class="inv-btn-label">New</span></button>
+      <div id="invSettingsHeaderBar" class="sticky top-0 z-10 bg-white -mx-5 -mt-5 px-5 pt-3.5 pb-2 mb-2">
+        <div class="flex items-center justify-between gap-2 mb-1.5">
+          <p id="invSettingsTitle" class="font-black text-slate-800 uppercase tracking-widest truncate">${_escHtml(cfg.title)}</p>
+          <div class="flex items-center gap-1.5 shrink-0">
+            ${cfg.importKey ? `<button onclick="exportInventoryEntity('${_invCurrentEntity}')" title="Export${_invSettingsSelected.size ? ' selected' : ' all'} to Excel" class="inv-icon-btn flex items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all"><i data-lucide="download" class="h-3.5 w-3.5"></i></button>` : ''}
+            ${cfg.importKey ? `<button onclick="openInventoryImportModal('${_invCurrentEntity}')" title="Import from Excel" class="inv-icon-btn flex items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all"><i data-lucide="upload" class="h-3.5 w-3.5"></i></button>` : ''}
+            <button onclick="openInventoryEntityForm('${_invCurrentEntity}')" title="New" class="inv-icon-btn flex items-center justify-center rounded-lg text-white transition-all" style="background:linear-gradient(135deg,#2563eb,#4f46e5)"><i data-lucide="plus" class="h-4 w-4"></i></button>
+          </div>
         </div>
-        <div class="inv-search-row flex flex-nowrap gap-2 overflow-x-auto" style="scrollbar-width:none">
-          ${rows.length ? `<input type="text" id="invSettingsSearch" placeholder="Search…" value="${_escHtml(_invSettingsSearch)}" oninput="_invSettingsSearchInput(this.value)" class="shrink-0 w-36 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 transition-all">` : ''}
-          ${cfg.importKey ? `<button onclick="exportInventoryEntity('${_invCurrentEntity}')" title="Download every current row as an Excel file — edit it and re-upload via Import" class="shrink-0 flex items-center gap-1 whitespace-nowrap px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all"><i data-lucide="download" class="h-3.5 w-3.5 shrink-0"></i><span class="inv-btn-label">Export</span></button>` : ''}
-          ${cfg.importKey ? `<button onclick="openInventoryImportModal('${_invCurrentEntity}')" class="shrink-0 flex items-center gap-1 whitespace-nowrap px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all"><i data-lucide="upload" class="h-3.5 w-3.5 shrink-0"></i><span class="inv-btn-label">Import</span></button>` : ''}
-        </div>
+        ${rows.length ? `<input type="text" id="invSettingsSearch" placeholder="Search…" value="${_escHtml(_invSettingsSearch)}" oninput="_invSettingsSearchInput(this.value)" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 transition-all">` : ''}
       </div>
       <div id="invSettingsTableWrap">${_invSettingsTableBodyHtml()}</div>`;
     _invAttachHeaderScrollCompact();
@@ -15790,9 +15790,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const cfg = INV_ENTITIES[entityKey];
     if (!cfg) return;
     if (!_invEntityRows.length) { showToast('Nothing to export yet', 'error'); return; }
+    // A selection on the list scopes the export to just those rows — no
+    // separate "export selected" button needed, the one Export button just
+    // respects whatever's checked, same as Delete Selected does.
+    const sourceRows = _invSettingsSelected.size ? _invEntityRows.filter(r => _invSettingsSelected.has(r.id)) : _invEntityRows;
     ensureXLSX().then(() => {
       const headers = cfg.fields.map(f => f.label);
-      const rows = _invEntityRows.map(r => cfg.fields.map(f => {
+      const rows = sourceRows.map(r => cfg.fields.map(f => {
         const v = r[f.name];
         if (f.type === 'boolean') return (v === true || v === 'true') ? 'true' : 'false';
         return v == null ? '' : String(v);
