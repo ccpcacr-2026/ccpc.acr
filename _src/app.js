@@ -15542,6 +15542,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (_invSettingsSelected.has(id)) _invSettingsSelected.delete(id); else _invSettingsSelected.add(id);
     const wrap = document.getElementById('invSettingsTableWrap');
     if (wrap) wrap.innerHTML = _invSettingsTableBodyHtml();
+    _invRenderSettingsSelectionBar();
     lucide.createIcons();
   }
 
@@ -15551,6 +15552,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _invSettingsSelected = allChecked ? new Set() : new Set(rows.map(r => r.id));
     const wrap = document.getElementById('invSettingsTableWrap');
     if (wrap) wrap.innerHTML = _invSettingsTableBodyHtml();
+    _invRenderSettingsSelectionBar();
+    lucide.createIcons();
+  }
+
+  // Lives inside the sticky header (fixed below the search bar, never
+  // scrolls with the list) rather than as its own two-line block at the
+  // top of the card list, which used to scroll away with the content the
+  // moment you scrolled — a selection count that disappears the instant
+  // you scroll past it isn't much use.
+  function _invRenderSettingsSelectionBar() {
+    const host = document.getElementById('invSettingsSelectionBar');
+    if (!host) return;
+    const n = _invSettingsSelected.size;
+    host.innerHTML = n ? `
+      <div class="flex items-center justify-between gap-2 mt-1">
+        <span class="text-[9px] font-black text-slate-400 uppercase tracking-widest">${n} selected</span>
+        <button onclick="_invSettingsDeleteSelected()" title="Delete selected" class="w-6 h-6 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 flex items-center justify-center transition-all"><i data-lucide="trash-2" class="h-3 w-3"></i></button>
+      </div>` : '';
     lucide.createIcons();
   }
 
@@ -15576,7 +15595,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const n = _invSettingsSelected.size;
     const allChecked = rows.length && rows.every(r => _invSettingsSelected.has(r.id));
     return `
-      ${n ? `<div class="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-2.5 mb-2 flex items-center justify-between flex-wrap gap-3">
+      ${n ? `<div class="inv-desktop-flex bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-2.5 mb-2 items-center justify-between flex-wrap gap-3">
         <span class="text-[10px] font-black text-slate-500 uppercase tracking-widest">${n} selected</span>
         <button onclick="_invSettingsDeleteSelected()" class="px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest bg-red-500 text-white hover:bg-red-600 transition-all">Delete Selected (${n})</button>
       </div>` : ''}
@@ -15653,9 +15672,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
         </div>
         ${rows.length ? `<input type="text" id="invSettingsSearch" placeholder="Search…" value="${_escHtml(_invSettingsSearch)}" oninput="_invSettingsSearchInput(this.value)" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 transition-all">` : ''}
+        <div id="invSettingsSelectionBar"></div>
       </div>
       <div id="invSettingsTableWrap">${_invSettingsTableBodyHtml()}</div>`;
     _invAttachHeaderScrollCompact();
+    _invRenderSettingsSelectionBar();
   }
 
   // As the list scrolls under the sticky header, the header itself
