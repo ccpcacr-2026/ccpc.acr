@@ -16257,7 +16257,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             const active = r.is_active !== false;
             return `<tr class="border-t border-slate-50 ${active ? 'bg-emerald-50' : 'bg-red-50'}">
               <td class="px-3 py-2.5 font-bold text-slate-600">${_escHtml(r.code || '—')}</td>
-              <td class="px-3 py-2.5 font-black text-slate-800"><button onclick="openInventoryProductDetail(${r.id})" class="hover:underline">${_escHtml(r.name)}</button> <span class="font-bold ${active ? 'text-emerald-600' : 'text-red-500'}">per ${_escHtml(r.unit || 'unit')}</span></td>
+              <td class="px-3 py-2.5 font-black text-slate-800"><button onclick="_invOpenProductQuickView(${r.id})" class="hover:underline">${_escHtml(r.name)}</button> <span class="font-bold ${active ? 'text-emerald-600' : 'text-red-500'}">per ${_escHtml(r.unit || 'unit')}</span></td>
               <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(r.received || 0)}</td>
               <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(r.distributed || 0)}</td>
               <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(r.damaged || 0)}</td>
@@ -16275,7 +16275,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           const active = r.is_active !== false;
           return `
         <div class="rounded-xl border border-slate-200 px-2.5 py-2 ${active ? 'bg-emerald-50' : 'bg-red-50'}">
-          <p class="text-xs font-black text-slate-800 mb-0.5"><button onclick="openInventoryProductDetail(${r.id})" class="hover:underline">${_escHtml(r.name)}</button>${r.code ? ` <span class="font-bold text-slate-500">(${_escHtml(r.code)})</span>` : ''} <span class="font-bold ${active ? 'text-emerald-600' : 'text-red-500'}">per ${_escHtml(r.unit || 'unit')}</span></p>
+          <p class="text-xs font-black text-slate-800 mb-0.5"><button onclick="_invOpenProductQuickView(${r.id})" class="hover:underline">${_escHtml(r.name)}</button>${r.code ? ` <span class="font-bold text-slate-500">(${_escHtml(r.code)})</span>` : ''} <span class="font-bold ${active ? 'text-emerald-600' : 'text-red-500'}">per ${_escHtml(r.unit || 'unit')}</span></p>
           <p class="text-[10px] text-slate-500 font-bold">Received: ${Number(r.received || 0)} · Distributed: ${Number(r.distributed || 0)} · Damaged: ${Number(r.damaged || 0)}</p>
           <p class="text-[10px] text-slate-500 font-bold">Remaining: ${remaining} ${_escHtml(r.unit || '')}</p>
           <p class="text-[10px] text-slate-500 font-bold">Unit Price: ${price ? price.toFixed(2) : '—'} · Stock Value: ${price ? (price * remaining).toFixed(2) : '—'}</p>
@@ -16290,6 +16290,72 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">${_escHtml(label)}</p>
       <p class="text-2xl font-black ${highlight ? 'text-emerald-600' : 'text-slate-800'}">${Number(value || 0)}</p>
     </div>`;
+  }
+
+  // Quick-view popup from the Stock Overview list — everything about the
+  // product in one glance without leaving the list (openInventoryProduct-
+  // Detail below is the full page with purchase/distribution history,
+  // still reachable from here via "View Full History").
+  function _invOpenProductQuickView(productId) {
+    document.getElementById('invProductQuickView')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'invProductQuickView';
+    overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+    overlay.innerHTML = `<div class="bg-white rounded-2xl p-5 w-full max-w-sm max-h-[85vh] overflow-y-auto"><div class="text-center py-10 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div></div>`;
+    document.body.appendChild(overlay);
+    _invAdminFetch('product_quick_view', { id: productId }).then(res => {
+      const card = overlay.firstElementChild;
+      if (!res || res.result !== 'success') { card.innerHTML = `<div class="text-center py-10 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml((res && res.message) || 'Failed to load')}</div>`; return; }
+      const p = res.product, dep = res.depreciation, s = res.summary;
+      const active = p.is_active !== false;
+      const row = (label, value) => (value === '' || value === null || value === undefined) ? '' : `<div class="flex justify-between gap-3 py-1 border-b border-slate-50"><span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">${label}</span><span class="text-xs font-bold text-slate-700 text-right">${value}</span></div>`;
+      card.innerHTML = `
+        <div class="flex items-start justify-between gap-2 mb-1">
+          <p class="text-sm font-black text-slate-800">${_escHtml(p.name)}${p.code ? ` <span class="text-slate-400 font-bold">(${_escHtml(p.code)})</span>` : ''}</p>
+          <span class="w-2.5 h-2.5 rounded-full mt-1 shrink-0 ${active ? 'bg-emerald-500' : 'bg-red-500'}" title="${active ? 'Active' : 'Inactive'}"></span>
+        </div>
+        <p class="text-[10px] font-black uppercase tracking-widest mb-3 ${active ? 'text-emerald-600' : 'text-red-500'}">per ${_escHtml(res.unit_name || '—')} · ${active ? 'Active' : 'Inactive'}</p>
+        <div class="flex flex-col">
+          ${row('Register No.', p.register_no ? _escHtml(p.register_no) : '—')}
+          ${row('Page No.', p.page_no ? _escHtml(p.page_no) : '—')}
+          ${row('Group', res.group_name ? _escHtml(res.group_name) : '—')}
+          ${row('Unit', res.unit_name ? _escHtml(res.unit_name) : '—')}
+          ${row('Type', p.type ? _escHtml(p.type) : '—')}
+          ${row('Expireable', p.expireable ? 'Yes' : 'No')}
+          ${row('VAT Item', p.vat_item ? `Yes (${_escHtml(p.vat_type || 'n/a')})` : 'No')}
+          ${row('Received', Number(s.received || 0))}
+          ${row('Distributed', Number(s.distributed || 0))}
+          ${row('Damaged', Number(s.damaged || 0))}
+          ${row('Remaining', Number(s.remaining || 0))}
+          ${row('Original Unit Price', dep.avg_original_unit_price ? dep.avg_original_unit_price.toFixed(2) : '—')}
+          ${row('Depreciation', dep.rate_source === 'none' ? 'None' : `${dep.rate_percent}%/yr (${dep.rate_source === 'product' ? 'by product' : 'by group'})`)}
+          ${row('Current Price (after depreciation)', dep.avg_current_unit_price ? `<span class="text-emerald-600 font-black">${dep.avg_current_unit_price.toFixed(2)}</span>` : '—')}
+          ${row('Stock Value (current)', dep.qty_on_hand ? (dep.avg_current_unit_price * dep.qty_on_hand).toFixed(2) : '—')}
+        </div>
+        <div class="flex gap-2 mt-4">
+          <button onclick="_invEditProductFromQuickView(${p.id})" class="flex-1 px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">Edit Product Info</button>
+          <button onclick="document.getElementById('invProductQuickView').remove(); openInventoryProductDetail(${p.id})" class="px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-500 hover:bg-slate-50 transition-all">Full History</button>
+        </div>`;
+    }).catch(err => {
+      const card = overlay.firstElementChild;
+      if (card) card.innerHTML = `<div class="text-center py-10 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml(err.message || 'Network error')}</div>`;
+    });
+  }
+
+  // The generic entity-edit modal (openInventoryEntityForm) prefills from
+  // _invEntityRows, which only holds real data once the Products Settings
+  // list has actually been loaded — refetch it fresh here first so editing
+  // straight from this quick-view popup (which may be the first time
+  // Products Settings was ever touched this session) doesn't open a blank
+  // form.
+  function _invEditProductFromQuickView(id) {
+    _invAdminFetch('settings_list', { entity: 'products' }).then(res => {
+      _invCurrentEntity = 'products';
+      _invEntityRows = (res && res.data) || [];
+      document.getElementById('invProductQuickView')?.remove();
+      openInventoryEntityForm('products', id);
+    });
   }
 
   function openInventoryProductDetail(productId) {

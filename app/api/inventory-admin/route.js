@@ -520,6 +520,65 @@ async function _reportConsumerHoldings() {
   return NextResponse.json({ result: 'success', data: Array.isArray(rows) ? rows : [] });
 }
 
+// Powers the Stock Overview list's quick-view popup — everything about
+// one product (full product record + group/unit names + received/
+// distributed/damaged/remaining) plus the same declining-balance
+// depreciation math _reportProductValueSummary uses, applied per lot
+// still on hand, so the popup can show a real depreciated current price
+// next to the original unit price instead of just the raw purchase cost.
+async function _productQuickView(payload) {
+  const id = payload && payload.id;
+  if (!id) return NextResponse.json({ result: 'error', message: 'id is required.' }, { status: 400 });
+  const [productRows, summaryRows, groups, units, lots] = await Promise.all([
+    sbInventory(`products?id=eq.${encodeURIComponent(id)}&select=*`),
+    sbInventory(`product_stock_summary?id=eq.${encodeURIComponent(id)}&select=*`),
+    sbInventory('groups?select=id,name,depreciation_rate_percent'),
+    sbInventory('units?select=id,name,short_form'),
+    sbInventory(`purchase_items?product_id=eq.${encodeURIComponent(id)}&qty_remaining=gt.0&select=qty_remaining,unit_price,created_at`),
+  ]);
+  if (productRows?.error) return NextResponse.json({ result: 'error', message: productRows.error }, { status: 500 });
+  const product = Array.isArray(productRows) && productRows[0];
+  if (!product) return NextResponse.json({ result: 'error', message: 'Product not found.' }, { status: 404 });
+  const summary = (Array.isArray(summaryRows) && summaryRows[0]) || {};
+  const group = (Array.isArray(groups) ? groups : []).find(g => g.id === product.group_id);
+  const unit = (Array.isArray(units) ? units : []).find(u => u.id === product.unit_id);
+
+  let effectiveRate, rateSource;
+  if (product.depreciation_rate_percent !== null && product.depreciation_rate_percent !== undefined) {
+    effectiveRate = product.depreciation_rate_percent; rateSource = 'product';
+  } else if (group && group.depreciation_rate_percent !== null && group.depreciation_rate_percent !== undefined) {
+    effectiveRate = group.depreciation_rate_percent; rateSource = 'group';
+  } else { effectiveRate = 0; rateSource = 'none'; }
+  const rate = Number(effectiveRate || 0) / 100;
+
+  const now = Date.now();
+  let qty = 0, originalValue = 0, currentValue = 0;
+  for (const lot of (Array.isArray(lots) ? lots : [])) {
+    const lotQty = Number(lot.qty_remaining || 0);
+    const price = Number(lot.unit_price || 0);
+    const years = Math.max(0, (now - new Date(lot.created_at).getTime()) / (365.25 * 24 * 3600 * 1000));
+    const depreciatedPrice = rate > 0 ? price * Math.pow(1 - rate, years) : price;
+    qty += lotQty;
+    originalValue += lotQty * price;
+    currentValue += lotQty * depreciatedPrice;
+  }
+
+  return NextResponse.json({
+    result: 'success',
+    product,
+    group_name: group ? group.name : null,
+    unit_name: unit ? (unit.name || unit.short_form) : null,
+    summary,
+    depreciation: {
+      rate_percent: effectiveRate,
+      rate_source: rateSource,
+      qty_on_hand: qty,
+      avg_original_unit_price: qty ? originalValue / qty : Number(summary.latest_unit_price || 0),
+      avg_current_unit_price: qty ? currentValue / qty : Number(summary.latest_unit_price || 0),
+    },
+  });
+}
+
 async function _productsSummary(payload) {
   const q = (payload.q || '').trim();
   let path = 'product_stock_summary?select=*&order=name.asc';
@@ -1286,6 +1345,7 @@ export async function POST(req) {
   if (action === 'settings_import_preview') return _settingsImportPreview(payload);
   if (action === 'settings_import_confirm') return _settingsImportConfirm(payload);
   if (action === 'products_summary') return _productsSummary(payload);
+  if (action === 'product_quick_view') return _productQuickView(payload);
   if (action === 'product_history') return _productHistory(payload);
   if (action === 'registry_create') return _registryCreate(payload);
   if (action === 'distribute_list') return _distributeList();
