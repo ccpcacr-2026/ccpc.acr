@@ -969,12 +969,15 @@ button { user-select: none; }
 }
 .bt-fleet-actions button:hover { background: #2563eb; border-color: #2563eb; color: #fff; }
 
+/* Same reasoning as .bt-info-card above — these rows fill the sidebar's
+   interior, so a solid background here defeats the container's own
+   translucency almost entirely. */
 .bt-list-item {
   padding: 6px 9px; border-radius: 12px; border: 1px solid #e2e8f0;
-  background: #fff; cursor: pointer; transition: all 0.15s ease;
+  background: rgba(255,255,255,0.55); cursor: pointer; transition: all 0.15s ease;
 }
-.bt-list-item:hover { border-color: #93c5fd; background: #f8fafc; }
-.bt-list-item.active { border-color: #2563eb; background: #eff6ff; box-shadow: 0 0 0 2px rgba(37,99,235,0.12); }
+.bt-list-item:hover { border-color: #93c5fd; background: rgba(248,250,252,0.75); }
+.bt-list-item.active { border-color: #2563eb; background: rgba(239,246,255,0.8); box-shadow: 0 0 0 2px rgba(37,99,235,0.12); }
 .bt-list-item.dimmed { opacity: 0.45; }
 
 .bt-check {
@@ -1023,7 +1026,10 @@ button { user-select: none; }
 .bt-list-meta .spd.idle   { color: #b45309; }
 .bt-list-meta .sep { opacity: 0.5; margin: 0 2px; }
 
-.bt-info-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
+/* Solid white here would fill nearly the whole sidebar and mask its own
+   transparency (see #bus-sidebar) almost completely, since this card is
+   what actually occupies most of that space — kept translucent too. */
+.bt-info-card { background: rgba(255,255,255,0.6); border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
 .bt-info-head {
   padding: 7px 11px; display: flex; align-items: center; justify-content: space-between; gap: 8px;
   background: linear-gradient(135deg,#eff6ff,#eef2ff); border-bottom: 1px solid #e2e8f0;
@@ -1101,26 +1107,25 @@ button { user-select: none; }
      sits directly on top of the map on every screen size (see the
      full-bleed layout note above), so a solid background hides whatever
      part of the map is underneath it the whole time it's open. */
-  background: rgba(255,255,255,0.88); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  background: rgba(255,255,255,0.72); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
   box-shadow: 0 8px 30px rgba(15,23,42,0.18);
   overflow: hidden;
   display: flex; flex-direction: column; gap: 6px;
 }
 
 /* Floating "follow" card — shown only while a single bus is selected
-   (see selectBus/exitFollowMode in bus-tracking.js), sitting directly on
-   the map instead of requiring the fleet sidebar to be open, so the
-   details are visible even with the sidebar collapsed on mobile.
-   Semi-transparent for the same reason as #bus-sidebar above. */
+   (see selectBus/exitFollowMode in bus-tracking.js), pinned to the map's
+   left edge (out of the way of the fleet sidebar, which floats on the
+   right/bottom) instead of requiring that sidebar to be open. Very
+   light (~15% opacity) — this sits directly over the map while
+   following, so it needs to stay unobtrusive, not just translucent. */
 #bt-follow-card {
-  position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 980;
-  background: rgba(255,255,255,0.88); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-  border: 1px solid rgba(226,232,240,0.9); border-radius: 18px;
-  box-shadow: 0 8px 30px rgba(15,23,42,0.18);
-  padding: 12px 14px;
-}
-@media (min-width: 768px) {
-  #bt-follow-card { left: 10px; right: 320px; bottom: 10px; }
+  position: absolute; left: 10px; top: 68px; z-index: 980;
+  width: 190px; max-width: 46vw;
+  background: rgba(255,255,255,0.15); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  border: 1px solid rgba(226,232,240,0.5); border-radius: 14px;
+  box-shadow: 0 6px 20px rgba(15,23,42,0.10);
+  padding: 8px 10px;
 }
 
 /* Desktop/tablet: sidebar floats as a card on the right; always open,
