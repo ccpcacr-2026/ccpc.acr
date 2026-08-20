@@ -909,19 +909,20 @@ button { user-select: none; }
 /* Subtle, cohesive tile tone — only the base map, never markers/circles */
 .leaflet-tile-pane { filter: saturate(0.9) brightness(1.02); }
 
-/* Zoom buttons: clean rounded pair instead of Leaflet's default squares */
+/* Zoom buttons: small, half-transparent pair instead of Leaflet's
+   default solid squares (which looked out of place floating on the map). */
 .leaflet-control-zoom {
-  border: 1px solid #e2e8f0 !important;
-  box-shadow: 0 4px 14px rgba(0,0,0,0.1) !important;
+  border: 1px solid rgba(226,232,240,0.6) !important;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.08) !important;
 }
 .leaflet-control-zoom a {
-  width: 30px !important; height: 30px !important; line-height: 30px !important;
-  background: #fff !important; color: #475569 !important;
-  font-weight: 700 !important; border: none !important;
+  width: 22px !important; height: 22px !important; line-height: 22px !important;
+  background: rgba(255,255,255,0.5) !important; color: #475569 !important;
+  font-weight: 700 !important; font-size: 13px !important; border: none !important;
 }
-.leaflet-control-zoom a:hover { background: #f8fafc !important; color: #2563eb !important; }
-.leaflet-control-zoom-in { border-radius: 12px 12px 0 0 !important; }
-.leaflet-control-zoom-out { border-radius: 0 0 12px 12px !important; }
+.leaflet-control-zoom a:hover { background: rgba(255,255,255,0.75) !important; color: #2563eb !important; }
+.leaflet-control-zoom-in { border-radius: 10px 10px 0 0 !important; }
+.leaflet-control-zoom-out { border-radius: 0 0 10px 10px !important; }
 
 /* Attribution: just a quiet pill in the corner, not a banner */
 .leaflet-control-attribution {
@@ -1008,6 +1009,15 @@ button { user-select: none; }
    restructure them. */
 .bt-row1 { display: flex; align-items: center; gap: 8px; }
 .bt-row1-name { font-size: 13px; font-weight: 800; color: #1e293b; white-space: nowrap; }
+/* Animated moving/idle indicator right after the name — quick at-a-
+   glance state without having to read the row 2 badge text. */
+.bt-status-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; animation: btStatusPulse 1.8s ease-in-out infinite; }
+.bt-status-dot.moving { background: #22c55e; box-shadow: 0 0 0 rgba(34,197,94,0.5); }
+.bt-status-dot.idle   { background: #f97316; box-shadow: 0 0 0 rgba(249,115,22,0.5); }
+@keyframes btStatusPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.5; transform: scale(1.3); }
+}
 .bt-row2 { display: flex; align-items: center; gap: 6px; margin-top: 4px; white-space: nowrap; }
 .bt-badge-mini {
   padding: 2px 8px; border-radius: 999px; font-size: 9px; font-weight: 800;
@@ -1177,9 +1187,10 @@ button { user-select: none; }
      location, truncated with an ellipsis instead of forcing the panel
      wide enough for a full address. */
   .bt-list-item { padding: 4px 6px; }
-  .bt-row1 { display: flex; align-items: center; gap: 5px; }
-  .bt-row1-name { font-size: 10px; font-weight: 800; color: #1e293b; white-space: nowrap; }
-  .bt-row2 { display: flex; align-items: center; gap: 4px; margin-top: 2px; }
+  .bt-row1 { display: flex; align-items: center; gap: 5px; line-height: 1; }
+  .bt-row1-name { font-size: 10px; font-weight: 800; color: #1e293b; white-space: nowrap; line-height: 1; }
+  .bt-status-dot { width: 5px; height: 5px; }
+  .bt-row2 { display: flex; align-items: center; gap: 4px; margin-top: 0; line-height: 1; }
   .bt-badge-mini {
     padding: 1px 5px; border-radius: 999px; font-size: 6.5px; font-weight: 800;
     text-transform: uppercase; letter-spacing: 0.02em; flex-shrink: 0;
