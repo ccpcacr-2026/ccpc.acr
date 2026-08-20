@@ -15579,6 +15579,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { value: 'code_asc', label: 'Code (A–Z)' },
     { value: 'regno_asc', label: 'Register No. (Low–High)' },
     { value: 'pageno_asc', label: 'Page No. (Low–High)' },
+    { value: 'regno_pageno_name', label: 'Reg No. → Page No. → Name' },
     { value: 'group_asc', label: 'Group (A–Z)' },
     { value: 'depr_desc', label: 'Depreciation %/Yr (High–Low)' },
     { value: 'active_desc', label: 'Active First' },
@@ -15589,17 +15590,28 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const group = (_invEntityLookups['groups'] || []).find(g => String(g.id) === String(r.group_id));
     return group && group.depreciation_rate_percent !== null && group.depreciation_rate_percent !== undefined ? Number(group.depreciation_rate_percent) : 0;
   }
+  // numeric:true so "2" sorts before "10" instead of alphabetically —
+  // matters here since register/page numbers are almost always plain
+  // digit strings (e.g. "1".."301"). Shared by both the Stock Overview
+  // and Product Info "Reg No. -> Page No. -> Name" combined sort, which
+  // chains all three as tiebreakers rather than a single field.
+  function _invNatCompare(a, b) {
+    return String(a || '').localeCompare(String(b || ''), undefined, { numeric: true, sensitivity: 'base' });
+  }
+  function _invRegPageNameCompare(a, b) {
+    return _invNatCompare(a.register_no, b.register_no)
+      || _invNatCompare(a.page_no, b.page_no)
+      || String(a.name || '').localeCompare(String(b.name || ''));
+  }
   function _invSortProductRows(rows) {
+    if (_invProductSort === 'regno_pageno_name') return rows.slice().sort(_invRegPageNameCompare);
     const [field, dir] = _invProductSort.split('_');
     const sign = dir === 'desc' ? -1 : 1;
     return rows.slice().sort((a, b) => {
       if (field === 'name') return sign * String(a.name || '').localeCompare(String(b.name || ''));
       if (field === 'code') return sign * String(a.code || '').localeCompare(String(b.code || ''));
-      // numeric:true so "2" sorts before "10" instead of alphabetically
-      // (matters here since register/page numbers are almost always
-      // plain digit strings, e.g. "1".."301").
-      if (field === 'regno') return sign * String(a.register_no || '').localeCompare(String(b.register_no || ''), undefined, { numeric: true, sensitivity: 'base' });
-      if (field === 'pageno') return sign * String(a.page_no || '').localeCompare(String(b.page_no || ''), undefined, { numeric: true, sensitivity: 'base' });
+      if (field === 'regno') return sign * _invNatCompare(a.register_no, b.register_no);
+      if (field === 'pageno') return sign * _invNatCompare(a.page_no, b.page_no);
       if (field === 'group') return sign * String(_invProductGroupName(a) || '').localeCompare(String(_invProductGroupName(b) || ''));
       if (field === 'depr') return sign * (_invProductEffectiveRate(a) - _invProductEffectiveRate(b));
       if (field === 'active') return sign * ((b.is_active ? 1 : 0) - (a.is_active ? 1 : 0));
@@ -16228,6 +16240,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   const INV_STOCK_SORT_OPTIONS = [
     { value: 'name_asc', label: 'Name (A–Z)' },
     { value: 'name_desc', label: 'Name (Z–A)' },
+    { value: 'regno_pageno_name', label: 'Reg No. → Page No. → Name' },
     { value: 'remaining_desc', label: 'Remaining (High–Low)' },
     { value: 'remaining_asc', label: 'Remaining (Low–High)' },
     { value: 'received_desc', label: 'Received (High–Low)' },
@@ -16236,6 +16249,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { value: 'value_desc', label: 'Stock Value (High–Low)' },
   ];
   function _invSortStockRows(rows) {
+    if (_invStockSort === 'regno_pageno_name') return rows.slice().sort(_invRegPageNameCompare);
     const [field, dir] = _invStockSort.split('_');
     const sign = dir === 'desc' ? -1 : 1;
     return rows.slice().sort((a, b) => {
