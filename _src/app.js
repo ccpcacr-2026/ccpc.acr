@@ -16501,30 +16501,61 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (!res || res.result !== 'success') { body.innerHTML = `<div class="text-center py-10 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml((res && res.message) || 'Failed to load')}</div>`; return; }
       const p = res.product, dep = res.depreciation, s = res.summary;
       const active = p.is_active !== false;
-      const row = (label, value) => (value === '' || value === null || value === undefined) ? '' : `<div class="flex justify-between gap-3 py-1 border-b border-slate-50"><span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">${label}</span><span class="text-xs font-bold text-slate-700 text-right">${value}</span></div>`;
+      // Small colored label:value chip — used for the identity/reference
+      // fields, one accent color per field so the panel reads at a glance
+      // instead of as one flat gray list.
+      const chip = (label, value, color) => (value === '' || value === null || value === undefined) ? '' : `<div class="rounded-xl px-3 py-2" style="background:${color}0d"><p class="text-[9px] font-black uppercase tracking-widest" style="color:${color}">${label}</p><p class="text-xs font-bold text-slate-700 mt-0.5">${value}</p></div>`;
+      // Stock-flow stat card — icon + number, one accent color per stage.
+      const stat = (icon, label, value, color) => `
+        <div class="rounded-xl p-2.5 flex items-center gap-2" style="background:${color}0d">
+          <div class="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style="background:${color}1a;color:${color}"><i data-lucide="${icon}" class="h-3.5 w-3.5"></i></div>
+          <div class="min-w-0"><p class="text-[8px] font-black uppercase tracking-widest text-slate-400">${label}</p><p class="text-sm font-black" style="color:${color}">${value}</p></div>
+        </div>`;
+      const depColor = dep.rate_source === 'none' ? '#94a3b8' : (dep.rate_source === 'product' ? '#7c3aed' : '#f59e0b');
       body.innerHTML = `
         <div class="flex items-start justify-between gap-2 mb-1">
           <p class="text-sm font-black text-slate-800">${_escHtml(p.name)}${p.code ? ` <span class="text-slate-400 font-bold">(${_escHtml(p.code)})</span>` : ''}</p>
           <span class="w-2.5 h-2.5 rounded-full mt-1 shrink-0 ${active ? 'bg-emerald-500' : 'bg-red-500'}" title="${active ? 'Active' : 'Inactive'}"></span>
         </div>
         <p class="text-[10px] font-black uppercase tracking-widest mb-3 ${active ? 'text-emerald-600' : 'text-red-500'}">per ${_escHtml(res.unit_name || '—')} · ${active ? 'Active' : 'Inactive'}</p>
-        <div class="flex flex-col">
-          ${row('Register No.', p.register_no ? _escHtml(p.register_no) : '—')}
-          ${row('Page No.', p.page_no ? _escHtml(p.page_no) : '—')}
-          ${row('Group', res.group_name ? _escHtml(res.group_name) : '—')}
-          ${row('Unit', res.unit_name ? _escHtml(res.unit_name) : '—')}
-          ${row('Type', p.type ? _escHtml(p.type) : '—')}
-          ${row('Expireable', p.expireable ? 'Yes' : 'No')}
-          ${row('VAT Item', p.vat_item ? `Yes (${_escHtml(p.vat_type || 'n/a')})` : 'No')}
-          ${row('Received', Number(s.received || 0))}
-          ${row('Distributed', Number(s.distributed || 0))}
-          ${row('Damaged', Number(s.damaged || 0))}
-          ${row('Remaining', Number(s.remaining || 0))}
-          ${row('Original Unit Price', dep.avg_original_unit_price ? dep.avg_original_unit_price.toFixed(2) : '—')}
-          ${row('Depreciation', dep.rate_source === 'none' ? 'None' : `${dep.rate_percent}%/yr (${dep.rate_source === 'product' ? 'by product' : 'by group'})`)}
-          ${row('Current Price (after depreciation)', dep.avg_current_unit_price ? `<span class="text-emerald-600 font-black">${dep.avg_current_unit_price.toFixed(2)}</span>` : '—')}
-          ${row('Stock Value (current)', dep.qty_on_hand ? (dep.avg_current_unit_price * dep.qty_on_hand).toFixed(2) : '—')}
+
+        <div class="grid grid-cols-2 gap-1.5 mb-3">
+          ${chip('Register No.', p.register_no ? _escHtml(p.register_no) : '—', '#0ea5e9')}
+          ${chip('Page No.', p.page_no ? _escHtml(p.page_no) : '—', '#0ea5e9')}
+          ${chip('Group', res.group_name ? _escHtml(res.group_name) : '—', '#7c3aed')}
+          ${chip('Type', p.type ? _escHtml(p.type) : '—', '#7c3aed')}
+          ${chip('Expireable', p.expireable ? 'Yes' : 'No', p.expireable ? '#f97316' : '#94a3b8')}
+          ${chip('VAT Item', p.vat_item ? `Yes (${_escHtml(p.vat_type || 'n/a')})` : 'No', p.vat_item ? '#f97316' : '#94a3b8')}
+        </div>
+
+        <p class="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1.5">Stock Flow</p>
+        <div class="grid grid-cols-2 gap-1.5 mb-3">
+          ${stat('arrow-down-to-line', 'Received', Number(s.received || 0), '#2563eb')}
+          ${stat('arrow-up-from-line', 'Distributed', Number(s.distributed || 0), '#f97316')}
+          ${stat('alert-triangle', 'Damaged', Number(s.damaged || 0), '#ef4444')}
+          ${stat('package-check', 'Remaining', Number(s.remaining || 0), '#10b981')}
+        </div>
+
+        <p class="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1.5">Pricing</p>
+        <div class="rounded-xl p-3 flex flex-col gap-2" style="background:linear-gradient(135deg,#10b9810d,#10b98105)">
+          <div class="flex justify-between items-center">
+            <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Original Price</span>
+            <span class="text-xs font-bold text-slate-600">${dep.avg_original_unit_price ? dep.avg_original_unit_price.toFixed(2) : '—'}</span>
+          </div>
+          <div class="flex justify-between items-center">
+            <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Depreciation</span>
+            <span class="text-xs font-bold" style="color:${depColor}">${dep.rate_source === 'none' ? 'None' : `${dep.rate_percent}%/yr (${dep.rate_source === 'product' ? 'by product' : 'by group'})`}</span>
+          </div>
+          <div class="flex justify-between items-center pt-2 border-t border-emerald-100">
+            <span class="text-[10px] font-black text-emerald-700 uppercase tracking-widest">Current Price</span>
+            <span class="text-base font-black text-emerald-600">${dep.avg_current_unit_price ? dep.avg_current_unit_price.toFixed(2) : '—'}</span>
+          </div>
+          <div class="flex justify-between items-center">
+            <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Stock Value (current)</span>
+            <span class="text-xs font-black text-emerald-600">${dep.qty_on_hand ? (dep.avg_current_unit_price * dep.qty_on_hand).toFixed(2) : '—'}</span>
+          </div>
         </div>`;
+      lucide.createIcons();
       const footer = document.createElement('div');
       footer.className = 'shrink-0 p-3 border-t border-slate-100 bg-white';
       footer.innerHTML = `
