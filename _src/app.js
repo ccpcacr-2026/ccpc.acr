@@ -16447,8 +16447,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           const active = r.is_active !== false;
           return `
         <div class="rounded-xl border border-slate-200 px-2.5 py-2 ${active ? 'bg-emerald-50' : 'bg-red-50'}">
-          <p class="text-[10px] text-slate-500 font-bold">Reg No: ${_escHtml(r.register_no || '—')} · Page No: ${_escHtml(r.page_no || '—')}</p>
-          <p class="text-xs font-black text-slate-800 mb-0.5"><button onclick="_invOpenProductQuickView(${r.id})" class="hover:underline">${_escHtml(r.name)}</button>${r.code ? ` <span class="font-bold text-slate-500">(${_escHtml(r.code)})</span>` : ''} <span class="font-bold ${active ? 'text-emerald-600' : 'text-red-500'}">per ${_escHtml(r.unit || 'unit')}</span></p>
+          <p class="text-xs font-black text-slate-800"><button onclick="_invOpenProductQuickView(${r.id})" class="hover:underline">${_escHtml(r.name)}</button>${r.code ? ` <span class="font-bold text-slate-500">(${_escHtml(r.code)})</span>` : ''} <span class="font-bold ${active ? 'text-emerald-600' : 'text-red-500'}">per ${_escHtml(r.unit || 'unit')}</span></p>
+          <p class="text-[9px] text-slate-400 font-bold mb-0.5">Reg No: ${_escHtml(r.register_no || '—')} · Page No: ${_escHtml(r.page_no || '—')}</p>
           <p class="text-[10px] text-slate-500 font-bold">Received: ${Number(r.received || 0)} · Distributed: ${Number(r.distributed || 0)} · Damaged: ${Number(r.damaged || 0)}</p>
           <p class="text-[10px] text-slate-500 font-bold">Remaining: ${remaining} ${_escHtml(r.unit || '')}</p>
           <p class="text-[10px] text-slate-500 font-bold">Unit Price: ${price ? price.toFixed(2) : '—'} · Stock Value: ${price ? (price * remaining).toFixed(2) : '—'}</p>
