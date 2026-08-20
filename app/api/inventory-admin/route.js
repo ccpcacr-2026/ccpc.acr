@@ -1021,7 +1021,7 @@ async function _distributeCreate(payload) {
 
   const distribution = await sbInventory('distributions', 'POST', {
     distribute_no: `DIST-${Date.now()}`,
-    consumer_id: consumerId,
+    consumer_id: consumer.id,
     entry_type: 'fifo',
     receiver_user_id: receiverUserId,
     remarks: payload.remarks || (consumer.type === 'committee' ? `Committee: ${consumer.name}` : null),
@@ -1052,14 +1052,14 @@ async function _distributeCreate(payload) {
   }
 
   // Upsert the recipient's holder_stock (increment if a row already exists).
-  const existingHolding = await sbInventory(`holder_stock?consumer_id=eq.${encodeURIComponent(consumerId)}&product_id=eq.${encodeURIComponent(productId)}&select=*`);
+  const existingHolding = await sbInventory(`holder_stock?consumer_id=eq.${encodeURIComponent(consumer.id)}&product_id=eq.${encodeURIComponent(productId)}&select=*`);
   if (Array.isArray(existingHolding) && existingHolding.length) {
     await sbInventory(`holder_stock?id=eq.${existingHolding[0].id}`, 'PATCH', {
       quantity: Number(existingHolding[0].quantity) + qty,
       updated_at: new Date().toISOString(),
     });
   } else {
-    await sbInventory('holder_stock', 'POST', { consumer_id: consumerId, product_id: productId, quantity: qty });
+    await sbInventory('holder_stock', 'POST', { consumer_id: consumer.id, product_id: productId, quantity: qty });
   }
 
   if (receiverUserId) {
