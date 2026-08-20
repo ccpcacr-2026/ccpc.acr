@@ -16174,6 +16174,26 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // ── Stock Overview + Product Detail (read-only) ─────────────────────────
   let _invStockRows = [];
   let _invDistributePreselectProduct = null;
+  let _invStockSort = 'name_asc';
+  const INV_STOCK_SORT_OPTIONS = [
+    { value: 'name_asc', label: 'Name (A–Z)' },
+    { value: 'name_desc', label: 'Name (Z–A)' },
+    { value: 'remaining_desc', label: 'Remaining (High–Low)' },
+    { value: 'remaining_asc', label: 'Remaining (Low–High)' },
+    { value: 'received_desc', label: 'Received (High–Low)' },
+    { value: 'distributed_desc', label: 'Distributed (High–Low)' },
+    { value: 'damaged_desc', label: 'Damaged (High–Low)' },
+    { value: 'value_desc', label: 'Stock Value (High–Low)' },
+  ];
+  function _invSortStockRows(rows) {
+    const [field, dir] = _invStockSort.split('_');
+    const sign = dir === 'desc' ? -1 : 1;
+    return rows.slice().sort((a, b) => {
+      if (field === 'name') return sign * String(a.name || '').localeCompare(String(b.name || ''));
+      const val = r => field === 'value' ? Number(r.latest_unit_price || 0) * Number(r.remaining || 0) : Number(r[field] || 0);
+      return sign * (val(a) - val(b));
+    });
+  }
 
   function loadInventoryStockPanel() {
     const body = document.getElementById('invAdminBody');
@@ -16182,12 +16202,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5">
         <div class="flex items-center gap-3 flex-wrap mb-4">
           <input id="invStockSearch" type="text" placeholder="Search by product name or code…" class="flex-1 max-w-sm bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2">
+          <select id="invStockSort" class="bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2">
+            ${INV_STOCK_SORT_OPTIONS.map(o => `<option value="${o.value}" ${o.value === _invStockSort ? 'selected' : ''}>${_escHtml(o.label)}</option>`).join('')}
+          </select>
         </div>
         <div id="invStockTableWrap"><div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div></div>
       </div>`;
     const search = document.getElementById('invStockSearch');
     let debounceTimer;
     search.addEventListener('input', () => { clearTimeout(debounceTimer); debounceTimer = setTimeout(() => _invLoadStockTable(search.value.trim()), 300); });
+    const sortSel = document.getElementById('invStockSort');
+    sortSel.addEventListener('change', () => { _invStockSort = sortSel.value; _invRenderStockTable(_invStockRows); });
     _invLoadStockTable('');
   }
 
@@ -16201,7 +16226,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
   }
 
-  function _invRenderStockTable(rows) {
+  function _invRenderStockTable(unsortedRows) {
+    const rows = _invSortStockRows(unsortedRows);
     const wrap = document.getElementById('invStockTableWrap');
     if (!wrap) return;
     if (!rows.length) {
