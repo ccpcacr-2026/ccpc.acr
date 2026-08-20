@@ -49,6 +49,8 @@ const RESERVED = [
   '_prOpenStatutoryForm','_prCloseStatutoryForm','_prToggleStatutoryCalcFields','_prToggleStatutoryEmployerFields','_prSaveStatutoryItem','_prDeleteStatutoryItem',
   '_prOpenBonusForm','_prCloseBonusForm','_prSaveBonusPayment','_prDeleteBonusPayment',
   '_prOpenLeaveForm','_prCloseLeaveForm','_prSaveLeaveDeduction','_prDeleteLeaveDeduction','loadMyPayslipsView',
+  '_prSuggestFromLeaveRequests','_prPrefillLeaveFromRequest','_prExportBankFile',
+  '_prOpenImportModal','_prCloseImportModal','_prHandleImportFile',
   '_prSelectSection','_prOpenSectionForm','_prCloseSectionForm','_prSaveSection','_prDeleteSection',
   '_prOpenSectionEntryForm','_prCloseSectionEntryForm','_prSaveSectionEntry','_prUpdateSectionEntryStatus','_prDeleteSectionEntry',
   '_prRunPayroll','_prSelectRun','_prSubmitRunForApproval','_prApproveRun','_prDeleteRun',

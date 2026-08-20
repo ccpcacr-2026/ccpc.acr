@@ -265,6 +265,61 @@ async function _rolesForUsers(userIds) {
   return map;
 }
 
+// Shared by the run_payroll POST action and the GET cron endpoint below —
+// one place computes and persists a draft run for a period so both entry
+// points behave identically.
+async function _runPayrollForPeriod(month, year, actorUserId) {
+  if (!month || !year) return { error: 'month and year are required', status: 400 };
+  const peopleRows = await sbPayroll('person_setup?is_active=eq.true&select=*');
+  if (peopleRows?.error) return { error: peopleRows.error, status: 500 };
+  const people = peopleRows || [];
+  if (!people.length) return { error: 'No active people set up under the People tab yet', status: 400 };
+
+  const existingRun = await sbPayroll(`runs?month=eq.${encodeURIComponent(month)}&year=eq.${encodeURIComponent(year)}`);
+  let run = (!existingRun?.error && existingRun[0]) || null;
+  if (!run) {
+    const created = await sbPayroll('runs', 'POST', { month: Number(month), year: Number(year), status: 'draft' });
+    if (created?.error) return { error: created.error, status: 500 };
+    run = Array.isArray(created) ? created[0] : created;
+  } else if (run.status === 'finalized') {
+    return { error: 'This run is already finalized and cannot be recomputed', status: 400 };
+  }
+
+  const roles = await _rolesForUsers(people.map(p => p.user_id));
+  const ref = await _loadPayrollRef(people.map(p => p.user_id), month, year);
+  const slips = people.map(p => _computePayslipForPerson(p, roles[p.user_id] || '', ref, Number(month), Number(year)));
+
+  for (const slip of slips) {
+    const rowData = { run_id: run.id, ...slip };
+    const existingSlip = await sbPayroll(`payslips?run_id=eq.${run.id}&user_id=eq.${encodeURIComponent(slip.user_id)}`);
+    if (!existingSlip?.error && existingSlip.length) await sbPayroll(`payslips?run_id=eq.${run.id}&user_id=eq.${encodeURIComponent(slip.user_id)}`, 'PATCH', rowData);
+    else await sbPayroll('payslips', 'POST', rowData);
+  }
+  _prAudit(actorUserId, 'run_payroll', 'runs', run.id, { month, year, count: slips.length });
+  return { run, generated: slips.length };
+}
+
+// Vercel Cron hits this (GET only, per Vercel's cron contract, see
+// vercel.json) once a month to auto-generate a DRAFT run — it still
+// requires a human to Submit for Approval / Approve & Finalize in the UI,
+// so an unattended run never pays anyone by itself, only saves someone
+// having to remember to click "Run Payroll" on the 1st. Auth relies on
+// Vercel's own convention: when a CRON_SECRET env var is set, Vercel signs
+// every cron-triggered request with `Authorization: Bearer <CRON_SECRET>`
+// automatically — no secret needs to live in this repo or in vercel.json.
+export async function GET(req) {
+  const auth = req.headers.get('authorization');
+  if (!process.env.CRON_SECRET || auth !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ result: 'error', message: 'Unauthorized' }, { status: 401 });
+  }
+  const now = new Date();
+  const month = now.getMonth() + 1;
+  const year = now.getFullYear();
+  const result = await _runPayrollForPeriod(month, year, 'cron');
+  if (result.error) return NextResponse.json({ result: 'error', message: result.error }, { status: result.status || 500 });
+  return NextResponse.json({ result: 'success', run: result.run, generated: result.generated });
+}
+
 export async function POST(req) {
   const body = await req.json().catch(() => ({}));
   const { action, user_id } = body || {};
@@ -688,6 +743,31 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success' });
   }
 
+  // Approved leave requests overlapping the given month/year — pulled from
+  // the existing teacher.leave_requests table (the real staff leave
+  // system) so an admin doesn't have to separately remember who was on
+  // leave when entering a leave deduction; still a manual "convert to
+  // deduction" step since payroll has no way to know which leave types are
+  // unpaid vs paid without that being modeled here too.
+  if (action === 'get_leave_requests_for_period') {
+    const { month, year } = payload;
+    if (!month || !year) return NextResponse.json({ result: 'error', message: 'month and year required' }, { status: 400 });
+    const periodStart = new Date(Date.UTC(year, month - 1, 1));
+    const periodEnd = new Date(Date.UTC(year, month, 0));
+    const rows = await _teacherSchemaFetch(`leave_requests?status=eq.approved&select=*,leave_types(name)&order=start_date.desc`);
+    const overlapping = (Array.isArray(rows) ? rows : []).filter(r => {
+      if (!r.start_date || !r.end_date) return false;
+      const s = new Date(r.start_date), e = new Date(r.end_date);
+      return s <= periodEnd && e >= periodStart;
+    }).map(r => {
+      const s = new Date(r.start_date) < periodStart ? periodStart : new Date(r.start_date);
+      const e = new Date(r.end_date) > periodEnd ? periodEnd : new Date(r.end_date);
+      const days = Math.round((e - s) / 86400000) + 1;
+      return { teacher_id: r.teacher_id, leave_type: r.leave_types?.name || '', start_date: r.start_date, end_date: r.end_date, days_in_period: days };
+    });
+    return NextResponse.json({ result: 'success', requests: overlapping });
+  }
+
   // ── Leave / attendance-linked deductions (one-off, tied to a specific month) ──
   if (action === 'get_leave_deductions') {
     const { month, year } = payload;
@@ -719,6 +799,102 @@ export async function POST(req) {
     if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
     _prAudit(user_id, 'delete_leave_deduction', 'leave_deductions', id);
     return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Excel import (per section, with calculated-column validation) ──
+  // rows are plain objects straight from XLSX.utils.sheet_to_json — header
+  // names in the sheet must match the field names documented per target in
+  // the client's import modal. Returns { imported, errors: [{row, message}] }
+  // so the caller shows exactly which rows failed and why rather than an
+  // all-or-nothing failure.
+  if (action === 'import_rows') {
+    const { target, rows, section_id } = payload;
+    if (!target || !Array.isArray(rows) || !rows.length) return NextResponse.json({ result: 'error', message: 'target and rows are required' }, { status: 400 });
+
+    const errors = [];
+    let imported = 0;
+
+    if (target === 'people') {
+      const gradesRes = await sbPayroll('grades?select=id,name');
+      const gradeByName = {}; (gradesRes || []).forEach(g => { gradeByName[String(g.name).toLowerCase()] = g.id; });
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r.user_id) { errors.push({ row: i + 2, message: 'user_id is required' }); continue; }
+        const grade_id = r.grade_name ? (gradeByName[String(r.grade_name).toLowerCase()] || null) : null;
+        if (r.grade_name && !grade_id) { errors.push({ row: i + 2, message: `Grade "${r.grade_name}" not found` }); continue; }
+        const rowData = {
+          user_id: String(r.user_id), grade_id,
+          joining_date: r.joining_date || null,
+          is_active: true,
+          bank_name: r.bank_name || null, bank_account_no: r.bank_account_no || null,
+          mobile_banking_provider: r.mobile_banking_provider || null, mobile_banking_number: r.mobile_banking_number || null,
+        };
+        const existing = await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(rowData.user_id)}`);
+        const saved = (!existing?.error && existing.length)
+          ? await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(rowData.user_id)}`, 'PATCH', rowData)
+          : await sbPayroll('person_setup', 'POST', rowData);
+        if (saved?.error) { errors.push({ row: i + 2, message: saved.error }); continue; }
+        imported++;
+      }
+    } else if (target === 'section_entries') {
+      let sectionsByName = {};
+      if (!section_id) {
+        const sectionsRes = await sbPayroll('sections?select=id,name');
+        (sectionsRes || []).forEach(s => { sectionsByName[String(s.name).toLowerCase()] = s.id; });
+      }
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        const sid = section_id || (r.section_name ? sectionsByName[String(r.section_name).toLowerCase()] : null);
+        if (!sid) { errors.push({ row: i + 2, message: r.section_name ? `Section "${r.section_name}" not found` : 'section_name is required' }); continue; }
+        if (!r.user_id || !r.total_amount) { errors.push({ row: i + 2, message: 'user_id and total_amount are required' }); continue; }
+        if (!r.emi_amount && !r.emi_months) { errors.push({ row: i + 2, message: 'Set either emi_amount or emi_months' }); continue; }
+        // Calculated-column check: if the sheet supplies all three, the math must agree.
+        if (r.emi_amount && r.emi_months) {
+          const expected = Number(r.total_amount) / Number(r.emi_months);
+          if (Math.abs(expected - Number(r.emi_amount)) > 0.5) {
+            errors.push({ row: i + 2, message: `emi_amount (${r.emi_amount}) doesn't match total_amount/emi_months (${expected.toFixed(2)})` });
+            continue;
+          }
+        }
+        const rowData = {
+          section_id: sid, user_id: String(r.user_id), total_amount: Number(r.total_amount),
+          emi_amount: r.emi_amount ? Number(r.emi_amount) : null, emi_months: r.emi_months ? Number(r.emi_months) : null,
+          remaining_amount: Number(r.total_amount), note: r.note || null,
+        };
+        const saved = await sbPayroll('section_entries', 'POST', rowData);
+        if (saved?.error) { errors.push({ row: i + 2, message: saved.error }); continue; }
+        imported++;
+      }
+    } else if (target === 'bonus_payments') {
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r.user_id || !r.label || !r.amount || !r.month || !r.year) { errors.push({ row: i + 2, message: 'user_id, label, amount, month and year are required' }); continue; }
+        const saved = await sbPayroll('bonus_payments', 'POST', { user_id: String(r.user_id), label: r.label, amount: Number(r.amount), month: Number(r.month), year: Number(r.year), status: 'pending', note: r.note || null });
+        if (saved?.error) { errors.push({ row: i + 2, message: saved.error }); continue; }
+        imported++;
+      }
+    } else if (target === 'leave_deductions') {
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r.user_id || !r.amount || !r.month || !r.year) { errors.push({ row: i + 2, message: 'user_id, amount, month and year are required' }); continue; }
+        // Calculated-column check: if the sheet supplies days + a per-day rate, the amount must agree.
+        if (r.days && r.per_day_rate) {
+          const expected = Number(r.days) * Number(r.per_day_rate);
+          if (Math.abs(expected - Number(r.amount)) > 0.5) {
+            errors.push({ row: i + 2, message: `amount (${r.amount}) doesn't match days×per_day_rate (${expected.toFixed(2)})` });
+            continue;
+          }
+        }
+        const saved = await sbPayroll('leave_deductions', 'POST', { user_id: String(r.user_id), days: r.days ? Number(r.days) : null, amount: Number(r.amount), month: Number(r.month), year: Number(r.year), note: r.note || null });
+        if (saved?.error) { errors.push({ row: i + 2, message: saved.error }); continue; }
+        imported++;
+      }
+    } else {
+      return NextResponse.json({ result: 'error', message: 'Unknown import target' }, { status: 400 });
+    }
+
+    _prAudit(user_id, 'import_rows', target, section_id || null, { imported, error_count: errors.length });
+    return NextResponse.json({ result: 'success', imported, errors });
   }
 
   // ── Loan / Advance sections ──
@@ -810,40 +986,30 @@ export async function POST(req) {
 
   if (action === 'run_payroll') {
     const { month, year } = payload;
-    if (!month || !year) return NextResponse.json({ result: 'error', message: 'month and year are required' }, { status: 400 });
-    const peopleRows = await sbPayroll('person_setup?is_active=eq.true&select=*');
-    if (peopleRows?.error) return NextResponse.json({ result: 'error', message: peopleRows.error }, { status: 500 });
-    const people = peopleRows || [];
-    if (!people.length) return NextResponse.json({ result: 'error', message: 'No active people set up under the People tab yet' }, { status: 400 });
-
-    const existingRun = await sbPayroll(`runs?month=eq.${encodeURIComponent(month)}&year=eq.${encodeURIComponent(year)}`);
-    let run = (!existingRun?.error && existingRun[0]) || null;
-    if (!run) {
-      const created = await sbPayroll('runs', 'POST', { month: Number(month), year: Number(year), status: 'draft' });
-      if (created?.error) return NextResponse.json({ result: 'error', message: created.error }, { status: 500 });
-      run = Array.isArray(created) ? created[0] : created;
-    } else if (run.status === 'finalized') {
-      return NextResponse.json({ result: 'error', message: 'This run is already finalized and cannot be recomputed' }, { status: 400 });
-    }
-
-    const roles = await _rolesForUsers(people.map(p => p.user_id));
-    const ref = await _loadPayrollRef(people.map(p => p.user_id), month, year);
-    const slips = people.map(p => _computePayslipForPerson(p, roles[p.user_id] || '', ref, Number(month), Number(year)));
-
-    for (const slip of slips) {
-      const rowData = { run_id: run.id, ...slip };
-      const existingSlip = await sbPayroll(`payslips?run_id=eq.${run.id}&user_id=eq.${encodeURIComponent(slip.user_id)}`);
-      if (!existingSlip?.error && existingSlip.length) await sbPayroll(`payslips?run_id=eq.${run.id}&user_id=eq.${encodeURIComponent(slip.user_id)}`, 'PATCH', rowData);
-      else await sbPayroll('payslips', 'POST', rowData);
-    }
-    _prAudit(user_id, 'run_payroll', 'runs', run.id, { month, year, count: slips.length });
-    return NextResponse.json({ result: 'success', run, generated: slips.length });
+    const result = await _runPayrollForPeriod(month, year, user_id);
+    if (result.error) return NextResponse.json({ result: 'error', message: result.error }, { status: result.status || 500 });
+    return NextResponse.json({ result: 'success', run: result.run, generated: result.generated });
   }
 
   if (action === 'get_payroll_runs') {
     const rows = await sbPayroll('runs?select=*&order=year.desc,month.desc');
     if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
     return NextResponse.json({ result: 'success', runs: rows });
+  }
+
+  // Bank/mobile-banking disbursement sheet — the payment-info columns a bank
+  // or bKash/Nagad bulk-upload actually expects, joined onto net pay.
+  if (action === 'get_payslips_with_payment_info') {
+    const { run_id } = payload;
+    if (!run_id) return NextResponse.json({ result: 'error', message: 'run_id required' }, { status: 400 });
+    const [slips, people] = await Promise.all([
+      sbPayroll(`payslips?run_id=eq.${encodeURIComponent(run_id)}&select=user_id,net`),
+      sbPayroll('person_setup?select=user_id,bank_name,bank_account_no,mobile_banking_provider,mobile_banking_number'),
+    ]);
+    if (slips?.error) return NextResponse.json({ result: 'error', message: slips.error }, { status: 500 });
+    const paymentByUser = {}; (people || []).forEach(p => { paymentByUser[p.user_id] = p; });
+    const rows = (slips || []).map(s => ({ ...s, ...(paymentByUser[s.user_id] || {}) }));
+    return NextResponse.json({ result: 'success', rows });
   }
 
   if (action === 'get_payslips') {

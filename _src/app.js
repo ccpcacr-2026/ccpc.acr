@@ -13022,7 +13022,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
           <div class="flex items-center justify-between flex-wrap gap-3 mb-3">
             <p class="font-black text-slate-800 text-xs">Find a person</p>
-            <button onclick="_prBulkAddAllStaff()" class="px-3 py-2 bg-slate-100 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-1.5"><i data-lucide="users" class="h-3.5 w-3.5"></i>Add All Teachers &amp; Staff</button>
+            <div class="flex items-center gap-2">
+              <button onclick="_prBulkAddAllStaff()" class="px-3 py-2 bg-slate-100 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-1.5"><i data-lucide="users" class="h-3.5 w-3.5"></i>Add All Teachers &amp; Staff</button>
+              <button onclick="_prOpenImportModal('people')" class="px-3 py-2 bg-slate-100 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-1.5"><i data-lucide="upload" class="h-3.5 w-3.5"></i>Import Excel</button>
+            </div>
           </div>
           <div class="relative max-w-sm">
             <input type="text" id="prPersonSearch" placeholder="Search by name, designation or ID…" autocomplete="off"
@@ -13043,7 +13046,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <p class="font-black text-slate-800 text-xs">Bonus / Festival Payments</p>
               <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">One-off credit for a specific month — for recurring loan/EMI deductions, use Loan &amp; Advance Sections below</p>
             </div>
-            <button onclick="_prOpenBonusForm(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Bonus</button>
+            <div class="flex items-center gap-2">
+              <button onclick="_prOpenImportModal('bonus_payments')" class="px-3 py-2 bg-slate-100 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-1.5"><i data-lucide="upload" class="h-3.5 w-3.5"></i>Import</button>
+              <button onclick="_prOpenBonusForm(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Bonus</button>
+            </div>
           </div>
           <div class="overflow-auto border border-slate-200 rounded-xl">
             <table class="w-full text-left border-collapse text-xs">
@@ -13060,8 +13066,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <p class="font-black text-slate-800 text-xs">Leave / Attendance Deductions</p>
               <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">One-off deduction for a specific month tied to unpaid leave or absence</p>
             </div>
-            <button onclick="_prOpenLeaveForm(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Deduction</button>
+            <div class="flex items-center gap-2">
+              <select id="prLeaveSuggestMonth" class="px-2 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+                ${['January','February','March','April','May','June','July','August','September','October','November','December'].map((m, i) => `<option value="${i + 1}">${m}</option>`).join('')}
+              </select>
+              <input type="number" id="prLeaveSuggestYear" class="w-20 px-2 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <button onclick="_prSuggestFromLeaveRequests()" class="px-3 py-2 bg-slate-100 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-1.5"><i data-lucide="calendar-search" class="h-3.5 w-3.5"></i>Suggest from Leave Requests</button>
+              <button onclick="_prOpenImportModal('leave_deductions')" class="px-3 py-2 bg-slate-100 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-1.5"><i data-lucide="upload" class="h-3.5 w-3.5"></i>Import</button>
+              <button onclick="_prOpenLeaveForm(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Deduction</button>
+            </div>
           </div>
+          <div id="prLeaveSuggestions" class="mb-3"></div>
           <div class="overflow-auto border border-slate-200 rounded-xl">
             <table class="w-full text-left border-collapse text-xs">
               <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
@@ -13280,7 +13295,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="_prAddVirtualColumn()" class="px-3 py-2.5 bg-slate-100 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Virtual Column</button>
             <button onclick="_prExportExcel()" class="px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="file-spreadsheet" class="h-3.5 w-3.5"></i>Export Excel</button>
             <button onclick="_prExportPdf()" class="px-4 py-2.5 bg-rose-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="file-text" class="h-3.5 w-3.5"></i>Export PDF</button>
+            <button onclick="_prExportBankFile()" class="px-4 py-2.5 bg-indigo-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="landmark" class="h-3.5 w-3.5"></i>Bank Disbursement File</button>
           </div>
+          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-2">Bank Disbursement File is a fixed format (bank/mobile-banking info + net pay only) meant for uploading to a bank or bKash/Nagad bulk transfer — ignores the column picker below.</p>
         </div>
         <div class="bg-white rounded-2xl border border-slate-200 p-4">
           <p class="font-black text-slate-800 text-xs mb-1">Columns</p>
@@ -13507,6 +13524,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="_prCloseGradeForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
             <button onclick="_prSaveGrade()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Grade</button>
           </div>
+        </div>
+      </div>
+
+      <div id="prImportModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-lg max-h-[85vh] overflow-y-auto">
+          <div class="flex items-center justify-between mb-4">
+            <p class="font-black text-slate-800 text-sm" id="prImportTitle">Import from Excel</p>
+            <button onclick="_prCloseImportModal()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+          </div>
+          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1">Expected column headers (first row)</p>
+          <p id="prImportHeadersHint" class="text-xs font-bold text-slate-600 mb-4 bg-slate-50 rounded-xl p-3"></p>
+          <input type="file" id="prImportFileInput" accept=".xlsx,.xls" onchange="_prHandleImportFile(event)" class="w-full text-xs font-bold mb-3">
+          <div id="prImportResult"></div>
         </div>
       </div>
     `;
@@ -14090,6 +14120,64 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
   }
 
+  // ── Generic Excel import (People / Section Entries / Bonus / Leave Deductions) ──
+  const PAYROLL_IMPORT_SPECS = {
+    people: { title: 'Import People (Excel)', headers: 'user_id* | grade_name | joining_date | bank_name | bank_account_no | mobile_banking_provider | mobile_banking_number' },
+    section_entries: { title: 'Import Loan/EMI Entries (Excel)', headers: 'section_name* (skip if importing into one section) | user_id* | total_amount* | emi_amount | emi_months | note — set emi_amount or emi_months (or both, if both they must agree with total_amount)' },
+    bonus_payments: { title: 'Import Bonus Payments (Excel)', headers: 'user_id* | label* | amount* | month* | year* | note' },
+    leave_deductions: { title: 'Import Leave Deductions (Excel)', headers: 'user_id* | amount* | month* | year* | days | per_day_rate (optional — if given with days, must agree with amount) | note' },
+  };
+  let _prImportTarget = null;
+  let _prImportContext = {};
+
+  function _prOpenImportModal(target, context) {
+    _prImportTarget = target;
+    _prImportContext = context || {};
+    const spec = PAYROLL_IMPORT_SPECS[target];
+    document.getElementById('prImportTitle').textContent = spec.title;
+    document.getElementById('prImportHeadersHint').textContent = spec.headers;
+    document.getElementById('prImportFileInput').value = '';
+    document.getElementById('prImportResult').innerHTML = '';
+    document.getElementById('prImportModal').classList.remove('hidden');
+  }
+  function _prCloseImportModal() { document.getElementById('prImportModal').classList.add('hidden'); }
+
+  function _prHandleImportFile(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const resultBox = document.getElementById('prImportResult');
+    resultBox.innerHTML = `<p class="text-slate-400 font-bold text-xs">Reading file…</p>`;
+    const reader = new FileReader();
+    reader.onload = evt => {
+      ensureXLSX().then(() => {
+        try {
+          const wb = XLSX.read(evt.target.result, { type: 'array' });
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+          if (!rows.length) { resultBox.innerHTML = `<p class="text-red-500 font-bold text-xs">Sheet has no data rows.</p>`; return; }
+          resultBox.innerHTML = `<p class="text-slate-400 font-bold text-xs">Importing ${rows.length} row(s)…</p>`;
+          _payrollFetch('import_rows', { target: _prImportTarget, rows, section_id: _prImportContext.section_id }).then(res => {
+            if (!res || res.result !== 'success') { resultBox.innerHTML = `<p class="text-red-500 font-bold text-xs">${(res && res.message) || 'Import failed'}</p>`; return; }
+            const errors = res.errors || [];
+            resultBox.innerHTML = `
+              <p class="text-xs font-black ${errors.length ? 'text-amber-600' : 'text-emerald-600'} mb-2">Imported ${res.imported} row(s)${errors.length ? `, ${errors.length} failed` : ''}.</p>
+              ${errors.length ? `<div class="border border-red-200 bg-red-50 rounded-xl p-3 space-y-1 max-h-48 overflow-y-auto">
+                ${errors.map(er => `<p class="text-[10px] font-bold text-red-600">Row ${er.row}: ${er.message}</p>`).join('')}
+              </div>` : ''}
+            `;
+            if (res.imported && _prImportTarget === 'people' && typeof loadPayrollPeopleTab === 'function') { /* no list view to refresh — search picks up fresh data on next lookup */ }
+            if (res.imported && _prImportTarget === 'bonus_payments') loadBonusPayments();
+            if (res.imported && _prImportTarget === 'leave_deductions') loadLeaveDeductions();
+            if (res.imported && _prImportTarget === 'section_entries' && _prImportContext.section_id) _prSelectSection(_prImportContext.section_id);
+          }).catch(() => { resultBox.innerHTML = `<p class="text-red-500 font-bold text-xs">Import failed.</p>`; });
+        } catch (err) {
+          resultBox.innerHTML = `<p class="text-red-500 font-bold text-xs">Could not read the file — make sure it's a valid .xlsx/.xls.</p>`;
+        }
+      }).catch(err => { resultBox.innerHTML = `<p class="text-red-500 font-bold text-xs">${err.message}</p>`; });
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
   function _prBulkAddAllStaff() {
     const status = document.getElementById('prBulkAddStatus');
     status.className = 'text-xs font-bold text-slate-400 mt-2'; status.textContent = 'Adding…';
@@ -14214,6 +14302,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function loadLeaveDeductions() {
     _prLeaveLoaded = true;
+    const now = new Date();
+    const monthSel = document.getElementById('prLeaveSuggestMonth');
+    if (monthSel) monthSel.value = now.getMonth() + 1;
+    const yearInput = document.getElementById('prLeaveSuggestYear');
+    if (yearInput) yearInput.value = now.getFullYear();
     _ensureStaffCache(() => {
       _wireSearchCombo('prLeavePersonSearch', 'prLeavePersonSelect', 'prLeavePersonDropdown',
         allStaffCache.map(s => ({ value: s.teacher_id, label: s.full_name || s.teacher_id, sub: [s.designation, s.teacher_id].filter(Boolean).join(' · ') })));
@@ -14282,6 +14375,42 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (res && res.result === 'success') { showToast('Deleted'); loadLeaveDeductions(); }
       else showToast((res && res.message) || 'Failed to delete', 'error');
     }).catch(() => showToast('Failed to delete', 'error'));
+  }
+
+  // Pulls approved leave requests overlapping the picked period from the
+  // existing staff leave system and lists them for a one-click "Add" that
+  // pre-fills the deduction form — payroll can't know which leave types
+  // are unpaid on its own, so the admin still picks the amount.
+  function _prSuggestFromLeaveRequests() {
+    const month = document.getElementById('prLeaveSuggestMonth').value;
+    const year = document.getElementById('prLeaveSuggestYear').value;
+    const box = document.getElementById('prLeaveSuggestions');
+    box.innerHTML = `<p class="text-slate-400 font-bold text-xs">Loading…</p>`;
+    _payrollFetch('get_leave_requests_for_period', { month, year }).then(res => {
+      const rows = (res && res.result === 'success' && res.requests) || [];
+      if (!rows.length) { box.innerHTML = `<p class="text-slate-400 font-bold text-xs bg-slate-50 rounded-xl p-3">No approved leave requests overlap this period.</p>`; return; }
+      box.innerHTML = `<div class="border border-amber-200 bg-amber-50 rounded-xl p-3 space-y-2">
+        <p class="text-[10px] font-black text-amber-700 uppercase tracking-widest">Approved leave overlapping ${month}/${year} — click to prefill a deduction</p>
+        ${rows.map(r => {
+          const label = staffLabel(r.teacher_id);
+          return `<div onclick='_prPrefillLeaveFromRequest(${JSON.stringify(r).replace(/'/g, "&apos;")})' class="flex items-center justify-between bg-white rounded-lg px-3 py-2 cursor-pointer hover:bg-amber-100 transition-colors">
+            <span class="text-xs font-bold text-slate-700">${label !== r.teacher_id ? label : r.teacher_id} — ${r.leave_type || 'Leave'} (${r.start_date} to ${r.end_date})</span>
+            <span class="text-[10px] font-black text-amber-700 uppercase">${r.days_in_period} day(s) in period</span>
+          </div>`;
+        }).join('')}
+      </div>`;
+    }).catch(() => { box.innerHTML = `<p class="text-red-500 font-bold text-xs">Failed to load leave requests.</p>`; });
+  }
+
+  function _prPrefillLeaveFromRequest(r) {
+    _prOpenLeaveForm(null);
+    document.getElementById('prLeavePersonSelect').value = r.teacher_id;
+    document.getElementById('prLeavePersonSearch').value = staffLabel(r.teacher_id);
+    document.getElementById('prLeaveDays').value = r.days_in_period;
+    document.getElementById('prLeaveMonth').value = document.getElementById('prLeaveSuggestMonth').value;
+    document.getElementById('prLeaveYear').value = document.getElementById('prLeaveSuggestYear').value;
+    document.getElementById('prLeaveNote').value = r.leave_type || '';
+    showToast('Enter the deduction amount to finish adding');
   }
 
   // ── Loan / Advance sections ──
@@ -14353,7 +14482,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       detail.innerHTML = `
         <div class="flex items-center justify-between mb-3">
           <p class="font-black text-slate-800 text-sm">${section.name} — Entries</p>
-          <button onclick="_prOpenSectionEntryForm(${sectionId})" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Entry</button>
+          <div class="flex items-center gap-2">
+            <button onclick="_prOpenImportModal('section_entries', {section_id: ${sectionId}})" class="px-3 py-2 bg-slate-100 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-1.5"><i data-lucide="upload" class="h-3.5 w-3.5"></i>Import</button>
+            <button onclick="_prOpenSectionEntryForm(${sectionId})" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Entry</button>
+          </div>
         </div>
         <div class="overflow-auto border border-slate-200 rounded-xl">
           <table class="w-full text-left border-collapse text-xs">
@@ -14708,6 +14840,29 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const run = _prRunsCache.find(r => r.id === Number(runId));
       XLSX.writeFile(wb, `payroll_${run ? PAYROLL_MONTH_NAMES[run.month] + '_' + run.year : 'export'}.xlsx`);
     }).catch(err => showToast(err.message, 'error'));
+  }
+
+  function _prExportBankFile() {
+    const runId = document.getElementById('prExportRunSelect').value;
+    if (!runId) { showToast('Pick a run first', 'error'); return; }
+    _payrollFetch('get_payslips_with_payment_info', { run_id: runId }).then(res => {
+      const rows = (res && res.result === 'success' && res.rows) || [];
+      if (!rows.length) { showToast('No payslips in this run', 'error'); return; }
+      _ensureStaffCache(() => {
+        _prEnsureStyledXLSX().then(() => {
+          const header = ['Name', 'ID', 'Bank Name', 'Bank Account No.', 'Mobile Banking', 'Mobile Banking No.', 'Net Amount'];
+          const aoa = [header, ...rows.map(r => {
+            const label = staffLabel(r.user_id);
+            return [label !== r.user_id ? label : '', r.user_id, r.bank_name || '', r.bank_account_no || '', r.mobile_banking_provider || '', r.mobile_banking_number || '', Number(r.net) || 0];
+          })];
+          const ws = XLSX.utils.aoa_to_sheet(aoa);
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, 'Disbursement');
+          const run = _prRunsCache.find(r => r.id === Number(runId));
+          XLSX.writeFile(wb, `payroll_bank_disbursement_${run ? PAYROLL_MONTH_NAMES[run.month] + '_' + run.year : ''}.xlsx`);
+        }).catch(err => showToast(err.message, 'error'));
+      });
+    }).catch(() => showToast('Failed to load payment info', 'error'));
   }
 
   function ensureJsPDF() {
