@@ -12885,6 +12885,80 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </table>
           </div>
         </div>
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 mt-4">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <p class="font-black text-slate-800 text-xs">Statutory Items</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Provident Fund, tax/AIT and similar — tracks the employer's matching share separately from the employee deduction</p>
+            </div>
+            <button onclick="_prOpenStatutoryForm(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5 shrink-0"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add</button>
+          </div>
+          <div class="overflow-auto border border-slate-200 rounded-xl">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
+                <th class="py-2 px-3">Label</th><th class="py-2 px-3">Employee Side</th><th class="py-2 px-3">Employer Match</th><th class="py-2 px-3">Status</th><th class="py-2 px-3 text-right">Actions</th>
+              </tr></thead>
+              <tbody id="prStatutoryBody"><tr><td colspan="5" class="p-4 text-slate-400 font-bold text-xs text-center">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="prStatutoryFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-lg max-h-[85vh] overflow-y-auto">
+          <div class="flex items-center justify-between mb-4">
+            <p class="font-black text-slate-800 text-sm" id="prStatutoryFormTitle">Add Statutory Item</p>
+            <button onclick="_prCloseStatutoryForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+          </div>
+          <input type="hidden" id="prStatutoryId">
+          <div class="space-y-3">
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Key <span class="text-red-500">*</span></label>
+              <input type="text" id="prStatutoryKey" placeholder="e.g. provident_fund" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            </div>
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Label <span class="text-red-500">*</span></label>
+              <input type="text" id="prStatutoryLabel" placeholder="e.g. Provident Fund" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Employee Calculation</label>
+                <select id="prStatutoryCalcMode" onchange="_prToggleStatutoryCalcFields()" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                  <option value="percent_of_field">Percent of a field</option>
+                  <option value="fixed">Fixed amount</option>
+                </select>
+              </div>
+              <div id="prStatutoryValueRow">
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Fixed Amount</label>
+                <input type="number" id="prStatutoryValue" placeholder="0" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              </div>
+              <div id="prStatutoryPercentRow">
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Percent</label>
+                <input type="number" id="prStatutoryPercent" placeholder="0" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              </div>
+              <div id="prStatutoryBaseRow">
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Base Field</label>
+                <select id="prStatutoryBaseKey" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></select>
+              </div>
+            </div>
+            <label class="flex items-center gap-2 text-xs font-black text-slate-600 cursor-pointer">
+              <input type="checkbox" id="prStatutoryEmployerMatches" onchange="_prToggleStatutoryEmployerFields()" class="w-4 h-4 rounded accent-blue-600">
+              Employer matches this contribution
+            </label>
+            <div id="prStatutoryEmployerRow" class="hidden">
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Employer Percent</label>
+              <input type="number" id="prStatutoryEmployerPercent" placeholder="0" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            </div>
+            <label class="flex items-center gap-2 text-xs font-black text-slate-600 cursor-pointer">
+              <input type="checkbox" id="prStatutoryActive" checked class="w-4 h-4 rounded accent-blue-600">
+              Active
+            </label>
+          </div>
+          <div class="flex justify-end gap-2 mt-5">
+            <button onclick="_prCloseStatutoryForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
+            <button onclick="_prSaveStatutoryItem()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button>
+          </div>
+        </div>
       </div>
 
       <div id="pr-grades" style="display:none">
@@ -12901,8 +12975,87 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
         </div>
       </div>
-      <div id="pr-people" style="display:none"><p class="text-slate-400 font-bold text-xs p-4">Per-person grade assignment &amp; overrides — coming next.</p></div>
-      <div id="pr-sections" style="display:none"><p class="text-slate-400 font-bold text-xs p-4">Loan/EMI sections — coming next.</p></div>
+      <div id="pr-people" style="display:none">
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
+          <p class="font-black text-slate-800 text-xs mb-3">Find a person</p>
+          <div class="relative max-w-sm">
+            <input type="text" id="prPersonSearch" placeholder="Search by name, designation or ID…" autocomplete="off"
+              class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocorrect="off" autocapitalize="off" spellcheck="false">
+            <input type="hidden" id="prPersonSelect">
+            <div id="prPersonDropdown" class="hidden absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-y-auto"></div>
+          </div>
+        </div>
+        <div id="prPersonDetail" class="bg-white rounded-2xl border border-slate-200 p-4">
+          <p class="text-slate-400 font-bold text-xs p-4">Search and pick a person above to assign a grade and set overrides.</p>
+        </div>
+      </div>
+      <div id="pr-sections" style="display:none">
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
+          <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <div>
+              <p class="font-black text-slate-800 text-xs">Bonus / Festival Payments</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">One-off credit for a specific month — for recurring loan/EMI deductions, use Loan &amp; Advance Sections below</p>
+            </div>
+            <button onclick="_prOpenBonusForm(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Bonus</button>
+          </div>
+          <div class="overflow-auto border border-slate-200 rounded-xl">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
+                <th class="py-2 px-3">Person</th><th class="py-2 px-3">Label</th><th class="py-2 px-3">Amount</th><th class="py-2 px-3">Month/Year</th><th class="py-2 px-3">Status</th><th class="py-2 px-3 text-right">Actions</th>
+              </tr></thead>
+              <tbody id="prBonusBody"><tr><td colspan="6" class="p-4 text-slate-400 font-bold text-xs text-center">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="bg-white rounded-2xl border border-dashed border-slate-300 p-4">
+          <p class="font-black text-slate-500 text-xs">Loan &amp; Advance Sections</p>
+          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Named pools of person + total amount + EMI, deducted automatically each payroll run until paid off — coming next, alongside Run &amp; Payslips.</p>
+        </div>
+      </div>
+
+      <div id="prBonusFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-md">
+          <div class="flex items-center justify-between mb-4">
+            <p class="font-black text-slate-800 text-sm" id="prBonusFormTitle">Add Bonus Payment</p>
+            <button onclick="_prCloseBonusForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+          </div>
+          <input type="hidden" id="prBonusId">
+          <div class="space-y-3">
+            <div class="relative">
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Person <span class="text-red-500">*</span></label>
+              <input type="text" id="prBonusPersonSearch" placeholder="Search by name, designation or ID…" autocomplete="off" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocorrect="off" autocapitalize="off" spellcheck="false">
+              <input type="hidden" id="prBonusPersonSelect">
+              <div id="prBonusPersonDropdown" class="hidden absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto"></div>
+            </div>
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Label <span class="text-red-500">*</span></label>
+              <input type="text" id="prBonusLabel" placeholder="e.g. Eid Bonus 2026" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            </div>
+            <div class="grid grid-cols-3 gap-3">
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Amount <span class="text-red-500">*</span></label>
+                <input type="number" id="prBonusAmount" placeholder="0" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              </div>
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Month <span class="text-red-500">*</span></label>
+                <input type="number" id="prBonusMonth" min="1" max="12" placeholder="1-12" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              </div>
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Year <span class="text-red-500">*</span></label>
+                <input type="number" id="prBonusYear" placeholder="2026" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              </div>
+            </div>
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Note</label>
+              <input type="text" id="prBonusNote" placeholder="optional" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            </div>
+          </div>
+          <div class="flex justify-end gap-2 mt-5">
+            <button onclick="_prCloseBonusForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
+            <button onclick="_prSaveBonusPayment()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button>
+          </div>
+        </div>
+      </div>
       <div id="pr-run" style="display:none"><p class="text-slate-400 font-bold text-xs p-4">Run payroll &amp; payslips — coming next.</p></div>
       <div id="pr-export" style="display:none"><p class="text-slate-400 font-bold text-xs p-4">Excel/PDF export — coming next.</p></div>
 
@@ -12998,6 +13151,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     `;
     lucide.createIcons();
     loadPayrollFields();
+    loadStatutoryItems();
   }
 
   function switchPayrollTab(tabId) {
@@ -13012,6 +13166,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       }
     });
     if (tabId === 'pr-grades' && !_prGradesLoaded) loadPayrollGrades();
+    if (tabId === 'pr-people' && !_prPeopleComboWired) loadPayrollPeopleTab();
+    if (tabId === 'pr-sections' && !_prBonusLoaded) loadBonusPayments();
   }
 
   let _prFieldsCache = [];
@@ -13103,6 +13259,103 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (res && res.result === 'success') { showToast('Field deleted'); loadPayrollFields(); }
       else showToast((res && res.message) || 'Failed to delete field', 'error');
     }).catch(() => showToast('Failed to delete field', 'error'));
+  }
+
+  // ── Statutory items (PF, tax/AIT) ──
+  let _prStatutoryCache = [];
+
+  function loadStatutoryItems() {
+    _payrollFetch('get_statutory_items', {}).then(res => {
+      _prStatutoryCache = (res && res.result === 'success' && res.items) || [];
+      _prRenderStatutoryTable();
+    }).catch(() => showToast('Failed to load statutory items', 'error'));
+  }
+
+  function _prRenderStatutoryTable() {
+    const tbody = document.getElementById('prStatutoryBody');
+    if (!tbody) return;
+    if (!_prStatutoryCache.length) {
+      tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-slate-400 font-bold text-xs text-center">No statutory items yet.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = _prStatutoryCache.map(s => {
+      const empLabel = s.employee_calc_mode === 'fixed' ? `৳${Number(s.employee_value || 0).toLocaleString()}` : `${s.employee_percent || 0}% of ${s.employee_base_field_key || '—'}`;
+      const matchLabel = s.employer_matches ? `${s.employer_percent || 0}%` : '—';
+      return `<tr class="border-b border-slate-50">
+        <td class="py-1.5 px-3 font-black text-slate-800">${s.label}</td>
+        <td class="py-1.5 px-3">${empLabel}</td>
+        <td class="py-1.5 px-3">${matchLabel}</td>
+        <td class="py-1.5 px-3">${s.is_active ? '<span class="text-emerald-600 font-black">Active</span>' : '<span class="text-slate-400 font-black">Inactive</span>'}</td>
+        <td class="py-1.5 px-3 text-right">
+          <button onclick='_prOpenStatutoryForm(${JSON.stringify(s).replace(/'/g, "&apos;")})' class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-black mr-3">Edit</button>
+          <button onclick="_prDeleteStatutoryItem(${s.id})" class="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-700">Delete</button>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  function _prOpenStatutoryForm(item) {
+    document.getElementById('prStatutoryFormTitle').textContent = item ? 'Edit Statutory Item' : 'Add Statutory Item';
+    document.getElementById('prStatutoryId').value = item ? item.id : '';
+    document.getElementById('prStatutoryKey').value = item ? item.key : '';
+    document.getElementById('prStatutoryLabel').value = item ? item.label : '';
+    document.getElementById('prStatutoryCalcMode').value = item ? item.employee_calc_mode : 'percent_of_field';
+    document.getElementById('prStatutoryValue').value = (item && item.employee_value != null) ? item.employee_value : '';
+    document.getElementById('prStatutoryPercent').value = (item && item.employee_percent != null) ? item.employee_percent : '';
+    document.getElementById('prStatutoryEmployerMatches').checked = !!(item && item.employer_matches);
+    document.getElementById('prStatutoryEmployerPercent').value = (item && item.employer_percent != null) ? item.employer_percent : '';
+    document.getElementById('prStatutoryActive').checked = item ? item.is_active !== false : true;
+    const baseSel = document.getElementById('prStatutoryBaseKey');
+    baseSel.innerHTML = _prFieldsCache.map(f => `<option value="${f.key}">${f.label}</option>`).join('');
+    if (item && item.employee_base_field_key) baseSel.value = item.employee_base_field_key;
+    _prToggleStatutoryCalcFields();
+    _prToggleStatutoryEmployerFields();
+    document.getElementById('prStatutoryFormModal').classList.remove('hidden');
+    lucide.createIcons();
+  }
+
+  function _prCloseStatutoryForm() {
+    document.getElementById('prStatutoryFormModal').classList.add('hidden');
+  }
+
+  function _prToggleStatutoryCalcFields() {
+    const mode = document.getElementById('prStatutoryCalcMode').value;
+    document.getElementById('prStatutoryValueRow').classList.toggle('hidden', mode !== 'fixed');
+    document.getElementById('prStatutoryPercentRow').classList.toggle('hidden', mode !== 'percent_of_field');
+    document.getElementById('prStatutoryBaseRow').classList.toggle('hidden', mode !== 'percent_of_field');
+  }
+
+  function _prToggleStatutoryEmployerFields() {
+    document.getElementById('prStatutoryEmployerRow').classList.toggle('hidden', !document.getElementById('prStatutoryEmployerMatches').checked);
+  }
+
+  function _prSaveStatutoryItem() {
+    const id = document.getElementById('prStatutoryId').value || null;
+    const key = document.getElementById('prStatutoryKey').value.trim();
+    const label = document.getElementById('prStatutoryLabel').value.trim();
+    if (!key || !label) { showToast('Key and label are required', 'error'); return; }
+    const payload = {
+      id, key, label,
+      employee_calc_mode: document.getElementById('prStatutoryCalcMode').value,
+      employee_value: document.getElementById('prStatutoryValue').value || null,
+      employee_percent: document.getElementById('prStatutoryPercent').value || null,
+      employee_base_field_key: document.getElementById('prStatutoryCalcMode').value === 'percent_of_field' ? document.getElementById('prStatutoryBaseKey').value : null,
+      employer_matches: document.getElementById('prStatutoryEmployerMatches').checked,
+      employer_percent: document.getElementById('prStatutoryEmployerPercent').value || null,
+      is_active: document.getElementById('prStatutoryActive').checked,
+    };
+    _payrollFetch('save_statutory_item', payload).then(res => {
+      if (res && res.result === 'success') { showToast('Saved'); _prCloseStatutoryForm(); loadStatutoryItems(); }
+      else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(() => showToast('Failed to save', 'error'));
+  }
+
+  function _prDeleteStatutoryItem(id) {
+    if (!confirm('Delete this statutory item? This cannot be undone.')) return;
+    _payrollFetch('delete_statutory_item', { id }).then(res => {
+      if (res && res.result === 'success') { showToast('Deleted'); loadStatutoryItems(); }
+      else showToast((res && res.message) || 'Failed to delete', 'error');
+    }).catch(() => showToast('Failed to delete', 'error'));
   }
 
   // ── Grades ──
@@ -13237,6 +13490,214 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _payrollFetch('toggle_grade_conditional_field', { grade_id: gradeId, field_id: fieldId, enabled }).then(res => {
       if (!res || res.result !== 'success') showToast((res && res.message) || 'Failed to update', 'error');
     }).catch(() => showToast('Failed to update', 'error'));
+  }
+
+  // ── People (grade assignment + per-person field overrides) ──
+  let _prPeopleComboWired = false;
+  let _prPeopleSetupCache = [];
+  let _prSelectedPersonId = null;
+
+  function loadPayrollPeopleTab() {
+    _prPeopleComboWired = true;
+    _ensureStaffCache(() => {
+      _wireSearchCombo('prPersonSearch', 'prPersonSelect', 'prPersonDropdown',
+        allStaffCache.map(s => ({ value: s.teacher_id, label: s.full_name || s.teacher_id, sub: [s.designation, s.teacher_id].filter(Boolean).join(' · ') })));
+      document.getElementById('prPersonSelect').value = '';
+      document.getElementById('prPersonSearch').value = '';
+      document.getElementById('prPersonSearch').addEventListener('change', () => {
+        const uid = document.getElementById('prPersonSelect').value;
+        if (uid) _prSelectPerson(uid);
+      });
+      // _wireSearchCombo sets the hidden value on mousedown pick (not a native
+      // 'change' event) — poll briefly right after a pick registers instead.
+      document.getElementById('prPersonDropdown').addEventListener('mousedown', () => {
+        setTimeout(() => {
+          const uid = document.getElementById('prPersonSelect').value;
+          if (uid) _prSelectPerson(uid);
+        }, 0);
+      });
+    });
+    if (!_prGradesLoaded) {
+      _payrollFetch('get_grades', {}).then(res => { _prGradesCache = (res && res.result === 'success' && res.grades) || []; _prGradesLoaded = true; });
+    }
+  }
+
+  function _prSelectPerson(userId) {
+    _prSelectedPersonId = userId;
+    const detail = document.getElementById('prPersonDetail');
+    detail.innerHTML = `<p class="text-slate-400 font-bold text-xs p-4">Loading…</p>`;
+    Promise.all([
+      _payrollFetch('get_people_setup', {}),
+      _payrollFetch('get_person_field_overrides', { user_id: userId }),
+      _prFieldsCache.length ? Promise.resolve({ result: 'success', fields: _prFieldsCache }) : _payrollFetch('get_fields', {}),
+    ]).then(([peopleRes, overridesRes, fieldsRes]) => {
+      _prPeopleSetupCache = (peopleRes && peopleRes.result === 'success' && peopleRes.people) || [];
+      _prFieldsCache = (fieldsRes && fieldsRes.result === 'success' && fieldsRes.fields) || _prFieldsCache;
+      const overrides = (overridesRes && overridesRes.result === 'success' && overridesRes.overrides) || [];
+      const ovMap = {}; overrides.forEach(o => { ovMap[o.field_id] = o; });
+      const setup = _prPeopleSetupCache.find(p => p.user_id === userId) || {};
+      const label = staffLabel(userId);
+      detail.innerHTML = `
+        <p class="font-black text-slate-800 text-sm mb-3">${label !== userId ? label : userId}</p>
+        <div class="grid md:grid-cols-3 gap-3 mb-5">
+          <div>
+            <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Grade</label>
+            <select id="prPersonGrade" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              <option value="">None</option>
+              ${_prGradesCache.map(g => `<option value="${g.id}" ${setup.grade_id === g.id ? 'selected' : ''}>${g.name}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Joining Date</label>
+            <input type="date" id="prPersonJoiningDate" value="${setup.joining_date || ''}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+          </div>
+        </div>
+        <p class="font-black text-slate-800 text-xs mb-2">Payment Info</p>
+        <div class="grid md:grid-cols-4 gap-3 mb-5">
+          <div>
+            <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Bank Name</label>
+            <input type="text" id="prPersonBankName" value="${setup.bank_name || ''}" placeholder="optional" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+          </div>
+          <div>
+            <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Bank Account No.</label>
+            <input type="text" id="prPersonBankAccount" value="${setup.bank_account_no || ''}" placeholder="optional" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+          </div>
+          <div>
+            <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Mobile Banking</label>
+            <select id="prPersonMbProvider" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              <option value="">None</option>
+              ${['bKash','Nagad','Rocket','Upay'].map(p => `<option value="${p}" ${setup.mobile_banking_provider === p ? 'selected' : ''}>${p}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Mobile Banking No.</label>
+            <input type="text" id="prPersonMbNumber" value="${setup.mobile_banking_number || ''}" placeholder="optional" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+          </div>
+        </div>
+        <div class="flex justify-end mb-5">
+          <button onclick="_prSavePersonSetup('${userId}')" class="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Setup</button>
+        </div>
+        <p class="font-black text-slate-800 text-sm mb-1">Per-Person Field Overrides</p>
+        <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-3">Highest precedence — overrides both the grade's value and the role default. Leave both blank to clear an override.</p>
+        <div class="overflow-auto border border-slate-200 rounded-xl">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Field</th><th class="py-2 px-3">Fixed Value</th><th class="py-2 px-3">Percent</th><th class="py-2 px-3"></th></tr></thead>
+            <tbody>
+              ${_prFieldsCache.map(f => {
+                const ov = ovMap[f.id] || {};
+                return `<tr class="border-b border-slate-50">
+                  <td class="py-1.5 px-3 font-black text-slate-700">${f.label}${f.is_grade_conditional ? ' <span class="text-[9px] text-amber-600 font-black uppercase">(conditional)</span>' : ''}</td>
+                  <td class="py-1.5 px-3"><input type="number" id="prPFO_val_${f.id}" value="${ov.value != null ? ov.value : ''}" placeholder="—" class="w-24 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></td>
+                  <td class="py-1.5 px-3"><input type="number" id="prPFO_pct_${f.id}" value="${ov.percent != null ? ov.percent : ''}" placeholder="—" class="w-20 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></td>
+                  <td class="py-1.5 px-3"><button onclick="_prSavePersonFieldOverride('${userId}',${f.id})" class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-black">Save</button></td>
+                </tr>`;
+              }).join('') || `<tr><td colspan="4" class="p-3 text-slate-400 font-bold text-xs text-center">No fields yet — add some under the Fields tab first.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      `;
+    });
+  }
+
+  function _prSavePersonSetup(userId) {
+    const grade_id = document.getElementById('prPersonGrade').value || null;
+    const joining_date = document.getElementById('prPersonJoiningDate').value || null;
+    const bank_name = document.getElementById('prPersonBankName').value.trim();
+    const bank_account_no = document.getElementById('prPersonBankAccount').value.trim();
+    const mobile_banking_provider = document.getElementById('prPersonMbProvider').value;
+    const mobile_banking_number = document.getElementById('prPersonMbNumber').value.trim();
+    _payrollFetch('save_person_setup', { user_id: userId, grade_id, joining_date, bank_name, bank_account_no, mobile_banking_provider, mobile_banking_number }).then(res => {
+      if (res && res.result === 'success') showToast('Person setup saved');
+      else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(() => showToast('Failed to save', 'error'));
+  }
+
+  function _prSavePersonFieldOverride(userId, fieldId) {
+    const value = document.getElementById(`prPFO_val_${fieldId}`).value;
+    const percent = document.getElementById(`prPFO_pct_${fieldId}`).value;
+    _payrollFetch('save_person_field_override', { user_id: userId, field_id: fieldId, value, percent }).then(res => {
+      if (res && res.result === 'success') showToast(res.cleared ? 'Override cleared' : 'Saved');
+      else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(() => showToast('Failed to save', 'error'));
+  }
+
+  // ── Bonus / festival payments ──
+  let _prBonusLoaded = false;
+  let _prBonusCache = [];
+
+  function loadBonusPayments() {
+    _prBonusLoaded = true;
+    _ensureStaffCache(() => {
+      _wireSearchCombo('prBonusPersonSearch', 'prBonusPersonSelect', 'prBonusPersonDropdown',
+        allStaffCache.map(s => ({ value: s.teacher_id, label: s.full_name || s.teacher_id, sub: [s.designation, s.teacher_id].filter(Boolean).join(' · ') })));
+    });
+    _payrollFetch('get_bonus_payments', {}).then(res => {
+      _prBonusCache = (res && res.result === 'success' && res.payments) || [];
+      _prRenderBonusTable();
+    }).catch(() => showToast('Failed to load bonus payments', 'error'));
+  }
+
+  function _prRenderBonusTable() {
+    const tbody = document.getElementById('prBonusBody');
+    if (!tbody) return;
+    if (!_prBonusCache.length) {
+      tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-slate-400 font-bold text-xs text-center">No bonus payments yet.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = _prBonusCache.map(b => {
+      const label = staffLabel(b.user_id);
+      return `<tr class="border-b border-slate-50">
+        <td class="py-1.5 px-3 font-black text-slate-800">${label !== b.user_id ? label : b.user_id}</td>
+        <td class="py-1.5 px-3">${b.label}</td>
+        <td class="py-1.5 px-3">৳${Number(b.amount).toLocaleString()}</td>
+        <td class="py-1.5 px-3">${b.month}/${b.year}</td>
+        <td class="py-1.5 px-3">${b.status === 'paid' ? '<span class="text-emerald-600 font-black">Paid</span>' : '<span class="text-amber-600 font-black">Pending</span>'}</td>
+        <td class="py-1.5 px-3 text-right">
+          <button onclick='_prOpenBonusForm(${JSON.stringify(b).replace(/'/g, "&apos;")})' class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-black mr-3">Edit</button>
+          <button onclick="_prDeleteBonusPayment(${b.id})" class="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-700">Delete</button>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  function _prOpenBonusForm(bonus) {
+    document.getElementById('prBonusFormTitle').textContent = bonus ? 'Edit Bonus Payment' : 'Add Bonus Payment';
+    document.getElementById('prBonusId').value = bonus ? bonus.id : '';
+    document.getElementById('prBonusPersonSelect').value = bonus ? bonus.user_id : '';
+    document.getElementById('prBonusPersonSearch').value = bonus ? staffLabel(bonus.user_id) : '';
+    document.getElementById('prBonusLabel').value = bonus ? bonus.label : '';
+    document.getElementById('prBonusAmount').value = bonus ? bonus.amount : '';
+    document.getElementById('prBonusMonth').value = bonus ? bonus.month : '';
+    document.getElementById('prBonusYear').value = bonus ? bonus.year : new Date().getFullYear();
+    document.getElementById('prBonusNote').value = (bonus && bonus.note) || '';
+    document.getElementById('prBonusFormModal').classList.remove('hidden');
+  }
+
+  function _prCloseBonusForm() {
+    document.getElementById('prBonusFormModal').classList.add('hidden');
+  }
+
+  function _prSaveBonusPayment() {
+    const id = document.getElementById('prBonusId').value || null;
+    const user_id = document.getElementById('prBonusPersonSelect').value;
+    const label = document.getElementById('prBonusLabel').value.trim();
+    const amount = document.getElementById('prBonusAmount').value;
+    const month = document.getElementById('prBonusMonth').value;
+    const year = document.getElementById('prBonusYear').value;
+    if (!user_id || !label || !amount || !month || !year) { showToast('Person, label, amount, month and year are required', 'error'); return; }
+    const note = document.getElementById('prBonusNote').value.trim();
+    _payrollFetch('save_bonus_payment', { id, user_id, label, amount, month, year, note }).then(res => {
+      if (res && res.result === 'success') { showToast('Saved'); _prCloseBonusForm(); loadBonusPayments(); }
+      else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(() => showToast('Failed to save', 'error'));
+  }
+
+  function _prDeleteBonusPayment(id) {
+    if (!confirm('Delete this bonus payment?')) return;
+    _payrollFetch('delete_bonus_payment', { id }).then(res => {
+      if (res && res.result === 'success') { showToast('Deleted'); loadBonusPayments(); }
+      else showToast((res && res.message) || 'Failed to delete', 'error');
+    }).catch(() => showToast('Failed to delete', 'error'));
   }
 
   function loadLeaveRequests() {
