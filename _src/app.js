@@ -13007,9 +13007,84 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </table>
           </div>
         </div>
-        <div class="bg-white rounded-2xl border border-dashed border-slate-300 p-4">
-          <p class="font-black text-slate-500 text-xs">Loan &amp; Advance Sections</p>
-          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Named pools of person + total amount + EMI, deducted automatically each payroll run until paid off — coming next, alongside Run &amp; Payslips.</p>
+        <div class="grid md:grid-cols-3 gap-4">
+          <div class="bg-white rounded-2xl border border-slate-200 p-4">
+            <div class="flex items-center justify-between mb-3">
+              <p class="font-black text-slate-800 text-xs">Loan &amp; Advance Sections</p>
+              <button onclick="_prOpenSectionForm(null)" class="px-2.5 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1"><i data-lucide="plus" class="h-3 w-3"></i>Add</button>
+            </div>
+            <div id="prSectionsList" class="space-y-1.5"><p class="text-slate-400 font-bold text-xs">Loading…</p></div>
+          </div>
+          <div class="md:col-span-2 bg-white rounded-2xl border border-slate-200 p-4">
+            <div id="prSectionDetail"><p class="text-slate-400 font-bold text-xs p-4">Select a section on the left to see and add EMI entries.</p></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="prSectionFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-sm">
+          <div class="flex items-center justify-between mb-4">
+            <p class="font-black text-slate-800 text-sm">Add Section</p>
+            <button onclick="_prCloseSectionForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+          </div>
+          <div class="space-y-3">
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Name <span class="text-red-500">*</span></label>
+              <input type="text" id="prSectionName" placeholder="e.g. Staff Loan" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            </div>
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Direction</label>
+              <select id="prSectionDirection" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                <option value="deduct">Deduct from salary (loan/advance repayment)</option>
+                <option value="add">Add to salary (recurring extra payment)</option>
+              </select>
+            </div>
+          </div>
+          <div class="flex justify-end gap-2 mt-5">
+            <button onclick="_prCloseSectionForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
+            <button onclick="_prSaveSection()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="prSectionEntryFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-sm">
+          <div class="flex items-center justify-between mb-4">
+            <p class="font-black text-slate-800 text-sm">Add Entry</p>
+            <button onclick="_prCloseSectionEntryForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+          </div>
+          <input type="hidden" id="prSEntrySectionId">
+          <div class="space-y-3">
+            <div class="relative">
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Person <span class="text-red-500">*</span></label>
+              <input type="text" id="prSEntryPersonSearch" placeholder="Search…" autocomplete="off" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocorrect="off" autocapitalize="off" spellcheck="false">
+              <input type="hidden" id="prSEntryPersonSelect">
+              <div id="prSEntryPersonDropdown" class="hidden absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto"></div>
+            </div>
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Total Amount <span class="text-red-500">*</span></label>
+              <input type="number" id="prSEntryTotal" placeholder="0" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            </div>
+            <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Set either a fixed EMI amount, or a number of months to spread the total over</p>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Fixed EMI / Month</label>
+                <input type="number" id="prSEntryEmiAmount" placeholder="—" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              </div>
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">EMI Months</label>
+                <input type="number" id="prSEntryEmiMonths" placeholder="—" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              </div>
+            </div>
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Note</label>
+              <input type="text" id="prSEntryNote" placeholder="optional" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            </div>
+          </div>
+          <div class="flex justify-end gap-2 mt-5">
+            <button onclick="_prCloseSectionEntryForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
+            <button onclick="_prSaveSectionEntry()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Add Entry</button>
+          </div>
         </div>
       </div>
 
@@ -13056,7 +13131,34 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
         </div>
       </div>
-      <div id="pr-run" style="display:none"><p class="text-slate-400 font-bold text-xs p-4">Run payroll &amp; payslips — coming next.</p></div>
+      <div id="pr-run" style="display:none">
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
+          <div class="flex flex-wrap items-end gap-3">
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Month</label>
+              <select id="prRunMonth" class="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                ${['January','February','March','April','May','June','July','August','September','October','November','December'].map((m, i) => `<option value="${i + 1}">${m}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Year</label>
+              <input type="number" id="prRunYear" class="w-24 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            </div>
+            <button onclick="_prRunPayroll()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Run / Recompute Payroll</button>
+            <span id="prRunStatus" class="text-xs font-bold"></span>
+          </div>
+        </div>
+
+        <div class="grid md:grid-cols-3 gap-4">
+          <div class="bg-white rounded-2xl border border-slate-200 p-4">
+            <p class="font-black text-slate-800 text-xs mb-3">Past Runs</p>
+            <div id="prRunsList" class="space-y-1.5"><p class="text-slate-400 font-bold text-xs">Loading…</p></div>
+          </div>
+          <div class="md:col-span-2 bg-white rounded-2xl border border-slate-200 p-4">
+            <div id="prRunDetail"><p class="text-slate-400 font-bold text-xs p-4">Run payroll for a period above, or select a past run on the left.</p></div>
+          </div>
+        </div>
+      </div>
       <div id="pr-export" style="display:none"><p class="text-slate-400 font-bold text-xs p-4">Excel/PDF export — coming next.</p></div>
 
       <div id="prFieldFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -13167,7 +13269,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
     if (tabId === 'pr-grades' && !_prGradesLoaded) loadPayrollGrades();
     if (tabId === 'pr-people' && !_prPeopleComboWired) loadPayrollPeopleTab();
-    if (tabId === 'pr-sections' && !_prBonusLoaded) loadBonusPayments();
+    if (tabId === 'pr-sections' && !_prBonusLoaded) { loadBonusPayments(); loadPayrollSections(); }
+    if (tabId === 'pr-run' && !_prRunTabLoaded) loadPayrollRunTab();
   }
 
   let _prFieldsCache = [];
@@ -13697,6 +13800,273 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _payrollFetch('delete_bonus_payment', { id }).then(res => {
       if (res && res.result === 'success') { showToast('Deleted'); loadBonusPayments(); }
       else showToast((res && res.message) || 'Failed to delete', 'error');
+    }).catch(() => showToast('Failed to delete', 'error'));
+  }
+
+  // ── Loan / Advance sections ──
+  let _prSectionsCache = [];
+  let _prSelectedSectionId = null;
+
+  function loadPayrollSections() {
+    _payrollFetch('get_sections', {}).then(res => {
+      _prSectionsCache = (res && res.result === 'success' && res.sections) || [];
+      _prRenderSectionsList();
+    }).catch(() => showToast('Failed to load sections', 'error'));
+  }
+
+  function _prRenderSectionsList() {
+    const list = document.getElementById('prSectionsList');
+    if (!list) return;
+    if (!_prSectionsCache.length) {
+      list.innerHTML = `<p class="text-slate-400 font-bold text-xs">No sections yet — click "Add".</p>`;
+      return;
+    }
+    list.innerHTML = _prSectionsCache.map(s => `
+      <div onclick="_prSelectSection(${s.id})" class="p-2.5 rounded-xl cursor-pointer transition-all flex items-center justify-between group ${_prSelectedSectionId === s.id ? 'bg-blue-600 text-white' : 'bg-slate-50 hover:bg-slate-100 text-slate-700'}">
+        <div>
+          <p class="font-black text-xs">${s.name}</p>
+          <p class="text-[10px] font-bold ${_prSelectedSectionId === s.id ? 'text-blue-100' : 'text-slate-400'}">${s.direction === 'add' ? 'Adds to salary' : 'Deducts from salary'}</p>
+        </div>
+        <button onclick="event.stopPropagation(); _prDeleteSection(${s.id})" class="opacity-0 group-hover:opacity-100 transition-opacity ${_prSelectedSectionId === s.id ? 'text-white' : 'text-red-500'}"><i data-lucide="trash-2" class="h-3 w-3"></i></button>
+      </div>`).join('');
+    lucide.createIcons();
+  }
+
+  function _prOpenSectionForm() {
+    document.getElementById('prSectionName').value = '';
+    document.getElementById('prSectionDirection').value = 'deduct';
+    document.getElementById('prSectionFormModal').classList.remove('hidden');
+  }
+  function _prCloseSectionForm() { document.getElementById('prSectionFormModal').classList.add('hidden'); }
+
+  function _prSaveSection() {
+    const name = document.getElementById('prSectionName').value.trim();
+    if (!name) { showToast('Name is required', 'error'); return; }
+    const direction = document.getElementById('prSectionDirection').value;
+    _payrollFetch('save_section', { name, direction }).then(res => {
+      if (res && res.result === 'success') { showToast('Section saved'); _prCloseSectionForm(); loadPayrollSections(); }
+      else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(() => showToast('Failed to save', 'error'));
+  }
+
+  function _prDeleteSection(id) {
+    if (!confirm('Delete this section and all its entries? This cannot be undone.')) return;
+    _payrollFetch('delete_section', { id }).then(res => {
+      if (res && res.result === 'success') {
+        showToast('Section deleted');
+        if (_prSelectedSectionId === id) { _prSelectedSectionId = null; document.getElementById('prSectionDetail').innerHTML = `<p class="text-slate-400 font-bold text-xs p-4">Select a section on the left to see and add EMI entries.</p>`; }
+        loadPayrollSections();
+      } else showToast((res && res.message) || 'Failed to delete', 'error');
+    }).catch(() => showToast('Failed to delete', 'error'));
+  }
+
+  function _prSelectSection(sectionId) {
+    _prSelectedSectionId = sectionId;
+    _prRenderSectionsList();
+    const section = _prSectionsCache.find(s => s.id === sectionId);
+    const detail = document.getElementById('prSectionDetail');
+    if (!detail || !section) return;
+    detail.innerHTML = `<p class="text-slate-400 font-bold text-xs p-4">Loading…</p>`;
+    _payrollFetch('get_section_entries', { section_id: sectionId }).then(res => {
+      const entries = (res && res.result === 'success' && res.entries) || [];
+      detail.innerHTML = `
+        <div class="flex items-center justify-between mb-3">
+          <p class="font-black text-slate-800 text-sm">${section.name} — Entries</p>
+          <button onclick="_prOpenSectionEntryForm(${sectionId})" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Entry</button>
+        </div>
+        <div class="overflow-auto border border-slate-200 rounded-xl">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Person</th><th class="py-2 px-3">Total</th><th class="py-2 px-3">EMI</th><th class="py-2 px-3">Remaining</th><th class="py-2 px-3">Status</th><th class="py-2 px-3 text-right">Actions</th></tr></thead>
+            <tbody>
+              ${entries.map(e => {
+                const label = staffLabel(e.user_id);
+                const emiLabel = e.emi_amount != null ? `৳${Number(e.emi_amount).toLocaleString()}/mo` : `${e.emi_months} mo`;
+                const statusColor = e.status === 'completed' ? 'text-emerald-600' : e.status === 'cancelled' ? 'text-slate-400' : 'text-amber-600';
+                return `<tr class="border-b border-slate-50">
+                  <td class="py-1.5 px-3 font-black text-slate-700">${label !== e.user_id ? label : e.user_id}</td>
+                  <td class="py-1.5 px-3">৳${Number(e.total_amount).toLocaleString()}</td>
+                  <td class="py-1.5 px-3">${emiLabel}</td>
+                  <td class="py-1.5 px-3">৳${Number(e.remaining_amount).toLocaleString()}</td>
+                  <td class="py-1.5 px-3"><span class="font-black ${statusColor}">${e.status}</span></td>
+                  <td class="py-1.5 px-3 text-right">
+                    ${e.status === 'active' ? `<button onclick="_prUpdateSectionEntryStatus(${e.id},'cancelled',${sectionId})" class="text-[10px] font-black text-amber-600 uppercase tracking-widest hover:text-black mr-3">Cancel</button>` : ''}
+                    <button onclick="_prDeleteSectionEntry(${e.id},${sectionId})" class="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-700">Delete</button>
+                  </td>
+                </tr>`;
+              }).join('') || `<tr><td colspan="6" class="p-3 text-slate-400 font-bold text-xs text-center">No entries yet.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      `;
+      lucide.createIcons();
+    });
+  }
+
+  function _prOpenSectionEntryForm(sectionId) {
+    document.getElementById('prSEntrySectionId').value = sectionId;
+    document.getElementById('prSEntryPersonSelect').value = '';
+    document.getElementById('prSEntryPersonSearch').value = '';
+    document.getElementById('prSEntryTotal').value = '';
+    document.getElementById('prSEntryEmiAmount').value = '';
+    document.getElementById('prSEntryEmiMonths').value = '';
+    document.getElementById('prSEntryNote').value = '';
+    _ensureStaffCache(() => {
+      _wireSearchCombo('prSEntryPersonSearch', 'prSEntryPersonSelect', 'prSEntryPersonDropdown',
+        allStaffCache.map(s => ({ value: s.teacher_id, label: s.full_name || s.teacher_id, sub: [s.designation, s.teacher_id].filter(Boolean).join(' · ') })));
+      document.getElementById('prSEntryPersonSelect').value = '';
+      document.getElementById('prSEntryPersonSearch').value = '';
+    });
+    document.getElementById('prSectionEntryFormModal').classList.remove('hidden');
+  }
+  function _prCloseSectionEntryForm() { document.getElementById('prSectionEntryFormModal').classList.add('hidden'); }
+
+  function _prSaveSectionEntry() {
+    const section_id = document.getElementById('prSEntrySectionId').value;
+    const user_id = document.getElementById('prSEntryPersonSelect').value;
+    const total_amount = document.getElementById('prSEntryTotal').value;
+    const emi_amount = document.getElementById('prSEntryEmiAmount').value;
+    const emi_months = document.getElementById('prSEntryEmiMonths').value;
+    const note = document.getElementById('prSEntryNote').value.trim();
+    if (!user_id || !total_amount) { showToast('Person and total amount are required', 'error'); return; }
+    if (!emi_amount && !emi_months) { showToast('Set either a fixed EMI amount or EMI months', 'error'); return; }
+    _payrollFetch('add_section_entry', { section_id, user_id, total_amount, emi_amount, emi_months, note }).then(res => {
+      if (res && res.result === 'success') { showToast('Entry added'); _prCloseSectionEntryForm(); _prSelectSection(Number(section_id)); }
+      else showToast((res && res.message) || 'Failed to add', 'error');
+    }).catch(() => showToast('Failed to add', 'error'));
+  }
+
+  function _prUpdateSectionEntryStatus(id, status, sectionId) {
+    _payrollFetch('update_section_entry_status', { id, status }).then(res => {
+      if (res && res.result === 'success') { showToast('Updated'); _prSelectSection(sectionId); }
+      else showToast((res && res.message) || 'Failed to update', 'error');
+    }).catch(() => showToast('Failed to update', 'error'));
+  }
+
+  function _prDeleteSectionEntry(id, sectionId) {
+    if (!confirm('Delete this entry?')) return;
+    _payrollFetch('delete_section_entry', { id }).then(res => {
+      if (res && res.result === 'success') { showToast('Deleted'); _prSelectSection(sectionId); }
+      else showToast((res && res.message) || 'Failed to delete', 'error');
+    }).catch(() => showToast('Failed to delete', 'error'));
+  }
+
+  // ── Run & Payslips ──
+  let _prRunTabLoaded = false;
+  let _prRunsCache = [];
+  let _prSelectedRunId = null;
+  const PAYROLL_MONTH_NAMES = ['','January','February','March','April','May','June','July','August','September','October','November','December'];
+
+  function loadPayrollRunTab() {
+    _prRunTabLoaded = true;
+    const now = new Date();
+    document.getElementById('prRunMonth').value = now.getMonth() + 1;
+    document.getElementById('prRunYear').value = now.getFullYear();
+    _prLoadRunsList();
+  }
+
+  function _prLoadRunsList() {
+    _payrollFetch('get_payroll_runs', {}).then(res => {
+      _prRunsCache = (res && res.result === 'success' && res.runs) || [];
+      _prRenderRunsList();
+    }).catch(() => showToast('Failed to load runs', 'error'));
+  }
+
+  function _prRenderRunsList() {
+    const list = document.getElementById('prRunsList');
+    if (!list) return;
+    if (!_prRunsCache.length) {
+      list.innerHTML = `<p class="text-slate-400 font-bold text-xs">No runs yet — set a period above and click "Run / Recompute Payroll".</p>`;
+      return;
+    }
+    const statusColor = { draft: 'text-slate-400', pending_approval: 'text-amber-600', finalized: 'text-emerald-600' };
+    list.innerHTML = _prRunsCache.map(r => `
+      <div onclick="_prSelectRun(${r.id})" class="p-2.5 rounded-xl cursor-pointer transition-all flex items-center justify-between group ${_prSelectedRunId === r.id ? 'bg-blue-600 text-white' : 'bg-slate-50 hover:bg-slate-100 text-slate-700'}">
+        <div>
+          <p class="font-black text-xs">${PAYROLL_MONTH_NAMES[r.month]} ${r.year}</p>
+          <p class="text-[10px] font-black uppercase ${_prSelectedRunId === r.id ? 'text-blue-100' : statusColor[r.status] || 'text-slate-400'}">${r.status.replace('_', ' ')}</p>
+        </div>
+        ${r.status !== 'finalized' ? `<button onclick="event.stopPropagation(); _prDeleteRun(${r.id})" class="opacity-0 group-hover:opacity-100 transition-opacity ${_prSelectedRunId === r.id ? 'text-white' : 'text-red-500'}"><i data-lucide="trash-2" class="h-3 w-3"></i></button>` : ''}
+      </div>`).join('');
+    lucide.createIcons();
+  }
+
+  function _prRunPayroll() {
+    const month = document.getElementById('prRunMonth').value;
+    const year = document.getElementById('prRunYear').value;
+    const status = document.getElementById('prRunStatus');
+    status.className = 'text-xs font-bold text-slate-400'; status.textContent = 'Running…';
+    _payrollFetch('run_payroll', { month, year }).then(res => {
+      if (!res || res.result !== 'success') { status.className = 'text-xs font-bold text-red-500'; status.textContent = (res && res.message) || 'Failed'; return; }
+      status.className = 'text-xs font-bold text-emerald-600'; status.textContent = `Generated ${res.generated} payslip(s).`;
+      _prLoadRunsList();
+      _prSelectRun(res.run.id);
+    }).catch(() => { status.className = 'text-xs font-bold text-red-500'; status.textContent = 'Failed to run payroll.'; });
+  }
+
+  function _prSelectRun(runId) {
+    _prSelectedRunId = runId;
+    _prRenderRunsList();
+    const run = _prRunsCache.find(r => r.id === runId);
+    const detail = document.getElementById('prRunDetail');
+    if (!detail || !run) return;
+    detail.innerHTML = `<p class="text-slate-400 font-bold text-xs p-4">Loading…</p>`;
+    _payrollFetch('get_payslips', { run_id: runId }).then(res => {
+      const slips = (res && res.result === 'success' && res.payslips) || [];
+      const totalGross = slips.reduce((a, s) => a + Number(s.gross || 0), 0);
+      const totalNet = slips.reduce((a, s) => a + Number(s.net || 0), 0);
+      const actionBtn = run.status === 'draft'
+        ? `<button onclick="_prSubmitRunForApproval(${runId})" class="px-4 py-2 bg-amber-500 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Submit for Approval</button>`
+        : run.status === 'pending_approval'
+        ? `<button onclick="_prApproveRun(${runId})" class="px-4 py-2 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Approve &amp; Finalize</button>`
+        : `<span class="px-3 py-2 bg-emerald-50 text-emerald-600 rounded-xl font-black text-[10px] uppercase tracking-widest">Finalized ✓</span>`;
+      detail.innerHTML = `
+        <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <p class="font-black text-slate-800 text-sm">${PAYROLL_MONTH_NAMES[run.month]} ${run.year} — ${slips.length} payslip(s), Net Total ৳${totalNet.toLocaleString()}</p>
+          ${actionBtn}
+        </div>
+        <div class="overflow-auto border border-slate-200 rounded-xl">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Person</th><th class="py-2 px-3">Gross</th><th class="py-2 px-3">Deductions</th><th class="py-2 px-3">Net</th></tr></thead>
+            <tbody>
+              ${slips.map(s => {
+                const label = staffLabel(s.user_id);
+                return `<tr class="border-b border-slate-50">
+                  <td class="py-1.5 px-3 font-black text-slate-700">${label !== s.user_id ? label : s.user_id}</td>
+                  <td class="py-1.5 px-3">৳${Number(s.gross).toLocaleString()}</td>
+                  <td class="py-1.5 px-3">৳${Number(s.total_deductions).toLocaleString()}</td>
+                  <td class="py-1.5 px-3 font-black text-emerald-600">৳${Number(s.net).toLocaleString()}</td>
+                </tr>`;
+              }).join('') || `<tr><td colspan="4" class="p-3 text-slate-400 font-bold text-xs text-center">No payslips — no active people set up under the People tab.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      `;
+    });
+  }
+
+  function _prSubmitRunForApproval(runId) {
+    _payrollFetch('submit_run_for_approval', { run_id: runId }).then(res => {
+      if (res && res.result === 'success') { showToast('Submitted for approval'); _prLoadRunsList(); _prSelectRun(runId); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    }).catch(() => showToast('Failed', 'error'));
+  }
+
+  function _prApproveRun(runId) {
+    if (!confirm('Approve and finalize this run? This will deduct loan/EMI balances and mark bonus payments as paid — it cannot be undone.')) return;
+    _payrollFetch('approve_run', { run_id: runId }).then(res => {
+      if (res && res.result === 'success') { showToast('Run finalized'); _prLoadRunsList(); _prSelectRun(runId); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    }).catch(() => showToast('Failed', 'error'));
+  }
+
+  function _prDeleteRun(runId) {
+    if (!confirm('Delete this run and its payslips?')) return;
+    _payrollFetch('delete_run', { id: runId }).then(res => {
+      if (res && res.result === 'success') {
+        showToast('Run deleted');
+        if (_prSelectedRunId === runId) { _prSelectedRunId = null; document.getElementById('prRunDetail').innerHTML = `<p class="text-slate-400 font-bold text-xs p-4">Run payroll for a period above, or select a past run on the left.</p>`; }
+        _prLoadRunsList();
+      } else showToast((res && res.message) || 'Failed to delete', 'error');
     }).catch(() => showToast('Failed to delete', 'error'));
   }
 
