@@ -16182,15 +16182,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5">
         <div class="flex items-center gap-3 flex-wrap mb-4">
           <input id="invStockSearch" type="text" placeholder="Search by product name or code…" class="flex-1 max-w-sm bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2">
-          <label class="flex items-center gap-2 text-xs font-bold text-slate-600"><input type="checkbox" id="invStockShowPrice" checked> Show unit price</label>
         </div>
         <div id="invStockTableWrap"><div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div></div>
       </div>`;
     const search = document.getElementById('invStockSearch');
-    const priceToggle = document.getElementById('invStockShowPrice');
     let debounceTimer;
     search.addEventListener('input', () => { clearTimeout(debounceTimer); debounceTimer = setTimeout(() => _invLoadStockTable(search.value.trim()), 300); });
-    priceToggle.addEventListener('change', () => _invRenderStockTable(_invStockRows));
     _invLoadStockTable('');
   }
 
@@ -16207,8 +16204,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _invRenderStockTable(rows) {
     const wrap = document.getElementById('invStockTableWrap');
     if (!wrap) return;
-    const priceToggle = document.getElementById('invStockShowPrice');
-    const showPrice = priceToggle ? priceToggle.checked : true;
     if (!rows.length) {
       wrap.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">No products found</div>`;
       return;
@@ -16227,7 +16222,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Distributed</th>
             <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Damaged</th>
             <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Remaining</th>
-            ${showPrice ? `<th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Unit Price</th><th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Stock Value</th>` : ''}
+            <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Unit Price</th><th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Stock Value</th>
             <th class="px-3 py-2.5"></th>
           </tr></thead>
           <tbody>${rows.map(r => {
@@ -16241,7 +16236,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(r.distributed || 0)}</td>
               <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(r.damaged || 0)}</td>
               <td class="px-3 py-2.5 font-black text-slate-800 text-right">${remaining} ${_escHtml(r.unit || '')}</td>
-              ${showPrice ? `<td class="px-3 py-2.5 font-bold text-slate-600 text-right">${price ? price.toFixed(2) : '—'}</td><td class="px-3 py-2.5 font-bold text-slate-600 text-right">${price ? (price * remaining).toFixed(2) : '—'}</td>` : ''}
+              <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${price ? price.toFixed(2) : '—'}</td><td class="px-3 py-2.5 font-bold text-slate-600 text-right">${price ? (price * remaining).toFixed(2) : '—'}</td>
               <td class="px-3 py-2.5"><span class="w-2 h-2 rounded-full inline-block ${active ? 'bg-emerald-500' : 'bg-red-500'}"></span></td>
             </tr>`;
           }).join('')}</tbody>
@@ -16257,7 +16252,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <p class="text-xs font-black text-slate-800 mb-0.5"><button onclick="openInventoryProductDetail(${r.id})" class="hover:underline">${_escHtml(r.name)}</button>${r.code ? ` <span class="font-bold text-slate-500">(${_escHtml(r.code)})</span>` : ''} <span class="font-bold ${active ? 'text-emerald-600' : 'text-red-500'}">per ${_escHtml(r.unit || 'unit')}</span></p>
           <p class="text-[10px] text-slate-500 font-bold">Received: ${Number(r.received || 0)} · Distributed: ${Number(r.distributed || 0)} · Damaged: ${Number(r.damaged || 0)}</p>
           <p class="text-[10px] text-slate-500 font-bold">Remaining: ${remaining} ${_escHtml(r.unit || '')}</p>
-          ${showPrice ? `<p class="text-[10px] text-slate-500 font-bold">Unit Price: ${price ? price.toFixed(2) : '—'} · Stock Value: ${price ? (price * remaining).toFixed(2) : '—'}</p>` : ''}
+          <p class="text-[10px] text-slate-500 font-bold">Unit Price: ${price ? price.toFixed(2) : '—'} · Stock Value: ${price ? (price * remaining).toFixed(2) : '—'}</p>
           <div class="flex items-center gap-1.5 mt-1"><span class="w-2 h-2 rounded-full ${active ? 'bg-emerald-500' : 'bg-red-500'}"></span><span class="text-[9px] font-bold text-slate-400 uppercase">${active ? 'Active' : 'Inactive'}</span></div>
         </div>`;
         }).join('')}
