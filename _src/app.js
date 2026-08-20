@@ -538,6 +538,7 @@
     routine:       () => loadRoutineView(),
     inventory:     () => loadInventoryView(),
     inventory_admin: () => loadInventoryAdminView(),
+    my_payslips: () => loadMyPayslipsView(),
     myclass:       () => loadMyClassView(),
     lesson_plan:   () => loadLessonPlanView(),
     forum:         () => loadForumView(),
@@ -12843,6 +12844,47 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
   }
 
+  // Self-service: any staff member can see their OWN finalized payslips —
+  // no Payroll Admin role required. Calls get_my_payslips, which is
+  // special-cased in app/api/payroll-admin/route.js to bypass the admin
+  // gate and scope strictly to the caller's own user_id server-side.
+  function loadMyPayslipsView() {
+    if (!_hasModuleAccess('my_payslips')) { showToast('Not available in current role', 'error'); return; }
+    _setViewHash('my_payslips');
+    setActiveNavLink('nav-my-payslips');
+    setContentHeader('My Payslips', 'wallet');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    container.innerHTML = `
+      <div class="mb-4">
+        <h2 class="text-2xl font-black text-slate-800 tracking-tight">My Payslips</h2>
+        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Finalized payslips for your account only</p>
+      </div>
+      <div id="myPayslipsList" class="space-y-3"><p class="text-slate-400 font-bold text-xs">Loading…</p></div>
+    `;
+    _payrollFetch('get_my_payslips', {}).then(res => {
+      const slips = (res && res.result === 'success' && res.payslips) || [];
+      const list = document.getElementById('myPayslipsList');
+      if (!list) return;
+      if (!slips.length) { list.innerHTML = `<p class="text-slate-400 font-bold text-xs p-6 text-center bg-white rounded-2xl border border-slate-200">No finalized payslips yet.</p>`; return; }
+      const monthNames = ['','January','February','March','April','May','June','July','August','September','October','November','December'];
+      list.innerHTML = slips.map(s => `
+        <div class="bg-white rounded-2xl border border-slate-200 p-4">
+          <div class="flex items-center justify-between mb-3">
+            <p class="font-black text-slate-800 text-sm">${monthNames[s.runs?.month] || ''} ${s.runs?.year || ''}</p>
+            <span class="text-lg font-black text-emerald-600">৳${Number(s.net).toLocaleString()}</span>
+          </div>
+          <div class="grid grid-cols-2 gap-3 text-xs">
+            <div class="bg-slate-50 rounded-xl p-3"><p class="text-[10px] text-slate-400 font-black uppercase">Gross</p><p class="font-black text-slate-700 mt-0.5">৳${Number(s.gross).toLocaleString()}</p></div>
+            <div class="bg-slate-50 rounded-xl p-3"><p class="text-[10px] text-slate-400 font-black uppercase">Deductions</p><p class="font-black text-slate-700 mt-0.5">৳${Number(s.total_deductions).toLocaleString()}</p></div>
+          </div>
+        </div>`).join('');
+    }).catch(() => {
+      const list = document.getElementById('myPayslipsList');
+      if (list) list.innerHTML = `<p class="text-red-500 font-bold text-xs p-6 text-center bg-white rounded-2xl border border-slate-200">Failed to load payslips.</p>`;
+    });
+  }
+
   const PAYROLL_SUBTABS = [
     { id: 'pr-fields', label: 'Fields' },
     { id: 'pr-grades', label: 'Grades' },
@@ -12850,6 +12892,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { id: 'pr-sections', label: 'Sections' },
     { id: 'pr-run', label: 'Run & Payslips' },
     { id: 'pr-export', label: 'Export' },
+    { id: 'pr-audit', label: 'Audit Log' },
   ];
 
   function loadAdminPayrollView() {
@@ -13011,6 +13054,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </table>
           </div>
         </div>
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
+          <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <div>
+              <p class="font-black text-slate-800 text-xs">Leave / Attendance Deductions</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">One-off deduction for a specific month tied to unpaid leave or absence</p>
+            </div>
+            <button onclick="_prOpenLeaveForm(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Deduction</button>
+          </div>
+          <div class="overflow-auto border border-slate-200 rounded-xl">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
+                <th class="py-2 px-3">Person</th><th class="py-2 px-3">Days</th><th class="py-2 px-3">Amount</th><th class="py-2 px-3">Month/Year</th><th class="py-2 px-3 text-right">Actions</th>
+              </tr></thead>
+              <tbody id="prLeaveBody"><tr><td colspan="5" class="p-4 text-slate-400 font-bold text-xs text-center">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
         <div class="grid md:grid-cols-3 gap-4">
           <div class="bg-white rounded-2xl border border-slate-200 p-4">
             <div class="flex items-center justify-between mb-3">
@@ -13135,6 +13196,52 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
         </div>
       </div>
+
+      <div id="prLeaveFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-md">
+          <div class="flex items-center justify-between mb-4">
+            <p class="font-black text-slate-800 text-sm" id="prLeaveFormTitle">Add Leave Deduction</p>
+            <button onclick="_prCloseLeaveForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+          </div>
+          <input type="hidden" id="prLeaveId">
+          <div class="space-y-3">
+            <div class="relative">
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Person <span class="text-red-500">*</span></label>
+              <input type="text" id="prLeavePersonSearch" placeholder="Search…" autocomplete="off" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocorrect="off" autocapitalize="off" spellcheck="false">
+              <input type="hidden" id="prLeavePersonSelect">
+              <div id="prLeavePersonDropdown" class="hidden absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto"></div>
+            </div>
+            <div class="grid grid-cols-3 gap-3">
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Days</label>
+                <input type="number" id="prLeaveDays" placeholder="optional" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              </div>
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Amount <span class="text-red-500">*</span></label>
+                <input type="number" id="prLeaveAmount" placeholder="0" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Month <span class="text-red-500">*</span></label>
+                <input type="number" id="prLeaveMonth" min="1" max="12" placeholder="1-12" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              </div>
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Year <span class="text-red-500">*</span></label>
+                <input type="number" id="prLeaveYear" placeholder="2026" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              </div>
+            </div>
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Note</label>
+              <input type="text" id="prLeaveNote" placeholder="optional" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            </div>
+          </div>
+          <div class="flex justify-end gap-2 mt-5">
+            <button onclick="_prCloseLeaveForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
+            <button onclick="_prSaveLeaveDeduction()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button>
+          </div>
+        </div>
+      </div>
       <div id="pr-run" style="display:none">
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
           <div class="flex flex-wrap items-end gap-3">
@@ -13182,6 +13289,38 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <table class="w-full text-left border-collapse text-xs">
               <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Include</th><th class="py-2 px-3">Column</th><th class="py-2 px-3">Bold</th><th class="py-2 px-3">Italic</th><th class="py-2 px-3">Color</th><th class="py-2 px-3"></th></tr></thead>
               <tbody id="prExportColumnsBody"><tr><td colspan="6" class="p-4 text-slate-400 font-bold text-xs text-center">Pick a run above to load its columns.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="pr-audit" style="display:none">
+        <div class="bg-white rounded-2xl border border-slate-200 p-4">
+          <div class="flex items-center justify-between flex-wrap gap-3 mb-3">
+            <div>
+              <p class="font-black text-slate-800 text-xs">Audit Log</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Every save/delete across Payroll Admin, newest first</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <select id="prAuditEntityFilter" onchange="loadPayrollAuditLog()" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                <option value="">All entities</option>
+                <option value="fields">fields</option>
+                <option value="grades">grades</option>
+                <option value="person_setup">person_setup</option>
+                <option value="sections">sections</option>
+                <option value="section_entries">section_entries</option>
+                <option value="bonus_payments">bonus_payments</option>
+                <option value="statutory_items">statutory_items</option>
+                <option value="runs">runs</option>
+                <option value="field_condition_rules">field_condition_rules</option>
+              </select>
+              <button onclick="loadPayrollAuditLog()" class="px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-500 text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="refresh-cw" class="h-3 w-3"></i>Refresh</button>
+            </div>
+          </div>
+          <div class="overflow-auto border border-slate-200 rounded-xl">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">When</th><th class="py-2 px-3">Actor</th><th class="py-2 px-3">Action</th><th class="py-2 px-3">Entity</th><th class="py-2 px-3">Details</th></tr></thead>
+              <tbody id="prAuditLogBody"><tr><td colspan="5" class="p-4 text-slate-400 font-bold text-xs text-center">Loading…</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -13389,9 +13528,32 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
     if (tabId === 'pr-grades' && !_prGradesLoaded) loadPayrollGrades();
     if (tabId === 'pr-people' && !_prPeopleComboWired) loadPayrollPeopleTab();
-    if (tabId === 'pr-sections' && !_prBonusLoaded) { loadBonusPayments(); loadPayrollSections(); }
+    if (tabId === 'pr-sections' && !_prBonusLoaded) { loadBonusPayments(); loadPayrollSections(); loadLeaveDeductions(); }
     if (tabId === 'pr-run' && !_prRunTabLoaded) loadPayrollRunTab();
     if (tabId === 'pr-export' && !_prExportTabLoaded) loadPayrollExportTab();
+    if (tabId === 'pr-audit') loadPayrollAuditLog();
+  }
+
+  function loadPayrollAuditLog() {
+    const entity = document.getElementById('prAuditEntityFilter')?.value || '';
+    _payrollFetch('get_audit_log', { entity, limit: 200 }).then(res => {
+      const rows = (res && res.result === 'success' && res.log) || [];
+      const tbody = document.getElementById('prAuditLogBody');
+      if (!tbody) return;
+      if (!rows.length) { tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-slate-400 font-bold text-xs text-center">No activity yet.</td></tr>`; return; }
+      tbody.innerHTML = rows.map(r => {
+        const actorLabel = staffLabel(r.actor_user_id);
+        const when = new Date(r.created_at).toLocaleString();
+        const details = r.details ? `<code class="text-[10px] text-slate-400">${JSON.stringify(r.details).slice(0, 120)}</code>` : '';
+        return `<tr class="border-b border-slate-50">
+          <td class="py-1.5 px-3 text-slate-500">${when}</td>
+          <td class="py-1.5 px-3 font-black text-slate-700">${actorLabel !== r.actor_user_id ? actorLabel : r.actor_user_id}</td>
+          <td class="py-1.5 px-3 font-bold text-blue-600">${r.action}</td>
+          <td class="py-1.5 px-3">${r.entity || '—'}${r.entity_id ? ` #${r.entity_id}` : ''}</td>
+          <td class="py-1.5 px-3">${details}</td>
+        </tr>`;
+      }).join('');
+    }).catch(() => showToast('Failed to load audit log', 'error'));
   }
 
   let _prFieldsCache = [];
@@ -14042,6 +14204,82 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!confirm('Delete this bonus payment?')) return;
     _payrollFetch('delete_bonus_payment', { id }).then(res => {
       if (res && res.result === 'success') { showToast('Deleted'); loadBonusPayments(); }
+      else showToast((res && res.message) || 'Failed to delete', 'error');
+    }).catch(() => showToast('Failed to delete', 'error'));
+  }
+
+  // ── Leave / attendance-linked deductions ──
+  let _prLeaveLoaded = false;
+  let _prLeaveCache = [];
+
+  function loadLeaveDeductions() {
+    _prLeaveLoaded = true;
+    _ensureStaffCache(() => {
+      _wireSearchCombo('prLeavePersonSearch', 'prLeavePersonSelect', 'prLeavePersonDropdown',
+        allStaffCache.map(s => ({ value: s.teacher_id, label: s.full_name || s.teacher_id, sub: [s.designation, s.teacher_id].filter(Boolean).join(' · ') })));
+    });
+    _payrollFetch('get_leave_deductions', {}).then(res => {
+      _prLeaveCache = (res && res.result === 'success' && res.deductions) || [];
+      _prRenderLeaveTable();
+    }).catch(() => showToast('Failed to load leave deductions', 'error'));
+  }
+
+  function _prRenderLeaveTable() {
+    const tbody = document.getElementById('prLeaveBody');
+    if (!tbody) return;
+    if (!_prLeaveCache.length) {
+      tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-slate-400 font-bold text-xs text-center">No leave deductions yet.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = _prLeaveCache.map(l => {
+      const label = staffLabel(l.user_id);
+      return `<tr class="border-b border-slate-50">
+        <td class="py-1.5 px-3 font-black text-slate-800">${label !== l.user_id ? label : l.user_id}</td>
+        <td class="py-1.5 px-3">${l.days != null ? l.days : '—'}</td>
+        <td class="py-1.5 px-3 font-black text-red-500">-৳${Number(l.amount).toLocaleString()}</td>
+        <td class="py-1.5 px-3">${l.month}/${l.year}</td>
+        <td class="py-1.5 px-3 text-right">
+          <button onclick='_prOpenLeaveForm(${JSON.stringify(l).replace(/'/g, "&apos;")})' class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-black mr-3">Edit</button>
+          <button onclick="_prDeleteLeaveDeduction(${l.id})" class="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-700">Delete</button>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  function _prOpenLeaveForm(leave) {
+    document.getElementById('prLeaveFormTitle').textContent = leave ? 'Edit Leave Deduction' : 'Add Leave Deduction';
+    document.getElementById('prLeaveId').value = leave ? leave.id : '';
+    document.getElementById('prLeavePersonSelect').value = leave ? leave.user_id : '';
+    document.getElementById('prLeavePersonSearch').value = leave ? staffLabel(leave.user_id) : '';
+    document.getElementById('prLeaveDays').value = (leave && leave.days != null) ? leave.days : '';
+    document.getElementById('prLeaveAmount').value = leave ? leave.amount : '';
+    document.getElementById('prLeaveMonth').value = leave ? leave.month : '';
+    document.getElementById('prLeaveYear').value = leave ? leave.year : new Date().getFullYear();
+    document.getElementById('prLeaveNote').value = (leave && leave.note) || '';
+    document.getElementById('prLeaveFormModal').classList.remove('hidden');
+  }
+
+  function _prCloseLeaveForm() { document.getElementById('prLeaveFormModal').classList.add('hidden'); }
+
+  function _prSaveLeaveDeduction() {
+    const id = document.getElementById('prLeaveId').value || null;
+    const user_id = document.getElementById('prLeavePersonSelect').value;
+    const amount = document.getElementById('prLeaveAmount').value;
+    const month = document.getElementById('prLeaveMonth').value;
+    const year = document.getElementById('prLeaveYear').value;
+    if (!user_id || !amount || !month || !year) { showToast('Person, amount, month and year are required', 'error'); return; }
+    const days = document.getElementById('prLeaveDays').value;
+    const note = document.getElementById('prLeaveNote').value.trim();
+    _payrollFetch('save_leave_deduction', { id, user_id, days, amount, month, year, note }).then(res => {
+      if (res && res.result === 'success') { showToast('Saved'); _prCloseLeaveForm(); loadLeaveDeductions(); }
+      else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(() => showToast('Failed to save', 'error'));
+  }
+
+  function _prDeleteLeaveDeduction(id) {
+    if (!confirm('Delete this leave deduction?')) return;
+    _payrollFetch('delete_leave_deduction', { id }).then(res => {
+      if (res && res.result === 'success') { showToast('Deleted'); loadLeaveDeductions(); }
       else showToast((res && res.message) || 'Failed to delete', 'error');
     }).catch(() => showToast('Failed to delete', 'error'));
   }
@@ -19865,6 +20103,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { key: 'student_portal',   label: 'Student Portal',     navId: 'nav-student-portal' },
     { key: 'inventory_admin',  label: 'Inventory Admin',    navId: 'nav-inventory-admin' },
     { key: 'payroll_admin',    label: 'Payroll Admin',      navId: 'nav-payroll' },
+    { key: 'my_payslips',      label: 'My Payslips',        navId: 'nav-my-payslips' },
     { key: 'inventory',        label: 'Inventory',          navId: 'nav-inventory' },
     { key: 'ssc_result_analysis', label: 'Analyse SSC Result', navId: 'nav-ssc-result-analysis' },
     { key: 'committees',       label: 'My Assignments',     navId: 'nav-my-committees' },
@@ -19895,6 +20134,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     student_portal:['Admin','Student Portal Admin','HR'],
     inventory_admin:['Admin','Inventory Admin'],
     payroll_admin: ['Admin','Accounts Admin'],
+    my_payslips: ALL_ROLES,
     // Mirrors the previous hardcoded behavior (this nav link had no
     // gating at all before it was added to MODULE_REGISTRY) — an Admin
     // can narrow this from System > Permission Control without needing

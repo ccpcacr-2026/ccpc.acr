@@ -48,10 +48,11 @@ const RESERVED = [
   '_prSelectPerson','_prSavePersonSetup','_prSavePersonFieldOverride',
   '_prOpenStatutoryForm','_prCloseStatutoryForm','_prToggleStatutoryCalcFields','_prToggleStatutoryEmployerFields','_prSaveStatutoryItem','_prDeleteStatutoryItem',
   '_prOpenBonusForm','_prCloseBonusForm','_prSaveBonusPayment','_prDeleteBonusPayment',
+  '_prOpenLeaveForm','_prCloseLeaveForm','_prSaveLeaveDeduction','_prDeleteLeaveDeduction','loadMyPayslipsView',
   '_prSelectSection','_prOpenSectionForm','_prCloseSectionForm','_prSaveSection','_prDeleteSection',
   '_prOpenSectionEntryForm','_prCloseSectionEntryForm','_prSaveSectionEntry','_prUpdateSectionEntryStatus','_prDeleteSectionEntry',
   '_prRunPayroll','_prSelectRun','_prSubmitRunForApproval','_prApproveRun','_prDeleteRun',
-  '_prBulkAddAllStaff','_prLoadExportColumns','_prSetExportFormat','_prRemoveExportColumn',
+  '_prBulkAddAllStaff','_prLoadExportColumns','_prSetExportFormat','_prRemoveExportColumn','loadPayrollAuditLog',
   '_prAddVirtualColumn','_prCloseVirtualColumnForm','_prSaveVirtualColumn','_prExportExcel','_prExportPdf',
   '_invSelectResponsiblePerson','_invClearResponsiblePerson',
   // Analyse SSC Result — onclick-referenced

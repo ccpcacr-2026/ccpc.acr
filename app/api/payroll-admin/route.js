@@ -209,6 +209,11 @@ function _computePayslipForPerson(personSetup, role, ref, month, year) {
   (ref.bonusesByUser[personSetup.user_id] || []).forEach(b => { bonusTotal += Number(b.amount) || 0; });
   if (bonusTotal) { fieldValues['bonus_total'] = bonusTotal; gross += bonusTotal; }
 
+  // Leave/attendance deductions entered for this exact month/year.
+  let leaveDeductionTotal = 0;
+  (ref.leaveDeductionsByUser[personSetup.user_id] || []).forEach(l => { leaveDeductionTotal += Number(l.amount) || 0; });
+  if (leaveDeductionTotal) { fieldValues['leave_deduction'] = leaveDeductionTotal; totalDeductions += leaveDeductionTotal; }
+
   return {
     user_id: personSetup.user_id,
     grade_id: gradeId,
@@ -222,7 +227,7 @@ function _computePayslipForPerson(personSetup, role, ref, month, year) {
 
 // Fetches every table the engine needs, once, for a given set of user ids + period.
 async function _loadPayrollRef(userIds, month, year) {
-  const [fields, gradeFields, gradeConditional, roleDefaults, statutoryItemsRaw, sections, sectionEntriesRaw, bonusesRaw, allOverridesRaw, applicableRolesRaw, conditionRulesRaw] = await Promise.all([
+  const [fields, gradeFields, gradeConditional, roleDefaults, statutoryItemsRaw, sections, sectionEntriesRaw, bonusesRaw, allOverridesRaw, applicableRolesRaw, conditionRulesRaw, leaveDeductionsRaw] = await Promise.all([
     sbPayroll('fields?is_active=eq.true&select=*'),
     sbPayroll('grade_fields?select=*'),
     sbPayroll('grade_conditional_fields?select=*'),
@@ -234,6 +239,7 @@ async function _loadPayrollRef(userIds, month, year) {
     sbPayroll('person_field_overrides?select=*'),
     sbPayroll('field_applicable_roles?select=*'),
     sbPayroll('field_condition_rules?select=*&order=priority.asc'),
+    sbPayroll(`leave_deductions?month=eq.${encodeURIComponent(month)}&year=eq.${encodeURIComponent(year)}&select=*`),
   ]);
   const gradeFieldsByGrade = {}; (gradeFields || []).forEach(g => { (gradeFieldsByGrade[g.grade_id] = gradeFieldsByGrade[g.grade_id] || []).push(g); });
   const gradeConditionalSet = new Set((gradeConditional || []).map(c => `${c.grade_id}:${c.field_id}`));
@@ -243,10 +249,11 @@ async function _loadPayrollRef(userIds, month, year) {
   const personOverridesByUser = {}; (allOverridesRaw || []).forEach(o => { (personOverridesByUser[o.user_id] = personOverridesByUser[o.user_id] || []).push(o); });
   const applicableRolesByField = {}; (applicableRolesRaw || []).forEach(a => { (applicableRolesByField[a.field_id] = applicableRolesByField[a.field_id] || new Set()).add(a.role); });
   const conditionRulesByField = {}; (conditionRulesRaw || []).forEach(r => { (conditionRulesByField[r.field_id] = conditionRulesByField[r.field_id] || []).push(r); });
+  const leaveDeductionsByUser = {}; (leaveDeductionsRaw || []).forEach(l => { (leaveDeductionsByUser[l.user_id] = leaveDeductionsByUser[l.user_id] || []).push(l); });
   return {
     fields: fields || [], gradeFieldsByGrade, gradeConditionalSet, roleDefaults: roleDefaults || [],
     statutoryItems: statutoryItemsRaw || [], sectionsById, sectionEntriesByUser, bonusesByUser, personOverridesByUser,
-    applicableRolesByField, conditionRulesByField,
+    applicableRolesByField, conditionRulesByField, leaveDeductionsByUser,
   };
 }
 
@@ -678,6 +685,39 @@ export async function POST(req) {
     const saved = await sbPayroll(`runs?id=eq.${encodeURIComponent(run_id)}`, 'PATCH', { status: 'finalized', approved_by: user_id, approved_at: new Date().toISOString() });
     if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
     _prAudit(user_id, 'approve_run', 'runs', run_id);
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Leave / attendance-linked deductions (one-off, tied to a specific month) ──
+  if (action === 'get_leave_deductions') {
+    const { month, year } = payload;
+    let q = 'leave_deductions?select=*&order=created_at.desc';
+    if (month) q += `&month=eq.${encodeURIComponent(month)}`;
+    if (year) q += `&year=eq.${encodeURIComponent(year)}`;
+    const rows = await sbPayroll(q);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', deductions: rows });
+  }
+
+  if (action === 'save_leave_deduction') {
+    const { id, user_id: personId, days, amount, month, year, note } = payload;
+    if (!personId || !amount || !month || !year) return NextResponse.json({ result: 'error', message: 'Person, amount, month and year are required' }, { status: 400 });
+    const rowData = { user_id: personId, days: days === '' || days == null ? null : Number(days), amount: Number(amount), month: Number(month), year: Number(year), note: note || null };
+    const saved = id
+      ? await sbPayroll(`leave_deductions?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sbPayroll('leave_deductions', 'POST', rowData);
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    const savedRow = Array.isArray(saved) ? saved[0] : saved;
+    _prAudit(user_id, 'save_leave_deduction', 'leave_deductions', savedRow?.id, rowData);
+    return NextResponse.json({ result: 'success', deduction: savedRow });
+  }
+
+  if (action === 'delete_leave_deduction') {
+    const { id } = payload;
+    if (!id) return NextResponse.json({ result: 'error', message: 'id required' }, { status: 400 });
+    const del = await sbPayroll(`leave_deductions?id=eq.${encodeURIComponent(id)}`, 'DELETE');
+    if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
+    _prAudit(user_id, 'delete_leave_deduction', 'leave_deductions', id);
     return NextResponse.json({ result: 'success' });
   }
 
