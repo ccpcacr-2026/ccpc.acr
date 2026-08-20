@@ -16484,9 +16484,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // Detail below is the full page with purchase/distribution history,
   // still reachable from here via "View Full History").
   function _invOpenProductQuickView(productId) {
-    document.getElementById('invProductQuickView')?.remove();
+    document.getElementById('invProductQuickViewModal')?.remove();
     const overlay = document.createElement('div');
-    overlay.id = 'invProductQuickView';
+    overlay.id = 'invProductQuickViewModal';
     overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
     overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
     // Buttons live in their own shrink-0 footer, outside the scrollable
@@ -16560,10 +16560,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       footer.className = 'shrink-0 p-3 border-t border-slate-100 bg-white';
       footer.innerHTML = `
         <div class="flex gap-2">
-          <button onclick="document.getElementById('invProductQuickView').remove(); openInventoryDistributeFor(${p.id})" class="flex-1 px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest bg-emerald-600 text-white hover:bg-black transition-all">Distribute</button>
+          <button onclick="document.getElementById('invProductQuickViewModal').remove(); openInventoryDistributeFor(${p.id})" class="flex-1 px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest bg-emerald-600 text-white hover:bg-black transition-all">Distribute</button>
           <button onclick="_invEditProductFromQuickView(${p.id})" class="px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">Edit</button>
         </div>
-        <button onclick="document.getElementById('invProductQuickView').remove(); openInventoryProductDetail(${p.id})" class="w-full mt-2 px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-500 hover:bg-slate-50 transition-all">Full History</button>`;
+        <button onclick="document.getElementById('invProductQuickViewModal').remove(); openInventoryProductDetail(${p.id})" class="w-full mt-2 px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-500 hover:bg-slate-50 transition-all">Full History</button>`;
       card.appendChild(footer);
     }).catch(err => {
       const body = document.getElementById('invProductQuickViewBody');
@@ -16581,7 +16581,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _invAdminFetch('settings_list', { entity: 'products' }).then(res => {
       _invCurrentEntity = 'products';
       _invEntityRows = (res && res.data) || [];
-      document.getElementById('invProductQuickView')?.remove();
+      document.getElementById('invProductQuickViewModal')?.remove();
       openInventoryEntityForm('products', id);
     });
   }
