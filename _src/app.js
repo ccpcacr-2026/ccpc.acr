@@ -16248,9 +16248,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <select id="invStockSort" class="shrink-0 max-w-[40%] bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-2 py-2">
             ${INV_STOCK_SORT_OPTIONS.map(o => `<option value="${o.value}" ${o.value === _invStockSort ? 'selected' : ''}>${_escHtml(o.label)}</option>`).join('')}
           </select>
+          <button type="button" onclick="_invOpenStockImportModal()" title="Import Stock from CSV/Excel" class="shrink-0 w-8 h-8 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 flex items-center justify-center transition-all"><i data-lucide="upload" class="h-3.5 w-3.5"></i></button>
         </div>
         <div id="invStockTableWrap" class="mt-1"><div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div></div>
       </div>`;
+    lucide.createIcons();
     const search = document.getElementById('invStockSearch');
     let debounceTimer;
     search.addEventListener('input', () => { clearTimeout(debounceTimer); debounceTimer = setTimeout(() => _invLoadStockTable(search.value.trim()), 300); });
@@ -16266,6 +16268,122 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }).catch(err => {
       const wrap = document.getElementById('invStockTableWrap');
       if (wrap) wrap.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml(err.message || 'Failed to load')}</div>`;
+    });
+  }
+
+  // ── Bulk Stock Import — CSV/Excel upload of a legacy ledger (name, page
+  // no, register no, quantity, unit price, location note) into products +
+  // stock lots. Column headers are matched loosely so slightly different
+  // ledger exports still work without a manual mapping step (unlike the
+  // generic Settings importer, this only ever targets one fixed shape).
+  let _invStockImportRows = null;
+  const INV_STOCK_IMPORT_HEADERS = {
+    name: ['particulars', 'name', 'product', 'item'],
+    page_no: ['page no', 'page no.', 'page'],
+    register_no: ['reg no', 'reg no.', 'register no', 'register no.'],
+    quantity: ['stock', 'quantity', 'qty'],
+    unit_price: ['unit price', 'price'],
+    note: ['distribution', 'location', 'note', 'remarks'],
+  };
+
+  function _invOpenStockImportModal() {
+    document.getElementById('invStockImportModal')?.remove();
+    _invStockImportRows = null;
+    const overlay = document.createElement('div');
+    overlay.id = 'invStockImportModal';
+    overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+    overlay.innerHTML = `
+      <div class="bg-white rounded-2xl p-5 w-full max-w-md max-h-[85vh] overflow-y-auto">
+        <p class="text-sm font-black text-slate-800 mb-1">Import Stock from CSV/Excel</p>
+        <p class="text-[10px] text-slate-400 font-bold mb-3">Expects columns for Particulars/Name, Page No., Reg No., Stock quantity, Unit Price, and an optional Distribution/location note. Products are matched by name (created if new); register/page no. only fills in where currently blank; quantity+price become a stock lot in Central Store.</p>
+        <input type="file" id="invStockImportFile" accept=".csv,.xlsx,.xls" class="w-full text-xs font-bold">
+        <p id="invStockImportStatus" class="text-xs font-bold mt-2"></p>
+        <div id="invStockImportPreview" class="hidden mt-3"></div>
+      </div>`;
+    document.body.appendChild(overlay);
+    document.getElementById('invStockImportFile').addEventListener('change', _invHandleStockImportFile);
+  }
+
+  function _invHandleStockImportFile(e) {
+    const file = e.target.files[0];
+    const status = document.getElementById('invStockImportStatus');
+    const previewEl = document.getElementById('invStockImportPreview');
+    previewEl.classList.add('hidden');
+    if (!file) return;
+    if (status) status.textContent = 'Reading file…';
+    ensureXLSX().then(() => {
+      const reader = new FileReader();
+      reader.onload = ev => {
+        try {
+          const wb = window.XLSX.read(new Uint8Array(ev.target.result), { type: 'array' });
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const grid = window.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+          _invParseStockImportGrid(grid);
+        } catch (err) {
+          if (status) status.textContent = err.message || 'Could not read that file.';
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }).catch(err => { if (status) status.textContent = err.message; });
+  }
+
+  function _invParseStockImportGrid(grid) {
+    const status = document.getElementById('invStockImportStatus');
+    const rows = grid.filter(r => r.some(c => String(c || '').trim() !== ''));
+    if (rows.length < 2) { if (status) status.textContent = 'No data rows found.'; return; }
+    const header = rows[0].map(h => String(h || '').trim().toLowerCase());
+    const colFor = key => {
+      const candidates = INV_STOCK_IMPORT_HEADERS[key];
+      const idx = header.findIndex(h => candidates.some(c => h === c || h.includes(c)));
+      return idx;
+    };
+    const cols = { name: colFor('name'), page_no: colFor('page_no'), register_no: colFor('register_no'), quantity: colFor('quantity'), unit_price: colFor('unit_price'), note: colFor('note') };
+    if (cols.name < 0) { if (status) status.textContent = 'Could not find a Name/Particulars column in the header row.'; return; }
+    _invStockImportRows = rows.slice(1).map(r => ({
+      name: cols.name >= 0 ? String(r[cols.name] || '').trim() : '',
+      page_no: cols.page_no >= 0 ? String(r[cols.page_no] || '').trim() : '',
+      register_no: cols.register_no >= 0 ? String(r[cols.register_no] || '').trim() : '',
+      quantity: cols.quantity >= 0 ? r[cols.quantity] : '',
+      unit_price: cols.unit_price >= 0 ? r[cols.unit_price] : '',
+      note: cols.note >= 0 ? String(r[cols.note] || '').trim() : '',
+    })).filter(r => r.name);
+    if (status) status.textContent = `${_invStockImportRows.length} row(s) with a name found. Checking against existing products…`;
+    _invAdminFetch('stock_import_preview', { rows: _invStockImportRows }).then(res => {
+      if (!res || res.result !== 'success') { if (status) status.textContent = (res && res.message) || 'Preview failed.'; return; }
+      if (status) status.textContent = '';
+      const previewEl = document.getElementById('invStockImportPreview');
+      previewEl.classList.remove('hidden');
+      previewEl.innerHTML = `
+        <div class="bg-slate-50 rounded-xl p-3 text-xs font-bold text-slate-600 space-y-1 mb-3">
+          <p>${res.total_rows} row(s) · ${res.unique_products} unique product name(s)</p>
+          <p><span class="text-emerald-600 font-black">${res.products_matched}</span> match existing products, <span class="text-blue-600 font-black">${res.products_new}</span> will be created new</p>
+          <p><span class="text-slate-800 font-black">${res.rows_with_stock}</span> row(s) will add a stock lot, ${res.rows_without_stock} have no quantity (info only)</p>
+        </div>
+        <div id="invStockImportConfirmStatus" class="text-xs font-bold mb-2"></div>
+        <button id="invStockImportConfirmBtn" onclick="_invConfirmStockImport()" class="w-full px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">Confirm Import</button>`;
+    }).catch(err => { if (status) status.textContent = err.message || 'Preview failed.'; });
+  }
+
+  function _invConfirmStockImport() {
+    if (!_invStockImportRows || !_invStockImportRows.length) return;
+    const status = document.getElementById('invStockImportConfirmStatus');
+    const btn = document.getElementById('invStockImportConfirmBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Importing…'; }
+    if (status) status.textContent = '';
+    _invAdminFetch('stock_import_confirm', { rows: _invStockImportRows }).then(res => {
+      if (!res || (res.result !== 'success' && res.result !== 'partial')) {
+        if (status) status.textContent = (res && res.message) || 'Import failed.';
+        if (btn) { btn.disabled = false; btn.textContent = 'Confirm Import'; }
+        return;
+      }
+      if (status) status.innerHTML = `<span class="text-emerald-600">${res.products_created} product(s) created, ${res.products_updated} updated, ${res.lots_inserted} stock lot(s) added.</span>${res.errors && res.errors.length ? `<br><span class="text-red-500">${_escHtml(res.errors.join('; '))}</span>` : ''}`;
+      if (btn) { btn.disabled = true; btn.textContent = 'Done'; }
+      showToast(`Imported ${res.lots_inserted} stock lot(s)`, 'success');
+      _invLoadStockTable('');
+    }).catch(err => {
+      if (status) status.textContent = err.message || 'Import failed.';
+      if (btn) { btn.disabled = false; btn.textContent = 'Confirm Import'; }
     });
   }
 

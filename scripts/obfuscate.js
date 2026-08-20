@@ -39,6 +39,7 @@ const RESERVED = [
   '_invOpenCustomConsumerModal','_invSelectDistConsumer','_invClearDistConsumer',
   '_invSelectHrCommittee','_invOnChairmanOverrideChange',
   '_invOpenProductQuickView','_invEditProductFromQuickView','_invProductSortChange',
+  '_invOpenStockImportModal','_invConfirmStockImport',
   '_invSelectResponsiblePerson','_invClearResponsiblePerson',
   // Analyse SSC Result — onclick-referenced
   'loadSscResultAnalysisView','handleSscPdfFile','handleSscRosterFile','generateSscResultExcel',

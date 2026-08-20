@@ -1330,6 +1330,135 @@ async function _settingsImportConfirm(payload) {
   }
 }
 
+// ── Bulk Stock Import ────────────────────────────────────────────────────
+// For a legacy paper-ledger spreadsheet (name, page no, register no,
+// quantity, unit price, and a free-text location note per row): matches or
+// creates a product by name, fills in register_no/page_no only where the
+// product doesn't already have one (never overwrites an existing value —
+// this is a one-way "fill the gap" import, not an authoritative sync), and
+// adds a purchase_items lot for any row that actually has stock, all under
+// one shared purchase header for the whole batch (mirrors _registryCreate's
+// row shape so the result looks identical to a normal Registry entry).
+// The location/distribution text has no column of its own on
+// purchase_items — parked in voucher_number ("Loc: ...") as a note only;
+// it never moves stock to that location automatically.
+function _stockImportNormalizeRows(rows) {
+  return (Array.isArray(rows) ? rows : [])
+    .map(r => ({
+      name: String(r.name || '').trim(),
+      register_no: String(r.register_no || '').trim() || null,
+      page_no: String(r.page_no || '').trim() || null,
+      quantity: Number(r.quantity) || 0,
+      unit_price: Number(r.unit_price) || 0,
+      note: String(r.note || '').trim() || null,
+    }))
+    .filter(r => r.name);
+}
+
+async function _stockImportPreview(payload) {
+  const rows = _stockImportNormalizeRows(payload.rows);
+  if (!rows.length) return NextResponse.json({ result: 'error', message: 'No rows to import.' });
+  const names = Array.from(new Set(rows.map(r => r.name.toLowerCase())));
+  const existing = await sbInventory('products?select=id,name');
+  if (existing?.error) return NextResponse.json({ result: 'error', message: existing.error }, { status: 500 });
+  const existingByName = new Set((existing || []).map(p => String(p.name || '').trim().toLowerCase()));
+  const productsNew = names.filter(n => !existingByName.has(n)).length;
+  const rowsWithStock = rows.filter(r => r.quantity > 0).length;
+  return NextResponse.json({
+    result: 'success',
+    total_rows: rows.length,
+    unique_products: names.length,
+    products_matched: names.length - productsNew,
+    products_new: productsNew,
+    rows_with_stock: rowsWithStock,
+    rows_without_stock: rows.length - rowsWithStock,
+  });
+}
+
+async function _stockImportConfirm(payload) {
+  const rows = _stockImportNormalizeRows(payload.rows);
+  if (!rows.length) return NextResponse.json({ result: 'error', message: 'No rows to import.' });
+
+  const existing = await sbInventory('products?select=id,name,register_no,page_no');
+  if (existing?.error) return NextResponse.json({ result: 'error', message: existing.error }, { status: 500 });
+  const byName = new Map((existing || []).map(p => [String(p.name || '').trim().toLowerCase(), p]));
+
+  // One canonical row per product name for register_no/page_no purposes
+  // (the ledger repeats the same product name across several distinct
+  // lots/pages) — first occurrence wins; every row still gets its own
+  // stock lot below regardless of this dedupe.
+  const byNameRows = new Map();
+  for (const r of rows) {
+    if (!byNameRows.has(r.name.toLowerCase())) byNameRows.set(r.name.toLowerCase(), r);
+  }
+
+  const toCreate = Array.from(byNameRows.values()).filter(r => !byName.has(r.name.toLowerCase()));
+  const seedCode = await _nextEntityCode('products');
+  let codeSeed = seedCode ? parseInt(seedCode.split('-')[1], 10) : 1;
+  const createRows = toCreate.map(r => ({
+    name: r.name, register_no: r.register_no, page_no: r.page_no,
+    code: `PRD-${String(codeSeed++).padStart(4, '0')}`,
+    is_active: true,
+  }));
+  let created = [];
+  for (let i = 0; i < createRows.length; i += CHUNK_IN) {
+    const chunk = createRows.slice(i, i + CHUNK_IN);
+    const res = await sbInventory('products', 'POST', chunk);
+    if (res?.error) return NextResponse.json({ result: 'error', message: `Product creation failed: ${res.error}` }, { status: 500 });
+    created = created.concat(res);
+  }
+  created.forEach(p => byName.set(String(p.name || '').trim().toLowerCase(), p));
+
+  const toUpdate = Array.from(byNameRows.values()).filter(r => {
+    const p = byName.get(r.name.toLowerCase());
+    return p && ((r.register_no && !p.register_no) || (r.page_no && !p.page_no));
+  });
+  for (let i = 0; i < toUpdate.length; i += CHUNK_PATCH) {
+    const chunk = toUpdate.slice(i, i + CHUNK_PATCH);
+    await Promise.all(chunk.map(r => {
+      const p = byName.get(r.name.toLowerCase());
+      const patch = {};
+      if (r.register_no && !p.register_no) patch.register_no = r.register_no;
+      if (r.page_no && !p.page_no) patch.page_no = r.page_no;
+      return sbInventory(`products?id=eq.${p.id}`, 'PATCH', patch);
+    }));
+  }
+
+  const purchase = await sbInventory('purchases', 'POST', {
+    purchase_no: `BULKREG-${Date.now()}`,
+    remarks: `Bulk stock import (${rows.length} rows) from legacy ledger`,
+  });
+  if (purchase?.error) return NextResponse.json({ result: 'error', message: purchase.error }, { status: 500 });
+  const purchaseId = purchase[0].id;
+
+  const lotRows = rows.filter(r => r.quantity > 0).map(r => {
+    const p = byName.get(r.name.toLowerCase());
+    return {
+      purchase_id: purchaseId, product_id: p.id,
+      quantity: r.quantity, qty_in_root_unit: r.quantity, qty_remaining: r.quantity,
+      unit_price: r.unit_price, final_amount: r.unit_price * r.quantity,
+      voucher_number: r.note ? `Loc: ${r.note}` : null,
+    };
+  });
+  let lotsInserted = 0;
+  const errors = [];
+  for (let i = 0; i < lotRows.length; i += CHUNK_IN) {
+    const chunk = lotRows.slice(i, i + CHUNK_IN);
+    const res = await sbInventory('purchase_items', 'POST', chunk);
+    if (res?.error) errors.push(res.error); else lotsInserted += chunk.length;
+  }
+
+  return NextResponse.json({
+    result: errors.length ? 'partial' : 'success',
+    products_created: created.length,
+    products_updated: toUpdate.length,
+    lots_inserted: lotsInserted,
+    lots_skipped_no_stock: rows.length - lotRows.length,
+    purchase_id: purchaseId,
+    errors,
+  });
+}
+
 export async function POST(req) {
   let body;
   try { body = await req.json(); } catch { return NextResponse.json({ result: 'error', message: 'Bad request' }, { status: 400 }); }
@@ -1344,6 +1473,8 @@ export async function POST(req) {
   if (action === 'settings_delete') return _settingsDelete(payload);
   if (action === 'settings_import_preview') return _settingsImportPreview(payload);
   if (action === 'settings_import_confirm') return _settingsImportConfirm(payload);
+  if (action === 'stock_import_preview') return _stockImportPreview(payload);
+  if (action === 'stock_import_confirm') return _stockImportConfirm(payload);
   if (action === 'products_summary') return _productsSummary(payload);
   if (action === 'product_quick_view') return _productQuickView(payload);
   if (action === 'product_history') return _productHistory(payload);
