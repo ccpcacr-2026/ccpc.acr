@@ -16200,13 +16200,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!body) return;
     body.innerHTML = `
       <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5">
-        <div class="flex items-center gap-3 flex-wrap mb-4">
-          <input id="invStockSearch" type="text" placeholder="Search by product name or code…" class="flex-1 max-w-sm bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2">
-          <select id="invStockSort" class="bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2">
+        <div class="sticky top-0 z-10 bg-white -mx-5 -mt-5 px-5 pt-5 pb-3 flex items-center gap-2 flex-nowrap">
+          <input id="invStockSearch" type="text" placeholder="Search…" class="flex-1 min-w-0 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2">
+          <select id="invStockSort" class="shrink-0 max-w-[40%] bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-2 py-2">
             ${INV_STOCK_SORT_OPTIONS.map(o => `<option value="${o.value}" ${o.value === _invStockSort ? 'selected' : ''}>${_escHtml(o.label)}</option>`).join('')}
           </select>
         </div>
-        <div id="invStockTableWrap"><div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div></div>
+        <div id="invStockTableWrap" class="mt-1"><div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div></div>
       </div>`;
     const search = document.getElementById('invStockSearch');
     let debounceTimer;
