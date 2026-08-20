@@ -1002,29 +1002,20 @@ button { user-select: none; }
 }
 .bt-watch-count { color: #7c3aed; font-weight: 800; }
 
-.bt-avatar {
-  width: 22px; height: 22px; border-radius: 6px; flex-shrink: 0;
-  display: flex; align-items: center; justify-content: center; color: #fff;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+/* Fleet list row — row 1: checkbox + name (never truncated; the panel's
+   own width grows to fit, see #bus-sidebar). Row 2: status badge +
+   location. Mobile media query below just shrinks these, doesn't
+   restructure them. */
+.bt-row1 { display: flex; align-items: center; gap: 8px; }
+.bt-row1-name { font-size: 13px; font-weight: 800; color: #1e293b; white-space: nowrap; }
+.bt-row2 { display: flex; align-items: center; gap: 6px; margin-top: 4px; white-space: nowrap; }
+.bt-badge-mini {
+  padding: 2px 8px; border-radius: 999px; font-size: 9px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: 0.03em; flex-shrink: 0;
 }
-.bt-avatar.moving { background: linear-gradient(135deg,#2563eb,#1d4ed8); }
-.bt-avatar.idle   { background: linear-gradient(135deg,#f59e0b,#d97706); }
-.bt-avatar svg, .bt-avatar i { width: 12px; height: 12px; }
-
-.bt-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-.bt-dot.moving { background: #2563eb; animation: btPulse 2s infinite; }
-.bt-dot.idle   { background: #f59e0b; }
-@keyframes btPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-
-.bt-list-meta {
-  font-size: 10px; color: #94a3b8; font-weight: 600;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  padding-left: 30px;
-}
-.bt-list-meta .spd { font-weight: 800; }
-.bt-list-meta .spd.moving { color: #2563eb; }
-.bt-list-meta .spd.idle   { color: #b45309; }
-.bt-list-meta .sep { opacity: 0.5; margin: 0 2px; }
+.bt-badge-mini.moving { background: rgba(37,99,235,0.12); color: #2563eb; }
+.bt-badge-mini.idle   { background: rgba(180,83,9,0.12); color: #b45309; }
+.bt-row2 .bt-addr { font-size: 10px; color: #94a3b8; font-weight: 600; }
 
 /* Solid white here would fill nearly the whole sidebar and mask its own
    transparency (see #bus-sidebar) almost completely, since this card is
@@ -1096,11 +1087,6 @@ button { user-select: none; }
   position: absolute; top: 10px; left: 10px; right: 10px; z-index: 1000;
 }
 
-/* Floating "N buses" pill — only ever shown on mobile, and only while the
-   sheet is collapsed (see JS toggleFleetSheet/collapseFleetSheet). Sits
-   directly above the zoom control cluster, matching where it points. */
-#bt-fleet-toggle { display: none; position: absolute; z-index: 950; }
-
 #bus-sidebar {
   position: absolute; z-index: 900;
   /* Semi-transparent + blurred rather than solid white — the fleet list
@@ -1129,7 +1115,10 @@ button { user-select: none; }
 }
 
 /* Desktop/tablet: sidebar floats as a card on the right; always open,
-   no toggle needed — there's room for both map and list at once. */
+   no toggle needed — there's room for both map and list at once. The
+   merged header (Fit-all + list-toggle icons, mobile-only) stays hidden
+   here since desktop already has its own persistent bottom-left fit
+   button and never collapses the sidebar at all. */
 @media (min-width: 768px) {
   #bus-sidebar {
     top: 68px; right: 10px; bottom: 10px; width: 300px;
@@ -1137,62 +1126,59 @@ button { user-select: none; }
   }
   #bus-map-container .bt-fit-btn { left: 56px; right: auto; }
   .bt-sheet-handle { display: none; }
+  #bt-panel-header { display: none; }
 }
 
-/* Mobile: a narrow, hidable strip pinned to the right edge instead of a
-   full-width bottom sheet — a phone screen can't spare a half-height
-   sheet's worth of map real estate, and per bus there's rarely room (or
-   need) for more than its name and current speed anyway (see the
-   .bt-addr rule below, which drops the address text at this width).
-   Collapses off to the right — tap the map, select a bus, or tap the
-   #bt-fleet-toggle pill (shown only while collapsed) to bring it back. */
+/* Mobile: Fit-all + the list-toggle live inside the sidebar's own header
+   instead of as separate floating buttons — collapsing now just hides
+   the list body (#bt-panel-body), leaving that two-icon header as the
+   only thing on screen, rather than sliding the whole panel away. Width
+   is content-driven (not a fixed narrow column) so a bus's full name
+   never truncates, capped so a very long name can't take over the
+   screen. */
 @media (max-width: 767px) {
   #geofenceAlerts { right: 100px; }
+  #bus-map-container .bt-fit-btn { display: none; }
 
-  /* Fit-all and the fleet-list toggle side by side, icon-only, top-right —
-     their text labels (still shown on desktop) would make two buttons
-     too wide to sit next to each other at phone width, so they're
-     hidden here in favor of just the icon + a title tooltip. */
-  #bus-map-container .bt-fit-btn, #bt-fleet-toggle {
-    top: 68px; bottom: auto; left: auto;
-    width: 34px; height: 34px; padding: 0; justify-content: center;
+  #bt-panel-header { padding: 2px; }
+  .bt-fit-btn-inline {
+    width: 30px; height: 30px; border-radius: 999px; border: none;
+    background: rgba(15,23,42,0.06); color: #334155;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: background 0.15s;
   }
-  #bus-map-container .bt-fit-btn { right: 10px; }
-  #bt-fleet-toggle { right: 50px; }
-  #bt-fleet-toggle.bt-visible { display: flex; }
-  .bt-fit-label, .bt-fleet-toggle-label { display: none; }
+  .bt-fit-btn-inline:hover { background: rgba(37,99,235,0.15); color: #2563eb; }
 
   #bus-sidebar {
-    top: 68px; right: 10px; bottom: 10px; left: auto; width: 104px; max-height: none;
-    /* Lighter than the desktop sidebar (0.72) — a narrow strip this close
-       to the map edge needs to stay unobtrusive, not just translucent. */
+    top: 68px; right: 10px; bottom: 10px; left: auto;
+    width: auto; max-width: min(72vw, 260px); min-width: 60px;
+    /* Lighter than the desktop sidebar (0.72) — this close to the map
+       edge it needs to stay unobtrusive, not just translucent. */
     background: rgba(255,255,255,0.18);
     border-radius: 16px; padding: 4px;
-    transform: translateX(0);
-    transition: transform 0.28s cubic-bezier(0.4,0,0.2,1);
   }
-  #bus-sidebar.bt-collapsed { transform: translateX(130%); }
+  #bus-sidebar.bt-collapsed { bottom: auto; }
+  #bus-sidebar.bt-collapsed #bt-panel-body { display: none; }
 
-  .bt-sheet-handle {
-    display: flex; align-items: center; justify-content: center;
-    padding: 4px 0; cursor: pointer; flex-shrink: 0;
+  .bt-sheet-handle { display: none; }
+
+  /* Row 1: checkbox + name (no truncation — the panel grows to fit,
+     see #bus-sidebar's width above). Row 2: status badge + location. */
+  .bt-list-item { padding: 5px 7px; }
+  .bt-row1 { display: flex; align-items: center; gap: 6px; }
+  .bt-row1-name { font-size: 11px; font-weight: 800; color: #1e293b; white-space: nowrap; }
+  .bt-row2 { display: flex; align-items: center; gap: 5px; margin-top: 3px; white-space: nowrap; }
+  .bt-badge-mini {
+    padding: 1.5px 6px; border-radius: 999px; font-size: 7px; font-weight: 800;
+    text-transform: uppercase; letter-spacing: 0.03em; flex-shrink: 0;
   }
-  .bt-sheet-grip { width: 24px; height: 3px; border-radius: 2px; background: rgba(148,163,184,0.6); }
-
-  /* Shortest-possible per-row info at this width: name + speed only,
-     with every element shrunk further so a truncated name still gets a
-     usable sliver of space in a ~90px-wide row. */
-  .bt-list-item { padding: 5px 4px; }
-  .bt-list-item > .flex.items-center.gap-2 { gap: 4px; }
-  .bt-avatar { width: 15px; height: 15px; border-radius: 4px; }
-  .bt-avatar svg, .bt-avatar i { width: 8px; height: 8px; }
-  .bt-check { width: 11px !important; height: 11px !important; min-width: 11px !important; }
-  .bt-list-meta { padding-left: 0; font-size: 8px; }
-  .bt-list-meta .bt-addr, .bt-list-meta .sep { display: none; }
+  .bt-badge-mini.moving { background: rgba(37,99,235,0.15); color: #2563eb; }
+  .bt-badge-mini.idle   { background: rgba(180,83,9,0.15); color: #b45309; }
+  .bt-row2 .bt-addr { font-size: 8px; color: #64748b; font-weight: 600; }
   #bus-info-panel { display: none; }
 
-  /* "Fleet N" + All/None buttons side by side don't fit a ~90px column —
-     stacked instead, with the buttons shrunk and split evenly. */
+  /* "Fleet N" + All/None buttons — stacked so a short name doesn't force
+     the whole panel wider just to fit this row. */
   .bt-fleet-head { flex-direction: column; align-items: stretch; gap: 3px; padding: 2px 2px 4px; }
   .bt-fleet-title { font-size: 9px; justify-content: center; }
   .bt-fleet-actions { gap: 3px; }

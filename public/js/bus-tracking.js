@@ -414,8 +414,6 @@ function updateBusList(buses) {
   if (countEl) countEl.textContent = buses.length;
   const toolbarCountEl = document.getElementById('bt-toolbar-count');
   if (toolbarCountEl) toolbarCountEl.textContent = buses.length;
-  const toggleCountEl = document.getElementById('bt-fleet-toggle-count');
-  if (toggleCountEl) toggleCountEl.textContent = buses.length;
 
   if (!buses.length) {
     listContainer.innerHTML = `<div class="bt-empty"><i data-lucide="alert-circle" class="h-6 w-6"></i>No buses configured yet</div>`;
@@ -433,20 +431,23 @@ function updateBusList(buses) {
     const mv = !!bus.isMoving;
     const isSelected = selectedBusImei === bus.imei;
     const isChecked = selectedImeis.has(bus.imei);
-    const spd = Math.round(parseFloat(bus.speed)) || 0;
     const addr = (bus.address || 'Locating…');
 
+    // Row 1: checkbox + name. Row 2: status badge + location. Name is
+    // never truncated (see #bus-sidebar's dynamic width) — it's the one
+    // thing worth the panel growing wider for.
     return `
       <div class="bt-list-item ${isSelected ? 'active' : ''} ${isChecked ? '' : 'dimmed'}" title="${bus.imei}" onclick='selectBus(${JSON.stringify(bus.imei)}, ${JSON.stringify(bus)})'>
-        <div class="flex items-center gap-2">
+        <div class="bt-row1">
           <input class="bt-check" type="checkbox" ${isChecked ? 'checked' : ''}
                  style="width:15px!important;height:15px!important;min-width:15px!important;flex-shrink:0;accent-color:#2563eb!important;cursor:pointer"
                  onclick="event.stopPropagation()" onchange='toggleBusVisibility(${JSON.stringify(bus.imei)}, this.checked)'>
-          <div class="bt-avatar ${mv ? 'moving' : 'idle'}"><i data-lucide="bus" class="h-3 w-3"></i></div>
-          <div class="flex-1 min-w-0 text-xs font-black text-slate-800 truncate">${name}</div>
-          <div class="bt-dot ${mv ? 'moving' : 'idle'}"></div>
+          <span class="bt-row1-name">${name}</span>
         </div>
-        <div class="bt-list-meta"><span class="spd ${mv ? 'moving' : 'idle'}">${mv ? `${spd} km/h` : 'Idle'}</span><span class="sep">·</span><span class="bt-addr">${addr}</span></div>
+        <div class="bt-row2">
+          <span class="bt-badge-mini ${mv ? 'moving' : 'idle'}">${mv ? 'Moving' : 'Idle'}</span>
+          <span class="bt-addr">${addr}</span>
+        </div>
       </div>
     `;
   }).join('');

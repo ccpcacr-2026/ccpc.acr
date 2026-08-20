@@ -15080,13 +15080,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>` : ''}
         </div>
 
-        <button id="bt-fleet-toggle" onclick="toggleFleetSheet()" title="Show bus list" class="flex items-center gap-1.5 bg-white border border-slate-200 rounded-full shadow-sm px-3 py-2 font-black text-[10px] uppercase tracking-widest text-slate-600">
-          <i data-lucide="bus" class="h-3.5 w-3.5 text-blue-600"></i><span class="bt-fleet-toggle-label"> <span id="bt-fleet-toggle-count">0</span> buses</span>
-        </button>
-
         <div id="bus-sidebar" class="flex flex-col">
-          <div id="bus-info-panel" class="shrink-0"></div>
-          <div id="bus-list" class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1"></div>
+          <div id="bt-panel-header" class="flex items-center justify-end gap-1.5 shrink-0">
+            <button onclick="fitBusesInBounds()" title="Fit all" class="bt-fit-btn-inline"><i data-lucide="maximize" class="h-3.5 w-3.5"></i></button>
+            <button id="bt-fleet-toggle" onclick="toggleFleetSheet()" title="Show/hide bus list" class="bt-fit-btn-inline"><i data-lucide="bus" class="h-3.5 w-3.5"></i></button>
+          </div>
+          <div id="bt-panel-body" class="flex flex-col min-h-0 flex-1">
+            <div id="bus-info-panel" class="shrink-0"></div>
+            <div id="bus-list" class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1"></div>
+          </div>
         </div>
       </div>
     `;
