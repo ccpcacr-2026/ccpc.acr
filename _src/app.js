@@ -16668,9 +16668,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }).catch(err => { body.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml(err.message || 'Network error')}</div>`; });
   }
 
+  // Opens New Distribution as a popup instead of navigating to the
+  // Distribute tab — both callers (product quick-view, product detail's
+  // "+ New Distribution") are shortcuts reached from a list (Stock
+  // Overview / Product Info) whose own search/sort state shouldn't be
+  // disturbed just because a distribution was made from within it.
+  // Closing the popup (X, outside click, or the back/gesture button —
+  // its id ends in "Modal" so the app's generic modal-back-stack picks
+  // it up automatically) leaves that underlying list exactly as it was,
+  // since it was never replaced in the first place.
   function openInventoryDistributeFor(productId) {
+    document.getElementById('invDistributeModal')?.remove();
     _invDistributePreselectProduct = productId;
-    switchInvAdminTab('distribute');
+    const overlay = document.createElement('div');
+    overlay.id = 'invDistributeModal';
+    overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+    overlay.innerHTML = `<div id="invDistributeModalBody" class="max-h-[90vh] overflow-y-auto"></div>`;
+    document.body.appendChild(overlay);
+    openInventoryDistributeForm(null, true);
   }
 
   // ── Reports ──────────────────────────────────────────────────────────────
@@ -17139,7 +17155,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function _invDistributeMatchesSearch(r, q) {
     const itemsText = (r.distribution_items || []).map(it => (it.products && it.products.name) || '').join(' ');
-    return `${r.distribute_no || ''} ${(r.consumers && r.consumers.name) || ''} ${itemsText} ${r.remarks || ''}`.toLowerCase().includes(q);
+    return `${r.distribute_no || ''} ${(r.consumers && r.consumers.name) || ''} ${itemsText} ${r.remarks || ''} ${r.bill_no || ''} ${r.received_by || ''}`.toLowerCase().includes(q);
   }
 
   function _invRenderDistributeList() {
@@ -17159,15 +17175,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">No.</th>
             <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Recipient</th>
             <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Items</th>
+            <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Bill No.</th>
+            <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Received By</th>
             <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Remarks</th>
             <th></th>
           </tr></thead>
           <tbody>${rows.map(r => `<tr id="invDistributeRow_${r.id}" class="border-t border-slate-50 ${_invDistributeSelected.has(r.id) ? 'bg-blue-50' : ''}">
             <td class="px-3 py-2.5"><button type="button" onclick="_invDistributeToggleSelect(${r.id})" class="ccb ${_invDistributeSelected.has(r.id) ? 'ccb-on' : ''}">${_invDistributeSelected.has(r.id) ? '<i data-lucide="check"></i>' : ''}</button></td>
-            <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(String(r.created_at || '').slice(0, 10))}</td>
+            <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(String(r.distribute_date || r.created_at || '').slice(0, 10))}</td>
             <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(r.distribute_no || '—')}</td>
             <td class="px-3 py-2.5 font-bold text-slate-700">${_escHtml((r.consumers && r.consumers.name) || '—')}${r.consumers && r.consumers.type ? ` <span class="text-slate-400">(${_escHtml(r.consumers.type)})</span>` : ''}</td>
             <td class="px-3 py-2.5 font-bold text-slate-700">${_escHtml((r.distribution_items || []).map(it => `${(it.products && it.products.name) || 'item'} x${it.quantity}`).join(', ') || '—')}</td>
+            <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(r.bill_no || '—')}</td>
+            <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(r.received_by || '—')}</td>
             <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(r.remarks || '—')}</td>
             <td class="px-3 py-2.5 text-right"><button onclick="_invOpenDistributeEditModal(${r.id})" class="text-blue-600 font-black text-[10px] uppercase tracking-widest">Edit</button></td>
           </tr>`).join('')}</tbody>
@@ -17180,9 +17200,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex-1 min-w-0">
             <div class="flex items-center justify-between gap-2">
               <p class="text-xs font-black text-slate-800 truncate">${_escHtml((r.consumers && r.consumers.name) || '—')}${r.consumers && r.consumers.type ? ` <span class="text-slate-400 font-bold">(${_escHtml(r.consumers.type)})</span>` : ''}</p>
-              <span class="text-[9px] font-black text-slate-400 shrink-0">${_escHtml(String(r.created_at || '').slice(0, 10))}</span>
+              <span class="text-[9px] font-black text-slate-400 shrink-0">${_escHtml(String(r.distribute_date || r.created_at || '').slice(0, 10))}</span>
             </div>
             <p class="text-[10px] text-slate-500 font-bold truncate">#${_escHtml(r.distribute_no || '—')} · ${_escHtml((r.distribution_items || []).map(it => `${(it.products && it.products.name) || 'item'} x${it.quantity}`).join(', ') || '—')}</p>
+            ${(r.bill_no || r.received_by) ? `<p class="text-[10px] text-slate-500 font-bold truncate">${r.bill_no ? `Bill: ${_escHtml(r.bill_no)}` : ''}${r.bill_no && r.received_by ? ' · ' : ''}${r.received_by ? `Received By: ${_escHtml(r.received_by)}` : ''}</p>` : ''}
             ${r.remarks ? `<p class="text-[10px] text-slate-400 font-bold truncate">${_escHtml(r.remarks)}</p>` : ''}
           </div>
           <button onclick="_invOpenDistributeEditModal(${r.id})" class="shrink-0 text-blue-600 font-black text-[9px] uppercase tracking-tight leading-none mt-0.5">Edit</button>
@@ -17220,14 +17241,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // Delete+re-create workflow already relied on, just as one step.
   let _invDistEditingId = null;
 
-  function openInventoryDistributeForm(editRow) {
-    const body = document.getElementById('invAdminBody');
+  // modalMode: true when opened from _invOpenDistributeModal (a shortcut
+  // from Product Info/Stock Overview) — renders into that modal's own
+  // body instead of #invAdminBody and swaps the "Back to Distribution
+  // List" link for a plain "Close", since there's no underlying Distribute
+  // tab navigation to go back to; whatever list the user was looking at
+  // (with its own search/sort state) was never replaced in the first
+  // place, so closing the modal just removes it and leaves that view
+  // exactly as it was.
+  function openInventoryDistributeForm(editRow, modalMode) {
+    const body = modalMode ? document.getElementById('invDistributeModalBody') : document.getElementById('invAdminBody');
     if (!body) return;
     _invDistSelectedProduct = null;
     _invDistEditingId = editRow ? editRow.id : null;
     body.innerHTML = `
       <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 max-w-lg">
-        <button onclick="loadInventoryDistributeList()" class="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600 mb-3 block">&larr; Back to Distribution List</button>
+        ${modalMode
+          ? `<button onclick="document.getElementById('invDistributeModal').remove()" class="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600 mb-3 block">&larr; Close</button>`
+          : `<button onclick="loadInventoryDistributeList()" class="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600 mb-3 block">&larr; Back to Distribution List</button>`}
         <p class="text-sm font-black text-slate-800 uppercase tracking-widest mb-4">${editRow ? `Edit Distribution #${_escHtml(editRow.distribute_no || editRow.id)}` : 'New Distribution'}</p>
         <div class="mb-3" id="invDistProductWrap">
           <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Product <span class="text-red-500">*</span></label>
