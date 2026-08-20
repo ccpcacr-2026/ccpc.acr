@@ -17205,13 +17205,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <span class="text-[9px] font-black text-slate-400 shrink-0">${_escHtml(String(r.distribute_date || r.created_at || '').slice(0, 10))}</span>
             </div>
             <p class="text-[10px] text-slate-500 font-bold truncate">#${_escHtml(r.distribute_no || '—')} · ${_escHtml((r.distribution_items || []).map(it => `${(it.products && it.products.name) || 'item'} x${it.quantity}`).join(', ') || '—')}</p>
-            ${r.responsible_name ? `<p class="text-[10px] text-slate-500 font-bold truncate">Responsible: ${_escHtml(r.responsible_name)}</p>` : ''}
-            ${(r.bill_no || r.received_by) ? `<p class="text-[10px] text-slate-500 font-bold truncate">${r.bill_no ? `Bill: ${_escHtml(r.bill_no)}` : ''}${r.bill_no && r.received_by ? ' · ' : ''}${r.received_by ? `Received By: ${_escHtml(r.received_by)}` : ''}</p>` : ''}
-            ${r.remarks ? `<p class="text-[10px] text-slate-400 font-bold truncate">${_escHtml(r.remarks)}</p>` : ''}
+            <p class="text-[10px] text-slate-500 font-bold truncate">Responsible: ${_escHtml(r.responsible_name || '—')}</p>
+            <p class="text-[10px] text-slate-500 font-bold truncate">Bill No: ${_escHtml(r.bill_no || '—')} · Received By: ${_escHtml(r.received_by || '—')}</p>
+            <p class="text-[10px] text-slate-400 font-bold truncate">Remarks: ${_escHtml(r.remarks || '—')}</p>
           </div>
-          <div class="flex flex-col items-end gap-1 shrink-0 mt-0.5">
-            <button onclick="_invOpenDistributeEditModal(${r.id})" class="text-blue-600 font-black text-[9px] uppercase tracking-tight leading-none">Edit</button>
-            <button onclick="_invDistributeDeleteOne(${r.id})" class="text-red-500 font-black text-[9px] uppercase tracking-tight leading-none">Delete</button>
+          <div class="flex flex-col items-center gap-1.5 shrink-0 mt-0.5">
+            <button onclick="_invOpenDistributeEditModal(${r.id})" title="Edit" class="w-6 h-6 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 flex items-center justify-center transition-all"><i data-lucide="pencil" class="h-3 w-3"></i></button>
+            <button onclick="_invDistributeDeleteOne(${r.id})" title="Delete" class="w-6 h-6 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 flex items-center justify-center transition-all"><i data-lucide="trash-2" class="h-3 w-3"></i></button>
           </div>
         </div>`).join('')}
       </div>`;
