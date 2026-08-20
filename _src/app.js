@@ -17189,7 +17189,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(r.bill_no || '—')}</td>
             <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(r.received_by || '—')}</td>
             <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(r.remarks || '—')}</td>
-            <td class="px-3 py-2.5 text-right"><button onclick="_invOpenDistributeEditModal(${r.id})" class="text-blue-600 font-black text-[10px] uppercase tracking-widest">Edit</button></td>
+            <td class="px-3 py-2.5 text-right whitespace-nowrap"><button onclick="_invOpenDistributeEditModal(${r.id})" class="text-blue-600 font-black text-[10px] uppercase tracking-widest mr-3">Edit</button><button onclick="_invDistributeDeleteOne(${r.id})" class="text-red-500 font-black text-[10px] uppercase tracking-widest">Delete</button></td>
           </tr>`).join('')}</tbody>
         </table>
       </div>
@@ -17206,7 +17206,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             ${(r.bill_no || r.received_by) ? `<p class="text-[10px] text-slate-500 font-bold truncate">${r.bill_no ? `Bill: ${_escHtml(r.bill_no)}` : ''}${r.bill_no && r.received_by ? ' · ' : ''}${r.received_by ? `Received By: ${_escHtml(r.received_by)}` : ''}</p>` : ''}
             ${r.remarks ? `<p class="text-[10px] text-slate-400 font-bold truncate">${_escHtml(r.remarks)}</p>` : ''}
           </div>
-          <button onclick="_invOpenDistributeEditModal(${r.id})" class="shrink-0 text-blue-600 font-black text-[9px] uppercase tracking-tight leading-none mt-0.5">Edit</button>
+          <div class="flex flex-col items-end gap-1 shrink-0 mt-0.5">
+            <button onclick="_invOpenDistributeEditModal(${r.id})" class="text-blue-600 font-black text-[9px] uppercase tracking-tight leading-none">Edit</button>
+            <button onclick="_invDistributeDeleteOne(${r.id})" class="text-red-500 font-black text-[9px] uppercase tracking-tight leading-none">Delete</button>
+          </div>
         </div>`).join('')}
       </div>`;
     lucide.createIcons();
@@ -17234,6 +17237,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }).catch(err => showToast(err.message || 'Delete failed', 'error'));
   }
 
+  function _invDistributeDeleteOne(id) {
+    if (!confirm("Delete this distribution? This reverses the stock it moved (adds it back to the source lot, removes it from the recipient's holding) and cannot be undone.")) return;
+    _invAdminFetch('distribute_delete', { id }).then(res => {
+      if (!res || (res.result !== 'success' && res.result !== 'partial')) { showToast((res && res.message) || 'Delete failed', 'error'); return; }
+      if (res.errors && res.errors.length) { showToast(res.errors[0], 'error'); return; }
+      showToast('Distribution deleted', 'success');
+      loadInventoryDistributeList();
+    }).catch(err => showToast(err.message || 'Delete failed', 'error'));
+  }
+
   // Editing a distribution now reuses this exact form pre-filled with its
   // existing values instead of a separate metadata-only modal — product/
   // quantity/recipient are editable too since Save (see
@@ -17254,6 +17267,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!body) return;
     _invDistSelectedProduct = null;
     _invDistEditingId = editRow ? editRow.id : null;
+    // These are module-level (shared across every open of this form), so
+    // without resetting them here a NEW distribution opened right after a
+    // previous one would still show that earlier recipient/responsible
+    // person as already selected — stale state left over from the last
+    // time the form was used, not anything actually saved.
+    _invDistSelectedConsumer = null;
+    _invDistSelectedResponsible = null;
+    _invDistSelectedHrCommittee = null;
+    _invDistChairmanOverride = '';
+    _invDistAttrOptions = { brands: [], categories: [] };
+    _invDistAvailableStock = null;
     body.innerHTML = `
       <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 max-w-lg">
         ${modalMode
@@ -17286,7 +17310,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
         <div id="invDistNotifyPreview" class="hidden text-[11px] font-bold text-slate-500 bg-slate-50 rounded-lg px-3 py-2 mb-3"></div>
         <div class="mb-3">
-          <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Quantity <span class="text-red-500">*</span></label>
+          <div class="flex items-center justify-between">
+            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Quantity <span class="text-red-500">*</span></label>
+            <span id="invDistQtyAvailable" class="text-[10px] font-bold text-slate-400"></span>
+          </div>
           <input id="invDistQty" type="number" min="1" placeholder="e.g. 10" value="${editRow ? _escHtml(String(_invDistEditRowQty(editRow))) : ''}" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
         </div>
         <div class="grid grid-cols-2 gap-3 mb-3">
@@ -17378,6 +17405,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // with at least one tagged lot (see _productAttributeOptions) get a
   // dropdown; everything else distributes exactly as it always has.
   let _invDistAttrOptions = { brands: [], categories: [] };
+  // Total qty_remaining across every lot for the selected product — shown
+  // as a live "Available: N" hint and used to cap the Quantity input
+  // client-side, on top of the authoritative server-side check
+  // _distributeCreate already does at submit time.
+  let _invDistAvailableStock = null;
+
+  function _invUpdateQtyAvailableHint() {
+    const hint = document.getElementById('invDistQtyAvailable');
+    const qtyInput = document.getElementById('invDistQty');
+    if (hint) hint.textContent = _invDistAvailableStock === null ? '' : `Available: ${_invDistAvailableStock}`;
+    if (qtyInput) { if (_invDistAvailableStock !== null) qtyInput.max = _invDistAvailableStock; else qtyInput.removeAttribute('max'); }
+  }
 
   function _invSelectDistProduct(product) {
     _invDistSelectedProduct = product;
@@ -17390,11 +17429,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <button onclick="_invClearDistProduct()" class="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600">Change</button>
       </div>`;
     _invDistAttrOptions = { brands: [], categories: [] };
+    _invDistAvailableStock = null;
+    _invUpdateQtyAvailableHint();
     const attrWrap = document.getElementById('invDistAttrWrap');
     if (attrWrap) attrWrap.classList.add('hidden');
     _invAdminFetch('product_attribute_options', { product_id: product.id }).then(res => {
       if (!res || res.result !== 'success' || _invDistSelectedProduct !== product) return;
       _invDistAttrOptions = { brands: res.brands || [], categories: res.categories || [] };
+      _invDistAvailableStock = Number(res.available || 0);
+      _invUpdateQtyAvailableHint();
       _invRenderDistAttrDropdowns();
     }).catch(() => {});
   }
@@ -17429,6 +17472,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _invClearDistProduct() {
     _invDistSelectedProduct = null;
     _invDistAttrOptions = { brands: [], categories: [] };
+    _invDistAvailableStock = null;
+    _invUpdateQtyAvailableHint();
     const attrWrap = document.getElementById('invDistAttrWrap');
     if (attrWrap) { attrWrap.classList.add('hidden'); attrWrap.innerHTML = ''; }
     const wrap = document.getElementById('invDistProductWrap');
@@ -17698,6 +17743,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!_invDistSelectedProduct) { setStatus('Pick a product.', true); return; }
     if (!consumerId) { setStatus('Pick a recipient.', true); return; }
     if (!qty || qty <= 0) { setStatus('Enter a quantity greater than 0.', true); return; }
+    // Client-side heads-up only — the server's own FIFO-lot check in
+    // _distributeCreate is what's actually authoritative (and the only
+    // one that applies at all when editing, since the "available" figure
+    // fetched here doesn't yet account for the stock this same
+    // distribution is about to give back before re-taking it).
+    if (!_invDistEditingId && _invDistAvailableStock !== null && qty > _invDistAvailableStock) {
+      setStatus(`Only ${_invDistAvailableStock} in stock — cannot distribute ${qty}.`, true);
+      return;
+    }
     // Brand/Category are only shown (and only required) when this product
     // actually has lots tagged with them — see _invRenderDistAttrDropdowns.
     const brandSel = document.getElementById('invDistBrandSelect');

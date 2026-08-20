@@ -710,11 +710,17 @@ async function _registryCreate(payload) {
 async function _productAttributeOptions(payload) {
   const productId = payload.product_id;
   if (!productId) return NextResponse.json({ result: 'error', message: 'product_id is required' }, { status: 400 });
-  const rows = await sbInventory(`purchase_items?product_id=eq.${encodeURIComponent(productId)}&qty_remaining=gt.0&select=brand,category`);
+  const rows = await sbInventory(`purchase_items?product_id=eq.${encodeURIComponent(productId)}&qty_remaining=gt.0&select=brand,category,qty_remaining`);
   if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
   const brands = [...new Set((rows || []).map(r => r.brand).filter(Boolean))].sort();
   const categories = [...new Set((rows || []).map(r => r.category).filter(Boolean))].sort();
-  return NextResponse.json({ result: 'success', brands, categories });
+  // Total across every lot regardless of brand/category — the Distribute
+  // form uses this as a live "Available: N" cap on the Quantity field.
+  // The brand/category-scoped figure the FIFO draw actually enforces at
+  // submit time is checked server-side in _distributeCreate as before;
+  // this is just the client-facing hint.
+  const available = (rows || []).reduce((s, r) => s + Number(r.qty_remaining || 0), 0);
+  return NextResponse.json({ result: 'success', brands, categories, available });
 }
 
 // ── Distribute (Central Store FIFO, ported verbatim) ────────────────────────
