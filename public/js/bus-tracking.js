@@ -976,19 +976,20 @@ function _routeSummaryHtml(points) {
     ['Top Speed', `${maxSpeed} km/h`],
     ['Waiting Spells', String(waitingSpells)],
   ];
-  // Plain block rows, not flex — guaranteed one-per-line regardless of any
-  // surrounding flex/inline context this panel's markup might sit inside.
+  // Label above value, both right-aligned — fits the narrow right-edged
+  // panel this renders into (see #bt-route-panel) far better than a
+  // label-left/value-right row would at ~120px wide.
   const bucketRows = ROUTE_SPEED_BUCKETS
     .filter(b => bucketMs[b.label] > 0)
-    .map(b => `<div style="display:block;width:100%;margin-bottom:3px"><span style="width:8px;height:8px;border-radius:50%;background:${b.color};display:inline-block;margin-right:5px"></span><span style="color:#64748b">${b.label}:</span> <span style="font-weight:800;color:#334155">${_fmtDuration(bucketMs[b.label])}</span></div>`)
+    .map(b => `<div style="margin-bottom:4px"><div style="font-size:6.5px;font-weight:800;color:#94a3b8;text-transform:uppercase">${b.label}<span style="width:5px;height:5px;border-radius:50%;background:${b.color};display:inline-block;margin-left:3px"></span></div><div style="font-size:9px;font-weight:800;color:#334155">${_fmtDuration(bucketMs[b.label])}</div></div>`)
     .join('');
   return `
-    <p style="font-size:9px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Route Summary</p>
-    <div style="font-size:10.5px;margin-bottom:6px">
-      ${rows.map(([label, value]) => `<div style="display:block;width:100%;margin-bottom:3px"><span style="color:#64748b">${label}:</span> <span style="font-weight:800;color:#334155">${value}</span></div>`).join('')}
+    <p style="font-size:7px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Route Summary</p>
+    <div style="margin-bottom:6px">
+      ${rows.map(([label, value]) => `<div style="margin-bottom:4px"><div style="font-size:6.5px;font-weight:800;color:#94a3b8;text-transform:uppercase">${label}</div><div style="font-size:9px;font-weight:800;color:#334155">${value}</div></div>`).join('')}
     </div>
-    <p style="font-size:9px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Time by Speed</p>
-    <div style="font-size:10.5px">${bucketRows}</div>`;
+    <p style="font-size:7px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Time by Speed</p>
+    <div>${bucketRows}</div>`;
 }
 
 function clearRouteHistory() {
