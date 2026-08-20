@@ -445,7 +445,7 @@ function updateBusList(buses) {
           <div class="flex-1 min-w-0 text-xs font-black text-slate-800 truncate">${name}</div>
           <div class="bt-dot ${mv ? 'moving' : 'idle'}"></div>
         </div>
-        <div class="bt-list-meta"><span class="spd ${mv ? 'moving' : 'idle'}">${mv ? `${spd} km/h` : 'Idle'}</span><span class="sep">·</span>${addr}</div>
+        <div class="bt-list-meta"><span class="spd ${mv ? 'moving' : 'idle'}">${mv ? `${spd} km/h` : 'Idle'}</span><span class="sep">·</span><span class="bt-addr">${addr}</span></div>
       </div>
     `;
   }).join('');
