@@ -15044,15 +15044,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div id="bus-map-container"></div>
         <div id="geofenceAlerts" class="flex flex-col gap-2 pointer-events-none"></div>
 
-        <div id="bt-toolbar" class="flex items-center justify-between flex-wrap gap-2 bg-white border border-slate-200 rounded-2xl shadow-sm px-3.5 py-2.5">
-          <div class="flex items-center gap-2.5">
+        <div id="bt-toolbar" class="flex items-center justify-between flex-nowrap gap-2 bg-white border border-slate-200 rounded-2xl shadow-sm px-3.5 py-2.5">
+          <div class="flex items-center gap-2.5 min-w-0">
             <div class="h-8 w-8 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-md shrink-0">
               <i data-lucide="bus" class="h-4 w-4"></i>
             </div>
-            <div>
-              <h2 class="text-sm font-black text-slate-800 tracking-tight leading-tight">Bus Tracker</h2>
-              <p class="text-[10px] text-slate-400 font-bold flex items-center gap-1.5 mt-0.5">
-                <span class="h-1.5 w-1.5 rounded-full bg-blue-600 animate-pulse"></span>
+            <div class="min-w-0">
+              <h2 class="text-sm font-black text-slate-800 tracking-tight leading-tight truncate">Bus Tracker</h2>
+              <p class="text-[10px] text-slate-400 font-bold flex items-center gap-1.5 mt-0.5 truncate">
+                <span class="h-1.5 w-1.5 rounded-full bg-blue-600 animate-pulse shrink-0"></span>
                 Live · <span id="bt-toolbar-count">0</span> buses ·
                 ${canExportBuses
                   ? `<span id="bt-watchers-trigger" onclick="BusTracking.toggleWatchersList()" class="flex items-center gap-1 cursor-pointer hover:text-blue-600 transition-colors" style="text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px"><span class="bt-watch-dot"></span><span id="bt-watching-count" class="bt-watch-count">0</span> watching</span>`
@@ -15060,9 +15060,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               </p>
             </div>
           </div>
-          ${canExportBuses ? `<div class="flex items-center gap-2">
-            <button onclick="BusTracking.toggleRoutePanel()" class="px-3.5 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="route" class="h-3.5 w-3.5"></i>Route</button>
-            <button onclick="BusTracking.exportBusData()" class="px-3.5 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="download" class="h-3.5 w-3.5"></i>Export</button>
+          ${canExportBuses ? `<div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <button onclick="BusTracking.toggleRoutePanel()" title="Route" class="px-2 sm:px-3.5 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="route" class="h-3.5 w-3.5"></i><span class="hidden sm:inline">Route</span></button>
+            <button onclick="BusTracking.exportBusData()" title="Export" class="px-2 sm:px-3.5 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="download" class="h-3.5 w-3.5"></i><span class="hidden sm:inline">Export</span></button>
           </div>` : ''}
           ${canExportBuses ? `<div id="bt-watchers-popover" class="hidden" style="position:absolute;top:56px;left:14px;z-index:1000;background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 10px 30px rgba(15,23,42,0.15);min-width:220px;max-width:280px;max-height:260px;overflow-y:auto;padding:10px;"></div>` : ''}
           ${canExportBuses ? `<div id="bt-route-panel" class="hidden" style="position:absolute;top:56px;right:14px;z-index:1000;background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 10px 30px rgba(15,23,42,0.15);min-width:260px;max-width:300px;max-height:75vh;overflow-y:auto;padding:12px;">
