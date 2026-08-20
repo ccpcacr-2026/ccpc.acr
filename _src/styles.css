@@ -1147,11 +1147,20 @@ button { user-select: none; }
    Collapses off to the right — tap the map, select a bus, or tap the
    #bt-fleet-toggle pill (shown only while collapsed) to bring it back. */
 @media (max-width: 767px) {
-  #bus-map-container .bt-fit-btn { top: 68px; right: 10px; bottom: auto; left: auto; }
   #geofenceAlerts { right: 100px; }
 
-  #bt-fleet-toggle { top: 68px; right: 10px; left: auto; bottom: auto; }
+  /* Fit-all and the fleet-list toggle side by side, icon-only, top-right —
+     their text labels (still shown on desktop) would make two buttons
+     too wide to sit next to each other at phone width, so they're
+     hidden here in favor of just the icon + a title tooltip. */
+  #bus-map-container .bt-fit-btn, #bt-fleet-toggle {
+    top: 68px; bottom: auto; left: auto;
+    width: 34px; height: 34px; padding: 0; justify-content: center;
+  }
+  #bus-map-container .bt-fit-btn { right: 10px; }
+  #bt-fleet-toggle { right: 50px; }
   #bt-fleet-toggle.bt-visible { display: flex; }
+  .bt-fit-label, .bt-fleet-toggle-label { display: none; }
 
   #bus-sidebar {
     top: 68px; right: 10px; bottom: 10px; left: auto; width: 104px; max-height: none;

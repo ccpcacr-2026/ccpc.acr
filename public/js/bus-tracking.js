@@ -81,7 +81,8 @@ function initBusMap() {
 
     const fitBtn = document.createElement('button');
     fitBtn.className = 'bt-fit-btn';
-    fitBtn.innerHTML = '<i data-lucide="maximize" class="h-3.5 w-3.5"></i> Fit all';
+    fitBtn.title = 'Fit all';
+    fitBtn.innerHTML = '<i data-lucide="maximize" class="h-3.5 w-3.5"></i><span class="bt-fit-label"> Fit all</span>';
     fitBtn.onclick = fitBusesInBounds;
     mapContainer.appendChild(fitBtn);
     if (window.lucide) lucide.createIcons();
