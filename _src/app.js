@@ -16521,9 +16521,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           ${row('Stock Value (current)', dep.qty_on_hand ? (dep.avg_current_unit_price * dep.qty_on_hand).toFixed(2) : '—')}
         </div>
         <div class="flex gap-2 mt-4">
-          <button onclick="_invEditProductFromQuickView(${p.id})" class="flex-1 px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">Edit Product Info</button>
-          <button onclick="document.getElementById('invProductQuickView').remove(); openInventoryProductDetail(${p.id})" class="px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-500 hover:bg-slate-50 transition-all">Full History</button>
-        </div>`;
+          <button onclick="document.getElementById('invProductQuickView').remove(); openInventoryDistributeFor(${p.id})" class="flex-1 px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest bg-emerald-600 text-white hover:bg-black transition-all">Distribute</button>
+          <button onclick="_invEditProductFromQuickView(${p.id})" class="px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">Edit</button>
+        </div>
+        <button onclick="document.getElementById('invProductQuickView').remove(); openInventoryProductDetail(${p.id})" class="w-full mt-2 px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-500 hover:bg-slate-50 transition-all">Full History</button>`;
     }).catch(err => {
       const card = overlay.firstElementChild;
       if (card) card.innerHTML = `<div class="text-center py-10 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml(err.message || 'Network error')}</div>`;
