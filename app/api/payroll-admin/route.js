@@ -402,6 +402,24 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success', person: Array.isArray(saved) ? saved[0] : saved });
   }
 
+  // Bulk-seed person_setup so every teacher/staff member is picked up by
+  // run_payroll (which only looks at person_setup?is_active=true) without
+  // requiring the admin to click through the People tab one at a time.
+  // Existing rows are left untouched — this only fills in what's missing.
+  if (action === 'bulk_add_people') {
+    const { user_ids } = payload;
+    if (!Array.isArray(user_ids) || !user_ids.length) return NextResponse.json({ result: 'error', message: 'user_ids required' }, { status: 400 });
+    const existing = await sbPayroll('person_setup?select=user_id');
+    const existingSet = new Set((!existing?.error ? existing : []).map(p => p.user_id));
+    const missing = [...new Set(user_ids)].filter(id => id && !existingSet.has(id));
+    if (!missing.length) return NextResponse.json({ result: 'success', added: 0 });
+    const rows = missing.map(user_id => ({ user_id, grade_id: null, joining_date: null, is_active: true }));
+    const saved = await sbPayroll('person_setup', 'POST', rows);
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    _prAudit(user_id, 'bulk_add_people', 'person_setup', null, { added: missing.length });
+    return NextResponse.json({ result: 'success', added: missing.length });
+  }
+
   if (action === 'get_person_field_overrides') {
     const { user_id } = payload;
     if (!user_id) return NextResponse.json({ result: 'error', message: 'user_id required' }, { status: 400 });

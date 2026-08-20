@@ -12977,13 +12977,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
       <div id="pr-people" style="display:none">
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
-          <p class="font-black text-slate-800 text-xs mb-3">Find a person</p>
+          <div class="flex items-center justify-between flex-wrap gap-3 mb-3">
+            <p class="font-black text-slate-800 text-xs">Find a person</p>
+            <button onclick="_prBulkAddAllStaff()" class="px-3 py-2 bg-slate-100 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-1.5"><i data-lucide="users" class="h-3.5 w-3.5"></i>Add All Teachers &amp; Staff</button>
+          </div>
           <div class="relative max-w-sm">
             <input type="text" id="prPersonSearch" placeholder="Search by name, designation or ID…" autocomplete="off"
               class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocorrect="off" autocapitalize="off" spellcheck="false">
             <input type="hidden" id="prPersonSelect">
             <div id="prPersonDropdown" class="hidden absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-y-auto"></div>
           </div>
+          <p id="prBulkAddStatus" class="text-xs font-bold mt-2"></p>
         </div>
         <div id="prPersonDetail" class="bg-white rounded-2xl border border-slate-200 p-4">
           <p class="text-slate-400 font-bold text-xs p-4">Search and pick a person above to assign a grade and set overrides.</p>
@@ -13159,7 +13163,59 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
         </div>
       </div>
-      <div id="pr-export" style="display:none"><p class="text-slate-400 font-bold text-xs p-4">Excel/PDF export — coming next.</p></div>
+      <div id="pr-export" style="display:none">
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
+          <div class="flex flex-wrap items-end gap-3">
+            <div class="min-w-[200px]">
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Run</label>
+              <select id="prExportRunSelect" onchange="_prLoadExportColumns()" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></select>
+            </div>
+            <button onclick="_prAddVirtualColumn()" class="px-3 py-2.5 bg-slate-100 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Virtual Column</button>
+            <button onclick="_prExportExcel()" class="px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="file-spreadsheet" class="h-3.5 w-3.5"></i>Export Excel</button>
+            <button onclick="_prExportPdf()" class="px-4 py-2.5 bg-rose-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="file-text" class="h-3.5 w-3.5"></i>Export PDF</button>
+          </div>
+        </div>
+        <div class="bg-white rounded-2xl border border-slate-200 p-4">
+          <p class="font-black text-slate-800 text-xs mb-1">Columns</p>
+          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-3">Pick which columns to export, and optionally format any column bold / italic / colored</p>
+          <div class="overflow-auto border border-slate-200 rounded-xl">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Include</th><th class="py-2 px-3">Column</th><th class="py-2 px-3">Bold</th><th class="py-2 px-3">Italic</th><th class="py-2 px-3">Color</th><th class="py-2 px-3"></th></tr></thead>
+              <tbody id="prExportColumnsBody"><tr><td colspan="6" class="p-4 text-slate-400 font-bold text-xs text-center">Pick a run above to load its columns.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="prVirtualColumnFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-sm">
+          <div class="flex items-center justify-between mb-4">
+            <p class="font-black text-slate-800 text-sm">Add Virtual Column</p>
+            <button onclick="_prCloseVirtualColumnForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+          </div>
+          <div class="space-y-3">
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Name <span class="text-red-500">*</span></label>
+              <input type="text" id="prVcName" placeholder="e.g. Net after Loan" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            </div>
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Aggregation</label>
+              <select id="prVcType" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                <option value="sum">Sum of selected columns</option>
+                <option value="diff">First column minus the rest</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Source Columns (2+)</label>
+              <div id="prVcSourceCheckboxes" class="space-y-1.5 max-h-48 overflow-y-auto border border-slate-200 rounded-xl p-2"></div>
+            </div>
+          </div>
+          <div class="flex justify-end gap-2 mt-5">
+            <button onclick="_prCloseVirtualColumnForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
+            <button onclick="_prSaveVirtualColumn()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Add</button>
+          </div>
+        </div>
+      </div>
 
       <div id="prFieldFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
         <div class="bg-white rounded-2xl p-5 w-full max-w-lg max-h-[85vh] overflow-y-auto">
@@ -13271,6 +13327,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (tabId === 'pr-people' && !_prPeopleComboWired) loadPayrollPeopleTab();
     if (tabId === 'pr-sections' && !_prBonusLoaded) { loadBonusPayments(); loadPayrollSections(); }
     if (tabId === 'pr-run' && !_prRunTabLoaded) loadPayrollRunTab();
+    if (tabId === 'pr-export' && !_prExportTabLoaded) loadPayrollExportTab();
   }
 
   let _prFieldsCache = [];
@@ -13702,6 +13759,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
   }
 
+  function _prBulkAddAllStaff() {
+    const status = document.getElementById('prBulkAddStatus');
+    status.className = 'text-xs font-bold text-slate-400 mt-2'; status.textContent = 'Adding…';
+    _ensureStaffCache(() => {
+      const userIds = allStaffCache.map(s => s.teacher_id).filter(Boolean);
+      _payrollFetch('bulk_add_people', { user_ids: userIds }).then(res => {
+        if (res && res.result === 'success') {
+          status.className = 'text-xs font-bold text-emerald-600 mt-2';
+          status.textContent = res.added ? `Added ${res.added} new people (${userIds.length - res.added} already existed).` : 'Everyone is already added.';
+        } else {
+          status.className = 'text-xs font-bold text-red-500 mt-2';
+          status.textContent = (res && res.message) || 'Failed to add staff';
+        }
+      }).catch(() => { status.className = 'text-xs font-bold text-red-500 mt-2'; status.textContent = 'Failed to add staff'; });
+    });
+  }
+
   function _prSavePersonSetup(userId) {
     const grade_id = document.getElementById('prPersonGrade').value || null;
     const joining_date = document.getElementById('prPersonJoiningDate').value || null;
@@ -14068,6 +14142,214 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         _prLoadRunsList();
       } else showToast((res && res.message) || 'Failed to delete', 'error');
     }).catch(() => showToast('Failed to delete', 'error'));
+  }
+
+  // ── Export (Excel + PDF, column picker, virtual columns, formatting) ──
+  let _prExportTabLoaded = false;
+  let _prExportSlips = [];
+  let _prExportColumnsCache = []; // [{key,label,type:'base'|'field'|'virtual',included,bold,italic,color,vtype,sources}]
+
+  function loadPayrollExportTab() {
+    _prExportTabLoaded = true;
+    const populate = () => {
+      const sel = document.getElementById('prExportRunSelect');
+      sel.innerHTML = _prRunsCache.map(r => `<option value="${r.id}">${PAYROLL_MONTH_NAMES[r.month]} ${r.year} (${r.status.replace('_', ' ')})</option>`).join('') || '<option value="">No runs yet</option>';
+      if (_prRunsCache.length) _prLoadExportColumns();
+      else document.getElementById('prExportColumnsBody').innerHTML = `<tr><td colspan="6" class="p-4 text-slate-400 font-bold text-xs text-center">No runs yet — go run payroll for a period under Run &amp; Payslips first.</td></tr>`;
+    };
+    if (_prRunsCache.length) populate();
+    else _payrollFetch('get_payroll_runs', {}).then(res => { _prRunsCache = (res && res.result === 'success' && res.runs) || []; populate(); });
+  }
+
+  function _prLoadExportColumns() {
+    const runId = document.getElementById('prExportRunSelect').value;
+    if (!runId) return;
+    _payrollFetch('get_payslips', { run_id: runId }).then(res => {
+      _prExportSlips = (res && res.result === 'success' && res.payslips) || [];
+      const fieldKeys = new Set();
+      _prExportSlips.forEach(s => Object.keys(s.field_values || {}).forEach(k => fieldKeys.add(k)));
+      const labelFor = key => {
+        if (key === 'bonus_total') return 'Bonus';
+        if (key.startsWith('statutory_employer:')) return `${(_prStatutoryCache.find(s => s.key === key.split(':')[1]) || {}).label || key} (Employer)`;
+        if (key.startsWith('statutory:')) return (_prStatutoryCache.find(s => s.key === key.split(':')[1]) || {}).label || key;
+        return (_prFieldsCache.find(f => f.key === key) || {}).label || key;
+      };
+      const baseCols = [
+        { key: 'person', label: 'Person', type: 'base' },
+        { key: 'grade', label: 'Grade', type: 'base' },
+        { key: 'gross', label: 'Gross', type: 'base' },
+        { key: 'total_deductions', label: 'Total Deductions', type: 'base' },
+        { key: 'net', label: 'Net', type: 'base' },
+      ];
+      const fieldCols = [...fieldKeys].map(k => ({ key: k, label: labelFor(k), type: 'field' }));
+      // Preserve any existing virtual columns / include-state across a reload of the same run.
+      const priorVirtuals = _prExportColumnsCache.filter(c => c.type === 'virtual');
+      const priorState = {}; _prExportColumnsCache.forEach(c => { priorState[c.key] = c; });
+      _prExportColumnsCache = [...baseCols, ...fieldCols].map(c => ({
+        ...c,
+        included: priorState[c.key] ? priorState[c.key].included : true,
+        bold: priorState[c.key] ? priorState[c.key].bold : false,
+        italic: priorState[c.key] ? priorState[c.key].italic : false,
+        color: priorState[c.key] ? priorState[c.key].color : '',
+      })).concat(priorVirtuals);
+      _prRenderExportColumnsTable();
+    });
+  }
+
+  function _prRenderExportColumnsTable() {
+    const tbody = document.getElementById('prExportColumnsBody');
+    if (!tbody) return;
+    if (!_prExportColumnsCache.length) { tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-slate-400 font-bold text-xs text-center">No columns.</td></tr>`; return; }
+    tbody.innerHTML = _prExportColumnsCache.map(c => `
+      <tr class="border-b border-slate-50">
+        <td class="py-1.5 px-3"><input type="checkbox" ${c.included ? 'checked' : ''} onchange="_prSetExportFormat('${c.key}','included',this.checked)" class="w-4 h-4 rounded accent-blue-600"></td>
+        <td class="py-1.5 px-3 font-black text-slate-700">${c.label}${c.type === 'virtual' ? ' <span class="text-[9px] text-indigo-600 font-black uppercase">(virtual)</span>' : ''}</td>
+        <td class="py-1.5 px-3"><input type="checkbox" ${c.bold ? 'checked' : ''} onchange="_prSetExportFormat('${c.key}','bold',this.checked)" class="w-4 h-4 rounded accent-slate-700"></td>
+        <td class="py-1.5 px-3"><input type="checkbox" ${c.italic ? 'checked' : ''} onchange="_prSetExportFormat('${c.key}','italic',this.checked)" class="w-4 h-4 rounded accent-slate-700"></td>
+        <td class="py-1.5 px-3"><input type="color" value="${c.color || '#000000'}" onchange="_prSetExportFormat('${c.key}','color',this.value)" class="w-8 h-6 rounded cursor-pointer border border-slate-200"></td>
+        <td class="py-1.5 px-3 text-right">${c.type === 'virtual' ? `<button onclick="_prRemoveExportColumn('${c.key}')" class="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-700">Remove</button>` : ''}</td>
+      </tr>`).join('');
+  }
+
+  function _prSetExportFormat(key, prop, value) {
+    const col = _prExportColumnsCache.find(c => c.key === key);
+    if (col) col[prop] = value;
+  }
+
+  function _prRemoveExportColumn(key) {
+    _prExportColumnsCache = _prExportColumnsCache.filter(c => c.key !== key);
+    _prRenderExportColumnsTable();
+  }
+
+  function _prAddVirtualColumn() {
+    document.getElementById('prVcName').value = '';
+    document.getElementById('prVcType').value = 'sum';
+    const box = document.getElementById('prVcSourceCheckboxes');
+    box.innerHTML = _prExportColumnsCache.filter(c => c.type !== 'virtual').map(c => `
+      <label class="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer">
+        <input type="checkbox" value="${c.key}" class="prVcSourceCb w-4 h-4 rounded accent-blue-600">${c.label}
+      </label>`).join('');
+    document.getElementById('prVirtualColumnFormModal').classList.remove('hidden');
+  }
+  function _prCloseVirtualColumnForm() { document.getElementById('prVirtualColumnFormModal').classList.add('hidden'); }
+
+  function _prSaveVirtualColumn() {
+    const name = document.getElementById('prVcName').value.trim();
+    const vtype = document.getElementById('prVcType').value;
+    const sources = [...document.querySelectorAll('.prVcSourceCb:checked')].map(cb => cb.value);
+    if (!name) { showToast('Name is required', 'error'); return; }
+    if (sources.length < 2) { showToast('Pick at least 2 source columns', 'error'); return; }
+    const key = `virtual:${name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
+    _prExportColumnsCache.push({ key, label: name, type: 'virtual', vtype, sources, included: true, bold: false, italic: false, color: '' });
+    _prRenderExportColumnsTable();
+    _prCloseVirtualColumnForm();
+  }
+
+  function _prColumnValue(col, slip) {
+    if (!col) return '';
+    if (col.type === 'base') {
+      if (col.key === 'person') { const l = staffLabel(slip.user_id); return l !== slip.user_id ? l : slip.user_id; }
+      if (col.key === 'grade') return (_prGradesCache.find(g => g.id === slip.grade_id) || {}).name || '';
+      return Number(slip[col.key]) || 0;
+    }
+    if (col.type === 'field') return Number((slip.field_values || {})[col.key]) || 0;
+    if (col.type === 'virtual') {
+      const vals = col.sources.map(k => Number(_prColumnValue(_prExportColumnsCache.find(c => c.key === k), slip)) || 0);
+      return col.vtype === 'diff' ? vals.reduce((a, v, i) => (i === 0 ? v : a - v), 0) : vals.reduce((a, v) => a + v, 0);
+    }
+    return '';
+  }
+
+  function _prExportRowsAndCols() {
+    const cols = _prExportColumnsCache.filter(c => c.included);
+    if (!cols.length) { showToast('Pick at least one column to export', 'error'); return null; }
+    if (!_prExportSlips.length) { showToast('No payslips in this run', 'error'); return null; }
+    return { cols, rows: _prExportSlips.map(s => cols.map(c => _prColumnValue(c, s))) };
+  }
+
+  // Loads the styled xlsx fork (bold/italic/color support the plain
+  // community 'xlsx' build silently drops) — always (re)injects so Export
+  // never loses formatting to whichever build another feature loaded first.
+  function _prEnsureStyledXLSX() {
+    return new Promise((resolve, reject) => {
+      const sc = document.createElement('script');
+      sc.src = 'https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js';
+      sc.onload = resolve;
+      sc.onerror = () => reject(new Error('Could not load the Excel writer — check your connection and retry.'));
+      document.head.appendChild(sc);
+    });
+  }
+
+  function _prExportExcel() {
+    const data = _prExportRowsAndCols();
+    if (!data) return;
+    _prEnsureStyledXLSX().then(() => {
+      const header = data.cols.map(c => c.label);
+      const aoa = [header, ...data.rows];
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      data.cols.forEach((c, ci) => {
+        if (!c.bold && !c.italic && !c.color) return;
+        for (let ri = 1; ri <= data.rows.length; ri++) {
+          const addr = XLSX.utils.encode_cell({ r: ri, c: ci });
+          if (!ws[addr]) continue;
+          ws[addr].s = { font: { bold: !!c.bold, italic: !!c.italic, color: c.color ? { rgb: c.color.replace('#', '') } : undefined } };
+        }
+      });
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Payslips');
+      const runId = document.getElementById('prExportRunSelect').value;
+      const run = _prRunsCache.find(r => r.id === Number(runId));
+      XLSX.writeFile(wb, `payroll_${run ? PAYROLL_MONTH_NAMES[run.month] + '_' + run.year : 'export'}.xlsx`);
+    }).catch(err => showToast(err.message, 'error'));
+  }
+
+  function ensureJsPDF() {
+    if (window.jspdf && window.jspdf.jsPDF) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const sc1 = document.createElement('script');
+      sc1.src = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';
+      sc1.onload = () => {
+        const sc2 = document.createElement('script');
+        sc2.src = 'https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.1/dist/jspdf.plugin.autotable.min.js';
+        sc2.onload = resolve;
+        sc2.onerror = () => reject(new Error('Could not load the PDF writer.'));
+        document.head.appendChild(sc2);
+      };
+      sc1.onerror = () => reject(new Error('Could not load the PDF writer.'));
+      document.head.appendChild(sc1);
+    });
+  }
+
+  function _prExportPdf() {
+    const data = _prExportRowsAndCols();
+    if (!data) return;
+    ensureJsPDF().then(() => {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ orientation: data.cols.length > 6 ? 'landscape' : 'portrait' });
+      const runId = document.getElementById('prExportRunSelect').value;
+      const run = _prRunsCache.find(r => r.id === Number(runId));
+      doc.setFontSize(12);
+      doc.text(`Payroll — ${run ? PAYROLL_MONTH_NAMES[run.month] + ' ' + run.year : ''}`, 14, 12);
+      doc.autoTable({
+        startY: 18,
+        head: [data.cols.map(c => c.label)],
+        body: data.rows,
+        styles: { fontSize: 8 },
+        didParseCell: hook => {
+          if (hook.section !== 'body') return;
+          const col = data.cols[hook.column.index];
+          if (!col) return;
+          if (col.bold && col.italic) hook.cell.styles.fontStyle = 'bolditalic';
+          else if (col.bold) hook.cell.styles.fontStyle = 'bold';
+          else if (col.italic) hook.cell.styles.fontStyle = 'italic';
+          if (col.color) {
+            const hex = col.color.replace('#', '');
+            hook.cell.styles.textColor = [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)];
+          }
+        },
+      });
+      doc.save(`payroll_${run ? PAYROLL_MONTH_NAMES[run.month] + '_' + run.year : 'export'}.pdf`);
+    }).catch(err => showToast(err.message, 'error'));
   }
 
   function loadLeaveRequests() {

@@ -49,6 +49,8 @@ const RESERVED = [
   '_prSelectSection','_prOpenSectionForm','_prCloseSectionForm','_prSaveSection','_prDeleteSection',
   '_prOpenSectionEntryForm','_prCloseSectionEntryForm','_prSaveSectionEntry','_prUpdateSectionEntryStatus','_prDeleteSectionEntry',
   '_prRunPayroll','_prSelectRun','_prSubmitRunForApproval','_prApproveRun','_prDeleteRun',
+  '_prBulkAddAllStaff','_prLoadExportColumns','_prSetExportFormat','_prRemoveExportColumn',
+  '_prAddVirtualColumn','_prCloseVirtualColumnForm','_prSaveVirtualColumn','_prExportExcel','_prExportPdf',
   '_invSelectResponsiblePerson','_invClearResponsiblePerson',
   // Analyse SSC Result — onclick-referenced
   'loadSscResultAnalysisView','handleSscPdfFile','handleSscRosterFile','generateSscResultExcel',
