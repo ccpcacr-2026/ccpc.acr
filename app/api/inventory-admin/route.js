@@ -771,6 +771,12 @@ async function _distributeDeleteOne(id) {
 
   const delItems = await sbInventory(`distribution_items?distribution_id=eq.${encodeURIComponent(id)}`, 'DELETE');
   if (delItems?.error) return delItems.error;
+  // inventory_notifications.distribution_id has a FK to this row (set when
+  // _distributeCreate notified the receiver) — has to go before the
+  // distributions delete itself, or Postgres rejects it with a foreign key
+  // violation ("still referenced from table inventory_notifications").
+  const delNotifs = await sbInventory(`inventory_notifications?distribution_id=eq.${encodeURIComponent(id)}`, 'DELETE');
+  if (delNotifs?.error) return delNotifs.error;
   const delDist = await sbInventory(`distributions?id=eq.${encodeURIComponent(id)}`, 'DELETE');
   if (delDist?.error) return delDist.error;
   return null;
