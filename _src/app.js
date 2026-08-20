@@ -15563,8 +15563,46 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _invFilteredSettingsRows() {
     const cfg = INV_ENTITIES[_invCurrentEntity];
     const q = _invSettingsSearch.trim().toLowerCase();
-    if (!q || !cfg) return _invEntityRows;
-    return _invEntityRows.filter(r => cfg.columns.some(c => String(_invDisplayValue(c, r) ?? '').toLowerCase().includes(q)));
+    let rows = (!q || !cfg) ? _invEntityRows : _invEntityRows.filter(r => cfg.columns.some(c => String(_invDisplayValue(c, r) ?? '').toLowerCase().includes(q)));
+    if (_invCurrentEntity === 'products') rows = _invSortProductRows(rows);
+    return rows;
+  }
+
+  // Same Sort By dropdown as Stock Overview (see INV_STOCK_SORT_OPTIONS/
+  // _invSortStockRows) — Product Info gets its own since its fields differ
+  // (register/page no, depreciation, group name rather than received/
+  // distributed/remaining/value).
+  let _invProductSort = 'name_asc';
+  const INV_PRODUCT_SORT_OPTIONS = [
+    { value: 'name_asc', label: 'Name (A–Z)' },
+    { value: 'name_desc', label: 'Name (Z–A)' },
+    { value: 'code_asc', label: 'Code (A–Z)' },
+    { value: 'group_asc', label: 'Group (A–Z)' },
+    { value: 'depr_desc', label: 'Depreciation %/Yr (High–Low)' },
+    { value: 'active_desc', label: 'Active First' },
+    { value: 'active_asc', label: 'Inactive First' },
+  ];
+  function _invProductEffectiveRate(r) {
+    if (r.depreciation_rate_percent !== null && r.depreciation_rate_percent !== undefined) return Number(r.depreciation_rate_percent);
+    const group = (_invEntityLookups['groups'] || []).find(g => String(g.id) === String(r.group_id));
+    return group && group.depreciation_rate_percent !== null && group.depreciation_rate_percent !== undefined ? Number(group.depreciation_rate_percent) : 0;
+  }
+  function _invSortProductRows(rows) {
+    const [field, dir] = _invProductSort.split('_');
+    const sign = dir === 'desc' ? -1 : 1;
+    return rows.slice().sort((a, b) => {
+      if (field === 'name') return sign * String(a.name || '').localeCompare(String(b.name || ''));
+      if (field === 'code') return sign * String(a.code || '').localeCompare(String(b.code || ''));
+      if (field === 'group') return sign * String(_invProductGroupName(a) || '').localeCompare(String(_invProductGroupName(b) || ''));
+      if (field === 'depr') return sign * (_invProductEffectiveRate(a) - _invProductEffectiveRate(b));
+      if (field === 'active') return sign * ((b.is_active ? 1 : 0) - (a.is_active ? 1 : 0));
+      return 0;
+    });
+  }
+  function _invProductSortChange(val) {
+    _invProductSort = val;
+    const wrap = document.getElementById('invSettingsTableWrap');
+    if (wrap) wrap.innerHTML = _invSettingsTableBodyHtml();
   }
 
   // Multi-select bulk delete — generic across every Settings entity
@@ -15754,7 +15792,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="openInventoryEntityForm('${_invCurrentEntity}')" title="New" class="inv-icon-btn flex items-center justify-center rounded-lg text-white transition-all" style="background:linear-gradient(135deg,#2563eb,#4f46e5)"><i data-lucide="plus" class="h-4 w-4"></i></button>
           </div>
         </div>
-        ${rows.length ? `<input type="text" id="invSettingsSearch" placeholder="Search…" value="${_escHtml(_invSettingsSearch)}" oninput="_invSettingsSearchInput(this.value)" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 transition-all">` : ''}
+        ${rows.length ? `<div class="flex items-center gap-2 flex-nowrap">
+          <input type="text" id="invSettingsSearch" placeholder="Search…" value="${_escHtml(_invSettingsSearch)}" oninput="_invSettingsSearchInput(this.value)" class="flex-1 min-w-0 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 transition-all">
+          ${_invCurrentEntity === 'products' ? `<select onchange="_invProductSortChange(this.value)" class="shrink-0 max-w-[40%] bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-2 py-2 transition-all">
+            ${INV_PRODUCT_SORT_OPTIONS.map(o => `<option value="${o.value}" ${o.value === _invProductSort ? 'selected' : ''}>${_escHtml(o.label)}</option>`).join('')}
+          </select>` : ''}
+        </div>` : ''}
         <div id="invSettingsSelectionBar"></div>
       </div>
       <div id="invSettingsTableWrap">${_invSettingsTableBodyHtml()}</div>`;
