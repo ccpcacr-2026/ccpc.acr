@@ -431,7 +431,12 @@ function updateBusList(buses) {
     const mv = !!bus.isMoving;
     const isSelected = selectedBusImei === bus.imei;
     const isChecked = selectedImeis.has(bus.imei);
-    const addr = (bus.address || 'Locating…');
+    // Just the first segment (e.g. "Bayejid Bostami" out of "Bayejid
+    // Bostami, Chattogram, Chattogram District, Chittagong...") — a full
+    // address was routinely far longer than any bus name and forced the
+    // panel wide just to show it; the neighborhood/area name alone is
+    // what's actually useful at a glance here.
+    const addr = bus.address ? bus.address.split(',')[0].trim() : 'Locating…';
 
     // Row 1: checkbox + name. Row 2: status badge + location. Name is
     // never truncated (see #bus-sidebar's dynamic width) — it's the one
