@@ -17818,6 +17818,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   function loadInventoryView() {
+    if (!_hasModuleAccess('inventory')) {
+      showToast('Not available in current role', 'error');
+      return;
+    }
     _setViewHash('inventory');
     setActiveNavLink('nav-inventory');
     setContentHeader('Inventory', 'package');
@@ -18130,6 +18134,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { key: 'system',           label: 'System',             navId: 'nav-system' },
     { key: 'student_portal',   label: 'Student Portal',     navId: 'nav-student-portal' },
     { key: 'inventory_admin',  label: 'Inventory Admin',    navId: 'nav-inventory-admin' },
+    { key: 'inventory',        label: 'Inventory',          navId: 'nav-inventory' },
     { key: 'ssc_result_analysis', label: 'Analyse SSC Result', navId: 'nav-ssc-result-analysis' },
     { key: 'committees',       label: 'My Assignments',     navId: 'nav-my-committees' },
     { key: 'lesson_plan',      label: 'My Lesson Plan',     navId: 'nav-lesson-plan' },
@@ -18158,6 +18163,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     system:        ['HR','Admin','Principal','VP'],
     student_portal:['Admin','Student Portal Admin','HR'],
     inventory_admin:['Admin','Inventory Admin'],
+    // Mirrors the previous hardcoded behavior (this nav link had no
+    // gating at all before it was added to MODULE_REGISTRY) — an Admin
+    // can narrow this from System > Permission Control without needing
+    // a code change.
+    inventory:     ALL_ROLES,
     ssc_result_analysis: ['Admin','HR','Principal','VP'],
     committees:    ['Teacher','Staff'],
     lesson_plan:   ['Teacher'],
