@@ -12856,7 +12856,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!_hasModuleAccess('payroll_admin')) { showToast('Not available in current role', 'error'); return; }
     _setViewHash('payroll');
     setActiveNavLink('nav-payroll');
-    setContentHeader('Payroll', 'banknote');
+    setContentHeader('Payroll Admin', 'banknote');
     const container = document.getElementById('view-container');
     if (!container) return;
     const tabBar = PAYROLL_SUBTABS.map((t, i) => `<button onclick="switchPayrollTab('${t.id}')" id="prtab-${t.id}"
@@ -12865,7 +12865,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
     container.innerHTML = `
       <div class="mb-4">
-        <h2 class="text-2xl font-black text-slate-800 tracking-tight">Payroll</h2>
+        <h2 class="text-2xl font-black text-slate-800 tracking-tight">Payroll Admin</h2>
         <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Dynamic fields, grades, sections, payroll runs</p>
       </div>
       <div class="flex flex-wrap gap-2 mb-5">${tabBar}</div>
@@ -18410,7 +18410,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { key: 'system',           label: 'System',             navId: 'nav-system' },
     { key: 'student_portal',   label: 'Student Portal',     navId: 'nav-student-portal' },
     { key: 'inventory_admin',  label: 'Inventory Admin',    navId: 'nav-inventory-admin' },
-    { key: 'payroll_admin',    label: 'Payroll',            navId: 'nav-payroll' },
+    { key: 'payroll_admin',    label: 'Payroll Admin',      navId: 'nav-payroll' },
     { key: 'inventory',        label: 'Inventory',          navId: 'nav-inventory' },
     { key: 'ssc_result_analysis', label: 'Analyse SSC Result', navId: 'nav-ssc-result-analysis' },
     { key: 'committees',       label: 'My Assignments',     navId: 'nav-my-committees' },
