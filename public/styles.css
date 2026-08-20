@@ -1149,40 +1149,52 @@ button { user-select: none; }
   }
   .bt-fit-btn-inline:hover { background: rgba(37,99,235,0.15); color: #2563eb; }
 
+  /* Chrome on Android auto-inflates any text it judges "too small to
+     read" (a11y font-boosting) — silently overriding every small
+     font-size below unless disabled here. This was making the whole
+     panel render far bigger than specified regardless of the px values. */
+  #bus-sidebar, #bus-sidebar * { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+
   #bus-sidebar {
     top: 68px; right: 10px; bottom: 10px; left: auto;
-    width: auto; max-width: min(72vw, 260px); min-width: 60px;
+    /* Name still isn't truncated (row 1), but the address (row 2) now
+       is — an address line was often far longer than any bus name,
+       so sizing the whole panel to fit it made "dynamic width" useless;
+       max-width here is now just a sane ceiling, not something long
+       addresses were routinely hitting anyway. */
+    width: auto; max-width: 148px; min-width: 60px;
     /* Lighter than the desktop sidebar (0.72) — this close to the map
        edge it needs to stay unobtrusive, not just translucent. */
     background: rgba(255,255,255,0.18);
-    border-radius: 16px; padding: 4px;
+    border-radius: 16px; padding: 3px;
   }
   #bus-sidebar.bt-collapsed { bottom: auto; }
   #bus-sidebar.bt-collapsed #bt-panel-body { display: none; }
 
   .bt-sheet-handle { display: none; }
 
-  /* Row 1: checkbox + name (no truncation — the panel grows to fit,
-     see #bus-sidebar's width above). Row 2: status badge + location. */
-  .bt-list-item { padding: 5px 7px; }
-  .bt-row1 { display: flex; align-items: center; gap: 6px; }
-  .bt-row1-name { font-size: 11px; font-weight: 800; color: #1e293b; white-space: nowrap; }
-  .bt-row2 { display: flex; align-items: center; gap: 5px; margin-top: 3px; white-space: nowrap; }
+  /* Row 1: checkbox + name (no truncation). Row 2: status badge + the
+     location, truncated with an ellipsis instead of forcing the panel
+     wide enough for a full address. */
+  .bt-list-item { padding: 4px 6px; }
+  .bt-row1 { display: flex; align-items: center; gap: 5px; }
+  .bt-row1-name { font-size: 10px; font-weight: 800; color: #1e293b; white-space: nowrap; }
+  .bt-row2 { display: flex; align-items: center; gap: 4px; margin-top: 2px; }
   .bt-badge-mini {
-    padding: 1.5px 6px; border-radius: 999px; font-size: 7px; font-weight: 800;
-    text-transform: uppercase; letter-spacing: 0.03em; flex-shrink: 0;
+    padding: 1px 5px; border-radius: 999px; font-size: 6.5px; font-weight: 800;
+    text-transform: uppercase; letter-spacing: 0.02em; flex-shrink: 0;
   }
   .bt-badge-mini.moving { background: rgba(37,99,235,0.15); color: #2563eb; }
   .bt-badge-mini.idle   { background: rgba(180,83,9,0.15); color: #b45309; }
-  .bt-row2 .bt-addr { font-size: 8px; color: #64748b; font-weight: 600; }
+  .bt-row2 .bt-addr { font-size: 7px; color: #64748b; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   #bus-info-panel { display: none; }
 
-  /* "Fleet N" + All/None buttons — stacked so a short name doesn't force
-     the whole panel wider just to fit this row. */
-  .bt-fleet-head { flex-direction: column; align-items: stretch; gap: 3px; padding: 2px 2px 4px; }
-  .bt-fleet-title { font-size: 9px; justify-content: center; }
-  .bt-fleet-actions { gap: 3px; }
-  .bt-fleet-actions button { flex: 1; padding: 2px 0; font-size: 8px; }
+  /* "Fleet N" + All/None buttons — stacked and shrunk to a minimum so
+     they don't force the panel wider just to fit this one row. */
+  .bt-fleet-head { flex-direction: column; align-items: stretch; gap: 2px; padding: 2px; }
+  .bt-fleet-title { font-size: 8px; justify-content: center; }
+  .bt-fleet-actions { gap: 2px; }
+  .bt-fleet-actions button { flex: 1; padding: 1.5px 0; font-size: 7px; }
 }
 
 /* ── Forum module ──────────────────────────────────────────────────────── */
