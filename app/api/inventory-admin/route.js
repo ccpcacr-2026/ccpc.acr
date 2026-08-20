@@ -736,11 +736,24 @@ async function _productAttributeOptions(payload) {
 // lists) over whatever this page fetches — not paginated server-side
 // since a school's distribution volume doesn't call for it yet.
 async function _distributeList() {
-  const rows = await sbInventory(
-    `distributions?select=id,distribute_no,created_at,remarks,distribute_date,bill_no,received_by,consumer_id,consumers!distributions_consumer_id_fkey(name,type),distribution_items(product_id,quantity,products(name))&order=created_at.desc&limit=500`
-  );
+  const [rows, profiles] = await Promise.all([
+    sbInventory(
+      `distributions?select=id,distribute_no,created_at,remarks,distribute_date,bill_no,received_by,consumer_id,receiver_user_id,consumers!distributions_consumer_id_fkey(name,type),distribution_items(product_id,quantity,products(name))&order=created_at.desc&limit=500`
+    ),
+    // receiver_user_id is a bare ccpc-teachers user_id (see
+    // _distResolveReceiverUserId/_distributeCreate) — this is who's
+    // actually responsible for a room/building/floor recipient, or the
+    // person/committee-member notified otherwise. Resolved to a display
+    // name here so the list doesn't just show a raw id.
+    _teacherSchemaFetch('users_profile?select=teacher_id,full_name'),
+  ]);
   if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
-  return NextResponse.json({ result: 'success', data: Array.isArray(rows) ? rows : [] });
+  const nameMap = new Map((Array.isArray(profiles) ? profiles : []).map(p => [p.teacher_id, p.full_name]));
+  const data = (Array.isArray(rows) ? rows : []).map(r => ({
+    ...r,
+    responsible_name: r.receiver_user_id ? (nameMap.get(r.receiver_user_id) || r.receiver_user_id) : null,
+  }));
+  return NextResponse.json({ result: 'success', data });
 }
 
 // Deleting a distribution isn't just removing rows — it drew stock via

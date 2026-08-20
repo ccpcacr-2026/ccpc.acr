@@ -17155,7 +17155,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function _invDistributeMatchesSearch(r, q) {
     const itemsText = (r.distribution_items || []).map(it => (it.products && it.products.name) || '').join(' ');
-    return `${r.distribute_no || ''} ${(r.consumers && r.consumers.name) || ''} ${itemsText} ${r.remarks || ''} ${r.bill_no || ''} ${r.received_by || ''}`.toLowerCase().includes(q);
+    return `${r.distribute_no || ''} ${(r.consumers && r.consumers.name) || ''} ${itemsText} ${r.remarks || ''} ${r.bill_no || ''} ${r.received_by || ''} ${r.responsible_name || ''}`.toLowerCase().includes(q);
   }
 
   function _invRenderDistributeList() {
@@ -17174,6 +17174,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Date</th>
             <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">No.</th>
             <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Recipient</th>
+            <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Responsible</th>
             <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Items</th>
             <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Bill No.</th>
             <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Received By</th>
@@ -17185,6 +17186,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(String(r.distribute_date || r.created_at || '').slice(0, 10))}</td>
             <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(r.distribute_no || '—')}</td>
             <td class="px-3 py-2.5 font-bold text-slate-700">${_escHtml((r.consumers && r.consumers.name) || '—')}${r.consumers && r.consumers.type ? ` <span class="text-slate-400">(${_escHtml(r.consumers.type)})</span>` : ''}</td>
+            <td class="px-3 py-2.5 font-bold text-slate-700">${_escHtml(r.responsible_name || '—')}</td>
             <td class="px-3 py-2.5 font-bold text-slate-700">${_escHtml((r.distribution_items || []).map(it => `${(it.products && it.products.name) || 'item'} x${it.quantity}`).join(', ') || '—')}</td>
             <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(r.bill_no || '—')}</td>
             <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(r.received_by || '—')}</td>
@@ -17203,6 +17205,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <span class="text-[9px] font-black text-slate-400 shrink-0">${_escHtml(String(r.distribute_date || r.created_at || '').slice(0, 10))}</span>
             </div>
             <p class="text-[10px] text-slate-500 font-bold truncate">#${_escHtml(r.distribute_no || '—')} · ${_escHtml((r.distribution_items || []).map(it => `${(it.products && it.products.name) || 'item'} x${it.quantity}`).join(', ') || '—')}</p>
+            ${r.responsible_name ? `<p class="text-[10px] text-slate-500 font-bold truncate">Responsible: ${_escHtml(r.responsible_name)}</p>` : ''}
             ${(r.bill_no || r.received_by) ? `<p class="text-[10px] text-slate-500 font-bold truncate">${r.bill_no ? `Bill: ${_escHtml(r.bill_no)}` : ''}${r.bill_no && r.received_by ? ' · ' : ''}${r.received_by ? `Received By: ${_escHtml(r.received_by)}` : ''}</p>` : ''}
             ${r.remarks ? `<p class="text-[10px] text-slate-400 font-bold truncate">${_escHtml(r.remarks)}</p>` : ''}
           </div>
