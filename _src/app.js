@@ -16489,15 +16489,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     overlay.id = 'invProductQuickView';
     overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
     overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
-    overlay.innerHTML = `<div class="bg-white rounded-2xl p-5 w-full max-w-sm max-h-[85vh] overflow-y-auto"><div class="text-center py-10 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div></div>`;
+    // Buttons live in their own shrink-0 footer, outside the scrollable
+    // body — a flex-column card with only the body scrolling, so
+    // Distribute/Edit/Full History stay reachable at the bottom of the
+    // panel no matter how far the details list is scrolled.
+    overlay.innerHTML = `<div class="bg-white rounded-2xl w-full max-w-sm max-h-[85vh] flex flex-col overflow-hidden"><div id="invProductQuickViewBody" class="p-5 overflow-y-auto"><div class="text-center py-10 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div></div></div>`;
     document.body.appendChild(overlay);
     _invAdminFetch('product_quick_view', { id: productId }).then(res => {
+      const body = document.getElementById('invProductQuickViewBody');
       const card = overlay.firstElementChild;
-      if (!res || res.result !== 'success') { card.innerHTML = `<div class="text-center py-10 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml((res && res.message) || 'Failed to load')}</div>`; return; }
+      if (!res || res.result !== 'success') { body.innerHTML = `<div class="text-center py-10 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml((res && res.message) || 'Failed to load')}</div>`; return; }
       const p = res.product, dep = res.depreciation, s = res.summary;
       const active = p.is_active !== false;
       const row = (label, value) => (value === '' || value === null || value === undefined) ? '' : `<div class="flex justify-between gap-3 py-1 border-b border-slate-50"><span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">${label}</span><span class="text-xs font-bold text-slate-700 text-right">${value}</span></div>`;
-      card.innerHTML = `
+      body.innerHTML = `
         <div class="flex items-start justify-between gap-2 mb-1">
           <p class="text-sm font-black text-slate-800">${_escHtml(p.name)}${p.code ? ` <span class="text-slate-400 font-bold">(${_escHtml(p.code)})</span>` : ''}</p>
           <span class="w-2.5 h-2.5 rounded-full mt-1 shrink-0 ${active ? 'bg-emerald-500' : 'bg-red-500'}" title="${active ? 'Active' : 'Inactive'}"></span>
@@ -16519,15 +16524,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           ${row('Depreciation', dep.rate_source === 'none' ? 'None' : `${dep.rate_percent}%/yr (${dep.rate_source === 'product' ? 'by product' : 'by group'})`)}
           ${row('Current Price (after depreciation)', dep.avg_current_unit_price ? `<span class="text-emerald-600 font-black">${dep.avg_current_unit_price.toFixed(2)}</span>` : '—')}
           ${row('Stock Value (current)', dep.qty_on_hand ? (dep.avg_current_unit_price * dep.qty_on_hand).toFixed(2) : '—')}
-        </div>
-        <div class="flex gap-2 mt-4">
+        </div>`;
+      const footer = document.createElement('div');
+      footer.className = 'shrink-0 p-3 border-t border-slate-100 bg-white';
+      footer.innerHTML = `
+        <div class="flex gap-2">
           <button onclick="document.getElementById('invProductQuickView').remove(); openInventoryDistributeFor(${p.id})" class="flex-1 px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest bg-emerald-600 text-white hover:bg-black transition-all">Distribute</button>
           <button onclick="_invEditProductFromQuickView(${p.id})" class="px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">Edit</button>
         </div>
         <button onclick="document.getElementById('invProductQuickView').remove(); openInventoryProductDetail(${p.id})" class="w-full mt-2 px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-500 hover:bg-slate-50 transition-all">Full History</button>`;
+      card.appendChild(footer);
     }).catch(err => {
-      const card = overlay.firstElementChild;
-      if (card) card.innerHTML = `<div class="text-center py-10 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml(err.message || 'Network error')}</div>`;
+      const body = document.getElementById('invProductQuickViewBody');
+      if (body) body.innerHTML = `<div class="text-center py-10 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml(err.message || 'Network error')}</div>`;
     });
   }
 
