@@ -17230,7 +17230,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <button onclick="loadInventoryDistributeList()" class="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600 mb-3 block">&larr; Back to Distribution List</button>
         <p class="text-sm font-black text-slate-800 uppercase tracking-widest mb-4">${editRow ? `Edit Distribution #${_escHtml(editRow.distribute_no || editRow.id)}` : 'New Distribution'}</p>
         <div class="mb-3" id="invDistProductWrap">
-          <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Product</label>
+          <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Product <span class="text-red-500">*</span></label>
           <input id="invDistProductQuery" type="text" placeholder="Search by name or code…" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
           <div id="invDistProductMatches" class="mt-1 max-h-40 overflow-y-auto flex flex-col rounded-lg"></div>
         </div>
@@ -17243,7 +17243,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
         <div class="mb-3">
           <div class="flex items-center justify-between">
-            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Recipient</label>
+            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Recipient <span class="text-red-500">*</span></label>
             <button type="button" onclick="_invOpenCustomConsumerModal()" class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:underline">+ Add Custom</button>
           </div>
           <div id="invDistConsumerWrap"></div>
@@ -17255,25 +17255,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
         <div id="invDistNotifyPreview" class="hidden text-[11px] font-bold text-slate-500 bg-slate-50 rounded-lg px-3 py-2 mb-3"></div>
         <div class="mb-3">
-          <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Quantity</label>
+          <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Quantity <span class="text-red-500">*</span></label>
           <input id="invDistQty" type="number" min="1" placeholder="e.g. 10" value="${editRow ? _escHtml(String(_invDistEditRowQty(editRow))) : ''}" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
         </div>
         <div class="grid grid-cols-2 gap-3 mb-3">
           <div>
-            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Date</label>
+            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Date <span class="text-slate-300 normal-case tracking-normal">(optional)</span></label>
             <input id="invDistDate" type="date" value="${_escHtml((editRow && editRow.distribute_date) || '')}" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
           </div>
           <div>
-            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Bill No.</label>
+            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Bill No. <span class="text-slate-300 normal-case tracking-normal">(optional)</span></label>
             <input id="invDistBillNo" type="text" value="${_escHtml((editRow && editRow.bill_no) || '')}" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
           </div>
         </div>
         <div class="mb-3">
-          <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Received By</label>
+          <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Received By <span class="text-slate-300 normal-case tracking-normal">(optional)</span></label>
           <input id="invDistReceivedBy" type="text" value="${_escHtml((editRow && editRow.received_by) || '')}" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
         </div>
         <div class="mb-4">
-          <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Remarks</label>
+          <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Remarks <span class="text-slate-300 normal-case tracking-normal">(optional)</span></label>
           <input id="invDistRemarks" type="text" value="${_escHtml((editRow && editRow.remarks) || '')}" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2 mt-1">
         </div>
         <div id="invDistStatus" class="text-xs font-bold mb-3"></div>
