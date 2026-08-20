@@ -12911,7 +12911,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <h2 class="text-2xl font-black text-slate-800 tracking-tight">Payroll Admin</h2>
         <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Dynamic fields, grades, sections, payroll runs</p>
       </div>
-      <div class="flex flex-wrap gap-2 mb-5">${tabBar}</div>
+      <div class="flex flex-nowrap gap-2 mb-5 overflow-x-auto pb-1 -mx-1 px-1" style="scrollbar-width:none">${tabBar}</div>
 
       <div id="pr-fields">
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-3">
@@ -13087,7 +13087,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
 
       <div id="prSectionFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-        <div class="bg-white rounded-2xl p-5 w-full max-w-sm">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-sm max-h-[85vh] overflow-y-auto">
           <div class="flex items-center justify-between mb-4">
             <p class="font-black text-slate-800 text-sm">Add Section</p>
             <button onclick="_prCloseSectionForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
@@ -13113,7 +13113,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
 
       <div id="prSectionEntryFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-        <div class="bg-white rounded-2xl p-5 w-full max-w-sm">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-sm max-h-[85vh] overflow-y-auto">
           <div class="flex items-center justify-between mb-4">
             <p class="font-black text-slate-800 text-sm">Add Entry</p>
             <button onclick="_prCloseSectionEntryForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
@@ -13154,7 +13154,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
 
       <div id="prBonusFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-        <div class="bg-white rounded-2xl p-5 w-full max-w-md">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-md max-h-[85vh] overflow-y-auto">
           <div class="flex items-center justify-between mb-4">
             <p class="font-black text-slate-800 text-sm" id="prBonusFormTitle">Add Bonus Payment</p>
             <button onclick="_prCloseBonusForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
@@ -13198,7 +13198,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
 
       <div id="prLeaveFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-        <div class="bg-white rounded-2xl p-5 w-full max-w-md">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-md max-h-[85vh] overflow-y-auto">
           <div class="flex items-center justify-between mb-4">
             <p class="font-black text-slate-800 text-sm" id="prLeaveFormTitle">Add Leave Deduction</p>
             <button onclick="_prCloseLeaveForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
@@ -13327,7 +13327,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
 
       <div id="prVirtualColumnFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-        <div class="bg-white rounded-2xl p-5 w-full max-w-sm">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-sm max-h-[85vh] overflow-y-auto">
           <div class="flex items-center justify-between mb-4">
             <p class="font-black text-slate-800 text-sm">Add Virtual Column</p>
             <button onclick="_prCloseVirtualColumnForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
@@ -13454,7 +13454,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
 
       <div id="prConditionRuleFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-        <div class="bg-white rounded-2xl p-5 w-full max-w-md">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-md max-h-[85vh] overflow-y-auto">
           <div class="flex items-center justify-between mb-4">
             <p class="font-black text-slate-800 text-sm">Add Rule</p>
             <button onclick="_prCloseConditionRuleForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
@@ -13487,7 +13487,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
 
       <div id="prGradeFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-        <div class="bg-white rounded-2xl p-5 w-full max-w-md">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-md max-h-[85vh] overflow-y-auto">
           <div class="flex items-center justify-between mb-4">
             <p class="font-black text-slate-800 text-sm" id="prGradeFormTitle">Add Grade</p>
             <button onclick="_prCloseGradeForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
