@@ -902,14 +902,9 @@
       // this alone decides sidebar visibility for every subnav item.
       window._adminTabAccess = erpTabs;
       window._hasErpTabAccess = erpTabs.length > 0 || hasTabData; // loadStudentPortalView's own role gate checks this too
-      // Payroll is a standalone top-level link now (not one of ADMIN_SUBNAV_ITEMS
-      // any more — see the comment there), so it's toggled directly here from
-      // the same account-scoped erpTabs this whole fetch already produced,
-      // independent of the Student Portal header's own _hasModuleAccess gate
-      // right below — an account can hold Payroll access without holding
-      // the broader Student Portal module at all.
-      const payrollLink = document.getElementById('nav-payroll');
-      if (payrollLink) payrollLink.style.display = erpTabs.includes('payroll') ? '' : 'none';
+      // Payroll's nav link visibility is now handled generically by the
+      // MODULE_REGISTRY/_hasModuleAccess sidebar loop (payroll_admin key) —
+      // no special-casing needed here any more.
       _refreshHomeGridIfVisible();
       // get_my_tab_access is account-scoped (any role the account holds
       // unlocks its tabs) — gated here with the same account-wide
@@ -3349,6 +3344,7 @@
       { id: 'sys-users',      label: 'Users',    icon: 'users' },
       ...(canEdit ? [{ id: 'sys-register', label: 'Register', icon: 'user-plus' }] : []),
       ...(adminOnly ? [{ id: 'sys-modules', label: 'Module Access', icon: 'layout-grid' }] : []),
+      ...(adminOnly ? [{ id: 'sys-user-perms', label: 'Per-Person Access', icon: 'user-cog' }] : []),
       ...(adminOnly ? [{ id: 'sys-profile-fields', label: 'Profile Privacy', icon: 'eye-off' }] : []),
       ...(adminOnly ? [{ id: 'sys-routine-settings', label: 'Routine Settings', icon: 'calendar-clock' }] : []),
       ...(adminOnly ? [{ id: 'sys-ai-settings', label: 'AI Lesson Plans', icon: 'sparkles' }] : []),
@@ -3495,6 +3491,56 @@
           </div>
         </div>` : ''}
 
+        <!-- Per-person module permissions (View/Edit/Delete), additive to roles -->
+        ${adminOnly ? `
+        <div id="sys-user-perms" style="display:none;" class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5">
+          <div class="mb-4">
+            <p class="font-black text-slate-800 text-sm">Grant a specific person View / Edit / Delete on a module</p>
+            <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Sits alongside role-based access — a grant only adds permission, it never takes any away</p>
+          </div>
+          <div class="flex flex-wrap items-end gap-3 mb-5 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+            <div class="flex-1 min-w-[200px] relative">
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1.5 block">Person</label>
+              <input type="text" id="upmUserSearch" placeholder="Search people…" autocomplete="off"
+                class="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-blue-600" autocorrect="off" autocapitalize="off" spellcheck="false">
+              <input type="hidden" id="upmUserSelect">
+              <div id="upmUserDropdown" class="hidden absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-y-auto"></div>
+            </div>
+            <div class="flex-1 min-w-[180px] relative">
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1.5 block">Module</label>
+              <input type="text" id="upmModuleSearch" placeholder="Search modules…" autocomplete="off"
+                class="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-blue-600" autocorrect="off" autocapitalize="off" spellcheck="false">
+              <input type="hidden" id="upmModuleSelect">
+              <div id="upmModuleDropdown" class="hidden absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-y-auto"></div>
+            </div>
+            <div class="flex items-center gap-4 pb-2.5">
+              <label class="flex items-center gap-1.5 text-xs font-black text-slate-600 cursor-pointer"><input type="checkbox" id="upmView" class="w-4 h-4 rounded accent-blue-600">View</label>
+              <label class="flex items-center gap-1.5 text-xs font-black text-slate-600 cursor-pointer"><input type="checkbox" id="upmEdit" class="w-4 h-4 rounded accent-amber-600">Edit</label>
+              <label class="flex items-center gap-1.5 text-xs font-black text-slate-600 cursor-pointer"><input type="checkbox" id="upmDelete" class="w-4 h-4 rounded accent-red-600">Delete</label>
+            </div>
+            <button onclick="saveUserModulePermission()" class="px-5 py-2.5 bg-blue-600 text-white text-[10px] font-black rounded-xl hover:bg-black transition-all uppercase tracking-widest shadow-lg shadow-blue-500/20 flex items-center gap-2">
+              <i data-lucide="save" class="h-3.5 w-3.5"></i> Grant
+            </button>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+              <thead>
+                <tr class="bg-slate-50 border-b border-slate-100">
+                  <th class="px-4 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Person</th>
+                  <th class="px-4 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Module</th>
+                  <th class="px-4 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">View</th>
+                  <th class="px-4 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Edit</th>
+                  <th class="px-4 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Delete</th>
+                  <th class="px-4 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Remove</th>
+                </tr>
+              </thead>
+              <tbody id="upmGrantList" class="divide-y divide-slate-100">
+                <tr><td colspan="6" class="px-4 py-8 text-center text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>` : ''}
+
         <!-- Profile field privacy -->
         ${adminOnly ? `
         <div id="sys-profile-fields" style="display:none;" class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5">
@@ -3545,7 +3591,7 @@
 
     lucide.createIcons();
     _ensureStaffCache(() => loadUserData_forSystem());
-    if (adminOnly) { loadModuleAccessPanel(); loadProfileFieldVisibilityPanel(); loadRoutineSettingsPanel(); loadAiSettingsPanel(); }
+    if (adminOnly) { loadModuleAccessPanel(); loadUserPermsPanel(); loadProfileFieldVisibilityPanel(); loadRoutineSettingsPanel(); loadAiSettingsPanel(); }
   }
 
   let _routineSettingsConfig = null;
@@ -3771,8 +3817,132 @@
     }).updateSystemSettings({ module_visibility: matrix });
   }
 
+  // ── PER-PERSON MODULE PERMISSIONS (View/Edit/Delete), additive to roles ──
+
+  // Generic searchable-dropdown wiring: a visible text input + hidden value
+  // input + a results list, same interaction pattern as the Chairman/Member
+  // combobox above (mousedown-before-blur so a single click registers).
+  function _wireSearchCombo(searchId, hiddenId, dropId, options) {
+    const search = document.getElementById(searchId);
+    const hidden = document.getElementById(hiddenId);
+    const drop   = document.getElementById(dropId);
+    if (!search || !hidden || !drop) return;
+    const renderList = q => {
+      const needle = (q || '').trim().toLowerCase();
+      const matches = options.filter(o => !needle || o.label.toLowerCase().includes(needle) || (o.sub || '').toLowerCase().includes(needle));
+      drop.innerHTML = matches.length
+        ? matches.map(o => `<div class="px-3 py-2 border-b border-slate-50 last:border-0 cursor-pointer hover:bg-blue-50 transition-colors" data-val="${o.value}" data-label="${o.label.replace(/"/g, '&quot;')}">
+            <p class="text-xs font-black text-slate-800">${o.label}</p>
+            ${o.sub ? `<p class="text-[10px] text-slate-400 font-bold">${o.sub}</p>` : ''}
+          </div>`).join('')
+        : `<div class="px-3 py-3 text-[10px] text-slate-400 font-black uppercase tracking-widest">No matches</div>`;
+    };
+    search.addEventListener('input', () => { hidden.value = ''; renderList(search.value); drop.classList.remove('hidden'); });
+    search.addEventListener('focus', () => { renderList(search.value); drop.classList.remove('hidden'); });
+    search.addEventListener('blur', () => setTimeout(() => drop.classList.add('hidden'), 150));
+    drop.addEventListener('mousedown', e => {
+      const item = e.target.closest('[data-val]');
+      if (!item) return;
+      e.preventDefault();
+      hidden.value = item.dataset.val;
+      search.value = item.dataset.label;
+      drop.classList.add('hidden');
+    });
+    // Preselect the first option so Module always has a usable default.
+    if (!hidden.value && options.length) { hidden.value = options[0].value; search.value = options[0].label; }
+  }
+
+  function loadUserPermsPanel() {
+    const render = () => {
+      _wireSearchCombo('upmUserSearch', 'upmUserSelect', 'upmUserDropdown',
+        (allUsersCache || []).map(u => {
+          const label = staffLabel(u.user_id);
+          return { value: u.user_id, label: label !== u.user_id ? label : (u.email || u.user_id), sub: u.user_id };
+        }));
+      document.getElementById('upmUserSelect').value = '';
+      document.getElementById('upmUserSearch').value = '';
+      _wireSearchCombo('upmModuleSearch', 'upmModuleSelect', 'upmModuleDropdown',
+        MODULE_REGISTRY.map(m => ({ value: m.key, label: m.label })));
+      renderUserPermsList();
+    };
+    if (allUsersCache && allUsersCache.length) render();
+    else {
+      google.script.run.withSuccessHandler(data => { allUsersCache = Array.isArray(data) ? data : []; render(); })
+        .withFailureHandler(() => render()).getAppUsers();
+    }
+  }
+
+  function renderUserPermsList() {
+    const tbody = document.getElementById('upmGrantList');
+    if (!tbody) return;
+    const rows = [];
+    const perms = _userModulePermissions || {};
+    Object.keys(perms).forEach(userId => {
+      const modMap = perms[userId] || {};
+      Object.keys(modMap).forEach(moduleKey => {
+        const g = modMap[moduleKey] || {};
+        if (!g.view && !g.edit && !g.delete) return;
+        rows.push({ userId, moduleKey, g });
+      });
+    });
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="6" class="px-4 py-8 text-center text-slate-400 text-xs font-black uppercase tracking-widest italic">No per-person grants yet</td></tr>`;
+      return;
+    }
+    const badge = (on, color) => `<span class="inline-block w-5 h-5 rounded-md" style="${on ? `background:${color};` : 'background:#f1f5f9;'}"></span>`;
+    tbody.innerHTML = rows.map(({ userId, moduleKey, g }) => {
+      const label = staffLabel(userId);
+      const modLabel = (MODULE_REGISTRY.find(m => m.key === moduleKey) || {}).label || moduleKey;
+      return `<tr>
+        <td class="px-4 py-3 text-xs font-black text-slate-800">${label !== userId ? label : userId}</td>
+        <td class="px-4 py-3 text-xs font-bold text-slate-600">${modLabel}</td>
+        <td class="px-4 py-3 text-center">${badge(g.view, '#2563eb')}</td>
+        <td class="px-4 py-3 text-center">${badge(g.edit, '#d97706')}</td>
+        <td class="px-4 py-3 text-center">${badge(g.delete, '#dc2626')}</td>
+        <td class="px-4 py-3 text-right">
+          <button onclick="removeUserModulePermission('${userId}','${moduleKey}')" class="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-700">Remove</button>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  function saveUserModulePermission() {
+    const userId = document.getElementById('upmUserSelect')?.value;
+    const moduleKey = document.getElementById('upmModuleSelect')?.value;
+    if (!userId || !moduleKey) { showToast('Pick a person and a module', 'error'); return; }
+    const grant = {
+      view:   !!document.getElementById('upmView')?.checked,
+      edit:   !!document.getElementById('upmEdit')?.checked,
+      delete: !!document.getElementById('upmDelete')?.checked,
+    };
+    if (!grant.view && !grant.edit && !grant.delete) { showToast('Check at least one permission', 'error'); return; }
+    const next = JSON.parse(JSON.stringify(_userModulePermissions || {}));
+    next[userId] = next[userId] || {};
+    next[userId][moduleKey] = grant;
+    google.script.run.withSuccessHandler(function () {
+      _userModulePermissions = next;
+      showToast('Permission granted');
+      renderUserPermsList();
+    }).withFailureHandler(function () {
+      showToast('Failed to save permission', 'error');
+    }).updateSystemSettings({ user_module_permissions: next });
+  }
+
+  function removeUserModulePermission(userId, moduleKey) {
+    if (!confirm('Remove this permission grant?')) return;
+    const next = JSON.parse(JSON.stringify(_userModulePermissions || {}));
+    if (next[userId]) delete next[userId][moduleKey];
+    google.script.run.withSuccessHandler(function () {
+      _userModulePermissions = next;
+      showToast('Permission removed');
+      renderUserPermsList();
+    }).withFailureHandler(function () {
+      showToast('Failed to remove permission', 'error');
+    }).updateSystemSettings({ user_module_permissions: next });
+  }
+
   function switchSysTab(tabId) {
-    const tabs = ['sys-users','sys-register','sys-modules','sys-profile-fields','sys-routine-settings','sys-ai-settings'];
+    const tabs = ['sys-users','sys-register','sys-modules','sys-user-perms','sys-profile-fields','sys-routine-settings','sys-ai-settings'];
     tabs.forEach(id => {
       const panel = document.getElementById(id);
       const hdr   = document.getElementById(id + '-hdr');
@@ -12651,31 +12821,39 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   // ══════════════════════════════════════════════════════════════════════
-  // Payroll tab — native port (Phase 4, part 1). Same idiom as Fees.
+  // Dynamic Payroll — own `payroll` Postgres schema + app/api/payroll-admin
+  // /route.js, same idiom as Inventory Admin. Gated by MODULE_REGISTRY's
+  // 'payroll_admin' key (Admin / Payroll Admin roles), not the old
+  // ADMIN_SUBNAV_ITEMS/_adminTabAccess ERP-tab mechanism the placeholder
+  // version used — see the "Dynamic Payroll Management System" plan for the
+  // full schema/engine design. Built in stages; Fields is stage 1.
   // ══════════════════════════════════════════════════════════════════════
 
+  function _payrollFetch(action, payload) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    return fetch('/api/payroll-admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, payload: payload || {}, user_id: myId })
+    }).then(async r => {
+      let body = null;
+      try { body = await r.json(); } catch (_) {}
+      if (!r.ok) throw new Error((body && body.message) || ('Network error ' + r.status));
+      return body;
+    });
+  }
+
   const PAYROLL_SUBTABS = [
-    { id: 'pr-salary', label: 'Salary Setup' },
-    { id: 'pr-run', label: 'Run Payroll' },
-    { id: 'pr-leave', label: 'Leave Requests' },
+    { id: 'pr-fields', label: 'Fields' },
+    { id: 'pr-grades', label: 'Grades' },
+    { id: 'pr-people', label: 'People' },
+    { id: 'pr-sections', label: 'Sections' },
+    { id: 'pr-run', label: 'Run & Payslips' },
+    { id: 'pr-export', label: 'Export' },
   ];
 
   function loadAdminPayrollView() {
-    // Standalone module now (see #nav-payroll / ADMIN_SUBNAV_ITEMS' comment)
-    // — its own hash route means it's directly reachable by URL/refresh,
-    // possibly before _loadAdminSubnav's own async grant check has resolved
-    // window._adminTabAccess (same race loadStudentPortalView documents
-    // above it). Use it when already populated (the common case — clicking
-    // the sidebar link after login) and only pay for a fresh re-fetch when
-    // it isn't yet.
-    if (window._adminTabAccess) { _renderAdminPayrollView(window._adminTabAccess); return; }
-    _adminFetch('get_my_tab_access', {}).then(res => {
-      const tabs = (res && res.result === 'success' && Array.isArray(res.tabs)) ? res.tabs : [];
-      _renderAdminPayrollView(tabs);
-    }).catch(() => showToast('Not available in current role', 'error'));
-  }
-  function _renderAdminPayrollView(tabs) {
-    if (!tabs.includes('payroll')) { showToast('Not available in current role', 'error'); return; }
+    if (!_hasModuleAccess('payroll_admin')) { showToast('Not available in current role', 'error'); return; }
     _setViewHash('payroll');
     setActiveNavLink('nav-payroll');
     setContentHeader('Payroll', 'banknote');
@@ -12688,55 +12866,101 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     container.innerHTML = `
       <div class="mb-4">
         <h2 class="text-2xl font-black text-slate-800 tracking-tight">Payroll</h2>
-        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Salary structures, payroll runs, leave requests</p>
+        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Dynamic fields, grades, sections, payroll runs</p>
       </div>
       <div class="flex flex-wrap gap-2 mb-5">${tabBar}</div>
 
-      <div id="pr-salary">
+      <div id="pr-fields">
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-3">
-          <p class="font-black text-slate-800 text-xs mb-3">New / Update Salary Structure</p>
-          <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
-            <input type="text" id="ssDesignation" placeholder="Designation / Role (e.g. Teacher)" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-            <input type="number" id="ssBasic" placeholder="Basic Salary" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-            <input type="number" id="ssAllowance" placeholder="Total Allowances" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-            <input type="number" id="ssDeduction" placeholder="Total Deductions" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-            <button onclick="saveSalaryStructure()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Save</button>
+          <div class="flex items-center justify-between mb-3">
+            <p class="font-black text-slate-800 text-xs">Payroll Fields</p>
+            <button onclick="_prOpenFieldForm(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Field</button>
+          </div>
+          <div class="overflow-auto border border-slate-200 rounded-xl">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
+                <th class="py-2 px-3">Label</th><th class="py-2 px-3">Category</th><th class="py-2 px-3">Calculation</th><th class="py-2 px-3">Increment</th><th class="py-2 px-3">Status</th><th class="py-2 px-3 text-right">Actions</th>
+              </tr></thead>
+              <tbody id="prFieldsBody"><tr><td colspan="6" class="p-4 text-slate-400 font-bold text-xs text-center">Loading…</td></tr></tbody>
+            </table>
           </div>
         </div>
-        <div class="overflow-auto border border-slate-200 rounded-xl">
-          <table class="w-full text-left border-collapse text-xs">
-            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Designation</th><th class="py-2 px-3">Basic</th><th class="py-2 px-3">Allowances</th><th class="py-2 px-3">Deductions</th></tr></thead>
-            <tbody id="salaryStructuresBody"></tbody>
-          </table>
-        </div>
       </div>
 
-      <div id="pr-run" style="display:none">
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
-          <input type="text" id="prMonth" placeholder="Month (e.g. January)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
-          <input type="text" id="prYear" placeholder="Year" value="2026" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
-          <button onclick="runPayroll()" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Run Payroll</button>
-        </div>
-        <span id="payrollRunStatus" class="text-xs font-bold"></span>
-        <div class="overflow-auto border border-slate-200 rounded-xl mt-3">
-          <table class="w-full text-left border-collapse text-xs">
-            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Teacher</th><th class="py-2 px-3">Gross</th><th class="py-2 px-3">Deductions</th><th class="py-2 px-3">Net</th></tr></thead>
-            <tbody id="payslipsBody"></tbody>
-          </table>
-        </div>
-      </div>
+      <div id="pr-grades" style="display:none"><p class="text-slate-400 font-bold text-xs p-4">Grades setup — coming next.</p></div>
+      <div id="pr-people" style="display:none"><p class="text-slate-400 font-bold text-xs p-4">Per-person grade assignment &amp; overrides — coming next.</p></div>
+      <div id="pr-sections" style="display:none"><p class="text-slate-400 font-bold text-xs p-4">Loan/EMI sections — coming next.</p></div>
+      <div id="pr-run" style="display:none"><p class="text-slate-400 font-bold text-xs p-4">Run payroll &amp; payslips — coming next.</p></div>
+      <div id="pr-export" style="display:none"><p class="text-slate-400 font-bold text-xs p-4">Excel/PDF export — coming next.</p></div>
 
-      <div id="pr-leave" style="display:none">
-        <div class="overflow-auto border border-slate-200 rounded-xl">
-          <table class="w-full text-left border-collapse text-xs">
-            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Teacher</th><th class="py-2 px-3">Type</th><th class="py-2 px-3">Dates</th><th class="py-2 px-3">Reason</th><th class="py-2 px-3">Status</th><th class="py-2 px-3">Actions</th></tr></thead>
-            <tbody id="leaveRequestsBody"></tbody>
-          </table>
+      <div id="prFieldFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-lg max-h-[85vh] overflow-y-auto">
+          <div class="flex items-center justify-between mb-4">
+            <p class="font-black text-slate-800 text-sm" id="prFieldFormTitle">Add Field</p>
+            <button onclick="_prCloseFieldForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+          </div>
+          <input type="hidden" id="prFieldId">
+          <div class="space-y-3">
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Key <span class="text-red-500">*</span></label>
+              <input type="text" id="prFieldKey" placeholder="e.g. house_rent" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            </div>
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Label <span class="text-red-500">*</span></label>
+              <input type="text" id="prFieldLabel" placeholder="e.g. House Rent Allowance" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Category</label>
+                <select id="prFieldCategory" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                  <option value="earning">Earning (add)</option>
+                  <option value="deduction">Deduction (subtract)</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Calculation</label>
+                <select id="prFieldCalcMode" onchange="_prToggleCalcModeFields()" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                  <option value="fixed">Fixed amount</option>
+                  <option value="percent_of_field">Percent of another field</option>
+                </select>
+              </div>
+            </div>
+            <div id="prFieldPercentRow" class="hidden">
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Base field (percent of…)</label>
+              <select id="prFieldBaseKey" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></select>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Yearly Increment</label>
+                <select id="prFieldIncrementMode" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                  <option value="">None</option>
+                  <option value="yearly_percent">% per year</option>
+                  <option value="yearly_fixed">Fixed amount per year</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Increment Value</label>
+                <input type="number" id="prFieldIncrementValue" placeholder="0" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              </div>
+            </div>
+            <label class="flex items-center gap-2 text-xs font-black text-slate-600 cursor-pointer">
+              <input type="checkbox" id="prFieldGradeConditional" class="w-4 h-4 rounded accent-blue-600">
+              Only applies when a person's grade opts in (conditional field)
+            </label>
+            <label class="flex items-center gap-2 text-xs font-black text-slate-600 cursor-pointer">
+              <input type="checkbox" id="prFieldActive" checked class="w-4 h-4 rounded accent-blue-600">
+              Active
+            </label>
+          </div>
+          <div class="flex justify-end gap-2 mt-5">
+            <button onclick="_prCloseFieldForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
+            <button onclick="_prSaveField()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Field</button>
+          </div>
         </div>
       </div>
     `;
     lucide.createIcons();
-    loadSalaryStructures();
+    loadPayrollFields();
   }
 
   function switchPayrollTab(tabId) {
@@ -12750,45 +12974,97 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         btn.className += active ? ' bg-blue-600 text-white shadow-lg shadow-blue-500/20' : ' bg-white text-slate-400 border border-slate-200 hover:bg-slate-50';
       }
     });
-    if (tabId === 'pr-leave') loadLeaveRequests();
   }
 
-  function loadSalaryStructures() {
-    _adminFetch('get_salary_structures', {}).then(res => {
-      const rows = (res && res.result === 'success' && res.structures) || [];
-      document.getElementById('salaryStructuresBody').innerHTML = rows.map(s => {
-        const allow = Object.values(s.allowances || {}).reduce((a, v) => a + Number(v || 0), 0);
-        const ded = Object.values(s.deductions || {}).reduce((a, v) => a + Number(v || 0), 0);
-        return `<tr class="border-b border-slate-50"><td class="py-1.5 px-3">${s.designation}</td><td class="py-1.5 px-3">৳${Number(s.basic).toLocaleString()}</td><td class="py-1.5 px-3">৳${allow.toLocaleString()}</td><td class="py-1.5 px-3">৳${ded.toLocaleString()}</td></tr>`;
-      }).join('') || '<tr><td colspan="4" class="p-3 text-slate-400 font-bold text-xs">No salary structures yet.</td></tr>';
-    });
-  }
-  function saveSalaryStructure() {
-    const designation = document.getElementById('ssDesignation').value.trim();
-    const basic = document.getElementById('ssBasic').value;
-    const allowance = document.getElementById('ssAllowance').value || 0;
-    const deduction = document.getElementById('ssDeduction').value || 0;
-    if (!designation || !basic) { showToast('Designation and basic salary required', 'error'); return; }
-    _adminFetch('save_salary_structure', { designation, basic, allowances: { total: allowance }, deductions: { total: deduction } }).then(res => {
-      if (res && res.result === 'success') { showToast('Saved'); document.getElementById('ssDesignation').value = ''; document.getElementById('ssBasic').value = ''; loadSalaryStructures(); }
-      else showToast((res && res.message) || 'Failed', 'error');
-    });
+  let _prFieldsCache = [];
+
+  function loadPayrollFields() {
+    _payrollFetch('get_fields', {}).then(res => {
+      _prFieldsCache = (res && res.result === 'success' && res.fields) || [];
+      _prRenderFieldsTable();
+    }).catch(() => showToast('Failed to load fields', 'error'));
   }
 
-  function runPayroll() {
-    const month = document.getElementById('prMonth').value.trim();
-    const year = document.getElementById('prYear').value.trim();
-    const status = document.getElementById('payrollRunStatus');
-    if (!month || !year) { status.className = 'text-xs font-bold text-red-500'; status.textContent = 'Month and year required.'; return; }
-    status.className = 'text-xs font-bold text-slate-400'; status.textContent = 'Running payroll…';
-    _adminFetch('run_payroll', { month, year }).then(res => {
-      if (!res || res.result !== 'success') { status.className = 'text-xs font-bold text-red-500'; status.textContent = (res && res.message) || 'Failed'; return; }
-      status.className = 'text-xs font-bold text-emerald-600'; status.textContent = `Generated ${res.generated} payslip(s).`;
-      _adminFetch('get_payslips', { payroll_run_id: res.run_id }).then(r2 => {
-        const slips = (r2 && r2.result === 'success' && r2.payslips) || [];
-        document.getElementById('payslipsBody').innerHTML = slips.map(s => `<tr class="border-b border-slate-50"><td class="py-1.5 px-3">${s.teacher_id}</td><td class="py-1.5 px-3">৳${Number(s.gross).toLocaleString()}</td><td class="py-1.5 px-3">৳${Number(s.total_deductions).toLocaleString()}</td><td class="py-1.5 px-3">৳${Number(s.net).toLocaleString()}</td></tr>`).join('') || '<tr><td colspan="4" class="p-3 text-slate-400 font-bold text-xs">No payslips generated — no salary structures match any staff designation.</td></tr>';
-      });
-    });
+  function _prRenderFieldsTable() {
+    const tbody = document.getElementById('prFieldsBody');
+    if (!tbody) return;
+    if (!_prFieldsCache.length) {
+      tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-slate-400 font-bold text-xs text-center">No fields yet — click "Add Field" to define your first one (e.g. Basic Salary, House Rent, Provident Fund).</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = _prFieldsCache.map(f => {
+      const calcLabel = f.calc_mode === 'percent_of_field' ? `% of ${f.calc_base_field_key || '—'}` : 'Fixed amount';
+      const incLabel = f.increment_mode ? `${f.increment_mode === 'yearly_percent' ? f.increment_value + '%/yr' : '৳' + Number(f.increment_value || 0).toLocaleString() + '/yr'}` : '—';
+      return `<tr class="border-b border-slate-50">
+        <td class="py-1.5 px-3 font-black text-slate-800">${f.label}${f.is_grade_conditional ? ' <span class=\"text-[9px] text-amber-600 font-black uppercase\">(conditional)</span>' : ''}</td>
+        <td class="py-1.5 px-3">${f.category === 'deduction' ? '<span class="text-red-500 font-black">Deduction</span>' : '<span class="text-emerald-600 font-black">Earning</span>'}</td>
+        <td class="py-1.5 px-3">${calcLabel}</td>
+        <td class="py-1.5 px-3">${incLabel}</td>
+        <td class="py-1.5 px-3">${f.is_active ? '<span class="text-emerald-600 font-black">Active</span>' : '<span class="text-slate-400 font-black">Inactive</span>'}</td>
+        <td class="py-1.5 px-3 text-right">
+          <button onclick='_prOpenFieldForm(${JSON.stringify(f).replace(/'/g, "&apos;")})' class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-black mr-3">Edit</button>
+          <button onclick="_prDeleteField(${f.id})" class="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-700">Delete</button>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  function _prOpenFieldForm(field) {
+    document.getElementById('prFieldFormTitle').textContent = field ? 'Edit Field' : 'Add Field';
+    document.getElementById('prFieldId').value = field ? field.id : '';
+    document.getElementById('prFieldKey').value = field ? field.key : '';
+    document.getElementById('prFieldLabel').value = field ? field.label : '';
+    document.getElementById('prFieldCategory').value = field ? field.category : 'earning';
+    document.getElementById('prFieldCalcMode').value = field ? field.calc_mode : 'fixed';
+    document.getElementById('prFieldIncrementMode').value = (field && field.increment_mode) || '';
+    document.getElementById('prFieldIncrementValue').value = (field && field.increment_value != null) ? field.increment_value : '';
+    document.getElementById('prFieldGradeConditional').checked = !!(field && field.is_grade_conditional);
+    document.getElementById('prFieldActive').checked = field ? field.is_active !== false : true;
+    const baseSel = document.getElementById('prFieldBaseKey');
+    baseSel.innerHTML = _prFieldsCache.filter(f => !field || f.id !== field.id).map(f => `<option value="${f.key}">${f.label}</option>`).join('');
+    if (field && field.calc_base_field_key) baseSel.value = field.calc_base_field_key;
+    _prToggleCalcModeFields();
+    document.getElementById('prFieldFormModal').classList.remove('hidden');
+    lucide.createIcons();
+  }
+
+  function _prCloseFieldForm() {
+    document.getElementById('prFieldFormModal').classList.add('hidden');
+  }
+
+  function _prToggleCalcModeFields() {
+    const mode = document.getElementById('prFieldCalcMode').value;
+    document.getElementById('prFieldPercentRow').classList.toggle('hidden', mode !== 'percent_of_field');
+  }
+
+  function _prSaveField() {
+    const id = document.getElementById('prFieldId').value || null;
+    const key = document.getElementById('prFieldKey').value.trim();
+    const label = document.getElementById('prFieldLabel').value.trim();
+    if (!key || !label) { showToast('Key and label are required', 'error'); return; }
+    const payload = {
+      id,
+      key, label,
+      category: document.getElementById('prFieldCategory').value,
+      calc_mode: document.getElementById('prFieldCalcMode').value,
+      calc_base_field_key: document.getElementById('prFieldCalcMode').value === 'percent_of_field' ? document.getElementById('prFieldBaseKey').value : null,
+      increment_mode: document.getElementById('prFieldIncrementMode').value || null,
+      increment_value: document.getElementById('prFieldIncrementValue').value || null,
+      is_grade_conditional: document.getElementById('prFieldGradeConditional').checked,
+      is_active: document.getElementById('prFieldActive').checked,
+    };
+    _payrollFetch('save_field', payload).then(res => {
+      if (res && res.result === 'success') { showToast('Field saved'); _prCloseFieldForm(); loadPayrollFields(); }
+      else showToast((res && res.message) || 'Failed to save field', 'error');
+    }).catch(() => showToast('Failed to save field', 'error'));
+  }
+
+  function _prDeleteField(id) {
+    if (!confirm('Delete this field? This cannot be undone.')) return;
+    _payrollFetch('delete_field', { id }).then(res => {
+      if (res && res.result === 'success') { showToast('Field deleted'); loadPayrollFields(); }
+      else showToast((res && res.message) || 'Failed to delete field', 'error');
+    }).catch(() => showToast('Failed to delete field', 'error'));
   }
 
   function loadLeaveRequests() {
@@ -18107,9 +18383,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // blanket 'Admin' role. Inside this portal itself they behave like any
   // unmapped role (TeacherView fallback) — their only purpose is granting
   // access elsewhere.
-  const ALL_ROLES = ['Teacher','Staff','HR','Principal','VP','Admin','Cord','Admission Admin','Student Portal Admin','Canteen Admin','Inventory Admin','Class Teacher'];
+  const ALL_ROLES = ['Teacher','Staff','HR','Principal','VP','Admin','Cord','Admission Admin','Student Portal Admin','Canteen Admin','Inventory Admin','Accounts Admin','Class Teacher'];
   // Two-letter chips would collide with Admin ('AD') / each other — explicit abbreviations
-  const ROLE_ABBR = { 'Admission Admin':'AA', 'Student Portal Admin':'SP', 'Canteen Admin':'CA', 'Inventory Admin':'IA' };
+  const ROLE_ABBR = { 'Admission Admin':'AA', 'Student Portal Admin':'SP', 'Canteen Admin':'CA', 'Inventory Admin':'IA', 'Accounts Admin':'AC' };
   function roleAbbr(r){ return ROLE_ABBR[r] || r.slice(0,2).toUpperCase(); }
 
   // ── SUPER ADMIN (single hardcoded account, not a role) ───────────────────────
@@ -18134,6 +18410,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { key: 'system',           label: 'System',             navId: 'nav-system' },
     { key: 'student_portal',   label: 'Student Portal',     navId: 'nav-student-portal' },
     { key: 'inventory_admin',  label: 'Inventory Admin',    navId: 'nav-inventory-admin' },
+    { key: 'payroll_admin',    label: 'Payroll',            navId: 'nav-payroll' },
     { key: 'inventory',        label: 'Inventory',          navId: 'nav-inventory' },
     { key: 'ssc_result_analysis', label: 'Analyse SSC Result', navId: 'nav-ssc-result-analysis' },
     { key: 'committees',       label: 'My Assignments',     navId: 'nav-my-committees' },
@@ -18163,6 +18440,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     system:        ['HR','Admin','Principal','VP'],
     student_portal:['Admin','Student Portal Admin','HR'],
     inventory_admin:['Admin','Inventory Admin'],
+    payroll_admin: ['Admin','Accounts Admin'],
     // Mirrors the previous hardcoded behavior (this nav link had no
     // gating at all before it was added to MODULE_REGISTRY) — an Admin
     // can narrow this from System > Permission Control without needing
@@ -18184,6 +18462,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   let _moduleVisibility = null; // { moduleKey: [roles...] } once loaded from system_settings
 
+  // Per-person grants, additive to the role matrix above — an Admin can name
+  // a specific individual and give them View/Edit/Delete on one module
+  // without changing what their role sees everywhere else.
+  // Shape: { [userId]: { [moduleKey]: { view, edit, delete } } }
+  let _userModulePermissions = null;
+
   // Admin always sees every module — a misconfigured matrix should never be
   // able to lock the one role that can fix the matrix out of the settings.
   function _isModuleVisibleForRole(moduleKey, role) {
@@ -18193,6 +18477,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return allowed.includes(role);
   }
 
+  // A named individual's explicit grant, independent of role — used both as
+  // an additive View unlock (see _hasModuleAccess) and as the hook for
+  // per-module Edit/Delete checks (see _hasUserModulePermission).
+  function _userModuleGrant(moduleKey, userId) {
+    const uid = userId || (window.APP_USER && window.APP_USER.user_id);
+    if (!uid || !_userModulePermissions) return null;
+    return (_userModulePermissions[uid] && _userModulePermissions[uid][moduleKey]) || null;
+  }
+
   // Sidebar/routing visibility is account-wide, not scoped to whichever role
   // happens to be "active" right now — a multi-role account (e.g. Teacher +
   // Inventory Admin) should see every module any of its roles unlocks at
@@ -18200,14 +18493,30 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // Role Switcher still exists for role-scoped in-view behavior (which
   // admin subnav content loads, action-level permission checks, etc.) —
   // this helper only decides whether a nav link / route is reachable at all.
+  // A per-person View grant (see MODULE_ACCESS ▸ Per-Person Access) unlocks
+  // a module here too, additively — it never takes access away.
   function _hasModuleAccess(moduleKey) {
     const roles = window.USER_ROLES || [window.ACTIVE_ROLE];
-    return roles.some(r => _isModuleVisibleForRole(moduleKey, r));
+    if (roles.some(r => _isModuleVisibleForRole(moduleKey, r))) return true;
+    const grant = _userModuleGrant(moduleKey);
+    return !!(grant && grant.view);
+  }
+
+  // Generic hook for module-specific Edit/Delete gating. Role-based access
+  // already implies edit/delete inside modules that don't have their own
+  // finer-grained role check — this only needs consulting where a module
+  // wants to let a specific person in without changing their role, or wants
+  // to layer a stricter per-action check on top of View. action is 'edit' or
+  // 'delete'.
+  function _hasUserModulePermission(moduleKey, action) {
+    const grant = _userModuleGrant(moduleKey);
+    return !!(grant && grant[action]);
   }
 
   function _loadModuleVisibility(then) {
     google.script.run.withSuccessHandler(function (settings) {
       _moduleVisibility = (settings && settings.module_visibility) || null;
+      _userModulePermissions = (settings && settings.user_module_permissions) || null;
       if (then) then();
     }).withFailureHandler(function () { if (then) then(); }).getSystemSettings();
   }
@@ -18274,7 +18583,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }
     const roleStyle = {
       Teacher:'#4f46e5', Staff:'#64748b', HR:'#9333ea',
-      Principal:'#2563eb', VP:'#0891b2', Admin:'#e11d48', 'Admission Admin':'#0d9488', 'Student Portal Admin':'#7c3aed', 'Canteen Admin':'#ea580c', 'Inventory Admin':'#0284c7'
+      Principal:'#2563eb', VP:'#0891b2', Admin:'#e11d48', 'Admission Admin':'#0d9488', 'Student Portal Admin':'#7c3aed', 'Canteen Admin':'#ea580c', 'Inventory Admin':'#0284c7', 'Accounts Admin':'#65a30d'
     };
     tbody.innerHTML = users.map(u => {
       const current = (u.role || '').split(',').map(r => r.trim()).filter(Boolean);

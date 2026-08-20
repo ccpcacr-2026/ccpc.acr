@@ -40,6 +40,8 @@ const RESERVED = [
   '_invSelectHrCommittee','_invOnChairmanOverrideChange',
   '_invOpenProductQuickView','_invEditProductFromQuickView','_invProductSortChange',
   '_invOpenStockImportModal','_invConfirmStockImport','_invDistributeDeleteOne',
+  'loadUserPermsPanel','saveUserModulePermission','removeUserModulePermission',
+  '_prOpenFieldForm','_prCloseFieldForm','_prToggleCalcModeFields','_prSaveField','_prDeleteField',
   '_invSelectResponsiblePerson','_invClearResponsiblePerson',
   // Analyse SSC Result — onclick-referenced
   'loadSscResultAnalysisView','handleSscPdfFile','handleSscRosterFile','generateSscResultExcel',
