@@ -42,6 +42,7 @@ const RESERVED = [
   '_invOpenStockImportModal','_invConfirmStockImport','_invDistributeDeleteOne',
   'loadUserPermsPanel','saveUserModulePermission','removeUserModulePermission',
   '_prOpenFieldForm','_prCloseFieldForm','_prToggleCalcModeFields','_prSaveField','_prDeleteField',
+  '_prOpenGradeForm','_prCloseGradeForm','_prSaveGrade','_prDeleteGrade','_prSelectGrade','_prSaveGradeField','_prToggleGradeConditionalField',
   '_invSelectResponsiblePerson','_invClearResponsiblePerson',
   // Analyse SSC Result — onclick-referenced
   'loadSscResultAnalysisView','handleSscPdfFile','handleSscRosterFile','generateSscResultExcel',

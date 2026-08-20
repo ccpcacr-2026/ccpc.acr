@@ -123,5 +123,75 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success' });
   }
 
+  // ── Grades ──
+  if (action === 'get_grades') {
+    const rows = await sbPayroll('grades?select=*&order=sort_order.asc,id.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', grades: rows });
+  }
+
+  if (action === 'save_grade') {
+    const { id, name, description, sort_order } = payload;
+    if (!name) return NextResponse.json({ result: 'error', message: 'Name is required' }, { status: 400 });
+    const rowData = { name, description: description || null, sort_order: sort_order == null ? 0 : Number(sort_order) };
+    const saved = id
+      ? await sbPayroll(`grades?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sbPayroll('grades', 'POST', rowData);
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', grade: Array.isArray(saved) ? saved[0] : saved });
+  }
+
+  if (action === 'delete_grade') {
+    const { id } = payload;
+    if (!id) return NextResponse.json({ result: 'error', message: 'id required' }, { status: 400 });
+    const del = await sbPayroll(`grades?id=eq.${encodeURIComponent(id)}`, 'DELETE');
+    if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // What a grade sets for each field, plus which fields it turns on conditionally.
+  if (action === 'get_grade_setup') {
+    const { grade_id } = payload;
+    if (!grade_id) return NextResponse.json({ result: 'error', message: 'grade_id required' }, { status: 400 });
+    const [fieldRows, conditionalRows] = await Promise.all([
+      sbPayroll(`grade_fields?grade_id=eq.${encodeURIComponent(grade_id)}&select=*`),
+      sbPayroll(`grade_conditional_fields?grade_id=eq.${encodeURIComponent(grade_id)}&select=*`),
+    ]);
+    if (fieldRows?.error) return NextResponse.json({ result: 'error', message: fieldRows.error }, { status: 500 });
+    if (conditionalRows?.error) return NextResponse.json({ result: 'error', message: conditionalRows.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', grade_fields: fieldRows, conditional_fields: conditionalRows });
+  }
+
+  if (action === 'save_grade_field') {
+    const { grade_id, field_id, value, percent, base_field_key } = payload;
+    if (!grade_id || !field_id) return NextResponse.json({ result: 'error', message: 'grade_id and field_id required' }, { status: 400 });
+    const rowData = {
+      grade_id, field_id,
+      value: value === '' || value == null ? null : Number(value),
+      percent: percent === '' || percent == null ? null : Number(percent),
+      base_field_key: base_field_key || null,
+    };
+    const existing = await sbPayroll(`grade_fields?grade_id=eq.${encodeURIComponent(grade_id)}&field_id=eq.${encodeURIComponent(field_id)}`);
+    const saved = (!existing?.error && existing.length)
+      ? await sbPayroll(`grade_fields?grade_id=eq.${encodeURIComponent(grade_id)}&field_id=eq.${encodeURIComponent(field_id)}`, 'PATCH', rowData)
+      : await sbPayroll('grade_fields', 'POST', rowData);
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // Toggle whether a grade turns a conditional field on (checked) or off (unchecked).
+  if (action === 'toggle_grade_conditional_field') {
+    const { grade_id, field_id, enabled } = payload;
+    if (!grade_id || !field_id) return NextResponse.json({ result: 'error', message: 'grade_id and field_id required' }, { status: 400 });
+    if (enabled) {
+      const saved = await sbPayroll('grade_conditional_fields', 'POST', { grade_id, field_id });
+      if (saved?.error && !String(saved.error).includes('duplicate')) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    } else {
+      const del = await sbPayroll(`grade_conditional_fields?grade_id=eq.${encodeURIComponent(grade_id)}&field_id=eq.${encodeURIComponent(field_id)}`, 'DELETE');
+      if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
+    }
+    return NextResponse.json({ result: 'success' });
+  }
+
   return NextResponse.json({ result: 'error', message: 'Unknown action' }, { status: 400 });
 }

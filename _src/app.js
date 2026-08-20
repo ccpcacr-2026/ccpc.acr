@@ -12887,7 +12887,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
       </div>
 
-      <div id="pr-grades" style="display:none"><p class="text-slate-400 font-bold text-xs p-4">Grades setup — coming next.</p></div>
+      <div id="pr-grades" style="display:none">
+        <div class="grid md:grid-cols-3 gap-4">
+          <div class="bg-white rounded-2xl border border-slate-200 p-4">
+            <div class="flex items-center justify-between mb-3">
+              <p class="font-black text-slate-800 text-xs">Grades</p>
+              <button onclick="_prOpenGradeForm(null)" class="px-2.5 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1"><i data-lucide="plus" class="h-3 w-3"></i>Add</button>
+            </div>
+            <div id="prGradesList" class="space-y-1.5"><p class="text-slate-400 font-bold text-xs">Loading…</p></div>
+          </div>
+          <div class="md:col-span-2 bg-white rounded-2xl border border-slate-200 p-4">
+            <div id="prGradeDetail"><p class="text-slate-400 font-bold text-xs p-4">Select a grade on the left to configure its field values and conditional fields.</p></div>
+          </div>
+        </div>
+      </div>
       <div id="pr-people" style="display:none"><p class="text-slate-400 font-bold text-xs p-4">Per-person grade assignment &amp; overrides — coming next.</p></div>
       <div id="pr-sections" style="display:none"><p class="text-slate-400 font-bold text-xs p-4">Loan/EMI sections — coming next.</p></div>
       <div id="pr-run" style="display:none"><p class="text-slate-400 font-bold text-xs p-4">Run payroll &amp; payslips — coming next.</p></div>
@@ -12958,6 +12971,30 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
         </div>
       </div>
+
+      <div id="prGradeFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-md">
+          <div class="flex items-center justify-between mb-4">
+            <p class="font-black text-slate-800 text-sm" id="prGradeFormTitle">Add Grade</p>
+            <button onclick="_prCloseGradeForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+          </div>
+          <input type="hidden" id="prGradeId">
+          <div class="space-y-3">
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Name <span class="text-red-500">*</span></label>
+              <input type="text" id="prGradeName" placeholder="e.g. Grade 3" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            </div>
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Description</label>
+              <input type="text" id="prGradeDescription" placeholder="optional" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            </div>
+          </div>
+          <div class="flex justify-end gap-2 mt-5">
+            <button onclick="_prCloseGradeForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
+            <button onclick="_prSaveGrade()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Grade</button>
+          </div>
+        </div>
+      </div>
     `;
     lucide.createIcons();
     loadPayrollFields();
@@ -12974,6 +13011,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         btn.className += active ? ' bg-blue-600 text-white shadow-lg shadow-blue-500/20' : ' bg-white text-slate-400 border border-slate-200 hover:bg-slate-50';
       }
     });
+    if (tabId === 'pr-grades' && !_prGradesLoaded) loadPayrollGrades();
   }
 
   let _prFieldsCache = [];
@@ -13065,6 +13103,140 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (res && res.result === 'success') { showToast('Field deleted'); loadPayrollFields(); }
       else showToast((res && res.message) || 'Failed to delete field', 'error');
     }).catch(() => showToast('Failed to delete field', 'error'));
+  }
+
+  // ── Grades ──
+  let _prGradesCache = [];
+  let _prGradesLoaded = false;
+  let _prSelectedGradeId = null;
+
+  function loadPayrollGrades() {
+    _payrollFetch('get_grades', {}).then(res => {
+      _prGradesCache = (res && res.result === 'success' && res.grades) || [];
+      _prGradesLoaded = true;
+      _prRenderGradesList();
+    }).catch(() => showToast('Failed to load grades', 'error'));
+  }
+
+  function _prRenderGradesList() {
+    const list = document.getElementById('prGradesList');
+    if (!list) return;
+    if (!_prGradesCache.length) {
+      list.innerHTML = `<p class="text-slate-400 font-bold text-xs">No grades yet — click "Add".</p>`;
+      return;
+    }
+    list.innerHTML = _prGradesCache.map(g => `
+      <div onclick="_prSelectGrade(${g.id})" class="p-2.5 rounded-xl cursor-pointer transition-all flex items-center justify-between group ${_prSelectedGradeId === g.id ? 'bg-blue-600 text-white' : 'bg-slate-50 hover:bg-slate-100 text-slate-700'}">
+        <div>
+          <p class="font-black text-xs">${g.name}</p>
+          ${g.description ? `<p class="text-[10px] font-bold ${_prSelectedGradeId === g.id ? 'text-blue-100' : 'text-slate-400'}">${g.description}</p>` : ''}
+        </div>
+        <div class="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button onclick='event.stopPropagation(); _prOpenGradeForm(${JSON.stringify(g).replace(/'/g, "&apos;")})' class="${_prSelectedGradeId === g.id ? 'text-white' : 'text-blue-600'}"><i data-lucide="pencil" class="h-3 w-3"></i></button>
+          <button onclick="event.stopPropagation(); _prDeleteGrade(${g.id})" class="${_prSelectedGradeId === g.id ? 'text-white' : 'text-red-500'}"><i data-lucide="trash-2" class="h-3 w-3"></i></button>
+        </div>
+      </div>`).join('');
+    lucide.createIcons();
+  }
+
+  function _prOpenGradeForm(grade) {
+    document.getElementById('prGradeFormTitle').textContent = grade ? 'Edit Grade' : 'Add Grade';
+    document.getElementById('prGradeId').value = grade ? grade.id : '';
+    document.getElementById('prGradeName').value = grade ? grade.name : '';
+    document.getElementById('prGradeDescription').value = (grade && grade.description) || '';
+    document.getElementById('prGradeFormModal').classList.remove('hidden');
+  }
+
+  function _prCloseGradeForm() {
+    document.getElementById('prGradeFormModal').classList.add('hidden');
+  }
+
+  function _prSaveGrade() {
+    const id = document.getElementById('prGradeId').value || null;
+    const name = document.getElementById('prGradeName').value.trim();
+    if (!name) { showToast('Name is required', 'error'); return; }
+    const payload = { id, name, description: document.getElementById('prGradeDescription').value.trim() };
+    _payrollFetch('save_grade', payload).then(res => {
+      if (res && res.result === 'success') { showToast('Grade saved'); _prCloseGradeForm(); loadPayrollGrades(); }
+      else showToast((res && res.message) || 'Failed to save grade', 'error');
+    }).catch(() => showToast('Failed to save grade', 'error'));
+  }
+
+  function _prDeleteGrade(id) {
+    if (!confirm('Delete this grade? This cannot be undone.')) return;
+    _payrollFetch('delete_grade', { id }).then(res => {
+      if (res && res.result === 'success') {
+        showToast('Grade deleted');
+        if (_prSelectedGradeId === id) { _prSelectedGradeId = null; document.getElementById('prGradeDetail').innerHTML = `<p class="text-slate-400 font-bold text-xs p-4">Select a grade on the left to configure its field values and conditional fields.</p>`; }
+        loadPayrollGrades();
+      } else showToast((res && res.message) || 'Failed to delete grade', 'error');
+    }).catch(() => showToast('Failed to delete grade', 'error'));
+  }
+
+  function _prSelectGrade(gradeId) {
+    _prSelectedGradeId = gradeId;
+    _prRenderGradesList();
+    const grade = _prGradesCache.find(g => g.id === gradeId);
+    const detail = document.getElementById('prGradeDetail');
+    if (!detail || !grade) return;
+    detail.innerHTML = `<p class="text-slate-400 font-bold text-xs p-4">Loading…</p>`;
+    Promise.all([
+      _prFieldsCache.length ? Promise.resolve({ result: 'success', fields: _prFieldsCache }) : _payrollFetch('get_fields', {}),
+      _payrollFetch('get_grade_setup', { grade_id: gradeId }),
+    ]).then(([fieldsRes, setupRes]) => {
+      _prFieldsCache = (fieldsRes && fieldsRes.result === 'success' && fieldsRes.fields) || _prFieldsCache;
+      const gradeFields = (setupRes && setupRes.result === 'success' && setupRes.grade_fields) || [];
+      const conditionalFields = (setupRes && setupRes.result === 'success' && setupRes.conditional_fields) || [];
+      const gfMap = {}; gradeFields.forEach(gf => { gfMap[gf.field_id] = gf; });
+      const condSet = new Set(conditionalFields.map(cf => cf.field_id));
+      const baseFields = _prFieldsCache.filter(f => !f.is_grade_conditional);
+      const conditionalCatalog = _prFieldsCache.filter(f => f.is_grade_conditional);
+      detail.innerHTML = `
+        <p class="font-black text-slate-800 text-sm mb-1">${grade.name} — Field Values</p>
+        <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-3">Overrides the field's per-role default for anyone on this grade. Leave blank to fall back to the role default.</p>
+        <div class="overflow-auto border border-slate-200 rounded-xl mb-5">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Field</th><th class="py-2 px-3">Fixed Value</th><th class="py-2 px-3">Percent</th><th class="py-2 px-3"></th></tr></thead>
+            <tbody>
+              ${baseFields.map(f => {
+                const gf = gfMap[f.id] || {};
+                return `<tr class="border-b border-slate-50">
+                  <td class="py-1.5 px-3 font-black text-slate-700">${f.label}</td>
+                  <td class="py-1.5 px-3"><input type="number" id="prGF_val_${f.id}" value="${gf.value != null ? gf.value : ''}" placeholder="—" class="w-24 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></td>
+                  <td class="py-1.5 px-3"><input type="number" id="prGF_pct_${f.id}" value="${gf.percent != null ? gf.percent : ''}" placeholder="—" class="w-20 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></td>
+                  <td class="py-1.5 px-3"><button onclick="_prSaveGradeField(${gradeId},${f.id})" class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-black">Save</button></td>
+                </tr>`;
+              }).join('') || `<tr><td colspan="4" class="p-3 text-slate-400 font-bold text-xs text-center">No fields yet — add some under the Fields tab first.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+        ${conditionalCatalog.length ? `
+        <p class="font-black text-slate-800 text-sm mb-1">Conditional Fields</p>
+        <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-3">These fields only apply to a person if their grade turns them on here.</p>
+        <div class="space-y-2">
+          ${conditionalCatalog.map(f => `
+            <label class="flex items-center gap-2 text-xs font-black text-slate-600 cursor-pointer">
+              <input type="checkbox" ${condSet.has(f.id) ? 'checked' : ''} onchange="_prToggleGradeConditionalField(${gradeId},${f.id},this.checked)" class="w-4 h-4 rounded accent-amber-600">
+              ${f.label}
+            </label>`).join('')}
+        </div>` : ''}
+      `;
+    });
+  }
+
+  function _prSaveGradeField(gradeId, fieldId) {
+    const value = document.getElementById(`prGF_val_${fieldId}`).value;
+    const percent = document.getElementById(`prGF_pct_${fieldId}`).value;
+    _payrollFetch('save_grade_field', { grade_id: gradeId, field_id: fieldId, value, percent }).then(res => {
+      if (res && res.result === 'success') showToast('Saved');
+      else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(() => showToast('Failed to save', 'error'));
+  }
+
+  function _prToggleGradeConditionalField(gradeId, fieldId, enabled) {
+    _payrollFetch('toggle_grade_conditional_field', { grade_id: gradeId, field_id: fieldId, enabled }).then(res => {
+      if (!res || res.result !== 'success') showToast((res && res.message) || 'Failed to update', 'error');
+    }).catch(() => showToast('Failed to update', 'error'));
   }
 
   function loadLeaveRequests() {
