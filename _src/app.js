@@ -16439,10 +16439,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             const price = Number(r.latest_unit_price || 0);
             const remaining = Number(r.remaining || 0);
             const active = r.is_active !== false;
-            return `<tr class="border-t border-slate-50 ${active ? 'bg-emerald-50' : 'bg-red-50'}">
+            return `<tr onclick="_invOpenProductQuickView(${r.id})" class="cursor-pointer hover:bg-slate-100/60 border-t border-slate-50 ${active ? 'bg-emerald-50' : 'bg-red-50'}">
               <td class="px-3 py-2.5 font-bold text-slate-600">${_escHtml(r.register_no || '—')}</td>
               <td class="px-3 py-2.5 font-bold text-slate-600">${_escHtml(r.page_no || '—')}</td>
-              <td class="px-3 py-2.5 font-black text-slate-800"><button onclick="_invOpenProductQuickView(${r.id})" class="hover:underline">${_escHtml(r.name)}</button> <span class="font-bold ${active ? 'text-emerald-600' : 'text-red-500'}">per ${_escHtml(r.unit || 'unit')}</span></td>
+              <td class="px-3 py-2.5 font-black text-slate-800">${_escHtml(r.name)} <span class="font-bold ${active ? 'text-emerald-600' : 'text-red-500'}">per ${_escHtml(r.unit || 'unit')}</span></td>
               <td class="px-3 py-2.5 font-bold text-slate-600">${_escHtml(r.code || '—')}</td>
               <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(r.received || 0)}</td>
               <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(r.distributed || 0)}</td>
@@ -16460,8 +16460,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           const remaining = Number(r.remaining || 0);
           const active = r.is_active !== false;
           return `
-        <div class="rounded-xl border border-slate-200 px-2.5 py-2 ${active ? 'bg-emerald-50' : 'bg-red-50'}">
-          <p class="text-xs font-black text-slate-800"><button onclick="_invOpenProductQuickView(${r.id})" class="hover:underline">${_escHtml(r.name)}</button>${r.code ? ` <span class="font-bold text-slate-500">(${_escHtml(r.code)})</span>` : ''} <span class="font-bold ${active ? 'text-emerald-600' : 'text-red-500'}">per ${_escHtml(r.unit || 'unit')}</span></p>
+        <div onclick="_invOpenProductQuickView(${r.id})" class="rounded-xl border border-slate-200 px-2.5 py-2 cursor-pointer active:bg-slate-100/60 ${active ? 'bg-emerald-50' : 'bg-red-50'}">
+          <p class="text-xs font-black text-slate-800">${_escHtml(r.name)}${r.code ? ` <span class="font-bold text-slate-500">(${_escHtml(r.code)})</span>` : ''} <span class="font-bold ${active ? 'text-emerald-600' : 'text-red-500'}">per ${_escHtml(r.unit || 'unit')}</span></p>
           <p class="text-[9px] text-slate-400 font-bold mb-0.5">Reg No: ${_escHtml(r.register_no || '—')} · Page No: ${_escHtml(r.page_no || '—')}</p>
           <p class="text-[10px] text-slate-500 font-bold">Received: ${Number(r.received || 0)} · Distributed: ${Number(r.distributed || 0)} · Damaged: ${Number(r.damaged || 0)}</p>
           <p class="text-[10px] text-slate-500 font-bold">Remaining: ${remaining} ${_escHtml(r.unit || '')}</p>
