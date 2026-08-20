@@ -589,15 +589,19 @@ async function _productsSummary(payload) {
   const [rows, units, products] = await Promise.all([
     sbInventory(path),
     sbInventory('units?select=id,short_form'),
-    // product_stock_summary is a view with no is_active column of its own —
-    // fetched separately so Stock Overview can use the same active/inactive
-    // tinting as the Product Info list (see _invRenderStockTable).
-    sbInventory('products?select=id,is_active'),
+    // product_stock_summary is a view with no is_active/register_no/page_no
+    // columns of its own — fetched separately so Stock Overview can show
+    // them (register/page no.) and use the same active/inactive tinting as
+    // the Product Info list (see _invRenderStockTable).
+    sbInventory('products?select=id,is_active,register_no,page_no'),
   ]);
   if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
   const unitMap = new Map((Array.isArray(units) ? units : []).map(u => [u.id, u.short_form]));
-  const activeMap = new Map((Array.isArray(products) ? products : []).map(p => [p.id, p.is_active]));
-  const data = (rows || []).map(r => ({ ...r, unit: unitMap.get(r.unit_id) || '', is_active: activeMap.get(r.id) }));
+  const productMap = new Map((Array.isArray(products) ? products : []).map(p => [p.id, p]));
+  const data = (rows || []).map(r => {
+    const p = productMap.get(r.id) || {};
+    return { ...r, unit: unitMap.get(r.unit_id) || '', is_active: p.is_active, register_no: p.register_no, page_no: p.page_no };
+  });
   return NextResponse.json({ result: 'success', data });
 }
 
