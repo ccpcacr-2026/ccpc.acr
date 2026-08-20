@@ -42,6 +42,8 @@ const RESERVED = [
   '_invOpenStockImportModal','_invConfirmStockImport','_invDistributeDeleteOne',
   'loadUserPermsPanel','saveUserModulePermission','removeUserModulePermission',
   '_prOpenFieldForm','_prCloseFieldForm','_prToggleCalcModeFields','_prSaveField','_prDeleteField',
+  '_prOpenFieldConditions','_prCloseFieldConditions','_prToggleFieldApplicableRole',
+  '_prOpenConditionRuleForm','_prCloseConditionRuleForm','_prToggleConditionThenFields','_prSaveConditionRule','_prDeleteConditionRule',
   '_prOpenGradeForm','_prCloseGradeForm','_prSaveGrade','_prDeleteGrade','_prSelectGrade','_prSaveGradeField','_prToggleGradeConditionalField',
   '_prSelectPerson','_prSavePersonSetup','_prSavePersonFieldOverride',
   '_prOpenStatutoryForm','_prCloseStatutoryForm','_prToggleStatutoryCalcFields','_prToggleStatutoryEmployerFields','_prSaveStatutoryItem','_prDeleteStatutoryItem',

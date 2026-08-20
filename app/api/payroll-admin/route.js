@@ -93,19 +93,56 @@ function _resolveFieldConfig(field, ctx) {
   return { value, percent, base_field_key };
 }
 
+function _compareOp(a, op, b) {
+  switch (op) {
+    case '>': return a > b;
+    case '>=': return a >= b;
+    case '<': return a < b;
+    case '<=': return a <= b;
+    case '==': return a === b;
+    case '!=': return a !== b;
+    default: return false;
+  }
+}
+
+// IF/THEN branching: a field's own condition rules (payroll.field_condition_rules)
+// are checked in priority order before falling back to its normal
+// person/grade/role-resolved amount. source_key is either another field's
+// key or the special 'tenure_years' (years since joining_date, as of the
+// run's period). First matching rule wins — later rules are the "else if"
+// chain, and no match at all is the implicit "else" (normal resolution).
 function _resolveFieldValue(fieldKey, fieldsByKey, ctx, memo, visiting) {
   if (memo.has(fieldKey)) return memo.get(fieldKey);
   if (visiting.has(fieldKey)) return 0; // circular percent-of-field reference — treat as 0 rather than infinite recurse
   const field = fieldsByKey[fieldKey];
   if (!field) { memo.set(fieldKey, 0); return 0; }
   visiting.add(fieldKey);
-  const cfg = _resolveFieldConfig(field, ctx);
+
   let amount = 0;
-  if (field.calc_mode === 'percent_of_field' && cfg.base_field_key) {
-    const baseAmt = _resolveFieldValue(cfg.base_field_key, fieldsByKey, ctx, memo, visiting);
-    amount = ((Number(cfg.percent) || 0) / 100) * baseAmt;
+  const rules = ctx.conditionRulesByField[field.id] || [];
+  let matchedRule = null;
+  for (const rule of rules) {
+    const srcVal = rule.source_key === 'tenure_years'
+      ? _yearsSince(ctx.joiningDate, ctx.refDate)
+      : _resolveFieldValue(rule.source_key, fieldsByKey, ctx, memo, visiting);
+    if (_compareOp(srcVal, rule.operator, Number(rule.compare_value))) { matchedRule = rule; break; }
+  }
+
+  if (matchedRule) {
+    if (matchedRule.then_calc_mode === 'percent_of_field' && matchedRule.then_base_field_key) {
+      const baseAmt = _resolveFieldValue(matchedRule.then_base_field_key, fieldsByKey, ctx, memo, visiting);
+      amount = ((Number(matchedRule.then_percent) || 0) / 100) * baseAmt;
+    } else {
+      amount = Number(matchedRule.then_value) || 0;
+    }
   } else {
-    amount = Number(cfg.value) || 0;
+    const cfg = _resolveFieldConfig(field, ctx);
+    if (field.calc_mode === 'percent_of_field' && cfg.base_field_key) {
+      const baseAmt = _resolveFieldValue(cfg.base_field_key, fieldsByKey, ctx, memo, visiting);
+      amount = ((Number(cfg.percent) || 0) / 100) * baseAmt;
+    } else {
+      amount = Number(cfg.value) || 0;
+    }
   }
   if (field.increment_mode) {
     const years = _yearsSince(ctx.joiningDate, ctx.refDate);
@@ -123,14 +160,18 @@ function _resolveFieldValue(fieldKey, fieldsByKey, ctx, memo, visiting) {
 // doesn't refetch per person.
 function _computePayslipForPerson(personSetup, role, ref, month, year) {
   const gradeId = personSetup?.grade_id || null;
-  const applicableFields = ref.fields.filter(f => !f.is_grade_conditional || (gradeId && ref.gradeConditionalSet.has(`${gradeId}:${f.id}`)));
+  const applicableFields = ref.fields.filter(f => {
+    if (f.is_grade_conditional && !(gradeId && ref.gradeConditionalSet.has(`${gradeId}:${f.id}`))) return false;
+    if (f.is_role_conditional && !(ref.applicableRolesByField[f.id] || new Set()).has(role)) return false;
+    return true;
+  });
   const fieldsByKey = {}; ref.fields.forEach(f => { fieldsByKey[f.key] = f; });
 
   const personOverridesByField = {}; (ref.personOverridesByUser[personSetup.user_id] || []).forEach(o => { personOverridesByField[o.field_id] = o; });
   const gradeFieldsByField = {}; (gradeId ? (ref.gradeFieldsByGrade[gradeId] || []) : []).forEach(g => { gradeFieldsByField[g.field_id] = g; });
   const roleDefaultsByField = {}; ref.roleDefaults.filter(r => r.role === role).forEach(r => { roleDefaultsByField[r.field_id] = r; });
 
-  const ctx = { personOverridesByField, gradeFieldsByField, roleDefaultsByField, joiningDate: personSetup.joining_date, refDate: new Date(Date.UTC(year, month, 0)) };
+  const ctx = { personOverridesByField, gradeFieldsByField, roleDefaultsByField, joiningDate: personSetup.joining_date, refDate: new Date(Date.UTC(year, month, 0)), conditionRulesByField: ref.conditionRulesByField };
   const memo = new Map();
   const fieldValues = {};
   applicableFields.forEach(f => { fieldValues[f.key] = _resolveFieldValue(f.key, fieldsByKey, ctx, memo, new Set()); });
@@ -181,7 +222,7 @@ function _computePayslipForPerson(personSetup, role, ref, month, year) {
 
 // Fetches every table the engine needs, once, for a given set of user ids + period.
 async function _loadPayrollRef(userIds, month, year) {
-  const [fields, gradeFields, gradeConditional, roleDefaults, statutoryItemsRaw, sections, sectionEntriesRaw, bonusesRaw, allOverridesRaw] = await Promise.all([
+  const [fields, gradeFields, gradeConditional, roleDefaults, statutoryItemsRaw, sections, sectionEntriesRaw, bonusesRaw, allOverridesRaw, applicableRolesRaw, conditionRulesRaw] = await Promise.all([
     sbPayroll('fields?is_active=eq.true&select=*'),
     sbPayroll('grade_fields?select=*'),
     sbPayroll('grade_conditional_fields?select=*'),
@@ -191,6 +232,8 @@ async function _loadPayrollRef(userIds, month, year) {
     sbPayroll('section_entries?status=eq.active&select=*'),
     sbPayroll(`bonus_payments?status=eq.pending&month=eq.${encodeURIComponent(month)}&year=eq.${encodeURIComponent(year)}&select=*`),
     sbPayroll('person_field_overrides?select=*'),
+    sbPayroll('field_applicable_roles?select=*'),
+    sbPayroll('field_condition_rules?select=*&order=priority.asc'),
   ]);
   const gradeFieldsByGrade = {}; (gradeFields || []).forEach(g => { (gradeFieldsByGrade[g.grade_id] = gradeFieldsByGrade[g.grade_id] || []).push(g); });
   const gradeConditionalSet = new Set((gradeConditional || []).map(c => `${c.grade_id}:${c.field_id}`));
@@ -198,9 +241,12 @@ async function _loadPayrollRef(userIds, month, year) {
   const sectionEntriesByUser = {}; (sectionEntriesRaw || []).forEach(e => { (sectionEntriesByUser[e.user_id] = sectionEntriesByUser[e.user_id] || []).push(e); });
   const bonusesByUser = {}; (bonusesRaw || []).forEach(b => { (bonusesByUser[b.user_id] = bonusesByUser[b.user_id] || []).push(b); });
   const personOverridesByUser = {}; (allOverridesRaw || []).forEach(o => { (personOverridesByUser[o.user_id] = personOverridesByUser[o.user_id] || []).push(o); });
+  const applicableRolesByField = {}; (applicableRolesRaw || []).forEach(a => { (applicableRolesByField[a.field_id] = applicableRolesByField[a.field_id] || new Set()).add(a.role); });
+  const conditionRulesByField = {}; (conditionRulesRaw || []).forEach(r => { (conditionRulesByField[r.field_id] = conditionRulesByField[r.field_id] || []).push(r); });
   return {
     fields: fields || [], gradeFieldsByGrade, gradeConditionalSet, roleDefaults: roleDefaults || [],
     statutoryItems: statutoryItemsRaw || [], sectionsById, sectionEntriesByUser, bonusesByUser, personOverridesByUser,
+    applicableRolesByField, conditionRulesByField,
   };
 }
 
@@ -240,7 +286,7 @@ export async function POST(req) {
   }
 
   if (action === 'save_field') {
-    const { id, key, label, category, calc_mode, calc_base_field_key, increment_mode, increment_value, is_grade_conditional, is_active, sort_order } = payload;
+    const { id, key, label, category, calc_mode, calc_base_field_key, increment_mode, increment_value, is_grade_conditional, is_role_conditional, is_active, sort_order } = payload;
     if (!key || !label) return NextResponse.json({ result: 'error', message: 'Key and label are required' }, { status: 400 });
     const rowData = {
       key, label,
@@ -250,6 +296,7 @@ export async function POST(req) {
       increment_mode: increment_mode || null,
       increment_value: increment_value === '' || increment_value == null ? null : Number(increment_value),
       is_grade_conditional: !!is_grade_conditional,
+      is_role_conditional: !!is_role_conditional,
       is_active: is_active !== false,
       sort_order: sort_order == null ? 0 : Number(sort_order),
     };
@@ -268,6 +315,64 @@ export async function POST(req) {
     const del = await sbPayroll(`fields?id=eq.${encodeURIComponent(id)}`, 'DELETE');
     if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
     _prAudit(user_id, 'delete_field', 'fields', id);
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Field conditional logic: role-gated applicability + IF/THEN rules ──
+  if (action === 'get_field_conditions') {
+    const { field_id } = payload;
+    if (!field_id) return NextResponse.json({ result: 'error', message: 'field_id required' }, { status: 400 });
+    const [applicableRoles, rules] = await Promise.all([
+      sbPayroll(`field_applicable_roles?field_id=eq.${encodeURIComponent(field_id)}&select=*`),
+      sbPayroll(`field_condition_rules?field_id=eq.${encodeURIComponent(field_id)}&select=*&order=priority.asc`),
+    ]);
+    if (applicableRoles?.error) return NextResponse.json({ result: 'error', message: applicableRoles.error }, { status: 500 });
+    if (rules?.error) return NextResponse.json({ result: 'error', message: rules.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', applicable_roles: applicableRoles, condition_rules: rules });
+  }
+
+  if (action === 'toggle_field_applicable_role') {
+    const { field_id, role, enabled } = payload;
+    if (!field_id || !role) return NextResponse.json({ result: 'error', message: 'field_id and role required' }, { status: 400 });
+    if (enabled) {
+      const saved = await sbPayroll('field_applicable_roles', 'POST', { field_id, role });
+      if (saved?.error && !String(saved.error).includes('duplicate')) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    } else {
+      const del = await sbPayroll(`field_applicable_roles?field_id=eq.${encodeURIComponent(field_id)}&role=eq.${encodeURIComponent(role)}`, 'DELETE');
+      if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
+    }
+    _prAudit(user_id, 'toggle_field_applicable_role', 'field_applicable_roles', `${field_id}:${role}`, { enabled });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'save_field_condition_rule') {
+    const { id, field_id, priority, source_key, operator, compare_value, then_calc_mode, then_value, then_percent, then_base_field_key } = payload;
+    if (!field_id || !source_key || !operator || compare_value === '' || compare_value == null) {
+      return NextResponse.json({ result: 'error', message: 'field, source, operator and compare value are required' }, { status: 400 });
+    }
+    const rowData = {
+      field_id, priority: priority == null ? 0 : Number(priority),
+      source_key, operator, compare_value: Number(compare_value),
+      then_calc_mode: then_calc_mode || 'fixed',
+      then_value: then_value === '' || then_value == null ? null : Number(then_value),
+      then_percent: then_percent === '' || then_percent == null ? null : Number(then_percent),
+      then_base_field_key: then_base_field_key || null,
+    };
+    const saved = id
+      ? await sbPayroll(`field_condition_rules?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sbPayroll('field_condition_rules', 'POST', rowData);
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    const savedRow = Array.isArray(saved) ? saved[0] : saved;
+    _prAudit(user_id, 'save_field_condition_rule', 'field_condition_rules', savedRow?.id, rowData);
+    return NextResponse.json({ result: 'success', rule: savedRow });
+  }
+
+  if (action === 'delete_field_condition_rule') {
+    const { id } = payload;
+    if (!id) return NextResponse.json({ result: 'error', message: 'id required' }, { status: 400 });
+    const del = await sbPayroll(`field_condition_rules?id=eq.${encodeURIComponent(id)}`, 'DELETE');
+    if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
+    _prAudit(user_id, 'delete_field_condition_rule', 'field_condition_rules', id);
     return NextResponse.json({ result: 'success' });
   }
 

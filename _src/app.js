@@ -13272,6 +13272,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               Only applies when a person's grade opts in (conditional field)
             </label>
             <label class="flex items-center gap-2 text-xs font-black text-slate-600 cursor-pointer">
+              <input type="checkbox" id="prFieldRoleConditional" class="w-4 h-4 rounded accent-blue-600">
+              Only applies to certain roles (set which, after saving, via "Conditions")
+            </label>
+            <label class="flex items-center gap-2 text-xs font-black text-slate-600 cursor-pointer">
               <input type="checkbox" id="prFieldActive" checked class="w-4 h-4 rounded accent-blue-600">
               Active
             </label>
@@ -13279,6 +13283,66 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex justify-end gap-2 mt-5">
             <button onclick="_prCloseFieldForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
             <button onclick="_prSaveField()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Field</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="prFieldConditionsModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-2xl max-h-[85vh] overflow-y-auto">
+          <div class="flex items-center justify-between mb-4">
+            <p class="font-black text-slate-800 text-sm" id="prFieldConditionsTitle">Conditions</p>
+            <button onclick="_prCloseFieldConditions()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+          </div>
+          <input type="hidden" id="prFieldConditionsFieldId">
+          <div id="prFieldConditionsRolesSection" class="mb-5">
+            <p class="font-black text-slate-800 text-xs mb-2">Applicable Roles</p>
+            <div id="prFieldApplicableRoles" class="flex flex-wrap gap-3"></div>
+          </div>
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <p class="font-black text-slate-800 text-xs">IF/THEN Rules</p>
+              <button onclick="_prOpenConditionRuleForm()" class="px-2.5 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1"><i data-lucide="plus" class="h-3 w-3"></i>Add Rule</button>
+            </div>
+            <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-2">Evaluated top to bottom — first matching rule sets the amount; if none match, the field falls back to its normal person/grade/role value.</p>
+            <div class="overflow-auto border border-slate-200 rounded-xl">
+              <table class="w-full text-left border-collapse text-xs">
+                <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">#</th><th class="py-2 px-3">If</th><th class="py-2 px-3">Then</th><th class="py-2 px-3 text-right">Actions</th></tr></thead>
+                <tbody id="prConditionRulesBody"><tr><td colspan="4" class="p-3 text-slate-400 font-bold text-xs text-center">Loading…</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="prConditionRuleFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-md">
+          <div class="flex items-center justify-between mb-4">
+            <p class="font-black text-slate-800 text-sm">Add Rule</p>
+            <button onclick="_prCloseConditionRuleForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+          </div>
+          <div class="space-y-3">
+            <p class="text-[10px] font-black text-slate-400 uppercase">If…</p>
+            <div class="grid grid-cols-3 gap-2">
+              <select id="prCrSource" class="px-2 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs col-span-1"></select>
+              <select id="prCrOperator" class="px-2 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs col-span-1">
+                <option value=">">&gt;</option><option value=">=">&ge;</option><option value="<">&lt;</option><option value="<=">&le;</option><option value="==">=</option><option value="!=">&ne;</option>
+              </select>
+              <input type="number" id="prCrCompareValue" placeholder="value" class="px-2 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs col-span-1">
+            </div>
+            <p class="text-[10px] font-black text-slate-400 uppercase pt-2">Then…</p>
+            <div class="grid grid-cols-2 gap-2">
+              <select id="prCrThenMode" onchange="_prToggleConditionThenFields()" class="px-2 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                <option value="fixed">Fixed amount</option>
+                <option value="percent_of_field">Percent of a field</option>
+              </select>
+              <input type="number" id="prCrThenValue" placeholder="amount" class="px-2 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              <input type="number" id="prCrThenPercent" placeholder="percent" class="hidden px-2 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              <select id="prCrThenBaseKey" class="hidden px-2 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></select>
+            </div>
+          </div>
+          <div class="flex justify-end gap-2 mt-5">
+            <button onclick="_prCloseConditionRuleForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
+            <button onclick="_prSaveConditionRule()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Rule</button>
           </div>
         </div>
       </div>
@@ -13350,12 +13414,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const calcLabel = f.calc_mode === 'percent_of_field' ? `% of ${f.calc_base_field_key || '—'}` : 'Fixed amount';
       const incLabel = f.increment_mode ? `${f.increment_mode === 'yearly_percent' ? f.increment_value + '%/yr' : '৳' + Number(f.increment_value || 0).toLocaleString() + '/yr'}` : '—';
       return `<tr class="border-b border-slate-50">
-        <td class="py-1.5 px-3 font-black text-slate-800">${f.label}${f.is_grade_conditional ? ' <span class=\"text-[9px] text-amber-600 font-black uppercase\">(conditional)</span>' : ''}</td>
+        <td class="py-1.5 px-3 font-black text-slate-800">${f.label}${f.is_grade_conditional ? ' <span class=\"text-[9px] text-amber-600 font-black uppercase\">(grade)</span>' : ''}${f.is_role_conditional ? ' <span class=\"text-[9px] text-indigo-600 font-black uppercase\">(role)</span>' : ''}</td>
         <td class="py-1.5 px-3">${f.category === 'deduction' ? '<span class="text-red-500 font-black">Deduction</span>' : '<span class="text-emerald-600 font-black">Earning</span>'}</td>
         <td class="py-1.5 px-3">${calcLabel}</td>
         <td class="py-1.5 px-3">${incLabel}</td>
         <td class="py-1.5 px-3">${f.is_active ? '<span class="text-emerald-600 font-black">Active</span>' : '<span class="text-slate-400 font-black">Inactive</span>'}</td>
         <td class="py-1.5 px-3 text-right">
+          <button onclick="_prOpenFieldConditions(${f.id})" class="text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:text-black mr-3">Conditions</button>
           <button onclick='_prOpenFieldForm(${JSON.stringify(f).replace(/'/g, "&apos;")})' class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-black mr-3">Edit</button>
           <button onclick="_prDeleteField(${f.id})" class="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-700">Delete</button>
         </td>
@@ -13373,6 +13438,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prFieldIncrementMode').value = (field && field.increment_mode) || '';
     document.getElementById('prFieldIncrementValue').value = (field && field.increment_value != null) ? field.increment_value : '';
     document.getElementById('prFieldGradeConditional').checked = !!(field && field.is_grade_conditional);
+    document.getElementById('prFieldRoleConditional').checked = !!(field && field.is_role_conditional);
     document.getElementById('prFieldActive').checked = field ? field.is_active !== false : true;
     const baseSel = document.getElementById('prFieldBaseKey');
     baseSel.innerHTML = _prFieldsCache.filter(f => !field || f.id !== field.id).map(f => `<option value="${f.key}">${f.label}</option>`).join('');
@@ -13405,6 +13471,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       increment_mode: document.getElementById('prFieldIncrementMode').value || null,
       increment_value: document.getElementById('prFieldIncrementValue').value || null,
       is_grade_conditional: document.getElementById('prFieldGradeConditional').checked,
+      is_role_conditional: document.getElementById('prFieldRoleConditional').checked,
       is_active: document.getElementById('prFieldActive').checked,
     };
     _payrollFetch('save_field', payload).then(res => {
@@ -13419,6 +13486,108 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (res && res.result === 'success') { showToast('Field deleted'); loadPayrollFields(); }
       else showToast((res && res.message) || 'Failed to delete field', 'error');
     }).catch(() => showToast('Failed to delete field', 'error'));
+  }
+
+  // ── Field conditional logic (role-gated applicability + IF/THEN rules) ──
+  let _prConditionRulesCache = [];
+
+  function _prOpenFieldConditions(fieldId) {
+    const field = _prFieldsCache.find(f => f.id === fieldId);
+    if (!field) return;
+    document.getElementById('prFieldConditionsFieldId').value = fieldId;
+    document.getElementById('prFieldConditionsTitle').textContent = `Conditions — ${field.label}`;
+    document.getElementById('prFieldConditionsRolesSection').style.display = field.is_role_conditional ? '' : 'none';
+    document.getElementById('prConditionRulesBody').innerHTML = `<tr><td colspan="4" class="p-3 text-slate-400 font-bold text-xs text-center">Loading…</td></tr>`;
+    document.getElementById('prFieldConditionsModal').classList.remove('hidden');
+    _payrollFetch('get_field_conditions', { field_id: fieldId }).then(res => {
+      const applicableRoles = new Set((res && res.result === 'success' && res.applicable_roles) ? res.applicable_roles.map(r => r.role) : []);
+      _prConditionRulesCache = (res && res.result === 'success' && res.condition_rules) || [];
+      document.getElementById('prFieldApplicableRoles').innerHTML = ALL_ROLES.map(r => `
+        <label class="flex items-center gap-1.5 text-xs font-black text-slate-600 cursor-pointer">
+          <input type="checkbox" ${applicableRoles.has(r) ? 'checked' : ''} onchange="_prToggleFieldApplicableRole(${fieldId},'${r}',this.checked)" class="w-4 h-4 rounded accent-indigo-600">${r}
+        </label>`).join('');
+      _prRenderConditionRules();
+    });
+  }
+
+  function _prCloseFieldConditions() { document.getElementById('prFieldConditionsModal').classList.add('hidden'); }
+
+  function _prToggleFieldApplicableRole(fieldId, role, enabled) {
+    _payrollFetch('toggle_field_applicable_role', { field_id: fieldId, role, enabled }).then(res => {
+      if (!res || res.result !== 'success') showToast((res && res.message) || 'Failed to update', 'error');
+    }).catch(() => showToast('Failed to update', 'error'));
+  }
+
+  function _prRenderConditionRules() {
+    const tbody = document.getElementById('prConditionRulesBody');
+    if (!tbody) return;
+    if (!_prConditionRulesCache.length) {
+      tbody.innerHTML = `<tr><td colspan="4" class="p-3 text-slate-400 font-bold text-xs text-center">No rules — the field always falls back to its normal person/grade/role value.</td></tr>`;
+      return;
+    }
+    const opSymbols = { '>': '>', '>=': '≥', '<': '<', '<=': '≤', '==': '=', '!=': '≠' };
+    tbody.innerHTML = _prConditionRulesCache.map((r, i) => {
+      const srcLabel = r.source_key === 'tenure_years' ? 'Tenure (years)' : ((_prFieldsCache.find(f => f.key === r.source_key) || {}).label || r.source_key);
+      const thenLabel = r.then_calc_mode === 'percent_of_field' ? `${r.then_percent || 0}% of ${r.then_base_field_key || '—'}` : `৳${Number(r.then_value || 0).toLocaleString()}`;
+      return `<tr class="border-b border-slate-50">
+        <td class="py-1.5 px-3 font-black text-slate-400">${i + 1}</td>
+        <td class="py-1.5 px-3 font-bold text-slate-700">${srcLabel} ${opSymbols[r.operator] || r.operator} ${r.compare_value}</td>
+        <td class="py-1.5 px-3 font-bold text-slate-700">${thenLabel}</td>
+        <td class="py-1.5 px-3 text-right"><button onclick="_prDeleteConditionRule(${r.id})" class="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-700">Delete</button></td>
+      </tr>`;
+    }).join('');
+  }
+
+  function _prOpenConditionRuleForm() {
+    const fieldId = Number(document.getElementById('prFieldConditionsFieldId').value);
+    const srcSel = document.getElementById('prCrSource');
+    srcSel.innerHTML = `<option value="tenure_years">Tenure (years)</option>` + _prFieldsCache.map(f => `<option value="${f.key}">${f.label}</option>`).join('');
+    const baseSel = document.getElementById('prCrThenBaseKey');
+    baseSel.innerHTML = _prFieldsCache.map(f => `<option value="${f.key}">${f.label}</option>`).join('');
+    document.getElementById('prCrOperator').value = '>';
+    document.getElementById('prCrCompareValue').value = '';
+    document.getElementById('prCrThenMode').value = 'fixed';
+    document.getElementById('prCrThenValue').value = '';
+    document.getElementById('prCrThenPercent').value = '';
+    _prToggleConditionThenFields();
+    document.getElementById('prConditionRuleFormModal').classList.remove('hidden');
+  }
+  function _prCloseConditionRuleForm() { document.getElementById('prConditionRuleFormModal').classList.add('hidden'); }
+
+  function _prToggleConditionThenFields() {
+    const mode = document.getElementById('prCrThenMode').value;
+    document.getElementById('prCrThenValue').classList.toggle('hidden', mode !== 'fixed');
+    document.getElementById('prCrThenPercent').classList.toggle('hidden', mode !== 'percent_of_field');
+    document.getElementById('prCrThenBaseKey').classList.toggle('hidden', mode !== 'percent_of_field');
+  }
+
+  function _prSaveConditionRule() {
+    const field_id = document.getElementById('prFieldConditionsFieldId').value;
+    const source_key = document.getElementById('prCrSource').value;
+    const operator = document.getElementById('prCrOperator').value;
+    const compare_value = document.getElementById('prCrCompareValue').value;
+    const then_calc_mode = document.getElementById('prCrThenMode').value;
+    if (compare_value === '') { showToast('Compare value is required', 'error'); return; }
+    const payload = {
+      field_id, priority: _prConditionRulesCache.length, source_key, operator, compare_value,
+      then_calc_mode,
+      then_value: then_calc_mode === 'fixed' ? document.getElementById('prCrThenValue').value : null,
+      then_percent: then_calc_mode === 'percent_of_field' ? document.getElementById('prCrThenPercent').value : null,
+      then_base_field_key: then_calc_mode === 'percent_of_field' ? document.getElementById('prCrThenBaseKey').value : null,
+    };
+    _payrollFetch('save_field_condition_rule', payload).then(res => {
+      if (res && res.result === 'success') { showToast('Rule saved'); _prCloseConditionRuleForm(); _prOpenFieldConditions(Number(field_id)); }
+      else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(() => showToast('Failed to save', 'error'));
+  }
+
+  function _prDeleteConditionRule(id) {
+    if (!confirm('Delete this rule?')) return;
+    const fieldId = Number(document.getElementById('prFieldConditionsFieldId').value);
+    _payrollFetch('delete_field_condition_rule', { id }).then(res => {
+      if (res && res.result === 'success') { showToast('Deleted'); _prOpenFieldConditions(fieldId); }
+      else showToast((res && res.message) || 'Failed to delete', 'error');
+    }).catch(() => showToast('Failed to delete', 'error'));
   }
 
   // ── Statutory items (PF, tax/AIT) ──
