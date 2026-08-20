@@ -15065,18 +15065,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="BusTracking.exportBusData()" title="Export" class="px-2 sm:px-3.5 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="download" class="h-3.5 w-3.5"></i><span class="hidden sm:inline">Export</span></button>
           </div>` : ''}
           ${canExportBuses ? `<div id="bt-watchers-popover" class="hidden" style="position:absolute;top:56px;left:14px;z-index:1000;background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 10px 30px rgba(15,23,42,0.15);min-width:220px;max-width:280px;max-height:260px;overflow-y:auto;padding:10px;"></div>` : ''}
-          ${canExportBuses ? `<div id="bt-route-panel" class="hidden" style="position:absolute;top:56px;right:0;z-index:1000;background:rgba(255,255,255,0.18);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border:1px solid rgba(226,232,240,0.5);border-radius:14px 0 0 14px;box-shadow:0 10px 30px rgba(15,23,42,0.12);width:132px;max-height:75vh;overflow-y:auto;padding:8px;text-align:right;">
-            <p class="font-black text-slate-500 uppercase" style="font-size:8px;letter-spacing:.04em;margin-bottom:5px">Route History</p>
-            <label class="font-black text-slate-400 uppercase" style="font-size:7px">Bus</label>
-            <select id="bt-route-bus" class="w-full bg-white/60 border border-slate-200 rounded-lg font-bold text-right" style="font-size:9px;padding:4px 6px;margin-top:2px;margin-bottom:4px"></select>
-            <label class="font-black text-slate-400 uppercase" style="font-size:7px">Date</label>
-            <input type="date" id="bt-route-date" class="w-full bg-white/60 border border-slate-200 rounded-lg font-bold text-right" style="font-size:9px;padding:4px 6px;margin-top:2px;margin-bottom:4px">
+          ${canExportBuses ? `<div id="bt-route-panel" class="hidden" style="position:absolute;top:56px;right:0;z-index:1000;background:rgba(255,255,255,0.18);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border:1px solid rgba(226,232,240,0.5);border-radius:14px 0 0 14px;box-shadow:0 10px 30px rgba(15,23,42,0.12);width:132px;max-height:75vh;overflow-y:auto;padding:6px;text-align:right;-webkit-text-size-adjust:100%;text-size-adjust:100%;">
+            <p class="font-black text-slate-500 uppercase" style="font-size:6.5px;letter-spacing:.03em;margin-bottom:2px">Route History</p>
+            <select id="bt-route-bus" title="Bus" class="w-full bg-white/60 border border-slate-200 rounded font-bold text-right" style="font-size:7px;padding:2px 3px;margin-bottom:2px"></select>
+            <input type="date" id="bt-route-date" title="Date" class="w-full bg-white/60 border border-slate-200 rounded font-bold text-right" style="font-size:7px;padding:2px 3px;margin-bottom:2px">
             <div class="flex gap-1">
-              <button onclick="BusTracking.showRouteHistory()" class="flex-1 rounded-lg font-black uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all" style="font-size:7px;padding:4px 0">Show</button>
-              <button onclick="BusTracking.clearRouteHistory()" class="flex-1 rounded-lg font-black uppercase tracking-widest border border-slate-200 text-slate-500 hover:bg-slate-50 transition-all" style="font-size:7px;padding:4px 0">Clear</button>
+              <button onclick="BusTracking.showRouteHistory()" class="flex-1 rounded font-black uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all" style="font-size:6.5px;padding:2.5px 0">Show</button>
+              <button onclick="BusTracking.clearRouteHistory()" class="flex-1 rounded font-black uppercase tracking-widest border border-slate-200 text-slate-500 hover:bg-slate-50 transition-all" style="font-size:6.5px;padding:2.5px 0">Clear</button>
             </div>
-            <p id="bt-route-status" class="text-slate-400 font-bold" style="font-size:7px;margin-top:5px"></p>
-            <div id="bt-route-summary" style="margin-top:6px"></div>
+            <p id="bt-route-status" class="text-slate-400 font-bold" style="font-size:6.5px;margin-top:2px"></p>
+            <div id="bt-route-summary" style="margin-top:3px"></div>
           </div>` : ''}
         </div>
 
