@@ -15577,6 +15577,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { value: 'name_asc', label: 'Name (A–Z)' },
     { value: 'name_desc', label: 'Name (Z–A)' },
     { value: 'code_asc', label: 'Code (A–Z)' },
+    { value: 'regno_asc', label: 'Register No. (Low–High)' },
+    { value: 'pageno_asc', label: 'Page No. (Low–High)' },
     { value: 'group_asc', label: 'Group (A–Z)' },
     { value: 'depr_desc', label: 'Depreciation %/Yr (High–Low)' },
     { value: 'active_desc', label: 'Active First' },
@@ -15593,6 +15595,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return rows.slice().sort((a, b) => {
       if (field === 'name') return sign * String(a.name || '').localeCompare(String(b.name || ''));
       if (field === 'code') return sign * String(a.code || '').localeCompare(String(b.code || ''));
+      // numeric:true so "2" sorts before "10" instead of alphabetically
+      // (matters here since register/page numbers are almost always
+      // plain digit strings, e.g. "1".."301").
+      if (field === 'regno') return sign * String(a.register_no || '').localeCompare(String(b.register_no || ''), undefined, { numeric: true, sensitivity: 'base' });
+      if (field === 'pageno') return sign * String(a.page_no || '').localeCompare(String(b.page_no || ''), undefined, { numeric: true, sensitivity: 'base' });
       if (field === 'group') return sign * String(_invProductGroupName(a) || '').localeCompare(String(_invProductGroupName(b) || ''));
       if (field === 'depr') return sign * (_invProductEffectiveRate(a) - _invProductEffectiveRate(b));
       if (field === 'active') return sign * ((b.is_active ? 1 : 0) - (a.is_active ? 1 : 0));
