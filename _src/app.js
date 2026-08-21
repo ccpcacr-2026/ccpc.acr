@@ -13022,8 +13022,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
           <div class="flex items-center justify-between flex-wrap gap-3 mb-3">
             <p class="font-black text-slate-800 text-xs">Find a person</p>
-            <div class="flex items-center gap-2">
-              <button onclick="_prBulkAddAllStaff()" class="px-3 py-2 bg-slate-100 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-1.5"><i data-lucide="users" class="h-3.5 w-3.5"></i>Add All Teachers &amp; Staff</button>
+            <div class="flex items-center gap-2 flex-wrap">
+              <select id="prBulkCategoryFilter" class="px-2 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                <option value="">All categories</option>
+              </select>
+              <button onclick="_prBulkAddAllStaff()" class="px-3 py-2 bg-slate-100 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-1.5"><i data-lucide="users" class="h-3.5 w-3.5"></i>Add People</button>
               <button onclick="_prOpenImportModal('people')" class="px-3 py-2 bg-slate-100 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-1.5"><i data-lucide="upload" class="h-3.5 w-3.5"></i>Import Excel</button>
             </div>
           </div>
@@ -14025,6 +14028,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         allStaffCache.map(s => ({ value: s.teacher_id, label: s.full_name || s.teacher_id, sub: [s.designation, s.teacher_id].filter(Boolean).join(' · ') })));
       document.getElementById('prPersonSelect').value = '';
       document.getElementById('prPersonSearch').value = '';
+      // Category comes straight from each staff record's own Category field
+      // (System > Users) — whatever values are actually in use show up here,
+      // e.g. "Teacher School" / "Teacher College" / "Staff", so "Add People"
+      // can be scoped to one group at a time instead of everyone at once.
+      const categories = [...new Set(allStaffCache.map(s => (s.category || '').trim()).filter(Boolean))].sort();
+      const catSel = document.getElementById('prBulkCategoryFilter');
+      if (catSel) catSel.innerHTML = `<option value="">All categories</option>` + categories.map(c => `<option value="${c}">${c}</option>`).join('');
       document.getElementById('prPersonSearch').addEventListener('change', () => {
         const uid = document.getElementById('prPersonSelect').value;
         if (uid) _prSelectPerson(uid);
@@ -14180,13 +14190,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function _prBulkAddAllStaff() {
     const status = document.getElementById('prBulkAddStatus');
+    const category = document.getElementById('prBulkCategoryFilter')?.value || '';
     status.className = 'text-xs font-bold text-slate-400 mt-2'; status.textContent = 'Adding…';
     _ensureStaffCache(() => {
-      const userIds = allStaffCache.map(s => s.teacher_id).filter(Boolean);
+      const filtered = category ? allStaffCache.filter(s => (s.category || '').trim() === category) : allStaffCache;
+      const userIds = filtered.map(s => s.teacher_id).filter(Boolean);
+      if (!userIds.length) { status.className = 'text-xs font-bold text-red-500 mt-2'; status.textContent = category ? `No staff found in "${category}".` : 'No staff found.'; return; }
       _payrollFetch('bulk_add_people', { user_ids: userIds }).then(res => {
         if (res && res.result === 'success') {
           status.className = 'text-xs font-bold text-emerald-600 mt-2';
-          status.textContent = res.added ? `Added ${res.added} new people (${userIds.length - res.added} already existed).` : 'Everyone is already added.';
+          const scopeLabel = category ? ` in "${category}"` : '';
+          status.textContent = res.added ? `Added ${res.added} new people${scopeLabel} (${userIds.length - res.added} already existed).` : `Everyone${scopeLabel} is already added.`;
         } else {
           status.className = 'text-xs font-bold text-red-500 mt-2';
           status.textContent = (res && res.message) || 'Failed to add staff';
