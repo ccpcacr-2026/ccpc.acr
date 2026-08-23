@@ -18939,7 +18939,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           const actorLabel = staffLabel(r.actor_user_id);
           const when = new Date(r.created_at).toLocaleString();
           const actionLabel = INV_AUDIT_ACTION_LABELS[r.action] || r.action;
-          const details = r.details ? `<code class="text-[10px] text-slate-400">${_escHtml(JSON.stringify(r.details).slice(0, 140))}</code>` : '';
+          const details = _invAuditDetailsHtml(r);
           return `<tr class="border-b border-slate-50">
             <td class="py-1.5 px-3 text-slate-500">${when}</td>
             <td class="py-1.5 px-3 font-black text-slate-700">${actorLabel !== r.actor_user_id ? actorLabel : r.actor_user_id}</td>
@@ -18957,6 +18957,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <p class="text-xs font-black text-blue-600">${_escHtml(actionLabel)}</p>
             <p class="text-[10px] text-slate-500 font-bold">${actorLabel !== r.actor_user_id ? actorLabel : r.actor_user_id} · ${when}</p>
             <p class="text-[10px] text-slate-400 font-bold">${r.entity || '—'}${r.entity_id ? ` #${_escHtml(String(r.entity_id))}` : ''}</p>
+            <div class="mt-1">${_invAuditDetailsHtml(r)}</div>
             <div class="mt-1">${_invAuditReviewAction(r)}</div>
           </div>`;
         }).join('');
@@ -18970,6 +18971,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // registry_delete/distribute_delete handling) since the row itself is
   // gone. Anything else (settings, imports) just links back to Settings —
   // there's no per-row edit target worth deep-linking for those.
+  // Renders an edit's per-field "old -> new" diff (see the dispatcher's
+  // _invDiffFields) as compact labeled lines instead of a raw JSON dump —
+  // falls back to the JSON blob for actions that don't carry a diff
+  // (create/delete/import entries, or an edit where nothing changed).
+  function _invAuditDetailsHtml(r) {
+    const changes = r.details && Array.isArray(r.details.changes) ? r.details.changes : null;
+    if (changes) {
+      if (!changes.length) return `<span class="text-[10px] text-slate-400 font-bold italic">No fields changed</span>`;
+      return changes.map(c => `<div class="text-[10px]"><span class="font-black text-slate-600">${_escHtml(c.label)}:</span> <span class="text-red-500 font-bold">${_escHtml(c.from)}</span> <span class="text-slate-400">&rarr;</span> <span class="text-emerald-600 font-bold">${_escHtml(c.to)}</span></div>`).join('');
+    }
+    return r.details ? `<code class="text-[10px] text-slate-400">${_escHtml(JSON.stringify(r.details).slice(0, 140))}</code>` : '';
+  }
+
   function _invAuditReviewAction(r) {
     const id = r.entity_id;
     if ((r.action === 'registry_create' || r.action === 'registry_update') && id) {

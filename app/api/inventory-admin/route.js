@@ -92,6 +92,23 @@ function _invAudit(actorUserId, action, entity, entityId, details) {
 // them internally — clones the NextResponse (bodies can only be read once)
 // to check result:'success'/'partial' before writing, so a failed save
 // never shows up as an audit entry.
+// Builds the "Field: old -> new" list the History tab shows for an edit —
+// only fields that actually changed AND were actually part of this edit's
+// payload (fields absent from newObj are left alone, so a partial-field
+// save never reports every other column as "changed to blank").
+function _invDiffFields(oldObj, newObj, fields) {
+  const changes = [];
+  fields.forEach(({ key, label }) => {
+    if (newObj[key] === undefined) return;
+    const from = oldObj ? oldObj[key] : undefined;
+    const to = newObj[key];
+    const fromNorm = from == null ? '' : String(from);
+    const toNorm = to == null ? '' : String(to);
+    if (fromNorm !== toNorm) changes.push({ label, from: (from == null || from === '') ? '—' : String(from), to: (to == null || to === '') ? '—' : String(to) });
+  });
+  return changes;
+}
+
 async function _invAuditFromResponse(res, actorUserId, action, entity, entityId, details) {
   try {
     const json = await res.clone().json();
@@ -1634,7 +1651,19 @@ export async function POST(req) {
   }
 
   if (action === 'settings_list') return _settingsList(payload);
-  if (action === 'settings_save') return _invAuditFromResponse(await _settingsSave(payload), user_id, 'settings_save', payload.entity, payload.values?.id || payload.id, { entity: payload.entity, values: payload.values });
+  if (action === 'settings_save') {
+    const editId = payload.values?.id || payload.id;
+    const cfg = ENTITIES[payload.entity];
+    let oldRow = null;
+    if (editId && cfg) {
+      const oldRows = await sbInventory(`${cfg.table}?id=eq.${encodeURIComponent(editId)}&select=*`);
+      oldRow = (!oldRows?.error && oldRows[0]) || null;
+    }
+    const res = await _settingsSave(payload);
+    const fieldsCfg = cfg ? cfg.fields.map(f => ({ key: f.name, label: f.label || f.name })) : [];
+    const changes = oldRow ? _invDiffFields(oldRow, payload.values || {}, fieldsCfg) : [];
+    return _invAuditFromResponse(res, user_id, 'settings_save', payload.entity, editId, oldRow ? { changes } : { values: payload.values });
+  }
   if (action === 'settings_delete') return _invAuditFromResponse(await _settingsDelete(payload), user_id, 'settings_delete', payload.entity, payload.id || (payload.ids || []).join(','), { entity: payload.entity, ids: payload.ids || payload.id });
   if (action === 'settings_import_preview') return _settingsImportPreview(payload);
   if (action === 'settings_import_confirm') return _invAuditFromResponse(await _settingsImportConfirm(payload), user_id, 'settings_import_confirm', payload.entity, null, { entity: payload.entity, row_count: (payload.rows || []).length });
@@ -1645,7 +1674,17 @@ export async function POST(req) {
   if (action === 'product_history') return _productHistory(payload);
   if (action === 'registry_create') return _invAuditFromResponse(await _registryCreate(payload), user_id, 'registry_create', 'purchase_items', payload.product_id, { product_id: payload.product_id, quantity: payload.quantity, unit_price: payload.unit_price, voucher_number: payload.voucher_number });
   if (action === 'registry_list') return _registryList(payload);
-  if (action === 'registry_update') return _invAuditFromResponse(await _registryUpdate(payload), user_id, 'registry_update', 'purchase_items', payload.id, { quantity: payload.quantity, unit_price: payload.unit_price, voucher_number: payload.voucher_number });
+  if (action === 'registry_update') {
+    const oldRows = payload.id ? await sbInventory(`purchase_items?id=eq.${encodeURIComponent(payload.id)}&select=*`) : null;
+    const oldRow = (!oldRows?.error && oldRows[0]) || null;
+    const res = await _registryUpdate(payload);
+    const changes = _invDiffFields(oldRow, payload, [
+      { key: 'quantity', label: 'Quantity' }, { key: 'unit_price', label: 'Unit Price' },
+      { key: 'voucher_number', label: 'Voucher Number' }, { key: 'purchase_date', label: 'Date' },
+      { key: 'brand', label: 'Brand' }, { key: 'category', label: 'Category' },
+    ]);
+    return _invAuditFromResponse(res, user_id, 'registry_update', 'purchase_items', payload.id, { changes });
+  }
   if (action === 'registry_delete') {
     // Snapshot BEFORE deleting — this is the only place the row's data still
     // exists once the delete succeeds, and it's what powers the History
@@ -1663,7 +1702,21 @@ export async function POST(req) {
     const snapshots = (!snapRows?.error && Array.isArray(snapRows)) ? snapRows : [];
     return _invAuditFromResponse(await _distributeDelete(payload), user_id, 'distribute_delete', 'distributions', delIds.join(','), { snapshots });
   }
-  if (action === 'distribute_update_full') return _invAuditFromResponse(await _distributeUpdateFull(payload), user_id, 'distribute_update_full', 'distributions', payload.id, { id: payload.id, product_id: payload.product_id, quantity: payload.quantity, consumer_id: payload.consumer_id });
+  if (action === 'distribute_update_full') {
+    const oldRows = payload.id ? await sbInventory(`distributions?id=eq.${encodeURIComponent(payload.id)}&select=*,distribution_items(product_id,quantity,unit_price,products(name))`) : null;
+    const oldRow = (!oldRows?.error && oldRows[0]) || null;
+    const oldItem = oldRow && oldRow.distribution_items && oldRow.distribution_items[0];
+    const res = await _distributeUpdateFull(payload);
+    const changes = _invDiffFields(
+      { product_id: oldItem?.product_id, quantity: oldItem?.quantity, unit_price: oldItem?.unit_price, consumer_id: oldRow?.consumer_id, bill_no: oldRow?.bill_no, remarks: oldRow?.remarks },
+      payload,
+      [
+        { key: 'quantity', label: 'Quantity' }, { key: 'unit_price', label: 'Unit Price' },
+        { key: 'consumer_id', label: 'Recipient (id)' }, { key: 'bill_no', label: 'Bill No.' }, { key: 'remarks', label: 'Remarks' },
+      ]
+    );
+    return _invAuditFromResponse(res, user_id, 'distribute_update_full', 'distributions', payload.id, { changes, product_name: oldItem?.products?.name });
+  }
   if (action === 'report_product_value_summary') return _reportProductValueSummary();
   if (action === 'report_stock_overview') return _reportStockOverview();
   if (action === 'report_distributions') return _reportDistributions(payload);
