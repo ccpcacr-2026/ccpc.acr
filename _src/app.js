@@ -17443,6 +17443,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <button id="invAdminTab_distribute" onclick="switchInvAdminTab('distribute')" class="shrink-0 whitespace-nowrap px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all"><i data-lucide="send" class="h-3.5 w-3.5 inline -mt-0.5 mr-1"></i>Distribute</button>
         <button id="invAdminTab_settings" onclick="switchInvAdminTab('settings')" class="shrink-0 whitespace-nowrap px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all"><i data-lucide="settings-2" class="h-3.5 w-3.5 inline -mt-0.5 mr-1"></i>Settings</button>
         <button id="invAdminTab_reports" onclick="switchInvAdminTab('reports')" class="shrink-0 whitespace-nowrap px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all"><i data-lucide="bar-chart-3" class="h-3.5 w-3.5 inline -mt-0.5 mr-1"></i>Reports</button>
+        <button id="invAdminTab_history" onclick="switchInvAdminTab('history')" class="shrink-0 whitespace-nowrap px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 hover:bg-slate-50 transition-all"><i data-lucide="history" class="h-3.5 w-3.5 inline -mt-0.5 mr-1"></i>History</button>
       </div>
       <div id="invAdminMobileGrid" class="md:hidden grid grid-cols-3 gap-3 mb-4"></div>
       <button id="invAdminMobileBack" onclick="_invExitToTopGrid()" class="md:hidden hidden items-center gap-1.5 mb-4 text-[10px] font-black text-slate-500 uppercase tracking-widest"><i data-lucide="arrow-left" class="h-3.5 w-3.5"></i>Inventory Admin</button>
@@ -17507,6 +17508,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { tab: 'distribute', label: 'Distribute', icon: 'send', accent: '#10b981' },
     { tab: 'settings', label: 'Settings', icon: 'settings-2', accent: '#f59e0b' },
     { tab: 'reports', label: 'Reports', icon: 'bar-chart-3', accent: '#f43f5e' },
+    { tab: 'history', label: 'History', icon: 'history', accent: '#64748b' },
   ];
   function _invRenderMobileGrid() {
     const grid = document.getElementById('invAdminMobileGrid');
@@ -17591,6 +17593,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       return;
     }
     if (tab === 'reports') { loadInventoryReportsPanel(); return; }
+    if (tab === 'history') { loadInventoryHistoryPanel(); return; }
   }
 
   const INV_SETTINGS_ACCENTS = ['#6366f1', '#10b981', '#f43f5e', '#f59e0b', '#0ea5e9', '#a855f7', '#14b8a6', '#f97316'];
@@ -18856,6 +18859,91 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Pick a report on the left</div>
         </div>
       </div>`;
+  }
+
+  // ── History (audit log) ── who edited/received/distributed/re-distributed/
+  // deleted what, and when — inventory.audit_log is written by every
+  // mutating action (see app/api/inventory-admin/route.js's
+  // _invAuditFromResponse), this is the first/only viewer for it.
+  const INV_AUDIT_ACTION_LABELS = {
+    settings_save: 'Saved (Settings)', settings_delete: 'Deleted (Settings)',
+    settings_import_confirm: 'Imported (Settings)', stock_import_confirm: 'Imported (Stock)',
+    registry_create: 'Received Stock', registry_update: 'Edited Receipt', registry_delete: 'Deleted Receipt',
+    distribute_create: 'Distributed', distribute_update_full: 'Edited Distribution', distribute_delete: 'Deleted Distribution',
+  };
+
+  function loadInventoryHistoryPanel() {
+    const body = document.getElementById('invAdminBody');
+    if (!body) return;
+    body.innerHTML = `
+      <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5">
+        <div class="flex items-center justify-between flex-wrap gap-3 mb-3">
+          <div>
+            <p class="text-sm font-black text-slate-800 uppercase tracking-widest">Activity History</p>
+            <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Every receive/edit/distribute/re-distribute/delete across Inventory Admin, newest first</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <select id="invAuditEntityFilter" onchange="loadInventoryAuditLog()" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              <option value="">All entities</option>
+              <option value="products">products</option>
+              <option value="purchase_items">purchase_items (registry)</option>
+              <option value="distributions">distributions</option>
+              <option value="groups">groups</option>
+              <option value="units">units</option>
+              <option value="consumers">consumers</option>
+            </select>
+            <button onclick="loadInventoryAuditLog()" class="px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-500 text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="refresh-cw" class="h-3 w-3"></i>Refresh</button>
+          </div>
+        </div>
+        <div class="inv-desktop-block overflow-x-auto">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">When</th><th class="py-2 px-3">Actor</th><th class="py-2 px-3">Action</th><th class="py-2 px-3">Entity</th><th class="py-2 px-3">Details</th></tr></thead>
+            <tbody id="invAuditLogBody"><tr><td colspan="5" class="p-4 text-slate-400 font-bold text-xs text-center">Loading…</td></tr></tbody>
+          </table>
+        </div>
+        <div id="invAuditLogCards" class="md:hidden flex flex-col gap-1.5">
+          <p class="text-center text-slate-400 text-xs font-black uppercase tracking-widest py-6">Loading…</p>
+        </div>
+      </div>`;
+    lucide.createIcons();
+    loadInventoryAuditLog();
+  }
+
+  function loadInventoryAuditLog() {
+    const entity = document.getElementById('invAuditEntityFilter')?.value || '';
+    _invAdminFetch('get_audit_log', { entity, limit: 200 }).then(res => {
+      const rows = (res && res.result === 'success' && res.log) || [];
+      const tbody = document.getElementById('invAuditLogBody');
+      const cards = document.getElementById('invAuditLogCards');
+      if (!rows.length) {
+        if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-slate-400 font-bold text-xs text-center">No activity yet.</td></tr>`;
+        if (cards) cards.innerHTML = `<p class="text-center text-slate-400 text-xs font-black uppercase tracking-widest py-6">No activity yet.</p>`;
+        return;
+      }
+      if (tbody) tbody.innerHTML = rows.map(r => {
+        const actorLabel = staffLabel(r.actor_user_id);
+        const when = new Date(r.created_at).toLocaleString();
+        const actionLabel = INV_AUDIT_ACTION_LABELS[r.action] || r.action;
+        const details = r.details ? `<code class="text-[10px] text-slate-400">${_escHtml(JSON.stringify(r.details).slice(0, 140))}</code>` : '';
+        return `<tr class="border-b border-slate-50">
+          <td class="py-1.5 px-3 text-slate-500">${when}</td>
+          <td class="py-1.5 px-3 font-black text-slate-700">${actorLabel !== r.actor_user_id ? actorLabel : r.actor_user_id}</td>
+          <td class="py-1.5 px-3 font-bold text-blue-600">${_escHtml(actionLabel)}</td>
+          <td class="py-1.5 px-3">${r.entity || '—'}${r.entity_id ? ` #${_escHtml(String(r.entity_id))}` : ''}</td>
+          <td class="py-1.5 px-3">${details}</td>
+        </tr>`;
+      }).join('');
+      if (cards) cards.innerHTML = rows.map(r => {
+        const actorLabel = staffLabel(r.actor_user_id);
+        const when = new Date(r.created_at).toLocaleString();
+        const actionLabel = INV_AUDIT_ACTION_LABELS[r.action] || r.action;
+        return `<div class="rounded-xl border border-slate-200 px-2.5 py-2 bg-white">
+          <p class="text-xs font-black text-blue-600">${_escHtml(actionLabel)}</p>
+          <p class="text-[10px] text-slate-500 font-bold">${actorLabel !== r.actor_user_id ? actorLabel : r.actor_user_id} · ${when}</p>
+          <p class="text-[10px] text-slate-400 font-bold">${r.entity || '—'}${r.entity_id ? ` #${_escHtml(String(r.entity_id))}` : ''}</p>
+        </div>`;
+      }).join('');
+    }).catch(() => showToast('Failed to load activity history', 'error'));
   }
 
   function _invSelectReport(key) {

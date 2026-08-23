@@ -41,6 +41,7 @@ const RESERVED = [
   '_invOpenProductQuickView','_invEditProductFromQuickView','_invProductSortChange',
   '_invOpenStockImportModal','_invConfirmStockImport','_invDistributeDeleteOne',
   '_invRegistryListSearch','_invOpenRegistryEditModal','_invCloseRegistryEditModal','_invSaveRegistryEdit','_invDeleteRegistryEntry',
+  'loadInventoryHistoryPanel','loadInventoryAuditLog',
   'loadUserPermsPanel','saveUserModulePermission','removeUserModulePermission',
   '_prOpenFieldForm','_prCloseFieldForm','_prToggleCalcModeFields','_prSaveField','_prDeleteField',
   '_prOpenFieldConditions','_prCloseFieldConditions','_prToggleFieldApplicableRole',

@@ -60,9 +60,46 @@ async function _getUserRoles(userId) {
   return String(role || '').split(',').map(r => r.trim()).filter(Boolean);
 }
 
+async function _invGetAuditLog(payload) {
+  const { entity, limit } = payload || {};
+  let q = `audit_log?select=*&order=created_at.desc&limit=${Number(limit) || 200}`;
+  if (entity) q += `&entity=eq.${encodeURIComponent(entity)}`;
+  const rows = await sbInventory(q);
+  if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+  return NextResponse.json({ result: 'success', log: rows });
+}
+
 async function _isInventoryAdmin(userId) {
   const roles = await _getUserRoles(userId);
   return roles.includes('Admin') || roles.includes('Inventory Admin');
+}
+
+// Fire-and-forget audit trail — mirrors payroll's _prAudit (app/api/
+// payroll-admin/route.js) so both admin consoles have the same "who did
+// what, when" history. Never blocks or fails the caller's request on a
+// logging error; called right before every mutating action returns.
+function _invAudit(actorUserId, action, entity, entityId, details) {
+  sbInventory('audit_log', 'POST', {
+    actor_user_id: actorUserId || null,
+    action,
+    entity: entity || null,
+    entity_id: entityId != null ? String(entityId) : null,
+    details: details || null,
+  }).catch(() => {});
+}
+
+// Logs from OUTSIDE each mutating handler rather than editing all nine of
+// them internally — clones the NextResponse (bodies can only be read once)
+// to check result:'success'/'partial' before writing, so a failed save
+// never shows up as an audit entry.
+async function _invAuditFromResponse(res, actorUserId, action, entity, entityId, details) {
+  try {
+    const json = await res.clone().json();
+    if (json && (json.result === 'success' || json.result === 'partial')) {
+      _invAudit(actorUserId, action, entity, entityId, details);
+    }
+  } catch (_) { /* non-JSON or already-consumed response — skip logging, never break the request */ }
+  return res;
 }
 
 // Same raw-fetch pattern as _getUserRoles, generalized — reads from the
@@ -1568,30 +1605,31 @@ export async function POST(req) {
   }
 
   if (action === 'settings_list') return _settingsList(payload);
-  if (action === 'settings_save') return _settingsSave(payload);
-  if (action === 'settings_delete') return _settingsDelete(payload);
+  if (action === 'settings_save') return _invAuditFromResponse(await _settingsSave(payload), user_id, 'settings_save', payload.entity, payload.values?.id || payload.id, { entity: payload.entity, values: payload.values });
+  if (action === 'settings_delete') return _invAuditFromResponse(await _settingsDelete(payload), user_id, 'settings_delete', payload.entity, payload.id || (payload.ids || []).join(','), { entity: payload.entity, ids: payload.ids || payload.id });
   if (action === 'settings_import_preview') return _settingsImportPreview(payload);
-  if (action === 'settings_import_confirm') return _settingsImportConfirm(payload);
+  if (action === 'settings_import_confirm') return _invAuditFromResponse(await _settingsImportConfirm(payload), user_id, 'settings_import_confirm', payload.entity, null, { entity: payload.entity, row_count: (payload.rows || []).length });
   if (action === 'stock_import_preview') return _stockImportPreview(payload);
-  if (action === 'stock_import_confirm') return _stockImportConfirm(payload);
+  if (action === 'stock_import_confirm') return _invAuditFromResponse(await _stockImportConfirm(payload), user_id, 'stock_import_confirm', 'products', null, { row_count: (payload.rows || []).length });
   if (action === 'products_summary') return _productsSummary(payload);
   if (action === 'product_quick_view') return _productQuickView(payload);
   if (action === 'product_history') return _productHistory(payload);
-  if (action === 'registry_create') return _registryCreate(payload);
+  if (action === 'registry_create') return _invAuditFromResponse(await _registryCreate(payload), user_id, 'registry_create', 'purchase_items', payload.product_id, { product_id: payload.product_id, quantity: payload.quantity, unit_price: payload.unit_price, voucher_number: payload.voucher_number });
   if (action === 'registry_list') return _registryList(payload);
-  if (action === 'registry_update') return _registryUpdate(payload);
-  if (action === 'registry_delete') return _registryDelete(payload);
+  if (action === 'registry_update') return _invAuditFromResponse(await _registryUpdate(payload), user_id, 'registry_update', 'purchase_items', payload.id, { quantity: payload.quantity, unit_price: payload.unit_price, voucher_number: payload.voucher_number });
+  if (action === 'registry_delete') return _invAuditFromResponse(await _registryDelete(payload), user_id, 'registry_delete', 'purchase_items', payload.id, null);
   if (action === 'distribute_list') return _distributeList();
-  if (action === 'distribute_delete') return _distributeDelete(payload);
-  if (action === 'distribute_update_full') return _distributeUpdateFull(payload);
+  if (action === 'distribute_delete') return _invAuditFromResponse(await _distributeDelete(payload), user_id, 'distribute_delete', 'distributions', payload.id || (payload.ids || []).join(','), { ids: payload.ids || payload.id });
+  if (action === 'distribute_update_full') return _invAuditFromResponse(await _distributeUpdateFull(payload), user_id, 'distribute_update_full', 'distributions', payload.id, { id: payload.id, product_id: payload.product_id, quantity: payload.quantity, consumer_id: payload.consumer_id });
   if (action === 'report_product_value_summary') return _reportProductValueSummary();
   if (action === 'report_stock_overview') return _reportStockOverview();
   if (action === 'report_distributions') return _reportDistributions(payload);
   if (action === 'report_registry') return _reportRegistry(payload);
   if (action === 'report_consumer_holdings') return _reportConsumerHoldings();
   if (action === 'distribute_options') return _distributeOptions();
-  if (action === 'distribute_create') return _distributeCreate(payload);
+  if (action === 'distribute_create') return _invAuditFromResponse(await _distributeCreate(payload), user_id, 'distribute_create', 'distributions', payload.product_id, { product_id: payload.product_id, quantity: payload.quantity, consumer_id: payload.consumer_id, brand: payload.brand, category: payload.category });
   if (action === 'product_attribute_options') return _productAttributeOptions(payload);
+  if (action === 'get_audit_log') return _invGetAuditLog(payload);
 
   return NextResponse.json({ result: 'error', message: 'Unknown action' }, { status: 400 });
 }
