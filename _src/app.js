@@ -19100,10 +19100,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <table class="w-full text-left border-collapse">
             <thead>
               <tr class="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-widest border-b border-slate-100">
-                <th class="px-3 py-2.5">Product</th><th class="px-3 py-2.5">Qty</th><th class="px-3 py-2.5">Remaining</th><th class="px-3 py-2.5">Unit Price</th><th class="px-3 py-2.5">Voucher</th><th class="px-3 py-2.5">Date</th><th class="px-3 py-2.5 text-right">Actions</th>
+                <th class="px-3 py-2.5">Receipt ID</th><th class="px-3 py-2.5">Product</th><th class="px-3 py-2.5">Qty</th><th class="px-3 py-2.5">Remaining</th><th class="px-3 py-2.5">Unit Price</th><th class="px-3 py-2.5">Voucher</th><th class="px-3 py-2.5">Date</th><th class="px-3 py-2.5 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody id="invRegistryListBody" class="divide-y divide-slate-100"><tr><td colspan="7" class="px-3 py-6 text-center text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</td></tr></tbody>
+            <tbody id="invRegistryListBody" class="divide-y divide-slate-100"><tr><td colspan="8" class="px-3 py-6 text-center text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -19170,7 +19170,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _invRenderRegistryList();
     }).catch(() => {
       const tbody = document.getElementById('invRegistryListBody');
-      if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="px-3 py-6 text-center text-red-500 text-xs font-black uppercase tracking-widest">Failed to load</td></tr>`;
+      if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="px-3 py-6 text-center text-red-500 text-xs font-black uppercase tracking-widest">Failed to load</td></tr>`;
     });
   }
 
@@ -19185,11 +19185,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const tbody = document.getElementById('invRegistryListBody');
     if (!tbody) return;
     if (!_invRegistryListCache.length) {
-      tbody.innerHTML = `<tr><td colspan="7" class="px-3 py-6 text-center text-slate-400 text-xs font-black uppercase tracking-widest">No receipts yet</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="8" class="px-3 py-6 text-center text-slate-400 text-xs font-black uppercase tracking-widest">No receipts yet</td></tr>`;
       return;
     }
     tbody.innerHTML = _invRegistryListCache.slice(0, 100).map(r => `
       <tr class="hover:bg-slate-50/60 transition-colors">
+        <td class="px-3 py-2.5 font-black text-slate-500 text-xs">${_escHtml(r.purchases?.purchase_no || '—')}</td>
         <td class="px-3 py-2.5 font-bold text-slate-700 text-xs">${_escHtml(r.products?.name || '—')}${r.products?.code ? ` <span class="text-slate-400">(${_escHtml(r.products.code)})</span>` : ''}</td>
         <td class="px-3 py-2.5 text-xs font-bold text-slate-600">${r.quantity}</td>
         <td class="px-3 py-2.5 text-xs font-bold text-slate-600">${r.qty_remaining}</td>

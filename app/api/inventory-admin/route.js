@@ -708,11 +708,11 @@ async function _registryCreate(payload) {
 // voucher/brand so the list stays usable once it grows.
 async function _registryList(payload) {
   const q = (payload && payload.q || '').trim().toLowerCase();
-  const rows = await sbInventory('purchase_items?select=id,product_id,quantity,qty_remaining,unit_price,final_amount,voucher_number,purchase_date,brand,category,created_at,products(name,code)&order=created_at.desc&limit=300');
+  const rows = await sbInventory('purchase_items?select=id,product_id,quantity,qty_remaining,unit_price,final_amount,voucher_number,purchase_date,brand,category,created_at,products(name,code),purchases(purchase_no)&order=created_at.desc&limit=300');
   if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
   let filtered = Array.isArray(rows) ? rows : [];
   if (q) {
-    filtered = filtered.filter(r => `${r.products?.name || ''} ${r.products?.code || ''} ${r.voucher_number || ''} ${r.brand || ''} ${r.category || ''}`.toLowerCase().includes(q));
+    filtered = filtered.filter(r => `${r.products?.name || ''} ${r.products?.code || ''} ${r.voucher_number || ''} ${r.brand || ''} ${r.category || ''} ${r.purchases?.purchase_no || ''}`.toLowerCase().includes(q));
   }
   return NextResponse.json({ result: 'success', data: filtered });
 }
