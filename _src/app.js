@@ -17565,7 +17565,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function switchInvAdminTab(tab) {
     _invAdminActiveTab = tab;
-    ['stock', 'registry', 'distribute', 'settings', 'reports'].forEach(t => {
+    _invCurrentProductDetailId = null;
+    ['stock', 'registry', 'distribute', 'settings', 'reports', 'history'].forEach(t => {
       const btn = document.getElementById('invAdminTab_' + t);
       if (!btn) return;
       btn.classList.toggle('bg-blue-600', t === tab);
@@ -18726,9 +18727,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
   }
 
+  let _invCurrentProductDetailId = null;
+
   function openInventoryProductDetail(productId) {
     const body = document.getElementById('invAdminBody');
     if (!body) return;
+    _invCurrentProductDetailId = productId;
     body.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`;
     _invAdminFetch('product_history', { id: productId }).then(res => {
       if (!res || res.result !== 'success') { body.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml((res && res.message) || 'Failed to load')}</div>`; return; }
@@ -18762,8 +18766,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Unit Price</th>
               <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Remaining</th>
               <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest">Voucher</th>
+              <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Actions</th>
             </tr></thead>
-            <tbody>${receiptHistory.map(r => `<tr class="border-t border-slate-50">
+            <tbody>${receiptHistory.map(r => { const rForEdit = { ...r, products: { name: product.name, code: product.code } }; return `<tr class="border-t border-slate-50">
               <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(r.purchase_date || (r.purchases && r.purchases.created_at) || '—')}</td>
               <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml(r.voucher_number || '—')}</td>
               <td class="px-3 py-2.5 font-bold text-slate-700">${_escHtml(r.brand || '—')}</td>
@@ -18772,7 +18777,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(r.unit_price || 0).toFixed(2)}</td>
               <td class="px-3 py-2.5 font-black text-slate-800 text-right">${Number(r.qty_remaining || 0)}</td>
               <td class="px-3 py-2.5">${r.voucher_photo_url ? `<a href="${r.voucher_photo_url}" target="_blank" class="text-blue-600 font-bold hover:underline">View</a>` : '—'}</td>
-            </tr>`).join('')}</tbody>
+              <td class="px-3 py-2.5 text-right whitespace-nowrap">
+                <button onclick='_invOpenRegistryEditModal(${JSON.stringify(rForEdit).replace(/'/g, "&apos;")})' class="text-blue-600 font-black text-[10px] uppercase tracking-widest mr-3">Edit</button>
+                <button onclick="_invDeleteRegistryEntry(${r.id})" class="text-red-500 font-black text-[10px] uppercase tracking-widest">Delete</button>
+              </td>
+            </tr>`; }).join('')}</tbody>
           </table>
         </div>`}
         <p class="text-sm font-black text-slate-800 uppercase tracking-widest mb-3">Distribution History</p>
@@ -18789,8 +18798,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Quantity</th>
               <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Unit Price</th>
               <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Total Price</th>
+              <th class="px-3 py-2.5 font-black text-slate-500 uppercase tracking-widest text-right">Actions</th>
             </tr></thead>
-            <tbody>${history.map(h => `<tr class="border-t border-slate-50">
+            <tbody>${history.map(h => { const distId = h.distributions && h.distributions.id; return `<tr class="border-t border-slate-50">
               <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml((h.distributions && h.distributions.distribute_date) || '—')}</td>
               <td class="px-3 py-2.5 font-bold text-slate-500">${_escHtml((h.distributions && h.distributions.distribute_no) || '—')}</td>
               <td class="px-3 py-2.5 font-bold text-slate-700">${_escHtml((h.distributions && h.distributions.consumers && h.distributions.consumers.name) || '—')}</td>
@@ -18800,7 +18810,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(h.quantity || 0)}</td>
               <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(h.unit_price || 0).toFixed(2)}</td>
               <td class="px-3 py-2.5 font-bold text-slate-600 text-right">${Number(h.total_price || 0).toFixed(2)}</td>
-            </tr>`).join('')}</tbody>
+              <td class="px-3 py-2.5 text-right whitespace-nowrap">${distId ? `<button onclick="_invEditDistributionFromHistory(${distId})" class="text-blue-600 font-black text-[10px] uppercase tracking-widest mr-3">Edit</button><button onclick="_invDistributeDeleteOne(${distId})" class="text-red-500 font-black text-[10px] uppercase tracking-widest">Delete</button>` : '—'}</td>
+            </tr>`; }).join('')}</tbody>
           </table>
         </div>`}
       `;
@@ -19199,53 +19210,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
       </div>
 
-      <div id="invRegistryEditModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-        <div class="bg-white rounded-2xl p-5 w-full max-w-md max-h-[85vh] overflow-y-auto">
-          <div class="flex items-center justify-between mb-4">
-            <p class="font-black text-slate-800 text-sm">Edit Receipt</p>
-            <button onclick="_invCloseRegistryEditModal()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
-          </div>
-          <input type="hidden" id="invRegEditId">
-          <div class="space-y-3">
-            <p id="invRegEditProductLabel" class="text-xs font-black text-slate-800"></p>
-            <div class="grid grid-cols-2 gap-3">
-              <div>
-                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Quantity</label>
-                <input id="invRegEditQty" type="number" min="1" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1">
-              </div>
-              <div>
-                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Unit Price</label>
-                <input id="invRegEditPrice" type="number" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1">
-              </div>
-            </div>
-            <div class="grid grid-cols-2 gap-3">
-              <div>
-                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Voucher Number</label>
-                <input id="invRegEditVoucher" type="text" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1">
-              </div>
-              <div>
-                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Date</label>
-                <input id="invRegEditDate" type="date" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1">
-              </div>
-            </div>
-            <div class="grid grid-cols-2 gap-3">
-              <div>
-                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Brand</label>
-                <input id="invRegEditBrand" type="text" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1">
-              </div>
-              <div>
-                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Category</label>
-                <input id="invRegEditCategory" type="text" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1">
-              </div>
-            </div>
-            <p id="invRegEditStatus" class="text-xs font-bold"></p>
-          </div>
-          <div class="flex justify-end gap-2 mt-5">
-            <button onclick="_invCloseRegistryEditModal()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
-            <button onclick="_invSaveRegistryEdit()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Changes</button>
-          </div>
-        </div>
-      </div>`;
+      `;
     lucide.createIcons();
     const input = document.getElementById('invRegistryProductQuery');
     input.addEventListener('input', () => { _invRegistrySelectedProduct = null; _invRenderRegistryMatches(input.value.trim()); });
@@ -19315,7 +19280,49 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }).join('');
   }
 
+  // The modal itself only lives in the Registry tab's own template — inject
+  // it into the DOM on demand (same pattern as openInventoryDistributeFor)
+  // so Edit/Delete on a registry row also works from Product Detail's
+  // "Registry History" table, not just the Registry tab's own list.
+  function _invEnsureRegistryEditModal() {
+    if (document.getElementById('invRegistryEditModal')) return;
+    const div = document.createElement('div');
+    div.innerHTML = `
+      <div id="invRegistryEditModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-md max-h-[85vh] overflow-y-auto">
+          <div class="flex items-center justify-between mb-4">
+            <p class="font-black text-slate-800 text-sm">Edit Receipt</p>
+            <button onclick="_invCloseRegistryEditModal()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+          </div>
+          <input type="hidden" id="invRegEditId">
+          <div class="space-y-3">
+            <p id="invRegEditProductLabel" class="text-xs font-black text-slate-800"></p>
+            <div class="grid grid-cols-2 gap-3">
+              <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Quantity</label><input id="invRegEditQty" type="number" min="1" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1"></div>
+              <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Unit Price</label><input id="invRegEditPrice" type="number" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1"></div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Voucher Number</label><input id="invRegEditVoucher" type="text" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1"></div>
+              <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Date</label><input id="invRegEditDate" type="date" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1"></div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Brand</label><input id="invRegEditBrand" type="text" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1"></div>
+              <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Category</label><input id="invRegEditCategory" type="text" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1"></div>
+            </div>
+            <p id="invRegEditStatus" class="text-xs font-bold"></p>
+          </div>
+          <div class="flex justify-end gap-2 mt-5">
+            <button onclick="_invCloseRegistryEditModal()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
+            <button onclick="_invSaveRegistryEdit()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Changes</button>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(div.firstElementChild);
+    lucide.createIcons();
+  }
+
   function _invOpenRegistryEditModal(r) {
+    _invEnsureRegistryEditModal();
     document.getElementById('invRegEditId').value = r.id;
     document.getElementById('invRegEditProductLabel').textContent = `${r.products?.name || 'Product'}${r.products?.code ? ' (' + r.products.code + ')' : ''}`;
     document.getElementById('invRegEditQty').value = r.quantity;
@@ -19343,7 +19350,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       brand: document.getElementById('invRegEditBrand').value,
       category: document.getElementById('invRegEditCategory').value,
     }).then(res => {
-      if (res && res.result === 'success') { showToast('Receipt updated'); _invCloseRegistryEditModal(); _invLoadRegistryList(); }
+      if (res && res.result === 'success') { showToast('Receipt updated'); _invCloseRegistryEditModal(); _invRefreshAfterRegistryChange(); }
       else { status.className = 'text-xs font-bold text-red-500'; status.textContent = (res && res.message) || 'Failed to save'; }
     }).catch(() => { status.className = 'text-xs font-bold text-red-500'; status.textContent = 'Failed to save'; });
   }
@@ -19351,9 +19358,29 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _invDeleteRegistryEntry(id) {
     if (!confirm('Delete this registry entry? Only allowed if nothing has been distributed from it yet.')) return;
     _invAdminFetch('registry_delete', { id }).then(res => {
-      if (res && res.result === 'success') { showToast('Deleted'); _invLoadRegistryList(); }
+      if (res && res.result === 'success') { showToast('Deleted'); _invRefreshAfterRegistryChange(); }
       else showToast((res && res.message) || 'Failed to delete', 'error');
     }).catch(() => showToast('Failed to delete', 'error'));
+  }
+
+  // Edit/Delete on a registry row is reachable both from the Registry tab's
+  // own list and from a specific product's "Full History" detail view —
+  // refresh whichever one is actually on screen instead of assuming it's
+  // always the Registry tab.
+  function _invRefreshAfterRegistryChange() {
+    if (document.getElementById('invRegistryListBody')) { _invLoadRegistryList(); return; }
+    if (_invCurrentProductDetailId) { openInventoryProductDetail(_invCurrentProductDetailId); }
+  }
+
+  // Same idea as the registry refresh above — Edit/Delete on a distribution
+  // row reachable from Product Detail should reload that view, not silently
+  // no-op because loadInventoryDistributeList() targets the Distribute
+  // tab's own elements which aren't on screen from here.
+  function _invEditDistributionFromHistory(distId) {
+    _invAdminFetch('distribute_list', {}).then(res => {
+      _invDistributeRows = (res && res.data) || [];
+      _invOpenDistributeEditModal(distId);
+    });
   }
 
   // Resize to a max dimension (no crop — a voucher is a document, not a
@@ -19645,7 +19672,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (!res || (res.result !== 'success' && res.result !== 'partial')) { showToast((res && res.message) || 'Delete failed', 'error'); return; }
       if (res.errors && res.errors.length) { showToast(res.errors[0], 'error'); return; }
       showToast('Distribution deleted', 'success');
-      loadInventoryDistributeList();
+      if (_invCurrentProductDetailId) openInventoryProductDetail(_invCurrentProductDetailId);
+      else loadInventoryDistributeList();
     }).catch(err => showToast(err.message || 'Delete failed', 'error'));
   }
 
