@@ -18908,8 +18908,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
         <div class="inv-desktop-block overflow-x-auto">
           <table class="w-full text-left border-collapse text-xs">
-            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">When</th><th class="py-2 px-3">Actor</th><th class="py-2 px-3">Action</th><th class="py-2 px-3">Entity</th><th class="py-2 px-3">Details</th></tr></thead>
-            <tbody id="invAuditLogBody"><tr><td colspan="5" class="p-4 text-slate-400 font-bold text-xs text-center">Loading…</td></tr></tbody>
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">When</th><th class="py-2 px-3">Actor</th><th class="py-2 px-3">Action</th><th class="py-2 px-3">Entity</th><th class="py-2 px-3">Details</th><th class="py-2 px-3 text-right">Review</th></tr></thead>
+            <tbody id="invAuditLogBody"><tr><td colspan="6" class="p-4 text-slate-400 font-bold text-xs text-center">Loading…</td></tr></tbody>
           </table>
         </div>
         <div id="invAuditLogCards" class="md:hidden flex flex-col gap-1.5">
@@ -18920,41 +18920,107 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     loadInventoryAuditLog();
   }
 
+  // Actor names need the staff directory loaded first — without it
+  // staffLabel() just falls back to the raw user_id, dropping the
+  // name+designation the history is supposed to show.
   function loadInventoryAuditLog() {
     const entity = document.getElementById('invAuditEntityFilter')?.value || '';
-    _invAdminFetch('get_audit_log', { entity, limit: 200 }).then(res => {
-      const rows = (res && res.result === 'success' && res.log) || [];
-      const tbody = document.getElementById('invAuditLogBody');
-      const cards = document.getElementById('invAuditLogCards');
-      if (!rows.length) {
-        if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-slate-400 font-bold text-xs text-center">No activity yet.</td></tr>`;
-        if (cards) cards.innerHTML = `<p class="text-center text-slate-400 text-xs font-black uppercase tracking-widest py-6">No activity yet.</p>`;
-        return;
-      }
-      if (tbody) tbody.innerHTML = rows.map(r => {
-        const actorLabel = staffLabel(r.actor_user_id);
-        const when = new Date(r.created_at).toLocaleString();
-        const actionLabel = INV_AUDIT_ACTION_LABELS[r.action] || r.action;
-        const details = r.details ? `<code class="text-[10px] text-slate-400">${_escHtml(JSON.stringify(r.details).slice(0, 140))}</code>` : '';
-        return `<tr class="border-b border-slate-50">
-          <td class="py-1.5 px-3 text-slate-500">${when}</td>
-          <td class="py-1.5 px-3 font-black text-slate-700">${actorLabel !== r.actor_user_id ? actorLabel : r.actor_user_id}</td>
-          <td class="py-1.5 px-3 font-bold text-blue-600">${_escHtml(actionLabel)}</td>
-          <td class="py-1.5 px-3">${r.entity || '—'}${r.entity_id ? ` #${_escHtml(String(r.entity_id))}` : ''}</td>
-          <td class="py-1.5 px-3">${details}</td>
-        </tr>`;
-      }).join('');
-      if (cards) cards.innerHTML = rows.map(r => {
-        const actorLabel = staffLabel(r.actor_user_id);
-        const when = new Date(r.created_at).toLocaleString();
-        const actionLabel = INV_AUDIT_ACTION_LABELS[r.action] || r.action;
-        return `<div class="rounded-xl border border-slate-200 px-2.5 py-2 bg-white">
-          <p class="text-xs font-black text-blue-600">${_escHtml(actionLabel)}</p>
-          <p class="text-[10px] text-slate-500 font-bold">${actorLabel !== r.actor_user_id ? actorLabel : r.actor_user_id} · ${when}</p>
-          <p class="text-[10px] text-slate-400 font-bold">${r.entity || '—'}${r.entity_id ? ` #${_escHtml(String(r.entity_id))}` : ''}</p>
-        </div>`;
-      }).join('');
-    }).catch(() => showToast('Failed to load activity history', 'error'));
+    _ensureStaffCache(() => {
+      _invAdminFetch('get_audit_log', { entity, limit: 200 }).then(res => {
+        const rows = (res && res.result === 'success' && res.log) || [];
+        const tbody = document.getElementById('invAuditLogBody');
+        const cards = document.getElementById('invAuditLogCards');
+        if (!rows.length) {
+          if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-slate-400 font-bold text-xs text-center">No activity yet.</td></tr>`;
+          if (cards) cards.innerHTML = `<p class="text-center text-slate-400 text-xs font-black uppercase tracking-widest py-6">No activity yet.</p>`;
+          return;
+        }
+        if (tbody) tbody.innerHTML = rows.map(r => {
+          const actorLabel = staffLabel(r.actor_user_id);
+          const when = new Date(r.created_at).toLocaleString();
+          const actionLabel = INV_AUDIT_ACTION_LABELS[r.action] || r.action;
+          const details = r.details ? `<code class="text-[10px] text-slate-400">${_escHtml(JSON.stringify(r.details).slice(0, 140))}</code>` : '';
+          return `<tr class="border-b border-slate-50">
+            <td class="py-1.5 px-3 text-slate-500">${when}</td>
+            <td class="py-1.5 px-3 font-black text-slate-700">${actorLabel !== r.actor_user_id ? actorLabel : r.actor_user_id}</td>
+            <td class="py-1.5 px-3 font-bold text-blue-600">${_escHtml(actionLabel)}</td>
+            <td class="py-1.5 px-3">${r.entity || '—'}${r.entity_id ? ` #${_escHtml(String(r.entity_id))}` : ''}</td>
+            <td class="py-1.5 px-3">${details}</td>
+            <td class="py-1.5 px-3 text-right whitespace-nowrap">${_invAuditReviewAction(r)}</td>
+          </tr>`;
+        }).join('');
+        if (cards) cards.innerHTML = rows.map(r => {
+          const actorLabel = staffLabel(r.actor_user_id);
+          const when = new Date(r.created_at).toLocaleString();
+          const actionLabel = INV_AUDIT_ACTION_LABELS[r.action] || r.action;
+          return `<div class="rounded-xl border border-slate-200 px-2.5 py-2 bg-white">
+            <p class="text-xs font-black text-blue-600">${_escHtml(actionLabel)}</p>
+            <p class="text-[10px] text-slate-500 font-bold">${actorLabel !== r.actor_user_id ? actorLabel : r.actor_user_id} · ${when}</p>
+            <p class="text-[10px] text-slate-400 font-bold">${r.entity || '—'}${r.entity_id ? ` #${_escHtml(String(r.entity_id))}` : ''}</p>
+            <div class="mt-1">${_invAuditReviewAction(r)}</div>
+          </div>`;
+        }).join('');
+      }).catch(() => showToast('Failed to load activity history', 'error'));
+    });
+  }
+
+  // The clickable follow-through per row: "Open" jumps to the still-live
+  // record's edit form (create/update entries), "Restore"/"Recreate" use
+  // the snapshot captured at delete-time (see the dispatcher's
+  // registry_delete/distribute_delete handling) since the row itself is
+  // gone. Anything else (settings, imports) just links back to Settings —
+  // there's no per-row edit target worth deep-linking for those.
+  function _invAuditReviewAction(r) {
+    const id = r.entity_id;
+    if ((r.action === 'registry_create' || r.action === 'registry_update') && id) {
+      return `<button onclick="_invReviewRegistryEntry(${id})" class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-black">Open</button>`;
+    }
+    if (r.action === 'registry_delete' && r.details && r.details.snapshot) {
+      return `<button onclick='_invRestoreRegistryEntry(${JSON.stringify(r.details.snapshot).replace(/'/g, "&apos;")})' class="text-[10px] font-black text-emerald-600 uppercase tracking-widest hover:text-black">Restore</button>`;
+    }
+    if ((r.action === 'distribute_create' || r.action === 'distribute_update_full') && id) {
+      const singleId = String(id).split(',')[0];
+      return singleId ? `<button onclick="_invEditDistributionFromHistory(${singleId})" class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-black">Open</button>` : '—';
+    }
+    if (r.action === 'distribute_delete' && r.details && Array.isArray(r.details.snapshots) && r.details.snapshots.length) {
+      return `<button onclick='_invRecreateDistribution(${JSON.stringify(r.details.snapshots[0]).replace(/'/g, "&apos;")})' class="text-[10px] font-black text-emerald-600 uppercase tracking-widest hover:text-black">Recreate</button>`;
+    }
+    if (r.entity && ['products', 'groups', 'units', 'consumers'].includes(r.entity)) {
+      return `<button onclick="switchInvAdminTab('settings')" class="text-[10px] font-black text-slate-500 uppercase tracking-widest hover:text-black">Open Settings</button>`;
+    }
+    return '—';
+  }
+
+  function _invReviewRegistryEntry(id) {
+    _invAdminFetch('registry_list', { q: '' }).then(res => {
+      const row = ((res && res.data) || []).find(r => r.id === id);
+      if (!row) { showToast('This receipt no longer exists.', 'error'); return; }
+      switchInvAdminTab('registry');
+      setTimeout(() => _invOpenRegistryEditModal(row), 50);
+    });
+  }
+
+  function _invRestoreRegistryEntry(snapshot) {
+    if (!confirm(`Restore this deleted receipt — ${snapshot.quantity} × ${snapshot.products?.name || 'product'}? This creates a brand-new lot with the same details (full quantity, nothing distributed).`)) return;
+    _invAdminFetch('registry_restore', { snapshot }).then(res => {
+      if (res && res.result === 'success') { showToast('Receipt restored'); switchInvAdminTab('registry'); }
+      else showToast((res && res.message) || 'Failed to restore', 'error');
+    }).catch(() => showToast('Failed to restore', 'error'));
+  }
+
+  // Not an automatic silent restore — re-creating a distribution moves
+  // stock again (FIFO draw + holder_stock credit), which could clash with
+  // whatever's happened to that product since the original was deleted.
+  // Safer to preselect the product and hand the admin the original
+  // quantity/recipient to re-enter deliberately in the New Distribution form.
+  function _invRecreateDistribution(snapshot) {
+    const productId = snapshot.distribution_items && snapshot.distribution_items[0] && snapshot.distribution_items[0].product_id;
+    if (!productId) { showToast('No product info in this snapshot.', 'error'); return; }
+    const item = snapshot.distribution_items[0];
+    const recipientName = (snapshot.consumers && snapshot.consumers.name) || 'the original recipient';
+    showToast(`Re-enter: ${item.quantity} × ${(item.products && item.products.name) || 'product'} for ${recipientName}`, 'success');
+    switchInvAdminTab('distribute');
+    setTimeout(() => openInventoryDistributeFor(productId), 50);
   }
 
   function _invSelectReport(key) {

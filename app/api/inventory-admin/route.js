@@ -809,6 +809,35 @@ async function _registryDelete(payload) {
   return NextResponse.json({ result: 'success' });
 }
 
+// Re-creates a fresh purchase_items lot from a deleted receipt's audit-log
+// snapshot — registry_delete only ever succeeds when qty_remaining equals
+// quantity (nothing distributed yet, see _registryDelete's own guard), so
+// "restore" is always a clean full-quantity lot, never a partial-usage
+// state to reconstruct.
+async function _registryRestore(payload) {
+  const s = payload && payload.snapshot;
+  if (!s || !s.product_id || !s.quantity) return NextResponse.json({ result: 'error', message: 'Nothing to restore — this deletion has no snapshot.' }, { status: 400 });
+  const purchase = await sbInventory('purchases', 'POST', { purchase_no: `RESTORE-${Date.now()}`, remarks: 'Restored from a deleted registry entry' });
+  if (purchase?.error) return NextResponse.json({ result: 'error', message: purchase.error }, { status: 500 });
+  const purchaseId = purchase[0].id;
+  const item = await sbInventory('purchase_items', 'POST', {
+    purchase_id: purchaseId,
+    product_id: s.product_id,
+    quantity: s.quantity,
+    qty_in_root_unit: s.quantity,
+    qty_remaining: s.quantity,
+    unit_price: s.unit_price || 0,
+    final_amount: (s.unit_price || 0) * s.quantity,
+    voucher_number: s.voucher_number || null,
+    purchase_date: s.purchase_date || new Date().toISOString().slice(0, 10),
+    brand: s.brand || null,
+    category: s.category || null,
+    voucher_photo_url: s.voucher_photo_url || null,
+  });
+  if (item?.error) return NextResponse.json({ result: 'error', message: item.error }, { status: 500 });
+  return NextResponse.json({ result: 'success', purchase_item: item[0] });
+}
+
 // Distinct brand/category values still available (qty_remaining > 0) for a
 // product — the distribute form only shows a dropdown when this returns at
 // least one value for that dimension, so products nobody bothered to tag
@@ -1617,9 +1646,23 @@ export async function POST(req) {
   if (action === 'registry_create') return _invAuditFromResponse(await _registryCreate(payload), user_id, 'registry_create', 'purchase_items', payload.product_id, { product_id: payload.product_id, quantity: payload.quantity, unit_price: payload.unit_price, voucher_number: payload.voucher_number });
   if (action === 'registry_list') return _registryList(payload);
   if (action === 'registry_update') return _invAuditFromResponse(await _registryUpdate(payload), user_id, 'registry_update', 'purchase_items', payload.id, { quantity: payload.quantity, unit_price: payload.unit_price, voucher_number: payload.voucher_number });
-  if (action === 'registry_delete') return _invAuditFromResponse(await _registryDelete(payload), user_id, 'registry_delete', 'purchase_items', payload.id, null);
+  if (action === 'registry_delete') {
+    // Snapshot BEFORE deleting — this is the only place the row's data still
+    // exists once the delete succeeds, and it's what powers the History
+    // tab's "Restore" button.
+    const snapRows = payload.id ? await sbInventory(`purchase_items?id=eq.${encodeURIComponent(payload.id)}&select=*,products(name,code)`) : null;
+    const snapshot = (!snapRows?.error && Array.isArray(snapRows) && snapRows[0]) || null;
+    return _invAuditFromResponse(await _registryDelete(payload), user_id, 'registry_delete', 'purchase_items', payload.id, { snapshot });
+  }
   if (action === 'distribute_list') return _distributeList();
-  if (action === 'distribute_delete') return _invAuditFromResponse(await _distributeDelete(payload), user_id, 'distribute_delete', 'distributions', payload.id || (payload.ids || []).join(','), { ids: payload.ids || payload.id });
+  if (action === 'distribute_delete') {
+    const delIds = Array.isArray(payload.ids) ? payload.ids : (payload.id ? [payload.id] : []);
+    const snapRows = delIds.length
+      ? await sbInventory(`distributions?id=in.(${delIds.map(id => encodeURIComponent(id)).join(',')})&select=*,consumers!distributions_consumer_id_fkey(name,type),distribution_items(*,products(name,code))`)
+      : null;
+    const snapshots = (!snapRows?.error && Array.isArray(snapRows)) ? snapRows : [];
+    return _invAuditFromResponse(await _distributeDelete(payload), user_id, 'distribute_delete', 'distributions', delIds.join(','), { snapshots });
+  }
   if (action === 'distribute_update_full') return _invAuditFromResponse(await _distributeUpdateFull(payload), user_id, 'distribute_update_full', 'distributions', payload.id, { id: payload.id, product_id: payload.product_id, quantity: payload.quantity, consumer_id: payload.consumer_id });
   if (action === 'report_product_value_summary') return _reportProductValueSummary();
   if (action === 'report_stock_overview') return _reportStockOverview();
@@ -1630,6 +1673,7 @@ export async function POST(req) {
   if (action === 'distribute_create') return _invAuditFromResponse(await _distributeCreate(payload), user_id, 'distribute_create', 'distributions', payload.product_id, { product_id: payload.product_id, quantity: payload.quantity, consumer_id: payload.consumer_id, brand: payload.brand, category: payload.category });
   if (action === 'product_attribute_options') return _productAttributeOptions(payload);
   if (action === 'get_audit_log') return _invGetAuditLog(payload);
+  if (action === 'registry_restore') return _invAuditFromResponse(await _registryRestore(payload), user_id, 'registry_restore', 'purchase_items', payload.snapshot?.product_id, { restored_from_snapshot: true, product_id: payload.snapshot?.product_id, quantity: payload.snapshot?.quantity });
 
   return NextResponse.json({ result: 'error', message: 'Unknown action' }, { status: 400 });
 }
