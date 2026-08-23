@@ -19096,7 +19096,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <input id="invRegistryListSearch" type="search" placeholder="Search…" oninput="_invRegistryListSearch()" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2">
           </div>
         </div>
-        <div class="overflow-x-auto">
+        <div class="inv-desktop-block overflow-x-auto">
           <table class="w-full text-left border-collapse">
             <thead>
               <tr class="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-widest border-b border-slate-100">
@@ -19105,6 +19105,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </thead>
             <tbody id="invRegistryListBody" class="divide-y divide-slate-100"><tr><td colspan="8" class="px-3 py-6 text-center text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</td></tr></tbody>
           </table>
+        </div>
+        <div id="invRegistryCardsBody" class="md:hidden flex flex-col gap-1.5">
+          <p class="text-center text-slate-400 text-xs font-black uppercase tracking-widest py-6">Loading…</p>
         </div>
       </div>
 
@@ -19171,6 +19174,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }).catch(() => {
       const tbody = document.getElementById('invRegistryListBody');
       if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="px-3 py-6 text-center text-red-500 text-xs font-black uppercase tracking-widest">Failed to load</td></tr>`;
+      const cards = document.getElementById('invRegistryCardsBody');
+      if (cards) cards.innerHTML = `<p class="text-center text-red-500 text-xs font-black uppercase tracking-widest py-6">Failed to load</p>`;
     });
   }
 
@@ -19183,12 +19188,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function _invRenderRegistryList() {
     const tbody = document.getElementById('invRegistryListBody');
-    if (!tbody) return;
+    const cards = document.getElementById('invRegistryCardsBody');
+    if (!tbody && !cards) return;
     if (!_invRegistryListCache.length) {
-      tbody.innerHTML = `<tr><td colspan="8" class="px-3 py-6 text-center text-slate-400 text-xs font-black uppercase tracking-widest">No receipts yet</td></tr>`;
+      if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="px-3 py-6 text-center text-slate-400 text-xs font-black uppercase tracking-widest">No receipts yet</td></tr>`;
+      if (cards) cards.innerHTML = `<p class="text-center text-slate-400 text-xs font-black uppercase tracking-widest py-6">No receipts yet</p>`;
       return;
     }
-    tbody.innerHTML = _invRegistryListCache.slice(0, 100).map(r => `
+    const shown = _invRegistryListCache.slice(0, 100);
+    if (tbody) tbody.innerHTML = shown.map(r => `
       <tr class="hover:bg-slate-50/60 transition-colors">
         <td class="px-3 py-2.5 font-black text-slate-500 text-xs">${_escHtml(r.purchases?.purchase_no || '—')}</td>
         <td class="px-3 py-2.5 font-bold text-slate-700 text-xs">${_escHtml(r.products?.name || '—')}${r.products?.code ? ` <span class="text-slate-400">(${_escHtml(r.products.code)})</span>` : ''}</td>
@@ -19202,6 +19210,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button onclick="_invDeleteRegistryEntry(${r.id})" class="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-700">Delete</button>
         </td>
       </tr>`).join('');
+    if (cards) cards.innerHTML = shown.map(r => {
+      const price = r.unit_price != null ? Number(r.unit_price) : null;
+      return `
+      <div class="rounded-xl border border-slate-200 px-2.5 py-2 bg-white">
+        <p class="text-xs font-black text-slate-800">${_escHtml(r.products?.name || '—')}${r.products?.code ? ` <span class="font-bold text-slate-500">(${_escHtml(r.products.code)})</span>` : ''}</p>
+        <p class="text-[9px] text-slate-400 font-bold mb-0.5">Receipt ID: ${_escHtml(r.purchases?.purchase_no || '—')}</p>
+        <p class="text-[10px] text-slate-500 font-bold">Qty: ${r.quantity} · Remaining: ${r.qty_remaining}</p>
+        <p class="text-[10px] text-slate-500 font-bold">Unit Price: ${price != null ? price.toLocaleString() : '—'} · Voucher: ${_escHtml(r.voucher_number || '—')}</p>
+        <p class="text-[10px] text-slate-500 font-bold">Date: ${r.purchase_date || (r.created_at || '').slice(0, 10)}</p>
+        <div class="flex items-center gap-3 mt-1.5">
+          <button onclick='_invOpenRegistryEditModal(${JSON.stringify(r).replace(/'/g, "&apos;")})' class="text-[10px] font-black text-blue-600 uppercase tracking-widest">Edit</button>
+          <button onclick="_invDeleteRegistryEntry(${r.id})" class="text-[10px] font-black text-red-500 uppercase tracking-widest">Delete</button>
+        </div>
+      </div>`;
+    }).join('');
   }
 
   function _invOpenRegistryEditModal(r) {
