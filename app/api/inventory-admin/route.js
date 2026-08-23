@@ -702,6 +702,76 @@ async function _registryCreate(payload) {
   return NextResponse.json({ result: 'success', purchase_id: purchaseId, purchase_item: item[0] });
 }
 
+// Recent receipts for the Registry tab's own list (distinct from
+// _reportRegistry, which is the date-ranged export under Reports) —
+// newest first, capped, optional text search across product name/code/
+// voucher/brand so the list stays usable once it grows.
+async function _registryList(payload) {
+  const q = (payload && payload.q || '').trim().toLowerCase();
+  const rows = await sbInventory('purchase_items?select=id,product_id,quantity,qty_remaining,unit_price,final_amount,voucher_number,purchase_date,brand,category,created_at,products(name,code)&order=created_at.desc&limit=300');
+  if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+  let filtered = Array.isArray(rows) ? rows : [];
+  if (q) {
+    filtered = filtered.filter(r => `${r.products?.name || ''} ${r.products?.code || ''} ${r.voucher_number || ''} ${r.brand || ''} ${r.category || ''}`.toLowerCase().includes(q));
+  }
+  return NextResponse.json({ result: 'success', data: filtered });
+}
+
+// Editing a receipt can't silently break FIFO — if stock has already been
+// distributed out of this lot (qty_remaining < quantity), the new quantity
+// can never drop below what's already gone, and qty_remaining shifts by
+// exactly the same delta as quantity so "how much of this lot is still on
+// the shelf" stays correct after the edit.
+async function _registryUpdate(payload) {
+  const id = payload && payload.id;
+  if (!id) return NextResponse.json({ result: 'error', message: 'id is required.' }, { status: 400 });
+  const existingRows = await sbInventory(`purchase_items?id=eq.${encodeURIComponent(id)}&select=*`);
+  if (existingRows?.error) return NextResponse.json({ result: 'error', message: existingRows.error }, { status: 500 });
+  const existing = Array.isArray(existingRows) && existingRows[0];
+  if (!existing) return NextResponse.json({ result: 'error', message: 'Registry entry not found.' }, { status: 404 });
+
+  const alreadyDistributed = Number(existing.quantity) - Number(existing.qty_remaining);
+  const newQty = payload.quantity != null ? Number(payload.quantity) : Number(existing.quantity);
+  if (!newQty || newQty <= 0) return NextResponse.json({ result: 'error', message: 'Quantity must be a positive number.' }, { status: 400 });
+  if (newQty < alreadyDistributed) {
+    return NextResponse.json({ result: 'error', message: `Can't reduce quantity below ${alreadyDistributed} — that much has already been distributed out of this lot.` }, { status: 400 });
+  }
+  const newPrice = payload.unit_price != null ? Number(payload.unit_price) : Number(existing.unit_price) || 0;
+  const rowData = {
+    quantity: newQty,
+    qty_in_root_unit: newQty,
+    qty_remaining: newQty - alreadyDistributed,
+    unit_price: newPrice,
+    final_amount: newPrice * newQty,
+    voucher_number: payload.voucher_number !== undefined ? (payload.voucher_number || null) : existing.voucher_number,
+    purchase_date: payload.purchase_date || existing.purchase_date,
+    brand: payload.brand !== undefined ? (payload.brand || null) : existing.brand,
+    category: payload.category !== undefined ? (payload.category || null) : existing.category,
+  };
+  const saved = await sbInventory(`purchase_items?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData);
+  if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+  return NextResponse.json({ result: 'success', purchase_item: Array.isArray(saved) ? saved[0] : saved });
+}
+
+// Only a completely untouched lot (nothing drawn from it yet) can be
+// deleted outright — one that's been partially or fully distributed has
+// distribution_items rows pointing at it (purchase_item_id), so removing
+// it would corrupt FIFO history and orphan those references.
+async function _registryDelete(payload) {
+  const id = payload && payload.id;
+  if (!id) return NextResponse.json({ result: 'error', message: 'id is required.' }, { status: 400 });
+  const existingRows = await sbInventory(`purchase_items?id=eq.${encodeURIComponent(id)}&select=quantity,qty_remaining`);
+  if (existingRows?.error) return NextResponse.json({ result: 'error', message: existingRows.error }, { status: 500 });
+  const existing = Array.isArray(existingRows) && existingRows[0];
+  if (!existing) return NextResponse.json({ result: 'error', message: 'Registry entry not found.' }, { status: 404 });
+  if (Number(existing.qty_remaining) < Number(existing.quantity)) {
+    return NextResponse.json({ result: 'error', message: 'Some of this lot has already been distributed — it can\'t be deleted. Reduce distributed items first if this was a mistake.' }, { status: 400 });
+  }
+  const del = await sbInventory(`purchase_items?id=eq.${encodeURIComponent(id)}`, 'DELETE');
+  if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
+  return NextResponse.json({ result: 'success' });
+}
+
 // Distinct brand/category values still available (qty_remaining > 0) for a
 // product — the distribute form only shows a dropdown when this returns at
 // least one value for that dimension, so products nobody bothered to tag
@@ -1508,6 +1578,9 @@ export async function POST(req) {
   if (action === 'product_quick_view') return _productQuickView(payload);
   if (action === 'product_history') return _productHistory(payload);
   if (action === 'registry_create') return _registryCreate(payload);
+  if (action === 'registry_list') return _registryList(payload);
+  if (action === 'registry_update') return _registryUpdate(payload);
+  if (action === 'registry_delete') return _registryDelete(payload);
   if (action === 'distribute_list') return _distributeList();
   if (action === 'distribute_delete') return _distributeDelete(payload);
   if (action === 'distribute_update_full') return _distributeUpdateFull(payload);

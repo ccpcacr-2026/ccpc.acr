@@ -19087,11 +19087,161 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
         <div id="invRegistryStatus" class="text-xs font-bold mb-3"></div>
         <button id="invRegistrySubmitBtn" onclick="submitInventoryRegistry()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">Register Receipt</button>
+      </div>
+
+      <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 mt-4">
+        <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <p class="text-sm font-black text-slate-800 uppercase tracking-widest">Recent Receipts</p>
+          <div class="relative w-56">
+            <input id="invRegistryListSearch" type="search" placeholder="Search…" oninput="_invRegistryListSearch()" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2">
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-widest border-b border-slate-100">
+                <th class="px-3 py-2.5">Product</th><th class="px-3 py-2.5">Qty</th><th class="px-3 py-2.5">Remaining</th><th class="px-3 py-2.5">Unit Price</th><th class="px-3 py-2.5">Voucher</th><th class="px-3 py-2.5">Date</th><th class="px-3 py-2.5 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="invRegistryListBody" class="divide-y divide-slate-100"><tr><td colspan="7" class="px-3 py-6 text-center text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="invRegistryEditModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-md max-h-[85vh] overflow-y-auto">
+          <div class="flex items-center justify-between mb-4">
+            <p class="font-black text-slate-800 text-sm">Edit Receipt</p>
+            <button onclick="_invCloseRegistryEditModal()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+          </div>
+          <input type="hidden" id="invRegEditId">
+          <div class="space-y-3">
+            <p id="invRegEditProductLabel" class="text-xs font-black text-slate-800"></p>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Quantity</label>
+                <input id="invRegEditQty" type="number" min="1" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1">
+              </div>
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Unit Price</label>
+                <input id="invRegEditPrice" type="number" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1">
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Voucher Number</label>
+                <input id="invRegEditVoucher" type="text" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1">
+              </div>
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Date</label>
+                <input id="invRegEditDate" type="date" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1">
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Brand</label>
+                <input id="invRegEditBrand" type="text" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1">
+              </div>
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Category</label>
+                <input id="invRegEditCategory" type="text" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs px-3 py-2 mt-1">
+              </div>
+            </div>
+            <p id="invRegEditStatus" class="text-xs font-bold"></p>
+          </div>
+          <div class="flex justify-end gap-2 mt-5">
+            <button onclick="_invCloseRegistryEditModal()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
+            <button onclick="_invSaveRegistryEdit()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Changes</button>
+          </div>
+        </div>
       </div>`;
     lucide.createIcons();
     const input = document.getElementById('invRegistryProductQuery');
     input.addEventListener('input', () => { _invRegistrySelectedProduct = null; _invRenderRegistryMatches(input.value.trim()); });
     _invAdminFetch('settings_list', { entity: 'products' }).then(res => { _invRegistryProducts = (res && res.data) || []; });
+    _invLoadRegistryList();
+  }
+
+  let _invRegistryListCache = [];
+
+  function _invLoadRegistryList(q) {
+    _invAdminFetch('registry_list', { q: q || '' }).then(res => {
+      _invRegistryListCache = (res && res.data) || [];
+      _invRenderRegistryList();
+    }).catch(() => {
+      const tbody = document.getElementById('invRegistryListBody');
+      if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="px-3 py-6 text-center text-red-500 text-xs font-black uppercase tracking-widest">Failed to load</td></tr>`;
+    });
+  }
+
+  let _invRegistryListSearchTimer = null;
+  function _invRegistryListSearch() {
+    clearTimeout(_invRegistryListSearchTimer);
+    const q = document.getElementById('invRegistryListSearch').value.trim();
+    _invRegistryListSearchTimer = setTimeout(() => _invLoadRegistryList(q), 250);
+  }
+
+  function _invRenderRegistryList() {
+    const tbody = document.getElementById('invRegistryListBody');
+    if (!tbody) return;
+    if (!_invRegistryListCache.length) {
+      tbody.innerHTML = `<tr><td colspan="7" class="px-3 py-6 text-center text-slate-400 text-xs font-black uppercase tracking-widest">No receipts yet</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = _invRegistryListCache.slice(0, 100).map(r => `
+      <tr class="hover:bg-slate-50/60 transition-colors">
+        <td class="px-3 py-2.5 font-bold text-slate-700 text-xs">${_escHtml(r.products?.name || '—')}${r.products?.code ? ` <span class="text-slate-400">(${_escHtml(r.products.code)})</span>` : ''}</td>
+        <td class="px-3 py-2.5 text-xs font-bold text-slate-600">${r.quantity}</td>
+        <td class="px-3 py-2.5 text-xs font-bold text-slate-600">${r.qty_remaining}</td>
+        <td class="px-3 py-2.5 text-xs font-bold text-slate-600">${r.unit_price != null ? Number(r.unit_price).toLocaleString() : '—'}</td>
+        <td class="px-3 py-2.5 text-xs font-bold text-slate-600">${_escHtml(r.voucher_number || '—')}</td>
+        <td class="px-3 py-2.5 text-xs font-bold text-slate-600">${r.purchase_date || (r.created_at || '').slice(0, 10)}</td>
+        <td class="px-3 py-2.5 text-right whitespace-nowrap">
+          <button onclick='_invOpenRegistryEditModal(${JSON.stringify(r).replace(/'/g, "&apos;")})' class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-black mr-3">Edit</button>
+          <button onclick="_invDeleteRegistryEntry(${r.id})" class="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-700">Delete</button>
+        </td>
+      </tr>`).join('');
+  }
+
+  function _invOpenRegistryEditModal(r) {
+    document.getElementById('invRegEditId').value = r.id;
+    document.getElementById('invRegEditProductLabel').textContent = `${r.products?.name || 'Product'}${r.products?.code ? ' (' + r.products.code + ')' : ''}`;
+    document.getElementById('invRegEditQty').value = r.quantity;
+    document.getElementById('invRegEditPrice').value = r.unit_price != null ? r.unit_price : '';
+    document.getElementById('invRegEditVoucher').value = r.voucher_number || '';
+    document.getElementById('invRegEditDate').value = r.purchase_date || (r.created_at || '').slice(0, 10);
+    document.getElementById('invRegEditBrand').value = r.brand || '';
+    document.getElementById('invRegEditCategory').value = r.category || '';
+    document.getElementById('invRegEditStatus').textContent = '';
+    document.getElementById('invRegistryEditModal').classList.remove('hidden');
+  }
+
+  function _invCloseRegistryEditModal() { document.getElementById('invRegistryEditModal').classList.add('hidden'); }
+
+  function _invSaveRegistryEdit() {
+    const id = document.getElementById('invRegEditId').value;
+    const status = document.getElementById('invRegEditStatus');
+    status.className = 'text-xs font-bold text-slate-400'; status.textContent = 'Saving…';
+    _invAdminFetch('registry_update', {
+      id,
+      quantity: document.getElementById('invRegEditQty').value,
+      unit_price: document.getElementById('invRegEditPrice').value,
+      voucher_number: document.getElementById('invRegEditVoucher').value,
+      purchase_date: document.getElementById('invRegEditDate').value,
+      brand: document.getElementById('invRegEditBrand').value,
+      category: document.getElementById('invRegEditCategory').value,
+    }).then(res => {
+      if (res && res.result === 'success') { showToast('Receipt updated'); _invCloseRegistryEditModal(); _invLoadRegistryList(); }
+      else { status.className = 'text-xs font-bold text-red-500'; status.textContent = (res && res.message) || 'Failed to save'; }
+    }).catch(() => { status.className = 'text-xs font-bold text-red-500'; status.textContent = 'Failed to save'; });
+  }
+
+  function _invDeleteRegistryEntry(id) {
+    if (!confirm('Delete this registry entry? Only allowed if nothing has been distributed from it yet.')) return;
+    _invAdminFetch('registry_delete', { id }).then(res => {
+      if (res && res.result === 'success') { showToast('Deleted'); _invLoadRegistryList(); }
+      else showToast((res && res.message) || 'Failed to delete', 'error');
+    }).catch(() => showToast('Failed to delete', 'error'));
   }
 
   // Resize to a max dimension (no crop — a voucher is a document, not a
