@@ -1120,6 +1120,21 @@ button { user-select: none; }
   position: absolute; top: 10px; left: 10px; right: 10px; z-index: 1000;
 }
 
+/* List/Route tab switcher — lives in the toolbar next to Export so it's
+   always a real, properly-sized clickable button on every screen width
+   (it used to sit in the sidebar's mobile-only header, which meant it had
+   no styling at all — and was therefore tiny/unclickable — above 767px). */
+.bt-toolbar-tab-btn {
+  padding: 6px 8px; border-radius: 999px; border: 1px solid #e2e8f0;
+  background: #fff; color: #475569; font-size: 10px; font-weight: 900;
+  text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer;
+  display: flex; align-items: center; gap: 6px; transition: all 0.15s;
+}
+@media (min-width: 640px) { .bt-toolbar-tab-btn { padding: 6px 14px; } }
+.bt-toolbar-tab-btn:hover { background: #f8fafc; }
+.bt-toolbar-tab-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+.bt-toolbar-tab-btn i { pointer-events: none; flex-shrink: 0; }
+
 #bus-sidebar {
   position: absolute; z-index: 900;
   /* Semi-transparent + blurred rather than solid white — the fleet list
@@ -1182,18 +1197,6 @@ button { user-select: none; }
   }
   .bt-fit-btn-inline:hover { background: rgba(37,99,235,0.15); color: #2563eb; }
 
-/* List/Route tab switcher — the bus list and Route History used to be two
-   separate floating panels that could both be open at once; now they're
-   one panel with these two tabs deciding which content shows. */
-.bt-sidebar-tab-btn {
-  flex: 1 1 0; display: flex !important; align-items: center; justify-content: center; gap: 4px;
-  text-align: center; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .02em;
-  padding: 6px 4px !important; border-radius: 10px !important; border: 1px solid rgba(148,163,184,0.35) !important; cursor: pointer;
-  background: #f1f5f9 !important; color: #64748b !important; transition: background .15s, color .15s;
-}
-.bt-sidebar-tab-btn i { width: 12px; height: 12px; pointer-events: none; }
-.bt-sidebar-tab-btn.active { background: #2563eb !important; color: #fff !important; border-color: #2563eb !important; }
-
   /* Chrome on Android auto-inflates any text it judges "too small to
      read" (a11y font-boosting) — silently overriding every small
      font-size below unless disabled here. This was making the whole
@@ -1215,9 +1218,9 @@ button { user-select: none; }
   }
   #bus-sidebar.bt-collapsed { bottom: auto; }
   #bus-sidebar.bt-collapsed #bt-panel-body { display: none; }
-  /* Tabs stay visible even while collapsed — tapping "Route" while
-     collapsed should be a one-tap way in (switchSidebarTab auto-expands),
-     not require expanding the list first just to find the Route tab. */
+  /* The List/Route tab buttons live in the always-visible toolbar now
+     (not in this collapsible panel), so tapping "Route" while collapsed
+     is already a one-tap way in — switchSidebarTab() auto-expands. */
 
   .bt-sheet-handle { display: none; }
 

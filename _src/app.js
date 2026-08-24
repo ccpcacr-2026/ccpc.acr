@@ -17902,6 +17902,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </div>
           </div>
           ${canExportBuses ? `<div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <button id="bt-tab-btn-list" onclick="BusTracking.switchSidebarTab('list')" title="Bus list" class="bt-toolbar-tab-btn active"><i data-lucide="bus" class="h-3.5 w-3.5"></i><span class="hidden sm:inline">List</span></button>
+            <button id="bt-tab-btn-route" onclick="BusTracking.switchSidebarTab('route')" title="Route history" class="bt-toolbar-tab-btn"><i data-lucide="route" class="h-3.5 w-3.5"></i><span class="hidden sm:inline">Route</span></button>
             <button onclick="BusTracking.exportBusData()" title="Export" class="px-2 sm:px-3.5 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="download" class="h-3.5 w-3.5"></i><span class="hidden sm:inline">Export</span></button>
           </div>` : ''}
           ${canExportBuses ? `<div id="bt-watchers-popover" class="hidden" style="position:absolute;top:56px;left:14px;z-index:1000;background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 10px 30px rgba(15,23,42,0.15);min-width:220px;max-width:280px;max-height:260px;overflow-y:auto;padding:10px;"></div>` : ''}
@@ -17914,11 +17916,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="fitBusesInBounds()" title="Fit all" class="bt-fit-btn-inline"><i data-lucide="maximize" class="h-3.5 w-3.5"></i></button>
             <button id="bt-fleet-toggle" onclick="toggleFleetSheet()" title="Show/hide bus list" class="bt-fit-btn-inline"><i data-lucide="bus" class="h-3.5 w-3.5"></i></button>
           </div>
-          ${canExportBuses ? `
-          <div id="bt-sidebar-tabs" class="flex items-center shrink-0" style="gap:4px;padding:4px 4px 3px">
-            <button id="bt-tab-btn-list" onclick="BusTracking.switchSidebarTab('list')" class="bt-sidebar-tab-btn active"><i data-lucide="bus" class="h-3 w-3"></i>List</button>
-            <button id="bt-tab-btn-route" onclick="BusTracking.switchSidebarTab('route')" class="bt-sidebar-tab-btn"><i data-lucide="route" class="h-3 w-3"></i>Route</button>
-          </div>` : ''}
           <div id="bt-panel-body" class="flex flex-col min-h-0 flex-1">
             <div id="bt-tab-content-list" class="flex flex-col min-h-0 flex-1">
               <div id="bus-info-panel" class="shrink-0"></div>
