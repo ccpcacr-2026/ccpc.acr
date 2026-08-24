@@ -422,15 +422,27 @@ function _busIsOffline(bus) {
   return (Date.now() - t.getTime()) > BT_OFFLINE_THRESHOLD_MS;
 }
 
+// Single source of truth for a bus's status — used by both the fleet
+// status bar (counts) and the sidebar list (per-row badge), so they can
+// never disagree the way they did when the list computed its own
+// Moving/Idle-only view independently of this.
+function _busStatusInfo(bus) {
+  if (_busIsOffline(bus)) return { key: 'offline', label: 'Offline', color: '#94a3b8' };
+  if (!bus.engine) return { key: 'engineOff', label: 'Engine Off', color: '#ef4444' };
+  if (bus.isMoving) return { key: 'moving', label: 'Moving', color: '#2563eb' };
+  return { key: 'idle', label: 'Idle', color: '#f59e0b' };
+}
+
 function _updateFleetStatusBar(buses) {
   const host = document.getElementById('bt-status-bar');
   if (!host) return;
   let moving = 0, engineOff = 0, idle = 0, offline = 0;
   buses.forEach(bus => {
-    if (_busIsOffline(bus)) { offline++; return; }
-    if (!bus.engine) { engineOff++; return; }
-    if (bus.isMoving) { moving++; return; }
-    idle++;
+    const s = _busStatusInfo(bus).key;
+    if (s === 'offline') offline++;
+    else if (s === 'engineOff') engineOff++;
+    else if (s === 'moving') moving++;
+    else idle++;
   });
   const cards = [
     { label: 'Total', value: buses.length, color: '#6366f1', icon: 'bus' },
@@ -476,7 +488,7 @@ function updateBusList(buses) {
 
   listContainer.innerHTML = sortedBuses.map(bus => {
     const name = busName(bus.imei);
-    const mv = !!bus.isMoving;
+    const status = _busStatusInfo(bus);
     const isSelected = selectedBusImei === bus.imei;
     const isChecked = selectedImeis.has(bus.imei);
     // Just the first segment (e.g. "Bayejid Bostami" out of "Bayejid
@@ -488,7 +500,9 @@ function updateBusList(buses) {
 
     // Row 1: checkbox + name. Row 2: status badge + location. Name is
     // never truncated (see #bus-sidebar's dynamic width) — it's the one
-    // thing worth the panel growing wider for.
+    // thing worth the panel growing wider for. Status now matches the
+    // same 4-state logic (Moving/Engine Off/Idle/Offline) the fleet
+    // status bar uses, instead of a Moving/Idle-only view of its own.
     return `
       <div class="bt-list-item ${isSelected ? 'active' : ''} ${isChecked ? '' : 'dimmed'}" title="${bus.imei}" onclick='selectBus(${JSON.stringify(bus.imei)}, ${JSON.stringify(bus)})'>
         <div class="bt-row1">
@@ -496,10 +510,10 @@ function updateBusList(buses) {
                  style="width:15px!important;height:15px!important;min-width:15px!important;flex-shrink:0;accent-color:#2563eb!important;cursor:pointer"
                  onclick="event.stopPropagation()" onchange='toggleBusVisibility(${JSON.stringify(bus.imei)}, this.checked)'>
           <span class="bt-row1-name">${name}</span>
-          <span class="bt-status-dot ${mv ? 'moving' : 'idle'}"></span>
+          <span class="bt-status-dot" style="background:${status.color};box-shadow:0 0 0 rgba(0,0,0,0.5)"></span>
         </div>
         <div class="bt-row2">
-          <span class="bt-badge-mini ${mv ? 'moving' : 'idle'}">${mv ? 'Moving' : 'Idle'}</span>
+          <span class="bt-badge-mini" style="background:${status.color}22;color:${status.color}">${status.label}</span>
           <span class="bt-addr">${addr}</span>
         </div>
       </div>
