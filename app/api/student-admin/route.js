@@ -3045,7 +3045,7 @@ export async function POST(req) {
     if (!imei || !date) return NextResponse.json({ result: 'error', message: 'imei and date required.' });
     const dayStart = `${date} 00:00:00`, dayEnd = `${date} 23:59:59`;
     const rows = await sb(
-      `bus_location_history?imei=eq.${encodeURIComponent(imei)}&location_time=gte.${encodeURIComponent(dayStart)}&location_time=lte.${encodeURIComponent(dayEnd)}&select=lat,lng,speed,heading,location_time&order=location_time.asc&limit=5000`
+      `bus_location_history?imei=eq.${encodeURIComponent(imei)}&location_time=gte.${encodeURIComponent(dayStart)}&location_time=lte.${encodeURIComponent(dayEnd)}&select=lat,lng,speed,heading,engine,location_time&order=location_time.asc&limit=5000`
     );
     if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
     return NextResponse.json({ result: 'success', points: Array.isArray(rows) ? rows : [] });

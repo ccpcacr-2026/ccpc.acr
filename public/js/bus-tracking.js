@@ -874,6 +874,17 @@ function _routeSpeedColor(spd) {
   const s = Math.round(parseFloat(spd)) || 0;
   return (ROUTE_SPEED_BUCKETS.find(b => s <= b.max) || ROUTE_SPEED_BUCKETS[ROUTE_SPEED_BUCKETS.length - 1]).color;
 }
+// Per-point state for route history/playback — get_bus_route_history now
+// selects `engine` alongside speed (it didn't before, so this was always
+// unavailable client-side regardless of what the UI tried to show).
+// engine === false is a real explicit reading; null/undefined (older
+// rows, or a gap in reporting) falls back to speed-only Moving/Idle
+// rather than wrongly asserting Engine Off.
+function _routePointStatus(p) {
+  const spd = Math.round(parseFloat(p.speed)) || 0;
+  if (p.engine === false) return 'Engine Off';
+  return spd > 2 ? 'Moving' : 'Idle';
+}
 // Compass bearing (0=N, 90=E) from one [lat,lng] to the next — fallback
 // for points whose reported `heading` is missing/blank.
 function _bearingBetween(a, b) {
@@ -1011,7 +1022,7 @@ function _drawRoutePoints(points) {
       .sort((a, b) => bucketIndexOf(points[b].speed) - bucketIndexOf(points[a].speed));
     for (const i of segOrder) {
       const seg = L.polyline([latlngs[i], latlngs[i + 1]], { color: _routeSpeedColor(points[i].speed), weight: 6, opacity: 1 }).addTo(map);
-      seg.bindTooltip(`${Math.round(parseFloat(points[i].speed)) || 0} km/h · ${points[i].location_time}`, { sticky: true });
+      seg.bindTooltip(`${_routePointStatus(points[i])} · ${Math.round(parseFloat(points[i].speed)) || 0} km/h · ${points[i].location_time}`, { sticky: true });
       routePolylines.push(seg);
     }
     // Colored dots at every point too — guarantees the speed coloring
@@ -1020,6 +1031,7 @@ function _drawRoutePoints(points) {
     // waiting/idling, in particular).
     points.forEach((p, i) => {
       const dot = L.circleMarker(latlngs[i], { radius: 3.5, color: '#fff', weight: 1, fillColor: _routeSpeedColor(p.speed), fillOpacity: 1 }).addTo(map);
+      dot.bindTooltip(`${_routePointStatus(p)} · ${Math.round(parseFloat(p.speed)) || 0} km/h · ${p.location_time}`, { sticky: true });
       routePolylines.push(dot);
     });
     // Direction arrows along the route — "smart" in that the stride
@@ -1150,16 +1162,27 @@ function _toggleRoutePlayback() {
     html: '<div style="width:22px;height:22px;border-radius:50%;background:#2563eb;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;font-size:12px;line-height:1">🚌</div>',
   });
   _routeBusMarker = L.marker([points[0].lat, points[0].lng], { icon: busIcon, zIndexOffset: 1000 }).addTo(map);
+  _routeBusMarker.bindTooltip(_routePlaybackTooltip(points[0]), { permanent: true, direction: 'top', offset: [0, -12], className: 'bt-playback-tooltip' });
   const btn = document.getElementById('bt-route-play-btn');
   if (btn) btn.textContent = '❚❚';
   _stepRoutePlayback();
+}
+
+// Shown live on the playback marker as it moves — the whole point of this
+// bug report was that per-point state wasn't visible at all during
+// preview, not just missing from the static tooltips.
+function _routePlaybackTooltip(p) {
+  return `${_routePointStatus(p)} · ${Math.round(parseFloat(p.speed)) || 0} km/h · ${p.location_time}`;
 }
 
 function _stepRoutePlayback() {
   const points = _routePlaybackPoints;
   if (_routePlaybackIndex >= points.length - 1) { _stopRoutePlayback(); return; }
   const cur = points[_routePlaybackIndex], next = points[_routePlaybackIndex + 1];
-  if (_routeBusMarker) _routeBusMarker.setLatLng([next.lat, next.lng]);
+  if (_routeBusMarker) {
+    _routeBusMarker.setLatLng([next.lat, next.lng]);
+    _routeBusMarker.setTooltipContent(_routePlaybackTooltip(next));
+  }
   const t1 = _routeParseTime(cur.location_time), t2 = _routeParseTime(next.location_time);
   let gapMs = (t1 && t2) ? (t2 - t1) : 3000;
   gapMs = Math.min(Math.max(gapMs, 200), 8000);
