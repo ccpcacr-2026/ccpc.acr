@@ -17620,6 +17620,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <button class="bt-speed-btn rounded font-black" data-speed="1" onclick="BusTracking.setRoutePlaybackSpeed(1)" style="font-size:6.5px;padding:2.5px 4px;background:#2563eb;color:#fff">1x</button>
               <button class="bt-speed-btn rounded font-black" data-speed="2" onclick="BusTracking.setRoutePlaybackSpeed(2)" style="font-size:6.5px;padding:2.5px 4px;background:rgba(255,255,255,0.5);color:#64748b">2x</button>
               <button class="bt-speed-btn rounded font-black" data-speed="4" onclick="BusTracking.setRoutePlaybackSpeed(4)" style="font-size:6.5px;padding:2.5px 4px;background:rgba(255,255,255,0.5);color:#64748b">4x</button>
+              <button class="bt-speed-btn rounded font-black" data-speed="10" onclick="BusTracking.setRoutePlaybackSpeed(10)" style="font-size:6.5px;padding:2.5px 4px;background:rgba(255,255,255,0.5);color:#64748b">10x</button>
             </div>
             <div id="bt-route-summary" style="margin-top:3px"></div>
           </div>` : ''}

@@ -280,16 +280,21 @@ async function updateBusPositions() {
  */
 function busMarkerIcon(bus, selected) {
   const mv = !!bus.isMoving;
+  const online = !_busIsOffline(bus);
   const color = mv ? '#2563eb' : '#f59e0b';
   const dark = mv ? '#1d4ed8' : '#b45309';
   const size = selected ? 40 : 32;
-  const pulse = mv ? `<div class="bt-marker-pulse" style="border-color:${color}"></div>` : '';
+  // Glow whenever the bus is actually live (reporting fresh data), not
+  // just while it happens to be moving — a stopped-but-online bus (waiting
+  // at a light, idling at school) is still "live," it's just not pulsing
+  // blue for movement.
+  const pulse = online ? `<div class="bt-marker-pulse" style="border-color:${color}"></div>` : '';
 
   return L.divIcon({
     className: '',
     html: `<div class="bt-marker-wrap">
       ${pulse}
-      <div class="bt-marker-circle" style="width:${size}px;height:${size}px;background:linear-gradient(135deg,${color},${dark})">${BUS_SVG}</div>
+      <div class="bt-marker-circle" style="width:${size}px;height:${size}px;background:linear-gradient(135deg,${color},${dark});display:flex;align-items:center;justify-content:center;font-size:${Math.round(size * 0.5)}px;line-height:1">🚌</div>
     </div>`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
