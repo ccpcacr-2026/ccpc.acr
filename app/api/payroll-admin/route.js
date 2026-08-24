@@ -848,6 +848,54 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success' });
   }
 
+  // Puts a wrongly-finalized (or wrongly-submitted) run back to draft so it
+  // can be corrected and recomputed. For a finalized run this also reverses
+  // exactly what approve_run applied — adds each loan/EMI entry's deducted
+  // amount back onto remaining_amount (re-opening it if it had completed),
+  // and puts any bonus payments this run marked paid back to pending —
+  // rather than just flipping the status and leaving those side effects in
+  // place.
+  if (action === 'revert_run_to_draft') {
+    const { run_id } = payload;
+    if (!run_id) return NextResponse.json({ result: 'error', message: 'run_id required' }, { status: 400 });
+    const runRows = await sbPayroll(`runs?id=eq.${encodeURIComponent(run_id)}`);
+    const runRow = (!runRows?.error && runRows[0]) || null;
+    if (!runRow) return NextResponse.json({ result: 'error', message: 'Run not found' }, { status: 404 });
+    if (runRow.status === 'draft') return NextResponse.json({ result: 'error', message: 'Already a draft' }, { status: 400 });
+
+    if (runRow.status === 'finalized') {
+      const slips = await sbPayroll(`payslips?run_id=eq.${encodeURIComponent(run_id)}&select=*`);
+      if (!slips?.error && Array.isArray(slips)) {
+        for (const slip of slips) {
+          const sectionAmounts = slip.section_amounts || {};
+          for (const entryId of Object.keys(sectionAmounts)) {
+            const entryRows = await sbPayroll(`section_entries?id=eq.${encodeURIComponent(entryId)}`);
+            const entry = (!entryRows?.error && entryRows[0]) || null;
+            if (!entry) continue;
+            const restoredRemaining = Number(entry.remaining_amount) + Number(sectionAmounts[entryId]);
+            await sbPayroll(`section_entries?id=eq.${encodeURIComponent(entryId)}`, 'PATCH', {
+              remaining_amount: restoredRemaining,
+              status: 'active',
+            });
+          }
+        }
+        const userIds = slips.map(s => s.user_id);
+        if (userIds.length) {
+          const bonusRows = await sbPayroll(`bonus_payments?status=eq.paid&month=eq.${encodeURIComponent(runRow.month)}&year=eq.${encodeURIComponent(runRow.year)}&select=id,user_id`);
+          const toRevert = (!bonusRows?.error ? bonusRows : []).filter(b => userIds.includes(b.user_id));
+          for (const b of toRevert) await sbPayroll(`bonus_payments?id=eq.${encodeURIComponent(b.id)}`, 'PATCH', { status: 'pending' });
+        }
+      }
+    }
+
+    const saved = await sbPayroll(`runs?id=eq.${encodeURIComponent(run_id)}`, 'PATCH', {
+      status: 'draft', approved_by: null, approved_at: null, submitted_by: null, submitted_at: null,
+    });
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    _prAudit(user_id, 'revert_run_to_draft', 'runs', run_id, { was_status: runRow.status });
+    return NextResponse.json({ result: 'success' });
+  }
+
   // Approved leave requests overlapping the given month/year — pulled from
   // the existing teacher.leave_requests table (the real staff leave
   // system) so an admin doesn't have to separately remember who was on

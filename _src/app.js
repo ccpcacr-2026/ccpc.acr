@@ -15192,11 +15192,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const slips = (res && res.result === 'success' && res.payslips) || [];
       const totalGross = slips.reduce((a, s) => a + Number(s.gross || 0), 0);
       const totalNet = slips.reduce((a, s) => a + Number(s.net || 0), 0);
+      const revertBtn = `<button onclick="_prRevertRunToDraft(${runId})" title="Put back to draft — reverses loan/EMI and bonus-paid effects if this run was finalized" class="px-4 py-2 border border-slate-200 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Revert to Draft</button>`;
       const actionBtn = run.status === 'draft'
         ? `<button onclick="_prSubmitRunForApproval(${runId})" class="px-4 py-2 bg-amber-500 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Submit for Approval</button>`
         : run.status === 'pending_approval'
-        ? `<button onclick="_prApproveRun(${runId})" class="px-4 py-2 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Approve &amp; Finalize</button>`
-        : `<span class="px-3 py-2 bg-emerald-50 text-emerald-600 rounded-xl font-black text-[10px] uppercase tracking-widest">Finalized ✓</span>`;
+        ? `<button onclick="_prApproveRun(${runId})" class="px-4 py-2 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Approve &amp; Finalize</button> ${revertBtn}`
+        : `<span class="px-3 py-2 bg-emerald-50 text-emerald-600 rounded-xl font-black text-[10px] uppercase tracking-widest">Finalized ✓</span> ${revertBtn}`;
       detail.innerHTML = `
         <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
           <p class="font-black text-slate-800 text-sm">${PAYROLL_MONTH_NAMES[run.month]} ${run.year} — ${slips.length} payslip(s), Net Total ৳${totalNet.toLocaleString()}</p>
@@ -15232,9 +15233,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   function _prApproveRun(runId) {
-    if (!confirm('Approve and finalize this run? This will deduct loan/EMI balances and mark bonus payments as paid — it cannot be undone.')) return;
+    if (!confirm('Approve and finalize this run? This will deduct loan/EMI balances and mark bonus payments as paid. It can only be undone afterward with "Revert to Draft", which reverses those same effects.')) return;
     _payrollFetch('approve_run', { run_id: runId }).then(res => {
       if (res && res.result === 'success') { showToast('Run finalized'); _prLoadRunsList(); _prSelectRun(runId); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    }).catch(err => showToast(err.message || 'Failed', 'error'));
+  }
+
+  function _prRevertRunToDraft(runId) {
+    if (!confirm('Put this run back to draft? If it was finalized, this reverses the loan/EMI deductions and bonus-paid marks it applied, then you can fix and recompute it.')) return;
+    _payrollFetch('revert_run_to_draft', { run_id: runId }).then(res => {
+      if (res && res.result === 'success') { showToast('Reverted to draft'); _prLoadRunsList(); _prSelectRun(runId); }
       else showToast((res && res.message) || 'Failed', 'error');
     }).catch(err => showToast(err.message || 'Failed', 'error'));
   }
