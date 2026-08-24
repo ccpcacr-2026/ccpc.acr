@@ -13400,8 +13400,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
           <p id="prBulkAddStatus" class="text-xs font-bold mt-2"></p>
         </div>
+        <div id="prPeopleRoster" class="mb-4"></div>
         <div id="prPersonDetail" class="bg-white rounded-2xl border border-slate-200 p-4">
-          <p class="text-slate-400 font-bold text-xs p-4">Search and pick a person above to assign a grade and set overrides.</p>
+          <p class="text-slate-400 font-bold text-xs p-4">Search and pick a person above (or click one in the list) to assign a grade and set overrides.</p>
         </div>
       </div>
       <div id="pr-sections" style="display:none">
@@ -14442,7 +14443,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function loadPayrollPeopleTab() {
     _prPeopleComboWired = true;
-    _ensureStaffCache(() => {
+    Promise.all([
+      new Promise(resolve => _ensureStaffCache(resolve)),
+      _payrollFetch('get_people_setup', {}),
+      _prGradesLoaded ? Promise.resolve({ result: 'success', grades: _prGradesCache }) : _payrollFetch('get_grades', {}),
+    ]).then(([, peopleRes, gradesRes]) => {
+      _prPeopleSetupCache = (peopleRes && peopleRes.result === 'success' && peopleRes.people) || [];
+      _prGradesCache = (gradesRes && gradesRes.result === 'success' && gradesRes.grades) || _prGradesCache;
+      _prGradesLoaded = true;
       _wireSearchCombo('prPersonSearch', 'prPersonSelect', 'prPersonDropdown',
         allStaffCache.map(s => ({ value: s.teacher_id, label: s.full_name || s.teacher_id, sub: [s.designation, s.teacher_id].filter(Boolean).join(' · ') })));
       document.getElementById('prPersonSelect').value = '';
@@ -14466,10 +14474,46 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           if (uid) _prSelectPerson(uid);
         }, 0);
       });
+      _prRenderPeopleRoster();
     });
-    if (!_prGradesLoaded) {
-      _payrollFetch('get_grades', {}).then(res => { _prGradesCache = (res && res.result === 'success' && res.grades) || []; _prGradesLoaded = true; });
-    }
+  }
+
+  // Full staff roster grouped into the same 3 categories as the Values
+  // workspace, so everyone shows up here by default too — no need to
+  // search first just to see who's already set up (or not).
+  function _prRenderPeopleRoster() {
+    const host = document.getElementById('prPeopleRoster');
+    if (!host) return;
+    const setupByUser = {}; _prPeopleSetupCache.forEach(p => { setupByUser[p.user_id] = p; });
+    const gradeById = {}; _prGradesCache.forEach(g => { gradeById[g.id] = g.name; });
+    const staffByCategory = {};
+    PR_FV_CATEGORIES.forEach(c => { staffByCategory[c] = []; });
+    const other = [];
+    (allStaffCache || []).forEach(s => {
+      const cat = (s.category || '').trim();
+      (staffByCategory[cat] || other).push(s);
+    });
+    if (other.length) staffByCategory['Other'] = other;
+
+    const groups = Object.keys(staffByCategory).filter(c => staffByCategory[c].length);
+    host.innerHTML = groups.length ? groups.map(cat => {
+      const rowsHtml = staffByCategory[cat].map(s => {
+        const setup = setupByUser[s.teacher_id];
+        const gradeLabel = setup && setup.grade_id ? (gradeById[setup.grade_id] || '—') : null;
+        const selected = _prSelectedPersonId === s.teacher_id;
+        return `<tr onclick="_prSelectPerson('${s.teacher_id}')" class="border-b border-slate-50 cursor-pointer transition-colors ${selected ? 'bg-blue-50' : 'hover:bg-slate-50'}">
+          <td class="py-1.5 px-3 font-bold text-slate-700">${s.full_name || s.teacher_id}</td>
+          <td class="py-1.5 px-3 text-slate-400 text-[10px] font-bold">${s.designation || ''}</td>
+          <td class="py-1.5 px-3">${gradeLabel ? `<span class="font-black text-slate-700">${gradeLabel}</span>` : '<span class="text-[9px] text-amber-600 font-black uppercase">Not set up</span>'}</td>
+        </tr>`;
+      }).join('');
+      return `<div class="bg-white rounded-2xl border border-slate-200 p-4 mb-3">
+        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">${cat} <span class="text-slate-300">(${staffByCategory[cat].length})</span></p>
+        <div class="overflow-auto border border-slate-200 rounded-xl">
+          <table class="w-full text-left border-collapse text-xs"><tbody>${rowsHtml}</tbody></table>
+        </div>
+      </div>`;
+    }).join('') : `<p class="text-slate-400 font-bold text-xs p-4 text-center">No staff found — check System &gt; Users.</p>`;
   }
 
   function _prSelectPerson(userId) {
@@ -14478,6 +14522,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     detail.innerHTML = `<p class="text-slate-400 font-bold text-xs p-4">Loading…</p>`;
     _payrollFetch('get_people_setup', {}).then(peopleRes => {
       _prPeopleSetupCache = (peopleRes && peopleRes.result === 'success' && peopleRes.people) || [];
+      _prRenderPeopleRoster();
       const setup = _prPeopleSetupCache.find(p => p.user_id === userId) || {};
       const label = staffLabel(userId);
       detail.innerHTML = `
@@ -14619,7 +14664,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const mobile_banking_number = document.getElementById('prPersonMbNumber').value.trim();
     const mpo_amount = document.getElementById('prPersonMpoAmount').value;
     _payrollFetch('save_person_setup', { user_id: userId, grade_id, joining_date, bank_name, bank_account_no, mobile_banking_provider, mobile_banking_number, mpo_amount }).then(res => {
-      if (res && res.result === 'success') showToast('Person setup saved');
+      if (res && res.result === 'success') { showToast('Person setup saved'); _prSelectPerson(userId); }
       else showToast((res && res.message) || 'Failed to save', 'error');
     }).catch(err => showToast(err.message || 'Failed to save', 'error'));
   }
