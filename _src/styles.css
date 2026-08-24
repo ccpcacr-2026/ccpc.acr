@@ -1212,8 +1212,10 @@ button { user-select: none; }
     border-radius: 16px; padding: 3px;
   }
   #bus-sidebar.bt-collapsed { bottom: auto; }
-  #bus-sidebar.bt-collapsed #bt-panel-body,
-  #bus-sidebar.bt-collapsed #bt-sidebar-tabs { display: none; }
+  #bus-sidebar.bt-collapsed #bt-panel-body { display: none; }
+  /* Tabs stay visible even while collapsed — tapping "Route" while
+     collapsed should be a one-tap way in (switchSidebarTab auto-expands),
+     not require expanding the list first just to find the Route tab. */
 
   .bt-sheet-handle { display: none; }
 
