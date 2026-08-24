@@ -13337,80 +13337,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </table>
           </div>
         </div>
-        <div class="bg-white rounded-2xl border border-slate-200 p-4 mt-4">
-          <div class="flex items-center justify-between mb-3">
-            <div>
-              <p class="font-black text-slate-800 text-xs">Statutory Items</p>
-              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Provident Fund, tax/AIT and similar — tracks the employer's matching share separately from the employee deduction</p>
-            </div>
-            <button onclick="_prOpenStatutoryForm(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5 shrink-0"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add</button>
-          </div>
-          <div class="overflow-auto border border-slate-200 rounded-xl">
-            <table class="w-full text-left border-collapse text-xs">
-              <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
-                <th class="py-2 px-3">Label</th><th class="py-2 px-3">Employee Side</th><th class="py-2 px-3">Employer Match</th><th class="py-2 px-3">Status</th><th class="py-2 px-3 text-right">Actions</th>
-              </tr></thead>
-              <tbody id="prStatutoryBody"><tr><td colspan="5" class="p-4 text-slate-400 font-bold text-xs text-center">Loading…</td></tr></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      <div id="prStatutoryFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-        <div class="bg-white rounded-2xl p-5 w-full max-w-lg max-h-[85vh] overflow-y-auto">
-          <div class="flex items-center justify-between mb-4">
-            <p class="font-black text-slate-800 text-sm" id="prStatutoryFormTitle">Add Statutory Item</p>
-            <button onclick="_prCloseStatutoryForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
-          </div>
-          <input type="hidden" id="prStatutoryId">
-          <div class="space-y-3">
-            <div>
-              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Key <span class="text-red-500">*</span></label>
-              <input type="text" id="prStatutoryKey" placeholder="e.g. provident_fund" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
-            </div>
-            <div>
-              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Label <span class="text-red-500">*</span></label>
-              <input type="text" id="prStatutoryLabel" placeholder="e.g. Provident Fund" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
-            </div>
-            <div class="grid grid-cols-2 gap-3">
-              <div>
-                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Employee Calculation</label>
-                <select id="prStatutoryCalcMode" onchange="_prToggleStatutoryCalcFields()" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
-                  <option value="percent_of_field">Percent of a field</option>
-                  <option value="fixed">Fixed amount</option>
-                </select>
-              </div>
-              <div id="prStatutoryValueRow">
-                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Fixed Amount</label>
-                <input type="number" id="prStatutoryValue" placeholder="0" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
-              </div>
-              <div id="prStatutoryPercentRow">
-                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Percent</label>
-                <input type="number" id="prStatutoryPercent" placeholder="0" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
-              </div>
-              <div id="prStatutoryBaseRow">
-                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Base Field</label>
-                <select id="prStatutoryBaseKey" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></select>
-              </div>
-            </div>
-            <label class="flex items-center gap-2 text-xs font-black text-slate-600 cursor-pointer">
-              <input type="checkbox" id="prStatutoryEmployerMatches" onchange="_prToggleStatutoryEmployerFields()" class="w-4 h-4 rounded accent-blue-600">
-              Employer matches this contribution
-            </label>
-            <div id="prStatutoryEmployerRow" class="hidden">
-              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Employer Percent</label>
-              <input type="number" id="prStatutoryEmployerPercent" placeholder="0" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
-            </div>
-            <label class="flex items-center gap-2 text-xs font-black text-slate-600 cursor-pointer">
-              <input type="checkbox" id="prStatutoryActive" checked class="w-4 h-4 rounded accent-blue-600">
-              Active
-            </label>
-          </div>
-          <div class="flex justify-end gap-2 mt-5">
-            <button onclick="_prCloseStatutoryForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
-            <button onclick="_prSaveStatutoryItem()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button>
-          </div>
-        </div>
       </div>
 
       <div id="prFieldValuesModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -13992,7 +13918,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     `;
     lucide.createIcons();
     loadPayrollFields();
-    loadStatutoryItems();
   }
 
   function switchPayrollTab(tabId) {
@@ -14370,102 +14295,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }).catch(err => showToast(err.message || 'Failed to delete', 'error'));
   }
 
-  // ── Statutory items (PF, tax/AIT) ──
+  // Statutory Items admin UI (add/edit/delete) was removed here — kept as
+  // an always-empty cache so the payslip breakdown's label lookup further
+  // below (statutory:/statutory_employer: prefixed keys) still resolves
+  // safely; nothing populates it any more since the feature's gone.
   let _prStatutoryCache = [];
-
-  function loadStatutoryItems() {
-    _payrollFetch('get_statutory_items', {}).then(res => {
-      _prStatutoryCache = (res && res.result === 'success' && res.items) || [];
-      _prRenderStatutoryTable();
-    }).catch(err => showToast(err.message || 'Failed to load statutory items', 'error'));
-  }
-
-  function _prRenderStatutoryTable() {
-    const tbody = document.getElementById('prStatutoryBody');
-    if (!tbody) return;
-    if (!_prStatutoryCache.length) {
-      tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-slate-400 font-bold text-xs text-center">No statutory items yet.</td></tr>`;
-      return;
-    }
-    tbody.innerHTML = _prStatutoryCache.map(s => {
-      const empLabel = s.employee_calc_mode === 'fixed' ? `৳${Number(s.employee_value || 0).toLocaleString()}` : `${s.employee_percent || 0}% of ${s.employee_base_field_key || '—'}`;
-      const matchLabel = s.employer_matches ? `${s.employer_percent || 0}%` : '—';
-      return `<tr class="border-b border-slate-50">
-        <td class="py-1.5 px-3 font-black text-slate-800">${s.label}</td>
-        <td class="py-1.5 px-3">${empLabel}</td>
-        <td class="py-1.5 px-3">${matchLabel}</td>
-        <td class="py-1.5 px-3">${s.is_active ? '<span class="text-emerald-600 font-black">Active</span>' : '<span class="text-slate-400 font-black">Inactive</span>'}</td>
-        <td class="py-1.5 px-3 text-right">
-          <button onclick='_prOpenStatutoryForm(${JSON.stringify(s).replace(/'/g, "&apos;")})' class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-black mr-3">Edit</button>
-          <button onclick="_prDeleteStatutoryItem(${s.id})" class="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-700">Delete</button>
-        </td>
-      </tr>`;
-    }).join('');
-  }
-
-  function _prOpenStatutoryForm(item) {
-    document.getElementById('prStatutoryFormTitle').textContent = item ? 'Edit Statutory Item' : 'Add Statutory Item';
-    document.getElementById('prStatutoryId').value = item ? item.id : '';
-    document.getElementById('prStatutoryKey').value = item ? item.key : '';
-    document.getElementById('prStatutoryLabel').value = item ? item.label : '';
-    document.getElementById('prStatutoryCalcMode').value = item ? item.employee_calc_mode : 'percent_of_field';
-    document.getElementById('prStatutoryValue').value = (item && item.employee_value != null) ? item.employee_value : '';
-    document.getElementById('prStatutoryPercent').value = (item && item.employee_percent != null) ? item.employee_percent : '';
-    document.getElementById('prStatutoryEmployerMatches').checked = !!(item && item.employer_matches);
-    document.getElementById('prStatutoryEmployerPercent').value = (item && item.employer_percent != null) ? item.employer_percent : '';
-    document.getElementById('prStatutoryActive').checked = item ? item.is_active !== false : true;
-    const baseSel = document.getElementById('prStatutoryBaseKey');
-    baseSel.innerHTML = _prFieldsCache.map(f => `<option value="${f.key}">${f.label}</option>`).join('');
-    if (item && item.employee_base_field_key) baseSel.value = item.employee_base_field_key;
-    _prToggleStatutoryCalcFields();
-    _prToggleStatutoryEmployerFields();
-    document.getElementById('prStatutoryFormModal').classList.remove('hidden');
-    lucide.createIcons();
-  }
-
-  function _prCloseStatutoryForm() {
-    document.getElementById('prStatutoryFormModal').classList.add('hidden');
-  }
-
-  function _prToggleStatutoryCalcFields() {
-    const mode = document.getElementById('prStatutoryCalcMode').value;
-    document.getElementById('prStatutoryValueRow').classList.toggle('hidden', mode !== 'fixed');
-    document.getElementById('prStatutoryPercentRow').classList.toggle('hidden', mode !== 'percent_of_field');
-    document.getElementById('prStatutoryBaseRow').classList.toggle('hidden', mode !== 'percent_of_field');
-  }
-
-  function _prToggleStatutoryEmployerFields() {
-    document.getElementById('prStatutoryEmployerRow').classList.toggle('hidden', !document.getElementById('prStatutoryEmployerMatches').checked);
-  }
-
-  function _prSaveStatutoryItem() {
-    const id = document.getElementById('prStatutoryId').value || null;
-    const key = document.getElementById('prStatutoryKey').value.trim();
-    const label = document.getElementById('prStatutoryLabel').value.trim();
-    if (!key || !label) { showToast('Key and label are required', 'error'); return; }
-    const payload = {
-      id, key, label,
-      employee_calc_mode: document.getElementById('prStatutoryCalcMode').value,
-      employee_value: document.getElementById('prStatutoryValue').value || null,
-      employee_percent: document.getElementById('prStatutoryPercent').value || null,
-      employee_base_field_key: document.getElementById('prStatutoryCalcMode').value === 'percent_of_field' ? document.getElementById('prStatutoryBaseKey').value : null,
-      employer_matches: document.getElementById('prStatutoryEmployerMatches').checked,
-      employer_percent: document.getElementById('prStatutoryEmployerPercent').value || null,
-      is_active: document.getElementById('prStatutoryActive').checked,
-    };
-    _payrollFetch('save_statutory_item', payload).then(res => {
-      if (res && res.result === 'success') { showToast('Saved'); _prCloseStatutoryForm(); loadStatutoryItems(); }
-      else showToast((res && res.message) || 'Failed to save', 'error');
-    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
-  }
-
-  function _prDeleteStatutoryItem(id) {
-    if (!confirm('Delete this statutory item? This cannot be undone.')) return;
-    _payrollFetch('delete_statutory_item', { id }).then(res => {
-      if (res && res.result === 'success') { showToast('Deleted'); loadStatutoryItems(); }
-      else showToast((res && res.message) || 'Failed to delete', 'error');
-    }).catch(err => showToast(err.message || 'Failed to delete', 'error'));
-  }
 
   // ── Grades ──
   let _prGradesCache = [];

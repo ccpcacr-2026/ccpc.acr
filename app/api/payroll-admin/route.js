@@ -757,43 +757,13 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success' });
   }
 
-  // ── Statutory items (PF, tax/AIT, etc.) ──
-  if (action === 'get_statutory_items') {
-    const rows = await sbPayroll('statutory_items?select=*&order=id.asc');
-    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
-    return NextResponse.json({ result: 'success', items: rows });
-  }
-
-  if (action === 'save_statutory_item') {
-    const { id, key, label, employee_calc_mode, employee_value, employee_percent, employee_base_field_key, employer_matches, employer_percent, is_active } = payload;
-    if (!key || !label) return NextResponse.json({ result: 'error', message: 'Key and label are required' }, { status: 400 });
-    const rowData = {
-      key, label,
-      employee_calc_mode: employee_calc_mode || 'percent_of_field',
-      employee_value: employee_value === '' || employee_value == null ? null : Number(employee_value),
-      employee_percent: employee_percent === '' || employee_percent == null ? null : Number(employee_percent),
-      employee_base_field_key: employee_base_field_key || null,
-      employer_matches: !!employer_matches,
-      employer_percent: employer_percent === '' || employer_percent == null ? null : Number(employer_percent),
-      is_active: is_active !== false,
-    };
-    const saved = id
-      ? await sbPayroll(`statutory_items?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
-      : await sbPayroll('statutory_items', 'POST', rowData);
-    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
-    const savedRow = Array.isArray(saved) ? saved[0] : saved;
-    _prAudit(user_id, 'save_statutory_item', 'statutory_items', savedRow?.id, rowData);
-    return NextResponse.json({ result: 'success', item: savedRow });
-  }
-
-  if (action === 'delete_statutory_item') {
-    const { id } = payload;
-    if (!id) return NextResponse.json({ result: 'error', message: 'id required' }, { status: 400 });
-    const del = await sbPayroll(`statutory_items?id=eq.${encodeURIComponent(id)}`, 'DELETE');
-    if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
-    _prAudit(user_id, 'delete_statutory_item', 'statutory_items', id);
-    return NextResponse.json({ result: 'success' });
-  }
+  // NOTE: the Statutory Items admin UI (get_statutory_items/
+  // save_statutory_item/delete_statutory_item) was removed here — the
+  // user decided to keep PF as two plain fields (PF 10% addition, PF 20%
+  // deduction) instead of the employee/employer-match model this fed.
+  // _computePayslipForPerson still folds in payroll.statutory_items rows
+  // if any ever exist (harmless no-op with the table empty); the table
+  // itself was left in place, not dropped.
 
   // ── Bonus / festival payments (one-off credit for a specific month) ──
   if (action === 'get_bonus_payments') {
