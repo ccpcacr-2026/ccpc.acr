@@ -13400,9 +13400,38 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
           <p id="prBulkAddStatus" class="text-xs font-bold mt-2"></p>
         </div>
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
+          <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+            <div>
+              <p class="font-black text-slate-800 text-xs">Groups</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Custom groups for splitting Export by group (one PDF page / Excel sheet each) — check people into a group below</p>
+            </div>
+            <button onclick="_prOpenGroupForm()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Group</button>
+          </div>
+          <div id="prGroupsChips" class="flex flex-wrap gap-2"></div>
+        </div>
         <div id="prPeopleRoster" class="mb-4"></div>
         <div id="prPersonDetail" class="bg-white rounded-2xl border border-slate-200 p-4">
           <p class="text-slate-400 font-bold text-xs p-4">Search and pick a person above (or click one in the list) to assign a grade and set overrides.</p>
+        </div>
+      </div>
+
+      <div id="prGroupFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-sm">
+          <div class="flex items-center justify-between mb-4">
+            <p class="font-black text-slate-800 text-sm">Add Group</p>
+            <button onclick="_prCloseGroupForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+          </div>
+          <div class="space-y-3">
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Name <span class="text-red-500">*</span></label>
+              <input type="text" id="prGroupName" placeholder="e.g. Teacher" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            </div>
+          </div>
+          <div class="flex justify-end gap-2 mt-5">
+            <button onclick="_prCloseGroupForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
+            <button onclick="_prSaveGroup()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button>
+          </div>
         </div>
       </div>
       <div id="pr-sections" style="display:none">
@@ -13666,13 +13695,38 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
           <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-2">Bank Disbursement File is a fixed format (bank/mobile-banking info + net pay only) meant for uploading to a bank or bKash/Nagad bulk transfer — ignores the column picker below.</p>
         </div>
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
+          <div class="flex flex-wrap items-center gap-5">
+            <label class="flex items-center gap-2 text-xs font-black text-slate-600 cursor-pointer">
+              <input type="checkbox" id="prExportSplitByGroup" onchange="_prSetExportSplitByGroup(this.checked)" class="w-4 h-4 rounded accent-blue-600">
+              Split by Group <span class="text-slate-400 font-bold normal-case">— one Excel sheet / PDF page per group (set up groups under People Setup)</span>
+            </label>
+          </div>
+          <hr class="border-slate-100 my-3">
+          <div class="flex flex-wrap items-center gap-5">
+            <p class="font-black text-slate-800 text-xs">Row Design</p>
+            <label class="flex items-center gap-2 text-xs font-black text-slate-600 cursor-pointer">
+              <input type="checkbox" id="prExportZebra" onchange="_prSetExportRowDesign('zebra',this.checked)" class="w-4 h-4 rounded accent-blue-600">
+              Alternate row shading
+            </label>
+            <div class="flex items-center gap-2">
+              <label class="text-[10px] font-black text-slate-400 uppercase">Stripe Color</label>
+              <input type="color" id="prExportZebraColor" value="#f1f5f9" onchange="_prSetExportRowDesign('zebraColor',this.value)" class="w-8 h-6 rounded cursor-pointer border border-slate-200">
+            </div>
+          </div>
+        </div>
         <div class="bg-white rounded-2xl border border-slate-200 p-4">
           <p class="font-black text-slate-800 text-xs mb-1">Columns</p>
-          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-3">Pick which columns to export, and optionally format any column bold / italic / colored</p>
+          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-3">Pick which columns to export. "Data" formats the values; "Header" formats the column title itself — bold/italic/color/background, and rotation for narrow columns (PDF supports all 4 angles; Excel's own rotation model only cleanly supports 0°/90°)</p>
           <div class="overflow-auto border border-slate-200 rounded-xl">
             <table class="w-full text-left border-collapse text-xs">
-              <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Include</th><th class="py-2 px-3">Column</th><th class="py-2 px-3">Bold</th><th class="py-2 px-3">Italic</th><th class="py-2 px-3">Color</th><th class="py-2 px-3"></th></tr></thead>
-              <tbody id="prExportColumnsBody"><tr><td colspan="6" class="p-4 text-slate-400 font-bold text-xs text-center">Pick a run above to load its columns.</td></tr></tbody>
+              <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
+                <th class="py-2 px-3">Include</th><th class="py-2 px-3">Column</th>
+                <th class="py-2 px-3">Data Bold</th><th class="py-2 px-3">Data Italic</th><th class="py-2 px-3">Data Color</th>
+                <th class="py-2 px-3">Header Bold</th><th class="py-2 px-3">Header Italic</th><th class="py-2 px-3">Header Color</th><th class="py-2 px-3">Header BG</th><th class="py-2 px-3">Rotate</th>
+                <th class="py-2 px-3"></th>
+              </tr></thead>
+              <tbody id="prExportColumnsBody"><tr><td colspan="11" class="p-4 text-slate-400 font-bold text-xs text-center">Pick a run above to load its columns.</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -14440,6 +14494,61 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _prPeopleComboWired = false;
   let _prPeopleSetupCache = [];
   let _prSelectedPersonId = null;
+  let _prGroupsCache = [];
+  let _prGroupMembersCache = []; // [{group_id, user_id}]
+
+  function _prRenderGroupsChips() {
+    const host = document.getElementById('prGroupsChips');
+    if (!host) return;
+    host.innerHTML = _prGroupsCache.length
+      ? _prGroupsCache.map(g => `
+        <span class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-700 rounded-full font-black text-[10px] uppercase tracking-widest">
+          ${_escHtml(g.name)}
+          <button onclick="_prDeleteGroup(${g.id})" title="Delete group" class="text-slate-400 hover:text-red-500"><i data-lucide="x" class="h-3 w-3"></i></button>
+        </span>`).join('')
+      : `<p class="text-slate-400 font-bold text-xs">No groups yet — add one to enable per-group checkboxes below and split Export by group.</p>`;
+    lucide.createIcons();
+  }
+
+  function _prOpenGroupForm() {
+    document.getElementById('prGroupName').value = '';
+    document.getElementById('prGroupFormModal').classList.remove('hidden');
+  }
+  function _prCloseGroupForm() { document.getElementById('prGroupFormModal').classList.add('hidden'); }
+
+  function _prSaveGroup() {
+    const name = document.getElementById('prGroupName').value.trim();
+    if (!name) { showToast('Name is required', 'error'); return; }
+    _payrollFetch('save_group', { name, sort_order: _prGroupsCache.length }).then(res => {
+      if (res && res.result === 'success') {
+        showToast('Group added');
+        _prCloseGroupForm();
+        _prGroupsCache.push(res.group);
+        _prRenderGroupsChips();
+        _prRenderPeopleRoster();
+      } else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
+  }
+
+  function _prDeleteGroup(id) {
+    if (!confirm('Delete this group? This also clears everyone\'s membership in it.')) return;
+    _payrollFetch('delete_group', { id }).then(res => {
+      if (res && res.result === 'success') {
+        _prGroupsCache = _prGroupsCache.filter(g => g.id !== id);
+        _prGroupMembersCache = _prGroupMembersCache.filter(m => m.group_id !== id);
+        _prRenderGroupsChips();
+        _prRenderPeopleRoster();
+      } else showToast((res && res.message) || 'Failed to delete', 'error');
+    }).catch(err => showToast(err.message || 'Failed to delete', 'error'));
+  }
+
+  function _prToggleGroupMember(groupId, userId, enabled) {
+    if (enabled) _prGroupMembersCache.push({ group_id: groupId, user_id: userId });
+    else _prGroupMembersCache = _prGroupMembersCache.filter(m => !(m.group_id === groupId && m.user_id === userId));
+    _payrollFetch('toggle_group_member', { group_id: groupId, user_id: userId, enabled }).then(res => {
+      if (!res || res.result !== 'success') showToast((res && res.message) || 'Failed to update', 'error');
+    }).catch(err => showToast(err.message || 'Failed to update', 'error'));
+  }
 
   function loadPayrollPeopleTab() {
     _prPeopleComboWired = true;
@@ -14447,10 +14556,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       new Promise(resolve => _ensureStaffCache(resolve)),
       _payrollFetch('get_people_setup', {}),
       _prGradesLoaded ? Promise.resolve({ result: 'success', grades: _prGradesCache }) : _payrollFetch('get_grades', {}),
-    ]).then(([, peopleRes, gradesRes]) => {
+      _payrollFetch('get_groups', {}),
+      _payrollFetch('get_group_members', {}),
+    ]).then(([, peopleRes, gradesRes, groupsRes, membersRes]) => {
       _prPeopleSetupCache = (peopleRes && peopleRes.result === 'success' && peopleRes.people) || [];
       _prGradesCache = (gradesRes && gradesRes.result === 'success' && gradesRes.grades) || _prGradesCache;
       _prGradesLoaded = true;
+      _prGroupsCache = (groupsRes && groupsRes.result === 'success' && groupsRes.groups) || [];
+      _prGroupMembersCache = (membersRes && membersRes.result === 'success' && membersRes.members) || [];
+      _prRenderGroupsChips();
       _wireSearchCombo('prPersonSearch', 'prPersonSelect', 'prPersonDropdown',
         allStaffCache.map(s => ({ value: s.teacher_id, label: s.full_name || s.teacher_id, sub: [s.designation, s.teacher_id].filter(Boolean).join(' · ') })));
       document.getElementById('prPersonSelect').value = '';
@@ -14495,22 +14609,34 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
     if (other.length) staffByCategory['Other'] = other;
 
-    const groups = Object.keys(staffByCategory).filter(c => staffByCategory[c].length);
-    host.innerHTML = groups.length ? groups.map(cat => {
+    const memberSet = new Set(_prGroupMembersCache.map(m => `${m.group_id}:${m.user_id}`));
+    const cats = Object.keys(staffByCategory).filter(c => staffByCategory[c].length);
+    const theadHtml = _prGroupsCache.length
+      ? `<thead><tr class="text-[10px] font-black text-slate-400 uppercase">
+          <th class="py-1.5 px-3">Name</th><th class="py-1.5 px-3">Designation</th><th class="py-1.5 px-3">Grade</th>
+          ${_prGroupsCache.map(g => `<th class="py-1.5 px-3 text-center">${_escHtml(g.name)}</th>`).join('')}
+        </tr></thead>`
+      : '';
+    host.innerHTML = cats.length ? cats.map(cat => {
       const rowsHtml = staffByCategory[cat].map(s => {
         const setup = setupByUser[s.teacher_id];
         const gradeLabel = setup && setup.grade_id ? (gradeById[setup.grade_id] || '—') : null;
         const selected = _prSelectedPersonId === s.teacher_id;
+        const groupCells = _prGroupsCache.map(g => `
+          <td class="py-1.5 px-3 text-center" onclick="event.stopPropagation()">
+            <input type="checkbox" ${memberSet.has(`${g.id}:${s.teacher_id}`) ? 'checked' : ''} onchange="_prToggleGroupMember(${g.id},'${s.teacher_id}',this.checked)" class="w-4 h-4 rounded accent-blue-600">
+          </td>`).join('');
         return `<tr onclick="_prSelectPerson('${s.teacher_id}')" class="border-b border-slate-50 cursor-pointer transition-colors ${selected ? 'bg-blue-50' : 'hover:bg-slate-50'}">
           <td class="py-1.5 px-3 font-bold text-slate-700">${s.full_name || s.teacher_id}</td>
           <td class="py-1.5 px-3 text-slate-400 text-[10px] font-bold">${s.designation || ''}</td>
           <td class="py-1.5 px-3">${gradeLabel ? `<span class="font-black text-slate-700">${gradeLabel}</span>` : '<span class="text-[9px] text-amber-600 font-black uppercase">Not set up</span>'}</td>
+          ${groupCells}
         </tr>`;
       }).join('');
       return `<div class="bg-white rounded-2xl border border-slate-200 p-4 mb-3">
         <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">${cat} <span class="text-slate-300">(${staffByCategory[cat].length})</span></p>
         <div class="overflow-auto border border-slate-200 rounded-xl">
-          <table class="w-full text-left border-collapse text-xs"><tbody>${rowsHtml}</tbody></table>
+          <table class="w-full text-left border-collapse text-xs">${theadHtml}<tbody>${rowsHtml}</tbody></table>
         </div>
       </div>`;
     }).join('') : `<p class="text-slate-400 font-bold text-xs p-4 text-center">No staff found — check System &gt; Users.</p>`;
@@ -15307,19 +15433,33 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // ── Export (Excel + PDF, column picker, virtual columns, formatting) ──
   let _prExportTabLoaded = false;
   let _prExportSlips = [];
-  let _prExportColumnsCache = []; // [{key,label,type:'base'|'field'|'virtual',included,bold,italic,color,vtype,sources}]
+  let _prExportColumnsCache = []; // [{key,label,type:'base'|'field'|'virtual',included,bold,italic,color,headerBold,headerItalic,headerColor,headerBg,headerRotation,vtype,sources}]
+  let _prExportSplitByGroup = false;
+  let _prExportRowDesign = { zebra: false, zebraColor: '#f1f5f9' };
 
   function loadPayrollExportTab() {
     _prExportTabLoaded = true;
+    if (!_prGroupsCache.length) {
+      _payrollFetch('get_groups', {}).then(res => { _prGroupsCache = (res && res.result === 'success' && res.groups) || []; });
+      _payrollFetch('get_group_members', {}).then(res => { _prGroupMembersCache = (res && res.result === 'success' && res.members) || []; });
+    }
+    // Rebuilt fresh from container.innerHTML on every tab switch — sync
+    // the controls' visual state back to whatever's still set from before.
+    document.getElementById('prExportSplitByGroup').checked = _prExportSplitByGroup;
+    document.getElementById('prExportZebra').checked = _prExportRowDesign.zebra;
+    document.getElementById('prExportZebraColor').value = _prExportRowDesign.zebraColor;
     const populate = () => {
       const sel = document.getElementById('prExportRunSelect');
       sel.innerHTML = _prRunsCache.map(r => `<option value="${r.id}">${PAYROLL_MONTH_NAMES[r.month]} ${r.year} (${r.status.replace('_', ' ')})</option>`).join('') || '<option value="">No runs yet</option>';
       if (_prRunsCache.length) _prLoadExportColumns();
-      else document.getElementById('prExportColumnsBody').innerHTML = `<tr><td colspan="6" class="p-4 text-slate-400 font-bold text-xs text-center">No runs yet — go run payroll for a period under Run &amp; Payslips first.</td></tr>`;
+      else document.getElementById('prExportColumnsBody').innerHTML = `<tr><td colspan="11" class="p-4 text-slate-400 font-bold text-xs text-center">No runs yet — go run payroll for a period under Run &amp; Payslips first.</td></tr>`;
     };
     if (_prRunsCache.length) populate();
     else _payrollFetch('get_payroll_runs', {}).then(res => { _prRunsCache = (res && res.result === 'success' && res.runs) || []; populate(); });
   }
+
+  function _prSetExportSplitByGroup(checked) { _prExportSplitByGroup = checked; }
+  function _prSetExportRowDesign(prop, value) { _prExportRowDesign[prop] = value; }
 
   function _prLoadExportColumns() {
     const runId = document.getElementById('prExportRunSelect').value;
@@ -15353,6 +15493,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         bold: priorState[c.key] ? priorState[c.key].bold : false,
         italic: priorState[c.key] ? priorState[c.key].italic : false,
         color: priorState[c.key] ? priorState[c.key].color : '',
+        headerBold: priorState[c.key] ? priorState[c.key].headerBold : false,
+        headerItalic: priorState[c.key] ? priorState[c.key].headerItalic : false,
+        headerColor: priorState[c.key] ? priorState[c.key].headerColor : '',
+        headerBg: priorState[c.key] ? priorState[c.key].headerBg : '',
+        headerRotation: priorState[c.key] ? priorState[c.key].headerRotation : 0,
       })).concat(priorVirtuals);
       _prRenderExportColumnsTable();
     });
@@ -15361,7 +15506,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _prRenderExportColumnsTable() {
     const tbody = document.getElementById('prExportColumnsBody');
     if (!tbody) return;
-    if (!_prExportColumnsCache.length) { tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-slate-400 font-bold text-xs text-center">No columns.</td></tr>`; return; }
+    if (!_prExportColumnsCache.length) { tbody.innerHTML = `<tr><td colspan="11" class="p-4 text-slate-400 font-bold text-xs text-center">No columns.</td></tr>`; return; }
     tbody.innerHTML = _prExportColumnsCache.map(c => `
       <tr class="border-b border-slate-50">
         <td class="py-1.5 px-3"><input type="checkbox" ${c.included ? 'checked' : ''} onchange="_prSetExportFormat('${c.key}','included',this.checked)" class="w-4 h-4 rounded accent-blue-600"></td>
@@ -15369,6 +15514,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <td class="py-1.5 px-3"><input type="checkbox" ${c.bold ? 'checked' : ''} onchange="_prSetExportFormat('${c.key}','bold',this.checked)" class="w-4 h-4 rounded accent-slate-700"></td>
         <td class="py-1.5 px-3"><input type="checkbox" ${c.italic ? 'checked' : ''} onchange="_prSetExportFormat('${c.key}','italic',this.checked)" class="w-4 h-4 rounded accent-slate-700"></td>
         <td class="py-1.5 px-3"><input type="color" value="${c.color || '#000000'}" onchange="_prSetExportFormat('${c.key}','color',this.value)" class="w-8 h-6 rounded cursor-pointer border border-slate-200"></td>
+        <td class="py-1.5 px-3"><input type="checkbox" ${c.headerBold ? 'checked' : ''} onchange="_prSetExportFormat('${c.key}','headerBold',this.checked)" class="w-4 h-4 rounded accent-slate-700"></td>
+        <td class="py-1.5 px-3"><input type="checkbox" ${c.headerItalic ? 'checked' : ''} onchange="_prSetExportFormat('${c.key}','headerItalic',this.checked)" class="w-4 h-4 rounded accent-slate-700"></td>
+        <td class="py-1.5 px-3"><input type="color" value="${c.headerColor || '#000000'}" onchange="_prSetExportFormat('${c.key}','headerColor',this.value)" class="w-8 h-6 rounded cursor-pointer border border-slate-200"></td>
+        <td class="py-1.5 px-3"><input type="color" value="${c.headerBg || '#ffffff'}" onchange="_prSetExportFormat('${c.key}','headerBg',this.value)" class="w-8 h-6 rounded cursor-pointer border border-slate-200"></td>
+        <td class="py-1.5 px-3">
+          <select onchange="_prSetExportFormat('${c.key}','headerRotation',Number(this.value))" class="px-1.5 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]">
+            ${[0, 90, 180, 270].map(deg => `<option value="${deg}" ${Number(c.headerRotation) === deg ? 'selected' : ''}>${deg}°</option>`).join('')}
+          </select>
+        </td>
         <td class="py-1.5 px-3 text-right">${c.type === 'virtual' ? `<button onclick="_prRemoveExportColumn('${c.key}')" class="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-700">Remove</button>` : ''}</td>
       </tr>`).join('');
   }
@@ -15402,7 +15556,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!name) { showToast('Name is required', 'error'); return; }
     if (sources.length < 2) { showToast('Pick at least 2 source columns', 'error'); return; }
     const key = `virtual:${name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
-    _prExportColumnsCache.push({ key, label: name, type: 'virtual', vtype, sources, included: true, bold: false, italic: false, color: '' });
+    _prExportColumnsCache.push({
+      key, label: name, type: 'virtual', vtype, sources, included: true,
+      bold: false, italic: false, color: '',
+      headerBold: false, headerItalic: false, headerColor: '', headerBg: '', headerRotation: 0,
+    });
     _prRenderExportColumnsTable();
     _prCloseVirtualColumnForm();
   }
@@ -15422,11 +15580,36 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return '';
   }
 
+  // Always returns { cols, groups: [{name, rows}] } — one group named null
+  // when not splitting, so Excel/PDF export never need two code paths.
   function _prExportRowsAndCols() {
     const cols = _prExportColumnsCache.filter(c => c.included);
     if (!cols.length) { showToast('Pick at least one column to export', 'error'); return null; }
     if (!_prExportSlips.length) { showToast('No payslips in this run', 'error'); return null; }
-    return { cols, rows: _prExportSlips.map(s => cols.map(c => _prColumnValue(c, s))) };
+
+    if (!_prExportSplitByGroup || !_prGroupsCache.length) {
+      return { cols, groups: [{ name: null, rows: _prExportSlips.map(s => cols.map(c => _prColumnValue(c, s))) }] };
+    }
+    const groupIdsByUser = {};
+    _prGroupMembersCache.forEach(m => { (groupIdsByUser[m.user_id] = groupIdsByUser[m.user_id] || []).push(m.group_id); });
+    const groups = _prGroupsCache.map(g => ({
+      name: g.name,
+      rows: _prExportSlips.filter(s => (groupIdsByUser[s.user_id] || []).includes(g.id)).map(s => cols.map(c => _prColumnValue(c, s))),
+    })).filter(g => g.rows.length);
+    const ungroupedSlips = _prExportSlips.filter(s => !(groupIdsByUser[s.user_id] || []).length);
+    if (ungroupedSlips.length) groups.push({ name: 'Ungrouped', rows: ungroupedSlips.map(s => cols.map(c => _prColumnValue(c, s))) });
+    return { cols, groups };
+  }
+
+  // Excel sheet names: max 31 chars, can't contain / \ ? * [ ] : , and must
+  // be unique within the workbook — a person checked into two groups with
+  // similar names could otherwise collide after sanitizing.
+  function _prSanitizeSheetName(name, usedNames) {
+    const clean = String(name).replace(/[\/\\?*\[\]:]/g, ' ').trim().slice(0, 31) || 'Sheet';
+    let final = clean, i = 2;
+    while (usedNames.has(final)) { final = `${clean.slice(0, 28)}_${i}`; i++; }
+    usedNames.add(final);
+    return final;
   }
 
   // Loads the styled xlsx fork (bold/italic/color support the plain
@@ -15447,18 +15630,43 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!data) return;
     _prEnsureStyledXLSX().then(() => {
       const header = data.cols.map(c => c.label);
-      const aoa = [header, ...data.rows];
-      const ws = XLSX.utils.aoa_to_sheet(aoa);
-      data.cols.forEach((c, ci) => {
-        if (!c.bold && !c.italic && !c.color) return;
-        for (let ri = 1; ri <= data.rows.length; ri++) {
-          const addr = XLSX.utils.encode_cell({ r: ri, c: ci });
-          if (!ws[addr]) continue;
-          ws[addr].s = { font: { bold: !!c.bold, italic: !!c.italic, color: c.color ? { rgb: c.color.replace('#', '') } : undefined } };
-        }
-      });
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Payslips');
+      const usedNames = new Set();
+      data.groups.forEach(g => {
+        const aoa = [header, ...g.rows];
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        data.cols.forEach((c, ci) => {
+          const addr = XLSX.utils.encode_cell({ r: 0, c: ci });
+          if (!ws[addr]) return;
+          const s = {};
+          if (c.headerBold || c.headerItalic || c.headerColor) {
+            s.font = { bold: !!c.headerBold, italic: !!c.headerItalic, color: c.headerColor ? { rgb: c.headerColor.replace('#', '') } : undefined };
+          }
+          if (c.headerBg) s.fill = { fgColor: { rgb: c.headerBg.replace('#', '') } };
+          // Excel's own rotation model (OOXML textRotation) only cleanly
+          // covers 0-90° — 180°/270° have no faithful equivalent (Excel's
+          // UI itself tops out at ±90°), so both collapse to 90° here
+          // rather than silently doing nothing. PDF export supports all
+          // four angles exactly since it draws the text directly.
+          if (c.headerRotation === 90 || c.headerRotation === 270) s.alignment = { textRotation: 90 };
+          if (Object.keys(s).length) ws[addr].s = s;
+        });
+        data.cols.forEach((c, ci) => {
+          for (let ri = 1; ri <= g.rows.length; ri++) {
+            const addr = XLSX.utils.encode_cell({ r: ri, c: ci });
+            if (!ws[addr]) continue;
+            const s = {};
+            if (c.bold || c.italic || c.color) {
+              s.font = { bold: !!c.bold, italic: !!c.italic, color: c.color ? { rgb: c.color.replace('#', '') } : undefined };
+            }
+            if (_prExportRowDesign.zebra && (ri - 1) % 2 === 1) {
+              s.fill = { fgColor: { rgb: (_prExportRowDesign.zebraColor || '#f1f5f9').replace('#', '') } };
+            }
+            if (Object.keys(s).length) ws[addr].s = s;
+          }
+        });
+        XLSX.utils.book_append_sheet(wb, ws, _prSanitizeSheetName(g.name || 'Payslips', usedNames));
+      });
       const runId = document.getElementById('prExportRunSelect').value;
       const run = _prRunsCache.find(r => r.id === Number(runId));
       XLSX.writeFile(wb, `payroll_${run ? PAYROLL_MONTH_NAMES[run.month] + '_' + run.year : 'export'}.xlsx`);
@@ -15505,6 +15713,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
   }
 
+  function _prHexToRgbArr(hex) {
+    const h = String(hex).replace('#', '');
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  }
+
   function _prExportPdf() {
     const data = _prExportRowsAndCols();
     if (!data) return;
@@ -15513,25 +15726,45 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const doc = new jsPDF({ orientation: data.cols.length > 6 ? 'landscape' : 'portrait' });
       const runId = document.getElementById('prExportRunSelect').value;
       const run = _prRunsCache.find(r => r.id === Number(runId));
-      doc.setFontSize(12);
-      doc.text(`Payroll — ${run ? PAYROLL_MONTH_NAMES[run.month] + ' ' + run.year : ''}`, 14, 12);
-      doc.autoTable({
-        startY: 18,
-        head: [data.cols.map(c => c.label)],
-        body: data.rows,
-        styles: { fontSize: 8 },
-        didParseCell: hook => {
-          if (hook.section !== 'body') return;
-          const col = data.cols[hook.column.index];
-          if (!col) return;
-          if (col.bold && col.italic) hook.cell.styles.fontStyle = 'bolditalic';
-          else if (col.bold) hook.cell.styles.fontStyle = 'bold';
-          else if (col.italic) hook.cell.styles.fontStyle = 'italic';
-          if (col.color) {
-            const hex = col.color.replace('#', '');
-            hook.cell.styles.textColor = [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)];
-          }
-        },
+      const hasRotatedHeaders = data.cols.some(c => c.headerRotation === 90 || c.headerRotation === 270);
+      const periodLabel = run ? `${PAYROLL_MONTH_NAMES[run.month]} ${run.year}` : '';
+
+      data.groups.forEach((g, gi) => {
+        if (gi > 0) doc.addPage();
+        doc.setFontSize(12);
+        doc.text(`Payroll — ${periodLabel}${g.name ? ' — ' + g.name : ''}`, 14, 12);
+        doc.autoTable({
+          startY: 18,
+          head: [data.cols.map(c => c.label)],
+          body: g.rows,
+          styles: { fontSize: 8 },
+          headStyles: hasRotatedHeaders ? { minCellHeight: 36, valign: 'middle', halign: 'center' } : {},
+          didParseCell: hook => {
+            const col = data.cols[hook.column.index];
+            if (!col) return;
+            if (hook.section === 'head') {
+              if (col.headerBold && col.headerItalic) hook.cell.styles.fontStyle = 'bolditalic';
+              else if (col.headerBold) hook.cell.styles.fontStyle = 'bold';
+              else if (col.headerItalic) hook.cell.styles.fontStyle = 'italic';
+              if (col.headerColor) hook.cell.styles.textColor = _prHexToRgbArr(col.headerColor);
+              if (col.headerBg) hook.cell.styles.fillColor = _prHexToRgbArr(col.headerBg);
+              if (col.headerRotation) hook.cell.text = []; // suppress default draw — didDrawCell below draws it rotated instead
+              return;
+            }
+            if (col.bold && col.italic) hook.cell.styles.fontStyle = 'bolditalic';
+            else if (col.bold) hook.cell.styles.fontStyle = 'bold';
+            else if (col.italic) hook.cell.styles.fontStyle = 'italic';
+            if (col.color) hook.cell.styles.textColor = _prHexToRgbArr(col.color);
+            if (_prExportRowDesign.zebra && hook.row.index % 2 === 1) hook.cell.styles.fillColor = _prHexToRgbArr(_prExportRowDesign.zebraColor || '#f1f5f9');
+          },
+          didDrawCell: hook => {
+            if (hook.section !== 'head') return;
+            const col = data.cols[hook.column.index];
+            if (!col || !col.headerRotation) return;
+            const { x, y, width, height } = hook.cell;
+            doc.text(String(col.label), x + width / 2, y + height / 2, { angle: col.headerRotation, align: 'center', baseline: 'middle' });
+          },
+        });
       });
       doc.save(`payroll_${run ? PAYROLL_MONTH_NAMES[run.month] + '_' + run.year : 'export'}.pdf`);
     }).catch(err => showToast(err.message, 'error'));

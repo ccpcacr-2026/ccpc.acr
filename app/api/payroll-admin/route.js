@@ -722,6 +722,58 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success', added: missing.length });
   }
 
+  // ── Custom export groups (checkbox matrix in People Setup) ──
+  if (action === 'get_groups') {
+    const rows = await sbPayroll('groups?select=*&order=sort_order.asc,id.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', groups: rows });
+  }
+
+  if (action === 'save_group') {
+    const { id, name, sort_order } = payload;
+    if (!name) return NextResponse.json({ result: 'error', message: 'Name is required' }, { status: 400 });
+    const rowData = { name, sort_order: sort_order == null ? 0 : Number(sort_order) };
+    const saved = id
+      ? await sbPayroll(`groups?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sbPayroll('groups', 'POST', rowData);
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    const savedRow = Array.isArray(saved) ? saved[0] : saved;
+    _prAudit(user_id, 'save_group', 'groups', savedRow?.id, rowData);
+    return NextResponse.json({ result: 'success', group: savedRow });
+  }
+
+  if (action === 'delete_group') {
+    const { id } = payload;
+    if (!id) return NextResponse.json({ result: 'error', message: 'id required' }, { status: 400 });
+    const del = await sbPayroll(`groups?id=eq.${encodeURIComponent(id)}`, 'DELETE');
+    if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
+    _prAudit(user_id, 'delete_group', 'groups', id);
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // All group_members rows, unfiltered — the client builds its own
+  // group_id+user_id lookup from this for the checkbox matrix rather than
+  // asking per-cell, since the whole roster renders at once anyway.
+  if (action === 'get_group_members') {
+    const rows = await sbPayroll('group_members?select=group_id,user_id');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', members: rows });
+  }
+
+  if (action === 'toggle_group_member') {
+    const { group_id, user_id: memberUserId, enabled } = payload;
+    if (!group_id || !memberUserId) return NextResponse.json({ result: 'error', message: 'group_id and user_id required' }, { status: 400 });
+    if (enabled) {
+      const saved = await sbPayroll('group_members', 'POST', { group_id, user_id: memberUserId });
+      if (saved?.error && !String(saved.error).includes('duplicate')) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    } else {
+      const del = await sbPayroll(`group_members?group_id=eq.${encodeURIComponent(group_id)}&user_id=eq.${encodeURIComponent(memberUserId)}`, 'DELETE');
+      if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
+    }
+    _prAudit(user_id, 'toggle_group_member', 'group_members', `${group_id}:${memberUserId}`, { enabled });
+    return NextResponse.json({ result: 'success' });
+  }
+
   if (action === 'get_person_field_overrides') {
     const { user_id } = payload;
     if (!user_id) return NextResponse.json({ result: 'error', message: 'user_id required' }, { status: 400 });
