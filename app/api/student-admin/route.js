@@ -407,7 +407,7 @@ const ADMIN_TAB_ACTIONS = {
   ]),
   // Leave Management lives under the Payroll nav tab (its "Leave" sub-tab) —
   // one toggle controls both, matching what the tab actually shows.
-  payroll: new Set(['get_salary_structures', 'save_salary_structure', 'get_payroll_runs', 'run_payroll', 'get_payslips', 'mark_payroll_paid', 'get_leave_types', 'save_leave_type', 'get_leave_requests', 'approve_leave_request']),
+  payroll: new Set(['get_leave_types', 'save_leave_type', 'get_leave_requests', 'approve_leave_request']),
   transport: new Set(['get_transport_routes', 'save_transport_route', 'get_transport_vehicles', 'save_transport_vehicle', 'get_pickup_points', 'save_pickup_point', 'assign_route_pickup_point', 'get_route_pickup_points', 'assign_vehicle_to_route', 'get_vehicle_assignments', 'get_transport_fee_master', 'save_transport_fee_master', 'generate_student_transport_fee', 'get_student_transport_fees']),
   setup: new Set(['get_tabs', 'get_profile_sections', 'get_student_data_headers', 'get_editable_fields', 'save_editable_fields', 'get_permanent_tabs_config', 'set_permanent_tabs_config', 'get_login_password_columns', 'set_login_password_columns', 'promote_tab_to_profile', 'unpromote_tab_from_profile', 'delete_tab', 'save_tab', 'admin_reset_pin']),
   add_custom_form: new Set(['get_tabs', 'get_student_data_headers', 'save_tab', 'delete_tab']),
@@ -698,21 +698,19 @@ export async function POST(req) {
   }
 
   // Any authenticated teacher/staff (not just Admin) may request their own
-  // leave or view their own payslips — scoped to their own user_id only,
-  // never trusting a teacher_id the client might try to pass instead.
-  if (action === 'save_leave_request' || action === 'get_my_payslips') {
+  // leave — scoped to their own user_id only, never trusting a teacher_id
+  // the client might try to pass instead. (The old get_my_payslips branch
+  // that used to live here was removed with the rest of the placeholder
+  // payroll system — the client now calls get_my_payslips via
+  // app/api/payroll-admin/route.js instead.)
+  if (action === 'save_leave_request') {
     const selfRows = await fetch(`${SB_URL}/rest/v1/app_users?user_id=eq.${encodeURIComponent(user_id || '')}&select=user_id`, { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher' } }).then(r => r.ok ? r.json() : []);
     if (!Array.isArray(selfRows) || !selfRows.length) return NextResponse.json({ result: 'error', message: 'Not a recognized staff account.' }, { status: 403 });
-    if (action === 'save_leave_request') {
-      const { leave_type_id, start_date, end_date, reason } = payload;
-      if (!start_date || !end_date) return NextResponse.json({ result: 'error', message: 'Start and end date required.' });
-      const r = await sbTeacher('leave_requests', 'POST', { teacher_id: user_id, leave_type_id: leave_type_id || null, start_date, end_date, reason: reason || '' });
-      if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
-      return NextResponse.json({ result: 'success' });
-    }
-    const rows = await sbTeacher(`payslips?teacher_id=eq.${encodeURIComponent(user_id)}&select=*,payroll_runs(month,year,status)&order=id.desc`);
-    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
-    return NextResponse.json({ result: 'success', payslips: rows });
+    const { leave_type_id, start_date, end_date, reason } = payload;
+    if (!start_date || !end_date) return NextResponse.json({ result: 'error', message: 'Start and end date required.' });
+    const r = await sbTeacher('leave_requests', 'POST', { teacher_id: user_id, leave_type_id: leave_type_id || null, start_date, end_date, reason: reason || '' });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
   }
 
   // Bus Stoppages registry — plain Admin-only (not part of the admin-tab
@@ -2459,79 +2457,14 @@ export async function POST(req) {
   // People-data (users_profile, family_details, faculty_attributes,
   // bank_accounts) already exists — this is payroll specifically, kept
   // separate from teacher.bonus_penalty (performance eval, not salary).
-  if (action === 'get_salary_structures') {
-    const rows = await sbTeacher('salary_structures?select=*&order=designation.asc');
-    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
-    return NextResponse.json({ result: 'success', structures: rows });
-  }
-  if (action === 'save_salary_structure') {
-    const { id, designation, basic, allowances, deductions } = payload;
-    if (!designation || basic === undefined) return NextResponse.json({ result: 'error', message: 'Designation and basic salary required.' });
-    const rowData = { designation, basic: Number(basic), allowances: allowances || {}, deductions: deductions || {} };
-    const existing = await sbTeacher(`salary_structures?designation=eq.${encodeURIComponent(designation)}`);
-    const r = (!existing?.error && existing.length)
-      ? await sbTeacher(`salary_structures?designation=eq.${encodeURIComponent(designation)}`, 'PATCH', rowData)
-      : await sbTeacher('salary_structures', 'POST', rowData);
-    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
-    return NextResponse.json({ result: 'success' });
-  }
-
-  if (action === 'get_payroll_runs') {
-    const rows = await sbTeacher('payroll_runs?select=*&order=year.desc,month.desc');
-    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
-    return NextResponse.json({ result: 'success', runs: rows });
-  }
-  // Generates one payslip per active staff member with a salary structure
-  // matching their designation, for the given month/year. Re-running an
-  // existing (unpaid) run recomputes each payslip rather than duplicating.
-  if (action === 'run_payroll') {
-    const { month, year } = payload;
-    if (!month || !year) return NextResponse.json({ result: 'error', message: 'Month and year required.' });
-    const existingRun = await sbTeacher(`payroll_runs?month=eq.${encodeURIComponent(month)}&year=eq.${encodeURIComponent(year)}`);
-    let run = (!existingRun?.error && existingRun.length) ? existingRun[0] : null;
-    if (run && run.status === 'paid') return NextResponse.json({ result: 'error', message: 'This payroll run is already paid — cannot re-run.' });
-    if (!run) {
-      const created = await sbTeacher('payroll_runs', 'POST', { month, year, status: 'draft' });
-      if (created?.error) return NextResponse.json({ result: 'error', message: created.error });
-      run = created[0];
-    }
-    const [staff, structures] = await Promise.all([
-      sbTeacher('app_users?select=user_id,role'),
-      sbTeacher('salary_structures?select=*'),
-    ]);
-    if (staff?.error || structures?.error) return NextResponse.json({ result: 'error', message: 'Could not load staff/salary data.' });
-    const structByDesignation = {};
-    structures.forEach(s => { structByDesignation[s.designation] = s; });
-    let generated = 0;
-    for (const u of staff) {
-      const roles = String(u.role || '').split(',').map(r => r.trim());
-      const struct = roles.map(r => structByDesignation[r]).find(Boolean);
-      if (!struct) continue;
-      const allowanceTotal = Object.values(struct.allowances || {}).reduce((s, v) => s + Number(v || 0), 0);
-      const deductionTotal = Object.values(struct.deductions || {}).reduce((s, v) => s + Number(v || 0), 0);
-      const gross = Number(struct.basic) + allowanceTotal;
-      const net = gross - deductionTotal;
-      const rowData = { payroll_run_id: run.id, teacher_id: u.user_id, gross, total_deductions: deductionTotal, net };
-      const existingSlip = await sbTeacher(`payslips?payroll_run_id=eq.${run.id}&teacher_id=eq.${encodeURIComponent(u.user_id)}`);
-      if (!existingSlip?.error && existingSlip.length) await sbTeacher(`payslips?payroll_run_id=eq.${run.id}&teacher_id=eq.${encodeURIComponent(u.user_id)}`, 'PATCH', rowData);
-      else await sbTeacher('payslips', 'POST', rowData);
-      generated++;
-    }
-    return NextResponse.json({ result: 'success', run_id: run.id, generated });
-  }
-  if (action === 'get_payslips') {
-    const { payroll_run_id } = payload;
-    const rows = await sbTeacher(`payslips?payroll_run_id=eq.${encodeURIComponent(payroll_run_id)}&select=*&order=teacher_id.asc`);
-    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
-    return NextResponse.json({ result: 'success', payslips: rows });
-  }
-  if (action === 'mark_payroll_paid') {
-    const { payroll_run_id } = payload;
-    const r1 = await sbTeacher(`payroll_runs?id=eq.${encodeURIComponent(payroll_run_id)}`, 'PATCH', { status: 'paid' });
-    const r2 = await sbTeacher(`payslips?payroll_run_id=eq.${encodeURIComponent(payroll_run_id)}`, 'PATCH', { paid_at: new Date().toISOString() });
-    if (r1?.error || r2?.error) return NextResponse.json({ result: 'error', message: r1?.error || r2?.error });
-    return NextResponse.json({ result: 'success' });
-  }
+  // NOTE: the old placeholder payroll system (salary_structures/
+  // payroll_runs/payslips in the `teacher` schema, and its
+  // get_salary_structures/save_salary_structure/get_payroll_runs/
+  // run_payroll/get_payslips/mark_payroll_paid actions) was removed here —
+  // fully superseded by the dynamic Payroll Admin module (its own `payroll`
+  // schema, app/api/payroll-admin/route.js). Confirmed zero client
+  // references to any of those action names before removal. The three
+  // now-orphaned tables still need dropping manually in Supabase.
 
   if (action === 'get_leave_types') {
     const rows = await sbTeacher('leave_types?select=*&order=name.asc');
