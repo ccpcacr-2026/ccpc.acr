@@ -1,0 +1,156 @@
+import { NextResponse } from 'next/server';
+
+// ── Announcements Admin ─────────────────────────────────────────────────────
+// Lets Admin record/upload an MP3 and target it at ESP32 speaker units by
+// device_hash (or 'All'). Table lives in the DEFAULT `public` schema (unlike
+// every other admin console here, which uses its own named schema) — that
+// keeps the ESP32 firmware's own fetchAnnouncements() query simple (no
+// Accept-Profile header needed, public schema is PostgREST's default).
+// The MP3 itself goes into a public Supabase Storage bucket ("announcements")
+// so the firmware's plain-GET downloadFile() works with no auth.
+
+const SB_URL = process.env.SUPABASE_URL;
+const SB_KEY = process.env.SUPABASE_SERVICE_KEY;
+
+async function sbPublic(path, method = 'GET', body = null) {
+  const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
+    method,
+    headers: {
+      apikey: SB_KEY,
+      Authorization: `Bearer ${SB_KEY}`,
+      'Content-Type': 'application/json',
+      ...(method !== 'GET' ? { Prefer: 'return=representation' } : {}),
+    },
+    ...(body !== null ? { body: JSON.stringify(body) } : {}),
+  });
+  const text = await res.text();
+  if (!res.ok) return { error: text };
+  return text ? JSON.parse(text) : null;
+}
+
+async function _getUserRoles(userId) {
+  if (!userId) return [];
+  const res = await fetch(`${SB_URL}/rest/v1/app_users?user_id=eq.${encodeURIComponent(userId)}&select=role`, {
+    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher' },
+  });
+  if (!res.ok) return [];
+  const rows = await res.json();
+  const role = Array.isArray(rows) && rows[0] ? rows[0].role : '';
+  return String(role || '').split(',').map(r => r.trim()).filter(Boolean);
+}
+
+async function _isAnnouncementsAdmin(userId) {
+  const roles = await _getUserRoles(userId);
+  return roles.includes('Admin');
+}
+
+// Devices to target come from student.device_health (the same ESP32 fleet
+// registry the Attendance module's heartbeat list already reads) — collapsed
+// to one row per device_hash (latest ping), same de-dupe logic as
+// get_device_health_list in app/api/student-admin/route.js.
+async function _getDevicesForTargeting() {
+  const res = await fetch(`${SB_URL}/rest/v1/device_health?select=device_hash,device_name,device_name_by_system,created_at&order=created_at.desc`, {
+    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'student' },
+  });
+  if (!res.ok) return NextResponse.json({ result: 'error', message: await res.text() }, { status: 500 });
+  const rows = await res.json();
+  const seen = new Set();
+  const devices = [];
+  (Array.isArray(rows) ? rows : []).forEach(r => {
+    if (!r.device_hash || seen.has(r.device_hash)) return;
+    seen.add(r.device_hash);
+    devices.push({ value: r.device_hash, label: r.device_name_by_system || r.device_name || r.device_hash });
+  });
+  return NextResponse.json({ result: 'success', devices });
+}
+
+// Uploads a base64-encoded MP3 straight to Supabase Storage via its REST
+// API (not the JS SDK — this route already talks to Postgres the same raw-
+// fetch way, no reason to add a second client library for one call).
+async function _uploadAnnouncementAudio(payload) {
+  const { filename, base64 } = payload || {};
+  if (!filename || !base64) return NextResponse.json({ result: 'error', message: 'filename and base64 audio are required.' }, { status: 400 });
+  const commaIdx = base64.indexOf(',');
+  const raw = commaIdx >= 0 ? base64.slice(commaIdx + 1) : base64;
+  const buffer = Buffer.from(raw, 'base64');
+  if (buffer.length > 15 * 1024 * 1024) return NextResponse.json({ result: 'error', message: 'Audio file is too large (max 15MB).' }, { status: 400 });
+  const key = `${Date.now()}_${filename.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+  const res = await fetch(`${SB_URL}/storage/v1/object/announcements/${key}`, {
+    method: 'POST',
+    headers: {
+      apikey: SB_KEY,
+      Authorization: `Bearer ${SB_KEY}`,
+      'Content-Type': 'audio/mpeg',
+      'x-upsert': 'true',
+    },
+    body: buffer,
+  });
+  if (!res.ok) return NextResponse.json({ result: 'error', message: await res.text() }, { status: 500 });
+  const file_url = `${SB_URL}/storage/v1/object/public/announcements/${key}`;
+  return NextResponse.json({ result: 'success', file_url, storage_key: key });
+}
+
+export async function POST(req) {
+  let body;
+  try { body = await req.json(); } catch { return NextResponse.json({ result: 'error', message: 'Bad request' }, { status: 400 }); }
+  const { action, payload = {}, user_id } = body;
+
+  if (!(await _isAnnouncementsAdmin(user_id))) {
+    return NextResponse.json({ result: 'error', message: 'Admin access required.' }, { status: 403 });
+  }
+
+  if (action === 'get_announcements') {
+    const rows = await sbPublic('announcements?select=*&order=id.desc&limit=200');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', announcements: rows });
+  }
+
+  if (action === 'get_devices_for_targeting') return _getDevicesForTargeting();
+  if (action === 'upload_audio') return _uploadAnnouncementAudio(payload);
+
+  if (action === 'save_announcement') {
+    const { id, title, file_url, target_devices, active } = payload;
+    if (!title || !file_url) return NextResponse.json({ result: 'error', message: 'Title and audio are required.' }, { status: 400 });
+    const rowData = {
+      title,
+      file_url,
+      target_devices: Array.isArray(target_devices) && target_devices.length ? target_devices : ['All'],
+      active: active !== false,
+      created_by: user_id,
+    };
+    const saved = id
+      ? await sbPublic(`announcements?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sbPublic('announcements', 'POST', rowData);
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', announcement: Array.isArray(saved) ? saved[0] : saved });
+  }
+
+  if (action === 'toggle_announcement_active') {
+    const { id, active } = payload;
+    if (!id) return NextResponse.json({ result: 'error', message: 'id required' }, { status: 400 });
+    const saved = await sbPublic(`announcements?id=eq.${encodeURIComponent(id)}`, 'PATCH', { active: !!active });
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'delete_announcement') {
+    const { id } = payload;
+    if (!id) return NextResponse.json({ result: 'error', message: 'id required' }, { status: 400 });
+    const rows = await sbPublic(`announcements?id=eq.${encodeURIComponent(id)}&select=file_url`);
+    const fileUrl = (!rows?.error && rows[0] && rows[0].file_url) || null;
+    const del = await sbPublic(`announcements?id=eq.${encodeURIComponent(id)}`, 'DELETE');
+    if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
+    // Best-effort — a stale orphaned file in Storage isn't worth failing
+    // the whole delete over if this second call has a hiccup.
+    const storageKey = fileUrl && fileUrl.split('/announcements/')[1];
+    if (storageKey) {
+      fetch(`${SB_URL}/storage/v1/object/announcements/${storageKey}`, {
+        method: 'DELETE',
+        headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` },
+      }).catch(() => {});
+    }
+    return NextResponse.json({ result: 'success' });
+  }
+
+  return NextResponse.json({ result: 'error', message: 'Unknown action' }, { status: 400 });
+}

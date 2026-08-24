@@ -539,6 +539,7 @@
     inventory:     () => loadInventoryView(),
     inventory_admin: () => loadInventoryAdminView(),
     my_payslips: () => loadMyPayslipsView(),
+    announcements_admin: () => loadAnnouncementsView(),
     myclass:       () => loadMyClassView(),
     lesson_plan:   () => loadLessonPlanView(),
     forum:         () => loadForumView(),
@@ -12848,6 +12849,292 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // no Payroll Admin role required. Calls get_my_payslips, which is
   // special-cased in app/api/payroll-admin/route.js to bypass the admin
   // gate and scope strictly to the caller's own user_id server-side.
+  // ── Announcements: record/upload an MP3, target ESP32 speaker units ──────
+  // Own route (app/api/announcements-admin/route.js) — public.announcements
+  // table + a public Storage bucket, both deliberately outside every other
+  // module's named schema so the ESP32 firmware's own fetch stays simple.
+  function _announceFetch(action, payload) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    return fetch('/api/announcements-admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, payload: payload || {}, user_id: myId })
+    }).then(async r => {
+      let body = null;
+      try { body = await r.json(); } catch (_) {}
+      if (!r.ok) throw new Error((body && body.message) || ('Network error ' + r.status));
+      return body;
+    });
+  }
+
+  let _annDevicesCache = [];
+  let _annTargetSet = new Set();
+  let _annRecordedBase64 = null;
+  let _annUploadedBase64 = null;
+  let _annListCache = [];
+
+  function loadAnnouncementsView() {
+    if (!_hasModuleAccess('announcements_admin')) { showToast('Not available in current role', 'error'); return; }
+    _setViewHash('announcements_admin');
+    setActiveNavLink('nav-announcements');
+    setContentHeader('Announcements', 'megaphone');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    container.innerHTML = `
+      <div class="mb-4">
+        <h2 class="text-2xl font-black text-slate-800 tracking-tight">Announcements</h2>
+        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Record or upload an MP3, target it at speaker devices</p>
+      </div>
+
+      <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 mb-5">
+        <p class="font-black text-slate-800 text-sm mb-3">New Announcement</p>
+        <div class="mb-3">
+          <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Title <span class="text-red-500">*</span></label>
+          <input type="text" id="annTitle" placeholder="e.g. Morning Assembly Reminder" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+        </div>
+
+        <div class="grid md:grid-cols-2 gap-4 mb-4">
+          <div class="border border-slate-200 rounded-2xl p-3">
+            <p class="text-[10px] font-black text-slate-400 uppercase mb-2">Upload MP3</p>
+            <input type="file" id="annFileInput" accept=".mp3,audio/mpeg" class="text-xs font-bold">
+            <p id="annFileStatus" class="text-[10px] text-slate-400 font-bold mt-1"></p>
+          </div>
+          <div class="border border-slate-200 rounded-2xl p-3">
+            <p class="text-[10px] font-black text-slate-400 uppercase mb-2">Or Record</p>
+            <div class="flex items-center gap-2">
+              <button id="annRecordBtn" onclick="_annToggleRecording()" class="px-3 py-2 bg-red-500 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="mic" class="h-3.5 w-3.5"></i>Record</button>
+              <span id="annRecordStatus" class="text-[10px] text-slate-400 font-bold"></span>
+            </div>
+            <audio id="annRecordPreview" controls class="hidden mt-2 w-full" style="height:32px"></audio>
+          </div>
+        </div>
+
+        <p class="text-[10px] font-black text-slate-400 uppercase mb-2">Target Devices</p>
+        <div id="annDeviceChecklist" class="flex flex-wrap gap-2 mb-4"><p class="text-slate-400 font-bold text-xs">Loading devices…</p></div>
+
+        <div id="annSaveStatus" class="text-xs font-bold mb-2"></div>
+        <button onclick="_annSaveAnnouncement()" id="annSaveBtn" class="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Announcement</button>
+      </div>
+
+      <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5">
+        <p class="font-black text-slate-800 text-sm mb-3">All Announcements</p>
+        <div id="annList" class="space-y-2"><p class="text-slate-400 font-bold text-xs">Loading…</p></div>
+      </div>
+    `;
+    lucide.createIcons();
+    _annRecordedBase64 = null; _annUploadedBase64 = null; _annTargetSet = new Set();
+    document.getElementById('annFileInput').addEventListener('change', _annHandleFileSelect);
+    _announceFetch('get_devices_for_targeting', {}).then(res => {
+      _annDevicesCache = (res && res.result === 'success' && res.devices) || [];
+      _annRenderDeviceChecklist();
+    }).catch(() => { _annDevicesCache = []; _annRenderDeviceChecklist(); });
+    _annLoadList();
+  }
+
+  function _annRenderDeviceChecklist() {
+    const host = document.getElementById('annDeviceChecklist');
+    if (!host) return;
+    const options = [{ value: 'All', label: 'All Devices' }, ..._annDevicesCache];
+    host.innerHTML = options.map(o => `
+      <label class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border ${_annTargetSet.has(o.value) ? 'border-blue-600 bg-blue-50' : 'border-slate-200'} cursor-pointer text-xs font-bold text-slate-600">
+        <input type="checkbox" ${_annTargetSet.has(o.value) ? 'checked' : ''} onchange="_annToggleTarget('${o.value}',this.checked)" class="w-3.5 h-3.5 rounded accent-blue-600">${_escHtml(o.label)}
+      </label>`).join('');
+  }
+
+  function _annToggleTarget(value, checked) {
+    if (checked) _annTargetSet.add(value); else _annTargetSet.delete(value);
+    _annRenderDeviceChecklist();
+  }
+
+  function _annHandleFileSelect(e) {
+    const file = e.target.files[0];
+    const status = document.getElementById('annFileStatus');
+    if (!file) return;
+    if (file.size > 15 * 1024 * 1024) { status.textContent = 'File too large (max 15MB).'; status.className = 'text-[10px] text-red-500 font-bold mt-1'; e.target.value = ''; return; }
+    status.textContent = 'Reading…';
+    const reader = new FileReader();
+    reader.onload = evt => {
+      _annUploadedBase64 = evt.target.result;
+      _annRecordedBase64 = null; // uploading a file supersedes any recording
+      status.textContent = `Ready: ${file.name} (${Math.round(file.size / 1024)} KB)`;
+      status.className = 'text-[10px] text-emerald-600 font-bold mt-1';
+    };
+    reader.readAsDataURL(file);
+  }
+
+  // Client-side MP3 encoding for mic recording — MediaRecorder doesn't
+  // produce MP3 in any browser, so raw PCM is captured via a
+  // ScriptProcessorNode (still universally supported, if deprecated) and
+  // encoded with lamejs, loaded on demand same as the app's other CDN libs
+  // (ensureXLSX/ensureJsPDF).
+  function ensureLameJs() {
+    if (window.lamejs) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const sc = document.createElement('script');
+      sc.src = 'https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js';
+      sc.onload = resolve;
+      sc.onerror = () => reject(new Error('Could not load the MP3 encoder — check your connection and retry.'));
+      document.head.appendChild(sc);
+    });
+  }
+
+  let _annRecording = false;
+  let _annMediaStream = null;
+  let _annAudioContext = null;
+  let _annProcessorNode = null;
+  let _annSourceNode = null;
+  let _annPcmChunks = [];
+
+  function _annToggleRecording() {
+    if (_annRecording) _annStopRecording();
+    else _annStartRecording();
+  }
+
+  function _annStartRecording() {
+    const status = document.getElementById('annRecordStatus');
+    if (status) status.textContent = 'Requesting microphone…';
+    ensureLameJs().then(() => navigator.mediaDevices.getUserMedia({ audio: true })).then(stream => {
+      _annMediaStream = stream;
+      _annAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const source = _annAudioContext.createMediaStreamSource(stream);
+      const processor = _annAudioContext.createScriptProcessor(4096, 1, 1);
+      _annPcmChunks = [];
+      processor.onaudioprocess = e => { _annPcmChunks.push(new Float32Array(e.inputBuffer.getChannelData(0))); };
+      source.connect(processor);
+      processor.connect(_annAudioContext.destination);
+      _annProcessorNode = processor;
+      _annSourceNode = source;
+      _annRecording = true;
+      const btn = document.getElementById('annRecordBtn');
+      if (btn) { btn.innerHTML = '<i data-lucide="square" class="h-3.5 w-3.5"></i>Stop'; btn.classList.add('bg-slate-800'); lucide.createIcons(); }
+      if (status) status.textContent = 'Recording…';
+    }).catch(err => { if (status) status.textContent = err.message || 'Could not access microphone.'; });
+  }
+
+  function _annStopRecording() {
+    const status = document.getElementById('annRecordStatus');
+    const btn = document.getElementById('annRecordBtn');
+    _annRecording = false;
+    if (_annProcessorNode) { _annProcessorNode.disconnect(); _annProcessorNode = null; }
+    if (_annSourceNode) { _annSourceNode.disconnect(); _annSourceNode = null; }
+    if (_annMediaStream) { _annMediaStream.getTracks().forEach(t => t.stop()); _annMediaStream = null; }
+    const sampleRate = _annAudioContext ? _annAudioContext.sampleRate : 44100;
+    if (_annAudioContext) { _annAudioContext.close(); _annAudioContext = null; }
+    if (btn) { btn.innerHTML = '<i data-lucide="mic" class="h-3.5 w-3.5"></i>Record'; btn.classList.remove('bg-slate-800'); lucide.createIcons(); }
+    if (status) status.textContent = 'Encoding…';
+
+    const totalLen = _annPcmChunks.reduce((a, c) => a + c.length, 0);
+    if (!totalLen) { if (status) status.textContent = 'No audio captured.'; return; }
+    const merged = new Float32Array(totalLen);
+    let offset = 0;
+    _annPcmChunks.forEach(c => { merged.set(c, offset); offset += c.length; });
+    _annPcmChunks = [];
+    const pcm16 = new Int16Array(merged.length);
+    for (let i = 0; i < merged.length; i++) {
+      const s = Math.max(-1, Math.min(1, merged[i]));
+      pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    }
+    const encoder = new lamejs.Mp3Encoder(1, sampleRate, 128);
+    const blockSize = 1152;
+    const mp3Data = [];
+    for (let i = 0; i < pcm16.length; i += blockSize) {
+      const enc = encoder.encodeBuffer(pcm16.subarray(i, i + blockSize));
+      if (enc.length > 0) mp3Data.push(enc);
+    }
+    const finalEnc = encoder.flush();
+    if (finalEnc.length > 0) mp3Data.push(finalEnc);
+    const blob = new Blob(mp3Data, { type: 'audio/mp3' });
+    const reader = new FileReader();
+    reader.onload = evt => {
+      _annRecordedBase64 = evt.target.result;
+      _annUploadedBase64 = null; // recording supersedes any uploaded file
+      const preview = document.getElementById('annRecordPreview');
+      if (preview) { preview.src = URL.createObjectURL(blob); preview.classList.remove('hidden'); }
+      if (status) status.textContent = `Ready (${Math.round(blob.size / 1024)} KB)`;
+    };
+    reader.readAsDataURL(blob);
+  }
+
+  function _annSaveAnnouncement() {
+    const title = document.getElementById('annTitle').value.trim();
+    const status = document.getElementById('annSaveStatus');
+    const btn = document.getElementById('annSaveBtn');
+    if (!title) { status.className = 'text-xs font-bold text-red-500 mb-2'; status.textContent = 'Title is required.'; return; }
+    const base64 = _annUploadedBase64 || _annRecordedBase64;
+    if (!base64) { status.className = 'text-xs font-bold text-red-500 mb-2'; status.textContent = 'Upload or record an MP3 first.'; return; }
+    const targets = [..._annTargetSet];
+    if (!targets.length) { status.className = 'text-xs font-bold text-red-500 mb-2'; status.textContent = 'Pick at least one target device (or "All").'; return; }
+    btn.disabled = true; btn.textContent = 'Saving…';
+    status.className = 'text-xs font-bold text-slate-400 mb-2'; status.textContent = 'Uploading audio…';
+    _announceFetch('upload_audio', { filename: `${title.replace(/[^a-zA-Z0-9]+/g, '_')}.mp3`, base64 }).then(res => {
+      if (!res || res.result !== 'success') throw new Error((res && res.message) || 'Upload failed');
+      status.textContent = 'Saving announcement…';
+      return _announceFetch('save_announcement', { title, file_url: res.file_url, target_devices: targets, active: true });
+    }).then(res => {
+      btn.disabled = false; btn.textContent = 'Save Announcement';
+      if (res && res.result === 'success') {
+        showToast('Announcement saved');
+        status.className = 'text-xs font-bold text-emerald-600 mb-2'; status.textContent = 'Saved.';
+        document.getElementById('annTitle').value = '';
+        document.getElementById('annFileInput').value = '';
+        document.getElementById('annFileStatus').textContent = '';
+        const preview = document.getElementById('annRecordPreview');
+        if (preview) { preview.classList.add('hidden'); preview.src = ''; }
+        document.getElementById('annRecordStatus').textContent = '';
+        _annUploadedBase64 = null; _annRecordedBase64 = null; _annTargetSet = new Set();
+        _annRenderDeviceChecklist();
+        _annLoadList();
+      } else {
+        status.className = 'text-xs font-bold text-red-500 mb-2'; status.textContent = (res && res.message) || 'Failed to save';
+      }
+    }).catch(err => {
+      btn.disabled = false; btn.textContent = 'Save Announcement';
+      status.className = 'text-xs font-bold text-red-500 mb-2'; status.textContent = err.message || 'Failed to save';
+    });
+  }
+
+  function _annLoadList() {
+    _announceFetch('get_announcements', {}).then(res => {
+      _annListCache = (res && res.result === 'success' && res.announcements) || [];
+      _annRenderList();
+    }).catch(err => showToast(err.message || 'Failed to load announcements', 'error'));
+  }
+
+  function _annRenderList() {
+    const host = document.getElementById('annList');
+    if (!host) return;
+    if (!_annListCache.length) { host.innerHTML = '<p class="text-slate-400 font-bold text-xs">No announcements yet.</p>'; return; }
+    host.innerHTML = _annListCache.map(a => `
+      <div class="border border-slate-200 rounded-2xl p-3">
+        <div class="flex items-center justify-between gap-2 flex-wrap mb-1.5">
+          <p class="font-black text-slate-800 text-xs">${_escHtml(a.title)}</p>
+          <div class="flex items-center gap-2">
+            <label class="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 cursor-pointer">
+              <input type="checkbox" ${a.active ? 'checked' : ''} onchange="_annToggleActive(${a.id}, this.checked)" class="w-3.5 h-3.5 rounded accent-emerald-600">Active
+            </label>
+            <button onclick="_annDeleteAnnouncement(${a.id})" class="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-700">Delete</button>
+          </div>
+        </div>
+        <p class="text-[10px] text-slate-400 font-bold mb-1.5">${(a.target_devices || []).map(_escHtml).join(', ') || '—'} · ${new Date(a.created_at).toLocaleString()}</p>
+        <audio controls src="${a.file_url}" class="w-full" style="height:32px"></audio>
+      </div>`).join('');
+  }
+
+  function _annToggleActive(id, active) {
+    _announceFetch('toggle_announcement_active', { id, active }).then(res => {
+      if (res && res.result === 'success') { showToast(active ? 'Activated' : 'Deactivated'); _annLoadList(); }
+      else showToast((res && res.message) || 'Failed to update', 'error');
+    }).catch(err => showToast(err.message || 'Failed to update', 'error'));
+  }
+
+  function _annDeleteAnnouncement(id) {
+    if (!confirm('Delete this announcement? Devices will no longer receive it.')) return;
+    _announceFetch('delete_announcement', { id }).then(res => {
+      if (res && res.result === 'success') { showToast('Deleted'); _annLoadList(); }
+      else showToast((res && res.message) || 'Failed to delete', 'error');
+    }).catch(err => showToast(err.message || 'Failed to delete', 'error'));
+  }
+
   function loadMyPayslipsView() {
     if (!_hasModuleAccess('my_payslips')) { showToast('Not available in current role', 'error'); return; }
     _setViewHash('my_payslips');
@@ -20642,6 +20929,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { key: 'student_portal',   label: 'Student Portal',     navId: 'nav-student-portal' },
     { key: 'inventory_admin',  label: 'Inventory Admin',    navId: 'nav-inventory-admin' },
     { key: 'payroll_admin',    label: 'Payroll Admin',      navId: 'nav-payroll' },
+    { key: 'announcements_admin', label: 'Announcements',   navId: 'nav-announcements' },
     { key: 'my_payslips',      label: 'My Payslips',        navId: 'nav-my-payslips' },
     { key: 'inventory',        label: 'Inventory',          navId: 'nav-inventory' },
     { key: 'ssc_result_analysis', label: 'Analyse SSC Result', navId: 'nav-ssc-result-analysis' },
@@ -20673,6 +20961,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     student_portal:['Admin','Student Portal Admin','HR'],
     inventory_admin:['Admin','Inventory Admin'],
     payroll_admin: ['Admin','Accounts Admin'],
+    announcements_admin: ['Admin'],
     my_payslips: ALL_ROLES,
     // Mirrors the previous hardcoded behavior (this nav link had no
     // gating at all before it was added to MODULE_REGISTRY) — an Admin

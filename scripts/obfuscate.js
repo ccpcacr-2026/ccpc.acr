@@ -43,6 +43,7 @@ const RESERVED = [
   '_invRegistryListSearch','_invOpenRegistryEditModal','_invCloseRegistryEditModal','_invSaveRegistryEdit','_invDeleteRegistryEntry',
   'loadInventoryHistoryPanel','loadInventoryAuditLog','_invEditDistributionFromHistory',
   '_invReviewRegistryEntry','_invRestoreRegistryEntry','_invRecreateDistribution',
+  'loadAnnouncementsView','_annToggleTarget','_annToggleRecording','_annSaveAnnouncement','_annToggleActive','_annDeleteAnnouncement',
   'loadUserPermsPanel','saveUserModulePermission','removeUserModulePermission',
   '_prOpenFieldForm','_prCloseFieldForm','_prToggleCalcModeFields','_prSaveField','_prDeleteField',
   '_prOpenFieldConditions','_prCloseFieldConditions','_prToggleFieldApplicableRole',
