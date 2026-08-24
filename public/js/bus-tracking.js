@@ -896,14 +896,32 @@ function _bearingBetween(a, b) {
   return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
 }
 
-function toggleRoutePanel() {
-  const panel = document.getElementById('bt-route-panel');
-  if (!panel) return;
-  panel.classList.toggle('hidden');
-  if (!panel.classList.contains('hidden')) {
+// List and Route History used to be two independently-toggleable floating
+// panels (could both be open, or neither, fighting for the same screen
+// space) — now they're one panel with these two tabs, so switching to
+// Route always means "not looking at the list right now" and vice versa.
+let _sidebarActiveTab = 'list';
+function switchSidebarTab(tab) {
+  const sidebar = document.getElementById('bus-sidebar');
+  if (sidebar && sidebar.classList.contains('bt-collapsed')) expandFleetSheet();
+  if (tab === _sidebarActiveTab) return;
+  _sidebarActiveTab = tab;
+  const listContent = document.getElementById('bt-tab-content-list');
+  const routeContent = document.getElementById('bt-tab-content-route');
+  const listBtn = document.getElementById('bt-tab-btn-list');
+  const routeBtn = document.getElementById('bt-tab-btn-route');
+  if (tab === 'route') {
+    if (listContent) listContent.classList.add('hidden');
+    if (routeContent) routeContent.classList.remove('hidden');
+    if (listBtn) listBtn.classList.remove('active');
+    if (routeBtn) routeBtn.classList.add('active');
     renderRouteBusOptions();
     _hideLiveBusMarkers();
   } else {
+    if (listContent) listContent.classList.remove('hidden');
+    if (routeContent) routeContent.classList.add('hidden');
+    if (listBtn) listBtn.classList.add('active');
+    if (routeBtn) routeBtn.classList.remove('active');
     clearRouteHistory();
     _showLiveBusMarkers();
   }
@@ -1117,9 +1135,9 @@ function _routeSummaryHtml(points) {
     ['Top Speed', `${maxSpeed} km/h`],
     ['Waiting Spells', String(waitingSpells)],
   ];
-  // Label above value, both right-aligned — fits the narrow right-edged
-  // panel this renders into (see #bt-route-panel) far better than a
-  // label-left/value-right row would at ~120px wide.
+  // Label above value — fits the Route tab's narrow sidebar column
+  // (see #bt-tab-content-route) far better than a label-left/value-right
+  // row would.
   const bucketRows = ROUTE_SPEED_BUCKETS
     .filter(b => bucketMs[b.label] > 0)
     .map(b => `<div style="margin-bottom:4px"><div style="font-size:6.5px;font-weight:800;color:#94a3b8;text-transform:uppercase">${b.label}<span style="width:5px;height:5px;border-radius:50%;background:${b.color};display:inline-block;margin-left:3px"></span></div><div style="font-size:9px;font-weight:800;color:#334155">${_fmtDuration(bucketMs[b.label])}</div></div>`)
@@ -1233,7 +1251,7 @@ window.BusTracking = {
   selectBus,
   refreshMapSize,
   toggleWatchersList,
-  toggleRoutePanel,
+  switchSidebarTab,
   showRouteHistory,
   showTrip: _showTrip,
   toggleRoutePlayback: _toggleRoutePlayback,

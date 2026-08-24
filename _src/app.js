@@ -17600,30 +17600,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </div>
           </div>
           ${canExportBuses ? `<div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            <button onclick="BusTracking.toggleRoutePanel()" title="Route" class="px-2 sm:px-3.5 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="route" class="h-3.5 w-3.5"></i><span class="hidden sm:inline">Route</span></button>
             <button onclick="BusTracking.exportBusData()" title="Export" class="px-2 sm:px-3.5 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="download" class="h-3.5 w-3.5"></i><span class="hidden sm:inline">Export</span></button>
           </div>` : ''}
           ${canExportBuses ? `<div id="bt-watchers-popover" class="hidden" style="position:absolute;top:56px;left:14px;z-index:1000;background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 10px 30px rgba(15,23,42,0.15);min-width:220px;max-width:280px;max-height:260px;overflow-y:auto;padding:10px;"></div>` : ''}
-          ${canExportBuses ? `<div id="bt-route-panel" class="hidden" style="position:absolute;top:56px;right:0;z-index:1000;background:rgba(255,255,255,0.18);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border:1px solid rgba(226,232,240,0.5);border-radius:14px 0 0 14px;box-shadow:0 10px 30px rgba(15,23,42,0.12);width:132px;max-height:75vh;overflow-y:auto;padding:6px;text-align:right;-webkit-text-size-adjust:100%;text-size-adjust:100%;">
-            <p class="font-black text-slate-500 uppercase" style="font-size:6.5px;letter-spacing:.03em;margin-bottom:2px">Route History</p>
-            <select id="bt-route-bus" title="Bus" class="w-full bg-white/60 border border-slate-200 rounded font-bold text-right" style="font-size:7px;padding:2px 3px;margin-bottom:2px"></select>
-            <input type="date" id="bt-route-date" title="Date" class="w-full bg-white/60 border border-slate-200 rounded font-bold text-right" style="font-size:7px;padding:2px 3px;margin-bottom:2px">
-            <div class="flex gap-1">
-              <button onclick="BusTracking.showRouteHistory()" class="flex-1 rounded font-black uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all" style="font-size:6.5px;padding:2.5px 0">Show</button>
-              <button onclick="BusTracking.clearRouteHistory()" class="flex-1 rounded font-black uppercase tracking-widest border border-slate-200 text-slate-500 hover:bg-slate-50 transition-all" style="font-size:6.5px;padding:2.5px 0">Clear</button>
-            </div>
-            <p id="bt-route-status" class="text-slate-400 font-bold" style="font-size:6.5px;margin-top:2px"></p>
-            <div id="bt-trip-list" style="margin-top:3px"></div>
-            <div class="flex items-center gap-1" style="margin-top:3px">
-              <button id="bt-route-play-btn" onclick="BusTracking.toggleRoutePlayback()" title="Play/Pause bus animation" class="rounded font-black" style="font-size:9px;padding:2px 6px;background:#2563eb;color:#fff">▶</button>
-              <button class="bt-speed-btn rounded font-black" data-speed="0.5" onclick="BusTracking.setRoutePlaybackSpeed(0.5)" style="font-size:6.5px;padding:2.5px 4px;background:rgba(255,255,255,0.5);color:#64748b">.5x</button>
-              <button class="bt-speed-btn rounded font-black" data-speed="1" onclick="BusTracking.setRoutePlaybackSpeed(1)" style="font-size:6.5px;padding:2.5px 4px;background:#2563eb;color:#fff">1x</button>
-              <button class="bt-speed-btn rounded font-black" data-speed="2" onclick="BusTracking.setRoutePlaybackSpeed(2)" style="font-size:6.5px;padding:2.5px 4px;background:rgba(255,255,255,0.5);color:#64748b">2x</button>
-              <button class="bt-speed-btn rounded font-black" data-speed="4" onclick="BusTracking.setRoutePlaybackSpeed(4)" style="font-size:6.5px;padding:2.5px 4px;background:rgba(255,255,255,0.5);color:#64748b">4x</button>
-              <button class="bt-speed-btn rounded font-black" data-speed="10" onclick="BusTracking.setRoutePlaybackSpeed(10)" style="font-size:6.5px;padding:2.5px 4px;background:rgba(255,255,255,0.5);color:#64748b">10x</button>
-            </div>
-            <div id="bt-route-summary" style="margin-top:3px"></div>
-          </div>` : ''}
         </div>
 
         <div id="bt-status-bar" class="flex items-center gap-1.5 overflow-x-auto" style="scrollbar-width:none;padding:2px 0;"></div>
@@ -17633,9 +17612,36 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="fitBusesInBounds()" title="Fit all" class="bt-fit-btn-inline"><i data-lucide="maximize" class="h-3.5 w-3.5"></i></button>
             <button id="bt-fleet-toggle" onclick="toggleFleetSheet()" title="Show/hide bus list" class="bt-fit-btn-inline"><i data-lucide="bus" class="h-3.5 w-3.5"></i></button>
           </div>
+          ${canExportBuses ? `
+          <div id="bt-sidebar-tabs" class="flex items-center shrink-0" style="gap:3px;padding:4px 2px 2px">
+            <button id="bt-tab-btn-list" onclick="BusTracking.switchSidebarTab('list')" class="bt-sidebar-tab-btn active">List</button>
+            <button id="bt-tab-btn-route" onclick="BusTracking.switchSidebarTab('route')" class="bt-sidebar-tab-btn">Route</button>
+          </div>` : ''}
           <div id="bt-panel-body" class="flex flex-col min-h-0 flex-1">
-            <div id="bus-info-panel" class="shrink-0"></div>
-            <div id="bus-list" class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1"></div>
+            <div id="bt-tab-content-list" class="flex flex-col min-h-0 flex-1">
+              <div id="bus-info-panel" class="shrink-0"></div>
+              <div id="bus-list" class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1"></div>
+            </div>
+            ${canExportBuses ? `
+            <div id="bt-tab-content-route" class="hidden flex-1 min-h-0 overflow-y-auto" style="padding:6px;-webkit-text-size-adjust:100%;text-size-adjust:100%;">
+              <select id="bt-route-bus" title="Bus" class="w-full bg-white/60 border border-slate-200 rounded font-bold" style="font-size:9px;padding:3px 4px;margin-bottom:3px"></select>
+              <input type="date" id="bt-route-date" title="Date" class="w-full bg-white/60 border border-slate-200 rounded font-bold" style="font-size:9px;padding:3px 4px;margin-bottom:3px">
+              <div class="flex gap-1">
+                <button onclick="BusTracking.showRouteHistory()" class="flex-1 rounded font-black uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all" style="font-size:8px;padding:3px 0">Show</button>
+                <button onclick="BusTracking.clearRouteHistory()" class="flex-1 rounded font-black uppercase tracking-widest border border-slate-200 text-slate-500 hover:bg-slate-50 transition-all" style="font-size:8px;padding:3px 0">Clear</button>
+              </div>
+              <p id="bt-route-status" class="text-slate-400 font-bold" style="font-size:7px;margin-top:3px"></p>
+              <div id="bt-trip-list" style="margin-top:4px"></div>
+              <div class="flex items-center gap-1 flex-wrap" style="margin-top:4px">
+                <button id="bt-route-play-btn" onclick="BusTracking.toggleRoutePlayback()" title="Play/Pause bus animation" class="rounded font-black" style="font-size:10px;padding:2px 7px;background:#2563eb;color:#fff">▶</button>
+                <button class="bt-speed-btn rounded font-black" data-speed="0.5" onclick="BusTracking.setRoutePlaybackSpeed(0.5)" style="font-size:7px;padding:3px 5px;background:rgba(255,255,255,0.5);color:#64748b">.5x</button>
+                <button class="bt-speed-btn rounded font-black" data-speed="1" onclick="BusTracking.setRoutePlaybackSpeed(1)" style="font-size:7px;padding:3px 5px;background:#2563eb;color:#fff">1x</button>
+                <button class="bt-speed-btn rounded font-black" data-speed="2" onclick="BusTracking.setRoutePlaybackSpeed(2)" style="font-size:7px;padding:3px 5px;background:rgba(255,255,255,0.5);color:#64748b">2x</button>
+                <button class="bt-speed-btn rounded font-black" data-speed="4" onclick="BusTracking.setRoutePlaybackSpeed(4)" style="font-size:7px;padding:3px 5px;background:rgba(255,255,255,0.5);color:#64748b">4x</button>
+                <button class="bt-speed-btn rounded font-black" data-speed="10" onclick="BusTracking.setRoutePlaybackSpeed(10)" style="font-size:7px;padding:3px 5px;background:rgba(255,255,255,0.5);color:#64748b">10x</button>
+              </div>
+              <div id="bt-route-summary" style="margin-top:4px"></div>
+            </div>` : ''}
           </div>
         </div>
       </div>

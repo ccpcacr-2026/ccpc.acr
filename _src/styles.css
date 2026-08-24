@@ -1182,6 +1182,16 @@ button { user-select: none; }
   }
   .bt-fit-btn-inline:hover { background: rgba(37,99,235,0.15); color: #2563eb; }
 
+/* List/Route tab switcher — the bus list and Route History used to be two
+   separate floating panels that could both be open at once; now they're
+   one panel with these two tabs deciding which content shows. */
+.bt-sidebar-tab-btn {
+  flex: 1; text-align: center; font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: .02em;
+  padding: 4px 0; border-radius: 8px; border: none; cursor: pointer;
+  background: rgba(15,23,42,0.05); color: #94a3b8; transition: background .15s, color .15s;
+}
+.bt-sidebar-tab-btn.active { background: #2563eb; color: #fff; }
+
   /* Chrome on Android auto-inflates any text it judges "too small to
      read" (a11y font-boosting) — silently overriding every small
      font-size below unless disabled here. This was making the whole
@@ -1202,7 +1212,8 @@ button { user-select: none; }
     border-radius: 16px; padding: 3px;
   }
   #bus-sidebar.bt-collapsed { bottom: auto; }
-  #bus-sidebar.bt-collapsed #bt-panel-body { display: none; }
+  #bus-sidebar.bt-collapsed #bt-panel-body,
+  #bus-sidebar.bt-collapsed #bt-sidebar-tabs { display: none; }
 
   .bt-sheet-handle { display: none; }
 
