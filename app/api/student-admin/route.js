@@ -5,11 +5,11 @@ import { NextResponse } from 'next/server';
 // used to live in ccpc-students/app/api/portal/route.js. It targets the SAME
 // Supabase project (wugeppgvmcmsnetksies) but the `student` schema, via
 // Accept-Profile/Content-Profile headers — same project, same env vars this
-// app already has, just a different schema than ccpc-teachers' own `teacher`.
+// app already has, just a different schema than ccpc-teachers' own `teacher_staff`.
 //
 // Auth model: no separate admin login. The caller sends their OWN
 // ccpc-teachers user_id (the one they already logged in with); every request
-// is re-verified fresh against teacher.app_users for the 'Admin' role, same
+// is re-verified fresh against teacher_staff.app_users for the 'Admin' role, same
 // pattern as _isCordOrAdmin() in ccpc-teachers' own /api/exec.
 //
 // NOT ported: manual_attendance_entry / bulk_attendance_import — grepped the
@@ -116,8 +116,8 @@ async function sbAllRows(path) {
   return all;
 }
 
-// Same shape as sb(), scoped to the `teacher` schema instead — used by
-// Payroll/Leave Management, whose tables live alongside users_profile etc.
+// Same shape as sb(), scoped to the `teacher_staff` schema instead — used
+// by Payroll/Leave Management, whose tables live alongside users_profile etc.
 async function sbTeacher(path, method = 'GET', body = null) {
   const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
     method,
@@ -126,8 +126,8 @@ async function sbTeacher(path, method = 'GET', body = null) {
       Authorization: `Bearer ${SB_KEY}`,
       'Content-Type': 'application/json',
       Prefer: method === 'POST' ? 'return=representation' : 'return=minimal',
-      'Accept-Profile': 'teacher',
-      'Content-Profile': 'teacher',
+      'Accept-Profile': 'teacher_staff',
+      'Content-Profile': 'teacher_staff',
     },
     ...(body !== null ? { body: JSON.stringify(body) } : {}),
   });
@@ -169,16 +169,17 @@ async function sbExam(path, method = 'GET', body = null, extraHeaders = {}) {
 // duplication (ccpc-students carries its own copy too).
 // This staff-directory search has no section (School/College/Honours)
 // concept of its own — always reads the 'school' section's configured
-// routine sheet (teacher.system_settings, key routine_section_config, same
-// table exec/route.js's _getRoutineSectionConfig uses), falling back to the
-// original hardcoded sheet if nothing's been configured yet in System >
-// Routine Settings. sb()'s extra-headers param crosses into the 'teacher'
-// schema for this one read — everything else in this file stays 'student'.
+// routine sheet (teacher_staff.system_settings, key routine_section_config,
+// same table exec/route.js's _getRoutineSectionConfig uses), falling back
+// to the original hardcoded sheet if nothing's been configured yet in
+// System > Routine Settings. sb()'s extra-headers param crosses into the
+// 'teacher_staff' schema for this one read — everything else in this file
+// stays 'student'.
 const ROUTINE_SHEET_ID_FALLBACK = '11l3oc1mpbR8UerpDxCatzuhcBNqkbdNzWzOTiPPdKgk';
 
 async function _schoolRoutineSheetId() {
   try {
-    const rows = await sb('system_settings?key=eq.routine_section_config', 'GET', null, { 'Accept-Profile': 'teacher' });
+    const rows = await sb('system_settings?key=eq.routine_section_config', 'GET', null, { 'Accept-Profile': 'teacher_staff' });
     const cfg = (!rows?.error && rows[0] && rows[0].value && rows[0].value.school) || {};
     const raw = String(cfg.routineSheetUrl || '').trim();
     const idMatch = raw.match(/\/d\/([a-zA-Z0-9_-]+)/);
@@ -335,11 +336,11 @@ async function evalRule(rule, profile, submissions) {
   }
 }
 
-// Fresh per-request check against teacher.app_users — never trust a cached role.
+// Fresh per-request check against teacher_staff.app_users — never trust a cached role.
 async function _getUserRoles(userId) {
   if (!userId) return [];
   const res = await fetch(`${SB_URL}/rest/v1/app_users?user_id=eq.${encodeURIComponent(userId)}&select=role`, {
-    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher' },
+    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher_staff' },
   });
   if (!res.ok) return [];
   const rows = await res.json();
@@ -378,7 +379,7 @@ const STAFF_OPEN_ACTIONS = new Set(['get_tracking_config', 'get_bus_data']);
 // ── Per-tab module access (admin console nav pills) ──────────────────────
 // Which roles can use each tab is admin-configurable (see
 // get_admin_tab_visibility / save_admin_tab_visibility below), stored in
-// teacher.system_settings under key 'admin_tab_visibility' as
+// teacher_staff.system_settings under key 'admin_tab_visibility' as
 // { tabKey: [role, ...] }. 'Admin' always passes, same as the outer
 // MODULE_REGISTRY matrix in _src/app.js. Originally only the 5 ERP tabs
 // were covered here (everything else just needed _isAdmin) — extended to
@@ -653,8 +654,8 @@ async function _ingestPunchLog(payload) {
   }
   if (!Array.isArray(punches) || !punches.length) return NextResponse.json({ result: 'error', message: 'No punches provided.' });
   const rows = await Promise.all(punches.map(async p => {
-    // Best-effort match: try teacher.app_users first, then students_data, by device_user_id.
-    const staffMatch = await fetch(`${SB_URL}/rest/v1/app_users?user_id=eq.${encodeURIComponent(p.device_user_id)}&select=user_id`, { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher' } }).then(r => r.ok ? r.json() : []);
+    // Best-effort match: try teacher_staff.app_users first, then students_data, by device_user_id.
+    const staffMatch = await fetch(`${SB_URL}/rest/v1/app_users?user_id=eq.${encodeURIComponent(p.device_user_id)}&select=user_id`, { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher_staff' } }).then(r => r.ok ? r.json() : []);
     let person_type = 'unmatched', person_id = null, matched = false;
     if (Array.isArray(staffMatch) && staffMatch.length) { person_type = 'staff'; person_id = p.device_user_id; matched = true; }
     else {
@@ -704,7 +705,7 @@ export async function POST(req) {
   // payroll system — the client now calls get_my_payslips via
   // app/api/payroll-admin/route.js instead.)
   if (action === 'save_leave_request') {
-    const selfRows = await fetch(`${SB_URL}/rest/v1/app_users?user_id=eq.${encodeURIComponent(user_id || '')}&select=user_id`, { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher' } }).then(r => r.ok ? r.json() : []);
+    const selfRows = await fetch(`${SB_URL}/rest/v1/app_users?user_id=eq.${encodeURIComponent(user_id || '')}&select=user_id`, { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher_staff' } }).then(r => r.ok ? r.json() : []);
     if (!Array.isArray(selfRows) || !selfRows.length) return NextResponse.json({ result: 'error', message: 'Not a recognized staff account.' }, { status: 403 });
     const { leave_type_id, start_date, end_date, reason } = payload;
     if (!start_date || !end_date) return NextResponse.json({ result: 'error', message: 'Start and end date required.' });
@@ -1115,9 +1116,9 @@ export async function POST(req) {
 
   // ── Delegated data access (who besides admins can view/export a tab's data) ──
   if (action === 'get_staff_list') {
-    // teacher-schema read: faculty portal logins live in teacher.app_users
+    // teacher-schema read: faculty portal logins live in teacher_staff.app_users
     const res = await fetch(`${SB_URL}/rest/v1/app_users?select=user_id,email,role&order=user_id.asc`, {
-      headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher' },
+      headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher_staff' },
     });
     if (!res.ok) return NextResponse.json([]);
     return NextResponse.json(await res.json());
@@ -1149,7 +1150,7 @@ export async function POST(req) {
     // stays the sole source of truth for actual routine/schedule matching
     // elsewhere (that's tied to the sheet's own literal abbreviations and
     // is untouched by this), this is purely the directory's display value.
-    const hdrs = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher' };
+    const hdrs = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher_staff' };
     const [profRes, userRes, shortnames] = await Promise.all([
       fetch(`${SB_URL}/rest/v1/users_profile?select=teacher_id,full_name,designation,shortname,phone,whatsapp&order=full_name.asc&limit=1000`, { headers: hdrs }),
       fetch(`${SB_URL}/rest/v1/app_users?select=user_id,email,role,phone&limit=1000`, { headers: hdrs }),
@@ -1492,8 +1493,8 @@ export async function POST(req) {
         Authorization: `Bearer ${SB_KEY}`,
         'Content-Type': 'application/json',
         Prefer: 'resolution=merge-duplicates,return=minimal',
-        'Accept-Profile': 'teacher',
-        'Content-Profile': 'teacher',
+        'Accept-Profile': 'teacher_staff',
+        'Content-Profile': 'teacher_staff',
       },
       body: JSON.stringify({ key: 'admin_tab_visibility', value: clean }),
     });
@@ -1854,7 +1855,7 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success' });
   }
 
-  // ── Absent fee setting (teacher.system_settings, key attendance_absent_fee) ─
+  // ── Absent fee setting (teacher_staff.system_settings, key attendance_absent_fee) ─
   // A flat per-absent-day amount an Admin sets once here; the class-teacher
   // attendance report (getMyClassAttendanceReport, app/api/exec/route.js)
   // reads the same key to compute each student's fee total — one setting,
@@ -2456,9 +2457,9 @@ export async function POST(req) {
   // ── HRM & Payroll ─────────────────────────────────────────────────────────
   // People-data (users_profile, family_details, faculty_attributes,
   // bank_accounts) already exists — this is payroll specifically, kept
-  // separate from teacher.bonus_penalty (performance eval, not salary).
+  // separate from teacher_staff.bonus_penalty (performance eval, not salary).
   // NOTE: the old placeholder payroll system (salary_structures/
-  // payroll_runs/payslips in the `teacher` schema, and its
+  // payroll_runs/payslips in the `teacher_staff` schema, and its
   // get_salary_structures/save_salary_structure/get_payroll_runs/
   // run_payroll/get_payslips/mark_payroll_paid actions) was removed here —
   // fully superseded by the dynamic Payroll Admin module (its own `payroll`

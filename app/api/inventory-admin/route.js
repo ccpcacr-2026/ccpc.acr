@@ -8,7 +8,7 @@ import { NextResponse } from 'next/server';
 //
 // Auth model: identical to app/api/student-admin/route.js — the caller sends
 // their OWN ccpc-teachers user_id (the one they already logged in with);
-// every request is re-verified fresh against teacher.app_users for the
+// every request is re-verified fresh against teacher_staff.app_users for the
 // 'Admin' or 'Inventory Admin' role. Unlike student-admin's route (which has
 // a tab-visibility matrix and a viewer tier), the source app gated every one
 // of its 7 routes with the exact same unconditional check — so this file
@@ -48,11 +48,11 @@ async function sbInventory(path, method = 'GET', body = null) {
   return text ? JSON.parse(text) : null;
 }
 
-// Fresh per-request check against teacher.app_users — never trust a cached role.
+// Fresh per-request check against teacher_staff.app_users — never trust a cached role.
 async function _getUserRoles(userId) {
   if (!userId) return [];
   const res = await fetch(`${SB_URL}/rest/v1/app_users?user_id=eq.${encodeURIComponent(userId)}&select=role`, {
-    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher' },
+    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher_staff' },
   });
   if (!res.ok) return [];
   const rows = await res.json();
@@ -120,11 +120,11 @@ async function _invAuditFromResponse(res, actorUserId, action, entity, entityId,
 }
 
 // Same raw-fetch pattern as _getUserRoles, generalized — reads from the
-// `teacher` schema (staff directory) instead of sbInventory's hardcoded
-// `inventory` schema.
+// `teacher_staff` schema (staff directory) instead of sbInventory's
+// hardcoded `inventory` schema.
 async function _teacherSchemaFetch(path) {
   const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
-    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher' },
+    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher_staff' },
   });
   if (!res.ok) return [];
   return res.json();
@@ -1065,7 +1065,7 @@ async function _resolveAutoConsumer(consumerId) {
     : ['teacher', consumerId.slice('auto:'.length)];
   // hrcommittee consumers map onto the plain 'committee' consumer type —
   // 'hrcommittee' is only a prefix distinguishing this id's source (the HR
-  // committee_groups table, teacher schema) from inventory's own committees
+  // committee_groups table, teacher_staff schema) from inventory's own committees
   // table, not a separate consumer type.
   const consumerType = prefix === 'hrcommittee' ? 'committee' : prefix;
 

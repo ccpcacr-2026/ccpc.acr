@@ -31,7 +31,7 @@ async function sbPublic(path, method = 'GET', body = null) {
 async function _getUserRoles(userId) {
   if (!userId) return [];
   const res = await fetch(`${SB_URL}/rest/v1/app_users?user_id=eq.${encodeURIComponent(userId)}&select=role`, {
-    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher' },
+    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher_staff' },
   });
   if (!res.ok) return [];
   const rows = await res.json();

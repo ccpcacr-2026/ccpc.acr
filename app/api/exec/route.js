@@ -292,7 +292,7 @@ async function _countRows(path) {
       headers: {
         apikey: process.env.SUPABASE_SERVICE_KEY,
         Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}`,
-        'Accept-Profile': 'teacher',
+        'Accept-Profile': 'teacher_staff',
         Prefer: 'count=exact',
         Range: '0-0',
       },
@@ -1068,7 +1068,7 @@ const handlers = {
 
   // Full edit of an EXISTING account — unlike saveAppUser (create-only,
   // upsert keyed on user_id), this can also rename the id itself (cascading
-  // via teacher.rename_teacher_id across every table that references it —
+  // via teacher_staff.rename_teacher_id across every table that references it —
   // profile, payroll, leave, family/education records, evaluation grants,
   // ...) and checks the separate email-uniqueness constraint before writing,
   // neither of which the simple create path needs to worry about.
@@ -2028,7 +2028,7 @@ const handlers = {
       const myAssignments = Array.isArray(assignments) ? assignments : [];
       if (!myAssignments.length) return { result: 'success', threads: [] };
       const orClauses = myAssignments.map(a => a.section ? `and(class.eq.${encodeURIComponent(a.class)},section.eq.${encodeURIComponent(a.section)})` : `class.eq.${encodeURIComponent(a.class)}`).join(',');
-      // students_data lives in the `student` schema, not `teacher`.
+      // students_data lives in the `student` schema, not `teacher_staff`.
       const students = await _sbStudent(`students_data?or=(${orClauses})&select=student_id`);
       studentIdFilter = new Set((Array.isArray(students) ? students : []).map(s => String(s.student_id)));
       if (!studentIdFilter.size) return { result: 'success', threads: [] };
@@ -3791,9 +3791,9 @@ const handlers = {
     if (f.session) path += `&session=eq.${encodeURIComponent(f.session)}`;
     if (f.roll) path += `&roll=eq.${encodeURIComponent(f.roll)}`;
     // students_data lives in the separate `student` Postgres schema, not
-    // `teacher` — supabaseRequest() always targets `teacher`, so this needs
-    // the cross-schema helper (_sbStudent, already used by the class-teacher
-    // handlers elsewhere in this file) instead.
+    // `teacher_staff` — supabaseRequest() always targets `teacher_staff`, so
+    // this needs the cross-schema helper (_sbStudent, already used by the
+    // class-teacher handlers elsewhere in this file) instead.
     const rows = await _sbStudent(path);
     return { result: 'success', students: Array.isArray(rows) ? rows : [] };
   },

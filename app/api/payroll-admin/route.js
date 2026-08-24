@@ -26,11 +26,11 @@ async function sbPayroll(path, method = 'GET', body = null) {
   return text ? JSON.parse(text) : null;
 }
 
-// Fresh per-request check against teacher.app_users — never trust a cached role.
+// Fresh per-request check against teacher_staff.app_users — never trust a cached role.
 async function _getUserRoles(userId) {
   if (!userId) return [];
   const res = await fetch(`${SB_URL}/rest/v1/app_users?user_id=eq.${encodeURIComponent(userId)}&select=role`, {
-    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher' },
+    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher_staff' },
   });
   if (!res.ok) return [];
   const rows = await res.json();
@@ -43,10 +43,10 @@ async function _isPayrollAdmin(userId) {
   return roles.includes('Admin') || roles.includes('Accounts Admin');
 }
 
-// Reads from the `teacher` schema (staff directory) — same raw-fetch pattern.
+// Reads from the `teacher_staff` schema (staff directory) — same raw-fetch pattern.
 async function _teacherSchemaFetch(path) {
   const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
-    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher' },
+    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher_staff' },
   });
   if (!res.ok) return [];
   return res.json();
@@ -949,7 +949,7 @@ export async function POST(req) {
   }
 
   // Approved leave requests overlapping the given month/year — pulled from
-  // the existing teacher.leave_requests table (the real staff leave
+  // the existing teacher_staff.leave_requests table (the real staff leave
   // system) so an admin doesn't have to separately remember who was on
   // leave when entering a leave deduction; still a manual "convert to
   // deduction" step since payroll has no way to know which leave types are
