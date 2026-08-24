@@ -811,15 +811,13 @@
     { key: 'fees', label: 'Fees', icon: 'wallet', erp: true, action: { type: 'native', fn: 'loadAdminFeesView' } },
     { key: 'attendance', label: 'Attendance', icon: 'fingerprint', erp: true, action: { type: 'native', fn: 'loadAdminAttendanceView' } },
     { key: 'exams', label: 'Exams', icon: 'clipboard-list', erp: true, action: { type: 'native', fn: 'loadAdminExamsView' } },
-    // 'payroll' deliberately NOT here — it's a standalone top-level sidebar
-    // item now (see #nav-payroll / loadAdminPayrollView), same reasoning as
-    // bus_tracker's own split out of this list: salary/leave isn't really a
-    // "Student Portal" concern, and an HR-only account (Payroll defaults to
-    // Admin+HR — see TAB_ACCESS_LABELS/loadAdminAccessView) shouldn't have
-    // to open a "Student Portal" accordion to find it. Its account-scoped
-    // grant check (get_my_tab_access / window._adminTabAccess) is unchanged
-    // — only where the link lives moved, see _loadAdminSubnav below.
-    { key: 'transport', label: 'Transport', icon: 'bus', erp: true, action: { type: 'native', fn: 'loadAdminTransportView' } },
+    // 'payroll' and 'transport' deliberately NOT here — both are standalone
+    // top-level sidebar items now (see #nav-payroll/#nav-transport), same
+    // reasoning as bus_tracker's own split out of this list: managing bus
+    // routes/vehicles/fees isn't really a "Student Portal" concern, so it
+    // shouldn't require opening that accordion to find it. Visibility is
+    // now the plain MODULE_REGISTRY/_hasModuleAccess('transport') check
+    // (see MODULE_DEFAULTS) instead of the old admin_tab_visibility matrix.
     { key: 'history', label: 'History', icon: 'clock', erp: false, action: { type: 'native', fn: 'loadAdminHistoryView' } },
     { key: 'photo', label: 'Photo', icon: 'camera', erp: false, action: { type: 'native', fn: 'loadAdminPhotoView' } },
     { key: 'notices', label: 'Notices', icon: 'megaphone', erp: false, action: { type: 'native', fn: 'loadAdminNoticesView' } },
@@ -9942,8 +9940,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // 'fees' deliberately excluded — Fees/financial records are now Super-Admin-
   // only (hardcoded server-side, see SUPER_ADMIN_ID in student-admin/route.js),
   // no longer part of the admin-configurable per-role tab matrix this panel edits.
+  // 'transport' deliberately excluded too now — it moved to the plain
+  // MODULE_REGISTRY toggle (System > Module Access) when it became a
+  // standalone sidebar item, same reasoning as 'fees' above.
   const TAB_ACCESS_LABELS = {
-    attendance: 'Attendance', exams: 'Exams', payroll: 'Payroll (incl. Leave)', transport: 'Transport',
+    attendance: 'Attendance', exams: 'Exams', payroll: 'Payroll (incl. Leave)',
     setup: 'Setup', add_custom_form: '+ Add Custom Form', data: 'Data', access: 'Access',
     history: 'History', photo: 'Photo', notices: 'Notices', import: 'Import',
   };
@@ -15658,9 +15659,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   ];
 
   function loadAdminTransportView() {
-    _setViewHash('student_portal');
-    setActiveNavLink('nav-erp-transport');
-    setContentHeader('Transport', 'bus');
+    if (!_hasModuleAccess('transport')) { showToast('Not available in current role', 'error'); return; }
+    _setViewHash('transport');
+    setActiveNavLink('nav-transport');
+    setContentHeader('Transport', 'route');
     const container = document.getElementById('view-container');
     if (!container) return;
     const tabBar = TRANSPORT_SUBTABS.map((t, i) => `<button onclick="switchTransportTab('${t.id}')" id="trtab-${t.id}"
@@ -21384,6 +21386,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // old bus_tracker admin_tab_visibility entry — GPS bus locations are
     // useful to everyone, not an admin-only student-records feature.
     { key: 'bus_tracker',      label: 'Bus Tracker',        navId: 'nav-bus-tracker' },
+    { key: 'transport',        label: 'Transport',          navId: 'nav-transport' },
     { key: 'messages',         label: 'Messages',           navId: 'nav-messages' },
     { key: 'notifications',    label: 'Notifications',      navId: 'nav-notifications' },
     { key: 'users',            label: 'Users Directory',    navId: 'nav-users-directory' },
@@ -21415,6 +21418,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     student_message_history: ['Admin','VP','Cord','Principal','Teacher'],
     textbooks:     ALL_ROLES,
     bus_tracker:   ALL_ROLES,
+    // Was previously gated by the old admin_tab_visibility ERP-tab matrix
+    // (whoever had 'transport' granted there) — now the plain per-role
+    // module toggle, same mechanism as every other split-out module.
+    // Admin always has access regardless (see _isModuleVisibleForRole);
+    // adjust from System > Module Access if other roles need it too.
+    transport:     ['Admin'],
     messages:      ALL_ROLES,
     notifications: ALL_ROLES,
     users:         ALL_ROLES,
