@@ -1186,11 +1186,13 @@ button { user-select: none; }
    separate floating panels that could both be open at once; now they're
    one panel with these two tabs deciding which content shows. */
 .bt-sidebar-tab-btn {
-  flex: 1; text-align: center; font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: .02em;
-  padding: 4px 0; border-radius: 8px; border: none; cursor: pointer;
-  background: rgba(15,23,42,0.05); color: #94a3b8; transition: background .15s, color .15s;
+  flex: 1 1 0; display: flex !important; align-items: center; justify-content: center; gap: 4px;
+  text-align: center; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .02em;
+  padding: 6px 4px !important; border-radius: 10px !important; border: 1px solid rgba(148,163,184,0.35) !important; cursor: pointer;
+  background: #f1f5f9 !important; color: #64748b !important; transition: background .15s, color .15s;
 }
-.bt-sidebar-tab-btn.active { background: #2563eb; color: #fff; }
+.bt-sidebar-tab-btn i { width: 12px; height: 12px; pointer-events: none; }
+.bt-sidebar-tab-btn.active { background: #2563eb !important; color: #fff !important; border-color: #2563eb !important; }
 
   /* Chrome on Android auto-inflates any text it judges "too small to
      read" (a11y font-boosting) — silently overriding every small

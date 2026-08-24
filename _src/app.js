@@ -17613,9 +17613,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button id="bt-fleet-toggle" onclick="toggleFleetSheet()" title="Show/hide bus list" class="bt-fit-btn-inline"><i data-lucide="bus" class="h-3.5 w-3.5"></i></button>
           </div>
           ${canExportBuses ? `
-          <div id="bt-sidebar-tabs" class="flex items-center shrink-0" style="gap:3px;padding:4px 2px 2px">
-            <button id="bt-tab-btn-list" onclick="BusTracking.switchSidebarTab('list')" class="bt-sidebar-tab-btn active">List</button>
-            <button id="bt-tab-btn-route" onclick="BusTracking.switchSidebarTab('route')" class="bt-sidebar-tab-btn">Route</button>
+          <div id="bt-sidebar-tabs" class="flex items-center shrink-0" style="gap:4px;padding:4px 4px 3px">
+            <button id="bt-tab-btn-list" onclick="BusTracking.switchSidebarTab('list')" class="bt-sidebar-tab-btn active"><i data-lucide="bus" class="h-3 w-3"></i>List</button>
+            <button id="bt-tab-btn-route" onclick="BusTracking.switchSidebarTab('route')" class="bt-sidebar-tab-btn"><i data-lucide="route" class="h-3 w-3"></i>Route</button>
           </div>` : ''}
           <div id="bt-panel-body" class="flex flex-col min-h-0 flex-1">
             <div id="bt-tab-content-list" class="flex flex-col min-h-0 flex-1">
