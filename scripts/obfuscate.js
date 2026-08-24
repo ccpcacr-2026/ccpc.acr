@@ -54,6 +54,8 @@ const RESERVED = [
   '_prOpenStatutoryForm','_prCloseStatutoryForm','_prToggleStatutoryCalcFields','_prToggleStatutoryEmployerFields','_prSaveStatutoryItem','_prDeleteStatutoryItem',
   '_prOpenBonusForm','_prCloseBonusForm','_prSaveBonusPayment','_prDeleteBonusPayment',
   '_prOpenLeaveForm','_prCloseLeaveForm','_prSaveLeaveDeduction','_prDeleteLeaveDeduction','loadMyPayslipsView',
+  '_prOpenStoppageForm','_prCloseStoppageForm','_prSaveStoppage','_prDeleteStoppage',
+  '_prOpenBusFareForm','_prCloseBusFareForm','_prSaveBusFareEntry','_prDeleteBusFareEntry',
   '_prSuggestFromLeaveRequests','_prPrefillLeaveFromRequest','_prExportBankFile',
   '_prOpenImportModal','_prCloseImportModal','_prHandleImportFile',
   '_prSelectSection','_prOpenSectionForm','_prCloseSectionForm','_prSaveSection','_prDeleteSection',

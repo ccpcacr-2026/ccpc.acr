@@ -715,6 +715,41 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success', payslips: rows });
   }
 
+  // Bus Stoppages registry — plain Admin-only (not part of the admin-tab
+  // matrix below), lives in student.bus_stoppages so it's reusable later
+  // for a full student bus fare list; Payroll's staff-child bus fare
+  // entries look up fares from here by stoppage_id.
+  if (action === 'get_bus_stoppages' || action === 'save_bus_stoppage' || action === 'delete_bus_stoppage') {
+    if (!(await _isAdmin(user_id))) return NextResponse.json({ result: 'error', message: 'Admin access required.' }, { status: 403 });
+    if (action === 'get_bus_stoppages') {
+      const rows = await sb('bus_stoppages?select=*&order=name.asc');
+      if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+      return NextResponse.json({ result: 'success', stoppages: rows });
+    }
+    if (action === 'save_bus_stoppage') {
+      const { id, name, one_way_fare, round_trip_fare, is_active } = payload;
+      if (!name) return NextResponse.json({ result: 'error', message: 'Name is required.' });
+      const rowData = {
+        name,
+        one_way_fare: Number(one_way_fare) || 0,
+        round_trip_fare: Number(round_trip_fare) || 0,
+        is_active: is_active !== false,
+      };
+      const r = id
+        ? await sb(`bus_stoppages?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+        : await sb('bus_stoppages', 'POST', rowData, { Prefer: 'return=representation' });
+      if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+      return NextResponse.json({ result: 'success', stoppage: Array.isArray(r) ? r[0] : r });
+    }
+    if (action === 'delete_bus_stoppage') {
+      const { id } = payload;
+      if (!id) return NextResponse.json({ result: 'error', message: 'id required' });
+      const r = await sb(`bus_stoppages?id=eq.${encodeURIComponent(id)}`, 'DELETE');
+      if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+      return NextResponse.json({ result: 'success' });
+    }
+  }
+
   // Actions belonging to one of the admin-console tabs get gated by the
   // admin-configurable per-tab matrix instead of the plain _isAdmin check —
   // e.g. Payroll defaults to Admin/HR only, not Student Portal Admin, and

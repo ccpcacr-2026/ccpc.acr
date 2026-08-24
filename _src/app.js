@@ -13492,6 +13492,42 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
         </div>
 
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
+          <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <div>
+              <p class="font-black text-slate-800 text-xs">Bus Stoppages</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Shared fare list (also reusable for the student bus fare list later) — Payroll's staff-child bus fare entries below pick from these</p>
+            </div>
+            <button onclick="_prOpenStoppageForm(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Stoppage</button>
+          </div>
+          <div class="overflow-auto border border-slate-200 rounded-xl">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
+                <th class="py-2 px-3">Name</th><th class="py-2 px-3">One-way Fare</th><th class="py-2 px-3">Round-trip Fare</th><th class="py-2 px-3">Status</th><th class="py-2 px-3 text-right">Actions</th>
+              </tr></thead>
+              <tbody id="prStoppagesBody"><tr><td colspan="5" class="p-4 text-slate-400 font-bold text-xs text-center">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
+          <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <div>
+              <p class="font-black text-slate-800 text-xs">Staff-Child Bus Fare</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Child count x the selected stoppage's fare, deducted every month while active</p>
+            </div>
+            <button onclick="_prOpenBusFareForm(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Entry</button>
+          </div>
+          <div class="overflow-auto border border-slate-200 rounded-xl">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
+                <th class="py-2 px-3">Person</th><th class="py-2 px-3">Stoppage</th><th class="py-2 px-3">Trip</th><th class="py-2 px-3">Children</th><th class="py-2 px-3">Monthly Deduction</th><th class="py-2 px-3 text-right">Actions</th>
+              </tr></thead>
+              <tbody id="prBusFareBody"><tr><td colspan="6" class="p-4 text-slate-400 font-bold text-xs text-center">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
         <div class="grid md:grid-cols-3 gap-4">
           <div class="bg-white rounded-2xl border border-slate-200 p-4">
             <div class="flex items-center justify-between mb-3">
@@ -13662,6 +13698,80 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
         </div>
       </div>
+
+      <div id="prStoppageFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-sm">
+          <div class="flex items-center justify-between mb-4">
+            <p class="font-black text-slate-800 text-sm" id="prStoppageFormTitle">Add Stoppage</p>
+            <button onclick="_prCloseStoppageForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+          </div>
+          <input type="hidden" id="prStoppageId">
+          <div class="space-y-3">
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Name <span class="text-red-500">*</span></label>
+              <input type="text" id="prStoppageName" placeholder="e.g. Bayejid" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">One-way Fare</label>
+                <input type="number" id="prStoppageOneWay" placeholder="0" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              </div>
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Round-trip Fare</label>
+                <input type="number" id="prStoppageRoundTrip" placeholder="0" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              </div>
+            </div>
+            <label class="flex items-center gap-2 text-xs font-black text-slate-600 cursor-pointer">
+              <input type="checkbox" id="prStoppageActive" checked class="w-4 h-4 rounded accent-blue-600">
+              Active
+            </label>
+          </div>
+          <div class="flex justify-end gap-2 mt-5">
+            <button onclick="_prCloseStoppageForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
+            <button onclick="_prSaveStoppage()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="prBusFareFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-sm">
+          <div class="flex items-center justify-between mb-4">
+            <p class="font-black text-slate-800 text-sm" id="prBusFareFormTitle">Add Bus Fare Entry</p>
+            <button onclick="_prCloseBusFareForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+          </div>
+          <input type="hidden" id="prBusFareId">
+          <div class="space-y-3">
+            <div class="relative">
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Person <span class="text-red-500">*</span></label>
+              <input type="text" id="prBusFarePersonSearch" placeholder="Search…" autocomplete="off" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocorrect="off" autocapitalize="off" spellcheck="false">
+              <input type="hidden" id="prBusFarePersonSelect">
+              <div id="prBusFarePersonDropdown" class="hidden absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto"></div>
+            </div>
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Stoppage <span class="text-red-500">*</span></label>
+              <select id="prBusFareStoppage" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></select>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Trip Type</label>
+                <select id="prBusFareTripType" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                  <option value="round_trip">Round-trip</option>
+                  <option value="one_way">One-way</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Children</label>
+                <input type="number" id="prBusFareChildCount" value="1" min="1" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              </div>
+            </div>
+          </div>
+          <div class="flex justify-end gap-2 mt-5">
+            <button onclick="_prCloseBusFareForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
+            <button onclick="_prSaveBusFareEntry()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button>
+          </div>
+        </div>
+      </div>
+
       <div id="pr-run" style="display:none">
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
           <div class="flex flex-wrap items-end gap-3">
@@ -13903,11 +14013,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <select id="prCrThenMode" onchange="_prToggleConditionThenFields()" class="px-2 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
                 <option value="fixed">Fixed amount</option>
                 <option value="percent_of_field">Percent of a field</option>
+                <option value="percent_or_floor">Percent of a field, or a minimum floor — whichever is greater</option>
               </select>
               <input type="number" id="prCrThenValue" placeholder="amount" class="px-2 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
               <input type="number" id="prCrThenPercent" placeholder="percent" class="hidden px-2 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
               <select id="prCrThenBaseKey" class="hidden px-2 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></select>
             </div>
+            <p id="prCrFloorHint" class="hidden text-[10px] text-slate-400 font-bold">Fixed amount above is the minimum floor; Percent + Base Field is the percentage side. Whichever computes higher for this person wins.</p>
           </div>
           <div class="flex justify-end gap-2 mt-5">
             <button onclick="_prCloseConditionRuleForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
@@ -13971,7 +14083,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
     if (tabId === 'pr-grades' && !_prGradesLoaded) loadPayrollGrades();
     if (tabId === 'pr-people' && !_prPeopleComboWired) loadPayrollPeopleTab();
-    if (tabId === 'pr-sections' && !_prBonusLoaded) { loadBonusPayments(); loadPayrollSections(); loadLeaveDeductions(); }
+    if (tabId === 'pr-sections' && !_prBonusLoaded) { loadBonusPayments(); loadPayrollSections(); loadLeaveDeductions(); loadStoppages(); loadBusFareEntries(); }
     if (tabId === 'pr-run' && !_prRunTabLoaded) loadPayrollRunTab();
     if (tabId === 'pr-export' && !_prExportTabLoaded) loadPayrollExportTab();
     if (tabId === 'pr-audit') loadPayrollAuditLog();
@@ -14153,7 +14265,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const opSymbols = { '>': '>', '>=': '≥', '<': '<', '<=': '≤', '==': '=', '!=': '≠' };
     tbody.innerHTML = _prConditionRulesCache.map((r, i) => {
       const srcLabel = r.source_key === 'tenure_years' ? 'Tenure (years)' : ((_prFieldsCache.find(f => f.key === r.source_key) || {}).label || r.source_key);
-      const thenLabel = r.then_calc_mode === 'percent_of_field' ? `${r.then_percent || 0}% of ${r.then_base_field_key || '—'}` : `৳${Number(r.then_value || 0).toLocaleString()}`;
+      const thenLabel = r.then_calc_mode === 'percent_or_floor'
+        ? `${r.then_percent || 0}% of ${r.then_base_field_key || '—'}, min ৳${Number(r.then_value || 0).toLocaleString()}`
+        : r.then_calc_mode === 'percent_of_field' ? `${r.then_percent || 0}% of ${r.then_base_field_key || '—'}` : `৳${Number(r.then_value || 0).toLocaleString()}`;
       return `<tr class="border-b border-slate-50">
         <td class="py-1.5 px-3 font-black text-slate-400">${i + 1}</td>
         <td class="py-1.5 px-3 font-bold text-slate-700">${srcLabel} ${opSymbols[r.operator] || r.operator} ${r.compare_value}</td>
@@ -14181,9 +14295,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function _prToggleConditionThenFields() {
     const mode = document.getElementById('prCrThenMode').value;
-    document.getElementById('prCrThenValue').classList.toggle('hidden', mode !== 'fixed');
-    document.getElementById('prCrThenPercent').classList.toggle('hidden', mode !== 'percent_of_field');
-    document.getElementById('prCrThenBaseKey').classList.toggle('hidden', mode !== 'percent_of_field');
+    document.getElementById('prCrThenValue').classList.toggle('hidden', mode !== 'fixed' && mode !== 'percent_or_floor');
+    document.getElementById('prCrThenValue').placeholder = mode === 'percent_or_floor' ? 'minimum floor' : 'amount';
+    document.getElementById('prCrThenPercent').classList.toggle('hidden', mode !== 'percent_of_field' && mode !== 'percent_or_floor');
+    document.getElementById('prCrThenBaseKey').classList.toggle('hidden', mode !== 'percent_of_field' && mode !== 'percent_or_floor');
+    document.getElementById('prCrFloorHint').classList.toggle('hidden', mode !== 'percent_or_floor');
   }
 
   function _prSaveConditionRule() {
@@ -14196,9 +14312,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const payload = {
       field_id, priority: _prConditionRulesCache.length, source_key, operator, compare_value,
       then_calc_mode,
-      then_value: then_calc_mode === 'fixed' ? document.getElementById('prCrThenValue').value : null,
-      then_percent: then_calc_mode === 'percent_of_field' ? document.getElementById('prCrThenPercent').value : null,
-      then_base_field_key: then_calc_mode === 'percent_of_field' ? document.getElementById('prCrThenBaseKey').value : null,
+      then_value: (then_calc_mode === 'fixed' || then_calc_mode === 'percent_or_floor') ? document.getElementById('prCrThenValue').value : null,
+      then_percent: (then_calc_mode === 'percent_of_field' || then_calc_mode === 'percent_or_floor') ? document.getElementById('prCrThenPercent').value : null,
+      then_base_field_key: (then_calc_mode === 'percent_of_field' || then_calc_mode === 'percent_or_floor') ? document.getElementById('prCrThenBaseKey').value : null,
     };
     _payrollFetch('save_field_condition_rule', payload).then(res => {
       if (res && res.result === 'success') { showToast('Rule saved'); _prCloseConditionRuleForm(); _prOpenFieldConditions(Number(field_id)); }
@@ -14822,6 +14938,155 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!confirm('Delete this leave deduction?')) return;
     _payrollFetch('delete_leave_deduction', { id }).then(res => {
       if (res && res.result === 'success') { showToast('Deleted'); loadLeaveDeductions(); }
+      else showToast((res && res.message) || 'Failed to delete', 'error');
+    }).catch(err => showToast(err.message || 'Failed to delete', 'error'));
+  }
+
+  // ── Bus Stoppages (student.bus_stoppages via _adminFetch — Student Portal
+  // schema, reused here so its fares stay editable in one place) ──
+  let _prStoppagesCache = [];
+
+  function loadStoppages() {
+    _adminFetch('get_bus_stoppages', {}).then(res => {
+      _prStoppagesCache = (res && res.result === 'success' && res.stoppages) || [];
+      _prRenderStoppages();
+    }).catch(err => showToast(err.message || 'Failed to load stoppages', 'error'));
+  }
+
+  function _prRenderStoppages() {
+    const tbody = document.getElementById('prStoppagesBody');
+    if (!tbody) return;
+    if (!_prStoppagesCache.length) {
+      tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-slate-400 font-bold text-xs text-center">No stoppages yet.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = _prStoppagesCache.map(s => `
+      <tr class="border-b border-slate-50">
+        <td class="py-1.5 px-3 font-black text-slate-800">${_escHtml(s.name)}</td>
+        <td class="py-1.5 px-3">৳${Number(s.one_way_fare).toLocaleString()}</td>
+        <td class="py-1.5 px-3">৳${Number(s.round_trip_fare).toLocaleString()}</td>
+        <td class="py-1.5 px-3">${s.is_active ? '<span class="text-emerald-600 font-black">Active</span>' : '<span class="text-slate-400 font-black">Inactive</span>'}</td>
+        <td class="py-1.5 px-3 text-right">
+          <button onclick='_prOpenStoppageForm(${JSON.stringify(s).replace(/'/g, "&apos;")})' class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-black mr-3">Edit</button>
+          <button onclick="_prDeleteStoppage(${s.id})" class="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-700">Delete</button>
+        </td>
+      </tr>`).join('');
+  }
+
+  function _prOpenStoppageForm(stoppage) {
+    document.getElementById('prStoppageFormTitle').textContent = stoppage ? 'Edit Stoppage' : 'Add Stoppage';
+    document.getElementById('prStoppageId').value = stoppage ? stoppage.id : '';
+    document.getElementById('prStoppageName').value = stoppage ? stoppage.name : '';
+    document.getElementById('prStoppageOneWay').value = stoppage ? stoppage.one_way_fare : '';
+    document.getElementById('prStoppageRoundTrip').value = stoppage ? stoppage.round_trip_fare : '';
+    document.getElementById('prStoppageActive').checked = stoppage ? stoppage.is_active !== false : true;
+    document.getElementById('prStoppageFormModal').classList.remove('hidden');
+  }
+  function _prCloseStoppageForm() { document.getElementById('prStoppageFormModal').classList.add('hidden'); }
+
+  function _prSaveStoppage() {
+    const id = document.getElementById('prStoppageId').value || null;
+    const name = document.getElementById('prStoppageName').value.trim();
+    if (!name) { showToast('Name is required', 'error'); return; }
+    const payload = {
+      id, name,
+      one_way_fare: document.getElementById('prStoppageOneWay').value || 0,
+      round_trip_fare: document.getElementById('prStoppageRoundTrip').value || 0,
+      is_active: document.getElementById('prStoppageActive').checked,
+    };
+    _adminFetch('save_bus_stoppage', payload).then(res => {
+      if (res && res.result === 'success') { showToast('Stoppage saved'); _prCloseStoppageForm(); loadStoppages(); }
+      else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
+  }
+
+  function _prDeleteStoppage(id) {
+    if (!confirm('Delete this stoppage? Any bus fare entries using it will stop computing a fare.')) return;
+    _adminFetch('delete_bus_stoppage', { id }).then(res => {
+      if (res && res.result === 'success') { showToast('Deleted'); loadStoppages(); }
+      else showToast((res && res.message) || 'Failed to delete', 'error');
+    }).catch(err => showToast(err.message || 'Failed to delete', 'error'));
+  }
+
+  // ── Staff-child bus fare entries (child_count x stoppage fare) ──
+  let _prBusFareCache = [];
+
+  function loadBusFareEntries() {
+    _ensureStaffCache(() => {
+      _wireSearchCombo('prBusFarePersonSearch', 'prBusFarePersonSelect', 'prBusFarePersonDropdown',
+        allStaffCache.map(s => ({ value: s.teacher_id, label: s.full_name || s.teacher_id, sub: [s.designation, s.teacher_id].filter(Boolean).join(' · ') })));
+    });
+    _payrollFetch('get_bus_fare_entries', {}).then(res => {
+      _prBusFareCache = (res && res.result === 'success' && res.entries) || [];
+      _prRenderBusFareEntries();
+    }).catch(err => showToast(err.message || 'Failed to load bus fare entries', 'error'));
+  }
+
+  function _prStoppageName(id) {
+    const s = (_prStoppagesCache || []).find(s => s.id === id);
+    return s ? s.name : `#${id}`;
+  }
+
+  function _prRenderBusFareEntries() {
+    const tbody = document.getElementById('prBusFareBody');
+    if (!tbody) return;
+    if (!_prBusFareCache.length) {
+      tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-slate-400 font-bold text-xs text-center">No bus fare entries yet.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = _prBusFareCache.map(e => {
+      const label = staffLabel(e.user_id);
+      const stoppage = (_prStoppagesCache || []).find(s => s.id === e.stoppage_id);
+      const fare = stoppage ? (e.trip_type === 'one_way' ? stoppage.one_way_fare : stoppage.round_trip_fare) : 0;
+      const monthly = (Number(fare) || 0) * (Number(e.child_count) || 1);
+      return `<tr class="border-b border-slate-50">
+        <td class="py-1.5 px-3 font-black text-slate-800">${label !== e.user_id ? label : e.user_id}</td>
+        <td class="py-1.5 px-3">${_escHtml(_prStoppageName(e.stoppage_id))}</td>
+        <td class="py-1.5 px-3">${e.trip_type === 'one_way' ? 'One-way' : 'Round-trip'}</td>
+        <td class="py-1.5 px-3">${e.child_count}</td>
+        <td class="py-1.5 px-3 font-black text-red-500">৳${monthly.toLocaleString()}</td>
+        <td class="py-1.5 px-3 text-right">
+          <button onclick='_prOpenBusFareForm(${JSON.stringify(e).replace(/'/g, "&apos;")})' class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-black mr-3">Edit</button>
+          <button onclick="_prDeleteBusFareEntry(${e.id})" class="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-700">Delete</button>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  function _prOpenBusFareForm(entry) {
+    document.getElementById('prBusFareFormTitle').textContent = entry ? 'Edit Bus Fare Entry' : 'Add Bus Fare Entry';
+    document.getElementById('prBusFareId').value = entry ? entry.id : '';
+    document.getElementById('prBusFarePersonSelect').value = entry ? entry.user_id : '';
+    document.getElementById('prBusFarePersonSearch').value = entry ? staffLabel(entry.user_id) : '';
+    const stopSel = document.getElementById('prBusFareStoppage');
+    stopSel.innerHTML = (_prStoppagesCache || []).filter(s => s.is_active).map(s => `<option value="${s.id}">${_escHtml(s.name)}</option>`).join('');
+    if (entry) stopSel.value = entry.stoppage_id;
+    document.getElementById('prBusFareTripType').value = entry ? entry.trip_type : 'round_trip';
+    document.getElementById('prBusFareChildCount').value = entry ? entry.child_count : 1;
+    document.getElementById('prBusFareFormModal').classList.remove('hidden');
+  }
+  function _prCloseBusFareForm() { document.getElementById('prBusFareFormModal').classList.add('hidden'); }
+
+  function _prSaveBusFareEntry() {
+    const id = document.getElementById('prBusFareId').value || null;
+    const user_id = document.getElementById('prBusFarePersonSelect').value;
+    const stoppage_id = document.getElementById('prBusFareStoppage').value;
+    if (!user_id || !stoppage_id) { showToast('Person and stoppage are required', 'error'); return; }
+    const payload = {
+      id, user_id, stoppage_id,
+      trip_type: document.getElementById('prBusFareTripType').value,
+      child_count: document.getElementById('prBusFareChildCount').value,
+    };
+    _payrollFetch('save_bus_fare_entry', payload).then(res => {
+      if (res && res.result === 'success') { showToast('Saved'); _prCloseBusFareForm(); loadBusFareEntries(); }
+      else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
+  }
+
+  function _prDeleteBusFareEntry(id) {
+    if (!confirm('Delete this bus fare entry?')) return;
+    _payrollFetch('delete_bus_fare_entry', { id }).then(res => {
+      if (res && res.result === 'success') { showToast('Deleted'); loadBusFareEntries(); }
       else showToast((res && res.message) || 'Failed to delete', 'error');
     }).catch(err => showToast(err.message || 'Failed to delete', 'error'));
   }

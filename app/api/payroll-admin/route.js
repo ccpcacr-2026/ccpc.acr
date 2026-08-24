@@ -64,6 +64,16 @@ function _prAudit(actorUserId, action, entity, entityId, details) {
   }).catch(() => {});
 }
 
+// Reads from the `student` schema — used only for bus_stoppages, the fare
+// lookup table for staff-child bus fare entries (see Sections tab).
+async function _studentSchemaFetch(path) {
+  const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
+    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'student' },
+  });
+  if (!res.ok) return [];
+  return res.json();
+}
+
 // ── Calculation engine ───────────────────────────────────────────────────
 // Single source of truth for both preview_payslip (no writes) and
 // run_payroll (persists a draft). Resolves each field by precedence
@@ -129,7 +139,13 @@ function _resolveFieldValue(fieldKey, fieldsByKey, ctx, memo, visiting) {
   }
 
   if (matchedRule) {
-    if (matchedRule.then_calc_mode === 'percent_of_field' && matchedRule.then_base_field_key) {
+    if (matchedRule.then_calc_mode === 'percent_or_floor' && matchedRule.then_base_field_key) {
+      // Slab-style allowance (e.g. House Rent): whichever is greater of
+      // percent% of the base field, or a fixed minimum floor.
+      const baseAmt = _resolveFieldValue(matchedRule.then_base_field_key, fieldsByKey, ctx, memo, visiting);
+      const percentAmt = ((Number(matchedRule.then_percent) || 0) / 100) * baseAmt;
+      amount = Math.max(percentAmt, Number(matchedRule.then_value) || 0);
+    } else if (matchedRule.then_calc_mode === 'percent_of_field' && matchedRule.then_base_field_key) {
       const baseAmt = _resolveFieldValue(matchedRule.then_base_field_key, fieldsByKey, ctx, memo, visiting);
       amount = ((Number(matchedRule.then_percent) || 0) / 100) * baseAmt;
     } else {
@@ -215,6 +231,19 @@ function _computePayslipForPerson(personSetup, role, category, ref, month, year)
   (ref.leaveDeductionsByUser[personSetup.user_id] || []).forEach(l => { leaveDeductionTotal += Number(l.amount) || 0; });
   if (leaveDeductionTotal) { fieldValues['leave_deduction'] = leaveDeductionTotal; totalDeductions += leaveDeductionTotal; }
 
+  // Staff-child bus fare — child_count x the selected stoppage's fare for
+  // the chosen trip type, recurring every month while the entry is active.
+  // Fare comes from student.bus_stoppages (a shared registry, not
+  // Payroll's own data) so a fare change there takes effect immediately.
+  let busFareTotal = 0;
+  (ref.busFareEntriesByUser[personSetup.user_id] || []).forEach(e => {
+    const stoppage = ref.stoppagesById[e.stoppage_id];
+    if (!stoppage) return;
+    const fare = e.trip_type === 'one_way' ? Number(stoppage.one_way_fare) : Number(stoppage.round_trip_fare);
+    busFareTotal += (fare || 0) * (Number(e.child_count) || 1);
+  });
+  if (busFareTotal) { fieldValues['bus_fare'] = busFareTotal; totalDeductions += busFareTotal; }
+
   const net = gross - totalDeductions;
   // MPO/College split — a person with a government-approved MPO amount
   // (set once a year, not monthly — see save_person_setup/import_rows)
@@ -241,7 +270,7 @@ function _computePayslipForPerson(personSetup, role, category, ref, month, year)
 
 // Fetches every table the engine needs, once, for a given set of user ids + period.
 async function _loadPayrollRef(userIds, month, year) {
-  const [fields, gradeFields, gradeConditional, roleDefaults, statutoryItemsRaw, sections, sectionEntriesRaw, bonusesRaw, allOverridesRaw, applicableRolesRaw, conditionRulesRaw, leaveDeductionsRaw, applicableCategoriesRaw] = await Promise.all([
+  const [fields, gradeFields, gradeConditional, roleDefaults, statutoryItemsRaw, sections, sectionEntriesRaw, bonusesRaw, allOverridesRaw, applicableRolesRaw, conditionRulesRaw, leaveDeductionsRaw, applicableCategoriesRaw, busFareEntriesRaw, busStoppagesRaw] = await Promise.all([
     sbPayroll('fields?is_active=eq.true&select=*'),
     sbPayroll('grade_fields?select=*'),
     sbPayroll('grade_conditional_fields?select=*'),
@@ -255,6 +284,8 @@ async function _loadPayrollRef(userIds, month, year) {
     sbPayroll('field_condition_rules?select=*&order=priority.asc'),
     sbPayroll(`leave_deductions?month=eq.${encodeURIComponent(month)}&year=eq.${encodeURIComponent(year)}&select=*`),
     sbPayroll('field_applicable_categories?select=*'),
+    sbPayroll('bus_fare_entries?is_active=eq.true&select=*'),
+    _studentSchemaFetch('bus_stoppages?select=*'),
   ]);
   const gradeFieldsByGrade = {}; (gradeFields || []).forEach(g => { (gradeFieldsByGrade[g.grade_id] = gradeFieldsByGrade[g.grade_id] || []).push(g); });
   const gradeConditionalSet = new Set((gradeConditional || []).map(c => `${c.grade_id}:${c.field_id}`));
@@ -266,10 +297,13 @@ async function _loadPayrollRef(userIds, month, year) {
   const conditionRulesByField = {}; (conditionRulesRaw || []).forEach(r => { (conditionRulesByField[r.field_id] = conditionRulesByField[r.field_id] || []).push(r); });
   const leaveDeductionsByUser = {}; (leaveDeductionsRaw || []).forEach(l => { (leaveDeductionsByUser[l.user_id] = leaveDeductionsByUser[l.user_id] || []).push(l); });
   const applicableCategoriesByField = {}; (applicableCategoriesRaw || []).forEach(a => { (applicableCategoriesByField[a.field_id] = applicableCategoriesByField[a.field_id] || new Set()).add(a.category); });
+  const stoppagesById = {}; (busStoppagesRaw || []).forEach(s => { stoppagesById[s.id] = s; });
+  const busFareEntriesByUser = {}; (busFareEntriesRaw || []).forEach(e => { (busFareEntriesByUser[e.user_id] = busFareEntriesByUser[e.user_id] || []).push(e); });
   return {
     fields: fields || [], gradeFieldsByGrade, gradeConditionalSet, roleDefaults: roleDefaults || [],
     statutoryItems: statutoryItemsRaw || [], sectionsById, sectionEntriesByUser, bonusesByUser, personOverridesByUser,
     applicableRolesByField, conditionRulesByField, leaveDeductionsByUser, applicableCategoriesByField,
+    stoppagesById, busFareEntriesByUser,
   };
 }
 
@@ -855,6 +889,45 @@ export async function POST(req) {
     const del = await sbPayroll(`leave_deductions?id=eq.${encodeURIComponent(id)}`, 'DELETE');
     if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
     _prAudit(user_id, 'delete_leave_deduction', 'leave_deductions', id);
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Staff-child bus fare entries (child_count x stoppage fare, recurring) ──
+  if (action === 'get_bus_stoppages_for_payroll') {
+    const rows = await _studentSchemaFetch('bus_stoppages?is_active=eq.true&select=*&order=name.asc');
+    return NextResponse.json({ result: 'success', stoppages: Array.isArray(rows) ? rows : [] });
+  }
+
+  if (action === 'get_bus_fare_entries') {
+    const rows = await sbPayroll('bus_fare_entries?select=*&order=created_at.desc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', entries: rows });
+  }
+
+  if (action === 'save_bus_fare_entry') {
+    const { id, user_id: personId, stoppage_id, trip_type, child_count } = payload;
+    if (!personId || !stoppage_id) return NextResponse.json({ result: 'error', message: 'Person and stoppage are required' }, { status: 400 });
+    const rowData = {
+      user_id: personId, stoppage_id,
+      trip_type: trip_type === 'one_way' ? 'one_way' : 'round_trip',
+      child_count: Math.max(1, Number(child_count) || 1),
+      is_active: true,
+    };
+    const saved = id
+      ? await sbPayroll(`bus_fare_entries?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sbPayroll('bus_fare_entries', 'POST', rowData);
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    const savedRow = Array.isArray(saved) ? saved[0] : saved;
+    _prAudit(user_id, 'save_bus_fare_entry', 'bus_fare_entries', savedRow?.id, rowData);
+    return NextResponse.json({ result: 'success', entry: savedRow });
+  }
+
+  if (action === 'delete_bus_fare_entry') {
+    const { id } = payload;
+    if (!id) return NextResponse.json({ result: 'error', message: 'id required' }, { status: 400 });
+    const del = await sbPayroll(`bus_fare_entries?id=eq.${encodeURIComponent(id)}`, 'DELETE');
+    if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
+    _prAudit(user_id, 'delete_bus_fare_entry', 'bus_fare_entries', id);
     return NextResponse.json({ result: 'success' });
   }
 
