@@ -13526,42 +13526,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
         </div>
 
-        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
-          <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
-            <div>
-              <p class="font-black text-slate-800 text-xs">Bus Stoppages</p>
-              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Shared fare list (also reusable for the student bus fare list later) — Payroll's staff-child bus fare entries below pick from these</p>
-            </div>
-            <button onclick="_prOpenStoppageForm(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Stoppage</button>
-          </div>
-          <div class="overflow-auto border border-slate-200 rounded-xl">
-            <table class="w-full text-left border-collapse text-xs">
-              <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
-                <th class="py-2 px-3">Name</th><th class="py-2 px-3">One-way Fare</th><th class="py-2 px-3">Round-trip Fare</th><th class="py-2 px-3">Status</th><th class="py-2 px-3 text-right">Actions</th>
-              </tr></thead>
-              <tbody id="prStoppagesBody"><tr><td colspan="5" class="p-4 text-slate-400 font-bold text-xs text-center">Loading…</td></tr></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
-          <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
-            <div>
-              <p class="font-black text-slate-800 text-xs">Staff-Child Bus Fare</p>
-              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Child count x the selected stoppage's fare, deducted every month while active</p>
-            </div>
-            <button onclick="_prOpenBusFareForm(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Entry</button>
-          </div>
-          <div class="overflow-auto border border-slate-200 rounded-xl">
-            <table class="w-full text-left border-collapse text-xs">
-              <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
-                <th class="py-2 px-3">Person</th><th class="py-2 px-3">Stoppage</th><th class="py-2 px-3">Trip</th><th class="py-2 px-3">Children</th><th class="py-2 px-3">Monthly Deduction</th><th class="py-2 px-3 text-right">Actions</th>
-              </tr></thead>
-              <tbody id="prBusFareBody"><tr><td colspan="6" class="p-4 text-slate-400 font-bold text-xs text-center">Loading…</td></tr></tbody>
-            </table>
-          </div>
-        </div>
-
         <div class="grid md:grid-cols-3 gap-4">
           <div class="bg-white rounded-2xl border border-slate-200 p-4">
             <div class="flex items-center justify-between mb-3">
@@ -13729,79 +13693,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex justify-end gap-2 mt-5">
             <button onclick="_prCloseLeaveForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
             <button onclick="_prSaveLeaveDeduction()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button>
-          </div>
-        </div>
-      </div>
-
-      <div id="prStoppageFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-        <div class="bg-white rounded-2xl p-5 w-full max-w-sm">
-          <div class="flex items-center justify-between mb-4">
-            <p class="font-black text-slate-800 text-sm" id="prStoppageFormTitle">Add Stoppage</p>
-            <button onclick="_prCloseStoppageForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
-          </div>
-          <input type="hidden" id="prStoppageId">
-          <div class="space-y-3">
-            <div>
-              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Name <span class="text-red-500">*</span></label>
-              <input type="text" id="prStoppageName" placeholder="e.g. Bayejid" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
-            </div>
-            <div class="grid grid-cols-2 gap-3">
-              <div>
-                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">One-way Fare</label>
-                <input type="number" id="prStoppageOneWay" placeholder="0" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
-              </div>
-              <div>
-                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Round-trip Fare</label>
-                <input type="number" id="prStoppageRoundTrip" placeholder="0" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
-              </div>
-            </div>
-            <label class="flex items-center gap-2 text-xs font-black text-slate-600 cursor-pointer">
-              <input type="checkbox" id="prStoppageActive" checked class="w-4 h-4 rounded accent-blue-600">
-              Active
-            </label>
-          </div>
-          <div class="flex justify-end gap-2 mt-5">
-            <button onclick="_prCloseStoppageForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
-            <button onclick="_prSaveStoppage()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button>
-          </div>
-        </div>
-      </div>
-
-      <div id="prBusFareFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-        <div class="bg-white rounded-2xl p-5 w-full max-w-sm">
-          <div class="flex items-center justify-between mb-4">
-            <p class="font-black text-slate-800 text-sm" id="prBusFareFormTitle">Add Bus Fare Entry</p>
-            <button onclick="_prCloseBusFareForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
-          </div>
-          <input type="hidden" id="prBusFareId">
-          <div class="space-y-3">
-            <div class="relative">
-              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Person <span class="text-red-500">*</span></label>
-              <input type="text" id="prBusFarePersonSearch" placeholder="Search…" autocomplete="off" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocorrect="off" autocapitalize="off" spellcheck="false">
-              <input type="hidden" id="prBusFarePersonSelect">
-              <div id="prBusFarePersonDropdown" class="hidden absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto"></div>
-            </div>
-            <div>
-              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Stoppage <span class="text-red-500">*</span></label>
-              <select id="prBusFareStoppage" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></select>
-            </div>
-            <div class="grid grid-cols-2 gap-3">
-              <div>
-                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Trip Type</label>
-                <select id="prBusFareTripType" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
-                  <option value="round_trip">Round-trip</option>
-                  <option value="one_way">One-way</option>
-                </select>
-              </div>
-              <div>
-                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Children</label>
-                <input type="number" id="prBusFareChildCount" value="1" min="1" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
-              </div>
-            </div>
-          </div>
-          <div class="flex justify-end gap-2 mt-5">
-            <button onclick="_prCloseBusFareForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
-            <button onclick="_prSaveBusFareEntry()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button>
           </div>
         </div>
       </div>
@@ -14117,7 +14008,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
     if (tabId === 'pr-grades' && !_prGradesLoaded) loadPayrollGrades();
     if (tabId === 'pr-people' && !_prPeopleComboWired) loadPayrollPeopleTab();
-    if (tabId === 'pr-sections' && !_prBonusLoaded) { loadBonusPayments(); loadPayrollSections(); loadLeaveDeductions(); loadStoppages(); loadBusFareEntries(); }
+    if (tabId === 'pr-sections' && !_prBonusLoaded) { loadBonusPayments(); loadPayrollSections(); loadLeaveDeductions(); }
     if (tabId === 'pr-run' && !_prRunTabLoaded) loadPayrollRunTab();
     if (tabId === 'pr-export' && !_prExportTabLoaded) loadPayrollExportTab();
     if (tabId === 'pr-audit') loadPayrollAuditLog();
@@ -15781,6 +15672,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   const TRANSPORT_SUBTABS = [
     { id: 'transport-routes-fees', label: 'Routes & Fees' },
     { id: 'transport-bus-config', label: 'Bus / GPS Config' },
+    { id: 'transport-stoppages', label: 'Stoppages & Fares' },
+    { id: 'transport-bus-fare', label: 'Staff-Child Bus Fare' },
   ];
 
   function loadAdminTransportView() {
@@ -15908,12 +15801,127 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
         </div>
       </div>
+
+      <div id="transport-stoppages" style="display:none">
+        <div class="bg-white rounded-2xl border border-slate-200 p-4">
+          <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <div>
+              <p class="font-black text-slate-800 text-xs">Bus Stoppages</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Name and fares per stop (enter English names) — reusable later for a full student bus fare list; Staff-Child Bus Fare below picks from these</p>
+            </div>
+            <button onclick="_prOpenStoppageForm(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Stoppage</button>
+          </div>
+          <div class="overflow-auto border border-slate-200 rounded-xl">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
+                <th class="py-2 px-3">Name</th><th class="py-2 px-3">One-way Fare</th><th class="py-2 px-3">Round-trip Fare</th><th class="py-2 px-3">Status</th><th class="py-2 px-3 text-right">Actions</th>
+              </tr></thead>
+              <tbody id="prStoppagesBody"><tr><td colspan="5" class="p-4 text-slate-400 font-bold text-xs text-center">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="transport-bus-fare" style="display:none">
+        <div class="bg-white rounded-2xl border border-slate-200 p-4">
+          <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <div>
+              <p class="font-black text-slate-800 text-xs">Staff-Child Bus Fare</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Child count x the selected stoppage's fare — deducted every month from that staff member's payroll while active</p>
+            </div>
+            <button onclick="_prOpenBusFareForm(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Entry</button>
+          </div>
+          <div class="overflow-auto border border-slate-200 rounded-xl">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
+                <th class="py-2 px-3">Person</th><th class="py-2 px-3">Stoppage</th><th class="py-2 px-3">Trip</th><th class="py-2 px-3">Children</th><th class="py-2 px-3">Monthly Deduction</th><th class="py-2 px-3 text-right">Actions</th>
+              </tr></thead>
+              <tbody id="prBusFareBody"><tr><td colspan="6" class="p-4 text-slate-400 font-bold text-xs text-center">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="prStoppageFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-sm">
+          <div class="flex items-center justify-between mb-4">
+            <p class="font-black text-slate-800 text-sm" id="prStoppageFormTitle">Add Stoppage</p>
+            <button onclick="_prCloseStoppageForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+          </div>
+          <input type="hidden" id="prStoppageId">
+          <div class="space-y-3">
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Name <span class="text-red-500">*</span></label>
+              <input type="text" id="prStoppageName" placeholder="e.g. Bayejid" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">One-way Fare</label>
+                <input type="number" id="prStoppageOneWay" placeholder="0" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              </div>
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Round-trip Fare</label>
+                <input type="number" id="prStoppageRoundTrip" placeholder="0" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              </div>
+            </div>
+            <label class="flex items-center gap-2 text-xs font-black text-slate-600 cursor-pointer">
+              <input type="checkbox" id="prStoppageActive" checked class="w-4 h-4 rounded accent-blue-600">
+              Active
+            </label>
+          </div>
+          <div class="flex justify-end gap-2 mt-5">
+            <button onclick="_prCloseStoppageForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
+            <button onclick="_prSaveStoppage()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="prBusFareFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-sm">
+          <div class="flex items-center justify-between mb-4">
+            <p class="font-black text-slate-800 text-sm" id="prBusFareFormTitle">Add Bus Fare Entry</p>
+            <button onclick="_prCloseBusFareForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+          </div>
+          <input type="hidden" id="prBusFareId">
+          <div class="space-y-3">
+            <div class="relative">
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Person <span class="text-red-500">*</span></label>
+              <input type="text" id="prBusFarePersonSearch" placeholder="Search…" autocomplete="off" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocorrect="off" autocapitalize="off" spellcheck="false">
+              <input type="hidden" id="prBusFarePersonSelect">
+              <div id="prBusFarePersonDropdown" class="hidden absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto"></div>
+            </div>
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Stoppage <span class="text-red-500">*</span></label>
+              <select id="prBusFareStoppage" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></select>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Trip</label>
+                <select id="prBusFareTripType" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                  <option value="round_trip">Round-trip</option>
+                  <option value="one_way">One-way</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Children</label>
+                <input type="number" id="prBusFareChildCount" value="1" min="1" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              </div>
+            </div>
+          </div>
+          <div class="flex justify-end gap-2 mt-5">
+            <button onclick="_prCloseBusFareForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
+            <button onclick="_prSaveBusFareEntry()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button>
+          </div>
+        </div>
+      </div>
     `;
     lucide.createIcons();
     loadTransportRoutes();
     loadTransportVehicles();
     loadTransportPickupPoints();
     loadTransportFeeMaster();
+    loadStoppages();
+    loadBusFareEntries();
   }
 
   function switchTransportTab(tabId) {
