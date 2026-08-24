@@ -17923,8 +17923,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </div>
             ${canExportBuses ? `
             <div id="bt-tab-content-route" class="hidden flex-1 min-h-0 overflow-y-auto" style="padding:6px;-webkit-text-size-adjust:100%;text-size-adjust:100%;">
-              <select id="bt-route-bus" title="Bus" class="w-full bg-white/60 border border-slate-200 rounded font-bold" style="font-size:9px;padding:3px 4px;margin-bottom:3px"></select>
-              <input type="date" id="bt-route-date" title="Date" class="w-full bg-white/60 border border-slate-200 rounded font-bold" style="font-size:9px;padding:3px 4px;margin-bottom:3px">
+              <div class="relative" style="margin-bottom:6px">
+                <i data-lucide="bus" class="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none"></i>
+                <i data-lucide="chevron-down" class="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none"></i>
+                <select id="bt-route-bus" title="Bus" class="w-full pl-9 pr-8 py-2.5 bg-white/60 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-600 transition-all cursor-pointer" style="appearance:none;-webkit-appearance:none"></select>
+              </div>
+              <div class="relative" style="margin-bottom:6px">
+                <i data-lucide="calendar" class="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none"></i>
+                <input type="date" id="bt-route-date" title="Date" class="w-full pl-9 pr-3 py-2.5 bg-white/60 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-600 transition-all cursor-pointer">
+              </div>
               <div class="flex gap-1">
                 <button onclick="BusTracking.showRouteHistory()" class="flex-1 rounded font-black uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all" style="font-size:8px;padding:3px 0">Show</button>
                 <button onclick="BusTracking.clearRouteHistory()" class="flex-1 rounded font-black uppercase tracking-widest border border-slate-200 text-slate-500 hover:bg-slate-50 transition-all" style="font-size:8px;padding:3px 0">Clear</button>
