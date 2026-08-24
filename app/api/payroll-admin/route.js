@@ -158,11 +158,12 @@ function _resolveFieldValue(fieldKey, fieldsByKey, ctx, memo, visiting) {
 // reference data fetched once per run (fields, grade/role config tables,
 // statutory items, active section entries, pending bonuses) so run_payroll
 // doesn't refetch per person.
-function _computePayslipForPerson(personSetup, role, ref, month, year) {
+function _computePayslipForPerson(personSetup, role, category, ref, month, year) {
   const gradeId = personSetup?.grade_id || null;
   const applicableFields = ref.fields.filter(f => {
     if (f.is_grade_conditional && !(gradeId && ref.gradeConditionalSet.has(`${gradeId}:${f.id}`))) return false;
     if (f.is_role_conditional && !(ref.applicableRolesByField[f.id] || new Set()).has(role)) return false;
+    if (f.is_category_conditional && !(ref.applicableCategoriesByField[f.id] || new Set()).has(category)) return false;
     return true;
   });
   const fieldsByKey = {}; ref.fields.forEach(f => { fieldsByKey[f.key] = f; });
@@ -214,6 +215,14 @@ function _computePayslipForPerson(personSetup, role, ref, month, year) {
   (ref.leaveDeductionsByUser[personSetup.user_id] || []).forEach(l => { leaveDeductionTotal += Number(l.amount) || 0; });
   if (leaveDeductionTotal) { fieldValues['leave_deduction'] = leaveDeductionTotal; totalDeductions += leaveDeductionTotal; }
 
+  const net = gross - totalDeductions;
+  // MPO/College split — a person with a government-approved MPO amount has
+  // that much of their net salary funded by the government, the rest by
+  // the college; capped at net so a stale/oversized mpo_amount can never
+  // make the split exceed what's actually being paid.
+  const mpoAmount = Math.max(0, Math.min(Number(personSetup.mpo_amount) || 0, net));
+  const collegeAmount = net - mpoAmount;
+
   return {
     user_id: personSetup.user_id,
     grade_id: gradeId,
@@ -221,13 +230,15 @@ function _computePayslipForPerson(personSetup, role, ref, month, year) {
     section_amounts: sectionAmounts,
     gross: Math.round(gross * 100) / 100,
     total_deductions: Math.round(totalDeductions * 100) / 100,
-    net: Math.round((gross - totalDeductions) * 100) / 100,
+    net: Math.round(net * 100) / 100,
+    mpo_amount: Math.round(mpoAmount * 100) / 100,
+    college_amount: Math.round(collegeAmount * 100) / 100,
   };
 }
 
 // Fetches every table the engine needs, once, for a given set of user ids + period.
 async function _loadPayrollRef(userIds, month, year) {
-  const [fields, gradeFields, gradeConditional, roleDefaults, statutoryItemsRaw, sections, sectionEntriesRaw, bonusesRaw, allOverridesRaw, applicableRolesRaw, conditionRulesRaw, leaveDeductionsRaw] = await Promise.all([
+  const [fields, gradeFields, gradeConditional, roleDefaults, statutoryItemsRaw, sections, sectionEntriesRaw, bonusesRaw, allOverridesRaw, applicableRolesRaw, conditionRulesRaw, leaveDeductionsRaw, applicableCategoriesRaw] = await Promise.all([
     sbPayroll('fields?is_active=eq.true&select=*'),
     sbPayroll('grade_fields?select=*'),
     sbPayroll('grade_conditional_fields?select=*'),
@@ -240,6 +251,7 @@ async function _loadPayrollRef(userIds, month, year) {
     sbPayroll('field_applicable_roles?select=*'),
     sbPayroll('field_condition_rules?select=*&order=priority.asc'),
     sbPayroll(`leave_deductions?month=eq.${encodeURIComponent(month)}&year=eq.${encodeURIComponent(year)}&select=*`),
+    sbPayroll('field_applicable_categories?select=*'),
   ]);
   const gradeFieldsByGrade = {}; (gradeFields || []).forEach(g => { (gradeFieldsByGrade[g.grade_id] = gradeFieldsByGrade[g.grade_id] || []).push(g); });
   const gradeConditionalSet = new Set((gradeConditional || []).map(c => `${c.grade_id}:${c.field_id}`));
@@ -250,10 +262,11 @@ async function _loadPayrollRef(userIds, month, year) {
   const applicableRolesByField = {}; (applicableRolesRaw || []).forEach(a => { (applicableRolesByField[a.field_id] = applicableRolesByField[a.field_id] || new Set()).add(a.role); });
   const conditionRulesByField = {}; (conditionRulesRaw || []).forEach(r => { (conditionRulesByField[r.field_id] = conditionRulesByField[r.field_id] || []).push(r); });
   const leaveDeductionsByUser = {}; (leaveDeductionsRaw || []).forEach(l => { (leaveDeductionsByUser[l.user_id] = leaveDeductionsByUser[l.user_id] || []).push(l); });
+  const applicableCategoriesByField = {}; (applicableCategoriesRaw || []).forEach(a => { (applicableCategoriesByField[a.field_id] = applicableCategoriesByField[a.field_id] || new Set()).add(a.category); });
   return {
     fields: fields || [], gradeFieldsByGrade, gradeConditionalSet, roleDefaults: roleDefaults || [],
     statutoryItems: statutoryItemsRaw || [], sectionsById, sectionEntriesByUser, bonusesByUser, personOverridesByUser,
-    applicableRolesByField, conditionRulesByField, leaveDeductionsByUser,
+    applicableRolesByField, conditionRulesByField, leaveDeductionsByUser, applicableCategoriesByField,
   };
 }
 
@@ -262,6 +275,18 @@ async function _rolesForUsers(userIds) {
   const rows = await _teacherSchemaFetch(`app_users?user_id=in.(${userIds.map(id => encodeURIComponent(id)).join(',')})&select=user_id,role`);
   const map = {};
   (Array.isArray(rows) ? rows : []).forEach(r => { map[r.user_id] = String(r.role || '').split(',')[0].trim(); });
+  return map;
+}
+
+// Category (Teacher School / Teacher College / Staff, or whatever's
+// actually in use — System > Users' free-text Category field) drives
+// category-conditional fields, the same mechanism as role/grade
+// conditionals but keyed off users_profile.category instead.
+async function _categoriesForUsers(userIds) {
+  if (!userIds.length) return {};
+  const rows = await _teacherSchemaFetch(`users_profile?teacher_id=in.(${userIds.map(id => encodeURIComponent(id)).join(',')})&select=teacher_id,category`);
+  const map = {};
+  (Array.isArray(rows) ? rows : []).forEach(r => { map[r.teacher_id] = (r.category || '').trim(); });
   return map;
 }
 
@@ -286,8 +311,9 @@ async function _runPayrollForPeriod(month, year, actorUserId) {
   }
 
   const roles = await _rolesForUsers(people.map(p => p.user_id));
+  const categories = await _categoriesForUsers(people.map(p => p.user_id));
   const ref = await _loadPayrollRef(people.map(p => p.user_id), month, year);
-  const slips = people.map(p => _computePayslipForPerson(p, roles[p.user_id] || '', ref, Number(month), Number(year)));
+  const slips = people.map(p => _computePayslipForPerson(p, roles[p.user_id] || '', categories[p.user_id] || '', ref, Number(month), Number(year)));
 
   for (const slip of slips) {
     const rowData = { run_id: run.id, ...slip };
@@ -348,7 +374,7 @@ export async function POST(req) {
   }
 
   if (action === 'save_field') {
-    const { id, key, label, category, calc_mode, calc_base_field_key, increment_mode, increment_value, is_grade_conditional, is_role_conditional, is_active, sort_order } = payload;
+    const { id, key, label, category, calc_mode, calc_base_field_key, increment_mode, increment_value, is_grade_conditional, is_role_conditional, is_category_conditional, is_active, sort_order } = payload;
     if (!key || !label) return NextResponse.json({ result: 'error', message: 'Key and label are required' }, { status: 400 });
     const rowData = {
       key, label,
@@ -359,6 +385,7 @@ export async function POST(req) {
       increment_value: increment_value === '' || increment_value == null ? null : Number(increment_value),
       is_grade_conditional: !!is_grade_conditional,
       is_role_conditional: !!is_role_conditional,
+      is_category_conditional: !!is_category_conditional,
       is_active: is_active !== false,
       sort_order: sort_order == null ? 0 : Number(sort_order),
     };
@@ -384,13 +411,15 @@ export async function POST(req) {
   if (action === 'get_field_conditions') {
     const { field_id } = payload;
     if (!field_id) return NextResponse.json({ result: 'error', message: 'field_id required' }, { status: 400 });
-    const [applicableRoles, rules] = await Promise.all([
+    const [applicableRoles, rules, applicableCategories] = await Promise.all([
       sbPayroll(`field_applicable_roles?field_id=eq.${encodeURIComponent(field_id)}&select=*`),
       sbPayroll(`field_condition_rules?field_id=eq.${encodeURIComponent(field_id)}&select=*&order=priority.asc`),
+      sbPayroll(`field_applicable_categories?field_id=eq.${encodeURIComponent(field_id)}&select=*`),
     ]);
     if (applicableRoles?.error) return NextResponse.json({ result: 'error', message: applicableRoles.error }, { status: 500 });
     if (rules?.error) return NextResponse.json({ result: 'error', message: rules.error }, { status: 500 });
-    return NextResponse.json({ result: 'success', applicable_roles: applicableRoles, condition_rules: rules });
+    if (applicableCategories?.error) return NextResponse.json({ result: 'error', message: applicableCategories.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', applicable_roles: applicableRoles, condition_rules: rules, applicable_categories: applicableCategories });
   }
 
   if (action === 'toggle_field_applicable_role') {
@@ -405,6 +434,30 @@ export async function POST(req) {
     }
     _prAudit(user_id, 'toggle_field_applicable_role', 'field_applicable_roles', `${field_id}:${role}`, { enabled });
     return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'toggle_field_applicable_category') {
+    const { field_id, category: cat, enabled } = payload;
+    if (!field_id || !cat) return NextResponse.json({ result: 'error', message: 'field_id and category required' }, { status: 400 });
+    if (enabled) {
+      const saved = await sbPayroll('field_applicable_categories', 'POST', { field_id, category: cat });
+      if (saved?.error && !String(saved.error).includes('duplicate')) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    } else {
+      const del = await sbPayroll(`field_applicable_categories?field_id=eq.${encodeURIComponent(field_id)}&category=eq.${encodeURIComponent(cat)}`, 'DELETE');
+      if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
+    }
+    _prAudit(user_id, 'toggle_field_applicable_category', 'field_applicable_categories', `${field_id}:${cat}`, { enabled });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // Distinct category values currently in use across staff, for the
+  // Conditions panel's category checklist — same source as the People
+  // tab's "Add People" category filter (users_profile.category).
+  if (action === 'get_staff_categories') {
+    const rows = await _teacherSchemaFetch('users_profile?select=category');
+    if (!Array.isArray(rows)) return NextResponse.json({ result: 'success', categories: [] });
+    const categories = [...new Set(rows.map(r => (r.category || '').trim()).filter(Boolean))].sort();
+    return NextResponse.json({ result: 'success', categories });
   }
 
   if (action === 'save_field_condition_rule') {
@@ -548,7 +601,7 @@ export async function POST(req) {
   }
 
   if (action === 'save_person_setup') {
-    const { user_id: personId, grade_id, joining_date, is_active, bank_name, bank_account_no, mobile_banking_provider, mobile_banking_number } = payload;
+    const { user_id: personId, grade_id, joining_date, is_active, bank_name, bank_account_no, mobile_banking_provider, mobile_banking_number, mpo_amount } = payload;
     if (!personId) return NextResponse.json({ result: 'error', message: 'user_id required' }, { status: 400 });
     const rowData = {
       user_id: personId,
@@ -559,6 +612,7 @@ export async function POST(req) {
       bank_account_no: bank_account_no || null,
       mobile_banking_provider: mobile_banking_provider || null,
       mobile_banking_number: mobile_banking_number || null,
+      mpo_amount: mpo_amount === '' || mpo_amount == null ? null : Number(mpo_amount),
     };
     const existing = await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(personId)}`);
     const saved = (!existing?.error && existing.length)
@@ -979,8 +1033,9 @@ export async function POST(req) {
     const personRows = await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(personId)}`);
     const personSetup = (!personRows?.error && personRows[0]) || { user_id: personId, grade_id: null, joining_date: null };
     const roles = await _rolesForUsers([personId]);
+    const categories = await _categoriesForUsers([personId]);
     const ref = await _loadPayrollRef([personId], month, year);
-    const slip = _computePayslipForPerson(personSetup, roles[personId] || '', ref, Number(month), Number(year));
+    const slip = _computePayslipForPerson(personSetup, roles[personId] || '', categories[personId] || '', ref, Number(month), Number(year));
     return NextResponse.json({ result: 'success', payslip: slip });
   }
 

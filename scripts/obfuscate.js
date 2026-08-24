@@ -47,7 +47,7 @@ const RESERVED = [
   '_annEditAnnouncement','_annCancelEdit','_annLoadLog',
   'loadUserPermsPanel','saveUserModulePermission','removeUserModulePermission',
   '_prOpenFieldForm','_prCloseFieldForm','_prToggleCalcModeFields','_prSaveField','_prDeleteField',
-  '_prOpenFieldConditions','_prCloseFieldConditions','_prToggleFieldApplicableRole',
+  '_prOpenFieldConditions','_prCloseFieldConditions','_prToggleFieldApplicableRole','_prToggleFieldApplicableCategory',
   '_prOpenConditionRuleForm','_prCloseConditionRuleForm','_prToggleConditionThenFields','_prSaveConditionRule','_prDeleteConditionRule',
   '_prOpenGradeForm','_prCloseGradeForm','_prSaveGrade','_prDeleteGrade','_prSelectGrade','_prSaveGradeField','_prToggleGradeConditionalField',
   '_prSelectPerson','_prSavePersonSetup','_prSavePersonFieldOverride',

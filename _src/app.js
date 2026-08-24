@@ -13837,6 +13837,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               Only applies to certain roles (set which, after saving, via "Conditions")
             </label>
             <label class="flex items-center gap-2 text-xs font-black text-slate-600 cursor-pointer">
+              <input type="checkbox" id="prFieldCategoryConditional" class="w-4 h-4 rounded accent-blue-600">
+              Only applies to certain staff categories (Teacher School / Teacher College / Staff, etc. — set which via "Conditions")
+            </label>
+            <label class="flex items-center gap-2 text-xs font-black text-slate-600 cursor-pointer">
               <input type="checkbox" id="prFieldActive" checked class="w-4 h-4 rounded accent-blue-600">
               Active
             </label>
@@ -13858,6 +13862,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div id="prFieldConditionsRolesSection" class="mb-5">
             <p class="font-black text-slate-800 text-xs mb-2">Applicable Roles</p>
             <div id="prFieldApplicableRoles" class="flex flex-wrap gap-3"></div>
+          </div>
+          <div id="prFieldConditionsCategoriesSection" class="mb-5">
+            <p class="font-black text-slate-800 text-xs mb-2">Applicable Staff Categories</p>
+            <div id="prFieldApplicableCategories" class="flex flex-wrap gap-3"></div>
           </div>
           <div>
             <div class="flex items-center justify-between mb-2">
@@ -14036,6 +14044,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prFieldIncrementValue').value = (field && field.increment_value != null) ? field.increment_value : '';
     document.getElementById('prFieldGradeConditional').checked = !!(field && field.is_grade_conditional);
     document.getElementById('prFieldRoleConditional').checked = !!(field && field.is_role_conditional);
+    document.getElementById('prFieldCategoryConditional').checked = !!(field && field.is_category_conditional);
     document.getElementById('prFieldActive').checked = field ? field.is_active !== false : true;
     const baseSel = document.getElementById('prFieldBaseKey');
     baseSel.innerHTML = _prFieldsCache.filter(f => !field || f.id !== field.id).map(f => `<option value="${f.key}">${f.label}</option>`).join('');
@@ -14069,6 +14078,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       increment_value: document.getElementById('prFieldIncrementValue').value || null,
       is_grade_conditional: document.getElementById('prFieldGradeConditional').checked,
       is_role_conditional: document.getElementById('prFieldRoleConditional').checked,
+      is_category_conditional: document.getElementById('prFieldCategoryConditional').checked,
       is_active: document.getElementById('prFieldActive').checked,
     };
     _payrollFetch('save_field', payload).then(res => {
@@ -14094,15 +14104,27 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prFieldConditionsFieldId').value = fieldId;
     document.getElementById('prFieldConditionsTitle').textContent = `Conditions — ${field.label}`;
     document.getElementById('prFieldConditionsRolesSection').style.display = field.is_role_conditional ? '' : 'none';
+    document.getElementById('prFieldConditionsCategoriesSection').style.display = field.is_category_conditional ? '' : 'none';
     document.getElementById('prConditionRulesBody').innerHTML = `<tr><td colspan="4" class="p-3 text-slate-400 font-bold text-xs text-center">Loading…</td></tr>`;
     document.getElementById('prFieldConditionsModal').classList.remove('hidden');
-    _payrollFetch('get_field_conditions', { field_id: fieldId }).then(res => {
+    Promise.all([
+      _payrollFetch('get_field_conditions', { field_id: fieldId }),
+      field.is_category_conditional ? _payrollFetch('get_staff_categories', {}) : Promise.resolve(null),
+    ]).then(([res, catRes]) => {
       const applicableRoles = new Set((res && res.result === 'success' && res.applicable_roles) ? res.applicable_roles.map(r => r.role) : []);
       _prConditionRulesCache = (res && res.result === 'success' && res.condition_rules) || [];
       document.getElementById('prFieldApplicableRoles').innerHTML = ALL_ROLES.map(r => `
         <label class="flex items-center gap-1.5 text-xs font-black text-slate-600 cursor-pointer">
           <input type="checkbox" ${applicableRoles.has(r) ? 'checked' : ''} onchange="_prToggleFieldApplicableRole(${fieldId},'${r}',this.checked)" class="w-4 h-4 rounded accent-indigo-600">${r}
         </label>`).join('');
+      if (field.is_category_conditional) {
+        const allCategories = (catRes && catRes.result === 'success' && catRes.categories) || [];
+        const applicableCategories = new Set((res && res.result === 'success' && res.applicable_categories) ? res.applicable_categories.map(c => c.category) : []);
+        document.getElementById('prFieldApplicableCategories').innerHTML = allCategories.length ? allCategories.map(c => `
+          <label class="flex items-center gap-1.5 text-xs font-black text-slate-600 cursor-pointer">
+            <input type="checkbox" ${applicableCategories.has(c) ? 'checked' : ''} onchange="_prToggleFieldApplicableCategory(${fieldId},'${c}',this.checked)" class="w-4 h-4 rounded accent-indigo-600">${_escHtml(c)}
+          </label>`).join('') : `<p class="text-slate-400 font-bold text-xs">No categories found — set a Category on staff records under System &gt; Users first.</p>`;
+      }
       _prRenderConditionRules();
     });
   }
@@ -14111,6 +14133,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function _prToggleFieldApplicableRole(fieldId, role, enabled) {
     _payrollFetch('toggle_field_applicable_role', { field_id: fieldId, role, enabled }).then(res => {
+      if (!res || res.result !== 'success') showToast((res && res.message) || 'Failed to update', 'error');
+    }).catch(err => showToast(err.message || 'Failed to update', 'error'));
+  }
+
+  function _prToggleFieldApplicableCategory(fieldId, category, enabled) {
+    _payrollFetch('toggle_field_applicable_category', { field_id: fieldId, category, enabled }).then(res => {
       if (!res || res.result !== 'success') showToast((res && res.message) || 'Failed to update', 'error');
     }).catch(err => showToast(err.message || 'Failed to update', 'error'));
   }
@@ -14484,6 +14512,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Joining Date</label>
             <input type="date" id="prPersonJoiningDate" value="${setup.joining_date || ''}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
           </div>
+          <div>
+            <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">MPO Amount (govt-funded)</label>
+            <input type="number" id="prPersonMpoAmount" value="${setup.mpo_amount != null ? setup.mpo_amount : ''}" placeholder="0 = not MPO-enlisted" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+          </div>
         </div>
         <p class="font-black text-slate-800 text-xs mb-2">Payment Info</p>
         <div class="grid md:grid-cols-4 gap-3 mb-5">
@@ -14618,7 +14650,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const bank_account_no = document.getElementById('prPersonBankAccount').value.trim();
     const mobile_banking_provider = document.getElementById('prPersonMbProvider').value;
     const mobile_banking_number = document.getElementById('prPersonMbNumber').value.trim();
-    _payrollFetch('save_person_setup', { user_id: userId, grade_id, joining_date, bank_name, bank_account_no, mobile_banking_provider, mobile_banking_number }).then(res => {
+    const mpo_amount = document.getElementById('prPersonMpoAmount').value;
+    _payrollFetch('save_person_setup', { user_id: userId, grade_id, joining_date, bank_name, bank_account_no, mobile_banking_provider, mobile_banking_number, mpo_amount }).then(res => {
       if (res && res.result === 'success') showToast('Person setup saved');
       else showToast((res && res.message) || 'Failed to save', 'error');
     }).catch(err => showToast(err.message || 'Failed to save', 'error'));
@@ -15055,7 +15088,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
         <div class="overflow-auto border border-slate-200 rounded-xl">
           <table class="w-full text-left border-collapse text-xs">
-            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Person</th><th class="py-2 px-3">Gross</th><th class="py-2 px-3">Deductions</th><th class="py-2 px-3">Net</th></tr></thead>
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Person</th><th class="py-2 px-3">Gross</th><th class="py-2 px-3">Deductions</th><th class="py-2 px-3">Net</th><th class="py-2 px-3">MPO</th><th class="py-2 px-3">College</th></tr></thead>
             <tbody>
               ${slips.map(s => {
                 const label = staffLabel(s.user_id);
@@ -15064,8 +15097,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                   <td class="py-1.5 px-3">৳${Number(s.gross).toLocaleString()}</td>
                   <td class="py-1.5 px-3">৳${Number(s.total_deductions).toLocaleString()}</td>
                   <td class="py-1.5 px-3 font-black text-emerald-600">৳${Number(s.net).toLocaleString()}</td>
+                  <td class="py-1.5 px-3">${s.mpo_amount ? '৳' + Number(s.mpo_amount).toLocaleString() : '—'}</td>
+                  <td class="py-1.5 px-3">${s.college_amount ? '৳' + Number(s.college_amount).toLocaleString() : '—'}</td>
                 </tr>`;
-              }).join('') || `<tr><td colspan="4" class="p-3 text-slate-400 font-bold text-xs text-center">No payslips — no active people set up under the People tab.</td></tr>`}
+              }).join('') || `<tr><td colspan="6" class="p-3 text-slate-400 font-bold text-xs text-center">No payslips — no active people set up under the People tab.</td></tr>`}
             </tbody>
           </table>
         </div>
@@ -15135,6 +15170,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         { key: 'gross', label: 'Gross', type: 'base' },
         { key: 'total_deductions', label: 'Total Deductions', type: 'base' },
         { key: 'net', label: 'Net', type: 'base' },
+        { key: 'mpo_amount', label: 'MPO', type: 'base' },
+        { key: 'college_amount', label: 'College', type: 'base' },
       ];
       const fieldCols = [...fieldKeys].map(k => ({ key: k, label: labelFor(k), type: 'field' }));
       // Preserve any existing virtual columns / include-state across a reload of the same run.
