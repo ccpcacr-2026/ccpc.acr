@@ -403,6 +403,48 @@ function showGeofenceAlert(message, type = 'success') {
   setTimeout(() => { if (alert.parentElement) alert.remove(); }, 5000);
 }
 
+// A bus counts as offline if GP returned no coordinates for it at all, or
+// its last reported fix is older than this — everything else falls into
+// exactly one of Engine Off / Moving / Idle (checked in that priority
+// order, matching how a fleet dashboard like this reads: an offline bus
+// isn't "idle", it's just not reporting).
+const BT_OFFLINE_THRESHOLD_MS = 10 * 60 * 1000;
+function _busIsOffline(bus) {
+  if (!bus.lat && !bus.lng) return true;
+  if (!bus.time) return false;
+  const t = _routeParseTime(bus.time);
+  if (!t) return false;
+  return (Date.now() - t.getTime()) > BT_OFFLINE_THRESHOLD_MS;
+}
+
+function _updateFleetStatusBar(buses) {
+  const host = document.getElementById('bt-status-bar');
+  if (!host) return;
+  let moving = 0, engineOff = 0, idle = 0, offline = 0;
+  buses.forEach(bus => {
+    if (_busIsOffline(bus)) { offline++; return; }
+    if (!bus.engine) { engineOff++; return; }
+    if (bus.isMoving) { moving++; return; }
+    idle++;
+  });
+  const cards = [
+    { label: 'Total', value: buses.length, color: '#6366f1', icon: 'bus' },
+    { label: 'Moving', value: moving, color: '#10b981', icon: 'navigation' },
+    { label: 'Engine Off', value: engineOff, color: '#ef4444', icon: 'power' },
+    { label: 'Idle', value: idle, color: '#3b82f6', icon: 'pause' },
+    { label: 'Offline', value: offline, color: '#94a3b8', icon: 'wifi-off' },
+  ];
+  host.innerHTML = cards.map(c => `
+    <div class="bt-status-card">
+      <div class="bt-status-card-icon" style="background:${c.color}"><i data-lucide="${c.icon}"></i></div>
+      <div>
+        <div class="bt-status-card-val">${c.value}</div>
+        <div class="bt-status-card-label">${c.label}</div>
+      </div>
+    </div>`).join('');
+  if (window.lucide) lucide.createIcons();
+}
+
 /**
  * Update bus list in sidebar
  */
@@ -414,6 +456,7 @@ function updateBusList(buses) {
   if (countEl) countEl.textContent = buses.length;
   const toolbarCountEl = document.getElementById('bt-toolbar-count');
   if (toolbarCountEl) toolbarCountEl.textContent = buses.length;
+  _updateFleetStatusBar(buses);
 
   if (!buses.length) {
     listContainer.innerHTML = `<div class="bt-empty"><i data-lucide="alert-circle" class="h-6 w-6"></i>No buses configured yet</div>`;
@@ -860,6 +903,34 @@ function renderRouteBusOptions() {
   if (dateInput && !dateInput.value) dateInput.value = new Date().toISOString().slice(0, 10);
 }
 
+// A school bus's day is really several distinct trips (morning pickup,
+// sitting at school, afternoon drop) separated by long stationary gaps —
+// and since the background poller only logs a point when the bus has
+// actually moved >20m, a stationary period leaves no points at all, so a
+// gap in TIME between consecutive points already IS a gap in the route.
+// Splitting on that needs no new data, just grouping what's already there.
+const ROUTE_TRIP_GAP_MINUTES = 15;
+function _splitIntoTrips(points, gapMinutes = ROUTE_TRIP_GAP_MINUTES) {
+  const trips = [];
+  let current = [];
+  for (let i = 0; i < points.length; i++) {
+    if (current.length) {
+      const t1 = _routeParseTime(current[current.length - 1].location_time);
+      const t2 = _routeParseTime(points[i].location_time);
+      if (t1 && t2 && (t2 - t1) > gapMinutes * 60000) {
+        if (current.length > 1) trips.push(current);
+        current = [];
+      }
+    }
+    current.push(points[i]);
+  }
+  if (current.length > 1) trips.push(current);
+  return trips.length ? trips : (points.length > 1 ? [points] : []);
+}
+
+let _routeTrips = [];
+let _routeActiveTripIndex = 0;
+
 async function showRouteHistory() {
   const imei = document.getElementById('bt-route-bus')?.value;
   const date = document.getElementById('bt-route-date')?.value;
@@ -872,6 +943,40 @@ async function showRouteHistory() {
     if (!res || res.result !== 'success') { if (status) status.textContent = (res && res.message) || 'Failed to load.'; return; }
     const points = (res.points || []).filter(p => p.lat && p.lng);
     if (!points.length) { if (status) status.textContent = 'No route data for that day (only the last 3 days are kept).'; return; }
+    _routeTrips = _splitIntoTrips(points);
+    _routeActiveTripIndex = 0;
+    _renderTripList();
+    _showTrip(0);
+  } catch (e) {
+    if (status) status.textContent = e.message || 'Network error.';
+  }
+}
+
+function _renderTripList() {
+  const host = document.getElementById('bt-trip-list');
+  if (!host) return;
+  if (_routeTrips.length <= 1) { host.innerHTML = ''; return; }
+  host.innerHTML = _routeTrips.map((trip, i) => {
+    const start = (trip[0].location_time || '').slice(11, 16);
+    const end = (trip[trip.length - 1].location_time || '').slice(11, 16);
+    const active = i === _routeActiveTripIndex;
+    return `<button onclick="BusTracking.showTrip(${i})" class="w-full text-left rounded font-black uppercase tracking-widest transition-all" style="font-size:6.5px;padding:2.5px 4px;margin-bottom:1.5px;${active ? 'background:#2563eb;color:#fff' : 'background:rgba(255,255,255,0.5);color:#64748b'}">Trip ${i + 1} · ${start}–${end}</button>`;
+  }).join('');
+}
+
+function _showTrip(index) {
+  _routeActiveTripIndex = index;
+  _stopRoutePlayback();
+  routePolylines.forEach(p => map.removeLayer(p));
+  routePolylines = [];
+  routeMarkers.forEach(m => map.removeLayer(m));
+  routeMarkers = [];
+  _drawRoutePoints(_routeTrips[index]);
+  _renderTripList();
+}
+
+function _drawRoutePoints(points) {
+    const status = document.getElementById('bt-route-status');
     const latlngs = points.map(p => [p.lat, p.lng]);
     // One short polyline segment per gap between consecutive points, each
     // colored by the speed at its starting point — a single flat-colored
@@ -928,9 +1033,6 @@ async function showRouteHistory() {
     if (status) status.textContent = `${points.length} points · ${points[0].location_time} → ${points[points.length - 1].location_time}`;
     const summaryEl = document.getElementById('bt-route-summary');
     if (summaryEl) summaryEl.innerHTML = _routeSummaryHtml(points);
-  } catch (e) {
-    if (status) status.textContent = e.message || 'Network error.';
-  }
 }
 
 // Haversine distance in meters between two [lat,lng] points.
@@ -1000,7 +1102,65 @@ function _routeSummaryHtml(points) {
     <div>${bucketRows}</div>`;
 }
 
+// ── Route playback: animates a bus marker along the currently-shown trip
+// at 0.5x/1x/2x/4x, using the REAL time gaps between consecutive points
+// (scaled by the speed multiplier) so a long wait plays slower than a fast
+// stretch — clamped so neither a multi-minute wait stalls the animation
+// nor a sub-second gap flashes past unseen. ──
+let _routePlaybackTimer = null;
+let _routePlaybackSpeed = 1;
+let _routeBusMarker = null;
+let _routePlaybackIndex = 0;
+let _routePlaybackPoints = [];
+
+function _stopRoutePlayback() {
+  if (_routePlaybackTimer) { clearTimeout(_routePlaybackTimer); _routePlaybackTimer = null; }
+  if (_routeBusMarker) { map.removeLayer(_routeBusMarker); _routeBusMarker = null; }
+  const btn = document.getElementById('bt-route-play-btn');
+  if (btn) btn.textContent = '▶';
+}
+
+function _toggleRoutePlayback() {
+  if (_routePlaybackTimer || _routeBusMarker) { _stopRoutePlayback(); return; }
+  const points = _routeTrips[_routeActiveTripIndex];
+  if (!points || points.length < 2) return;
+  _routePlaybackPoints = points;
+  _routePlaybackIndex = 0;
+  const busIcon = L.divIcon({
+    className: '', iconSize: [22, 22], iconAnchor: [11, 11],
+    html: '<div style="width:22px;height:22px;border-radius:50%;background:#2563eb;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;font-size:12px;line-height:1">🚌</div>',
+  });
+  _routeBusMarker = L.marker([points[0].lat, points[0].lng], { icon: busIcon, zIndexOffset: 1000 }).addTo(map);
+  const btn = document.getElementById('bt-route-play-btn');
+  if (btn) btn.textContent = '❚❚';
+  _stepRoutePlayback();
+}
+
+function _stepRoutePlayback() {
+  const points = _routePlaybackPoints;
+  if (_routePlaybackIndex >= points.length - 1) { _stopRoutePlayback(); return; }
+  const cur = points[_routePlaybackIndex], next = points[_routePlaybackIndex + 1];
+  if (_routeBusMarker) _routeBusMarker.setLatLng([next.lat, next.lng]);
+  const t1 = _routeParseTime(cur.location_time), t2 = _routeParseTime(next.location_time);
+  let gapMs = (t1 && t2) ? (t2 - t1) : 3000;
+  gapMs = Math.min(Math.max(gapMs, 200), 8000);
+  _routePlaybackIndex++;
+  _routePlaybackTimer = setTimeout(_stepRoutePlayback, gapMs / _routePlaybackSpeed);
+}
+
+function _setRoutePlaybackSpeed(mult) {
+  _routePlaybackSpeed = mult;
+  document.querySelectorAll('.bt-speed-btn').forEach(b => {
+    const active = Number(b.dataset.speed) === mult;
+    b.style.background = active ? '#2563eb' : 'rgba(255,255,255,0.5)';
+    b.style.color = active ? '#fff' : '#64748b';
+  });
+}
+
 function clearRouteHistory() {
+  _stopRoutePlayback();
+  _routeTrips = [];
+  _routeActiveTripIndex = 0;
   routePolylines.forEach(p => map.removeLayer(p));
   routePolylines = [];
   routeMarkers.forEach(m => map.removeLayer(m));
@@ -1009,6 +1169,8 @@ function clearRouteHistory() {
   if (status) status.textContent = '';
   const summaryEl = document.getElementById('bt-route-summary');
   if (summaryEl) summaryEl.innerHTML = '';
+  const tripListEl = document.getElementById('bt-trip-list');
+  if (tripListEl) tripListEl.innerHTML = '';
 }
 
 // The Clear button specifically means "I'm done with the route" — bring
@@ -1031,5 +1193,8 @@ window.BusTracking = {
   toggleWatchersList,
   toggleRoutePanel,
   showRouteHistory,
+  showTrip: _showTrip,
+  toggleRoutePlayback: _toggleRoutePlayback,
+  setRoutePlaybackSpeed: _setRoutePlaybackSpeed,
   clearRouteHistory: clearRouteHistoryAndShowLive,
 };

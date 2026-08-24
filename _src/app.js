@@ -17613,9 +17613,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <button onclick="BusTracking.clearRouteHistory()" class="flex-1 rounded font-black uppercase tracking-widest border border-slate-200 text-slate-500 hover:bg-slate-50 transition-all" style="font-size:6.5px;padding:2.5px 0">Clear</button>
             </div>
             <p id="bt-route-status" class="text-slate-400 font-bold" style="font-size:6.5px;margin-top:2px"></p>
+            <div id="bt-trip-list" style="margin-top:3px"></div>
+            <div class="flex items-center gap-1" style="margin-top:3px">
+              <button id="bt-route-play-btn" onclick="BusTracking.toggleRoutePlayback()" title="Play/Pause bus animation" class="rounded font-black" style="font-size:9px;padding:2px 6px;background:#2563eb;color:#fff">▶</button>
+              <button class="bt-speed-btn rounded font-black" data-speed="0.5" onclick="BusTracking.setRoutePlaybackSpeed(0.5)" style="font-size:6.5px;padding:2.5px 4px;background:rgba(255,255,255,0.5);color:#64748b">.5x</button>
+              <button class="bt-speed-btn rounded font-black" data-speed="1" onclick="BusTracking.setRoutePlaybackSpeed(1)" style="font-size:6.5px;padding:2.5px 4px;background:#2563eb;color:#fff">1x</button>
+              <button class="bt-speed-btn rounded font-black" data-speed="2" onclick="BusTracking.setRoutePlaybackSpeed(2)" style="font-size:6.5px;padding:2.5px 4px;background:rgba(255,255,255,0.5);color:#64748b">2x</button>
+              <button class="bt-speed-btn rounded font-black" data-speed="4" onclick="BusTracking.setRoutePlaybackSpeed(4)" style="font-size:6.5px;padding:2.5px 4px;background:rgba(255,255,255,0.5);color:#64748b">4x</button>
+            </div>
             <div id="bt-route-summary" style="margin-top:3px"></div>
           </div>` : ''}
         </div>
+
+        <div id="bt-status-bar" class="flex items-center gap-1.5 overflow-x-auto" style="scrollbar-width:none;padding:2px 0;"></div>
 
         <div id="bus-sidebar" class="flex flex-col">
           <div id="bt-panel-header" class="flex items-center justify-end gap-1.5 shrink-0">
