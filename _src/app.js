@@ -17924,9 +17924,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             ${canExportBuses ? `
             <div id="bt-tab-content-route" class="hidden flex-1 min-h-0 overflow-y-auto" style="padding:6px;-webkit-text-size-adjust:100%;text-size-adjust:100%;">
               <div class="relative" style="margin-bottom:6px">
-                <i data-lucide="bus" class="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none"></i>
-                <i data-lucide="chevron-down" class="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none"></i>
-                <select id="bt-route-bus" title="Bus" class="w-full pl-9 pr-8 py-2.5 bg-white/60 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-600 transition-all cursor-pointer" style="appearance:none;-webkit-appearance:none"></select>
+                <i data-lucide="bus" class="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" style="z-index:1"></i>
+                <i data-lucide="chevron-down" class="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" style="z-index:1"></i>
+                <button type="button" id="bt-route-bus-trigger" title="Bus" onclick="BusTracking.toggleRouteBusDropdown()" class="w-full block truncate text-left pl-9 pr-8 py-2.5 bg-white/60 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-600 transition-all cursor-pointer">Select a bus…</button>
+                <input type="hidden" id="bt-route-bus">
+                <div id="bt-route-bus-dropdown" class="hidden" style="position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:1000;max-height:220px;overflow-y:auto;background:#fff;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 10px 30px rgba(15,23,42,0.15);padding:4px;"></div>
               </div>
               <div class="relative" style="margin-bottom:6px">
                 <i data-lucide="calendar" class="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none"></i>

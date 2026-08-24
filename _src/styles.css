@@ -1135,6 +1135,12 @@ button { user-select: none; }
 .bt-toolbar-tab-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; }
 .bt-toolbar-tab-btn i { pointer-events: none; flex-shrink: 0; }
 
+.bt-route-bus-option {
+  padding: 8px 10px; border-radius: 8px; font-size: 12px; font-weight: 700;
+  color: #334155; cursor: pointer; transition: background 0.1s;
+}
+.bt-route-bus-option:hover { background: #f1f5f9; }
+
 #bus-sidebar {
   position: absolute; z-index: 900;
   /* Semi-transparent + blurred rather than solid white — the fleet list

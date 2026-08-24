@@ -942,13 +942,51 @@ function _showLiveBusMarkers() {
   redrawMarkers();
 }
 
+// A plain native <select> here used to be unreliable to open/tap once it
+// was floated on top of the Leaflet map on some devices — a self-built
+// dropdown (same list-of-divs pattern as _wireSearchCombo elsewhere in the
+// app) sidesteps that entirely and gives a full-width, always-clickable bar.
 function renderRouteBusOptions() {
-  const sel = document.getElementById('bt-route-bus');
-  if (!sel || sel.options.length) return; // populate once; allBusData is stable enough for a picker
+  const list = document.getElementById('bt-route-bus-dropdown');
+  const hidden = document.getElementById('bt-route-bus');
+  if (!list || !hidden || hidden.value) return; // keep the current selection once one's been made
   const buses = Object.values(allBusData).sort((a, b) => busName(a.imei).localeCompare(busName(b.imei), undefined, { numeric: true }));
-  sel.innerHTML = buses.map(b => `<option value="${b.imei}">${busName(b.imei)}</option>`).join('');
+  if (!buses.length) return; // no fleet data yet — try again next time this tab opens
+  list.innerHTML = buses.map(b => `<div class="bt-route-bus-option" onclick="BusTracking.selectRouteBus('${b.imei}')">${busName(b.imei)}</div>`).join('');
+  _selectRouteBus(buses[0].imei);
   const dateInput = document.getElementById('bt-route-date');
   if (dateInput && !dateInput.value) dateInput.value = new Date().toISOString().slice(0, 10);
+}
+
+function _selectRouteBus(imei) {
+  const hidden = document.getElementById('bt-route-bus');
+  const trigger = document.getElementById('bt-route-bus-trigger');
+  if (hidden) hidden.value = imei;
+  if (trigger) trigger.textContent = busName(imei);
+  _closeRouteBusDropdown();
+}
+
+function _closeRouteBusDropdown() {
+  const dd = document.getElementById('bt-route-bus-dropdown');
+  if (dd) dd.classList.add('hidden');
+  document.removeEventListener('click', _routeBusDropdownOutsideClick);
+}
+
+function _routeBusDropdownOutsideClick(e) {
+  const dd = document.getElementById('bt-route-bus-dropdown');
+  const trigger = document.getElementById('bt-route-bus-trigger');
+  if (dd && !dd.contains(e.target) && e.target !== trigger) _closeRouteBusDropdown();
+}
+
+function toggleRouteBusDropdown() {
+  const dd = document.getElementById('bt-route-bus-dropdown');
+  if (!dd) return;
+  if (dd.classList.contains('hidden')) {
+    dd.classList.remove('hidden');
+    setTimeout(() => document.addEventListener('click', _routeBusDropdownOutsideClick), 0);
+  } else {
+    _closeRouteBusDropdown();
+  }
 }
 
 // A school bus's day is really several distinct trips (morning pickup,
@@ -1253,6 +1291,8 @@ window.BusTracking = {
   toggleWatchersList,
   switchSidebarTab,
   showRouteHistory,
+  toggleRouteBusDropdown,
+  selectRouteBus: _selectRouteBus,
   showTrip: _showTrip,
   toggleRoutePlayback: _toggleRoutePlayback,
   setRoutePlaybackSpeed: _setRoutePlaybackSpeed,
