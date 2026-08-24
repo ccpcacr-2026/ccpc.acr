@@ -14566,7 +14566,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   // ── Generic Excel import (People / Section Entries / Bonus / Leave Deductions) ──
   const PAYROLL_IMPORT_SPECS = {
-    people: { title: 'Import People (Excel)', headers: 'user_id* | grade_name | joining_date | bank_name | bank_account_no | mobile_banking_provider | mobile_banking_number' },
+    people: { title: 'Import People (Excel)', headers: 'user_id* | grade_name | joining_date | bank_name | bank_account_no | mobile_banking_provider | mobile_banking_number | mpo_amount — bulk-update everyone\'s yearly government MPO figure in one file, matched by user_id' },
     section_entries: { title: 'Import Loan/EMI Entries (Excel)', headers: 'section_name* (skip if importing into one section) | user_id* | total_amount* | emi_amount | emi_months | note — set emi_amount or emi_months (or both, if both they must agree with total_amount)' },
     bonus_payments: { title: 'Import Bonus Payments (Excel)', headers: 'user_id* | label* | amount* | month* | year* | note' },
     leave_deductions: { title: 'Import Leave Deductions (Excel)', headers: 'user_id* | amount* | month* | year* | days | per_day_rate (optional — if given with days, must agree with amount) | note' },

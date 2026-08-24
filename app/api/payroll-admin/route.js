@@ -216,12 +216,15 @@ function _computePayslipForPerson(personSetup, role, category, ref, month, year)
   if (leaveDeductionTotal) { fieldValues['leave_deduction'] = leaveDeductionTotal; totalDeductions += leaveDeductionTotal; }
 
   const net = gross - totalDeductions;
-  // MPO/College split — a person with a government-approved MPO amount has
-  // that much of their net salary funded by the government, the rest by
-  // the college; capped at net so a stale/oversized mpo_amount can never
-  // make the split exceed what's actually being paid.
-  const mpoAmount = Math.max(0, Math.min(Number(personSetup.mpo_amount) || 0, net));
-  const collegeAmount = net - mpoAmount;
+  // MPO/College split — a person with a government-approved MPO amount
+  // (set once a year, not monthly — see save_person_setup/import_rows)
+  // has that much of their GROSS pay funded by the government; College
+  // covers the rest of gross. Deductions still apply against the whole
+  // net salary regardless of funding source — this only splits where the
+  // money comes FROM, not what's deducted. Capped at gross so a stale/
+  // oversized mpo_amount can never exceed what's actually being paid.
+  const mpoAmount = Math.max(0, Math.min(Number(personSetup.mpo_amount) || 0, gross));
+  const collegeAmount = gross - mpoAmount;
 
   return {
     user_id: personSetup.user_id,
@@ -882,6 +885,7 @@ export async function POST(req) {
           is_active: true,
           bank_name: r.bank_name || null, bank_account_no: r.bank_account_no || null,
           mobile_banking_provider: r.mobile_banking_provider || null, mobile_banking_number: r.mobile_banking_number || null,
+          mpo_amount: r.mpo_amount === '' || r.mpo_amount == null ? null : Number(r.mpo_amount),
         };
         const existing = await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(rowData.user_id)}`);
         const saved = (!existing?.error && existing.length)
