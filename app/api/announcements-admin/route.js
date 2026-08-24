@@ -90,6 +90,31 @@ async function _uploadAnnouncementAudio(payload) {
   return NextResponse.json({ result: 'success', file_url, storage_key: key });
 }
 
+// Fire-and-forget audit trail — same pattern as _invAudit/_prAudit in the
+// Inventory/Payroll admin routes, its own table since this module lives in
+// the default `public` schema rather than a named one.
+function _annAudit(actorUserId, action, announcementId, details) {
+  sbPublic('announcement_log', 'POST', {
+    actor_user_id: actorUserId || null,
+    action,
+    announcement_id: announcementId != null ? Number(announcementId) : null,
+    details: details || null,
+  }).catch(() => {});
+}
+
+function _annDiffFields(oldObj, newObj, fields) {
+  const changes = [];
+  fields.forEach(({ key, label }) => {
+    if (newObj[key] === undefined) return;
+    const from = oldObj ? oldObj[key] : undefined;
+    const to = newObj[key];
+    const fromNorm = JSON.stringify(from ?? null);
+    const toNorm = JSON.stringify(to ?? null);
+    if (fromNorm !== toNorm) changes.push({ label, from: from == null ? '—' : String(Array.isArray(from) ? from.join(', ') : from), to: to == null ? '—' : String(Array.isArray(to) ? to.join(', ') : to) });
+  });
+  return changes;
+}
+
 export async function POST(req) {
   let body;
   try { body = await req.json(); } catch { return NextResponse.json({ result: 'error', message: 'Bad request' }, { status: 400 }); }
@@ -118,11 +143,26 @@ export async function POST(req) {
       active: active !== false,
       created_by: user_id,
     };
+    let oldRow = null;
+    if (id) {
+      const oldRows = await sbPublic(`announcements?id=eq.${encodeURIComponent(id)}&select=*`);
+      oldRow = (!oldRows?.error && oldRows[0]) || null;
+    }
     const saved = id
       ? await sbPublic(`announcements?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
       : await sbPublic('announcements', 'POST', rowData);
     if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
-    return NextResponse.json({ result: 'success', announcement: Array.isArray(saved) ? saved[0] : saved });
+    const savedRow = Array.isArray(saved) ? saved[0] : saved;
+    if (id) {
+      const changes = _annDiffFields(oldRow, rowData, [
+        { key: 'title', label: 'Title' }, { key: 'file_url', label: 'Audio File' },
+        { key: 'target_devices', label: 'Target Devices' }, { key: 'active', label: 'Active' },
+      ]);
+      _annAudit(user_id, 'edit_announcement', id, { changes });
+    } else {
+      _annAudit(user_id, 'create_announcement', savedRow?.id, { title, target_devices: rowData.target_devices });
+    }
+    return NextResponse.json({ result: 'success', announcement: savedRow });
   }
 
   if (action === 'toggle_announcement_active') {
@@ -130,19 +170,21 @@ export async function POST(req) {
     if (!id) return NextResponse.json({ result: 'error', message: 'id required' }, { status: 400 });
     const saved = await sbPublic(`announcements?id=eq.${encodeURIComponent(id)}`, 'PATCH', { active: !!active });
     if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    _annAudit(user_id, active ? 'activate_announcement' : 'deactivate_announcement', id, null);
     return NextResponse.json({ result: 'success' });
   }
 
   if (action === 'delete_announcement') {
     const { id } = payload;
     if (!id) return NextResponse.json({ result: 'error', message: 'id required' }, { status: 400 });
-    const rows = await sbPublic(`announcements?id=eq.${encodeURIComponent(id)}&select=file_url`);
-    const fileUrl = (!rows?.error && rows[0] && rows[0].file_url) || null;
+    const rows = await sbPublic(`announcements?id=eq.${encodeURIComponent(id)}&select=*`);
+    const existing = (!rows?.error && rows[0]) || null;
     const del = await sbPublic(`announcements?id=eq.${encodeURIComponent(id)}`, 'DELETE');
     if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
+    _annAudit(user_id, 'delete_announcement', id, { snapshot: existing });
     // Best-effort — a stale orphaned file in Storage isn't worth failing
     // the whole delete over if this second call has a hiccup.
-    const storageKey = fileUrl && fileUrl.split('/announcements/')[1];
+    const storageKey = existing && existing.file_url && existing.file_url.split('/announcements/')[1];
     if (storageKey) {
       fetch(`${SB_URL}/storage/v1/object/announcements/${storageKey}`, {
         method: 'DELETE',
@@ -150,6 +192,12 @@ export async function POST(req) {
       }).catch(() => {});
     }
     return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'get_announcement_log') {
+    const rows = await sbPublic('announcement_log?select=*&order=created_at.desc&limit=200');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', log: rows });
   }
 
   return NextResponse.json({ result: 'error', message: 'Unknown action' }, { status: 400 });

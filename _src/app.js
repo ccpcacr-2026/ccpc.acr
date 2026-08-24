@@ -12872,6 +12872,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _annRecordedBase64 = null;
   let _annUploadedBase64 = null;
   let _annListCache = [];
+  let _annEditingId = null;
+  let _annLogCache = [];
 
   function loadAnnouncementsView() {
     if (!_hasModuleAccess('announcements_admin')) { showToast('Not available in current role', 'error'); return; }
@@ -12887,12 +12889,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
 
       <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 mb-5">
-        <p class="font-black text-slate-800 text-sm mb-3">New Announcement</p>
+        <div class="flex items-center justify-between mb-3">
+          <p class="font-black text-slate-800 text-sm" id="annFormTitle">New Announcement</p>
+          <button id="annCancelEditBtn" onclick="_annCancelEdit()" class="hidden text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-700">Cancel Edit</button>
+        </div>
+        <input type="hidden" id="annEditingId">
         <div class="mb-3">
           <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Title <span class="text-red-500">*</span></label>
           <input type="text" id="annTitle" placeholder="e.g. Morning Assembly Reminder" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
         </div>
 
+        <div id="annCurrentAudioNote" class="hidden text-[10px] text-slate-400 font-bold mb-2"></div>
         <div class="grid md:grid-cols-2 gap-4 mb-4">
           <div class="border border-slate-200 rounded-2xl p-3">
             <p class="text-[10px] font-black text-slate-400 uppercase mb-2">Upload MP3</p>
@@ -12916,19 +12923,29 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <button onclick="_annSaveAnnouncement()" id="annSaveBtn" class="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Announcement</button>
       </div>
 
-      <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5">
+      <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 mb-5">
         <p class="font-black text-slate-800 text-sm mb-3">All Announcements</p>
         <div id="annList" class="space-y-2"><p class="text-slate-400 font-bold text-xs">Loading…</p></div>
+      </div>
+
+      <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5">
+        <div class="flex items-center justify-between mb-3">
+          <p class="font-black text-slate-800 text-sm">Activity Log</p>
+          <button onclick="_annLoadLog()" class="px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-500 text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="refresh-cw" class="h-3 w-3"></i>Refresh</button>
+        </div>
+        <div id="annLog" class="space-y-2"><p class="text-slate-400 font-bold text-xs">Loading…</p></div>
       </div>
     `;
     lucide.createIcons();
     _annRecordedBase64 = null; _annUploadedBase64 = null; _annTargetSet = new Set();
+    _annEditingId = null;
     document.getElementById('annFileInput').addEventListener('change', _annHandleFileSelect);
     _announceFetch('get_devices_for_targeting', {}).then(res => {
       _annDevicesCache = (res && res.result === 'success' && res.devices) || [];
       _annRenderDeviceChecklist();
     }).catch(() => { _annDevicesCache = []; _annRenderDeviceChecklist(); });
     _annLoadList();
+    _annLoadLog();
   }
 
   function _annRenderDeviceChecklist() {
@@ -12941,8 +12958,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </label>`).join('');
   }
 
+  // "All Devices" is a master toggle, not just its own tag — checking it
+  // checks every individual device (and vice versa); manually checking
+  // every individual device also marks "All" as checked, so the two stay
+  // in sync either direction.
   function _annToggleTarget(value, checked) {
-    if (checked) _annTargetSet.add(value); else _annTargetSet.delete(value);
+    if (value === 'All') {
+      _annTargetSet = checked ? new Set(['All', ..._annDevicesCache.map(d => d.value)]) : new Set();
+    } else {
+      if (checked) _annTargetSet.add(value);
+      else { _annTargetSet.delete(value); _annTargetSet.delete('All'); }
+      if (_annDevicesCache.length && _annDevicesCache.every(d => _annTargetSet.has(d.value))) _annTargetSet.add('All');
+    }
     _annRenderDeviceChecklist();
   }
 
@@ -13061,36 +13088,76 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const btn = document.getElementById('annSaveBtn');
     if (!title) { status.className = 'text-xs font-bold text-red-500 mb-2'; status.textContent = 'Title is required.'; return; }
     const base64 = _annUploadedBase64 || _annRecordedBase64;
-    if (!base64) { status.className = 'text-xs font-bold text-red-500 mb-2'; status.textContent = 'Upload or record an MP3 first.'; return; }
-    const targets = [..._annTargetSet];
-    if (!targets.length) { status.className = 'text-xs font-bold text-red-500 mb-2'; status.textContent = 'Pick at least one target device (or "All").'; return; }
+    const existing = _annEditingId ? _annListCache.find(a => a.id === _annEditingId) : null;
+    if (!base64 && !(existing && existing.file_url)) { status.className = 'text-xs font-bold text-red-500 mb-2'; status.textContent = 'Upload or record an MP3 first.'; return; }
+    if (!_annTargetSet.size) { status.className = 'text-xs font-bold text-red-500 mb-2'; status.textContent = 'Pick at least one target device (or "All").'; return; }
+    const targets = _annTargetSet.has('All') ? ['All'] : [..._annTargetSet];
     btn.disabled = true; btn.textContent = 'Saving…';
-    status.className = 'text-xs font-bold text-slate-400 mb-2'; status.textContent = 'Uploading audio…';
-    _announceFetch('upload_audio', { filename: `${title.replace(/[^a-zA-Z0-9]+/g, '_')}.mp3`, base64 }).then(res => {
+    status.className = 'text-xs font-bold text-slate-400 mb-2';
+
+    // Editing without picking a new file/recording keeps the existing
+    // file_url as-is — no need to re-upload audio that hasn't changed.
+    const uploadStep = base64
+      ? (() => { status.textContent = 'Uploading audio…'; return _announceFetch('upload_audio', { filename: `${title.replace(/[^a-zA-Z0-9]+/g, '_')}.mp3`, base64 }); })()
+      : Promise.resolve({ result: 'success', file_url: existing.file_url });
+
+    uploadStep.then(res => {
       if (!res || res.result !== 'success') throw new Error((res && res.message) || 'Upload failed');
       status.textContent = 'Saving announcement…';
-      return _announceFetch('save_announcement', { title, file_url: res.file_url, target_devices: targets, active: true });
+      return _announceFetch('save_announcement', { id: _annEditingId || undefined, title, file_url: res.file_url, target_devices: targets, active: true });
     }).then(res => {
-      btn.disabled = false; btn.textContent = 'Save Announcement';
+      btn.disabled = false; btn.textContent = _annEditingId ? 'Update Announcement' : 'Save Announcement';
       if (res && res.result === 'success') {
-        showToast('Announcement saved');
+        showToast(_annEditingId ? 'Announcement updated' : 'Announcement saved');
         status.className = 'text-xs font-bold text-emerald-600 mb-2'; status.textContent = 'Saved.';
-        document.getElementById('annTitle').value = '';
-        document.getElementById('annFileInput').value = '';
-        document.getElementById('annFileStatus').textContent = '';
-        const preview = document.getElementById('annRecordPreview');
-        if (preview) { preview.classList.add('hidden'); preview.src = ''; }
-        document.getElementById('annRecordStatus').textContent = '';
-        _annUploadedBase64 = null; _annRecordedBase64 = null; _annTargetSet = new Set();
-        _annRenderDeviceChecklist();
+        _annCancelEdit();
         _annLoadList();
+        _annLoadLog();
       } else {
         status.className = 'text-xs font-bold text-red-500 mb-2'; status.textContent = (res && res.message) || 'Failed to save';
       }
     }).catch(err => {
-      btn.disabled = false; btn.textContent = 'Save Announcement';
+      btn.disabled = false; btn.textContent = _annEditingId ? 'Update Announcement' : 'Save Announcement';
       status.className = 'text-xs font-bold text-red-500 mb-2'; status.textContent = err.message || 'Failed to save';
     });
+  }
+
+  function _annEditAnnouncement(id) {
+    const a = _annListCache.find(x => x.id === id);
+    if (!a) return;
+    _annEditingId = id;
+    document.getElementById('annFormTitle').textContent = `Edit — ${a.title}`;
+    document.getElementById('annCancelEditBtn').classList.remove('hidden');
+    document.getElementById('annTitle').value = a.title;
+    document.getElementById('annFileInput').value = '';
+    document.getElementById('annFileStatus').textContent = '';
+    const preview = document.getElementById('annRecordPreview');
+    if (preview) { preview.classList.add('hidden'); preview.src = ''; }
+    document.getElementById('annRecordStatus').textContent = '';
+    _annUploadedBase64 = null; _annRecordedBase64 = null;
+    const note = document.getElementById('annCurrentAudioNote');
+    if (note) { note.classList.remove('hidden'); note.innerHTML = `Current audio: <a href="${a.file_url}" target="_blank" class="text-blue-600 underline">listen</a> — pick a new file/recording only if you want to replace it.`; }
+    _annTargetSet = new Set(a.target_devices && a.target_devices.includes('All') ? ['All', ..._annDevicesCache.map(d => d.value)] : (a.target_devices || []));
+    _annRenderDeviceChecklist();
+    document.getElementById('annSaveBtn').textContent = 'Update Announcement';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function _annCancelEdit() {
+    _annEditingId = null;
+    document.getElementById('annFormTitle').textContent = 'New Announcement';
+    document.getElementById('annCancelEditBtn').classList.add('hidden');
+    document.getElementById('annTitle').value = '';
+    document.getElementById('annFileInput').value = '';
+    document.getElementById('annFileStatus').textContent = '';
+    const preview = document.getElementById('annRecordPreview');
+    if (preview) { preview.classList.add('hidden'); preview.src = ''; }
+    document.getElementById('annRecordStatus').textContent = '';
+    const note = document.getElementById('annCurrentAudioNote');
+    if (note) note.classList.add('hidden');
+    _annUploadedBase64 = null; _annRecordedBase64 = null; _annTargetSet = new Set();
+    _annRenderDeviceChecklist();
+    document.getElementById('annSaveBtn').textContent = 'Save Announcement';
   }
 
   function _annLoadList() {
@@ -13108,10 +13175,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div class="border border-slate-200 rounded-2xl p-3">
         <div class="flex items-center justify-between gap-2 flex-wrap mb-1.5">
           <p class="font-black text-slate-800 text-xs">${_escHtml(a.title)}</p>
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-3">
             <label class="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 cursor-pointer">
               <input type="checkbox" ${a.active ? 'checked' : ''} onchange="_annToggleActive(${a.id}, this.checked)" class="w-3.5 h-3.5 rounded accent-emerald-600">Active
             </label>
+            <button onclick="_annEditAnnouncement(${a.id})" class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-black">Edit</button>
             <button onclick="_annDeleteAnnouncement(${a.id})" class="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-700">Delete</button>
           </div>
         </div>
@@ -13122,7 +13190,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function _annToggleActive(id, active) {
     _announceFetch('toggle_announcement_active', { id, active }).then(res => {
-      if (res && res.result === 'success') { showToast(active ? 'Activated' : 'Deactivated'); _annLoadList(); }
+      if (res && res.result === 'success') { showToast(active ? 'Activated' : 'Deactivated'); _annLoadList(); _annLoadLog(); }
       else showToast((res && res.message) || 'Failed to update', 'error');
     }).catch(err => showToast(err.message || 'Failed to update', 'error'));
   }
@@ -13130,9 +13198,56 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _annDeleteAnnouncement(id) {
     if (!confirm('Delete this announcement? Devices will no longer receive it.')) return;
     _announceFetch('delete_announcement', { id }).then(res => {
-      if (res && res.result === 'success') { showToast('Deleted'); _annLoadList(); }
-      else showToast((res && res.message) || 'Failed to delete', 'error');
+      if (res && res.result === 'success') {
+        showToast('Deleted');
+        if (_annEditingId === id) _annCancelEdit();
+        _annLoadList();
+        _annLoadLog();
+      } else showToast((res && res.message) || 'Failed to delete', 'error');
     }).catch(err => showToast(err.message || 'Failed to delete', 'error'));
+  }
+
+  // ── Activity Log ──
+  const ANN_LOG_ACTION_LABELS = {
+    create_announcement: 'Created', edit_announcement: 'Edited', delete_announcement: 'Deleted',
+    activate_announcement: 'Activated', deactivate_announcement: 'Deactivated',
+  };
+
+  function _annLoadLog() {
+    _ensureStaffCache(() => {
+      _announceFetch('get_announcement_log', {}).then(res => {
+        _annLogCache = (res && res.result === 'success' && res.log) || [];
+        _annRenderLog();
+      }).catch(err => showToast(err.message || 'Failed to load activity log', 'error'));
+    });
+  }
+
+  function _annRenderLog() {
+    const host = document.getElementById('annLog');
+    if (!host) return;
+    if (!_annLogCache.length) { host.innerHTML = '<p class="text-slate-400 font-bold text-xs">No activity yet.</p>'; return; }
+    host.innerHTML = _annLogCache.map(l => {
+      const actorLabel = staffLabel(l.actor_user_id);
+      const when = new Date(l.created_at).toLocaleString();
+      const actionLabel = ANN_LOG_ACTION_LABELS[l.action] || l.action;
+      let detailsHtml = '';
+      if (l.details && Array.isArray(l.details.changes)) {
+        detailsHtml = l.details.changes.length
+          ? l.details.changes.map(c => `<div class="text-[10px]"><span class="font-black text-slate-600">${_escHtml(c.label)}:</span> <span class="text-red-500 font-bold">${_escHtml(c.from)}</span> <span class="text-slate-400">&rarr;</span> <span class="text-emerald-600 font-bold">${_escHtml(c.to)}</span></div>`).join('')
+          : `<span class="text-[10px] text-slate-400 font-bold italic">No fields changed</span>`;
+      } else if (l.details && l.details.title) {
+        detailsHtml = `<span class="text-[10px] text-slate-400 font-bold">${_escHtml(l.details.title)}</span>`;
+      } else if (l.details && l.details.snapshot) {
+        detailsHtml = `<span class="text-[10px] text-slate-400 font-bold">${_escHtml(l.details.snapshot.title || '')}</span>`;
+      }
+      return `<div class="border border-slate-100 rounded-xl px-3 py-2">
+        <div class="flex items-center justify-between gap-2 flex-wrap">
+          <p class="text-xs font-black text-blue-600">${_escHtml(actionLabel)}${l.announcement_id ? ` <span class="text-slate-400 font-bold">#${l.announcement_id}</span>` : ''}</p>
+          <p class="text-[10px] text-slate-500 font-bold">${actorLabel !== l.actor_user_id ? actorLabel : l.actor_user_id} · ${when}</p>
+        </div>
+        ${detailsHtml ? `<div class="mt-1">${detailsHtml}</div>` : ''}
+      </div>`;
+    }).join('');
   }
 
   function loadMyPayslipsView() {

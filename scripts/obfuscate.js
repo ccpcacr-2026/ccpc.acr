@@ -44,6 +44,7 @@ const RESERVED = [
   'loadInventoryHistoryPanel','loadInventoryAuditLog','_invEditDistributionFromHistory',
   '_invReviewRegistryEntry','_invRestoreRegistryEntry','_invRecreateDistribution',
   'loadAnnouncementsView','_annToggleTarget','_annToggleRecording','_annSaveAnnouncement','_annToggleActive','_annDeleteAnnouncement',
+  '_annEditAnnouncement','_annCancelEdit','_annLoadLog',
   'loadUserPermsPanel','saveUserModulePermission','removeUserModulePermission',
   '_prOpenFieldForm','_prCloseFieldForm','_prToggleCalcModeFields','_prSaveField','_prDeleteField',
   '_prOpenFieldConditions','_prCloseFieldConditions','_prToggleFieldApplicableRole',
