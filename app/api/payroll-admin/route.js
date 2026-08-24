@@ -94,12 +94,11 @@ function _yearsSince(joiningDate, refDate) {
 }
 
 function _resolveFieldConfig(field, ctx) {
-  const po = ctx.personOverridesByField[field.id];
   const gf = ctx.gradeFieldsByField[field.id];
   const rd = ctx.roleDefaultsByField[field.id];
-  const value = po?.value ?? gf?.value ?? rd?.value ?? null;
-  const percent = po?.percent ?? gf?.percent ?? rd?.percent ?? null;
-  const base_field_key = po?.base_field_key || gf?.base_field_key || rd?.base_field_key || field.calc_base_field_key || null;
+  const value = gf?.value ?? rd?.value ?? null;
+  const percent = gf?.percent ?? rd?.percent ?? null;
+  const base_field_key = gf?.base_field_key || rd?.base_field_key || field.calc_base_field_key || null;
   return { value, percent, base_field_key };
 }
 
@@ -127,6 +126,19 @@ function _resolveFieldValue(fieldKey, fieldsByKey, ctx, memo, visiting) {
   const field = fieldsByKey[fieldKey];
   if (!field) { memo.set(fieldKey, 0); return 0; }
   visiting.add(fieldKey);
+
+  // A manually-entered or imported value for this specific person — see
+  // payroll.person_field_values — always wins outright over condition
+  // rules, percent-of-field calc, grade/role defaults, and yearly
+  // increments. It exists specifically to say "for this person, use this
+  // exact number instead," so nothing downstream should adjust it further.
+  const manualValue = ctx.personFieldValuesRow ? ctx.personFieldValuesRow[field.key] : null;
+  if (manualValue != null) {
+    const amount = Number(manualValue) || 0;
+    visiting.delete(fieldKey);
+    memo.set(fieldKey, amount);
+    return amount;
+  }
 
   let amount = 0;
   const rules = ctx.conditionRulesByField[field.id] || [];
@@ -184,11 +196,15 @@ function _computePayslipForPerson(personSetup, role, category, ref, month, year)
   });
   const fieldsByKey = {}; ref.fields.forEach(f => { fieldsByKey[f.key] = f; });
 
-  const personOverridesByField = {}; (ref.personOverridesByUser[personSetup.user_id] || []).forEach(o => { personOverridesByField[o.field_id] = o; });
   const gradeFieldsByField = {}; (gradeId ? (ref.gradeFieldsByGrade[gradeId] || []) : []).forEach(g => { gradeFieldsByField[g.field_id] = g; });
   const roleDefaultsByField = {}; ref.roleDefaults.filter(r => r.role === role).forEach(r => { roleDefaultsByField[r.field_id] = r; });
 
-  const ctx = { personOverridesByField, gradeFieldsByField, roleDefaultsByField, joiningDate: personSetup.joining_date, refDate: new Date(Date.UTC(year, month, 0)), conditionRulesByField: ref.conditionRulesByField };
+  const ctx = {
+    personFieldValuesRow: ref.personFieldValuesByUser[personSetup.user_id] || null,
+    gradeFieldsByField, roleDefaultsByField,
+    joiningDate: personSetup.joining_date, refDate: new Date(Date.UTC(year, month, 0)),
+    conditionRulesByField: ref.conditionRulesByField,
+  };
   const memo = new Map();
   const fieldValues = {};
   applicableFields.forEach(f => { fieldValues[f.key] = _resolveFieldValue(f.key, fieldsByKey, ctx, memo, new Set()); });
@@ -270,7 +286,7 @@ function _computePayslipForPerson(personSetup, role, category, ref, month, year)
 
 // Fetches every table the engine needs, once, for a given set of user ids + period.
 async function _loadPayrollRef(userIds, month, year) {
-  const [fields, gradeFields, gradeConditional, roleDefaults, statutoryItemsRaw, sections, sectionEntriesRaw, bonusesRaw, allOverridesRaw, applicableRolesRaw, conditionRulesRaw, leaveDeductionsRaw, applicableCategoriesRaw, busFareEntriesRaw, busStoppagesRaw] = await Promise.all([
+  const [fields, gradeFields, gradeConditional, roleDefaults, statutoryItemsRaw, sections, sectionEntriesRaw, bonusesRaw, personFieldValuesRaw, applicableRolesRaw, conditionRulesRaw, leaveDeductionsRaw, applicableCategoriesRaw, busFareEntriesRaw, busStoppagesRaw] = await Promise.all([
     sbPayroll('fields?is_active=eq.true&select=*'),
     sbPayroll('grade_fields?select=*'),
     sbPayroll('grade_conditional_fields?select=*'),
@@ -279,7 +295,7 @@ async function _loadPayrollRef(userIds, month, year) {
     sbPayroll('sections?select=*'),
     sbPayroll('section_entries?status=eq.active&select=*'),
     sbPayroll(`bonus_payments?status=eq.pending&month=eq.${encodeURIComponent(month)}&year=eq.${encodeURIComponent(year)}&select=*`),
-    sbPayroll('person_field_overrides?select=*'),
+    sbPayroll('person_field_values?select=*'),
     sbPayroll('field_applicable_roles?select=*'),
     sbPayroll('field_condition_rules?select=*&order=priority.asc'),
     sbPayroll(`leave_deductions?month=eq.${encodeURIComponent(month)}&year=eq.${encodeURIComponent(year)}&select=*`),
@@ -292,7 +308,10 @@ async function _loadPayrollRef(userIds, month, year) {
   const sectionsById = {}; (sections || []).forEach(s => { sectionsById[s.id] = s; });
   const sectionEntriesByUser = {}; (sectionEntriesRaw || []).forEach(e => { (sectionEntriesByUser[e.user_id] = sectionEntriesByUser[e.user_id] || []).push(e); });
   const bonusesByUser = {}; (bonusesRaw || []).forEach(b => { (bonusesByUser[b.user_id] = bonusesByUser[b.user_id] || []).push(b); });
-  const personOverridesByUser = {}; (allOverridesRaw || []).forEach(o => { (personOverridesByUser[o.user_id] = personOverridesByUser[o.user_id] || []).push(o); });
+  // One row per person, one real column per field (payroll.person_field_values)
+  // — see _resolveFieldValue for how a non-null cell here outranks
+  // everything else (condition rules, calc mode, grade/role defaults).
+  const personFieldValuesByUser = {}; (personFieldValuesRaw || []).forEach(row => { personFieldValuesByUser[row.user_id] = row; });
   const applicableRolesByField = {}; (applicableRolesRaw || []).forEach(a => { (applicableRolesByField[a.field_id] = applicableRolesByField[a.field_id] || new Set()).add(a.role); });
   const conditionRulesByField = {}; (conditionRulesRaw || []).forEach(r => { (conditionRulesByField[r.field_id] = conditionRulesByField[r.field_id] || []).push(r); });
   const leaveDeductionsByUser = {}; (leaveDeductionsRaw || []).forEach(l => { (leaveDeductionsByUser[l.user_id] = leaveDeductionsByUser[l.user_id] || []).push(l); });
@@ -301,7 +320,7 @@ async function _loadPayrollRef(userIds, month, year) {
   const busFareEntriesByUser = {}; (busFareEntriesRaw || []).forEach(e => { (busFareEntriesByUser[e.user_id] = busFareEntriesByUser[e.user_id] || []).push(e); });
   return {
     fields: fields || [], gradeFieldsByGrade, gradeConditionalSet, roleDefaults: roleDefaults || [],
-    statutoryItems: statutoryItemsRaw || [], sectionsById, sectionEntriesByUser, bonusesByUser, personOverridesByUser,
+    statutoryItems: statutoryItemsRaw || [], sectionsById, sectionEntriesByUser, bonusesByUser, personFieldValuesByUser,
     applicableRolesByField, conditionRulesByField, leaveDeductionsByUser, applicableCategoriesByField,
     stoppagesById, busFareEntriesByUser,
   };
@@ -413,8 +432,25 @@ export async function POST(req) {
   if (action === 'save_field') {
     const { id, key, label, category, calc_mode, calc_base_field_key, increment_mode, increment_value, is_grade_conditional, is_role_conditional, is_category_conditional, is_active, sort_order } = payload;
     if (!key || !label) return NextResponse.json({ result: 'error', message: 'Key and label are required' }, { status: 400 });
+
+    // key becomes a real column name in payroll.person_field_values (the
+    // wide Manual/Import values table — see add_field_column below), so a
+    // NEW field's key must be a safe Postgres identifier. Editing an
+    // existing field never changes its key, so that column mapping stays
+    // stable for the field's whole lifetime.
+    let finalKey = key;
+    if (!id) {
+      if (!/^[a-z][a-z0-9_]{0,58}$/.test(key)) {
+        return NextResponse.json({ result: 'error', message: 'Key must be lowercase letters, numbers and underscores only, starting with a letter (e.g. "festival_bonus").' }, { status: 400 });
+      }
+    } else {
+      const existingField = await sbPayroll(`fields?id=eq.${encodeURIComponent(id)}&select=key`);
+      if (existingField?.error) return NextResponse.json({ result: 'error', message: existingField.error }, { status: 500 });
+      finalKey = (existingField && existingField[0] && existingField[0].key) || key;
+    }
+
     const rowData = {
-      key, label,
+      key: finalKey, label,
       category: category || 'earning',
       calc_mode: calc_mode || 'fixed',
       calc_base_field_key: calc_base_field_key || null,
@@ -431,6 +467,14 @@ export async function POST(req) {
       : await sbPayroll('fields', 'POST', rowData);
     if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
     const savedRow = Array.isArray(saved) ? saved[0] : saved;
+
+    if (!id) {
+      const colResult = await sbPayroll('rpc/add_field_column', 'POST', { col_name: finalKey });
+      if (colResult?.error) {
+        _prAudit(user_id, 'save_field', 'fields', savedRow?.id, rowData);
+        return NextResponse.json({ result: 'error', message: `Field saved, but couldn't add its value column: ${colResult.error}. Make sure payroll_schema_v7.sql has been run in Supabase.` }, { status: 500 });
+      }
+    }
     _prAudit(user_id, 'save_field', 'fields', savedRow?.id, rowData);
     return NextResponse.json({ result: 'success', field: savedRow });
   }
@@ -1020,12 +1064,90 @@ export async function POST(req) {
         if (saved?.error) { errors.push({ row: i + 2, message: saved.error }); continue; }
         imported++;
       }
+    } else if (target === 'field_values') {
+      const { field_id } = payload;
+      if (!field_id) return NextResponse.json({ result: 'error', message: 'field_id required' }, { status: 400 });
+      const fieldRows = await sbPayroll(`fields?id=eq.${encodeURIComponent(field_id)}&select=key`);
+      if (fieldRows?.error) return NextResponse.json({ result: 'error', message: fieldRows.error }, { status: 500 });
+      const fieldKey = fieldRows && fieldRows[0] && fieldRows[0].key;
+      if (!fieldKey) return NextResponse.json({ result: 'error', message: 'Field not found' }, { status: 404 });
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r.user_id || r.value === '' || r.value == null) { errors.push({ row: i + 2, message: 'user_id and value are required' }); continue; }
+        const rowData = { user_id: String(r.user_id), [fieldKey]: Number(r.value) };
+        const existing = await sbPayroll(`person_field_values?user_id=eq.${encodeURIComponent(rowData.user_id)}&select=user_id`);
+        const saved = (!existing?.error && existing.length)
+          ? await sbPayroll(`person_field_values?user_id=eq.${encodeURIComponent(rowData.user_id)}`, 'PATCH', rowData)
+          : await sbPayroll('person_field_values', 'POST', rowData);
+        if (saved?.error) { errors.push({ row: i + 2, message: saved.error }); continue; }
+        imported++;
+      }
     } else {
       return NextResponse.json({ result: 'error', message: 'Unknown import target' }, { status: 400 });
     }
 
     _prAudit(user_id, 'import_rows', target, section_id || null, { imported, error_count: errors.length });
     return NextResponse.json({ result: 'success', imported, errors });
+  }
+
+  // ── Additions & Deductions: per-field values (Manual / Import modes) ──
+  // Logical mode instead reads the field's own calc_mode / condition rules
+  // (see Fields' Conditions modal) — nothing to fetch here for that case.
+  if (action === 'get_field_values') {
+    const { field_id } = payload;
+    if (!field_id) return NextResponse.json({ result: 'error', message: 'field_id required' }, { status: 400 });
+    const fieldRows = await sbPayroll(`fields?id=eq.${encodeURIComponent(field_id)}&select=*`);
+    if (fieldRows?.error) return NextResponse.json({ result: 'error', message: fieldRows.error }, { status: 500 });
+    const field = fieldRows && fieldRows[0];
+    if (!field) return NextResponse.json({ result: 'error', message: 'Field not found' }, { status: 404 });
+
+    const [people, valuesRaw] = await Promise.all([
+      sbPayroll('person_setup?select=*'),
+      sbPayroll(`person_field_values?select=user_id,${field.key}`),
+    ]);
+    if (people?.error) return NextResponse.json({ result: 'error', message: people.error }, { status: 500 });
+    if (valuesRaw?.error) return NextResponse.json({ result: 'error', message: valuesRaw.error }, { status: 500 });
+    const manualByUser = {}; (valuesRaw || []).forEach(r => { manualByUser[r.user_id] = r[field.key]; });
+
+    const peopleList = people || [];
+    const userIds = peopleList.map(p => p.user_id);
+    const [roles, categories] = await Promise.all([_rolesForUsers(userIds), _categoriesForUsers(userIds)]);
+    const now = new Date();
+    const month = now.getUTCMonth() + 1, year = now.getUTCFullYear();
+    const ref = await _loadPayrollRef(userIds, month, year);
+    const logicalByUser = {};
+    peopleList.forEach(p => {
+      const slip = _computePayslipForPerson(p, roles[p.user_id] || '', categories[p.user_id] || '', ref, month, year);
+      logicalByUser[p.user_id] = slip.field_values[field.key] ?? 0;
+    });
+
+    // Anyone with Logical config (a person_setup row, for the computed
+    // preview) OR a manual value already saved — the client merges this
+    // against its own live staff directory (allStaffCache) so someone with
+    // neither yet still shows up in their category list, ready for a
+    // first Manual entry.
+    const allIds = new Set([...userIds, ...Object.keys(manualByUser)]);
+    const rows = [...allIds].map(uid => ({
+      user_id: uid,
+      manual_value: manualByUser[uid] ?? null,
+      logical_value: logicalByUser[uid] ?? null,
+    }));
+    return NextResponse.json({ result: 'success', field, rows });
+  }
+
+  if (action === 'save_field_value') {
+    const { field_key, user_id: personId, value } = payload;
+    if (!field_key || !personId) return NextResponse.json({ result: 'error', message: 'field_key and user_id required' }, { status: 400 });
+    if (!/^[a-z][a-z0-9_]{0,58}$/.test(field_key)) return NextResponse.json({ result: 'error', message: 'Invalid field key' }, { status: 400 });
+    const rowData = { user_id: personId, [field_key]: (value === '' || value == null) ? null : Number(value) };
+    const existing = await sbPayroll(`person_field_values?user_id=eq.${encodeURIComponent(personId)}&select=user_id`);
+    if (existing?.error) return NextResponse.json({ result: 'error', message: existing.error }, { status: 500 });
+    const saved = existing.length
+      ? await sbPayroll(`person_field_values?user_id=eq.${encodeURIComponent(personId)}`, 'PATCH', rowData)
+      : await sbPayroll('person_field_values', 'POST', rowData);
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    _prAudit(user_id, 'save_field_value', 'person_field_values', `${personId}:${field_key}`, rowData);
+    return NextResponse.json({ result: 'success' });
   }
 
   // ── Loan / Advance sections ──

@@ -13289,9 +13289,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   const PAYROLL_SUBTABS = [
-    { id: 'pr-fields', label: 'Fields' },
+    { id: 'pr-fields', label: 'Additions & Deductions' },
     { id: 'pr-grades', label: 'Grades' },
-    { id: 'pr-people', label: 'People' },
+    { id: 'pr-people', label: 'People Setup' },
     { id: 'pr-sections', label: 'Sections' },
     { id: 'pr-run', label: 'Run & Payslips' },
     { id: 'pr-export', label: 'Export' },
@@ -13318,10 +13318,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
       <div id="pr-fields">
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-3">
-          <div class="flex items-center justify-between mb-3">
-            <p class="font-black text-slate-800 text-xs">Payroll Fields</p>
-            <button onclick="_prOpenFieldForm(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Field</button>
+          <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <p class="font-black text-slate-800 text-xs">Additions &amp; Deductions</p>
+            <button onclick="_prOpenFieldForm(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>New Field</button>
           </div>
+          <div class="flex items-center gap-2 mb-3">
+            <button id="prFieldsCatBtn-all" onclick="_prSetFieldsCategoryFilter('')" class="pr-cat-filter-btn active">All</button>
+            <button id="prFieldsCatBtn-earning" onclick="_prSetFieldsCategoryFilter('earning')" class="pr-cat-filter-btn">Additions</button>
+            <button id="prFieldsCatBtn-deduction" onclick="_prSetFieldsCategoryFilter('deduction')" class="pr-cat-filter-btn">Deductions</button>
+          </div>
+          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-3">Click "Values" on a field below to view/enter its amounts — Logically (rule-based), Manually (typed per person), or Import (Excel)</p>
           <div class="overflow-auto border border-slate-200 rounded-xl">
             <table class="w-full text-left border-collapse text-xs">
               <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
@@ -13404,6 +13410,33 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="_prCloseStatutoryForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
             <button onclick="_prSaveStatutoryItem()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button>
           </div>
+        </div>
+      </div>
+
+      <div id="prFieldValuesModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-3xl max-h-[88vh] overflow-y-auto">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <p class="font-black text-slate-800 text-sm" id="prFieldValuesTitle">Values</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5" id="prFieldValuesSubtitle"></p>
+            </div>
+            <button onclick="_prCloseFieldValues()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+          </div>
+          <div class="flex items-center gap-2 mb-3">
+            <button id="prFvModeBtn-logical" onclick="_prSetFieldValuesMode('logical')" class="pr-fv-mode-btn active">Logical</button>
+            <button id="prFvModeBtn-manual" onclick="_prSetFieldValuesMode('manual')" class="pr-fv-mode-btn">Manual</button>
+            <button id="prFvModeBtn-import" onclick="_prSetFieldValuesMode('import')" class="pr-fv-mode-btn">Import</button>
+          </div>
+          <div id="prFvLogicalHint" class="hidden text-[10px] font-bold text-slate-500 bg-slate-50 border border-slate-200 rounded-xl p-3 mb-3">
+            Values below are computed live from this field's calculation rule, condition rules, and grade/role defaults.
+            <button onclick="_prCloseFieldValues();_prOpenFieldForm(_prFvField)" class="text-blue-600 underline">Edit field</button> ·
+            <button onclick="_prCloseFieldValues();_prOpenFieldConditions(_prFvField.id)" class="text-blue-600 underline">Conditions</button>
+          </div>
+          <div id="prFvImportHint" class="hidden text-[10px] font-bold text-slate-500 bg-slate-50 border border-slate-200 rounded-xl p-3 mb-3 flex items-center justify-between gap-3 flex-wrap">
+            <span>Upload an Excel sheet with columns: <b>user_id</b>, <b>value</b> — existing values for those people are overwritten.</span>
+            <button onclick="_prOpenFieldValuesImport()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5 shrink-0"><i data-lucide="upload" class="h-3.5 w-3.5"></i>Import Excel</button>
+          </div>
+          <div id="prFvLists"></div>
         </div>
       </div>
 
@@ -14121,14 +14154,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }).catch(err => showToast(err.message || 'Failed to load fields', 'error'));
   }
 
+  let _prFieldsCategoryFilter = '';
+  function _prSetFieldsCategoryFilter(cat) {
+    _prFieldsCategoryFilter = cat;
+    ['', 'earning', 'deduction'].forEach(c => {
+      const btn = document.getElementById(`prFieldsCatBtn-${c || 'all'}`);
+      if (btn) btn.classList.toggle('active', c === cat);
+    });
+    _prRenderFieldsTable();
+  }
+
   function _prRenderFieldsTable() {
     const tbody = document.getElementById('prFieldsBody');
     if (!tbody) return;
-    if (!_prFieldsCache.length) {
-      tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-slate-400 font-bold text-xs text-center">No fields yet — click "Add Field" to define your first one (e.g. Basic Salary, House Rent, Provident Fund).</td></tr>`;
+    const list = _prFieldsCategoryFilter ? _prFieldsCache.filter(f => f.category === _prFieldsCategoryFilter) : _prFieldsCache;
+    if (!list.length) {
+      tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-slate-400 font-bold text-xs text-center">${_prFieldsCache.length ? 'No fields in this group yet.' : 'No fields yet — click "New Field" to define your first one (e.g. Basic Salary, House Rent, Provident Fund) and choose Addition or Deduction.'}</td></tr>`;
       return;
     }
-    tbody.innerHTML = _prFieldsCache.map(f => {
+    tbody.innerHTML = list.map(f => {
       const calcLabel = f.calc_mode === 'percent_of_field' ? `% of ${f.calc_base_field_key || '—'}` : 'Fixed amount';
       const incLabel = f.increment_mode ? `${f.increment_mode === 'yearly_percent' ? f.increment_value + '%/yr' : '৳' + Number(f.increment_value || 0).toLocaleString() + '/yr'}` : '—';
       return `<tr class="border-b border-slate-50">
@@ -14137,7 +14181,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <td class="py-1.5 px-3">${calcLabel}</td>
         <td class="py-1.5 px-3">${incLabel}</td>
         <td class="py-1.5 px-3">${f.is_active ? '<span class="text-emerald-600 font-black">Active</span>' : '<span class="text-slate-400 font-black">Inactive</span>'}</td>
-        <td class="py-1.5 px-3 text-right">
+        <td class="py-1.5 px-3 text-right whitespace-nowrap">
+          <button onclick="_prOpenFieldValues(${f.id})" class="text-[10px] font-black text-emerald-600 uppercase tracking-widest hover:text-black mr-3">Values</button>
           <button onclick="_prOpenFieldConditions(${f.id})" class="text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:text-black mr-3">Conditions</button>
           <button onclick='_prOpenFieldForm(${JSON.stringify(f).replace(/'/g, "&apos;")})' class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-black mr-3">Edit</button>
           <button onclick="_prDeleteField(${f.id})" class="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-700">Delete</button>
@@ -14243,6 +14288,108 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   function _prCloseFieldConditions() { document.getElementById('prFieldConditionsModal').classList.add('hidden'); }
+
+  // ── Field Values workspace — Logical (computed preview) / Manual (typed
+  // per person) / Import (Excel), each showing the same 3 category lists
+  // pulled live from the staff directory (allStaffCache), not gated behind
+  // having been separately "added" anywhere first. ──
+  let _prFvField = null;
+  let _prFvMode = 'logical';
+  let _prFvRows = [];
+  const PR_FV_CATEGORIES = ['Teacher School', 'Teacher College', 'Staff'];
+
+  function _prOpenFieldValues(fieldId) {
+    const field = _prFieldsCache.find(f => f.id === fieldId);
+    if (!field) return;
+    _prFvField = field;
+    document.getElementById('prFieldValuesTitle').textContent = field.label;
+    document.getElementById('prFieldValuesSubtitle').textContent = field.category === 'deduction' ? 'Deduction' : 'Addition';
+    document.getElementById('prFieldValuesModal').classList.remove('hidden');
+    _prSetFieldValuesMode('logical');
+    _prLoadFieldValues();
+  }
+  function _prCloseFieldValues() { document.getElementById('prFieldValuesModal').classList.add('hidden'); }
+
+  function _prSetFieldValuesMode(mode) {
+    _prFvMode = mode;
+    ['logical', 'manual', 'import'].forEach(m => {
+      const btn = document.getElementById(`prFvModeBtn-${m}`);
+      if (btn) btn.classList.toggle('active', m === mode);
+    });
+    const logicalHint = document.getElementById('prFvLogicalHint');
+    const importHint = document.getElementById('prFvImportHint');
+    if (logicalHint) logicalHint.classList.toggle('hidden', mode !== 'logical');
+    if (importHint) importHint.classList.toggle('hidden', mode !== 'import');
+    _prRenderFieldValuesLists();
+  }
+
+  function _prLoadFieldValues() {
+    if (!_prFvField) return;
+    const host = document.getElementById('prFvLists');
+    if (host) host.innerHTML = `<p class="text-slate-400 font-bold text-xs p-4 text-center">Loading…</p>`;
+    _ensureStaffCache(() => {
+      _payrollFetch('get_field_values', { field_id: _prFvField.id }).then(res => {
+        if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed to load values', 'error'); return; }
+        _prFvRows = res.rows || [];
+        _prRenderFieldValuesLists();
+      }).catch(err => showToast(err.message || 'Failed to load values', 'error'));
+    });
+  }
+
+  function _prRenderFieldValuesLists() {
+    const host = document.getElementById('prFvLists');
+    if (!host || !_prFvField) return;
+    const byUser = {}; _prFvRows.forEach(r => { byUser[r.user_id] = r; });
+    const staffByCategory = {};
+    PR_FV_CATEGORIES.forEach(c => { staffByCategory[c] = []; });
+    const other = [];
+    (allStaffCache || []).forEach(s => {
+      const cat = (s.category || '').trim();
+      (staffByCategory[cat] || other).push(s);
+    });
+    if (other.length) staffByCategory['Other'] = other;
+
+    const mode = _prFvMode;
+    const groups = Object.keys(staffByCategory).filter(c => staffByCategory[c].length);
+    host.innerHTML = groups.length ? groups.map(cat => {
+      const rowsHtml = staffByCategory[cat].map(s => {
+        const r = byUser[s.teacher_id] || {};
+        const manual = r.manual_value, logical = r.logical_value;
+        let valueCell;
+        if (mode === 'manual') {
+          valueCell = `<input type="number" value="${manual != null ? manual : ''}" placeholder="—" onchange="_prSaveFieldValue('${s.teacher_id}', this.value)" class="w-28 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs text-right">`;
+        } else {
+          const shown = manual != null ? manual : logical;
+          valueCell = `<span class="font-black text-slate-700">${shown != null ? '৳' + Number(shown).toLocaleString() : '—'}</span>${manual != null ? ' <span class="text-[9px] text-blue-600 font-black uppercase">(manual)</span>' : ''}`;
+        }
+        return `<tr class="border-b border-slate-50">
+          <td class="py-1.5 px-3 font-bold text-slate-700">${s.full_name || s.teacher_id}</td>
+          <td class="py-1.5 px-3 text-slate-400 text-[10px] font-bold">${s.designation || ''}</td>
+          <td class="py-1.5 px-3 text-right">${valueCell}</td>
+        </tr>`;
+      }).join('');
+      return `<div class="mb-4">
+        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">${cat} <span class="text-slate-300">(${staffByCategory[cat].length})</span></p>
+        <div class="overflow-auto border border-slate-200 rounded-xl">
+          <table class="w-full text-left border-collapse text-xs"><tbody>${rowsHtml}</tbody></table>
+        </div>
+      </div>`;
+    }).join('') : `<p class="text-slate-400 font-bold text-xs p-4 text-center">No staff found — check System &gt; Users.</p>`;
+  }
+
+  function _prSaveFieldValue(userId, value) {
+    if (!_prFvField) return;
+    _payrollFetch('save_field_value', { field_key: _prFvField.key, user_id: userId, value }).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed to save', 'error'); return; }
+      showToast('Saved', 'success');
+      _prLoadFieldValues();
+    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
+  }
+
+  function _prOpenFieldValuesImport() {
+    if (!_prFvField) return;
+    _prOpenImportModal('field_values', { field_id: _prFvField.id });
+  }
 
   function _prToggleFieldApplicableRole(fieldId, role, enabled) {
     _payrollFetch('toggle_field_applicable_role', { field_id: fieldId, role, enabled }).then(res => {
@@ -14604,15 +14751,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _prSelectedPersonId = userId;
     const detail = document.getElementById('prPersonDetail');
     detail.innerHTML = `<p class="text-slate-400 font-bold text-xs p-4">Loading…</p>`;
-    Promise.all([
-      _payrollFetch('get_people_setup', {}),
-      _payrollFetch('get_person_field_overrides', { user_id: userId }),
-      _prFieldsCache.length ? Promise.resolve({ result: 'success', fields: _prFieldsCache }) : _payrollFetch('get_fields', {}),
-    ]).then(([peopleRes, overridesRes, fieldsRes]) => {
+    _payrollFetch('get_people_setup', {}).then(peopleRes => {
       _prPeopleSetupCache = (peopleRes && peopleRes.result === 'success' && peopleRes.people) || [];
-      _prFieldsCache = (fieldsRes && fieldsRes.result === 'success' && fieldsRes.fields) || _prFieldsCache;
-      const overrides = (overridesRes && overridesRes.result === 'success' && overridesRes.overrides) || [];
-      const ovMap = {}; overrides.forEach(o => { ovMap[o.field_id] = o; });
       const setup = _prPeopleSetupCache.find(p => p.user_id === userId) || {};
       const label = staffLabel(userId);
       detail.innerHTML = `
@@ -14659,24 +14799,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div class="flex justify-end mb-5">
           <button onclick="_prSavePersonSetup('${userId}')" class="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Setup</button>
         </div>
-        <p class="font-black text-slate-800 text-sm mb-1">Per-Person Field Overrides</p>
-        <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-3">Highest precedence — overrides both the grade's value and the role default. Leave both blank to clear an override.</p>
-        <div class="overflow-auto border border-slate-200 rounded-xl">
-          <table class="w-full text-left border-collapse text-xs">
-            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Field</th><th class="py-2 px-3">Fixed Value</th><th class="py-2 px-3">Percent</th><th class="py-2 px-3"></th></tr></thead>
-            <tbody>
-              ${_prFieldsCache.map(f => {
-                const ov = ovMap[f.id] || {};
-                return `<tr class="border-b border-slate-50">
-                  <td class="py-1.5 px-3 font-black text-slate-700">${f.label}${f.is_grade_conditional ? ' <span class="text-[9px] text-amber-600 font-black uppercase">(conditional)</span>' : ''}</td>
-                  <td class="py-1.5 px-3"><input type="number" id="prPFO_val_${f.id}" value="${ov.value != null ? ov.value : ''}" placeholder="—" class="w-24 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></td>
-                  <td class="py-1.5 px-3"><input type="number" id="prPFO_pct_${f.id}" value="${ov.percent != null ? ov.percent : ''}" placeholder="—" class="w-20 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></td>
-                  <td class="py-1.5 px-3"><button onclick="_prSavePersonFieldOverride('${userId}',${f.id})" class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-black">Save</button></td>
-                </tr>`;
-              }).join('') || `<tr><td colspan="4" class="p-3 text-slate-400 font-bold text-xs text-center">No fields yet — add some under the Fields tab first.</td></tr>`}
-            </tbody>
-          </table>
-        </div>
+        <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest bg-slate-50 border border-slate-200 rounded-xl p-3">To set this person's amount for a specific field (Basic, House Rent, EMI, etc.), open that field's "Values" button under Additions &amp; Deductions and switch to Manual — it lists everyone by category with an editable amount, same place as Import.</p>
       `;
     });
   }
@@ -14687,6 +14810,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     section_entries: { title: 'Import Loan/EMI Entries (Excel)', headers: 'section_name* (skip if importing into one section) | user_id* | total_amount* | emi_amount | emi_months | note — set emi_amount or emi_months (or both, if both they must agree with total_amount)' },
     bonus_payments: { title: 'Import Bonus Payments (Excel)', headers: 'user_id* | label* | amount* | month* | year* | note' },
     leave_deductions: { title: 'Import Leave Deductions (Excel)', headers: 'user_id* | amount* | month* | year* | days | per_day_rate (optional — if given with days, must agree with amount) | note' },
+    field_values: { title: 'Import Field Values (Excel)', headers: 'user_id* | value* — overwrites this field\'s Manual value for anyone matched by user_id' },
   };
   let _prImportTarget = null;
   let _prImportContext = {};
@@ -14717,7 +14841,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
           if (!rows.length) { resultBox.innerHTML = `<p class="text-red-500 font-bold text-xs">Sheet has no data rows.</p>`; return; }
           resultBox.innerHTML = `<p class="text-slate-400 font-bold text-xs">Importing ${rows.length} row(s)…</p>`;
-          _payrollFetch('import_rows', { target: _prImportTarget, rows, section_id: _prImportContext.section_id }).then(res => {
+          _payrollFetch('import_rows', { target: _prImportTarget, rows, section_id: _prImportContext.section_id, field_id: _prImportContext.field_id }).then(res => {
             if (!res || res.result !== 'success') { resultBox.innerHTML = `<p class="text-red-500 font-bold text-xs">${(res && res.message) || 'Import failed'}</p>`; return; }
             const errors = res.errors || [];
             resultBox.innerHTML = `
@@ -14730,6 +14854,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             if (res.imported && _prImportTarget === 'bonus_payments') loadBonusPayments();
             if (res.imported && _prImportTarget === 'leave_deductions') loadLeaveDeductions();
             if (res.imported && _prImportTarget === 'section_entries' && _prImportContext.section_id) _prSelectSection(_prImportContext.section_id);
+            if (res.imported && _prImportTarget === 'field_values') _prLoadFieldValues();
           }).catch(() => { resultBox.innerHTML = `<p class="text-red-500 font-bold text-xs">Import failed.</p>`; });
         } catch (err) {
           resultBox.innerHTML = `<p class="text-red-500 font-bold text-xs">Could not read the file — make sure it's a valid .xlsx/.xls.</p>`;

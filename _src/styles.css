@@ -1141,6 +1141,17 @@ button { user-select: none; }
 }
 .bt-route-bus-option:hover { background: #f1f5f9; }
 
+/* Payroll: Additions/Deductions category filter + the Logical/Manual/
+   Import mode switcher inside a field's Values workspace — same small
+   pill-button look, two different contexts. */
+.pr-cat-filter-btn, .pr-fv-mode-btn {
+  padding: 7px 14px; border-radius: 999px; border: 1px solid #e2e8f0;
+  background: #fff; color: #64748b; font-size: 10px; font-weight: 900;
+  text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: all 0.15s;
+}
+.pr-cat-filter-btn:hover, .pr-fv-mode-btn:hover { background: #f8fafc; }
+.pr-cat-filter-btn.active, .pr-fv-mode-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+
 #bus-sidebar {
   position: absolute; z-index: 900;
   /* Semi-transparent + blurred rather than solid white — the fleet list
