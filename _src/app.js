@@ -13586,7 +13586,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <td class="py-1.5 px-3">${details}</td>
         </tr>`;
       }).join('');
-    }).catch(() => showToast('Failed to load audit log', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to load audit log', 'error'));
   }
 
   let _prFieldsCache = [];
@@ -13595,7 +13595,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _payrollFetch('get_fields', {}).then(res => {
       _prFieldsCache = (res && res.result === 'success' && res.fields) || [];
       _prRenderFieldsTable();
-    }).catch(() => showToast('Failed to load fields', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to load fields', 'error'));
   }
 
   function _prRenderFieldsTable() {
@@ -13672,7 +13672,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _payrollFetch('save_field', payload).then(res => {
       if (res && res.result === 'success') { showToast('Field saved'); _prCloseFieldForm(); loadPayrollFields(); }
       else showToast((res && res.message) || 'Failed to save field', 'error');
-    }).catch(() => showToast('Failed to save field', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to save field', 'error'));
   }
 
   function _prDeleteField(id) {
@@ -13680,7 +13680,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _payrollFetch('delete_field', { id }).then(res => {
       if (res && res.result === 'success') { showToast('Field deleted'); loadPayrollFields(); }
       else showToast((res && res.message) || 'Failed to delete field', 'error');
-    }).catch(() => showToast('Failed to delete field', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to delete field', 'error'));
   }
 
   // ── Field conditional logic (role-gated applicability + IF/THEN rules) ──
@@ -13710,7 +13710,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _prToggleFieldApplicableRole(fieldId, role, enabled) {
     _payrollFetch('toggle_field_applicable_role', { field_id: fieldId, role, enabled }).then(res => {
       if (!res || res.result !== 'success') showToast((res && res.message) || 'Failed to update', 'error');
-    }).catch(() => showToast('Failed to update', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to update', 'error'));
   }
 
   function _prRenderConditionRules() {
@@ -13773,7 +13773,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _payrollFetch('save_field_condition_rule', payload).then(res => {
       if (res && res.result === 'success') { showToast('Rule saved'); _prCloseConditionRuleForm(); _prOpenFieldConditions(Number(field_id)); }
       else showToast((res && res.message) || 'Failed to save', 'error');
-    }).catch(() => showToast('Failed to save', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
   }
 
   function _prDeleteConditionRule(id) {
@@ -13782,7 +13782,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _payrollFetch('delete_field_condition_rule', { id }).then(res => {
       if (res && res.result === 'success') { showToast('Deleted'); _prOpenFieldConditions(fieldId); }
       else showToast((res && res.message) || 'Failed to delete', 'error');
-    }).catch(() => showToast('Failed to delete', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to delete', 'error'));
   }
 
   // ── Statutory items (PF, tax/AIT) ──
@@ -13792,7 +13792,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _payrollFetch('get_statutory_items', {}).then(res => {
       _prStatutoryCache = (res && res.result === 'success' && res.items) || [];
       _prRenderStatutoryTable();
-    }).catch(() => showToast('Failed to load statutory items', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to load statutory items', 'error'));
   }
 
   function _prRenderStatutoryTable() {
@@ -13871,7 +13871,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _payrollFetch('save_statutory_item', payload).then(res => {
       if (res && res.result === 'success') { showToast('Saved'); _prCloseStatutoryForm(); loadStatutoryItems(); }
       else showToast((res && res.message) || 'Failed to save', 'error');
-    }).catch(() => showToast('Failed to save', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
   }
 
   function _prDeleteStatutoryItem(id) {
@@ -13879,7 +13879,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _payrollFetch('delete_statutory_item', { id }).then(res => {
       if (res && res.result === 'success') { showToast('Deleted'); loadStatutoryItems(); }
       else showToast((res && res.message) || 'Failed to delete', 'error');
-    }).catch(() => showToast('Failed to delete', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to delete', 'error'));
   }
 
   // ── Grades ──
@@ -13892,7 +13892,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _prGradesCache = (res && res.result === 'success' && res.grades) || [];
       _prGradesLoaded = true;
       _prRenderGradesList();
-    }).catch(() => showToast('Failed to load grades', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to load grades', 'error'));
   }
 
   function _prRenderGradesList() {
@@ -13936,7 +13936,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _payrollFetch('save_grade', payload).then(res => {
       if (res && res.result === 'success') { showToast('Grade saved'); _prCloseGradeForm(); loadPayrollGrades(); }
       else showToast((res && res.message) || 'Failed to save grade', 'error');
-    }).catch(() => showToast('Failed to save grade', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to save grade', 'error'));
   }
 
   function _prDeleteGrade(id) {
@@ -13947,7 +13947,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         if (_prSelectedGradeId === id) { _prSelectedGradeId = null; document.getElementById('prGradeDetail').innerHTML = `<p class="text-slate-400 font-bold text-xs p-4">Select a grade on the left to configure its field values and conditional fields.</p>`; }
         loadPayrollGrades();
       } else showToast((res && res.message) || 'Failed to delete grade', 'error');
-    }).catch(() => showToast('Failed to delete grade', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to delete grade', 'error'));
   }
 
   function _prSelectGrade(gradeId) {
@@ -14007,13 +14007,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _payrollFetch('save_grade_field', { grade_id: gradeId, field_id: fieldId, value, percent }).then(res => {
       if (res && res.result === 'success') showToast('Saved');
       else showToast((res && res.message) || 'Failed to save', 'error');
-    }).catch(() => showToast('Failed to save', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
   }
 
   function _prToggleGradeConditionalField(gradeId, fieldId, enabled) {
     _payrollFetch('toggle_grade_conditional_field', { grade_id: gradeId, field_id: fieldId, enabled }).then(res => {
       if (!res || res.result !== 'success') showToast((res && res.message) || 'Failed to update', 'error');
-    }).catch(() => showToast('Failed to update', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to update', 'error'));
   }
 
   // ── People (grade assignment + per-person field overrides) ──
@@ -14219,7 +14219,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _payrollFetch('save_person_setup', { user_id: userId, grade_id, joining_date, bank_name, bank_account_no, mobile_banking_provider, mobile_banking_number }).then(res => {
       if (res && res.result === 'success') showToast('Person setup saved');
       else showToast((res && res.message) || 'Failed to save', 'error');
-    }).catch(() => showToast('Failed to save', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
   }
 
   function _prSavePersonFieldOverride(userId, fieldId) {
@@ -14228,7 +14228,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _payrollFetch('save_person_field_override', { user_id: userId, field_id: fieldId, value, percent }).then(res => {
       if (res && res.result === 'success') showToast(res.cleared ? 'Override cleared' : 'Saved');
       else showToast((res && res.message) || 'Failed to save', 'error');
-    }).catch(() => showToast('Failed to save', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
   }
 
   // ── Bonus / festival payments ──
@@ -14244,7 +14244,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _payrollFetch('get_bonus_payments', {}).then(res => {
       _prBonusCache = (res && res.result === 'success' && res.payments) || [];
       _prRenderBonusTable();
-    }).catch(() => showToast('Failed to load bonus payments', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to load bonus payments', 'error'));
   }
 
   function _prRenderBonusTable() {
@@ -14299,7 +14299,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _payrollFetch('save_bonus_payment', { id, user_id, label, amount, month, year, note }).then(res => {
       if (res && res.result === 'success') { showToast('Saved'); _prCloseBonusForm(); loadBonusPayments(); }
       else showToast((res && res.message) || 'Failed to save', 'error');
-    }).catch(() => showToast('Failed to save', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
   }
 
   function _prDeleteBonusPayment(id) {
@@ -14307,7 +14307,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _payrollFetch('delete_bonus_payment', { id }).then(res => {
       if (res && res.result === 'success') { showToast('Deleted'); loadBonusPayments(); }
       else showToast((res && res.message) || 'Failed to delete', 'error');
-    }).catch(() => showToast('Failed to delete', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to delete', 'error'));
   }
 
   // ── Leave / attendance-linked deductions ──
@@ -14328,7 +14328,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _payrollFetch('get_leave_deductions', {}).then(res => {
       _prLeaveCache = (res && res.result === 'success' && res.deductions) || [];
       _prRenderLeaveTable();
-    }).catch(() => showToast('Failed to load leave deductions', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to load leave deductions', 'error'));
   }
 
   function _prRenderLeaveTable() {
@@ -14380,7 +14380,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _payrollFetch('save_leave_deduction', { id, user_id, days, amount, month, year, note }).then(res => {
       if (res && res.result === 'success') { showToast('Saved'); _prCloseLeaveForm(); loadLeaveDeductions(); }
       else showToast((res && res.message) || 'Failed to save', 'error');
-    }).catch(() => showToast('Failed to save', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
   }
 
   function _prDeleteLeaveDeduction(id) {
@@ -14388,7 +14388,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _payrollFetch('delete_leave_deduction', { id }).then(res => {
       if (res && res.result === 'success') { showToast('Deleted'); loadLeaveDeductions(); }
       else showToast((res && res.message) || 'Failed to delete', 'error');
-    }).catch(() => showToast('Failed to delete', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to delete', 'error'));
   }
 
   // Pulls approved leave requests overlapping the picked period from the
@@ -14435,7 +14435,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _payrollFetch('get_sections', {}).then(res => {
       _prSectionsCache = (res && res.result === 'success' && res.sections) || [];
       _prRenderSectionsList();
-    }).catch(() => showToast('Failed to load sections', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to load sections', 'error'));
   }
 
   function _prRenderSectionsList() {
@@ -14470,7 +14470,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _payrollFetch('save_section', { name, direction }).then(res => {
       if (res && res.result === 'success') { showToast('Section saved'); _prCloseSectionForm(); loadPayrollSections(); }
       else showToast((res && res.message) || 'Failed to save', 'error');
-    }).catch(() => showToast('Failed to save', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
   }
 
   function _prDeleteSection(id) {
@@ -14481,7 +14481,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         if (_prSelectedSectionId === id) { _prSelectedSectionId = null; document.getElementById('prSectionDetail').innerHTML = `<p class="text-slate-400 font-bold text-xs p-4">Select a section on the left to see and add EMI entries.</p>`; }
         loadPayrollSections();
       } else showToast((res && res.message) || 'Failed to delete', 'error');
-    }).catch(() => showToast('Failed to delete', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to delete', 'error'));
   }
 
   function _prSelectSection(sectionId) {
@@ -14559,14 +14559,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _payrollFetch('add_section_entry', { section_id, user_id, total_amount, emi_amount, emi_months, note }).then(res => {
       if (res && res.result === 'success') { showToast('Entry added'); _prCloseSectionEntryForm(); _prSelectSection(Number(section_id)); }
       else showToast((res && res.message) || 'Failed to add', 'error');
-    }).catch(() => showToast('Failed to add', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to add', 'error'));
   }
 
   function _prUpdateSectionEntryStatus(id, status, sectionId) {
     _payrollFetch('update_section_entry_status', { id, status }).then(res => {
       if (res && res.result === 'success') { showToast('Updated'); _prSelectSection(sectionId); }
       else showToast((res && res.message) || 'Failed to update', 'error');
-    }).catch(() => showToast('Failed to update', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to update', 'error'));
   }
 
   function _prDeleteSectionEntry(id, sectionId) {
@@ -14574,7 +14574,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _payrollFetch('delete_section_entry', { id }).then(res => {
       if (res && res.result === 'success') { showToast('Deleted'); _prSelectSection(sectionId); }
       else showToast((res && res.message) || 'Failed to delete', 'error');
-    }).catch(() => showToast('Failed to delete', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to delete', 'error'));
   }
 
   // ── Run & Payslips ──
@@ -14595,7 +14595,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _payrollFetch('get_payroll_runs', {}).then(res => {
       _prRunsCache = (res && res.result === 'success' && res.runs) || [];
       _prRenderRunsList();
-    }).catch(() => showToast('Failed to load runs', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to load runs', 'error'));
   }
 
   function _prRenderRunsList() {
@@ -14675,7 +14675,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _payrollFetch('submit_run_for_approval', { run_id: runId }).then(res => {
       if (res && res.result === 'success') { showToast('Submitted for approval'); _prLoadRunsList(); _prSelectRun(runId); }
       else showToast((res && res.message) || 'Failed', 'error');
-    }).catch(() => showToast('Failed', 'error'));
+    }).catch(err => showToast(err.message || 'Failed', 'error'));
   }
 
   function _prApproveRun(runId) {
@@ -14683,7 +14683,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _payrollFetch('approve_run', { run_id: runId }).then(res => {
       if (res && res.result === 'success') { showToast('Run finalized'); _prLoadRunsList(); _prSelectRun(runId); }
       else showToast((res && res.message) || 'Failed', 'error');
-    }).catch(() => showToast('Failed', 'error'));
+    }).catch(err => showToast(err.message || 'Failed', 'error'));
   }
 
   function _prDeleteRun(runId) {
@@ -14694,7 +14694,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         if (_prSelectedRunId === runId) { _prSelectedRunId = null; document.getElementById('prRunDetail').innerHTML = `<p class="text-slate-400 font-bold text-xs p-4">Run payroll for a period above, or select a past run on the left.</p>`; }
         _prLoadRunsList();
       } else showToast((res && res.message) || 'Failed to delete', 'error');
-    }).catch(() => showToast('Failed to delete', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to delete', 'error'));
   }
 
   // ── Export (Excel + PDF, column picker, virtual columns, formatting) ──
@@ -14876,7 +14876,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           XLSX.writeFile(wb, `payroll_bank_disbursement_${run ? PAYROLL_MONTH_NAMES[run.month] + '_' + run.year : ''}.xlsx`);
         }).catch(err => showToast(err.message, 'error'));
       });
-    }).catch(() => showToast('Failed to load payment info', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to load payment info', 'error'));
   }
 
   function ensureJsPDF() {
@@ -18961,7 +18961,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <div class="mt-1">${_invAuditReviewAction(r)}</div>
           </div>`;
         }).join('');
-      }).catch(() => showToast('Failed to load activity history', 'error'));
+      }).catch(err => showToast(err.message || 'Failed to load activity history', 'error'));
     });
   }
 
@@ -19019,7 +19019,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _invAdminFetch('registry_restore', { snapshot }).then(res => {
       if (res && res.result === 'success') { showToast('Receipt restored'); switchInvAdminTab('registry'); }
       else showToast((res && res.message) || 'Failed to restore', 'error');
-    }).catch(() => showToast('Failed to restore', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to restore', 'error'));
   }
 
   // Not an automatic silent restore — re-creating a distribution moves
@@ -19440,7 +19440,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _invAdminFetch('registry_delete', { id }).then(res => {
       if (res && res.result === 'success') { showToast('Deleted'); _invRefreshAfterRegistryChange(); }
       else showToast((res && res.message) || 'Failed to delete', 'error');
-    }).catch(() => showToast('Failed to delete', 'error'));
+    }).catch(err => showToast(err.message || 'Failed to delete', 'error'));
   }
 
   // Edit/Delete on a registry row is reachable both from the Registry tab's
