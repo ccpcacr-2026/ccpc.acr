@@ -123,6 +123,53 @@ function _compareOp(a, op, b) {
   }
 }
 
+// Evaluates one arithmetic "value node" of a logic_tree — terms joined by
+// ops, standard precedence (*, / before +, -), each term either another
+// field's resolved value or a literal constant. Shape: { terms: [{kind:
+// 'field', key} | {kind:'const', value}], ops: ['+','-','*','/', ...] }
+// with terms.length === ops.length + 1.
+function _evalLogicValueNode(node, fieldsByKey, ctx, memo, visiting) {
+  const terms = (node.terms || []).map(t =>
+    t.kind === 'field' ? _resolveFieldValue(t.key, fieldsByKey, ctx, memo, visiting) : (Number(t.value) || 0)
+  );
+  if (!terms.length) return 0;
+  const ops = node.ops || [];
+  // Pass 1: collapse * and / left to right.
+  const vals = [terms[0]];
+  const opsLeft = [];
+  for (let i = 0; i < ops.length; i++) {
+    if (ops[i] === '*' || ops[i] === '/') {
+      const prev = vals.pop();
+      vals.push(ops[i] === '*' ? prev * terms[i + 1] : prev / (terms[i + 1] || 1));
+    } else {
+      vals.push(terms[i + 1]);
+      opsLeft.push(ops[i]);
+    }
+  }
+  // Pass 2: + and - left to right.
+  let result = vals[0];
+  for (let i = 0; i < opsLeft.length; i++) result = opsLeft[i] === '+' ? result + vals[i + 1] : result - vals[i + 1];
+  return result;
+}
+
+// Recursively evaluates a field's Advanced Logic tree (payroll.fields.
+// logic_tree) — an arbitrarily-deep nested if/else, where each branch is
+// EITHER another { if, then, else } node or a terminal arithmetic value
+// node (see _evalLogicValueNode). Replaces condition_rules/calc_mode
+// entirely for a field that has one set (checked first, in
+// _resolveFieldValue below) rather than layering on top of them.
+function _evalLogicNode(node, fieldsByKey, ctx, memo, visiting) {
+  if (!node) return 0;
+  if (node.if) {
+    const srcVal = node.if.source === 'tenure_years'
+      ? _yearsSince(ctx.joiningDate, ctx.refDate)
+      : _resolveFieldValue(node.if.source, fieldsByKey, ctx, memo, visiting);
+    const matched = _compareOp(srcVal, node.if.op, Number(node.if.value));
+    return _evalLogicNode(matched ? node.then : node.else, fieldsByKey, ctx, memo, visiting);
+  }
+  return _evalLogicValueNode(node, fieldsByKey, ctx, memo, visiting);
+}
+
 // IF/THEN branching: a field's own condition rules (payroll.field_condition_rules)
 // are checked in priority order before falling back to its normal
 // person/grade/role-resolved amount. source_key is either another field's
@@ -150,6 +197,20 @@ function _resolveFieldValue(fieldKey, fieldsByKey, ctx, memo, visiting) {
   }
 
   let amount = 0;
+  if (field.logic_tree) {
+    // Advanced Logic (nested if/else) fully replaces condition_rules/
+    // calc_mode for this field when set — a field uses one mechanism or
+    // the other, never both, so there's no ambiguity about which wins.
+    amount = _evalLogicNode(field.logic_tree, fieldsByKey, ctx, memo, visiting);
+    if (field.increment_mode) {
+      const years = _yearsSince(ctx.joiningDate, ctx.refDate);
+      if (field.increment_mode === 'yearly_percent') amount = amount * Math.pow(1 + (Number(field.increment_value) || 0) / 100, years);
+      else if (field.increment_mode === 'yearly_fixed') amount = amount + (Number(field.increment_value) || 0) * years;
+    }
+    visiting.delete(fieldKey);
+    memo.set(fieldKey, amount);
+    return amount;
+  }
   const rules = ctx.conditionRulesByField[field.id] || [];
   let matchedRule = null;
   for (const rule of rules) {
@@ -512,6 +573,30 @@ export async function POST(req) {
     if (rules?.error) return NextResponse.json({ result: 'error', message: rules.error }, { status: 500 });
     if (applicableCategories?.error) return NextResponse.json({ result: 'error', message: applicableCategories.error }, { status: 500 });
     return NextResponse.json({ result: 'success', applicable_roles: applicableRoles, condition_rules: rules, applicable_categories: applicableCategories });
+  }
+
+  // Advanced Logic (nested if/else + multi-field arithmetic) — replaces
+  // condition_rules/calc_mode entirely for this field when set. Stored as
+  // one JSONB tree rather than rows, since it's arbitrarily nested; see
+  // _evalLogicNode for the shape and evaluation. logic_tree already comes
+  // back on every `fields` row (get_fields does select=*), so there's no
+  // separate get action — only save/clear.
+  if (action === 'save_field_logic_tree') {
+    const { field_id, logic_tree } = payload;
+    if (!field_id) return NextResponse.json({ result: 'error', message: 'field_id required' }, { status: 400 });
+    const saved = await sbPayroll(`fields?id=eq.${encodeURIComponent(field_id)}`, 'PATCH', { logic_tree: logic_tree || null });
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    _prAudit(user_id, 'save_field_logic_tree', 'fields', field_id, { logic_tree });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'clear_field_logic_tree') {
+    const { field_id } = payload;
+    if (!field_id) return NextResponse.json({ result: 'error', message: 'field_id required' }, { status: 400 });
+    const saved = await sbPayroll(`fields?id=eq.${encodeURIComponent(field_id)}`, 'PATCH', { logic_tree: null });
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    _prAudit(user_id, 'clear_field_logic_tree', 'fields', field_id);
+    return NextResponse.json({ result: 'success' });
   }
 
   if (action === 'toggle_field_applicable_role') {

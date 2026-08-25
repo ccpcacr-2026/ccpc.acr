@@ -13921,6 +13921,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               </table>
             </div>
           </div>
+          <div class="mt-5 pt-5 border-t border-slate-100">
+            <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+              <p class="font-black text-slate-800 text-xs">Advanced Logic <span class="text-[9px] text-indigo-600 font-black uppercase ml-1">nested if/else</span></p>
+              <div class="flex items-center gap-2">
+                <button onclick="_prClearLogicTree()" id="prLogicClearBtn" class="hidden px-2.5 py-1.5 border border-slate-200 text-slate-500 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Clear</button>
+                <button onclick="_prSaveLogicTree()" class="px-2.5 py-1.5 bg-indigo-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Logic</button>
+              </div>
+            </div>
+            <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-2">If saved, this replaces the IF/THEN Rules above entirely for this field — nest conditions inside Then/Else, and combine multiple fields with +−×÷</p>
+            <div id="prLogicTreeRoot" class="border border-slate-200 rounded-xl p-3 bg-slate-50"></div>
+          </div>
         </div>
       </div>
 
@@ -14167,6 +14178,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _prOpenFieldConditions(fieldId) {
     const field = _prFieldsCache.find(f => f.id === fieldId);
     if (!field) return;
+    _prLogicFieldId = fieldId;
+    // Deep-clone so editing (and cancelling without saving) never mutates
+    // the cached field row directly.
+    _prLogicTree = field.logic_tree ? JSON.parse(JSON.stringify(field.logic_tree)) : null;
+    _prLogicHadSavedTree = !!field.logic_tree;
+    _prRenderLogicTree();
     document.getElementById('prFieldConditionsFieldId').value = fieldId;
     document.getElementById('prFieldConditionsTitle').textContent = `Conditions — ${field.label}`;
     document.getElementById('prFieldConditionsRolesSection').style.display = field.is_role_conditional ? '' : 'none';
@@ -14196,6 +14213,170 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   function _prCloseFieldConditions() { document.getElementById('prFieldConditionsModal').classList.add('hidden'); }
+
+  // ── Advanced Logic: nested if/else + multi-field arithmetic ──
+  // Tree shapes: value node { terms:[{kind:'field',key}|{kind:'const',value}], ops:['+'|'-'|'*'|'/',...] }
+  // (terms.length === ops.length+1), or if node { if:{source,op,value}, then:<node>, else:<node> }.
+  // Edited entirely in memory (_prLogicTree) and only sent to the server on
+  // "Save Logic" — a path string like "then.else.then" (dot-joined branch
+  // names, '' for the root) addresses any node for get/set.
+  let _prLogicFieldId = null;
+  let _prLogicTree = null;
+  let _prLogicHadSavedTree = false;
+
+  function _prLogicPathParts(pathStr) { return pathStr ? pathStr.split('.') : []; }
+  function _prLogicGetNode(pathStr) {
+    let node = _prLogicTree;
+    for (const p of _prLogicPathParts(pathStr)) node = node ? node[p] : null;
+    return node;
+  }
+  function _prLogicSetNode(pathStr, newNode) {
+    const parts = _prLogicPathParts(pathStr);
+    if (!parts.length) { _prLogicTree = newNode; return; }
+    let node = _prLogicTree;
+    for (let i = 0; i < parts.length - 1; i++) node = node[parts[i]];
+    node[parts[parts.length - 1]] = newNode;
+  }
+  function _prLogicEmptyValueNode() { return { terms: [{ kind: 'const', value: 0 }], ops: [] }; }
+
+  function _prLogicWrapInIf(pathStr) {
+    const current = _prLogicGetNode(pathStr) || _prLogicEmptyValueNode();
+    const firstFieldKey = _prFieldsCache[0] ? _prFieldsCache[0].key : '';
+    _prLogicSetNode(pathStr, {
+      if: { source: firstFieldKey, op: '>', value: 0 },
+      then: current,
+      else: _prLogicEmptyValueNode(),
+    });
+    _prRenderLogicTree();
+  }
+  function _prLogicRemoveIf(pathStr) {
+    if (!confirm('Remove this condition? Its "Then" branch replaces it here; the "Else" branch is discarded.')) return;
+    const current = _prLogicGetNode(pathStr);
+    _prLogicSetNode(pathStr, current.then);
+    _prRenderLogicTree();
+  }
+  function _prLogicSetIfSource(pathStr, value) { _prLogicGetNode(pathStr).if.source = value; }
+  function _prLogicSetIfOp(pathStr, value) { _prLogicGetNode(pathStr).if.op = value; }
+  function _prLogicSetIfValue(pathStr, value) { _prLogicGetNode(pathStr).if.value = Number(value) || 0; }
+
+  function _prLogicAddTerm(pathStr) {
+    const node = _prLogicGetNode(pathStr);
+    node.terms.push({ kind: 'const', value: 0 });
+    node.ops.push('+');
+    _prRenderLogicTree();
+  }
+  function _prLogicRemoveTerm(pathStr, idx) {
+    const node = _prLogicGetNode(pathStr);
+    node.terms.splice(idx, 1);
+    node.ops.splice(idx === 0 ? 0 : idx - 1, 1);
+    _prRenderLogicTree();
+  }
+  function _prLogicSetTermKind(pathStr, idx, val) {
+    const node = _prLogicGetNode(pathStr);
+    node.terms[idx] = val === '__const__' ? { kind: 'const', value: 0 } : { kind: 'field', key: val };
+    _prRenderLogicTree();
+  }
+  function _prLogicSetTermConst(pathStr, idx, val) { _prLogicGetNode(pathStr).terms[idx].value = Number(val) || 0; }
+  function _prLogicSetOp(pathStr, idx, val) { _prLogicGetNode(pathStr).ops[idx] = val; }
+
+  function _prLogicSourceOptionsHtml(selected) {
+    const opts = [`<option value="tenure_years" ${selected === 'tenure_years' ? 'selected' : ''}>Tenure (years)</option>`]
+      .concat(_prFieldsCache.map(f => `<option value="${f.key}" ${selected === f.key ? 'selected' : ''}>${_escHtml(f.label)}</option>`));
+    return opts.join('');
+  }
+  function _prLogicOperatorOptionsHtml(selected) {
+    return ['>', '>=', '<', '<=', '==', '!='].map(op => `<option value="${op}" ${selected === op ? 'selected' : ''}>${_escHtml(op)}</option>`).join('');
+  }
+
+  function _prLogicValueNodeHtml(node, pathStr) {
+    const termsHtml = node.terms.map((t, i) => `
+      ${i > 0 ? `<select onchange="_prLogicSetOp('${pathStr}',${i - 1},this.value)" class="px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-black text-xs">
+        <option value="+" ${node.ops[i - 1] === '+' ? 'selected' : ''}>+</option>
+        <option value="-" ${node.ops[i - 1] === '-' ? 'selected' : ''}>&minus;</option>
+        <option value="*" ${node.ops[i - 1] === '*' ? 'selected' : ''}>&times;</option>
+        <option value="/" ${node.ops[i - 1] === '/' ? 'selected' : ''}>&divide;</option>
+      </select>` : ''}
+      <select onchange="_prLogicSetTermKind('${pathStr}',${i},this.value)" class="px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs max-w-[130px]">
+        <option value="__const__" ${t.kind === 'const' ? 'selected' : ''}>Number…</option>
+        ${_prFieldsCache.map(f => `<option value="${f.key}" ${t.kind === 'field' && t.key === f.key ? 'selected' : ''}>${_escHtml(f.label)}</option>`).join('')}
+      </select>
+      ${t.kind === 'const' ? `<input type="number" value="${t.value ?? 0}" oninput="_prLogicSetTermConst('${pathStr}',${i},this.value)" class="w-16 px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs">` : ''}
+      ${node.terms.length > 1 ? `<button onclick="_prLogicRemoveTerm('${pathStr}',${i})" class="text-red-400 hover:text-red-600 font-black px-1">&times;</button>` : ''}
+    `).join('');
+    return `<div class="flex items-center gap-1 flex-wrap">${termsHtml}<button onclick="_prLogicAddTerm('${pathStr}')" title="Add term" class="text-[9px] font-black text-blue-600 uppercase hover:text-blue-800 ml-1">+ term</button></div>`;
+  }
+
+  function _prLogicRenderNode(node, pathStr) {
+    if (!node) return '';
+    if (node.if) {
+      const thenPath = pathStr ? pathStr + '.then' : 'then';
+      const elsePath = pathStr ? pathStr + '.else' : 'else';
+      return `<div class="border-l-2 border-indigo-300 pl-3 my-2">
+        <div class="flex items-center gap-1.5 flex-wrap mb-2 bg-indigo-50 rounded-lg p-2">
+          <span class="text-[9px] font-black text-indigo-600 uppercase">If</span>
+          <select onchange="_prLogicSetIfSource('${pathStr}',this.value)" class="px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs max-w-[130px]">${_prLogicSourceOptionsHtml(node.if.source)}</select>
+          <select onchange="_prLogicSetIfOp('${pathStr}',this.value)" class="px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-black text-xs">${_prLogicOperatorOptionsHtml(node.if.op)}</select>
+          <input type="number" value="${node.if.value ?? 0}" oninput="_prLogicSetIfValue('${pathStr}',this.value)" class="w-16 px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs">
+          <button onclick="_prLogicRemoveIf('${pathStr}')" class="ml-auto text-[9px] font-black text-red-500 uppercase hover:text-red-700">Remove</button>
+        </div>
+        <div class="ml-3 mb-2">
+          <p class="text-[9px] font-black text-emerald-600 uppercase mb-1">Then</p>
+          <div class="flex items-center gap-2 flex-wrap">
+            ${_prLogicRenderNode(node.then, thenPath)}
+            ${!node.then.if ? `<button onclick="_prLogicWrapInIf('${thenPath}')" title="Make this conditional too" class="text-[9px] font-black text-indigo-600 uppercase hover:text-indigo-800">+ nested if</button>` : ''}
+          </div>
+        </div>
+        <div class="ml-3">
+          <p class="text-[9px] font-black text-rose-600 uppercase mb-1">Else</p>
+          <div class="flex items-center gap-2 flex-wrap">
+            ${_prLogicRenderNode(node.else, elsePath)}
+            ${!node.else.if ? `<button onclick="_prLogicWrapInIf('${elsePath}')" title="Make this conditional too" class="text-[9px] font-black text-indigo-600 uppercase hover:text-indigo-800">+ nested if</button>` : ''}
+          </div>
+        </div>
+      </div>`;
+    }
+    return _prLogicValueNodeHtml(node, pathStr);
+  }
+
+  function _prRenderLogicTree() {
+    const host = document.getElementById('prLogicTreeRoot');
+    if (!host) return;
+    if (!_prLogicTree) _prLogicTree = _prLogicEmptyValueNode();
+    host.innerHTML = `<div class="flex items-center gap-2 flex-wrap">
+      ${_prLogicRenderNode(_prLogicTree, '')}
+      ${!_prLogicTree.if ? `<button onclick="_prLogicWrapInIf('')" title="Make this conditional" class="text-[9px] font-black text-indigo-600 uppercase hover:text-indigo-800">+ if</button>` : ''}
+    </div>`;
+    const clearBtn = document.getElementById('prLogicClearBtn');
+    if (clearBtn) clearBtn.classList.toggle('hidden', !_prLogicHadSavedTree);
+  }
+
+  function _prSaveLogicTree() {
+    if (!_prLogicFieldId) return;
+    _payrollFetch('save_field_logic_tree', { field_id: _prLogicFieldId, logic_tree: _prLogicTree }).then(res => {
+      if (res && res.result === 'success') {
+        showToast('Logic saved');
+        _prLogicHadSavedTree = true;
+        const field = _prFieldsCache.find(f => f.id === _prLogicFieldId);
+        if (field) field.logic_tree = JSON.parse(JSON.stringify(_prLogicTree));
+        _prRenderLogicTree();
+      } else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
+  }
+
+  function _prClearLogicTree() {
+    if (!_prLogicFieldId) return;
+    if (!confirm('Clear Advanced Logic for this field? It will fall back to the IF/THEN Rules above (or its plain structural config if none of those match either).')) return;
+    _payrollFetch('clear_field_logic_tree', { field_id: _prLogicFieldId }).then(res => {
+      if (res && res.result === 'success') {
+        showToast('Logic cleared');
+        _prLogicTree = null;
+        _prLogicHadSavedTree = false;
+        const field = _prFieldsCache.find(f => f.id === _prLogicFieldId);
+        if (field) field.logic_tree = null;
+        _prRenderLogicTree();
+      } else showToast((res && res.message) || 'Failed to clear', 'error');
+    }).catch(err => showToast(err.message || 'Failed to clear', 'error'));
+  }
 
   // ── Field Values workspace — Logical (computed preview) / Manual (typed
   // per person) / Import (Excel), each showing the same 3 category lists
