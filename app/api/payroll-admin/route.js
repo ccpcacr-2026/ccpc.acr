@@ -152,19 +152,30 @@ function _evalLogicValueNode(node, fieldsByKey, ctx, memo, visiting) {
   return result;
 }
 
+// One comparison within an if node's condition group — source is either
+// another field's key or 'tenure_years'.
+function _evalLogicCondition(cond, fieldsByKey, ctx, memo, visiting) {
+  const srcVal = cond.source === 'tenure_years'
+    ? _yearsSince(ctx.joiningDate, ctx.refDate)
+    : _resolveFieldValue(cond.source, fieldsByKey, ctx, memo, visiting);
+  return _compareOp(srcVal, cond.op, Number(cond.value));
+}
+
 // Recursively evaluates a field's Advanced Logic tree (payroll.fields.
 // logic_tree) — an arbitrarily-deep nested if/else, where each branch is
 // EITHER another { if, then, else } node or a terminal arithmetic value
 // node (see _evalLogicValueNode). Replaces condition_rules/calc_mode
 // entirely for a field that has one set (checked first, in
 // _resolveFieldValue below) rather than layering on top of them.
+// node.if = { join: 'AND'|'OR', conditions: [{source,op,value}, ...] } —
+// one or more comparisons combined with AND (all must match) or OR (any
+// one matches).
 function _evalLogicNode(node, fieldsByKey, ctx, memo, visiting) {
   if (!node) return 0;
   if (node.if) {
-    const srcVal = node.if.source === 'tenure_years'
-      ? _yearsSince(ctx.joiningDate, ctx.refDate)
-      : _resolveFieldValue(node.if.source, fieldsByKey, ctx, memo, visiting);
-    const matched = _compareOp(srcVal, node.if.op, Number(node.if.value));
+    const conditions = node.if.conditions || [];
+    const results = conditions.map(c => _evalLogicCondition(c, fieldsByKey, ctx, memo, visiting));
+    const matched = node.if.join === 'OR' ? results.some(Boolean) : results.every(Boolean);
     return _evalLogicNode(matched ? node.then : node.else, fieldsByKey, ctx, memo, visiting);
   }
   return _evalLogicValueNode(node, fieldsByKey, ctx, memo, visiting);

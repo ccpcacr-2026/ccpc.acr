@@ -14216,7 +14216,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   // ── Advanced Logic: nested if/else + multi-field arithmetic ──
   // Tree shapes: value node { terms:[{kind:'field',key}|{kind:'const',value}], ops:['+'|'-'|'*'|'/',...] }
-  // (terms.length === ops.length+1), or if node { if:{source,op,value}, then:<node>, else:<node> }.
+  // (terms.length === ops.length+1), or if node { if:{join:'AND'|'OR',
+  // conditions:[{source,op,value},...]}, then:<node>, else:<node> } — one
+  // or more comparisons combined with AND (all must match) or OR (any one).
   // Edited entirely in memory (_prLogicTree) and only sent to the server on
   // "Save Logic" — a path string like "then.else.then" (dot-joined branch
   // names, '' for the root) addresses any node for get/set.
@@ -14238,12 +14240,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     node[parts[parts.length - 1]] = newNode;
   }
   function _prLogicEmptyValueNode() { return { terms: [{ kind: 'const', value: 0 }], ops: [] }; }
+  function _prLogicEmptyCondition() { return { source: _prFieldsCache[0] ? _prFieldsCache[0].key : '', op: '>', value: 0 }; }
 
   function _prLogicWrapInIf(pathStr) {
     const current = _prLogicGetNode(pathStr) || _prLogicEmptyValueNode();
-    const firstFieldKey = _prFieldsCache[0] ? _prFieldsCache[0].key : '';
     _prLogicSetNode(pathStr, {
-      if: { source: firstFieldKey, op: '>', value: 0 },
+      if: { join: 'AND', conditions: [_prLogicEmptyCondition()] },
       then: current,
       else: _prLogicEmptyValueNode(),
     });
@@ -14255,9 +14257,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _prLogicSetNode(pathStr, current.then);
     _prRenderLogicTree();
   }
-  function _prLogicSetIfSource(pathStr, value) { _prLogicGetNode(pathStr).if.source = value; }
-  function _prLogicSetIfOp(pathStr, value) { _prLogicGetNode(pathStr).if.op = value; }
-  function _prLogicSetIfValue(pathStr, value) { _prLogicGetNode(pathStr).if.value = Number(value) || 0; }
+  function _prLogicSetJoin(pathStr, value) { _prLogicGetNode(pathStr).if.join = value; }
+  function _prLogicAddCondition(pathStr) {
+    _prLogicGetNode(pathStr).if.conditions.push(_prLogicEmptyCondition());
+    _prRenderLogicTree();
+  }
+  function _prLogicRemoveCondition(pathStr, idx) {
+    const conditions = _prLogicGetNode(pathStr).if.conditions;
+    conditions.splice(idx, 1);
+    _prRenderLogicTree();
+  }
+  function _prLogicSetConditionSource(pathStr, idx, value) { _prLogicGetNode(pathStr).if.conditions[idx].source = value; }
+  function _prLogicSetConditionOp(pathStr, idx, value) { _prLogicGetNode(pathStr).if.conditions[idx].op = value; }
+  function _prLogicSetConditionValue(pathStr, idx, value) { _prLogicGetNode(pathStr).if.conditions[idx].value = Number(value) || 0; }
 
   function _prLogicAddTerm(pathStr) {
     const node = _prLogicGetNode(pathStr);
@@ -14311,13 +14323,27 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (node.if) {
       const thenPath = pathStr ? pathStr + '.then' : 'then';
       const elsePath = pathStr ? pathStr + '.else' : 'else';
+      const conditions = node.if.conditions || [];
+      const conditionRowsHtml = conditions.map((cond, ci) => `
+        <div class="flex items-center gap-1.5 flex-wrap">
+          ${ci > 0 ? `<span class="text-[9px] font-black text-indigo-500 uppercase w-8">${node.if.join === 'OR' ? 'or' : 'and'}</span>` : `<span class="text-[9px] font-black text-indigo-600 uppercase">If</span>`}
+          <select onchange="_prLogicSetConditionSource('${pathStr}',${ci},this.value)" class="px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs max-w-[130px]">${_prLogicSourceOptionsHtml(cond.source)}</select>
+          <select onchange="_prLogicSetConditionOp('${pathStr}',${ci},this.value)" class="px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-black text-xs">${_prLogicOperatorOptionsHtml(cond.op)}</select>
+          <input type="number" value="${cond.value ?? 0}" oninput="_prLogicSetConditionValue('${pathStr}',${ci},this.value)" class="w-16 px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs">
+          ${conditions.length > 1 ? `<button onclick="_prLogicRemoveCondition('${pathStr}',${ci})" class="text-red-400 hover:text-red-600 font-black px-1">&times;</button>` : ''}
+        </div>`).join('');
       return `<div class="border-l-2 border-indigo-300 pl-3 my-2">
-        <div class="flex items-center gap-1.5 flex-wrap mb-2 bg-indigo-50 rounded-lg p-2">
-          <span class="text-[9px] font-black text-indigo-600 uppercase">If</span>
-          <select onchange="_prLogicSetIfSource('${pathStr}',this.value)" class="px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs max-w-[130px]">${_prLogicSourceOptionsHtml(node.if.source)}</select>
-          <select onchange="_prLogicSetIfOp('${pathStr}',this.value)" class="px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-black text-xs">${_prLogicOperatorOptionsHtml(node.if.op)}</select>
-          <input type="number" value="${node.if.value ?? 0}" oninput="_prLogicSetIfValue('${pathStr}',this.value)" class="w-16 px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs">
-          <button onclick="_prLogicRemoveIf('${pathStr}')" class="ml-auto text-[9px] font-black text-red-500 uppercase hover:text-red-700">Remove</button>
+        <div class="flex flex-col gap-1.5 mb-2 bg-indigo-50 rounded-lg p-2">
+          ${conditionRowsHtml}
+          <div class="flex items-center gap-2 flex-wrap mt-0.5">
+            <button onclick="_prLogicAddCondition('${pathStr}')" class="text-[9px] font-black text-indigo-600 uppercase hover:text-indigo-800">+ condition</button>
+            ${conditions.length > 1 ? `<label class="flex items-center gap-1 text-[9px] font-black text-slate-500 uppercase"><span>Join:</span>
+              <select onchange="_prLogicSetJoin('${pathStr}',this.value)" class="px-1 py-1 bg-white border border-slate-200 rounded font-black text-[10px]">
+                <option value="AND" ${node.if.join !== 'OR' ? 'selected' : ''}>AND (all match)</option>
+                <option value="OR" ${node.if.join === 'OR' ? 'selected' : ''}>OR (any match)</option>
+              </select></label>` : ''}
+            <button onclick="_prLogicRemoveIf('${pathStr}')" class="ml-auto text-[9px] font-black text-red-500 uppercase hover:text-red-700">Remove</button>
+          </div>
         </div>
         <div class="ml-3 mb-2">
           <p class="text-[9px] font-black text-emerald-600 uppercase mb-1">Then</p>
