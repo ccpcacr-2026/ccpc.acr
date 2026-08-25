@@ -60,7 +60,7 @@ const RESERVED = [
   '_prOpenStoppageForm','_prCloseStoppageForm','_prSaveStoppage','_prDeleteStoppage',
   '_prOpenBusFareForm','_prCloseBusFareForm','_prSaveBusFareEntry','_prDeleteBusFareEntry',
   '_prSuggestFromLeaveRequests','_prPrefillLeaveFromRequest','_prExportBankFile',
-  '_prOpenImportModal','_prCloseImportModal','_prHandleImportFile',
+  '_prOpenImportModal','_prCloseImportModal','_prHandleImportFile','_prOpenBulkFieldValuesImport',
   '_prDownloadImportSample','updatePayrollImportSample','_prConfirmImport',
   '_prSelectSection','_prOpenSectionForm','_prCloseSectionForm','_prSaveSection','_prDeleteSection',
   '_prOpenSectionEntryForm','_prCloseSectionEntryForm','_prSaveSectionEntry','_prUpdateSectionEntryStatus','_prDeleteSectionEntry',

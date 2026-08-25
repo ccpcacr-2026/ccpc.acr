@@ -1242,6 +1242,36 @@ export async function POST(req) {
         if (saved?.error) { errors.push({ row: i + 2, message: saved.error }); continue; }
         imported++;
       }
+    } else if (target === 'field_values_bulk') {
+      // One row per person, one column per field — matches the wide
+      // person_field_values table's own shape (and the paper salary
+      // sheet's layout), instead of importing one field at a time.
+      // Calculated (percent-of-field) fields are filtered out client-side
+      // before this ever runs, but re-validated here too rather than
+      // trusting the client — a stray column matching a calculated
+      // field's key is silently ignored, not written.
+      const fieldsRes = await sbPayroll('fields?select=key,calc_mode');
+      if (fieldsRes?.error) return NextResponse.json({ result: 'error', message: fieldsRes.error }, { status: 500 });
+      const writableKeys = new Set((fieldsRes || []).filter(f => f.calc_mode !== 'percent_of_field').map(f => f.key));
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r.user_id) { errors.push({ row: i + 2, message: 'user_id is required' }); continue; }
+        const rowData = { user_id: String(r.user_id) };
+        let hasAny = false;
+        Object.keys(r).forEach(k => {
+          if (k === 'user_id' || !writableKeys.has(k)) return;
+          if (r[k] === '' || r[k] == null) return; // blank cell = leave that field's existing value alone
+          rowData[k] = Number(r[k]);
+          hasAny = true;
+        });
+        if (!hasAny) { errors.push({ row: i + 2, message: 'No field values found for this row' }); continue; }
+        const existing = await sbPayroll(`person_field_values?user_id=eq.${encodeURIComponent(rowData.user_id)}&select=user_id`);
+        const saved = (!existing?.error && existing.length)
+          ? await sbPayroll(`person_field_values?user_id=eq.${encodeURIComponent(rowData.user_id)}`, 'PATCH', rowData)
+          : await sbPayroll('person_field_values', 'POST', rowData);
+        if (saved?.error) { errors.push({ row: i + 2, message: saved.error }); continue; }
+        imported++;
+      }
     } else {
       return NextResponse.json({ result: 'error', message: 'Unknown import target' }, { status: 400 });
     }

@@ -13320,7 +13320,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-3">
           <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
             <p class="font-black text-slate-800 text-xs">Additions &amp; Deductions</p>
-            <button onclick="_prOpenFieldForm(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>New Field</button>
+            <div class="flex items-center gap-2">
+              <button onclick="_prOpenBulkFieldValuesImport()" title="One row per person, one column per field — like the paper salary sheet" class="px-3 py-2 bg-slate-100 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-1.5"><i data-lucide="upload" class="h-3.5 w-3.5"></i>Bulk Import All Fields</button>
+              <button onclick="_prOpenFieldForm(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>New Field</button>
+            </div>
           </div>
           <div class="flex items-center gap-2 mb-3">
             <button id="prFieldsCatBtn-all" onclick="_prSetFieldsCategoryFilter('')" class="pr-cat-filter-btn active">All</button>
@@ -14858,6 +14861,27 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _prImportContext = {};
   let _prImportHeaders = [];
   let _prImportRows = [];
+
+  // Bulk import ALL fields at once — one row per person, one column per
+  // field, matching the wide payroll.person_field_values table's own shape
+  // (and the paper Acquittance Roll's own layout) rather than importing one
+  // field at a time. The field list is rebuilt fresh from _prFieldsCache
+  // every time this opens, since it changes as fields are added/removed.
+  function _prOpenBulkFieldValuesImport() {
+    // Skip calculated fields (percent-of-another-field) — those get their
+    // value from the calc rule, not typed in, so listing them here would
+    // just invite someone to accidentally override a Logical field with a
+    // stray Manual number. Only plain, directly-entered fields show up.
+    const importableFields = _prFieldsCache.filter(f => f.calc_mode !== 'percent_of_field');
+    PAYROLL_IMPORT_SPECS.field_values_bulk = {
+      title: 'Bulk Import All Fields (Excel)',
+      fields: [
+        { key: 'user_id', label: 'User ID', required: true },
+        ...importableFields.map(f => ({ key: f.key, label: f.label, required: false })),
+      ],
+    };
+    _prOpenImportModal('field_values_bulk', {});
+  }
 
   function _prOpenImportModal(target, context) {
     _prImportTarget = target;
