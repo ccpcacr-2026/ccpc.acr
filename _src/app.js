@@ -14066,6 +14066,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   let _prFieldsCache = [];
 
+  // Two fields can share the exact same label on purpose — e.g. the
+  // Acquittance Roll sheet has both an "HR" addition and an "HR" deduction
+  // row, and "Other" appears on both sides too. Anywhere a field shows up
+  // in a list/picker alongside others (not the main Fields table, which
+  // already has its own Category column), tag it with (Addition)/
+  // (Deduction) so two same-named fields are never indistinguishable.
+  function _prFieldLabelWithCategory(f) {
+    return `${f.label} (${f.category === 'deduction' ? 'Deduction' : 'Addition'})`;
+  }
+
   function loadPayrollFields() {
     _payrollFetch('get_fields', {}).then(res => {
       _prFieldsCache = (res && res.result === 'success' && res.fields) || [];
@@ -14124,7 +14134,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prFieldCategoryConditional').checked = !!(field && field.is_category_conditional);
     document.getElementById('prFieldActive').checked = field ? field.is_active !== false : true;
     const baseSel = document.getElementById('prFieldBaseKey');
-    baseSel.innerHTML = _prFieldsCache.filter(f => !field || f.id !== field.id).map(f => `<option value="${f.key}">${f.label}</option>`).join('');
+    baseSel.innerHTML = _prFieldsCache.filter(f => !field || f.id !== field.id).map(f => `<option value="${f.key}">${_escHtml(_prFieldLabelWithCategory(f))}</option>`).join('');
     if (field && field.calc_base_field_key) baseSel.value = field.calc_base_field_key;
     _prToggleCalcModeFields();
     document.getElementById('prFieldFormModal').classList.remove('hidden');
@@ -14293,7 +14303,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function _prLogicSourceOptionsHtml(selected) {
     const opts = [`<option value="tenure_years" ${selected === 'tenure_years' ? 'selected' : ''}>Tenure (years)</option>`]
-      .concat(_prFieldsCache.map(f => `<option value="${f.key}" ${selected === f.key ? 'selected' : ''}>${_escHtml(f.label)}</option>`));
+      .concat(_prFieldsCache.map(f => `<option value="${f.key}" ${selected === f.key ? 'selected' : ''}>${_escHtml(_prFieldLabelWithCategory(f))}</option>`));
     return opts.join('');
   }
   function _prLogicOperatorOptionsHtml(selected) {
@@ -14310,7 +14320,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </select>` : ''}
       <select onchange="_prLogicSetTermKind('${pathStr}',${i},this.value)" class="px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs max-w-[130px]">
         <option value="__const__" ${t.kind === 'const' ? 'selected' : ''}>Number…</option>
-        ${_prFieldsCache.map(f => `<option value="${f.key}" ${t.kind === 'field' && t.key === f.key ? 'selected' : ''}>${_escHtml(f.label)}</option>`).join('')}
+        ${_prFieldsCache.map(f => `<option value="${f.key}" ${t.kind === 'field' && t.key === f.key ? 'selected' : ''}>${_escHtml(_prFieldLabelWithCategory(f))}</option>`).join('')}
       </select>
       ${t.kind === 'const' ? `<input type="number" value="${t.value ?? 0}" oninput="_prLogicSetTermConst('${pathStr}',${i},this.value)" class="w-16 px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs">` : ''}
       ${node.terms.length > 1 ? `<button onclick="_prLogicRemoveTerm('${pathStr}',${i})" class="text-red-400 hover:text-red-600 font-black px-1">&times;</button>` : ''}
@@ -14543,9 +14553,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _prOpenConditionRuleForm() {
     const fieldId = Number(document.getElementById('prFieldConditionsFieldId').value);
     const srcSel = document.getElementById('prCrSource');
-    srcSel.innerHTML = `<option value="tenure_years">Tenure (years)</option>` + _prFieldsCache.map(f => `<option value="${f.key}">${f.label}</option>`).join('');
+    srcSel.innerHTML = `<option value="tenure_years">Tenure (years)</option>` + _prFieldsCache.map(f => `<option value="${f.key}">${_escHtml(_prFieldLabelWithCategory(f))}</option>`).join('');
     const baseSel = document.getElementById('prCrThenBaseKey');
-    baseSel.innerHTML = _prFieldsCache.map(f => `<option value="${f.key}">${f.label}</option>`).join('');
+    baseSel.innerHTML = _prFieldsCache.map(f => `<option value="${f.key}">${_escHtml(_prFieldLabelWithCategory(f))}</option>`).join('');
     document.getElementById('prCrOperator').value = '>';
     document.getElementById('prCrCompareValue').value = '';
     document.getElementById('prCrThenMode').value = 'fixed';
@@ -14696,7 +14706,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               ${baseFields.map(f => {
                 const gf = gfMap[f.id] || {};
                 return `<tr class="border-b border-slate-50">
-                  <td class="py-1.5 px-3 font-black text-slate-700">${f.label}</td>
+                  <td class="py-1.5 px-3 font-black text-slate-700">${_escHtml(_prFieldLabelWithCategory(f))}</td>
                   <td class="py-1.5 px-3"><input type="number" id="prGF_val_${f.id}" value="${gf.value != null ? gf.value : ''}" placeholder="—" class="w-24 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></td>
                   <td class="py-1.5 px-3"><input type="number" id="prGF_pct_${f.id}" value="${gf.percent != null ? gf.percent : ''}" placeholder="—" class="w-20 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></td>
                   <td class="py-1.5 px-3"><button onclick="_prSaveGradeField(${gradeId},${f.id})" class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-black">Save</button></td>
@@ -14712,7 +14722,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           ${conditionalCatalog.map(f => `
             <label class="flex items-center gap-2 text-xs font-black text-slate-600 cursor-pointer">
               <input type="checkbox" ${condSet.has(f.id) ? 'checked' : ''} onchange="_prToggleGradeConditionalField(${gradeId},${f.id},this.checked)" class="w-4 h-4 rounded accent-amber-600">
-              ${f.label}
+              ${_escHtml(_prFieldLabelWithCategory(f))}
             </label>`).join('')}
         </div>` : ''}
       `;
@@ -15084,7 +15094,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       title: 'Bulk Import All Fields (Excel)',
       fields: [
         { key: 'user_id', label: 'User ID', required: true },
-        ...importableFields.map(f => ({ key: f.key, label: f.label, required: false })),
+        ...importableFields.map(f => ({ key: f.key, label: _prFieldLabelWithCategory(f), required: false })),
       ],
     };
     _prOpenImportModal('field_values_bulk', {});
@@ -16083,7 +16093,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         if (key === 'bonus_total') return 'Bonus';
         if (key.startsWith('statutory_employer:')) return `${(_prStatutoryCache.find(s => s.key === key.split(':')[1]) || {}).label || key} (Employer)`;
         if (key.startsWith('statutory:')) return (_prStatutoryCache.find(s => s.key === key.split(':')[1]) || {}).label || key;
-        return (_prFieldsCache.find(f => f.key === key) || {}).label || key;
+        const f = _prFieldsCache.find(f => f.key === key);
+        return f ? _prFieldLabelWithCategory(f) : key;
       };
       const baseCols = [
         { key: 'sl_no', label: 'SL No', type: 'sl' },
