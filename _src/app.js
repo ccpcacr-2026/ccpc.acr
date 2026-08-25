@@ -13698,8 +13698,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="_prExportExcel()" class="px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="file-spreadsheet" class="h-3.5 w-3.5"></i>Export Excel</button>
             <button onclick="_prExportPdf()" class="px-4 py-2.5 bg-rose-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="file-text" class="h-3.5 w-3.5"></i>Export PDF</button>
             <button onclick="_prExportBankFile()" class="px-4 py-2.5 bg-indigo-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="landmark" class="h-3.5 w-3.5"></i>Bank Disbursement File</button>
+            <button onclick="_prExportCategoryTemplates()" class="px-4 py-2.5 bg-slate-800 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="layout-template" class="h-3.5 w-3.5"></i>Acquittance Roll Format</button>
           </div>
-          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-2">Bank Disbursement File is a fixed format (bank/mobile-banking info + net pay only) meant for uploading to a bank or bKash/Nagad bulk transfer — ignores the column picker below.</p>
+          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-2">Bank Disbursement File and Acquittance Roll Format are both fixed formats that ignore the column picker below — the latter is one sheet per category (Staff / Teacher School / Teacher College / Driver-Helper), laid out exactly like the paper Acquittance Roll, with merged group headers and a Sub Total row.</p>
         </div>
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
           <div class="flex flex-wrap items-center gap-5">
@@ -16329,6 +16330,161 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         }).catch(err => showToast(err.message, 'error'));
       });
     }).catch(err => showToast(err.message || 'Failed to load payment info', 'error'));
+  }
+
+  // ── Acquittance Roll Format export — one sheet per category, laid out
+  // exactly like SALARY OF SCHOOL AUGUST 2026.xls (merged group headers +
+  // Sub Total row), instead of the flexible flat column picker above. Each
+  // column pulls from one field, sums a couple of fields together (e.g.
+  // Driver/Helper's "Incentive & Special" combines two separate fields, or
+  // "computed" reads straight off the payslip (gross/net/mpo_amount/
+  // college_amount) rather than field_values, since those aren't fields at
+  // all. Reuses whichever field already exists (Basic/HR/Medical/etc. are
+  // shared across categories) — the header text below is what's shown in
+  // THIS export regardless of that field's own label elsewhere.
+  const PR_ACQUITTANCE_TEMPLATES = {
+    'Staff': {
+      additions: [
+        { header: 'Basic', keys: ['basic'] }, { header: 'Incentive', keys: ['incentive'] }, { header: 'Special', keys: ['special'] },
+        { header: 'HR', keys: ['hr'] }, { header: 'Tiffin', keys: ['tiffin'] }, { header: 'Washing', keys: ['washing'] },
+        { header: 'Convynce', keys: ['conveyance'] }, { header: 'Medical', keys: ['medical'] }, { header: 'Education', keys: ['education'] },
+        { header: 'PF 10%', keys: ['pf_10_percent'] }, { header: 'Other', keys: ['other_addition'] },
+      ],
+      deductions: [
+        { header: 'Tuition', keys: ['tuition'] }, { header: 'HR', keys: ['hr_deduction'] }, { header: 'Utilities', keys: ['utilities'] },
+        { header: 'MPO', computed: s => Number(s.mpo_amount) || 0 }, { header: 'PF Loan', keys: ['pf_loan'] }, { header: 'PF 20%', keys: ['pf_20_percent'] },
+        { header: 'TDS', keys: ['tds'] }, { header: 'Welfare', keys: ['welfare'] }, { header: 'T/S Club', keys: ['ts_club'] }, { header: 'Other', keys: ['other_deduction'] },
+      ],
+      totalPf: s => (Number((s.field_values || {}).pf_20_percent) || 0) + (Number((s.field_values || {}).pf_loan) || 0),
+    },
+    'Driver/Helper': {
+      additions: [
+        { header: 'Basic Pay', keys: ['basic'] }, { header: 'Incentive & Special Pay/Extra Allowance', keys: ['incentive', 'special'] },
+        { header: 'H. Rent Allwnce', keys: ['hr'] }, { header: 'Tiffin Allowance', keys: ['tiffin'] }, { header: 'Washing Allwnc', keys: ['washing'] },
+        { header: 'Conveyance Allwnc', keys: ['conveyance'] }, { header: 'Medical Allwce', keys: ['medical'] }, { header: 'Education Support Allowance', keys: ['education'] },
+        { header: 'P.F Contribution', keys: ['pf_10_percent'] }, { header: 'Festi & Other Allow', keys: ['other_addition', 'bonus_total'] },
+      ],
+      deductions: [
+        { header: 'HR & Gas Bill', keys: ['hr_gas_bill'] }, { header: 'Electricity & Dish Bill', keys: ['electricity_dish_bill'] },
+        { header: 'Club Subs', keys: ['ts_club'] }, { header: 'P.F. Loan Refund', keys: ['pf_loan'] }, { header: 'P.F Subs. + Contri', keys: ['pf_20_percent'] },
+        { header: 'Income Tax', keys: ['tds'] }, { header: 'Other Deduction', keys: ['other_deduction'] },
+      ],
+      totalPf: s => (Number((s.field_values || {}).pf_20_percent) || 0) + (Number((s.field_values || {}).pf_loan) || 0),
+    },
+  };
+  // Teacher School and Teacher College share the same column layout (only
+  // "01 ST" — School Teachers — exists in the source file; assuming the
+  // College sheet would match since no evidence otherwise).
+  PR_ACQUITTANCE_TEMPLATES['Teacher School'] = {
+    additions: [
+      { header: 'Basic', keys: ['basic'] }, { header: 'Incentive', keys: ['incentive'] }, { header: 'Incharge', keys: ['incharge'] },
+      { header: 'HR', keys: ['hr'] }, { header: 'Medical', keys: ['medical'] }, { header: 'PF 10%', keys: ['pf_10_percent'] },
+      { header: 'CT', keys: ['ct'] }, { header: 'Education', keys: ['education'] }, { header: 'Other', keys: ['other_addition'] },
+    ],
+    deductions: [
+      { header: 'Tuition Fee', keys: ['tuition'] }, { header: 'Bus', keys: ['bus_deduction'] }, { header: 'HR', keys: ['hr_deduction'] },
+      { header: 'Utilities', keys: ['utilities'] }, { header: 'MPO', computed: s => Number(s.mpo_amount) || 0 }, { header: 'PF Loan', keys: ['pf_loan'] },
+      { header: 'PF 20%', keys: ['pf_20_percent'] }, { header: 'TDS', keys: ['tds'] }, { header: 'Welfare', keys: ['welfare'] },
+      { header: 'T/S Club', keys: ['ts_club'] }, { header: 'Other', keys: ['other_deduction'] },
+    ],
+    totalPf: s => (Number((s.field_values || {}).pf_20_percent) || 0) + (Number((s.field_values || {}).pf_loan) || 0),
+  };
+  PR_ACQUITTANCE_TEMPLATES['Teacher College'] = PR_ACQUITTANCE_TEMPLATES['Teacher School'];
+
+  function _prAcqColumnValue(col, slip) {
+    if (col.computed) return col.computed(slip);
+    return (col.keys || []).reduce((sum, k) => sum + (Number((slip.field_values || {})[k]) || 0), 0);
+  }
+
+  function _prExportCategoryTemplates() {
+    const runId = document.getElementById('prExportRunSelect').value;
+    if (!runId) { showToast('Pick a run first', 'error'); return; }
+    if (!_prExportSlips.length) { showToast('No payslips in this run', 'error'); return; }
+    Promise.all([
+      new Promise(resolve => _ensureStaffCache(resolve)),
+      _payrollFetch('get_people_setup', {}),
+      _prEnsureStyledXLSX(),
+    ]).then(([, peopleRes]) => {
+      const people = (peopleRes && peopleRes.result === 'success' && peopleRes.people) || [];
+      const setupByUser = {}; people.forEach(p => { setupByUser[p.user_id] = p; });
+      const staffByUser = {}; (allStaffCache || []).forEach(s => { staffByUser[s.teacher_id] = s; });
+      const gradeById = {}; _prGradesCache.forEach(g => { gradeById[g.id] = g.name; });
+
+      const slipsByCategory = {};
+      _prExportSlips.forEach(s => {
+        const cat = (staffByUser[s.user_id] || {}).category || 'Other';
+        (slipsByCategory[cat] = slipsByCategory[cat] || []).push(s);
+      });
+
+      const wb = XLSX.utils.book_new();
+      const usedNames = new Set();
+      let anySheet = false;
+      Object.keys(slipsByCategory).forEach(cat => {
+        const template = PR_ACQUITTANCE_TEMPLATES[cat];
+        if (!template) return; // no template for this category yet — skip rather than guess a layout
+        anySheet = true;
+        const slips = slipsByCategory[cat];
+        const nAdd = template.additions.length, nDed = template.deductions.length;
+        const totalCols = 4 + nAdd + 1 + nDed + 1 + 4 + 2; // SL/Name/Post/Join + additions+Total + deductions+Total + NetSalary/MPO/College/TotalPF + Signature/Remarks
+        const groupRow = new Array(totalCols).fill('');
+        groupRow[4] = 'Payments & Allowances';
+        groupRow[4 + nAdd + 1] = 'Deduction';
+        groupRow[4 + nAdd + 1 + nDed + 1] = 'Salary, MPO & PF';
+        const labelRow = ['SL NO', 'Name', 'Post & Grade', 'Join Date',
+          ...template.additions.map(c => c.header), 'Total',
+          ...template.deductions.map(c => c.header), 'Total',
+          'Net Salary', 'MPO', 'College', 'Total PF', 'Signature', 'Remarks'];
+        const dataRows = slips.map((s, i) => {
+          const staff = staffByUser[s.user_id] || {};
+          const setup = setupByUser[s.user_id] || {};
+          const label = staffLabel(s.user_id);
+          const gradeLabel = setup.grade_id ? (gradeById[setup.grade_id] || '') : '';
+          const postGrade = [gradeLabel, staff.designation].filter(Boolean).join(' ');
+          const addVals = template.additions.map(c => _prAcqColumnValue(c, s));
+          const addTotal = addVals.reduce((a, v) => a + v, 0);
+          const dedVals = template.deductions.map(c => _prAcqColumnValue(c, s));
+          const dedTotal = dedVals.reduce((a, v) => a + v, 0);
+          return [
+            i + 1, label !== s.user_id ? label : s.user_id, postGrade, setup.joining_date || '',
+            ...addVals, addTotal,
+            ...dedVals, dedTotal,
+            Number(s.net) || 0, Number(s.mpo_amount) || 0, Number(s.college_amount) || 0, template.totalPf(s),
+            '', '',
+          ];
+        });
+        const subTotalRow = ['Sub Total', '', '', '',
+          ...template.additions.map((c, ci) => dataRows.reduce((a, r) => a + (Number(r[4 + ci]) || 0), 0)),
+          dataRows.reduce((a, r) => a + (Number(r[4 + nAdd]) || 0), 0),
+          ...template.deductions.map((c, ci) => dataRows.reduce((a, r) => a + (Number(r[4 + nAdd + 1 + ci]) || 0), 0)),
+          dataRows.reduce((a, r) => a + (Number(r[4 + nAdd + 1 + nDed]) || 0), 0),
+          dataRows.reduce((a, r) => a + (Number(r[4 + nAdd + 1 + nDed + 1]) || 0), 0),
+          dataRows.reduce((a, r) => a + (Number(r[4 + nAdd + 1 + nDed + 2]) || 0), 0),
+          dataRows.reduce((a, r) => a + (Number(r[4 + nAdd + 1 + nDed + 3]) || 0), 0),
+          dataRows.reduce((a, r) => a + (Number(r[4 + nAdd + 1 + nDed + 4]) || 0), 0),
+          '', ''];
+        const aoa = [groupRow, labelRow, subTotalRow, ...dataRows];
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        ws['!merges'] = [
+          { s: { r: 0, c: 4 }, e: { r: 0, c: 4 + nAdd } },
+          { s: { r: 0, c: 4 + nAdd + 1 }, e: { r: 0, c: 4 + nAdd + 1 + nDed } },
+          { s: { r: 0, c: 4 + nAdd + 1 + nDed + 1 }, e: { r: 0, c: 4 + nAdd + 1 + nDed + 4 } },
+        ];
+        [0, 1, 2, 3, totalCols - 2, totalCols - 1].forEach(c => {
+          ws['!merges'].push({ s: { r: 0, c }, e: { r: 1, c } });
+        });
+        // Bold the two header rows and the Sub Total row.
+        for (let r = 0; r <= 2; r++) {
+          for (let c = 0; c < totalCols; c++) {
+            const addr = XLSX.utils.encode_cell({ r, c });
+            if (ws[addr]) ws[addr].s = { font: { bold: true } };
+          }
+        }
+        XLSX.utils.book_append_sheet(wb, ws, _prSanitizeSheetName(cat, usedNames));
+      });
+      if (!anySheet) { showToast('No category in this run has an Acquittance Roll template yet', 'error'); return; }
+      const run = _prRunsCache.find(r => r.id === Number(runId));
+      XLSX.writeFile(wb, `acquittance_roll_${run ? PAYROLL_MONTH_NAMES[run.month] + '_' + run.year : 'export'}.xlsx`);
+    }).catch(err => showToast(err.message || 'Failed to export', 'error'));
   }
 
   function ensureJsPDF() {
