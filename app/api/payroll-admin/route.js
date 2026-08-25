@@ -43,6 +43,15 @@ async function _isPayrollAdmin(userId) {
   return roles.includes('Admin') || roles.includes('Accounts Admin');
 }
 
+// Role-based, not a hardcoded id — a manually locked run can only be
+// unlocked by whoever holds the 'Super Admin' role (assigned the same way
+// as any other role, via app_users.role), never by a regular Payroll/
+// Accounts Admin.
+async function _isSuperAdmin(userId) {
+  const roles = await _getUserRoles(userId);
+  return roles.includes('Super Admin');
+}
+
 // Reads from the `teacher_staff` schema (staff directory) — same raw-fetch pattern.
 async function _teacherSchemaFetch(path) {
   const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
@@ -362,6 +371,8 @@ async function _runPayrollForPeriod(month, year, actorUserId) {
     const created = await sbPayroll('runs', 'POST', { month: Number(month), year: Number(year), status: 'draft' });
     if (created?.error) return { error: created.error, status: 500 };
     run = Array.isArray(created) ? created[0] : created;
+  } else if (run.is_locked) {
+    return { error: 'This run is locked and cannot be recomputed', status: 400 };
   } else if (run.status === 'finalized') {
     return { error: 'This run is already finalized and cannot be recomputed', status: 400 };
   }
@@ -901,10 +912,36 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success' });
   }
 
+  // ── Manual run lock — independent of runs.status. A locked run rejects
+  // every mutation below (recompute/submit/approve/revert/delete) for
+  // anyone; only a Super Admin can unlock it again. Locking itself is a
+  // regular Payroll Admin action ("manual, not automatic" per the user) —
+  // it never happens as a side effect of anything else. ──
+  if (action === 'lock_run') {
+    const { run_id } = payload;
+    if (!run_id) return NextResponse.json({ result: 'error', message: 'run_id required' }, { status: 400 });
+    const saved = await sbPayroll(`runs?id=eq.${encodeURIComponent(run_id)}`, 'PATCH', { is_locked: true, locked_by: user_id, locked_at: new Date().toISOString() });
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    _prAudit(user_id, 'lock_run', 'runs', run_id);
+    return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'unlock_run') {
+    if (!(await _isSuperAdmin(user_id))) return NextResponse.json({ result: 'error', message: 'Only the Super Admin can unlock a run.' }, { status: 403 });
+    const { run_id } = payload;
+    if (!run_id) return NextResponse.json({ result: 'error', message: 'run_id required' }, { status: 400 });
+    const saved = await sbPayroll(`runs?id=eq.${encodeURIComponent(run_id)}`, 'PATCH', { is_locked: false, locked_by: null, locked_at: null });
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    _prAudit(user_id, 'unlock_run', 'runs', run_id);
+    return NextResponse.json({ result: 'success' });
+  }
+
   // ── Run approval workflow (on top of runs.status: draft → pending_approval → finalized) ──
   if (action === 'submit_run_for_approval') {
     const { run_id } = payload;
     if (!run_id) return NextResponse.json({ result: 'error', message: 'run_id required' }, { status: 400 });
+    const lockCheck = await sbPayroll(`runs?id=eq.${encodeURIComponent(run_id)}&select=is_locked`);
+    if (!lockCheck?.error && lockCheck[0]?.is_locked) return NextResponse.json({ result: 'error', message: 'This run is locked.' }, { status: 400 });
     const saved = await sbPayroll(`runs?id=eq.${encodeURIComponent(run_id)}`, 'PATCH', { status: 'pending_approval', submitted_by: user_id, submitted_at: new Date().toISOString() });
     if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
     _prAudit(user_id, 'submit_run_for_approval', 'runs', run_id);
@@ -917,6 +954,7 @@ export async function POST(req) {
     const runRows = await sbPayroll(`runs?id=eq.${encodeURIComponent(run_id)}`);
     const runRow = (!runRows?.error && runRows[0]) || null;
     if (!runRow) return NextResponse.json({ result: 'error', message: 'Run not found' }, { status: 404 });
+    if (runRow.is_locked) return NextResponse.json({ result: 'error', message: 'This run is locked.' }, { status: 400 });
     if (runRow.status === 'finalized') return NextResponse.json({ result: 'error', message: 'Already finalized' }, { status: 400 });
 
     // Finalizing is the only point section balances/bonus status actually
@@ -964,6 +1002,7 @@ export async function POST(req) {
     const runRows = await sbPayroll(`runs?id=eq.${encodeURIComponent(run_id)}`);
     const runRow = (!runRows?.error && runRows[0]) || null;
     if (!runRow) return NextResponse.json({ result: 'error', message: 'Run not found' }, { status: 404 });
+    if (runRow.is_locked) return NextResponse.json({ result: 'error', message: 'This run is locked.' }, { status: 400 });
     if (runRow.status === 'draft') return NextResponse.json({ result: 'error', message: 'Already a draft' }, { status: 400 });
 
     if (runRow.status === 'finalized') {
@@ -1399,6 +1438,9 @@ export async function POST(req) {
     const { id } = payload;
     if (!id) return NextResponse.json({ result: 'error', message: 'id required' }, { status: 400 });
     const runRow = await sbPayroll(`runs?id=eq.${encodeURIComponent(id)}`);
+    if (!runRow?.error && runRow[0] && runRow[0].is_locked) {
+      return NextResponse.json({ result: 'error', message: 'This run is locked and cannot be deleted' }, { status: 400 });
+    }
     if (!runRow?.error && runRow[0] && runRow[0].status === 'finalized') {
       return NextResponse.json({ result: 'error', message: 'Cannot delete a finalized run' }, { status: 400 });
     }

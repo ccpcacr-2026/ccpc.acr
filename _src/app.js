@@ -15556,10 +15556,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     list.innerHTML = _prRunsCache.map(r => `
       <div onclick="_prSelectRun(${r.id})" class="p-2.5 rounded-xl cursor-pointer transition-all flex items-center justify-between group ${_prSelectedRunId === r.id ? 'bg-blue-600 text-white' : 'bg-slate-50 hover:bg-slate-100 text-slate-700'}">
         <div>
-          <p class="font-black text-xs">${PAYROLL_MONTH_NAMES[r.month]} ${r.year}</p>
+          <p class="font-black text-xs flex items-center gap-1">${PAYROLL_MONTH_NAMES[r.month]} ${r.year}${r.is_locked ? '<i data-lucide="lock" class="h-3 w-3"></i>' : ''}</p>
           <p class="text-[10px] font-black uppercase ${_prSelectedRunId === r.id ? 'text-blue-100' : statusColor[r.status] || 'text-slate-400'}">${r.status.replace('_', ' ')}</p>
         </div>
-        ${r.status !== 'finalized' ? `<button onclick="event.stopPropagation(); _prDeleteRun(${r.id})" class="opacity-0 group-hover:opacity-100 transition-opacity ${_prSelectedRunId === r.id ? 'text-white' : 'text-red-500'}"><i data-lucide="trash-2" class="h-3 w-3"></i></button>` : ''}
+        ${(r.status !== 'finalized' && !r.is_locked) ? `<button onclick="event.stopPropagation(); _prDeleteRun(${r.id})" class="opacity-0 group-hover:opacity-100 transition-opacity ${_prSelectedRunId === r.id ? 'text-white' : 'text-red-500'}"><i data-lucide="trash-2" class="h-3 w-3"></i></button>` : ''}
       </div>`).join('');
     lucide.createIcons();
   }
@@ -15588,16 +15588,26 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const slips = (res && res.result === 'success' && res.payslips) || [];
       const totalGross = slips.reduce((a, s) => a + Number(s.gross || 0), 0);
       const totalNet = slips.reduce((a, s) => a + Number(s.net || 0), 0);
-      const revertBtn = `<button onclick="_prRevertRunToDraft(${runId})" title="Put back to draft — reverses loan/EMI and bonus-paid effects if this run was finalized" class="px-4 py-2 border border-slate-200 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Revert to Draft</button>`;
-      const actionBtn = run.status === 'draft'
-        ? `<button onclick="_prSubmitRunForApproval(${runId})" class="px-4 py-2 bg-amber-500 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Submit for Approval</button>`
-        : run.status === 'pending_approval'
-        ? `<button onclick="_prApproveRun(${runId})" class="px-4 py-2 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Approve &amp; Finalize</button> ${revertBtn}`
-        : `<span class="px-3 py-2 bg-emerald-50 text-emerald-600 rounded-xl font-black text-[10px] uppercase tracking-widest">Finalized ✓</span> ${revertBtn}`;
+      let actionBtn;
+      if (run.is_locked) {
+        const isSuperAdmin = (window.USER_ROLES || [window.ACTIVE_ROLE]).includes('Super Admin');
+        actionBtn = `<span class="px-3 py-2 bg-amber-50 text-amber-700 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-1.5"><i data-lucide="lock" class="h-3.5 w-3.5"></i>Locked</span>` +
+          (isSuperAdmin ? `<button onclick="_prUnlockRun(${runId})" class="px-4 py-2 border border-amber-300 text-amber-700 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-amber-50 transition-all">Unlock (Super Admin)</button>`
+            : `<span class="text-[10px] font-bold text-slate-400">Only the Super Admin can unlock this run</span>`);
+      } else {
+        const revertBtn = `<button onclick="_prRevertRunToDraft(${runId})" title="Put back to draft — reverses loan/EMI and bonus-paid effects if this run was finalized" class="px-4 py-2 border border-slate-200 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Revert to Draft</button>`;
+        const lockBtn = `<button onclick="_prLockRun(${runId})" title="Lock this run — manual, permanent until a Super Admin unlocks it" class="px-4 py-2 border border-slate-200 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="lock" class="h-3.5 w-3.5"></i>Lock</button>`;
+        const statusBtn = run.status === 'draft'
+          ? `<button onclick="_prSubmitRunForApproval(${runId})" class="px-4 py-2 bg-amber-500 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Submit for Approval</button>`
+          : run.status === 'pending_approval'
+          ? `<button onclick="_prApproveRun(${runId})" class="px-4 py-2 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Approve &amp; Finalize</button> ${revertBtn}`
+          : `<span class="px-3 py-2 bg-emerald-50 text-emerald-600 rounded-xl font-black text-[10px] uppercase tracking-widest">Finalized ✓</span> ${revertBtn}`;
+        actionBtn = `${statusBtn} ${lockBtn}`;
+      }
       detail.innerHTML = `
         <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
           <p class="font-black text-slate-800 text-sm">${PAYROLL_MONTH_NAMES[run.month]} ${run.year} — ${slips.length} payslip(s), Net Total ৳${totalNet.toLocaleString()}</p>
-          ${actionBtn}
+          <div class="flex items-center gap-2 flex-wrap">${actionBtn}</div>
         </div>
         <div class="overflow-auto border border-slate-200 rounded-xl">
           <table class="w-full text-left border-collapse text-xs">
@@ -15618,6 +15628,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </table>
         </div>
       `;
+      lucide.createIcons();
     });
   }
 
@@ -15640,6 +15651,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!confirm('Put this run back to draft? If it was finalized, this reverses the loan/EMI deductions and bonus-paid marks it applied, then you can fix and recompute it.')) return;
     _payrollFetch('revert_run_to_draft', { run_id: runId }).then(res => {
       if (res && res.result === 'success') { showToast('Reverted to draft'); _prLoadRunsList(); _prSelectRun(runId); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    }).catch(err => showToast(err.message || 'Failed', 'error'));
+  }
+
+  // Manual, permanent lock — independent of draft/pending/finalized status.
+  // Once locked, nothing about this run (recompute/submit/approve/revert/
+  // delete) is possible for anyone except a Super Admin unlocking it first.
+  function _prLockRun(runId) {
+    if (!confirm('Lock this run? Once locked, nobody can recompute, approve, revert or delete it — only the Super Admin can unlock it again.')) return;
+    _payrollFetch('lock_run', { run_id: runId }).then(res => {
+      if (res && res.result === 'success') { showToast('Run locked'); _prLoadRunsList(); _prSelectRun(runId); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    }).catch(err => showToast(err.message || 'Failed', 'error'));
+  }
+
+  function _prUnlockRun(runId) {
+    if (!confirm('Unlock this run so it can be edited again?')) return;
+    _payrollFetch('unlock_run', { run_id: runId }).then(res => {
+      if (res && res.result === 'success') { showToast('Run unlocked'); _prLoadRunsList(); _prSelectRun(runId); }
       else showToast((res && res.message) || 'Failed', 'error');
     }).catch(err => showToast(err.message || 'Failed', 'error'));
   }

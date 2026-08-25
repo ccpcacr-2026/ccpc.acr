@@ -65,6 +65,7 @@ const RESERVED = [
   '_prSelectSection','_prOpenSectionForm','_prCloseSectionForm','_prSaveSection','_prDeleteSection',
   '_prOpenSectionEntryForm','_prCloseSectionEntryForm','_prSaveSectionEntry','_prUpdateSectionEntryStatus','_prDeleteSectionEntry',
   '_prRunPayroll','_prSelectRun','_prSubmitRunForApproval','_prApproveRun','_prDeleteRun','_prRevertRunToDraft',
+  '_prLockRun','_prUnlockRun',
   '_prBulkAddAllStaff','_prLoadExportColumns','_prSetExportFormat','_prRemoveExportColumn','loadPayrollAuditLog',
   '_prAddVirtualColumn','_prCloseVirtualColumnForm','_prSaveVirtualColumn','_prExportExcel','_prExportPdf',
   '_prSetExportSplitByGroup','_prSetExportRowDesign','_prSetExportSort','_prResetExportRowOrder',
