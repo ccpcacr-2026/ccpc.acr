@@ -541,6 +541,13 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success', categories });
   }
 
+  // Login email per user_id — allStaffCache (getAllStaffData) doesn't carry
+  // this, so Export's "Sort By Email" option needs its own small fetch.
+  if (action === 'get_staff_emails') {
+    const rows = await _teacherSchemaFetch('app_users?select=user_id,email');
+    return NextResponse.json({ result: 'success', emails: Array.isArray(rows) ? rows : [] });
+  }
+
   if (action === 'save_field_condition_rule') {
     const { id, field_id, priority, source_key, operator, compare_value, then_calc_mode, then_value, then_percent, then_base_field_key } = payload;
     if (!field_id || !source_key || !operator || compare_value === '' || compare_value == null) {
@@ -745,9 +752,24 @@ export async function POST(req) {
   if (action === 'delete_group') {
     const { id } = payload;
     if (!id) return NextResponse.json({ result: 'error', message: 'id required' }, { status: 400 });
+    const groupRows = await sbPayroll(`groups?id=eq.${encodeURIComponent(id)}&select=is_locked`);
+    if (!groupRows?.error && groupRows[0]?.is_locked) return NextResponse.json({ result: 'error', message: 'This group is locked — unlock it first.' }, { status: 400 });
     const del = await sbPayroll(`groups?id=eq.${encodeURIComponent(id)}`, 'DELETE');
     if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
     _prAudit(user_id, 'delete_group', 'groups', id);
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // Lock stops group_members from changing (and the group from being
+  // deleted) until unlocked again — "for safety" once membership is final,
+  // per the user's own request. Renaming a locked group is still allowed;
+  // that's cosmetic, not a membership/safety concern.
+  if (action === 'toggle_group_lock') {
+    const { id, locked } = payload;
+    if (!id) return NextResponse.json({ result: 'error', message: 'id required' }, { status: 400 });
+    const saved = await sbPayroll(`groups?id=eq.${encodeURIComponent(id)}`, 'PATCH', { is_locked: !!locked });
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    _prAudit(user_id, 'toggle_group_lock', 'groups', id, { locked: !!locked });
     return NextResponse.json({ result: 'success' });
   }
 
@@ -763,6 +785,8 @@ export async function POST(req) {
   if (action === 'toggle_group_member') {
     const { group_id, user_id: memberUserId, enabled } = payload;
     if (!group_id || !memberUserId) return NextResponse.json({ result: 'error', message: 'group_id and user_id required' }, { status: 400 });
+    const groupRows = await sbPayroll(`groups?id=eq.${encodeURIComponent(group_id)}&select=is_locked`);
+    if (!groupRows?.error && groupRows[0]?.is_locked) return NextResponse.json({ result: 'error', message: 'This group is locked — unlock it first.' }, { status: 400 });
     if (enabled) {
       const saved = await sbPayroll('group_members', 'POST', { group_id, user_id: memberUserId });
       if (saved?.error && !String(saved.error).includes('duplicate')) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
@@ -771,6 +795,33 @@ export async function POST(req) {
       if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
     }
     _prAudit(user_id, 'toggle_group_member', 'group_members', `${group_id}:${memberUserId}`, { enabled });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Export row order (global, persistent — see payroll.export_row_order) ──
+  if (action === 'get_export_row_order') {
+    const rows = await sbPayroll('export_row_order?select=user_id,position');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', order: rows });
+  }
+
+  if (action === 'set_export_row_order') {
+    const { user_id: rowUserId, position } = payload;
+    if (!rowUserId || position == null) return NextResponse.json({ result: 'error', message: 'user_id and position required' }, { status: 400 });
+    const rowData = { user_id: rowUserId, position: Number(position), updated_at: new Date().toISOString() };
+    const existing = await sbPayroll(`export_row_order?user_id=eq.${encodeURIComponent(rowUserId)}&select=user_id`);
+    if (existing?.error) return NextResponse.json({ result: 'error', message: existing.error }, { status: 500 });
+    const saved = existing.length
+      ? await sbPayroll(`export_row_order?user_id=eq.${encodeURIComponent(rowUserId)}`, 'PATCH', rowData)
+      : await sbPayroll('export_row_order', 'POST', rowData);
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'clear_export_row_order') {
+    const del = await sbPayroll('export_row_order?user_id=neq.__none__', 'DELETE');
+    if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
+    _prAudit(user_id, 'clear_export_row_order', 'export_row_order', null);
     return NextResponse.json({ result: 'success' });
   }
 

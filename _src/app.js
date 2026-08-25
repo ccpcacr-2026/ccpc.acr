@@ -13406,7 +13406,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <p class="font-black text-slate-800 text-xs">Groups</p>
               <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Custom groups for splitting Export by group (one PDF page / Excel sheet each) — check people into a group below</p>
             </div>
-            <button onclick="_prOpenGroupForm()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Group</button>
+            <div class="flex items-center gap-2">
+              <button id="prGroupEditModeBtn" onclick="_prToggleGroupEditMode()" title="Checkboxes below are read-only until this is on, to prevent accidental clicks while browsing" class="px-3 py-2 border border-slate-200 text-slate-500 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="lock" class="h-3.5 w-3.5"></i>Enable Editing</button>
+              <button onclick="_prOpenGroupForm()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Group</button>
+            </div>
           </div>
           <div id="prGroupsChips" class="flex flex-wrap gap-2"></div>
         </div>
@@ -13714,6 +13717,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <input type="color" id="prExportZebraColor" value="#f1f5f9" onchange="_prSetExportRowDesign('zebraColor',this.value)" class="w-8 h-6 rounded cursor-pointer border border-slate-200">
             </div>
           </div>
+        </div>
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
+          <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+            <div>
+              <p class="font-black text-slate-800 text-xs">Row Order</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Drag a row to fix its spot — it stays there even if you change Sort By later. Everyone else sorts fresh by the field below. Remembered globally, reused on every export.</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <select id="prExportSortField" onchange="_prSetExportSort(this.value, undefined)" class="px-2 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+                <option value="name">Sort by Name</option>
+                <option value="user_id">Sort by ID</option>
+                <option value="email">Sort by Email</option>
+                <option value="designation">Sort by Designation</option>
+              </select>
+              <button onclick="_prSetExportSort(undefined, _prExportSortDir === 'asc' ? 'desc' : 'asc')" id="prExportSortDirBtn" title="Toggle ascending/descending" class="px-2.5 py-2 border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50"><i data-lucide="arrow-up-narrow-wide" class="h-3.5 w-3.5"></i></button>
+              <button onclick="_prResetExportRowOrder()" class="px-3 py-2 border border-slate-200 text-slate-500 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Reset Order</button>
+            </div>
+          </div>
+          <div id="prExportOrderPreview" class="flex flex-col gap-1 max-h-64 overflow-y-auto"></div>
         </div>
         <div class="bg-white rounded-2xl border border-slate-200 p-4">
           <p class="font-black text-slate-800 text-xs mb-1">Columns</p>
@@ -14508,18 +14530,52 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _prSelectedPersonId = null;
   let _prGroupsCache = [];
   let _prGroupMembersCache = []; // [{group_id, user_id}]
+  // Off by default — group checkboxes render disabled until explicitly
+  // turned on, so scrolling/browsing the roster can't accidentally toggle
+  // someone's group membership. Resets to off on every People Setup load
+  // (deliberately not remembered) so it's never left on unattended.
+  let _prGroupEditMode = false;
+
+  function _prToggleGroupEditMode() {
+    _prGroupEditMode = !_prGroupEditMode;
+    const btn = document.getElementById('prGroupEditModeBtn');
+    if (btn) {
+      btn.innerHTML = _prGroupEditMode
+        ? '<i data-lucide="lock-open" class="h-3.5 w-3.5"></i>Editing Enabled'
+        : '<i data-lucide="lock" class="h-3.5 w-3.5"></i>Enable Editing';
+      btn.className = _prGroupEditMode
+        ? 'px-3 py-2 bg-amber-500 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5'
+        : 'px-3 py-2 border border-slate-200 text-slate-500 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5';
+    }
+    lucide.createIcons();
+    _prRenderPeopleRoster();
+  }
 
   function _prRenderGroupsChips() {
     const host = document.getElementById('prGroupsChips');
     if (!host) return;
     host.innerHTML = _prGroupsCache.length
       ? _prGroupsCache.map(g => `
-        <span class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-700 rounded-full font-black text-[10px] uppercase tracking-widest">
+        <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full font-black text-[10px] uppercase tracking-widest ${g.is_locked ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-700'}">
           ${_escHtml(g.name)}
+          <button onclick="_prToggleGroupLock(${g.id},${!g.is_locked})" title="${g.is_locked ? 'Unlock group' : 'Lock group'}" class="${g.is_locked ? 'text-amber-600 hover:text-amber-800' : 'text-slate-400 hover:text-slate-700'}"><i data-lucide="${g.is_locked ? 'lock' : 'lock-open'}" class="h-3 w-3"></i></button>
           <button onclick="_prDeleteGroup(${g.id})" title="Delete group" class="text-slate-400 hover:text-red-500"><i data-lucide="x" class="h-3 w-3"></i></button>
         </span>`).join('')
       : `<p class="text-slate-400 font-bold text-xs">No groups yet — add one to enable per-group checkboxes below and split Export by group.</p>`;
     lucide.createIcons();
+  }
+
+  function _prToggleGroupLock(id, locked) {
+    if (!confirm(locked ? 'Lock this group? Its membership can\'t be changed (and it can\'t be deleted) until unlocked again.' : 'Unlock this group so its membership can be edited again?')) return;
+    _payrollFetch('toggle_group_lock', { id, locked }).then(res => {
+      if (res && res.result === 'success') {
+        const g = _prGroupsCache.find(g => g.id === id);
+        if (g) g.is_locked = locked;
+        _prRenderGroupsChips();
+        _prRenderPeopleRoster();
+        showToast(locked ? 'Group locked' : 'Group unlocked');
+      } else showToast((res && res.message) || 'Failed to update', 'error');
+    }).catch(err => showToast(err.message || 'Failed to update', 'error'));
   }
 
   function _prOpenGroupForm() {
@@ -14558,12 +14614,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (enabled) _prGroupMembersCache.push({ group_id: groupId, user_id: userId });
     else _prGroupMembersCache = _prGroupMembersCache.filter(m => !(m.group_id === groupId && m.user_id === userId));
     _payrollFetch('toggle_group_member', { group_id: groupId, user_id: userId, enabled }).then(res => {
-      if (!res || res.result !== 'success') showToast((res && res.message) || 'Failed to update', 'error');
-    }).catch(err => showToast(err.message || 'Failed to update', 'error'));
+      if (!res || res.result !== 'success') {
+        // Revert the optimistic update — most likely cause is the group
+        // got locked from another tab/admin since this checkbox rendered.
+        if (enabled) _prGroupMembersCache = _prGroupMembersCache.filter(m => !(m.group_id === groupId && m.user_id === userId));
+        else _prGroupMembersCache.push({ group_id: groupId, user_id: userId });
+        _prRenderPeopleRoster();
+        showToast((res && res.message) || 'Failed to update', 'error');
+      }
+    }).catch(err => {
+      if (enabled) _prGroupMembersCache = _prGroupMembersCache.filter(m => !(m.group_id === groupId && m.user_id === userId));
+      else _prGroupMembersCache.push({ group_id: groupId, user_id: userId });
+      _prRenderPeopleRoster();
+      showToast(err.message || 'Failed to update', 'error');
+    });
   }
 
   function loadPayrollPeopleTab() {
     _prPeopleComboWired = true;
+    _prGroupEditMode = false;
     Promise.all([
       new Promise(resolve => _ensureStaffCache(resolve)),
       _payrollFetch('get_people_setup', {}),
@@ -14634,10 +14703,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         const setup = setupByUser[s.teacher_id];
         const gradeLabel = setup && setup.grade_id ? (gradeById[setup.grade_id] || '—') : null;
         const selected = _prSelectedPersonId === s.teacher_id;
-        const groupCells = _prGroupsCache.map(g => `
+        const groupCells = _prGroupsCache.map(g => {
+          const locked = !_prGroupEditMode || g.is_locked;
+          return `
           <td class="py-1.5 px-3 text-center" onclick="event.stopPropagation()">
-            <input type="checkbox" ${memberSet.has(`${g.id}:${s.teacher_id}`) ? 'checked' : ''} onchange="_prToggleGroupMember(${g.id},'${s.teacher_id}',this.checked)" class="w-4 h-4 rounded accent-blue-600">
-          </td>`).join('');
+            <input type="checkbox" ${memberSet.has(`${g.id}:${s.teacher_id}`) ? 'checked' : ''} ${locked ? 'disabled' : ''} title="${locked ? (g.is_locked ? 'Group is locked' : 'Click Enable Editing above to change group membership') : ''}" onchange="_prToggleGroupMember(${g.id},'${s.teacher_id}',this.checked)" class="w-4 h-4 rounded accent-blue-600">
+          </td>`;
+        }).join('');
         return `<tr onclick="_prSelectPerson('${s.teacher_id}')" class="border-b border-slate-50 cursor-pointer transition-colors ${selected ? 'bg-blue-50' : 'hover:bg-slate-50'}">
           <td class="py-1.5 px-3 font-bold text-slate-700">${s.full_name || s.teacher_id}</td>
           <td class="py-1.5 px-3 text-slate-400 text-[10px] font-bold">${s.designation || ''}</td>
@@ -15589,6 +15661,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _prExportColumnsCache = []; // [{key,label,type:'base'|'field'|'virtual',included,bold,italic,color,headerBold,headerItalic,headerColor,headerBg,headerRotation,vtype,sources}]
   let _prExportSplitByGroup = false;
   let _prExportRowDesign = { zebra: false, zebraColor: '#f1f5f9' };
+  let _prExportRowOrderCache = []; // [{user_id, position}] — only people who've been manually dragged
+  let _prExportSortBy = 'name';
+  let _prExportSortDir = 'asc';
+  let _prExportEmailByUser = {};
+  let _prExportDragUserId = null;
 
   function loadPayrollExportTab() {
     _prExportTabLoaded = true;
@@ -15596,11 +15673,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _payrollFetch('get_groups', {}).then(res => { _prGroupsCache = (res && res.result === 'success' && res.groups) || []; });
       _payrollFetch('get_group_members', {}).then(res => { _prGroupMembersCache = (res && res.result === 'success' && res.members) || []; });
     }
+    _payrollFetch('get_export_row_order', {}).then(res => {
+      _prExportRowOrderCache = (res && res.result === 'success' && res.order) || [];
+      _prRenderExportOrderPreview();
+    });
+    _payrollFetch('get_staff_emails', {}).then(res => {
+      _prExportEmailByUser = {};
+      ((res && res.result === 'success' && res.emails) || []).forEach(e => { _prExportEmailByUser[e.user_id] = e.email || ''; });
+    });
+    _ensureStaffCache(() => {});
     // Rebuilt fresh from container.innerHTML on every tab switch — sync
     // the controls' visual state back to whatever's still set from before.
     document.getElementById('prExportSplitByGroup').checked = _prExportSplitByGroup;
     document.getElementById('prExportZebra').checked = _prExportRowDesign.zebra;
     document.getElementById('prExportZebraColor').value = _prExportRowDesign.zebraColor;
+    document.getElementById('prExportSortField').value = _prExportSortBy;
+    _prUpdateExportSortDirBtn();
     const populate = () => {
       const sel = document.getElementById('prExportRunSelect');
       sel.innerHTML = _prRunsCache.map(r => `<option value="${r.id}">${PAYROLL_MONTH_NAMES[r.month]} ${r.year} (${r.status.replace('_', ' ')})</option>`).join('') || '<option value="">No runs yet</option>';
@@ -15613,6 +15701,115 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function _prSetExportSplitByGroup(checked) { _prExportSplitByGroup = checked; }
   function _prSetExportRowDesign(prop, value) { _prExportRowDesign[prop] = value; }
+
+  function _prUpdateExportSortDirBtn() {
+    const btn = document.getElementById('prExportSortDirBtn');
+    if (btn) btn.innerHTML = `<i data-lucide="${_prExportSortDir === 'asc' ? 'arrow-up-narrow-wide' : 'arrow-down-wide-narrow'}" class="h-3.5 w-3.5"></i>`;
+    lucide.createIcons();
+  }
+
+  function _prSetExportSort(field, dir) {
+    if (field !== undefined) _prExportSortBy = field;
+    if (dir !== undefined) _prExportSortDir = dir;
+    _prUpdateExportSortDirBtn();
+    _prRenderExportOrderPreview();
+  }
+
+  function _prResetExportRowOrder() {
+    if (!confirm('Clear every manually-dragged row position? Everyone will go back to sorting purely by the Sort By field.')) return;
+    _payrollFetch('clear_export_row_order', {}).then(res => {
+      if (res && res.result === 'success') { _prExportRowOrderCache = []; _prRenderExportOrderPreview(); showToast('Order reset'); }
+      else showToast((res && res.message) || 'Failed to reset', 'error');
+    }).catch(err => showToast(err.message || 'Failed to reset', 'error'));
+  }
+
+  function _prSortSlips(slips) {
+    const dir = _prExportSortDir === 'desc' ? -1 : 1;
+    return slips.slice().sort((a, b) => {
+      let va = '', vb = '';
+      if (_prExportSortBy === 'user_id') { va = a.user_id; vb = b.user_id; }
+      else if (_prExportSortBy === 'email') { va = _prExportEmailByUser[a.user_id] || ''; vb = _prExportEmailByUser[b.user_id] || ''; }
+      else if (_prExportSortBy === 'designation') {
+        const sa = (allStaffCache || []).find(s => s.teacher_id === a.user_id);
+        const sb = (allStaffCache || []).find(s => s.teacher_id === b.user_id);
+        va = (sa && sa.designation) || ''; vb = (sb && sb.designation) || '';
+      } else {
+        va = staffLabel(a.user_id); vb = staffLabel(b.user_id);
+        if (va === a.user_id) va = ''; if (vb === b.user_id) vb = '';
+      }
+      return dir * String(va).localeCompare(String(vb), undefined, { numeric: true });
+    });
+  }
+
+  // Fractional-rank merge: pinned (dragged) slips keep their stored rank
+  // forever; unpinned slips get fresh evenly-spaced ranks in (0,1) from the
+  // current Sort By each time, so they naturally settle into the gaps
+  // around whatever's pinned once everything's sorted by rank together.
+  function _prComputeExportOrderRanked(slips) {
+    const posByUser = {}; _prExportRowOrderCache.forEach(o => { posByUser[o.user_id] = o.position; });
+    const pinned = slips.filter(s => posByUser[s.user_id] != null);
+    const unpinned = _prSortSlips(slips.filter(s => posByUser[s.user_id] == null));
+    const n = unpinned.length;
+    const ranked = [
+      ...pinned.map(s => ({ slip: s, rank: posByUser[s.user_id] })),
+      ...unpinned.map((s, i) => ({ slip: s, rank: (i + 0.5) / (n || 1) })),
+    ];
+    ranked.sort((a, b) => a.rank - b.rank);
+    return ranked;
+  }
+  function _prComputeExportOrder(slips) { return _prComputeExportOrderRanked(slips).map(w => w.slip); }
+
+  function _prRenderExportOrderPreview() {
+    const host = document.getElementById('prExportOrderPreview');
+    if (!host) return;
+    if (!_prExportSlips.length) { host.innerHTML = `<p class="text-slate-400 font-bold text-xs p-2">Pick a run above first.</p>`; return; }
+    const posByUser = {}; _prExportRowOrderCache.forEach(o => { posByUser[o.user_id] = o.position; });
+    const ranked = _prComputeExportOrderRanked(_prExportSlips);
+    host.innerHTML = ranked.map((w, i) => {
+      const uid = w.slip.user_id;
+      const label = staffLabel(uid);
+      const pinned = posByUser[uid] != null;
+      return `<div class="pr-order-row flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg" draggable="true" data-user="${uid}"
+          ondragstart="_prRowDragStart(event)" ondragover="_prRowDragOver(event)" ondrop="_prRowDrop(event)" ondragend="_prRowDragEnd(event)" style="cursor:grab">
+        <i data-lucide="grip-vertical" class="h-3.5 w-3.5 text-slate-300 shrink-0"></i>
+        <span class="text-[10px] font-black text-slate-400 w-6 shrink-0">${i + 1}</span>
+        <span class="text-xs font-bold text-slate-700 flex-1 truncate">${label !== uid ? label : uid}</span>
+        ${pinned ? '<span class="text-[9px] text-blue-600 font-black uppercase shrink-0">Pinned</span>' : ''}
+      </div>`;
+    }).join('');
+    lucide.createIcons();
+  }
+
+  function _prRowDragStart(e) {
+    _prExportDragUserId = e.currentTarget.dataset.user;
+    e.dataTransfer.effectAllowed = 'move';
+    e.currentTarget.style.opacity = '0.4';
+  }
+  function _prRowDragOver(e) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }
+  function _prRowDragEnd(e) { e.currentTarget.style.opacity = ''; }
+
+  function _prRowDrop(e) {
+    e.preventDefault();
+    const targetUserId = e.currentTarget.dataset.user;
+    const draggedUserId = _prExportDragUserId;
+    _prExportDragUserId = null;
+    if (!draggedUserId || draggedUserId === targetUserId) return;
+    const ranked = _prComputeExportOrderRanked(_prExportSlips);
+    const withoutDragged = ranked.filter(w => w.slip.user_id !== draggedUserId);
+    const insertAt = withoutDragged.findIndex(w => w.slip.user_id === targetUserId);
+    if (insertAt < 0) return;
+    const before = withoutDragged[insertAt - 1];
+    const after = withoutDragged[insertAt];
+    let newRank;
+    if (before && after) newRank = (before.rank + after.rank) / 2;
+    else if (!before && after) newRank = after.rank / 2;
+    else newRank = (before ? before.rank : 0) + 1;
+    const existing = _prExportRowOrderCache.find(o => o.user_id === draggedUserId);
+    if (existing) existing.position = newRank;
+    else _prExportRowOrderCache.push({ user_id: draggedUserId, position: newRank });
+    _prRenderExportOrderPreview();
+    _payrollFetch('set_export_row_order', { user_id: draggedUserId, position: newRank }).catch(err => showToast(err.message || 'Failed to save order', 'error'));
+  }
 
   function _prLoadExportColumns() {
     const runId = document.getElementById('prExportRunSelect').value;
@@ -15654,6 +15851,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         headerRotation: priorState[c.key] ? priorState[c.key].headerRotation : 0,
       })).concat(priorVirtuals);
       _prRenderExportColumnsTable();
+      _prRenderExportOrderPreview();
     });
   }
 
@@ -15747,17 +15945,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const cols = _prExportColumnsCache.filter(c => c.included);
     if (!cols.length) { showToast('Pick at least one column to export', 'error'); return null; }
     if (!_prExportSlips.length) { showToast('No payslips in this run', 'error'); return null; }
+    // Apply the Row Order panel's pinned+sorted order once, up front — group
+    // filtering below (.filter()) naturally preserves whatever order this
+    // produced, so every group/sheet/page reflects the same arrangement.
+    const orderedSlips = _prComputeExportOrder(_prExportSlips);
 
     if (!_prExportSplitByGroup || !_prGroupsCache.length) {
-      return { cols, groups: [{ name: null, rows: _prSlipsToRows(_prExportSlips, cols) }] };
+      return { cols, groups: [{ name: null, rows: _prSlipsToRows(orderedSlips, cols) }] };
     }
     const groupIdsByUser = {};
     _prGroupMembersCache.forEach(m => { (groupIdsByUser[m.user_id] = groupIdsByUser[m.user_id] || []).push(m.group_id); });
     const groups = _prGroupsCache.map(g => ({
       name: g.name,
-      rows: _prSlipsToRows(_prExportSlips.filter(s => (groupIdsByUser[s.user_id] || []).includes(g.id)), cols),
+      rows: _prSlipsToRows(orderedSlips.filter(s => (groupIdsByUser[s.user_id] || []).includes(g.id)), cols),
     })).filter(g => g.rows.length);
-    const ungroupedSlips = _prExportSlips.filter(s => !(groupIdsByUser[s.user_id] || []).length);
+    const ungroupedSlips = orderedSlips.filter(s => !(groupIdsByUser[s.user_id] || []).length);
     if (ungroupedSlips.length) groups.push({ name: 'Ungrouped', rows: _prSlipsToRows(ungroupedSlips, cols) });
     return { cols, groups };
   }
