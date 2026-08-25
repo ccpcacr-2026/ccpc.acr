@@ -13959,14 +13959,26 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
 
       <div id="prImportModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-        <div class="bg-white rounded-2xl p-5 w-full max-w-lg max-h-[85vh] overflow-y-auto">
-          <div class="flex items-center justify-between mb-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-2xl max-h-[85vh] overflow-y-auto">
+          <div class="flex items-center justify-between mb-3">
             <p class="font-black text-slate-800 text-sm" id="prImportTitle">Import from Excel</p>
             <button onclick="_prCloseImportModal()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
           </div>
-          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1">Expected column headers (first row)</p>
-          <p id="prImportHeadersHint" class="text-xs font-bold text-slate-600 mb-4 bg-slate-50 rounded-xl p-3"></p>
-          <input type="file" id="prImportFileInput" accept=".xlsx,.xls" onchange="_prHandleImportFile(event)" class="w-full text-xs font-bold mb-3">
+          <div class="flex items-center gap-3 flex-wrap mb-1">
+            <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Step 1 · Choose File</span>
+            <input type="file" id="prImportFileInput" accept=".xlsx,.xls,.csv" onchange="_prHandleImportFile(event)" class="text-xs font-bold" style="max-width:260px">
+            <button onclick="_prDownloadImportSample()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Download Sample</button>
+            <span id="prImportFileStatus" class="text-xs text-slate-400 font-bold"></span>
+          </div>
+          <p class="text-[11px] text-slate-400 font-semibold mb-3">Not sure what format to use? Download the sample — its column headers match what this importer auto-detects, so filling it in and re-uploading maps everything automatically.</p>
+          <div id="prImportMappingSection" class="hidden mb-3">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Step 2 · Match Columns</span>
+              <span id="prImportRowCount" class="text-xs text-slate-400 font-bold"></span>
+            </div>
+            <div id="prImportMappingList" class="flex flex-col gap-2 mb-3"></div>
+            <button onclick="_prConfirmImport()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Import</button>
+          </div>
           <div id="prImportResult"></div>
         </div>
       </div>
@@ -14701,63 +14713,204 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   // ── Generic Excel import (People / Section Entries / Bonus / Leave Deductions) ──
+  // Structured field lists (not just a hint string) so the same spec drives
+  // both the sample-template download AND the column-mapping step — mirrors
+  // the Inventory import's proven pattern (INV_ENTITIES.fields / _invRenderImportMapping)
+  // rather than the old "hope your headers match exactly" approach.
   const PAYROLL_IMPORT_SPECS = {
-    people: { title: 'Import People (Excel)', headers: 'user_id* | grade_name | joining_date | bank_name | bank_account_no | mobile_banking_provider | mobile_banking_number | mpo_amount — bulk-update everyone\'s yearly government MPO figure in one file, matched by user_id' },
-    section_entries: { title: 'Import Loan/EMI Entries (Excel)', headers: 'section_name* (skip if importing into one section) | user_id* | total_amount* | emi_amount | emi_months | note — set emi_amount or emi_months (or both, if both they must agree with total_amount)' },
-    bonus_payments: { title: 'Import Bonus Payments (Excel)', headers: 'user_id* | label* | amount* | month* | year* | note' },
-    leave_deductions: { title: 'Import Leave Deductions (Excel)', headers: 'user_id* | amount* | month* | year* | days | per_day_rate (optional — if given with days, must agree with amount) | note' },
-    field_values: { title: 'Import Field Values (Excel)', headers: 'user_id* | value* — overwrites this field\'s Manual value for anyone matched by user_id' },
+    people: {
+      title: 'Import People (Excel)',
+      fields: [
+        { key: 'user_id', label: 'User ID', required: true },
+        { key: 'grade_name', label: 'Grade Name', required: false },
+        { key: 'joining_date', label: 'Joining Date', required: false },
+        { key: 'bank_name', label: 'Bank Name', required: false },
+        { key: 'bank_account_no', label: 'Bank Account No.', required: false },
+        { key: 'mobile_banking_provider', label: 'Mobile Banking Provider', required: false },
+        { key: 'mobile_banking_number', label: 'Mobile Banking Number', required: false },
+        { key: 'mpo_amount', label: 'MPO Amount', required: false },
+      ],
+    },
+    section_entries: {
+      title: 'Import Loan/EMI Entries (Excel)',
+      fields: [
+        { key: 'section_name', label: 'Section Name', required: false },
+        { key: 'user_id', label: 'User ID', required: true },
+        { key: 'total_amount', label: 'Total Amount', required: true },
+        { key: 'emi_amount', label: 'Fixed EMI / Month', required: false },
+        { key: 'emi_months', label: 'EMI Months', required: false },
+        { key: 'note', label: 'Note', required: false },
+      ],
+    },
+    bonus_payments: {
+      title: 'Import Bonus Payments (Excel)',
+      fields: [
+        { key: 'user_id', label: 'User ID', required: true },
+        { key: 'label', label: 'Label', required: true },
+        { key: 'amount', label: 'Amount', required: true },
+        { key: 'month', label: 'Month', required: true },
+        { key: 'year', label: 'Year', required: true },
+        { key: 'note', label: 'Note', required: false },
+      ],
+    },
+    leave_deductions: {
+      title: 'Import Leave Deductions (Excel)',
+      fields: [
+        { key: 'user_id', label: 'User ID', required: true },
+        { key: 'amount', label: 'Amount', required: true },
+        { key: 'month', label: 'Month', required: true },
+        { key: 'year', label: 'Year', required: true },
+        { key: 'days', label: 'Days', required: false },
+        { key: 'per_day_rate', label: 'Per-Day Rate', required: false },
+        { key: 'note', label: 'Note', required: false },
+      ],
+    },
+    field_values: {
+      title: 'Import Field Values (Excel)',
+      fields: [
+        { key: 'user_id', label: 'User ID', required: true },
+        { key: 'value', label: 'Value', required: true },
+      ],
+    },
+  };
+  const PAYROLL_FIELD_SAMPLE_HINTS = {
+    user_id: '12345', grade_name: 'Senior Teacher', joining_date: '2026-01-15',
+    bank_name: 'Sample Bank', bank_account_no: '1234567890',
+    mobile_banking_provider: 'bKash', mobile_banking_number: '01700000000',
+    mpo_amount: 15000, section_name: 'Staff Loan', total_amount: 50000,
+    emi_amount: 5000, emi_months: 12, label: 'Eid Bonus', amount: 3000,
+    month: 8, year: new Date().getFullYear(), note: 'Optional note',
+    days: 2, per_day_rate: 500, value: 1000,
   };
   let _prImportTarget = null;
   let _prImportContext = {};
+  let _prImportHeaders = [];
+  let _prImportRows = [];
 
   function _prOpenImportModal(target, context) {
     _prImportTarget = target;
     _prImportContext = context || {};
+    _prImportHeaders = [];
+    _prImportRows = [];
     const spec = PAYROLL_IMPORT_SPECS[target];
     document.getElementById('prImportTitle').textContent = spec.title;
-    document.getElementById('prImportHeadersHint').textContent = spec.headers;
     document.getElementById('prImportFileInput').value = '';
+    document.getElementById('prImportFileStatus').textContent = '';
     document.getElementById('prImportResult').innerHTML = '';
+    document.getElementById('prImportMappingSection').classList.add('hidden');
     document.getElementById('prImportModal').classList.remove('hidden');
   }
   function _prCloseImportModal() { document.getElementById('prImportModal').classList.add('hidden'); }
 
+  function _prDownloadImportSample() {
+    const spec = PAYROLL_IMPORT_SPECS[_prImportTarget];
+    if (!spec) return;
+    const headerRow = spec.fields.map(f => f.label);
+    const sampleRow = spec.fields.map(f => String(PAYROLL_FIELD_SAMPLE_HINTS[f.key] ?? ''));
+    ensureXLSX().then(() => {
+      const ws = XLSX.utils.aoa_to_sheet([headerRow, sampleRow]);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Sample');
+      XLSX.writeFile(wb, `payroll_${_prImportTarget}_import_template.xlsx`);
+    }).catch(err => showToast(err.message, 'error'));
+  }
+
   function _prHandleImportFile(e) {
     const file = e.target.files[0];
+    const status = document.getElementById('prImportFileStatus');
+    document.getElementById('prImportMappingSection').classList.add('hidden');
+    document.getElementById('prImportResult').innerHTML = '';
     if (!file) return;
-    const resultBox = document.getElementById('prImportResult');
-    resultBox.innerHTML = `<p class="text-slate-400 font-bold text-xs">Reading file…</p>`;
+    status.textContent = 'Reading file…';
     const reader = new FileReader();
     reader.onload = evt => {
       ensureXLSX().then(() => {
         try {
           const wb = XLSX.read(evt.target.result, { type: 'array' });
           const sheet = wb.Sheets[wb.SheetNames[0]];
-          const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-          if (!rows.length) { resultBox.innerHTML = `<p class="text-red-500 font-bold text-xs">Sheet has no data rows.</p>`; return; }
-          resultBox.innerHTML = `<p class="text-slate-400 font-bold text-xs">Importing ${rows.length} row(s)…</p>`;
-          _payrollFetch('import_rows', { target: _prImportTarget, rows, section_id: _prImportContext.section_id, field_id: _prImportContext.field_id }).then(res => {
-            if (!res || res.result !== 'success') { resultBox.innerHTML = `<p class="text-red-500 font-bold text-xs">${(res && res.message) || 'Import failed'}</p>`; return; }
-            const errors = res.errors || [];
-            resultBox.innerHTML = `
-              <p class="text-xs font-black ${errors.length ? 'text-amber-600' : 'text-emerald-600'} mb-2">Imported ${res.imported} row(s)${errors.length ? `, ${errors.length} failed` : ''}.</p>
-              ${errors.length ? `<div class="border border-red-200 bg-red-50 rounded-xl p-3 space-y-1 max-h-48 overflow-y-auto">
-                ${errors.map(er => `<p class="text-[10px] font-bold text-red-600">Row ${er.row}: ${er.message}</p>`).join('')}
-              </div>` : ''}
-            `;
-            if (res.imported && _prImportTarget === 'people' && typeof loadPayrollPeopleTab === 'function') { /* no list view to refresh — search picks up fresh data on next lookup */ }
-            if (res.imported && _prImportTarget === 'bonus_payments') loadBonusPayments();
-            if (res.imported && _prImportTarget === 'leave_deductions') loadLeaveDeductions();
-            if (res.imported && _prImportTarget === 'section_entries' && _prImportContext.section_id) _prSelectSection(_prImportContext.section_id);
-            if (res.imported && _prImportTarget === 'field_values') _prLoadFieldValues();
-          }).catch(() => { resultBox.innerHTML = `<p class="text-red-500 font-bold text-xs">Import failed.</p>`; });
+          const grid = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+          if (!grid.length) { status.textContent = 'File appears to be empty.'; return; }
+          _prImportHeaders = grid[0].map(h => String(h || '').trim());
+          _prImportRows = grid.slice(1).filter(r => r.some(c => String(c || '').trim() !== ''));
+          if (!_prImportRows.length) { status.textContent = 'No data rows found below the header row.'; return; }
+          status.textContent = `${file.name} — ${_prImportRows.length} row(s), ${_prImportHeaders.length} column(s).`;
+          _prRenderImportMapping();
         } catch (err) {
-          resultBox.innerHTML = `<p class="text-red-500 font-bold text-xs">Could not read the file — make sure it's a valid .xlsx/.xls.</p>`;
+          status.textContent = 'Could not read this file: ' + err.message;
         }
-      }).catch(err => { resultBox.innerHTML = `<p class="text-red-500 font-bold text-xs">${err.message}</p>`; });
+      }).catch(err => { status.textContent = err.message; });
     };
     reader.readAsArrayBuffer(file);
+  }
+
+  // Auto-guesses each expected field's column by matching its key or label
+  // against the sheet's headers (normImportKey ignores case/spaces/dashes/
+  // underscores) — a column that doesn't match anything, or that the admin
+  // deliberately sets to "— Skip —", is simply left out of that row's
+  // import payload rather than blocking the whole import.
+  function _prRenderImportMapping() {
+    const spec = PAYROLL_IMPORT_SPECS[_prImportTarget];
+    const list = document.getElementById('prImportMappingList');
+    if (!spec || !list) return;
+    document.getElementById('prImportRowCount').textContent = `${_prImportRows.length} row(s) detected`;
+    const claimedIdx = new Set();
+    list.innerHTML = spec.fields.map(f => {
+      const guessIdx = _prImportHeaders.findIndex((h, i) => !claimedIdx.has(i) && (normImportKey(h) === normImportKey(f.key) || normImportKey(h) === normImportKey(f.label)));
+      if (guessIdx >= 0) claimedIdx.add(guessIdx);
+      const options = ['<option value="-1">— Skip —</option>'].concat(_prImportHeaders.map((h, i) => `<option value="${i}" ${i === guessIdx ? 'selected' : ''}>${_escHtml(h || '(blank header)')}</option>`));
+      const sample = guessIdx >= 0 && _prImportRows[0] ? String(_prImportRows[0][guessIdx] ?? '') : '';
+      return `<div class="grid grid-cols-12 gap-2 items-center py-1 pr-import-map-row" data-field="${f.key}">
+        <div class="col-span-3"><span class="font-bold text-xs text-slate-700">${_escHtml(f.label)}${f.required ? ' <span class="text-red-500">*</span>' : ''}</span></div>
+        <div class="col-span-5"><select class="pr-import-map-select w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" onchange="updatePayrollImportSample(this)">${options.join('')}</select></div>
+        <div class="col-span-4"><span class="text-xs text-slate-400 italic pr-import-map-sample">${sample ? 'e.g. ' + _escHtml(sample) : ''}</span></div>
+      </div>`;
+    }).join('');
+    document.getElementById('prImportMappingSection').classList.remove('hidden');
+  }
+
+  function updatePayrollImportSample(sel) {
+    const idx = parseInt(sel.value, 10);
+    const sampleEl = sel.closest('.pr-import-map-row').querySelector('.pr-import-map-sample');
+    const sample = idx >= 0 && _prImportRows[0] ? String(_prImportRows[0][idx] ?? '') : '';
+    sampleEl.textContent = sample ? 'e.g. ' + sample : '';
+  }
+
+  function _prGetImportMapping() {
+    const mapping = {};
+    document.querySelectorAll('.pr-import-map-row').forEach(row => {
+      const idx = parseInt(row.querySelector('.pr-import-map-select').value, 10);
+      if (idx >= 0) mapping[row.dataset.field] = idx;
+    });
+    return mapping;
+  }
+
+  function _prConfirmImport() {
+    const spec = PAYROLL_IMPORT_SPECS[_prImportTarget];
+    const mapping = _prGetImportMapping();
+    const missingRequired = spec.fields.filter(f => f.required && !(f.key in mapping));
+    if (missingRequired.length) { showToast(`Map a column to ${missingRequired.map(f => f.label).join(', ')} first`, 'error'); return; }
+    const rows = _prImportRows.map(r => {
+      const obj = {};
+      Object.entries(mapping).forEach(([key, idx]) => { obj[key] = String(r[idx] ?? '').trim(); });
+      return obj;
+    });
+    const resultBox = document.getElementById('prImportResult');
+    resultBox.innerHTML = `<p class="text-slate-400 font-bold text-xs">Importing ${rows.length} row(s)…</p>`;
+    _payrollFetch('import_rows', { target: _prImportTarget, rows, section_id: _prImportContext.section_id, field_id: _prImportContext.field_id }).then(res => {
+      if (!res || res.result !== 'success') { resultBox.innerHTML = `<p class="text-red-500 font-bold text-xs">${(res && res.message) || 'Import failed'}</p>`; return; }
+      const errors = res.errors || [];
+      resultBox.innerHTML = `
+        <p class="text-xs font-black ${errors.length ? 'text-amber-600' : 'text-emerald-600'} mb-2">Imported ${res.imported} row(s)${errors.length ? `, ${errors.length} failed` : ''}.</p>
+        ${errors.length ? `<div class="border border-red-200 bg-red-50 rounded-xl p-3 space-y-1 max-h-48 overflow-y-auto">
+          ${errors.map(er => `<p class="text-[10px] font-bold text-red-600">Row ${er.row}: ${er.message}</p>`).join('')}
+        </div>` : ''}
+      `;
+      if (res.imported && _prImportTarget === 'people') loadPayrollPeopleTab();
+      if (res.imported && _prImportTarget === 'bonus_payments') loadBonusPayments();
+      if (res.imported && _prImportTarget === 'leave_deductions') loadLeaveDeductions();
+      if (res.imported && _prImportTarget === 'section_entries' && _prImportContext.section_id) _prSelectSection(_prImportContext.section_id);
+      if (res.imported && _prImportTarget === 'field_values') _prLoadFieldValues();
+    }).catch(err => { resultBox.innerHTML = `<p class="text-red-500 font-bold text-xs">${err.message || 'Import failed.'}</p>`; });
   }
 
   function _prBulkAddAllStaff() {
@@ -15475,6 +15628,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         return (_prFieldsCache.find(f => f.key === key) || {}).label || key;
       };
       const baseCols = [
+        { key: 'sl_no', label: 'SL No', type: 'sl' },
         { key: 'person', label: 'Person', type: 'base' },
         { key: 'grade', label: 'Grade', type: 'base' },
         { key: 'gross', label: 'Gross', type: 'base' },
@@ -15580,6 +15734,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return '';
   }
 
+  // SL No renumbers 1..N within whatever set of rows it's part of — the
+  // whole run when not split, or fresh per group/Ungrouped when split, same
+  // as the running number on a printed sheet restarting each page.
+  function _prSlipsToRows(slips, cols) {
+    return slips.map((s, i) => cols.map(c => c.type === 'sl' ? i + 1 : _prColumnValue(c, s)));
+  }
+
   // Always returns { cols, groups: [{name, rows}] } — one group named null
   // when not splitting, so Excel/PDF export never need two code paths.
   function _prExportRowsAndCols() {
@@ -15588,16 +15749,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!_prExportSlips.length) { showToast('No payslips in this run', 'error'); return null; }
 
     if (!_prExportSplitByGroup || !_prGroupsCache.length) {
-      return { cols, groups: [{ name: null, rows: _prExportSlips.map(s => cols.map(c => _prColumnValue(c, s))) }] };
+      return { cols, groups: [{ name: null, rows: _prSlipsToRows(_prExportSlips, cols) }] };
     }
     const groupIdsByUser = {};
     _prGroupMembersCache.forEach(m => { (groupIdsByUser[m.user_id] = groupIdsByUser[m.user_id] || []).push(m.group_id); });
     const groups = _prGroupsCache.map(g => ({
       name: g.name,
-      rows: _prExportSlips.filter(s => (groupIdsByUser[s.user_id] || []).includes(g.id)).map(s => cols.map(c => _prColumnValue(c, s))),
+      rows: _prSlipsToRows(_prExportSlips.filter(s => (groupIdsByUser[s.user_id] || []).includes(g.id)), cols),
     })).filter(g => g.rows.length);
     const ungroupedSlips = _prExportSlips.filter(s => !(groupIdsByUser[s.user_id] || []).length);
-    if (ungroupedSlips.length) groups.push({ name: 'Ungrouped', rows: ungroupedSlips.map(s => cols.map(c => _prColumnValue(c, s))) });
+    if (ungroupedSlips.length) groups.push({ name: 'Ungrouped', rows: _prSlipsToRows(ungroupedSlips, cols) });
     return { cols, groups };
   }
 
@@ -19431,6 +19592,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     note: ['distribution', 'location', 'note', 'remarks'],
   };
 
+  function _invDownloadStockImportSample() {
+    ensureXLSX().then(() => {
+      const headerRow = ['Particulars', 'Page No.', 'Reg No.', 'Stock', 'Unit Price', 'Distribution/Location'];
+      const sampleRow = ['Sample Item', '12', 'R-045', 50, 120, 'Central Store'];
+      const ws = window.XLSX.utils.aoa_to_sheet([headerRow, sampleRow]);
+      const wb = window.XLSX.utils.book_new();
+      window.XLSX.utils.book_append_sheet(wb, ws, 'Sample');
+      window.XLSX.writeFile(wb, 'inventory_stock_import_template.xlsx');
+    }).catch(err => showToast(err.message, 'error'));
+  }
+
   function _invOpenStockImportModal() {
     document.getElementById('invStockImportModal')?.remove();
     _invStockImportRows = null;
@@ -19442,6 +19614,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div class="bg-white rounded-2xl p-5 w-full max-w-md max-h-[85vh] overflow-y-auto">
         <p class="text-sm font-black text-slate-800 mb-1">Import Stock from CSV/Excel</p>
         <p class="text-[10px] text-slate-400 font-bold mb-3">Expects columns for Particulars/Name, Page No., Reg No., Stock quantity, Unit Price, and an optional Distribution/location note. Products are matched by name (created if new); register/page no. only fills in where currently blank; quantity+price become a stock lot in Central Store.</p>
+        <button onclick="_invDownloadStockImportSample()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all mb-3">Download Sample</button>
         <input type="file" id="invStockImportFile" accept=".csv,.xlsx,.xls" class="w-full text-xs font-bold">
         <p id="invStockImportStatus" class="text-xs font-bold mt-2"></p>
         <div id="invStockImportPreview" class="hidden mt-3"></div>
