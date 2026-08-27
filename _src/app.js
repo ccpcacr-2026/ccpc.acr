@@ -19847,6 +19847,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         if (created) { _invDistConsumers.push(created); _invSelectDistConsumer(created.id); }
         return;
       }
+      // Editing a product from its Quick View popup (_invEditProductFromQuickView)
+      // happens while Product Detail is still the underlying view — refresh
+      // that instead of jumping to Settings > Products, which the admin
+      // never asked to see.
+      if (_invCurrentEntity === 'products' && _invCurrentProductDetailId) { openInventoryProductDetail(_invCurrentProductDetailId); return; }
       openInventorySettingsEntity(_invCurrentEntity);
     }).catch(err => { if (statusEl) statusEl.textContent = err.message || 'Save failed.'; });
   }
@@ -21240,9 +21245,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   // Same idea as the registry refresh above — Edit/Delete on a distribution
-  // row reachable from Product Detail should reload that view, not silently
-  // no-op because loadInventoryDistributeList() targets the Distribute
-  // tab's own elements which aren't on screen from here.
+  // row reachable from Product Detail should reload THAT view, not
+  // loadInventoryDistributeList(), which overwrites #invAdminBody with the
+  // Distribute tab's own list — silently yanking the admin away from
+  // Product Detail to a screen they never asked for.
+  function _invRefreshAfterDistributionChange() {
+    if (_invCurrentProductDetailId) { openInventoryProductDetail(_invCurrentProductDetailId); return; }
+    loadInventoryDistributeList();
+  }
+
   function _invEditDistributionFromHistory(distId) {
     _invAdminFetch('distribute_list', {}).then(res => {
       _invDistributeRows = (res && res.data) || [];
@@ -21529,7 +21540,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _invAdminFetch('distribute_delete', { ids }).then(res => {
       if (!res || (res.result !== 'success' && res.result !== 'partial')) { showToast((res && res.message) || 'Delete failed', 'error'); return; }
       showToast(`${res.deletedCount} distribution${res.deletedCount === 1 ? '' : 's'} deleted${res.errors && res.errors.length ? `, ${res.errors.length} failed` : ''}`, res.errors && res.errors.length ? 'error' : 'success');
-      loadInventoryDistributeList();
+      _invRefreshAfterDistributionChange();
     }).catch(err => showToast(err.message || 'Delete failed', 'error'));
   }
 
@@ -21539,8 +21550,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (!res || (res.result !== 'success' && res.result !== 'partial')) { showToast((res && res.message) || 'Delete failed', 'error'); return; }
       if (res.errors && res.errors.length) { showToast(res.errors[0], 'error'); return; }
       showToast('Distribution deleted', 'success');
-      if (_invCurrentProductDetailId) openInventoryProductDetail(_invCurrentProductDetailId);
-      else loadInventoryDistributeList();
+      _invRefreshAfterDistributionChange();
     }).catch(err => showToast(err.message || 'Delete failed', 'error'));
   }
 
@@ -22091,7 +22101,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         if (existingA) existingA.assignee_user_id = responsibleUserId;
         else _invDistAssignments.push({ holder_type: consumerForMsg.type, holder_id: consumerForMsg.reference_id, assignee_user_id: responsibleUserId });
       }
-      if (isEditing) { _invDistEditingId = null; loadInventoryDistributeList(); return; }
+      if (isEditing) { _invDistEditingId = null; _invRefreshAfterDistributionChange(); return; }
       setStatus(`Distributed ${qty} × ${productForMsg.name} to ${consumerForMsg ? consumerForMsg.name : 'recipient'}.`, false);
       _invClearDistConsumer();
       document.getElementById('invDistQty').value = '';
