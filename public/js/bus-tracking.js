@@ -85,6 +85,14 @@ function initBusMap() {
     fitBtn.innerHTML = '<i data-lucide="maximize" class="h-3.5 w-3.5"></i><span class="bt-fit-label"> Fit all</span>';
     fitBtn.onclick = fitBusesInBounds;
     mapContainer.appendChild(fitBtn);
+
+    const myLocBtn = document.createElement('button');
+    myLocBtn.className = 'bt-mylocation-btn';
+    myLocBtn.title = 'Show my location';
+    myLocBtn.innerHTML = '<i data-lucide="locate-fixed" class="h-3.5 w-3.5"></i><span class="bt-fit-label"> My Location</span>';
+    myLocBtn.onclick = toggleMyLocation;
+    mapContainer.appendChild(myLocBtn);
+
     if (window.lucide) lucide.createIcons();
 
     // Mobile bottom-sheet UX: tapping the map (not a marker/control) collapses
@@ -727,6 +735,66 @@ function fitBusesInBounds() {
   map.fitBounds(group.getBounds().pad(0.1));
 }
 
+// "My Location" — a plain toggle (not auto-requested on load, so the
+// permission prompt only ever appears from a deliberate tap) that watches
+// the device's own position live via watchPosition, same "always current"
+// spirit as the live bus markers, and draws it as a distinct blue pulsing
+// dot so it's never mistaken for a bus.
+let _myLocationMarker = null;
+let _myLocationWatchId = null;
+
+function _myLocationIcon() {
+  return L.divIcon({
+    className: '',
+    html: `<div class="bt-marker-wrap">
+      <div class="bt-marker-pulse" style="border-color:#0ea5e9"></div>
+      <div style="width:18px;height:18px;border-radius:50%;background:#0ea5e9;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.35)"></div>
+    </div>`,
+    iconSize: [18, 18],
+    iconAnchor: [9, 9],
+  });
+}
+
+// Two buttons can exist at once (the floating desktop one, and the mobile
+// panel-header icon) — only one is ever visible for a given screen size,
+// but both get their active state kept in sync regardless.
+function _myLocationButtons() {
+  return [document.querySelector('.bt-mylocation-btn'), document.getElementById('bt-mylocation-toggle-inline')].filter(Boolean);
+}
+
+function stopMyLocation() {
+  if (_myLocationWatchId != null && navigator.geolocation) {
+    navigator.geolocation.clearWatch(_myLocationWatchId);
+    _myLocationWatchId = null;
+  }
+  if (_myLocationMarker) { map.removeLayer(_myLocationMarker); _myLocationMarker = null; }
+  _myLocationButtons().forEach(el => el.classList.remove('bt-mylocation-active'));
+}
+
+function toggleMyLocation() {
+  if (_myLocationWatchId != null) { stopMyLocation(); return; }
+  if (!navigator.geolocation) { if (window.showToast) showToast('Location is not available in this browser.', 'error'); return; }
+  _myLocationButtons().forEach(el => el.classList.add('bt-mylocation-active'));
+  _myLocationWatchId = navigator.geolocation.watchPosition(
+    pos => {
+      const latlng = [pos.coords.latitude, pos.coords.longitude];
+      if (_myLocationMarker) _myLocationMarker.setLatLng(latlng);
+      else {
+        _myLocationMarker = L.marker(latlng, { icon: _myLocationIcon(), zIndexOffset: 900 }).addTo(map).bindTooltip('You are here');
+        map.panTo(latlng); // only re-centers on the very first fix, not every update — a moving bus staying in view matters more than re-snapping to a stationary viewer
+      }
+    },
+    err => {
+      stopMyLocation();
+      const message = err.code === err.PERMISSION_DENIED
+        ? 'Location permission was denied — allow it in your browser settings to use this.'
+        : 'Could not get your location.';
+      if (window.showToast) showToast(message, 'error');
+    },
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+  );
+}
+
 /**
  * Stop tracking
  */
@@ -735,6 +803,7 @@ function stopBusTracking() {
     clearInterval(busUpdateInterval);
     busUpdateInterval = null;
   }
+  stopMyLocation();
 }
 
 /**
@@ -1297,4 +1366,5 @@ window.BusTracking = {
   toggleRoutePlayback: _toggleRoutePlayback,
   setRoutePlaybackSpeed: _setRoutePlaybackSpeed,
   clearRouteHistory: clearRouteHistoryAndShowLive,
+  toggleMyLocation,
 };

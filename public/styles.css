@@ -906,6 +906,17 @@ button { user-select: none; }
 }
 #bus-map-container .bt-fit-btn:hover { background: #2563eb; color: #fff; }
 
+#bus-map-container .bt-mylocation-btn {
+  position: absolute; bottom: 56px; right: 12px; z-index: 1000;
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 14px; border-radius: 999px; border: none;
+  background: #fff; color: #334155; font-weight: 800; font-size: 11px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.12); cursor: pointer; transition: all 0.15s;
+}
+#bus-map-container .bt-mylocation-btn:hover { background: #0ea5e9; color: #fff; }
+#bus-map-container .bt-mylocation-btn.bt-mylocation-active { background: #0ea5e9; color: #fff; }
+#bt-mylocation-toggle-inline.bt-mylocation-active { background: rgba(14,165,233,0.18) !important; color: #0ea5e9 !important; }
+
 /* Subtle, cohesive tile tone — only the base map, never markers/circles */
 .leaflet-tile-pane { filter: saturate(0.9) brightness(1.02); }
 
@@ -1203,7 +1214,7 @@ button { user-select: none; }
    screen. */
 @media (max-width: 767px) {
   #geofenceAlerts { right: 100px; }
-  #bus-map-container .bt-fit-btn { display: none; }
+  #bus-map-container .bt-fit-btn, #bus-map-container .bt-mylocation-btn { display: none; }
 
   #bt-panel-header { padding: 2px; }
   .bt-fit-btn-inline {

@@ -18961,6 +18961,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div id="bus-sidebar" class="flex flex-col">
           <div id="bt-panel-header" class="flex items-center justify-end gap-1.5 shrink-0">
             <button onclick="fitBusesInBounds()" title="Fit all" class="bt-fit-btn-inline"><i data-lucide="maximize" class="h-3.5 w-3.5"></i></button>
+            <button id="bt-mylocation-toggle-inline" onclick="BusTracking.toggleMyLocation()" title="Show my location" class="bt-fit-btn-inline"><i data-lucide="locate-fixed" class="h-3.5 w-3.5"></i></button>
             <button id="bt-fleet-toggle" onclick="toggleFleetSheet()" title="Show/hide bus list" class="bt-fit-btn-inline"><i data-lucide="bus" class="h-3.5 w-3.5"></i></button>
           </div>
           <div id="bt-panel-body" class="flex flex-col min-h-0 flex-1">
