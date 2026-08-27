@@ -80,14 +80,15 @@ function renderPage(poll, slug, votes) {
         <div class="cover-frame-wrap">
           <button type="button" class="cover-select" data-cover="${c.id}" aria-pressed="false" aria-label="${esc(c.label)} নির্বাচন করুন">
             <img src="${c.img}" alt="${esc(c.alt)}" loading="lazy">
-            <span class="cover-check"><svg viewBox="0 0 24 24" width="15" height="15"><path d="M5 13l4 4L19 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span class="cover-dim"></span>
+            <span class="cover-check"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M5 13l4 4L19 7" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
           </button>
           <button type="button" class="zoom-btn" data-zoom="${c.img}" data-alt="${esc(c.alt)}" aria-label="বড় করে দেখুন" title="বড় করে দেখুন">
             <svg viewBox="0 0 24 24" width="14" height="14"><circle cx="10" cy="10" r="6" fill="none" stroke="currentColor" stroke-width="2.2"/><line x1="15" y1="15" x2="20" y2="20" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
           </button>
         </div>
         <div class="cover-meta">
-          <span class="cover-label">${esc(c.label)}</span>
+          <span class="cover-label">${esc(c.label)} <span class="selected-tag" hidden>&#10003; নির্বাচিত</span></span>
           <span class="cover-bar-track"><span class="cover-bar-fill" style="width:${pct}%"></span></span>
           <span class="cover-count">${count} ভোট &middot; ${pct}%</span>
         </div>
@@ -176,19 +177,22 @@ function renderPage(poll, slug, votes) {
   .covers-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:1.1rem; margin-bottom:1.7rem;}
   @media (max-width:700px){ .covers-grid{grid-template-columns:1fr;} }
   .cover-cell{display:flex; flex-direction:column; gap:.6rem;}
-  .cover-frame-wrap{position:relative; border-radius:16px; overflow:hidden; box-shadow:var(--shadow);}
-  .cover-select{display:block; width:100%; padding:0; margin:0; border:3px solid transparent; border-radius:16px; background:var(--surface-2); cursor:pointer; overflow:hidden; line-height:0; position:relative;}
+  .cover-frame-wrap{position:relative; border-radius:18px; overflow:hidden; box-shadow:var(--shadow); transition:box-shadow .15s ease, transform .15s ease;}
+  .cover-frame-wrap.selected{box-shadow:0 0 0 3px var(--surface), 0 0 0 6px var(--accent), 0 14px 30px -14px rgba(168,121,29,.55); transform:translateY(-3px);}
+  .cover-select{display:block; width:100%; padding:0; margin:0; border:0; border-radius:18px; background:var(--surface-2); cursor:pointer; overflow:hidden; line-height:0; position:relative;}
   .cover-select img{display:block; width:100%; aspect-ratio:3/4; object-fit:cover;}
   .cover-select:hover{transform:translateY(-2px);}
-  .cover-select.selected{border-color:var(--accent);}
   .cover-select.locked{cursor:default;}
   .cover-select.locked:hover{transform:none;}
-  .cover-check{position:absolute; top:.6rem; left:.6rem; width:28px; height:28px; border-radius:50%; background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:center; opacity:0; transform:scale(.6); transition:opacity .15s ease, transform .15s ease;}
-  .cover-select.selected .cover-check{opacity:1; transform:scale(1);}
-  .zoom-btn{position:absolute; bottom:.6rem; right:.6rem; width:32px; height:32px; border-radius:50%; background:rgba(15,25,20,.55); color:#fff; border:none; display:flex; align-items:center; justify-content:center; cursor:pointer;}
+  .cover-dim{position:absolute; inset:0; background:linear-gradient(180deg, rgba(168,121,29,.16), rgba(168,121,29,.3)); opacity:0; transition:opacity .15s ease; pointer-events:none;}
+  .cover-frame-wrap.selected .cover-dim{opacity:1;}
+  .cover-check{position:absolute; top:.55rem; left:.55rem; width:36px; height:36px; border-radius:50%; background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:center; box-shadow:0 0 0 3px var(--surface), 0 4px 12px rgba(0,0,0,.4); opacity:0; transform:scale(.4); transition:opacity .15s ease, transform .15s ease;}
+  .cover-frame-wrap.selected .cover-check{opacity:1; transform:scale(1);}
+  .zoom-btn{position:absolute; bottom:.6rem; right:.6rem; width:32px; height:32px; border-radius:50%; background:rgba(15,25,20,.55); color:#fff; border:none; display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:2;}
   .zoom-btn:hover{background:rgba(15,25,20,.8);}
   .cover-meta{display:flex; flex-direction:column; gap:.35rem;}
-  .cover-label{font-weight:700; font-size:.95rem;}
+  .cover-label{font-weight:700; font-size:.95rem; display:flex; align-items:center; gap:.5rem; flex-wrap:wrap;}
+  .selected-tag{font-size:.68rem; font-weight:700; color:var(--accent-strong); background:var(--accent-soft); padding:.18rem .55rem; border-radius:999px; letter-spacing:.02em;}
   .cover-bar-track{height:7px; border-radius:999px; background:var(--surface-2); overflow:hidden;}
   .cover-bar-fill{display:block; height:100%; background:linear-gradient(90deg, var(--forest), var(--accent)); border-radius:999px; width:0; transition:width .5s ease;}
   .cover-count{font-size:.78rem; color:var(--ink-muted);}
@@ -320,10 +324,14 @@ function renderPage(poll, slug, votes) {
     btn.addEventListener("click", function(){
       if (btn.classList.contains("locked")) return;
       selected = Number(btn.getAttribute("data-cover"));
-      document.querySelectorAll(".cover-select").forEach(function(b){
+      document.querySelectorAll(".cover-cell").forEach(function(cell){
+        var b = cell.querySelector(".cover-select");
+        var wrap = cell.querySelector(".cover-frame-wrap");
+        var tag = cell.querySelector(".selected-tag");
         var isSel = Number(b.getAttribute("data-cover")) === selected;
-        b.classList.toggle("selected", isSel);
         b.setAttribute("aria-pressed", String(isSel));
+        if (wrap) wrap.classList.toggle("selected", isSel);
+        if (tag) tag.hidden = !isSel;
       });
     });
   });
