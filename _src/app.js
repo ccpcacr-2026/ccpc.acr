@@ -19410,7 +19410,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _invSettingsShowMobileGrid();
   }
 
-  function openInventorySettingsEntity(slug) {
+  function openInventorySettingsEntity(slug, restoreScrollTop) {
     // Save/delete call this again on the SAME entity just to refresh the
     // table, not to "enter" it a second time — a nav level must only be
     // pushed on a genuine grid→entity transition, or every save would add
@@ -19448,6 +19448,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _invEntityRows = (res && res.data) || [];
       _invRenderSettingsTable();
       lucide.createIcons();
+      _invRestoreScroll(restoreScrollTop);
     }).catch(err => {
       if (panel) panel.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml(err.message || 'Failed to load')}</div>`;
     });
@@ -19851,8 +19852,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       // happens while Product Detail is still the underlying view — refresh
       // that instead of jumping to Settings > Products, which the admin
       // never asked to see.
-      if (_invCurrentEntity === 'products' && _invCurrentProductDetailId) { openInventoryProductDetail(_invCurrentProductDetailId); return; }
-      openInventorySettingsEntity(_invCurrentEntity);
+      if (_invCurrentEntity === 'products' && _invCurrentProductDetailId) { openInventoryProductDetail(_invCurrentProductDetailId, _invSaveScroll()); return; }
+      openInventorySettingsEntity(_invCurrentEntity, _invSaveScroll());
     }).catch(err => { if (statusEl) statusEl.textContent = err.message || 'Save failed.'; });
   }
 
@@ -20467,6 +20468,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           ${stat('arrow-up-from-line', 'Distributed', Number(s.distributed || 0), '#f97316')}
           ${stat('alert-triangle', 'Damaged', Number(s.damaged || 0), '#ef4444')}
           ${stat('package-check', 'Remaining', Number(s.remaining || 0), '#10b981')}
+          ${stat('boxes', 'Total', Number(s.damaged || 0) + Number(s.distributed || 0) + Number(s.remaining || 0), '#64748b')}
         </div>
 
         <p class="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1.5">Pricing</p>
@@ -20521,7 +20523,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   let _invCurrentProductDetailId = null;
 
-  function openInventoryProductDetail(productId) {
+  // The brief "Loading…" placeholder every one of these views shows before
+  // its real (much taller) content arrives collapses #invAdminBody down to
+  // one line, which clamps the page's own scroll position to 0 — and
+  // nothing then scrolls it back down once the tall content is back, even
+  // though there'd be room to. Callers that are re-loading a view in place
+  // after an edit (not navigating to a genuinely new one, where starting
+  // at the top is correct) capture the scroll position first and pass it
+  // through so it can be restored after the real content is in.
+  function _invSaveScroll() {
+    const el = document.querySelector('main .overflow-y-auto');
+    return el ? el.scrollTop : null;
+  }
+  function _invRestoreScroll(top) {
+    if (top == null) return;
+    const el = document.querySelector('main .overflow-y-auto');
+    if (el) requestAnimationFrame(() => { el.scrollTop = top; });
+  }
+
+  function openInventoryProductDetail(productId, restoreScrollTop) {
     const body = document.getElementById('invAdminBody');
     if (!body) return;
     _invCurrentProductDetailId = productId;
@@ -20539,11 +20559,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
           <button onclick="openInventoryDistributeFor(${product.id})" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all shrink-0">+ New Distribution</button>
         </div>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
           ${_invStatCard('Received', summary ? summary.received : 0)}
           ${_invStatCard('Distributed', summary ? summary.distributed : 0)}
           ${_invStatCard('Damaged', summary ? summary.damaged : 0)}
           ${_invStatCard('Remaining', summary ? summary.remaining : 0, true)}
+          ${_invStatCard('Total', summary ? (Number(summary.damaged || 0) + Number(summary.distributed || 0) + Number(summary.remaining || 0)) : 0)}
         </div>
         <p class="text-sm font-black text-slate-800 uppercase tracking-widest mb-3">Registry History</p>
         ${!receiptHistory.length ? `<div class="bg-white rounded-3xl border border-slate-200 shadow-sm text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest mb-6">Nothing registered for this product yet</div>` : `
@@ -20608,6 +20629,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>`}
       `;
       lucide.createIcons();
+      _invRestoreScroll(restoreScrollTop);
     }).catch(err => { body.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml(err.message || 'Network error')}</div>`; });
   }
 
@@ -21241,7 +21263,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // always the Registry tab.
   function _invRefreshAfterRegistryChange() {
     if (document.getElementById('invRegistryListBody')) { _invLoadRegistryList(); return; }
-    if (_invCurrentProductDetailId) { openInventoryProductDetail(_invCurrentProductDetailId); }
+    if (_invCurrentProductDetailId) { openInventoryProductDetail(_invCurrentProductDetailId, _invSaveScroll()); }
   }
 
   // Same idea as the registry refresh above — Edit/Delete on a distribution
@@ -21250,8 +21272,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // Distribute tab's own list — silently yanking the admin away from
   // Product Detail to a screen they never asked for.
   function _invRefreshAfterDistributionChange() {
-    if (_invCurrentProductDetailId) { openInventoryProductDetail(_invCurrentProductDetailId); return; }
-    loadInventoryDistributeList();
+    const scrollTop = _invSaveScroll();
+    if (_invCurrentProductDetailId) { openInventoryProductDetail(_invCurrentProductDetailId, scrollTop); return; }
+    loadInventoryDistributeList(scrollTop);
   }
 
   function _invEditDistributionFromHistory(distId) {
@@ -21408,7 +21431,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _invDistributeSearch = '';
   let _invDistributeSelected = new Set();
 
-  function loadInventoryDistributeList() {
+  function loadInventoryDistributeList(restoreScrollTop) {
     const body = document.getElementById('invAdminBody');
     if (!body) return;
     _invDistributeSelected = new Set();
@@ -21425,6 +21448,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _invAdminFetch('distribute_list', {}).then(res => {
       _invDistributeRows = (res && res.data) || [];
       _invRenderDistributeList();
+      _invRestoreScroll(restoreScrollTop);
     });
   }
 
