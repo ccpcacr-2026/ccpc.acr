@@ -13318,19 +13318,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
       <div id="pr-fields">
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-3">
-          <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
-            <p class="font-black text-slate-800 text-xs">Additions &amp; Deductions</p>
+          <div class="sticky top-0 z-10 bg-white -mx-4 -mt-4 px-4 pt-4 pb-3">
+            <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <p class="font-black text-slate-800 text-xs">Additions &amp; Deductions</p>
+              <div class="flex items-center gap-2">
+                <button onclick="_prOpenBulkFieldValuesImport()" title="One row per person, one column per field — like the paper salary sheet" class="px-3 py-2 bg-slate-100 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-1.5"><i data-lucide="upload" class="h-3.5 w-3.5"></i>Bulk Import All Fields</button>
+                <button onclick="_prOpenFieldForm(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>New Field</button>
+              </div>
+            </div>
             <div class="flex items-center gap-2">
-              <button onclick="_prOpenBulkFieldValuesImport()" title="One row per person, one column per field — like the paper salary sheet" class="px-3 py-2 bg-slate-100 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-1.5"><i data-lucide="upload" class="h-3.5 w-3.5"></i>Bulk Import All Fields</button>
-              <button onclick="_prOpenFieldForm(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>New Field</button>
+              <button id="prFieldsCatBtn-all" onclick="_prSetFieldsCategoryFilter('')" class="pr-cat-filter-btn active">All</button>
+              <button id="prFieldsCatBtn-earning" onclick="_prSetFieldsCategoryFilter('earning')" class="pr-cat-filter-btn">Additions</button>
+              <button id="prFieldsCatBtn-deduction" onclick="_prSetFieldsCategoryFilter('deduction')" class="pr-cat-filter-btn">Deductions</button>
             </div>
           </div>
-          <div class="flex items-center gap-2 mb-3">
-            <button id="prFieldsCatBtn-all" onclick="_prSetFieldsCategoryFilter('')" class="pr-cat-filter-btn active">All</button>
-            <button id="prFieldsCatBtn-earning" onclick="_prSetFieldsCategoryFilter('earning')" class="pr-cat-filter-btn">Additions</button>
-            <button id="prFieldsCatBtn-deduction" onclick="_prSetFieldsCategoryFilter('deduction')" class="pr-cat-filter-btn">Deductions</button>
-          </div>
-          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-3">Click "Values" on a field below to view/enter its amounts — Logically (rule-based), Manually (typed per person), or Import (Excel)</p>
+          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-3 mt-3">Click "Values" on a field below to view/enter its amounts — Logically (rule-based), Manually (typed per person), or Import (Excel)</p>
           <div class="overflow-auto border border-slate-200 rounded-xl">
             <table class="w-full text-left border-collapse text-xs">
               <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
@@ -21083,7 +21085,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
 
       <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 mt-4">
-        <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div class="sticky top-0 z-10 bg-white -mx-5 -mt-5 px-5 pt-5 pb-3 flex items-center justify-between flex-wrap gap-2">
           <p class="text-sm font-black text-slate-800 uppercase tracking-widest">Recent Receipts</p>
           <div class="relative w-56">
             <input id="invRegistryListSearch" type="search" placeholder="Search…" oninput="_invRegistryListSearch()" class="w-full bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2">
@@ -21436,7 +21438,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!body) return;
     _invDistributeSelected = new Set();
     body.innerHTML = `
-      <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
+      <div class="sticky top-0 z-10 bg-white py-2 -mt-2 flex items-center justify-between mb-2 gap-3 flex-wrap">
         <p class="text-sm font-black text-slate-800 uppercase tracking-widest">Distribute</p>
         <div class="flex gap-2 shrink-0 items-center">
           <input type="text" id="invDistributeSearchInput" placeholder="Search…" value="${_escHtml(_invDistributeSearch)}" oninput="_invDistributeSearchInput(this.value)" class="w-44 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none px-3 py-2.5">
