@@ -15069,7 +15069,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     },
   };
   const PAYROLL_FIELD_SAMPLE_HINTS = {
-    user_id: '12345', grade_name: 'Senior Teacher', joining_date: '2026-01-15',
+    user_id: '12345', name: 'Md. Karim Uddin', grade_name: 'Senior Teacher', joining_date: '2026-01-15',
     bank_name: 'Sample Bank', bank_account_no: '1234567890',
     mobile_banking_provider: 'bKash', mobile_banking_number: '01700000000',
     mpo_amount: 15000, section_name: 'Staff Loan', total_amount: 50000,
@@ -15095,8 +15095,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const importableFields = _prFieldsCache.filter(f => f.calc_mode !== 'percent_of_field');
     PAYROLL_IMPORT_SPECS.field_values_bulk = {
       title: 'Bulk Import All Fields (Excel)',
+      // Neither column is individually required — a real paper-style sheet
+      // (like the actual salary sheet this mirrors) often has names but no
+      // ID column at all. _prConfirmImport separately blocks the import if
+      // BOTH end up unmapped, since a row needs at least one to be matched
+      // to a person; the server re-checks this too rather than trusting the
+      // client mapping alone.
       fields: [
-        { key: 'user_id', label: 'User ID', required: true },
+        { key: 'user_id', label: 'User ID', required: false },
+        { key: 'name', label: 'Name (used when User ID is blank)', required: false },
         ...importableFields.map(f => ({ key: f.key, label: _prFieldLabelWithCategory(f), required: false })),
       ],
     };
@@ -15205,6 +15212,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const mapping = _prGetImportMapping();
     const missingRequired = spec.fields.filter(f => f.required && !(f.key in mapping));
     if (missingRequired.length) { showToast(`Map a column to ${missingRequired.map(f => f.label).join(', ')} first`, 'error'); return; }
+    if (_prImportTarget === 'field_values_bulk' && !('user_id' in mapping) && !('name' in mapping)) {
+      showToast('Map a column to User ID or Name first — at least one is needed to match each row to a person', 'error');
+      return;
+    }
     const rows = _prImportRows.map(r => {
       const obj = {};
       Object.entries(mapping).forEach(([key, idx]) => { obj[key] = String(r[idx] ?? '').trim(); });

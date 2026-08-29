@@ -61,6 +61,12 @@ async function _teacherSchemaFetch(path) {
   return res.json();
 }
 
+// Case/spacing-insensitive so "Md. Karim  Uddin" from a hand-typed sheet
+// still matches "md. karim uddin" in users_profile.full_name.
+function _normPersonName(s) {
+  return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
 // Fire-and-forget audit trail — never blocks or fails the caller's request
 // on a logging error. Called after every mutating action below.
 function _prAudit(actorUserId, action, entity, entityId, details) {
@@ -1349,13 +1355,39 @@ export async function POST(req) {
       const fieldsRes = await sbPayroll('fields?select=key,calc_mode');
       if (fieldsRes?.error) return NextResponse.json({ result: 'error', message: fieldsRes.error }, { status: 500 });
       const writableKeys = new Set((fieldsRes || []).filter(f => f.calc_mode !== 'percent_of_field').map(f => f.key));
+
+      // A real paper-style sheet (like the actual salary sheet this bulk
+      // import mirrors) often has names but no ID column at all, so a row
+      // may give a name instead of a user_id — resolved here against
+      // teacher_staff.users_profile rather than trusting the client to
+      // have matched it correctly.
+      const needsNameLookup = rows.some(r => !r.user_id && r.name);
+      let userIdByName = new Map();
+      if (needsNameLookup) {
+        const profiles = await _teacherSchemaFetch('users_profile?select=teacher_id,full_name');
+        (Array.isArray(profiles) ? profiles : []).forEach(p => {
+          const key = _normPersonName(p.full_name);
+          if (!key) return;
+          if (!userIdByName.has(key)) userIdByName.set(key, []);
+          userIdByName.get(key).push(p.teacher_id);
+        });
+      }
+
       for (let i = 0; i < rows.length; i++) {
         const r = rows[i];
-        if (!r.user_id) { errors.push({ row: i + 2, message: 'user_id is required' }); continue; }
-        const rowData = { user_id: String(r.user_id) };
+        let userId = r.user_id ? String(r.user_id) : '';
+        if (!userId && r.name) {
+          const matches = userIdByName.get(_normPersonName(r.name)) || [];
+          if (!matches.length) { errors.push({ row: i + 2, message: `No matching person found for name "${r.name}"` }); continue; }
+          if (matches.length > 1) { errors.push({ row: i + 2, message: `Multiple people match name "${r.name}" — use User ID for this row instead` }); continue; }
+          userId = matches[0];
+        }
+        if (!userId) { errors.push({ row: i + 2, message: 'User ID or Name is required' }); continue; }
+
+        const rowData = { user_id: userId };
         let hasAny = false;
         Object.keys(r).forEach(k => {
-          if (k === 'user_id' || !writableKeys.has(k)) return;
+          if (k === 'user_id' || k === 'name' || !writableKeys.has(k)) return;
           if (r[k] === '' || r[k] == null) return; // blank cell = leave that field's existing value alone
           rowData[k] = Number(r[k]);
           hasAny = true;
