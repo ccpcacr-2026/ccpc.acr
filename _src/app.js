@@ -12869,6 +12869,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   let _annDevicesCache = [];
+  let _annCanTargetAll = true;
   let _annTargetSet = new Set();
   let _annRecordedBase64 = null;
   let _annUploadedBase64 = null;
@@ -12948,8 +12949,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('annFileInput').addEventListener('change', _annHandleFileSelect);
     _announceFetch('get_devices_for_targeting', {}).then(res => {
       _annDevicesCache = (res && res.result === 'success' && res.devices) || [];
+      _annCanTargetAll = !!(res && res.can_target_all);
       _annRenderDeviceChecklist();
-    }).catch(() => { _annDevicesCache = []; _annRenderDeviceChecklist(); });
+    }).catch(() => { _annDevicesCache = []; _annCanTargetAll = false; _annRenderDeviceChecklist(); });
     _annLoadList();
     _annLoadLog();
   }
@@ -12957,7 +12959,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _annRenderDeviceChecklist() {
     const host = document.getElementById('annDeviceChecklist');
     if (!host) return;
-    const options = [{ value: 'All', label: 'All Devices' }, ..._annDevicesCache];
+    if (!_annCanTargetAll && !_annDevicesCache.length) {
+      host.innerHTML = `<p class="text-xs font-bold text-amber-600">No display is assigned to your class yet — ask an Admin to assign one under Attendance → Devices before you can send an announcement.</p>`;
+      return;
+    }
+    const options = _annCanTargetAll ? [{ value: 'All', label: 'All Devices' }, ..._annDevicesCache] : _annDevicesCache;
     host.innerHTML = options.map(o => `
       <label class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border ${_annTargetSet.has(o.value) ? 'border-blue-600 bg-blue-50' : 'border-slate-200'} cursor-pointer text-xs font-bold text-slate-600">
         <input type="checkbox" ${_annTargetSet.has(o.value) ? 'checked' : ''} onchange="_annToggleTarget('${o.value}',this.checked)" class="w-3.5 h-3.5 rounded accent-blue-600">${_escHtml(o.label)}
@@ -13201,7 +13207,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
         </div>
         <p class="text-[10px] text-slate-400 font-bold mb-1.5">${(a.target_devices || []).map(_escHtml).join(', ') || '—'} · ${new Date(a.created_at).toLocaleString()}</p>
-        ${a.file_url ? `<audio controls src="${a.file_url}" class="w-full" style="height:32px"></audio>` : `<p class="text-[10px] text-slate-400 font-bold italic">Text only — no audio</p>`}
+        ${a.file_url ? `<audio controls src="${a.file_url}" class="w-full mb-1.5" style="height:32px"></audio>` : `<p class="text-[10px] text-slate-400 font-bold italic mb-1.5">Text only — no audio</p>`}
+        ${(a.played_by || []).length
+          ? `<p class="text-[10px] font-bold text-emerald-600">Played by (${a.played_by.length}): ${a.played_by.map(_escHtml).join(', ')}</p>`
+          : `<p class="text-[10px] font-bold text-amber-600">Not played by any device yet</p>`}
       </div>`).join('');
   }
 

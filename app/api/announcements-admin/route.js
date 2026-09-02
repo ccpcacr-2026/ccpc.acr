@@ -44,31 +44,58 @@ async function _isAnnouncementsAdmin(userId) {
   return roles.some(r => ['Admin', 'VP', 'Cord', 'Class Teacher'].includes(r));
 }
 
-// Devices to target come from student.p10_display_devices — the P10 firmware
-// is what actually polls get_pending_announcements() and plays them
-// (device_health is the separate NFC-terminal fleet, which doesn't consume
-// announcements at all). Collapsed to one row per device_hash (latest
-// ping), same de-dupe logic as get_device_health_list in app/api/
-// student-admin/route.js. The option VALUE must be paired_device_name, not
-// device_hash — that's the exact string the firmware sends as p_device_id
-// (see currentPairedId() in p10_display/src/main.cpp) and what
-// get_pending_announcements matches target_devices entries against.
-async function _getDevicesForTargeting() {
-  const res = await fetch(`${SB_URL}/rest/v1/p10_display_devices?select=device_hash,device_name,paired_device_name,created_at&order=created_at.desc`, {
+async function _sbStudent(path) {
+  const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
     headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'student' },
   });
-  if (!res.ok) return NextResponse.json({ result: 'error', message: await res.text() }, { status: 500 });
-  const rows = await res.json();
+  if (!res.ok) return { error: await res.text() };
+  return res.json();
+}
+
+// A Class Teacher (and nobody broader) is confined to the P10 display(s)
+// assigned to their own class/section — never school-wide 'All'. Admin/VP/
+// Cord are unrestricted. Deliberately keyed off the caller's OWN roles/
+// assignments, never anything the client submits, same pattern as
+// getMyClassAttendanceReport in app/api/exec/route.js.
+async function _resolveTargetableDevices(userId) {
+  const roles = await _getUserRoles(userId);
+  const isBroad = roles.some(r => ['Admin', 'VP', 'Cord'].includes(r));
+
+  // Devices to target come from student.p10_display_devices — the P10
+  // firmware is what actually polls get_pending_announcements() and plays
+  // them (device_health is the separate NFC-terminal fleet, which doesn't
+  // consume announcements at all). Collapsed to one row per device_hash
+  // (latest ping), same de-dupe logic as get_device_health_list in app/api/
+  // student-admin/route.js. The option VALUE must be paired_device_name,
+  // not device_hash — that's the exact string the firmware sends as
+  // p_device_id (see currentPairedId() in p10_display/src/main.cpp) and
+  // what get_pending_announcements matches target_devices entries against.
+  const rows = await _sbStudent('p10_display_devices?select=device_hash,device_name,paired_device_name,assigned_class,assigned_section,created_at&order=created_at.desc');
+  if (rows?.error) return { error: rows.error };
+
+  let myClasses = null; // null = unrestricted (isBroad); else Set of "class||section"
+  if (!isBroad) {
+    const assignments = await _sbStudent(`class_teacher_assignments?user_id=eq.${encodeURIComponent(userId)}&select=class,section`);
+    myClasses = new Set((Array.isArray(assignments) ? assignments : []).map(a => `${a.class}||${a.section}`));
+  }
+
   const seen = new Set();
   const devices = [];
   (Array.isArray(rows) ? rows : []).forEach(r => {
     if (!r.device_hash || seen.has(r.device_hash)) return;
+    if (myClasses && !myClasses.has(`${r.assigned_class}||${r.assigned_section}`)) return;
     seen.add(r.device_hash);
     const pairedId = r.paired_device_name || r.device_name || r.device_hash;
     const label = r.device_name && r.device_name !== pairedId ? `${pairedId} — ${r.device_name}` : pairedId;
     devices.push({ value: pairedId, label });
   });
-  return NextResponse.json({ result: 'success', devices });
+  return { devices, canTargetAll: isBroad };
+}
+
+async function _getDevicesForTargeting(userId) {
+  const { devices, canTargetAll, error } = await _resolveTargetableDevices(userId);
+  if (error) return NextResponse.json({ result: 'error', message: error }, { status: 500 });
+  return NextResponse.json({ result: 'success', devices, can_target_all: canTargetAll });
 }
 
 // Uploads a base64-encoded MP3 straight to Supabase Storage via its REST
@@ -137,7 +164,7 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success', announcements: rows });
   }
 
-  if (action === 'get_devices_for_targeting') return _getDevicesForTargeting();
+  if (action === 'get_devices_for_targeting') return _getDevicesForTargeting(user_id);
   if (action === 'upload_audio') return _uploadAnnouncementAudio(payload);
 
   if (action === 'save_announcement') {
@@ -147,6 +174,25 @@ export async function POST(req) {
     // scrolls the title with nothing to download or play, see
     // fetchAnnouncements()/startPlayback() in p10_display/src/main.cpp).
     if (!title) return NextResponse.json({ result: 'error', message: 'Title is required.' }, { status: 400 });
+
+    // Re-derive what THIS caller is actually allowed to target — a Class
+    // Teacher submitting 'All' or another class's device by hand-crafting
+    // the request must be rejected here, not just hidden from them in the
+    // UI. Admin/VP/Cord are unrestricted (canTargetAll).
+    const wantsAll = Array.isArray(target_devices) && target_devices.includes('All');
+    const { devices: myDevices, canTargetAll, error: devErr } = await _resolveTargetableDevices(user_id);
+    if (devErr) return NextResponse.json({ result: 'error', message: devErr }, { status: 500 });
+    if (wantsAll && !canTargetAll) {
+      return NextResponse.json({ result: 'error', message: 'You can only target your own class’s device(s), not All.' }, { status: 403 });
+    }
+    if (!canTargetAll) {
+      const allowed = new Set(myDevices.map(d => d.value));
+      const invalid = (Array.isArray(target_devices) ? target_devices : []).filter(t => t !== 'All' && !allowed.has(t));
+      if (invalid.length) {
+        return NextResponse.json({ result: 'error', message: `Not authorized to target: ${invalid.join(', ')}` }, { status: 403 });
+      }
+    }
+
     const rowData = {
       title,
       file_url: file_url || '',
