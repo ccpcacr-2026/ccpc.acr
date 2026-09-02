@@ -4207,17 +4207,22 @@
             <p class="text-[10px] text-slate-400 font-bold mb-2">${c.dates.length} school day${c.dates.length === 1 ? '' : 's'} in range${feeAmount ? ` · Absent fee ৳${feeAmount}/day · Leave days (via Leave Apply) are fee-exempt` : ''}</p>
             <div class="overflow-auto border border-slate-200 rounded-xl">
               <table class="w-full text-left border-collapse text-xs">
-                <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Roll</th><th class="py-2 px-3">Name</th><th class="py-2 px-3">Present</th><th class="py-2 px-3">Absent</th><th class="py-2 px-3">Leave</th><th class="py-2 px-3">%</th>${feeAmount ? '<th class="py-2 px-3">Absent Fee</th>' : ''}</tr></thead>
+                <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Roll</th><th class="py-2 px-3">Name</th><th class="py-2 px-3">Present</th><th class="py-2 px-3">Absent</th><th class="py-2 px-3">Leave</th><th class="py-2 px-3">%</th><th class="py-2 px-3">Pass</th>${feeAmount ? '<th class="py-2 px-3">Absent Fee</th>' : ''}</tr></thead>
                 <tbody>
-                  ${c.students.map(s => `<tr class="border-b border-slate-50">
+                  ${c.students.map(s => {
+                    const passEvents = s.pass_events || [];
+                    const passTitle = passEvents.map(p => `${p.date}: out ${p.out || '—'} → in ${p.in || 'not back yet'}`).join('\n');
+                    return `<tr class="border-b border-slate-50">
                     <td class="py-1.5 px-3">${_escHtml(s.roll || '')}</td>
                     <td class="py-1.5 px-3">${_escHtml(s.student_name || '')}</td>
                     <td class="py-1.5 px-3 text-emerald-600 font-black">${s.present}</td>
                     <td class="py-1.5 px-3 text-red-500 font-black">${s.absent}</td>
                     <td class="py-1.5 px-3 text-sky-500 font-black">${s.leave || 0}</td>
                     <td class="py-1.5 px-3 font-black ${s.percentage < 75 ? 'text-red-500' : 'text-slate-700'}">${s.percentage}%</td>
+                    <td class="py-1.5 px-3">${passEvents.length ? `<span title="${_escHtml(passTitle)}" class="font-black text-amber-600 cursor-help border-b border-dashed border-amber-300">${passEvents.length}</span>` : '<span class="text-slate-300">—</span>'}</td>
                     ${feeAmount ? `<td class="py-1.5 px-3 font-black text-amber-600">৳${s.absent_fee}</td>` : ''}
-                  </tr>`).join('') || `<tr><td colspan="${feeAmount ? 7 : 6}" class="p-3 text-slate-400 font-bold text-xs">No students found for this class</td></tr>`}
+                  </tr>`;
+                  }).join('') || `<tr><td colspan="${feeAmount ? 8 : 7}" class="p-3 text-slate-400 font-bold text-xs">No students found for this class</td></tr>`}
                 </tbody>
               </table>
             </div>

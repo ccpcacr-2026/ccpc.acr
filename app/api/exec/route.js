@@ -2928,7 +2928,7 @@ const handlers = {
           `students_data?class=eq.${encodeURIComponent(studentClass)}&section=eq.${encodeURIComponent(studentSection)}${_extraCriteriaQS(extraCriteria)}` +
           `&select=student_id,student_name,roll&order=roll.asc`
         ),
-        _sbStudent(`attendance_records?date=gte.${encodeURIComponent(fromDate)}&date=lte.${encodeURIComponent(toDate)}&select=student_id,date`),
+        _sbStudent(`attendance_records?date=gte.${encodeURIComponent(fromDate)}&date=lte.${encodeURIComponent(toDate)}&select=student_id,date,entry_time,exit_time,pass`),
         _sbStudent(`manual_attendance_overrides?date=gte.${encodeURIComponent(fromDate)}&date=lte.${encodeURIComponent(toDate)}&select=student_id,date,status`),
       ]);
       const roster = Array.isArray(students) ? students : [];
@@ -2958,6 +2958,21 @@ const handlers = {
         overrideByStudentDate[`${o.student_id}||${o.date}`] = o.status;
       });
 
+      // Mid-day "left campus / came back" taps — student.attendance_records.
+      // pass is populated by the att_fill_pass trigger as
+      // {count, status, history:[{out,in,status}]}. Flattened to one entry
+      // per (student, date, pass) rather than nested under each day, since
+      // most days have none at all and a Class Teacher mainly wants "did
+      // this happen, and when" — not a full day-by-day grid.
+      const passEventsByStudent = {};
+      allPresentRows.forEach(p => {
+        if (!rosterIds.has(p.student_id)) return;
+        const history = p.pass && Array.isArray(p.pass.history) ? p.pass.history : [];
+        if (!history.length) return;
+        (passEventsByStudent[p.student_id] = passEventsByStudent[p.student_id] || [])
+          .push(...history.map(h => ({ date: p.date, out: h.out || null, in: h.in || null, status: h.status || null })));
+      });
+
       const students_summary = roster.map(s => {
         // "absent" here means fee-liable absence — a class teacher marking
         // specific days 'leave' (via My Students → Leave Apply) pulls those
@@ -2978,6 +2993,7 @@ const handlers = {
           present, absent, leave, total,
           percentage: total ? Math.round((present / total) * 1000) / 10 : 0,
           absent_fee: Math.round(absent * absentFeeAmount * 100) / 100,
+          pass_events: passEventsByStudent[s.student_id] || [],
         };
       });
 
