@@ -11546,6 +11546,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // ══════════════════════════════════════════════════════════════════════
 
   const ATTENDANCE_SUBTABS = [
+    { id: 'att-today', label: 'Today' },
     { id: 'att-daily', label: 'Daily Report' },
     { id: 'att-devices', label: 'Devices' },
     { id: 'att-punchlog', label: 'Punch Log' },
@@ -11577,7 +11578,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
       <div class="flex flex-wrap gap-2 mb-5">${tabBar}</div>
 
-      <div id="att-daily">
+      <div id="att-today">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <div class="flex items-center gap-2">
+            <input type="date" id="todayOverviewDate" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            <button onclick="loadTodayOverview()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="refresh-cw" class="h-3 w-3"></i>Refresh</button>
+          </div>
+          <div id="todayOverviewTotals" class="text-xs font-black text-slate-600"></div>
+        </div>
+        <div id="todayOverviewBody"><div class="text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div></div>
+      </div>
+
+      <div id="att-daily" style="display:none">
         <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
           <input type="text" id="attClass" placeholder="Class" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
           <input type="text" id="attSection" placeholder="Section (optional)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
@@ -11605,10 +11617,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div id="attendanceDevicesList" class="flex flex-col gap-2"><span class="text-xs text-slate-400 font-bold italic">Loading…</span></div>
 
         <div class="flex items-center justify-between mt-6 mb-3">
-          <p class="font-black text-slate-800 text-sm flex items-center gap-2"><i data-lucide="wifi" class="h-4 w-4 text-emerald-600"></i>ESP32 Heartbeat Devices</p>
+          <p class="font-black text-slate-800 text-sm flex items-center gap-2"><i data-lucide="wifi" class="h-4 w-4 text-emerald-600"></i>NFC Terminals</p>
         </div>
-        <p class="text-xs text-slate-400 font-bold mb-3">Every ESP32 unit registers itself here automatically the first time it pings in — nothing to add manually. Assign each one to the class it sits in front of.</p>
-        <div id="deviceHealthList" class="flex flex-col gap-2"><span class="text-xs text-slate-400 font-bold italic">Loading…</span></div>
+        <p class="text-xs text-slate-400 font-bold mb-3">Every ESP32 entry terminal registers itself here automatically the first time it pings in — nothing to add manually. Set its name, class/section, and WiFi below (per device, or push to every terminal at once).</p>
+        <div id="deviceHealthList_nfc" class="flex flex-col gap-2 mb-6"><span class="text-xs text-slate-400 font-bold italic">Loading…</span></div>
+
+        <div class="flex items-center justify-between mb-3">
+          <p class="font-black text-slate-800 text-sm flex items-center gap-2"><i data-lucide="monitor" class="h-4 w-4 text-indigo-600"></i>P10 Displays</p>
+        </div>
+        <p class="text-xs text-slate-400 font-bold mb-3">The LED count/announcement displays — same idea, separate fleet. A display's "Name" is what it's paired as for announcement targeting.</p>
+        <div id="deviceHealthList_p10" class="flex flex-col gap-2"><span class="text-xs text-slate-400 font-bold italic">Loading…</span></div>
       </div>
 
       <div id="att-punchlog" style="display:none">
@@ -11625,7 +11643,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
     `;
     lucide.createIcons();
-    loadAttendanceReport();
+    const todayDateEl = document.getElementById('todayOverviewDate');
+    if (todayDateEl) todayDateEl.value = new Date().toISOString().slice(0, 10);
+    loadTodayOverview();
     _adminFetch('get_absent_fee_setting', {}).then(res => {
       const el = document.getElementById('absentFeeAmount');
       if (el && res && res.result === 'success') el.value = res.amount || '';
@@ -11639,6 +11659,104 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
   }
 
+  // ── "Today" school-wide overview (VP/Cord's main landing view) ──────────
+  // Every class+section's present/absent/leave for one date in a single
+  // fetch, plus who's currently out on a mid-day pass and a device-health
+  // summary. Distinct from Daily Report (one class/section/date, editable)
+  // and Devices (full device management) — this is a read-only glance.
+  function loadTodayOverview() {
+    const body = document.getElementById('todayOverviewBody');
+    const dateEl = document.getElementById('todayOverviewDate');
+    if (!body) return;
+    const date = (dateEl && dateEl.value) || new Date().toISOString().slice(0, 10);
+    body.innerHTML = `<div class="text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`;
+    _adminFetch('get_today_attendance_overview', { date }).then(res => {
+      if (!res || res.result !== 'success') { body.innerHTML = `<div class="text-center py-8 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml((res && res.message) || 'Failed to load')}</div>`; return; }
+      const totalsEl = document.getElementById('todayOverviewTotals');
+      if (totalsEl) {
+        const t = res.totals;
+        const pct = t.total ? Math.round((t.present / t.total) * 100) : 0;
+        totalsEl.innerHTML = `<span class="text-emerald-600">${t.present} present</span> · <span class="text-red-500">${t.absent} absent</span> · <span class="text-sky-500">${t.leave} leave</span> · ${pct}% of ${t.total}`;
+      }
+
+      const classRowsDesktop = res.classes.map(c => {
+        const pct = c.total ? Math.round((c.present / c.total) * 100) : 0;
+        return `<tr class="border-b border-slate-50">
+          <td class="py-1.5 px-3 font-black text-slate-800">${_escHtml(c.class)}</td>
+          <td class="py-1.5 px-3 text-slate-500">${_escHtml(c.section)}</td>
+          <td class="py-1.5 px-3 text-emerald-600 font-black">${c.present}</td>
+          <td class="py-1.5 px-3 text-red-500 font-black">${c.absent}</td>
+          <td class="py-1.5 px-3 text-sky-500 font-black">${c.leave}</td>
+          <td class="py-1.5 px-3 text-slate-400">${c.total}</td>
+          <td class="py-1.5 px-3 font-black ${pct < 75 ? 'text-red-500' : 'text-slate-700'}">${pct}%</td>
+        </tr>`;
+      }).join('') || `<tr><td colspan="7" class="p-3 text-slate-400 font-bold text-xs">No students found.</td></tr>`;
+
+      const classCardsMobile = res.classes.map(c => {
+        const pct = c.total ? Math.round((c.present / c.total) * 100) : 0;
+        return `<div class="border border-slate-200 rounded-xl px-3 py-2.5">
+          <div class="flex items-center justify-between mb-1">
+            <span class="font-black text-slate-800 text-xs">${_escHtml(c.class)} — ${_escHtml(c.section)}</span>
+            <span class="font-black text-[11px] ${pct < 75 ? 'text-red-500' : 'text-slate-700'}">${pct}%</span>
+          </div>
+          <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] font-bold">
+            <span class="text-emerald-600">${c.present} present</span>
+            <span class="text-red-500">${c.absent} absent</span>
+            <span class="text-sky-500">${c.leave} leave</span>
+            <span class="text-slate-400">of ${c.total}</span>
+          </div>
+        </div>`;
+      }).join('') || `<div class="text-center py-6 text-slate-400 text-xs font-black uppercase tracking-widest">No students found.</div>`;
+
+      const outHtml = res.currently_out.length ? res.currently_out.map(o => `
+        <div class="flex items-center justify-between border border-amber-200 bg-amber-50 rounded-xl px-3 py-2">
+          <div class="min-w-0">
+            <span class="font-black text-slate-800 text-xs">${_escHtml(o.student_name || o.student_id)}</span>
+            <span class="text-[10px] text-slate-400 font-bold ml-1.5">${_escHtml(o.class)} — ${_escHtml(o.section)}</span>
+          </div>
+          <span class="text-[10px] font-black text-amber-700 uppercase tracking-widest shrink-0">Out since ${_escHtml(o.out_since || '—')}</span>
+        </div>`).join('') : `<p class="text-xs text-slate-400 font-bold italic">Nobody is currently out on a mid-day pass.</p>`;
+
+      const deviceSummary = fleet => {
+        const online = fleet.devices.filter(d => !d.offline).length;
+        const offline = fleet.devices.length - online;
+        if (fleet.error) return `<span class="text-red-500">Not available — run the Part 0 migration (grant on this table missing)</span>`;
+        if (!fleet.devices.length) return `<span class="text-slate-400">None reporting yet</span>`;
+        return `<span class="text-emerald-600">${online} online</span>${offline ? ` · <span class="text-red-500">${offline} offline</span>` : ''}`;
+      };
+
+      body.innerHTML = `
+        <div class="bg-white border border-slate-200 rounded-2xl p-4 mb-4">
+          <p class="font-black text-slate-800 text-sm mb-3 flex items-center gap-2"><i data-lucide="layout-grid" class="h-4 w-4 text-blue-600"></i>Every Class, Today</p>
+          <div class="inv-desktop-block overflow-x-auto border border-slate-200 rounded-xl">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Class</th><th class="py-2 px-3">Section</th><th class="py-2 px-3">Present</th><th class="py-2 px-3">Absent</th><th class="py-2 px-3">Leave</th><th class="py-2 px-3">Total</th><th class="py-2 px-3">%</th></tr></thead>
+              <tbody>${classRowsDesktop}</tbody>
+            </table>
+          </div>
+          <div class="md:hidden flex flex-col gap-1.5">${classCardsMobile}</div>
+        </div>
+
+        <div class="bg-white border border-slate-200 rounded-2xl p-4 mb-4">
+          <p class="font-black text-slate-800 text-sm mb-3 flex items-center gap-2"><i data-lucide="footprints" class="h-4 w-4 text-amber-600"></i>Currently Out on a Pass</p>
+          <div class="flex flex-col gap-1.5">${outHtml}</div>
+        </div>
+
+        <div class="bg-white border border-slate-200 rounded-2xl p-4">
+          <div class="flex items-center justify-between mb-2">
+            <p class="font-black text-slate-800 text-sm flex items-center gap-2"><i data-lucide="wifi" class="h-4 w-4 text-emerald-600"></i>Device Health</p>
+            <button onclick="switchAttendanceTab('att-devices')" class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-black">Manage devices →</button>
+          </div>
+          <div class="text-xs font-bold flex flex-col gap-1">
+            <div>NFC terminals: ${deviceSummary(res.nfc_devices)}</div>
+            <div>P10 displays: ${deviceSummary(res.p10_devices)}</div>
+          </div>
+        </div>
+      `;
+      lucide.createIcons();
+    }).catch(err => { body.innerHTML = `<div class="text-center py-8 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml(err.message || 'Failed to load')}</div>`; });
+  }
+
   function switchAttendanceTab(tabId) {
     ATTENDANCE_SUBTABS.forEach(t => {
       const panel = document.getElementById(t.id);
@@ -11650,6 +11768,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         btn.className += active ? ' bg-blue-600 text-white shadow-lg shadow-blue-500/20' : ' bg-white text-slate-400 border border-slate-200 hover:bg-slate-50';
       }
     });
+    if (tabId === 'att-today') loadTodayOverview();
     if (tabId === 'att-devices') loadAttendanceDevices();
     if (tabId === 'att-punchlog') loadPunchLog();
   }
@@ -11706,72 +11825,107 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     loadDeviceHealthList();
   }
 
-  // ── ESP32 heartbeat devices (auto-discovered, class-assignable) ─────────
+  // ── ESP32 fleets (auto-discovered, class/name/WiFi-assignable) ──────────
+  // Two fleets, same card UI: student.device_health (NFC entry terminals)
+  // and student.p10_display_devices (LED count/announcement displays). The
+  // "name" field differs — device_name_by_system for NFC, paired_device_
+  // name for P10 (the P10 firmware literally uses it as its own identity
+  // string, see currentPairedId() in p10_display/src/main.cpp) — everything
+  // else (assigned_class/section, wifi_ssid, wifi_ssid_pass) is identical
+  // on both tables, so one save_device_config action + one card renderer
+  // covers both, parameterized by `fleet`.
   let _dhClassOptions = null; // cached distinct class list, fetched once
-
-  function _dhParseStatus(status) {
-    // Firmware packs its status as "[V:x] [NM:y] [timestamp] Act: ... | ...".
-    // Pull out just Up/Temp/In-Out for a compact glance — full string still
-    // available via the row's title attribute for anyone who wants it all.
-    const s = String(status || '');
-    const pick = re => { const m = s.match(re); return m ? m[1].trim() : null; };
-    return {
-      uptime: pick(/Up:\s*([^|]+)/i),
-      temp: pick(/Temp:\s*([^|]+)/i),
-      inOut: pick(/In\/Out:\s*([^|]+)/i),
-    };
-  }
+  const DEVICE_FLEETS = {
+    nfc: { action: 'get_device_health_list', target: 'nfc', nameField: 'device_name_by_system', label: 'NFC Terminals' },
+    p10: { action: 'get_p10_device_health_list', target: 'p10', nameField: 'paired_device_name', label: 'P10 Displays' },
+  };
 
   function loadDeviceHealthList() {
     Promise.all([
       _adminFetch('get_device_health_list', {}),
+      _adminFetch('get_p10_device_health_list', {}),
       _dhClassOptions ? Promise.resolve(null) : _adminFetch('get_class_sections', {}),
-    ]).then(([res, classRes]) => {
+    ]).then(([nfcRes, p10Res, classRes]) => {
       if (classRes) {
         const rows = Array.isArray(classRes) ? classRes : [];
         _dhClassOptions = Array.from(new Set(rows.map(r => r.class).filter(Boolean))).sort();
       }
-      const devices = (res && res.result === 'success' && res.devices) || [];
-      const host = document.getElementById('deviceHealthList');
-      if (!host) return;
-      host.innerHTML = devices.length ? devices.map(d => _deviceHealthRowHtml(d)).join('') : '<span class="text-xs text-slate-400 font-bold italic">No ESP32 devices have reported in yet.</span>';
+      _dhRenderFleet('nfc', nfcRes);
+      _dhRenderFleet('p10', p10Res);
       lucide.createIcons();
     });
   }
 
-  function _deviceHealthRowHtml(d) {
-    const key = d.device_hash || String(d.id);
-    const parsed = _dhParseStatus(d.status);
-    const displayName = d.device_name_by_system || d.device_name || 'Unnamed device';
+  function _dhRenderFleet(fleet, res) {
+    const host = document.getElementById('deviceHealthList_' + fleet);
+    if (!host) return;
+    if (res && res.error) { host.innerHTML = `<p class="text-xs text-red-500 font-bold">${_escHtml(res.error)}</p>`; return; }
+    const devices = (res && res.result === 'success' && res.devices) || [];
+    host.innerHTML = devices.length
+      ? devices.map(d => _deviceHealthCardHtml(fleet, d)).join('')
+      : '<span class="text-xs text-slate-400 font-bold italic">No devices have reported in yet.</span>';
+  }
+
+  function _deviceHealthCardHtml(fleet, d) {
+    const cfg = DEVICE_FLEETS[fleet];
+    const key = `${fleet}_${d.device_hash || d.id}`;
+    const displayName = d[cfg.nameField] || d.device_name || 'Unnamed device';
     const classOpts = (_dhClassOptions || []).map(c => `<option value="${_escHtml(c)}" ${d.assigned_class === c ? 'selected' : ''}>${_escHtml(c)}</option>`).join('');
+    const info = (label, val) => val ? `<div><span class="text-slate-400">${label}:</span> <span class="font-bold text-slate-600">${_escHtml(String(val))}</span></div>` : '';
     return `
-      <div class="border border-slate-200 rounded-xl px-3 py-2.5" title="${_escHtml(d.status || '')}">
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <div class="min-w-0">
+      <div class="border border-slate-200 rounded-xl p-3">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <div class="min-w-0 flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full shrink-0 ${d.offline ? 'bg-red-500' : 'bg-emerald-500'}" title="${d.offline ? 'Offline' : 'Online'}"></span>
             <span class="font-black text-slate-800 text-xs">${_escHtml(displayName)}</span>
-            ${d.device_hash ? `<span class="text-[9px] font-bold text-slate-300 ml-1">#${_escHtml(d.device_hash.slice(-6))}</span>` : ''}
-            <div class="text-[10px] text-slate-400 font-bold mt-0.5">
-              ${d.created_at ? 'Last seen ' + new Date(d.created_at).toLocaleString() : 'Never reported'}
-              ${parsed.uptime ? ' · Up ' + _escHtml(parsed.uptime) : ''}${parsed.temp ? ' · ' + _escHtml(parsed.temp) : ''}${parsed.inOut ? ' · In/Out ' + _escHtml(parsed.inOut) : ''}
-            </div>
+            ${d.device_hash ? `<span class="text-[9px] font-bold text-slate-300">#${_escHtml(d.device_hash.slice(-6))}</span>` : ''}
           </div>
-          <div class="flex items-center gap-1.5 shrink-0">
-            <select id="dhClass_${_escHtml(key)}" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
-              <option value="">Unassigned</option>
-              ${classOpts}
-            </select>
-            <input id="dhSection_${_escHtml(key)}" type="text" value="${_escHtml(d.assigned_section || '')}" placeholder="Section" class="w-20 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
-            <button onclick="saveDeviceClassAssignment('${_escHtml(key)}', ${d.device_hash ? `'${_escHtml(d.device_hash)}'` : 'null'}, ${d.id})" class="px-2.5 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button>
+          <span class="text-[10px] font-black uppercase tracking-widest ${d.offline ? 'text-red-500' : 'text-emerald-600'}">${d.minutes_ago == null ? 'Never reported' : d.offline ? `Offline (${d.minutes_ago}m ago)` : `Seen ${d.minutes_ago}m ago`}</span>
+        </div>
+
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-x-3 gap-y-0.5 text-[11px] mb-3">
+          ${info('Firmware', d.status_firmware_version || d.firmware_version)}
+          ${info('Temp', d.status_temp_c != null ? d.status_temp_c + '°C' : null)}
+          ${info('Battery', d.status_battery_v != null ? d.status_battery_v + 'V' : null)}
+          ${info('Uptime', d.status_uptime)}
+          ${info('In/Out', d.status_in_out)}
+          ${info('Queue', d.status_queue)}
+          ${info('Device Hash', d.device_hash)}
+          ${info('Firmware URL', d.firmware_url)}
+        </div>
+        <p class="text-[10px] text-slate-300 font-bold mb-3 truncate" title="${_escHtml(d.raw_status || '')}">${_escHtml(d.raw_status || 'No status reported yet')}</p>
+
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-1.5 mb-2">
+          <input id="dhName_${key}" type="text" value="${_escHtml(d[cfg.nameField] || '')}" placeholder="Name" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
+          <select id="dhClass_${key}" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
+            <option value="">Unassigned</option>
+            ${classOpts}
+          </select>
+          <input id="dhSection_${key}" type="text" value="${_escHtml(d.assigned_section || '')}" placeholder="Section" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
+          <input id="dhSsid_${key}" type="text" value="${_escHtml(d.wifi_ssid || '')}" placeholder="WiFi SSID" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
+        </div>
+        <div class="grid grid-cols-2 gap-1.5">
+          <input id="dhPass_${key}" type="text" value="${_escHtml(d.wifi_ssid_pass || '')}" placeholder="WiFi Password" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
+          <div class="flex items-center gap-1.5">
+            <button onclick="saveDeviceConfig('${fleet}', '${_escHtml(key)}', '${_escHtml(d.device_hash || '')}', false)" class="flex-1 px-2.5 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button>
+            <button onclick="saveDeviceConfig('${fleet}', '${_escHtml(key)}', '${_escHtml(d.device_hash || '')}', true)" title="Apply these fields to every ${_escHtml(cfg.label)} device" class="flex-1 px-2.5 py-1.5 border border-amber-300 text-amber-700 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-amber-50 transition-all">Apply to All</button>
           </div>
         </div>
       </div>`;
   }
 
-  function saveDeviceClassAssignment(key, device_hash, id) {
+  function saveDeviceConfig(fleet, key, device_hash, applyToAll) {
+    if (applyToAll && !confirm(`Apply these fields to EVERY ${DEVICE_FLEETS[fleet].label} device? This overwrites their current name/class/section/WiFi.`)) return;
+    const name = document.getElementById('dhName_' + key).value.trim();
     const assigned_class = document.getElementById('dhClass_' + key).value;
     const assigned_section = document.getElementById('dhSection_' + key).value.trim();
-    _adminFetch('save_device_class_assignment', { device_hash, id, assigned_class, assigned_section }).then(res => {
-      if (res && res.result === 'success') { showToast('Assignment saved'); loadDeviceHealthList(); }
+    const wifi_ssid = document.getElementById('dhSsid_' + key).value.trim();
+    const wifi_ssid_pass = document.getElementById('dhPass_' + key).value.trim();
+    _adminFetch('save_device_config', {
+      target: fleet, device_hash, apply_to_all: !!applyToAll,
+      name, assigned_class, assigned_section, wifi_ssid, wifi_ssid_pass,
+    }).then(res => {
+      if (res && res.result === 'success') { showToast(applyToAll ? `Applied to ${res.updated} device(s)` : 'Saved'); loadDeviceHealthList(); }
       else showToast((res && res.message) || 'Save failed', 'error');
     });
   }

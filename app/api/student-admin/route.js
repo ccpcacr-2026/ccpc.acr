@@ -116,6 +116,54 @@ async function sbAllRows(path) {
   return all;
 }
 
+// Shared by both ESP32 fleets (student.device_health for NFC terminals,
+// student.p10_display_devices for the LED displays) — each heartbeats a
+// human-readable status string like "[V:1.0.7] [NM:attendance_esp32_t_
+// display_modular] [2026-09-02 11:13:29] Act: Boot | Peer: NotInit |
+// Sync: N/A | Temp: 53.3C | Up: 0d 0h 0m | In/Out: 53/38 | V: 4.84V |
+// FS: 0.2/9.9MB | Q: 0" instead of separate columns. The THIRD bracketed
+// value is this status line's own timestamp (set fresh on every heartbeat)
+// — used for "last seen" instead of the row's created_at, which a Prefer:
+// resolution=merge-duplicates upsert does not necessarily refresh on every
+// conflict (only columns actually present in the upsert body get merged).
+// rows may be {error} instead of an array (e.g. the p10_display_devices
+// SELECT grant not applied yet) — degrades to an empty list with the error
+// attached rather than failing the whole caller.
+function _decodeDeviceHealthList(rows, opts) {
+  if (!Array.isArray(rows)) return { devices: [], error: (opts && opts.error) || (rows && rows.error) || null };
+  const seen = new Set();
+  const devices = [];
+  rows.forEach(r => {
+    const key = r.device_hash || `legacy-${r.id}`;
+    if (seen.has(key)) return; // rows are newest-first; first hit per hash wins
+    seen.add(key);
+    const status = String(r.status || '');
+    const num = re => { const m = status.match(re); return m ? Number(m[1]) : null; };
+    const str = re => { const m = status.match(re); return m ? m[1] : null; };
+    const lastSeenStr = str(/\[(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\]/);
+    const lastSeen = lastSeenStr ? new Date(lastSeenStr.replace(' ', 'T') + 'Z') : (r.created_at ? new Date(r.created_at) : null);
+    const minutesAgo = lastSeen ? Math.round((Date.now() - lastSeen.getTime()) / 60000) : null;
+    // Every column on the row, as-is (the UI shows the full row, not a
+    // curated subset) plus the fields parsed out of the packed status
+    // string for convenience — parsed fields never overwrite a real column
+    // of the same name (status_ prefix keeps them distinct from raw_status).
+    devices.push({
+      ...r,
+      raw_status: status,
+      status_firmware_version: str(/\[V:([\d.]+)\]/),
+      status_temp_c: num(/Temp:\s*([\d.]+)C/),
+      status_battery_v: num(/\sV:\s*([\d.]+)V/),
+      status_uptime: (str(/Up:\s*([^|]+)/) || '').trim() || null,
+      status_in_out: str(/In\/Out:\s*(\d+\/\d+)/),
+      status_queue: num(/Q:\s*(\d+)/),
+      last_seen: lastSeen ? lastSeen.toISOString() : null,
+      minutes_ago: minutesAgo,
+      offline: minutesAgo == null || minutesAgo > 20,
+    });
+  });
+  return { devices, error: null };
+}
+
 // Same shape as sb(), scoped to the `teacher_staff` schema instead — used
 // by Payroll/Leave Management, whose tables live alongside users_profile etc.
 async function sbTeacher(path, method = 'GET', body = null) {
@@ -390,7 +438,7 @@ const STAFF_OPEN_ACTIONS = new Set(['get_tracking_config', 'get_bus_data']);
 // the caller only needs to clear ONE of them, not all.
 const ADMIN_TAB_ACTIONS = {
   fees: new Set(['get_fee_types', 'save_fee_type', 'delete_fee_type', 'get_fee_structures', 'save_fee_structure', 'delete_fee_structure', 'get_late_fee_rules', 'save_late_fee_rule', 'delete_late_fee_rule', 'generate_classwise_fees', 'generate_individual_fee', 'remove_individual_fee', 'set_discount', 'get_discounts', 'set_partial_split', 'record_payment', 'get_student_fees', 'get_defaulters_list', 'get_fees_collection_report', 'get_fee_accounts', 'save_fee_account', 'record_account_transaction', 'get_account_register']),
-  attendance: new Set(['get_attendance_report', 'save_manual_attendance', 'save_bulk_manual_attendance', 'get_staff_attendance_report', 'get_attendance_devices', 'save_attendance_device', 'delete_attendance_device', 'get_punch_log', 'get_device_health_list', 'save_device_class_assignment', 'get_class_sections', 'get_absent_fee_setting', 'save_absent_fee_setting']),
+  attendance: new Set(['get_attendance_report', 'save_manual_attendance', 'save_bulk_manual_attendance', 'get_staff_attendance_report', 'get_attendance_devices', 'save_attendance_device', 'delete_attendance_device', 'get_punch_log', 'get_device_health_list', 'get_p10_device_health_list', 'save_device_class_assignment', 'save_device_config', 'get_class_sections', 'get_absent_fee_setting', 'save_absent_fee_setting', 'get_today_attendance_overview']),
   exams: new Set([
     'get_exam_terms', 'save_exam_term', 'archive_exam_term',
     'get_class_pattern_setup', 'get_class_patterns', 'save_class_pattern', 'save_class_pattern_map',
@@ -450,7 +498,7 @@ const CT_EXCLUDED_COLS = new Set([
 // actively widens or narrows one from the Access tab).
 const ADMIN_TAB_DEFAULTS = {
   fees: ['Admin', 'Student Portal Admin'],
-  attendance: ['Admin', 'Student Portal Admin'],
+  attendance: ['Admin', 'Student Portal Admin', 'VP', 'Cord'],
   exams: ['Admin', 'Student Portal Admin'],
   payroll: ['Admin', 'HR'],
   transport: ['Admin', 'Student Portal Admin'],
@@ -1833,15 +1881,20 @@ export async function POST(req) {
   if (action === 'get_device_health_list') {
     const rows = await sb('device_health?select=*&order=created_at.desc');
     if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
-    const seen = new Set();
-    const devices = [];
-    (Array.isArray(rows) ? rows : []).forEach(r => {
-      const key = r.device_hash || `legacy-${r.id}`;
-      if (seen.has(key)) return; // already have this hash's latest row (rows are newest-first)
-      seen.add(key);
-      devices.push(r);
-    });
+    const { devices } = _decodeDeviceHealthList(rows);
     return NextResponse.json({ result: 'success', devices });
+  }
+
+  // ── P10 display fleet (student.p10_display_devices) ─────────────────────
+  // Same shape/idiom as get_device_health_list above, separate fleet (the
+  // LED count/announcement displays, not the NFC entry terminals). Needs
+  // the Part 0 migration's `grant select on student.p10_display_devices to
+  // service_role` — degrades to an empty list with an error message rather
+  // than failing if that hasn't been run yet.
+  if (action === 'get_p10_device_health_list') {
+    const rows = await sb('p10_display_devices?select=*&order=created_at.desc');
+    const { devices, error } = _decodeDeviceHealthList(rows);
+    return NextResponse.json({ result: 'success', devices, error });
   }
   if (action === 'save_device_class_assignment') {
     const { id, device_hash, assigned_class, assigned_section } = payload || {};
@@ -1853,6 +1906,48 @@ export async function POST(req) {
     });
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
     return NextResponse.json({ result: 'success' });
+  }
+
+  // ── General device config push (class/section, name, WiFi) ──────────────
+  // Broader than save_device_class_assignment above (class/section only,
+  // device_health only) — covers either ESP32 fleet, a device's own name
+  // (device_health.device_name_by_system / p10_display_devices.paired_
+  // device_name — the P10 firmware literally uses the latter as its own
+  // identity string, see currentPairedId() in p10_display/src/main.cpp),
+  // and WiFi credentials, applied to one device OR every device in that
+  // fleet at once (apply_to_all — e.g. the school WiFi password changed).
+  // Every field is optional; only what's provided gets patched, so this
+  // never blanks out something the admin didn't touch. Looped one PATCH
+  // per device_hash for apply_to_all rather than a single filterless PATCH
+  // — slower for a large fleet, but there's no accidental "forgot the
+  // WHERE clause" footgun, and this fleet is small (a handful of units).
+  if (action === 'save_device_config') {
+    const { target, device_hash, apply_to_all, assigned_class, assigned_section, name, wifi_ssid, wifi_ssid_pass } = payload || {};
+    const table = target === 'p10' ? 'p10_display_devices' : 'device_health';
+    const nameField = target === 'p10' ? 'paired_device_name' : 'device_name_by_system';
+    if (!apply_to_all && !device_hash) return NextResponse.json({ result: 'error', message: 'device_hash or apply_to_all required.' });
+
+    const patch = {};
+    if (assigned_class !== undefined) patch.assigned_class = assigned_class || null;
+    if (assigned_section !== undefined) patch.assigned_section = assigned_section || null;
+    if (name !== undefined) patch[nameField] = name || null;
+    if (wifi_ssid !== undefined) patch.wifi_ssid = wifi_ssid || null;
+    if (wifi_ssid_pass !== undefined) patch.wifi_ssid_pass = wifi_ssid_pass || null;
+    if (!Object.keys(patch).length) return NextResponse.json({ result: 'error', message: 'Nothing to update.' });
+
+    if (apply_to_all) {
+      const rows = await sb(`${table}?select=device_hash&order=created_at.desc`);
+      if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+      const hashes = Array.from(new Set((Array.isArray(rows) ? rows : []).map(r => r.device_hash).filter(Boolean)));
+      const results = await Promise.all(hashes.map(h => sb(`${table}?device_hash=eq.${encodeURIComponent(h)}`, 'PATCH', patch)));
+      const failed = results.filter(r => r?.error);
+      if (failed.length) return NextResponse.json({ result: 'error', message: `${failed.length} of ${hashes.length} device(s) failed to update.` });
+      return NextResponse.json({ result: 'success', updated: hashes.length });
+    }
+
+    const r = await sb(`${table}?device_hash=eq.${encodeURIComponent(device_hash)}`, 'PATCH', patch);
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success', updated: 1 });
   }
 
   // ── Absent fee setting (teacher_staff.system_settings, key attendance_absent_fee) ─
@@ -1873,6 +1968,72 @@ export async function POST(req) {
       : await sbTeacher('system_settings', 'POST', [{ key: 'attendance_absent_fee', value: { amount } }]);
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
     return NextResponse.json({ result: 'success' });
+  }
+
+  // ── School-wide "Today" overview (VP/Cord dashboard) ────────────────────
+  // Distinct from get_attendance_report above (one class+section+date at a
+  // time) — this covers every class/section for one date in a single pass,
+  // plus who's currently out on a mid-day pass and ESP32 fleet health.
+  // Reuses the exact present/absent/leave resolution getMyClassAttendance
+  // Report (app/api/exec/route.js) and get_attendance_report already use:
+  // a manual_attendance_overrides row wins, else presence = has an
+  // attendance_records row for the date.
+  if (action === 'get_today_attendance_overview') {
+    const date = (payload && payload.date) || new Date().toISOString().slice(0, 10);
+    const [roster, presentRows, overrideRows, nfcDevices, p10Devices] = await Promise.all([
+      sbAllRows('students_data?select=student_id,student_name,class,section'),
+      sb(`attendance_records?date=eq.${encodeURIComponent(date)}&select=student_id,pass`),
+      sb(`manual_attendance_overrides?date=eq.${encodeURIComponent(date)}&select=student_id,status`),
+      sb('device_health?select=*&order=created_at.desc'),
+      sb('p10_display_devices?select=*&order=created_at.desc'),
+    ]);
+    if (roster?.error) return NextResponse.json({ result: 'error', message: roster.error });
+    if (presentRows?.error) return NextResponse.json({ result: 'error', message: presentRows.error });
+    if (overrideRows?.error) return NextResponse.json({ result: 'error', message: overrideRows.error });
+
+    const presentByStudent = {};
+    (Array.isArray(presentRows) ? presentRows : []).forEach(p => { presentByStudent[p.student_id] = p; });
+    const overrideByStudent = {};
+    (Array.isArray(overrideRows) ? overrideRows : []).forEach(o => { overrideByStudent[o.student_id] = o.status; });
+
+    const classMap = {};
+    const currentlyOut = [];
+    (Array.isArray(roster) ? roster : []).forEach(s => {
+      const cls = String(s.class || '').trim(), sec = String(s.section || '').trim();
+      if (!cls || !sec) return;
+      const key = `${cls}||${sec}`;
+      if (!classMap[key]) classMap[key] = { class: cls, section: sec, present: 0, absent: 0, leave: 0, total: 0 };
+      const bucket = classMap[key];
+      bucket.total++;
+      const own = presentByStudent[s.student_id];
+      const status = overrideByStudent[s.student_id] || (own ? 'present' : 'absent');
+      if (status === 'leave') bucket.leave++;
+      else if (status === 'present' || status === 'late') bucket.present++;
+      else bucket.absent++;
+
+      if (own && own.pass && own.pass.status === 'out') {
+        const history = Array.isArray(own.pass.history) ? own.pass.history : [];
+        const lastOut = history.length ? history[history.length - 1].out : null;
+        currentlyOut.push({ student_id: s.student_id, student_name: s.student_name, class: cls, section: sec, out_since: lastOut });
+      }
+    });
+    currentlyOut.sort((a, b) => String(a.out_since || '').localeCompare(String(b.out_since || '')));
+
+    const classes = Object.values(classMap).sort((a, b) => a.class.localeCompare(b.class) || a.section.localeCompare(b.section));
+    const totals = classes.reduce((acc, c) => {
+      acc.present += c.present; acc.absent += c.absent; acc.leave += c.leave; acc.total += c.total;
+      return acc;
+    }, { present: 0, absent: 0, leave: 0, total: 0 });
+
+    return NextResponse.json({
+      result: 'success',
+      date,
+      classes,
+      totals,
+      currently_out: currentlyOut,
+      nfc_devices: _decodeDeviceHealthList(nfcDevices),
+      p10_devices: _decodeDeviceHealthList(p10Devices, { error: p10Devices?.error }),
+    });
   }
 
   if (action === 'get_punch_log') {
