@@ -41,15 +41,20 @@ async function _getUserRoles(userId) {
 
 async function _isAnnouncementsAdmin(userId) {
   const roles = await _getUserRoles(userId);
-  return roles.includes('Admin');
+  return roles.some(r => ['Admin', 'VP', 'Cord', 'Class Teacher'].includes(r));
 }
 
-// Devices to target come from student.device_health (the same ESP32 fleet
-// registry the Attendance module's heartbeat list already reads) — collapsed
-// to one row per device_hash (latest ping), same de-dupe logic as
-// get_device_health_list in app/api/student-admin/route.js.
+// Devices to target come from student.p10_display_devices — the P10 firmware
+// is what actually polls get_pending_announcements() and plays them
+// (device_health is the separate NFC-terminal fleet, which doesn't consume
+// announcements at all). Collapsed to one row per device_hash (latest
+// ping), same de-dupe logic as get_device_health_list in app/api/
+// student-admin/route.js. The option VALUE must be paired_device_name, not
+// device_hash — that's the exact string the firmware sends as p_device_id
+// (see currentPairedId() in p10_display/src/main.cpp) and what
+// get_pending_announcements matches target_devices entries against.
 async function _getDevicesForTargeting() {
-  const res = await fetch(`${SB_URL}/rest/v1/device_health?select=device_hash,device_name,device_name_by_system,created_at&order=created_at.desc`, {
+  const res = await fetch(`${SB_URL}/rest/v1/p10_display_devices?select=device_hash,device_name,paired_device_name,created_at&order=created_at.desc`, {
     headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'student' },
   });
   if (!res.ok) return NextResponse.json({ result: 'error', message: await res.text() }, { status: 500 });
@@ -59,7 +64,9 @@ async function _getDevicesForTargeting() {
   (Array.isArray(rows) ? rows : []).forEach(r => {
     if (!r.device_hash || seen.has(r.device_hash)) return;
     seen.add(r.device_hash);
-    devices.push({ value: r.device_hash, label: r.device_name_by_system || r.device_name || r.device_hash });
+    const pairedId = r.paired_device_name || r.device_name || r.device_hash;
+    const label = r.device_name && r.device_name !== pairedId ? `${pairedId} — ${r.device_name}` : pairedId;
+    devices.push({ value: pairedId, label });
   });
   return NextResponse.json({ result: 'success', devices });
 }
@@ -135,10 +142,14 @@ export async function POST(req) {
 
   if (action === 'save_announcement') {
     const { id, title, file_url, target_devices, active } = payload;
-    if (!title || !file_url) return NextResponse.json({ result: 'error', message: 'Title and audio are required.' }, { status: 400 });
+    // file_url is optional — a blank one is a deliberate "text-only"
+    // announcement (the P10 firmware already fully supports this: it just
+    // scrolls the title with nothing to download or play, see
+    // fetchAnnouncements()/startPlayback() in p10_display/src/main.cpp).
+    if (!title) return NextResponse.json({ result: 'error', message: 'Title is required.' }, { status: 400 });
     const rowData = {
       title,
-      file_url,
+      file_url: file_url || '',
       target_devices: Array.isArray(target_devices) && target_devices.length ? target_devices : ['All'],
       active: active !== false,
       created_by: user_id,

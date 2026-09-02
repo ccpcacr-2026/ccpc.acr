@@ -12917,6 +12917,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
         </div>
 
+        <label class="flex items-center gap-2 text-xs font-bold text-slate-600 mb-4 cursor-pointer">
+          <input type="checkbox" id="annTextOnly" class="w-4 h-4 rounded accent-blue-600">
+          Text only (no audio) — the display just scrolls the title, nothing to play
+        </label>
+
         <p class="text-[10px] font-black text-slate-400 uppercase mb-2">Target Devices</p>
         <div id="annDeviceChecklist" class="flex flex-wrap gap-2 mb-4"><p class="text-slate-400 font-bold text-xs">Loading devices…</p></div>
 
@@ -13090,17 +13095,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!title) { status.className = 'text-xs font-bold text-red-500 mb-2'; status.textContent = 'Title is required.'; return; }
     const base64 = _annUploadedBase64 || _annRecordedBase64;
     const existing = _annEditingId ? _annListCache.find(a => a.id === _annEditingId) : null;
-    if (!base64 && !(existing && existing.file_url)) { status.className = 'text-xs font-bold text-red-500 mb-2'; status.textContent = 'Upload or record an MP3 first.'; return; }
+    const textOnly = document.getElementById('annTextOnly').checked;
+    if (!textOnly && !base64 && !(existing && existing.file_url)) { status.className = 'text-xs font-bold text-red-500 mb-2'; status.textContent = 'Upload or record an MP3, or check "Text only".'; return; }
     if (!_annTargetSet.size) { status.className = 'text-xs font-bold text-red-500 mb-2'; status.textContent = 'Pick at least one target device (or "All").'; return; }
     const targets = _annTargetSet.has('All') ? ['All'] : [..._annTargetSet];
     btn.disabled = true; btn.textContent = 'Saving…';
     status.className = 'text-xs font-bold text-slate-400 mb-2';
 
     // Editing without picking a new file/recording keeps the existing
-    // file_url as-is — no need to re-upload audio that hasn't changed.
+    // file_url as-is — no need to re-upload audio that hasn't changed. A
+    // brand-new text-only announcement has neither a fresh recording nor an
+    // existing row to fall back on, so that case resolves to '' (blank —
+    // the P10 firmware's own text-only convention).
     const uploadStep = base64
       ? (() => { status.textContent = 'Uploading audio…'; return _announceFetch('upload_audio', { filename: `${title.replace(/[^a-zA-Z0-9]+/g, '_')}.mp3`, base64 }); })()
-      : Promise.resolve({ result: 'success', file_url: existing.file_url });
+      : Promise.resolve({ result: 'success', file_url: (existing && existing.file_url) || '' });
 
     uploadStep.then(res => {
       if (!res || res.result !== 'success') throw new Error((res && res.message) || 'Upload failed');
@@ -13136,8 +13145,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (preview) { preview.classList.add('hidden'); preview.src = ''; }
     document.getElementById('annRecordStatus').textContent = '';
     _annUploadedBase64 = null; _annRecordedBase64 = null;
+    document.getElementById('annTextOnly').checked = !a.file_url;
     const note = document.getElementById('annCurrentAudioNote');
-    if (note) { note.classList.remove('hidden'); note.innerHTML = `Current audio: <a href="${a.file_url}" target="_blank" class="text-blue-600 underline">listen</a> — pick a new file/recording only if you want to replace it.`; }
+    if (note) {
+      note.classList.remove('hidden');
+      note.innerHTML = a.file_url
+        ? `Current audio: <a href="${a.file_url}" target="_blank" class="text-blue-600 underline">listen</a> — pick a new file/recording only if you want to replace it.`
+        : `Currently text-only (no audio) — pick a file/recording to add audio, or leave as-is.`;
+    }
     _annTargetSet = new Set(a.target_devices && a.target_devices.includes('All') ? ['All', ..._annDevicesCache.map(d => d.value)] : (a.target_devices || []));
     _annRenderDeviceChecklist();
     document.getElementById('annSaveBtn').textContent = 'Update Announcement';
@@ -13151,6 +13166,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('annTitle').value = '';
     document.getElementById('annFileInput').value = '';
     document.getElementById('annFileStatus').textContent = '';
+    document.getElementById('annTextOnly').checked = false;
     const preview = document.getElementById('annRecordPreview');
     if (preview) { preview.classList.add('hidden'); preview.src = ''; }
     document.getElementById('annRecordStatus').textContent = '';
@@ -13185,7 +13201,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
         </div>
         <p class="text-[10px] text-slate-400 font-bold mb-1.5">${(a.target_devices || []).map(_escHtml).join(', ') || '—'} · ${new Date(a.created_at).toLocaleString()}</p>
-        <audio controls src="${a.file_url}" class="w-full" style="height:32px"></audio>
+        ${a.file_url ? `<audio controls src="${a.file_url}" class="w-full" style="height:32px"></audio>` : `<p class="text-[10px] text-slate-400 font-bold italic">Text only — no audio</p>`}
       </div>`).join('');
   }
 
