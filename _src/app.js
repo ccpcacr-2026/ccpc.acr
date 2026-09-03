@@ -3995,6 +3995,16 @@
     { label: "Today's Attendance", icon: 'calendar-check', accent: '#4f46e5', action: "openMyStudentsAttendance()" },
     { label: 'Attendance Report',  icon: 'clipboard-list',  accent: '#059669', action: "openMyClassAttendanceReport()" },
     { label: 'My Students',        icon: 'users',           accent: '#a855f7', action: "openMyClassRoster()" },
+    // Reuses the exact same Announcements page Admin/VP/Cord get under
+    // Administration (loadAnnouncementsView) rather than a second,
+    // duplicated form — a Class Teacher caller is already restricted
+    // server-side (_resolveTargetableDevices in announcements-admin/
+    // route.js) to only their own class's device(s), 'All' hidden
+    // automatically, so the same view is correctly scoped just by being
+    // reached with a different user_id. This is the entry point for that
+    // role; the top-level Administration > Announcements nav item is
+    // Admin/VP/Cord's own entry point to the identical page.
+    { label: 'Class Announcements', icon: 'megaphone', accent: '#ec4899', action: "loadAnnouncementsView()" },
   ];
 
   function loadMyClassView() {
@@ -13037,7 +13047,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _annLogCache = [];
 
   function loadAnnouncementsView() {
-    if (!_hasModuleAccess('announcements_admin')) { showToast('Not available in current role', 'error'); return; }
+    // Two separate doors to the same page: the top-level Administration
+    // nav item (generic module-access matrix, Admin/VP/Cord's own entry
+    // point) OR holding one of the roles the backend itself already
+    // trusts (_isAnnouncementsAdmin in announcements-admin/route.js) —
+    // Class Teacher reaches this via the "Class Announcements" tile under
+    // My Class, which must work without an Admin also having to grant
+    // module access (that would additionally surface the top-level nav
+    // item, which Class Teacher should NOT see). The backend independently
+    // re-checks and scopes every action regardless of how this was reached,
+    // so loosening the frontend gate here is just UX, not the real boundary.
+    const roles = window.USER_ROLES || [window.ACTIVE_ROLE];
+    const trustedRole = roles.some(r => ['Admin', 'VP', 'Cord', 'Class Teacher'].includes(r));
+    if (!trustedRole && !_hasModuleAccess('announcements_admin')) { showToast('Not available in current role', 'error'); return; }
     _setViewHash('announcements_admin');
     setActiveNavLink('nav-announcements');
     setContentHeader('Announcements', 'megaphone');
