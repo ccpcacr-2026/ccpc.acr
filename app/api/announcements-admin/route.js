@@ -70,8 +70,17 @@ async function _resolveTargetableDevices(userId) {
   // not device_hash — that's the exact string the firmware sends as
   // p_device_id (see currentPairedId() in p10_display/src/main.cpp) and
   // what get_pending_announcements matches target_devices entries against.
+  // A P10-fetch failure (e.g. the Part 0 migration's grant not applied
+  // yet) must NOT block Admin/VP/Cord from targeting 'All', or from ever
+  // learning isBroad at all — degrade to an empty P10 list (nothing to
+  // offer as a target yet) rather than aborting the whole resolution.
+  // This is a real bug fixed after being caught live: it was returning
+  // {error} unconditionally, which made save_announcement/get_devices_
+  // for_targeting treat EVERY caller — Admin included — as if the P10
+  // fetch itself had failed the whole request, well before isBroad was
+  // ever computed.
   const rows = await _sbStudent('p10_display_devices?select=device_hash,device_name,paired_device_name,assigned_class,assigned_section,created_at&order=created_at.desc');
-  if (rows?.error) return { error: rows.error };
+  const p10Rows = Array.isArray(rows) ? rows : [];
 
   let myClasses = null; // null = unrestricted (isBroad); else Set of "class||section"
   if (!isBroad) {
@@ -81,7 +90,7 @@ async function _resolveTargetableDevices(userId) {
 
   const seen = new Set();
   const devices = [];
-  (Array.isArray(rows) ? rows : []).forEach(r => {
+  p10Rows.forEach(r => {
     if (!r.device_hash || seen.has(r.device_hash)) return;
     if (myClasses && !myClasses.has(`${r.assigned_class}||${r.assigned_section}`)) return;
     seen.add(r.device_hash);
@@ -89,13 +98,12 @@ async function _resolveTargetableDevices(userId) {
     const label = r.device_name && r.device_name !== pairedId ? `${pairedId} — ${r.device_name}` : pairedId;
     devices.push({ value: pairedId, label });
   });
-  return { devices, canTargetAll: isBroad };
+  return { devices, canTargetAll: isBroad, p10Unavailable: !Array.isArray(rows) };
 }
 
 async function _getDevicesForTargeting(userId) {
-  const { devices, canTargetAll, error } = await _resolveTargetableDevices(userId);
-  if (error) return NextResponse.json({ result: 'error', message: error }, { status: 500 });
-  return NextResponse.json({ result: 'success', devices, can_target_all: canTargetAll });
+  const { devices, canTargetAll, p10Unavailable } = await _resolveTargetableDevices(userId);
+  return NextResponse.json({ result: 'success', devices, can_target_all: canTargetAll, p10_unavailable: p10Unavailable });
 }
 
 // Uploads a base64-encoded MP3 straight to Supabase Storage via its REST
@@ -180,8 +188,7 @@ export async function POST(req) {
     // the request must be rejected here, not just hidden from them in the
     // UI. Admin/VP/Cord are unrestricted (canTargetAll).
     const wantsAll = Array.isArray(target_devices) && target_devices.includes('All');
-    const { devices: myDevices, canTargetAll, error: devErr } = await _resolveTargetableDevices(user_id);
-    if (devErr) return NextResponse.json({ result: 'error', message: devErr }, { status: 500 });
+    const { devices: myDevices, canTargetAll } = await _resolveTargetableDevices(user_id);
     if (wantsAll && !canTargetAll) {
       return NextResponse.json({ result: 'error', message: 'You can only target your own class’s device(s), not All.' }, { status: 403 });
     }

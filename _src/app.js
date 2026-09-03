@@ -13039,6 +13039,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   let _annDevicesCache = [];
   let _annCanTargetAll = true;
+  let _annP10Unavailable = false;
   let _annTargetSet = new Set();
   let _annRecordedBase64 = null;
   let _annUploadedBase64 = null;
@@ -13131,8 +13132,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _announceFetch('get_devices_for_targeting', {}).then(res => {
       _annDevicesCache = (res && res.result === 'success' && res.devices) || [];
       _annCanTargetAll = !!(res && res.can_target_all);
+      _annP10Unavailable = !!(res && res.p10_unavailable);
       _annRenderDeviceChecklist();
-    }).catch(() => { _annDevicesCache = []; _annCanTargetAll = false; _annRenderDeviceChecklist(); });
+    }).catch(() => { _annDevicesCache = []; _annCanTargetAll = false; _annP10Unavailable = false; _annRenderDeviceChecklist(); });
     _annLoadList();
     _annLoadLog();
   }
@@ -13140,6 +13142,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _annRenderDeviceChecklist() {
     const host = document.getElementById('annDeviceChecklist');
     if (!host) return;
+    if (_annP10Unavailable) {
+      host.innerHTML = `<p class="text-xs font-bold text-red-500">P10 displays aren't reachable yet — run the pending SQL migration (grant on student.p10_display_devices) before anyone can target one.</p>`;
+      return;
+    }
     if (!_annCanTargetAll && !_annDevicesCache.length) {
       host.innerHTML = `<p class="text-xs font-bold text-amber-600">No display is assigned to your class yet — ask an Admin to assign one under Attendance → Devices before you can send an announcement.</p>`;
       return;
