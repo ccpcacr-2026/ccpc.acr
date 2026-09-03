@@ -11911,7 +11911,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _deviceHealthCardHtml(fleet, d) {
     const cfg = DEVICE_FLEETS[fleet];
     const key = `${fleet}_${d.device_hash || d.id}`;
-    const displayName = d[cfg.nameField] || d.device_name || 'Unnamed device';
+    const isP10 = fleet === 'p10';
+    // P10's identity for announcement targeting is ALWAYS "<class>-
+    // <section>", derived server-side by save_device_config from
+    // assigned_class/assigned_section — never a free-typed name (see that
+    // action's own comment). NFC terminals aren't targeted by anything, so
+    // their name stays independently settable.
+    const derivedTarget = (d.assigned_class && d.assigned_section) ? `${d.assigned_class}-${d.assigned_section}` : null;
+    const displayName = isP10 ? (derivedTarget || 'Not yet assigned to a class') : (d[cfg.nameField] || d.device_name || 'Unnamed device');
     const classOpts = (_dhClassOptions || []).map(c => `<option value="${_escHtml(c)}" ${d.assigned_class === c ? 'selected' : ''}>${_escHtml(c)}</option>`).join('');
     const info = (label, val) => val ? `<div><span class="text-slate-400">${label}:</span> <span class="font-bold text-slate-600">${_escHtml(String(val))}</span></div>` : '';
     return `
@@ -11936,8 +11943,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
         <p class="text-[10px] text-slate-300 font-bold mb-3 truncate" title="${_escHtml(d.raw_status || '')}">${_escHtml(d.raw_status || 'No status reported yet')}</p>
 
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-1.5 mb-2">
-          <input id="dhName_${key}" type="text" value="${_escHtml(d[cfg.nameField] || '')}" placeholder="Name" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
+        <div class="grid grid-cols-2 md:grid-cols-${isP10 ? 3 : 4} gap-1.5 mb-2">
+          ${isP10 ? '' : `<input id="dhName_${key}" type="text" value="${_escHtml(d[cfg.nameField] || '')}" placeholder="Name" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">`}
           <select id="dhClass_${key}" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
             <option value="">Unassigned</option>
             ${classOpts}
@@ -11945,6 +11952,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <input id="dhSection_${key}" type="text" value="${_escHtml(d.assigned_section || '')}" placeholder="Section" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
           <input id="dhSsid_${key}" type="text" value="${_escHtml(d.wifi_ssid || '')}" placeholder="WiFi SSID" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
         </div>
+        ${isP10 ? `<p class="text-[10px] text-slate-400 font-bold mb-2">Announcement target ID is set automatically from Class + Section above — save to update it.</p>` : ''}
         <div class="grid grid-cols-2 gap-1.5">
           <input id="dhPass_${key}" type="text" value="${_escHtml(d.wifi_ssid_pass || '')}" placeholder="WiFi Password" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
           <div class="flex items-center gap-1.5">
@@ -11957,7 +11965,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function saveDeviceConfig(fleet, key, device_hash, applyToAll) {
     if (applyToAll && !confirm(`Apply these fields to EVERY ${DEVICE_FLEETS[fleet].label} device? This overwrites their current name/class/section/WiFi.`)) return;
-    const name = document.getElementById('dhName_' + key).value.trim();
+    const nameEl = document.getElementById('dhName_' + key);
+    const name = nameEl ? nameEl.value.trim() : undefined; // p10 has no name input — server derives it from class+section
     const assigned_class = document.getElementById('dhClass_' + key).value;
     const assigned_section = document.getElementById('dhSection_' + key).value.trim();
     const wifi_ssid = document.getElementById('dhSsid_' + key).value.trim();

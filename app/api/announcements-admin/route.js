@@ -93,23 +93,21 @@ async function _resolveTargetableDevices(userId) {
   // student.p10_display_devices — the P10 firmware is what actually polls
   // get_pending_announcements() and plays them (device_health is the
   // separate NFC-terminal fleet, which doesn't consume announcements at
-  // all). The target VALUE must be paired_device_name, not device_hash —
-  // that's the exact string the firmware sends as p_device_id (see
-  // currentPairedId() in p10_display/src/main.cpp) and what
-  // get_pending_announcements matches target_devices entries against.
+  // all). This only needs to know WHICH Class-Sections have a device
+  // assigned — the target VALUE itself is always the derived "<class>-
+  // <section>" string (below), never the row's own paired_device_name,
+  // because save_device_config (student-admin/route.js) now forces
+  // paired_device_name to exactly that same derived string whenever a
+  // device is assigned a class/section, so the two can never disagree.
   // A fetch failure here (e.g. the Part 0 migration's grant not applied
   // yet) must NOT block Admin/VP/Cord from targeting 'All', or from ever
   // learning isBroad at all — degrades to "no Class-Section has a device
   // yet" rather than aborting the whole resolution. (Fixed after being
   // caught live: an earlier version returned {error} unconditionally here,
   // which made every caller — Admin included — look fully restricted.)
-  const p10Res = await _sbStudent('p10_display_devices?select=device_hash,paired_device_name,assigned_class,assigned_section&order=created_at.desc');
+  const p10Res = await _sbStudent('p10_display_devices?select=device_hash,assigned_class,assigned_section&order=created_at.desc');
   const p10Rows = Array.isArray(p10Res) ? p10Res : [];
-  const deviceByClassSection = new Map(); // "class||section" -> paired_device_name (first match wins)
-  p10Rows.forEach(r => {
-    const key = `${r.assigned_class}||${r.assigned_section}`;
-    if (!deviceByClassSection.has(key) && r.paired_device_name) deviceByClassSection.set(key, r.paired_device_name);
-  });
+  const classSectionsWithDevice = new Set(p10Rows.map(r => `${r.assigned_class}||${r.assigned_section}`));
 
   let myClasses = null; // null = unrestricted (isBroad); else Set of "class||section"
   if (!isBroad) {
@@ -126,7 +124,8 @@ async function _resolveTargetableDevices(userId) {
     if (seen.has(key)) return;
     if (myClasses && !myClasses.has(key)) return;
     seen.add(key);
-    devices.push({ value: deviceByClassSection.get(key) || null, label: `${cls} - ${sec}`, has_device: deviceByClassSection.has(key) });
+    const hasDevice = classSectionsWithDevice.has(key);
+    devices.push({ value: hasDevice ? `${cls}-${sec}` : null, label: `${cls} - ${sec}`, has_device: hasDevice });
   });
   devices.sort((a, b) => a.label.localeCompare(b.label));
   return { devices, canTargetAll: isBroad, p10Unavailable: !Array.isArray(p10Res) };

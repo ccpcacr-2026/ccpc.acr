@@ -1910,27 +1910,39 @@ export async function POST(req) {
 
   // ── General device config push (class/section, name, WiFi) ──────────────
   // Broader than save_device_class_assignment above (class/section only,
-  // device_health only) — covers either ESP32 fleet, a device's own name
-  // (device_health.device_name_by_system / p10_display_devices.paired_
-  // device_name — the P10 firmware literally uses the latter as its own
-  // identity string, see currentPairedId() in p10_display/src/main.cpp),
-  // and WiFi credentials, applied to one device OR every device in that
-  // fleet at once (apply_to_all — e.g. the school WiFi password changed).
-  // Every field is optional; only what's provided gets patched, so this
-  // never blanks out something the admin didn't touch. Looped one PATCH
-  // per device_hash for apply_to_all rather than a single filterless PATCH
-  // — slower for a large fleet, but there's no accidental "forgot the
-  // WHERE clause" footgun, and this fleet is small (a handful of units).
+  // device_health only) — covers either ESP32 fleet and WiFi credentials,
+  // applied to one device OR every device in that fleet at once
+  // (apply_to_all — e.g. the school WiFi password changed). Every field is
+  // optional; only what's provided gets patched, so this never blanks out
+  // something the admin didn't touch. Looped one PATCH per device_hash for
+  // apply_to_all rather than a single filterless PATCH — slower for a
+  // large fleet, but there's no accidental "forgot the WHERE clause"
+  // footgun, and this fleet is small (a handful of units).
+  //
+  // p10_display_devices.paired_device_name is NOT a free-typed name here —
+  // it's what the P10 firmware sends as its own identity (currentPairedId()
+  // in p10_display/src/main.cpp) and what an announcement's target_devices
+  // entries are matched against (see _resolveTargetableDevices in
+  // announcements-admin/route.js, which now targets by "<class>-<section>"
+  // pulled from students_data). So for target 'p10' it's always DERIVED
+  // from assigned_class+assigned_section, ignoring any client-submitted
+  // name, to guarantee the two always agree — a device can never be
+  // "assigned to Six-A" but self-identify as something else. device_health
+  // (NFC terminals, never targeted by announcements) keeps its own
+  // independently-settable name as before.
   if (action === 'save_device_config') {
     const { target, device_hash, apply_to_all, assigned_class, assigned_section, name, wifi_ssid, wifi_ssid_pass } = payload || {};
     const table = target === 'p10' ? 'p10_display_devices' : 'device_health';
-    const nameField = target === 'p10' ? 'paired_device_name' : 'device_name_by_system';
     if (!apply_to_all && !device_hash) return NextResponse.json({ result: 'error', message: 'device_hash or apply_to_all required.' });
 
     const patch = {};
     if (assigned_class !== undefined) patch.assigned_class = assigned_class || null;
     if (assigned_section !== undefined) patch.assigned_section = assigned_section || null;
-    if (name !== undefined) patch[nameField] = name || null;
+    if (target === 'p10') {
+      patch.paired_device_name = (assigned_class && assigned_section) ? `${assigned_class}-${assigned_section}` : null;
+    } else if (name !== undefined) {
+      patch.device_name_by_system = name || null;
+    }
     if (wifi_ssid !== undefined) patch.wifi_ssid = wifi_ssid || null;
     if (wifi_ssid_pass !== undefined) patch.wifi_ssid_pass = wifi_ssid_pass || null;
     if (!Object.keys(patch).length) return NextResponse.json({ result: 'error', message: 'Nothing to update.' });
