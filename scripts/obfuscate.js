@@ -188,7 +188,7 @@ const RESERVED = [
   'loadAdminAttendanceView','switchAttendanceTab','loadAttendanceReport',
   'markManualAttendance','openAttendanceDeviceEditor',
   'saveAttendanceDeviceFromEditor','deleteAttendanceDevice','loadPunchLog',
-  'loadTodayOverview','saveDeviceConfig',
+  'loadTodayOverview','saveDeviceConfig','_dhFilterDevices',
   // Exams tab native port (Term/Class-Pattern/Subject/Components/Exam-Pattern
   // /Exam/Entry-Setup/Marks/Result rebuild)
   'loadAdminExamsView','switchExamsTab',

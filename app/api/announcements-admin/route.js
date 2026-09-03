@@ -52,35 +52,64 @@ async function _sbStudent(path) {
   return res.json();
 }
 
-// A Class Teacher (and nobody broader) is confined to the P10 display(s)
-// assigned to their own class/section — never school-wide 'All'. Admin/VP/
-// Cord are unrestricted. Deliberately keyed off the caller's OWN roles/
+// Paginated GET against the student schema — students_data can run into the
+// thousands, past PostgREST's default page size, unlike every other query
+// in this file (all naturally small: one class_teacher_assignments row per
+// teacher, one p10_display_devices row per physical unit).
+async function _sbStudentAllRows(path) {
+  const PAGE = 3000;
+  let all = [];
+  let offset = 0;
+  while (true) {
+    const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
+      headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'student', Range: `${offset}-${offset + PAGE - 1}` },
+    });
+    if (!res.ok) return { error: await res.text() };
+    const page = await res.json();
+    if (!Array.isArray(page)) return { error: 'Unexpected response shape' };
+    all = all.concat(page);
+    if (page.length < PAGE) break;
+    offset += PAGE;
+  }
+  return all;
+}
+
+// Targeting is by Class-Section (pulled fresh from students_data, the real
+// roster — not just whichever P10 rows happen to exist), each resolved to
+// whichever P10 display is assigned to it, if any. A Class-Section with no
+// device yet still shows (so an Admin can see the gap) but isn't
+// selectable. A Class Teacher (and nobody broader) only sees their own
+// assigned Class-Section(s), never 'All'; Admin/VP/Cord see every one and
+// may target 'All'. Deliberately keyed off the caller's OWN roles/
 // assignments, never anything the client submits, same pattern as
 // getMyClassAttendanceReport in app/api/exec/route.js.
 async function _resolveTargetableDevices(userId) {
   const roles = await _getUserRoles(userId);
   const isBroad = roles.some(r => ['Admin', 'VP', 'Cord'].includes(r));
 
-  // Devices to target come from student.p10_display_devices — the P10
-  // firmware is what actually polls get_pending_announcements() and plays
-  // them (device_health is the separate NFC-terminal fleet, which doesn't
-  // consume announcements at all). Collapsed to one row per device_hash
-  // (latest ping), same de-dupe logic as get_device_health_list in app/api/
-  // student-admin/route.js. The option VALUE must be paired_device_name,
-  // not device_hash — that's the exact string the firmware sends as
-  // p_device_id (see currentPairedId() in p10_display/src/main.cpp) and
-  // what get_pending_announcements matches target_devices entries against.
-  // A P10-fetch failure (e.g. the Part 0 migration's grant not applied
+  const classRows = await _sbStudentAllRows('students_data?select=class,section');
+  const classSections = classRows?.error ? [] : classRows;
+
+  // student.p10_display_devices — the P10 firmware is what actually polls
+  // get_pending_announcements() and plays them (device_health is the
+  // separate NFC-terminal fleet, which doesn't consume announcements at
+  // all). The target VALUE must be paired_device_name, not device_hash —
+  // that's the exact string the firmware sends as p_device_id (see
+  // currentPairedId() in p10_display/src/main.cpp) and what
+  // get_pending_announcements matches target_devices entries against.
+  // A fetch failure here (e.g. the Part 0 migration's grant not applied
   // yet) must NOT block Admin/VP/Cord from targeting 'All', or from ever
-  // learning isBroad at all — degrade to an empty P10 list (nothing to
-  // offer as a target yet) rather than aborting the whole resolution.
-  // This is a real bug fixed after being caught live: it was returning
-  // {error} unconditionally, which made save_announcement/get_devices_
-  // for_targeting treat EVERY caller — Admin included — as if the P10
-  // fetch itself had failed the whole request, well before isBroad was
-  // ever computed.
-  const rows = await _sbStudent('p10_display_devices?select=device_hash,device_name,paired_device_name,assigned_class,assigned_section,created_at&order=created_at.desc');
-  const p10Rows = Array.isArray(rows) ? rows : [];
+  // learning isBroad at all — degrades to "no Class-Section has a device
+  // yet" rather than aborting the whole resolution. (Fixed after being
+  // caught live: an earlier version returned {error} unconditionally here,
+  // which made every caller — Admin included — look fully restricted.)
+  const p10Res = await _sbStudent('p10_display_devices?select=device_hash,paired_device_name,assigned_class,assigned_section&order=created_at.desc');
+  const p10Rows = Array.isArray(p10Res) ? p10Res : [];
+  const deviceByClassSection = new Map(); // "class||section" -> paired_device_name (first match wins)
+  p10Rows.forEach(r => {
+    const key = `${r.assigned_class}||${r.assigned_section}`;
+    if (!deviceByClassSection.has(key) && r.paired_device_name) deviceByClassSection.set(key, r.paired_device_name);
+  });
 
   let myClasses = null; // null = unrestricted (isBroad); else Set of "class||section"
   if (!isBroad) {
@@ -90,15 +119,17 @@ async function _resolveTargetableDevices(userId) {
 
   const seen = new Set();
   const devices = [];
-  p10Rows.forEach(r => {
-    if (!r.device_hash || seen.has(r.device_hash)) return;
-    if (myClasses && !myClasses.has(`${r.assigned_class}||${r.assigned_section}`)) return;
-    seen.add(r.device_hash);
-    const pairedId = r.paired_device_name || r.device_name || r.device_hash;
-    const label = r.device_name && r.device_name !== pairedId ? `${pairedId} — ${r.device_name}` : pairedId;
-    devices.push({ value: pairedId, label });
+  classSections.forEach(s => {
+    const cls = String(s.class || '').trim(), sec = String(s.section || '').trim();
+    if (!cls || !sec) return;
+    const key = `${cls}||${sec}`;
+    if (seen.has(key)) return;
+    if (myClasses && !myClasses.has(key)) return;
+    seen.add(key);
+    devices.push({ value: deviceByClassSection.get(key) || null, label: `${cls} - ${sec}`, has_device: deviceByClassSection.has(key) });
   });
-  return { devices, canTargetAll: isBroad, p10Unavailable: !Array.isArray(rows) };
+  devices.sort((a, b) => a.label.localeCompare(b.label));
+  return { devices, canTargetAll: isBroad, p10Unavailable: !Array.isArray(p10Res) };
 }
 
 async function _getDevicesForTargeting(userId) {
@@ -193,7 +224,7 @@ export async function POST(req) {
       return NextResponse.json({ result: 'error', message: 'You can only target your own class’s device(s), not All.' }, { status: 403 });
     }
     if (!canTargetAll) {
-      const allowed = new Set(myDevices.map(d => d.value));
+      const allowed = new Set(myDevices.map(d => d.value).filter(Boolean));
       const invalid = (Array.isArray(target_devices) ? target_devices : []).filter(t => t !== 'All' && !allowed.has(t));
       if (invalid.length) {
         return NextResponse.json({ result: 'error', message: `Not authorized to target: ${invalid.join(', ')}` }, { status: 403 });

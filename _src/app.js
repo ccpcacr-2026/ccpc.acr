@@ -11626,7 +11626,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <p class="text-xs text-slate-400 font-bold mb-3">ESP32 is the primary attendance channel. ZKTeco or other biometric terminals are optional additional devices, not a replacement.</p>
         <div id="attendanceDevicesList" class="flex flex-col gap-2"><span class="text-xs text-slate-400 font-bold italic">Loading…</span></div>
 
-        <div class="flex items-center justify-between mt-6 mb-3">
+        <div class="flex items-center justify-between mt-6 mb-2">
+          <p class="font-black text-slate-800 text-sm flex items-center gap-2"><i data-lucide="search" class="h-4 w-4 text-slate-400"></i>Search ESP32 Devices</p>
+        </div>
+        <input type="text" id="deviceHealthSearch" oninput="_dhFilterDevices(this.value)" placeholder="Search name, hash, class, section, WiFi, firmware, status…" class="w-full mb-4 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none">
+
+        <div class="flex items-center justify-between mb-3">
           <p class="font-black text-slate-800 text-sm flex items-center gap-2"><i data-lucide="wifi" class="h-4 w-4 text-emerald-600"></i>NFC Terminals</p>
         </div>
         <p class="text-xs text-slate-400 font-bold mb-3">Every ESP32 entry terminal registers itself here automatically the first time it pings in — nothing to add manually. Set its name, class/section, and WiFi below (per device, or push to every terminal at once).</p>
@@ -11850,6 +11855,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     p10: { action: 'get_p10_device_health_list', target: 'p10', nameField: 'paired_device_name', label: 'P10 Displays' },
   };
 
+  // Full device list per fleet, cached client-side once loaded — search
+  // filters this in place (no re-fetch per keystroke) against every
+  // visible field on the card, not just the name.
+  const _dhCache = { nfc: [], p10: [] };
+  const _dhErrors = { nfc: null, p10: null };
+  let _dhSearchQuery = '';
+
   function loadDeviceHealthList() {
     Promise.all([
       _adminFetch('get_device_health_list', {}),
@@ -11860,20 +11872,40 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         const rows = Array.isArray(classRes) ? classRes : [];
         _dhClassOptions = Array.from(new Set(rows.map(r => r.class).filter(Boolean))).sort();
       }
-      _dhRenderFleet('nfc', nfcRes);
-      _dhRenderFleet('p10', p10Res);
+      _dhCache.nfc = (nfcRes && nfcRes.result === 'success' && nfcRes.devices) || [];
+      _dhCache.p10 = (p10Res && p10Res.result === 'success' && p10Res.devices) || [];
+      _dhErrors.nfc = (nfcRes && nfcRes.error) || null;
+      _dhErrors.p10 = (p10Res && p10Res.error) || null;
+      _dhRenderFleet('nfc');
+      _dhRenderFleet('p10');
       lucide.createIcons();
     });
   }
 
-  function _dhRenderFleet(fleet, res) {
+  function _dhFilterDevices(query) {
+    _dhSearchQuery = query;
+    _dhRenderFleet('nfc');
+    _dhRenderFleet('p10');
+    lucide.createIcons();
+  }
+
+  function _dhMatchesSearch(d, q) {
+    if (!q) return true;
+    const haystack = Object.values(d).map(v => (v == null ? '' : String(v))).join(' ').toLowerCase();
+    return haystack.includes(q);
+  }
+
+  function _dhRenderFleet(fleet) {
     const host = document.getElementById('deviceHealthList_' + fleet);
     if (!host) return;
-    if (res && res.error) { host.innerHTML = `<p class="text-xs text-red-500 font-bold">${_escHtml(res.error)}</p>`; return; }
-    const devices = (res && res.result === 'success' && res.devices) || [];
+    if (_dhErrors[fleet]) { host.innerHTML = `<p class="text-xs text-red-500 font-bold">${_escHtml(_dhErrors[fleet])}</p>`; return; }
+    const q = _dhSearchQuery.trim().toLowerCase();
+    const all = _dhCache[fleet];
+    const devices = q ? all.filter(d => _dhMatchesSearch(d, q)) : all;
+    if (!all.length) { host.innerHTML = '<span class="text-xs text-slate-400 font-bold italic">No devices have reported in yet.</span>'; return; }
     host.innerHTML = devices.length
       ? devices.map(d => _deviceHealthCardHtml(fleet, d)).join('')
-      : '<span class="text-xs text-slate-400 font-bold italic">No devices have reported in yet.</span>';
+      : `<span class="text-xs text-slate-400 font-bold italic">No devices match "${_escHtml(_dhSearchQuery)}".</span>`;
   }
 
   function _deviceHealthCardHtml(fleet, d) {
@@ -11901,7 +11933,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           ${info('In/Out', d.status_in_out)}
           ${info('Queue', d.status_queue)}
           ${info('Device Hash', d.device_hash)}
-          ${info('Firmware URL', d.firmware_url)}
         </div>
         <p class="text-[10px] text-slate-300 font-bold mb-3 truncate" title="${_escHtml(d.raw_status || '')}">${_escHtml(d.raw_status || 'No status reported yet')}</p>
 
@@ -13146,15 +13177,27 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       host.innerHTML = `<p class="text-xs font-bold text-red-500">P10 displays aren't reachable yet — run the pending SQL migration (grant on student.p10_display_devices) before anyone can target one.</p>`;
       return;
     }
-    if (!_annCanTargetAll && !_annDevicesCache.length) {
-      host.innerHTML = `<p class="text-xs font-bold text-amber-600">No display is assigned to your class yet — ask an Admin to assign one under Attendance → Devices before you can send an announcement.</p>`;
+    if (!_annDevicesCache.length) {
+      host.innerHTML = `<p class="text-xs font-bold text-amber-600">${_annCanTargetAll ? 'No classes found.' : 'You are not currently assigned as a class teacher.'}</p>`;
       return;
     }
-    const options = _annCanTargetAll ? [{ value: 'All', label: 'All Devices' }, ..._annDevicesCache] : _annDevicesCache;
-    host.innerHTML = options.map(o => `
-      <label class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border ${_annTargetSet.has(o.value) ? 'border-blue-600 bg-blue-50' : 'border-slate-200'} cursor-pointer text-xs font-bold text-slate-600">
-        <input type="checkbox" ${_annTargetSet.has(o.value) ? 'checked' : ''} onchange="_annToggleTarget('${o.value}',this.checked)" class="w-3.5 h-3.5 rounded accent-blue-600">${_escHtml(o.label)}
-      </label>`).join('');
+    // Targeting is by Class-Section (pulled from students_data), each
+    // resolved server-side to whichever P10 display is assigned to it —
+    // a Class-Section with no display yet still shows (so the gap is
+    // visible) but can't be selected.
+    const targetable = _annDevicesCache.filter(d => d.has_device);
+    const options = _annCanTargetAll ? [{ value: 'All', label: 'All Classes', has_device: true }, ..._annDevicesCache] : _annDevicesCache;
+    const checklistHtml = options.map(o => {
+      const disabled = !o.has_device;
+      return `
+      <label class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border ${disabled ? 'border-slate-100 opacity-50 cursor-not-allowed' : _annTargetSet.has(o.value) ? 'border-blue-600 bg-blue-50 cursor-pointer' : 'border-slate-200 cursor-pointer'} text-xs font-bold text-slate-600" ${disabled ? 'title="No P10 display assigned to this class yet"' : ''}>
+        <input type="checkbox" ${_annTargetSet.has(o.value) ? 'checked' : ''} ${disabled ? 'disabled' : ''} onchange="_annToggleTarget('${_escHtml(o.value || '')}',this.checked)" class="w-3.5 h-3.5 rounded accent-blue-600">${_escHtml(o.label)}
+      </label>`;
+    }).join('');
+    const gapNote = targetable.length < _annDevicesCache.length
+      ? `<p class="text-[10px] text-slate-400 font-bold w-full mt-1">${_annDevicesCache.length - targetable.length} class(es) have no P10 display assigned yet — greyed out above.</p>`
+      : '';
+    host.innerHTML = checklistHtml + gapNote;
   }
 
   // "All Devices" is a master toggle, not just its own tag — checking it
@@ -13162,12 +13205,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // every individual device also marks "All" as checked, so the two stay
   // in sync either direction.
   function _annToggleTarget(value, checked) {
+    const targetableValues = _annDevicesCache.filter(d => d.has_device).map(d => d.value);
     if (value === 'All') {
-      _annTargetSet = checked ? new Set(['All', ..._annDevicesCache.map(d => d.value)]) : new Set();
+      _annTargetSet = checked ? new Set(['All', ...targetableValues]) : new Set();
     } else {
       if (checked) _annTargetSet.add(value);
       else { _annTargetSet.delete(value); _annTargetSet.delete('All'); }
-      if (_annDevicesCache.length && _annDevicesCache.every(d => _annTargetSet.has(d.value))) _annTargetSet.add('All');
+      if (targetableValues.length && targetableValues.every(v => _annTargetSet.has(v))) _annTargetSet.add('All');
     }
     _annRenderDeviceChecklist();
   }
@@ -13346,7 +13390,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         ? `Current audio: <a href="${a.file_url}" target="_blank" class="text-blue-600 underline">listen</a> — pick a new file/recording only if you want to replace it.`
         : `Currently text-only (no audio) — pick a file/recording to add audio, or leave as-is.`;
     }
-    _annTargetSet = new Set(a.target_devices && a.target_devices.includes('All') ? ['All', ..._annDevicesCache.map(d => d.value)] : (a.target_devices || []));
+    _annTargetSet = new Set(a.target_devices && a.target_devices.includes('All') ? ['All', ..._annDevicesCache.filter(d => d.has_device).map(d => d.value)] : (a.target_devices || []));
     _annRenderDeviceChecklist();
     document.getElementById('annSaveBtn').textContent = 'Update Announcement';
     window.scrollTo({ top: 0, behavior: 'smooth' });
