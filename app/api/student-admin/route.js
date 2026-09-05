@@ -1955,17 +1955,34 @@ export async function POST(req) {
   // (NFC terminals, never targeted by announcements) keeps its own
   // independently-settable name as before.
   if (action === 'save_device_config') {
-    const { target, device_hash, apply_to_all, assigned_class, assigned_section, name, wifi_ssid, wifi_ssid_pass } = payload || {};
+    const { target, device_hash, apply_to_all, assigned_class, assigned_section, name, wifi_ssid, wifi_ssid_pass, assigned_group, assigned_session, assigned_extra_classes, paired_device_name } = payload || {};
     const table = target === 'p10' ? 'p10_display_devices' : 'device_health';
     if (!apply_to_all && !device_hash) return NextResponse.json({ result: 'error', message: 'device_hash or apply_to_all required.' });
 
     const patch = {};
-    if (assigned_class !== undefined) patch.assigned_class = assigned_class || null;
-    if (assigned_section !== undefined) patch.assigned_section = assigned_section || null;
     if (target === 'p10') {
-      patch.paired_device_name = (assigned_class && assigned_section) ? `${assigned_class}-${assigned_section}` : null;
-    } else if (name !== undefined) {
-      patch.device_name_by_system = name || null;
+      // P10s have no class/section of their own anymore — the admin picks
+      // which NFC terminal this display is physically paired with (from a
+      // dropdown of the NFC fleet), and paired_device_name is set to that
+      // terminal's own identity string as-is. Whatever class/section that
+      // terminal itself is assigned to (student.device_health.assigned_
+      // class/section) is what an announcement targeting this P10 actually
+      // reaches — see the two-hop resolution in _resolveTargetableDevices,
+      // announcements-admin/route.js.
+      if (paired_device_name !== undefined) patch.paired_device_name = paired_device_name || null;
+    } else {
+      if (assigned_class !== undefined) patch.assigned_class = assigned_class || null;
+      if (assigned_section !== undefined) patch.assigned_section = assigned_section || null;
+      // NFC-only: multi-class/group/session assignment (student.device_health
+      // only — p10_display_devices has no such columns). See the migration
+      // that added these for the full "HOW TO FILL THESE IN" format rules;
+      // this route never parses/validates assigned_extra_classes itself,
+      // it's opaque free text stored as-is — get_section_attendance_multi
+      // (called by the firmware, not this route) is what actually parses it.
+      if (name !== undefined) patch.device_name_by_system = name || null;
+      if (assigned_group !== undefined) patch.assigned_group = assigned_group || null;
+      if (assigned_session !== undefined) patch.assigned_session = assigned_session || null;
+      if (assigned_extra_classes !== undefined) patch.assigned_extra_classes = assigned_extra_classes || null;
     }
     if (wifi_ssid !== undefined) patch.wifi_ssid = wifi_ssid || null;
     if (wifi_ssid_pass !== undefined) patch.wifi_ssid_pass = wifi_ssid_pass || null;

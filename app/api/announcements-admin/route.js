@@ -75,12 +75,22 @@ async function _sbStudentAllRows(path) {
 }
 
 // Targeting is by Class-Section (pulled fresh from students_data, the real
-// roster — not just whichever P10 rows happen to exist), each resolved to
-// whichever P10 display is assigned to it, if any. A Class-Section with no
-// device yet still shows (so an Admin can see the gap) but isn't
-// selectable. A Class Teacher (and nobody broader) only sees their own
-// assigned Class-Section(s), never 'All'; Admin/VP/Cord see every one and
-// may target 'All'. Deliberately keyed off the caller's OWN roles/
+// roster — not just whichever device rows happen to exist), each resolved
+// to an actual P10 display via TWO hops, not one:
+//   Class-Section -> the NFC terminal assigned there (student.device_health
+//     .assigned_class/section) -> that terminal's own identity string
+//     (device_name_by_system, falling back to device_name/device_hash —
+//     same precedence the Devices tab card uses to display an NFC
+//     terminal's name) -> a P10 display whose paired_device_name matches
+//     that identity (the admin picks "which NFC terminal is this P10
+//     paired with" from a dropdown on the P10 card; save_device_config
+//     stores the terminal's identity as-is, no class/section on the P10
+//     row itself anymore).
+// A Class-Section with no NFC terminal, or whose terminal has no P10
+// paired to it, still shows (so the gap is visible) but isn't selectable.
+// A Class Teacher (and nobody broader) only sees their own assigned
+// Class-Section(s), never 'All'; Admin/VP/Cord see every one and may
+// target 'All'. Deliberately keyed off the caller's OWN roles/
 // assignments, never anything the client submits, same pattern as
 // getMyClassAttendanceReport in app/api/exec/route.js.
 async function _resolveTargetableDevices(userId) {
@@ -90,24 +100,31 @@ async function _resolveTargetableDevices(userId) {
   const classRows = await _sbStudentAllRows('students_data?select=class,section');
   const classSections = classRows?.error ? [] : classRows;
 
-  // student.p10_display_devices — the P10 firmware is what actually polls
-  // get_pending_announcements() and plays them (device_health is the
-  // separate NFC-terminal fleet, which doesn't consume announcements at
-  // all). This only needs to know WHICH Class-Sections have a device
-  // assigned — the target VALUE itself is always the derived "<class>-
-  // <section>" string (below), never the row's own paired_device_name,
-  // because save_device_config (student-admin/route.js) now forces
-  // paired_device_name to exactly that same derived string whenever a
-  // device is assigned a class/section, so the two can never disagree.
-  // A fetch failure here (e.g. the Part 0 migration's grant not applied
-  // yet) must NOT block Admin/VP/Cord from targeting 'All', or from ever
-  // learning isBroad at all — degrades to "no Class-Section has a device
-  // yet" rather than aborting the whole resolution. (Fixed after being
-  // caught live: an earlier version returned {error} unconditionally here,
-  // which made every caller — Admin included — look fully restricted.)
-  const p10Res = await _sbStudent('p10_display_devices?select=device_hash,assigned_class,assigned_section&order=created_at.desc');
+  // Hop 1: which NFC terminal (by its own identity) serves each
+  // Class-Section. A fetch failure here must not block Admin/VP/Cord from
+  // targeting 'All' or from ever learning isBroad — degrades to "no
+  // Class-Section has a terminal" rather than aborting the resolution.
+  const nfcRes = await _sbStudent('device_health?select=device_hash,device_name,device_name_by_system,assigned_class,assigned_section&order=created_at.desc');
+  const nfcRows = Array.isArray(nfcRes) ? nfcRes : [];
+  const nfcIdentityByClassSection = new Map();
+  nfcRows.forEach(r => {
+    const key = `${r.assigned_class}||${r.assigned_section}`;
+    if (nfcIdentityByClassSection.has(key)) return; // first (newest) row per class/section wins
+    const identity = r.device_name_by_system || r.device_name || r.device_hash;
+    if (identity) nfcIdentityByClassSection.set(key, identity);
+  });
+
+  // Hop 2: which of those NFC identities actually has a P10 paired to it.
+  // (device_health is the separate NFC-terminal fleet — P10 is the fleet
+  // that actually polls get_pending_announcements() and plays them; this
+  // fetch failing — e.g. the Part 0 migration's grant not applied yet —
+  // must equally not abort the resolution. Fixed after being caught live:
+  // an earlier version returned {error} unconditionally on a P10-fetch
+  // failure, which made every caller, Admin included, look fully
+  // restricted before isBroad was ever computed.)
+  const p10Res = await _sbStudent('p10_display_devices?select=paired_device_name&order=created_at.desc');
   const p10Rows = Array.isArray(p10Res) ? p10Res : [];
-  const classSectionsWithDevice = new Set(p10Rows.map(r => `${r.assigned_class}||${r.assigned_section}`));
+  const pairedIdentities = new Set(p10Rows.map(r => r.paired_device_name).filter(Boolean));
 
   let myClasses = null; // null = unrestricted (isBroad); else Set of "class||section"
   if (!isBroad) {
@@ -124,8 +141,9 @@ async function _resolveTargetableDevices(userId) {
     if (seen.has(key)) return;
     if (myClasses && !myClasses.has(key)) return;
     seen.add(key);
-    const hasDevice = classSectionsWithDevice.has(key);
-    devices.push({ value: hasDevice ? `${cls}-${sec}` : null, label: `${cls} - ${sec}`, has_device: hasDevice });
+    const nfcIdentity = nfcIdentityByClassSection.get(key);
+    const hasDevice = !!nfcIdentity && pairedIdentities.has(nfcIdentity);
+    devices.push({ value: hasDevice ? nfcIdentity : null, label: `${cls} - ${sec}`, has_device: hasDevice });
   });
   devices.sort((a, b) => a.label.localeCompare(b.label));
   return { devices, canTargetAll: isBroad, p10Unavailable: !Array.isArray(p10Res) };

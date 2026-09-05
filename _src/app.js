@@ -11908,18 +11908,29 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       : `<span class="text-xs text-slate-400 font-bold italic">No devices match "${_escHtml(_dhSearchQuery)}".</span>`;
   }
 
+  // An NFC terminal's own display name, same precedence everywhere it's
+  // used (the card header, and this is also what gets stored verbatim into
+  // a P10's paired_device_name when an admin pairs it to this terminal).
+  function _dhNfcIdentity(d) {
+    return d.device_name_by_system || d.device_name || d.device_hash || '';
+  }
+
   function _deviceHealthCardHtml(fleet, d) {
     const cfg = DEVICE_FLEETS[fleet];
     const key = `${fleet}_${d.device_hash || d.id}`;
     const isP10 = fleet === 'p10';
-    // P10's identity for announcement targeting is ALWAYS "<class>-
-    // <section>", derived server-side by save_device_config from
-    // assigned_class/assigned_section — never a free-typed name (see that
-    // action's own comment). NFC terminals aren't targeted by anything, so
-    // their name stays independently settable.
-    const derivedTarget = (d.assigned_class && d.assigned_section) ? `${d.assigned_class}-${d.assigned_section}` : null;
-    const displayName = isP10 ? (derivedTarget || 'Not yet assigned to a class') : (d[cfg.nameField] || d.device_name || 'Unnamed device');
+    const displayName = isP10 ? (d.paired_device_name || 'Not paired to a terminal yet') : (d[cfg.nameField] || d.device_name || 'Unnamed device');
     const classOpts = (_dhClassOptions || []).map(c => `<option value="${_escHtml(c)}" ${d.assigned_class === c ? 'selected' : ''}>${_escHtml(c)}</option>`).join('');
+    // Every NFC terminal, offered as "which entrance is this P10 paired to"
+    // — a P10 has no class/section of its own; it inherits whatever class
+    // the terminal it's paired with is assigned to (see the two-hop
+    // resolution in announcements-admin/route.js's _resolveTargetableDevices).
+    const nfcOpts = (_dhCache.nfc || []).map(n => {
+      const identity = _dhNfcIdentity(n);
+      if (!identity) return '';
+      const assignment = (n.assigned_class && n.assigned_section) ? ` (${n.assigned_class} - ${n.assigned_section})` : '';
+      return `<option value="${_escHtml(identity)}" ${d.paired_device_name === identity ? 'selected' : ''}>${_escHtml(identity)}${_escHtml(assignment)}</option>`;
+    }).join('');
     const info = (label, val) => val ? `<div><span class="text-slate-400">${label}:</span> <span class="font-bold text-slate-600">${_escHtml(String(val))}</span></div>` : '';
     return `
       <div class="border border-slate-200 rounded-xl p-3">
@@ -11943,8 +11954,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
         <p class="text-[10px] text-slate-300 font-bold mb-3 truncate" title="${_escHtml(d.raw_status || '')}">${_escHtml(d.raw_status || 'No status reported yet')}</p>
 
-        <div class="grid grid-cols-2 md:grid-cols-${isP10 ? 3 : 4} gap-1.5 mb-2">
-          ${isP10 ? '' : `<input id="dhName_${key}" type="text" value="${_escHtml(d[cfg.nameField] || '')}" placeholder="Name" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">`}
+        ${isP10 ? `
+        <div class="grid grid-cols-2 gap-1.5 mb-2">
+          <select id="dhPaired_${key}" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
+            <option value="">Not paired</option>
+            ${nfcOpts}
+          </select>
+          <input id="dhSsid_${key}" type="text" value="${_escHtml(d.wifi_ssid || '')}" placeholder="WiFi SSID" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
+        </div>
+        <p class="text-[10px] text-slate-400 font-bold mb-2">This display shows counts/announcements for whichever class the paired terminal above is assigned to.</p>
+        ` : `
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-1.5 mb-1.5">
+          <input id="dhName_${key}" type="text" value="${_escHtml(d[cfg.nameField] || '')}" placeholder="Name" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
           <select id="dhClass_${key}" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
             <option value="">Unassigned</option>
             ${classOpts}
@@ -11952,7 +11973,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <input id="dhSection_${key}" type="text" value="${_escHtml(d.assigned_section || '')}" placeholder="Section" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
           <input id="dhSsid_${key}" type="text" value="${_escHtml(d.wifi_ssid || '')}" placeholder="WiFi SSID" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
         </div>
-        ${isP10 ? `<p class="text-[10px] text-slate-400 font-bold mb-2">Announcement target ID is set automatically from Class + Section above — save to update it.</p>` : ''}
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-1.5 mb-2">
+          <input id="dhGroup_${key}" type="text" value="${_escHtml(d.assigned_group || '')}" placeholder="Group filter (optional)" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
+          <input id="dhSession_${key}" type="text" value="${_escHtml(d.assigned_session || '')}" placeholder="Session filter (optional)" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
+          <input id="dhExtra_${key}" type="text" value="${_escHtml(d.assigned_extra_classes || '')}" placeholder="Extra classes, e.g. Six-A,Five-D-Science" title="Comma-separated Class-Section[-Group[-Session]] entries this device also counts, on top of its primary Class/Section above." class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
+        </div>
+        `}
         <div class="grid grid-cols-2 gap-1.5">
           <input id="dhPass_${key}" type="text" value="${_escHtml(d.wifi_ssid_pass || '')}" placeholder="WiFi Password" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
           <div class="flex items-center gap-1.5">
@@ -11964,17 +11990,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   function saveDeviceConfig(fleet, key, device_hash, applyToAll) {
-    if (applyToAll && !confirm(`Apply these fields to EVERY ${DEVICE_FLEETS[fleet].label} device? This overwrites their current name/class/section/WiFi.`)) return;
-    const nameEl = document.getElementById('dhName_' + key);
-    const name = nameEl ? nameEl.value.trim() : undefined; // p10 has no name input — server derives it from class+section
-    const assigned_class = document.getElementById('dhClass_' + key).value;
-    const assigned_section = document.getElementById('dhSection_' + key).value.trim();
+    if (applyToAll && !confirm(`Apply these fields to EVERY ${DEVICE_FLEETS[fleet].label} device? This overwrites their current settings.`)) return;
     const wifi_ssid = document.getElementById('dhSsid_' + key).value.trim();
     const wifi_ssid_pass = document.getElementById('dhPass_' + key).value.trim();
-    _adminFetch('save_device_config', {
-      target: fleet, device_hash, apply_to_all: !!applyToAll,
-      name, assigned_class, assigned_section, wifi_ssid, wifi_ssid_pass,
-    }).then(res => {
+    const payload = { target: fleet, device_hash, apply_to_all: !!applyToAll, wifi_ssid, wifi_ssid_pass };
+    if (fleet === 'p10') {
+      payload.paired_device_name = document.getElementById('dhPaired_' + key).value;
+    } else {
+      payload.name = document.getElementById('dhName_' + key).value.trim();
+      payload.assigned_class = document.getElementById('dhClass_' + key).value;
+      payload.assigned_section = document.getElementById('dhSection_' + key).value.trim();
+      payload.assigned_group = document.getElementById('dhGroup_' + key).value.trim();
+      payload.assigned_session = document.getElementById('dhSession_' + key).value.trim();
+      payload.assigned_extra_classes = document.getElementById('dhExtra_' + key).value.trim();
+    }
+    _adminFetch('save_device_config', payload).then(res => {
       if (res && res.result === 'success') { showToast(applyToAll ? `Applied to ${res.updated} device(s)` : 'Saved'); loadDeviceHealthList(); }
       else showToast((res && res.message) || 'Save failed', 'error');
     });
