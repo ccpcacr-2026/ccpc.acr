@@ -61,28 +61,52 @@ async function sb(path, method = 'GET', body = null, extra = {}) {
 // across the student and teacher portals — same bus_tracker_presence table,
 // same 'student' schema as portal_settings). No cron: every get_bus_data
 // call upserts its own heartbeat, prunes anything not refreshed in 90s
-// (3x the 30s poll interval, so one missed poll doesn't drop a viewer), and
-// counts what's left. Never lets a presence hiccup break the bus data itself.
+// (the real client poll is every ~15s — public/js/bus-tracking.js's
+// busUpdateInterval — so 90s is a generous margin, not literally "3x"
+// anything; a stale comment here used to claim a 30s poll), and counts
+// what's left. Never lets a presence hiccup break the bus data itself.
 // `label` is a client-supplied display string ("Name (Role)") stored
 // alongside the heartbeat purely so an Admin can see WHO is watching, not
 // just a count — convenience display, not an access-control surface, so
 // it's trusted as-is rather than resolved server-side from user_id.
+//
+// The self-upsert and the stale-prune are independent of each other —
+// run them together instead of one-after-another (this endpoint gets
+// polled every ~15s per open tab, so shaving round-trips here matters;
+// see the identical fix + its full rationale in ccpc-students' own
+// app/api/portal/route.js, which accounted for the bulk of a Vercel
+// Fluid-Compute usage pause this was found while diagnosing).
 async function _trackPresence(trackerId, label) {
   if (!trackerId || typeof trackerId !== 'string') return { count: 0, watchers: [] };
   try {
     const id = trackerId.slice(0, 64);
     const nowIso = new Date().toISOString();
     const cutoffIso = new Date(Date.now() - 90000).toISOString();
-    await sb('bus_tracker_presence?on_conflict=tracker_id', 'POST',
-      { tracker_id: id, last_seen_at: nowIso, label: String(label || '').slice(0, 120) || null },
-      { Prefer: 'resolution=merge-duplicates,return=minimal' });
-    await sb(`bus_tracker_presence?last_seen_at=lt.${encodeURIComponent(cutoffIso)}`, 'DELETE');
+    await Promise.all([
+      sb('bus_tracker_presence?on_conflict=tracker_id', 'POST',
+        { tracker_id: id, last_seen_at: nowIso, label: String(label || '').slice(0, 120) || null },
+        { Prefer: 'resolution=merge-duplicates,return=minimal' }),
+      sb(`bus_tracker_presence?last_seen_at=lt.${encodeURIComponent(cutoffIso)}`, 'DELETE'),
+    ]);
     const live = await sb('bus_tracker_presence?select=tracker_id,label,last_seen_at&order=last_seen_at.desc');
     const rows = Array.isArray(live) ? live : [];
     return { count: rows.length, watchers: rows.map(r => ({ label: r.label || 'Viewer', lastSeen: r.last_seen_at })) };
   } catch (_) {
     return { count: 0, watchers: [] };
   }
+}
+
+// Short-lived cache for the GP bus-location fetch — see the identical
+// helper (and its full rationale) in ccpc-students' app/api/portal/
+// route.js.
+let _busDataCache = { key: '', data: null, expiresAt: 0 };
+async function _getCachedBusLocations(creds, imeiList) {
+  const key = (creds.api_key || '') + '|' + imeiList.join(',');
+  const now = Date.now();
+  if (_busDataCache.key === key && _busDataCache.expiresAt > now) return _busDataCache.data;
+  const items = await queryGPLocations(creds, imeiList);
+  _busDataCache = { key, data: items, expiresAt: now + 8000 };
+  return items;
 }
 
 // PostgREST silently caps ANY select at this project's configured max_rows
@@ -3141,8 +3165,10 @@ export async function POST(req) {
   // it too or that pane silently shows nothing.
   if (action === 'get_bus_data') {
     try {
-      const { count: trackers, watchers } = await _trackPresence(payload.tracker_id, payload.label);
-      const rows = await sb('portal_settings?key=in.(gp_credentials,bus_registry)');
+      const [{ count: trackers, watchers }, rows] = await Promise.all([
+        _trackPresence(payload.tracker_id, payload.label),
+        sb('portal_settings?key=in.(gp_credentials,bus_registry)'),
+      ]);
       if (rows?.error) return NextResponse.json({ result: 'error', message: 'Settings not found.' });
       const sm = {};
       rows.forEach(r => { sm[r.key] = r.value; });
@@ -3150,7 +3176,7 @@ export async function POST(req) {
       const busRegistry = sm.bus_registry || [];
       if (!busRegistry.length) return NextResponse.json({ result: 'success', data: [], trackers, watchers, dataAge: 0 });
 
-      const items = await queryGPLocations(creds, busRegistry.map(b => String(b.imei)));
+      const items = await _getCachedBusLocations(creds, busRegistry.map(b => String(b.imei)));
       const dataMap = {};
       items.forEach(d => { dataMap[d.imei] = d; });
 
