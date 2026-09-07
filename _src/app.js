@@ -13116,6 +13116,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _annListCache = [];
   let _annEditingId = null;
   let _annLogCache = [];
+  let _annType = 'device';
+  let _annStudentMode = 'id';
+  let _annPickedStudent = null;
+  let _annPickerOptions = { classes: [], sections_by_class: {} };
+  let _annListFilter = 'all';
 
   function loadAnnouncementsView() {
     // Two separate doors to the same page: the top-level Administration
@@ -13139,7 +13144,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     container.innerHTML = `
       <div class="mb-4">
         <h2 class="text-2xl font-black text-slate-800 tracking-tight">Announcements</h2>
-        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Record or upload an MP3, target it at speaker devices</p>
+        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">General school-wide notice, a class's speaker device, or one specific student</p>
       </div>
 
       <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 mb-5">
@@ -13148,42 +13153,96 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button id="annCancelEditBtn" onclick="_annCancelEdit()" class="hidden text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-700">Cancel Edit</button>
         </div>
         <input type="hidden" id="annEditingId">
+
+        <div class="flex flex-wrap gap-2 mb-4" id="annTypeTabs">
+          <button type="button" onclick="_annSetType('device')" data-type="device" class="ann-type-tab px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest border">Class Device</button>
+          <button type="button" onclick="_annSetType('general')" data-type="general" class="ann-type-tab px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest border">General (All)</button>
+          <button type="button" onclick="_annSetType('student')" data-type="student" class="ann-type-tab px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest border">Specific Student</button>
+        </div>
+
         <div class="mb-3">
           <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Title <span class="text-red-500">*</span></label>
           <input type="text" id="annTitle" placeholder="e.g. Morning Assembly Reminder" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
         </div>
 
-        <div id="annCurrentAudioNote" class="hidden text-[10px] text-slate-400 font-bold mb-2"></div>
-        <div class="grid md:grid-cols-2 gap-4 mb-4">
-          <div class="border border-slate-200 rounded-2xl p-3">
-            <p class="text-[10px] font-black text-slate-400 uppercase mb-2">Upload MP3</p>
-            <input type="file" id="annFileInput" accept=".mp3,audio/mpeg" class="text-xs font-bold">
-            <p id="annFileStatus" class="text-[10px] text-slate-400 font-bold mt-1"></p>
+        <div id="annGeneralFields" class="hidden mb-4">
+          <div class="mb-3">
+            <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Subtitle (optional)</label>
+            <input type="text" id="annSubtitle" placeholder="e.g. Notice" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
           </div>
-          <div class="border border-slate-200 rounded-2xl p-3">
-            <p class="text-[10px] font-black text-slate-400 uppercase mb-2">Or Record</p>
-            <div class="flex items-center gap-2">
-              <button id="annRecordBtn" onclick="_annToggleRecording()" class="px-3 py-2 bg-red-500 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="mic" class="h-3.5 w-3.5"></i>Record</button>
-              <span id="annRecordStatus" class="text-[10px] text-slate-400 font-bold"></span>
-            </div>
-            <audio id="annRecordPreview" controls class="hidden mt-2 w-full" style="height:32px"></audio>
+          <div class="mb-1">
+            <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Body (optional, HTML allowed)</label>
+            <textarea id="annBody" rows="3" placeholder="Full message students/guardians will see" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></textarea>
           </div>
+          <p class="text-[10px] text-slate-400 font-bold mt-1">Shown as a carousel banner to every guardian in the portal — text/HTML only, no audio for this type.</p>
         </div>
 
-        <label class="flex items-center gap-2 text-xs font-bold text-slate-600 mb-4 cursor-pointer">
-          <input type="checkbox" id="annTextOnly" class="w-4 h-4 rounded accent-blue-600">
-          Text only (no audio) — the display just scrolls the title, nothing to play
-        </label>
+        <div id="annStudentFields" class="hidden mb-4">
+          <div class="flex gap-2 mb-3">
+            <button type="button" onclick="_annSetStudentMode('id')" data-mode="id" class="ann-submode-tab px-3 py-1.5 rounded-lg font-black text-[10px] uppercase tracking-widest border">By Student ID</button>
+            <button type="button" onclick="_annSetStudentMode('browse')" data-mode="browse" class="ann-submode-tab px-3 py-1.5 rounded-lg font-black text-[10px] uppercase tracking-widest border">By Class / Section</button>
+          </div>
+          <div id="annStudentById" class="hidden">
+            <div class="flex gap-2 mb-2">
+              <input type="text" id="annStudentIdInput" placeholder="Student ID" class="flex-1 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              <button onclick="_annLookupStudentId()" class="px-4 py-2.5 bg-slate-800 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black">Find</button>
+            </div>
+          </div>
+          <div id="annStudentByBrowse" class="hidden">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-2">
+              <select id="annPickClass" onchange="_annOnPickClassChange()" class="px-2 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"><option value="">Class…</option></select>
+              <select id="annPickSection" onchange="_annOnPickFilterChange()" class="px-2 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"><option value="">Section…</option></select>
+              <input type="text" id="annPickGroup" placeholder="Group (optional)" onchange="_annOnPickFilterChange()" class="px-2 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              <input type="text" id="annPickSession" placeholder="Session (optional)" onchange="_annOnPickFilterChange()" class="px-2 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            </div>
+            <div id="annRosterList" class="max-h-40 overflow-y-auto border border-slate-100 rounded-xl divide-y divide-slate-100"></div>
+          </div>
+          <div id="annPickedStudentCard" class="hidden mt-3 p-3 border-2 border-blue-200 bg-blue-50 rounded-2xl"></div>
+        </div>
 
-        <p class="text-[10px] font-black text-slate-400 uppercase mb-2">Target Devices</p>
-        <div id="annDeviceChecklist" class="flex flex-wrap gap-2 mb-4"><p class="text-slate-400 font-bold text-xs">Loading devices…</p></div>
+        <div id="annCurrentAudioNote" class="hidden text-[10px] text-slate-400 font-bold mb-2"></div>
+        <div id="annAudioFields">
+          <div class="grid md:grid-cols-2 gap-4 mb-4">
+            <div class="border border-slate-200 rounded-2xl p-3">
+              <p class="text-[10px] font-black text-slate-400 uppercase mb-2">Upload MP3</p>
+              <input type="file" id="annFileInput" accept=".mp3,audio/mpeg" class="text-xs font-bold">
+              <p id="annFileStatus" class="text-[10px] text-slate-400 font-bold mt-1"></p>
+            </div>
+            <div class="border border-slate-200 rounded-2xl p-3">
+              <p class="text-[10px] font-black text-slate-400 uppercase mb-2">Or Record</p>
+              <div class="flex items-center gap-2">
+                <button id="annRecordBtn" onclick="_annToggleRecording()" class="px-3 py-2 bg-red-500 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="mic" class="h-3.5 w-3.5"></i>Record</button>
+                <span id="annRecordStatus" class="text-[10px] text-slate-400 font-bold"></span>
+              </div>
+              <audio id="annRecordPreview" controls class="hidden mt-2 w-full" style="height:32px"></audio>
+            </div>
+          </div>
+
+          <label class="flex items-center gap-2 text-xs font-bold text-slate-600 mb-4 cursor-pointer">
+            <input type="checkbox" id="annTextOnly" class="w-4 h-4 rounded accent-blue-600">
+            Text only (no audio) — the display just scrolls the title, nothing to play
+          </label>
+        </div>
+
+        <div id="annDeviceTargetWrap">
+          <p class="text-[10px] font-black text-slate-400 uppercase mb-2">Target Devices</p>
+          <div id="annDeviceChecklist" class="flex flex-wrap gap-2 mb-4"><p class="text-slate-400 font-bold text-xs">Loading devices…</p></div>
+        </div>
 
         <div id="annSaveStatus" class="text-xs font-bold mb-2"></div>
         <button onclick="_annSaveAnnouncement()" id="annSaveBtn" class="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Announcement</button>
       </div>
 
       <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 mb-5">
-        <p class="font-black text-slate-800 text-sm mb-3">All Announcements</p>
+        <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <p class="font-black text-slate-800 text-sm">All Announcements</p>
+          <div class="flex gap-1.5" id="annListTypeTabs">
+            <button type="button" onclick="_annSetListFilter('all')" data-filter="all" class="ann-list-filter-tab px-2.5 py-1 rounded-lg font-black text-[9px] uppercase tracking-widest border">All</button>
+            <button type="button" onclick="_annSetListFilter('general')" data-filter="general" class="ann-list-filter-tab px-2.5 py-1 rounded-lg font-black text-[9px] uppercase tracking-widest border">General</button>
+            <button type="button" onclick="_annSetListFilter('device')" data-filter="device" class="ann-list-filter-tab px-2.5 py-1 rounded-lg font-black text-[9px] uppercase tracking-widest border">Device</button>
+            <button type="button" onclick="_annSetListFilter('student')" data-filter="student" class="ann-list-filter-tab px-2.5 py-1 rounded-lg font-black text-[9px] uppercase tracking-widest border">Student</button>
+          </div>
+        </div>
         <div id="annList" class="space-y-2"><p class="text-slate-400 font-bold text-xs">Loading…</p></div>
       </div>
 
@@ -13198,7 +13257,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     lucide.createIcons();
     _annRecordedBase64 = null; _annUploadedBase64 = null; _annTargetSet = new Set();
     _annEditingId = null;
+    _annPickedStudent = null;
     document.getElementById('annFileInput').addEventListener('change', _annHandleFileSelect);
+    _annSetType('device');
+    _annSetStudentMode('id');
+    _annSetListFilter('all');
     _announceFetch('get_devices_for_targeting', {}).then(res => {
       _annDevicesCache = (res && res.result === 'success' && res.devices) || [];
       _annCanTargetAll = !!(res && res.can_target_all);
@@ -13207,6 +13270,95 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }).catch(() => { _annDevicesCache = []; _annCanTargetAll = false; _annP10Unavailable = false; _annRenderDeviceChecklist(); });
     _annLoadList();
     _annLoadLog();
+  }
+
+  function _annSetType(type) {
+    _annType = type;
+    document.querySelectorAll('.ann-type-tab').forEach(b => {
+      const active = b.dataset.type === type;
+      b.className = 'ann-type-tab px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest border ' + (active ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-500');
+    });
+    document.getElementById('annGeneralFields').classList.toggle('hidden', type !== 'general');
+    document.getElementById('annStudentFields').classList.toggle('hidden', type !== 'student');
+    document.getElementById('annAudioFields').classList.toggle('hidden', type === 'general');
+    document.getElementById('annDeviceTargetWrap').classList.toggle('hidden', type !== 'device');
+    if (type === 'student' && !_annPickerOptions.classes.length) _annLoadPickerOptions();
+  }
+
+  function _annLoadPickerOptions() {
+    _announceFetch('get_student_picker_options', {}).then(res => {
+      if (res && res.result === 'success') {
+        _annPickerOptions = { classes: res.classes || [], sections_by_class: res.sections_by_class || {} };
+        const sel = document.getElementById('annPickClass');
+        if (sel) sel.innerHTML = '<option value="">Class…</option>' + _annPickerOptions.classes.map(c => `<option value="${_escHtml(c)}">${_escHtml(c)}</option>`).join('');
+      }
+    }).catch(() => {});
+  }
+
+  function _annSetStudentMode(mode) {
+    _annStudentMode = mode;
+    document.querySelectorAll('.ann-submode-tab').forEach(b => {
+      const active = b.dataset.mode === mode;
+      b.className = 'ann-submode-tab px-3 py-1.5 rounded-lg font-black text-[10px] uppercase tracking-widest border ' + (active ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-500');
+    });
+    document.getElementById('annStudentById').classList.toggle('hidden', mode !== 'id');
+    document.getElementById('annStudentByBrowse').classList.toggle('hidden', mode !== 'browse');
+  }
+
+  function _annOnPickClassChange() {
+    const cls = document.getElementById('annPickClass').value;
+    const secSel = document.getElementById('annPickSection');
+    const sections = _annPickerOptions.sections_by_class[cls] || [];
+    secSel.innerHTML = '<option value="">Section…</option>' + sections.map(s => `<option value="${_escHtml(s)}">${_escHtml(s)}</option>`).join('');
+    _annOnPickFilterChange();
+  }
+
+  function _annOnPickFilterChange() {
+    const cls = document.getElementById('annPickClass').value;
+    const section = document.getElementById('annPickSection').value;
+    const group = document.getElementById('annPickGroup').value.trim();
+    const session = document.getElementById('annPickSession').value.trim();
+    const host = document.getElementById('annRosterList');
+    if (!cls || !section) { host.innerHTML = ''; return; }
+    host.innerHTML = '<p class="text-xs font-bold text-slate-400 p-2">Searching…</p>';
+    _announceFetch('search_roster_students', { class: cls, section, group: group || undefined, session: session || undefined }).then(res => {
+      if (!res || res.result !== 'success') { host.innerHTML = `<p class="text-xs font-bold text-red-500 p-2">${_escHtml((res && res.message) || 'Search failed')}</p>`; return; }
+      const students = res.students || [];
+      if (!students.length) { host.innerHTML = '<p class="text-xs font-bold text-slate-400 p-2">No students match.</p>'; return; }
+      host.innerHTML = students.map((s, i) => `<button type="button" data-idx="${i}" onclick="_annPickRosterStudent(${i})" class="w-full text-left px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50">Roll ${_escHtml(s.roll || '—')} · ${_escHtml(s.student_name || '')} <span class="text-slate-400">(${_escHtml(s.student_id)})</span></button>`).join('');
+      host._annRosterCache = students;
+    }).catch(() => { host.innerHTML = '<p class="text-xs font-bold text-red-500 p-2">Search failed</p>'; });
+  }
+
+  function _annPickRosterStudent(idx) {
+    const host = document.getElementById('annRosterList');
+    const s = host && host._annRosterCache && host._annRosterCache[idx];
+    if (!s) return;
+    _annPickedStudent = s;
+    _annRenderPickedStudent();
+  }
+
+  function _annLookupStudentId() {
+    const id = document.getElementById('annStudentIdInput').value.trim();
+    if (!id) return;
+    _announceFetch('lookup_student', { student_id: id }).then(res => {
+      if (res && res.result === 'success') { _annPickedStudent = res.student; _annRenderPickedStudent(); }
+      else { _annPickedStudent = null; _annRenderPickedStudent(); showToast((res && res.message) || 'Student not found', 'error'); }
+    }).catch(() => showToast('Lookup failed', 'error'));
+  }
+
+  function _annRenderPickedStudent() {
+    const host = document.getElementById('annPickedStudentCard');
+    if (!host) return;
+    if (!_annPickedStudent) { host.classList.add('hidden'); host.innerHTML = ''; return; }
+    const s = _annPickedStudent;
+    host.classList.remove('hidden');
+    host.innerHTML = `
+      <p class="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-1">Cross-check — confirm this is the right student</p>
+      <p class="font-black text-slate-800 text-sm">${_escHtml(s.student_name || '')} <span class="text-slate-400 font-bold">(${_escHtml(s.student_id)})</span></p>
+      <p class="text-xs font-bold text-slate-500">${_escHtml(s.class || '')} - ${_escHtml(s.section || '')}${s.group ? ' · Group ' + _escHtml(s.group) : ''}${s.session ? ' · Session ' + _escHtml(s.session) : ''}${s.roll ? ' · Roll ' + _escHtml(s.roll) : ''}</p>
+      <button type="button" onclick="_annPickedStudent=null;_annRenderPickedStudent();" class="text-[10px] font-black text-red-500 uppercase tracking-widest mt-2">Clear</button>
+    `;
   }
 
   function _annRenderDeviceChecklist() {
@@ -13369,6 +13521,39 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const status = document.getElementById('annSaveStatus');
     const btn = document.getElementById('annSaveBtn');
     if (!title) { status.className = 'text-xs font-bold text-red-500 mb-2'; status.textContent = 'Title is required.'; return; }
+
+    if (_annType === 'general') {
+      const subtitle = document.getElementById('annSubtitle').value.trim();
+      const body = document.getElementById('annBody').value.trim();
+      btn.disabled = true; btn.textContent = 'Saving…';
+      status.className = 'text-xs font-bold text-slate-400 mb-2'; status.textContent = 'Saving announcement…';
+      _announceFetch('save_announcement', {
+        id: _annEditingId || undefined, title, announcement_type: 'general',
+        subtitle: subtitle || undefined, body: body || undefined, active: true,
+      }).then(res => _annHandleSaveResult(res, btn)).catch(err => _annHandleSaveError(err, btn));
+      return;
+    }
+
+    if (_annType === 'student') {
+      if (!_annPickedStudent) { status.className = 'text-xs font-bold text-red-500 mb-2'; status.textContent = 'Find or pick the student first.'; return; }
+      const base64 = _annUploadedBase64 || _annRecordedBase64;
+      const existing = _annEditingId ? _annListCache.find(a => a.id === _annEditingId) : null;
+      const textOnly = document.getElementById('annTextOnly').checked;
+      if (!textOnly && !base64 && !(existing && existing.file_url)) { status.className = 'text-xs font-bold text-red-500 mb-2'; status.textContent = 'Upload or record an MP3, or check "Text only".'; return; }
+      btn.disabled = true; btn.textContent = 'Saving…';
+      status.className = 'text-xs font-bold text-slate-400 mb-2';
+      const uploadStep = base64
+        ? (() => { status.textContent = 'Uploading audio…'; return _announceFetch('upload_audio', { filename: `${title.replace(/[^a-zA-Z0-9]+/g, '_')}.mp3`, base64 }); })()
+        : Promise.resolve({ result: 'success', file_url: (existing && existing.file_url) || '' });
+      uploadStep.then(res => {
+        if (!res || res.result !== 'success') throw new Error((res && res.message) || 'Upload failed');
+        status.textContent = 'Saving announcement…';
+        return _announceFetch('save_announcement', { id: _annEditingId || undefined, title, announcement_type: 'student', target_student_id: _annPickedStudent.student_id, file_url: res.file_url, active: true });
+      }).then(res => _annHandleSaveResult(res, btn)).catch(err => _annHandleSaveError(err, btn));
+      return;
+    }
+
+    // device (unchanged from before types existed)
     const base64 = _annUploadedBase64 || _annRecordedBase64;
     const existing = _annEditingId ? _annListCache.find(a => a.id === _annEditingId) : null;
     const textOnly = document.getElementById('annTextOnly').checked;
@@ -13390,22 +13575,28 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     uploadStep.then(res => {
       if (!res || res.result !== 'success') throw new Error((res && res.message) || 'Upload failed');
       status.textContent = 'Saving announcement…';
-      return _announceFetch('save_announcement', { id: _annEditingId || undefined, title, file_url: res.file_url, target_devices: targets, active: true });
-    }).then(res => {
-      btn.disabled = false; btn.textContent = _annEditingId ? 'Update Announcement' : 'Save Announcement';
-      if (res && res.result === 'success') {
-        showToast(_annEditingId ? 'Announcement updated' : 'Announcement saved');
-        status.className = 'text-xs font-bold text-emerald-600 mb-2'; status.textContent = 'Saved.';
-        _annCancelEdit();
-        _annLoadList();
-        _annLoadLog();
-      } else {
-        status.className = 'text-xs font-bold text-red-500 mb-2'; status.textContent = (res && res.message) || 'Failed to save';
-      }
-    }).catch(err => {
-      btn.disabled = false; btn.textContent = _annEditingId ? 'Update Announcement' : 'Save Announcement';
-      status.className = 'text-xs font-bold text-red-500 mb-2'; status.textContent = err.message || 'Failed to save';
-    });
+      return _announceFetch('save_announcement', { id: _annEditingId || undefined, title, announcement_type: 'device', file_url: res.file_url, target_devices: targets, active: true });
+    }).then(res => _annHandleSaveResult(res, btn)).catch(err => _annHandleSaveError(err, btn));
+  }
+
+  function _annHandleSaveResult(res, btn) {
+    const status = document.getElementById('annSaveStatus');
+    btn.disabled = false; btn.textContent = _annEditingId ? 'Update Announcement' : 'Save Announcement';
+    if (res && res.result === 'success') {
+      showToast(_annEditingId ? 'Announcement updated' : 'Announcement saved');
+      status.className = 'text-xs font-bold text-emerald-600 mb-2'; status.textContent = 'Saved.';
+      _annCancelEdit();
+      _annLoadList();
+      _annLoadLog();
+    } else {
+      status.className = 'text-xs font-bold text-red-500 mb-2'; status.textContent = (res && res.message) || 'Failed to save';
+    }
+  }
+
+  function _annHandleSaveError(err, btn) {
+    const status = document.getElementById('annSaveStatus');
+    btn.disabled = false; btn.textContent = _annEditingId ? 'Update Announcement' : 'Save Announcement';
+    status.className = 'text-xs font-bold text-red-500 mb-2'; status.textContent = err.message || 'Failed to save';
   }
 
   function _annEditAnnouncement(id) {
@@ -13429,8 +13620,26 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         ? `Current audio: <a href="${a.file_url}" target="_blank" class="text-blue-600 underline">listen</a> — pick a new file/recording only if you want to replace it.`
         : `Currently text-only (no audio) — pick a file/recording to add audio, or leave as-is.`;
     }
-    _annTargetSet = new Set(a.target_devices && a.target_devices.includes('All') ? ['All', ..._annDevicesCache.filter(d => d.has_device).map(d => d.value)] : (a.target_devices || []));
-    _annRenderDeviceChecklist();
+
+    const type = a.announcement_type || 'device';
+    _annSetType(type);
+
+    if (type === 'general') {
+      document.getElementById('annSubtitle').value = a.subtitle || '';
+      document.getElementById('annBody').value = a.body || '';
+      if (note) note.classList.add('hidden');
+    } else if (type === 'student') {
+      _annPickedStudent = null;
+      _annRenderPickedStudent();
+      if (a.target_student_id) {
+        _announceFetch('lookup_student', { student_id: a.target_student_id }).then(res => {
+          if (res && res.result === 'success') { _annPickedStudent = res.student; _annRenderPickedStudent(); }
+        }).catch(() => {});
+      }
+    } else {
+      _annTargetSet = new Set(a.target_devices && a.target_devices.includes('All') ? ['All', ..._annDevicesCache.filter(d => d.has_device).map(d => d.value)] : (a.target_devices || []));
+      _annRenderDeviceChecklist();
+    }
     document.getElementById('annSaveBtn').textContent = 'Update Announcement';
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -13448,9 +13657,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('annRecordStatus').textContent = '';
     const note = document.getElementById('annCurrentAudioNote');
     if (note) note.classList.add('hidden');
+    document.getElementById('annSubtitle').value = '';
+    document.getElementById('annBody').value = '';
+    document.getElementById('annStudentIdInput').value = '';
+    _annPickedStudent = null;
+    _annRenderPickedStudent();
     _annUploadedBase64 = null; _annRecordedBase64 = null; _annTargetSet = new Set();
     _annRenderDeviceChecklist();
     document.getElementById('annSaveBtn').textContent = 'Save Announcement';
+    _annSetType('device');
   }
 
   function _annLoadList() {
@@ -13460,14 +13675,41 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }).catch(err => showToast(err.message || 'Failed to load announcements', 'error'));
   }
 
+  function _annSetListFilter(filter) {
+    _annListFilter = filter;
+    document.querySelectorAll('.ann-list-filter-tab').forEach(b => {
+      const active = b.dataset.filter === filter;
+      b.className = 'ann-list-filter-tab px-2.5 py-1 rounded-lg font-black text-[9px] uppercase tracking-widest border ' + (active ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-500');
+    });
+    _annRenderList();
+  }
+
+  const ANN_TYPE_BADGE = {
+    general: { label: 'General', cls: 'bg-emerald-100 text-emerald-700' },
+    device: { label: 'Device', cls: 'bg-blue-100 text-blue-700' },
+    student: { label: 'Student', cls: 'bg-purple-100 text-purple-700' },
+  };
+
   function _annRenderList() {
     const host = document.getElementById('annList');
     if (!host) return;
-    if (!_annListCache.length) { host.innerHTML = '<p class="text-slate-400 font-bold text-xs">No announcements yet.</p>'; return; }
-    host.innerHTML = _annListCache.map(a => `
+    const rows = _annListFilter === 'all' ? _annListCache : _annListCache.filter(a => (a.announcement_type || 'device') === _annListFilter);
+    if (!rows.length) { host.innerHTML = '<p class="text-slate-400 font-bold text-xs">No announcements.</p>'; return; }
+    host.innerHTML = rows.map(a => {
+      const type = a.announcement_type || 'device';
+      const badge = ANN_TYPE_BADGE[type] || ANN_TYPE_BADGE.device;
+      const targetLine = type === 'general'
+        ? (_escHtml(a.subtitle || '') || 'Shown to everyone')
+        : type === 'student'
+          ? (a.target_student_id ? `Student: ${_escHtml(a.target_student_id)}` : '—')
+          : ((a.target_devices || []).map(_escHtml).join(', ') || '—');
+      return `
       <div class="border border-slate-200 rounded-2xl p-3">
         <div class="flex items-center justify-between gap-2 flex-wrap mb-1.5">
-          <p class="font-black text-slate-800 text-xs">${_escHtml(a.title)}</p>
+          <div class="flex items-center gap-2">
+            <span class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest ${badge.cls}">${badge.label}</span>
+            <p class="font-black text-slate-800 text-xs">${_escHtml(a.title)}</p>
+          </div>
           <div class="flex items-center gap-3">
             <label class="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 cursor-pointer">
               <input type="checkbox" ${a.active ? 'checked' : ''} onchange="_annToggleActive(${a.id}, this.checked)" class="w-3.5 h-3.5 rounded accent-emerald-600">Active
@@ -13476,12 +13718,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="_annDeleteAnnouncement(${a.id})" class="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-700">Delete</button>
           </div>
         </div>
-        <p class="text-[10px] text-slate-400 font-bold mb-1.5">${(a.target_devices || []).map(_escHtml).join(', ') || '—'} · ${new Date(a.created_at).toLocaleString()}</p>
-        ${a.file_url ? `<audio controls src="${a.file_url}" class="w-full mb-1.5" style="height:32px"></audio>` : `<p class="text-[10px] text-slate-400 font-bold italic mb-1.5">Text only — no audio</p>`}
-        ${(a.played_by || []).length
+        <p class="text-[10px] text-slate-400 font-bold mb-1.5">${targetLine} · ${new Date(a.created_at).toLocaleString()}</p>
+        ${type === 'general'
+          ? (a.body ? `<div class="text-[11px] text-slate-600 font-medium mb-1.5">${a.body}</div>` : '')
+          : (a.file_url ? `<audio controls src="${a.file_url}" class="w-full mb-1.5" style="height:32px"></audio>` : `<p class="text-[10px] text-slate-400 font-bold italic mb-1.5">Text only — no audio</p>`)}
+        ${type === 'device' ? ((a.played_by || []).length
           ? `<p class="text-[10px] font-bold text-emerald-600">Played by (${a.played_by.length}): ${a.played_by.map(_escHtml).join(', ')}</p>`
-          : `<p class="text-[10px] font-bold text-amber-600">Not played by any device yet</p>`}
-      </div>`).join('');
+          : `<p class="text-[10px] font-bold text-amber-600">Not played by any device yet</p>`) : ''}
+      </div>`;
+    }).join('');
   }
 
   function _annToggleActive(id, active) {
@@ -17348,6 +17593,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { id: 'stationary', name: 'Stationary', icon: 'shopping-bag' },
     { id: 'teachers', name: 'Teacher Directory', icon: 'users' },
     { id: 'bus-tracking', name: 'Live Bus Tracking', icon: 'bus' },
+    { id: 'textbooks', name: 'NCTB Books', icon: 'book-open' },
   ];
   let _setupAllTabs = [];
   let _setupPromotedTabs = [];

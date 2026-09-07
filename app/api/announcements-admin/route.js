@@ -154,6 +154,37 @@ async function _getDevicesForTargeting(userId) {
   return NextResponse.json({ result: 'success', devices, can_target_all: canTargetAll, p10_unavailable: p10Unavailable });
 }
 
+async function _isBroadRole(userId) {
+  const roles = await _getUserRoles(userId);
+  return roles.some(r => ['Admin', 'VP', 'Cord'].includes(r));
+}
+
+async function _myClassSections(userId) {
+  const assignments = await _sbStudent(`class_teacher_assignments?user_id=eq.${encodeURIComponent(userId)}&select=class,section`);
+  return new Set((Array.isArray(assignments) ? assignments : []).map(a => `${a.class}||${a.section}`));
+}
+
+async function _lookupStudent(studentId) {
+  const rows = await _sbStudent(`students_data?student_id=eq.${encodeURIComponent(studentId)}&select=*`);
+  return Array.isArray(rows) && rows[0] ? rows[0] : null;
+}
+
+// Every student belonging to one of the caller's own assigned Class-Sections
+// — used to scope a Class Teacher's view of student-targeted announcements
+// (get_announcements) to just their own students, same restriction already
+// applied when they create one.
+async function _myClassStudentIds(userId) {
+  const mine = await _myClassSections(userId);
+  if (!mine.size) return new Set();
+  const pages = await Promise.all([...mine].map(key => {
+    const [cls, sec] = key.split('||');
+    return _sbStudentAllRows(`students_data?class=eq.${encodeURIComponent(cls)}&section=eq.${encodeURIComponent(sec)}&select=student_id`);
+  }));
+  const ids = new Set();
+  pages.forEach(p => { if (Array.isArray(p)) p.forEach(s => ids.add(s.student_id)); });
+  return ids;
+}
+
 // Uploads a base64-encoded MP3 straight to Supabase Storage via its REST
 // API (not the JS SDK — this route already talks to Postgres the same raw-
 // fetch way, no reason to add a second client library for one call).
@@ -217,44 +248,155 @@ export async function POST(req) {
   if (action === 'get_announcements') {
     const rows = await sbPublic('announcements?select=*&order=id.desc&limit=200');
     if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
-    return NextResponse.json({ result: 'success', announcements: rows });
+    if (await _isBroadRole(user_id)) return NextResponse.json({ result: 'success', announcements: rows });
+
+    // Class Teacher: 'general' is for everyone so always visible; 'device'
+    // only if it targets their own class's device (or 'All'); 'student'
+    // only if the target is one of their own students. Same boundaries
+    // enforced in save_announcement, applied here to the list too so a
+    // Class Teacher can't see another class's device traffic or another
+    // class's student-targeted messages.
+    const [{ devices: myDevices }, myStudentIds] = await Promise.all([
+      _resolveTargetableDevices(user_id),
+      _myClassStudentIds(user_id),
+    ]);
+    const myDeviceValues = new Set(myDevices.map(d => d.value).filter(Boolean));
+    const filtered = rows.filter(a => {
+      const type = a.announcement_type || 'device';
+      if (type === 'general') return true;
+      if (type === 'student') return !!a.target_student_id && myStudentIds.has(a.target_student_id);
+      const targets = Array.isArray(a.target_devices) ? a.target_devices : [];
+      return targets.includes('All') || targets.some(t => myDeviceValues.has(t));
+    });
+    return NextResponse.json({ result: 'success', announcements: filtered });
   }
 
   if (action === 'get_devices_for_targeting') return _getDevicesForTargeting(user_id);
   if (action === 'upload_audio') return _uploadAnnouncementAudio(payload);
 
-  if (action === 'save_announcement') {
-    const { id, title, file_url, target_devices, active } = payload;
-    // file_url is optional — a blank one is a deliberate "text-only"
-    // announcement (the P10 firmware already fully supports this: it just
-    // scrolls the title with nothing to download or play, see
-    // fetchAnnouncements()/startPlayback() in p10_display/src/main.cpp).
-    if (!title) return NextResponse.json({ result: 'error', message: 'Title is required.' }, { status: 400 });
-
-    // Re-derive what THIS caller is actually allowed to target — a Class
-    // Teacher submitting 'All' or another class's device by hand-crafting
-    // the request must be rejected here, not just hidden from them in the
-    // UI. Admin/VP/Cord are unrestricted (canTargetAll).
-    const wantsAll = Array.isArray(target_devices) && target_devices.includes('All');
-    const { devices: myDevices, canTargetAll } = await _resolveTargetableDevices(user_id);
-    if (wantsAll && !canTargetAll) {
-      return NextResponse.json({ result: 'error', message: 'You can only target your own class’s device(s), not All.' }, { status: 403 });
-    }
-    if (!canTargetAll) {
-      const allowed = new Set(myDevices.map(d => d.value).filter(Boolean));
-      const invalid = (Array.isArray(target_devices) ? target_devices : []).filter(t => t !== 'All' && !allowed.has(t));
-      if (invalid.length) {
-        return NextResponse.json({ result: 'error', message: `Not authorized to target: ${invalid.join(', ')}` }, { status: 403 });
+  if (action === 'lookup_student') {
+    const { student_id } = payload;
+    if (!student_id) return NextResponse.json({ result: 'error', message: 'student_id is required.' }, { status: 400 });
+    const student = await _lookupStudent(student_id);
+    if (!student) return NextResponse.json({ result: 'error', message: 'No student found with that ID.' }, { status: 404 });
+    if (!(await _isBroadRole(user_id))) {
+      const mine = await _myClassSections(user_id);
+      if (!mine.has(`${student.class}||${student.section}`)) {
+        return NextResponse.json({ result: 'error', message: 'That student is not in your class.' }, { status: 403 });
       }
     }
+    return NextResponse.json({ result: 'success', student });
+  }
 
-    const rowData = {
-      title,
-      file_url: file_url || '',
-      target_devices: Array.isArray(target_devices) && target_devices.length ? target_devices : ['All'],
-      active: active !== false,
-      created_by: user_id,
-    };
+  // Populates the Class > Section cascading picker for the "specific
+  // student" target type — a Class Teacher only sees their own class(es),
+  // same scoping as _resolveTargetableDevices.
+  if (action === 'get_student_picker_options') {
+    const rows = await _sbStudentAllRows('students_data?select=class,section');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+    let allowed = rows;
+    if (!(await _isBroadRole(user_id))) {
+      const mine = await _myClassSections(user_id);
+      allowed = rows.filter(r => mine.has(`${r.class}||${r.section}`));
+    }
+    const classSet = new Set();
+    const sectionsByClass = {};
+    allowed.forEach(r => {
+      const cls = String(r.class || '').trim(), sec = String(r.section || '').trim();
+      if (!cls || !sec) return;
+      classSet.add(cls);
+      if (!sectionsByClass[cls]) sectionsByClass[cls] = new Set();
+      sectionsByClass[cls].add(sec);
+    });
+    const sections_by_class = {};
+    Object.entries(sectionsByClass).forEach(([c, set]) => { sections_by_class[c] = [...set].sort(); });
+    return NextResponse.json({ result: 'success', classes: [...classSet].sort(), sections_by_class });
+  }
+
+  // Group/Session are optional narrowing filters on top of Class+Section —
+  // the roll list is the final step of the cascading picker.
+  if (action === 'search_roster_students') {
+    const { class: cls, section, group, session } = payload;
+    if (!cls || !section) return NextResponse.json({ result: 'error', message: 'Class and section are required.' }, { status: 400 });
+    if (!(await _isBroadRole(user_id))) {
+      const mine = await _myClassSections(user_id);
+      if (!mine.has(`${cls}||${section}`)) return NextResponse.json({ result: 'error', message: 'Not your class.' }, { status: 403 });
+    }
+    let path = `students_data?class=eq.${encodeURIComponent(cls)}&section=eq.${encodeURIComponent(section)}`;
+    if (group) path += `&group=eq.${encodeURIComponent(group)}`;
+    if (session) path += `&session=eq.${encodeURIComponent(session)}`;
+    path += '&select=*&order=roll.asc';
+    const rows = await _sbStudentAllRows(path);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', students: rows });
+  }
+
+  if (action === 'save_announcement') {
+    const { id, title, file_url, target_devices, active, subtitle, body, target_student_id } = payload;
+    const announcement_type = ['general', 'student'].includes(payload.announcement_type) ? payload.announcement_type : 'device';
+    if (!title) return NextResponse.json({ result: 'error', message: 'Title is required.' }, { status: 400 });
+
+    let rowData;
+    if (announcement_type === 'general') {
+      // School-wide banner shown in the student portal — HTML/text only by
+      // design (no audio field for this type at all), never touches a
+      // physical device. Restricted to Admin/VP/Cord: unlike 'device'
+      // (scoped to one class) or 'student' (scoped to one student), this
+      // reaches literally every guardian, which is broader than what a
+      // Class Teacher should be able to trigger unsupervised.
+      if (!(await _isBroadRole(user_id))) {
+        return NextResponse.json({ result: 'error', message: 'Only Admin/VP/Cord can send a general (school-wide) announcement.' }, { status: 403 });
+      }
+      rowData = {
+        title, announcement_type: 'general', subtitle: subtitle || null, body: body || null,
+        file_url: '', target_devices: [], target_student_id: null,
+        active: active !== false, created_by: user_id,
+      };
+    } else if (announcement_type === 'student') {
+      if (!target_student_id) return NextResponse.json({ result: 'error', message: 'Pick a student to target.' }, { status: 400 });
+      const student = await _lookupStudent(target_student_id);
+      if (!student) return NextResponse.json({ result: 'error', message: 'No student found with that ID.' }, { status: 404 });
+      if (!(await _isBroadRole(user_id))) {
+        const mine = await _myClassSections(user_id);
+        if (!mine.has(`${student.class}||${student.section}`)) {
+          return NextResponse.json({ result: 'error', message: 'That student is not in your class.' }, { status: 403 });
+        }
+      }
+      rowData = {
+        title, announcement_type: 'student', target_student_id, subtitle: null, body: null,
+        file_url: file_url || '', target_devices: [],
+        active: active !== false, created_by: user_id,
+      };
+    } else {
+      // file_url is optional — a blank one is a deliberate "text-only"
+      // announcement (the P10 firmware already fully supports this: it just
+      // scrolls the title with nothing to download or play, see
+      // fetchAnnouncements()/startPlayback() in p10_display/src/main.cpp).
+      //
+      // Re-derive what THIS caller is actually allowed to target — a Class
+      // Teacher submitting 'All' or another class's device by hand-crafting
+      // the request must be rejected here, not just hidden from them in the
+      // UI. Admin/VP/Cord are unrestricted (canTargetAll).
+      const wantsAll = Array.isArray(target_devices) && target_devices.includes('All');
+      const { devices: myDevices, canTargetAll } = await _resolveTargetableDevices(user_id);
+      if (wantsAll && !canTargetAll) {
+        return NextResponse.json({ result: 'error', message: 'You can only target your own class’s device(s), not All.' }, { status: 403 });
+      }
+      if (!canTargetAll) {
+        const allowed = new Set(myDevices.map(d => d.value).filter(Boolean));
+        const invalid = (Array.isArray(target_devices) ? target_devices : []).filter(t => t !== 'All' && !allowed.has(t));
+        if (invalid.length) {
+          return NextResponse.json({ result: 'error', message: `Not authorized to target: ${invalid.join(', ')}` }, { status: 403 });
+        }
+      }
+      rowData = {
+        title, announcement_type: 'device', target_student_id: null, subtitle: null, body: null,
+        file_url: file_url || '',
+        target_devices: Array.isArray(target_devices) && target_devices.length ? target_devices : ['All'],
+        active: active !== false, created_by: user_id,
+      };
+    }
+
     let oldRow = null;
     if (id) {
       const oldRows = await sbPublic(`announcements?id=eq.${encodeURIComponent(id)}&select=*`);
@@ -269,10 +411,11 @@ export async function POST(req) {
       const changes = _annDiffFields(oldRow, rowData, [
         { key: 'title', label: 'Title' }, { key: 'file_url', label: 'Audio File' },
         { key: 'target_devices', label: 'Target Devices' }, { key: 'active', label: 'Active' },
+        { key: 'target_student_id', label: 'Target Student' }, { key: 'announcement_type', label: 'Type' },
       ]);
       _annAudit(user_id, 'edit_announcement', id, { changes });
     } else {
-      _annAudit(user_id, 'create_announcement', savedRow?.id, { title, target_devices: rowData.target_devices });
+      _annAudit(user_id, 'create_announcement', savedRow?.id, { title, announcement_type, target_devices: rowData.target_devices, target_student_id: rowData.target_student_id });
     }
     return NextResponse.json({ result: 'success', announcement: savedRow });
   }
