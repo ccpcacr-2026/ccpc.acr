@@ -14080,6 +14080,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <button id="prGradesSubtabBtn-grades" onclick="_prSwitchGradesSubtab('grades')" class="px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all bg-blue-600 text-white">Grades</button>
               <button id="prGradesSubtabBtn-steps" onclick="_prSwitchGradesSubtab('steps')" class="px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all bg-white text-slate-400 border border-slate-200 hover:bg-slate-50">Pay Scale Grid</button>
             </div>
+            <div class="flex gap-1.5 border-l border-slate-200 pl-3">
+              <button id="prGradeSystemBtn-regular" onclick="_prSwitchGradeSystem('regular')" class="px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all bg-slate-800 text-white">Regular</button>
+              <button id="prGradeSystemBtn-contractual" onclick="_prSwitchGradeSystem('contractual')" class="px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all bg-white text-slate-400 border border-slate-200 hover:bg-slate-50">Contractual</button>
+            </div>
           </div>
           <button id="prGradesEditModeBtn" onclick="_prToggleGradesEditMode()" title="Everything below is read-only until this is on, to prevent accidental changes while browsing" class="px-3 py-2 border border-slate-200 text-slate-500 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="lock" class="h-3.5 w-3.5"></i>Enable Editing</button>
         </div>
@@ -14114,6 +14118,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <select id="prBulkCategoryFilter" class="px-2 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
                 <option value="">All categories</option>
               </select>
+              <button onclick="_prOpenAddPersonModal()" class="px-3 py-2 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="user-plus" class="h-3.5 w-3.5"></i>Add Person</button>
+              <button onclick="_prOpenStepUpgradeModal()" class="px-3 py-2 bg-amber-500 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="trending-up" class="h-3.5 w-3.5"></i>Upgrade to Next Step</button>
               <button onclick="_prBulkAddAllStaff()" class="px-3 py-2 bg-slate-100 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-1.5"><i data-lucide="users" class="h-3.5 w-3.5"></i>Add People</button>
               <button onclick="_prOpenImportModal('people')" class="px-3 py-2 bg-slate-100 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-1.5"><i data-lucide="upload" class="h-3.5 w-3.5"></i>Import Excel</button>
             </div>
@@ -14689,6 +14695,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
           <input type="hidden" id="prGradeId">
           <div class="space-y-3">
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Pay System</label>
+              <select id="prGradePaySystem" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs disabled:opacity-60">
+                <option value="regular">Regular (National Pay Scale)</option>
+                <option value="contractual">Contractual (independent, fixed-value fields)</option>
+              </select>
+              <p id="prGradePaySystemNote" class="text-[9px] text-slate-400 font-bold mt-1 hidden">Set once at creation — can't be changed after.</p>
+            </div>
             <div>
               <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Name <span class="text-red-500">*</span></label>
               <input type="text" id="prGradeName" placeholder="e.g. Grade 3" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
@@ -15451,6 +15465,28 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // risk bumping while just browsing. One shared toggle, same pattern as
   // the Groups/Grade+Step locks elsewhere in Payroll Admin.
   let _prGradesEditMode = false;
+  // Which pay system the Grades list, Pay Scale Grid, and "Add Grade" form
+  // are currently scoped to — Regular (National Pay Scale) and Contractual
+  // are two fully independent grade sets sharing the same tables/screen,
+  // distinguished only by each grade's own pay_system.
+  let _prGradeSystemFilter = 'regular';
+
+  function _prGradesForSystem() {
+    return _prGradesCache.filter(g => (g.pay_system || 'regular') === _prGradeSystemFilter);
+  }
+
+  function _prSwitchGradeSystem(system) {
+    _prGradeSystemFilter = system;
+    ['regular', 'contractual'].forEach(s => {
+      const btn = document.getElementById(`prGradeSystemBtn-${s}`);
+      if (btn) btn.className = `px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all ${s === system ? 'bg-slate-800 text-white' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50'}`;
+    });
+    _prSelectedGradeId = null;
+    const detail = document.getElementById('prGradeDetail');
+    if (detail) detail.innerHTML = `<p class="text-slate-400 font-bold text-xs p-4">Select a grade on the left to configure its field values and conditional fields.</p>`;
+    _prRenderGradesList();
+    _prRenderPayScaleGrid();
+  }
 
   function loadPayrollGrades() {
     _payrollFetch('get_grades', {}).then(res => {
@@ -15506,7 +15542,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _prRenderPayScaleGrid() {
     const host = document.getElementById('prPayScaleGrid');
     if (!host) return;
-    if (!_prGradesCache.length) { host.innerHTML = '<p class="text-slate-400 font-bold text-xs p-4 text-center">Add a grade first (left panel above).</p>'; return; }
+    const grades = _prGradesForSystem();
+    if (!grades.length) { host.innerHTML = `<p class="text-slate-400 font-bold text-xs p-4 text-center">No ${_prGradeSystemFilter} grades yet — add one on the Grades sub-tab first.</p>`; return; }
     if (!_prPayStepsCache.length) { host.innerHTML = '<p class="text-slate-400 font-bold text-xs p-4 text-center">No steps yet — click "Add Step".</p>'; return; }
     const cellMap = {}; _prGradeStepValuesCache.forEach(c => { cellMap[`${c.grade_id}:${c.step_id}`] = c.basic_value; });
     // 314 real salary figures in one grid — a stray click here is expensive.
@@ -15522,7 +15559,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           ${_prPayStepsCache.map(s => `<th class="py-2 px-3 text-center">Step ${s.step_number} <button onclick="_prDeletePayStep(${s.id})" ${_prGradesEditMode ? '' : 'disabled title="Click Enable Editing above"'} class="text-red-400 hover:text-red-600 ml-1 ${_prGradesEditMode ? '' : 'opacity-30 cursor-not-allowed'}"><i data-lucide="x" class="h-2.5 w-2.5 inline"></i></button></th>`).join('')}
         </tr></thead>
         <tbody>
-          ${_prGradesCache.map(g => `
+          ${grades.map(g => `
           <tr class="border-b border-slate-50">
             <td class="py-1.5 px-3 font-black text-slate-700 sticky left-0 bg-white">${_escHtml(g.name)}</td>
             ${_prPayStepsCache.map(s => {
@@ -15589,11 +15626,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _prRenderGradesList() {
     const list = document.getElementById('prGradesList');
     if (!list) return;
-    if (!_prGradesCache.length) {
-      list.innerHTML = `<p class="text-slate-400 font-bold text-xs">No grades yet — click "Add".</p>`;
+    const grades = _prGradesForSystem();
+    if (!grades.length) {
+      list.innerHTML = `<p class="text-slate-400 font-bold text-xs">No ${_prGradeSystemFilter} grades yet — click "Add".</p>`;
       return;
     }
-    list.innerHTML = _prGradesCache.map(g => `
+    list.innerHTML = grades.map(g => `
       <div onclick="_prSelectGrade(${g.id})" class="p-2.5 rounded-xl cursor-pointer transition-all flex items-center justify-between group ${_prSelectedGradeId === g.id ? 'bg-blue-600 text-white' : 'bg-slate-50 hover:bg-slate-100 text-slate-700'}">
         <div>
           <p class="font-black text-xs">${g.name}</p>
@@ -15612,6 +15650,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prGradeId').value = grade ? grade.id : '';
     document.getElementById('prGradeName').value = grade ? grade.name : '';
     document.getElementById('prGradeDescription').value = (grade && grade.description) || '';
+    const sysSel = document.getElementById('prGradePaySystem');
+    const sysNote = document.getElementById('prGradePaySystemNote');
+    // pay_system is set once at creation, matching whichever Regular/
+    // Contractual tab was active when "Add" was clicked, and locked
+    // thereafter — mixing systems on an existing grade would strand
+    // whatever Pay Scale Grid cells or Fixed/Percent field config it
+    // already has under the wrong rules.
+    sysSel.value = grade ? (grade.pay_system || 'regular') : _prGradeSystemFilter;
+    sysSel.disabled = !!grade;
+    sysNote.classList.toggle('hidden', !grade);
     document.getElementById('prGradeFormModal').classList.remove('hidden');
   }
 
@@ -15623,7 +15671,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const id = document.getElementById('prGradeId').value || null;
     const name = document.getElementById('prGradeName').value.trim();
     if (!name) { showToast('Name is required', 'error'); return; }
-    const payload = { id, name, description: document.getElementById('prGradeDescription').value.trim() };
+    const payload = {
+      id, name, description: document.getElementById('prGradeDescription').value.trim(),
+      pay_system: document.getElementById('prGradePaySystem').value,
+    };
     _payrollFetch('save_grade', payload).then(res => {
       if (res && res.result === 'success') { showToast('Grade saved'); _prCloseGradeForm(); loadPayrollGrades(); }
       else showToast((res && res.message) || 'Failed to save grade', 'error');
@@ -15659,12 +15710,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const condSet = new Set(conditionalFields.map(cf => cf.field_id));
       const baseFields = _prFieldsCache.filter(f => !f.is_grade_conditional);
       const conditionalCatalog = _prFieldsCache.filter(f => f.is_grade_conditional);
+      // Contractual grades are fixed-only — every field is its own flat
+      // amount, entered independently, with no percent-of-another-field
+      // linkage at all — so Percent/Of Step never apply here regardless of
+      // a field's own calc_mode (the backend enforces this too, see
+      // save_grade_field).
+      const isContractualGrade = (grade.pay_system || 'regular') === 'contractual';
       detail.innerHTML = `
-        <p class="font-black text-slate-800 text-sm mb-1">${grade.name} — Field Values</p>
-        <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-3">Overrides the field's per-role default for anyone on this grade. Leave blank to fall back to the role default.</p>
+        <p class="font-black text-slate-800 text-sm mb-1">${grade.name} — Field Values ${isContractualGrade ? '<span class="text-[9px] font-black uppercase tracking-widest text-amber-600 align-middle ml-1">Contractual · fixed only</span>' : ''}</p>
+        <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-3">${isContractualGrade ? 'Every field is a flat amount for this grade — enter each value directly, no percent linkage.' : 'Overrides the field\'s per-role default for anyone on this grade. Leave blank to fall back to the role default.'}</p>
         <div class="overflow-auto border border-slate-200 rounded-xl mb-5">
           <table class="w-full text-left border-collapse text-xs">
-            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Field</th><th class="py-2 px-3">Fixed Value</th><th class="py-2 px-3">Percent</th><th class="py-2 px-3">Of Step</th><th class="py-2 px-3"></th></tr></thead>
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Field</th><th class="py-2 px-3">Fixed Value</th>${isContractualGrade ? '' : '<th class="py-2 px-3">Percent</th><th class="py-2 px-3">Of Step</th>'}<th class="py-2 px-3"></th></tr></thead>
             <tbody>
               ${baseFields.map(f => {
                 const gf = gfMap[f.id] || {};
@@ -15676,7 +15733,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 // percent on a fixed field, save it, and have it silently
                 // do nothing. The inapplicable side is now disabled and
                 // greyed out instead of accepting a value that's a dead end.
-                const isPercent = f.calc_mode === 'percent_of_field';
+                const isPercent = !isContractualGrade && f.calc_mode === 'percent_of_field';
                 // "Of Step" only makes sense for a field that's a percent of
                 // Basic specifically — Steps are what define Basic in the
                 // first place, so a fixed reference step is meaningless for
@@ -15687,16 +15744,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 return `<tr class="border-b border-slate-50" style="border-left:3px solid ${isDeduction ? '#ef4444' : '#10b981'}">
                   <td class="py-1.5 px-3 font-black ${isDeduction ? 'text-red-500' : 'text-emerald-600'}">${_escHtml(f.label)} <span class="text-[9px] font-black uppercase ${isDeduction ? 'text-red-400' : 'text-emerald-500'}">(${isDeduction ? 'Deduction' : 'Addition'})</span></td>
                   <td class="py-1.5 px-3"><input type="number" id="prGF_val_${f.id}" value="${gf.value != null ? gf.value : ''}" placeholder="${isPercent ? 'N/A' : '—'}" ${isPercent || locked ? `disabled title="${isPercent ? 'This field is percent-based (set in the Fields tab) — Fixed Value doesn\'t apply.' : 'Click Enable Editing above'}"` : ''} class="w-24 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs ${isPercent || locked ? 'opacity-40 cursor-not-allowed' : ''}"></td>
+                  ${isContractualGrade ? '' : `
                   <td class="py-1.5 px-3"><input type="number" id="prGF_pct_${f.id}" value="${gf.percent != null ? gf.percent : ''}" placeholder="${isPercent ? '—' : 'N/A'}" ${!isPercent || locked ? `disabled title="${!isPercent ? 'This field is a fixed amount (set in the Fields tab) — Percent doesn\'t apply.' : 'Click Enable Editing above'}"` : ''} class="w-20 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs ${!isPercent || locked ? 'opacity-40 cursor-not-allowed' : ''}"></td>
                   <td class="py-1.5 px-3">
                     <select id="prGF_step_${f.id}" ${!isPercentOfBasic || locked ? 'disabled' : ''} title="${isPercentOfBasic ? (locked ? 'Click Enable Editing above' : 'Optional — leave as &quot;Own step&quot; to use this person\'s own resolved Basic, or pick a fixed step (e.g. Incentive = 20% of Basic at Step 1, no matter which step they\'re actually on)') : 'Only applies to a percent-of-Basic field.'}" class="w-28 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px] ${!isPercentOfBasic || locked ? 'opacity-40 cursor-not-allowed' : ''}">
                       <option value="">Own step</option>
                       ${_prPayStepsCache.map(s => `<option value="${s.id}" ${gf.base_step_id === s.id ? 'selected' : ''}>Step ${s.step_number}</option>`).join('')}
                     </select>
-                  </td>
+                  </td>`}
                   <td class="py-1.5 px-3"><button onclick="_prSaveGradeField(${gradeId},${f.id})" ${locked ? 'disabled title="Click Enable Editing above"' : ''} class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-black ${locked ? 'opacity-40 cursor-not-allowed' : ''}">Save</button></td>
                 </tr>`;
-              }).join('') || `<tr><td colspan="5" class="p-3 text-slate-400 font-bold text-xs text-center">No fields yet — add some under the Fields tab first.</td></tr>`}
+              }).join('') || `<tr><td colspan="${isContractualGrade ? 3 : 5}" class="p-3 text-slate-400 font-bold text-xs text-center">No fields yet — add some under the Fields tab first.</td></tr>`}
             </tbody>
           </table>
         </div>
@@ -15716,7 +15774,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function _prSaveGradeField(gradeId, fieldId) {
     const field = _prFieldsCache.find(f => f.id === fieldId);
-    const isPercent = field && field.calc_mode === 'percent_of_field';
+    const grade = _prGradesCache.find(g => g.id === gradeId);
+    const isContractualGrade = grade && (grade.pay_system || 'regular') === 'contractual';
+    const isPercent = !isContractualGrade && field && field.calc_mode === 'percent_of_field';
     const isPercentOfBasic = isPercent && field.calc_base_field_key === 'basic';
     // The disabled side's input still has a readable .value (disabling only
     // blocks user interaction, not JS access) — force it blank on save so a
@@ -15741,6 +15801,32 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _prPeopleComboWired = false;
   let _prPeopleSetupCache = [];
   let _prSelectedPersonId = null;
+  // Every grade/step/pay-type change ever logged (payroll.person_grade_history)
+  // — one row per promotion, fetched in bulk once so the roster can embed
+  // joining date + every later promotion date inline per person.
+  let _prGradeHistoryCache = [];
+
+  function _prGradesForPayType(payType) {
+    return _prGradesCache.filter(g => (g.pay_system || 'regular') === (payType === 'contractual' ? 'contractual' : 'regular'));
+  }
+
+  // Joining date (from person_setup) plus every promotion date after it, in
+  // order — "Joined 2015-01-15 → Grade 8 Step 5 since 2020-03-01 → Grade 8
+  // Step 10 since 2023-01-01" — for the roster's embedded History column and
+  // the detail panel.
+  function _prHistoryLineForUser(userId, joiningDate) {
+    const gradeById = {}; _prGradesCache.forEach(g => { gradeById[g.id] = g.name; });
+    const stepById = {}; _prPayStepsCache.forEach(s => { stepById[s.id] = s.step_number; });
+    const events = _prGradeHistoryCache.filter(h => h.user_id === userId);
+    const parts = [];
+    if (joiningDate) parts.push(`Joined ${joiningDate}`);
+    events.forEach(h => {
+      const gName = gradeById[h.grade_id] || `Grade #${h.grade_id}`;
+      const sLabel = h.step_id && stepById[h.step_id] ? ` Step ${stepById[h.step_id]}` : '';
+      parts.push(`${gName}${sLabel} since ${h.effective_date}`);
+    });
+    return parts;
+  }
 
   function loadPayrollPeopleTab() {
     _prPeopleComboWired = true;
@@ -15751,12 +15837,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _prGradesLoaded ? Promise.resolve({ result: 'success', grades: _prGradesCache }) : _payrollFetch('get_grades', {}),
       _payrollFetch('get_pay_steps', {}),
       _payrollFetch('get_grade_step_matrix', {}),
-    ]).then(([, peopleRes, gradesRes, stepsRes, matrixRes]) => {
+      _payrollFetch('get_grade_history', {}),
+    ]).then(([, peopleRes, gradesRes, stepsRes, matrixRes, historyRes]) => {
       _prPeopleSetupCache = (peopleRes && peopleRes.result === 'success' && peopleRes.people) || [];
       _prGradesCache = (gradesRes && gradesRes.result === 'success' && gradesRes.grades) || _prGradesCache;
       _prGradesLoaded = true;
       _prPayStepsCache = (stepsRes && stepsRes.result === 'success' && stepsRes.steps) || [];
       _prGradeStepValuesCache = (matrixRes && matrixRes.result === 'success' && matrixRes.cells) || [];
+      _prGradeHistoryCache = (historyRes && historyRes.result === 'success' && historyRes.history) || [];
       _wireSearchCombo('prPersonSearch', 'prPersonSelect', 'prPersonDropdown',
         allStaffCache.map(s => ({ value: s.teacher_id, label: s.full_name || s.teacher_id, sub: [s.designation, s.teacher_id].filter(Boolean).join(' · ') })));
       document.getElementById('prPersonSelect').value = '';
@@ -15804,19 +15892,28 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const cats = Object.keys(staffByCategory).filter(c => staffByCategory[c].length);
     const gsLocked = !_prGradeStepEditMode;
     const theadHtml = `<thead><tr class="text-[10px] font-black text-slate-400 uppercase">
-          <th class="py-1.5 px-3">Name</th><th class="py-1.5 px-3">Designation</th><th class="py-1.5 px-3">Grade</th><th class="py-1.5 px-3">Step</th>
+          <th class="py-1.5 px-3">Name</th><th class="py-1.5 px-3">Designation</th><th class="py-1.5 px-3">Pay Type</th><th class="py-1.5 px-3">Grade</th><th class="py-1.5 px-3">Step</th><th class="py-1.5 px-3">Joining / Promotions</th>
         </tr></thead>`;
     host.innerHTML = cats.length ? cats.map(cat => {
       const rowsHtml = staffByCategory[cat].map(s => {
         const setup = setupByUser[s.teacher_id];
         const selected = _prSelectedPersonId === s.teacher_id;
+        const payType = (setup && setup.pay_type) === 'contractual' ? 'contractual' : 'regular';
+        const gradesForType = _prGradesForPayType(payType);
+        const historyParts = _prHistoryLineForUser(s.teacher_id, setup && setup.joining_date);
         return `<tr onclick="_prSelectPerson('${s.teacher_id}')" class="border-b border-slate-50 cursor-pointer transition-colors ${selected ? 'bg-blue-50' : 'hover:bg-slate-50'}">
           <td class="py-1.5 px-3 font-bold text-slate-700">${s.full_name || s.teacher_id}</td>
           <td class="py-1.5 px-3 text-slate-400 text-[10px] font-bold">${s.designation || ''}</td>
           <td class="py-1.5 px-3" onclick="event.stopPropagation()">
+            <select id="prRosterPayType_${s.teacher_id}" ${gsLocked ? 'disabled' : ''} title="${gsLocked ? 'Click Enable Editing above to change Pay Type' : 'Switching this refilters which grades are selectable'}" onchange="_prOnRosterPayTypeChange('${s.teacher_id}')" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
+              <option value="regular" ${payType === 'regular' ? 'selected' : ''}>Regular</option>
+              <option value="contractual" ${payType === 'contractual' ? 'selected' : ''}>Contractual</option>
+            </select>
+          </td>
+          <td class="py-1.5 px-3" onclick="event.stopPropagation()">
             <select id="prRosterGrade_${s.teacher_id}" ${gsLocked ? 'disabled' : ''} title="${gsLocked ? 'Click Enable Editing above to change Grade/Step' : ''}" onchange="_prOnRosterGradeChange('${s.teacher_id}')" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
               <option value="">None</option>
-              ${_prGradesCache.map(g => `<option value="${g.id}" ${setup && setup.grade_id === g.id ? 'selected' : ''}>${_escHtml(g.name)}</option>`).join('')}
+              ${gradesForType.map(g => `<option value="${g.id}" ${setup && setup.grade_id === g.id ? 'selected' : ''}>${_escHtml(g.name)}</option>`).join('')}
             </select>
           </td>
           <td class="py-1.5 px-3" onclick="event.stopPropagation()">
@@ -15824,6 +15921,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               ${_prStepOptionsForGrade(setup && setup.grade_id, setup && setup.step_id)}
             </select>
           </td>
+          <td class="py-1.5 px-3 text-[10px] text-slate-400 font-bold max-w-[220px]">${historyParts.length ? historyParts.join(' → ') : '<span class="text-slate-300">—</span>'}</td>
         </tr>`;
       }).join('');
       return `<div class="bg-white rounded-2xl border border-slate-200 p-4 mb-3">
@@ -15834,6 +15932,29 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>`;
     }).join('') : `<p class="text-slate-400 font-bold text-xs p-4 text-center">No staff found — check System &gt; Users.</p>`;
     lucide.createIcons();
+  }
+
+  // Pay Type changed inline — refilter this row's Grade options to the new
+  // system (the old grade almost certainly doesn't belong to it) and clear
+  // Grade/Step, since keeping a Regular grade selected under Contractual
+  // (or vice versa) would silently look like a saved combination that
+  // isn't actually possible to have created any other way.
+  function _prOnRosterPayTypeChange(userId) {
+    const paySel = document.getElementById(`prRosterPayType_${userId}`);
+    const gradeSel = document.getElementById(`prRosterGrade_${userId}`);
+    const stepSel = document.getElementById(`prRosterStep_${userId}`);
+    if (!paySel || !gradeSel) return;
+    const payType = paySel.value;
+    gradeSel.innerHTML = `<option value="">None</option>` + _prGradesForPayType(payType).map(g => `<option value="${g.id}">${_escHtml(g.name)}</option>`).join('');
+    if (stepSel) stepSel.innerHTML = _prStepOptionsForGrade(null, null);
+    _payrollFetch('save_person_grade_step', { user_id: userId, grade_id: null, step_id: null, pay_type: payType }).then(res => {
+      if (res && res.result === 'success') {
+        showToast('Pay type updated — pick a new grade');
+        const setup = _prPeopleSetupCache.find(p => p.user_id === userId);
+        if (setup) { setup.pay_type = payType; setup.grade_id = null; setup.step_id = null; }
+        else _prPeopleSetupCache.push({ user_id: userId, pay_type: payType, grade_id: null, step_id: null });
+      } else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
   }
 
   // Separate lock from the Groups one above — different data, same "locked
@@ -15985,14 +16106,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _prRenderPeopleRoster();
       const setup = _prPeopleSetupCache.find(p => p.user_id === userId) || {};
       const label = staffLabel(userId);
+      const payType = setup.pay_type === 'contractual' ? 'contractual' : 'regular';
+      const historyParts = _prHistoryLineForUser(userId, setup.joining_date);
       detail.innerHTML = `
         <p class="font-black text-slate-800 text-sm mb-3">${label !== userId ? label : userId}</p>
-        <div class="grid md:grid-cols-4 gap-3 mb-5">
+        <div class="grid md:grid-cols-4 gap-3 mb-3">
+          <div>
+            <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Pay Type</label>
+            <select id="prPersonPayType" onchange="_prOnPersonPayTypeChange()" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              <option value="regular" ${payType === 'regular' ? 'selected' : ''}>Regular</option>
+              <option value="contractual" ${payType === 'contractual' ? 'selected' : ''}>Contractual</option>
+            </select>
+          </div>
           <div>
             <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Grade</label>
             <select id="prPersonGrade" onchange="_prRenderPersonStepOptions(null)" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
               <option value="">None</option>
-              ${_prGradesCache.map(g => `<option value="${g.id}" ${setup.grade_id === g.id ? 'selected' : ''}>${g.name}</option>`).join('')}
+              ${_prGradesForPayType(payType).map(g => `<option value="${g.id}" ${setup.grade_id === g.id ? 'selected' : ''}>${g.name}</option>`).join('')}
             </select>
           </div>
           <div>
@@ -16000,6 +16130,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <select id="prPersonStep" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></select>
             <p class="text-[9px] text-slate-400 font-bold mt-1">Grade + Step sets Basic from the Pay Scale Grid.</p>
           </div>
+          <div>
+            <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Effective Date <span class="font-normal normal-case text-slate-400">(for a Grade/Step change)</span></label>
+            <input type="date" id="prPersonEffectiveDate" value="${new Date().toISOString().slice(0, 10)}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+          </div>
+        </div>
+        <div class="grid md:grid-cols-4 gap-3 mb-3">
           <div>
             <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Joining Date</label>
             <input type="date" id="prPersonJoiningDate" value="${setup.joining_date || ''}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
@@ -16009,6 +16145,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <input type="number" id="prPersonMpoAmount" value="${setup.mpo_amount != null ? setup.mpo_amount : ''}" placeholder="0 = not MPO-enlisted" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
           </div>
         </div>
+        ${historyParts.length ? `<div class="mb-5 bg-slate-50 border border-slate-200 rounded-xl p-3">
+          <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Grade / Step History</p>
+          <p class="text-xs font-bold text-slate-600">${historyParts.join(' → ')}</p>
+        </div>` : '<div class="mb-5"></div>'}
         <p class="font-black text-slate-800 text-xs mb-2">Payment Info</p>
         <div class="grid md:grid-cols-4 gap-3 mb-5">
           <div>
@@ -16049,6 +16189,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const gradeSel = document.getElementById('prPersonGrade');
     if (!stepSel) return;
     stepSel.innerHTML = _prStepOptionsForGrade(gradeSel && gradeSel.value, keepStepId);
+  }
+
+  // Pay Type changed in the detail panel — refilter Grade to the new
+  // system's grades and clear Grade/Step, same reasoning as the roster's
+  // inline version (_prOnRosterPayTypeChange).
+  function _prOnPersonPayTypeChange() {
+    const paySel = document.getElementById('prPersonPayType');
+    const gradeSel = document.getElementById('prPersonGrade');
+    if (!paySel || !gradeSel) return;
+    gradeSel.innerHTML = `<option value="">None</option>` + _prGradesForPayType(paySel.value).map(g => `<option value="${g.id}">${_escHtml(g.name)}</option>`).join('');
+    _prRenderPersonStepOptions(null);
   }
 
   // ── Generic Excel import (People / Section Entries / Bonus / Leave Deductions) ──
@@ -16305,16 +16456,272 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
   }
 
+  // ── Add Person (brand-new staff, not just seeding payroll for an existing
+  // profile) — Full Name, Designation, Pay Type + Grade/Step, Joining Date.
+  // create_payroll_person provisions the login-table row this needs under
+  // the hood (see its comment in payroll-admin/route.js); nothing about
+  // that shows up here beyond the confirmation toast.
+  function _prOpenAddPersonModal() {
+    document.getElementById('addPersonOverlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'addPersonOverlay';
+    overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
+    const designations = [...new Set((allStaffCache || []).map(s => (s.designation || '').trim()).filter(Boolean))].sort();
+    overlay.innerHTML = `
+      <div class="bg-white rounded-2xl p-5 w-full max-w-md max-h-[85vh] overflow-y-auto">
+        <div class="flex items-center justify-between mb-4">
+          <p class="font-black text-slate-800 text-sm">Add Person</p>
+          <button onclick="document.getElementById('addPersonOverlay').remove()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+        </div>
+        <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-4">For staff who don't exist in the system at all yet — creates their record and sets them up for payroll in one step.</p>
+        <div class="space-y-3">
+          <div>
+            <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Full Name <span class="text-red-500">*</span></label>
+            <input type="text" id="apName" placeholder="e.g. Md. Karim Uddin" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+          </div>
+          <div>
+            <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Designation <span class="text-red-500">*</span></label>
+            <input type="text" id="apDesignation" list="apDesignationList" placeholder="e.g. Cleaner" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            <datalist id="apDesignationList">${designations.map(d => `<option value="${_escHtml(d)}">`).join('')}</datalist>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Pay Type</label>
+              <select id="apPayType" onchange="_prApOnPayTypeChange()" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                <option value="regular">Regular</option>
+                <option value="contractual">Contractual</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Joining Date <span class="text-red-500">*</span></label>
+              <input type="date" id="apJoiningDate" value="${new Date().toISOString().slice(0, 10)}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Grade</label>
+              <select id="apGrade" onchange="_prApRenderStepOptions()" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                <option value="">None yet</option>
+                ${_prGradesForPayType('regular').map(g => `<option value="${g.id}">${_escHtml(g.name)}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Step</label>
+              <select id="apStep" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"><option value="">—</option></select>
+            </div>
+          </div>
+        </div>
+        <p id="apStatus" class="text-xs font-bold mt-3"></p>
+        <div class="flex justify-end gap-2 mt-5">
+          <button onclick="document.getElementById('addPersonOverlay').remove()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
+          <button onclick="_prSaveNewPerson()" id="apSaveBtn" class="px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Create</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    lucide.createIcons();
+  }
+
+  function _prApOnPayTypeChange() {
+    const sel = document.getElementById('apGrade');
+    if (!sel) return;
+    sel.innerHTML = `<option value="">None yet</option>` + _prGradesForPayType(document.getElementById('apPayType').value).map(g => `<option value="${g.id}">${_escHtml(g.name)}</option>`).join('');
+    _prApRenderStepOptions();
+  }
+
+  function _prApRenderStepOptions() {
+    const stepSel = document.getElementById('apStep');
+    const gradeSel = document.getElementById('apGrade');
+    if (!stepSel) return;
+    stepSel.innerHTML = gradeSel && gradeSel.value ? _prStepOptionsForGrade(gradeSel.value, null) : '<option value="">—</option>';
+  }
+
+  function _prSaveNewPerson() {
+    const full_name = document.getElementById('apName').value.trim();
+    const designation = document.getElementById('apDesignation').value.trim();
+    const pay_type = document.getElementById('apPayType').value;
+    const joining_date = document.getElementById('apJoiningDate').value;
+    const grade_id = document.getElementById('apGrade').value || null;
+    const step_id = document.getElementById('apStep').value || null;
+    const status = document.getElementById('apStatus');
+    if (!full_name || !designation || !joining_date) {
+      status.className = 'text-xs font-bold text-red-500 mt-3';
+      status.textContent = 'Full Name, Designation, and Joining Date are required.';
+      return;
+    }
+    const btn = document.getElementById('apSaveBtn');
+    btn.disabled = true; btn.textContent = 'Creating…';
+    _payrollFetch('create_payroll_person', { full_name, designation, pay_type, grade_id, step_id, joining_date }).then(res => {
+      btn.disabled = false; btn.textContent = 'Create';
+      if (res && res.result === 'success') {
+        showToast(`Created ${res.full_name} (ID ${res.user_id})`);
+        document.getElementById('addPersonOverlay')?.remove();
+        // allStaffCache only loads once (_ensureStaffCache short-circuits
+        // when it's non-empty) — force a real refetch so the new person
+        // actually shows up in the roster without a full page reload.
+        loadStaffData(() => loadPayrollPeopleTab());
+      } else {
+        status.className = 'text-xs font-bold text-red-500 mt-3';
+        status.textContent = (res && res.message) || 'Failed to create';
+      }
+    }).catch(err => {
+      btn.disabled = false; btn.textContent = 'Create';
+      status.className = 'text-xs font-bold text-red-500 mt-3';
+      status.textContent = err.message || 'Network error';
+    });
+  }
+
+  // ── Upgrade to Next Step (bulk) ──────────────────────────────────────────
+  // Two phases in one modal: pick who should/shouldn't move up (defaults to
+  // everyone with a next step available, checked), then a read-only review
+  // of exactly what will change before anything is written. Applying reuses
+  // save_person_grade_step one call per person — same Basic-push and
+  // history-logging it already does for a single manual edit.
+  let _prStepUpgradeCandidates = [];
+
+  function _prComputeStepUpgradeCandidates() {
+    const gradeById = {}; _prGradesCache.forEach(g => { gradeById[g.id] = g; });
+    const stepByGradeAndNumber = {};
+    _prGradeStepValuesCache.forEach(c => {
+      if (c.basic_value == null) return;
+      const step = _prPayStepsCache.find(s => s.id === c.step_id);
+      if (!step) return;
+      stepByGradeAndNumber[`${c.grade_id}:${step.step_number}`] = { step_id: c.step_id, basic_value: c.basic_value, step_number: step.step_number };
+    });
+    return _prPeopleSetupCache.filter(p => p.grade_id && p.step_id).map(p => {
+      const curStep = _prPayStepsCache.find(s => s.id === p.step_id);
+      const grade = gradeById[p.grade_id];
+      const curBasic = _prGradeStepValuesCache.find(c => c.grade_id === p.grade_id && c.step_id === p.step_id);
+      const next = curStep ? stepByGradeAndNumber[`${p.grade_id}:${curStep.step_number + 1}`] : null;
+      return {
+        user_id: p.user_id, name: staffLabel(p.user_id), grade_id: p.grade_id, grade_name: grade ? grade.name : `#${p.grade_id}`,
+        cur_step_number: curStep ? curStep.step_number : null, cur_basic: curBasic ? curBasic.basic_value : null,
+        next_step_id: next ? next.step_id : null, next_step_number: next ? next.step_number : null, next_basic: next ? next.basic_value : null,
+        eligible: !!next,
+      };
+    }).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }
+
+  function _prOpenStepUpgradeModal() {
+    document.getElementById('stepUpgradeOverlay')?.remove();
+    _prStepUpgradeCandidates = _prComputeStepUpgradeCandidates();
+    const overlay = document.createElement('div');
+    overlay.id = 'stepUpgradeOverlay';
+    overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
+    overlay.innerHTML = `
+      <div class="bg-white rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col">
+        <div class="p-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+          <div>
+            <p class="font-black text-slate-800 text-sm">Upgrade to Next Step</p>
+            <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Uncheck anyone who should NOT move up, then review before applying</p>
+          </div>
+          <button onclick="document.getElementById('stepUpgradeOverlay').remove()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+        </div>
+        <div id="stepUpgradeBody" class="p-4 overflow-y-auto flex-1"></div>
+        <div class="p-4 border-t border-slate-100 flex items-center justify-between shrink-0">
+          <label class="flex items-center gap-2 text-xs font-black text-slate-600 cursor-pointer">
+            <input type="checkbox" id="stepUpgradeSelectAll" checked onchange="_prToggleAllStepUpgrade(this.checked)" class="w-4 h-4 rounded accent-amber-600">
+            Select / deselect all eligible
+          </label>
+          <button onclick="_prReviewStepUpgrade()" class="px-4 py-2.5 bg-amber-500 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Review Selected →</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    _prRenderStepUpgradeSelection();
+    lucide.createIcons();
+  }
+
+  function _prRenderStepUpgradeSelection() {
+    const body = document.getElementById('stepUpgradeBody');
+    if (!body) return;
+    if (!_prStepUpgradeCandidates.length) { body.innerHTML = '<p class="text-slate-400 font-bold text-xs text-center py-8">Nobody has a Grade + Step assigned yet.</p>'; return; }
+    body.innerHTML = `
+      <div class="overflow-auto border border-slate-200 rounded-xl">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
+            <th class="py-2 px-3"></th><th class="py-2 px-3">Name</th><th class="py-2 px-3">Grade</th><th class="py-2 px-3">Current</th><th class="py-2 px-3">Next</th>
+          </tr></thead>
+          <tbody>
+            ${_prStepUpgradeCandidates.map((c, i) => `
+              <tr class="border-b border-slate-50 ${c.eligible ? '' : 'opacity-40'}">
+                <td class="py-1.5 px-3"><input type="checkbox" data-su-idx="${i}" ${c.eligible ? 'checked' : 'disabled'} class="w-4 h-4 rounded accent-amber-600"></td>
+                <td class="py-1.5 px-3 font-bold text-slate-700">${_escHtml(c.name)}</td>
+                <td class="py-1.5 px-3 text-slate-500">${_escHtml(c.grade_name)}</td>
+                <td class="py-1.5 px-3">Step ${c.cur_step_number}${c.cur_basic != null ? ` (${Number(c.cur_basic).toLocaleString()})` : ''}</td>
+                <td class="py-1.5 px-3">${c.eligible ? `Step ${c.next_step_number} (${Number(c.next_basic).toLocaleString()})` : '<span class="text-slate-400">No next step</span>'}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  }
+
+  function _prToggleAllStepUpgrade(checked) {
+    document.querySelectorAll('#stepUpgradeBody input[data-su-idx]').forEach(cb => { if (!cb.disabled) cb.checked = checked; });
+  }
+
+  function _prReviewStepUpgrade() {
+    const selectedIdx = [...document.querySelectorAll('#stepUpgradeBody input[data-su-idx]')].filter(cb => cb.checked).map(cb => Number(cb.dataset.suIdx));
+    const selected = selectedIdx.map(i => _prStepUpgradeCandidates[i]);
+    const body = document.getElementById('stepUpgradeBody');
+    if (!body) return;
+    if (!selected.length) { showToast('Nothing selected', 'error'); return; }
+    body.innerHTML = `
+      <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-2">${selected.length} people will move up one step, effective:</p>
+      <input type="date" id="stepUpgradeEffectiveDate" value="${new Date().toISOString().slice(0, 10)}" class="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs mb-3">
+      <div class="overflow-auto border border-slate-200 rounded-xl">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
+            <th class="py-2 px-3">Name</th><th class="py-2 px-3">Grade</th><th class="py-2 px-3">Current</th><th class="py-2 px-3"></th><th class="py-2 px-3">New</th>
+          </tr></thead>
+          <tbody>
+            ${selected.map(c => `
+              <tr class="border-b border-slate-50">
+                <td class="py-1.5 px-3 font-bold text-slate-700">${_escHtml(c.name)}</td>
+                <td class="py-1.5 px-3 text-slate-500">${_escHtml(c.grade_name)}</td>
+                <td class="py-1.5 px-3">Step ${c.cur_step_number} (${Number(c.cur_basic).toLocaleString()})</td>
+                <td class="py-1.5 px-3 text-amber-500 font-black">→</td>
+                <td class="py-1.5 px-3 font-black text-emerald-600">Step ${c.next_step_number} (${Number(c.next_basic).toLocaleString()})</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+    const footer = body.nextElementSibling;
+    if (footer) footer.innerHTML = `
+      <button onclick="_prOpenStepUpgradeModal()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">← Back to selection</button>
+      <button onclick='_prApplyStepUpgrade(${JSON.stringify(selected.map(c => c.user_id))})' id="stepUpgradeApplyBtn" class="px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Confirm &amp; Apply</button>`;
+  }
+
+  function _prApplyStepUpgrade(userIds) {
+    const effective_date = document.getElementById('stepUpgradeEffectiveDate')?.value || new Date().toISOString().slice(0, 10);
+    const btn = document.getElementById('stepUpgradeApplyBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Applying…'; }
+    const byId = {}; _prStepUpgradeCandidates.forEach(c => { byId[c.user_id] = c; });
+    const calls = userIds.map(uid => {
+      const c = byId[uid];
+      return _payrollFetch('save_person_grade_step', { user_id: uid, grade_id: c.grade_id, step_id: c.next_step_id, effective_date });
+    });
+    Promise.all(calls).then(results => {
+      const failed = results.filter(r => !r || r.result !== 'success').length;
+      showToast(failed ? `Applied with ${failed} failure(s)` : `Upgraded ${userIds.length} people`, failed ? 'error' : 'success');
+      document.getElementById('stepUpgradeOverlay')?.remove();
+      loadPayrollPeopleTab();
+    }).catch(() => {
+      if (btn) { btn.disabled = false; btn.textContent = 'Confirm & Apply'; }
+      showToast('Network error applying upgrades', 'error');
+    });
+  }
+
   function _prSavePersonSetup(userId) {
+    const pay_type = document.getElementById('prPersonPayType').value;
     const grade_id = document.getElementById('prPersonGrade').value || null;
     const step_id = document.getElementById('prPersonStep').value || null;
+    const effective_date = document.getElementById('prPersonEffectiveDate').value || null;
     const joining_date = document.getElementById('prPersonJoiningDate').value || null;
     const bank_name = document.getElementById('prPersonBankName').value.trim();
     const bank_account_no = document.getElementById('prPersonBankAccount').value.trim();
     const mobile_banking_provider = document.getElementById('prPersonMbProvider').value;
     const mobile_banking_number = document.getElementById('prPersonMbNumber').value.trim();
     const mpo_amount = document.getElementById('prPersonMpoAmount').value;
-    _payrollFetch('save_person_setup', { user_id: userId, grade_id, step_id, joining_date, bank_name, bank_account_no, mobile_banking_provider, mobile_banking_number, mpo_amount }).then(res => {
+    _payrollFetch('save_person_setup', { user_id: userId, pay_type, grade_id, step_id, effective_date, joining_date, bank_name, bank_account_no, mobile_banking_provider, mobile_banking_number, mpo_amount }).then(res => {
       if (res && res.result === 'success') { showToast('Person setup saved'); _prSelectPerson(userId); }
       else showToast((res && res.message) || 'Failed to save', 'error');
     }).catch(err => showToast(err.message || 'Failed to save', 'error'));

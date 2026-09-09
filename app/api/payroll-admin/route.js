@@ -61,6 +61,23 @@ async function _teacherSchemaFetch(path) {
   return res.json();
 }
 
+// Write counterpart — used only by create_payroll_person, which is the one
+// place this route touches app_users/users_profile instead of the payroll
+// schema tables everything else here deals with.
+async function _teacherSchemaWrite(path, method, body) {
+  const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
+    method,
+    headers: {
+      apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Content-Type': 'application/json',
+      Prefer: 'return=representation', 'Accept-Profile': 'teacher_staff', 'Content-Profile': 'teacher_staff',
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  if (!res.ok) return { error: text };
+  return text ? JSON.parse(text) : null;
+}
+
 // Case/spacing-insensitive so "Md. Karim  Uddin" from a hand-typed sheet
 // still matches "md. karim uddin" in users_profile.full_name.
 function _normPersonName(s) {
@@ -757,9 +774,14 @@ export async function POST(req) {
   }
 
   if (action === 'save_grade') {
-    const { id, name, description, sort_order } = payload;
+    const { id, name, description, sort_order, pay_system } = payload;
     if (!name) return NextResponse.json({ result: 'error', message: 'Name is required' }, { status: 400 });
     const rowData = { name, description: description || null, sort_order: sort_order == null ? 0 : Number(sort_order) };
+    // pay_system is set once at creation (defaults to 'regular') and left out
+    // of an edit's PATCH unless explicitly resent, so editing a grade's name
+    // never silently flips it back to 'regular'.
+    if (!id) rowData.pay_system = pay_system === 'contractual' ? 'contractual' : 'regular';
+    else if (pay_system) rowData.pay_system = pay_system === 'contractual' ? 'contractual' : 'regular';
     const saved = id
       ? await sbPayroll(`grades?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
       : await sbPayroll('grades', 'POST', rowData);
@@ -799,8 +821,16 @@ export async function POST(req) {
     // so force the other side to null server-side too (not just in the
     // admin UI) so no caller (bulk import, a direct API call) can persist a
     // row with both set, which would silently strand the ignored one.
-    const fieldRows = await sbPayroll(`fields?id=eq.${encodeURIComponent(field_id)}&select=calc_mode`);
-    const isPercent = Array.isArray(fieldRows) && fieldRows[0] && fieldRows[0].calc_mode === 'percent_of_field';
+    const [fieldRows, gradeRows] = await Promise.all([
+      sbPayroll(`fields?id=eq.${encodeURIComponent(field_id)}&select=calc_mode`),
+      sbPayroll(`grades?id=eq.${encodeURIComponent(grade_id)}&select=pay_system`),
+    ]);
+    // Contractual grades are fixed-only — every field is entered as its own
+    // flat amount, with no percent-of-another-field linkage at all — so a
+    // contractual grade forces isPercent off server-side regardless of what
+    // the field's own calc_mode says, the same defense-in-depth as below.
+    const isContractual = Array.isArray(gradeRows) && gradeRows[0] && gradeRows[0].pay_system === 'contractual';
+    const isPercent = !isContractual && Array.isArray(fieldRows) && fieldRows[0] && fieldRows[0].calc_mode === 'percent_of_field';
     const rowData = {
       grade_id, field_id,
       value: isPercent || value === '' || value == null ? null : Number(value),
@@ -893,13 +923,24 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success', people: rows });
   }
 
+  // Unfiltered (every person's history, not just one) — the roster embeds
+  // joining date + every later promotion date inline per row, so it needs
+  // the whole table up front rather than one fetch per person.
+  if (action === 'get_grade_history') {
+    const rows = await sbPayroll('person_grade_history?select=*&order=effective_date.asc,created_at.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', history: rows });
+  }
+
   if (action === 'save_person_setup') {
-    const { user_id: personId, grade_id, step_id, joining_date, is_active, bank_name, bank_account_no, mobile_banking_provider, mobile_banking_number, mpo_amount } = payload;
+    const { user_id: personId, grade_id, step_id, pay_type, effective_date, joining_date, is_active, bank_name, bank_account_no, mobile_banking_provider, mobile_banking_number, mpo_amount } = payload;
     if (!personId) return NextResponse.json({ result: 'error', message: 'user_id required' }, { status: 400 });
+    const normPayType = pay_type === 'contractual' ? 'contractual' : 'regular';
     const rowData = {
       user_id: personId,
       grade_id: grade_id || null,
       step_id: step_id || null,
+      pay_type: normPayType,
       joining_date: joining_date || null,
       is_active: is_active !== false,
       bank_name: bank_name || null,
@@ -909,10 +950,25 @@ export async function POST(req) {
       mpo_amount: mpo_amount === '' || mpo_amount == null ? null : Number(mpo_amount),
     };
     const existing = await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(personId)}`);
+    const prior = !existing?.error && existing[0];
     const saved = (!existing?.error && existing.length)
       ? await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(personId)}`, 'PATCH', rowData)
       : await sbPayroll('person_setup', 'POST', rowData);
     if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+
+    // Log a promotion-history row only when the grade/step/pay type actually
+    // changed — so the People Setup roster can show every past promotion
+    // date, not just today's, without one row per unrelated field edit
+    // (bank info, joining date, etc.) cluttering the timeline.
+    if (grade_id && (!prior || prior.grade_id !== grade_id || prior.step_id !== step_id || prior.pay_type !== normPayType)) {
+      const histRow = {
+        user_id: personId, grade_id, step_id: step_id || null, pay_type: normPayType,
+        effective_date: effective_date || new Date().toISOString().slice(0, 10),
+        created_by: user_id || null,
+      };
+      const histSaved = await sbPayroll('person_grade_history', 'POST', histRow);
+      if (!(histSaved && histSaved.error)) _prAudit(user_id, 'save_grade_history', 'person_grade_history', personId, histRow);
+    }
 
     // Grade+Step together determine Basic — when both are set and the grid
     // has a value for that cell, push it straight into the existing
@@ -945,14 +1001,30 @@ export async function POST(req) {
   // upsert which would null out bank info/joining date/etc. if called with
   // just these two fields.
   if (action === 'save_person_grade_step') {
-    const { user_id: personId, grade_id, step_id } = payload;
+    const { user_id: personId, grade_id, step_id, pay_type, effective_date } = payload;
     if (!personId) return NextResponse.json({ result: 'error', message: 'user_id required' }, { status: 400 });
     const rowData = { grade_id: grade_id || null, step_id: step_id || null };
-    const existing = await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(personId)}&select=user_id`);
+    // pay_type is only touched when the caller actually sends it (the
+    // roster's Pay Type pill does; a plain grade/step edit doesn't) — this
+    // stays the narrow, single-purpose save the comment above promises.
+    if (pay_type) rowData.pay_type = pay_type === 'contractual' ? 'contractual' : 'regular';
+    const existing = await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(personId)}&select=user_id,grade_id,step_id,pay_type`);
+    const prior = !existing?.error && existing[0];
     const saved = (!existing?.error && existing.length)
       ? await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(personId)}`, 'PATCH', rowData)
       : await sbPayroll('person_setup', 'POST', { user_id: personId, ...rowData });
     if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+
+    if (grade_id && (!prior || prior.grade_id !== grade_id || prior.step_id !== step_id || (pay_type && prior.pay_type !== rowData.pay_type))) {
+      const histRow = {
+        user_id: personId, grade_id, step_id: step_id || null,
+        pay_type: rowData.pay_type || (prior && prior.pay_type) || 'regular',
+        effective_date: effective_date || new Date().toISOString().slice(0, 10),
+        created_by: user_id || null,
+      };
+      const histSaved = await sbPayroll('person_grade_history', 'POST', histRow);
+      if (!(histSaved && histSaved.error)) _prAudit(user_id, 'save_grade_history', 'person_grade_history', personId, histRow);
+    }
 
     if (grade_id && step_id) {
       const cellRows = await sbPayroll(`grade_step_values?grade_id=eq.${encodeURIComponent(grade_id)}&step_id=eq.${encodeURIComponent(step_id)}&select=basic_value`);
@@ -987,6 +1059,77 @@ export async function POST(req) {
     if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
     _prAudit(user_id, 'bulk_add_people', 'person_setup', null, { added: missing.length });
     return NextResponse.json({ result: 'success', added: missing.length });
+  }
+
+  // Creates a brand-new person from scratch — Full Name, Designation, Grade
+  // (Regular/Contractual + grade/step), Joining Date — for support staff who
+  // don't exist in the system at all yet. `users_profile.teacher_id` is a
+  // foreign key into `app_users` (login table), so a profile can't exist
+  // without a login row; these people almost certainly never sign in, so a
+  // synthetic id/email and an unshared random password are generated purely
+  // to satisfy that constraint, with role 'Staff' (no elevated access).
+  if (action === 'create_payroll_person') {
+    const { full_name, designation, department, pay_type, grade_id, step_id, joining_date } = payload;
+    if (!full_name || !full_name.trim()) return NextResponse.json({ result: 'error', message: 'Full name is required' }, { status: 400 });
+    if (!designation || !designation.trim()) return NextResponse.json({ result: 'error', message: 'Designation is required' }, { status: 400 });
+    if (!joining_date) return NextResponse.json({ result: 'error', message: 'Joining date is required' }, { status: 400 });
+    const normPayType = pay_type === 'contractual' ? 'contractual' : 'regular';
+
+    // Synthetic id, prefixed '9' so it's visibly distinct from the org's own
+    // hand-assigned teacher_id numbering (which never starts with 9) —
+    // retried on the astronomically unlikely chance of a collision.
+    let teacherId = null;
+    for (let i = 0; i < 5 && !teacherId; i++) {
+      const candidate = '9' + String(Math.floor(10000000 + Math.random() * 90000000));
+      const clash = await _teacherSchemaFetch(`app_users?user_id=eq.${encodeURIComponent(candidate)}&select=user_id`);
+      if (Array.isArray(clash) && !clash.length) teacherId = candidate;
+    }
+    if (!teacherId) return NextResponse.json({ result: 'error', message: 'Could not generate a unique id, try again' }, { status: 500 });
+
+    const email = `person.${teacherId}@payroll.local`;
+    const password = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+
+    const userRow = { user_id: teacherId, email, password, role: 'Staff' };
+    const savedUser = await _teacherSchemaWrite('app_users', 'POST', userRow);
+    if (savedUser?.error) return NextResponse.json({ result: 'error', message: savedUser.error }, { status: 500 });
+
+    const profileRow = {
+      teacher_id: teacherId, email, full_name: full_name.trim(), category: 'Staff',
+      department: department || null, designation: designation.trim(), joining_date,
+    };
+    const savedProfile = await _teacherSchemaWrite('users_profile', 'POST', profileRow);
+    if (savedProfile?.error) {
+      // Roll back the login row so a failed profile insert doesn't leave an
+      // orphan account behind.
+      await _teacherSchemaWrite(`app_users?user_id=eq.${encodeURIComponent(teacherId)}`, 'DELETE', {});
+      return NextResponse.json({ result: 'error', message: savedProfile.error }, { status: 500 });
+    }
+
+    const personRow = {
+      user_id: teacherId, grade_id: grade_id || null, step_id: step_id || null,
+      pay_type: normPayType, joining_date, is_active: true,
+    };
+    const savedPerson = await sbPayroll('person_setup', 'POST', personRow);
+    if (savedPerson?.error) return NextResponse.json({ result: 'error', message: savedPerson.error }, { status: 500 });
+
+    if (grade_id) {
+      const histRow = { user_id: teacherId, grade_id, step_id: step_id || null, pay_type: normPayType, effective_date: joining_date, created_by: user_id || null };
+      const histSaved = await sbPayroll('person_grade_history', 'POST', histRow);
+      if (!(histSaved && histSaved.error)) _prAudit(user_id, 'save_grade_history', 'person_grade_history', teacherId, histRow);
+    }
+
+    if (grade_id && step_id) {
+      const cellRows = await sbPayroll(`grade_step_values?grade_id=eq.${encodeURIComponent(grade_id)}&step_id=eq.${encodeURIComponent(step_id)}&select=basic_value`);
+      const basicValue = Array.isArray(cellRows) && cellRows[0] && cellRows[0].basic_value != null ? Number(cellRows[0].basic_value) : null;
+      if (basicValue != null) {
+        const pfvRow = { user_id: teacherId, basic: basicValue };
+        const pfvSaved = await sbPayroll('person_field_values', 'POST', pfvRow);
+        if (!(pfvSaved && pfvSaved.error)) _prAudit(user_id, 'save_field_value', 'person_field_values', `${teacherId}:basic`, pfvRow);
+      }
+    }
+
+    _prAudit(user_id, 'create_payroll_person', 'users_profile', teacherId, { full_name, designation, pay_type: normPayType });
+    return NextResponse.json({ result: 'success', user_id: teacherId, full_name: full_name.trim() });
   }
 
   // ── Export row order (global, persistent — see payroll.export_row_order) ──
