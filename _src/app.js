@@ -23735,9 +23735,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <div class="flex flex-wrap gap-2">${ALL_ROLES.map(r => `<label class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-600 cursor-pointer"><input type="checkbox" class="sf-role-cb" value="${r}" ${roles.includes(r) ? 'checked' : ''}>${r}</label>`).join('')}</div>
           </div>
           <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Full Name</label><input type="text" id="sfFullName" value="${staff?.full_name || ''}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></div>
-          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Category</label><input type="text" id="sfCategory" value="${staff?.category || ''}" placeholder="Teacher / Staff" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></div>
+          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Designation</label><input type="text" id="sfDesignation" list="sfDesignationList" value="${staff?.designation || ''}" oninput="_sfOnDesignationChange()" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"><datalist id="sfDesignationList"></datalist></div>
+          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Category</label><input type="text" id="sfCategory" list="sfCategoryList" value="${staff?.category || ''}" placeholder="Teacher / Staff" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"><datalist id="sfCategoryList"></datalist><p class="text-[9px] text-slate-400 font-bold mt-1">Auto-filled from Designation, based on what other staff with that designation are already set to — override if needed.</p></div>
           <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Department</label><input type="text" id="sfDepartment" value="${staff?.department || ''}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></div>
-          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Designation</label><input type="text" id="sfDesignation" value="${staff?.designation || ''}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></div>
           <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Joining Date</label><input type="date" id="sfJoiningDate" value="${(staff?.joining_date || '').slice(0, 10)}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></div>
         </div>
         <div class="p-5 border-t border-slate-100 flex justify-end">
@@ -23746,6 +23746,50 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>`;
     document.body.appendChild(overlay);
     lucide.createIcons();
+    const desigList = document.getElementById('sfDesignationList');
+    if (desigList) desigList.innerHTML = [...new Set((allStaffCache || []).map(s => (s.designation || '').trim()).filter(Boolean))].sort().map(d => `<option value="${_escHtml(d)}">`).join('');
+    const catList = document.getElementById('sfCategoryList');
+    if (catList) catList.innerHTML = [...new Set((allStaffCache || []).map(s => (s.category || '').trim()).filter(Boolean))].sort().map(c => `<option value="${_escHtml(c)}">`).join('');
+    // A fresh Add starts with a blank Designation, so there's nothing to
+    // derive yet; editing an existing person already has both fields filled
+    // from their own record, which should win over a re-derived guess.
+    if (!userId) _sfOnDesignationChange();
+  }
+
+  // Category has no independent taxonomy of its own here — it's whatever
+  // value other staff sharing this same Designation are already set to
+  // (majority vote, case/whitespace-insensitive match), since there's no
+  // separate admin-curated designation->category mapping to consult. Only
+  // overwrites Category when a confident match exists; leaves it alone
+  // (never clears a manually-entered value) if this designation is brand
+  // new or Category was already hand-edited to something else.
+  function _sfDesignationCategoryMap() {
+    const counts = {};
+    (allStaffCache || []).forEach(s => {
+      const desig = String(s.designation || '').trim();
+      const cat = String(s.category || '').trim();
+      if (!desig || !cat) return;
+      const key = desig.toLowerCase();
+      if (!counts[key]) counts[key] = {};
+      counts[key][cat] = (counts[key][cat] || 0) + 1;
+    });
+    const map = {};
+    Object.entries(counts).forEach(([key, catCounts]) => {
+      let best = null, bestCount = 0;
+      Object.entries(catCounts).forEach(([cat, n]) => { if (n > bestCount) { best = cat; bestCount = n; } });
+      if (best) map[key] = best;
+    });
+    return map;
+  }
+
+  function _sfOnDesignationChange() {
+    const desigEl = document.getElementById('sfDesignation');
+    const catEl = document.getElementById('sfCategory');
+    if (!desigEl || !catEl) return;
+    const desig = desigEl.value.trim();
+    if (!desig) return;
+    const suggested = _sfDesignationCategoryMap()[desig.toLowerCase()];
+    if (suggested) catEl.value = suggested;
   }
 
   function submitStaffForm() {

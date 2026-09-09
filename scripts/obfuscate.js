@@ -255,7 +255,7 @@ const RESERVED = [
   'viewerOpenBulkEditModal','viewerSubmitBulkEdit','viewerDownload','loadAdminBusTrackerView',
 
   // Full-field identifier-safe edit/add panels for students & staff
-  'openStudentFormModal','submitStudentForm','openStaffFormModal','submitStaffForm',
+  'openStudentFormModal','submitStudentForm','openStaffFormModal','submitStaffForm','_sfOnDesignationChange',
 
 
   // Viewer Panel class-scoped custom-tab data browsing
