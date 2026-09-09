@@ -6722,6 +6722,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // Server (createDiaryEntry/getDiaryEntries in app/api/exec/route.js)
   // notifies the targeted students via the shared `notifications` table —
   // actual student-side reading happens in the separate ccpc-students app.
+  const DIARY_WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const DIARY_ENTRY_TYPES = [
     { key: 'discipline', label: 'Discipline', emoji: '🚨', grad: 'from-red-500 to-rose-600' },
     { key: 'compliment', label: 'Compliment', emoji: '🌟', grad: 'from-amber-400 to-orange-500' },
@@ -6765,9 +6766,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <div id="diaryAudStudentList" class="hidden max-h-40 overflow-y-auto space-y-1"></div>
             <p id="diaryAudSummary" class="text-[10px] font-bold text-slate-500"></p>
           </div>
-          <div id="diaryHomeworkFields" class="hidden grid grid-cols-2 gap-2 mb-3">
-            <input id="diarySubject" placeholder="Subject (e.g. Mathematics)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold">
-            <input id="diaryDueDate" type="date" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold">
+          <div id="diaryHomeworkFields" class="hidden mb-3">
+            <div class="grid grid-cols-2 gap-2 mb-2">
+              <input id="diarySubject" placeholder="Subject (e.g. Mathematics)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold">
+              <select id="diaryDueMode" onchange="_diaryOnDueModeChange()" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold">
+                <option value="date">Due: Specific Date</option>
+                <option value="weekday">Due: Next Weekday</option>
+              </select>
+            </div>
+            <input id="diaryDueDate" type="date" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold">
+            <select id="diaryDueWeekday" onchange="_diaryUpdateDueDateFromWeekday()" class="hidden w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold">
+              <option value="">Which day does this class next meet?</option>
+              ${DIARY_WEEKDAY_NAMES.map((w, i) => `<option value="${i}">Next ${w}</option>`).join('')}
+            </select>
+            <p id="diaryDueResolved" class="hidden text-[10px] font-bold text-indigo-600 mt-1"></p>
           </div>
           <textarea id="diaryMessage" rows="3" placeholder="Write the diary note / homework / to-do…" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-sm focus:ring-2 focus:ring-indigo-500 outline-none resize-none"></textarea>
           <button id="diarySubmitBtn" onclick="_diarySubmit()" class="mt-3 w-full px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">Submit Diary Entry</button>
@@ -6796,6 +6808,39 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
     const hwFields = document.getElementById('diaryHomeworkFields');
     if (hwFields) hwFields.classList.toggle('hidden', key !== 'homework');
+  }
+
+  // "Next Weekday" writes its computed date straight into the same
+  // #diaryDueDate input Specific-Date mode uses — _diarySubmit() always just
+  // reads that one field, so no branching needed at submit time regardless
+  // of which mode picked the date.
+  function _diaryOnDueModeChange() {
+    const mode = document.getElementById('diaryDueMode').value;
+    document.getElementById('diaryDueDate').classList.toggle('hidden', mode !== 'date');
+    document.getElementById('diaryDueWeekday').classList.toggle('hidden', mode !== 'weekday');
+    const resolved = document.getElementById('diaryDueResolved');
+    if (resolved) resolved.classList.add('hidden');
+    if (mode === 'weekday') _diaryUpdateDueDateFromWeekday();
+  }
+
+  function _diaryNextDateForWeekday(targetDow) {
+    const d = new Date();
+    d.setDate(d.getDate() + 1); // search starts tomorrow, never today
+    while (d.getDay() !== targetDow) d.setDate(d.getDate() + 1);
+    return d.toISOString().slice(0, 10);
+  }
+
+  function _diaryUpdateDueDateFromWeekday() {
+    const sel = document.getElementById('diaryDueWeekday');
+    const resolved = document.getElementById('diaryDueResolved');
+    const dueDateInput = document.getElementById('diaryDueDate');
+    if (!sel.value) { if (resolved) resolved.classList.add('hidden'); return; }
+    const date = _diaryNextDateForWeekday(Number(sel.value));
+    dueDateInput.value = date;
+    if (resolved) {
+      resolved.classList.remove('hidden');
+      resolved.textContent = `Resolves to ${new Date(date + 'T00:00:00').toLocaleDateString('en-BD', { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' })}`;
+    }
   }
 
   function _diaryAudienceInit() {
@@ -6910,6 +6955,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       document.getElementById('diaryMessage').value = '';
       const subjEl = document.getElementById('diarySubject'); if (subjEl) subjEl.value = '';
       const dueEl = document.getElementById('diaryDueDate'); if (dueEl) dueEl.value = '';
+      const dueModeEl = document.getElementById('diaryDueMode'); if (dueModeEl) dueModeEl.value = 'date';
+      const dueWdEl = document.getElementById('diaryDueWeekday'); if (dueWdEl) { dueWdEl.value = ''; dueWdEl.classList.add('hidden'); }
+      if (dueEl) dueEl.classList.remove('hidden');
+      const dueResolvedEl = document.getElementById('diaryDueResolved'); if (dueResolvedEl) dueResolvedEl.classList.add('hidden');
       if (_diaryScope === 'mine') _diaryLoadList();
     }).withFailureHandler(() => {
       if (btn) { btn.disabled = false; btn.textContent = 'Submit Diary Entry'; }

@@ -3,6 +3,10 @@
     {
       "path": "/api/payroll-admin",
       "schedule": "0 0 1 * *"
+    },
+    {
+      "path": "/api/exec",
+      "schedule": "0 12 * * *"
     }
   ]
 }

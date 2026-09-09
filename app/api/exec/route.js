@@ -4338,3 +4338,61 @@ export async function POST(request) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
+
+// ─── Daily cron: tomorrow's diary reminders ────────────────────────────────
+// Runs once a day (see vercel.json, "0 12 * * *" = 6pm Bangladesh time) and
+// sends each affected student ONE digest notification listing every diary
+// entry (in practice always 'homework', the only type with a due_date) due
+// the next calendar day — not a reminder per entry, one combined message per
+// student. Same audience -> student_ids resolution createDiaryEntry already
+// does at creation time, just re-run here against tomorrow's date instead of
+// trusting a snapshot (a class's roster can change between creation and the
+// reminder firing).
+export async function GET(req) {
+  const auth = req.headers.get('authorization');
+  if (!process.env.CRON_SECRET || auth !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ result: 'error', message: 'Unauthorized' }, { status: 401 });
+  }
+  try {
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const rows = await supabaseRequest(`student_diary_entries?due_date=eq.${tomorrow}&select=*`);
+    if (!Array.isArray(rows)) return NextResponse.json({ result: 'error', message: rows?.error || 'Query failed' }, { status: 500 });
+    if (!rows.length) return NextResponse.json({ result: 'success', due_date: tomorrow, entries: 0, students_notified: 0 });
+
+    const entriesByStudent = new Map();
+    for (const entry of rows) {
+      const a = entry.audience || {};
+      let ids = Array.isArray(a.student_ids) ? a.student_ids.map(String) : [];
+      if (a.mode !== 'students' && a.class) {
+        let path = `students_data?select=student_id&class=eq.${encodeURIComponent(a.class)}`;
+        if (a.section) path += `&section=eq.${encodeURIComponent(a.section)}`;
+        const students = await _sbStudent(path);
+        ids = (Array.isArray(students) ? students : []).map(s => String(s.student_id));
+      }
+      ids.forEach(id => {
+        if (!entriesByStudent.has(id)) entriesByStudent.set(id, []);
+        entriesByStudent.get(id).push(entry);
+      });
+    }
+
+    let notified = 0;
+    for (const [studentId, entries] of entriesByStudent) {
+      const lines = entries.map(e => {
+        const label = DIARY_LABELS[e.entry_type] || e.entry_type;
+        const preview = e.message.length > 80 ? e.message.slice(0, 80) + '…' : e.message;
+        return `${label}${e.subject ? ' — ' + e.subject : ''}: ${preview}`;
+      });
+      await _forumNotify(['student:' + studentId], {
+        type: 'diary_reminder',
+        title: `${entries.length} ${entries.length === 1 ? 'diary entry is' : 'diary entries are'} due tomorrow`,
+        message: lines.join('\n'),
+        data: { due_date: tomorrow, entry_ids: entries.map(e => e.id) },
+      });
+      notified++;
+    }
+    return NextResponse.json({ result: 'success', due_date: tomorrow, entries: rows.length, students_notified: notified });
+  } catch (err) {
+    console.error('[api/exec cron diary-reminders]', err);
+    return NextResponse.json({ result: 'error', message: err.message }, { status: 500 });
+  }
+}

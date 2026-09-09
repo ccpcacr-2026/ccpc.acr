@@ -225,6 +225,7 @@ const RESERVED = [
   'loadAdminSetupView','loadAdminAddCustomFormView','_toggleFieldChip','updateIncludeCount','updateEditableCount',
   'loadMyTabDataView','loadStudentPortalForumView',
   'loadDiaryView','_diarySelectType','_diaryAudienceSetMode','_diaryAudienceSearchStudents','_diaryAudienceToggleStudent','_diarySubmit','_diarySetScope','_diaryDeleteEntry','_diaryOnClassChange',
+  '_diaryOnDueModeChange','_diaryUpdateDueDateFromWeekday',
   'downloadImportDemoTemplate',
   'onDownloadCategoryChange','openColleagueProfile','closeColleagueProfileModal','saveProfileFieldVisibility',
   'saveColleagueCareerFields','toggleCareerHistory',
