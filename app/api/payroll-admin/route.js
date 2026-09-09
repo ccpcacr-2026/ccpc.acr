@@ -114,7 +114,14 @@ function _resolveFieldConfig(field, ctx) {
   const value = gf?.value ?? rd?.value ?? null;
   const percent = gf?.percent ?? rd?.percent ?? null;
   const base_field_key = gf?.base_field_key || rd?.base_field_key || field.calc_base_field_key || null;
-  return { value, percent, base_field_key };
+  // Grade-level only (no role-default equivalent) — a fixed reference step
+  // within the person's OWN grade to compute a percent field's base from,
+  // instead of the person's own resolved value. e.g. "Incentive = 20% of
+  // Basic at Step 1," true for everyone on this grade regardless of which
+  // step they're actually sitting at. Unset (the default) keeps today's
+  // behaviour.
+  const base_step_id = gf?.base_step_id ?? null;
+  return { value, percent, base_field_key, base_step_id };
 }
 
 function _compareOp(a, op, b) {
@@ -253,7 +260,12 @@ function _resolveFieldValue(fieldKey, fieldsByKey, ctx, memo, visiting) {
   } else {
     const cfg = _resolveFieldConfig(field, ctx);
     if (field.calc_mode === 'percent_of_field' && cfg.base_field_key) {
-      const baseAmt = _resolveFieldValue(cfg.base_field_key, fieldsByKey, ctx, memo, visiting);
+      // A fixed reference step overrides the usual "resolve the base field
+      // for this person" lookup — go straight to that (grade, step) cell's
+      // Basic instead, ignoring which step the person is actually on.
+      const baseAmt = cfg.base_step_id && ctx.gradeId
+        ? (Number(ctx.gradeStepValuesByGradeStep[`${ctx.gradeId}:${cfg.base_step_id}`]) || 0)
+        : _resolveFieldValue(cfg.base_field_key, fieldsByKey, ctx, memo, visiting);
       amount = ((Number(cfg.percent) || 0) / 100) * baseAmt;
     } else {
       amount = Number(cfg.value) || 0;
@@ -291,6 +303,7 @@ function _computePayslipForPerson(personSetup, role, category, ref, month, year)
     gradeFieldsByField, roleDefaultsByField,
     joiningDate: personSetup.joining_date, refDate: new Date(Date.UTC(year, month, 0)),
     conditionRulesByField: ref.conditionRulesByField,
+    gradeId, gradeStepValuesByGradeStep: ref.gradeStepValuesByGradeStep,
   };
   const memo = new Map();
   const fieldValues = {};
@@ -373,7 +386,7 @@ function _computePayslipForPerson(personSetup, role, category, ref, month, year)
 
 // Fetches every table the engine needs, once, for a given set of user ids + period.
 async function _loadPayrollRef(userIds, month, year) {
-  const [fields, gradeFields, gradeConditional, roleDefaults, statutoryItemsRaw, sections, sectionEntriesRaw, bonusesRaw, personFieldValuesRaw, applicableRolesRaw, conditionRulesRaw, leaveDeductionsRaw, applicableCategoriesRaw, busFareEntriesRaw, busStoppagesRaw] = await Promise.all([
+  const [fields, gradeFields, gradeConditional, roleDefaults, statutoryItemsRaw, sections, sectionEntriesRaw, bonusesRaw, personFieldValuesRaw, applicableRolesRaw, conditionRulesRaw, leaveDeductionsRaw, applicableCategoriesRaw, busFareEntriesRaw, busStoppagesRaw, gradeStepValuesRaw] = await Promise.all([
     sbPayroll('fields?is_active=eq.true&select=*'),
     sbPayroll('grade_fields?select=*'),
     sbPayroll('grade_conditional_fields?select=*'),
@@ -389,8 +402,15 @@ async function _loadPayrollRef(userIds, month, year) {
     sbPayroll('field_applicable_categories?select=*'),
     sbPayroll('bus_fare_entries?is_active=eq.true&select=*'),
     _studentSchemaFetch('bus_stoppages?select=*'),
+    sbPayroll('grade_step_values?select=*'),
   ]);
   const gradeFieldsByGrade = {}; (gradeFields || []).forEach(g => { (gradeFieldsByGrade[g.grade_id] = gradeFieldsByGrade[g.grade_id] || []).push(g); });
+  // Keyed "grade_id:step_id" -> that cell's fixed Basic — lets a percent
+  // grade field target a SPECIFIC step's Basic (e.g. "20% of Basic at Step
+  // 1") regardless of which step the person is actually sitting at, via
+  // grade_fields.base_step_id. See _resolveFieldConfig/_resolveFieldValue.
+  const gradeStepValuesByGradeStep = {};
+  (gradeStepValuesRaw || []).forEach(c => { gradeStepValuesByGradeStep[`${c.grade_id}:${c.step_id}`] = c.basic_value; });
   const gradeConditionalSet = new Set((gradeConditional || []).map(c => `${c.grade_id}:${c.field_id}`));
   const sectionsById = {}; (sections || []).forEach(s => { sectionsById[s.id] = s; });
   const sectionEntriesByUser = {}; (sectionEntriesRaw || []).forEach(e => { (sectionEntriesByUser[e.user_id] = sectionEntriesByUser[e.user_id] || []).push(e); });
@@ -409,7 +429,7 @@ async function _loadPayrollRef(userIds, month, year) {
     fields: fields || [], gradeFieldsByGrade, gradeConditionalSet, roleDefaults: roleDefaults || [],
     statutoryItems: statutoryItemsRaw || [], sectionsById, sectionEntriesByUser, bonusesByUser, personFieldValuesByUser,
     applicableRolesByField, conditionRulesByField, leaveDeductionsByUser, applicableCategoriesByField,
-    stoppagesById, busFareEntriesByUser,
+    stoppagesById, busFareEntriesByUser, gradeStepValuesByGradeStep,
   };
 }
 
@@ -762,7 +782,7 @@ export async function POST(req) {
   }
 
   if (action === 'save_grade_field') {
-    const { grade_id, field_id, value, percent, base_field_key } = payload;
+    const { grade_id, field_id, value, percent, base_field_key, base_step_id } = payload;
     if (!grade_id || !field_id) return NextResponse.json({ result: 'error', message: 'grade_id and field_id required' }, { status: 400 });
     // A field is fixed-amount or percent-of-field by its own calc_mode, never
     // both — _resolveFieldConfig only ever reads one side depending on that,
@@ -776,6 +796,9 @@ export async function POST(req) {
       value: isPercent || value === '' || value == null ? null : Number(value),
       percent: !isPercent || percent === '' || percent == null ? null : Number(percent),
       base_field_key: base_field_key || null,
+      // Only meaningful alongside a percent value — a fixed step to compute
+      // the percent's base from instead of the person's own resolved value.
+      base_step_id: isPercent && base_step_id ? Number(base_step_id) : null,
     };
     const existing = await sbPayroll(`grade_fields?grade_id=eq.${encodeURIComponent(grade_id)}&field_id=eq.${encodeURIComponent(field_id)}`);
     const saved = (!existing?.error && existing.length)

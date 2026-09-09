@@ -15494,7 +15494,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-3">Overrides the field's per-role default for anyone on this grade. Leave blank to fall back to the role default.</p>
         <div class="overflow-auto border border-slate-200 rounded-xl mb-5">
           <table class="w-full text-left border-collapse text-xs">
-            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Field</th><th class="py-2 px-3">Fixed Value</th><th class="py-2 px-3">Percent</th><th class="py-2 px-3"></th></tr></thead>
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Field</th><th class="py-2 px-3">Fixed Value</th><th class="py-2 px-3">Percent</th><th class="py-2 px-3">Of Step</th><th class="py-2 px-3"></th></tr></thead>
             <tbody>
               ${baseFields.map(f => {
                 const gf = gfMap[f.id] || {};
@@ -15507,13 +15507,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 // do nothing. The inapplicable side is now disabled and
                 // greyed out instead of accepting a value that's a dead end.
                 const isPercent = f.calc_mode === 'percent_of_field';
+                // "Of Step" only makes sense for a field that's a percent of
+                // Basic specifically — Steps are what define Basic in the
+                // first place, so a fixed reference step is meaningless for
+                // a percent of any other field.
+                const isPercentOfBasic = isPercent && f.calc_base_field_key === 'basic';
                 return `<tr class="border-b border-slate-50">
                   <td class="py-1.5 px-3 font-black text-slate-700">${_escHtml(_prFieldLabelWithCategory(f))}</td>
                   <td class="py-1.5 px-3"><input type="number" id="prGF_val_${f.id}" value="${gf.value != null ? gf.value : ''}" placeholder="${isPercent ? 'N/A' : '—'}" ${isPercent ? 'disabled title="This field is percent-based (set in the Fields tab) — Fixed Value doesn\'t apply."' : ''} class="w-24 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs ${isPercent ? 'opacity-40 cursor-not-allowed' : ''}"></td>
                   <td class="py-1.5 px-3"><input type="number" id="prGF_pct_${f.id}" value="${gf.percent != null ? gf.percent : ''}" placeholder="${isPercent ? '—' : 'N/A'}" ${isPercent ? '' : 'disabled title="This field is a fixed amount (set in the Fields tab) — Percent doesn\'t apply."'} class="w-20 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs ${isPercent ? '' : 'opacity-40 cursor-not-allowed'}"></td>
+                  <td class="py-1.5 px-3">
+                    <select id="prGF_step_${f.id}" ${isPercentOfBasic ? '' : 'disabled'} title="${isPercentOfBasic ? 'Optional — leave as &quot;Own step&quot; to use this person\'s own resolved Basic, or pick a fixed step (e.g. Incentive = 20% of Basic at Step 1, no matter which step they\'re actually on)' : 'Only applies to a percent-of-Basic field.'}" class="w-28 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px] ${isPercentOfBasic ? '' : 'opacity-40 cursor-not-allowed'}">
+                      <option value="">Own step</option>
+                      ${_prPayStepsCache.map(s => `<option value="${s.id}" ${gf.base_step_id === s.id ? 'selected' : ''}>Step ${s.step_number}</option>`).join('')}
+                    </select>
+                  </td>
                   <td class="py-1.5 px-3"><button onclick="_prSaveGradeField(${gradeId},${f.id})" class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-black">Save</button></td>
                 </tr>`;
-              }).join('') || `<tr><td colspan="4" class="p-3 text-slate-400 font-bold text-xs text-center">No fields yet — add some under the Fields tab first.</td></tr>`}
+              }).join('') || `<tr><td colspan="5" class="p-3 text-slate-400 font-bold text-xs text-center">No fields yet — add some under the Fields tab first.</td></tr>`}
             </tbody>
           </table>
         </div>
@@ -15534,13 +15545,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _prSaveGradeField(gradeId, fieldId) {
     const field = _prFieldsCache.find(f => f.id === fieldId);
     const isPercent = field && field.calc_mode === 'percent_of_field';
+    const isPercentOfBasic = isPercent && field.calc_base_field_key === 'basic';
     // The disabled side's input still has a readable .value (disabling only
     // blocks user interaction, not JS access) — force it blank on save so a
     // stray value from before this field's calc_mode was set (or from
     // before this fix) never lingers as dead, confusing data.
     const value = isPercent ? '' : document.getElementById(`prGF_val_${fieldId}`).value;
     const percent = isPercent ? document.getElementById(`prGF_pct_${fieldId}`).value : '';
-    _payrollFetch('save_grade_field', { grade_id: gradeId, field_id: fieldId, value, percent }).then(res => {
+    const base_step_id = isPercentOfBasic ? document.getElementById(`prGF_step_${fieldId}`).value : '';
+    _payrollFetch('save_grade_field', { grade_id: gradeId, field_id: fieldId, value, percent, base_step_id }).then(res => {
       if (res && res.result === 'success') showToast('Saved');
       else showToast((res && res.message) || 'Failed to save', 'error');
     }).catch(err => showToast(err.message || 'Failed to save', 'error'));
