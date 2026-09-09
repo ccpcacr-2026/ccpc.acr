@@ -794,6 +794,58 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success' });
   }
 
+  // ── Pay Scale Grid (Grade x Step -> fixed Basic) ──
+  // Steps are columns shared across every grade row — "Add Step" appends
+  // one globally, "Add Grade" (existing action above) appends a row. Each
+  // cell is optional (a grade need not fill every step) so the grid can
+  // grow in either direction without every combination needing a value.
+  if (action === 'get_pay_steps') {
+    const rows = await sbPayroll('pay_steps?select=*&order=sort_order.asc,step_number.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', steps: rows });
+  }
+
+  if (action === 'save_pay_step') {
+    const { id, step_number, sort_order } = payload;
+    const n = Number(step_number);
+    if (!step_number || Number.isNaN(n)) return NextResponse.json({ result: 'error', message: 'Step number is required' }, { status: 400 });
+    const rowData = { step_number: n, sort_order: sort_order == null ? n : Number(sort_order) };
+    const saved = id
+      ? await sbPayroll(`pay_steps?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sbPayroll('pay_steps', 'POST', rowData);
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    _prAudit(user_id, 'save_pay_step', 'pay_steps', id || null, rowData);
+    return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'delete_pay_step') {
+    const { id } = payload;
+    if (!id) return NextResponse.json({ result: 'error', message: 'id required' }, { status: 400 });
+    const del = await sbPayroll(`pay_steps?id=eq.${encodeURIComponent(id)}`, 'DELETE');
+    if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
+    _prAudit(user_id, 'delete_pay_step', 'pay_steps', id, null);
+    return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'get_grade_step_matrix') {
+    const cells = await sbPayroll('grade_step_values?select=*');
+    if (cells?.error) return NextResponse.json({ result: 'error', message: cells.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', cells });
+  }
+
+  if (action === 'save_grade_step_value') {
+    const { grade_id, step_id, basic_value } = payload;
+    if (!grade_id || !step_id) return NextResponse.json({ result: 'error', message: 'grade_id and step_id required' }, { status: 400 });
+    const rowData = { grade_id, step_id, basic_value: basic_value === '' || basic_value == null ? null : Number(basic_value) };
+    const existing = await sbPayroll(`grade_step_values?grade_id=eq.${encodeURIComponent(grade_id)}&step_id=eq.${encodeURIComponent(step_id)}&select=grade_id`);
+    const saved = (!existing?.error && existing.length)
+      ? await sbPayroll(`grade_step_values?grade_id=eq.${encodeURIComponent(grade_id)}&step_id=eq.${encodeURIComponent(step_id)}`, 'PATCH', rowData)
+      : await sbPayroll('grade_step_values', 'POST', rowData);
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    _prAudit(user_id, 'save_grade_step_value', 'grade_step_values', `${grade_id}:${step_id}`, rowData);
+    return NextResponse.json({ result: 'success' });
+  }
+
   // ── People (grade assignment + per-person field overrides) ──
   if (action === 'get_people_setup') {
     const rows = await sbPayroll('person_setup?select=*&order=created_at.desc');
@@ -802,11 +854,12 @@ export async function POST(req) {
   }
 
   if (action === 'save_person_setup') {
-    const { user_id: personId, grade_id, joining_date, is_active, bank_name, bank_account_no, mobile_banking_provider, mobile_banking_number, mpo_amount } = payload;
+    const { user_id: personId, grade_id, step_id, joining_date, is_active, bank_name, bank_account_no, mobile_banking_provider, mobile_banking_number, mpo_amount } = payload;
     if (!personId) return NextResponse.json({ result: 'error', message: 'user_id required' }, { status: 400 });
     const rowData = {
       user_id: personId,
       grade_id: grade_id || null,
+      step_id: step_id || null,
       joining_date: joining_date || null,
       is_active: is_active !== false,
       bank_name: bank_name || null,
@@ -820,8 +873,62 @@ export async function POST(req) {
       ? await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(personId)}`, 'PATCH', rowData)
       : await sbPayroll('person_setup', 'POST', rowData);
     if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+
+    // Grade+Step together determine Basic — when both are set and the grid
+    // has a value for that cell, push it straight into the existing
+    // per-person override (person_field_values.basic), which already
+    // outranks the grade's flat default and the Basic field's
+    // yearly-increment formula (see _resolveFieldValue). Deliberately never
+    // clears an existing override on its own — if step_id is blank/removed,
+    // whatever Basic value is already saved for this person is left alone;
+    // clearing it is a separate, explicit action via the Values screen.
+    if (grade_id && step_id) {
+      const cellRows = await sbPayroll(`grade_step_values?grade_id=eq.${encodeURIComponent(grade_id)}&step_id=eq.${encodeURIComponent(step_id)}&select=basic_value`);
+      const basicValue = Array.isArray(cellRows) && cellRows[0] && cellRows[0].basic_value != null ? Number(cellRows[0].basic_value) : null;
+      if (basicValue != null) {
+        const pfvExisting = await sbPayroll(`person_field_values?user_id=eq.${encodeURIComponent(personId)}&select=user_id`);
+        const pfvRow = { user_id: personId, basic: basicValue };
+        const pfvSaved = (!pfvExisting?.error && pfvExisting.length)
+          ? await sbPayroll(`person_field_values?user_id=eq.${encodeURIComponent(personId)}`, 'PATCH', pfvRow)
+          : await sbPayroll('person_field_values', 'POST', pfvRow);
+        if (!(pfvSaved && pfvSaved.error)) _prAudit(user_id, 'save_field_value', 'person_field_values', `${personId}:basic`, pfvRow);
+      }
+    }
+
     _prAudit(user_id, 'save_person_setup', 'person_setup', personId, rowData);
     return NextResponse.json({ result: 'success', person: Array.isArray(saved) ? saved[0] : saved });
+  }
+
+  // Narrow inline-edit path for the People Setup roster table's Grade/Step
+  // selects — touches ONLY grade_id/step_id (+ the resulting Basic push),
+  // never the rest of person_setup, unlike save_person_setup's full-row
+  // upsert which would null out bank info/joining date/etc. if called with
+  // just these two fields.
+  if (action === 'save_person_grade_step') {
+    const { user_id: personId, grade_id, step_id } = payload;
+    if (!personId) return NextResponse.json({ result: 'error', message: 'user_id required' }, { status: 400 });
+    const rowData = { grade_id: grade_id || null, step_id: step_id || null };
+    const existing = await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(personId)}&select=user_id`);
+    const saved = (!existing?.error && existing.length)
+      ? await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(personId)}`, 'PATCH', rowData)
+      : await sbPayroll('person_setup', 'POST', { user_id: personId, ...rowData });
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+
+    if (grade_id && step_id) {
+      const cellRows = await sbPayroll(`grade_step_values?grade_id=eq.${encodeURIComponent(grade_id)}&step_id=eq.${encodeURIComponent(step_id)}&select=basic_value`);
+      const basicValue = Array.isArray(cellRows) && cellRows[0] && cellRows[0].basic_value != null ? Number(cellRows[0].basic_value) : null;
+      if (basicValue != null) {
+        const pfvExisting = await sbPayroll(`person_field_values?user_id=eq.${encodeURIComponent(personId)}&select=user_id`);
+        const pfvRow = { user_id: personId, basic: basicValue };
+        const pfvSaved = (!pfvExisting?.error && pfvExisting.length)
+          ? await sbPayroll(`person_field_values?user_id=eq.${encodeURIComponent(personId)}`, 'PATCH', pfvRow)
+          : await sbPayroll('person_field_values', 'POST', pfvRow);
+        if (!(pfvSaved && pfvSaved.error)) _prAudit(user_id, 'save_field_value', 'person_field_values', `${personId}:basic`, pfvRow);
+      }
+    }
+
+    _prAudit(user_id, 'save_person_grade_step', 'person_setup', personId, rowData);
+    return NextResponse.json({ result: 'success' });
   }
 
   // Bulk-seed person_setup so every teacher/staff member is picked up by

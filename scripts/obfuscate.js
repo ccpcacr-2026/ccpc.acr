@@ -77,6 +77,8 @@ const RESERVED = [
   '_prOpenDesignationCategoryMapper','_prSaveDesignationCategoryMap','_prApplyDesignationCategoryMapToAllStaff',
   '_prOpenCategoryTreeManager','_prAddCategoryGroup','_prRenameCategoryGroup','_prDeleteCategoryGroup',
   '_prAddCategorySubgroup','_prRenameCategorySubgroup','_prDeleteCategorySubgroup',
+  '_prAddPayStep','_prDeletePayStep','_prSaveGradeStepValue','_prToggleGradeStepEditMode',
+  '_prInlineSaveGradeStep','_prRenderPersonStepOptions',
   '_prAddVirtualColumn','_prCloseVirtualColumnForm','_prSaveVirtualColumn','_prExportExcel','_prExportPdf',
   '_prSetExportSplitByGroup','_prSetExportRowDesign','_prSetExportSort','_prResetExportRowOrder',
   '_prRowDragStart','_prRowDragOver','_prRowDragEnd','_prRowDrop',

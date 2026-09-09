@@ -14080,6 +14080,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <div id="prGradeDetail"><p class="text-slate-400 font-bold text-xs p-4">Select a grade on the left to configure its field values and conditional fields.</p></div>
           </div>
         </div>
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 mt-4">
+          <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+            <div>
+              <p class="font-black text-slate-800 text-xs">Pay Scale Grid</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Grade (row) x Step (column) — each cell is that step's fixed Basic salary. Assign a person's Grade + Step in People Setup.</p>
+            </div>
+            <button onclick="_prAddPayStep()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Step</button>
+          </div>
+          <div id="prPayScaleGrid" class="overflow-auto"><p class="text-slate-400 font-bold text-xs p-4 text-center">Loading…</p></div>
+        </div>
       </div>
       <div id="pr-people" style="display:none">
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
@@ -14125,6 +14135,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </div>
           </div>
           <div id="prGroupsChips" class="flex flex-wrap gap-2"></div>
+        </div>
+        <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+          <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Roster — inline-editable Grade &amp; Step once unlocked</p>
+          <button id="prGradeStepEditModeBtn" onclick="_prToggleGradeStepEditMode()" title="Grade/Step selects below are read-only until this is on, to prevent accidental changes while browsing" class="px-3 py-2 border border-slate-200 text-slate-500 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="lock" class="h-3.5 w-3.5"></i>Enable Editing</button>
         </div>
         <div id="prPeopleRoster" class="mb-4"></div>
         <div id="prPersonDetail" class="bg-white rounded-2xl border border-slate-200 p-4">
@@ -15331,7 +15345,75 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _prGradesCache = (res && res.result === 'success' && res.grades) || [];
       _prGradesLoaded = true;
       _prRenderGradesList();
+      _prLoadPayScaleGrid();
     }).catch(err => showToast(err.message || 'Failed to load grades', 'error'));
+  }
+
+  // ── Pay Scale Grid (Grade x Step) ────────────────────────────────────────
+  let _prPayStepsCache = [];
+  let _prGradeStepValuesCache = []; // [{grade_id, step_id, basic_value}]
+
+  function _prLoadPayScaleGrid() {
+    Promise.all([_payrollFetch('get_pay_steps', {}), _payrollFetch('get_grade_step_matrix', {})]).then(([stepsRes, matrixRes]) => {
+      _prPayStepsCache = (stepsRes && stepsRes.result === 'success' && stepsRes.steps) || [];
+      _prGradeStepValuesCache = (matrixRes && matrixRes.result === 'success' && matrixRes.cells) || [];
+      _prRenderPayScaleGrid();
+    }).catch(err => showToast(err.message || 'Failed to load pay scale grid', 'error'));
+  }
+
+  function _prRenderPayScaleGrid() {
+    const host = document.getElementById('prPayScaleGrid');
+    if (!host) return;
+    if (!_prGradesCache.length) { host.innerHTML = '<p class="text-slate-400 font-bold text-xs p-4 text-center">Add a grade first (left panel above).</p>'; return; }
+    if (!_prPayStepsCache.length) { host.innerHTML = '<p class="text-slate-400 font-bold text-xs p-4 text-center">No steps yet — click "Add Step".</p>'; return; }
+    const cellMap = {}; _prGradeStepValuesCache.forEach(c => { cellMap[`${c.grade_id}:${c.step_id}`] = c.basic_value; });
+    host.innerHTML = `
+      <table class="w-full text-left border-collapse text-xs">
+        <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
+          <th class="py-2 px-3 sticky left-0 bg-slate-50">Grade</th>
+          ${_prPayStepsCache.map(s => `<th class="py-2 px-3 text-center">Step ${s.step_number} <button onclick="_prDeletePayStep(${s.id})" title="Delete this step column" class="text-red-400 hover:text-red-600 ml-1"><i data-lucide="x" class="h-2.5 w-2.5 inline"></i></button></th>`).join('')}
+        </tr></thead>
+        <tbody>
+          ${_prGradesCache.map(g => `
+          <tr class="border-b border-slate-50">
+            <td class="py-1.5 px-3 font-black text-slate-700 sticky left-0 bg-white">${_escHtml(g.name)}</td>
+            ${_prPayStepsCache.map(s => {
+              const key = `${g.id}:${s.id}`;
+              const val = cellMap[key];
+              return `<td class="py-1.5 px-3 text-center"><input type="number" value="${val != null ? val : ''}" placeholder="—" onchange="_prSaveGradeStepValue(${g.id},${s.id},this.value)" class="w-24 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs text-center"></td>`;
+            }).join('')}
+          </tr>`).join('')}
+        </tbody>
+      </table>`;
+    lucide.createIcons();
+  }
+
+  function _prAddPayStep() {
+    const used = new Set(_prPayStepsCache.map(s => s.step_number));
+    let next = 1; while (used.has(next)) next++;
+    _payrollFetch('save_pay_step', { step_number: next }).then(res => {
+      if (res && res.result === 'success') _prLoadPayScaleGrid();
+      else showToast((res && res.message) || 'Failed to add step', 'error');
+    }).catch(err => showToast(err.message || 'Failed to add step', 'error'));
+  }
+
+  function _prDeletePayStep(id) {
+    if (!confirm('Delete this step column? Every grade\'s value for it is removed too.')) return;
+    _payrollFetch('delete_pay_step', { id }).then(res => {
+      if (res && res.result === 'success') _prLoadPayScaleGrid();
+      else showToast((res && res.message) || 'Failed to delete step', 'error');
+    }).catch(err => showToast(err.message || 'Failed to delete step', 'error'));
+  }
+
+  function _prSaveGradeStepValue(gradeId, stepId, value) {
+    _payrollFetch('save_grade_step_value', { grade_id: gradeId, step_id: stepId, basic_value: value }).then(res => {
+      if (res && res.result === 'success') {
+        const existing = _prGradeStepValuesCache.find(c => c.grade_id === gradeId && c.step_id === stepId);
+        if (existing) existing.basic_value = value === '' ? null : Number(value);
+        else _prGradeStepValuesCache.push({ grade_id: gradeId, step_id: stepId, basic_value: value === '' ? null : Number(value) });
+        showToast('Saved');
+      } else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
   }
 
   function _prRenderGradesList() {
@@ -15564,18 +15646,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function loadPayrollPeopleTab() {
     _prPeopleComboWired = true;
     _prGroupEditMode = false;
+    _prGradeStepEditMode = false;
     Promise.all([
       new Promise(resolve => _ensureStaffCache(resolve)),
       _payrollFetch('get_people_setup', {}),
       _prGradesLoaded ? Promise.resolve({ result: 'success', grades: _prGradesCache }) : _payrollFetch('get_grades', {}),
       _payrollFetch('get_groups', {}),
       _payrollFetch('get_group_members', {}),
-    ]).then(([, peopleRes, gradesRes, groupsRes, membersRes]) => {
+      _payrollFetch('get_pay_steps', {}),
+    ]).then(([, peopleRes, gradesRes, groupsRes, membersRes, stepsRes]) => {
       _prPeopleSetupCache = (peopleRes && peopleRes.result === 'success' && peopleRes.people) || [];
       _prGradesCache = (gradesRes && gradesRes.result === 'success' && gradesRes.grades) || _prGradesCache;
       _prGradesLoaded = true;
       _prGroupsCache = (groupsRes && groupsRes.result === 'success' && groupsRes.groups) || [];
       _prGroupMembersCache = (membersRes && membersRes.result === 'success' && membersRes.members) || [];
+      _prPayStepsCache = (stepsRes && stepsRes.result === 'success' && stepsRes.steps) || [];
       _prRenderGroupsChips();
       _wireSearchCombo('prPersonSearch', 'prPersonSelect', 'prPersonDropdown',
         allStaffCache.map(s => ({ value: s.teacher_id, label: s.full_name || s.teacher_id, sub: [s.designation, s.teacher_id].filter(Boolean).join(' · ') })));
@@ -15623,16 +15708,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
     const memberSet = new Set(_prGroupMembersCache.map(m => `${m.group_id}:${m.user_id}`));
     const cats = Object.keys(staffByCategory).filter(c => staffByCategory[c].length);
-    const theadHtml = _prGroupsCache.length
-      ? `<thead><tr class="text-[10px] font-black text-slate-400 uppercase">
-          <th class="py-1.5 px-3">Name</th><th class="py-1.5 px-3">Designation</th><th class="py-1.5 px-3">Grade</th>
+    const gsLocked = !_prGradeStepEditMode;
+    const theadHtml = `<thead><tr class="text-[10px] font-black text-slate-400 uppercase">
+          <th class="py-1.5 px-3">Name</th><th class="py-1.5 px-3">Designation</th><th class="py-1.5 px-3">Grade</th><th class="py-1.5 px-3">Step</th>
           ${_prGroupsCache.map(g => `<th class="py-1.5 px-3 text-center">${_escHtml(g.name)}</th>`).join('')}
-        </tr></thead>`
-      : '';
+        </tr></thead>`;
     host.innerHTML = cats.length ? cats.map(cat => {
       const rowsHtml = staffByCategory[cat].map(s => {
         const setup = setupByUser[s.teacher_id];
-        const gradeLabel = setup && setup.grade_id ? (gradeById[setup.grade_id] || '—') : null;
         const selected = _prSelectedPersonId === s.teacher_id;
         const groupCells = _prGroupsCache.map(g => {
           const locked = !_prGroupEditMode || g.is_locked;
@@ -15644,7 +15727,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         return `<tr onclick="_prSelectPerson('${s.teacher_id}')" class="border-b border-slate-50 cursor-pointer transition-colors ${selected ? 'bg-blue-50' : 'hover:bg-slate-50'}">
           <td class="py-1.5 px-3 font-bold text-slate-700">${s.full_name || s.teacher_id}</td>
           <td class="py-1.5 px-3 text-slate-400 text-[10px] font-bold">${s.designation || ''}</td>
-          <td class="py-1.5 px-3">${gradeLabel ? `<span class="font-black text-slate-700">${gradeLabel}</span>` : '<span class="text-[9px] text-amber-600 font-black uppercase">Not set up</span>'}</td>
+          <td class="py-1.5 px-3" onclick="event.stopPropagation()">
+            <select id="prRosterGrade_${s.teacher_id}" ${gsLocked ? 'disabled' : ''} title="${gsLocked ? 'Click Enable Editing above to change Grade/Step' : ''}" onchange="_prInlineSaveGradeStep('${s.teacher_id}')" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
+              <option value="">None</option>
+              ${_prGradesCache.map(g => `<option value="${g.id}" ${setup && setup.grade_id === g.id ? 'selected' : ''}>${_escHtml(g.name)}</option>`).join('')}
+            </select>
+          </td>
+          <td class="py-1.5 px-3" onclick="event.stopPropagation()">
+            <select id="prRosterStep_${s.teacher_id}" ${gsLocked ? 'disabled' : ''} title="${gsLocked ? 'Click Enable Editing above to change Grade/Step' : ''}" onchange="_prInlineSaveGradeStep('${s.teacher_id}')" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
+              <option value="">None</option>
+              ${_prPayStepsCache.map(st => `<option value="${st.id}" ${setup && setup.step_id === st.id ? 'selected' : ''}>Step ${st.step_number}</option>`).join('')}
+            </select>
+          </td>
           ${groupCells}
         </tr>`;
       }).join('');
@@ -15655,6 +15749,42 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
       </div>`;
     }).join('') : `<p class="text-slate-400 font-bold text-xs p-4 text-center">No staff found — check System &gt; Users.</p>`;
+    lucide.createIcons();
+  }
+
+  // Separate lock from the Groups one above — different data, same "locked
+  // by default, click to unlock" pattern so nobody bumps a Grade/Step
+  // select while just browsing the roster.
+  let _prGradeStepEditMode = false;
+
+  function _prToggleGradeStepEditMode() {
+    _prGradeStepEditMode = !_prGradeStepEditMode;
+    const btn = document.getElementById('prGradeStepEditModeBtn');
+    if (btn) {
+      btn.innerHTML = _prGradeStepEditMode ? '<i data-lucide="unlock" class="h-3.5 w-3.5"></i>Editing Enabled' : '<i data-lucide="lock" class="h-3.5 w-3.5"></i>Enable Editing';
+      btn.className = `px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-1.5 ${_prGradeStepEditMode ? 'bg-amber-500 text-white' : 'border border-slate-200 text-slate-500 hover:bg-slate-50'}`;
+    }
+    _prRenderPeopleRoster();
+  }
+
+  // Narrow save — only ever touches grade_id/step_id (+ the resulting Basic
+  // push server-side), never the rest of person_setup, so an inline roster
+  // edit can't silently wipe someone's bank info/joining date the way
+  // reusing the full save_person_setup upsert would.
+  function _prInlineSaveGradeStep(userId) {
+    const gradeSel = document.getElementById(`prRosterGrade_${userId}`);
+    const stepSel = document.getElementById(`prRosterStep_${userId}`);
+    const gradeId = gradeSel && gradeSel.value ? Number(gradeSel.value) : null;
+    const stepId = stepSel && stepSel.value ? Number(stepSel.value) : null;
+    _payrollFetch('save_person_grade_step', { user_id: userId, grade_id: gradeId, step_id: stepId }).then(res => {
+      if (res && res.result === 'success') {
+        showToast('Saved');
+        const setup = _prPeopleSetupCache.find(p => p.user_id === userId);
+        if (setup) { setup.grade_id = gradeId; setup.step_id = stepId; }
+        else _prPeopleSetupCache.push({ user_id: userId, grade_id: gradeId, step_id: stepId });
+        if (_prSelectedPersonId === userId) _prSelectPerson(userId);
+      } else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
   }
 
   // ── Designation -> Category Mapping (admin-curated) ─────────────────────
@@ -15748,13 +15878,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const label = staffLabel(userId);
       detail.innerHTML = `
         <p class="font-black text-slate-800 text-sm mb-3">${label !== userId ? label : userId}</p>
-        <div class="grid md:grid-cols-3 gap-3 mb-5">
+        <div class="grid md:grid-cols-4 gap-3 mb-5">
           <div>
             <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Grade</label>
-            <select id="prPersonGrade" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            <select id="prPersonGrade" onchange="_prRenderPersonStepOptions(null)" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
               <option value="">None</option>
               ${_prGradesCache.map(g => `<option value="${g.id}" ${setup.grade_id === g.id ? 'selected' : ''}>${g.name}</option>`).join('')}
             </select>
+          </div>
+          <div>
+            <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Step</label>
+            <select id="prPersonStep" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></select>
+            <p class="text-[9px] text-slate-400 font-bold mt-1">Grade + Step sets Basic from the Pay Scale Grid.</p>
           </div>
           <div>
             <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Joining Date</label>
@@ -15792,7 +15927,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
         <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest bg-slate-50 border border-slate-200 rounded-xl p-3">To set this person's amount for a specific field (Basic, House Rent, EMI, etc.), open that field's "Values" button under Additions &amp; Deductions and switch to Manual — it lists everyone by category with an editable amount, same place as Import.</p>
       `;
+      _prRenderPersonStepOptions(setup.step_id);
     });
+  }
+
+  // Rebuilds #prPersonStep's options — full global step list (same as the
+  // roster's inline selects), so it always shows something even if the
+  // current Grade has no Pay Scale Grid values filled in yet. `keepStepId`
+  // null means "grade just changed, don't carry over the old step."
+  function _prRenderPersonStepOptions(keepStepId) {
+    const stepSel = document.getElementById('prPersonStep');
+    if (!stepSel) return;
+    stepSel.innerHTML = `<option value="">None</option>` + _prPayStepsCache.map(s => `<option value="${s.id}" ${keepStepId === s.id ? 'selected' : ''}>Step ${s.step_number}</option>`).join('');
   }
 
   // ── Generic Excel import (People / Section Entries / Bonus / Leave Deductions) ──
@@ -16051,13 +16197,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function _prSavePersonSetup(userId) {
     const grade_id = document.getElementById('prPersonGrade').value || null;
+    const step_id = document.getElementById('prPersonStep').value || null;
     const joining_date = document.getElementById('prPersonJoiningDate').value || null;
     const bank_name = document.getElementById('prPersonBankName').value.trim();
     const bank_account_no = document.getElementById('prPersonBankAccount').value.trim();
     const mobile_banking_provider = document.getElementById('prPersonMbProvider').value;
     const mobile_banking_number = document.getElementById('prPersonMbNumber').value.trim();
     const mpo_amount = document.getElementById('prPersonMpoAmount').value;
-    _payrollFetch('save_person_setup', { user_id: userId, grade_id, joining_date, bank_name, bank_account_no, mobile_banking_provider, mobile_banking_number, mpo_amount }).then(res => {
+    _payrollFetch('save_person_setup', { user_id: userId, grade_id, step_id, joining_date, bank_name, bank_account_no, mobile_banking_provider, mobile_banking_number, mpo_amount }).then(res => {
       if (res && res.result === 'success') { showToast('Person setup saved'); _prSelectPerson(userId); }
       else showToast((res && res.message) || 'Failed to save', 'error');
     }).catch(err => showToast(err.message || 'Failed to save', 'error'));
