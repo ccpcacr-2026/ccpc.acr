@@ -14764,7 +14764,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         btn.className += active ? ' bg-blue-600 text-white shadow-lg shadow-blue-500/20' : ' bg-white text-slate-400 border border-slate-200 hover:bg-slate-50';
       }
     });
-    if (tabId === 'pr-grades' && !_prGradesLoaded) loadPayrollGrades();
+    // _prGradesLoaded can already be true by the time this tab is opened —
+    // loadPayrollFields() (Fields, the default tab) also loads grades now,
+    // for its hover summary — so it alone can't gate whether THIS tab's own
+    // render (list + Pay Scale Grid) has actually run. Re-render from the
+    // cache instead of skipping entirely when that's the case.
+    if (tabId === 'pr-grades') {
+      if (_prGradesLoaded) { _prRenderGradesList(); _prLoadPayScaleGrid(); }
+      else loadPayrollGrades();
+    }
     if (tabId === 'pr-people' && !_prPeopleComboWired) loadPayrollPeopleTab();
     if (tabId === 'pr-sections' && !_prBonusLoaded) { loadBonusPayments(); loadPayrollSections(); loadLeaveDeductions(); }
     if (tabId === 'pr-run' && !_prRunTabLoaded) loadPayrollRunTab();
