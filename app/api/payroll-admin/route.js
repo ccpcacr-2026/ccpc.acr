@@ -764,10 +764,17 @@ export async function POST(req) {
   if (action === 'save_grade_field') {
     const { grade_id, field_id, value, percent, base_field_key } = payload;
     if (!grade_id || !field_id) return NextResponse.json({ result: 'error', message: 'grade_id and field_id required' }, { status: 400 });
+    // A field is fixed-amount or percent-of-field by its own calc_mode, never
+    // both — _resolveFieldConfig only ever reads one side depending on that,
+    // so force the other side to null server-side too (not just in the
+    // admin UI) so no caller (bulk import, a direct API call) can persist a
+    // row with both set, which would silently strand the ignored one.
+    const fieldRows = await sbPayroll(`fields?id=eq.${encodeURIComponent(field_id)}&select=calc_mode`);
+    const isPercent = Array.isArray(fieldRows) && fieldRows[0] && fieldRows[0].calc_mode === 'percent_of_field';
     const rowData = {
       grade_id, field_id,
-      value: value === '' || value == null ? null : Number(value),
-      percent: percent === '' || percent == null ? null : Number(percent),
+      value: isPercent || value === '' || value == null ? null : Number(value),
+      percent: !isPercent || percent === '' || percent == null ? null : Number(percent),
       base_field_key: base_field_key || null,
     };
     const existing = await sbPayroll(`grade_fields?grade_id=eq.${encodeURIComponent(grade_id)}&field_id=eq.${encodeURIComponent(field_id)}`);

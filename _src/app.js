@@ -15498,10 +15498,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <tbody>
               ${baseFields.map(f => {
                 const gf = gfMap[f.id] || {};
+                // A field is either fixed-amount or percent-of-another-field
+                // by its own definition (Fields tab), never both — only the
+                // input matching that mode is ever actually read by the
+                // payroll engine (_resolveFieldConfig/_evalLogicNode), so
+                // showing both as freely editable let an admin fill in a
+                // percent on a fixed field, save it, and have it silently
+                // do nothing. The inapplicable side is now disabled and
+                // greyed out instead of accepting a value that's a dead end.
+                const isPercent = f.calc_mode === 'percent_of_field';
                 return `<tr class="border-b border-slate-50">
                   <td class="py-1.5 px-3 font-black text-slate-700">${_escHtml(_prFieldLabelWithCategory(f))}</td>
-                  <td class="py-1.5 px-3"><input type="number" id="prGF_val_${f.id}" value="${gf.value != null ? gf.value : ''}" placeholder="—" class="w-24 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></td>
-                  <td class="py-1.5 px-3"><input type="number" id="prGF_pct_${f.id}" value="${gf.percent != null ? gf.percent : ''}" placeholder="—" class="w-20 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></td>
+                  <td class="py-1.5 px-3"><input type="number" id="prGF_val_${f.id}" value="${gf.value != null ? gf.value : ''}" placeholder="${isPercent ? 'N/A' : '—'}" ${isPercent ? 'disabled title="This field is percent-based (set in the Fields tab) — Fixed Value doesn\'t apply."' : ''} class="w-24 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs ${isPercent ? 'opacity-40 cursor-not-allowed' : ''}"></td>
+                  <td class="py-1.5 px-3"><input type="number" id="prGF_pct_${f.id}" value="${gf.percent != null ? gf.percent : ''}" placeholder="${isPercent ? '—' : 'N/A'}" ${isPercent ? '' : 'disabled title="This field is a fixed amount (set in the Fields tab) — Percent doesn\'t apply."'} class="w-20 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs ${isPercent ? '' : 'opacity-40 cursor-not-allowed'}"></td>
                   <td class="py-1.5 px-3"><button onclick="_prSaveGradeField(${gradeId},${f.id})" class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-black">Save</button></td>
                 </tr>`;
               }).join('') || `<tr><td colspan="4" class="p-3 text-slate-400 font-bold text-xs text-center">No fields yet — add some under the Fields tab first.</td></tr>`}
@@ -15523,8 +15532,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   function _prSaveGradeField(gradeId, fieldId) {
-    const value = document.getElementById(`prGF_val_${fieldId}`).value;
-    const percent = document.getElementById(`prGF_pct_${fieldId}`).value;
+    const field = _prFieldsCache.find(f => f.id === fieldId);
+    const isPercent = field && field.calc_mode === 'percent_of_field';
+    // The disabled side's input still has a readable .value (disabling only
+    // blocks user interaction, not JS access) — force it blank on save so a
+    // stray value from before this field's calc_mode was set (or from
+    // before this fix) never lingers as dead, confusing data.
+    const value = isPercent ? '' : document.getElementById(`prGF_val_${fieldId}`).value;
+    const percent = isPercent ? document.getElementById(`prGF_pct_${fieldId}`).value : '';
     _payrollFetch('save_grade_field', { grade_id: gradeId, field_id: fieldId, value, percent }).then(res => {
       if (res && res.result === 'success') showToast('Saved');
       else showToast((res && res.message) || 'Failed to save', 'error');
