@@ -80,7 +80,7 @@ const RESERVED = [
   '_prAddPayStep','_prDeletePayStep','_prSaveGradeStepValue','_prToggleGradeStepEditMode',
   '_prInlineSaveGradeStep','_prRenderPersonStepOptions','_prOnRosterGradeChange','_prUpdateFieldIncrementWarning',
   '_prShowFieldSummary','_prHideFieldSummary',
-  '_prToggleGradesEditMode','_prUnlockPayScaleCell','_prRelockPayScaleCell',
+  '_prToggleGradesEditMode','_prUnlockPayScaleCell','_prRelockPayScaleCell','_prSwitchGradesSubtab',
   '_prAddVirtualColumn','_prCloseVirtualColumnForm','_prSaveVirtualColumn','_prExportExcel','_prExportPdf',
   '_prSetExportSplitByGroup','_prSetExportRowDesign','_prSetExportSort','_prResetExportRowOrder',
   '_prRowDragStart','_prRowDragOver','_prRowDragEnd','_prRowDrop',

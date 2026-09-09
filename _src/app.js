@@ -14071,13 +14071,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
       <div id="pr-grades" style="display:none">
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4 flex items-center justify-between flex-wrap gap-2">
-          <div>
-            <p class="font-black text-slate-800 text-xs">Grade Setup</p>
-            <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Locked by default — nothing below can be added, edited, or deleted until unlocked</p>
+          <div class="flex items-center gap-3 flex-wrap">
+            <div>
+              <p class="font-black text-slate-800 text-xs">Grade Setup</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Locked by default — nothing below can be added, edited, or deleted until unlocked</p>
+            </div>
+            <div class="flex gap-1.5">
+              <button id="prGradesSubtabBtn-grades" onclick="_prSwitchGradesSubtab('grades')" class="px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all bg-blue-600 text-white">Grades</button>
+              <button id="prGradesSubtabBtn-steps" onclick="_prSwitchGradesSubtab('steps')" class="px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all bg-white text-slate-400 border border-slate-200 hover:bg-slate-50">Pay Scale Grid</button>
+            </div>
           </div>
           <button id="prGradesEditModeBtn" onclick="_prToggleGradesEditMode()" title="Everything below is read-only until this is on, to prevent accidental changes while browsing" class="px-3 py-2 border border-slate-200 text-slate-500 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="lock" class="h-3.5 w-3.5"></i>Enable Editing</button>
         </div>
-        <div class="grid md:grid-cols-3 gap-4">
+        <div id="prGradesSubtab-grades" class="grid md:grid-cols-3 gap-4">
           <div class="bg-white rounded-2xl border border-slate-200 p-4">
             <div class="flex items-center justify-between mb-3">
               <p class="font-black text-slate-800 text-xs">Grades</p>
@@ -14089,7 +14095,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <div id="prGradeDetail"><p class="text-slate-400 font-bold text-xs p-4">Select a grade on the left to configure its field values and conditional fields.</p></div>
           </div>
         </div>
-        <div class="bg-white rounded-2xl border border-slate-200 p-4 mt-4">
+        <div id="prGradesSubtab-steps" class="hidden bg-white rounded-2xl border border-slate-200 p-4">
           <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
             <div>
               <p class="font-black text-slate-800 text-xs">Pay Scale Grid</p>
@@ -15485,6 +15491,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _prRenderGradesList();
       _prLoadPayScaleGrid();
     }).catch(err => showToast(err.message || 'Failed to load grades', 'error'));
+  }
+
+  // Grades and the Pay Scale Grid as sub-tabs within Grade Setup, instead
+  // of a long scroll to reach the grid — it's a full 20x19 table, easy to
+  // miss below the Grades/Field Values panels.
+  function _prSwitchGradesSubtab(tab) {
+    ['grades', 'steps'].forEach(t => {
+      const panel = document.getElementById(`prGradesSubtab-${t}`);
+      const btn = document.getElementById(`prGradesSubtabBtn-${t}`);
+      const active = t === tab;
+      if (panel) panel.classList.toggle('hidden', !active);
+      if (btn) btn.className = `px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all ${active ? 'bg-blue-600 text-white' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50'}`;
+    });
   }
 
   function _prToggleGradesEditMode() {
