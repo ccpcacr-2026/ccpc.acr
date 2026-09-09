@@ -14070,11 +14070,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
 
       <div id="pr-grades" style="display:none">
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4 flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <p class="font-black text-slate-800 text-xs">Grade Setup</p>
+            <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Locked by default — nothing below can be added, edited, or deleted until unlocked</p>
+          </div>
+          <button id="prGradesEditModeBtn" onclick="_prToggleGradesEditMode()" title="Everything below is read-only until this is on, to prevent accidental changes while browsing" class="px-3 py-2 border border-slate-200 text-slate-500 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="lock" class="h-3.5 w-3.5"></i>Enable Editing</button>
+        </div>
         <div class="grid md:grid-cols-3 gap-4">
           <div class="bg-white rounded-2xl border border-slate-200 p-4">
             <div class="flex items-center justify-between mb-3">
               <p class="font-black text-slate-800 text-xs">Grades</p>
-              <button onclick="_prOpenGradeForm(null)" class="px-2.5 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1"><i data-lucide="plus" class="h-3 w-3"></i>Add</button>
+              <button id="prGradeAddBtn" onclick="_prOpenGradeForm(null)" disabled class="px-2.5 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"><i data-lucide="plus" class="h-3 w-3"></i>Add</button>
             </div>
             <div id="prGradesList" class="space-y-1.5"><p class="text-slate-400 font-bold text-xs">Loading…</p></div>
           </div>
@@ -14088,7 +14095,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <p class="font-black text-slate-800 text-xs">Pay Scale Grid</p>
               <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Grade (row) x Step (column) — each cell is that step's fixed Basic salary. Assign a person's Grade + Step in People Setup.</p>
             </div>
-            <button onclick="_prAddPayStep()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Step</button>
+            <button id="prAddStepBtn" onclick="_prAddPayStep()" disabled class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Step</button>
           </div>
           <div id="prPayScaleGrid" class="overflow-auto"><p class="text-slate-400 font-bold text-xs p-4 text-center">Loading…</p></div>
         </div>
@@ -15465,6 +15472,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _prGradesCache = [];
   let _prGradesLoaded = false;
   let _prSelectedGradeId = null;
+  // Locked by default for the whole Grade Setup screen (list + detail +
+  // Pay Scale Grid) — a school's actual salary structure, not something to
+  // risk bumping while just browsing. One shared toggle, same pattern as
+  // the Groups/Grade+Step locks elsewhere in Payroll Admin.
+  let _prGradesEditMode = false;
 
   function loadPayrollGrades() {
     _payrollFetch('get_grades', {}).then(res => {
@@ -15473,6 +15485,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _prRenderGradesList();
       _prLoadPayScaleGrid();
     }).catch(err => showToast(err.message || 'Failed to load grades', 'error'));
+  }
+
+  function _prToggleGradesEditMode() {
+    _prGradesEditMode = !_prGradesEditMode;
+    const btn = document.getElementById('prGradesEditModeBtn');
+    if (btn) {
+      btn.innerHTML = _prGradesEditMode ? '<i data-lucide="unlock" class="h-3.5 w-3.5"></i>Editing Enabled' : '<i data-lucide="lock" class="h-3.5 w-3.5"></i>Enable Editing';
+      btn.className = `px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-1.5 ${_prGradesEditMode ? 'bg-amber-500 text-white' : 'border border-slate-200 text-slate-500 hover:bg-slate-50'}`;
+    }
+    const addBtn = document.getElementById('prGradeAddBtn');
+    if (addBtn) addBtn.disabled = !_prGradesEditMode;
+    const addStepBtn = document.getElementById('prAddStepBtn');
+    if (addStepBtn) addStepBtn.disabled = !_prGradesEditMode;
+    lucide.createIcons();
+    _prRenderGradesList();
+    _prRenderPayScaleGrid();
+    if (_prSelectedGradeId) _prSelectGrade(_prSelectedGradeId);
   }
 
   // ── Pay Scale Grid (Grade x Step) ────────────────────────────────────────
@@ -15493,11 +15522,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!_prGradesCache.length) { host.innerHTML = '<p class="text-slate-400 font-bold text-xs p-4 text-center">Add a grade first (left panel above).</p>'; return; }
     if (!_prPayStepsCache.length) { host.innerHTML = '<p class="text-slate-400 font-bold text-xs p-4 text-center">No steps yet — click "Add Step".</p>'; return; }
     const cellMap = {}; _prGradeStepValuesCache.forEach(c => { cellMap[`${c.grade_id}:${c.step_id}`] = c.basic_value; });
+    // 314 real salary figures in one grid — a stray click here is expensive.
+    // The global "Enable Editing" lock covers Add/Delete Step and unlocks
+    // every cell at once for bulk entry; when it's off, each cell also has
+    // its OWN tiny lock so a single correction doesn't require unlocking
+    // the whole grade structure — click a cell's lock, edit just that cell,
+    // it re-locks itself on blur.
     host.innerHTML = `
       <table class="w-full text-left border-collapse text-xs">
         <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
           <th class="py-2 px-3 sticky left-0 bg-slate-50">Grade</th>
-          ${_prPayStepsCache.map(s => `<th class="py-2 px-3 text-center">Step ${s.step_number} <button onclick="_prDeletePayStep(${s.id})" title="Delete this step column" class="text-red-400 hover:text-red-600 ml-1"><i data-lucide="x" class="h-2.5 w-2.5 inline"></i></button></th>`).join('')}
+          ${_prPayStepsCache.map(s => `<th class="py-2 px-3 text-center">Step ${s.step_number} <button onclick="_prDeletePayStep(${s.id})" ${_prGradesEditMode ? '' : 'disabled title="Click Enable Editing above"'} class="text-red-400 hover:text-red-600 ml-1 ${_prGradesEditMode ? '' : 'opacity-30 cursor-not-allowed'}"><i data-lucide="x" class="h-2.5 w-2.5 inline"></i></button></th>`).join('')}
         </tr></thead>
         <tbody>
           ${_prGradesCache.map(g => `
@@ -15506,12 +15541,34 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             ${_prPayStepsCache.map(s => {
               const key = `${g.id}:${s.id}`;
               const val = cellMap[key];
-              return `<td class="py-1.5 px-3 text-center"><input type="number" value="${val != null ? val : ''}" placeholder="—" onchange="_prSaveGradeStepValue(${g.id},${s.id},this.value)" class="w-24 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs text-center"></td>`;
+              const cellId = `prPSG_${g.id}_${s.id}`;
+              return `<td class="py-1.5 px-3 text-center">
+                <div class="flex items-center gap-1 justify-center">
+                  <input type="number" id="${cellId}" value="${val != null ? val : ''}" placeholder="—" ${_prGradesEditMode ? '' : 'disabled'} onchange="_prSaveGradeStepValue(${g.id},${s.id},this.value)" onblur="_prRelockPayScaleCell(this)" class="w-20 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs text-center disabled:opacity-50 disabled:cursor-not-allowed">
+                  ${_prGradesEditMode ? '' : `<button onclick="_prUnlockPayScaleCell('${cellId}')" title="Unlock just this cell to edit" class="shrink-0 text-slate-300 hover:text-amber-600"><i data-lucide="lock" class="h-3 w-3"></i></button>`}
+                </div>
+              </td>`;
             }).join('')}
           </tr>`).join('')}
         </tbody>
       </table>`;
     lucide.createIcons();
+  }
+
+  // Momentary, single-cell unlock — used while the grid is otherwise
+  // locked. Re-locks itself the moment focus leaves it (_prRelockPayScaleCell
+  // on blur), so it's never left open by accident; the global "Enable
+  // Editing" toggle is the only way to leave every cell open at once.
+  function _prUnlockPayScaleCell(cellId) {
+    const input = document.getElementById(cellId);
+    if (!input) return;
+    input.disabled = false;
+    input.focus();
+    input.select();
+  }
+
+  function _prRelockPayScaleCell(input) {
+    if (!_prGradesEditMode) input.disabled = true;
   }
 
   function _prAddPayStep() {
@@ -15556,8 +15613,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           ${g.description ? `<p class="text-[10px] font-bold ${_prSelectedGradeId === g.id ? 'text-blue-100' : 'text-slate-400'}">${g.description}</p>` : ''}
         </div>
         <div class="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button onclick='event.stopPropagation(); _prOpenGradeForm(${JSON.stringify(g).replace(/'/g, "&apos;")})' class="${_prSelectedGradeId === g.id ? 'text-white' : 'text-blue-600'}"><i data-lucide="pencil" class="h-3 w-3"></i></button>
-          <button onclick="event.stopPropagation(); _prDeleteGrade(${g.id})" class="${_prSelectedGradeId === g.id ? 'text-white' : 'text-red-500'}"><i data-lucide="trash-2" class="h-3 w-3"></i></button>
+          <button onclick='event.stopPropagation(); _prOpenGradeForm(${JSON.stringify(g).replace(/'/g, "&apos;")})' ${_prGradesEditMode ? '' : 'disabled title="Click Enable Editing above"'} class="${_prSelectedGradeId === g.id ? 'text-white' : 'text-blue-600'} ${_prGradesEditMode ? '' : 'opacity-30 cursor-not-allowed'}"><i data-lucide="pencil" class="h-3 w-3"></i></button>
+          <button onclick="event.stopPropagation(); _prDeleteGrade(${g.id})" ${_prGradesEditMode ? '' : 'disabled title="Click Enable Editing above"'} class="${_prSelectedGradeId === g.id ? 'text-white' : 'text-red-500'} ${_prGradesEditMode ? '' : 'opacity-30 cursor-not-allowed'}"><i data-lucide="trash-2" class="h-3 w-3"></i></button>
         </div>
       </div>`).join('');
     lucide.createIcons();
@@ -15638,17 +15695,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 // first place, so a fixed reference step is meaningless for
                 // a percent of any other field.
                 const isPercentOfBasic = isPercent && f.calc_base_field_key === 'basic';
+                const locked = !_prGradesEditMode;
                 return `<tr class="border-b border-slate-50">
                   <td class="py-1.5 px-3 font-black text-slate-700">${_escHtml(_prFieldLabelWithCategory(f))}</td>
-                  <td class="py-1.5 px-3"><input type="number" id="prGF_val_${f.id}" value="${gf.value != null ? gf.value : ''}" placeholder="${isPercent ? 'N/A' : '—'}" ${isPercent ? 'disabled title="This field is percent-based (set in the Fields tab) — Fixed Value doesn\'t apply."' : ''} class="w-24 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs ${isPercent ? 'opacity-40 cursor-not-allowed' : ''}"></td>
-                  <td class="py-1.5 px-3"><input type="number" id="prGF_pct_${f.id}" value="${gf.percent != null ? gf.percent : ''}" placeholder="${isPercent ? '—' : 'N/A'}" ${isPercent ? '' : 'disabled title="This field is a fixed amount (set in the Fields tab) — Percent doesn\'t apply."'} class="w-20 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs ${isPercent ? '' : 'opacity-40 cursor-not-allowed'}"></td>
+                  <td class="py-1.5 px-3"><input type="number" id="prGF_val_${f.id}" value="${gf.value != null ? gf.value : ''}" placeholder="${isPercent ? 'N/A' : '—'}" ${isPercent || locked ? `disabled title="${isPercent ? 'This field is percent-based (set in the Fields tab) — Fixed Value doesn\'t apply.' : 'Click Enable Editing above'}"` : ''} class="w-24 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs ${isPercent || locked ? 'opacity-40 cursor-not-allowed' : ''}"></td>
+                  <td class="py-1.5 px-3"><input type="number" id="prGF_pct_${f.id}" value="${gf.percent != null ? gf.percent : ''}" placeholder="${isPercent ? '—' : 'N/A'}" ${!isPercent || locked ? `disabled title="${!isPercent ? 'This field is a fixed amount (set in the Fields tab) — Percent doesn\'t apply.' : 'Click Enable Editing above'}"` : ''} class="w-20 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs ${!isPercent || locked ? 'opacity-40 cursor-not-allowed' : ''}"></td>
                   <td class="py-1.5 px-3">
-                    <select id="prGF_step_${f.id}" ${isPercentOfBasic ? '' : 'disabled'} title="${isPercentOfBasic ? 'Optional — leave as &quot;Own step&quot; to use this person\'s own resolved Basic, or pick a fixed step (e.g. Incentive = 20% of Basic at Step 1, no matter which step they\'re actually on)' : 'Only applies to a percent-of-Basic field.'}" class="w-28 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px] ${isPercentOfBasic ? '' : 'opacity-40 cursor-not-allowed'}">
+                    <select id="prGF_step_${f.id}" ${!isPercentOfBasic || locked ? 'disabled' : ''} title="${isPercentOfBasic ? (locked ? 'Click Enable Editing above' : 'Optional — leave as &quot;Own step&quot; to use this person\'s own resolved Basic, or pick a fixed step (e.g. Incentive = 20% of Basic at Step 1, no matter which step they\'re actually on)') : 'Only applies to a percent-of-Basic field.'}" class="w-28 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px] ${!isPercentOfBasic || locked ? 'opacity-40 cursor-not-allowed' : ''}">
                       <option value="">Own step</option>
                       ${_prPayStepsCache.map(s => `<option value="${s.id}" ${gf.base_step_id === s.id ? 'selected' : ''}>Step ${s.step_number}</option>`).join('')}
                     </select>
                   </td>
-                  <td class="py-1.5 px-3"><button onclick="_prSaveGradeField(${gradeId},${f.id})" class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-black">Save</button></td>
+                  <td class="py-1.5 px-3"><button onclick="_prSaveGradeField(${gradeId},${f.id})" ${locked ? 'disabled title="Click Enable Editing above"' : ''} class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-black ${locked ? 'opacity-40 cursor-not-allowed' : ''}">Save</button></td>
                 </tr>`;
               }).join('') || `<tr><td colspan="5" class="p-3 text-slate-400 font-bold text-xs text-center">No fields yet — add some under the Fields tab first.</td></tr>`}
             </tbody>
@@ -15659,8 +15717,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-3">These fields only apply to a person if their grade turns them on here.</p>
         <div class="space-y-2">
           ${conditionalCatalog.map(f => `
-            <label class="flex items-center gap-2 text-xs font-black text-slate-600 cursor-pointer">
-              <input type="checkbox" ${condSet.has(f.id) ? 'checked' : ''} onchange="_prToggleGradeConditionalField(${gradeId},${f.id},this.checked)" class="w-4 h-4 rounded accent-amber-600">
+            <label class="flex items-center gap-2 text-xs font-black text-slate-600 ${_prGradesEditMode ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}">
+              <input type="checkbox" ${condSet.has(f.id) ? 'checked' : ''} ${_prGradesEditMode ? '' : 'disabled'} onchange="_prToggleGradeConditionalField(${gradeId},${f.id},this.checked)" class="w-4 h-4 rounded accent-amber-600">
               ${_escHtml(_prFieldLabelWithCategory(f))}
             </label>`).join('')}
         </div>` : ''}
