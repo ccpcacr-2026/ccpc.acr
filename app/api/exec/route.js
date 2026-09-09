@@ -2823,9 +2823,14 @@ const handlers = {
     const mine = assignments.filter(a => a.resolvedUserId === userId);
     if (!mine.length) return { classes: [] };
 
+    // School-wide, unfiltered by class — must paginate (plain _sbStudent
+    // silently caps at PostgREST's 3000-row max_rows with no guaranteed
+    // order; on a school with ~3900 students, a normal school day's present
+    // count can exceed that, silently dropping whichever classes' rows
+    // didn't make the cut and showing them as entirely absent).
     const [presentRows, overrideRows] = await Promise.all([
-      _sbStudent(`attendance_records?date=eq.${today}&select=student_id`),
-      _sbStudent(`manual_attendance_overrides?date=eq.${today}&select=student_id,status`),
+      _sbStudentAllRows(`attendance_records?date=eq.${today}&select=student_id`),
+      _sbStudentAllRows(`manual_attendance_overrides?date=eq.${today}&select=student_id,status`),
     ]);
     const presentSet = new Set((Array.isArray(presentRows) ? presentRows : []).map(p => p.student_id));
     const overrideMap = {};
@@ -2928,8 +2933,10 @@ const handlers = {
           `students_data?class=eq.${encodeURIComponent(studentClass)}&section=eq.${encodeURIComponent(studentSection)}${_extraCriteriaQS(extraCriteria)}` +
           `&select=student_id,student_name,roll&order=roll.asc`
         ),
-        _sbStudent(`attendance_records?date=gte.${encodeURIComponent(fromDate)}&date=lte.${encodeURIComponent(toDate)}&select=student_id,date,entry_time,exit_time,pass`),
-        _sbStudent(`manual_attendance_overrides?date=gte.${encodeURIComponent(fromDate)}&date=lte.${encodeURIComponent(toDate)}&select=student_id,date,status`),
+        // Same school-wide unbounded-query risk as getMyClassTodayAttendance
+        // above, worse here since it spans a whole date range — must paginate.
+        _sbStudentAllRows(`attendance_records?date=gte.${encodeURIComponent(fromDate)}&date=lte.${encodeURIComponent(toDate)}&select=student_id,date,entry_time,exit_time,pass`),
+        _sbStudentAllRows(`manual_attendance_overrides?date=gte.${encodeURIComponent(fromDate)}&date=lte.${encodeURIComponent(toDate)}&select=student_id,date,status`),
       ]);
       const roster = Array.isArray(students) ? students : [];
       const rosterIds = new Set(roster.map(s => s.student_id));

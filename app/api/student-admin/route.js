@@ -1825,9 +1825,12 @@ export async function POST(req) {
     if (!date) return NextResponse.json({ result: 'error', message: 'date required.' });
     const roster = await sb(`students_data?class=eq.${encodeURIComponent(cls || '')}${section ? `&section=eq.${encodeURIComponent(section)}` : ''}&select=student_id,student_name,roll&order=roll.asc`);
     if (roster?.error) return NextResponse.json({ result: 'error', message: roster.error });
+    // School-wide, unfiltered by class — plain sb() silently caps at
+    // PostgREST's 3000-row max_rows with no guaranteed order (see
+    // get_today_attendance_overview above), so must paginate.
     const [present, overrides] = await Promise.all([
-      sb(`attendance_records?date=eq.${encodeURIComponent(date)}&select=student_id,entry_time`),
-      sb(`manual_attendance_overrides?date=eq.${encodeURIComponent(date)}&select=student_id,status,reason`),
+      sbAllRows(`attendance_records?date=eq.${encodeURIComponent(date)}&select=student_id,entry_time`),
+      sbAllRows(`manual_attendance_overrides?date=eq.${encodeURIComponent(date)}&select=student_id,status,reason`),
     ]);
     const presentSet = new Set((Array.isArray(present) ? present : []).map(p => p.student_id));
     const overrideMap = {};
@@ -2033,10 +2036,15 @@ export async function POST(req) {
   // attendance_records row for the date.
   if (action === 'get_today_attendance_overview') {
     const date = (payload && payload.date) || new Date().toISOString().slice(0, 10);
+    // attendance_records/manual_attendance_overrides here are school-wide,
+    // unfiltered by class — plain sb() silently caps at PostgREST's
+    // 3000-row max_rows with no guaranteed order, so on a normal school day
+    // (~3900 students) whole classes' rows can be missing from the page and
+    // show up as entirely absent. Must paginate like the roster already does.
     const [roster, presentRows, overrideRows, nfcDevices, p10Devices] = await Promise.all([
       sbAllRows('students_data?select=student_id,student_name,class,section'),
-      sb(`attendance_records?date=eq.${encodeURIComponent(date)}&select=student_id,pass`),
-      sb(`manual_attendance_overrides?date=eq.${encodeURIComponent(date)}&select=student_id,status`),
+      sbAllRows(`attendance_records?date=eq.${encodeURIComponent(date)}&select=student_id,pass`),
+      sbAllRows(`manual_attendance_overrides?date=eq.${encodeURIComponent(date)}&select=student_id,status`),
       sb('device_health?select=*&order=created_at.desc'),
       sb('p10_display_devices?select=*&order=created_at.desc'),
     ]);
