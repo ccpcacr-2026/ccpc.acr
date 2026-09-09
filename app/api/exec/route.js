@@ -1515,11 +1515,67 @@ const handlers = {
     return (Array.isArray(res) && res.length > 0) ? res[0] : null;
   },
 
+  // ── Category Groups / Sub-groups (admin-managed hierarchy) ──────────────
+  // Not fixed in code — the school's real structure may have more than the
+  // Teaching{School,College} / Non-Teaching{Administration,3rd-4th Class}
+  // starting tree, so both levels are addable/renameable/removable from the
+  // "Manage Categories" panel. designation_category_map.category and
+  // users_profile.category both just store the sub-group's NAME as plain
+  // text (no FK) — deleting or renaming a sub-group here does not touch
+  // those already-saved values, only what future assignments can pick from.
+  async getStaffCategoryTree() {
+    const [groups, subgroups] = await Promise.all([
+      supabaseRequest('staff_category_groups?select=*&order=sort_order.asc,name.asc'),
+      supabaseRequest('staff_category_subgroups?select=*&order=sort_order.asc,name.asc'),
+    ]);
+    if (!Array.isArray(groups) || !Array.isArray(subgroups)) return { result: 'error', message: 'Could not load categories.' };
+    const tree = groups.map(g => ({ ...g, subgroups: subgroups.filter(s => s.group_id === g.id) }));
+    return { result: 'success', groups: tree };
+  },
+
+  async saveStaffCategoryGroup([id, name]) {
+    const n = String(name || '').trim();
+    if (!n) return { result: 'error', message: 'Name is required.' };
+    const res = id
+      ? await supabaseRequest(`staff_category_groups?id=eq.${id}`, 'patch', { name: n })
+      : await supabaseRequest('staff_category_groups', 'post', { name: n, sort_order: 0 });
+    if (res && res.error) return { result: 'error', message: res.details || res.error };
+    return { result: 'success' };
+  },
+
+  async deleteStaffCategoryGroup([id]) {
+    if (!id) return { result: 'error', message: 'id required.' };
+    const res = await supabaseRequest(`staff_category_groups?id=eq.${id}`, 'delete');
+    if (res && res.error) return { result: 'error', message: res.details || res.error };
+    return { result: 'success' };
+  },
+
+  // id set = rename only (group_id untouched); id unset = create under groupId.
+  async saveStaffCategorySubgroup([id, groupId, name]) {
+    const n = String(name || '').trim();
+    if (!n) return { result: 'error', message: 'Name is required.' };
+    if (id) {
+      const res = await supabaseRequest(`staff_category_subgroups?id=eq.${id}`, 'patch', { name: n });
+      if (res && res.error) return { result: 'error', message: res.details || res.error };
+      return { result: 'success' };
+    }
+    if (!groupId) return { result: 'error', message: 'group_id is required for a new sub-group.' };
+    const res = await supabaseRequest('staff_category_subgroups', 'post', { group_id: groupId, name: n, sort_order: 0 });
+    if (res && res.error) return { result: 'error', message: res.details || res.error };
+    return { result: 'success' };
+  },
+
+  async deleteStaffCategorySubgroup([id]) {
+    if (!id) return { result: 'error', message: 'id required.' };
+    const res = await supabaseRequest(`staff_category_subgroups?id=eq.${id}`, 'delete');
+    if (res && res.error) return { result: 'error', message: res.details || res.error };
+    return { result: 'success' };
+  },
+
   // ── Designation -> Category mapping ─────────────────────────────────────
   // Admin-curated, not inferred: every Designation gets assigned to exactly
-  // one of the 4 category leaves (School/College/Administration/3rd-4th
-  // Class) once here, and every staff member with that Designation inherits
-  // it — see STAFF_CATEGORY_TREE in _src/app.js for the leaf set.
+  // one sub-group from the tree above, and every staff member with that
+  // Designation inherits it.
   async getDesignationCategoryMap() {
     const rows = await supabaseRequest('designation_category_map?select=*&order=designation.asc');
     if (rows && rows.error) return { result: 'error', message: rows.details || rows.error };

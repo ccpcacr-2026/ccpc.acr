@@ -14105,9 +14105,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex items-center justify-between flex-wrap gap-2">
             <div>
               <p class="font-black text-slate-800 text-xs">Designation → Category Mapping</p>
-              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Every staff member's category (School / College / Administration / 3rd-4th Class) is inherited from their Designation via this mapping</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Every staff member's category is inherited from their Designation via this mapping — groups/sub-groups are fully admin-editable</p>
             </div>
-            <button onclick="_prOpenDesignationCategoryMapper()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="git-branch" class="h-3.5 w-3.5"></i>Manage Mapping</button>
+            <div class="flex items-center gap-2">
+              <button onclick="_prOpenCategoryTreeManager()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="folder-tree" class="h-3.5 w-3.5"></i>Manage Categories</button>
+              <button onclick="_prOpenDesignationCategoryMapper()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="git-branch" class="h-3.5 w-3.5"></i>Manage Mapping</button>
+            </div>
           </div>
         </div>
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
@@ -15685,23 +15688,29 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function _prLoadDesignationCategoryMapper() {
     const body = document.getElementById('desigCatMapBody');
-    google.script.run.withSuccessHandler(res => {
-      if (!body) return;
-      const map = {};
-      ((res && res.result === 'success' && res.map) || []).forEach(r => { map[String(r.designation || '').trim().toLowerCase()] = r.category; });
-      const designations = [...new Set((allStaffCache || []).map(s => (s.designation || '').trim()).filter(Boolean))].sort();
-      if (!designations.length) { body.innerHTML = '<p class="text-slate-400 font-bold text-xs text-center py-8">No designations found yet — add staff first.</p>'; return; }
-      body.innerHTML = designations.map(d => {
-        const current = map[d.toLowerCase()] || '';
-        return `
-        <div class="flex items-center justify-between gap-3 py-2 border-b border-slate-50">
-          <p class="text-xs font-bold text-slate-700">${_escHtml(d)}${!current ? ' <span class="text-amber-600 font-black text-[9px] uppercase">Not mapped</span>' : ''}</p>
-          <select onchange="_prSaveDesignationCategoryMap(${JSON.stringify(d).replace(/"/g, '&quot;')}, this.value)" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-            ${_sfCategoryOptionsHtml(current)}
-          </select>
-        </div>`;
-      }).join('');
-    }).withFailureHandler(() => { if (body) body.innerHTML = '<p class="text-red-400 font-bold text-xs text-center py-8">Failed to load</p>'; }).getDesignationCategoryMap();
+    // _sfCategoryOptionsHtml reads _staffCategoryTreeCache, so the tree must
+    // be loaded before building any row's <select> — refresh it here rather
+    // than trust whatever an earlier screen happened to cache, since this
+    // panel is exactly where the tree itself gets edited.
+    _refreshStaffCategoryTree(() => {
+      google.script.run.withSuccessHandler(res => {
+        if (!body) return;
+        const map = {};
+        ((res && res.result === 'success' && res.map) || []).forEach(r => { map[String(r.designation || '').trim().toLowerCase()] = r.category; });
+        const designations = [...new Set((allStaffCache || []).map(s => (s.designation || '').trim()).filter(Boolean))].sort();
+        if (!designations.length) { body.innerHTML = '<p class="text-slate-400 font-bold text-xs text-center py-8">No designations found yet — add staff first.</p>'; return; }
+        body.innerHTML = designations.map(d => {
+          const current = map[d.toLowerCase()] || '';
+          return `
+          <div class="flex items-center justify-between gap-3 py-2 border-b border-slate-50">
+            <p class="text-xs font-bold text-slate-700">${_escHtml(d)}${!current ? ' <span class="text-amber-600 font-black text-[9px] uppercase">Not mapped</span>' : ''}</p>
+            <select onchange="_prSaveDesignationCategoryMap(${JSON.stringify(d).replace(/"/g, '&quot;')}, this.value)" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              ${_sfCategoryOptionsHtml(current)}
+            </select>
+          </div>`;
+        }).join('');
+      }).withFailureHandler(() => { if (body) body.innerHTML = '<p class="text-red-400 font-bold text-xs text-center py-8">Failed to load</p>'; }).getDesignationCategoryMap();
+    });
   }
 
   function _prSaveDesignationCategoryMap(designation, category) {
@@ -23857,32 +23866,45 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (disp) disp.textContent = category || 'Not mapped yet — set this Designation’s category in People Setup → Designation Mapping';
   }
 
-  // The school's actual org structure: Teaching splits into School/College,
-  // Non-Teaching splits into Administration/3rd-4th Class — two levels, four
-  // leaf categories. The stored `category` value is always just the leaf
-  // (e.g. "School"), never the "Teaching"/"Non-Teaching" group; the group is
-  // only shown as the <optgroup> label so admins pick from the right half.
-  const STAFF_CATEGORY_TREE = {
-    'Teaching': ['School', 'College'],
-    'Non-Teaching': ['Administration', '3rd/4th Class'],
-  };
+  // The school's actual org structure (Teaching -> School/College,
+  // Non-Teaching -> Administration/3rd-4th Class, as a starting point) is
+  // admin-managed, not fixed here — see "Manage Categories" in Payroll
+  // Admin -> People Setup (_prOpenCategoryTreeManager below). This cache is
+  // shared by that manager and by the Designation Mapping panel's per-row
+  // select; null means "not fetched yet this session."
+  let _staffCategoryTreeCache = null;
 
-  // Builds the Category <select>'s options: the four canonical leaves under
-  // their Teaching/Non-Teaching optgroup, plus (grouped separately) any
-  // other value already present in real staff data — old records predating
-  // this tree, or a one-off value someone typed before it existed. Keeps
-  // `currentValue` selectable and selected even if it's one of those legacy
-  // values, so opening an existing person's record never silently blanks
-  // or misrepresents what's actually saved.
+  function _ensureStaffCategoryTree(callback) {
+    if (_staffCategoryTreeCache) { callback(); return; }
+    google.script.run.withSuccessHandler(res => {
+      _staffCategoryTreeCache = (res && res.result === 'success' && res.groups) || [];
+      callback();
+    }).withFailureHandler(() => { _staffCategoryTreeCache = []; callback(); }).getStaffCategoryTree();
+  }
+
+  function _refreshStaffCategoryTree(callback) {
+    _staffCategoryTreeCache = null;
+    _ensureStaffCategoryTree(callback);
+  }
+
+  // Builds the Category <select>'s options from the live tree, grouped by
+  // <optgroup>, plus (grouped separately) any other value already present
+  // in real staff data — old records predating a since-renamed/deleted
+  // sub-group, or a one-off value someone typed before the tree existed.
+  // Keeps `currentValue` selectable and selected even if it's one of those
+  // legacy values, so opening an existing person's record never silently
+  // blanks or misrepresents what's actually saved. Assumes the tree is
+  // already loaded (call _ensureStaffCategoryTree first).
   function _sfCategoryOptionsHtml(currentValue) {
-    const canonical = new Set(Object.values(STAFF_CATEGORY_TREE).flat());
+    const tree = _staffCategoryTreeCache || [];
+    const canonical = new Set(tree.flatMap(g => g.subgroups.map(s => s.name)));
     const legacyValues = [...new Set((allStaffCache || []).map(s => (s.category || '').trim()).filter(Boolean))]
       .filter(c => !canonical.has(c));
     if (currentValue && !canonical.has(currentValue) && !legacyValues.includes(currentValue)) legacyValues.push(currentValue);
     let html = `<option value="">Select…</option>`;
-    Object.entries(STAFF_CATEGORY_TREE).forEach(([group, leaves]) => {
-      html += `<optgroup label="${_escHtml(group)}">` +
-        leaves.map(l => `<option value="${_escHtml(l)}" ${currentValue === l ? 'selected' : ''}>${_escHtml(l)}</option>`).join('') +
+    tree.forEach(g => {
+      html += `<optgroup label="${_escHtml(g.name)}">` +
+        g.subgroups.map(s => `<option value="${_escHtml(s.name)}" ${currentValue === s.name ? 'selected' : ''}>${_escHtml(s.name)}</option>`).join('') +
         `</optgroup>`;
     });
     if (legacyValues.length) {
@@ -23891,6 +23913,100 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         `</optgroup>`;
     }
     return html;
+  }
+
+  // ── Manage Categories (Groups / Sub-groups CRUD) ─────────────────────────
+  function _prOpenCategoryTreeManager() {
+    document.getElementById('catTreeOverlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'catTreeOverlay';
+    overlay.className = 'fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4';
+    overlay.innerHTML = `
+      <div class="bg-white rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
+        <div class="p-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+          <p class="font-black text-slate-800 text-sm">Manage Categories</p>
+          <button onclick="document.getElementById('catTreeOverlay').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="h-4 w-4"></i></button>
+        </div>
+        <div class="p-4 border-b border-slate-100 shrink-0">
+          <button onclick="_prAddCategoryGroup()" class="px-3 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Group</button>
+        </div>
+        <div id="catTreeBody" class="p-4 overflow-y-auto flex-1"><p class="text-slate-400 font-bold text-xs text-center py-8">Loading…</p></div>
+      </div>`;
+    document.body.appendChild(overlay);
+    lucide.createIcons();
+    _refreshStaffCategoryTree(_renderCategoryTreeManager);
+  }
+
+  function _renderCategoryTreeManager() {
+    const body = document.getElementById('catTreeBody');
+    if (!body) return;
+    const tree = _staffCategoryTreeCache || [];
+    body.innerHTML = tree.length ? tree.map(g => `
+      <div class="mb-4 border border-slate-200 rounded-xl p-3">
+        <div class="flex items-center gap-2 mb-2">
+          <input type="text" value="${_escHtml(g.name)}" onchange="_prRenameCategoryGroup(${g.id}, this.value)" class="flex-1 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-black text-xs">
+          <button onclick="_prDeleteCategoryGroup(${g.id})" title="Delete group (and its sub-groups)" class="text-red-400 hover:text-red-600"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+        </div>
+        <div class="pl-3 flex flex-col gap-1.5">
+          ${g.subgroups.map(s => `
+          <div class="flex items-center gap-2">
+            <input type="text" value="${_escHtml(s.name)}" onchange="_prRenameCategorySubgroup(${s.id}, this.value)" class="flex-1 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+            <button onclick="_prDeleteCategorySubgroup(${s.id})" title="Delete sub-group" class="text-red-400 hover:text-red-600"><i data-lucide="trash-2" class="h-3 w-3"></i></button>
+          </div>`).join('')}
+          <button onclick="_prAddCategorySubgroup(${g.id})" class="self-start mt-1 text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-black flex items-center gap-1"><i data-lucide="plus" class="h-3 w-3"></i>Add Sub-group</button>
+        </div>
+      </div>`).join('') : '<p class="text-slate-400 font-bold text-xs text-center py-8">No groups yet — add one above.</p>';
+    lucide.createIcons();
+  }
+
+  function _prAddCategoryGroup() {
+    const name = prompt('New group name (e.g. "Teaching"):');
+    if (!name || !name.trim()) return;
+    google.script.run.withSuccessHandler(res => {
+      if (res && res.result === 'success') _refreshStaffCategoryTree(_renderCategoryTreeManager);
+      else showToast((res && res.message) || 'Failed to add group', 'error');
+    }).withFailureHandler(() => showToast('Network error', 'error')).saveStaffCategoryGroup(null, name.trim());
+  }
+
+  function _prRenameCategoryGroup(id, name) {
+    if (!name || !name.trim()) return;
+    google.script.run.withSuccessHandler(res => {
+      if (!(res && res.result === 'success')) showToast((res && res.message) || 'Failed to rename', 'error');
+      _refreshStaffCategoryTree(_renderCategoryTreeManager);
+    }).withFailureHandler(() => showToast('Network error', 'error')).saveStaffCategoryGroup(id, name.trim());
+  }
+
+  function _prDeleteCategoryGroup(id) {
+    if (!confirm('Delete this group and all its sub-groups? Staff/designation mappings already using those sub-group names keep their value — only what future assignments can pick from changes.')) return;
+    google.script.run.withSuccessHandler(res => {
+      if (res && res.result === 'success') _refreshStaffCategoryTree(_renderCategoryTreeManager);
+      else showToast((res && res.message) || 'Failed to delete', 'error');
+    }).withFailureHandler(() => showToast('Network error', 'error')).deleteStaffCategoryGroup(id);
+  }
+
+  function _prAddCategorySubgroup(groupId) {
+    const name = prompt('New sub-group name (e.g. "School"):');
+    if (!name || !name.trim()) return;
+    google.script.run.withSuccessHandler(res => {
+      if (res && res.result === 'success') _refreshStaffCategoryTree(_renderCategoryTreeManager);
+      else showToast((res && res.message) || 'Failed to add sub-group', 'error');
+    }).withFailureHandler(() => showToast('Network error', 'error')).saveStaffCategorySubgroup(null, groupId, name.trim());
+  }
+
+  function _prRenameCategorySubgroup(id, name) {
+    if (!name || !name.trim()) return;
+    google.script.run.withSuccessHandler(res => {
+      if (!(res && res.result === 'success')) showToast((res && res.message) || 'Failed to rename', 'error');
+      _refreshStaffCategoryTree(_renderCategoryTreeManager);
+    }).withFailureHandler(() => showToast('Network error', 'error')).saveStaffCategorySubgroup(id, null, name.trim());
+  }
+
+  function _prDeleteCategorySubgroup(id) {
+    if (!confirm('Delete this sub-group? Staff/designation mappings already using its name keep their value.')) return;
+    google.script.run.withSuccessHandler(res => {
+      if (res && res.result === 'success') _refreshStaffCategoryTree(_renderCategoryTreeManager);
+      else showToast((res && res.message) || 'Failed to delete', 'error');
+    }).withFailureHandler(() => showToast('Network error', 'error')).deleteStaffCategorySubgroup(id);
   }
 
   // Category is purely inherited from Designation via the admin-curated map
