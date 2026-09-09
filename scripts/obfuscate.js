@@ -59,8 +59,6 @@ const RESERVED = [
   '_prOpenConditionRuleForm','_prCloseConditionRuleForm','_prToggleConditionThenFields','_prSaveConditionRule','_prDeleteConditionRule',
   '_prOpenGradeForm','_prCloseGradeForm','_prSaveGrade','_prDeleteGrade','_prSelectGrade','_prSaveGradeField','_prToggleGradeConditionalField',
   '_prSelectPerson','_prSavePersonSetup','_prSavePersonFieldOverride',
-  '_prOpenGroupForm','_prCloseGroupForm','_prSaveGroup','_prDeleteGroup','_prToggleGroupMember',
-  '_prToggleGroupLock','_prToggleGroupEditMode',
   '_prOpenStatutoryForm','_prCloseStatutoryForm','_prToggleStatutoryCalcFields','_prToggleStatutoryEmployerFields','_prSaveStatutoryItem','_prDeleteStatutoryItem',
   '_prOpenBonusForm','_prCloseBonusForm','_prSaveBonusPayment','_prDeleteBonusPayment',
   '_prOpenLeaveForm','_prCloseLeaveForm','_prSaveLeaveDeduction','_prDeleteLeaveDeduction','loadMyPayslipsView',

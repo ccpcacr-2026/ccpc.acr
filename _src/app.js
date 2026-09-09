@@ -14138,19 +14138,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </div>
           </div>
         </div>
-        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
-          <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
-            <div>
-              <p class="font-black text-slate-800 text-xs">Groups</p>
-              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Custom groups for splitting Export by group (one PDF page / Excel sheet each) — check people into a group below</p>
-            </div>
-            <div class="flex items-center gap-2">
-              <button id="prGroupEditModeBtn" onclick="_prToggleGroupEditMode()" title="Checkboxes below are read-only until this is on, to prevent accidental clicks while browsing" class="px-3 py-2 border border-slate-200 text-slate-500 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="lock" class="h-3.5 w-3.5"></i>Enable Editing</button>
-              <button onclick="_prOpenGroupForm()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Group</button>
-            </div>
-          </div>
-          <div id="prGroupsChips" class="flex flex-wrap gap-2"></div>
-        </div>
         <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
           <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Roster — inline-editable Grade &amp; Step once unlocked</p>
           <button id="prGradeStepEditModeBtn" onclick="_prToggleGradeStepEditMode()" title="Grade/Step selects below are read-only until this is on, to prevent accidental changes while browsing" class="px-3 py-2 border border-slate-200 text-slate-500 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="lock" class="h-3.5 w-3.5"></i>Enable Editing</button>
@@ -14158,25 +14145,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div id="prPeopleRoster" class="mb-4"></div>
         <div id="prPersonDetail" class="bg-white rounded-2xl border border-slate-200 p-4">
           <p class="text-slate-400 font-bold text-xs p-4">Search and pick a person above (or click one in the list) to assign a grade and set overrides.</p>
-        </div>
-      </div>
-
-      <div id="prGroupFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-        <div class="bg-white rounded-2xl p-5 w-full max-w-sm">
-          <div class="flex items-center justify-between mb-4">
-            <p class="font-black text-slate-800 text-sm">Add Group</p>
-            <button onclick="_prCloseGroupForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
-          </div>
-          <div class="space-y-3">
-            <div>
-              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Name <span class="text-red-500">*</span></label>
-              <input type="text" id="prGroupName" placeholder="e.g. Teacher" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
-            </div>
-          </div>
-          <div class="flex justify-end gap-2 mt-5">
-            <button onclick="_prCloseGroupForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
-            <button onclick="_prSaveGroup()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button>
-          </div>
         </div>
       </div>
       <div id="pr-sections" style="display:none">
@@ -14445,7 +14413,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex flex-wrap items-center gap-5">
             <label class="flex items-center gap-2 text-xs font-black text-slate-600 cursor-pointer">
               <input type="checkbox" id="prExportSplitByGroup" onchange="_prSetExportSplitByGroup(this.checked)" class="w-4 h-4 rounded accent-blue-600">
-              Split by Group <span class="text-slate-400 font-bold normal-case">— one Excel sheet / PDF page per group (set up groups under People Setup)</span>
+              Split by Category <span class="text-slate-400 font-bold normal-case">— one Excel sheet / PDF page per staff category (School/College/Administration/3rd-4th Class — see "Manage Categories" under People Setup)</span>
             </label>
           </div>
           <hr class="border-slate-100 my-3">
@@ -15773,129 +15741,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _prPeopleComboWired = false;
   let _prPeopleSetupCache = [];
   let _prSelectedPersonId = null;
-  let _prGroupsCache = [];
-  let _prGroupMembersCache = []; // [{group_id, user_id}]
-  // Off by default — group checkboxes render disabled until explicitly
-  // turned on, so scrolling/browsing the roster can't accidentally toggle
-  // someone's group membership. Resets to off on every People Setup load
-  // (deliberately not remembered) so it's never left on unattended.
-  let _prGroupEditMode = false;
-
-  function _prToggleGroupEditMode() {
-    _prGroupEditMode = !_prGroupEditMode;
-    const btn = document.getElementById('prGroupEditModeBtn');
-    if (btn) {
-      btn.innerHTML = _prGroupEditMode
-        ? '<i data-lucide="lock-open" class="h-3.5 w-3.5"></i>Editing Enabled'
-        : '<i data-lucide="lock" class="h-3.5 w-3.5"></i>Enable Editing';
-      btn.className = _prGroupEditMode
-        ? 'px-3 py-2 bg-amber-500 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5'
-        : 'px-3 py-2 border border-slate-200 text-slate-500 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5';
-    }
-    lucide.createIcons();
-    _prRenderPeopleRoster();
-  }
-
-  function _prRenderGroupsChips() {
-    const host = document.getElementById('prGroupsChips');
-    if (!host) return;
-    host.innerHTML = _prGroupsCache.length
-      ? _prGroupsCache.map(g => `
-        <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full font-black text-[10px] uppercase tracking-widest ${g.is_locked ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-700'}">
-          ${_escHtml(g.name)}
-          <button onclick="_prToggleGroupLock(${g.id},${!g.is_locked})" title="${g.is_locked ? 'Unlock group' : 'Lock group'}" class="${g.is_locked ? 'text-amber-600 hover:text-amber-800' : 'text-slate-400 hover:text-slate-700'}"><i data-lucide="${g.is_locked ? 'lock' : 'lock-open'}" class="h-3 w-3"></i></button>
-          <button onclick="_prDeleteGroup(${g.id})" title="Delete group" class="text-slate-400 hover:text-red-500"><i data-lucide="x" class="h-3 w-3"></i></button>
-        </span>`).join('')
-      : `<p class="text-slate-400 font-bold text-xs">No groups yet — add one to enable per-group checkboxes below and split Export by group.</p>`;
-    lucide.createIcons();
-  }
-
-  function _prToggleGroupLock(id, locked) {
-    if (!confirm(locked ? 'Lock this group? Its membership can\'t be changed (and it can\'t be deleted) until unlocked again.' : 'Unlock this group so its membership can be edited again?')) return;
-    _payrollFetch('toggle_group_lock', { id, locked }).then(res => {
-      if (res && res.result === 'success') {
-        const g = _prGroupsCache.find(g => g.id === id);
-        if (g) g.is_locked = locked;
-        _prRenderGroupsChips();
-        _prRenderPeopleRoster();
-        showToast(locked ? 'Group locked' : 'Group unlocked');
-      } else showToast((res && res.message) || 'Failed to update', 'error');
-    }).catch(err => showToast(err.message || 'Failed to update', 'error'));
-  }
-
-  function _prOpenGroupForm() {
-    document.getElementById('prGroupName').value = '';
-    document.getElementById('prGroupFormModal').classList.remove('hidden');
-  }
-  function _prCloseGroupForm() { document.getElementById('prGroupFormModal').classList.add('hidden'); }
-
-  function _prSaveGroup() {
-    const name = document.getElementById('prGroupName').value.trim();
-    if (!name) { showToast('Name is required', 'error'); return; }
-    _payrollFetch('save_group', { name, sort_order: _prGroupsCache.length }).then(res => {
-      if (res && res.result === 'success') {
-        showToast('Group added');
-        _prCloseGroupForm();
-        _prGroupsCache.push(res.group);
-        _prRenderGroupsChips();
-        _prRenderPeopleRoster();
-      } else showToast((res && res.message) || 'Failed to save', 'error');
-    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
-  }
-
-  function _prDeleteGroup(id) {
-    if (!confirm('Delete this group? This also clears everyone\'s membership in it.')) return;
-    _payrollFetch('delete_group', { id }).then(res => {
-      if (res && res.result === 'success') {
-        _prGroupsCache = _prGroupsCache.filter(g => g.id !== id);
-        _prGroupMembersCache = _prGroupMembersCache.filter(m => m.group_id !== id);
-        _prRenderGroupsChips();
-        _prRenderPeopleRoster();
-      } else showToast((res && res.message) || 'Failed to delete', 'error');
-    }).catch(err => showToast(err.message || 'Failed to delete', 'error'));
-  }
-
-  function _prToggleGroupMember(groupId, userId, enabled) {
-    if (enabled) _prGroupMembersCache.push({ group_id: groupId, user_id: userId });
-    else _prGroupMembersCache = _prGroupMembersCache.filter(m => !(m.group_id === groupId && m.user_id === userId));
-    _payrollFetch('toggle_group_member', { group_id: groupId, user_id: userId, enabled }).then(res => {
-      if (!res || res.result !== 'success') {
-        // Revert the optimistic update — most likely cause is the group
-        // got locked from another tab/admin since this checkbox rendered.
-        if (enabled) _prGroupMembersCache = _prGroupMembersCache.filter(m => !(m.group_id === groupId && m.user_id === userId));
-        else _prGroupMembersCache.push({ group_id: groupId, user_id: userId });
-        _prRenderPeopleRoster();
-        showToast((res && res.message) || 'Failed to update', 'error');
-      }
-    }).catch(err => {
-      if (enabled) _prGroupMembersCache = _prGroupMembersCache.filter(m => !(m.group_id === groupId && m.user_id === userId));
-      else _prGroupMembersCache.push({ group_id: groupId, user_id: userId });
-      _prRenderPeopleRoster();
-      showToast(err.message || 'Failed to update', 'error');
-    });
-  }
 
   function loadPayrollPeopleTab() {
     _prPeopleComboWired = true;
-    _prGroupEditMode = false;
     _prGradeStepEditMode = false;
     Promise.all([
       new Promise(resolve => _ensureStaffCache(resolve)),
       _payrollFetch('get_people_setup', {}),
       _prGradesLoaded ? Promise.resolve({ result: 'success', grades: _prGradesCache }) : _payrollFetch('get_grades', {}),
-      _payrollFetch('get_groups', {}),
-      _payrollFetch('get_group_members', {}),
       _payrollFetch('get_pay_steps', {}),
       _payrollFetch('get_grade_step_matrix', {}),
-    ]).then(([, peopleRes, gradesRes, groupsRes, membersRes, stepsRes, matrixRes]) => {
+    ]).then(([, peopleRes, gradesRes, stepsRes, matrixRes]) => {
       _prPeopleSetupCache = (peopleRes && peopleRes.result === 'success' && peopleRes.people) || [];
       _prGradesCache = (gradesRes && gradesRes.result === 'success' && gradesRes.grades) || _prGradesCache;
       _prGradesLoaded = true;
-      _prGroupsCache = (groupsRes && groupsRes.result === 'success' && groupsRes.groups) || [];
-      _prGroupMembersCache = (membersRes && membersRes.result === 'success' && membersRes.members) || [];
       _prPayStepsCache = (stepsRes && stepsRes.result === 'success' && stepsRes.steps) || [];
       _prGradeStepValuesCache = (matrixRes && matrixRes.result === 'success' && matrixRes.cells) || [];
-      _prRenderGroupsChips();
       _wireSearchCombo('prPersonSearch', 'prPersonSelect', 'prPersonDropdown',
         allStaffCache.map(s => ({ value: s.teacher_id, label: s.full_name || s.teacher_id, sub: [s.designation, s.teacher_id].filter(Boolean).join(' · ') })));
       document.getElementById('prPersonSelect').value = '';
@@ -15940,24 +15801,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
     if (other.length) staffByCategory['Other'] = other;
 
-    const memberSet = new Set(_prGroupMembersCache.map(m => `${m.group_id}:${m.user_id}`));
     const cats = Object.keys(staffByCategory).filter(c => staffByCategory[c].length);
     const gsLocked = !_prGradeStepEditMode;
     const theadHtml = `<thead><tr class="text-[10px] font-black text-slate-400 uppercase">
           <th class="py-1.5 px-3">Name</th><th class="py-1.5 px-3">Designation</th><th class="py-1.5 px-3">Grade</th><th class="py-1.5 px-3">Step</th>
-          ${_prGroupsCache.map(g => `<th class="py-1.5 px-3 text-center">${_escHtml(g.name)}</th>`).join('')}
         </tr></thead>`;
     host.innerHTML = cats.length ? cats.map(cat => {
       const rowsHtml = staffByCategory[cat].map(s => {
         const setup = setupByUser[s.teacher_id];
         const selected = _prSelectedPersonId === s.teacher_id;
-        const groupCells = _prGroupsCache.map(g => {
-          const locked = !_prGroupEditMode || g.is_locked;
-          return `
-          <td class="py-1.5 px-3 text-center" onclick="event.stopPropagation()">
-            <input type="checkbox" ${memberSet.has(`${g.id}:${s.teacher_id}`) ? 'checked' : ''} ${locked ? 'disabled' : ''} title="${locked ? (g.is_locked ? 'Group is locked' : 'Click Enable Editing above to change group membership') : ''}" onchange="_prToggleGroupMember(${g.id},'${s.teacher_id}',this.checked)" class="w-4 h-4 rounded accent-blue-600">
-          </td>`;
-        }).join('');
         return `<tr onclick="_prSelectPerson('${s.teacher_id}')" class="border-b border-slate-50 cursor-pointer transition-colors ${selected ? 'bg-blue-50' : 'hover:bg-slate-50'}">
           <td class="py-1.5 px-3 font-bold text-slate-700">${s.full_name || s.teacher_id}</td>
           <td class="py-1.5 px-3 text-slate-400 text-[10px] font-bold">${s.designation || ''}</td>
@@ -15972,7 +15824,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               ${_prStepOptionsForGrade(setup && setup.grade_id, setup && setup.step_id)}
             </select>
           </td>
-          ${groupCells}
         </tr>`;
       }).join('');
       return `<div class="bg-white rounded-2xl border border-slate-200 p-4 mb-3">
@@ -17148,10 +16999,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function loadPayrollExportTab() {
     _prExportTabLoaded = true;
-    if (!_prGroupsCache.length) {
-      _payrollFetch('get_groups', {}).then(res => { _prGroupsCache = (res && res.result === 'success' && res.groups) || []; });
-      _payrollFetch('get_group_members', {}).then(res => { _prGroupMembersCache = (res && res.result === 'success' && res.members) || []; });
-    }
+    // Split by Category (below) reads allStaffCache directly — ensure it's
+    // loaded regardless of whether People Setup was visited first.
+    if (!allStaffCache || !allStaffCache.length) _ensureStaffCache(() => {});
     _payrollFetch('get_export_row_order', {}).then(res => {
       _prExportRowOrderCache = (res && res.result === 'success' && res.order) || [];
       _prRenderExportOrderPreview();
@@ -17430,17 +17280,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // produced, so every group/sheet/page reflects the same arrangement.
     const orderedSlips = _prComputeExportOrder(_prExportSlips);
 
-    if (!_prExportSplitByGroup || !_prGroupsCache.length) {
+    if (!_prExportSplitByGroup) {
       return { cols, groups: [{ name: null, rows: _prSlipsToRows(orderedSlips, cols) }] };
     }
-    const groupIdsByUser = {};
-    _prGroupMembersCache.forEach(m => { (groupIdsByUser[m.user_id] = groupIdsByUser[m.user_id] || []).push(m.group_id); });
-    const groups = _prGroupsCache.map(g => ({
-      name: g.name,
-      rows: _prSlipsToRows(orderedSlips.filter(s => (groupIdsByUser[s.user_id] || []).includes(g.id)), cols),
+    // Splits by each person's own Category (allStaffCache.category) —
+    // itself inherited from Designation via the "Manage Categories"/
+    // "Manage Mapping" screens under People Setup — instead of a separate,
+    // manually-maintained group membership list.
+    const categoryByUser = {};
+    (allStaffCache || []).forEach(s => { categoryByUser[s.teacher_id] = (s.category || '').trim(); });
+    const categories = [...new Set(orderedSlips.map(s => categoryByUser[s.user_id]).filter(Boolean))].sort();
+    const groups = categories.map(cat => ({
+      name: cat,
+      rows: _prSlipsToRows(orderedSlips.filter(s => categoryByUser[s.user_id] === cat), cols),
     })).filter(g => g.rows.length);
-    const ungroupedSlips = orderedSlips.filter(s => !(groupIdsByUser[s.user_id] || []).length);
-    if (ungroupedSlips.length) groups.push({ name: 'Ungrouped', rows: _prSlipsToRows(ungroupedSlips, cols) });
+    const uncategorizedSlips = orderedSlips.filter(s => !categoryByUser[s.user_id]);
+    if (uncategorizedSlips.length) groups.push({ name: 'Uncategorized', rows: _prSlipsToRows(uncategorizedSlips, cols) });
     return { cols, groups };
   }
 
