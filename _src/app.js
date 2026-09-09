@@ -23736,7 +23736,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
           <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Full Name</label><input type="text" id="sfFullName" value="${staff?.full_name || ''}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></div>
           <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Designation</label><input type="text" id="sfDesignation" list="sfDesignationList" value="${staff?.designation || ''}" oninput="_sfOnDesignationChange()" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"><datalist id="sfDesignationList"></datalist></div>
-          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Category</label><input type="text" id="sfCategory" list="sfCategoryList" value="${staff?.category || ''}" placeholder="Teacher / Staff" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"><datalist id="sfCategoryList"></datalist><p class="text-[9px] text-slate-400 font-bold mt-1">Auto-filled from Designation, based on what other staff with that designation are already set to — override if needed.</p></div>
+          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Category</label><select id="sfCategory" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></select><p class="text-[9px] text-slate-400 font-bold mt-1">Auto-filled from Designation, based on what other staff with that designation are already set to — override if needed.</p></div>
           <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Department</label><input type="text" id="sfDepartment" value="${staff?.department || ''}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></div>
           <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Joining Date</label><input type="date" id="sfJoiningDate" value="${(staff?.joining_date || '').slice(0, 10)}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></div>
         </div>
@@ -23748,21 +23748,57 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     lucide.createIcons();
     const desigList = document.getElementById('sfDesignationList');
     if (desigList) desigList.innerHTML = [...new Set((allStaffCache || []).map(s => (s.designation || '').trim()).filter(Boolean))].sort().map(d => `<option value="${_escHtml(d)}">`).join('');
-    const catList = document.getElementById('sfCategoryList');
-    if (catList) catList.innerHTML = [...new Set((allStaffCache || []).map(s => (s.category || '').trim()).filter(Boolean))].sort().map(c => `<option value="${_escHtml(c)}">`).join('');
+    const catSel = document.getElementById('sfCategory');
+    if (catSel) catSel.innerHTML = _sfCategoryOptionsHtml(staff?.category || '');
     // A fresh Add starts with a blank Designation, so there's nothing to
     // derive yet; editing an existing person already has both fields filled
     // from their own record, which should win over a re-derived guess.
     if (!userId) _sfOnDesignationChange();
   }
 
-  // Category has no independent taxonomy of its own here — it's whatever
-  // value other staff sharing this same Designation are already set to
-  // (majority vote, case/whitespace-insensitive match), since there's no
-  // separate admin-curated designation->category mapping to consult. Only
+  // The school's actual org structure: Teaching splits into School/College,
+  // Non-Teaching splits into Administration/3rd-4th Class — two levels, four
+  // leaf categories. The stored `category` value is always just the leaf
+  // (e.g. "School"), never the "Teaching"/"Non-Teaching" group; the group is
+  // only shown as the <optgroup> label so admins pick from the right half.
+  const STAFF_CATEGORY_TREE = {
+    'Teaching': ['School', 'College'],
+    'Non-Teaching': ['Administration', '3rd/4th Class'],
+  };
+
+  // Builds the Category <select>'s options: the four canonical leaves under
+  // their Teaching/Non-Teaching optgroup, plus (grouped separately) any
+  // other value already present in real staff data — old records predating
+  // this tree, or a one-off value someone typed before it existed. Keeps
+  // `currentValue` selectable and selected even if it's one of those legacy
+  // values, so opening an existing person's record never silently blanks
+  // or misrepresents what's actually saved.
+  function _sfCategoryOptionsHtml(currentValue) {
+    const canonical = new Set(Object.values(STAFF_CATEGORY_TREE).flat());
+    const legacyValues = [...new Set((allStaffCache || []).map(s => (s.category || '').trim()).filter(Boolean))]
+      .filter(c => !canonical.has(c));
+    if (currentValue && !canonical.has(currentValue) && !legacyValues.includes(currentValue)) legacyValues.push(currentValue);
+    let html = `<option value="">Select…</option>`;
+    Object.entries(STAFF_CATEGORY_TREE).forEach(([group, leaves]) => {
+      html += `<optgroup label="${_escHtml(group)}">` +
+        leaves.map(l => `<option value="${_escHtml(l)}" ${currentValue === l ? 'selected' : ''}>${_escHtml(l)}</option>`).join('') +
+        `</optgroup>`;
+    });
+    if (legacyValues.length) {
+      html += `<optgroup label="Other (legacy values)">` +
+        legacyValues.sort().map(l => `<option value="${_escHtml(l)}" ${currentValue === l ? 'selected' : ''}>${_escHtml(l)}</option>`).join('') +
+        `</optgroup>`;
+    }
+    return html;
+  }
+
+  // Category's own value still comes from whichever leaf other staff
+  // sharing this same Designation are already set to (majority vote,
+  // case/whitespace-insensitive match) — the tree above fixes WHAT the
+  // valid choices are, this decides WHICH one to default to. Only
   // overwrites Category when a confident match exists; leaves it alone
-  // (never clears a manually-entered value) if this designation is brand
-  // new or Category was already hand-edited to something else.
+  // (never clears a manually-picked value) if this designation is brand
+  // new.
   function _sfDesignationCategoryMap() {
     const counts = {};
     (allStaffCache || []).forEach(s => {
