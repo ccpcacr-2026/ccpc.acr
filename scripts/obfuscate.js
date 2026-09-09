@@ -74,6 +74,7 @@ const RESERVED = [
   '_prRunPayroll','_prSelectRun','_prSubmitRunForApproval','_prApproveRun','_prDeleteRun','_prRevertRunToDraft',
   '_prLockRun','_prUnlockRun',
   '_prBulkAddAllStaff','_prLoadExportColumns','_prSetExportFormat','_prRemoveExportColumn','loadPayrollAuditLog',
+  '_prOpenDesignationCategoryMapper','_prSaveDesignationCategoryMap','_prApplyDesignationCategoryMapToAllStaff',
   '_prAddVirtualColumn','_prCloseVirtualColumnForm','_prSaveVirtualColumn','_prExportExcel','_prExportPdf',
   '_prSetExportSplitByGroup','_prSetExportRowDesign','_prSetExportSort','_prResetExportRowOrder',
   '_prRowDragStart','_prRowDragOver','_prRowDragEnd','_prRowDrop',

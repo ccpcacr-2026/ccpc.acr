@@ -1515,6 +1515,53 @@ const handlers = {
     return (Array.isArray(res) && res.length > 0) ? res[0] : null;
   },
 
+  // ── Designation -> Category mapping ─────────────────────────────────────
+  // Admin-curated, not inferred: every Designation gets assigned to exactly
+  // one of the 4 category leaves (School/College/Administration/3rd-4th
+  // Class) once here, and every staff member with that Designation inherits
+  // it — see STAFF_CATEGORY_TREE in _src/app.js for the leaf set.
+  async getDesignationCategoryMap() {
+    const rows = await supabaseRequest('designation_category_map?select=*&order=designation.asc');
+    if (rows && rows.error) return { result: 'error', message: rows.details || rows.error };
+    return { result: 'success', map: Array.isArray(rows) ? rows : [] };
+  },
+
+  async saveDesignationCategoryMap([designation, category]) {
+    const d = String(designation || '').trim();
+    const c = String(category || '').trim();
+    if (!d || !c) return { result: 'error', message: 'Designation and category are required.' };
+    const res = await supabaseRequest('designation_category_map?on_conflict=designation', 'post', {
+      designation: d, category: c, updated_at: new Date().toISOString(),
+    });
+    if (res && res.error) return { result: 'error', message: res.details || res.error };
+    return { result: 'success' };
+  },
+
+  // Retroactively pushes the mapping onto every existing staff member whose
+  // current category disagrees with (or is missing) what their Designation
+  // now maps to — the one-time catch-up after setting up (or changing) the
+  // mapping table, since staff.category itself stays a plain stored column
+  // for fast display/grouping elsewhere (Payroll's People Setup roster)
+  // rather than being computed on every read.
+  async applyDesignationCategoryMapToAllStaff() {
+    const [mapRows, staffRows] = await Promise.all([
+      supabaseRequest('designation_category_map?select=*'),
+      supabaseRequest('users_profile?select=teacher_id,designation,category'),
+    ]);
+    if (!Array.isArray(mapRows) || !Array.isArray(staffRows)) return { result: 'error', message: 'Could not load data.' };
+    const map = {};
+    mapRows.forEach(r => { map[String(r.designation || '').trim().toLowerCase()] = r.category; });
+    let updated = 0;
+    for (const s of staffRows) {
+      const desig = String(s.designation || '').trim().toLowerCase();
+      const cat = map[desig];
+      if (!cat || cat === s.category) continue;
+      const res = await supabaseRequest(`users_profile?teacher_id=eq.${encodeURIComponent(s.teacher_id)}`, 'patch', { category: cat });
+      if (!(res && res.error)) updated++;
+    }
+    return { result: 'success', updated, total: staffRows.length };
+  },
+
   async getTeacherAcr([teacherId]) {
     return (await supabaseRequest(`yearly_acr?teacher_id=eq.${teacherId}&order=year_num.asc`)) || [];
   },

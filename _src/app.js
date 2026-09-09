@@ -14102,6 +14102,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <p id="prBulkAddStatus" class="text-xs font-bold mt-2"></p>
         </div>
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <p class="font-black text-slate-800 text-xs">Designation → Category Mapping</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Every staff member's category (School / College / Administration / 3rd-4th Class) is inherited from their Designation via this mapping</p>
+            </div>
+            <button onclick="_prOpenDesignationCategoryMapper()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="git-branch" class="h-3.5 w-3.5"></i>Manage Mapping</button>
+          </div>
+        </div>
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
           <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
             <div>
               <p class="font-black text-slate-800 text-xs">Groups</p>
@@ -15643,6 +15652,80 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
       </div>`;
     }).join('') : `<p class="text-slate-400 font-bold text-xs p-4 text-center">No staff found — check System &gt; Users.</p>`;
+  }
+
+  // ── Designation -> Category Mapping (admin-curated) ─────────────────────
+  // The school's actual grouping decision — which of the 4 category leaves
+  // (STAFF_CATEGORY_TREE, defined near the Staff Form below) each
+  // Designation belongs to — lives entirely here. Every staff member's own
+  // category is just inherited from their Designation via this table, never
+  // typed per-person; "Apply to All Staff" pushes it onto everyone's actual
+  // record once the mapping is set up or changed.
+  function _prOpenDesignationCategoryMapper() {
+    document.getElementById('desigCatMapOverlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'desigCatMapOverlay';
+    overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
+    overlay.innerHTML = `
+      <div class="bg-white rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+        <div class="p-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+          <p class="font-black text-slate-800 text-sm">Designation → Category Mapping</p>
+          <button onclick="document.getElementById('desigCatMapOverlay').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="h-4 w-4"></i></button>
+        </div>
+        <div class="p-4 border-b border-slate-100 shrink-0 flex items-center justify-between gap-2 flex-wrap">
+          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Pick each Designation's category, then push it onto every existing staff member</p>
+          <button onclick="_prApplyDesignationCategoryMapToAllStaff()" id="desigCatMapApplyBtn" class="px-3 py-2 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all shrink-0">Apply to All Staff</button>
+        </div>
+        <div id="desigCatMapBody" class="p-4 overflow-y-auto flex-1"><p class="text-slate-400 font-bold text-xs text-center py-8">Loading…</p></div>
+      </div>`;
+    document.body.appendChild(overlay);
+    lucide.createIcons();
+    _prLoadDesignationCategoryMapper();
+  }
+
+  function _prLoadDesignationCategoryMapper() {
+    const body = document.getElementById('desigCatMapBody');
+    google.script.run.withSuccessHandler(res => {
+      if (!body) return;
+      const map = {};
+      ((res && res.result === 'success' && res.map) || []).forEach(r => { map[String(r.designation || '').trim().toLowerCase()] = r.category; });
+      const designations = [...new Set((allStaffCache || []).map(s => (s.designation || '').trim()).filter(Boolean))].sort();
+      if (!designations.length) { body.innerHTML = '<p class="text-slate-400 font-bold text-xs text-center py-8">No designations found yet — add staff first.</p>'; return; }
+      body.innerHTML = designations.map(d => {
+        const current = map[d.toLowerCase()] || '';
+        return `
+        <div class="flex items-center justify-between gap-3 py-2 border-b border-slate-50">
+          <p class="text-xs font-bold text-slate-700">${_escHtml(d)}${!current ? ' <span class="text-amber-600 font-black text-[9px] uppercase">Not mapped</span>' : ''}</p>
+          <select onchange="_prSaveDesignationCategoryMap(${JSON.stringify(d).replace(/"/g, '&quot;')}, this.value)" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+            ${_sfCategoryOptionsHtml(current)}
+          </select>
+        </div>`;
+      }).join('');
+    }).withFailureHandler(() => { if (body) body.innerHTML = '<p class="text-red-400 font-bold text-xs text-center py-8">Failed to load</p>'; }).getDesignationCategoryMap();
+  }
+
+  function _prSaveDesignationCategoryMap(designation, category) {
+    if (!category) return;
+    google.script.run.withSuccessHandler(res => {
+      if (res && res.result === 'success') { showToast(`"${designation}" → ${category}`); _prLoadDesignationCategoryMapper(); }
+      else showToast((res && res.message) || 'Failed to save', 'error');
+    }).withFailureHandler(() => showToast('Network error', 'error')).saveDesignationCategoryMap(designation, category);
+  }
+
+  function _prApplyDesignationCategoryMapToAllStaff() {
+    const btn = document.getElementById('desigCatMapApplyBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Applying…'; }
+    google.script.run.withSuccessHandler(res => {
+      if (btn) { btn.disabled = false; btn.textContent = 'Apply to All Staff'; }
+      if (res && res.result === 'success') {
+        showToast(`Updated ${res.updated} of ${res.total} staff`);
+        if (typeof loadUserData_forSystem === 'function') loadUserData_forSystem();
+        _prRenderPeopleRoster();
+      } else showToast((res && res.message) || 'Failed', 'error');
+    }).withFailureHandler(() => {
+      if (btn) { btn.disabled = false; btn.textContent = 'Apply to All Staff'; }
+      showToast('Network error', 'error');
+    }).applyDesignationCategoryMapToAllStaff();
   }
 
   function _prSelectPerson(userId) {
@@ -23736,7 +23819,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
           <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Full Name</label><input type="text" id="sfFullName" value="${staff?.full_name || ''}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></div>
           <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Designation</label><input type="text" id="sfDesignation" list="sfDesignationList" value="${staff?.designation || ''}" oninput="_sfOnDesignationChange()" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"><datalist id="sfDesignationList"></datalist></div>
-          <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Category</label><select id="sfCategory" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></select><p class="text-[9px] text-slate-400 font-bold mt-1">Auto-filled from Designation, based on what other staff with that designation are already set to — override if needed.</p></div>
+          <div>
+            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Category</label>
+            <input type="hidden" id="sfCategory" value="${staff?.category || ''}">
+            <div id="sfCategoryDisplay" class="w-full px-3 py-2.5 bg-slate-100 border border-slate-200 rounded-xl font-bold text-sm text-slate-500">—</div>
+            <p class="text-[9px] text-slate-400 font-bold mt-1">Inherited from Designation via People Setup → Designation Mapping — not set here.</p>
+          </div>
           <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Department</label><input type="text" id="sfDepartment" value="${staff?.department || ''}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></div>
           <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Joining Date</label><input type="date" id="sfJoiningDate" value="${(staff?.joining_date || '').slice(0, 10)}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></div>
         </div>
@@ -23748,12 +23836,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     lucide.createIcons();
     const desigList = document.getElementById('sfDesignationList');
     if (desigList) desigList.innerHTML = [...new Set((allStaffCache || []).map(s => (s.designation || '').trim()).filter(Boolean))].sort().map(d => `<option value="${_escHtml(d)}">`).join('');
-    const catSel = document.getElementById('sfCategory');
-    if (catSel) catSel.innerHTML = _sfCategoryOptionsHtml(staff?.category || '');
-    // A fresh Add starts with a blank Designation, so there's nothing to
-    // derive yet; editing an existing person already has both fields filled
-    // from their own record, which should win over a re-derived guess.
-    if (!userId) _sfOnDesignationChange();
+    // Shows the person's already-saved category first (never silently
+    // overwritten just by opening the form, in case the mapping changed
+    // since they were last saved and "Apply to All Staff" hasn't re-run
+    // yet) — only refreshes live if the admin actually edits Designation
+    // during this session.
+    _sfRenderCategoryDisplay(staff?.category || '');
+    google.script.run.withSuccessHandler(res => {
+      _designationCategoryMapCache = {};
+      ((res && res.result === 'success' && res.map) || []).forEach(r => { _designationCategoryMapCache[String(r.designation || '').trim().toLowerCase()] = r.category; });
+    }).withFailureHandler(() => {}).getDesignationCategoryMap();
+  }
+
+  let _designationCategoryMapCache = {};
+
+  function _sfRenderCategoryDisplay(category) {
+    const disp = document.getElementById('sfCategoryDisplay');
+    const hidden = document.getElementById('sfCategory');
+    if (hidden) hidden.value = category || '';
+    if (disp) disp.textContent = category || 'Not mapped yet — set this Designation’s category in People Setup → Designation Mapping';
   }
 
   // The school's actual org structure: Teaching splits into School/College,
@@ -23792,40 +23893,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return html;
   }
 
-  // Category's own value still comes from whichever leaf other staff
-  // sharing this same Designation are already set to (majority vote,
-  // case/whitespace-insensitive match) — the tree above fixes WHAT the
-  // valid choices are, this decides WHICH one to default to. Only
-  // overwrites Category when a confident match exists; leaves it alone
-  // (never clears a manually-picked value) if this designation is brand
-  // new.
-  function _sfDesignationCategoryMap() {
-    const counts = {};
-    (allStaffCache || []).forEach(s => {
-      const desig = String(s.designation || '').trim();
-      const cat = String(s.category || '').trim();
-      if (!desig || !cat) return;
-      const key = desig.toLowerCase();
-      if (!counts[key]) counts[key] = {};
-      counts[key][cat] = (counts[key][cat] || 0) + 1;
-    });
-    const map = {};
-    Object.entries(counts).forEach(([key, catCounts]) => {
-      let best = null, bestCount = 0;
-      Object.entries(catCounts).forEach(([cat, n]) => { if (n > bestCount) { best = cat; bestCount = n; } });
-      if (best) map[key] = best;
-    });
-    return map;
-  }
-
+  // Category is purely inherited from Designation via the admin-curated map
+  // (People Setup → Designation Mapping, cached in _designationCategoryMapCache
+  // when this form opened) — never typed here. No match yet (a brand new
+  // Designation nobody has mapped) leaves the "Not mapped yet" placeholder
+  // showing rather than guessing.
   function _sfOnDesignationChange() {
     const desigEl = document.getElementById('sfDesignation');
-    const catEl = document.getElementById('sfCategory');
-    if (!desigEl || !catEl) return;
+    if (!desigEl) return;
     const desig = desigEl.value.trim();
-    if (!desig) return;
-    const suggested = _sfDesignationCategoryMap()[desig.toLowerCase()];
-    if (suggested) catEl.value = suggested;
+    const mapped = desig ? _designationCategoryMapCache[desig.toLowerCase()] : '';
+    _sfRenderCategoryDisplay(mapped || '');
   }
 
   function submitStaffForm() {
