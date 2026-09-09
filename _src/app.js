@@ -14554,7 +14554,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="space-y-3">
             <div>
               <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Key <span class="text-red-500">*</span></label>
-              <input type="text" id="prFieldKey" placeholder="e.g. house_rent" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              <input type="text" id="prFieldKey" placeholder="e.g. house_rent" oninput="_prUpdateFieldIncrementWarning()" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
             </div>
             <div>
               <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Label <span class="text-red-500">*</span></label>
@@ -14569,16 +14569,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 </select>
               </div>
               <div>
-                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Calculation</label>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Amount Type</label>
                 <select id="prFieldCalcMode" onchange="_prToggleCalcModeFields()" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
-                  <option value="fixed">Fixed amount</option>
-                  <option value="percent_of_field">Percent of another field</option>
+                  <option value="fixed">Fixed Amount</option>
+                  <option value="percent_of_field">A Percentage of Another Field</option>
                 </select>
               </div>
             </div>
+            <p class="text-[9px] text-slate-400 font-bold -mt-1.5">Fixed = a flat number, set per grade under Grades &rarr; Field Values (Basic instead comes from Grade + Step — see the Pay Scale Grid). Percentage = a % of some other field's resolved value.</p>
             <div id="prFieldPercentRow" class="hidden">
-              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Base field (percent of…)</label>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">This Field Is a Percentage Of…</label>
               <select id="prFieldBaseKey" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></select>
+              <p class="text-[9px] text-slate-400 font-bold mt-1">e.g. to make Incentive 20% of Basic, edit <strong>Incentive</strong> (not Basic) and pick Basic here. To pin the percentage to one fixed step instead of the person's own — "20% of Basic at Step 1" for everyone on a grade — save this first, then set it per-grade under Grades &rarr; (grade) &rarr; Field Values &rarr; "Of Step" (only available when the base field above is Basic).</p>
             </div>
             <div class="grid grid-cols-2 gap-3">
               <div>
@@ -14594,6 +14596,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 <input type="number" id="prFieldIncrementValue" placeholder="0" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
               </div>
             </div>
+            <p id="prFieldIncrementWarning" class="hidden text-[9px] text-amber-600 font-bold -mt-1.5">Has no effect for anyone assigned a Grade + Step in People Setup — their Basic comes from the Pay Scale Grid instead, which always overrides this.</p>
             <label class="flex items-center gap-2 text-xs font-black text-slate-600 cursor-pointer">
               <input type="checkbox" id="prFieldGradeConditional" class="w-4 h-4 rounded accent-blue-600">
               Only applies when a person's grade opts in (conditional field)
@@ -14862,12 +14865,26 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     baseSel.innerHTML = _prFieldsCache.filter(f => !field || f.id !== field.id).map(f => `<option value="${f.key}">${_escHtml(_prFieldLabelWithCategory(f))}</option>`).join('');
     if (field && field.calc_base_field_key) baseSel.value = field.calc_base_field_key;
     _prToggleCalcModeFields();
+    _prUpdateFieldIncrementWarning();
     document.getElementById('prFieldFormModal').classList.remove('hidden');
     lucide.createIcons();
   }
 
   function _prCloseFieldForm() {
     document.getElementById('prFieldFormModal').classList.add('hidden');
+  }
+
+  // Basic is the one field the Pay Scale Grid auto-overrides per person
+  // (via Grade + Step) — its own Yearly Increment setting is dead for
+  // anyone with a step assigned, since a per-person override always wins
+  // before increment logic ever runs. Warn right on the field it applies
+  // to, keyed off the Key input so it also fires live while typing a new
+  // field named "basic".
+  function _prUpdateFieldIncrementWarning() {
+    const keyEl = document.getElementById('prFieldKey');
+    const warn = document.getElementById('prFieldIncrementWarning');
+    if (!keyEl || !warn) return;
+    warn.classList.toggle('hidden', keyEl.value.trim().toLowerCase() !== 'basic');
   }
 
   function _prToggleCalcModeFields() {
