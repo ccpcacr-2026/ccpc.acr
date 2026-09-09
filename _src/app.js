@@ -15696,8 +15696,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 // a percent of any other field.
                 const isPercentOfBasic = isPercent && f.calc_base_field_key === 'basic';
                 const locked = !_prGradesEditMode;
-                return `<tr class="border-b border-slate-50">
-                  <td class="py-1.5 px-3 font-black text-slate-700">${_escHtml(_prFieldLabelWithCategory(f))}</td>
+                const isDeduction = f.category === 'deduction';
+                return `<tr class="border-b border-slate-50" style="border-left:3px solid ${isDeduction ? '#ef4444' : '#10b981'}">
+                  <td class="py-1.5 px-3 font-black ${isDeduction ? 'text-red-500' : 'text-emerald-600'}">${_escHtml(f.label)} <span class="text-[9px] font-black uppercase ${isDeduction ? 'text-red-400' : 'text-emerald-500'}">(${isDeduction ? 'Deduction' : 'Addition'})</span></td>
                   <td class="py-1.5 px-3"><input type="number" id="prGF_val_${f.id}" value="${gf.value != null ? gf.value : ''}" placeholder="${isPercent ? 'N/A' : '—'}" ${isPercent || locked ? `disabled title="${isPercent ? 'This field is percent-based (set in the Fields tab) — Fixed Value doesn\'t apply.' : 'Click Enable Editing above'}"` : ''} class="w-24 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs ${isPercent || locked ? 'opacity-40 cursor-not-allowed' : ''}"></td>
                   <td class="py-1.5 px-3"><input type="number" id="prGF_pct_${f.id}" value="${gf.percent != null ? gf.percent : ''}" placeholder="${isPercent ? '—' : 'N/A'}" ${!isPercent || locked ? `disabled title="${!isPercent ? 'This field is a fixed amount (set in the Fields tab) — Percent doesn\'t apply.' : 'Click Enable Editing above'}"` : ''} class="w-20 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs ${!isPercent || locked ? 'opacity-40 cursor-not-allowed' : ''}"></td>
                   <td class="py-1.5 px-3">
