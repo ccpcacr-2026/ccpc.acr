@@ -4045,6 +4045,17 @@
       .getEnabledPortalTabs();
   }
 
+  const MY_CLASS_ROSTER_SORTS = {
+    roll: { label: 'Roll', cmp: (a, b) => {
+      const ra = parseInt(a.roll, 10), rb = parseInt(b.roll, 10);
+      if (!isNaN(ra) && !isNaN(rb) && ra !== rb) return ra - rb;
+      return String(a.roll || '').localeCompare(String(b.roll || ''), undefined, { numeric: true });
+    } },
+    name: { label: 'Name', cmp: (a, b) => String(a.student_name || '').localeCompare(String(b.student_name || '')) },
+  };
+  let _myClassRosterData = null; // last fetched {classes}
+  let _myClassRosterSort = 'roll';
+
   function openMyClassRoster() {
     _setViewHash('myclass');
     setActiveNavLink('nav-my-class');
@@ -4053,9 +4064,17 @@
     if (!container) return;
     const myId = window.APP_USER && window.APP_USER.user_id;
     if (!myId) return;
+    _myClassRosterSort = 'roll';
 
     container.innerHTML = `<div class="pt-4 max-w-5xl mx-auto pb-10">
-      <button onclick="loadMyClassView()" class="flex items-center gap-1.5 mb-4 text-[10px] font-black text-slate-500 uppercase tracking-widest hover:text-blue-600 transition-all"><i data-lucide="arrow-left" class="h-3.5 w-3.5"></i>My Class</button>
+      <div class="flex items-center justify-between flex-wrap gap-2 mb-4">
+        <button onclick="loadMyClassView()" class="flex items-center gap-1.5 text-[10px] font-black text-slate-500 uppercase tracking-widest hover:text-blue-600 transition-all"><i data-lucide="arrow-left" class="h-3.5 w-3.5"></i>My Class</button>
+        <label class="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">Sort by
+          <select id="myClassRosterSort" onchange="_myClassSetRosterSort(this.value)" class="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg font-black text-[10px] text-slate-700 uppercase tracking-widest">
+            ${Object.entries(MY_CLASS_ROSTER_SORTS).map(([k, s]) => `<option value="${k}" ${k === _myClassRosterSort ? 'selected' : ''}>${s.label}</option>`).join('')}
+          </select>
+        </label>
+      </div>
       <div id="myClassBody" class="flex flex-col gap-6">
         <div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>
       </div>
@@ -4064,48 +4083,63 @@
 
     google.script.run
       .withSuccessHandler(res => {
-        const body = document.getElementById('myClassBody');
-        if (!body) return;
-        const classes = (res && res.classes) || [];
-        if (!classes.length) {
-          body.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">You are not currently assigned as a class teacher</div>`;
-          return;
-        }
-        body.innerHTML = classes.map(c => {
-          const sorted = [...c.students].sort((a, b) => {
-            const ra = parseInt(a.roll, 10), rb = parseInt(b.roll, 10);
-            if (!isNaN(ra) && !isNaN(rb) && ra !== rb) return ra - rb;
-            return String(a.roll || '').localeCompare(String(b.roll || ''), undefined, { numeric: true });
-          });
-          return `
-          <div>
-            <p class="font-black text-slate-800 text-sm uppercase tracking-widest mb-3">${c.classKey}<span class="text-slate-400 font-bold"> · ${sorted.length} students</span></p>
-            <div class="flex flex-col gap-1.5">
-              ${sorted.length ? sorted.map(s => {
-                const fatherTel = String(s.father_phone || '').replace(/[\s\-()]/g, '');
-                const motherTel = String(s.mother_phone || '').replace(/[\s\-()]/g, '');
-                const tel = fatherTel || motherTel;
-                return `
-                <div onclick='openStudentProfile(${JSON.stringify(s.student_id)})'
-                  class="cursor-pointer flex items-center gap-2.5 bg-white border border-slate-200 rounded-xl px-2.5 py-2 hover:border-blue-300 hover:shadow-sm transition-all">
-                  ${_avatar(s.student_name, s.photo, 'w-9 h-9')}
-                  <div class="flex-1 min-w-0">
-                    <p class="text-xs font-black text-slate-800 truncate">${s.student_name || ''}</p>
-                    <p class="text-[10px] font-bold text-slate-400 truncate">Roll ${s.roll || '—'}${fatherTel ? ` · Father ${fatherTel}` : ''}${!fatherTel && motherTel ? ` · Mother ${motherTel}` : ''}</p>
-                  </div>
-                  ${tel ? `<a href="tel:${tel}" title="Call" onclick="event.stopPropagation()" class="shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-white" style="background:linear-gradient(135deg,#059669,#22c55e)"><i data-lucide="phone" class="h-3.5 w-3.5"></i></a>` : ''}
-                </div>`;
-              }).join('') : `<div class="text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">No students found for this class</div>`}
-            </div>
-          </div>`;
-        }).join('');
-        lucide.createIcons();
+        _myClassRosterData = res;
+        _renderMyClassRoster();
       })
       .withFailureHandler(() => {
         const body = document.getElementById('myClassBody');
         if (body) body.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">Failed to load class roster</div>`;
       })
       .getMyClassRoster(myId);
+  }
+
+  function _myClassSetRosterSort(value) {
+    _myClassRosterSort = value;
+    _renderMyClassRoster();
+  }
+
+  // Vibrant card-per-student roster, re-sortable client-side (no re-fetch
+  // needed — the whole class roster is small) by whichever column the
+  // dropdown picks, default Roll.
+  function _renderMyClassRoster() {
+    const body = document.getElementById('myClassBody');
+    if (!body) return;
+    const classes = (_myClassRosterData && _myClassRosterData.classes) || [];
+    if (!classes.length) {
+      body.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">You are not currently assigned as a class teacher</div>`;
+      return;
+    }
+    const cmp = (MY_CLASS_ROSTER_SORTS[_myClassRosterSort] || MY_CLASS_ROSTER_SORTS.roll).cmp;
+    const avatarAccents = ['#6366f1', '#ec4899', '#059669', '#f59e0b', '#0ea5e9', '#8b5cf6'];
+    body.innerHTML = classes.map(c => {
+      const sorted = [...c.students].sort(cmp);
+      return `
+      <div>
+        <p class="font-black text-slate-800 text-sm uppercase tracking-widest mb-3">${c.classKey}<span class="text-slate-400 font-bold"> · ${sorted.length} students</span></p>
+        <div class="grid sm:grid-cols-2 gap-2">
+          ${sorted.length ? sorted.map((s, i) => {
+            const fatherTel = String(s.father_phone || '').replace(/[\s\-()]/g, '');
+            const motherTel = String(s.mother_phone || '').replace(/[\s\-()]/g, '');
+            const tel = fatherTel || motherTel;
+            const accent = avatarAccents[i % avatarAccents.length];
+            return `
+            <div onclick='openStudentProfile(${JSON.stringify(s.student_id)})'
+              class="cursor-pointer flex items-center gap-3 bg-white border border-slate-100 rounded-2xl px-3 py-2.5 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all" style="border-left:3px solid ${accent}">
+              ${_avatar(s.student_name, s.photo, 'w-10 h-10')}
+              <div class="flex-1 min-w-0">
+                <p class="text-xs font-black text-slate-800 truncate">${s.student_name || ''}</p>
+                <p class="text-[10px] font-bold text-slate-400 truncate">
+                  <span class="px-1.5 py-0.5 rounded-md font-black" style="background:${_hexToRgba(accent, 0.12)};color:${accent}">Roll ${s.roll || '—'}</span>
+                  ${fatherTel ? ` · Father ${fatherTel}` : ''}${!fatherTel && motherTel ? ` · Mother ${motherTel}` : ''}
+                </p>
+              </div>
+              ${tel ? `<a href="tel:${tel}" title="Call" onclick="event.stopPropagation()" class="shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white" style="background:linear-gradient(135deg,#059669,#22c55e)"><i data-lucide="phone" class="h-3.5 w-3.5"></i></a>` : ''}
+            </div>`;
+          }).join('') : `<div class="col-span-full text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">No students found for this class</div>`}
+        </div>
+      </div>`;
+    }).join('');
+    lucide.createIcons();
   }
 
   // ── My Class → Attendance Report ─────────────────────────────────────────
@@ -4154,6 +4188,7 @@
             </div>
             <button onclick="generateMyClassAttendanceReport()" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Generate</button>
             <button onclick="exportMyClassAttendanceReportCsv()" class="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Export CSV</button>
+            <button onclick="_mcaOpenAllPassEvents()" class="px-4 py-2 border border-amber-200 text-amber-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-amber-50 transition-all flex items-center gap-1.5"><i data-lucide="arrow-left-right" class="h-3.5 w-3.5"></i>All Pass Events</button>
           </div>
         </div>
         <div id="mcaBody" class="p-4 overflow-y-auto flex-1">
@@ -4221,7 +4256,6 @@
                 <tbody>
                   ${c.students.map(s => {
                     const passEvents = s.pass_events || [];
-                    const passTitle = passEvents.map(p => `${p.date}: out ${p.out || '—'} → in ${p.in || 'not back yet'}`).join('\n');
                     return `<tr class="border-b border-slate-50">
                     <td class="py-1.5 px-3">${_escHtml(s.roll || '')}</td>
                     <td class="py-1.5 px-3">${_escHtml(s.student_name || '')}</td>
@@ -4229,7 +4263,7 @@
                     <td class="py-1.5 px-3 text-red-500 font-black">${s.absent}</td>
                     <td class="py-1.5 px-3 text-sky-500 font-black">${s.leave || 0}</td>
                     <td class="py-1.5 px-3 font-black ${s.percentage < 75 ? 'text-red-500' : 'text-slate-700'}">${s.percentage}%</td>
-                    <td class="py-1.5 px-3">${passEvents.length ? `<span title="${_escHtml(passTitle)}" class="font-black text-amber-600 cursor-help border-b border-dashed border-amber-300">${passEvents.length}</span>` : '<span class="text-slate-300">—</span>'}</td>
+                    <td class="py-1.5 px-3">${passEvents.length ? `<button onclick='_mcaOpenStudentPassEvents(${JSON.stringify(s.student_id)})' class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-black text-[10px] hover:bg-amber-200 transition-all">${passEvents.length}</button>` : '<span class="text-slate-300">—</span>'}</td>
                     ${feeAmount ? `<td class="py-1.5 px-3 font-black text-amber-600">৳${s.absent_fee}</td>` : ''}
                   </tr>`;
                   }).join('') || `<tr><td colspan="${feeAmount ? 8 : 7}" class="p-3 text-slate-400 font-bold text-xs">No students found for this class</td></tr>`}
@@ -4266,6 +4300,69 @@
     URL.revokeObjectURL(url);
   }
 
+  function _mcaPassEventRowHtml(label, p) {
+    return `
+      <div class="flex items-center gap-3 p-3 mb-2 rounded-2xl bg-amber-50">
+        <div class="w-9 h-9 rounded-full flex items-center justify-center shrink-0 bg-amber-100 text-amber-600"><i data-lucide="arrow-left-right" class="h-4 w-4"></i></div>
+        <div class="flex-1 min-w-0">
+          <p class="text-xs font-black text-slate-800 truncate">${_escHtml(label)}</p>
+          <p class="text-[10px] font-bold text-slate-500">Out <span class="text-slate-800">${_escHtml(p.out || '—')}</span> &rarr; In ${p.in ? `<span class="text-slate-800">${_escHtml(p.in)}</span>` : '<span class="text-amber-600">not back yet</span>'}</p>
+        </div>
+      </div>`;
+  }
+
+  // One student's own pass history within the currently generated report's
+  // date range — opened from the Pass column's count badge.
+  function _mcaOpenStudentPassEvents(studentId) {
+    const classes = (_myClassAttReport && _myClassAttReport.classes) || [];
+    const student = classes.flatMap(c => c.students).find(s => s.student_id === studentId);
+    if (!student) return;
+    const events = student.pass_events || [];
+    document.getElementById('mcaPassOverlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'mcaPassOverlay';
+    overlay.className = 'fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40 p-4';
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+    overlay.innerHTML = `
+      <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-sm max-h-[80vh] flex flex-col">
+        <div class="p-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+          <p class="font-black text-slate-800 text-sm">${_escHtml(student.student_name || '')} — Mid-day Pass</p>
+          <button onclick="document.getElementById('mcaPassOverlay').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="h-4 w-4"></i></button>
+        </div>
+        <div class="p-4 overflow-y-auto flex-1">
+          ${events.map(p => _mcaPassEventRowHtml(p.date || '', p)).join('') || '<p class="text-center py-6 text-slate-400 text-xs font-bold">No pass events.</p>'}
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    lucide.createIcons();
+  }
+
+  // Every pass event across every student in the currently generated report
+  // — the class-wide equivalent of the per-student popup above.
+  function _mcaOpenAllPassEvents() {
+    const classes = (_myClassAttReport && _myClassAttReport.classes) || [];
+    const rows = [];
+    classes.forEach(c => c.students.forEach(s => (s.pass_events || []).forEach(p => rows.push({ ...p, roll: s.roll, name: s.student_name }))));
+    rows.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    document.getElementById('mcaPassOverlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'mcaPassOverlay';
+    overlay.className = 'fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40 p-4';
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+    overlay.innerHTML = `
+      <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
+        <div class="p-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+          <p class="font-black text-slate-800 text-sm">All Pass Events <span class="text-slate-400 font-bold">(${rows.length})</span></p>
+          <button onclick="document.getElementById('mcaPassOverlay').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="h-4 w-4"></i></button>
+        </div>
+        <div class="p-4 overflow-y-auto flex-1">
+          ${rows.map(r => _mcaPassEventRowHtml(`Roll ${r.roll || '—'} · ${r.name || ''} · ${r.date || ''}`, r)).join('') || '<p class="text-center py-6 text-slate-400 text-xs font-bold">No pass events in this range.</p>'}
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    lucide.createIcons();
+  }
+
   // ── My Class → My Students (today's attendance, live edit) ───────────────
   // Distinct from the report above: this is TODAY only, read-write, and
   // shows exactly what's already in Supabase right now (ESP32-device
@@ -4274,12 +4371,12 @@
   // present=emerald, absent=red, late=amber, missing=purple,
   // late_absent=orange, leave=sky.
   const MY_STUDENTS_STATUS_META = {
-    present:     { label: 'Present',     short: 'P',  cls: 'text-white', bg: 'linear-gradient(135deg,#059669,#22c55e)' },
-    absent:      { label: 'Absent',      short: 'A',  cls: 'text-white', bg: 'linear-gradient(135deg,#dc2626,#f43f5e)' },
-    late:        { label: 'Late',        short: 'La', cls: 'text-white', bg: 'linear-gradient(135deg,#d97706,#fbbf24)' },
-    missing:     { label: 'Missing',     short: 'Mi', cls: 'text-white', bg: 'linear-gradient(135deg,#7c3aed,#d946ef)' },
-    late_absent: { label: 'Late Absent', short: 'LA', cls: 'text-white', bg: 'linear-gradient(135deg,#c2410c,#fb923c)' },
-    leave:       { label: 'Leave',       short: 'Lv', cls: 'text-white', bg: 'linear-gradient(135deg,#0284c7,#38bdf8)' },
+    present:     { label: 'Present',     short: 'P',  cls: 'text-white', bg: 'linear-gradient(135deg,#059669,#22c55e)', tint: 'rgba(5,150,105,0.06)', border: 'rgba(5,150,105,0.18)' },
+    absent:      { label: 'Absent',      short: 'A',  cls: 'text-white', bg: 'linear-gradient(135deg,#dc2626,#f43f5e)', tint: 'rgba(220,38,38,0.06)', border: 'rgba(220,38,38,0.18)' },
+    late:        { label: 'Late',        short: 'La', cls: 'text-white', bg: 'linear-gradient(135deg,#d97706,#fbbf24)', tint: 'rgba(217,119,6,0.06)', border: 'rgba(217,119,6,0.18)' },
+    missing:     { label: 'Missing',     short: 'Mi', cls: 'text-white', bg: 'linear-gradient(135deg,#7c3aed,#d946ef)', tint: 'rgba(124,58,237,0.06)', border: 'rgba(124,58,237,0.18)' },
+    late_absent: { label: 'Late Absent', short: 'LA', cls: 'text-white', bg: 'linear-gradient(135deg,#c2410c,#fb923c)', tint: 'rgba(194,65,12,0.06)', border: 'rgba(194,65,12,0.18)' },
+    leave:       { label: 'Leave',       short: 'Lv', cls: 'text-white', bg: 'linear-gradient(135deg,#0284c7,#38bdf8)', tint: 'rgba(2,132,199,0.06)', border: 'rgba(2,132,199,0.18)' },
   };
   let _myStudentsData = null; // last fetched {classes, date}
 
@@ -4287,9 +4384,14 @@
     document.getElementById('myStudentsOverlay')?.remove();
     const overlay = document.createElement('div');
     overlay.id = 'myStudentsOverlay';
-    overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
+    // Bottom sheet on mobile (items-end), centered modal from sm: up —
+    // same treatment as its sibling _openMyStudentStatusPicker, which this
+    // one lacked before (always a small centered box regardless of width).
+    overlay.className = 'fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4';
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
     overlay.innerHTML = `
-      <div class="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+      <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-2xl max-h-[92vh] sm:max-h-[90vh] flex flex-col">
+        <div class="w-10 h-1.5 bg-slate-200 rounded-full mx-auto mt-2.5 sm:hidden"></div>
         <div class="p-4 border-b border-slate-100 flex items-center justify-between shrink-0">
           <p class="font-black text-slate-800 text-sm">My Students — Today's Attendance</p>
           <button onclick="document.getElementById('myStudentsOverlay').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="h-4 w-4"></i></button>
@@ -4350,24 +4452,24 @@
     body.innerHTML = classes.map(c => `
       <div class="mb-4">
         ${classes.length > 1 ? `<p class="font-black text-slate-800 text-xs uppercase tracking-widest mb-2">${_escHtml(c.classKey)}</p>` : ''}
-        <div class="flex flex-col gap-1.5">
+        <div class="flex flex-col gap-2">
           ${c.students.map(s => {
             const meta = MY_STUDENTS_STATUS_META[s.status] || MY_STUDENTS_STATUS_META.absent;
             const isPresent = s.status === 'present';
             const isOther = s.status !== 'present' && s.status !== 'absent';
             const tel = String(s.phone_number || s.father_phone || s.mother_phone || '').replace(/[\s\-()]/g, '');
             return `
-            <div class="flex items-center gap-2 border border-slate-200 rounded-xl px-2.5 py-2 bg-white">
-              ${_avatar(s.student_name, s.photo, 'w-9 h-9')}
+            <div class="flex items-center gap-2.5 sm:gap-3 rounded-2xl px-3 py-2.5 transition-colors" style="background:${meta.tint};border:1px solid ${meta.border}">
+              ${_avatar(s.student_name, s.photo, 'w-10 h-10 shrink-0')}
               <div class="flex-1 min-w-0">
                 <p class="text-xs font-black text-slate-900 truncate">${_escHtml(s.student_name || '')}</p>
-                <p class="text-[10px] font-bold text-slate-500">Roll ${_escHtml(s.roll || '—')} · ${_escHtml(s.student_id)}${tel ? ` · <a href="tel:${_escHtml(tel)}" onclick="event.stopPropagation()" class="text-blue-600">${_escHtml(tel)}</a>` : ''}</p>
+                <p class="text-[10px] font-bold text-slate-500 truncate">Roll ${_escHtml(s.roll || '—')} · ${_escHtml(s.student_id)}${tel ? ` · <a href="tel:${_escHtml(tel)}" onclick="event.stopPropagation()" class="text-blue-600">${_escHtml(tel)}</a>` : ''}</p>
               </div>
-              ${isOther ? `<span class="shrink-0 text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${meta.cls}" style="background:${meta.bg}">${meta.short}</span>` : ''}
-              <button onclick="_toggleMyStudentPresence('${_escHtml(s.student_id)}')" title="Toggle Present/Absent" class="shrink-0 relative w-11 h-6 rounded-full transition-colors" style="background:${isPresent ? MY_STUDENTS_STATUS_META.present.bg : MY_STUDENTS_STATUS_META.absent.bg}">
-                <span class="absolute top-0.5 ${isPresent ? 'right-0.5' : 'left-0.5'} w-5 h-5 bg-white rounded-full shadow transition-all"></span>
+              ${isOther ? `<span class="shrink-0 text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full ${meta.cls}" style="background:${meta.bg}">${meta.short}</span>` : ''}
+              <button onclick="_toggleMyStudentPresence('${_escHtml(s.student_id)}')" title="Toggle Present/Absent" class="shrink-0 relative w-12 h-7 rounded-full transition-colors" style="background:${isPresent ? MY_STUDENTS_STATUS_META.present.bg : MY_STUDENTS_STATUS_META.absent.bg}">
+                <span class="absolute top-0.5 ${isPresent ? 'right-0.5' : 'left-0.5'} w-6 h-6 bg-white rounded-full shadow transition-all"></span>
               </button>
-              <button onclick="_openMyStudentStatusPicker('${_escHtml(s.student_id)}')" title="More statuses" class="shrink-0 w-7 h-7 rounded-full text-white flex items-center justify-center" style="background:linear-gradient(135deg,#4f46e5,#0ea5e9)"><i data-lucide="plus" class="h-3.5 w-3.5"></i></button>
+              <button onclick="_openMyStudentStatusPicker('${_escHtml(s.student_id)}')" title="More statuses" class="shrink-0 w-8 h-8 rounded-full text-white flex items-center justify-center" style="background:linear-gradient(135deg,#4f46e5,#0ea5e9)"><i data-lucide="plus" class="h-4 w-4"></i></button>
             </div>`;
           }).join('')}
         </div>
@@ -13338,6 +13440,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _annRenderPickedStudent();
   }
 
+  function _annClearPickedStudent() {
+    _annPickedStudent = null;
+    _annRenderPickedStudent();
+  }
+
   function _annLookupStudentId() {
     const id = document.getElementById('annStudentIdInput').value.trim();
     if (!id) return;
@@ -13357,7 +13464,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <p class="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-1">Cross-check — confirm this is the right student</p>
       <p class="font-black text-slate-800 text-sm">${_escHtml(s.student_name || '')} <span class="text-slate-400 font-bold">(${_escHtml(s.student_id)})</span></p>
       <p class="text-xs font-bold text-slate-500">${_escHtml(s.class || '')} - ${_escHtml(s.section || '')}${s.group ? ' · Group ' + _escHtml(s.group) : ''}${s.session ? ' · Session ' + _escHtml(s.session) : ''}${s.roll ? ' · Roll ' + _escHtml(s.roll) : ''}</p>
-      <button type="button" onclick="_annPickedStudent=null;_annRenderPickedStudent();" class="text-[10px] font-black text-red-500 uppercase tracking-widest mt-2">Clear</button>
+      <button type="button" onclick="_annClearPickedStudent()" class="text-[10px] font-black text-red-500 uppercase tracking-widest mt-2">Clear</button>
     `;
   }
 
