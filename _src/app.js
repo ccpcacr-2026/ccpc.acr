@@ -15669,13 +15669,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _payrollFetch('get_groups', {}),
       _payrollFetch('get_group_members', {}),
       _payrollFetch('get_pay_steps', {}),
-    ]).then(([, peopleRes, gradesRes, groupsRes, membersRes, stepsRes]) => {
+      _payrollFetch('get_grade_step_matrix', {}),
+    ]).then(([, peopleRes, gradesRes, groupsRes, membersRes, stepsRes, matrixRes]) => {
       _prPeopleSetupCache = (peopleRes && peopleRes.result === 'success' && peopleRes.people) || [];
       _prGradesCache = (gradesRes && gradesRes.result === 'success' && gradesRes.grades) || _prGradesCache;
       _prGradesLoaded = true;
       _prGroupsCache = (groupsRes && groupsRes.result === 'success' && groupsRes.groups) || [];
       _prGroupMembersCache = (membersRes && membersRes.result === 'success' && membersRes.members) || [];
       _prPayStepsCache = (stepsRes && stepsRes.result === 'success' && stepsRes.steps) || [];
+      _prGradeStepValuesCache = (matrixRes && matrixRes.result === 'success' && matrixRes.cells) || [];
       _prRenderGroupsChips();
       _wireSearchCombo('prPersonSearch', 'prPersonSelect', 'prPersonDropdown',
         allStaffCache.map(s => ({ value: s.teacher_id, label: s.full_name || s.teacher_id, sub: [s.designation, s.teacher_id].filter(Boolean).join(' · ') })));
@@ -15743,15 +15745,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <td class="py-1.5 px-3 font-bold text-slate-700">${s.full_name || s.teacher_id}</td>
           <td class="py-1.5 px-3 text-slate-400 text-[10px] font-bold">${s.designation || ''}</td>
           <td class="py-1.5 px-3" onclick="event.stopPropagation()">
-            <select id="prRosterGrade_${s.teacher_id}" ${gsLocked ? 'disabled' : ''} title="${gsLocked ? 'Click Enable Editing above to change Grade/Step' : ''}" onchange="_prInlineSaveGradeStep('${s.teacher_id}')" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
+            <select id="prRosterGrade_${s.teacher_id}" ${gsLocked ? 'disabled' : ''} title="${gsLocked ? 'Click Enable Editing above to change Grade/Step' : ''}" onchange="_prOnRosterGradeChange('${s.teacher_id}')" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
               <option value="">None</option>
               ${_prGradesCache.map(g => `<option value="${g.id}" ${setup && setup.grade_id === g.id ? 'selected' : ''}>${_escHtml(g.name)}</option>`).join('')}
             </select>
           </td>
           <td class="py-1.5 px-3" onclick="event.stopPropagation()">
             <select id="prRosterStep_${s.teacher_id}" ${gsLocked ? 'disabled' : ''} title="${gsLocked ? 'Click Enable Editing above to change Grade/Step' : ''}" onchange="_prInlineSaveGradeStep('${s.teacher_id}')" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
-              <option value="">None</option>
-              ${_prPayStepsCache.map(st => `<option value="${st.id}" ${setup && setup.step_id === st.id ? 'selected' : ''}>Step ${st.step_number}</option>`).join('')}
+              ${_prStepOptionsForGrade(setup && setup.grade_id, setup && setup.step_id)}
             </select>
           </td>
           ${groupCells}
@@ -15780,6 +15781,31 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       btn.className = `px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-1.5 ${_prGradeStepEditMode ? 'bg-amber-500 text-white' : 'border border-slate-200 text-slate-500 hover:bg-slate-50'}`;
     }
     _prRenderPeopleRoster();
+  }
+
+  // Grades don't all have the same number of steps (a real pay-scale grid
+  // — Grade 20 might only fill Steps 1-8 while Grade 1 goes to 20), so a
+  // Step dropdown only ever offers steps that actually have a value for
+  // the currently-picked grade — never the full global step list — so
+  // nobody can select a (grade, step) combo the grid has no Basic value
+  // for. No grade picked yet means no steps make sense either.
+  function _prStepOptionsForGrade(gradeId, selectedStepId) {
+    if (!gradeId) return `<option value="">None</option>`;
+    const validStepIds = new Set(_prGradeStepValuesCache.filter(c => c.grade_id === Number(gradeId) && c.basic_value != null).map(c => c.step_id));
+    const applicable = _prPayStepsCache.filter(s => validStepIds.has(s.id));
+    if (!applicable.length) return `<option value="">No steps set up for this grade</option>`;
+    return `<option value="">None</option>` + applicable.map(s => `<option value="${s.id}" ${Number(selectedStepId) === s.id ? 'selected' : ''}>Step ${s.step_number}</option>`).join('');
+  }
+
+  // Grade changed in the roster — refilter this row's Step options to the
+  // new grade (clearing whatever was picked under the old one, since it
+  // likely doesn't apply) and save immediately, same as every other
+  // roster select here.
+  function _prOnRosterGradeChange(userId) {
+    const stepSel = document.getElementById(`prRosterStep_${userId}`);
+    const gradeSel = document.getElementById(`prRosterGrade_${userId}`);
+    if (stepSel && gradeSel) stepSel.innerHTML = _prStepOptionsForGrade(gradeSel.value, null);
+    _prInlineSaveGradeStep(userId);
   }
 
   // Narrow save — only ever touches grade_id/step_id (+ the resulting Basic
@@ -15952,8 +15978,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // null means "grade just changed, don't carry over the old step."
   function _prRenderPersonStepOptions(keepStepId) {
     const stepSel = document.getElementById('prPersonStep');
+    const gradeSel = document.getElementById('prPersonGrade');
     if (!stepSel) return;
-    stepSel.innerHTML = `<option value="">None</option>` + _prPayStepsCache.map(s => `<option value="${s.id}" ${keepStepId === s.id ? 'selected' : ''}>Step ${s.step_number}</option>`).join('');
+    stepSel.innerHTML = _prStepOptionsForGrade(gradeSel && gradeSel.value, keepStepId);
   }
 
   // ── Generic Excel import (People / Section Entries / Bonus / Leave Deductions) ──
