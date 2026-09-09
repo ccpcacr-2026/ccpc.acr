@@ -746,6 +746,16 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success', grades: rows });
   }
 
+  // Unfiltered (every grade, not just one) — feeds the Fields tab's hover
+  // summary, which cross-references a field against how every grade has
+  // it configured, rather than each grade's own detail screen fetching
+  // this one grade at a time.
+  if (action === 'get_all_grade_fields') {
+    const rows = await sbPayroll('grade_fields?select=*');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', grade_fields: rows });
+  }
+
   if (action === 'save_grade') {
     const { id, name, description, sort_order } = payload;
     if (!name) return NextResponse.json({ result: 'error', message: 'Name is required' }, { status: 400 });

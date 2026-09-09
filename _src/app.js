@@ -14040,6 +14040,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
       </div>
 
+      <div id="prFieldSummaryTooltip" class="hidden fixed z-[70] w-80 bg-slate-900 text-white rounded-2xl shadow-2xl p-4 pointer-events-none"></div>
+
       <div id="prFieldValuesModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
         <div class="bg-white rounded-2xl p-5 w-full max-w-3xl max-h-[88vh] overflow-y-auto">
           <div class="flex items-center justify-between mb-4">
@@ -14804,9 +14806,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return `${f.label} (${f.category === 'deduction' ? 'Deduction' : 'Addition'})`;
   }
 
+  // Fields is the first Payroll Admin tab (default on open), so Grades/
+  // Steps/grade_fields can't be assumed loaded yet the way later tabs
+  // assume — fetched here too (skipped if already cached) purely so the
+  // hover summary (_prFieldSummaryHtml) has everything it needs regardless
+  // of which tab was visited first.
+  let _prAllGradeFieldsCache = [];
   function loadPayrollFields() {
-    _payrollFetch('get_fields', {}).then(res => {
-      _prFieldsCache = (res && res.result === 'success' && res.fields) || [];
+    Promise.all([
+      _payrollFetch('get_fields', {}),
+      _prGradesLoaded ? Promise.resolve({ result: 'success', grades: _prGradesCache }) : _payrollFetch('get_grades', {}),
+      _payrollFetch('get_pay_steps', {}),
+      _payrollFetch('get_all_grade_fields', {}),
+    ]).then(([fieldsRes, gradesRes, stepsRes, gradeFieldsRes]) => {
+      _prFieldsCache = (fieldsRes && fieldsRes.result === 'success' && fieldsRes.fields) || [];
+      _prGradesCache = (gradesRes && gradesRes.result === 'success' && gradesRes.grades) || _prGradesCache;
+      _prGradesLoaded = true;
+      _prPayStepsCache = (stepsRes && stepsRes.result === 'success' && stepsRes.steps) || _prPayStepsCache;
+      _prAllGradeFieldsCache = (gradeFieldsRes && gradeFieldsRes.result === 'success' && gradeFieldsRes.grade_fields) || [];
       _prRenderFieldsTable();
     }).catch(err => showToast(err.message || 'Failed to load fields', 'error'));
   }
@@ -14832,7 +14849,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     tbody.innerHTML = list.map(f => {
       const calcLabel = f.calc_mode === 'percent_of_field' ? `% of ${f.calc_base_field_key || '—'}` : 'Fixed amount';
       const incLabel = f.increment_mode ? `${f.increment_mode === 'yearly_percent' ? f.increment_value + '%/yr' : '৳' + Number(f.increment_value || 0).toLocaleString() + '/yr'}` : '—';
-      return `<tr class="border-b border-slate-50">
+      return `<tr class="border-b border-slate-50" onmouseenter="_prShowFieldSummary(event,${f.id})" onmouseleave="_prHideFieldSummary()">
         <td class="py-1.5 px-3 font-black text-slate-800">${f.label}${f.is_grade_conditional ? ' <span class=\"text-[9px] text-amber-600 font-black uppercase\">(grade)</span>' : ''}${f.is_role_conditional ? ' <span class=\"text-[9px] text-indigo-600 font-black uppercase\">(role)</span>' : ''}</td>
         <td class="py-1.5 px-3">${f.category === 'deduction' ? '<span class="text-red-500 font-black">Deduction</span>' : '<span class="text-emerald-600 font-black">Earning</span>'}</td>
         <td class="py-1.5 px-3">${calcLabel}</td>
@@ -14846,6 +14863,90 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </td>
       </tr>`;
     }).join('');
+  }
+
+  // Cross-references a field against how every grade actually has it
+  // configured — not just its own definition — since "how is this field
+  // set up" really means "what does each grade do with it," especially
+  // for a percent field where the answer can differ per grade (own step
+  // vs a pinned reference step).
+  function _prFieldSummaryHtml(field) {
+    const isPercent = field.calc_mode === 'percent_of_field';
+    const baseField = isPercent ? _prFieldsCache.find(f => f.key === field.calc_base_field_key) : null;
+    const stepNumberById = {}; _prPayStepsCache.forEach(s => { stepNumberById[s.id] = s.step_number; });
+    const gfByGrade = {}; _prAllGradeFieldsCache.filter(gf => gf.field_id === field.id).forEach(gf => { gfByGrade[gf.grade_id] = gf; });
+
+    let html = `<p class="font-black text-sm mb-0.5">${_escHtml(field.label)}</p>`;
+    html += `<p class="text-[9px] font-black uppercase tracking-widest ${field.category === 'deduction' ? 'text-red-400' : 'text-emerald-400'} mb-3">${field.category === 'deduction' ? 'Deduction' : 'Addition'}${field.is_active === false ? ' · Inactive (excluded from payroll runs)' : ''}</p>`;
+
+    if (field.key === 'basic') {
+      html += `<p class="text-[11px] text-slate-300 mb-3">Basic's real value per person comes from <strong>Grade + Step</strong> (Pay Scale Grid), set in People Setup — not from this field's own setup below. That only applies as a fallback for anyone without a Step assigned.</p>`;
+    }
+
+    html += `<p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Amount</p>`;
+    if (isPercent) {
+      html += `<p class="text-[11px] text-slate-200 mb-2">A percentage of <strong>${baseField ? _escHtml(baseField.label) : (field.calc_base_field_key || '—')}</strong>.</p>`;
+    } else {
+      html += `<p class="text-[11px] text-slate-200 mb-2">A fixed amount, set per grade below.</p>`;
+    }
+
+    html += `<p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Per Grade</p>`;
+    if (!_prGradesCache.length) {
+      html += `<p class="text-[11px] text-slate-400 mb-2">No grades set up yet.</p>`;
+    } else {
+      html += `<ul class="text-[11px] text-slate-200 mb-2 space-y-0.5">` + _prGradesCache.map(g => {
+        const gf = gfByGrade[g.id];
+        let line;
+        if (isPercent) {
+          if (gf && gf.percent != null) {
+            const stepNote = gf.base_step_id && stepNumberById[gf.base_step_id] != null
+              ? `@ Step ${stepNumberById[gf.base_step_id]} (fixed, not their own step)`
+              : `own step`;
+            line = `${gf.percent}% of ${baseField ? _escHtml(baseField.label) : '—'} ${stepNote}`;
+          } else {
+            line = `<span class="text-slate-500">not configured</span>`;
+          }
+        } else {
+          line = (gf && gf.value != null) ? `৳${Number(gf.value).toLocaleString()}` : `<span class="text-slate-500">not configured</span>`;
+        }
+        return `<li><span class="font-black">${_escHtml(g.name)}</span> — ${line}</li>`;
+      }).join('') + `</ul>`;
+    }
+
+    if (field.increment_mode) {
+      const incLabel = field.increment_mode === 'yearly_percent' ? `${field.increment_value}% per year` : `৳${Number(field.increment_value || 0).toLocaleString()} per year`;
+      html += `<p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Yearly Increment</p>`;
+      html += `<p class="text-[11px] text-slate-200 mb-2">${incLabel}${field.key === 'basic' ? ' <span class="text-amber-400 font-bold">— has no effect once a person has a Grade + Step assigned</span>' : ''}</p>`;
+    }
+
+    const conditions = [];
+    if (field.is_grade_conditional) conditions.push('only when the grade opts in');
+    if (field.is_role_conditional) conditions.push('only certain roles');
+    if (field.is_category_conditional) conditions.push('only certain staff categories');
+    if (conditions.length) {
+      html += `<p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Restrictions</p>`;
+      html += `<p class="text-[11px] text-slate-200">${_escHtml(conditions.join(', '))} — see "Conditions" for specifics.</p>`;
+    }
+
+    return html;
+  }
+
+  function _prShowFieldSummary(event, fieldId) {
+    const field = _prFieldsCache.find(f => f.id === fieldId);
+    const tip = document.getElementById('prFieldSummaryTooltip');
+    if (!field || !tip) return;
+    tip.innerHTML = _prFieldSummaryHtml(field);
+    tip.classList.remove('hidden');
+    const tipWidth = 320; // matches w-80
+    const left = Math.min(event.clientX + 16, window.innerWidth - tipWidth - 16);
+    const top = Math.min(event.clientY + 16, window.innerHeight - 40);
+    tip.style.left = `${Math.max(16, left)}px`;
+    tip.style.top = `${top}px`;
+  }
+
+  function _prHideFieldSummary() {
+    const tip = document.getElementById('prFieldSummaryTooltip');
+    if (tip) tip.classList.add('hidden');
   }
 
   function _prOpenFieldForm(field) {
