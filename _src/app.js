@@ -14536,6 +14536,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Real data, formatted live. Drag a header to reorder columns. Click a header to format it. Click the × to drop a column, or click a chip below to bring one back.</p>
             </div>
             <div class="flex items-center gap-2">
+              <button onclick="_prResetColumnOrderToSheet()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Sheet Order</button>
               <button onclick="_prSetAllHeaderRotation(90)" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Vertical Headers</button>
               <button onclick="_prSetAllHeaderRotation(0)" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Horizontal Headers</button>
             </div>
@@ -18344,6 +18345,34 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _payrollFetch('set_export_row_order', { user_id: draggedUserId, position: newRank }).catch(err => showToast(err.message || 'Failed to save order', 'error'));
   }
 
+  // The exact column sequence from the source payroll sheets (checksum-
+  // verified against real Total(4-12)/Total(14-24) columns this session,
+  // for both the teaching sheets — Basic..Other, Tuition..Other(dedn) —
+  // and the non-teaching ones, which insert Tiffin/Washing/Conveyance
+  // between HR and Medical instead of Incharge). Special allowances added
+  // this session with no sheet column of their own (Mobile Bill,
+  // Coordinator, Entertainment, Imam, Muazzin) slot in right after CT/
+  // Education, roughly where the sheet's own "Incharge" catch-all sat.
+  // Anything not listed (a future new field) sorts after everything here,
+  // in whatever order it was discovered — never silently dropped.
+  const PR_EXPORT_SHEET_COLUMN_ORDER = [
+    'sl_no', 'person', 'designation', 'grade', 'step', 'joining_date',
+    'basic', 'incentive', 'charge_allowance', 'coordinator_allowance', 'mt_incharge_allowance',
+    'hr', 'tiffin', 'washing', 'conveyance', 'medical', 'pf_10_percent',
+    'class_teacher_allowance', 'education', 'mobile_bill', 'entertainment_allowance', 'imam_allowance', 'muazzin_allowance',
+    'other_addition', 'special', 'gross',
+    'tuition', 'bus', 'hr_deduction', 'utilities', 'pf_loan', 'pf_20_percent', 'tds', 'welfare', 'ts_club', 'other_deduction', 'total_deductions',
+    'net', 'mpo_amount', 'college_amount',
+  ];
+  function _prSortColumnsLikeSheet(cols) {
+    const rank = {}; PR_EXPORT_SHEET_COLUMN_ORDER.forEach((k, i) => { rank[k] = i; });
+    return [...cols].sort((a, b) => {
+      const ra = a.key in rank ? rank[a.key] : PR_EXPORT_SHEET_COLUMN_ORDER.length;
+      const rb = b.key in rank ? rank[b.key] : PR_EXPORT_SHEET_COLUMN_ORDER.length;
+      return ra - rb;
+    });
+  }
+
   function _prLoadExportColumns() {
     const runId = document.getElementById('prExportRunSelect').value;
     if (!runId) return;
@@ -18375,7 +18404,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       // Preserve any existing virtual columns / include-state across a reload of the same run.
       const priorVirtuals = _prExportColumnsCache.filter(c => c.type === 'virtual');
       const priorState = {}; _prExportColumnsCache.forEach(c => { priorState[c.key] = c; });
-      _prExportColumnsCache = [...baseCols, ...fieldCols].map(c => ({
+      _prExportColumnsCache = _prSortColumnsLikeSheet([...baseCols, ...fieldCols]).map(c => ({
         ...c,
         included: priorState[c.key] ? priorState[c.key].included : true,
         bold: priorState[c.key] ? priorState[c.key].bold : false,
@@ -18557,6 +18586,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _prExportColumnsCache.forEach(c => { if (c.key !== 'person') c.headerRotation = deg; });
     _prRenderExportColumnsTable();
     showToast(deg ? 'Headers set to vertical' : 'Headers set to horizontal');
+  }
+
+  // Snaps column ORDER back to the source sheet's own sequence at any
+  // time — useful after dragging columns around in the Visual Editor.
+  // Only reorders; doesn't touch which columns are included or how any of
+  // them are formatted.
+  function _prResetColumnOrderToSheet() {
+    _prExportColumnsCache = _prSortColumnsLikeSheet(_prExportColumnsCache);
+    _prRenderExportColumnsTable();
+    showToast('Column order reset to match the sheet');
   }
 
   function _prRemoveExportColumn(key) {
