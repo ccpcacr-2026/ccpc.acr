@@ -1155,9 +1155,9 @@ export async function POST(req) {
   // (Regular/Contractual + grade/step), Joining Date — for support staff who
   // don't exist in the system at all yet. `users_profile.teacher_id` is a
   // foreign key into `app_users` (login table), so a profile can't exist
-  // without a login row; these people almost certainly never sign in, so a
-  // synthetic id/email and an unshared random password are generated purely
-  // to satisfy that constraint, with role 'Staff' (no elevated access).
+  // without a login row; a synthetic id/email is generated to satisfy that
+  // constraint, with the same default password ('1234') the HR "Add
+  // Teacher/Staff" form pre-fills, and role 'Staff' (no elevated access).
   if (action === 'create_payroll_person') {
     const { full_name, designation, department, pay_type, grade_id, step_id, joining_date } = payload;
     if (!full_name || !full_name.trim()) return NextResponse.json({ result: 'error', message: 'Full name is required' }, { status: 400 });
@@ -1177,7 +1177,11 @@ export async function POST(req) {
     if (!teacherId) return NextResponse.json({ result: 'error', message: 'Could not generate a unique id, try again' }, { status: 500 });
 
     const email = `person.${teacherId}@payroll.local`;
-    const password = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+    // Same default the HR "Add Teacher/Staff" form pre-fills for a new
+    // account — a known, communicable password rather than an unshared
+    // random one, since this person (or whoever tells them their login)
+    // needs to actually be able to give it to them.
+    const password = '1234';
 
     const userRow = { user_id: teacherId, email, password, role: 'Staff' };
     const savedUser = await _teacherSchemaWrite('app_users', 'POST', userRow);
