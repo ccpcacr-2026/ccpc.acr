@@ -14452,9 +14452,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="_prExportExcel()" class="px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="file-spreadsheet" class="h-3.5 w-3.5"></i>Export Excel</button>
             <button onclick="_prExportPdf()" class="px-4 py-2.5 bg-rose-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="file-text" class="h-3.5 w-3.5"></i>Export PDF</button>
             <button onclick="_prExportBankFile()" class="px-4 py-2.5 bg-indigo-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="landmark" class="h-3.5 w-3.5"></i>Bank Disbursement File</button>
-            <button onclick="_prExportCategoryTemplates()" class="px-4 py-2.5 bg-slate-800 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="layout-template" class="h-3.5 w-3.5"></i>Acquittance Roll Format</button>
+            <button onclick="_prExportCategoryTemplates()" class="px-4 py-2.5 bg-slate-800 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="layout-template" class="h-3.5 w-3.5"></i>Acquittance Roll Format (Excel)</button>
+            <button onclick="_prExportAcquittanceRollPdf()" class="px-4 py-2.5 bg-slate-800 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="layout-template" class="h-3.5 w-3.5"></i>Acquittance Roll Format (PDF)</button>
           </div>
-          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-2">Bank Disbursement File and Acquittance Roll Format are both fixed formats that ignore the column picker below — the latter is one sheet per category (Staff / Teacher School / Teacher College / Driver-Helper), laid out exactly like the paper Acquittance Roll, with merged group headers and a Sub Total row.</p>
+          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-2">Bank Disbursement File and both Acquittance Roll formats are fixed formats that ignore the column picker below — one page/sheet per category (Staff / Teacher School / Teacher College / Driver-Helper), laid out exactly like the paper Acquittance Roll: merged group headers, the sheet's own column numbers, and a Sub Total row. The PDF one is Legal-size landscape.</p>
         </div>
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
           <div class="flex flex-wrap items-center gap-5">
@@ -18431,7 +18432,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         { header: 'P.F Contribution', keys: ['pf_10_percent'] }, { header: 'Festi & Other Allow', keys: ['other_addition', 'bonus_total'] },
       ],
       deductions: [
-        { header: 'HR & Gas Bill', keys: ['hr_gas_bill'] }, { header: 'Electricity & Dish Bill', keys: ['electricity_dish_bill'] },
+        { header: 'HR & Gas Bill', keys: ['hr_deduction'] }, { header: 'Electricity & Dish Bill', keys: ['utilities'] },
         { header: 'Club Subs', keys: ['ts_club'] }, { header: 'P.F. Loan Refund', keys: ['pf_loan'] }, { header: 'P.F Subs. + Contri', keys: ['pf_20_percent'] },
         { header: 'Income Tax', keys: ['tds'] }, { header: 'Other Deduction', keys: ['other_deduction'] },
       ],
@@ -18443,12 +18444,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // College sheet would match since no evidence otherwise).
   PR_ACQUITTANCE_TEMPLATES['Teacher School'] = {
     additions: [
-      { header: 'Basic', keys: ['basic'] }, { header: 'Incentive', keys: ['incentive'] }, { header: 'Incharge', keys: ['incharge'] },
+      { header: 'Basic', keys: ['basic'] }, { header: 'Incentive', keys: ['incentive'] }, { header: 'Incharge', keys: ['charge_allowance', 'coordinator_allowance', 'mt_incharge_allowance'] },
       { header: 'HR', keys: ['hr'] }, { header: 'Medical', keys: ['medical'] }, { header: 'PF 10%', keys: ['pf_10_percent'] },
-      { header: 'CT', keys: ['ct'] }, { header: 'Education', keys: ['education'] }, { header: 'Other', keys: ['other_addition'] },
+      { header: 'CT', keys: ['class_teacher_allowance'] }, { header: 'Education', keys: ['education'] }, { header: 'Other', keys: ['other_addition'] },
     ],
     deductions: [
-      { header: 'Tuition Fee', keys: ['tuition'] }, { header: 'Bus', keys: ['bus_deduction'] }, { header: 'HR', keys: ['hr_deduction'] },
+      { header: 'Tuition Fee', keys: ['tuition'] }, { header: 'Bus', keys: ['bus'] }, { header: 'HR', keys: ['hr_deduction'] },
       { header: 'Utilities', keys: ['utilities'] }, { header: 'MPO', computed: s => Number(s.mpo_amount) || 0 }, { header: 'PF Loan', keys: ['pf_loan'] },
       { header: 'PF 20%', keys: ['pf_20_percent'] }, { header: 'TDS', keys: ['tds'] }, { header: 'Welfare', keys: ['welfare'] },
       { header: 'T/S Club', keys: ['ts_club'] }, { header: 'Other', keys: ['other_deduction'] },
@@ -18550,6 +18551,99 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (!anySheet) { showToast('No category in this run has an Acquittance Roll template yet', 'error'); return; }
       const run = _prRunsCache.find(r => r.id === Number(runId));
       XLSX.writeFile(wb, `acquittance_roll_${run ? PAYROLL_MONTH_NAMES[run.month] + '_' + run.year : 'export'}.xlsx`);
+    }).catch(err => showToast(err.message || 'Failed to export', 'error'));
+  }
+
+  // PDF twin of _prExportCategoryTemplates — same per-category column
+  // layout and data, but as a Legal-landscape PDF with the sheet's own
+  // 3-row header (group row, label row, column-number row) instead of an
+  // Excel workbook, since that's the format actually printed/shared.
+  function _prExportAcquittanceRollPdf() {
+    const runId = document.getElementById('prExportRunSelect').value;
+    if (!runId) { showToast('Pick a run first', 'error'); return; }
+    if (!_prExportSlips.length) { showToast('No payslips in this run', 'error'); return; }
+    Promise.all([
+      new Promise(resolve => _ensureStaffCache(resolve)),
+      _payrollFetch('get_people_setup', {}),
+      ensureJsPDF(),
+    ]).then(([, peopleRes]) => {
+      const people = (peopleRes && peopleRes.result === 'success' && peopleRes.people) || [];
+      const setupByUser = {}; people.forEach(p => { setupByUser[p.user_id] = p; });
+      const staffByUser = {}; (allStaffCache || []).forEach(s => { staffByUser[s.teacher_id] = s; });
+      const gradeById = {}; _prGradesCache.forEach(g => { gradeById[g.id] = g.name; });
+
+      const slipsByCategory = {};
+      _prExportSlips.forEach(s => {
+        const cat = (staffByUser[s.user_id] || {}).category || 'Other';
+        (slipsByCategory[cat] = slipsByCategory[cat] || []).push(s);
+      });
+      const categories = Object.keys(slipsByCategory).filter(cat => PR_ACQUITTANCE_TEMPLATES[cat]);
+      if (!categories.length) { showToast('No category in this run has an Acquittance Roll template yet', 'error'); return; }
+
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ orientation: 'landscape', format: 'legal' });
+      const run = _prRunsCache.find(r => r.id === Number(runId));
+      const periodLabel = run ? `${PAYROLL_MONTH_NAMES[run.month]} ${run.year}` : '';
+
+      categories.forEach((cat, ci) => {
+        if (ci > 0) doc.addPage();
+        const template = PR_ACQUITTANCE_TEMPLATES[cat];
+        const slips = slipsByCategory[cat];
+        const nAdd = template.additions.length, nDed = template.deductions.length;
+
+        const dataRows = slips.map((s, i) => {
+          const staff = staffByUser[s.user_id] || {};
+          const setup = setupByUser[s.user_id] || {};
+          const label = staffLabel(s.user_id).split(' — ')[0];
+          const gradeLabel = setup.grade_id ? (gradeById[setup.grade_id] || '') : '';
+          const addVals = template.additions.map(c => _prAcqColumnValue(c, s));
+          const addTotal = addVals.reduce((a, v) => a + v, 0);
+          const dedVals = template.deductions.map(c => _prAcqColumnValue(c, s));
+          const dedTotal = dedVals.reduce((a, v) => a + v, 0);
+          return [
+            i + 1, label, [gradeLabel, staff.designation].filter(Boolean).join('\n'), setup.joining_date || '',
+            ...addVals.map(v => v.toFixed(2)), addTotal.toFixed(2),
+            ...dedVals.map(v => v.toFixed(2)), dedTotal.toFixed(2),
+            (Number(s.net) || 0).toFixed(2), (Number(s.mpo_amount) || 0).toFixed(2), (Number(s.college_amount) || 0).toFixed(2), template.totalPf(s).toFixed(2),
+            '', '',
+          ];
+        });
+        const colTotal = (offset) => dataRows.reduce((a, r) => a + (Number(r[offset]) || 0), 0).toFixed(2);
+        const subTotalRow = ['', 'Sub Total', '', '',
+          ...template.additions.map((c, i) => colTotal(4 + i)), colTotal(4 + nAdd),
+          ...template.deductions.map((c, i) => colTotal(4 + nAdd + 1 + i)), colTotal(4 + nAdd + 1 + nDed),
+          colTotal(4 + nAdd + 1 + nDed + 1), colTotal(4 + nAdd + 1 + nDed + 2), colTotal(4 + nAdd + 1 + nDed + 3), colTotal(4 + nAdd + 1 + nDed + 4),
+          '', ''];
+
+        // Row 1: group headers. Row 2: column labels. Row 3: the sheet's own
+        // column numbers (4 onward — SL/Name/Post/Join are unnumbered, same
+        // as the source document).
+        const head = [
+          [
+            { content: 'SL\nNO', rowSpan: 3 }, { content: 'Name', rowSpan: 3 }, { content: 'Post', rowSpan: 3 }, { content: 'Join Date\n& Grade', rowSpan: 3 },
+            { content: 'Payments & Allowances', colSpan: nAdd + 1 },
+            { content: 'Deduction', colSpan: nDed + 1 },
+            { content: 'Net Salary, MPO & PF', colSpan: 4 },
+            { content: 'Signature', rowSpan: 3 }, { content: 'Remarks', rowSpan: 3 },
+          ],
+          [...template.additions.map(c => c.header), 'Total', ...template.deductions.map(c => c.header), 'Total', 'Net Salary', 'MPO', 'College', 'Total PF'],
+          Array.from({ length: nAdd + 1 + nDed + 1 + 4 }, (_, i) => String(i + 4)),
+        ];
+        doc.setFontSize(11);
+        doc.text(`Acquittance Roll — ${cat} — ${periodLabel}`, 14, 10);
+        doc.autoTable({
+          startY: 14,
+          head,
+          body: [subTotalRow, ...dataRows],
+          styles: { fontSize: 6, cellPadding: 1.2, halign: 'center', valign: 'middle', lineWidth: 0.1 },
+          headStyles: { fillColor: [241, 245, 249], textColor: [15, 23, 42], fontStyle: 'bold', halign: 'center', valign: 'middle' },
+          columnStyles: { 1: { halign: 'left' }, 2: { halign: 'left' } },
+          didParseCell: hook => {
+            if (hook.row.section === 'body' && hook.row.index === 0) hook.cell.styles.fontStyle = 'bold'; // Sub Total row
+          },
+        });
+      });
+      doc.save(`acquittance_roll_${run ? PAYROLL_MONTH_NAMES[run.month] + '_' + run.year : 'export'}.pdf`);
     }).catch(err => showToast(err.message || 'Failed to export', 'error'));
   }
 

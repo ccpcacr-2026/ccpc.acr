@@ -70,7 +70,7 @@ const RESERVED = [
   '_prOpenLeaveForm','_prCloseLeaveForm','_prSaveLeaveDeduction','_prDeleteLeaveDeduction','loadMyPayslipsView',
   '_prOpenStoppageForm','_prCloseStoppageForm','_prSaveStoppage','_prDeleteStoppage',
   '_prOpenBusFareForm','_prCloseBusFareForm','_prSaveBusFareEntry','_prDeleteBusFareEntry',
-  '_prSuggestFromLeaveRequests','_prPrefillLeaveFromRequest','_prExportBankFile','_prExportCategoryTemplates',
+  '_prSuggestFromLeaveRequests','_prPrefillLeaveFromRequest','_prExportBankFile','_prExportCategoryTemplates','_prExportAcquittanceRollPdf',
   '_prOpenImportModal','_prCloseImportModal','_prHandleImportFile','_prOpenBulkFieldValuesImport',
   '_prDownloadImportSample','updatePayrollImportSample','_prConfirmImport',
   '_prSelectSection','_prOpenSectionForm','_prCloseSectionForm','_prSaveSection','_prDeleteSection',
