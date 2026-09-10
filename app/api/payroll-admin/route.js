@@ -1063,6 +1063,25 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success', person: Array.isArray(saved) ? saved[0] : saved });
   }
 
+  // "Abandon from Payroll" / "Reactivate" — the payroll-scoped counterpart
+  // to HR's own (destructive) Delete User. Touches ONLY is_active, so
+  // grade/step/bank info/field overrides/history all survive untouched and
+  // this is fully reversible; run_payroll already only ever looks at
+  // is_active=true rows, so an abandoned person simply stops being paid
+  // starting the next run — nothing about their account, login, or
+  // teacher_staff profile is affected, which is the whole point of doing
+  // this here instead of in HR's user list.
+  if (action === 'set_person_active') {
+    const { user_id: personId, is_active } = payload;
+    if (!personId) return NextResponse.json({ result: 'error', message: 'user_id required' }, { status: 400 });
+    const existing = await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(personId)}&select=user_id`);
+    if (!existing?.error && !existing.length) return NextResponse.json({ result: 'error', message: 'This person has no payroll setup yet' }, { status: 400 });
+    const saved = await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(personId)}`, 'PATCH', { is_active: is_active !== false });
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    _prAudit(user_id, is_active !== false ? 'reactivate_person' : 'abandon_person', 'person_setup', personId, { is_active: is_active !== false });
+    return NextResponse.json({ result: 'success' });
+  }
+
   // Narrow inline-edit path for the People Setup roster table's Grade/Step
   // selects — touches ONLY grade_id/step_id (+ the resulting Basic push),
   // never the rest of person_setup, unlike save_person_setup's full-row

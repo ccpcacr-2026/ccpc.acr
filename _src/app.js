@@ -14154,6 +14154,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
         <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
           <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Roster — click a person for full details</p>
+          <label class="flex items-center gap-1.5 text-[10px] font-black text-slate-500 uppercase tracking-widest cursor-pointer">
+            <input type="checkbox" onchange="_prToggleShowAbandoned(this.checked)" class="w-4 h-4 rounded accent-red-500">
+            Show abandoned <span id="prAbandonedNote" class="text-red-400 normal-case font-bold"></span>
+          </label>
         </div>
         <div id="prStepUpgradeUndoBanner" class="hidden mb-3"></div>
         <div id="prPeopleRoster" class="mb-4"></div>
@@ -16075,6 +16079,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // Full staff roster grouped into the same 3 categories as the Values
   // workspace, so everyone shows up here by default too — no need to
   // search first just to see who's already set up (or not).
+  // Abandoned (is_active:false) people are hidden from the everyday roster
+  // by default — that's the point of abandoning someone — surfaced only
+  // via this toggle, for the rare "actually, bring them back" case.
+  let _prShowAbandoned = false;
+  function _prToggleShowAbandoned(checked) { _prShowAbandoned = checked; _prRenderPeopleRoster(); }
+
   function _prRenderPeopleRoster() {
     const host = document.getElementById('prPeopleRoster');
     if (!host) return;
@@ -16084,11 +16094,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const staffByCategory = {};
     PR_FV_CATEGORIES.forEach(c => { staffByCategory[c] = []; });
     const other = [];
+    const abandonedCount = (allStaffCache || []).filter(s => setupByUser[s.teacher_id] && setupByUser[s.teacher_id].is_active === false).length;
     (allStaffCache || []).forEach(s => {
+      const setup = setupByUser[s.teacher_id];
+      if (setup && setup.is_active === false && !_prShowAbandoned) return;
       const cat = (s.category || '').trim();
       (staffByCategory[cat] || other).push(s);
     });
     if (other.length) staffByCategory['Other'] = other;
+    const abandonedNote = document.getElementById('prAbandonedNote');
+    if (abandonedNote) abandonedNote.textContent = abandonedCount ? `${abandonedCount} abandoned from payroll` : '';
 
     const cats = Object.keys(staffByCategory).filter(c => staffByCategory[c].length);
     // Minimal glance info only — Name, Designation, a read-only Grade/Step/
@@ -16101,16 +16116,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     host.innerHTML = cats.length ? cats.map(cat => {
       const rowsHtml = staffByCategory[cat].map(s => {
         const setup = setupByUser[s.teacher_id];
+        const abandoned = setup && setup.is_active === false;
         const payType = (setup && setup.pay_type) === 'contractual' ? 'contractual' : 'regular';
         const grade = setup && setup.grade_id ? gradeById[setup.grade_id] : null;
         const step = setup && setup.step_id ? stepById[setup.step_id] : null;
         const gradeSummary = grade ? `${_escHtml(grade.name)}${step ? ` · Step ${step.step_number}` : ''}` : '<span class="text-slate-300">Not set</span>';
-        return `<tr onclick="_prSelectPerson('${s.teacher_id}')" class="border-b border-slate-50 cursor-pointer transition-colors hover:bg-slate-50">
+        return `<tr onclick="_prSelectPerson('${s.teacher_id}')" class="border-b border-slate-50 cursor-pointer transition-colors hover:bg-slate-50 ${abandoned ? 'opacity-50' : ''}">
           <td class="py-2 px-3 font-bold text-slate-700">${s.full_name || s.teacher_id}</td>
           <td class="py-2 px-3 text-slate-400 text-[10px] font-bold">${s.designation || ''}</td>
           <td class="py-2 px-3 text-xs">
             ${gradeSummary}
             <span class="ml-1.5 px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase ${payType === 'contractual' ? 'bg-amber-50 text-amber-600' : 'bg-slate-100 text-slate-500'}">${payType}</span>
+            ${abandoned ? '<span class="ml-1 px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase bg-red-50 text-red-500">Abandoned</span>' : ''}
           </td>
           <td class="py-2 px-3 text-right"><button onclick="event.stopPropagation(); _prSelectPerson('${s.teacher_id}')" class="px-2.5 py-1.5 border border-slate-200 text-slate-500 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50">Details</button></td>
         </tr>`;
@@ -16329,9 +16346,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <input type="text" id="prPersonMbNumber" value="${setup.mobile_banking_number || ''}" placeholder="optional" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
           </div>
         </div>
-        <div class="flex justify-end gap-2 mb-5">
-          <button onclick="_prOpenPayslipPreview('${userId}')" class="px-5 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="eye" class="h-3.5 w-3.5"></i>Preview Payslip</button>
-          <button onclick="_prSavePersonSetup('${userId}')" class="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Setup</button>
+        <div class="flex items-center justify-between gap-2 mb-5">
+          ${!setup.user_id ? '<span></span>' : setup.is_active === false
+            ? `<button onclick="_prSetPersonActive('${userId}', true)" class="px-4 py-2.5 border border-emerald-200 text-emerald-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-50 transition-all flex items-center gap-1.5"><i data-lucide="rotate-ccw" class="h-3.5 w-3.5"></i>Reactivate in Payroll</button>`
+            : `<button onclick="_prSetPersonActive('${userId}', false)" class="px-4 py-2.5 border border-red-200 text-red-500 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-red-50 transition-all flex items-center gap-1.5"><i data-lucide="user-minus" class="h-3.5 w-3.5"></i>Abandon from Payroll</button>`}
+          <div class="flex items-center gap-2">
+            <button onclick="_prOpenPayslipPreview('${userId}')" class="px-5 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="eye" class="h-3.5 w-3.5"></i>Preview Payslip</button>
+            <button onclick="_prSavePersonSetup('${userId}')" class="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Setup</button>
+          </div>
         </div>
         <p class="font-black text-slate-800 text-xs mb-1">Field Overrides — this person only</p>
         <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-3">Blank = falls back to the grade/role default. Same values as each field's own "Values → Manual" screen, just all in one place for this one person.</p>
@@ -17074,6 +17096,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (res && res.result === 'success') { showToast('Person setup saved'); _prSelectPerson(userId); }
       else showToast((res && res.message) || 'Failed to save', 'error');
     }).catch(err => showToast(err.message || 'Failed to save', 'error'));
+  }
+
+  // Payroll-only, reversible removal — the counterpart to HR's own (full,
+  // destructive) Delete User. Never touches their account/login/profile,
+  // only whether the next payroll run pays them; "Show abandoned" in the
+  // roster is the only way back to someone once this hides them.
+  function _prSetPersonActive(userId, isActive) {
+    const verb = isActive ? 'reactivate' : 'abandon';
+    if (!confirm(isActive
+      ? 'Reactivate this person in payroll? They\'ll be included in the next run again.'
+      : 'Abandon this person from payroll? They\'ll stop being paid starting the next run — their account, login, and profile are untouched, and this can be undone any time from "Show abandoned".')) return;
+    _payrollFetch('set_person_active', { user_id: userId, is_active: isActive }).then(res => {
+      if (res && res.result === 'success') { showToast(isActive ? 'Reactivated' : 'Abandoned from payroll'); _prSelectPerson(userId); }
+      else showToast((res && res.message) || `Failed to ${verb}`, 'error');
+    }).catch(err => showToast(err.message || `Failed to ${verb}`, 'error'));
   }
 
   function _prSavePersonFieldOverride(userId, fieldId) {
