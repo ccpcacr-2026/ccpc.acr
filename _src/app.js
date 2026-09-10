@@ -15120,7 +15120,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     conditions.splice(idx, 1);
     _prRenderLogicTree();
   }
-  function _prLogicSetConditionSource(pathStr, idx, value) { _prLogicGetNode(pathStr).if.conditions[idx].source = value; }
+  function _prLogicSetConditionSource(pathStr, idx, value) {
+    const cond = _prLogicGetNode(pathStr).if.conditions[idx];
+    cond.source = value;
+    // Percent of a tenure-in-years doesn't mean anything — drop it if the
+    // source just changed to that.
+    if (value === 'tenure_years') delete cond.source_percent;
+    _prRenderLogicTree();
+  }
+  // The LEFT side can be "N% of field" too — the mirror of
+  // _prLogicSetConditionValuePercent on the right side, e.g. "if 50% of
+  // Basic > 3550" instead of only ever Basic's full value.
+  function _prLogicSetConditionSourcePercent(pathStr, idx, checked) {
+    const cond = _prLogicGetNode(pathStr).if.conditions[idx];
+    if (checked) cond.source_percent = cond.source_percent ?? 100;
+    else delete cond.source_percent;
+    _prRenderLogicTree();
+  }
+  function _prLogicSetConditionSourcePercentValue(pathStr, idx, val) { _prLogicGetNode(pathStr).if.conditions[idx].source_percent = Number(val) || 0; }
   function _prLogicSetConditionOp(pathStr, idx, value) { _prLogicGetNode(pathStr).if.conditions[idx].op = value; }
   function _prLogicSetConditionValue(pathStr, idx, value) { _prLogicGetNode(pathStr).if.conditions[idx].value = Number(value) || 0; }
   // The comparison value can be a plain number, another field's value, or a
@@ -15243,6 +15260,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div class="flex items-center gap-1.5 flex-wrap">
           ${ci > 0 ? `<span class="text-[9px] font-black text-indigo-500 uppercase w-8">${node.if.join === 'OR' ? 'or' : 'and'}</span>` : `<span class="text-[9px] font-black text-indigo-600 uppercase">If</span>`}
           <select onchange="_prLogicSetConditionSource('${pathStr}',${ci},this.value)" class="px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs max-w-[130px]">${_prLogicSourceOptionsHtml(cond.source)}</select>
+          ${cond.source !== 'tenure_years' ? `
+          <label class="flex items-center gap-1 text-[9px] font-black text-slate-500 uppercase cursor-pointer" title="Compare a percent of this field's value instead of the full amount">
+            <input type="checkbox" ${cond.source_percent != null ? 'checked' : ''} onchange="_prLogicSetConditionSourcePercent('${pathStr}',${ci},this.checked)" class="w-3.5 h-3.5 rounded accent-indigo-600">%
+          </label>
+          ${cond.source_percent != null ? `<input type="number" value="${cond.source_percent}" oninput="_prLogicSetConditionSourcePercentValue('${pathStr}',${ci},this.value)" class="w-14 px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs">` : ''}
+          ` : ''}
           <select onchange="_prLogicSetConditionOp('${pathStr}',${ci},this.value)" class="px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-black text-xs">${_prLogicOperatorOptionsHtml(cond.op)}</select>
           ${_prLogicConditionValueHtml(cond, pathStr, ci)}
           ${conditions.length > 1 ? `<button onclick="_prLogicRemoveCondition('${pathStr}',${ci})" class="text-red-400 hover:text-red-600 font-black px-1">&times;</button>` : ''}

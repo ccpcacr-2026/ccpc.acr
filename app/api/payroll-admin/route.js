@@ -205,11 +205,17 @@ function _evalLogicConditionValue(cond, fieldsByKey, ctx, memo, visiting) {
 }
 
 // One comparison within an if node's condition group — source is either
-// another field's key or 'tenure_years'.
+// another field's key or 'tenure_years'; source_percent (field sources
+// only — percent of a tenure doesn't mean anything) lets the LEFT side be
+// "N% of Basic" rather than only ever Basic's full value, e.g. "if 50% of
+// Basic > 3550" — the mirror of _evalLogicConditionValue on the right side.
 function _evalLogicCondition(cond, fieldsByKey, ctx, memo, visiting) {
-  const srcVal = cond.source === 'tenure_years'
-    ? _yearsSince(ctx.joiningDate, ctx.refDate)
-    : _resolveFieldValue(cond.source, fieldsByKey, ctx, memo, visiting);
+  let srcVal;
+  if (cond.source === 'tenure_years') srcVal = _yearsSince(ctx.joiningDate, ctx.refDate);
+  else {
+    srcVal = _resolveFieldValue(cond.source, fieldsByKey, ctx, memo, visiting);
+    if (cond.source_percent != null) srcVal = ((Number(cond.source_percent) || 0) / 100) * srcVal;
+  }
   return _compareOp(srcVal, cond.op, _evalLogicConditionValue(cond, fieldsByKey, ctx, memo, visiting));
 }
 
