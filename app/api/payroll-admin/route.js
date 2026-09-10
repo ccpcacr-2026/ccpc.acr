@@ -1231,7 +1231,14 @@ export async function POST(req) {
       pay_type: normPayType, joining_date, is_active: true,
     };
     const savedPerson = await sbPayroll('person_setup', 'POST', personRow);
-    if (savedPerson?.error) return NextResponse.json({ result: 'error', message: savedPerson.error }, { status: 500 });
+    if (savedPerson?.error) {
+      // Roll back both the login row and the profile row so a failed
+      // person_setup insert (e.g. schema not yet migrated) never leaves an
+      // orphan login account with no payroll record behind.
+      await _teacherSchemaWrite(`users_profile?teacher_id=eq.${encodeURIComponent(teacherId)}`, 'DELETE', {});
+      await _teacherSchemaWrite(`app_users?user_id=eq.${encodeURIComponent(teacherId)}`, 'DELETE', {});
+      return NextResponse.json({ result: 'error', message: savedPerson.error }, { status: 500 });
+    }
 
     if (grade_id) {
       const histRow = { user_id: teacherId, grade_id, step_id: step_id || null, pay_type: normPayType, effective_date: joining_date, created_by: user_id || null };
