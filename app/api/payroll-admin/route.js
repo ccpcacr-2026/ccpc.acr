@@ -154,14 +154,20 @@ function _compareOp(a, op, b) {
 }
 
 // Evaluates one arithmetic "value node" of a logic_tree — terms joined by
-// ops, standard precedence (*, / before +, -), each term either another
-// field's resolved value or a literal constant. Shape: { terms: [{kind:
-// 'field', key} | {kind:'const', value}], ops: ['+','-','*','/', ...] }
-// with terms.length === ops.length + 1.
+// ops, standard precedence (*, / before +, -; max/min lowest, same pass as
+// +/-), each term another field's resolved value, a percent of another
+// field's value, or a literal constant. Shape: { terms: [{kind:'field',
+// key} | {kind:'percent_of_field', key, percent} | {kind:'const', value}],
+// ops: ['+','-','*','/','max','min', ...] } with terms.length === ops.length + 1.
+// 'max' between two values is how a floor/minimum is expressed (the LARGER
+// of the computed amount and a fixed floor); 'min' is a cap/maximum (the
+// SMALLER of the two) — see the matching UI labels in _prLogicOpOptionsHtml.
 function _evalLogicValueNode(node, fieldsByKey, ctx, memo, visiting) {
-  const terms = (node.terms || []).map(t =>
-    t.kind === 'field' ? _resolveFieldValue(t.key, fieldsByKey, ctx, memo, visiting) : (Number(t.value) || 0)
-  );
+  const terms = (node.terms || []).map(t => {
+    if (t.kind === 'field') return _resolveFieldValue(t.key, fieldsByKey, ctx, memo, visiting);
+    if (t.kind === 'percent_of_field') return ((Number(t.percent) || 0) / 100) * _resolveFieldValue(t.key, fieldsByKey, ctx, memo, visiting);
+    return Number(t.value) || 0;
+  });
   if (!terms.length) return 0;
   const ops = node.ops || [];
   // Pass 1: collapse * and / left to right.
@@ -176,9 +182,15 @@ function _evalLogicValueNode(node, fieldsByKey, ctx, memo, visiting) {
       opsLeft.push(ops[i]);
     }
   }
-  // Pass 2: + and - left to right.
+  // Pass 2: +, -, max (floor), min (cap) left to right.
   let result = vals[0];
-  for (let i = 0; i < opsLeft.length; i++) result = opsLeft[i] === '+' ? result + vals[i + 1] : result - vals[i + 1];
+  for (let i = 0; i < opsLeft.length; i++) {
+    const b = vals[i + 1];
+    if (opsLeft[i] === '+') result += b;
+    else if (opsLeft[i] === '-') result -= b;
+    else if (opsLeft[i] === 'max') result = Math.max(result, b);
+    else if (opsLeft[i] === 'min') result = Math.min(result, b);
+  }
   return result;
 }
 

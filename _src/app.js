@@ -15138,10 +15138,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   function _prLogicSetTermKind(pathStr, idx, val) {
     const node = _prLogicGetNode(pathStr);
+    // Picking a field keeps "as %" off by default (kind:'field'); the %
+    // toggle below is what switches it to percent_of_field, independent of
+    // which field is picked here.
     node.terms[idx] = val === '__const__' ? { kind: 'const', value: 0 } : { kind: 'field', key: val };
     _prRenderLogicTree();
   }
   function _prLogicSetTermConst(pathStr, idx, val) { _prLogicGetNode(pathStr).terms[idx].value = Number(val) || 0; }
+  // Toggles a field term between its full resolved value and a percent of
+  // it — e.g. "20% of Basic" instead of only being reachable by multiplying
+  // by 0.2 as a separate constant term.
+  function _prLogicSetTermPercent(pathStr, idx, checked) {
+    const t = _prLogicGetNode(pathStr).terms[idx];
+    if (checked) { t.kind = 'percent_of_field'; if (t.percent == null) t.percent = 100; }
+    else { t.kind = 'field'; delete t.percent; }
+    _prRenderLogicTree();
+  }
+  function _prLogicSetTermPercentValue(pathStr, idx, val) { _prLogicGetNode(pathStr).terms[idx].percent = Number(val) || 0; }
   function _prLogicSetOp(pathStr, idx, val) { _prLogicGetNode(pathStr).ops[idx] = val; }
 
   function _prLogicSourceOptionsHtml(selected) {
@@ -15154,20 +15167,32 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   function _prLogicValueNodeHtml(node, pathStr) {
-    const termsHtml = node.terms.map((t, i) => `
-      ${i > 0 ? `<select onchange="_prLogicSetOp('${pathStr}',${i - 1},this.value)" class="px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-black text-xs">
+    const termsHtml = node.terms.map((t, i) => {
+      const isFieldish = t.kind === 'field' || t.kind === 'percent_of_field';
+      const isPercent = t.kind === 'percent_of_field';
+      return `
+      ${i > 0 ? `<select onchange="_prLogicSetOp('${pathStr}',${i - 1},this.value)" title="max = at least the other value (a floor); min = at most the other value (a cap)" class="px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-black text-xs">
         <option value="+" ${node.ops[i - 1] === '+' ? 'selected' : ''}>+</option>
         <option value="-" ${node.ops[i - 1] === '-' ? 'selected' : ''}>&minus;</option>
         <option value="*" ${node.ops[i - 1] === '*' ? 'selected' : ''}>&times;</option>
         <option value="/" ${node.ops[i - 1] === '/' ? 'selected' : ''}>&divide;</option>
+        <option value="max" ${node.ops[i - 1] === 'max' ? 'selected' : ''}>&ge; Minimum</option>
+        <option value="min" ${node.ops[i - 1] === 'min' ? 'selected' : ''}>&le; Maximum</option>
       </select>` : ''}
       <select onchange="_prLogicSetTermKind('${pathStr}',${i},this.value)" class="px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs max-w-[130px]">
         <option value="__const__" ${t.kind === 'const' ? 'selected' : ''}>Number…</option>
-        ${_prFieldsCache.map(f => `<option value="${f.key}" ${t.kind === 'field' && t.key === f.key ? 'selected' : ''}>${_escHtml(_prFieldLabelWithCategory(f))}</option>`).join('')}
+        ${_prFieldsCache.map(f => `<option value="${f.key}" ${isFieldish && t.key === f.key ? 'selected' : ''}>${_escHtml(_prFieldLabelWithCategory(f))}</option>`).join('')}
       </select>
       ${t.kind === 'const' ? `<input type="number" value="${t.value ?? 0}" oninput="_prLogicSetTermConst('${pathStr}',${i},this.value)" class="w-16 px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs">` : ''}
+      ${isFieldish ? `
+        <label class="flex items-center gap-1 text-[9px] font-black text-slate-500 uppercase cursor-pointer" title="Use a percent of this field's value instead of the full amount">
+          <input type="checkbox" ${isPercent ? 'checked' : ''} onchange="_prLogicSetTermPercent('${pathStr}',${i},this.checked)" class="w-3.5 h-3.5 rounded accent-indigo-600">%
+        </label>
+        ${isPercent ? `<input type="number" value="${t.percent ?? 100}" oninput="_prLogicSetTermPercentValue('${pathStr}',${i},this.value)" class="w-14 px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs">` : ''}
+      ` : ''}
       ${node.terms.length > 1 ? `<button onclick="_prLogicRemoveTerm('${pathStr}',${i})" class="text-red-400 hover:text-red-600 font-black px-1">&times;</button>` : ''}
-    `).join('');
+    `;
+    }).join('');
     return `<div class="flex items-center gap-1 flex-wrap">${termsHtml}<button onclick="_prLogicAddTerm('${pathStr}')" title="Add term" class="text-[9px] font-black text-blue-600 uppercase hover:text-blue-800 ml-1">+ term</button></div>`;
   }
 
