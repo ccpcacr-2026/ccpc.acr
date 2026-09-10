@@ -14056,6 +14056,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button id="prFvModeBtn-manual" onclick="_prSetFieldValuesMode('manual')" class="pr-fv-mode-btn">Manual</button>
             <button id="prFvModeBtn-import" onclick="_prSetFieldValuesMode('import')" class="pr-fv-mode-btn">Import</button>
           </div>
+          <div id="prFvFilterBar" class="flex items-center gap-3 flex-wrap mb-3">
+            <input type="text" id="prFvSearchInput" placeholder="Search by name, designation or ID…" oninput="_prFvSetSearch(this.value)" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" class="flex-1 min-w-[180px] px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            <label class="flex items-center gap-1.5 text-[10px] font-black text-slate-500 uppercase tracking-widest cursor-pointer shrink-0">
+              <input type="checkbox" id="prFvNonZeroCheckbox" onchange="_prFvToggleNonZeroOnly(this.checked)" class="w-4 h-4 rounded accent-blue-600">Non-zero only
+            </label>
+            <span id="prFvCount" class="text-[10px] font-bold text-slate-400 shrink-0"></span>
+          </div>
           <div id="prFvLogicalHint" class="hidden text-[10px] font-bold text-slate-500 bg-slate-50 border border-slate-200 rounded-xl p-3 mb-3">
             Values below are computed live from this field's calculation rule, condition rules, and grade/role defaults.
             <button onclick="_prCloseFieldValues();_prOpenFieldForm(_prFvField)" class="text-blue-600 underline">Edit field</button> ·
@@ -15349,14 +15356,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _prFvField = null;
   let _prFvMode = 'logical';
   let _prFvRows = [];
+  let _prFvSearch = '';
+  let _prFvNonZeroOnly = false;
   const PR_FV_CATEGORIES = ['Teacher School', 'Teacher College', 'Staff'];
 
   function _prOpenFieldValues(fieldId) {
     const field = _prFieldsCache.find(f => f.id === fieldId);
     if (!field) return;
     _prFvField = field;
+    _prFvSearch = '';
+    _prFvNonZeroOnly = false;
     document.getElementById('prFieldValuesTitle').textContent = field.label;
     document.getElementById('prFieldValuesSubtitle').textContent = field.category === 'deduction' ? 'Deduction' : 'Addition';
+    document.getElementById('prFvSearchInput').value = '';
+    document.getElementById('prFvNonZeroCheckbox').checked = false;
     document.getElementById('prFieldValuesModal').classList.remove('hidden');
     _prSetFieldValuesMode('logical');
     _prLoadFieldValues();
@@ -15371,10 +15384,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
     const logicalHint = document.getElementById('prFvLogicalHint');
     const importHint = document.getElementById('prFvImportHint');
+    const filterBar = document.getElementById('prFvFilterBar');
     if (logicalHint) logicalHint.classList.toggle('hidden', mode !== 'logical');
     if (importHint) importHint.classList.toggle('hidden', mode !== 'import');
+    // Search/non-zero filtering only makes sense against an actual list of
+    // people and values — Import is just an upload control, nothing to
+    // filter there.
+    if (filterBar) filterBar.classList.toggle('hidden', mode === 'import');
     _prRenderFieldValuesLists();
   }
+
+  // Both re-render on every keystroke/toggle — the list is at most a few
+  // hundred rows, cheap to rebuild, and this keeps "search for someone" and
+  // "give them a value" (Manual mode) a single flow instead of a separate
+  // apply step.
+  function _prFvSetSearch(value) { _prFvSearch = value; _prRenderFieldValuesLists(); }
+  function _prFvToggleNonZeroOnly(checked) { _prFvNonZeroOnly = checked; _prRenderFieldValuesLists(); }
 
   function _prLoadFieldValues() {
     if (!_prFvField) return;
@@ -15393,18 +15418,43 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const host = document.getElementById('prFvLists');
     if (!host || !_prFvField) return;
     const byUser = {}; _prFvRows.forEach(r => { byUser[r.user_id] = r; });
+    const mode = _prFvMode;
+    const q = _prFvSearch.trim().toLowerCase();
+
+    // Non-zero only asks about the value actually in effect (manual
+    // override if set, else the live logical result) regardless of which
+    // mode you're viewing in — "who's actually getting this field" is the
+    // same question whether you're looking at Logical or Manual.
+    const totalStaff = (allStaffCache || []).length;
+    const visibleStaff = (allStaffCache || []).filter(s => {
+      if (q) {
+        const hay = `${s.full_name || ''} ${s.designation || ''} ${s.teacher_id || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      if (_prFvNonZeroOnly) {
+        const r = byUser[s.teacher_id] || {};
+        const effective = r.manual_value != null ? r.manual_value : r.logical_value;
+        if (!effective) return false;
+      }
+      return true;
+    });
+
+    const countEl = document.getElementById('prFvCount');
+    if (countEl) countEl.textContent = (q || _prFvNonZeroOnly) ? `Showing ${visibleStaff.length} of ${totalStaff}` : '';
+
     const staffByCategory = {};
     PR_FV_CATEGORIES.forEach(c => { staffByCategory[c] = []; });
     const other = [];
-    (allStaffCache || []).forEach(s => {
+    visibleStaff.forEach(s => {
       const cat = (s.category || '').trim();
       (staffByCategory[cat] || other).push(s);
     });
     if (other.length) staffByCategory['Other'] = other;
 
-    const mode = _prFvMode;
     const groups = Object.keys(staffByCategory).filter(c => staffByCategory[c].length);
-    host.innerHTML = groups.length ? groups.map(cat => {
+    if (!totalStaff) { host.innerHTML = `<p class="text-slate-400 font-bold text-xs p-4 text-center">No staff found — check System &gt; Users.</p>`; return; }
+    if (!groups.length) { host.innerHTML = `<p class="text-slate-400 font-bold text-xs p-4 text-center">No one matches${q ? ` "${_escHtml(_prFvSearch)}"` : ''}${_prFvNonZeroOnly ? ' with a non-zero value' : ''}.</p>`; return; }
+    host.innerHTML = groups.map(cat => {
       const rowsHtml = staffByCategory[cat].map(s => {
         const r = byUser[s.teacher_id] || {};
         const manual = r.manual_value, logical = r.logical_value;
@@ -15427,7 +15477,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <table class="w-full text-left border-collapse text-xs"><tbody>${rowsHtml}</tbody></table>
         </div>
       </div>`;
-    }).join('') : `<p class="text-slate-400 font-bold text-xs p-4 text-center">No staff found — check System &gt; Users.</p>`;
+    }).join('');
   }
 
   function _prSaveFieldValue(userId, value) {

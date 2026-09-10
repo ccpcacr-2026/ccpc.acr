@@ -59,6 +59,7 @@ const RESERVED = [
   '_prLogicSetTermPercent','_prLogicSetTermPercentValue',
   '_prSaveLogicTree','_prClearLogicTree',
   '_prSetFieldsCategoryFilter','_prOpenFieldValues','_prCloseFieldValues','_prSetFieldValuesMode','_prSaveFieldValue','_prOpenFieldValuesImport',
+  '_prFvSetSearch','_prFvToggleNonZeroOnly',
   '_prOpenConditionRuleForm','_prCloseConditionRuleForm','_prToggleConditionThenFields','_prSaveConditionRule','_prDeleteConditionRule',
   '_prOpenGradeForm','_prCloseGradeForm','_prSaveGrade','_prDeleteGrade','_prSelectGrade','_prSaveGradeField','_prToggleGradeConditionalField',
   '_prSelectPerson','_prSavePersonSetup','_prSavePersonFieldOverride',
