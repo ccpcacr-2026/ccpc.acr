@@ -1095,7 +1095,15 @@ export async function POST(req) {
     // roster's Pay Type pill does; a plain grade/step edit doesn't) — this
     // stays the narrow, single-purpose save the comment above promises.
     if (pay_type) rowData.pay_type = pay_type === 'contractual' ? 'contractual' : 'regular';
-    const existing = await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(personId)}&select=user_id,grade_id,step_id,pay_type`);
+    // select=user_id,grade_id,step_id only — NOT pay_type. Before the
+    // Contractual-system migration is run, pay_type doesn't exist as a
+    // column yet; asking for it here would make this whole select fail
+    // (existing?.error truthy), which previously fell through to the POST
+    // branch below and hit a duplicate-key error for every row that
+    // already existed. pay_type is only ever read from `prior` for the
+    // history-change comparison further down, which safely treats a
+    // missing/undefined value as "no prior pay_type" either way.
+    const existing = await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(personId)}&select=user_id,grade_id,step_id`);
     const prior = !existing?.error && existing[0];
     const saved = (!existing?.error && existing.length)
       ? await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(personId)}`, 'PATCH', rowData)
