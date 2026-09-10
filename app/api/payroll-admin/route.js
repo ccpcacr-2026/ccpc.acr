@@ -194,13 +194,23 @@ function _evalLogicValueNode(node, fieldsByKey, ctx, memo, visiting) {
   return result;
 }
 
+// The right-hand side of a condition — a literal number (value_kind
+// 'const', or absent, for every tree saved before this existed), another
+// field's resolved value ('field'), or a percent of one ('percent_of_field')
+// — the same three kinds a Then/Else value-node term can be.
+function _evalLogicConditionValue(cond, fieldsByKey, ctx, memo, visiting) {
+  if (cond.value_kind === 'field') return _resolveFieldValue(cond.value_key, fieldsByKey, ctx, memo, visiting);
+  if (cond.value_kind === 'percent_of_field') return ((Number(cond.value_percent) || 0) / 100) * _resolveFieldValue(cond.value_key, fieldsByKey, ctx, memo, visiting);
+  return Number(cond.value) || 0;
+}
+
 // One comparison within an if node's condition group — source is either
 // another field's key or 'tenure_years'.
 function _evalLogicCondition(cond, fieldsByKey, ctx, memo, visiting) {
   const srcVal = cond.source === 'tenure_years'
     ? _yearsSince(ctx.joiningDate, ctx.refDate)
     : _resolveFieldValue(cond.source, fieldsByKey, ctx, memo, visiting);
-  return _compareOp(srcVal, cond.op, Number(cond.value));
+  return _compareOp(srcVal, cond.op, _evalLogicConditionValue(cond, fieldsByKey, ctx, memo, visiting));
 }
 
 // Recursively evaluates a field's Advanced Logic tree (payroll.fields.

@@ -15093,7 +15093,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     node[parts[parts.length - 1]] = newNode;
   }
   function _prLogicEmptyValueNode() { return { terms: [{ kind: 'const', value: 0 }], ops: [] }; }
-  function _prLogicEmptyCondition() { return { source: _prFieldsCache[0] ? _prFieldsCache[0].key : '', op: '>', value: 0 }; }
+  function _prLogicEmptyCondition() { return { source: _prFieldsCache[0] ? _prFieldsCache[0].key : '', op: '>', value_kind: 'const', value: 0 }; }
 
   function _prLogicWrapInIf(pathStr) {
     const current = _prLogicGetNode(pathStr) || _prLogicEmptyValueNode();
@@ -15123,6 +15123,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _prLogicSetConditionSource(pathStr, idx, value) { _prLogicGetNode(pathStr).if.conditions[idx].source = value; }
   function _prLogicSetConditionOp(pathStr, idx, value) { _prLogicGetNode(pathStr).if.conditions[idx].op = value; }
   function _prLogicSetConditionValue(pathStr, idx, value) { _prLogicGetNode(pathStr).if.conditions[idx].value = Number(value) || 0; }
+  // The comparison value can be a plain number, another field's value, or a
+  // percent of one — same three kinds a Then/Else term can be (see
+  // _prLogicSetTermKind/_prLogicSetTermPercent), just for the "if" side.
+  function _prLogicSetConditionValueKind(pathStr, idx, val) {
+    const cond = _prLogicGetNode(pathStr).if.conditions[idx];
+    if (val === '__const__') { cond.value_kind = 'const'; cond.value = cond.value ?? 0; delete cond.value_key; delete cond.value_percent; }
+    else { cond.value_kind = 'field'; cond.value_key = val; delete cond.value_percent; }
+    _prRenderLogicTree();
+  }
+  function _prLogicSetConditionValuePercent(pathStr, idx, checked) {
+    const cond = _prLogicGetNode(pathStr).if.conditions[idx];
+    if (checked) { cond.value_kind = 'percent_of_field'; if (cond.value_percent == null) cond.value_percent = 100; }
+    else cond.value_kind = 'field';
+    _prRenderLogicTree();
+  }
+  function _prLogicSetConditionValuePercentValue(pathStr, idx, val) { _prLogicGetNode(pathStr).if.conditions[idx].value_percent = Number(val) || 0; }
 
   function _prLogicAddTerm(pathStr) {
     const node = _prLogicGetNode(pathStr);
@@ -15196,6 +15212,27 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return `<div class="flex items-center gap-1 flex-wrap">${termsHtml}<button onclick="_prLogicAddTerm('${pathStr}')" title="Add term" class="text-[9px] font-black text-blue-600 uppercase hover:text-blue-800 ml-1">+ term</button></div>`;
   }
 
+  // An "if" condition's comparison value — same three kinds a Then/Else
+  // term can be (plain number, another field's value, or a percent of one),
+  // e.g. "If Basic > 20% of Gross" instead of only a hardcoded number.
+  // value_kind absent (every tree saved before this existed) reads as 'const'.
+  function _prLogicConditionValueHtml(cond, pathStr, ci) {
+    const isFieldish = cond.value_kind === 'field' || cond.value_kind === 'percent_of_field';
+    const isPercent = cond.value_kind === 'percent_of_field';
+    return `
+      <select onchange="_prLogicSetConditionValueKind('${pathStr}',${ci},this.value)" class="px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs max-w-[130px]">
+        <option value="__const__" ${!isFieldish ? 'selected' : ''}>Number…</option>
+        ${_prFieldsCache.map(f => `<option value="${f.key}" ${isFieldish && cond.value_key === f.key ? 'selected' : ''}>${_escHtml(_prFieldLabelWithCategory(f))}</option>`).join('')}
+      </select>
+      ${!isFieldish ? `<input type="number" value="${cond.value ?? 0}" oninput="_prLogicSetConditionValue('${pathStr}',${ci},this.value)" class="w-16 px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs">` : ''}
+      ${isFieldish ? `
+        <label class="flex items-center gap-1 text-[9px] font-black text-slate-500 uppercase cursor-pointer" title="Use a percent of this field's value instead of the full amount">
+          <input type="checkbox" ${isPercent ? 'checked' : ''} onchange="_prLogicSetConditionValuePercent('${pathStr}',${ci},this.checked)" class="w-3.5 h-3.5 rounded accent-indigo-600">%
+        </label>
+        ${isPercent ? `<input type="number" value="${cond.value_percent ?? 100}" oninput="_prLogicSetConditionValuePercentValue('${pathStr}',${ci},this.value)" class="w-14 px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs">` : ''}
+      ` : ''}`;
+  }
+
   function _prLogicRenderNode(node, pathStr) {
     if (!node) return '';
     if (node.if) {
@@ -15207,7 +15244,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           ${ci > 0 ? `<span class="text-[9px] font-black text-indigo-500 uppercase w-8">${node.if.join === 'OR' ? 'or' : 'and'}</span>` : `<span class="text-[9px] font-black text-indigo-600 uppercase">If</span>`}
           <select onchange="_prLogicSetConditionSource('${pathStr}',${ci},this.value)" class="px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs max-w-[130px]">${_prLogicSourceOptionsHtml(cond.source)}</select>
           <select onchange="_prLogicSetConditionOp('${pathStr}',${ci},this.value)" class="px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-black text-xs">${_prLogicOperatorOptionsHtml(cond.op)}</select>
-          <input type="number" value="${cond.value ?? 0}" oninput="_prLogicSetConditionValue('${pathStr}',${ci},this.value)" class="w-16 px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs">
+          ${_prLogicConditionValueHtml(cond, pathStr, ci)}
           ${conditions.length > 1 ? `<button onclick="_prLogicRemoveCondition('${pathStr}',${ci})" class="text-red-400 hover:text-red-600 font-black px-1">&times;</button>` : ''}
         </div>`).join('');
       return `<div class="border-l-2 border-indigo-300 pl-3 my-2">

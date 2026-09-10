@@ -53,6 +53,7 @@ const RESERVED = [
   '_prOpenFieldConditions','_prCloseFieldConditions','_prToggleFieldApplicableRole','_prToggleFieldApplicableCategory',
   '_prLogicWrapInIf','_prLogicRemoveIf','_prLogicSetJoin','_prLogicAddCondition','_prLogicRemoveCondition',
   '_prLogicSetConditionSource','_prLogicSetConditionOp','_prLogicSetConditionValue',
+  '_prLogicSetConditionValueKind','_prLogicSetConditionValuePercent','_prLogicSetConditionValuePercentValue',
   '_prLogicAddTerm','_prLogicRemoveTerm','_prLogicSetTermKind','_prLogicSetTermConst','_prLogicSetOp',
   '_prLogicSetTermPercent','_prLogicSetTermPercentValue',
   '_prSaveLogicTree','_prClearLogicTree',
