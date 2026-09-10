@@ -1696,6 +1696,19 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success', field, rows });
   }
 
+  // One person's manual overrides across every field in one call — the
+  // person-centric counterpart to get_field_values (which is one field
+  // across every person) — feeds the People Setup detail panel's "Field
+  // Overrides" section so editing one person's values doesn't require
+  // hunting through each field's own Values screen for their row.
+  if (action === 'get_person_field_values') {
+    const { user_id: personId } = payload;
+    if (!personId) return NextResponse.json({ result: 'error', message: 'user_id required' }, { status: 400 });
+    const rows = await sbPayroll(`person_field_values?user_id=eq.${encodeURIComponent(personId)}&select=*`);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', values: (rows && rows[0]) || {} });
+  }
+
   if (action === 'save_field_value') {
     const { field_key, user_id: personId, value } = payload;
     if (!field_key || !personId) return NextResponse.json({ result: 'error', message: 'field_key and user_id required' }, { status: 400 });

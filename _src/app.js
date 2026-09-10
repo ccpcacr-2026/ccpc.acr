@@ -16110,8 +16110,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _prSelectedPersonId = userId;
     const detail = document.getElementById('prPersonDetail');
     detail.innerHTML = `<p class="text-slate-400 font-bold text-xs p-4">Loading…</p>`;
-    _payrollFetch('get_people_setup', {}).then(peopleRes => {
+    Promise.all([
+      _payrollFetch('get_people_setup', {}),
+      _prFieldsCache.length ? Promise.resolve({ result: 'success', fields: _prFieldsCache }) : _payrollFetch('get_fields', {}),
+      _payrollFetch('get_person_field_values', { user_id: userId }),
+    ]).then(([peopleRes, fieldsRes, valuesRes]) => {
       _prPeopleSetupCache = (peopleRes && peopleRes.result === 'success' && peopleRes.people) || [];
+      _prFieldsCache = (fieldsRes && fieldsRes.result === 'success' && fieldsRes.fields) || _prFieldsCache;
+      const personFieldValues = (valuesRes && valuesRes.result === 'success' && valuesRes.values) || {};
       _prRenderPeopleRoster();
       const setup = _prPeopleSetupCache.find(p => p.user_id === userId) || {};
       const label = staffLabel(userId);
@@ -16184,10 +16190,34 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button onclick="_prOpenPayslipPreview('${userId}')" class="px-5 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="eye" class="h-3.5 w-3.5"></i>Preview Payslip</button>
           <button onclick="_prSavePersonSetup('${userId}')" class="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Setup</button>
         </div>
-        <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest bg-slate-50 border border-slate-200 rounded-xl p-3">To set this person's amount for a specific field (Basic, House Rent, EMI, etc.), open that field's "Values" button under Additions &amp; Deductions and switch to Manual — it lists everyone by category with an editable amount, same place as Import.</p>
+        <p class="font-black text-slate-800 text-xs mb-1">Field Overrides — this person only</p>
+        <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-3">Blank = falls back to the grade/role default. Same values as each field's own "Values → Manual" screen, just all in one place for this one person.</p>
+        <div class="overflow-auto border border-slate-200 rounded-xl">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Field</th><th class="py-2 px-3">Manual Value</th></tr></thead>
+            <tbody>
+              ${_prFieldsCache.filter(f => !f.is_grade_conditional).map(f => {
+                const isDeduction = f.category === 'deduction';
+                const val = personFieldValues[f.key];
+                return `<tr class="border-b border-slate-50" style="border-left:3px solid ${isDeduction ? '#ef4444' : '#10b981'}">
+                  <td class="py-1.5 px-3 font-black ${isDeduction ? 'text-red-500' : 'text-emerald-600'}">${_escHtml(f.label)}</td>
+                  <td class="py-1.5 px-3"><input type="number" value="${val != null ? val : ''}" placeholder="— (default)" onchange="_prSaveSinglePersonFieldValue('${userId}','${f.key}',this.value)" class="w-32 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></td>
+                </tr>`;
+              }).join('') || `<tr><td colspan="2" class="p-3 text-slate-400 font-bold text-xs text-center">No fields yet.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
       `;
       _prRenderPersonStepOptions(setup.step_id);
+      lucide.createIcons();
     });
+  }
+
+  function _prSaveSinglePersonFieldValue(userId, fieldKey, value) {
+    _payrollFetch('save_field_value', { field_key: fieldKey, user_id: userId, value }).then(res => {
+      if (res && res.result === 'success') showToast('Saved');
+      else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
   }
 
   // Rebuilds #prPersonStep's options — full global step list (same as the
