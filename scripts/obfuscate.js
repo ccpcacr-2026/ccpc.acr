@@ -77,7 +77,7 @@ const RESERVED = [
   '_prOpenSectionEntryForm','_prCloseSectionEntryForm','_prSaveSectionEntry','_prUpdateSectionEntryStatus','_prDeleteSectionEntry',
   '_prRunPayroll','_prSelectRun','_prSubmitRunForApproval','_prApproveRun','_prDeleteRun','_prRevertRunToDraft',
   '_prLockRun','_prUnlockRun',
-  '_prBulkAddAllStaff','_prLoadExportColumns','_prSetExportFormat','_prRemoveExportColumn','loadPayrollAuditLog',
+  '_prBulkAddAllStaff','_prLoadExportColumns','_prSetExportFormat','_prSetAllHeaderRotation','_prRemoveExportColumn','loadPayrollAuditLog',
   '_prOpenDesignationCategoryMapper','_prSaveDesignationCategoryMap','_prApplyDesignationCategoryMapToAllStaff',
   '_prOpenCategoryTreeManager','_prAddCategoryGroup','_prRenameCategoryGroup','_prDeleteCategoryGroup',
   '_prAddCategorySubgroup','_prRenameCategorySubgroup','_prDeleteCategorySubgroup',

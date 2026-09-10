@@ -14496,8 +14496,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div id="prExportOrderPreview" class="flex flex-col gap-1 max-h-64 overflow-y-auto"></div>
         </div>
         <div class="bg-white rounded-2xl border border-slate-200 p-4">
-          <p class="font-black text-slate-800 text-xs mb-1">Columns</p>
-          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-3">Pick which columns to export. "Data" formats the values; "Header" formats the column title itself — bold/italic/color/background, and rotation for narrow columns (PDF supports all 4 angles; Excel's own rotation model only cleanly supports 0°/90°)</p>
+          <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
+            <p class="font-black text-slate-800 text-xs">Columns</p>
+            <div class="flex items-center gap-2">
+              <button onclick="_prSetAllHeaderRotation(90)" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Vertical Headers</button>
+              <button onclick="_prSetAllHeaderRotation(0)" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Horizontal Headers</button>
+            </div>
+          </div>
+          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-3">Pick which columns to export. "Data" formats the values; "Header" formats the column title itself — bold/italic/color/background, and rotation for narrow columns (PDF supports all 4 angles; Excel's own rotation model only cleanly supports 0°/90°). "Vertical Headers" applies 90° to every column except Person in one click — the export is easiest to read this way once you have more than a handful of columns.</p>
           <div class="overflow-auto border border-slate-200 rounded-xl">
             <table class="w-full text-left border-collapse text-xs">
               <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
@@ -18162,7 +18168,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         headerItalic: priorState[c.key] ? priorState[c.key].headerItalic : false,
         headerColor: priorState[c.key] ? priorState[c.key].headerColor : '',
         headerBg: priorState[c.key] ? priorState[c.key].headerBg : '',
-        headerRotation: priorState[c.key] ? priorState[c.key].headerRotation : 0,
+        // Vertical by default for every narrow numeric column — a payroll
+        // export easily has 20-30 columns, and horizontal headers force
+        // each one wide enough to fit its own label, which is what made
+        // earlier exports look sprawling and disorganized. 'person' stays
+        // horizontal since a name column is naturally wide text anyway.
+        headerRotation: priorState[c.key] ? priorState[c.key].headerRotation : (c.key === 'person' ? 0 : 90),
       })).concat(priorVirtuals);
       _prRenderExportColumnsTable();
       _prRenderExportOrderPreview();
@@ -18198,6 +18209,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (col) col[prop] = value;
   }
 
+  // Bulk-set every column's header rotation in one click — 'person' (the
+  // name column) is left alone since it's naturally wide text and rotating
+  // it vertical would make it harder to read, not easier.
+  function _prSetAllHeaderRotation(deg) {
+    _prExportColumnsCache.forEach(c => { if (c.key !== 'person') c.headerRotation = deg; });
+    _prRenderExportColumnsTable();
+    showToast(deg ? 'Headers set to vertical' : 'Headers set to horizontal');
+  }
+
   function _prRemoveExportColumn(key) {
     _prExportColumnsCache = _prExportColumnsCache.filter(c => c.key !== key);
     _prRenderExportColumnsTable();
@@ -18225,7 +18245,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _prExportColumnsCache.push({
       key, label: name, type: 'virtual', vtype, sources, included: true,
       bold: false, italic: false, color: '',
-      headerBold: false, headerItalic: false, headerColor: '', headerBg: '', headerRotation: 0,
+      headerBold: false, headerItalic: false, headerColor: '', headerBg: '', headerRotation: 90,
     });
     _prRenderExportColumnsTable();
     _prCloseVirtualColumnForm();
