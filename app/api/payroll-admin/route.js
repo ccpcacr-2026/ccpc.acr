@@ -330,18 +330,25 @@ function _resolveFieldValue(fieldKey, fieldsByKey, ctx, memo, visiting) {
 // reference data fetched once per run (fields, grade/role config tables,
 // statutory items, active section entries, pending bonuses) so run_payroll
 // doesn't refetch per person.
-function _computePayslipForPerson(personSetup, role, category, ref, month, year) {
+function _computePayslipForPerson(personSetup, roles, category, ref, month, year) {
+  const roleList = Array.isArray(roles) ? roles : (roles ? [roles] : []);
   const gradeId = personSetup?.grade_id || null;
   const applicableFields = ref.fields.filter(f => {
     if (f.is_grade_conditional && !(gradeId && ref.gradeConditionalSet.has(`${gradeId}:${f.id}`))) return false;
-    if (f.is_role_conditional && !(ref.applicableRolesByField[f.id] || new Set()).has(role)) return false;
+    if (f.is_role_conditional && !roleList.some(r => (ref.applicableRolesByField[f.id] || new Set()).has(r))) return false;
     if (f.is_category_conditional && !(ref.applicableCategoriesByField[f.id] || new Set()).has(category)) return false;
     return true;
   });
   const fieldsByKey = {}; ref.fields.forEach(f => { fieldsByKey[f.key] = f; });
 
   const gradeFieldsByField = {}; (gradeId ? (ref.gradeFieldsByGrade[gradeId] || []) : []).forEach(g => { gradeFieldsByField[g.field_id] = g; });
-  const roleDefaultsByField = {}; ref.roleDefaults.filter(r => r.role === role).forEach(r => { roleDefaultsByField[r.field_id] = r; });
+  // If more than one of the person's roles has its own default for the same
+  // field, the earlier role in their role list wins — same "first listed
+  // role is primary" convention the rest of the app already uses.
+  const roleDefaultsByField = {};
+  roleList.forEach(r => {
+    ref.roleDefaults.filter(rd => rd.role === r).forEach(rd => { if (!(rd.field_id in roleDefaultsByField)) roleDefaultsByField[rd.field_id] = rd; });
+  });
 
   const ctx = {
     personFieldValuesRow: ref.personFieldValuesByUser[personSetup.user_id] || null,
@@ -478,11 +485,14 @@ async function _loadPayrollRef(userIds, month, year) {
   };
 }
 
+// Returns every role a person holds (app_users.role is comma-separated,
+// e.g. "Teacher,VP") — a role-conditional field must match ANY of them,
+// not just whichever happens to be listed first.
 async function _rolesForUsers(userIds) {
   if (!userIds.length) return {};
   const rows = await _teacherSchemaFetch(`app_users?user_id=in.(${userIds.map(id => encodeURIComponent(id)).join(',')})&select=user_id,role`);
   const map = {};
-  (Array.isArray(rows) ? rows : []).forEach(r => { map[r.user_id] = String(r.role || '').split(',')[0].trim(); });
+  (Array.isArray(rows) ? rows : []).forEach(r => { map[r.user_id] = String(r.role || '').split(',').map(s => s.trim()).filter(Boolean); });
   return map;
 }
 
@@ -523,7 +533,7 @@ async function _runPayrollForPeriod(month, year, actorUserId) {
   const roles = await _rolesForUsers(people.map(p => p.user_id));
   const categories = await _categoriesForUsers(people.map(p => p.user_id));
   const ref = await _loadPayrollRef(people.map(p => p.user_id), month, year);
-  const slips = people.map(p => _computePayslipForPerson(p, roles[p.user_id] || '', categories[p.user_id] || '', ref, Number(month), Number(year)));
+  const slips = people.map(p => _computePayslipForPerson(p, roles[p.user_id] || [], categories[p.user_id] || '', ref, Number(month), Number(year)));
 
   for (const slip of slips) {
     const rowData = { run_id: run.id, ...slip };
@@ -1784,7 +1794,7 @@ export async function POST(req) {
     const ref = await _loadPayrollRef(userIds, month, year);
     const logicalByUser = {};
     peopleList.forEach(p => {
-      const slip = _computePayslipForPerson(p, roles[p.user_id] || '', categories[p.user_id] || '', ref, month, year);
+      const slip = _computePayslipForPerson(p, roles[p.user_id] || [], categories[p.user_id] || '', ref, month, year);
       logicalByUser[p.user_id] = slip.field_values[field.key] ?? 0;
     });
 
@@ -1918,7 +1928,7 @@ export async function POST(req) {
     const roles = await _rolesForUsers([personId]);
     const categories = await _categoriesForUsers([personId]);
     const ref = await _loadPayrollRef([personId], month, year);
-    const slip = _computePayslipForPerson(personSetup, roles[personId] || '', categories[personId] || '', ref, Number(month), Number(year));
+    const slip = _computePayslipForPerson(personSetup, roles[personId] || [], categories[personId] || '', ref, Number(month), Number(year));
     // Enrich section_amounts (keyed by entry id -> a bare number in `slip`)
     // with the section's own name/direction, and give the frontend a label
     // for every `statutory:<key>` field_values entry — both are looked up
