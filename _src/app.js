@@ -14073,6 +14073,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <span>Upload an Excel sheet with columns: <b>user_id</b>, <b>value</b> — existing values for those people are overwritten.</span>
             <button onclick="_prOpenFieldValuesImport()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5 shrink-0"><i data-lucide="upload" class="h-3.5 w-3.5"></i>Import Excel</button>
           </div>
+          <div id="prFvBulkBar" class="hidden items-center gap-2 flex-wrap bg-amber-50 border border-amber-200 rounded-xl p-2.5 mb-3">
+            <label class="flex items-center gap-1.5 text-[10px] font-black text-amber-700 uppercase cursor-pointer shrink-0">
+              <input type="checkbox" id="prFvSelectAllVisible" onchange="_prFvToggleSelectAllVisible(this.checked)" class="w-4 h-4 rounded accent-amber-600">Select all visible
+            </label>
+            <span id="prFvSelectedCount" class="text-[10px] font-bold text-amber-700 shrink-0">0 selected</span>
+            <input type="number" id="prFvBulkValue" placeholder="Amount" class="w-28 px-2 py-1.5 bg-white border border-amber-200 rounded-lg font-bold text-xs">
+            <button onclick="_prFvBulkApply(this)" class="px-3 py-1.5 bg-amber-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all shrink-0">Apply to Selected</button>
+            <span class="text-[9px] text-amber-600 font-bold w-full">Handy for a shared rate across many people at once — e.g. the same Class Teacher allowance for 70+ teachers.</span>
+          </div>
           <div id="prFvLists"></div>
         </div>
       </div>
@@ -14087,6 +14096,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <div class="flex gap-1.5">
               <button id="prGradesSubtabBtn-grades" onclick="_prSwitchGradesSubtab('grades')" class="px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all bg-blue-600 text-white">Grades</button>
               <button id="prGradesSubtabBtn-steps" onclick="_prSwitchGradesSubtab('steps')" class="px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all bg-white text-slate-400 border border-slate-200 hover:bg-slate-50">Pay Scale Grid</button>
+              <button id="prGradesSubtabBtn-special" onclick="_prSwitchGradesSubtab('special')" class="px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all bg-white text-slate-400 border border-slate-200 hover:bg-slate-50">Special Allowances</button>
             </div>
             <div class="flex gap-1.5 border-l border-slate-200 pl-3">
               <button id="prGradeSystemBtn-regular" onclick="_prSwitchGradeSystem('regular')" class="px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all bg-slate-800 text-white">Regular</button>
@@ -14116,6 +14126,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button id="prAddStepBtn" onclick="_prAddPayStep()" disabled class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Step</button>
           </div>
           <div id="prPayScaleGrid" class="overflow-auto"><p class="text-slate-400 font-bold text-xs p-4 text-center">Loading…</p></div>
+        </div>
+        <div id="prGradesSubtab-special" class="hidden bg-white rounded-2xl border border-slate-200 p-4">
+          <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+            <div>
+              <p class="font-black text-slate-800 text-xs">Special Allowances</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Position-specific stipends (Charge Allowance, Coordinator, Mobile Bill, etc.) — not tied to Grade, assigned straight to whichever person(s) hold that duty</p>
+            </div>
+            <button id="prAddSpecialBtn" onclick="_prOpenFieldForm(null,'special')" disabled class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Allowance</button>
+          </div>
+          <div id="prSpecialAllowancesList" class="space-y-1.5"><p class="text-slate-400 font-bold text-xs">Loading…</p></div>
         </div>
       </div>
       <div id="pr-people" style="display:none">
@@ -14564,6 +14584,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 <select id="prFieldCategory" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
                   <option value="earning">Earning (add)</option>
                   <option value="deduction">Deduction (subtract)</option>
+                  <option value="special">Special Allowance (add, person-specific)</option>
                 </select>
               </div>
               <div>
@@ -14961,12 +14982,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (tip) tip.classList.add('hidden');
   }
 
-  function _prOpenFieldForm(field) {
-    document.getElementById('prFieldFormTitle').textContent = field ? 'Edit Field' : 'Add Field';
+  function _prOpenFieldForm(field, defaultCategory) {
+    document.getElementById('prFieldFormTitle').textContent = field ? 'Edit Field' : (defaultCategory === 'special' ? 'Add Special Allowance' : 'Add Field');
     document.getElementById('prFieldId').value = field ? field.id : '';
     document.getElementById('prFieldKey').value = field ? field.key : '';
     document.getElementById('prFieldLabel').value = field ? field.label : '';
-    document.getElementById('prFieldCategory').value = field ? field.category : 'earning';
+    document.getElementById('prFieldCategory').value = field ? field.category : (defaultCategory || 'earning');
     document.getElementById('prFieldCalcMode').value = field ? field.calc_mode : 'fixed';
     document.getElementById('prFieldIncrementMode').value = (field && field.increment_mode) || '';
     document.getElementById('prFieldIncrementValue').value = (field && field.increment_value != null) ? field.increment_value : '';
@@ -15365,12 +15386,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _prFvNonZeroOnly = false;
   const PR_FV_CATEGORIES = ['Teacher School', 'Teacher College', 'Staff'];
 
+  // Which rows are checked in Manual mode's bulk toolbar — a Set so
+  // checking someone, searching to narrow the list, then checking someone
+  // else doesn't lose the first pick. Cleared whenever a different field's
+  // Values popup opens.
+  let _prFvSelected = new Set();
+
   function _prOpenFieldValues(fieldId) {
     const field = _prFieldsCache.find(f => f.id === fieldId);
     if (!field) return;
     _prFvField = field;
     _prFvSearch = '';
     _prFvNonZeroOnly = false;
+    _prFvSelected = new Set();
     document.getElementById('prFieldValuesTitle').textContent = field.label;
     document.getElementById('prFieldValuesSubtitle').textContent = field.category === 'deduction' ? 'Deduction' : 'Addition';
     document.getElementById('prFvSearchInput').value = '';
@@ -15444,12 +15472,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const logicalHint = document.getElementById('prFvLogicalHint');
     const importHint = document.getElementById('prFvImportHint');
     const filterBar = document.getElementById('prFvFilterBar');
+    const bulkBar = document.getElementById('prFvBulkBar');
     if (logicalHint) logicalHint.classList.toggle('hidden', mode !== 'logical');
     if (importHint) importHint.classList.toggle('hidden', mode !== 'import');
     // Search/non-zero filtering only makes sense against an actual list of
     // people and values — Import is just an upload control, nothing to
     // filter there.
     if (filterBar) filterBar.classList.toggle('hidden', mode === 'import');
+    // Bulk select-and-apply is a Manual-mode thing only — Logical has
+    // nothing to set, Import already does its own bulk via file upload.
+    if (bulkBar) { bulkBar.classList.toggle('hidden', mode !== 'manual'); bulkBar.classList.toggle('flex', mode === 'manual'); }
     _prRenderFieldValuesLists();
   }
 
@@ -15525,6 +15557,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           valueCell = `<span class="font-black text-slate-700">${shown != null ? '৳' + Number(shown).toLocaleString() : '—'}</span>${manual != null ? ' <span class="text-[9px] text-blue-600 font-black uppercase">(manual)</span>' : ''}`;
         }
         return `<tr class="border-b border-slate-50">
+          ${mode === 'manual' ? `<td class="py-1.5 px-3"><input type="checkbox" class="prFvRowCheck w-4 h-4 rounded accent-amber-600" data-uid="${s.teacher_id}" ${_prFvSelected.has(s.teacher_id) ? 'checked' : ''} onchange="_prFvToggleRowSelected('${s.teacher_id}',this.checked)"></td>` : ''}
           <td class="py-1.5 px-3 font-bold text-slate-700">${s.full_name || s.teacher_id}</td>
           <td class="py-1.5 px-3 text-slate-400 text-[10px] font-bold">${s.designation || ''}</td>
           <td class="py-1.5 px-3 text-right">${valueCell}</td>
@@ -15537,6 +15570,43 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
       </div>`;
     }).join('');
+    if (mode === 'manual') _prFvUpdateSelectedCount();
+  }
+
+  // Bulk select-and-apply — checking someone in the visible (filtered) list
+  // adds them to _prFvSelected; "Apply to Selected" writes ONE amount to
+  // ALL of them in one action, instead of typing the same number into each
+  // row's own box one at a time (the difference between a minute and half
+  // an hour when e.g. 70+ Class Teachers all get the same flat allowance).
+  function _prFvToggleRowSelected(userId, checked) {
+    if (checked) _prFvSelected.add(userId); else _prFvSelected.delete(userId);
+    _prFvUpdateSelectedCount();
+  }
+  function _prFvToggleSelectAllVisible(checked) {
+    document.querySelectorAll('.prFvRowCheck').forEach(cb => {
+      cb.checked = checked;
+      if (checked) _prFvSelected.add(cb.dataset.uid); else _prFvSelected.delete(cb.dataset.uid);
+    });
+    _prFvUpdateSelectedCount();
+  }
+  function _prFvUpdateSelectedCount() {
+    const el = document.getElementById('prFvSelectedCount');
+    if (el) el.textContent = `${_prFvSelected.size} selected`;
+  }
+  function _prFvBulkApply(btn) {
+    if (!_prFvField) return;
+    const value = document.getElementById('prFvBulkValue').value;
+    const userIds = [..._prFvSelected];
+    if (!userIds.length) { showToast('Select at least one person first', 'error'); return; }
+    if (value === '') { showToast('Enter an amount to apply', 'error'); return; }
+    if (btn) { btn.disabled = true; btn.textContent = 'Applying…'; }
+    Promise.all(userIds.map(uid => _payrollFetch('save_field_value', { field_key: _prFvField.key, user_id: uid, value }).catch(() => ({ result: 'error' }))))
+      .then(results => {
+        const failed = results.filter(r => !r || r.result !== 'success').length;
+        showToast(failed ? `Applied with ${failed} failure(s)` : `Applied to ${userIds.length} people`, failed ? 'error' : 'success');
+        if (btn) { btn.disabled = false; btn.textContent = 'Apply to Selected'; }
+        _prLoadFieldValues();
+      });
   }
 
   function _prSaveFieldValue(userId, value) {
@@ -15692,13 +15762,40 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // of a long scroll to reach the grid — it's a full 20x19 table, easy to
   // miss below the Grades/Field Values panels.
   function _prSwitchGradesSubtab(tab) {
-    ['grades', 'steps'].forEach(t => {
+    ['grades', 'steps', 'special'].forEach(t => {
       const panel = document.getElementById(`prGradesSubtab-${t}`);
       const btn = document.getElementById(`prGradesSubtabBtn-${t}`);
       const active = t === tab;
       if (panel) panel.classList.toggle('hidden', !active);
       if (btn) btn.className = `px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all ${active ? 'bg-blue-600 text-white' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50'}`;
     });
+    if (tab === 'special') {
+      if (_prFieldsCache.length) _prRenderSpecialAllowancesList();
+      else _payrollFetch('get_fields', {}).then(res => {
+        _prFieldsCache = (res && res.result === 'success' && res.fields) || [];
+        _prRenderSpecialAllowancesList();
+      });
+    }
+  }
+
+  function _prRenderSpecialAllowancesList() {
+    const host = document.getElementById('prSpecialAllowancesList');
+    if (!host) return;
+    const specials = _prFieldsCache.filter(f => f.category === 'special');
+    const locked = !_prGradesEditMode;
+    host.innerHTML = specials.length ? specials.map(f => `
+      <div class="p-3 rounded-xl bg-slate-50 flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <p class="font-black text-slate-800 text-xs">${_escHtml(f.label)}</p>
+          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">${f.calc_mode === 'percent_of_field' ? `Percent of ${_escHtml(f.calc_base_field_key || '?')}` : 'Fixed amount'} &middot; set per person</p>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <button onclick="_prOpenFieldValues(${f.id})" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Manage People</button>
+          <button onclick='_prOpenFieldForm(${JSON.stringify(f).replace(/'/g, "&apos;")})' ${locked ? 'disabled title="Click Enable Editing above"' : ''} class="text-blue-600 ${locked ? 'opacity-30 cursor-not-allowed' : ''}"><i data-lucide="pencil" class="h-4 w-4"></i></button>
+          <button onclick="_prDeleteField(${f.id})" ${locked ? 'disabled title="Click Enable Editing above"' : ''} class="text-red-500 ${locked ? 'opacity-30 cursor-not-allowed' : ''}"><i data-lucide="trash-2" class="h-4 w-4"></i></button>
+        </div>
+      </div>`).join('') : `<p class="text-slate-400 font-bold text-xs p-4 text-center">No special allowances yet — click "Add Allowance".</p>`;
+    lucide.createIcons();
   }
 
   function _prToggleGradesEditMode() {
@@ -15712,9 +15809,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (addBtn) addBtn.disabled = !_prGradesEditMode;
     const addStepBtn = document.getElementById('prAddStepBtn');
     if (addStepBtn) addStepBtn.disabled = !_prGradesEditMode;
+    const addSpecialBtn = document.getElementById('prAddSpecialBtn');
+    if (addSpecialBtn) addSpecialBtn.disabled = !_prGradesEditMode;
     lucide.createIcons();
     _prRenderGradesList();
     _prRenderPayScaleGrid();
+    _prRenderSpecialAllowancesList();
     if (_prSelectedGradeId) _prSelectGrade(_prSelectedGradeId);
   }
 
