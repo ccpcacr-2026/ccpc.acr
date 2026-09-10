@@ -1841,6 +1841,39 @@ export async function POST(req) {
   }
 
   // ── Loan / Advance sections ──
+  // ── Saved Export Templates (column layout/formatting + person selection) ──
+  if (action === 'get_export_templates') {
+    const rows = await sbPayroll('export_templates?select=*&order=name.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', templates: rows });
+  }
+
+  if (action === 'save_export_template') {
+    const { id, name, config, person_selection } = payload;
+    if (!name) return NextResponse.json({ result: 'error', message: 'Name is required' }, { status: 400 });
+    const rowData = {
+      name, config: config || {}, person_selection: person_selection || { mode: 'all' },
+      updated_at: new Date().toISOString(),
+    };
+    if (!id) rowData.created_by = user_id || null;
+    const saved = id
+      ? await sbPayroll(`export_templates?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sbPayroll('export_templates', 'POST', rowData);
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    const savedRow = Array.isArray(saved) ? saved[0] : saved;
+    _prAudit(user_id, 'save_export_template', 'export_templates', savedRow?.id, { name });
+    return NextResponse.json({ result: 'success', template: savedRow });
+  }
+
+  if (action === 'delete_export_template') {
+    const { id } = payload;
+    if (!id) return NextResponse.json({ result: 'error', message: 'id required' }, { status: 400 });
+    const del = await sbPayroll(`export_templates?id=eq.${encodeURIComponent(id)}`, 'DELETE');
+    if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
+    _prAudit(user_id, 'delete_export_template', 'export_templates', id);
+    return NextResponse.json({ result: 'success' });
+  }
+
   if (action === 'get_sections') {
     const rows = await sbPayroll('sections?select=*&order=id.asc');
     if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });

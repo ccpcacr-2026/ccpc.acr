@@ -14444,6 +14444,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div id="pr-export" style="display:none">
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
           <div class="flex flex-wrap items-end gap-3">
+            <div class="min-w-[220px]">
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Template</label>
+              <select id="prExportTemplateSelect" onchange="_prApplyExportTemplate(this.value)" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                <option value="">— Current (unsaved) —</option>
+              </select>
+            </div>
+            <button onclick="_prSaveExportTemplate(false)" class="px-3 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="save" class="h-3.5 w-3.5"></i>Save</button>
+            <button onclick="_prSaveExportTemplate(true)" class="px-3 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="copy-plus" class="h-3.5 w-3.5"></i>Save As New</button>
+            <button onclick="_prDeleteExportTemplate()" class="px-3 py-2.5 border border-red-200 text-red-500 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-red-50 transition-all flex items-center gap-1.5"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i>Delete</button>
+          </div>
+          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-2">A template bundles the columns/formatting, row design, sort, and who to include below into one saved, reusable setup — save as many as you want and switch between them here.</p>
+        </div>
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
+          <div class="flex flex-wrap items-end gap-3">
             <div class="min-w-[200px]">
               <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Run</label>
               <select id="prExportRunSelect" onchange="_prLoadExportColumns()" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></select>
@@ -14475,6 +14489,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <label class="text-[10px] font-black text-slate-400 uppercase">Stripe Color</label>
               <input type="color" id="prExportZebraColor" value="#f1f5f9" onchange="_prSetExportRowDesign('zebraColor',this.value)" class="w-8 h-6 rounded cursor-pointer border border-slate-200">
             </div>
+          </div>
+        </div>
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
+          <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+            <div>
+              <p class="font-black text-slate-800 text-xs">Person Selection</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Who this template/export includes — applies to Export Excel/PDF and both Acquittance Roll formats.</p>
+            </div>
+            <div class="flex items-center gap-1.5 bg-slate-100 rounded-xl p-1">
+              <button onclick="_prSetExportPersonMode('all')" id="prPersonModeBtn-all" class="px-3 py-1.5 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all">Everyone</button>
+              <button onclick="_prSetExportPersonMode('individual')" id="prPersonModeBtn-individual" class="px-3 py-1.5 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all">Pick People</button>
+            </div>
+          </div>
+          <div id="prPersonSelectionPicker" class="hidden">
+            <div class="flex items-center gap-2 mb-2">
+              <input type="text" id="prPersonPickSearch" oninput="_prRenderPersonSelectionPicker()" placeholder="Search name or ID…" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              <span id="prPersonPickCount" class="text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">0 selected</span>
+            </div>
+            <div id="prPersonSelectionGroups" class="max-h-80 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100"></div>
           </div>
         </div>
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
@@ -17987,6 +18020,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _prExportSortDir = 'asc';
   let _prExportEmailByUser = {};
   let _prExportDragUserId = null;
+  // Saved templates — a template bundles the column layout/formatting
+  // above, row design, sort, and WHO to include, all under one name.
+  let _prExportTemplatesCache = [];
+  let _prExportActiveTemplateId = null;
+  // Person selection: 'all' (everyone in the run), 'category' (whole
+  // categories at once — same grouping as Split by Category), or
+  // 'individual' (hand-picked people, optionally seeded by ticking a
+  // whole category then unticking a few — so "by sub-group" and
+  // "individually" are really the same picker, not two separate modes).
+  let _prExportPersonSelection = { mode: 'all', categories: [], user_ids: [] };
 
   function loadPayrollExportTab() {
     _prExportTabLoaded = true;
@@ -18002,6 +18045,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       ((res && res.result === 'success' && res.emails) || []).forEach(e => { _prExportEmailByUser[e.user_id] = e.email || ''; });
     });
     _ensureStaffCache(() => {});
+    if (!_prPeopleSetupCache.length) _payrollFetch('get_people_setup', {}).then(res => { _prPeopleSetupCache = (res && res.result === 'success' && res.people) || []; });
+    if (!_prExportTemplatesCache.length) _prLoadExportTemplatesList();
     // Rebuilt fresh from container.innerHTML on every tab switch — sync
     // the controls' visual state back to whatever's still set from before.
     document.getElementById('prExportSplitByGroup').checked = _prExportSplitByGroup;
@@ -18021,6 +18066,162 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function _prSetExportSplitByGroup(checked) { _prExportSplitByGroup = checked; }
   function _prSetExportRowDesign(prop, value) { _prExportRowDesign[prop] = value; }
+
+  // ── Person Selection (Everyone / Pick People — individual or by whole category) ──
+  function _prSetExportPersonMode(mode) {
+    _prExportPersonSelection.mode = mode;
+    if (mode === 'all') _prExportPersonSelection.user_ids = [];
+    ['all', 'individual'].forEach(m => {
+      const btn = document.getElementById(`prPersonModeBtn-${m}`);
+      if (btn) btn.className = `px-3 py-1.5 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all ${m === mode ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`;
+    });
+    const picker = document.getElementById('prPersonSelectionPicker');
+    if (picker) picker.classList.toggle('hidden', mode !== 'individual');
+    if (mode === 'individual') _prRenderPersonSelectionPicker();
+  }
+
+  // Renders one checkbox list grouped by Category — each group has its own
+  // "select all in this group" checkbox, and ticking/unticking a person
+  // inside it just edits the same flat user_ids array a lone pick would.
+  // This is deliberately the ONE picker for both "by sub-group" and
+  // "individually" — a whole category is just every one of its members
+  // ticked at once, still editable person by person afterward.
+  function _prRenderPersonSelectionPicker() {
+    const host = document.getElementById('prPersonSelectionGroups');
+    if (!host) return;
+    const search = (document.getElementById('prPersonPickSearch').value || '').trim().toLowerCase();
+    const selected = new Set(_prExportPersonSelection.user_ids || []);
+    const staffList = (allStaffCache || []).filter(s => !search || (s.full_name || '').toLowerCase().includes(search) || s.teacher_id.toLowerCase().includes(search));
+    const byCategory = {};
+    staffList.forEach(s => { const cat = (s.category || 'Uncategorized').trim() || 'Uncategorized'; (byCategory[cat] = byCategory[cat] || []).push(s); });
+    const categories = Object.keys(byCategory).sort();
+    host.innerHTML = categories.map(cat => {
+      const members = byCategory[cat];
+      const allChecked = members.every(m => selected.has(m.teacher_id));
+      const someChecked = !allChecked && members.some(m => selected.has(m.teacher_id));
+      return `
+        <div>
+          <div class="flex items-center gap-2 px-3 py-2 bg-slate-50 sticky top-0">
+            <input type="checkbox" ${allChecked ? 'checked' : ''} ${someChecked ? 'data-indeterminate="1"' : ''} onchange="_prToggleExportPersonCategory('${_escHtml(cat)}',this.checked)" class="w-4 h-4 rounded accent-blue-600 prPersonCatCb">
+            <span class="font-black text-[10px] text-slate-500 uppercase tracking-widest">${_escHtml(cat)} <span class="text-slate-400 normal-case">(${members.length})</span></span>
+          </div>
+          ${members.map(m => `
+            <label class="flex items-center gap-2 px-3 py-1.5 pl-8 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer">
+              <input type="checkbox" ${selected.has(m.teacher_id) ? 'checked' : ''} onchange="_prToggleExportPersonIndividual('${m.teacher_id}',this.checked)" class="w-3.5 h-3.5 rounded accent-blue-600">
+              ${_escHtml(m.full_name || m.teacher_id)} <span class="text-slate-400 font-normal">${_escHtml(m.designation || '')}</span>
+            </label>`).join('')}
+        </div>`;
+    }).join('') || `<p class="p-4 text-slate-400 font-bold text-xs text-center">No one matches.</p>`;
+    document.querySelectorAll('.prPersonCatCb').forEach(cb => { if (cb.dataset.indeterminate) cb.indeterminate = true; });
+    document.getElementById('prPersonPickCount').textContent = `${selected.size} selected`;
+  }
+
+  function _prToggleExportPersonCategory(cat, checked) {
+    const members = (allStaffCache || []).filter(s => ((s.category || 'Uncategorized').trim() || 'Uncategorized') === cat).map(s => s.teacher_id);
+    const set = new Set(_prExportPersonSelection.user_ids || []);
+    members.forEach(id => { if (checked) set.add(id); else set.delete(id); });
+    _prExportPersonSelection.user_ids = [...set];
+    _prRenderPersonSelectionPicker();
+  }
+
+  function _prToggleExportPersonIndividual(userId, checked) {
+    const set = new Set(_prExportPersonSelection.user_ids || []);
+    if (checked) set.add(userId); else set.delete(userId);
+    _prExportPersonSelection.user_ids = [...set];
+    _prRenderPersonSelectionPicker();
+  }
+
+  // ── Saved Export Templates ──
+  function _prLoadExportTemplatesList() {
+    _payrollFetch('get_export_templates', {}).then(res => {
+      _prExportTemplatesCache = (res && res.result === 'success' && res.templates) || [];
+      const sel = document.getElementById('prExportTemplateSelect');
+      if (!sel) return;
+      const current = sel.value;
+      sel.innerHTML = `<option value="">— Current (unsaved) —</option>` + _prExportTemplatesCache.map(t => `<option value="${t.id}">${_escHtml(t.name)}</option>`).join('');
+      sel.value = current;
+    });
+  }
+
+  // Bundles every export setting this tab controls into one JSON blob, and
+  // the reverse in _prApplyExportTemplate — deliberately whole-state rather
+  // than diffing, so a template always reproduces the exact export it was
+  // saved from.
+  function _prBuildExportTemplateConfig() {
+    return {
+      columns: _prExportColumnsCache,
+      splitByGroup: _prExportSplitByGroup,
+      rowDesign: _prExportRowDesign,
+      sortBy: _prExportSortBy,
+      sortDir: _prExportSortDir,
+    };
+  }
+
+  function _prSaveExportTemplate(asNew) {
+    const sel = document.getElementById('prExportTemplateSelect');
+    const existingId = !asNew && sel.value ? Number(sel.value) : null;
+    let name = existingId ? (_prExportTemplatesCache.find(t => t.id === existingId) || {}).name : '';
+    if (!existingId) {
+      name = (window.prompt('Name this template:', name || '') || '').trim();
+      if (!name) return;
+    }
+    const payload = { name, config: _prBuildExportTemplateConfig(), person_selection: _prExportPersonSelection };
+    if (existingId) payload.id = existingId;
+    _payrollFetch('save_export_template', payload).then(res => {
+      if (res && res.result === 'success') {
+        showToast('Template saved');
+        _prExportActiveTemplateId = res.template.id;
+        _prLoadExportTemplatesList();
+        setTimeout(() => { const s = document.getElementById('prExportTemplateSelect'); if (s) s.value = res.template.id; }, 300);
+      } else showToast((res && res.message) || 'Failed to save template', 'error');
+    }).catch(err => showToast(err.message || 'Failed to save template', 'error'));
+  }
+
+  function _prApplyExportTemplate(idStr) {
+    if (!idStr) { _prExportActiveTemplateId = null; return; }
+    const id = Number(idStr);
+    const template = _prExportTemplatesCache.find(t => t.id === id);
+    if (!template) return;
+    _prExportActiveTemplateId = id;
+    const cfg = template.config || {};
+    // Columns are matched by key against whatever the CURRENT run actually
+    // has (a template saved against one run's fields should still apply
+    // sensibly to a different run) — a saved column with no match today is
+    // dropped rather than crashing the export.
+    if (Array.isArray(cfg.columns) && _prExportColumnsCache.length) {
+      const savedByKey = {}; cfg.columns.forEach(c => { savedByKey[c.key] = c; });
+      _prExportColumnsCache = _prExportColumnsCache.map(c => savedByKey[c.key] ? { ...c, ...savedByKey[c.key], key: c.key } : { ...c, included: false });
+      // Virtual columns aren't part of the run's own field list — carry them over as-is.
+      const currentKeys = new Set(_prExportColumnsCache.map(c => c.key));
+      cfg.columns.filter(c => c.type === 'virtual' && !currentKeys.has(c.key)).forEach(c => _prExportColumnsCache.push(c));
+    }
+    if (cfg.rowDesign) _prExportRowDesign = { ..._prExportRowDesign, ...cfg.rowDesign };
+    if (cfg.splitByGroup != null) _prExportSplitByGroup = cfg.splitByGroup;
+    if (cfg.sortBy) _prExportSortBy = cfg.sortBy;
+    if (cfg.sortDir) _prExportSortDir = cfg.sortDir;
+    _prExportPersonSelection = template.person_selection || { mode: 'all', user_ids: [] };
+
+    document.getElementById('prExportSplitByGroup').checked = _prExportSplitByGroup;
+    document.getElementById('prExportZebra').checked = _prExportRowDesign.zebra;
+    document.getElementById('prExportZebraColor').value = _prExportRowDesign.zebraColor;
+    document.getElementById('prExportSortField').value = _prExportSortBy;
+    _prUpdateExportSortDirBtn();
+    _prRenderExportColumnsTable();
+    _prSetExportPersonMode(_prExportPersonSelection.mode || 'all');
+    showToast(`Loaded "${template.name}"`);
+  }
+
+  function _prDeleteExportTemplate() {
+    const sel = document.getElementById('prExportTemplateSelect');
+    const id = sel.value ? Number(sel.value) : null;
+    if (!id) { showToast('No template selected', 'error'); return; }
+    const template = _prExportTemplatesCache.find(t => t.id === id);
+    if (!window.confirm(`Delete template "${template ? template.name : id}"? This can't be undone.`)) return;
+    _payrollFetch('delete_export_template', { id }).then(res => {
+      if (res && res.result === 'success') { showToast('Template deleted'); _prExportActiveTemplateId = null; _prLoadExportTemplatesList(); }
+      else showToast((res && res.message) || 'Failed to delete', 'error');
+    }).catch(err => showToast(err.message || 'Failed to delete', 'error'));
+  }
 
   function _prUpdateExportSortDirBtn() {
     const btn = document.getElementById('prExportSortDirBtn');
@@ -18148,7 +18349,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const baseCols = [
         { key: 'sl_no', label: 'SL No', type: 'sl' },
         { key: 'person', label: 'Person', type: 'base' },
+        { key: 'designation', label: 'Designation', type: 'base' },
         { key: 'grade', label: 'Grade', type: 'base' },
+        { key: 'step', label: 'Step', type: 'base' },
+        { key: 'joining_date', label: 'Joining Date', type: 'base' },
         { key: 'gross', label: 'Gross', type: 'base' },
         { key: 'total_deductions', label: 'Total Deductions', type: 'base' },
         { key: 'net', label: 'Net', type: 'base' },
@@ -18257,6 +18461,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (col.type === 'base') {
       if (col.key === 'person') { const l = staffLabel(slip.user_id); return l !== slip.user_id ? l : slip.user_id; }
       if (col.key === 'grade') return (_prGradesCache.find(g => g.id === slip.grade_id) || {}).name || '';
+      if (col.key === 'designation') return ((allStaffCache || []).find(s => s.teacher_id === slip.user_id) || {}).designation || '';
+      if (col.key === 'step') {
+        const setup = _prPeopleSetupCache.find(p => p.user_id === slip.user_id);
+        const step = setup && setup.step_id ? _prPayStepsCache.find(s => s.id === setup.step_id) : null;
+        return step ? step.step_number : '';
+      }
+      if (col.key === 'joining_date') { const setup = _prPeopleSetupCache.find(p => p.user_id === slip.user_id); return (setup && setup.joining_date) || ''; }
       return Number(slip[col.key]) || 0;
     }
     if (col.type === 'field') return Number((slip.field_values || {})[col.key]) || 0;
@@ -18276,14 +18487,28 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   // Always returns { cols, groups: [{name, rows}] } — one group named null
   // when not splitting, so Excel/PDF export never need two code paths.
+  // Who to include, per the Person Selection panel — 'all' (default) skips
+  // this entirely. 'category' and 'individual' are really the same
+  // hand-picked set under the hood (ticking a whole category just seeds
+  // user_ids with everyone in it, so unticking one person afterward still
+  // works) — see _prToggleExportPersonCategory.
+  function _prApplyPersonSelection(slips) {
+    const sel = _prExportPersonSelection;
+    if (!sel || sel.mode === 'all') return slips;
+    const idSet = new Set(sel.user_ids || []);
+    return slips.filter(s => idSet.has(s.user_id));
+  }
+
   function _prExportRowsAndCols() {
     const cols = _prExportColumnsCache.filter(c => c.included);
     if (!cols.length) { showToast('Pick at least one column to export', 'error'); return null; }
     if (!_prExportSlips.length) { showToast('No payslips in this run', 'error'); return null; }
+    const selectedSlips = _prApplyPersonSelection(_prExportSlips);
+    if (!selectedSlips.length) { showToast('No one is selected — check Person Selection below', 'error'); return null; }
     // Apply the Row Order panel's pinned+sorted order once, up front — group
     // filtering below (.filter()) naturally preserves whatever order this
     // produced, so every group/sheet/page reflects the same arrangement.
-    const orderedSlips = _prComputeExportOrder(_prExportSlips);
+    const orderedSlips = _prComputeExportOrder(selectedSlips);
 
     if (!_prExportSplitByGroup) {
       return { cols, groups: [{ name: null, rows: _prSlipsToRows(orderedSlips, cols) }] };
@@ -18478,7 +18703,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const gradeById = {}; _prGradesCache.forEach(g => { gradeById[g.id] = g.name; });
 
       const slipsByCategory = {};
-      _prExportSlips.forEach(s => {
+      _prApplyPersonSelection(_prExportSlips).forEach(s => {
         const cat = (staffByUser[s.user_id] || {}).category || 'Other';
         (slipsByCategory[cat] = slipsByCategory[cat] || []).push(s);
       });
@@ -18573,7 +18798,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const gradeById = {}; _prGradesCache.forEach(g => { gradeById[g.id] = g.name; });
 
       const slipsByCategory = {};
-      _prExportSlips.forEach(s => {
+      _prApplyPersonSelection(_prExportSlips).forEach(s => {
         const cat = (staffByUser[s.user_id] || {}).category || 'Other';
         (slipsByCategory[cat] = slipsByCategory[cat] || []).push(s);
       });
