@@ -17241,7 +17241,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       (line.direction === 'add' ? additions : deductions).push({ key: `section:${line.entry_id}`, amt: line.amount, label: line.section_name + (line.note ? ` (${line.note})` : '') });
     });
     const row = (label, amt, cls) => `<tr class="border-b border-slate-50"><td class="py-1.5 px-3 text-slate-600 font-bold">${_escHtml(label)}</td><td class="py-1.5 px-3 text-right font-black ${cls || 'text-slate-700'}">${Number(amt).toLocaleString()}</td></tr>`;
+    const stepNum = slip.step_id ? _prPayStepsCache.find(s => s.id === slip.step_id) : null;
     body.innerHTML = `
+      <div class="grid grid-cols-4 gap-3 mb-4 bg-slate-50 border border-slate-200 rounded-xl p-3">
+        <div><p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Name</p><p class="text-xs font-black text-slate-800">${_escHtml(slip.full_name || '—')}</p></div>
+        <div><p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Designation</p><p class="text-xs font-black text-slate-800">${_escHtml(slip.designation || '—')}</p></div>
+        <div><p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Grade</p><p class="text-xs font-black text-slate-800">${_escHtml(slip.grade_name || '—')}</p></div>
+        <div><p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Step</p><p class="text-xs font-black text-slate-800">${stepNum ? stepNum.step_number : '—'}</p></div>
+      </div>
       <div class="grid grid-cols-2 gap-4">
         <div>
           <p class="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1.5">Additions</p>

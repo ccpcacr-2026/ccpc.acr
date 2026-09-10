@@ -1927,8 +1927,20 @@ export async function POST(req) {
     const personSetup = (!personRows?.error && personRows[0]) || { user_id: personId, grade_id: null, joining_date: null };
     const roles = await _rolesForUsers([personId]);
     const categories = await _categoriesForUsers([personId]);
-    const ref = await _loadPayrollRef([personId], month, year);
+    const [ref, profileRows, gradeRows] = await Promise.all([
+      _loadPayrollRef([personId], month, year),
+      _teacherSchemaFetch(`users_profile?teacher_id=eq.${encodeURIComponent(personId)}&select=full_name,designation`),
+      personSetup.grade_id ? sbPayroll(`grades?id=eq.${encodeURIComponent(personSetup.grade_id)}&select=name`) : Promise.resolve([]),
+    ]);
     const slip = _computePayslipForPerson(personSetup, roles[personId] || [], categories[personId] || '', ref, Number(month), Number(year));
+    // Name/designation/grade name/step number — the preview shows a bare
+    // gross/net breakdown otherwise, with no way to tell who or what setup
+    // it's even for.
+    const profile = (Array.isArray(profileRows) && profileRows[0]) || {};
+    slip.full_name = profile.full_name || null;
+    slip.designation = profile.designation || null;
+    slip.grade_name = (Array.isArray(gradeRows) && gradeRows[0] && gradeRows[0].name) || null;
+    slip.step_id = personSetup.step_id || null;
     // Enrich section_amounts (keyed by entry id -> a bare number in `slip`)
     // with the section's own name/direction, and give the frontend a label
     // for every `statutory:<key>` field_values entry — both are looked up
