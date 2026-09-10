@@ -14529,15 +14529,27 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
           <div id="prExportOrderPreview" class="flex flex-col gap-1 max-h-64 overflow-y-auto"></div>
         </div>
-        <div class="bg-white rounded-2xl border border-slate-200 p-4">
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
           <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
-            <p class="font-black text-slate-800 text-xs">Columns</p>
+            <div>
+              <p class="font-black text-slate-800 text-xs">Visual Editor</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Real data, formatted live. Drag a header to reorder columns. Click a header to format it. Click the × to drop a column, or click a chip below to bring one back.</p>
+            </div>
             <div class="flex items-center gap-2">
               <button onclick="_prSetAllHeaderRotation(90)" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Vertical Headers</button>
               <button onclick="_prSetAllHeaderRotation(0)" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Horizontal Headers</button>
             </div>
           </div>
-          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-3">Pick which columns to export. "Data" formats the values; "Header" formats the column title itself — bold/italic/color/background, and rotation for narrow columns (PDF supports all 4 angles; Excel's own rotation model only cleanly supports 0°/90°). "Vertical Headers" applies 90° to every column except Person in one click — the export is easiest to read this way once you have more than a handful of columns.</p>
+          <div id="prExportExcludedChips" class="flex flex-wrap gap-1.5 mb-2"></div>
+          <div id="prExportPreviewWrap" class="overflow-auto border border-slate-200 rounded-xl" style="max-height:60vh;">
+            <table id="prExportPreviewTable" class="border-collapse text-xs"></table>
+          </div>
+        </div>
+        <div class="bg-white rounded-2xl border border-slate-200 p-4">
+          <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
+            <p class="font-black text-slate-800 text-xs">Column List (Advanced)</p>
+          </div>
+          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-3">The same columns as a plain list — useful for bulk edits across every column at once. The Visual Editor above is the easier way to format one column at a time.</p>
           <div class="overflow-auto border border-slate-200 rounded-xl">
             <table class="w-full text-left border-collapse text-xs">
               <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
@@ -18407,11 +18419,126 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </td>
         <td class="py-1.5 px-3 text-right">${c.type === 'virtual' ? `<button onclick="_prRemoveExportColumn('${c.key}')" class="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-700">Remove</button>` : ''}</td>
       </tr>`).join('');
+    _prRenderExportPreview();
   }
+
+  let _prPreviewDragKey = null;
+
+  function _prColumnCellCss(c, isHeader) {
+    const bold = isHeader ? c.headerBold : c.bold;
+    const italic = isHeader ? c.headerItalic : c.italic;
+    const color = isHeader ? c.headerColor : c.color;
+    const bg = isHeader ? c.headerBg : null;
+    const rot = isHeader ? Number(c.headerRotation) || 0 : 0;
+    let css = `font-weight:${bold ? '700' : '400'};font-style:${italic ? 'italic' : 'normal'};`;
+    if (color) css += `color:${color};`;
+    if (bg) css += `background:${bg};`;
+    // vertical-rl reads top-to-bottom; flipped 180° for 90° (bottom-to-top,
+    // matching jsPDF/Excel's positive-angle convention) vs plain for 270°.
+    if (rot === 90) css += `writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;`;
+    else if (rot === 270) css += `writing-mode:vertical-rl;white-space:nowrap;`;
+    else if (rot === 180) css += `transform:rotate(180deg);`;
+    return css;
+  }
+
+  // The Visual Editor: a real <table> built from the same
+  // _prExportColumnsCache the old list edits, showing actual sample rows
+  // (respecting the current Person Selection) with every format applied
+  // as real CSS — this table IS the editing surface, not just a preview
+  // of one. Drag a <th> to reorder columns; click one to format it.
+  function _prRenderExportPreview() {
+    const host = document.getElementById('prExportPreviewTable');
+    const chipsHost = document.getElementById('prExportExcludedChips');
+    if (!host) return;
+    const included = _prExportColumnsCache.filter(c => c.included);
+    const excluded = _prExportColumnsCache.filter(c => !c.included);
+    if (chipsHost) {
+      chipsHost.innerHTML = excluded.length
+        ? excluded.map(c => `<button onclick="_prSetExportFormat('${c.key}','included',true)" class="px-2.5 py-1 bg-slate-100 text-slate-500 rounded-full font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-1"><i data-lucide="plus" class="h-3 w-3"></i>${_escHtml(c.label)}</button>`).join('')
+        : '';
+    }
+    if (!included.length) { host.innerHTML = `<tr><td class="p-4 text-slate-400 font-bold text-xs text-center">No columns included — click a chip above to add one.</td></tr>`; lucide.createIcons(); return; }
+    const sampleSlips = _prApplyPersonSelection(_prExportSlips).slice(0, 6);
+    const rows = _prSlipsToRows(sampleSlips, included);
+    host.innerHTML = `
+      <thead><tr>
+        ${included.map(c => `
+          <th draggable="true"
+              ondragstart="_prPreviewDragKey='${c.key}'" ondragover="event.preventDefault()" ondrop="_prPreviewColumnDrop('${c.key}')"
+              onclick="_prOpenColumnFormatPopover('${c.key}', event)"
+              class="relative px-3 py-2 border border-slate-200 bg-slate-50 cursor-grab select-none hover:bg-blue-50 transition-all align-bottom"
+              style="${_prColumnCellCss(c, true)}" title="Drag to reorder, click to format">
+            <button onclick="event.stopPropagation();_prSetExportFormat('${c.key}','included',false)" class="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-slate-200 text-slate-500 hover:bg-red-200 hover:text-red-600 flex items-center justify-center text-[9px] leading-none">×</button>
+            ${_escHtml(c.label)}
+          </th>`).join('')}
+      </tr></thead>
+      <tbody>
+        ${rows.map(r => `<tr>${r.map((v, i) => `<td class="px-3 py-1.5 border border-slate-100 whitespace-nowrap" style="${_prColumnCellCss(included[i], false)}">${_escHtml(String(v))}</td>`).join('')}</tr>`).join('')}
+      </tbody>`;
+    lucide.createIcons();
+  }
+
+  function _prPreviewColumnDrop(targetKey) {
+    if (!_prPreviewDragKey || _prPreviewDragKey === targetKey) return;
+    const fromIdx = _prExportColumnsCache.findIndex(c => c.key === _prPreviewDragKey);
+    const toIdx = _prExportColumnsCache.findIndex(c => c.key === targetKey);
+    if (fromIdx < 0 || toIdx < 0) return;
+    const [moved] = _prExportColumnsCache.splice(fromIdx, 1);
+    _prExportColumnsCache.splice(toIdx, 0, moved);
+    _prPreviewDragKey = null;
+    _prRenderExportColumnsTable();
+  }
+
+  // A small floating toolbar anchored to the clicked header — every
+  // control in it just calls the existing _prSetExportFormat, so it stays
+  // the single source of truth the Column List (Advanced) table also uses.
+  function _prOpenColumnFormatPopover(key, ev) {
+    ev.stopPropagation();
+    document.getElementById('prColumnFormatPopover')?.remove();
+    const c = _prExportColumnsCache.find(col => col.key === key);
+    if (!c) return;
+    const rect = ev.currentTarget.getBoundingClientRect();
+    const pop = document.createElement('div');
+    pop.id = 'prColumnFormatPopover';
+    pop.className = 'fixed z-50 bg-white border border-slate-200 rounded-xl shadow-xl p-3 w-64';
+    pop.style.top = `${rect.bottom + window.scrollY + 6}px`;
+    pop.style.left = `${Math.min(rect.left + window.scrollX, window.innerWidth - 270)}px`;
+    pop.onclick = e => e.stopPropagation();
+    pop.innerHTML = `
+      <p class="font-black text-slate-800 text-xs mb-2">${_escHtml(c.label)}</p>
+      <div class="grid grid-cols-2 gap-2 mb-2">
+        <div>
+          <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Header</p>
+          <div class="flex items-center gap-1 mb-1">
+            <button onclick="_prSetExportFormat('${key}','headerBold',${!c.headerBold})" class="w-7 h-7 border rounded-lg font-black text-xs ${c.headerBold ? 'bg-slate-800 text-white border-slate-800' : 'border-slate-200 text-slate-500'}">B</button>
+            <button onclick="_prSetExportFormat('${key}','headerItalic',${!c.headerItalic})" class="w-7 h-7 border rounded-lg italic font-black text-xs ${c.headerItalic ? 'bg-slate-800 text-white border-slate-800' : 'border-slate-200 text-slate-500'}">I</button>
+            <input type="color" value="${c.headerColor || '#000000'}" onchange="_prSetExportFormat('${key}','headerColor',this.value)" title="Text color" class="w-7 h-7 rounded-lg cursor-pointer border border-slate-200">
+            <input type="color" value="${c.headerBg || '#ffffff'}" onchange="_prSetExportFormat('${key}','headerBg',this.value)" title="Background" class="w-7 h-7 rounded-lg cursor-pointer border border-slate-200">
+          </div>
+          <select onchange="_prSetExportFormat('${key}','headerRotation',Number(this.value))" class="w-full px-1.5 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]">
+            ${[0, 90, 180, 270].map(deg => `<option value="${deg}" ${Number(c.headerRotation) === deg ? 'selected' : ''}>${deg}° rotation</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Data</p>
+          <div class="flex items-center gap-1">
+            <button onclick="_prSetExportFormat('${key}','bold',${!c.bold})" class="w-7 h-7 border rounded-lg font-black text-xs ${c.bold ? 'bg-slate-800 text-white border-slate-800' : 'border-slate-200 text-slate-500'}">B</button>
+            <button onclick="_prSetExportFormat('${key}','italic',${!c.italic})" class="w-7 h-7 border rounded-lg italic font-black text-xs ${c.italic ? 'bg-slate-800 text-white border-slate-800' : 'border-slate-200 text-slate-500'}">I</button>
+            <input type="color" value="${c.color || '#000000'}" onchange="_prSetExportFormat('${key}','color',this.value)" title="Text color" class="w-7 h-7 rounded-lg cursor-pointer border border-slate-200">
+          </div>
+        </div>
+      </div>
+      <button onclick="_prSetExportFormat('${key}','included',false);document.getElementById('prColumnFormatPopover').remove()" class="w-full px-2 py-1.5 border border-red-200 text-red-500 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-red-50 transition-all">Remove Column</button>
+    `;
+    document.body.appendChild(pop);
+    setTimeout(() => document.addEventListener('click', _prCloseColumnFormatPopoverOnce, { once: true }), 0);
+  }
+  function _prCloseColumnFormatPopoverOnce() { document.getElementById('prColumnFormatPopover')?.remove(); }
 
   function _prSetExportFormat(key, prop, value) {
     const col = _prExportColumnsCache.find(c => c.key === key);
     if (col) col[prop] = value;
+    _prRenderExportPreview();
   }
 
   // Bulk-set every column's header rotation in one click — 'person' (the
