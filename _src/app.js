@@ -14051,6 +14051,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </div>
             <button onclick="_prCloseFieldValues()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
           </div>
+          <div id="prFvLogicSummary" class="hidden bg-indigo-50 border border-indigo-100 rounded-xl p-3 mb-3 text-xs"></div>
           <div class="flex items-center gap-2 mb-3">
             <button id="prFvModeBtn-logical" onclick="_prSetFieldValuesMode('logical')" class="pr-fv-mode-btn active">Logical</button>
             <button id="prFvModeBtn-manual" onclick="_prSetFieldValuesMode('manual')" class="pr-fv-mode-btn">Manual</button>
@@ -15370,9 +15371,63 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prFieldValuesSubtitle').textContent = field.category === 'deduction' ? 'Deduction' : 'Addition';
     document.getElementById('prFvSearchInput').value = '';
     document.getElementById('prFvNonZeroCheckbox').checked = false;
+    const logicHost = document.getElementById('prFvLogicSummary');
+    if (field.logic_tree) {
+      logicHost.classList.remove('hidden');
+      logicHost.innerHTML = `<p class="text-[9px] font-black text-indigo-600 uppercase tracking-widest mb-1.5">Advanced Logic for this field</p>${_prLogicNodeSummaryHtml(field.logic_tree)}`;
+    } else {
+      logicHost.classList.add('hidden');
+      logicHost.innerHTML = '';
+    }
     document.getElementById('prFieldValuesModal').classList.remove('hidden');
     _prSetFieldValuesMode('logical');
     _prLoadFieldValues();
+  }
+
+  // Read-only rendering of a logic_tree for the Values popup — same shape
+  // _prLogicRenderNode edits, but plain text/labels instead of live
+  // selects, so "why is this value what it is" is visible without leaving
+  // Values to open Conditions separately.
+  function _prLogicTermSummaryText(t) {
+    if (t.kind === 'const') return String(t.value ?? 0);
+    const f = _prFieldsCache.find(fc => fc.key === t.key);
+    const label = f ? f.label : t.key;
+    return t.kind === 'percent_of_field' ? `${t.percent ?? 100}% of ${label}` : label;
+  }
+  function _prLogicValueNodeSummaryText(node) {
+    const terms = (node.terms || []).map(t => _prLogicTermSummaryText(t));
+    const ops = node.ops || [];
+    const opSymbol = { '+': '+', '-': '−', '*': '×', '/': '÷' };
+    let out = terms[0] != null ? terms[0] : '0';
+    for (let i = 0; i < ops.length; i++) {
+      if (ops[i] === 'max') out = `max(${out}, ${terms[i + 1]})`;
+      else if (ops[i] === 'min') out = `min(${out}, ${terms[i + 1]})`;
+      else out += ` ${opSymbol[ops[i]] || ops[i]} ${terms[i + 1]}`;
+    }
+    return out;
+  }
+  function _prLogicConditionSummaryText(cond) {
+    const srcLabel = cond.source === 'tenure_years' ? 'Tenure (years)' : ((_prFieldsCache.find(f => f.key === cond.source) || {}).label || cond.source);
+    const srcText = cond.source_percent != null ? `${cond.source_percent}% of ${srcLabel}` : srcLabel;
+    let valText;
+    if (cond.value_kind === 'field' || cond.value_kind === 'percent_of_field') {
+      const vLabel = (_prFieldsCache.find(f => f.key === cond.value_key) || {}).label || cond.value_key;
+      valText = cond.value_kind === 'percent_of_field' ? `${cond.value_percent ?? 100}% of ${vLabel}` : vLabel;
+    } else valText = String(cond.value ?? 0);
+    return `${srcText} ${cond.op} ${valText}`;
+  }
+  function _prLogicNodeSummaryHtml(node) {
+    if (!node) return '';
+    if (node.if) {
+      const joinLabel = node.if.join === 'OR' ? ' <b>or</b> ' : ' <b>and</b> ';
+      const condsHtml = (node.if.conditions || []).map(c => _escHtml(_prLogicConditionSummaryText(c))).join(joinLabel);
+      return `<div class="pl-3 border-l-2 border-indigo-200 my-1">
+        <div><span class="text-indigo-600 font-black">If</span> ${condsHtml}</div>
+        <div class="pl-3 mt-1"><span class="text-emerald-600 font-black">Then</span> ${_prLogicNodeSummaryHtml(node.then)}</div>
+        <div class="pl-3 mt-1"><span class="text-rose-600 font-black">Else</span> ${_prLogicNodeSummaryHtml(node.else)}</div>
+      </div>`;
+    }
+    return `<span class="font-bold">${_escHtml(_prLogicValueNodeSummaryText(node))}</span>`;
   }
   function _prCloseFieldValues() { document.getElementById('prFieldValuesModal').classList.add('hidden'); }
 
