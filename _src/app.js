@@ -15818,6 +15818,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const parts = [];
     if (joiningDate) parts.push(`Joined ${joiningDate}`);
     events.forEach(h => {
+      // grade_id can be null for a backfilled historical date whose
+      // resulting grade wasn't independently confirmed (e.g. an
+      // intermediate promotion/time-scale date parsed from a source sheet
+      // where only the CURRENT grade could be verified against Basic) —
+      // still worth showing the date, just not inventing a grade for it.
+      if (!h.grade_id) { parts.push(`Promotion recorded ${h.effective_date}${h.note ? ` (${h.note})` : ' (grade not confirmed)'}`); return; }
       const gName = gradeById[h.grade_id] || `Grade #${h.grade_id}`;
       const sLabel = h.step_id && stepById[h.step_id] ? ` Step ${stepById[h.step_id]}` : '';
       parts.push(`${gName}${sLabel} since ${h.effective_date}`);

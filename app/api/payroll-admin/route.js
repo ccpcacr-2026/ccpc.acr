@@ -932,6 +932,43 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success', history: rows });
   }
 
+  // Pure history-log insert — no person_setup write, no Basic push. For
+  // backfilling REAL historical dates (e.g. parsed from a source sheet's own
+  // join/promotion column) as a one-off import, as distinct from
+  // save_person_grade_step's combined "change it now and log it" behavior.
+  // grade_id/step_id may be null for a date whose resulting grade isn't
+  // independently known — the row still records that *something* happened
+  // on that date rather than silently dropping it.
+  if (action === 'add_grade_history_row') {
+    const { user_id: personId, grade_id, step_id, pay_type, effective_date, note } = payload;
+    if (!personId || !effective_date) return NextResponse.json({ result: 'error', message: 'user_id and effective_date required' }, { status: 400 });
+    const rowData = {
+      user_id: personId, grade_id: grade_id || null, step_id: step_id || null,
+      pay_type: pay_type === 'contractual' ? 'contractual' : 'regular',
+      effective_date, note: note || null, created_by: user_id || null,
+    };
+    const saved = await sbPayroll('person_grade_history', 'POST', rowData);
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    _prAudit(user_id, 'add_grade_history_row', 'person_grade_history', personId, rowData);
+    return NextResponse.json({ result: 'success', id: Array.isArray(saved) && saved[0] ? saved[0].id : null });
+  }
+
+  // Narrow — only ever touches joining_date, for the same backfill reason
+  // as add_grade_history_row: correcting/populating a real historical fact
+  // without risking the full save_person_setup upsert clobbering grade/
+  // step/bank info it wasn't given.
+  if (action === 'set_joining_date') {
+    const { user_id: personId, joining_date } = payload;
+    if (!personId || !joining_date) return NextResponse.json({ result: 'error', message: 'user_id and joining_date required' }, { status: 400 });
+    const existing = await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(personId)}&select=user_id`);
+    const saved = (!existing?.error && existing.length)
+      ? await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(personId)}`, 'PATCH', { joining_date })
+      : await sbPayroll('person_setup', 'POST', { user_id: personId, joining_date });
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    _prAudit(user_id, 'set_joining_date', 'person_setup', personId, { joining_date });
+    return NextResponse.json({ result: 'success' });
+  }
+
   if (action === 'save_person_setup') {
     const { user_id: personId, grade_id, step_id, pay_type, effective_date, joining_date, is_active, bank_name, bank_account_no, mobile_banking_provider, mobile_banking_number, mpo_amount } = payload;
     if (!personId) return NextResponse.json({ result: 'error', message: 'user_id required' }, { status: 400 });
