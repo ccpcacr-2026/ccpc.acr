@@ -15949,6 +15949,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return `<option value="">None</option>` + applicable.map(s => `<option value="${s.id}" ${Number(selectedStepId) === s.id ? 'selected' : ''}>Step ${s.step_number}</option>`).join('');
   }
 
+  // A person newly placed on a grade/scale starts at that grade's Step 0
+  // and moves up from there (via "Upgrade to Next Step") — never picked up
+  // mid-scale by default. Only used when a Grade select just changed with
+  // no step to carry over; loading someone's already-saved step never goes
+  // through this.
+  function _prDefaultStepIdForGrade(gradeId) {
+    if (!gradeId) return null;
+    const zeroStep = _prPayStepsCache.find(s => s.step_number === 0);
+    if (!zeroStep) return null;
+    const hasValue = _prGradeStepValuesCache.some(c => c.grade_id === Number(gradeId) && c.step_id === zeroStep.id && c.basic_value != null);
+    return hasValue ? zeroStep.id : null;
+  }
+
   // ── Designation -> Category Mapping (admin-curated) ─────────────────────
   // The school's actual grouping decision — which of the 4 category leaves
   // (STAFF_CATEGORY_TREE, defined near the Staff Form below) each
@@ -16171,7 +16184,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const stepSel = document.getElementById('prPersonStep');
     const gradeSel = document.getElementById('prPersonGrade');
     if (!stepSel) return;
-    stepSel.innerHTML = _prStepOptionsForGrade(gradeSel && gradeSel.value, keepStepId);
+    const gradeId = gradeSel && gradeSel.value;
+    stepSel.innerHTML = _prStepOptionsForGrade(gradeId, keepStepId != null ? keepStepId : _prDefaultStepIdForGrade(gradeId));
   }
 
   // Pay Type changed in the detail popup — refilter Grade to the new
@@ -16516,7 +16530,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const stepSel = document.getElementById('apStep');
     const gradeSel = document.getElementById('apGrade');
     if (!stepSel) return;
-    stepSel.innerHTML = gradeSel && gradeSel.value ? _prStepOptionsForGrade(gradeSel.value, null) : '<option value="">—</option>';
+    const gradeId = gradeSel && gradeSel.value;
+    stepSel.innerHTML = gradeId ? _prStepOptionsForGrade(gradeId, _prDefaultStepIdForGrade(gradeId)) : '<option value="">—</option>';
   }
 
   function _prSaveNewPerson() {
