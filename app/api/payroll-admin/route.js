@@ -1787,6 +1787,10 @@ export async function POST(req) {
   }
 
   // ── Run & Payslips ──
+  // Runs the real engine (_computePayslipForPerson) against this person's
+  // CURRENT setup, with no writes — the same numbers a real payroll run for
+  // this month would produce, so "what would this person actually get paid
+  // right now" never requires running one to find out.
   if (action === 'preview_payslip') {
     const { user_id: personId, month, year } = payload;
     if (!personId || !month || !year) return NextResponse.json({ result: 'error', message: 'user_id, month and year are required' }, { status: 400 });
@@ -1796,7 +1800,20 @@ export async function POST(req) {
     const categories = await _categoriesForUsers([personId]);
     const ref = await _loadPayrollRef([personId], month, year);
     const slip = _computePayslipForPerson(personSetup, roles[personId] || '', categories[personId] || '', ref, Number(month), Number(year));
-    return NextResponse.json({ result: 'success', payslip: slip });
+    // Enrich section_amounts (keyed by entry id -> a bare number in `slip`)
+    // with the section's own name/direction, and give the frontend a label
+    // for every `statutory:<key>` field_values entry — both are looked up
+    // by id/key elsewhere but never returned with a human-readable label,
+    // which a one-off preview needs to actually be readable.
+    const sectionLines = (ref.sectionEntriesByUser[personId] || []).map(entry => {
+      const section = ref.sectionsById[entry.section_id];
+      return {
+        entry_id: entry.id, section_name: section ? section.name : `Section #${entry.section_id}`,
+        direction: section ? section.direction : 'deduct', amount: slip.section_amounts[entry.id] || 0, note: entry.note || null,
+      };
+    });
+    const statutoryLabels = {}; ref.statutoryItems.forEach(s => { statutoryLabels[s.key] = s.label || s.name || s.key; });
+    return NextResponse.json({ result: 'success', payslip: slip, section_lines: sectionLines, statutory_labels: statutoryLabels });
   }
 
   if (action === 'run_payroll') {

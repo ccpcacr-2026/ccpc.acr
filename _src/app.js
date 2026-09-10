@@ -16180,7 +16180,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <input type="text" id="prPersonMbNumber" value="${setup.mobile_banking_number || ''}" placeholder="optional" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
           </div>
         </div>
-        <div class="flex justify-end mb-5">
+        <div class="flex justify-end gap-2 mb-5">
+          <button onclick="_prOpenPayslipPreview('${userId}')" class="px-5 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="eye" class="h-3.5 w-3.5"></i>Preview Payslip</button>
           <button onclick="_prSavePersonSetup('${userId}')" class="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Setup</button>
         </div>
         <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest bg-slate-50 border border-slate-200 rounded-xl p-3">To set this person's amount for a specific field (Basic, House Rent, EMI, etc.), open that field's "Values" button under Additions &amp; Deductions and switch to Manual — it lists everyone by category with an editable amount, same place as Import.</p>
@@ -16773,6 +16774,110 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (btn) { btn.disabled = false; btn.textContent = 'Undo'; }
       showToast('Network error undoing upgrade', 'error');
     });
+  }
+
+  // ── Payslip Preview (single person, present setup) ──────────────────────
+  // Runs the real engine against whatever this person's setup is RIGHT NOW
+  // — no run needs to exist, nothing is written — so "what would they
+  // actually get paid" is answerable the moment a grade/step/override
+  // changes, not just after the month's payroll run.
+  function _prOpenPayslipPreview(userId) {
+    document.getElementById('payslipPreviewOverlay')?.remove();
+    const now = new Date();
+    const overlay = document.createElement('div');
+    overlay.id = 'payslipPreviewOverlay';
+    overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
+    overlay.innerHTML = `
+      <div class="bg-white rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
+        <div class="p-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+          <div>
+            <p class="font-black text-slate-800 text-sm">Payslip Preview</p>
+            <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">${_escHtml(staffLabel(userId))} — based on their present setup, not a saved run</p>
+          </div>
+          <button onclick="document.getElementById('payslipPreviewOverlay').remove()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+        </div>
+        <div class="p-4 border-b border-slate-100 shrink-0 flex items-center gap-2">
+          <select id="ppMonth" onchange="_prRefreshPayslipPreview('${userId}')" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+            ${['January','February','March','April','May','June','July','August','September','October','November','December'].map((m, i) => `<option value="${i + 1}" ${i + 1 === now.getMonth() + 1 ? 'selected' : ''}>${m}</option>`).join('')}
+          </select>
+          <input type="number" id="ppYear" value="${now.getFullYear()}" onchange="_prRefreshPayslipPreview('${userId}')" class="w-24 px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <p class="text-[9px] text-slate-400 font-bold uppercase tracking-widest ml-auto">Bonus/leave-deduction/bus-fare lines only show if entered for this month</p>
+        </div>
+        <div id="ppBody" class="p-4 overflow-y-auto flex-1"><p class="text-slate-400 font-bold text-xs text-center py-8">Loading…</p></div>
+      </div>`;
+    document.body.appendChild(overlay);
+    lucide.createIcons();
+    _prRefreshPayslipPreview(userId);
+  }
+
+  function _prRefreshPayslipPreview(userId) {
+    const body = document.getElementById('ppBody');
+    if (!body) return;
+    body.innerHTML = '<p class="text-slate-400 font-bold text-xs text-center py-8">Loading…</p>';
+    const month = document.getElementById('ppMonth').value;
+    const year = document.getElementById('ppYear').value;
+    (_prFieldsCache.length ? Promise.resolve({ result: 'success', fields: _prFieldsCache }) : _payrollFetch('get_fields', {}))
+      .then(fieldsRes => {
+        _prFieldsCache = (fieldsRes && fieldsRes.result === 'success' && fieldsRes.fields) || _prFieldsCache;
+        return _payrollFetch('preview_payslip', { user_id: userId, month, year });
+      })
+      .then(res => {
+        if (!res || res.result !== 'success') { body.innerHTML = `<p class="text-red-500 font-bold text-xs text-center py-8">${_escHtml((res && res.message) || 'Failed to compute preview')}</p>`; return; }
+        _prRenderPayslipPreview(res);
+      })
+      .catch(err => { body.innerHTML = `<p class="text-red-500 font-bold text-xs text-center py-8">${_escHtml(err.message || 'Network error')}</p>`; });
+  }
+
+  function _prRenderPayslipPreview(res) {
+    const body = document.getElementById('ppBody');
+    if (!body) return;
+    const slip = res.payslip;
+    const statutoryLabels = res.statutory_labels || {};
+    const labelFor = key => {
+      if (key === 'bonus_total') return 'Bonus (this month)';
+      if (key === 'leave_deduction') return 'Leave / Attendance Deduction';
+      if (key === 'bus_fare') return 'Staff-child Bus Fare';
+      if (key.startsWith('statutory_employer:')) return `${statutoryLabels[key.split(':')[1]] || key} (Employer match — not deducted)`;
+      if (key.startsWith('statutory:')) return statutoryLabels[key.split(':')[1]] || key;
+      const f = _prFieldsCache.find(fc => fc.key === key);
+      return f ? f.label : key;
+    };
+    const additions = [], deductions = [], employerNotes = [];
+    Object.entries(slip.field_values || {}).forEach(([key, amt]) => {
+      if (!amt) return;
+      if (key.startsWith('statutory_employer:')) { employerNotes.push({ key, amt }); return; }
+      if (key.startsWith('statutory:') || key === 'leave_deduction' || key === 'bus_fare') { deductions.push({ key, amt }); return; }
+      if (key === 'bonus_total') { additions.push({ key, amt }); return; }
+      const f = _prFieldsCache.find(fc => fc.key === key);
+      (f && f.category === 'deduction' ? deductions : additions).push({ key, amt });
+    });
+    (res.section_lines || []).forEach(line => {
+      if (!line.amount) return;
+      (line.direction === 'add' ? additions : deductions).push({ key: `section:${line.entry_id}`, amt: line.amount, label: line.section_name + (line.note ? ` (${line.note})` : '') });
+    });
+    const row = (label, amt, cls) => `<tr class="border-b border-slate-50"><td class="py-1.5 px-3 text-slate-600 font-bold">${_escHtml(label)}</td><td class="py-1.5 px-3 text-right font-black ${cls || 'text-slate-700'}">${Number(amt).toLocaleString()}</td></tr>`;
+    body.innerHTML = `
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <p class="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1.5">Additions</p>
+          <div class="border border-slate-200 rounded-xl overflow-hidden">
+            <table class="w-full text-left border-collapse text-xs">${additions.length ? additions.map(a => row(a.label || labelFor(a.key), a.amt)).join('') : `<tr><td class="py-3 px-3 text-slate-400 font-bold text-center">None</td></tr>`}</table>
+          </div>
+        </div>
+        <div>
+          <p class="text-[10px] font-black text-red-500 uppercase tracking-widest mb-1.5">Deductions</p>
+          <div class="border border-slate-200 rounded-xl overflow-hidden">
+            <table class="w-full text-left border-collapse text-xs">${deductions.length ? deductions.map(d => row(d.label || labelFor(d.key), d.amt, 'text-red-500')).join('') : `<tr><td class="py-3 px-3 text-slate-400 font-bold text-center">None</td></tr>`}</table>
+          </div>
+        </div>
+      </div>
+      ${employerNotes.length ? `<p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-3">${employerNotes.map(e => `${labelFor(e.key)}: ${Number(e.amt).toLocaleString()}`).join(' · ')}</p>` : ''}
+      <div class="grid grid-cols-2 gap-4 mt-4 bg-slate-50 border border-slate-200 rounded-xl p-4">
+        <div><p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Gross</p><p class="text-lg font-black text-slate-800">${Number(slip.gross).toLocaleString()}</p></div>
+        <div><p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Deductions</p><p class="text-lg font-black text-red-500">${Number(slip.total_deductions).toLocaleString()}</p></div>
+        <div><p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Net Pay</p><p class="text-xl font-black text-emerald-600">${Number(slip.net).toLocaleString()}</p></div>
+        <div><p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">MPO / College</p><p class="text-sm font-black text-slate-700">${Number(slip.mpo_amount).toLocaleString()} / ${Number(slip.college_amount).toLocaleString()}</p></div>
+      </div>`;
   }
 
   function _prSavePersonSetup(userId) {
