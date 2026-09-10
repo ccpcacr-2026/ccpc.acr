@@ -13985,7 +13985,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   const PAYROLL_SUBTABS = [
-    { id: 'pr-fields', label: 'Additions & Deductions' },
+    { id: 'pr-fields', label: 'Fields' },
     { id: 'pr-grades', label: 'Grades' },
     { id: 'pr-people', label: 'People Setup' },
     { id: 'pr-sections', label: 'Sections' },
@@ -14013,6 +14013,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div class="flex flex-nowrap gap-2 mb-5 overflow-x-auto pb-1 -mx-1 px-1" style="scrollbar-width:none">${tabBar}</div>
 
       <div id="pr-fields">
+        <div class="flex gap-1.5 mb-3">
+          <button id="prFieldsMainTabBtn-main" onclick="_prSwitchFieldsMainTab('main')" class="px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all bg-blue-600 text-white">Fields</button>
+          <button id="prFieldsMainTabBtn-special" onclick="_prSwitchFieldsMainTab('special')" class="px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all bg-white text-slate-400 border border-slate-200 hover:bg-slate-50">Special Fields</button>
+        </div>
+        <div id="prFieldsMainTab-main">
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-3">
           <div class="sticky top-0 z-10 bg-white -mx-4 -mt-4 px-4 pt-4 pb-3">
             <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
@@ -14036,6 +14041,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               </tr></thead>
               <tbody id="prFieldsBody"><tr><td colspan="6" class="p-4 text-slate-400 font-bold text-xs text-center">Loading…</td></tr></tbody>
             </table>
+          </div>
+        </div>
+        </div>
+        <div id="prFieldsMainTab-special" class="hidden">
+          <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-3">
+            <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+              <div>
+                <p class="font-black text-slate-800 text-xs">Special Fields</p>
+                <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Position-specific stipends (Charge Allowance, Coordinator, Mobile Bill, etc.) — not tied to Grade. Assign people either here (bulk-friendly) or right from their own record in People Setup.</p>
+              </div>
+              <button onclick="_prOpenFieldForm(null,'special')" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Special Field</button>
+            </div>
+            <div id="prSpecialAllowancesList" class="space-y-1.5"><p class="text-slate-400 font-bold text-xs">Loading…</p></div>
+          </div>
+          <div class="bg-white rounded-2xl border border-slate-200 p-4">
+            <p class="font-black text-slate-800 text-xs mb-1">Role-wide rates (live, recalculates with Basic)</p>
+            <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-3">For an allowance that's a percent of Basic shared by everyone holding a role — e.g. Charge Allowance: Principal 45%, VP 30%</p>
+            <div id="prRoleDefaultsPanel"><p class="text-slate-400 font-bold text-xs">Select a percent-based special field above to edit its role rates.</p></div>
           </div>
         </div>
       </div>
@@ -14096,7 +14119,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <div class="flex gap-1.5">
               <button id="prGradesSubtabBtn-grades" onclick="_prSwitchGradesSubtab('grades')" class="px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all bg-blue-600 text-white">Grades</button>
               <button id="prGradesSubtabBtn-steps" onclick="_prSwitchGradesSubtab('steps')" class="px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all bg-white text-slate-400 border border-slate-200 hover:bg-slate-50">Pay Scale Grid</button>
-              <button id="prGradesSubtabBtn-special" onclick="_prSwitchGradesSubtab('special')" class="px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all bg-white text-slate-400 border border-slate-200 hover:bg-slate-50">Special Allowances</button>
             </div>
             <div class="flex gap-1.5 border-l border-slate-200 pl-3">
               <button id="prGradeSystemBtn-regular" onclick="_prSwitchGradeSystem('regular')" class="px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all bg-slate-800 text-white">Regular</button>
@@ -14126,16 +14148,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button id="prAddStepBtn" onclick="_prAddPayStep()" disabled class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Step</button>
           </div>
           <div id="prPayScaleGrid" class="overflow-auto"><p class="text-slate-400 font-bold text-xs p-4 text-center">Loading…</p></div>
-        </div>
-        <div id="prGradesSubtab-special" class="hidden bg-white rounded-2xl border border-slate-200 p-4">
-          <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
-            <div>
-              <p class="font-black text-slate-800 text-xs">Special Allowances</p>
-              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Position-specific stipends (Charge Allowance, Coordinator, Mobile Bill, etc.) — not tied to Grade, assigned straight to whichever person(s) hold that duty</p>
-            </div>
-            <button id="prAddSpecialBtn" onclick="_prOpenFieldForm(null,'special')" disabled class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Allowance</button>
-          </div>
-          <div id="prSpecialAllowancesList" class="space-y-1.5"><p class="text-slate-400 font-bold text-xs">Loading…</p></div>
         </div>
       </div>
       <div id="pr-people" style="display:none">
@@ -15762,9 +15774,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // of a long scroll to reach the grid — it's a full 20x19 table, easy to
   // miss below the Grades/Field Values panels.
   function _prSwitchGradesSubtab(tab) {
-    ['grades', 'steps', 'special'].forEach(t => {
+    ['grades', 'steps'].forEach(t => {
       const panel = document.getElementById(`prGradesSubtab-${t}`);
       const btn = document.getElementById(`prGradesSubtabBtn-${t}`);
+      const active = t === tab;
+      if (panel) panel.classList.toggle('hidden', !active);
+      if (btn) btn.className = `px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all ${active ? 'bg-blue-600 text-white' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50'}`;
+    });
+  }
+
+  // Fields tab's own Fields / Special Fields split — Special Fields lives
+  // here (not Grade Setup) since these stipends have nothing to do with
+  // Grade at all; it's just a differently-organized view of the same
+  // fields table (category:'special').
+  function _prSwitchFieldsMainTab(tab) {
+    ['main', 'special'].forEach(t => {
+      const panel = document.getElementById(`prFieldsMainTab-${t}`);
+      const btn = document.getElementById(`prFieldsMainTabBtn-${t}`);
       const active = t === tab;
       if (panel) panel.classList.toggle('hidden', !active);
       if (btn) btn.className = `px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all ${active ? 'bg-blue-600 text-white' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50'}`;
@@ -15782,20 +15808,62 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const host = document.getElementById('prSpecialAllowancesList');
     if (!host) return;
     const specials = _prFieldsCache.filter(f => f.category === 'special');
-    const locked = !_prGradesEditMode;
-    host.innerHTML = specials.length ? specials.map(f => `
+    host.innerHTML = specials.length ? specials.map(f => {
+      const isRoleWide = f.is_role_conditional && f.calc_mode === 'percent_of_field';
+      return `
       <div class="p-3 rounded-xl bg-slate-50 flex items-center justify-between gap-3 flex-wrap">
         <div>
           <p class="font-black text-slate-800 text-xs">${_escHtml(f.label)}</p>
-          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">${f.calc_mode === 'percent_of_field' ? `Percent of ${_escHtml(f.calc_base_field_key || '?')}` : 'Fixed amount'} &middot; set per person</p>
+          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">${f.calc_mode === 'percent_of_field' ? `Percent of ${_escHtml(f.calc_base_field_key || '?')}` : 'Fixed amount'} &middot; ${isRoleWide ? 'same rate for everyone holding a role' : 'set per person'}</p>
         </div>
         <div class="flex items-center gap-2 shrink-0">
-          <button onclick="_prOpenFieldValues(${f.id})" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Manage People</button>
-          <button onclick='_prOpenFieldForm(${JSON.stringify(f).replace(/'/g, "&apos;")})' ${locked ? 'disabled title="Click Enable Editing above"' : ''} class="text-blue-600 ${locked ? 'opacity-30 cursor-not-allowed' : ''}"><i data-lucide="pencil" class="h-4 w-4"></i></button>
-          <button onclick="_prDeleteField(${f.id})" ${locked ? 'disabled title="Click Enable Editing above"' : ''} class="text-red-500 ${locked ? 'opacity-30 cursor-not-allowed' : ''}"><i data-lucide="trash-2" class="h-4 w-4"></i></button>
+          ${isRoleWide
+            ? `<button onclick="_prOpenRoleDefaultsPanel(${f.id})" class="px-3 py-1.5 bg-indigo-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Edit Role Rates</button>`
+            : `<button onclick="_prOpenFieldValues(${f.id})" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Manage People</button>`}
+          <button onclick='_prOpenFieldForm(${JSON.stringify(f).replace(/'/g, "&apos;")})' class="text-blue-600"><i data-lucide="pencil" class="h-4 w-4"></i></button>
+          <button onclick="_prDeleteField(${f.id})" class="text-red-500"><i data-lucide="trash-2" class="h-4 w-4"></i></button>
         </div>
-      </div>`).join('') : `<p class="text-slate-400 font-bold text-xs p-4 text-center">No special allowances yet — click "Add Allowance".</p>`;
+      </div>`;
+    }).join('') : `<p class="text-slate-400 font-bold text-xs p-4 text-center">No special fields yet — click "Add Special Field".</p>`;
     lucide.createIcons();
+  }
+
+  // Role-wide rate editor — for a percent-of-Basic special field shared by
+  // everyone holding a role (Charge Allowance: Principal 45%, VP 30%), not
+  // one person at a time. Reads/writes field_role_defaults directly; ALL_ROLES
+  // is the same fixed role list used everywhere else (Add Staff, Conditions).
+  function _prOpenRoleDefaultsPanel(fieldId) {
+    const field = _prFieldsCache.find(f => f.id === fieldId);
+    const panel = document.getElementById('prRoleDefaultsPanel');
+    if (!field || !panel) return;
+    panel.innerHTML = `<p class="text-slate-400 font-bold text-xs">Loading…</p>`;
+    Promise.all([
+      _payrollFetch('get_field_conditions', { field_id: fieldId }),
+      _payrollFetch('get_field_role_defaults', { field_id: fieldId }),
+    ]).then(([condRes, defRes]) => {
+      const applicableRoles = new Set((condRes && condRes.result === 'success' && condRes.applicable_roles) ? condRes.applicable_roles.map(r => r.role) : []);
+      const defaults = {}; ((defRes && defRes.result === 'success' && defRes.defaults) || []).forEach(d => { defaults[d.role] = d; });
+      panel.innerHTML = `
+        <p class="font-black text-slate-800 text-xs mb-2">${_escHtml(field.label)} — role rates</p>
+        <div class="space-y-2 mb-3">
+          ${ALL_ROLES.map(r => `
+            <label class="flex items-center gap-2 text-xs font-black text-slate-600">
+              <input type="checkbox" ${applicableRoles.has(r) ? 'checked' : ''} onchange="_prToggleFieldApplicableRole(${fieldId},'${r}',this.checked)" class="w-4 h-4 rounded accent-indigo-600">
+              <span class="w-20 shrink-0">${r}</span>
+              <input type="number" placeholder="%" value="${defaults[r] && defaults[r].percent != null ? defaults[r].percent : ''}" onchange="_prSaveRoleDefaultPercent(${fieldId},'${r}',this.value)" class="w-24 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <span class="text-slate-400 font-bold">% of ${_escHtml(field.calc_base_field_key || 'Basic')}</span>
+            </label>`).join('')}
+        </div>
+        <p class="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Check a role to give it this allowance, then set its percent. Recalculates live off that person's own Basic — no re-entry needed when Basic changes.</p>
+      `;
+    });
+  }
+  function _prSaveRoleDefaultPercent(fieldId, role, percent) {
+    const field = _prFieldsCache.find(f => f.id === fieldId);
+    _payrollFetch('save_field_role_default', { field_id: fieldId, role, percent, base_field_key: field ? field.calc_base_field_key : 'basic' }).then(res => {
+      if (res && res.result === 'success') showToast('Saved');
+      else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
   }
 
   function _prToggleGradesEditMode() {
@@ -15809,12 +15877,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (addBtn) addBtn.disabled = !_prGradesEditMode;
     const addStepBtn = document.getElementById('prAddStepBtn');
     if (addStepBtn) addStepBtn.disabled = !_prGradesEditMode;
-    const addSpecialBtn = document.getElementById('prAddSpecialBtn');
-    if (addSpecialBtn) addSpecialBtn.disabled = !_prGradesEditMode;
     lucide.createIcons();
     _prRenderGradesList();
     _prRenderPayScaleGrid();
-    _prRenderSpecialAllowancesList();
     if (_prSelectedGradeId) _prSelectGrade(_prSelectedGradeId);
   }
 
@@ -16455,13 +16520,32 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="_prSavePersonSetup('${userId}')" class="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Setup</button>
           </div>
         </div>
+        <p class="font-black text-slate-800 text-xs mb-1 flex items-center gap-1.5"><i data-lucide="star" class="h-3.5 w-3.5 text-amber-500"></i>Special Allowances — this person</p>
+        <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-3">Position-specific stipends (Charge Allowance, Coordinator, Mobile Bill, etc.) — the easiest place to assign or change one for a single person. For a shared rate across many people at once, use Fields &gt; Special Fields &gt; Manage People instead.</p>
+        <div class="overflow-auto border border-amber-200 rounded-xl mb-5">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead class="bg-amber-50"><tr class="text-[10px] font-black text-amber-700 uppercase"><th class="py-2 px-3">Allowance</th><th class="py-2 px-3">Amount</th></tr></thead>
+            <tbody>
+              ${_prFieldsCache.filter(f => f.category === 'special').map(f => {
+                const isRoleWide = f.is_role_conditional && f.calc_mode === 'percent_of_field';
+                const val = personFieldValues[f.key];
+                return `<tr class="border-b border-amber-100">
+                  <td class="py-1.5 px-3 font-black text-amber-700">${_escHtml(f.label)}</td>
+                  <td class="py-1.5 px-3">${isRoleWide
+                    ? `<span class="text-[10px] text-slate-400 font-bold uppercase">Set by role in Fields &gt; Special Fields &gt; Edit Role Rates</span>`
+                    : `<input type="number" value="${val != null ? val : ''}" placeholder="— (not assigned)" onchange="_prSaveSinglePersonFieldValue('${userId}','${f.key}',this.value)" class="w-32 px-2 py-1.5 bg-white border border-amber-200 rounded-lg font-bold text-xs">`}</td>
+                </tr>`;
+              }).join('') || `<tr><td colspan="2" class="p-3 text-slate-400 font-bold text-xs text-center">No special allowances set up yet — add one under Fields &gt; Special Fields.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
         <p class="font-black text-slate-800 text-xs mb-1">Field Overrides — this person only</p>
         <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-3">Blank = falls back to the grade/role default. Same values as each field's own "Values → Manual" screen, just all in one place for this one person.</p>
         <div class="overflow-auto border border-slate-200 rounded-xl">
           <table class="w-full text-left border-collapse text-xs">
             <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Field</th><th class="py-2 px-3">Manual Value</th></tr></thead>
             <tbody>
-              ${_prFieldsCache.filter(f => !f.is_grade_conditional).map(f => {
+              ${_prFieldsCache.filter(f => !f.is_grade_conditional && f.category !== 'special').map(f => {
                 const isDeduction = f.category === 'deduction';
                 const val = personFieldValues[f.key];
                 return `<tr class="border-b border-slate-50" style="border-left:3px solid ${isDeduction ? '#ef4444' : '#10b981'}">

@@ -85,6 +85,7 @@ const RESERVED = [
   '_prRenderPersonStepOptions','_prUpdateFieldIncrementWarning',
   '_prShowFieldSummary','_prHideFieldSummary',
   '_prToggleGradesEditMode','_prUnlockPayScaleCell','_prRelockPayScaleCell','_prSwitchGradesSubtab',
+  '_prSwitchFieldsMainTab','_prOpenRoleDefaultsPanel','_prSaveRoleDefaultPercent',
   '_prSwitchGradeSystem','_prOnPersonPayTypeChange',
   '_prOpenAddPersonModal','_prApOnPayTypeChange','_prApRenderStepOptions','_prSaveNewPerson',
   '_prOpenStepUpgradeModal','_prToggleAllStepUpgrade','_prReviewStepUpgrade','_prApplyStepUpgrade',

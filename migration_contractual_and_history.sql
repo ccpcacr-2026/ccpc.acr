@@ -33,3 +33,10 @@ grant select, insert, update, delete on payroll.person_grade_history to service_
 grant usage, select on all sequences in schema payroll to service_role;
 
 notify pgrst, 'reload schema';
+
+-- Steps now number from 0, not 1. Safe to run any time — everything else
+-- (grade_step_values, person_setup.step_id, grade_fields.base_step_id)
+-- references a step by its id, never its step_number, so relabeling here
+-- touches no other table.
+update payroll.pay_steps set step_number = step_number - 1, sort_order = sort_order - 1;
+notify pgrst, 'reload schema';
