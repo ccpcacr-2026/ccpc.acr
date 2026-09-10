@@ -14148,6 +14148,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Roster — inline-editable Grade &amp; Step once unlocked</p>
           <button id="prGradeStepEditModeBtn" onclick="_prToggleGradeStepEditMode()" title="Grade/Step selects below are read-only until this is on, to prevent accidental changes while browsing" class="px-3 py-2 border border-slate-200 text-slate-500 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="lock" class="h-3.5 w-3.5"></i>Enable Editing</button>
         </div>
+        <div id="prStepUpgradeUndoBanner" class="hidden mb-3"></div>
         <div id="prPeopleRoster" class="mb-4"></div>
         <div id="prPersonDetail" class="bg-white rounded-2xl border border-slate-200 p-4">
           <p class="text-slate-400 font-bold text-xs p-4">Search and pick a person above (or click one in the list) to assign a grade and set overrides.</p>
@@ -15837,7 +15838,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _prGradesLoaded ? Promise.resolve({ result: 'success', grades: _prGradesCache }) : _payrollFetch('get_grades', {}),
       _payrollFetch('get_pay_steps', {}),
       _payrollFetch('get_grade_step_matrix', {}),
-      _payrollFetch('get_grade_history', {}),
+      // Tolerant of failure on its own (e.g. the migration adding this table
+      // hasn't run yet) — a missing history table must never take down the
+      // whole roster, which is what happens if this rejects inside the same
+      // Promise.all as everything the roster actually needs to render.
+      _payrollFetch('get_grade_history', {}).catch(() => ({ result: 'error' })),
     ]).then(([, peopleRes, gradesRes, stepsRes, matrixRes, historyRes]) => {
       _prPeopleSetupCache = (peopleRes && peopleRes.result === 'success' && peopleRes.people) || [];
       _prGradesCache = (gradesRes && gradesRes.result === 'success' && gradesRes.grades) || _prGradesCache;
@@ -15869,6 +15874,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         }, 0);
       });
       _prRenderPeopleRoster();
+    }).catch(err => {
+      const host = document.getElementById('prPeopleRoster');
+      if (host) host.innerHTML = `<p class="text-red-500 font-bold text-xs p-4 text-center">Failed to load: ${_escHtml((err && err.message) || 'network error')}</p>`;
+      showToast((err && err.message) || 'Failed to load People Setup', 'error');
     });
   }
 
@@ -16594,7 +16603,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const next = curStep ? stepByGradeAndNumber[`${p.grade_id}:${curStep.step_number + 1}`] : null;
       return {
         user_id: p.user_id, name: staffLabel(p.user_id), grade_id: p.grade_id, grade_name: grade ? grade.name : `#${p.grade_id}`,
-        cur_step_number: curStep ? curStep.step_number : null, cur_basic: curBasic ? curBasic.basic_value : null,
+        cur_step_id: p.step_id, cur_step_number: curStep ? curStep.step_number : null, cur_basic: curBasic ? curBasic.basic_value : null,
         next_step_id: next ? next.step_id : null, next_step_number: next ? next.step_number : null, next_basic: next ? next.basic_value : null,
         eligible: !!next,
       };
@@ -16697,16 +16706,72 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const byId = {}; _prStepUpgradeCandidates.forEach(c => { byId[c.user_id] = c; });
     const calls = userIds.map(uid => {
       const c = byId[uid];
-      return _payrollFetch('save_person_grade_step', { user_id: uid, grade_id: c.grade_id, step_id: c.next_step_id, effective_date });
+      return _payrollFetch('save_person_grade_step', { user_id: uid, grade_id: c.grade_id, step_id: c.next_step_id, effective_date })
+        .then(res => ({ res, user_id: uid, grade_id: c.grade_id, prev_step_id: c.cur_step_id }))
+        .catch(() => ({ res: null, user_id: uid, grade_id: c.grade_id, prev_step_id: c.cur_step_id }));
     });
     Promise.all(calls).then(results => {
-      const failed = results.filter(r => !r || r.result !== 'success').length;
+      const ok = results.filter(r => r.res && r.res.result === 'success');
+      const failed = results.length - ok.length;
       showToast(failed ? `Applied with ${failed} failure(s)` : `Upgraded ${userIds.length} people`, failed ? 'error' : 'success');
       document.getElementById('stepUpgradeOverlay')?.remove();
+      if (ok.length) {
+        _prLastStepUpgradeBatch = ok.map(r => ({ user_id: r.user_id, grade_id: r.grade_id, prev_step_id: r.prev_step_id, history_id: r.res.history_id || null }));
+        _prShowStepUpgradeUndoBanner(ok.length);
+      }
       loadPayrollPeopleTab();
     }).catch(() => {
       if (btn) { btn.disabled = false; btn.textContent = 'Confirm & Apply'; }
       showToast('Network error applying upgrades', 'error');
+    });
+  }
+
+  // Undo for the bulk upgrade above — stays available (as a dismissible
+  // banner over the roster) until another upgrade replaces it or the admin
+  // dismisses it; reverts each person to their exact prior step and removes
+  // the promotion-history rows the mistaken upgrade just created, so the
+  // timeline reads as if it never happened rather than showing an
+  // up-then-reverted blip.
+  let _prLastStepUpgradeBatch = null;
+
+  function _prShowStepUpgradeUndoBanner(count) {
+    const banner = document.getElementById('prStepUpgradeUndoBanner');
+    if (!banner) return;
+    banner.classList.remove('hidden');
+    banner.innerHTML = `
+      <div class="flex items-center justify-between gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+        <p class="text-xs font-bold text-amber-800">Upgraded ${count} ${count === 1 ? 'person' : 'people'} to their next step.</p>
+        <div class="flex items-center gap-2 shrink-0">
+          <button onclick="_prUndoStepUpgrade()" id="prStepUpgradeUndoBtn" class="px-3 py-1.5 bg-amber-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Undo</button>
+          <button onclick="_prDismissStepUpgradeUndo()" class="text-amber-400 hover:text-amber-700"><i data-lucide="x" class="h-4 w-4"></i></button>
+        </div>
+      </div>`;
+    lucide.createIcons();
+  }
+
+  function _prDismissStepUpgradeUndo() {
+    _prLastStepUpgradeBatch = null;
+    const banner = document.getElementById('prStepUpgradeUndoBanner');
+    if (banner) { banner.classList.add('hidden'); banner.innerHTML = ''; }
+  }
+
+  function _prUndoStepUpgrade() {
+    if (!_prLastStepUpgradeBatch || !_prLastStepUpgradeBatch.length) return;
+    const btn = document.getElementById('prStepUpgradeUndoBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Undoing…'; }
+    const batch = _prLastStepUpgradeBatch;
+    Promise.all(batch.map(e => _payrollFetch('save_person_grade_step', {
+      user_id: e.user_id, grade_id: e.grade_id, step_id: e.prev_step_id, skip_history: true,
+    }).catch(() => null))).then(() => {
+      const historyIds = batch.map(e => e.history_id).filter(Boolean);
+      return historyIds.length ? _payrollFetch('delete_grade_history', { ids: historyIds }).catch(() => null) : null;
+    }).then(() => {
+      showToast(`Reverted ${batch.length} ${batch.length === 1 ? 'person' : 'people'}`);
+      _prDismissStepUpgradeUndo();
+      loadPayrollPeopleTab();
+    }).catch(() => {
+      if (btn) { btn.disabled = false; btn.textContent = 'Undo'; }
+      showToast('Network error undoing upgrade', 'error');
     });
   }
 

@@ -1001,7 +1001,7 @@ export async function POST(req) {
   // upsert which would null out bank info/joining date/etc. if called with
   // just these two fields.
   if (action === 'save_person_grade_step') {
-    const { user_id: personId, grade_id, step_id, pay_type, effective_date } = payload;
+    const { user_id: personId, grade_id, step_id, pay_type, effective_date, skip_history } = payload;
     if (!personId) return NextResponse.json({ result: 'error', message: 'user_id required' }, { status: 400 });
     const rowData = { grade_id: grade_id || null, step_id: step_id || null };
     // pay_type is only touched when the caller actually sends it (the
@@ -1015,7 +1015,13 @@ export async function POST(req) {
       : await sbPayroll('person_setup', 'POST', { user_id: personId, ...rowData });
     if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
 
-    if (grade_id && (!prior || prior.grade_id !== grade_id || prior.step_id !== step_id || (pay_type && prior.pay_type !== rowData.pay_type))) {
+    // history_id is returned so a caller that knows it made a mistake (the
+    // People Setup bulk "Upgrade to Next Step" tool's Undo) can delete
+    // exactly the row it just created, rather than leaving an up-then-down
+    // blip in the timeline. skip_history lets that same Undo revert the
+    // grade/step here without logging the revert itself as a promotion.
+    let historyId = null;
+    if (!skip_history && grade_id && (!prior || prior.grade_id !== grade_id || prior.step_id !== step_id || (pay_type && prior.pay_type !== rowData.pay_type))) {
       const histRow = {
         user_id: personId, grade_id, step_id: step_id || null,
         pay_type: rowData.pay_type || (prior && prior.pay_type) || 'regular',
@@ -1023,7 +1029,10 @@ export async function POST(req) {
         created_by: user_id || null,
       };
       const histSaved = await sbPayroll('person_grade_history', 'POST', histRow);
-      if (!(histSaved && histSaved.error)) _prAudit(user_id, 'save_grade_history', 'person_grade_history', personId, histRow);
+      if (!(histSaved && histSaved.error)) {
+        historyId = Array.isArray(histSaved) && histSaved[0] ? histSaved[0].id : null;
+        _prAudit(user_id, 'save_grade_history', 'person_grade_history', personId, histRow);
+      }
     }
 
     if (grade_id && step_id) {
@@ -1040,6 +1049,19 @@ export async function POST(req) {
     }
 
     _prAudit(user_id, 'save_person_grade_step', 'person_setup', personId, rowData);
+    return NextResponse.json({ result: 'success', history_id: historyId });
+  }
+
+  // Deletes specific promotion-history rows by id — used only by the bulk
+  // "Upgrade to Next Step" tool's Undo, to remove exactly the rows a
+  // mistaken upgrade just created rather than leaving a spurious
+  // up-then-reverted entry in everyone's timeline.
+  if (action === 'delete_grade_history') {
+    const { ids } = payload;
+    if (!Array.isArray(ids) || !ids.length) return NextResponse.json({ result: 'error', message: 'ids required' }, { status: 400 });
+    const del = await sbPayroll(`person_grade_history?id=in.(${ids.map(id => encodeURIComponent(id)).join(',')})`, 'DELETE');
+    if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
+    _prAudit(user_id, 'delete_grade_history', 'person_grade_history', null, { ids });
     return NextResponse.json({ result: 'success' });
   }
 

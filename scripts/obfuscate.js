@@ -82,6 +82,7 @@ const RESERVED = [
   '_prSwitchGradeSystem','_prOnRosterPayTypeChange','_prOnPersonPayTypeChange',
   '_prOpenAddPersonModal','_prApOnPayTypeChange','_prApRenderStepOptions','_prSaveNewPerson',
   '_prOpenStepUpgradeModal','_prToggleAllStepUpgrade','_prReviewStepUpgrade','_prApplyStepUpgrade',
+  '_prUndoStepUpgrade','_prDismissStepUpgradeUndo',
   '_prAddVirtualColumn','_prCloseVirtualColumnForm','_prSaveVirtualColumn','_prExportExcel','_prExportPdf',
   '_prSetExportSplitByGroup','_prSetExportRowDesign','_prSetExportSort','_prResetExportRowOrder',
   '_prRowDragStart','_prRowDragOver','_prRowDragEnd','_prRowDrop',
