@@ -14554,12 +14554,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="overflow-auto border border-slate-200 rounded-xl">
             <table class="w-full text-left border-collapse text-xs">
               <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
-                <th class="py-2 px-3">Include</th><th class="py-2 px-3">Column</th>
+                <th class="py-2 px-1"></th><th class="py-2 px-3">Include</th><th class="py-2 px-3">Column</th>
                 <th class="py-2 px-3">Data Bold</th><th class="py-2 px-3">Data Italic</th><th class="py-2 px-3">Data Color</th><th class="py-2 px-3">Data Rotate</th>
                 <th class="py-2 px-3">Header Bold</th><th class="py-2 px-3">Header Italic</th><th class="py-2 px-3">Header Color</th><th class="py-2 px-3">Header BG</th><th class="py-2 px-3">Header Rotate</th>
                 <th class="py-2 px-3"></th>
               </tr></thead>
-              <tbody id="prExportColumnsBody"><tr><td colspan="12" class="p-4 text-slate-400 font-bold text-xs text-center">Pick a run above to load its columns.</td></tr></tbody>
+              <tbody id="prExportColumnsBody"><tr><td colspan="13" class="p-4 text-slate-400 font-bold text-xs text-center">Pick a run above to load its columns.</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -14598,7 +14598,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
 
       <div id="prVirtualColumnFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-        <div class="bg-white rounded-2xl p-5 w-full max-w-sm max-h-[85vh] overflow-y-auto">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
           <div class="flex items-center justify-between mb-4">
             <p class="font-black text-slate-800 text-sm">Add Virtual Column</p>
             <button onclick="_prCloseVirtualColumnForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
@@ -14609,15 +14609,41 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <input type="text" id="prVcName" placeholder="e.g. Net after Loan" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
             </div>
             <div>
-              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Aggregation</label>
-              <select id="prVcType" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Type</label>
+              <select id="prVcType" onchange="_prOnVcTypeChange()" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
                 <option value="sum">Sum of selected columns</option>
                 <option value="diff">First column minus the rest</option>
+                <option value="text">Text — join/compose columns and custom text</option>
               </select>
             </div>
-            <div>
+            <div id="prVcAggSection">
               <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Source Columns (2+)</label>
               <div id="prVcSourceCheckboxes" class="space-y-1.5 max-h-48 overflow-y-auto border border-slate-200 rounded-xl p-2"></div>
+            </div>
+            <div id="prVcTextSection" class="hidden space-y-3">
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Join With <span class="font-normal normal-case text-slate-400">(between segments)</span></label>
+                <div class="flex items-center gap-2">
+                  <input type="text" id="prVcJoinWith" placeholder="e.g. a space, a comma, or leave blank" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                  <button onclick="document.getElementById('prVcJoinWith').value=' '" class="px-2 py-2 border border-slate-200 rounded-lg font-black text-[10px] uppercase text-slate-500 hover:bg-slate-50">Space</button>
+                  <button onclick="document.getElementById('prVcJoinWith').value=', '" class="px-2 py-2 border border-slate-200 rounded-lg font-black text-[10px] uppercase text-slate-500 hover:bg-slate-50">Comma</button>
+                  <button onclick="document.getElementById('prVcJoinWith').value='\\n'" class="px-2 py-2 border border-slate-200 rounded-lg font-black text-[10px] uppercase text-slate-500 hover:bg-slate-50">New Line</button>
+                </div>
+              </div>
+              <div>
+                <div class="flex items-center justify-between mb-1">
+                  <label class="text-[10px] font-black text-slate-400 uppercase block">Default Text <span class="font-normal normal-case">— always built; used unless a rule below matches</span></label>
+                  <button onclick="_prVcAddSegment(null)" class="px-2 py-1 border border-slate-200 rounded-lg font-black text-[10px] uppercase text-slate-500 hover:bg-slate-50 flex items-center gap-1"><i data-lucide="plus" class="h-3 w-3"></i>Segment</button>
+                </div>
+                <div id="prVcSegmentsList" class="space-y-1.5"></div>
+              </div>
+              <div>
+                <div class="flex items-center justify-between mb-1">
+                  <label class="text-[10px] font-black text-slate-400 uppercase block">Conditional Rules <span class="font-normal normal-case">— checked in order, first match wins, else Default Text above is used</span></label>
+                  <button onclick="_prVcAddRule()" class="px-2 py-1 border border-slate-200 rounded-lg font-black text-[10px] uppercase text-slate-500 hover:bg-slate-50 flex items-center gap-1"><i data-lucide="plus" class="h-3 w-3"></i>Rule</button>
+                </div>
+                <div id="prVcRulesList" class="space-y-2"></div>
+              </div>
             </div>
           </div>
           <div class="flex justify-end gap-2 mt-5">
@@ -18071,7 +18097,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const sel = document.getElementById('prExportRunSelect');
       sel.innerHTML = _prRunsCache.map(r => `<option value="${r.id}">${PAYROLL_MONTH_NAMES[r.month]} ${r.year} (${r.status.replace('_', ' ')})</option>`).join('') || '<option value="">No runs yet</option>';
       if (_prRunsCache.length) _prLoadExportColumns();
-      else document.getElementById('prExportColumnsBody').innerHTML = `<tr><td colspan="12" class="p-4 text-slate-400 font-bold text-xs text-center">No runs yet — go run payroll for a period under Run &amp; Payslips first.</td></tr>`;
+      else document.getElementById('prExportColumnsBody').innerHTML = `<tr><td colspan="13" class="p-4 text-slate-400 font-bold text-xs text-center">No runs yet — go run payroll for a period under Run &amp; Payslips first.</td></tr>`;
     };
     if (_prRunsCache.length) populate();
     else _payrollFetch('get_payroll_runs', {}).then(res => { _prRunsCache = (res && res.result === 'success' && res.runs) || []; populate(); });
@@ -18411,6 +18437,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         italic: priorState[c.key] ? priorState[c.key].italic : false,
         color: priorState[c.key] ? priorState[c.key].color : '',
         rotation: priorState[c.key] ? priorState[c.key].rotation : 0,
+        align: priorState[c.key] ? priorState[c.key].align : 'left',
+        headerAlign: priorState[c.key] ? priorState[c.key].headerAlign : 'center',
+        width: priorState[c.key] ? priorState[c.key].width : null,
         headerBold: priorState[c.key] ? priorState[c.key].headerBold : false,
         headerItalic: priorState[c.key] ? priorState[c.key].headerItalic : false,
         headerColor: priorState[c.key] ? priorState[c.key].headerColor : '',
@@ -18430,9 +18459,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _prRenderExportColumnsTable() {
     const tbody = document.getElementById('prExportColumnsBody');
     if (!tbody) return;
-    if (!_prExportColumnsCache.length) { tbody.innerHTML = `<tr><td colspan="12" class="p-4 text-slate-400 font-bold text-xs text-center">No columns.</td></tr>`; return; }
+    if (!_prExportColumnsCache.length) { tbody.innerHTML = `<tr><td colspan="13" class="p-4 text-slate-400 font-bold text-xs text-center">No columns.</td></tr>`; return; }
     tbody.innerHTML = _prExportColumnsCache.map(c => `
-      <tr class="border-b border-slate-50">
+      <tr draggable="true" ondragstart="_prPreviewDragKey='${c.key}'" ondragover="event.preventDefault()" ondrop="_prPreviewColumnDrop('${c.key}')" class="border-b border-slate-50 cursor-grab" title="Drag to reorder">
+        <td class="py-1.5 pl-1 text-slate-300"><i data-lucide="grip-vertical" class="h-3.5 w-3.5"></i></td>
         <td class="py-1.5 px-3"><input type="checkbox" ${c.included ? 'checked' : ''} onchange="_prSetExportFormat('${c.key}','included',this.checked)" class="w-4 h-4 rounded accent-blue-600"></td>
         <td class="py-1.5 px-3 font-black text-slate-700">${c.label}${c.type === 'virtual' ? ' <span class="text-[9px] text-indigo-600 font-black uppercase">(virtual)</span>' : ''}</td>
         <td class="py-1.5 px-3"><input type="checkbox" ${c.bold ? 'checked' : ''} onchange="_prSetExportFormat('${c.key}','bold',this.checked)" class="w-4 h-4 rounded accent-slate-700"></td>
@@ -18465,9 +18495,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const color = isHeader ? c.headerColor : c.color;
     const bg = isHeader ? c.headerBg : null;
     const rot = Number(isHeader ? c.headerRotation : c.rotation) || 0;
-    let css = `font-weight:${bold ? '700' : '400'};font-style:${italic ? 'italic' : 'normal'};`;
+    const align = (isHeader ? c.headerAlign : c.align) || (isHeader ? 'center' : 'left');
+    let css = `font-weight:${bold ? '700' : '400'};font-style:${italic ? 'italic' : 'normal'};text-align:${align};`;
     if (color) css += `color:${color};`;
     if (bg) css += `background:${bg};`;
+    if (c.width) css += `width:${c.width}px;max-width:${c.width}px;min-width:${c.width}px;`;
     // vertical-rl reads top-to-bottom; flipped 180° for 90° (bottom-to-top,
     // matching jsPDF/Excel's positive-angle convention) vs plain for 270°.
     if (rot === 90) css += `writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;`;
@@ -18494,7 +18526,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }
     if (!included.length) { host.innerHTML = `<tr><td class="p-4 text-slate-400 font-bold text-xs text-center">No columns included — click a chip above to add one.</td></tr>`; lucide.createIcons(); return; }
     const sampleSlips = _prApplyPersonSelection(_prExportSlips).slice(0, 6);
-    const rows = _prSlipsToRows(sampleSlips, included);
+    host.style.tableLayout = 'fixed';
     host.innerHTML = `
       <thead><tr>
         ${included.map(c => `
@@ -18505,12 +18537,42 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               style="${_prColumnCellCss(c, true)}" title="Drag to reorder, click to format">
             <button onclick="event.stopPropagation();_prSetExportFormat('${c.key}','included',false)" class="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-slate-200 text-slate-500 hover:bg-red-200 hover:text-red-600 flex items-center justify-center text-[9px] leading-none">×</button>
             ${_escHtml(c.label)}
+            <div onmousedown="_prStartColumnResize('${c.key}', event)" class="absolute top-0 right-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-300"></div>
           </th>`).join('')}
       </tr></thead>
       <tbody>
-        ${rows.map(r => `<tr>${r.map((v, i) => `<td class="px-3 py-1.5 border border-slate-100 whitespace-nowrap" style="${_prColumnCellCss(included[i], false)}">${_escHtml(String(v))}</td>`).join('')}</tr>`).join('')}
+        ${sampleSlips.map(slip => `<tr>${included.map(c => {
+          const isRichText = c.type === 'virtual' && c.vtype === 'text';
+          const cellContent = isRichText
+            ? _prResolveTextSegments(c, slip).map((seg, si, arr) => {
+                let segCss = `font-weight:${seg.bold ? '700' : '400'};font-style:${seg.italic ? 'italic' : 'normal'};`;
+                if (seg.color) segCss += `color:${seg.color};`;
+                const sep = si < arr.length - 1 ? _escHtml(c.joinWith || '').replace(/\n/g, '<br>') : '';
+                return `<span style="${segCss}">${_escHtml(seg.text)}</span>${sep}`;
+              }).join('')
+            : _escHtml(String(_prColumnValue(c, slip)));
+          return `<td class="px-3 py-1.5 border border-slate-100 ${isRichText ? '' : 'whitespace-nowrap'}" style="${_prColumnCellCss(c, false)}">${cellContent}</td>`;
+        }).join('')}</tr>`).join('')}
       </tbody>`;
     lucide.createIcons();
+  }
+
+  // Live resize by dragging the thin handle on a header's right edge —
+  // updates the <th> width immediately for smooth feedback, commits to
+  // _prExportColumnsCache (and re-renders once) only on mouseup.
+  function _prStartColumnResize(key, ev) {
+    ev.stopPropagation(); ev.preventDefault();
+    const th = ev.currentTarget.closest('th');
+    const startX = ev.clientX;
+    const startWidth = th.offsetWidth;
+    const onMove = e => { th.style.width = th.style.maxWidth = th.style.minWidth = `${Math.max(30, startWidth + (e.clientX - startX))}px`; };
+    const onUp = e => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      _prSetExportFormat(key, 'width', Math.max(30, startWidth + (e.clientX - startX)));
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
   }
 
   function _prPreviewColumnDrop(targetKey) {
@@ -18535,7 +18597,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const rect = ev.currentTarget.getBoundingClientRect();
     const pop = document.createElement('div');
     pop.id = 'prColumnFormatPopover';
-    pop.className = 'fixed z-50 bg-white border border-slate-200 rounded-xl shadow-xl p-3 w-64';
+    pop.className = 'fixed z-50 bg-white border border-slate-200 rounded-xl shadow-xl p-3 w-72';
     pop.style.top = `${rect.bottom + window.scrollY + 6}px`;
     pop.style.left = `${Math.min(rect.left + window.scrollX, window.innerWidth - 270)}px`;
     pop.onclick = e => e.stopPropagation();
@@ -18550,9 +18612,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <input type="color" value="${c.headerColor || '#000000'}" onchange="_prSetExportFormat('${key}','headerColor',this.value)" title="Text color" class="w-7 h-7 rounded-lg cursor-pointer border border-slate-200">
             <input type="color" value="${c.headerBg || '#ffffff'}" onchange="_prSetExportFormat('${key}','headerBg',this.value)" title="Background" class="w-7 h-7 rounded-lg cursor-pointer border border-slate-200">
           </div>
-          <select onchange="_prSetExportFormat('${key}','headerRotation',Number(this.value))" class="w-full px-1.5 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]">
+          <select onchange="_prSetExportFormat('${key}','headerRotation',Number(this.value))" class="w-full px-1.5 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px] mb-1">
             ${[0, 90, 180, 270].map(deg => `<option value="${deg}" ${Number(c.headerRotation) === deg ? 'selected' : ''}>${deg}° rotation</option>`).join('')}
           </select>
+          <div class="flex items-center gap-1">
+            ${['left', 'center', 'right'].map(a => `<button onclick="_prSetExportFormat('${key}','headerAlign','${a}')" title="${a}" class="flex-1 h-6 border rounded-md flex items-center justify-center ${(c.headerAlign || 'center') === a ? 'bg-slate-800 text-white border-slate-800' : 'border-slate-200 text-slate-500'}"><i data-lucide="align-${a}" class="h-3 w-3"></i></button>`).join('')}
+          </div>
         </div>
         <div>
           <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Data</p>
@@ -18561,14 +18626,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="_prSetExportFormat('${key}','italic',${!c.italic})" class="w-7 h-7 border rounded-lg italic font-black text-xs ${c.italic ? 'bg-slate-800 text-white border-slate-800' : 'border-slate-200 text-slate-500'}">I</button>
             <input type="color" value="${c.color || '#000000'}" onchange="_prSetExportFormat('${key}','color',this.value)" title="Text color" class="w-7 h-7 rounded-lg cursor-pointer border border-slate-200">
           </div>
-          <select onchange="_prSetExportFormat('${key}','rotation',Number(this.value))" class="w-full px-1.5 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]">
+          <select onchange="_prSetExportFormat('${key}','rotation',Number(this.value))" class="w-full px-1.5 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px] mb-1">
             ${[0, 90, 180, 270].map(deg => `<option value="${deg}" ${Number(c.rotation) === deg ? 'selected' : ''}>${deg}° rotation</option>`).join('')}
           </select>
+          <div class="flex items-center gap-1">
+            ${['left', 'center', 'right'].map(a => `<button onclick="_prSetExportFormat('${key}','align','${a}')" title="${a}" class="flex-1 h-6 border rounded-md flex items-center justify-center ${(c.align || 'left') === a ? 'bg-slate-800 text-white border-slate-800' : 'border-slate-200 text-slate-500'}"><i data-lucide="align-${a}" class="h-3 w-3"></i></button>`).join('')}
+          </div>
         </div>
+      </div>
+      <div class="flex items-center gap-2 mb-2">
+        <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest shrink-0">Width</label>
+        <input type="number" value="${c.width || ''}" placeholder="auto" min="30" onchange="_prSetExportFormat('${key}','width',this.value?Number(this.value):null)" class="flex-1 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]">
+        <span class="text-[9px] text-slate-400 font-bold">px, or drag the header edge</span>
       </div>
       <button onclick="_prSetExportFormat('${key}','included',false);document.getElementById('prColumnFormatPopover').remove()" class="w-full px-2 py-1.5 border border-red-200 text-red-500 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-red-50 transition-all">Remove Column</button>
     `;
     document.body.appendChild(pop);
+    lucide.createIcons();
     setTimeout(() => document.addEventListener('click', _prCloseColumnFormatPopoverOnce, { once: true }), 0);
   }
   function _prCloseColumnFormatPopoverOnce() { document.getElementById('prColumnFormatPopover')?.remove(); }
@@ -18603,32 +18677,171 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _prRenderExportColumnsTable();
   }
 
+  // Working state for the Text virtual-column builder — reset each time
+  // the modal opens, discarded on Cancel, only ever pushed into
+  // _prExportColumnsCache on Add. _prVcRules[i].segments is its own
+  // independent segment list (same row-editor, different container id).
+  let _prVcSegments = [];
+  let _prVcRules = [];
+
   function _prAddVirtualColumn() {
     document.getElementById('prVcName').value = '';
     document.getElementById('prVcType').value = 'sum';
+    document.getElementById('prVcJoinWith').value = '';
+    _prVcSegments = [];
+    _prVcRules = [];
     const box = document.getElementById('prVcSourceCheckboxes');
     box.innerHTML = _prExportColumnsCache.filter(c => c.type !== 'virtual').map(c => `
       <label class="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer">
         <input type="checkbox" value="${c.key}" class="prVcSourceCb w-4 h-4 rounded accent-blue-600">${c.label}
       </label>`).join('');
+    _prOnVcTypeChange();
+    _prVcRenderSegments();
+    _prVcRenderRules();
     document.getElementById('prVirtualColumnFormModal').classList.remove('hidden');
   }
   function _prCloseVirtualColumnForm() { document.getElementById('prVirtualColumnFormModal').classList.add('hidden'); }
 
+  function _prOnVcTypeChange() {
+    const isText = document.getElementById('prVcType').value === 'text';
+    document.getElementById('prVcAggSection').classList.toggle('hidden', isText);
+    document.getElementById('prVcTextSection').classList.toggle('hidden', !isText);
+  }
+
+  // One reusable row-editor for a segment (a "Field" reference or literal
+  // "Text"), used for both the always-built Default Text list and every
+  // conditional rule's own segment list — ruleIdx null means the base list.
+  function _prVcSegmentRowHtml(seg, ruleIdx, segIdx) {
+    const fieldOptions = _prExportColumnsCache.filter(c => c.type !== 'virtual');
+    return `
+      <div class="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg p-1.5">
+        <div class="flex items-center bg-white border border-slate-200 rounded-md overflow-hidden shrink-0">
+          <button onclick="_prVcUpdateSegment(${ruleIdx},${segIdx},'type','field')" class="px-2 py-1 font-black text-[9px] uppercase ${seg.type === 'field' ? 'bg-slate-800 text-white' : 'text-slate-400'}">Field</button>
+          <button onclick="_prVcUpdateSegment(${ruleIdx},${segIdx},'type','text')" class="px-2 py-1 font-black text-[9px] uppercase ${seg.type === 'text' ? 'bg-slate-800 text-white' : 'text-slate-400'}">Text</button>
+        </div>
+        ${seg.type === 'field'
+          ? `<select onchange="_prVcUpdateSegment(${ruleIdx},${segIdx},'key',this.value)" class="flex-1 px-1.5 py-1 bg-white border border-slate-200 rounded-md font-bold text-[10px]">
+              ${fieldOptions.map(c => `<option value="${c.key}" ${seg.key === c.key ? 'selected' : ''}>${_escHtml(c.label)}</option>`).join('')}
+            </select>`
+          : `<input type="text" value="${_escHtml(seg.value || '')}" oninput="_prVcUpdateSegment(${ruleIdx},${segIdx},'value',this.value)" placeholder="custom text…" class="flex-1 px-1.5 py-1 bg-white border border-slate-200 rounded-md font-bold text-[10px]">`}
+        <button onclick="_prVcUpdateSegment(${ruleIdx},${segIdx},'bold',${!seg.bold})" class="w-6 h-6 shrink-0 border rounded-md font-black text-[10px] ${seg.bold ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-500'}">B</button>
+        <button onclick="_prVcUpdateSegment(${ruleIdx},${segIdx},'italic',${!seg.italic})" class="w-6 h-6 shrink-0 border rounded-md italic font-black text-[10px] ${seg.italic ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-500'}">I</button>
+        <input type="color" value="${seg.color || '#000000'}" onchange="_prVcUpdateSegment(${ruleIdx},${segIdx},'color',this.value)" class="w-6 h-6 shrink-0 rounded-md cursor-pointer border border-slate-200">
+        <button onclick="_prVcRemoveSegment(${ruleIdx},${segIdx})" class="w-6 h-6 shrink-0 text-slate-400 hover:text-red-500 flex items-center justify-center"><i data-lucide="x" class="h-3.5 w-3.5"></i></button>
+      </div>`;
+  }
+
+  function _prVcSegmentsFor(ruleIdx) { return ruleIdx == null ? _prVcSegments : _prVcRules[ruleIdx].segments; }
+
+  function _prVcRenderSegments(ruleIdx) {
+    const host = document.getElementById(ruleIdx == null ? 'prVcSegmentsList' : `prVcRuleSegments-${ruleIdx}`);
+    if (!host) return;
+    const segs = _prVcSegmentsFor(ruleIdx);
+    host.innerHTML = segs.map((seg, i) => _prVcSegmentRowHtml(seg, ruleIdx == null ? 'null' : ruleIdx, i)).join('')
+      || `<p class="text-[10px] text-slate-400 font-bold text-center py-2">No segments yet — click Segment to add one.</p>`;
+    lucide.createIcons();
+  }
+
+  function _prVcAddSegment(ruleIdx) {
+    _prVcSegmentsFor(ruleIdx).push({ type: 'field', key: (_prExportColumnsCache.find(c => c.type !== 'virtual') || {}).key, value: '', bold: false, italic: false, color: '' });
+    _prVcRenderSegments(ruleIdx);
+  }
+  function _prVcRemoveSegment(ruleIdx, segIdx) {
+    _prVcSegmentsFor(ruleIdx).splice(segIdx, 1);
+    _prVcRenderSegments(ruleIdx);
+  }
+  function _prVcUpdateSegment(ruleIdx, segIdx, prop, value) {
+    _prVcSegmentsFor(ruleIdx)[segIdx][prop] = value;
+    _prVcRenderSegments(ruleIdx);
+  }
+
+  const PR_VC_RULE_OPS = [['>', '>'], ['>=', '≥'], ['<', '<'], ['<=', '≤'], ['==', '='], ['!=', '≠'], ['contains', 'contains']];
+
+  function _prVcRenderRules() {
+    const host = document.getElementById('prVcRulesList');
+    if (!host) return;
+    const fieldOptions = _prExportColumnsCache.filter(c => c.type !== 'virtual');
+    host.innerHTML = _prVcRules.map((rule, ri) => `
+      <div class="border border-slate-200 rounded-xl p-2 bg-white">
+        <div class="flex items-center gap-1.5 mb-2">
+          <span class="text-[9px] font-black text-slate-400 uppercase shrink-0">If</span>
+          <select onchange="_prVcUpdateRule(${ri},'sourceKey',this.value)" class="flex-1 px-1.5 py-1 bg-slate-50 border border-slate-200 rounded-md font-bold text-[10px]">
+            ${fieldOptions.map(c => `<option value="${c.key}" ${rule.sourceKey === c.key ? 'selected' : ''}>${_escHtml(c.label)}</option>`).join('')}
+          </select>
+          <select onchange="_prVcUpdateRule(${ri},'op',this.value)" class="px-1.5 py-1 bg-slate-50 border border-slate-200 rounded-md font-bold text-[10px]">
+            ${PR_VC_RULE_OPS.map(([v, l]) => `<option value="${v}" ${rule.op === v ? 'selected' : ''}>${l}</option>`).join('')}
+          </select>
+          <input type="text" value="${_escHtml(rule.compareValue || '')}" oninput="_prVcUpdateRule(${ri},'compareValue',this.value)" placeholder="value" class="w-20 px-1.5 py-1 bg-slate-50 border border-slate-200 rounded-md font-bold text-[10px]">
+          <button onclick="_prVcAddSegment(${ri})" class="px-2 py-1 border border-slate-200 rounded-md font-black text-[9px] uppercase text-slate-500 hover:bg-slate-50 shrink-0">+ Segment</button>
+          <button onclick="_prVcRemoveRule(${ri})" class="w-6 h-6 shrink-0 text-slate-400 hover:text-red-500 flex items-center justify-center"><i data-lucide="x" class="h-3.5 w-3.5"></i></button>
+        </div>
+        <div id="prVcRuleSegments-${ri}" class="space-y-1.5 pl-4"></div>
+      </div>`).join('') || `<p class="text-[10px] text-slate-400 font-bold text-center py-2">No rules — Default Text above is always used.</p>`;
+    lucide.createIcons();
+    _prVcRules.forEach((r, ri) => _prVcRenderSegments(ri));
+  }
+  function _prVcAddRule() {
+    _prVcRules.push({ sourceKey: (_prExportColumnsCache.find(c => c.type !== 'virtual') || {}).key, op: '==', compareValue: '', segments: [] });
+    _prVcRenderRules();
+  }
+  function _prVcRemoveRule(idx) { _prVcRules.splice(idx, 1); _prVcRenderRules(); }
+  function _prVcUpdateRule(idx, prop, value) { _prVcRules[idx][prop] = value; _prVcRenderRules(); }
+
   function _prSaveVirtualColumn() {
     const name = document.getElementById('prVcName').value.trim();
     const vtype = document.getElementById('prVcType').value;
-    const sources = [...document.querySelectorAll('.prVcSourceCb:checked')].map(cb => cb.value);
     if (!name) { showToast('Name is required', 'error'); return; }
-    if (sources.length < 2) { showToast('Pick at least 2 source columns', 'error'); return; }
     const key = `virtual:${name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
-    _prExportColumnsCache.push({
-      key, label: name, type: 'virtual', vtype, sources, included: true,
-      bold: false, italic: false, color: '', rotation: 0,
-      headerBold: false, headerItalic: false, headerColor: '', headerBg: '', headerRotation: 90,
-    });
+    const base = {
+      key, label: name, type: 'virtual', vtype, included: true,
+      bold: false, italic: false, color: '', rotation: 0, align: 'left', headerAlign: 'center', width: null,
+      headerBold: false, headerItalic: false, headerColor: '', headerBg: '', headerRotation: vtype === 'text' ? 0 : 90,
+    };
+    if (vtype === 'text') {
+      if (!_prVcSegments.length && !_prVcRules.some(r => r.segments.length)) { showToast('Add at least one segment', 'error'); return; }
+      base.segments = _prVcSegments;
+      base.rules = _prVcRules.filter(r => r.segments.length);
+      base.joinWith = document.getElementById('prVcJoinWith').value;
+    } else {
+      const sources = [...document.querySelectorAll('.prVcSourceCb:checked')].map(cb => cb.value);
+      if (sources.length < 2) { showToast('Pick at least 2 source columns', 'error'); return; }
+      base.sources = sources;
+    }
+    _prExportColumnsCache.push(base);
     _prRenderExportColumnsTable();
     _prCloseVirtualColumnForm();
+  }
+
+  function _prCompareVcCondition(val, op, cmp) {
+    const n = Number(val), cn = Number(cmp);
+    const bothNumeric = val !== '' && cmp !== '' && !isNaN(n) && !isNaN(cn);
+    switch (op) {
+      case '>': return bothNumeric ? n > cn : String(val) > String(cmp);
+      case '>=': return bothNumeric ? n >= cn : String(val) >= String(cmp);
+      case '<': return bothNumeric ? n < cn : String(val) < String(cmp);
+      case '<=': return bothNumeric ? n <= cn : String(val) <= String(cmp);
+      case '==': return bothNumeric ? n === cn : String(val) === String(cmp);
+      case '!=': return bothNumeric ? n !== cn : String(val) !== String(cmp);
+      case 'contains': return String(val).toLowerCase().includes(String(cmp).toLowerCase());
+      default: return false;
+    }
+  }
+
+  // Resolves a Text virtual column to its styled segments for THIS row —
+  // the Visual Editor renders each segment with its own bold/italic/color;
+  // plain-value contexts (Excel cell value, sorting, another virtual
+  // column's source) just join the resolved text with joinWith.
+  function _prResolveTextSegments(col, slip) {
+    const evalSegs = segs => (segs || []).map(seg => ({
+      text: seg.type === 'field' ? String(_prColumnValue(_prExportColumnsCache.find(c => c.key === seg.key), slip) ?? '') : (seg.value || ''),
+      bold: !!seg.bold, italic: !!seg.italic, color: seg.color || '',
+    }));
+    for (const rule of (col.rules || [])) {
+      const srcCol = _prExportColumnsCache.find(c => c.key === rule.sourceKey);
+      const val = srcCol ? _prColumnValue(srcCol, slip) : '';
+      if (_prCompareVcCondition(val, rule.op, rule.compareValue)) return evalSegs(rule.segments);
+    }
+    return evalSegs(col.segments);
   }
 
   function _prColumnValue(col, slip) {
@@ -18647,6 +18860,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }
     if (col.type === 'field') return Number((slip.field_values || {})[col.key]) || 0;
     if (col.type === 'virtual') {
+      if (col.vtype === 'text') return _prResolveTextSegments(col, slip).map(s => s.text).join(col.joinWith || '');
       const vals = col.sources.map(k => Number(_prColumnValue(_prExportColumnsCache.find(c => c.key === k), slip)) || 0);
       return col.vtype === 'diff' ? vals.reduce((a, v, i) => (i === 0 ? v : a - v), 0) : vals.reduce((a, v) => a + v, 0);
     }
@@ -18685,8 +18899,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // produced, so every group/sheet/page reflects the same arrangement.
     const orderedSlips = _prComputeExportOrder(selectedSlips);
 
+    // Each group carries its own `slips` (same order as `rows`) alongside
+    // the plain-text rows — Excel/CSV-shaped output only ever needs the
+    // strings, but a rich Text virtual column needs the underlying slip
+    // back to re-resolve its own per-segment styling at draw time.
     if (!_prExportSplitByGroup) {
-      return { cols, groups: [{ name: null, rows: _prSlipsToRows(orderedSlips, cols) }] };
+      return { cols, groups: [{ name: null, rows: _prSlipsToRows(orderedSlips, cols), slips: orderedSlips }] };
     }
     // Splits by each person's own Category (allStaffCache.category) —
     // itself inherited from Designation via the "Manage Categories"/
@@ -18695,12 +18913,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const categoryByUser = {};
     (allStaffCache || []).forEach(s => { categoryByUser[s.teacher_id] = (s.category || '').trim(); });
     const categories = [...new Set(orderedSlips.map(s => categoryByUser[s.user_id]).filter(Boolean))].sort();
-    const groups = categories.map(cat => ({
-      name: cat,
-      rows: _prSlipsToRows(orderedSlips.filter(s => categoryByUser[s.user_id] === cat), cols),
-    })).filter(g => g.rows.length);
+    const groups = categories.map(cat => {
+      const slips = orderedSlips.filter(s => categoryByUser[s.user_id] === cat);
+      return { name: cat, rows: _prSlipsToRows(slips, cols), slips };
+    }).filter(g => g.rows.length);
     const uncategorizedSlips = orderedSlips.filter(s => !categoryByUser[s.user_id]);
-    if (uncategorizedSlips.length) groups.push({ name: 'Uncategorized', rows: _prSlipsToRows(uncategorizedSlips, cols) });
+    if (uncategorizedSlips.length) groups.push({ name: 'Uncategorized', rows: _prSlipsToRows(uncategorizedSlips, cols), slips: uncategorizedSlips });
     return { cols, groups };
   }
 
@@ -18738,6 +18956,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       data.groups.forEach(g => {
         const aoa = [header, ...g.rows];
         const ws = XLSX.utils.aoa_to_sheet(aoa);
+        // Column widths — px (the Visual Editor's drag-resize unit) to
+        // Excel's "characters" unit is inherently approximate (character
+        // width varies by font), ~7px/char at the default font is close
+        // enough for a usable starting width.
+        ws['!cols'] = data.cols.map(c => c.width ? { wch: Math.max(4, Math.round(c.width / 7)) } : {});
         data.cols.forEach((c, ci) => {
           const addr = XLSX.utils.encode_cell({ r: 0, c: ci });
           if (!ws[addr]) return;
@@ -18746,23 +18969,34 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             s.font = { bold: !!c.headerBold, italic: !!c.headerItalic, color: c.headerColor ? { rgb: c.headerColor.replace('#', '') } : undefined };
           }
           if (c.headerBg) s.fill = { fgColor: { rgb: c.headerBg.replace('#', '') } };
+          s.alignment = { horizontal: c.headerAlign || 'center' };
           // Excel's own rotation model (OOXML textRotation) only cleanly
           // covers 0-90° — 180°/270° have no faithful equivalent (Excel's
           // UI itself tops out at ±90°), so both collapse to 90° here
           // rather than silently doing nothing. PDF export supports all
           // four angles exactly since it draws the text directly.
-          if (c.headerRotation === 90 || c.headerRotation === 270) s.alignment = { textRotation: 90 };
+          if (c.headerRotation === 90 || c.headerRotation === 270) s.alignment.textRotation = 90;
           if (Object.keys(s).length) ws[addr].s = s;
         });
         data.cols.forEach((c, ci) => {
+          // A Text virtual column's segments each carry their own style,
+          // but a plain XLSX cell only has ONE style — this CDN-loaded
+          // xlsx-js-style build has no rich-text-runs API, so as a
+          // best-effort approximation the whole cell borrows the first
+          // segment that actually set bold/italic/color. Full per-segment
+          // color only renders in the Visual Editor preview and the PDF
+          // export, which draws each run itself.
+          const firstStyledSeg = c.type === 'virtual' && c.vtype === 'text' ? (c.segments || []).find(s => s.bold || s.italic || s.color) : null;
           for (let ri = 1; ri <= g.rows.length; ri++) {
             const addr = XLSX.utils.encode_cell({ r: ri, c: ci });
             if (!ws[addr]) continue;
             const s = {};
-            if (c.bold || c.italic || c.color) {
-              s.font = { bold: !!c.bold, italic: !!c.italic, color: c.color ? { rgb: c.color.replace('#', '') } : undefined };
-            }
-            if (c.rotation === 90 || c.rotation === 270) s.alignment = { textRotation: 90 };
+            const bold = firstStyledSeg ? firstStyledSeg.bold : c.bold;
+            const italic = firstStyledSeg ? firstStyledSeg.italic : c.italic;
+            const color = firstStyledSeg ? firstStyledSeg.color : c.color;
+            if (bold || italic || color) s.font = { bold: !!bold, italic: !!italic, color: color ? { rgb: color.replace('#', '') } : undefined };
+            s.alignment = { horizontal: c.align || 'left' };
+            if (c.rotation === 90 || c.rotation === 270) s.alignment.textRotation = 90;
             if (_prExportRowDesign.zebra && (ri - 1) % 2 === 1) {
               s.fill = { fgColor: { rgb: (_prExportRowDesign.zebraColor || '#f1f5f9').replace('#', '') } };
             }
@@ -19070,6 +19304,45 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
   }
 
+  // Draws a Text virtual column's resolved segments with each one's own
+  // bold/italic/color — jsPDF has no native rich-text-in-one-cell API, so
+  // this measures each segment's width (font style affects width, so it's
+  // set before each measurement) and places them left to right itself.
+  // joinWith containing '\n' starts a new line between segments instead of
+  // drawing it as a literal separator glyph.
+  function _prDrawTextSegmentsInCell(doc, col, slip, x, y, width, height, align) {
+    const segments = _prResolveTextSegments(col, slip);
+    if (!segments.length) return;
+    const sep = col.joinWith || '';
+    const sepIsNewline = sep.includes('\n');
+    const baseFont = doc.getFont();
+    const lines = [[]];
+    segments.forEach((seg, i) => {
+      lines[lines.length - 1].push(seg);
+      if (i < segments.length - 1 && sepIsNewline) lines.push([]);
+    });
+    const fontSize = doc.internal.getFontSize();
+    const lineHeight = (fontSize * 1.15) / doc.internal.scaleFactor;
+    const startY = y + height / 2 - (lines.length * lineHeight) / 2 + lineHeight / 2;
+    const styleFor = seg => (seg.bold && seg.italic ? 'bolditalic' : seg.bold ? 'bold' : seg.italic ? 'italic' : 'normal');
+    lines.forEach((lineSegs, li) => {
+      const widths = lineSegs.map(seg => { doc.setFont(baseFont.fontName, styleFor(seg)); return doc.getTextWidth(seg.text); });
+      const sepWidth = !sepIsNewline && sep ? doc.getTextWidth(sep) : 0;
+      const totalWidth = widths.reduce((a, w) => a + w, 0) + sepWidth * Math.max(0, lineSegs.length - 1);
+      let curX = align === 'center' ? x + width / 2 - totalWidth / 2 : align === 'right' ? x + width - totalWidth - 1 : x + 1;
+      const curY = startY + li * lineHeight;
+      lineSegs.forEach((seg, i) => {
+        doc.setFont(baseFont.fontName, styleFor(seg));
+        doc.setTextColor(...(seg.color ? _prHexToRgbArr(seg.color) : [0, 0, 0]));
+        doc.text(seg.text, curX, curY, { baseline: 'middle' });
+        curX += widths[i];
+        if (i < lineSegs.length - 1 && !sepIsNewline && sep) { doc.setTextColor(0, 0, 0); doc.setFont(baseFont.fontName, 'normal'); doc.text(sep, curX, curY, { baseline: 'middle' }); curX += sepWidth; }
+      });
+    });
+    doc.setTextColor(0, 0, 0);
+    doc.setFont(baseFont.fontName, baseFont.fontStyle);
+  }
+
   function _prExportPdf() {
     const data = _prExportRowsAndCols();
     if (!data) return;
@@ -19081,6 +19354,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const hasRotatedHeaders = data.cols.some(c => c.headerRotation === 90 || c.headerRotation === 270);
       const hasRotatedData = data.cols.some(c => c.rotation === 90 || c.rotation === 270);
       const periodLabel = run ? `${PAYROLL_MONTH_NAMES[run.month]} ${run.year}` : '';
+      // px -> mm at 96dpi, matching the Visual Editor's drag-resize units.
+      const columnStyles = {};
+      data.cols.forEach((c, ci) => {
+        columnStyles[ci] = { halign: c.align || 'left' };
+        if (c.width) columnStyles[ci].cellWidth = Math.max(8, c.width * 0.2646);
+      });
 
       data.groups.forEach((g, gi) => {
         if (gi > 0) doc.addPage();
@@ -19091,8 +19370,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           head: [data.cols.map(c => c.label)],
           body: g.rows,
           styles: { fontSize: 8 },
-          headStyles: hasRotatedHeaders ? { minCellHeight: 36, valign: 'middle', halign: 'center' } : {},
+          headStyles: Object.assign({ halign: 'center' }, hasRotatedHeaders ? { minCellHeight: 36, valign: 'middle' } : {}),
           bodyStyles: hasRotatedData ? { minCellHeight: 20, valign: 'middle', halign: 'center' } : {},
+          columnStyles,
           didParseCell: hook => {
             const col = data.cols[hook.column.index];
             if (!col) return;
@@ -19102,24 +19382,39 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               else if (col.headerItalic) hook.cell.styles.fontStyle = 'italic';
               if (col.headerColor) hook.cell.styles.textColor = _prHexToRgbArr(col.headerColor);
               if (col.headerBg) hook.cell.styles.fillColor = _prHexToRgbArr(col.headerBg);
+              hook.cell.styles.halign = col.headerAlign || 'center';
               if (col.headerRotation) hook.cell.text = []; // suppress default draw — didDrawCell below draws it rotated instead
               return;
             }
+            const isTextVirtual = col.type === 'virtual' && col.vtype === 'text';
             if (col.bold && col.italic) hook.cell.styles.fontStyle = 'bolditalic';
             else if (col.bold) hook.cell.styles.fontStyle = 'bold';
             else if (col.italic) hook.cell.styles.fontStyle = 'italic';
             if (col.color) hook.cell.styles.textColor = _prHexToRgbArr(col.color);
             if (_prExportRowDesign.zebra && hook.row.index % 2 === 1) hook.cell.styles.fillColor = _prHexToRgbArr(_prExportRowDesign.zebraColor || '#f1f5f9');
-            if (col.rotation) hook.cell.text = []; // same suppress-and-redraw approach as the header, below
+            // A Text virtual column always needs the custom multi-segment
+            // draw below (to show each segment's own style), regardless of
+            // rotation; a plain column only needs it when rotated.
+            if (col.rotation || isTextVirtual) hook.cell.text = [];
           },
           didDrawCell: hook => {
             const col = data.cols[hook.column.index];
             if (!col) return;
-            const rotation = hook.section === 'head' ? col.headerRotation : col.rotation;
-            if (!rotation) return;
-            const raw = hook.section === 'head' ? col.label : g.rows[hook.row.index][hook.column.index];
             const { x, y, width, height } = hook.cell;
-            doc.text(String(raw), x + width / 2, y + height / 2, { angle: rotation, align: 'center', baseline: 'middle' });
+            if (hook.section === 'head') {
+              if (!col.headerRotation) return;
+              doc.text(String(col.label), x + width / 2, y + height / 2, { angle: col.headerRotation, align: 'center', baseline: 'middle' });
+              return;
+            }
+            const isTextVirtual = col.type === 'virtual' && col.vtype === 'text';
+            if (isTextVirtual) {
+              const slip = g.slips[hook.row.index];
+              _prDrawTextSegmentsInCell(doc, col, slip, x, y, width, height, col.align || 'left');
+              return;
+            }
+            if (!col.rotation) return;
+            const raw = g.rows[hook.row.index][hook.column.index];
+            doc.text(String(raw), x + width / 2, y + height / 2, { angle: col.rotation, align: 'center', baseline: 'middle' });
           },
         });
       });
