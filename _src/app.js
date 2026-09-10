@@ -15594,7 +15594,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function _prAddPayStep() {
     const used = new Set(_prPayStepsCache.map(s => s.step_number));
-    let next = 1; while (used.has(next)) next++;
+    let next = 0; while (used.has(next)) next++;
     _payrollFetch('save_pay_step', { step_number: next }).then(res => {
       if (res && res.result === 'success') _prLoadPayScaleGrid();
       else showToast((res && res.message) || 'Failed to add step', 'error');

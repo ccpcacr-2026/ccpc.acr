@@ -878,7 +878,10 @@ export async function POST(req) {
   if (action === 'save_pay_step') {
     const { id, step_number, sort_order } = payload;
     const n = Number(step_number);
-    if (!step_number || Number.isNaN(n)) return NextResponse.json({ result: 'error', message: 'Step number is required' }, { status: 400 });
+    // Step numbering starts at 0 (Step 0 is a real, valid step) — 0 is
+    // falsy, so this must check for missing/blank explicitly rather than
+    // with a bare !step_number, which would wrongly reject it.
+    if (step_number === '' || step_number == null || Number.isNaN(n)) return NextResponse.json({ result: 'error', message: 'Step number is required' }, { status: 400 });
     const rowData = { step_number: n, sort_order: sort_order == null ? n : Number(sort_order) };
     const saved = id
       ? await sbPayroll(`pay_steps?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
