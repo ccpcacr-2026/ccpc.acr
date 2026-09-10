@@ -14554,11 +14554,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <table class="w-full text-left border-collapse text-xs">
               <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
                 <th class="py-2 px-3">Include</th><th class="py-2 px-3">Column</th>
-                <th class="py-2 px-3">Data Bold</th><th class="py-2 px-3">Data Italic</th><th class="py-2 px-3">Data Color</th>
-                <th class="py-2 px-3">Header Bold</th><th class="py-2 px-3">Header Italic</th><th class="py-2 px-3">Header Color</th><th class="py-2 px-3">Header BG</th><th class="py-2 px-3">Rotate</th>
+                <th class="py-2 px-3">Data Bold</th><th class="py-2 px-3">Data Italic</th><th class="py-2 px-3">Data Color</th><th class="py-2 px-3">Data Rotate</th>
+                <th class="py-2 px-3">Header Bold</th><th class="py-2 px-3">Header Italic</th><th class="py-2 px-3">Header Color</th><th class="py-2 px-3">Header BG</th><th class="py-2 px-3">Header Rotate</th>
                 <th class="py-2 px-3"></th>
               </tr></thead>
-              <tbody id="prExportColumnsBody"><tr><td colspan="11" class="p-4 text-slate-400 font-bold text-xs text-center">Pick a run above to load its columns.</td></tr></tbody>
+              <tbody id="prExportColumnsBody"><tr><td colspan="12" class="p-4 text-slate-400 font-bold text-xs text-center">Pick a run above to load its columns.</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -18070,7 +18070,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const sel = document.getElementById('prExportRunSelect');
       sel.innerHTML = _prRunsCache.map(r => `<option value="${r.id}">${PAYROLL_MONTH_NAMES[r.month]} ${r.year} (${r.status.replace('_', ' ')})</option>`).join('') || '<option value="">No runs yet</option>';
       if (_prRunsCache.length) _prLoadExportColumns();
-      else document.getElementById('prExportColumnsBody').innerHTML = `<tr><td colspan="11" class="p-4 text-slate-400 font-bold text-xs text-center">No runs yet — go run payroll for a period under Run &amp; Payslips first.</td></tr>`;
+      else document.getElementById('prExportColumnsBody').innerHTML = `<tr><td colspan="12" class="p-4 text-slate-400 font-bold text-xs text-center">No runs yet — go run payroll for a period under Run &amp; Payslips first.</td></tr>`;
     };
     if (_prRunsCache.length) populate();
     else _payrollFetch('get_payroll_runs', {}).then(res => { _prRunsCache = (res && res.result === 'success' && res.runs) || []; populate(); });
@@ -18381,6 +18381,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         bold: priorState[c.key] ? priorState[c.key].bold : false,
         italic: priorState[c.key] ? priorState[c.key].italic : false,
         color: priorState[c.key] ? priorState[c.key].color : '',
+        rotation: priorState[c.key] ? priorState[c.key].rotation : 0,
         headerBold: priorState[c.key] ? priorState[c.key].headerBold : false,
         headerItalic: priorState[c.key] ? priorState[c.key].headerItalic : false,
         headerColor: priorState[c.key] ? priorState[c.key].headerColor : '',
@@ -18400,7 +18401,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _prRenderExportColumnsTable() {
     const tbody = document.getElementById('prExportColumnsBody');
     if (!tbody) return;
-    if (!_prExportColumnsCache.length) { tbody.innerHTML = `<tr><td colspan="11" class="p-4 text-slate-400 font-bold text-xs text-center">No columns.</td></tr>`; return; }
+    if (!_prExportColumnsCache.length) { tbody.innerHTML = `<tr><td colspan="12" class="p-4 text-slate-400 font-bold text-xs text-center">No columns.</td></tr>`; return; }
     tbody.innerHTML = _prExportColumnsCache.map(c => `
       <tr class="border-b border-slate-50">
         <td class="py-1.5 px-3"><input type="checkbox" ${c.included ? 'checked' : ''} onchange="_prSetExportFormat('${c.key}','included',this.checked)" class="w-4 h-4 rounded accent-blue-600"></td>
@@ -18408,6 +18409,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <td class="py-1.5 px-3"><input type="checkbox" ${c.bold ? 'checked' : ''} onchange="_prSetExportFormat('${c.key}','bold',this.checked)" class="w-4 h-4 rounded accent-slate-700"></td>
         <td class="py-1.5 px-3"><input type="checkbox" ${c.italic ? 'checked' : ''} onchange="_prSetExportFormat('${c.key}','italic',this.checked)" class="w-4 h-4 rounded accent-slate-700"></td>
         <td class="py-1.5 px-3"><input type="color" value="${c.color || '#000000'}" onchange="_prSetExportFormat('${c.key}','color',this.value)" class="w-8 h-6 rounded cursor-pointer border border-slate-200"></td>
+        <td class="py-1.5 px-3">
+          <select onchange="_prSetExportFormat('${c.key}','rotation',Number(this.value))" class="px-1.5 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]">
+            ${[0, 90, 180, 270].map(deg => `<option value="${deg}" ${Number(c.rotation) === deg ? 'selected' : ''}>${deg}°</option>`).join('')}
+          </select>
+        </td>
         <td class="py-1.5 px-3"><input type="checkbox" ${c.headerBold ? 'checked' : ''} onchange="_prSetExportFormat('${c.key}','headerBold',this.checked)" class="w-4 h-4 rounded accent-slate-700"></td>
         <td class="py-1.5 px-3"><input type="checkbox" ${c.headerItalic ? 'checked' : ''} onchange="_prSetExportFormat('${c.key}','headerItalic',this.checked)" class="w-4 h-4 rounded accent-slate-700"></td>
         <td class="py-1.5 px-3"><input type="color" value="${c.headerColor || '#000000'}" onchange="_prSetExportFormat('${c.key}','headerColor',this.value)" class="w-8 h-6 rounded cursor-pointer border border-slate-200"></td>
@@ -18429,7 +18435,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const italic = isHeader ? c.headerItalic : c.italic;
     const color = isHeader ? c.headerColor : c.color;
     const bg = isHeader ? c.headerBg : null;
-    const rot = isHeader ? Number(c.headerRotation) || 0 : 0;
+    const rot = Number(isHeader ? c.headerRotation : c.rotation) || 0;
     let css = `font-weight:${bold ? '700' : '400'};font-style:${italic ? 'italic' : 'normal'};`;
     if (color) css += `color:${color};`;
     if (bg) css += `background:${bg};`;
@@ -18521,11 +18527,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
         <div>
           <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Data</p>
-          <div class="flex items-center gap-1">
+          <div class="flex items-center gap-1 mb-1">
             <button onclick="_prSetExportFormat('${key}','bold',${!c.bold})" class="w-7 h-7 border rounded-lg font-black text-xs ${c.bold ? 'bg-slate-800 text-white border-slate-800' : 'border-slate-200 text-slate-500'}">B</button>
             <button onclick="_prSetExportFormat('${key}','italic',${!c.italic})" class="w-7 h-7 border rounded-lg italic font-black text-xs ${c.italic ? 'bg-slate-800 text-white border-slate-800' : 'border-slate-200 text-slate-500'}">I</button>
             <input type="color" value="${c.color || '#000000'}" onchange="_prSetExportFormat('${key}','color',this.value)" title="Text color" class="w-7 h-7 rounded-lg cursor-pointer border border-slate-200">
           </div>
+          <select onchange="_prSetExportFormat('${key}','rotation',Number(this.value))" class="w-full px-1.5 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]">
+            ${[0, 90, 180, 270].map(deg => `<option value="${deg}" ${Number(c.rotation) === deg ? 'selected' : ''}>${deg}° rotation</option>`).join('')}
+          </select>
         </div>
       </div>
       <button onclick="_prSetExportFormat('${key}','included',false);document.getElementById('prColumnFormatPopover').remove()" class="w-full px-2 py-1.5 border border-red-200 text-red-500 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-red-50 transition-all">Remove Column</button>
@@ -18576,7 +18585,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const key = `virtual:${name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
     _prExportColumnsCache.push({
       key, label: name, type: 'virtual', vtype, sources, included: true,
-      bold: false, italic: false, color: '',
+      bold: false, italic: false, color: '', rotation: 0,
       headerBold: false, headerItalic: false, headerColor: '', headerBg: '', headerRotation: 90,
     });
     _prRenderExportColumnsTable();
@@ -18714,6 +18723,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             if (c.bold || c.italic || c.color) {
               s.font = { bold: !!c.bold, italic: !!c.italic, color: c.color ? { rgb: c.color.replace('#', '') } : undefined };
             }
+            if (c.rotation === 90 || c.rotation === 270) s.alignment = { textRotation: 90 };
             if (_prExportRowDesign.zebra && (ri - 1) % 2 === 1) {
               s.fill = { fgColor: { rgb: (_prExportRowDesign.zebraColor || '#f1f5f9').replace('#', '') } };
             }
@@ -19030,6 +19040,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const runId = document.getElementById('prExportRunSelect').value;
       const run = _prRunsCache.find(r => r.id === Number(runId));
       const hasRotatedHeaders = data.cols.some(c => c.headerRotation === 90 || c.headerRotation === 270);
+      const hasRotatedData = data.cols.some(c => c.rotation === 90 || c.rotation === 270);
       const periodLabel = run ? `${PAYROLL_MONTH_NAMES[run.month]} ${run.year}` : '';
 
       data.groups.forEach((g, gi) => {
@@ -19042,6 +19053,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           body: g.rows,
           styles: { fontSize: 8 },
           headStyles: hasRotatedHeaders ? { minCellHeight: 36, valign: 'middle', halign: 'center' } : {},
+          bodyStyles: hasRotatedData ? { minCellHeight: 20, valign: 'middle', halign: 'center' } : {},
           didParseCell: hook => {
             const col = data.cols[hook.column.index];
             if (!col) return;
@@ -19059,13 +19071,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             else if (col.italic) hook.cell.styles.fontStyle = 'italic';
             if (col.color) hook.cell.styles.textColor = _prHexToRgbArr(col.color);
             if (_prExportRowDesign.zebra && hook.row.index % 2 === 1) hook.cell.styles.fillColor = _prHexToRgbArr(_prExportRowDesign.zebraColor || '#f1f5f9');
+            if (col.rotation) hook.cell.text = []; // same suppress-and-redraw approach as the header, below
           },
           didDrawCell: hook => {
-            if (hook.section !== 'head') return;
             const col = data.cols[hook.column.index];
-            if (!col || !col.headerRotation) return;
+            if (!col) return;
+            const rotation = hook.section === 'head' ? col.headerRotation : col.rotation;
+            if (!rotation) return;
+            const raw = hook.section === 'head' ? col.label : g.rows[hook.row.index][hook.column.index];
             const { x, y, width, height } = hook.cell;
-            doc.text(String(col.label), x + width / 2, y + height / 2, { angle: col.headerRotation, align: 'center', baseline: 'middle' });
+            doc.text(String(raw), x + width / 2, y + height / 2, { angle: rotation, align: 'center', baseline: 'middle' });
           },
         });
       });
