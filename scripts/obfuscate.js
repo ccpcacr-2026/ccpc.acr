@@ -82,6 +82,7 @@ const RESERVED = [
   '_prLoadExportTemplatesList','_prSaveExportTemplate','_prApplyExportTemplate','_prDeleteExportTemplate',
   '_prPreviewColumnDrop','_prOpenColumnFormatPopover','_prPreviewDragKey','_prResetColumnOrderToSheet','_prStartColumnResize',
   '_prOnVcTypeChange','_prVcAddSegment','_prVcRemoveSegment','_prVcUpdateSegment','_prVcAddRule','_prVcRemoveRule','_prVcUpdateRule',
+  'loadPayrollMpoTab','_prRenderMpoTable','_prSaveMpoAmount',
   '_prOpenDesignationCategoryMapper','_prSaveDesignationCategoryMap','_prApplyDesignationCategoryMapToAllStaff',
   '_prOpenCategoryTreeManager','_prAddCategoryGroup','_prRenameCategoryGroup','_prDeleteCategoryGroup',
   '_prAddCategorySubgroup','_prRenameCategorySubgroup','_prDeleteCategorySubgroup',

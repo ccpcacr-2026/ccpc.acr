@@ -1010,6 +1010,26 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success' });
   }
 
+  // Narrow — only ever touches mpo_amount, for the dedicated MPO screen's
+  // per-row inline edit and its focused Excel import. mpo_amount is a pure
+  // accounting split (how much of this person's Gross the government's
+  // Monthly Pay Order covers vs. the institution) that changes every year
+  // independent of anything else about the person, so it gets its own
+  // narrow save the same way joining_date does — never risking any other
+  // person_setup column via a broader upsert.
+  if (action === 'set_mpo_amount') {
+    const { user_id: personId, mpo_amount } = payload;
+    if (!personId) return NextResponse.json({ result: 'error', message: 'user_id required' }, { status: 400 });
+    const rowData = { mpo_amount: mpo_amount === '' || mpo_amount == null ? null : Number(mpo_amount) };
+    const existing = await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(personId)}&select=user_id`);
+    const saved = (!existing?.error && existing.length)
+      ? await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(personId)}`, 'PATCH', rowData)
+      : await sbPayroll('person_setup', 'POST', { user_id: personId, ...rowData });
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    _prAudit(user_id, 'set_mpo_amount', 'person_setup', personId, rowData);
+    return NextResponse.json({ result: 'success' });
+  }
+
   if (action === 'save_person_setup') {
     const { user_id: personId, grade_id, step_id, pay_type, effective_date, joining_date, is_active, bank_name, bank_account_no, mobile_banking_provider, mobile_banking_number, mpo_amount } = payload;
     if (!personId) return NextResponse.json({ result: 'error', message: 'user_id required' }, { status: 400 });
@@ -1615,20 +1635,45 @@ export async function POST(req) {
       for (let i = 0; i < rows.length; i++) {
         const r = rows[i];
         if (!r.user_id) { errors.push({ row: i + 2, message: 'user_id is required' }); continue; }
-        const grade_id = r.grade_name ? (gradeByName[String(r.grade_name).toLowerCase()] || null) : null;
-        if (r.grade_name && !grade_id) { errors.push({ row: i + 2, message: `Grade "${r.grade_name}" not found` }); continue; }
-        const rowData = {
-          user_id: String(r.user_id), grade_id,
-          joining_date: r.joining_date || null,
-          is_active: true,
-          bank_name: r.bank_name || null, bank_account_no: r.bank_account_no || null,
-          mobile_banking_provider: r.mobile_banking_provider || null, mobile_banking_number: r.mobile_banking_number || null,
-          mpo_amount: r.mpo_amount === '' || r.mpo_amount == null ? null : Number(r.mpo_amount),
-        };
-        const existing = await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(rowData.user_id)}`);
-        const saved = (!existing?.error && existing.length)
+        // Only ever touches a column the row actually provided — a sheet
+        // with just User ID + MPO Amount (a common yearly-update shape)
+        // must not silently null out everyone's grade/bank/active-status
+        // just because those columns weren't in it. New people (no
+        // existing row) still get sensible defaults for what's missing.
+        const existing = await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(String(r.user_id))}`);
+        const isNew = !(!existing?.error && existing.length);
+        const rowData = { user_id: String(r.user_id) };
+        if (r.grade_name) {
+          const grade_id = gradeByName[String(r.grade_name).toLowerCase()] || null;
+          if (!grade_id) { errors.push({ row: i + 2, message: `Grade "${r.grade_name}" not found` }); continue; }
+          rowData.grade_id = grade_id;
+        } else if (isNew) rowData.grade_id = null;
+        if (r.joining_date) rowData.joining_date = r.joining_date; else if (isNew) rowData.joining_date = null;
+        if (isNew) rowData.is_active = true;
+        if (r.bank_name) rowData.bank_name = r.bank_name; else if (isNew) rowData.bank_name = null;
+        if (r.bank_account_no) rowData.bank_account_no = r.bank_account_no; else if (isNew) rowData.bank_account_no = null;
+        if (r.mobile_banking_provider) rowData.mobile_banking_provider = r.mobile_banking_provider; else if (isNew) rowData.mobile_banking_provider = null;
+        if (r.mobile_banking_number) rowData.mobile_banking_number = r.mobile_banking_number; else if (isNew) rowData.mobile_banking_number = null;
+        if (r.mpo_amount !== '' && r.mpo_amount != null) rowData.mpo_amount = Number(r.mpo_amount); else if (isNew) rowData.mpo_amount = null;
+        const saved = !isNew
           ? await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(rowData.user_id)}`, 'PATCH', rowData)
           : await sbPayroll('person_setup', 'POST', rowData);
+        if (saved?.error) { errors.push({ row: i + 2, message: saved.error }); continue; }
+        imported++;
+      }
+    } else if (target === 'mpo_only') {
+      // The dedicated MPO screen's own import — touches mpo_amount and
+      // nothing else, ever, so a yearly re-upload can never accidentally
+      // wipe anyone's grade/bank/active-status the way a partial row in
+      // the general People import used to before that was fixed above.
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r.user_id) { errors.push({ row: i + 2, message: 'user_id is required' }); continue; }
+        const rowData = { mpo_amount: r.mpo_amount === '' || r.mpo_amount == null ? null : Number(r.mpo_amount) };
+        const existing = await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(String(r.user_id))}&select=user_id`);
+        const saved = (!existing?.error && existing.length)
+          ? await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(String(r.user_id))}`, 'PATCH', rowData)
+          : await sbPayroll('person_setup', 'POST', { user_id: String(r.user_id), ...rowData });
         if (saved?.error) { errors.push({ row: i + 2, message: saved.error }); continue; }
         imported++;
       }

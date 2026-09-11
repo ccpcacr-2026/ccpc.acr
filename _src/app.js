@@ -13989,6 +13989,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { id: 'pr-grades', label: 'Grades' },
     { id: 'pr-people', label: 'People Setup' },
     { id: 'pr-sections', label: 'Sections' },
+    { id: 'pr-mpo', label: 'MPO' },
     { id: 'pr-run', label: 'Run & Payslips' },
     { id: 'pr-export', label: 'Export' },
     { id: 'pr-audit', label: 'Audit Log' },
@@ -14409,6 +14410,29 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex justify-end gap-2 mt-5">
             <button onclick="_prCloseLeaveForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
             <button onclick="_prSaveLeaveDeduction()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="pr-mpo" style="display:none">
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
+          <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+            <div>
+              <p class="font-black text-slate-800 text-sm">MPO Amount</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5 max-w-2xl">How much of each person's Gross the government's Monthly Pay Order covers — purely an accounting split for institutional expense reporting. It never changes anyone's Net Pay, which is always Gross minus real deductions, same as everyone else. Re-set every year as the government's allocation changes.</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="_prOpenImportModal('mpo_only', {})" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="upload" class="h-3.5 w-3.5"></i>Import from Excel</button>
+            </div>
+          </div>
+          <input type="text" id="prMpoSearch" oninput="_prRenderMpoTable()" placeholder="Search name or ID…" class="w-full max-w-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs mb-3">
+          <div class="overflow-auto border border-slate-200 rounded-xl">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
+                <th class="py-2 px-3">Name</th><th class="py-2 px-3">Designation</th><th class="py-2 px-3">MPO Amount</th>
+              </tr></thead>
+              <tbody id="prMpoBody"><tr><td colspan="3" class="p-4 text-slate-400 font-bold text-xs text-center">Loading…</td></tr></tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -14891,9 +14915,52 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }
     if (tabId === 'pr-people' && !_prPeopleComboWired) loadPayrollPeopleTab();
     if (tabId === 'pr-sections' && !_prBonusLoaded) { loadBonusPayments(); loadPayrollSections(); loadLeaveDeductions(); }
+    if (tabId === 'pr-mpo' && !_prMpoLoaded) loadPayrollMpoTab();
     if (tabId === 'pr-run' && !_prRunTabLoaded) loadPayrollRunTab();
     if (tabId === 'pr-export' && !_prExportTabLoaded) loadPayrollExportTab();
     if (tabId === 'pr-audit') loadPayrollAuditLog();
+  }
+
+  // ── MPO Amount — a pure accounting split (Gross funded by government vs.
+  // institution), never a deduction, re-set every year as the government's
+  // allocation changes. Own screen since it's a distinct yearly task, not
+  // a fit for either Sections (loans, which DO reduce Net) or the buried
+  // single-field edit inside each person's own People Setup detail popup.
+  let _prMpoLoaded = false;
+  let _prMpoPeople = [];
+  function loadPayrollMpoTab(force) {
+    if (_prMpoLoaded && !force) return;
+    _prMpoLoaded = true;
+    Promise.all([
+      new Promise(resolve => _ensureStaffCache(resolve)),
+      _payrollFetch('get_people_setup', {}),
+    ]).then(([, res]) => {
+      _prMpoPeople = (res && res.result === 'success' && res.people) || [];
+      _prRenderMpoTable();
+    });
+  }
+  function _prRenderMpoTable() {
+    const tbody = document.getElementById('prMpoBody');
+    if (!tbody) return;
+    const search = (document.getElementById('prMpoSearch').value || '').trim().toLowerCase();
+    const staffByUser = {}; (allStaffCache || []).forEach(s => { staffByUser[s.teacher_id] = s; });
+    const rows = _prMpoPeople
+      .filter(p => p.is_active !== false)
+      .map(p => ({ p, staff: staffByUser[p.user_id] || {} }))
+      .filter(({ p, staff }) => !search || (staff.full_name || '').toLowerCase().includes(search) || p.user_id.toLowerCase().includes(search))
+      .sort((a, b) => (a.staff.full_name || a.p.user_id).localeCompare(b.staff.full_name || b.p.user_id));
+    tbody.innerHTML = rows.map(({ p, staff }) => `
+      <tr class="border-b border-slate-50">
+        <td class="py-1.5 px-3 font-black text-slate-700">${_escHtml(staff.full_name || p.user_id)}</td>
+        <td class="py-1.5 px-3 text-slate-500">${_escHtml(staff.designation || '')}</td>
+        <td class="py-1.5 px-3"><input type="number" value="${p.mpo_amount != null ? p.mpo_amount : ''}" placeholder="0 = not MPO-enlisted" onchange="_prSaveMpoAmount('${p.user_id}',this.value)" class="w-40 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></td>
+      </tr>`).join('') || `<tr><td colspan="3" class="p-4 text-slate-400 font-bold text-xs text-center">No one matches.</td></tr>`;
+  }
+  function _prSaveMpoAmount(userId, value) {
+    _payrollFetch('set_mpo_amount', { user_id: userId, mpo_amount: value }).then(res => {
+      if (res && res.result === 'success') { const p = _prMpoPeople.find(x => x.user_id === userId); if (p) p.mpo_amount = value === '' ? null : Number(value); showToast('Saved'); }
+      else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
   }
 
   function loadPayrollAuditLog() {
@@ -16735,6 +16802,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         { key: 'value', label: 'Value', required: true },
       ],
     },
+    mpo_only: {
+      title: 'Import MPO Amounts (Excel)',
+      fields: [
+        { key: 'user_id', label: 'User ID', required: true },
+        { key: 'mpo_amount', label: 'MPO Amount', required: true },
+      ],
+    },
   };
   const PAYROLL_FIELD_SAMPLE_HINTS = {
     user_id: '12345', name: 'Md. Karim Uddin', grade_name: 'Senior Teacher', joining_date: '2026-01-15',
@@ -16905,6 +16979,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (res.imported && _prImportTarget === 'leave_deductions') loadLeaveDeductions();
       if (res.imported && _prImportTarget === 'section_entries' && _prImportContext.section_id) _prSelectSection(_prImportContext.section_id);
       if (res.imported && _prImportTarget === 'field_values') _prLoadFieldValues();
+      if (res.imported && _prImportTarget === 'mpo_only') loadPayrollMpoTab(true);
     }).catch(err => { resultBox.innerHTML = `<p class="text-red-500 font-bold text-xs">${err.message || 'Import failed.'}</p>`; });
   }
 
