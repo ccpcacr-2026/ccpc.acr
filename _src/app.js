@@ -14520,6 +14520,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <label class="text-[10px] font-black text-slate-400 uppercase">Stripe Color</label>
               <input type="color" id="prExportZebraColor" value="#f1f5f9" onchange="_prSetExportRowDesign('zebraColor',this.value)" class="w-8 h-6 rounded cursor-pointer border border-slate-200">
             </div>
+            <div class="flex items-center gap-2">
+              <label class="text-[10px] font-black text-slate-400 uppercase">Row Height (mm)</label>
+              <input type="number" id="prExportRowHeight" value="0" min="0" step="1" placeholder="auto" onchange="_prSetExportRowDesign('rowHeight',Number(this.value)||0)" class="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <span class="text-[10px] text-slate-400 font-bold normal-case">0 = fits the content</span>
+            </div>
           </div>
           <hr class="border-slate-100 my-3">
           <div class="flex flex-wrap items-center gap-5">
@@ -14540,7 +14545,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <label class="text-[10px] font-black text-slate-400 uppercase">Bottom Line (pt)</label>
               <input type="number" id="prExportBottomWidth" value="1.5" min="0" step="0.25" onchange="_prSetExportBorderStyle('bottomWidth',Number(this.value))" class="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
             </div>
-            <span class="text-[10px] text-slate-400 font-bold normal-case">Top/Bottom are the outer rule above the header and below the last row — independent of the grid, like a classic printed table.</span>
+            <div class="flex items-center gap-2">
+              <label class="text-[10px] font-black text-slate-400 uppercase">Group Outline (pt)</label>
+              <input type="number" id="prExportGroupOutlineWidth" value="1" min="0" step="0.25" onchange="_prSetExportBorderStyle('groupOutlineWidth',Number(this.value))" class="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+            </div>
+            <span class="text-[10px] text-slate-400 font-bold normal-case">Top/Bottom are the outer rule above the header and below the last row. Group Outline frames the left/right edges of each Group's columns, header through the last row — 0 to turn off.</span>
           </div>
         </div>
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
@@ -18194,14 +18203,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _prExportSlips = [];
   let _prExportColumnsCache = []; // [{key,label,type:'base'|'field'|'virtual',included,bold,italic,color,headerBold,headerItalic,headerColor,headerBg,headerRotation,vtype,sources}]
   let _prExportSplitByGroup = false;
-  let _prExportRowDesign = { zebra: false, zebraColor: '#f1f5f9' };
+  // rowHeight is a minimum row height in mm applied to every data row
+  // (0 = natural/auto height from content alone).
+  let _prExportRowDesign = { zebra: false, zebraColor: '#f1f5f9', rowHeight: 0 };
   // Grid/border style, in pt (the unit PDF export already works in — the
   // Visual Editor preview and Excel export each convert from pt to their
   // own units). gridWidth is every internal cell border; topWidth/
   // bottomWidth are the outer rule above the header and below the very
   // last row, independent of the internal grid, matching a classic
-  // three-line printed table.
-  let _prExportBorderStyle = { showGrid: true, gridWidth: 0.5, topWidth: 1.5, bottomWidth: 1.5 };
+  // three-line printed table. groupOutlineWidth frames the left/right
+  // edges of each Group's column span, header through the last body row
+  // (0 = no outline).
+  let _prExportBorderStyle = { showGrid: true, gridWidth: 0.5, topWidth: 1.5, bottomWidth: 1.5, groupOutlineWidth: 1 };
   let _prExportRowOrderCache = []; // [{user_id, position}] — only people who've been manually dragged
   let _prExportSortBy = 'name';
   let _prExportSortDir = 'asc';
@@ -18239,10 +18252,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prExportSplitByGroup').checked = _prExportSplitByGroup;
     document.getElementById('prExportZebra').checked = _prExportRowDesign.zebra;
     document.getElementById('prExportZebraColor').value = _prExportRowDesign.zebraColor;
+    document.getElementById('prExportRowHeight').value = _prExportRowDesign.rowHeight || 0;
     document.getElementById('prExportShowGrid').checked = _prExportBorderStyle.showGrid;
     document.getElementById('prExportGridWidth').value = _prExportBorderStyle.gridWidth;
     document.getElementById('prExportTopWidth').value = _prExportBorderStyle.topWidth;
     document.getElementById('prExportBottomWidth').value = _prExportBorderStyle.bottomWidth;
+    document.getElementById('prExportGroupOutlineWidth').value = _prExportBorderStyle.groupOutlineWidth || 0;
     document.getElementById('prExportSortField').value = _prExportSortBy;
     _prUpdateExportSortDirBtn();
     const populate = () => {
@@ -18398,10 +18413,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prExportSplitByGroup').checked = _prExportSplitByGroup;
     document.getElementById('prExportZebra').checked = _prExportRowDesign.zebra;
     document.getElementById('prExportZebraColor').value = _prExportRowDesign.zebraColor;
+    document.getElementById('prExportRowHeight').value = _prExportRowDesign.rowHeight || 0;
     document.getElementById('prExportShowGrid').checked = _prExportBorderStyle.showGrid;
     document.getElementById('prExportGridWidth').value = _prExportBorderStyle.gridWidth;
     document.getElementById('prExportTopWidth').value = _prExportBorderStyle.topWidth;
     document.getElementById('prExportBottomWidth').value = _prExportBorderStyle.bottomWidth;
+    document.getElementById('prExportGroupOutlineWidth').value = _prExportBorderStyle.groupOutlineWidth || 0;
     document.getElementById('prExportSortField').value = _prExportSortBy;
     _prUpdateExportSortDirBtn();
     _prRenderExportColumnsTable();
@@ -18607,6 +18624,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         align: priorState[c.key] ? priorState[c.key].align : 'left',
         headerAlign: priorState[c.key] ? priorState[c.key].headerAlign : 'center',
         width: priorState[c.key] ? priorState[c.key].width : null,
+        widthUnit: priorState[c.key] ? priorState[c.key].widthUnit : 'px',
         headerBold: priorState[c.key] ? priorState[c.key].headerBold : false,
         headerItalic: priorState[c.key] ? priorState[c.key].headerItalic : false,
         headerColor: priorState[c.key] ? priorState[c.key].headerColor : '',
@@ -18670,7 +18688,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     let css = `font-weight:${bold ? '700' : '400'};font-style:${italic ? 'italic' : 'normal'};text-align:${align};`;
     if (color) css += `color:${color};`;
     if (bg) css += `background:${bg};`;
-    if (c.width) css += `width:${c.width}px;max-width:${c.width}px;min-width:${c.width}px;`;
+    if (c.width) {
+      const u = c.widthUnit === '%' ? '%' : c.widthUnit === 'in' ? 'in' : 'px'; // CSS natively supports all three
+      css += `width:${c.width}${u};max-width:${c.width}${u};min-width:${c.width}${u};`;
+    }
     // vertical-rl reads top-to-bottom; flipped 180° for 90° (bottom-to-top,
     // matching jsPDF/Excel's positive-angle convention) vs plain for 270°.
     if (rot === 90) css += `writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;`;
@@ -18815,6 +18836,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const onUp = e => {
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
+      const col = _prExportColumnsCache.find(c => c.key === key);
+      if (col) col.widthUnit = 'px'; // dragging always measures/sets real on-screen px, regardless of whatever unit was configured before
       _prSetExportFormat(key, 'width', Math.max(30, startWidth + (e.clientX - startX)));
     };
     document.addEventListener('mousemove', onMove);
@@ -18889,11 +18912,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
       </div>
       ${c.group ? `<button onclick="_prAddGroupTotalColumn('${_escHtml(c.group)}');document.getElementById('prColumnFormatPopover').remove()" class="w-full mb-2 px-2 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center justify-center gap-1.5"><i data-lucide="sigma" class="h-3.5 w-3.5"></i>Add Total for "${_escHtml(c.group)}"</button>` : ''}
-      <div class="flex items-center gap-2 mb-2">
+      <div class="flex items-center gap-2 mb-1">
         <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest shrink-0">Width</label>
-        <input type="number" value="${c.width || ''}" placeholder="auto" min="30" onchange="_prSetExportFormat('${key}','width',this.value?Number(this.value):null)" class="flex-1 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]">
-        <span class="text-[9px] text-slate-400 font-bold">px, or drag the header edge</span>
+        <input type="number" value="${c.width || ''}" placeholder="auto" min="0" step="any" onchange="_prSetExportFormat('${key}','width',this.value?Number(this.value):null)" class="flex-1 min-w-0 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]">
+        <select onchange="_prSetExportFormat('${key}','widthUnit',this.value)" class="px-1.5 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px] shrink-0">
+          ${['px', '%', 'in'].map(u => `<option value="${u}" ${(c.widthUnit || 'px') === u ? 'selected' : ''}>${u}</option>`).join('')}
+        </select>
       </div>
+      <p class="text-[9px] text-slate-400 font-bold mb-2">% is of the printable page width. Dragging the header edge always sets px.</p>
       <button onclick="_prSetExportFormat('${key}','included',false);document.getElementById('prColumnFormatPopover').remove()" class="w-full px-2 py-1.5 border border-red-200 text-red-500 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-red-50 transition-all">Remove Column</button>
     `;
     document.body.appendChild(pop);
@@ -19260,14 +19286,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const gridStyle = bs.showGrid ? _prExcelBorderStyle(bs.gridWidth) : null;
       const topStyle = _prExcelBorderStyle(bs.topWidth);
       const bottomStyle = _prExcelBorderStyle(bs.bottomWidth);
+      const outlineStyle = _prExcelBorderStyle(bs.groupOutlineWidth);
       const gridSide = st => st ? { style: st, color: { rgb: 'CBD5E1' } } : undefined;
       const accentSide = st => st ? { style: st, color: { rgb: '0F172A' } } : undefined;
-      const cellBorder = (isTop, isBottom) => {
-        if (!gridStyle && !isTop && !isBottom) return undefined;
+      const cellBorder = (isTop, isBottom, isLeftEdge, isRightEdge) => {
+        if (!gridStyle && !isTop && !isBottom && !isLeftEdge && !isRightEdge) return undefined;
         return {
           top: isTop ? accentSide(topStyle) : gridSide(gridStyle),
           bottom: isBottom ? accentSide(bottomStyle) : gridSide(gridStyle),
-          left: gridSide(gridStyle), right: gridSide(gridStyle),
+          left: isLeftEdge ? accentSide(outlineStyle) : gridSide(gridStyle),
+          right: isRightEdge ? accentSide(outlineStyle) : gridSide(gridStyle),
         };
       };
       // Same group-header idea as the PDF/preview: contiguous same-Group
@@ -19283,6 +19311,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const hasAnyGroup = runs.some(r => r.group);
       const headerRow = hasAnyGroup ? 1 : 0;
       const dataStartRow = headerRow + 1;
+      // Which column indexes sit on the left/right edge of a Group's span —
+      // every per-column cell (row1 labels, every data row) at that index
+      // gets the outline on that one side, framing the group the whole way
+      // down the sheet. The merged super-header cell itself is handled
+      // separately below since it's one cell spanning the whole run.
+      const groupEdgeSide = {};
+      if (outlineStyle) {
+        runs.forEach(r => {
+          if (!r.group) return;
+          const first = r.cols[0], last = r.cols[r.cols.length - 1];
+          groupEdgeSide[first] = Object.assign({}, groupEdgeSide[first], { left: true });
+          groupEdgeSide[last] = Object.assign({}, groupEdgeSide[last], { right: true });
+        });
+      }
+      const rowHeightPt = Number(_prExportRowDesign.rowHeight) > 0 ? Number(_prExportRowDesign.rowHeight) * 2.83465 : 0;
 
       data.groups.forEach(g => {
         const groupRow = hasAnyGroup ? data.cols.map(() => '') : null;
@@ -19297,14 +19340,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           });
           runs.filter(r => r.group).forEach(r => {
             const addr = XLSX.utils.encode_cell({ r: 0, c: r.cols[0] });
-            if (ws[addr]) ws[addr].s = { font: { bold: true }, fill: { fgColor: { rgb: 'F1F5F9' } }, alignment: { horizontal: 'center' }, border: cellBorder(true, false) };
+            // This one cell spans the whole run, so it alone owns both the
+            // left AND right outline edges regardless of how many columns
+            // it covers.
+            if (ws[addr]) ws[addr].s = { font: { bold: true }, fill: { fgColor: { rgb: 'F1F5F9' } }, alignment: { horizontal: 'center' }, border: cellBorder(true, false, true, true) };
           });
         }
-        // Column widths — px (the Visual Editor's drag-resize unit) to
-        // Excel's "characters" unit is inherently approximate (character
-        // width varies by font), ~7px/char at the default font is close
-        // enough for a usable starting width.
-        ws['!cols'] = data.cols.map(c => c.width ? { wch: Math.max(4, Math.round(c.width / 7)) } : {});
+        // Column widths — only set when explicitly configured (leaving
+        // Excel's own default/auto-fit for anything left unconfigured is
+        // friendlier than guessing); px/in/% all resolve through the same
+        // mm conversion PDF uses, then to Excel's "characters" unit, which
+        // is inherently approximate (character width varies by font) —
+        // ~1.85mm/char at the default font is close enough for a starting
+        // width the user can still auto-fit in Excel.
+        ws['!cols'] = data.cols.map(c => c.width ? { wch: Math.max(4, Math.round(_prColumnWidthMm(c, 190) / 1.852)) } : {});
+        if (rowHeightPt) ws['!rows'] = Array.from({ length: dataStartRow + g.rows.length }, (_, ri) => ri >= dataStartRow ? { hpt: rowHeightPt } : undefined);
         data.cols.forEach((c, ci) => {
           const addr = XLSX.utils.encode_cell({ r: headerRow, c: ci });
           if (!ws[addr]) return;
@@ -19320,7 +19370,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           // rather than silently doing nothing. PDF export supports all
           // four angles exactly since it draws the text directly.
           if (c.headerRotation === 90 || c.headerRotation === 270) s.alignment.textRotation = 90;
-          s.border = cellBorder(!hasAnyGroup, false); // when grouped, the real top edge is row 0 above, already bordered
+          const edge = groupEdgeSide[ci];
+          s.border = cellBorder(!hasAnyGroup, false, edge && edge.left, edge && edge.right); // when grouped, the real top edge is row 0 above, already bordered
           if (Object.keys(s).length) ws[addr].s = s;
         });
         data.cols.forEach((c, ci) => {
@@ -19345,7 +19396,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             if (_prExportRowDesign.zebra && (ri - dataStartRow) % 2 === 1) {
               s.fill = { fgColor: { rgb: (_prExportRowDesign.zebraColor || '#f1f5f9').replace('#', '') } };
             }
-            s.border = cellBorder(false, ri === dataStartRow + g.rows.length - 1);
+            const edge = groupEdgeSide[ci];
+            s.border = cellBorder(false, ri === dataStartRow + g.rows.length - 1, edge && edge.left, edge && edge.right);
             if (Object.keys(s).length) ws[addr].s = s;
           }
         });
@@ -19650,6 +19702,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
   }
 
+  // A column's configured width, resolved to mm regardless of which unit
+  // (px/%/in) it was set in — px matches the Visual Editor's drag-resize
+  // unit (96dpi), in is a literal inch, % is relative to the usable page
+  // width so it stays sensible across portrait/landscape/page-size choices.
+  // With no width configured at all, falls back to a rough per-column
+  // estimate from its label length instead of leaving it to jsPDF's own
+  // "auto" sizing — which, with a rotated header's text cleared for width
+  // purposes (see didParseCell below), tends to size every such column
+  // down to a near-identical narrow width regardless of its content.
+  function _prColumnWidthMm(c, pageWidthMm) {
+    if (c.width) {
+      const unit = c.widthUnit || 'px';
+      if (unit === 'in') return Math.max(8, Number(c.width) * 25.4);
+      if (unit === '%') return Math.max(8, (Number(c.width) / 100) * pageWidthMm);
+      return Math.max(8, Number(c.width) * 0.2646);
+    }
+    return Math.max(16, Math.min(60, String(c.label || '').length * 2.2 + 8));
+  }
+
   // Draws a Text virtual column's resolved segments with each one's own
   // bold/italic/color — jsPDF has no native rich-text-in-one-cell API, so
   // this measures each segment's width (font style affects width, so it's
@@ -19700,12 +19771,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const hasRotatedHeaders = data.cols.some(c => c.headerRotation === 90 || c.headerRotation === 270);
       const hasRotatedData = data.cols.some(c => c.rotation === 90 || c.rotation === 270);
       const periodLabel = run ? `${PAYROLL_MONTH_NAMES[run.month]} ${run.year}` : '';
-      // px -> mm at 96dpi, matching the Visual Editor's drag-resize units.
-      const columnStyles = {};
-      data.cols.forEach((c, ci) => {
-        columnStyles[ci] = { halign: c.align || 'left' };
-        if (c.width) columnStyles[ci].cellWidth = Math.max(8, c.width * 0.2646);
-      });
       // Grid thickness in pt -> mm (jsPDF's default unit). Top/bottom are
       // drawn as extra rules on top of the grid in didDrawCell below,
       // rather than through autotable's own lineWidth, so they can be a
@@ -19714,6 +19779,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const gridMm = bs.showGrid ? Math.max(0.05, (Number(bs.gridWidth) || 0) * 0.352778) : 0;
       const topMm = Math.max(0.1, (Number(bs.topWidth) || 0) * 0.352778);
       const bottomMm = Math.max(0.1, (Number(bs.bottomWidth) || 0) * 0.352778);
+      const outlineMm = Math.max(0, (Number(bs.groupOutlineWidth) || 0) * 0.352778);
+      // Usable width inside the 14mm left/right margins this export already
+      // uses for its title text — the reference a '%' column width resolves
+      // against.
+      const pageWidthMm = doc.internal.pageSize.getWidth() - 28;
+      const columnStyles = {};
+      data.cols.forEach((c, ci) => {
+        columnStyles[ci] = { halign: c.align || 'left', cellWidth: _prColumnWidthMm(c, pageWidthMm) };
+      });
       // Same group-header idea as the Acquittance Roll PDF: contiguous
       // same-Group columns get one merged cell in an extra head row above
       // the normal one; an ungrouped column spans both head rows instead.
@@ -19724,6 +19798,32 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         else runs.push({ group: c.group || null, cols: [ci] });
       });
       const hasAnyGroup = runs.some(r => r.group);
+      // Which column indexes sit on the left/right edge of a Group's
+      // column span — those two sides get the (thicker) outline instead
+      // of the plain grid width, framing the group header through the
+      // last body row of every page.
+      const groupOutlineSide = {};
+      if (outlineMm) {
+        runs.forEach(r => {
+          if (!r.group) return;
+          const first = r.cols[0], last = r.cols[r.cols.length - 1];
+          groupOutlineSide[first] = Object.assign({}, groupOutlineSide[first], { left: true });
+          groupOutlineSide[last] = Object.assign({}, groupOutlineSide[last], { right: true });
+        });
+      }
+      // hook.cell.styles.lineWidth starts as the plain gridMm NUMBER (from
+      // the table-wide `styles` below) unless something already turned it
+      // into a per-side object (row 0's top rule, the last row's bottom
+      // rule) — normalize to an object before poking at one side, since
+      // spreading a number silently produces {}.
+      const applyGroupOutline = (ci, styles) => {
+        const edge = groupOutlineSide[ci];
+        if (!edge) return;
+        const cur = (styles.lineWidth && typeof styles.lineWidth === 'object') ? styles.lineWidth : { top: gridMm, right: gridMm, bottom: gridMm, left: gridMm };
+        if (edge.left) cur.left = outlineMm;
+        if (edge.right) cur.right = outlineMm;
+        styles.lineWidth = cur;
+      };
       // The true top edge of the table is always row 0 of `head` — when
       // grouped that's the merged-group row, not the per-column label row
       // the shared hook below otherwise operates on, so its top rule is
@@ -19760,7 +19860,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       // header eats much more vertical space than a flat one).
       const pageH = doc.internal.pageSize.getHeight();
       const headerRowsMm = (hasAnyGroup ? 8 : 0) + (hasRotatedHeaders ? 36 : 8);
-      const dataRowMm = hasRotatedData ? 20 : 6;
+      const customRowMm = Number(_prExportRowDesign.rowHeight) || 0;
+      const minBodyRowMm = Math.max(customRowMm, hasRotatedData ? 20 : 0);
+      const dataRowMm = Math.max(minBodyRowMm, 6);
       const rowsPerPage = Math.max(5, Math.floor((pageH - 18 - 14 - headerRowsMm) / dataRowMm));
 
       data.groups.forEach((g, gi) => {
@@ -19801,7 +19903,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             // headStyles default also forces the plain, one-line group-name
             // row to that same tall height, which is never needed there.
             headStyles: { halign: 'center' },
-            bodyStyles: hasRotatedData ? { minCellHeight: 20, valign: 'middle', halign: 'center' } : {},
+            bodyStyles: minBodyRowMm ? Object.assign({ minCellHeight: minBodyRowMm, valign: 'middle' }, hasRotatedData ? { halign: 'center' } : {}) : {},
             columnStyles,
             didParseCell: hook => {
               if (hook.section === 'head') {
@@ -19813,7 +19915,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 // per-column formatting of its own and is already styled
                 // inline where `head` is built).
                 const isColumnLabelRow = col.group ? hook.row.index === 1 : hook.row.index === 0;
+                // The merged group super-header is ONE cell spanning the
+                // whole run, so it alone owns both the left AND right
+                // outline edges — a per-column edge lookup can't reach it
+                // since the columns it covers have no cell of their own here.
+                if (col.group && hook.row.index === 0 && outlineMm) {
+                  const cur = (hook.cell.styles.lineWidth && typeof hook.cell.styles.lineWidth === 'object') ? hook.cell.styles.lineWidth : { top: topMm, right: gridMm, bottom: gridMm, left: gridMm };
+                  cur.left = outlineMm; cur.right = outlineMm;
+                  hook.cell.styles.lineWidth = cur;
+                }
                 if (!isColumnLabelRow) return;
+                applyGroupOutline(hook.column.index, hook.cell.styles);
                 if (hasRotatedHeaders) { hook.cell.styles.minCellHeight = 36; hook.cell.styles.valign = 'middle'; }
                 if (col.headerBold && col.headerItalic) hook.cell.styles.fontStyle = 'bolditalic';
                 else if (col.headerBold) hook.cell.styles.fontStyle = 'bold';
@@ -19827,7 +19939,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               }
               const col = data.cols[hook.column.index];
               if (!col) return;
-              if (isSyntheticRow(hook.row.index)) { hook.cell.styles.fontStyle = 'bold'; hook.cell.styles.fillColor = [241, 245, 249]; if (hook.row.index === subTotalRowIndex) hook.cell.styles.lineWidth = { top: gridMm, right: gridMm, bottom: bottomMm, left: gridMm }; return; }
+              if (isSyntheticRow(hook.row.index)) {
+                hook.cell.styles.fontStyle = 'bold'; hook.cell.styles.fillColor = [241, 245, 249];
+                if (hook.row.index === subTotalRowIndex) hook.cell.styles.lineWidth = { top: gridMm, right: gridMm, bottom: bottomMm, left: gridMm };
+                applyGroupOutline(hook.column.index, hook.cell.styles);
+                return;
+              }
               // autotable can invoke this hook with row.index === -1 for an
               // internal "continuation" fragment of a row too tall to fit
               // on the page (common with rotated cells) — it doesn't map
@@ -19840,6 +19957,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               else if (col.italic) hook.cell.styles.fontStyle = 'italic';
               if (col.color) hook.cell.styles.textColor = _prHexToRgbArr(col.color);
               if (_prExportRowDesign.zebra && hook.row.index % 2 === 1) hook.cell.styles.fillColor = _prHexToRgbArr(_prExportRowDesign.zebraColor || '#f1f5f9');
+              applyGroupOutline(hook.column.index, hook.cell.styles);
               // A Text virtual column always needs the custom multi-segment
               // draw below (to show each segment's own style), regardless of
               // rotation; a plain column only needs it when rotated.
