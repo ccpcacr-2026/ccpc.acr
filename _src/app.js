@@ -19031,10 +19031,40 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // name or a Text virtual column into another has no sensible meaning.
     const canFold = _prIsSummableColumn(c) && !c.foldedInto;
     const foldTargets = canFold ? _prExportColumnsCache.filter(x => x.included && x.key !== key && _prIsSummableColumn(x)) : [];
-    const foldedFromPills = (c.foldedFrom || []).map(k => {
-      const s = _prExportColumnsCache.find(x => x.key === k);
-      return s ? `<span class="inline-flex items-center gap-1 pl-2.5 pr-1.5 py-1 bg-amber-50 border border-amber-200 rounded-full text-[10px] font-bold text-amber-700">${_escHtml(s.label)}<button onclick="_prExtractFoldedColumn('${k}')" title="Extract back to its own column" class="w-4 h-4 flex items-center justify-center rounded-full text-amber-500 hover:bg-amber-200 hover:text-amber-900">×</button></span>` : '';
+    const foldedFromPills = (c.foldedFrom || []).map(entry => {
+      const s = _prExportColumnsCache.find(x => x.key === entry.key);
+      if (!s) return '';
+      const open = _prExpandedFoldEntryKey === entry.key;
+      return `<span class="inline-flex items-center gap-1 pl-2.5 pr-1.5 py-1 rounded-full text-[10px] font-bold cursor-pointer ${open ? 'bg-amber-200 border border-amber-400 text-amber-900' : 'bg-amber-50 border border-amber-200 text-amber-700 hover:bg-amber-100'}" onclick="_prToggleFoldRemarkEditor('${entry.key}')" title="Click to edit its remark">${_escHtml(s.label)}<button onclick="event.stopPropagation();_prExtractFoldedColumn('${entry.key}')" title="Extract back to its own column" class="w-4 h-4 flex items-center justify-center rounded-full text-amber-500 hover:bg-amber-300 hover:text-amber-900">×</button></span>`;
     }).join('');
+    const expandedEntry = _prExpandedFoldEntryKey ? _prFoldEntry(key, _prExpandedFoldEntryKey) : null;
+    const expandedSourceLabel = expandedEntry ? (_prExportColumnsCache.find(x => x.key === _prExpandedFoldEntryKey) || {}).label : '';
+    const remarkEditorHtml = expandedEntry ? `
+      <div class="w-full mt-2 p-3 bg-white border border-amber-200 rounded-xl">
+        <p class="text-[9px] font-black text-amber-700 uppercase tracking-widest mb-2">Remark for "${_escHtml(expandedSourceLabel)}"</p>
+        <div class="flex items-center gap-2 mb-2">
+          <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest shrink-0">Default</label>
+          <input type="text" value="${_escHtml(expandedEntry.remarkDefault || '')}" placeholder="e.g. {label} Tk. {value} included — blank for no remark" onchange="_prSetFoldRemarkDefault('${key}','${_prExpandedFoldEntryKey}',this.value)" class="flex-1 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]">
+        </div>
+        <p class="text-[9px] text-slate-400 font-bold mb-2">{value} = this row's own "${_escHtml(expandedSourceLabel)}" amount, {label} = "${_escHtml(expandedSourceLabel)}". Used whenever no condition below matches.</p>
+        <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Conditions (checked in order, first match wins)</p>
+        <div class="space-y-1.5 mb-2">
+          ${(expandedEntry.remarkRules || []).map((r, i) => `
+            <div class="flex items-center gap-1.5">
+              <span class="text-[9px] font-bold text-slate-400 shrink-0">If "${_escHtml(expandedSourceLabel)}"</span>
+              <select onchange="_prUpdateFoldRemarkRule('${key}','${_prExpandedFoldEntryKey}',${i},'op',this.value)" class="px-1.5 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]">
+                ${PR_VC_RULE_OPS.map(([v, l]) => `<option value="${v}" ${r.op === v ? 'selected' : ''}>${l}</option>`).join('')}
+              </select>
+              <input type="text" value="${_escHtml(r.compareValue)}" placeholder="value" onchange="_prUpdateFoldRemarkRule('${key}','${_prExpandedFoldEntryKey}',${i},'compareValue',this.value)" class="w-20 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]">
+              <span class="text-[9px] font-bold text-slate-400 shrink-0">→</span>
+              <input type="text" value="${_escHtml(r.text)}" placeholder="remark text, or blank to suppress" onchange="_prUpdateFoldRemarkRule('${key}','${_prExpandedFoldEntryKey}',${i},'text',this.value)" class="flex-1 min-w-0 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]">
+              <button onclick="_prRemoveFoldRemarkRule('${key}','${_prExpandedFoldEntryKey}',${i})" class="w-6 h-6 shrink-0 flex items-center justify-center rounded-full text-red-400 hover:bg-red-50 hover:text-red-600">×</button>
+            </div>
+          `).join('')}
+        </div>
+        <button onclick="_prAddFoldRemarkRule('${key}','${_prExpandedFoldEntryKey}')" class="px-2.5 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">+ Add Condition</button>
+      </div>
+    ` : '';
     const foldSectionHtml = (canFold && foldTargets.length) || foldedFromPills ? `
       <div class="mt-3 pt-3 border-t border-blue-100 flex flex-wrap items-center gap-x-6 gap-y-2">
         ${canFold && foldTargets.length ? `
@@ -19053,6 +19083,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             ${foldedFromPills}
           </div>
         ` : ''}
+        ${remarkEditorHtml}
       </div>
     ` : '';
     host.innerHTML = `
@@ -19366,7 +19397,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function _prColumnValue(col, slip) {
     if (!col) return '';
-    if (col.type === 'remark') return _prBuildRemarksText();
+    if (col.type === 'remark') return _prBuildRemarksText(slip);
     let val;
     if (col.type === 'base') {
       // Name alone — staffLabel() bundles in Designation for other screens'
@@ -19397,7 +19428,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // its own value here even though it's hidden from the table itself —
     // this IS the "sum to another column" the fold performs.
     if (col.foldedFrom && col.foldedFrom.length) {
-      val += col.foldedFrom.reduce((a, k) => a + (Number(_prColumnValue(_prExportColumnsCache.find(c => c.key === k), slip)) || 0), 0);
+      val += col.foldedFrom.reduce((a, entry) => a + (Number(_prColumnValue(_prExportColumnsCache.find(c => c.key === entry.key), slip)) || 0), 0);
     }
     return val;
   }
@@ -19416,14 +19447,41 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // note in an auto-managed Remarks column at the far right ────────────────
   const PR_REMARKS_KEY = '__remarks__';
 
-  // Same note for every row — folding is a structural, table-wide choice
-  // (which columns feed which), not something that varies per person.
-  function _prBuildRemarksText() {
+  // {value}/{label} in a remark template get replaced with the folded
+  // source column's OWN value for this row (through its own Number
+  // Format) and its label — e.g. "{label} Tk. {value} included" becomes
+  // "Utilities Tk. 2,450.00 included" for a row where Utilities is 2450.
+  function _prFillRemarkTemplate(template, srcCol, val) {
+    if (!template) return '';
+    const displayVal = srcCol ? _prFormatColumnValue(srcCol, val) : val;
+    return String(template).replace(/\{value\}/g, String(displayVal)).replace(/\{label\}/g, srcCol ? srcCol.label : '');
+  }
+
+  // A fold's remark for THIS row: its conditional rules are checked in
+  // order against the folded source column's own value (first match
+  // wins, same pattern as a Text virtual column's rules), falling back to
+  // the default template when none match. A rule with blank text
+  // deliberately suppresses the remark for rows that match it.
+  function _prResolveFoldRemark(entry, slip) {
+    const srcCol = _prExportColumnsCache.find(c => c.key === entry.key);
+    const val = srcCol ? _prColumnValue(srcCol, slip) : '';
+    for (const rule of (entry.remarkRules || [])) {
+      if (_prCompareVcCondition(val, rule.op, rule.compareValue)) return _prFillRemarkTemplate(rule.text, srcCol, val);
+    }
+    return _prFillRemarkTemplate(entry.remarkDefault, srcCol, val);
+  }
+
+  // Every active fold's remark for THIS row, joined — each fold's text
+  // can vary row to row (conditional on that row's own folded value), so
+  // unlike most other things about a fold, this is NOT the same for
+  // every person.
+  function _prBuildRemarksText(slip) {
     const notes = [];
     _prExportColumnsCache.forEach(target => {
-      if (!target.foldedFrom || !target.foldedFrom.length) return;
-      const names = target.foldedFrom.map(k => { const s = _prExportColumnsCache.find(x => x.key === k); return s ? s.label : k; });
-      notes.push(`${names.join(' + ')} incl. in ${target.label}`);
+      (target.foldedFrom || []).forEach(entry => {
+        const text = _prResolveFoldRemark(entry, slip);
+        if (text) notes.push(text);
+      });
     });
     return notes.join('; ');
   }
@@ -19468,7 +19526,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     source.included = false;
     source.foldedInto = targetKey;
     target.foldedFrom = target.foldedFrom || [];
-    if (!target.foldedFrom.includes(sourceKey)) target.foldedFrom.push(sourceKey);
+    if (!target.foldedFrom.some(e => e.key === sourceKey)) {
+      // {label}/{value} start filled in as a working example — free to
+      // edit or clear from the panel's "Includes" pill for this entry.
+      target.foldedFrom.push({ key: sourceKey, remarkDefault: '{label} Tk. {value} included', remarkRules: [] });
+    }
     _prSyncRemarksColumn();
     if (_prSelectedFormatColumnKey === sourceKey) _prSelectedFormatColumnKey = targetKey;
     _prRenderExportColumnsTable();
@@ -19481,12 +19543,49 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const source = _prExportColumnsCache.find(c => c.key === sourceKey);
     if (!source || !source.foldedInto) return;
     const target = _prExportColumnsCache.find(c => c.key === source.foldedInto);
-    if (target && target.foldedFrom) target.foldedFrom = target.foldedFrom.filter(k => k !== sourceKey);
+    if (target && target.foldedFrom) target.foldedFrom = target.foldedFrom.filter(e => e.key !== sourceKey);
     source.included = true;
     source.foldedInto = null;
+    if (_prExpandedFoldEntryKey === sourceKey) _prExpandedFoldEntryKey = null;
     _prSyncRemarksColumn();
     _prRenderExportColumnsTable();
     showToast(`Extracted "${source.label}" back out`);
+  }
+
+  // Which fold entry's remark editor is currently expanded in the panel
+  // (a source column's key, or null) — see the "Includes" pills.
+  let _prExpandedFoldEntryKey = null;
+  function _prToggleFoldRemarkEditor(sourceKey) {
+    _prExpandedFoldEntryKey = _prExpandedFoldEntryKey === sourceKey ? null : sourceKey;
+    _prRenderColumnFormatPanel();
+  }
+  function _prFoldEntry(targetKey, sourceKey) {
+    const target = _prExportColumnsCache.find(c => c.key === targetKey);
+    return target && (target.foldedFrom || []).find(e => e.key === sourceKey);
+  }
+  function _prSetFoldRemarkDefault(targetKey, sourceKey, text) {
+    const entry = _prFoldEntry(targetKey, sourceKey);
+    if (entry) entry.remarkDefault = text;
+    _prRenderExportPreview();
+  }
+  function _prAddFoldRemarkRule(targetKey, sourceKey) {
+    const entry = _prFoldEntry(targetKey, sourceKey);
+    if (!entry) return;
+    entry.remarkRules = entry.remarkRules || [];
+    entry.remarkRules.push({ op: '>', compareValue: '0', text: '' });
+    _prRenderColumnFormatPanel();
+  }
+  function _prUpdateFoldRemarkRule(targetKey, sourceKey, idx, prop, value) {
+    const entry = _prFoldEntry(targetKey, sourceKey);
+    if (!entry || !entry.remarkRules || !entry.remarkRules[idx]) return;
+    entry.remarkRules[idx][prop] = value;
+    _prRenderExportPreview();
+  }
+  function _prRemoveFoldRemarkRule(targetKey, sourceKey, idx) {
+    const entry = _prFoldEntry(targetKey, sourceKey);
+    if (!entry || !entry.remarkRules) return;
+    entry.remarkRules.splice(idx, 1);
+    _prRenderColumnFormatPanel();
   }
 
   // Renders a raw cell value through a column's optional Number Format —
