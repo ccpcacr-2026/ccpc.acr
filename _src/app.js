@@ -18684,7 +18684,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       ];
       const fieldCols = [...fieldKeys].map(k => ({ key: k, label: labelFor(k), type: 'field' }));
       // Preserve any existing virtual columns / include-state across a reload of the same run.
-      const priorVirtuals = _prExportColumnsCache.filter(c => c.type === 'virtual');
+      const priorVirtuals = _prExportColumnsCache.filter(c => c.type === 'virtual' || c.type === 'remark');
       const priorState = {}; _prExportColumnsCache.forEach(c => { priorState[c.key] = c; });
       _prExportColumnsCache = _prSortColumnsLikeSheet([...baseCols, ...fieldCols]).map(c => ({
         ...c,
@@ -18712,6 +18712,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         // that many digits — combining both gives "2,45,345.00".
         numberFormat: priorState[c.key] ? priorState[c.key].numberFormat : 'none',
         decimals: priorState[c.key] && priorState[c.key].decimals !== undefined ? priorState[c.key].decimals : null,
+        // Fold: this column's value silently adds into another column's
+        // own value instead of showing as its own column. foldedInto is
+        // the target's key (set on the folded-away source); foldedFrom is
+        // the reverse list (set on the target, naming every source folded
+        // into it) — see _prFoldColumnInto/_prExtractFoldedColumn.
+        foldedInto: priorState[c.key] ? priorState[c.key].foldedInto || null : null,
+        foldedFrom: priorState[c.key] && priorState[c.key].foldedFrom ? priorState[c.key].foldedFrom : [],
         headerBold: priorState[c.key] ? priorState[c.key].headerBold : false,
         headerItalic: priorState[c.key] ? priorState[c.key].headerItalic : false,
         headerColor: priorState[c.key] ? priorState[c.key].headerColor : '',
@@ -18814,8 +18821,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const included = _prExportColumnsCache.filter(c => c.included);
     const excluded = _prExportColumnsCache.filter(c => !c.included);
     if (chipsHost) {
+      // A folded-away column needs _prExtractFoldedColumn, not a blind
+      // re-include — that would leave it counted both on its own AND
+      // still inside the target's summed value.
       chipsHost.innerHTML = excluded.length
-        ? excluded.map(c => `<button onclick="_prSetExportFormat('${c.key}','included',true)" class="px-2.5 py-1 bg-slate-100 text-slate-500 rounded-full font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-1"><i data-lucide="plus" class="h-3 w-3"></i>${_escHtml(c.label)}</button>`).join('')
+        ? excluded.map(c => c.foldedInto
+            ? `<button onclick="_prExtractFoldedColumn('${c.key}')" title="Folded into ${_escHtml((_prExportColumnsCache.find(t => t.key === c.foldedInto) || {}).label || '')} — click to extract" class="px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-full font-black text-[10px] uppercase tracking-widest hover:bg-amber-100 transition-all flex items-center gap-1"><i data-lucide="rotate-ccw" class="h-3 w-3"></i>${_escHtml(c.label)}</button>`
+            : `<button onclick="_prSetExportFormat('${c.key}','included',true)" class="px-2.5 py-1 bg-slate-100 text-slate-500 rounded-full font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-1"><i data-lucide="plus" class="h-3 w-3"></i>${_escHtml(c.label)}</button>`)
+          .join('')
         : '';
     }
     if (!included.length) { host.innerHTML = `<tr><td class="p-4 text-slate-400 font-bold text-xs text-center">No columns included — click a chip above to add one.</td></tr>`; lucide.createIcons(); return; }
@@ -18834,7 +18847,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
     const hasAnyGroup = runs.some(r => r.group);
     const colHeaderHtml = (c, isTopRow) => `
-      <th draggable="true"
+      <th draggable="true" data-col-key="${_escHtml(c.key)}"
           ondragstart="_prPreviewDragKey='${c.key}'" ondragover="event.preventDefault()" ondrop="_prPreviewColumnDrop('${c.key}')"
           onclick="_prSelectFormatColumn('${c.key}')" ${!c.group && hasAnyGroup ? 'rowspan="2"' : ''}
           class="relative px-3 py-2 ${c.key === _prSelectedFormatColumnKey ? 'bg-blue-100 ring-2 ring-inset ring-blue-400' : 'bg-slate-50'} cursor-grab select-none hover:bg-blue-50 transition-all align-bottom"
@@ -18979,6 +18992,31 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _prRenderExportPreview(); // also refreshes the panel, and (un)highlights the selected header
   }
 
+  // ← / → moves the selected column to the previous/next header, so you
+  // can walk across the whole table without reaching for the mouse each
+  // time. Ignored while typing in one of the panel's own inputs/selects
+  // (so the label/width/decimals fields still get normal cursor movement)
+  // and while the Export tab isn't even the one on screen.
+  function _prHandleFormatPanelKeydown(e) {
+    if (!_prSelectedFormatColumnKey) return;
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    const active = document.activeElement;
+    if (active && ['INPUT', 'SELECT', 'TEXTAREA'].includes(active.tagName)) return;
+    const exportTab = document.getElementById('pr-export');
+    if (!exportTab || exportTab.style.display === 'none') return;
+    const included = _prExportColumnsCache.filter(c => c.included);
+    const idx = included.findIndex(c => c.key === _prSelectedFormatColumnKey);
+    if (idx < 0) return;
+    const nextIdx = e.key === 'ArrowLeft' ? idx - 1 : idx + 1;
+    if (nextIdx < 0 || nextIdx >= included.length) return;
+    e.preventDefault();
+    _prSelectedFormatColumnKey = included[nextIdx].key;
+    _prRenderExportPreview();
+    const th = document.querySelector(`#prExportPreviewTable th[data-col-key="${window.CSS && CSS.escape ? CSS.escape(_prSelectedFormatColumnKey) : _prSelectedFormatColumnKey}"]`);
+    if (th) th.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+  }
+  document.addEventListener('keydown', _prHandleFormatPanelKeydown);
+
   function _prRenderColumnFormatPanel() {
     const host = document.getElementById('prColumnFormatPanel');
     if (!host) return;
@@ -18989,6 +19027,34 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _prSelectedFormatColumnKey = null;
       return;
     }
+    // Fold: only offered between summable (numeric) columns — folding a
+    // name or a Text virtual column into another has no sensible meaning.
+    const canFold = _prIsSummableColumn(c) && !c.foldedInto;
+    const foldTargets = canFold ? _prExportColumnsCache.filter(x => x.included && x.key !== key && _prIsSummableColumn(x)) : [];
+    const foldedFromPills = (c.foldedFrom || []).map(k => {
+      const s = _prExportColumnsCache.find(x => x.key === k);
+      return s ? `<span class="inline-flex items-center gap-1 pl-2.5 pr-1.5 py-1 bg-amber-50 border border-amber-200 rounded-full text-[10px] font-bold text-amber-700">${_escHtml(s.label)}<button onclick="_prExtractFoldedColumn('${k}')" title="Extract back to its own column" class="w-4 h-4 flex items-center justify-center rounded-full text-amber-500 hover:bg-amber-200 hover:text-amber-900">×</button></span>` : '';
+    }).join('');
+    const foldSectionHtml = (canFold && foldTargets.length) || foldedFromPills ? `
+      <div class="mt-3 pt-3 border-t border-blue-100 flex flex-wrap items-center gap-x-6 gap-y-2">
+        ${canFold && foldTargets.length ? `
+          <div class="flex items-center gap-2">
+            <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest shrink-0">Fold into</label>
+            <select onchange="if(this.value)_prFoldColumnInto('${key}',this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-[10px]">
+              <option value="">Choose column…</option>
+              ${foldTargets.map(t => `<option value="${t.key}">${_escHtml(t.label)}</option>`).join('')}
+            </select>
+            <span class="text-[9px] text-slate-400 font-bold">Hides this column, adds its value into the one you pick, and notes it in a Remarks column at the far right.</span>
+          </div>
+        ` : ''}
+        ${foldedFromPills ? `
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest shrink-0">Includes</label>
+            ${foldedFromPills}
+          </div>
+        ` : ''}
+      </div>
+    ` : '';
     host.innerHTML = `
       <div class="bg-blue-50/60 border-2 border-blue-200 rounded-2xl p-4">
         <div class="flex items-center gap-2 flex-wrap mb-3">
@@ -19063,6 +19129,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <p class="text-[9px] text-slate-400 font-bold leading-snug">Comma + 2 dp = 2,45,345.00. Numeric columns only.</p>
           </div>
         </div>
+        ${foldSectionHtml}
       </div>
     `;
     lucide.createIcons();
@@ -19299,6 +19366,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function _prColumnValue(col, slip) {
     if (!col) return '';
+    if (col.type === 'remark') return _prBuildRemarksText();
+    let val;
     if (col.type === 'base') {
       // Name alone — staffLabel() bundles in Designation for other screens'
       // display purposes, but this export already has Designation as its
@@ -19314,15 +19383,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         return step ? step.step_number : '';
       }
       if (col.key === 'joining_date') { const setup = _prPeopleSetupCache.find(p => p.user_id === slip.user_id); return (setup && setup.joining_date) || ''; }
-      return Number(slip[col.key]) || 0;
-    }
-    if (col.type === 'field') return Number((slip.field_values || {})[col.key]) || 0;
-    if (col.type === 'virtual') {
+      val = Number(slip[col.key]) || 0;
+    } else if (col.type === 'field') {
+      val = Number((slip.field_values || {})[col.key]) || 0;
+    } else if (col.type === 'virtual') {
       if (col.vtype === 'text') return _prResolveTextSegments(col, slip).map(s => s.text).join(col.joinWith || '');
       const vals = col.sources.map(k => Number(_prColumnValue(_prExportColumnsCache.find(c => c.key === k), slip)) || 0);
-      return col.vtype === 'diff' ? vals.reduce((a, v, i) => (i === 0 ? v : a - v), 0) : vals.reduce((a, v) => a + v, 0);
+      val = col.vtype === 'diff' ? vals.reduce((a, v, i) => (i === 0 ? v : a - v), 0) : vals.reduce((a, v) => a + v, 0);
+    } else {
+      return '';
     }
-    return '';
+    // A column folded into this one (see _prFoldColumnInto) contributes
+    // its own value here even though it's hidden from the table itself —
+    // this IS the "sum to another column" the fold performs.
+    if (col.foldedFrom && col.foldedFrom.length) {
+      val += col.foldedFrom.reduce((a, k) => a + (Number(_prColumnValue(_prExportColumnsCache.find(c => c.key === k), slip)) || 0), 0);
+    }
+    return val;
   }
 
   // A column whose value is meaningful to add up — everything else (Name,
@@ -19333,6 +19410,83 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _prIsSummableColumn(c) {
     return c.type === 'field' || (c.type === 'virtual' && (c.vtype === 'sum' || c.vtype === 'diff')) ||
       (c.type === 'base' && !['sl_no', 'person', 'designation', 'grade', 'step', 'joining_date'].includes(c.key));
+  }
+
+  // ── Fold: hide a column and add its value into another one, leaving a
+  // note in an auto-managed Remarks column at the far right ────────────────
+  const PR_REMARKS_KEY = '__remarks__';
+
+  // Same note for every row — folding is a structural, table-wide choice
+  // (which columns feed which), not something that varies per person.
+  function _prBuildRemarksText() {
+    const notes = [];
+    _prExportColumnsCache.forEach(target => {
+      if (!target.foldedFrom || !target.foldedFrom.length) return;
+      const names = target.foldedFrom.map(k => { const s = _prExportColumnsCache.find(x => x.key === k); return s ? s.label : k; });
+      notes.push(`${names.join(' + ')} incl. in ${target.label}`);
+    });
+    return notes.join('; ');
+  }
+
+  // Creates the Remarks column the first time any fold exists, keeps it
+  // pinned as the very last column, and drops it again once the last fold
+  // is extracted (only if the user never renamed it — a renamed Remarks
+  // column is treated as theirs to keep).
+  function _prSyncRemarksColumn() {
+    const hasFolds = _prExportColumnsCache.some(c => c.foldedFrom && c.foldedFrom.length);
+    let remarksCol = _prExportColumnsCache.find(c => c.key === PR_REMARKS_KEY);
+    if (hasFolds && !remarksCol) {
+      remarksCol = {
+        key: PR_REMARKS_KEY, label: 'Remarks', type: 'remark', included: true,
+        bold: false, italic: false, color: '', rotation: 0, align: 'left', headerAlign: 'center',
+        valign: 'middle', headerValign: 'middle', width: 200, widthUnit: 'px',
+        numberFormat: 'none', decimals: null, group: null, foldedInto: null, foldedFrom: [],
+        headerBold: true, headerItalic: false, headerColor: '', headerBg: '', headerRotation: 0,
+      };
+      _prExportColumnsCache.push(remarksCol);
+    }
+    if (!remarksCol) return;
+    const idx = _prExportColumnsCache.indexOf(remarksCol);
+    if (idx > -1 && idx !== _prExportColumnsCache.length - 1) {
+      _prExportColumnsCache.splice(idx, 1);
+      _prExportColumnsCache.push(remarksCol);
+    }
+    if (!hasFolds && remarksCol.label === 'Remarks') {
+      _prExportColumnsCache = _prExportColumnsCache.filter(c => c.key !== PR_REMARKS_KEY);
+    }
+  }
+
+  // Hides `sourceKey`'s column and folds its value into `targetKey`'s own
+  // value — see the added block at the end of _prColumnValue. Only ever
+  // offered between two summable (numeric) columns; see the panel's Fold
+  // section for the UI this drives.
+  function _prFoldColumnInto(sourceKey, targetKey) {
+    if (!sourceKey || !targetKey || sourceKey === targetKey) return;
+    const source = _prExportColumnsCache.find(c => c.key === sourceKey);
+    const target = _prExportColumnsCache.find(c => c.key === targetKey);
+    if (!source || !target) return;
+    source.included = false;
+    source.foldedInto = targetKey;
+    target.foldedFrom = target.foldedFrom || [];
+    if (!target.foldedFrom.includes(sourceKey)) target.foldedFrom.push(sourceKey);
+    _prSyncRemarksColumn();
+    if (_prSelectedFormatColumnKey === sourceKey) _prSelectedFormatColumnKey = targetKey;
+    _prRenderExportColumnsTable();
+    showToast(`Folded "${source.label}" into "${target.label}"`);
+  }
+
+  // Reverses a fold — the source column reappears on its own, its amount
+  // stops being added into the target.
+  function _prExtractFoldedColumn(sourceKey) {
+    const source = _prExportColumnsCache.find(c => c.key === sourceKey);
+    if (!source || !source.foldedInto) return;
+    const target = _prExportColumnsCache.find(c => c.key === source.foldedInto);
+    if (target && target.foldedFrom) target.foldedFrom = target.foldedFrom.filter(k => k !== sourceKey);
+    source.included = true;
+    source.foldedInto = null;
+    _prSyncRemarksColumn();
+    _prRenderExportColumnsTable();
+    showToast(`Extracted "${source.label}" back out`);
   }
 
   // Renders a raw cell value through a column's optional Number Format —
