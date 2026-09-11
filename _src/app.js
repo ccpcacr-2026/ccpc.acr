@@ -19796,14 +19796,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             head,
             body,
             styles: { fontSize: 8, lineWidth: gridMm, lineColor: [203, 213, 225] },
-            headStyles: Object.assign({ halign: 'center' }, hasRotatedHeaders ? { minCellHeight: 36, valign: 'middle' } : {}),
+            // Rotated-header height only belongs on the row that actually
+            // carries rotated text (labelHeadRow) — applying it as a blanket
+            // headStyles default also forces the plain, one-line group-name
+            // row to that same tall height, which is never needed there.
+            headStyles: { halign: 'center' },
             bodyStyles: hasRotatedData ? { minCellHeight: 20, valign: 'middle', halign: 'center' } : {},
             columnStyles,
             didParseCell: hook => {
-              if (hook.section === 'head' && hook.row.index !== labelHeadRow) return; // the group super-header row — already styled inline above
-              const col = data.cols[hook.column.index];
-              if (!col) return;
               if (hook.section === 'head') {
+                const col = data.cols[hook.column.index];
+                if (!col) return;
+                // The row that carries THIS column's own label — row 0 for an
+                // ungrouped column (rowSpan 2), row 1 for a grouped one (row 0
+                // there is the merged group super-header instead, which has no
+                // per-column formatting of its own and is already styled
+                // inline where `head` is built).
+                const isColumnLabelRow = col.group ? hook.row.index === 1 : hook.row.index === 0;
+                if (!isColumnLabelRow) return;
+                if (hasRotatedHeaders) { hook.cell.styles.minCellHeight = 36; hook.cell.styles.valign = 'middle'; }
                 if (col.headerBold && col.headerItalic) hook.cell.styles.fontStyle = 'bolditalic';
                 else if (col.headerBold) hook.cell.styles.fontStyle = 'bold';
                 else if (col.headerItalic) hook.cell.styles.fontStyle = 'italic';
@@ -19814,6 +19825,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 if (col.headerRotation) hook.cell.text = []; // suppress default draw — didDrawCell below draws it rotated instead
                 return;
               }
+              const col = data.cols[hook.column.index];
+              if (!col) return;
               if (isSyntheticRow(hook.row.index)) { hook.cell.styles.fontStyle = 'bold'; hook.cell.styles.fillColor = [241, 245, 249]; if (hook.row.index === subTotalRowIndex) hook.cell.styles.lineWidth = { top: gridMm, right: gridMm, bottom: bottomMm, left: gridMm }; return; }
               // autotable can invoke this hook with row.index === -1 for an
               // internal "continuation" fragment of a row too tall to fit
@@ -19833,15 +19846,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               if (col.rotation || isTextVirtual) hook.cell.text = [];
             },
             didDrawCell: hook => {
-              if (hook.section === 'head' && hook.row.index !== labelHeadRow) return;
-              const col = data.cols[hook.column.index];
-              if (!col) return;
-              const { x, y, width, height } = hook.cell;
               if (hook.section === 'head') {
+                const col = data.cols[hook.column.index];
+                if (!col) return;
+                const isColumnLabelRow = col.group ? hook.row.index === 1 : hook.row.index === 0;
+                if (!isColumnLabelRow) return;
                 if (!col.headerRotation) return;
+                const { x, y, width, height } = hook.cell;
                 doc.text(String(col.label), x + width / 2, y + height / 2, { angle: col.headerRotation, align: 'center', baseline: 'middle' });
                 return;
               }
+              const col = data.cols[hook.column.index];
+              if (!col) return;
+              const { x, y, width, height } = hook.cell;
               if (isSyntheticRow(hook.row.index)) return; // plain bold text, no per-column rich rendering
               if (hook.row.index < 0) return; // see matching guard in didParseCell above
               const isTextVirtual = col.type === 'virtual' && col.vtype === 'text';
