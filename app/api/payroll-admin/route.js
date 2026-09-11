@@ -52,6 +52,15 @@ async function _isSuperAdmin(userId) {
   return roles.includes('Super Admin');
 }
 
+// The MPO Amount screen's single global lock — same manual-lock/Super-
+// Admin-unlock shape as payroll.runs.is_locked, but for a value with no
+// "run" of its own to attach a flag to (mpo_amount is one live column,
+// re-entered whole every year, not a per-period record).
+async function _isMpoLocked() {
+  const rows = await sbPayroll('mpo_lock?id=eq.1&select=is_locked');
+  return !rows?.error && rows[0] && rows[0].is_locked === true;
+}
+
 // Reads from the `teacher_staff` schema (staff directory) — same raw-fetch pattern.
 async function _teacherSchemaFetch(path) {
   const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
@@ -1017,7 +1026,29 @@ export async function POST(req) {
   // independent of anything else about the person, so it gets its own
   // narrow save the same way joining_date does — never risking any other
   // person_setup column via a broader upsert.
+  if (action === 'get_mpo_lock') {
+    const rows = await sbPayroll('mpo_lock?id=eq.1&select=*');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', lock: (rows && rows[0]) || { is_locked: false } });
+  }
+
+  if (action === 'lock_mpo') {
+    const saved = await sbPayroll('mpo_lock?id=eq.1', 'PATCH', { is_locked: true, locked_by: user_id, locked_at: new Date().toISOString() });
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    _prAudit(user_id, 'lock_mpo', 'mpo_lock', 1, {});
+    return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'unlock_mpo') {
+    if (!(await _isSuperAdmin(user_id))) return NextResponse.json({ result: 'error', message: 'Only the Super Admin can unlock MPO amounts.' }, { status: 403 });
+    const saved = await sbPayroll('mpo_lock?id=eq.1', 'PATCH', { is_locked: false, locked_by: null, locked_at: null });
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    _prAudit(user_id, 'unlock_mpo', 'mpo_lock', 1, {});
+    return NextResponse.json({ result: 'success' });
+  }
+
   if (action === 'set_mpo_amount') {
+    if (await _isMpoLocked()) return NextResponse.json({ result: 'error', message: 'MPO amounts are locked. Ask the Super Admin to unlock them first.' }, { status: 400 });
     const { user_id: personId, mpo_amount } = payload;
     if (!personId) return NextResponse.json({ result: 'error', message: 'user_id required' }, { status: 400 });
     const rowData = { mpo_amount: mpo_amount === '' || mpo_amount == null ? null : Number(mpo_amount) };
@@ -1625,6 +1656,7 @@ export async function POST(req) {
   if (action === 'import_rows') {
     const { target, rows, section_id } = payload;
     if (!target || !Array.isArray(rows) || !rows.length) return NextResponse.json({ result: 'error', message: 'target and rows are required' }, { status: 400 });
+    if (target === 'mpo_only' && await _isMpoLocked()) return NextResponse.json({ result: 'error', message: 'MPO amounts are locked. Ask the Super Admin to unlock them first.' }, { status: 400 });
 
     const errors = [];
     let imported = 0;

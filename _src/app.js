@@ -13984,6 +13984,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
   }
 
+  // South Asian digit grouping (lakh/crore — last 3 digits, then pairs:
+  // 2,45,567) rather than the western 245,567 — 'en-IN' already implements
+  // exactly this grouping natively. Every payroll amount display uses
+  // this; exported file contents (Excel/PDF cell values) stay plain
+  // numbers since those follow spreadsheet/accounting convention instead.
+  function _prFormatTaka(amount) {
+    return (Number(amount) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '/=';
+  }
+
   const PAYROLL_SUBTABS = [
     { id: 'pr-fields', label: 'Fields' },
     { id: 'pr-grades', label: 'Grades' },
@@ -14421,9 +14430,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <p class="font-black text-slate-800 text-sm">MPO Amount</p>
               <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5 max-w-2xl">How much of each person's Gross the government's Monthly Pay Order covers — purely an accounting split for institutional expense reporting. It never changes anyone's Net Pay, which is always Gross minus real deductions, same as everyone else. Re-set every year as the government's allocation changes.</p>
             </div>
-            <div class="flex items-center gap-2">
-              <button onclick="_prOpenImportModal('mpo_only', {})" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="upload" class="h-3.5 w-3.5"></i>Import from Excel</button>
-            </div>
+            <div id="prMpoLockBar" class="flex items-center gap-2"></div>
           </div>
           <input type="text" id="prMpoSearch" oninput="_prRenderMpoTable()" placeholder="Search name or ID…" class="w-full max-w-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs mb-3">
           <div class="overflow-auto border border-slate-200 rounded-xl">
@@ -14928,15 +14935,48 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // single-field edit inside each person's own People Setup detail popup.
   let _prMpoLoaded = false;
   let _prMpoPeople = [];
+  let _prMpoLock = { is_locked: false };
   function loadPayrollMpoTab(force) {
     if (_prMpoLoaded && !force) return;
     _prMpoLoaded = true;
     Promise.all([
       new Promise(resolve => _ensureStaffCache(resolve)),
       _payrollFetch('get_people_setup', {}),
-    ]).then(([, res]) => {
+      _payrollFetch('get_mpo_lock', {}),
+    ]).then(([, res, lockRes]) => {
       _prMpoPeople = (res && res.result === 'success' && res.people) || [];
+      _prMpoLock = (lockRes && lockRes.result === 'success' && lockRes.lock) || { is_locked: false };
+      _prRenderMpoLockBar();
       _prRenderMpoTable();
+    });
+  }
+  function _prRenderMpoLockBar() {
+    const bar = document.getElementById('prMpoLockBar');
+    if (!bar) return;
+    const isSuperAdmin = (window.USER_ROLES || [window.ACTIVE_ROLE]).includes('Super Admin');
+    if (_prMpoLock.is_locked) {
+      const who = _prMpoLock.locked_by ? ` by ${_escHtml(staffLabel(_prMpoLock.locked_by))}` : '';
+      bar.innerHTML = `<span class="px-3 py-2 bg-amber-50 text-amber-700 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-1.5"><i data-lucide="lock" class="h-3.5 w-3.5"></i>Locked${who}</span>` +
+        (isSuperAdmin ? `<button onclick="_prUnlockMpo()" class="px-4 py-2 border border-amber-300 text-amber-700 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-amber-50 transition-all">Unlock (Super Admin)</button>`
+          : `<span class="text-[10px] font-bold text-slate-400">Only the Super Admin can unlock</span>`);
+    } else {
+      bar.innerHTML = `<button onclick="_prOpenImportModal('mpo_only', {})" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="upload" class="h-3.5 w-3.5"></i>Import from Excel</button>` +
+        `<button onclick="_prLockMpo()" title="Lock once this year's figures are final — manual, permanent until a Super Admin unlocks it" class="px-4 py-2 border border-slate-200 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="lock" class="h-3.5 w-3.5"></i>Lock</button>`;
+    }
+    lucide.createIcons();
+  }
+  function _prLockMpo() {
+    if (!confirm('Lock MPO amounts? Only a Super Admin will be able to unlock them again.')) return;
+    _payrollFetch('lock_mpo', {}).then(res => {
+      if (res && res.result === 'success') { _prMpoLock = { is_locked: true }; _prRenderMpoLockBar(); _prRenderMpoTable(); showToast('MPO amounts locked'); }
+      else showToast((res && res.message) || 'Failed to lock', 'error');
+    });
+  }
+  function _prUnlockMpo() {
+    if (!confirm('Unlock MPO amounts so they can be edited again?')) return;
+    _payrollFetch('unlock_mpo', {}).then(res => {
+      if (res && res.result === 'success') { _prMpoLock = { is_locked: false }; _prRenderMpoLockBar(); _prRenderMpoTable(); showToast('MPO amounts unlocked'); }
+      else showToast((res && res.message) || 'Failed to unlock', 'error');
     });
   }
   function _prRenderMpoTable() {
@@ -14944,6 +14984,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!tbody) return;
     const search = (document.getElementById('prMpoSearch').value || '').trim().toLowerCase();
     const staffByUser = {}; (allStaffCache || []).forEach(s => { staffByUser[s.teacher_id] = s; });
+    const locked = _prMpoLock.is_locked;
     const rows = _prMpoPeople
       .filter(p => p.is_active !== false)
       .map(p => ({ p, staff: staffByUser[p.user_id] || {} }))
@@ -14953,7 +14994,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <tr class="border-b border-slate-50">
         <td class="py-1.5 px-3 font-black text-slate-700">${_escHtml(staff.full_name || p.user_id)}</td>
         <td class="py-1.5 px-3 text-slate-500">${_escHtml(staff.designation || '')}</td>
-        <td class="py-1.5 px-3"><input type="number" value="${p.mpo_amount != null ? p.mpo_amount : ''}" placeholder="0 = not MPO-enlisted" onchange="_prSaveMpoAmount('${p.user_id}',this.value)" class="w-40 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></td>
+        <td class="py-1.5 px-3">${locked
+          ? `<span class="font-bold text-slate-600">${p.mpo_amount != null ? _prFormatTaka(p.mpo_amount) : '—'}</span>`
+          : `<input type="number" value="${p.mpo_amount != null ? p.mpo_amount : ''}" placeholder="0 = not MPO-enlisted" onchange="_prSaveMpoAmount('${p.user_id}',this.value)" class="w-40 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">`}</td>
       </tr>`).join('') || `<tr><td colspan="3" class="p-4 text-slate-400 font-bold text-xs text-center">No one matches.</td></tr>`;
   }
   function _prSaveMpoAmount(userId, value) {
@@ -15039,7 +15082,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }
     tbody.innerHTML = list.map(f => {
       const calcLabel = f.calc_mode === 'percent_of_field' ? `% of ${f.calc_base_field_key || '—'}` : 'Fixed amount';
-      const incLabel = f.increment_mode ? `${f.increment_mode === 'yearly_percent' ? f.increment_value + '%/yr' : '৳' + Number(f.increment_value || 0).toLocaleString() + '/yr'}` : '—';
+      const incLabel = f.increment_mode ? `${f.increment_mode === 'yearly_percent' ? f.increment_value + '%/yr' : _prFormatTaka(f.increment_value || 0) + '/yr'}` : '—';
       return `<tr class="border-b border-slate-50" onmouseenter="_prShowFieldSummary(event,${f.id})" onmouseleave="_prHideFieldSummary()">
         <td class="py-1.5 px-3 font-black text-slate-800">${f.label}${f.is_grade_conditional ? ' <span class=\"text-[9px] text-amber-600 font-black uppercase\">(grade)</span>' : ''}${f.is_role_conditional ? ' <span class=\"text-[9px] text-indigo-600 font-black uppercase\">(role)</span>' : ''}</td>
         <td class="py-1.5 px-3">${f.category === 'deduction' ? '<span class="text-red-500 font-black">Deduction</span>' : '<span class="text-emerald-600 font-black">Earning</span>'}</td>
@@ -15098,14 +15141,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             line = `<span class="text-slate-500">not configured</span>`;
           }
         } else {
-          line = (gf && gf.value != null) ? `৳${Number(gf.value).toLocaleString()}` : `<span class="text-slate-500">not configured</span>`;
+          line = (gf && gf.value != null) ? `${_prFormatTaka(gf.value)}` : `<span class="text-slate-500">not configured</span>`;
         }
         return `<li><span class="font-black">${_escHtml(g.name)}</span> — ${line}</li>`;
       }).join('') + `</ul>`;
     }
 
     if (field.increment_mode) {
-      const incLabel = field.increment_mode === 'yearly_percent' ? `${field.increment_value}% per year` : `৳${Number(field.increment_value || 0).toLocaleString()} per year`;
+      const incLabel = field.increment_mode === 'yearly_percent' ? `${field.increment_value}% per year` : `${_prFormatTaka(field.increment_value || 0)} per year`;
       html += `<p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Yearly Increment</p>`;
       html += `<p class="text-[11px] text-slate-200 mb-2">${incLabel}${field.key === 'basic' ? ' <span class="text-amber-400 font-bold">— has no effect once a person has a Grade + Step assigned</span>' : ''}</p>`;
     }
@@ -15712,7 +15755,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           valueCell = `<input type="number" value="${manual != null ? manual : ''}" placeholder="—" onchange="_prSaveFieldValue('${s.teacher_id}', this.value)" class="w-28 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs text-right">`;
         } else {
           const shown = manual != null ? manual : logical;
-          valueCell = `<span class="font-black text-slate-700">${shown != null ? '৳' + Number(shown).toLocaleString() : '—'}</span>${manual != null ? ' <span class="text-[9px] text-blue-600 font-black uppercase">(manual)</span>' : ''}`;
+          valueCell = `<span class="font-black text-slate-700">${shown != null ? _prFormatTaka(shown) : '—'}</span>${manual != null ? ' <span class="text-[9px] text-blue-600 font-black uppercase">(manual)</span>' : ''}`;
         }
         return `<tr class="border-b border-slate-50">
           ${mode === 'manual' ? `<td class="py-1.5 px-3"><input type="checkbox" class="prFvRowCheck w-4 h-4 rounded accent-amber-600" data-uid="${s.teacher_id}" ${_prFvSelected.has(s.teacher_id) ? 'checked' : ''} onchange="_prFvToggleRowSelected('${s.teacher_id}',this.checked)"></td>` : ''}
@@ -15804,8 +15847,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     tbody.innerHTML = _prConditionRulesCache.map((r, i) => {
       const srcLabel = r.source_key === 'tenure_years' ? 'Tenure (years)' : ((_prFieldsCache.find(f => f.key === r.source_key) || {}).label || r.source_key);
       const thenLabel = r.then_calc_mode === 'percent_or_floor'
-        ? `${r.then_percent || 0}% of ${r.then_base_field_key || '—'}, min ৳${Number(r.then_value || 0).toLocaleString()}`
-        : r.then_calc_mode === 'percent_of_field' ? `${r.then_percent || 0}% of ${r.then_base_field_key || '—'}` : `৳${Number(r.then_value || 0).toLocaleString()}`;
+        ? `${r.then_percent || 0}% of ${r.then_base_field_key || '—'}, min ${_prFormatTaka(r.then_value || 0)}`
+        : r.then_calc_mode === 'percent_of_field' ? `${r.then_percent || 0}% of ${r.then_base_field_key || '—'}` : `${_prFormatTaka(r.then_value || 0)}`;
       return `<tr class="border-b border-slate-50">
         <td class="py-1.5 px-3 font-black text-slate-400">${i + 1}</td>
         <td class="py-1.5 px-3 font-bold text-slate-700">${srcLabel} ${opSymbols[r.operator] || r.operator} ${r.compare_value}</td>
@@ -17195,8 +17238,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 <td class="py-1.5 px-3"><input type="checkbox" data-su-idx="${i}" ${c.eligible ? 'checked' : 'disabled'} class="w-4 h-4 rounded accent-amber-600"></td>
                 <td class="py-1.5 px-3 font-bold text-slate-700">${_escHtml(c.name)}</td>
                 <td class="py-1.5 px-3 text-slate-500">${_escHtml(c.grade_name)}</td>
-                <td class="py-1.5 px-3">Step ${c.cur_step_number}${c.cur_basic != null ? ` (${Number(c.cur_basic).toLocaleString()})` : ''}</td>
-                <td class="py-1.5 px-3">${c.eligible ? `Step ${c.next_step_number} (${Number(c.next_basic).toLocaleString()})` : '<span class="text-slate-400">No next step</span>'}</td>
+                <td class="py-1.5 px-3">Step ${c.cur_step_number}${c.cur_basic != null ? ` (${_prFormatTaka(c.cur_basic)})` : ''}</td>
+                <td class="py-1.5 px-3">${c.eligible ? `Step ${c.next_step_number} (${_prFormatTaka(c.next_basic)})` : '<span class="text-slate-400">No next step</span>'}</td>
               </tr>`).join('')}
           </tbody>
         </table>
@@ -17226,9 +17269,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <tr class="border-b border-slate-50">
                 <td class="py-1.5 px-3 font-bold text-slate-700">${_escHtml(c.name)}</td>
                 <td class="py-1.5 px-3 text-slate-500">${_escHtml(c.grade_name)}</td>
-                <td class="py-1.5 px-3">Step ${c.cur_step_number} (${Number(c.cur_basic).toLocaleString()})</td>
+                <td class="py-1.5 px-3">Step ${c.cur_step_number} (${_prFormatTaka(c.cur_basic)})</td>
                 <td class="py-1.5 px-3 text-amber-500 font-black">→</td>
-                <td class="py-1.5 px-3 font-black text-emerald-600">Step ${c.next_step_number} (${Number(c.next_basic).toLocaleString()})</td>
+                <td class="py-1.5 px-3 font-black text-emerald-600">Step ${c.next_step_number} (${_prFormatTaka(c.next_basic)})</td>
               </tr>`).join('')}
           </tbody>
         </table>
@@ -17394,7 +17437,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (!line.amount) return;
       (line.direction === 'add' ? additions : deductions).push({ key: `section:${line.entry_id}`, amt: line.amount, label: line.section_name + (line.note ? ` (${line.note})` : '') });
     });
-    const row = (label, amt, cls) => `<tr class="border-b border-slate-50"><td class="py-1.5 px-3 text-slate-600 font-bold">${_escHtml(label)}</td><td class="py-1.5 px-3 text-right font-black ${cls || 'text-slate-700'}">${Number(amt).toLocaleString()}</td></tr>`;
+    const row = (label, amt, cls) => `<tr class="border-b border-slate-50"><td class="py-1.5 px-3 text-slate-600 font-bold">${_escHtml(label)}</td><td class="py-1.5 px-3 text-right font-black ${cls || 'text-slate-700'}">${_prFormatTaka(amt)}</td></tr>`;
     const stepNum = slip.step_id ? _prPayStepsCache.find(s => s.id === slip.step_id) : null;
     body.innerHTML = `
       <div class="grid grid-cols-4 gap-3 mb-4 bg-slate-50 border border-slate-200 rounded-xl p-3">
@@ -17417,12 +17460,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
         </div>
       </div>
-      ${employerNotes.length ? `<p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-3">${employerNotes.map(e => `${labelFor(e.key)}: ${Number(e.amt).toLocaleString()}`).join(' · ')}</p>` : ''}
+      ${employerNotes.length ? `<p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-3">${employerNotes.map(e => `${labelFor(e.key)}: ${_prFormatTaka(e.amt)}`).join(' · ')}</p>` : ''}
       <div class="grid grid-cols-2 gap-4 mt-4 bg-slate-50 border border-slate-200 rounded-xl p-4">
-        <div><p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Gross</p><p class="text-lg font-black text-slate-800">${Number(slip.gross).toLocaleString()}</p></div>
-        <div><p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Deductions</p><p class="text-lg font-black text-red-500">${Number(slip.total_deductions).toLocaleString()}</p></div>
-        <div><p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Net Pay</p><p class="text-xl font-black text-emerald-600">${Number(slip.net).toLocaleString()}</p></div>
-        <div><p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">MPO / College</p><p class="text-sm font-black text-slate-700">${Number(slip.mpo_amount).toLocaleString()} / ${Number(slip.college_amount).toLocaleString()}</p></div>
+        <div><p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Gross</p><p class="text-lg font-black text-slate-800">${_prFormatTaka(slip.gross)}</p></div>
+        <div><p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Deductions</p><p class="text-lg font-black text-red-500">${_prFormatTaka(slip.total_deductions)}</p></div>
+        <div><p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Net Pay</p><p class="text-xl font-black text-emerald-600">${_prFormatTaka(slip.net)}</p></div>
+        <div><p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">MPO / College</p><p class="text-sm font-black text-slate-700">${_prFormatTaka(slip.mpo_amount)} / ${_prFormatTaka(slip.college_amount)}</p></div>
       </div>`;
   }
 
@@ -17495,7 +17538,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       return `<tr class="border-b border-slate-50">
         <td class="py-1.5 px-3 font-black text-slate-800">${label !== b.user_id ? label : b.user_id}</td>
         <td class="py-1.5 px-3">${b.label}</td>
-        <td class="py-1.5 px-3">৳${Number(b.amount).toLocaleString()}</td>
+        <td class="py-1.5 px-3">${_prFormatTaka(b.amount)}</td>
         <td class="py-1.5 px-3">${b.month}/${b.year}</td>
         <td class="py-1.5 px-3">${b.status === 'paid' ? '<span class="text-emerald-600 font-black">Paid</span>' : '<span class="text-amber-600 font-black">Pending</span>'}</td>
         <td class="py-1.5 px-3 text-right">
@@ -17579,7 +17622,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       return `<tr class="border-b border-slate-50">
         <td class="py-1.5 px-3 font-black text-slate-800">${label !== l.user_id ? label : l.user_id}</td>
         <td class="py-1.5 px-3">${l.days != null ? l.days : '—'}</td>
-        <td class="py-1.5 px-3 font-black text-red-500">-৳${Number(l.amount).toLocaleString()}</td>
+        <td class="py-1.5 px-3 font-black text-red-500">-${_prFormatTaka(l.amount)}</td>
         <td class="py-1.5 px-3">${l.month}/${l.year}</td>
         <td class="py-1.5 px-3 text-right">
           <button onclick='_prOpenLeaveForm(${JSON.stringify(l).replace(/'/g, "&apos;")})' class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-black mr-3">Edit</button>
@@ -17648,8 +17691,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     tbody.innerHTML = _prStoppagesCache.map(s => `
       <tr class="border-b border-slate-50">
         <td class="py-1.5 px-3 font-black text-slate-800">${_escHtml(s.name)}</td>
-        <td class="py-1.5 px-3">৳${Number(s.one_way_fare).toLocaleString()}</td>
-        <td class="py-1.5 px-3">৳${Number(s.round_trip_fare).toLocaleString()}</td>
+        <td class="py-1.5 px-3">${_prFormatTaka(s.one_way_fare)}</td>
+        <td class="py-1.5 px-3">${_prFormatTaka(s.round_trip_fare)}</td>
         <td class="py-1.5 px-3">${s.is_active ? '<span class="text-emerald-600 font-black">Active</span>' : '<span class="text-slate-400 font-black">Inactive</span>'}</td>
         <td class="py-1.5 px-3 text-right">
           <button onclick='_prOpenStoppageForm(${JSON.stringify(s).replace(/'/g, "&apos;")})' class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-black mr-3">Edit</button>
@@ -17729,7 +17772,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <td class="py-1.5 px-3">${_escHtml(_prStoppageName(e.stoppage_id))}</td>
         <td class="py-1.5 px-3">${e.trip_type === 'one_way' ? 'One-way' : 'Round-trip'}</td>
         <td class="py-1.5 px-3">${e.child_count}</td>
-        <td class="py-1.5 px-3 font-black text-red-500">৳${monthly.toLocaleString()}</td>
+        <td class="py-1.5 px-3 font-black text-red-500">${_prFormatTaka(monthly)}</td>
         <td class="py-1.5 px-3 text-right">
           <button onclick='_prOpenBusFareForm(${JSON.stringify(e).replace(/'/g, "&apos;")})' class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-black mr-3">Edit</button>
           <button onclick="_prDeleteBusFareEntry(${e.id})" class="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-700">Delete</button>
@@ -17892,13 +17935,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <tbody>
               ${entries.map(e => {
                 const label = staffLabel(e.user_id);
-                const emiLabel = e.emi_amount != null ? `৳${Number(e.emi_amount).toLocaleString()}/mo` : `${e.emi_months} mo`;
+                const emiLabel = e.emi_amount != null ? `${_prFormatTaka(e.emi_amount)}/mo` : `${e.emi_months} mo`;
                 const statusColor = e.status === 'completed' ? 'text-emerald-600' : e.status === 'cancelled' ? 'text-slate-400' : 'text-amber-600';
                 return `<tr class="border-b border-slate-50">
                   <td class="py-1.5 px-3 font-black text-slate-700">${label !== e.user_id ? label : e.user_id}</td>
-                  <td class="py-1.5 px-3">৳${Number(e.total_amount).toLocaleString()}</td>
+                  <td class="py-1.5 px-3">${_prFormatTaka(e.total_amount)}</td>
                   <td class="py-1.5 px-3">${emiLabel}</td>
-                  <td class="py-1.5 px-3">৳${Number(e.remaining_amount).toLocaleString()}</td>
+                  <td class="py-1.5 px-3">${_prFormatTaka(e.remaining_amount)}</td>
                   <td class="py-1.5 px-3"><span class="font-black ${statusColor}">${e.status}</span></td>
                   <td class="py-1.5 px-3 text-right">
                     ${e.status === 'active' ? `<button onclick="_prUpdateSectionEntryStatus(${e.id},'cancelled',${sectionId})" class="text-[10px] font-black text-amber-600 uppercase tracking-widest hover:text-black mr-3">Cancel</button>` : ''}
@@ -18044,7 +18087,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       }
       detail.innerHTML = `
         <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
-          <p class="font-black text-slate-800 text-sm">${PAYROLL_MONTH_NAMES[run.month]} ${run.year} — ${slips.length} payslip(s), Net Total ৳${totalNet.toLocaleString()}</p>
+          <p class="font-black text-slate-800 text-sm">${PAYROLL_MONTH_NAMES[run.month]} ${run.year} — ${slips.length} payslip(s), Net Total ${_prFormatTaka(totalNet)}</p>
           <div class="flex items-center gap-2 flex-wrap">${actionBtn}</div>
         </div>
         <div class="overflow-auto border border-slate-200 rounded-xl">
@@ -18055,11 +18098,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 const label = staffLabel(s.user_id);
                 return `<tr class="border-b border-slate-50">
                   <td class="py-1.5 px-3 font-black text-slate-700">${label !== s.user_id ? label : s.user_id}</td>
-                  <td class="py-1.5 px-3">৳${Number(s.gross).toLocaleString()}</td>
-                  <td class="py-1.5 px-3">৳${Number(s.total_deductions).toLocaleString()}</td>
-                  <td class="py-1.5 px-3 font-black text-emerald-600">৳${Number(s.net).toLocaleString()}</td>
-                  <td class="py-1.5 px-3">${s.mpo_amount ? '৳' + Number(s.mpo_amount).toLocaleString() : '—'}</td>
-                  <td class="py-1.5 px-3">${s.college_amount ? '৳' + Number(s.college_amount).toLocaleString() : '—'}</td>
+                  <td class="py-1.5 px-3">${_prFormatTaka(s.gross)}</td>
+                  <td class="py-1.5 px-3">${_prFormatTaka(s.total_deductions)}</td>
+                  <td class="py-1.5 px-3 font-black text-emerald-600">${_prFormatTaka(s.net)}</td>
+                  <td class="py-1.5 px-3">${s.mpo_amount ? _prFormatTaka(s.mpo_amount) : '—'}</td>
+                  <td class="py-1.5 px-3">${s.college_amount ? _prFormatTaka(s.college_amount) : '—'}</td>
                 </tr>`;
               }).join('') || `<tr><td colspan="6" class="p-3 text-slate-400 font-bold text-xs text-center">No payslips — no active people set up under the People tab.</td></tr>`}
             </tbody>
