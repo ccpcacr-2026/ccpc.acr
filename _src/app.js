@@ -14647,6 +14647,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <button onclick="_prAddVirtualColumn()" class="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Virtual Column</button>
             </div>
           </div>
+          <div id="prColumnFormatPanel" class="mb-3"></div>
           <div id="prMergeSelectionBar" class="hidden items-center gap-2 mb-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl"></div>
           <div id="prExportExcludedChips" class="flex flex-wrap gap-1.5 mb-2"></div>
           <div id="prExportPreviewWrap" class="overflow-auto border border-slate-200 rounded-xl" style="max-height:60vh;">
@@ -18246,6 +18247,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _prExportTabLoaded = false;
   let _prExportSlips = [];
   let _prExportColumnsCache = []; // [{key,label,type:'base'|'field'|'virtual',included,bold,italic,color,headerBold,headerItalic,headerColor,headerBg,headerRotation,vtype,sources}]
+  let _prSelectedFormatColumnKey = null; // which column's format is shown in the full-width panel above the preview table
   let _prExportSplitByGroup = false;
   // rowHeight is a minimum row height in mm applied to every data row
   // (0 = natural/auto height from content alone).
@@ -18802,6 +18804,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const host = document.getElementById('prExportPreviewTable');
     const chipsHost = document.getElementById('prExportExcludedChips');
     if (!host) return;
+    _prRenderColumnFormatPanel();
     const included = _prExportColumnsCache.filter(c => c.included);
     const excluded = _prExportColumnsCache.filter(c => !c.included);
     if (chipsHost) {
@@ -18827,8 +18830,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const colHeaderHtml = (c, isTopRow) => `
       <th draggable="true"
           ondragstart="_prPreviewDragKey='${c.key}'" ondragover="event.preventDefault()" ondrop="_prPreviewColumnDrop('${c.key}')"
-          onclick="_prOpenColumnFormatPopover('${c.key}', event)" ${!c.group && hasAnyGroup ? 'rowspan="2"' : ''}
-          class="relative px-3 py-2 bg-slate-50 cursor-grab select-none hover:bg-blue-50 transition-all align-bottom"
+          onclick="_prSelectFormatColumn('${c.key}')" ${!c.group && hasAnyGroup ? 'rowspan="2"' : ''}
+          class="relative px-3 py-2 ${c.key === _prSelectedFormatColumnKey ? 'bg-blue-100 ring-2 ring-inset ring-blue-400' : 'bg-slate-50'} cursor-grab select-none hover:bg-blue-50 transition-all align-bottom"
           style="${_prColumnCellCss(c, true)}${_prGridBorderCss(isTopRow, false)}" title="Drag to reorder, click to format">
         <input type="checkbox" ${_prMergeSelectedKeys.has(c.key) ? 'checked' : ''} onclick="event.stopPropagation();_prToggleColumnMergeSelect('${c.key}',this.checked)" title="Select for merge" class="absolute top-0.5 left-0.5 w-3.5 h-3.5 rounded accent-blue-600 cursor-pointer">
         <button onclick="event.stopPropagation();_prSetExportFormat('${c.key}','included',false)" class="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-slate-200 text-slate-500 hover:bg-red-200 hover:text-red-600 flex items-center justify-center text-[9px] leading-none">×</button>
@@ -18960,92 +18963,103 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _prRenderExportColumnsTable();
   }
 
-  // A small floating toolbar anchored to the clicked header — every
-  // control in it just calls the existing _prSetExportFormat, so it stays
-  // the single source of truth the Column List (Advanced) table also uses.
-  function _prOpenColumnFormatPopover(key, ev) {
-    ev.stopPropagation();
-    document.getElementById('prColumnFormatPopover')?.remove();
-    const c = _prExportColumnsCache.find(col => col.key === key);
-    if (!c) return;
-    const rect = ev.currentTarget.getBoundingClientRect();
-    const pop = document.createElement('div');
-    pop.id = 'prColumnFormatPopover';
-    pop.className = 'fixed z-50 bg-white border border-slate-200 rounded-xl shadow-xl p-3 w-72';
-    pop.style.top = `${rect.bottom + window.scrollY + 6}px`;
-    pop.style.left = `${Math.min(rect.left + window.scrollX, window.innerWidth - 270)}px`;
-    pop.onclick = e => e.stopPropagation();
-    pop.innerHTML = `
-      <input type="text" value="${_escHtml(c.label)}" onchange="_prSetExportFormat('${key}','label',this.value||'${_escHtml(c.label)}')" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-black text-slate-800 text-xs mb-2" title="Header text — click to rename">
-      <div class="flex items-center gap-2 mb-2">
-        <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest shrink-0">Group</label>
-        <select onchange="_prOnGroupSelectChange('${key}',this)" class="flex-1 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]">
-          <option value="">— No group —</option>
-          ${[...new Set(_prExportColumnsCache.map(x => x.group).filter(Boolean))].map(g => `<option value="${_escHtml(g)}" ${c.group === g ? 'selected' : ''}>${_escHtml(g)}</option>`).join('')}
-          <option value="__new__">+ Add new group…</option>
-        </select>
-      </div>
-      <div class="grid grid-cols-2 gap-2 mb-2">
-        <div>
-          <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Header</p>
-          <div class="flex items-center gap-1 mb-1">
-            <button onclick="_prSetExportFormat('${key}','headerBold',${!c.headerBold})" class="w-7 h-7 border rounded-lg font-black text-xs ${c.headerBold ? 'bg-slate-800 text-white border-slate-800' : 'border-slate-200 text-slate-500'}">B</button>
-            <button onclick="_prSetExportFormat('${key}','headerItalic',${!c.headerItalic})" class="w-7 h-7 border rounded-lg italic font-black text-xs ${c.headerItalic ? 'bg-slate-800 text-white border-slate-800' : 'border-slate-200 text-slate-500'}">I</button>
-            <input type="color" value="${c.headerColor || '#000000'}" onchange="_prSetExportFormat('${key}','headerColor',this.value)" title="Text color" class="w-7 h-7 rounded-lg cursor-pointer border border-slate-200">
-            <input type="color" value="${c.headerBg || '#ffffff'}" onchange="_prSetExportFormat('${key}','headerBg',this.value)" title="Background" class="w-7 h-7 rounded-lg cursor-pointer border border-slate-200">
-          </div>
-          <select onchange="_prSetExportFormat('${key}','headerRotation',Number(this.value))" class="w-full px-1.5 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px] mb-1">
-            ${[0, 90, 180, 270].map(deg => `<option value="${deg}" ${Number(c.headerRotation) === deg ? 'selected' : ''}>${deg}° rotation</option>`).join('')}
-          </select>
-          <div class="flex items-center gap-1">
-            ${['left', 'center', 'right'].map(a => `<button onclick="_prSetExportFormat('${key}','headerAlign','${a}')" title="${a}" class="flex-1 h-6 border rounded-md flex items-center justify-center ${(c.headerAlign || 'center') === a ? 'bg-slate-800 text-white border-slate-800' : 'border-slate-200 text-slate-500'}"><i data-lucide="align-${a}" class="h-3 w-3"></i></button>`).join('')}
-          </div>
-        </div>
-        <div>
-          <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Data</p>
-          <div class="flex items-center gap-1 mb-1">
-            <button onclick="_prSetExportFormat('${key}','bold',${!c.bold})" class="w-7 h-7 border rounded-lg font-black text-xs ${c.bold ? 'bg-slate-800 text-white border-slate-800' : 'border-slate-200 text-slate-500'}">B</button>
-            <button onclick="_prSetExportFormat('${key}','italic',${!c.italic})" class="w-7 h-7 border rounded-lg italic font-black text-xs ${c.italic ? 'bg-slate-800 text-white border-slate-800' : 'border-slate-200 text-slate-500'}">I</button>
-            <input type="color" value="${c.color || '#000000'}" onchange="_prSetExportFormat('${key}','color',this.value)" title="Text color" class="w-7 h-7 rounded-lg cursor-pointer border border-slate-200">
-          </div>
-          <select onchange="_prSetExportFormat('${key}','rotation',Number(this.value))" class="w-full px-1.5 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px] mb-1">
-            ${[0, 90, 180, 270].map(deg => `<option value="${deg}" ${Number(c.rotation) === deg ? 'selected' : ''}>${deg}° rotation</option>`).join('')}
-          </select>
-          <div class="flex items-center gap-1">
-            ${['left', 'center', 'right'].map(a => `<button onclick="_prSetExportFormat('${key}','align','${a}')" title="${a}" class="flex-1 h-6 border rounded-md flex items-center justify-center ${(c.align || 'left') === a ? 'bg-slate-800 text-white border-slate-800' : 'border-slate-200 text-slate-500'}"><i data-lucide="align-${a}" class="h-3 w-3"></i></button>`).join('')}
-          </div>
-        </div>
-      </div>
-      ${c.group ? `<button onclick="_prAddGroupTotalColumn('${_escHtml(c.group)}');document.getElementById('prColumnFormatPopover').remove()" class="w-full mb-2 px-2 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center justify-center gap-1.5"><i data-lucide="sigma" class="h-3.5 w-3.5"></i>Add Total for "${_escHtml(c.group)}"</button>` : ''}
-      <div class="flex items-center gap-2 mb-1">
-        <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest shrink-0">Width</label>
-        <input type="number" value="${c.width || ''}" placeholder="auto" min="0" step="any" onchange="_prSetExportFormat('${key}','width',this.value?Number(this.value):null)" class="flex-1 min-w-0 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]">
-        <select onchange="_prSetExportFormat('${key}','widthUnit',this.value)" class="px-1.5 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px] shrink-0">
-          ${['px', '%', 'in'].map(u => `<option value="${u}" ${(c.widthUnit || 'px') === u ? 'selected' : ''}>${u}</option>`).join('')}
-        </select>
-      </div>
-      <p class="text-[9px] text-slate-400 font-bold mb-2">% is of the printable page width. Dragging the header edge always sets px.</p>
-      <div class="flex items-center gap-2 mb-1">
-        <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest shrink-0">Number</label>
-        <select onchange="_prSetExportFormat('${key}','numberFormat',this.value)" class="flex-1 min-w-0 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]">
-          <option value="none" ${(c.numberFormat || 'none') === 'none' ? 'selected' : ''}>Plain — 245345</option>
-          <option value="comma" ${c.numberFormat === 'comma' ? 'selected' : ''}>Comma — 2,45,345</option>
-        </select>
-        <input type="number" value="${c.decimals != null ? c.decimals : ''}" placeholder="dp" min="0" max="4" title="Decimal places — blank leaves the number's own precision alone" onchange="_prSetExportFormat('${key}','decimals',this.value!==''?Number(this.value):null)" class="w-14 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px] shrink-0">
-      </div>
-      <p class="text-[9px] text-slate-400 font-bold mb-2">Comma + 2 decimal places = 2,45,345.00. Applies to any numeric column — base/field amounts or a Sum/Difference virtual column (not Text virtual columns).</p>
-      <button onclick="_prSetExportFormat('${key}','included',false);document.getElementById('prColumnFormatPopover').remove()" class="w-full px-2 py-1.5 border border-red-200 text-red-500 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-red-50 transition-all">Remove Column</button>
-    `;
-    document.body.appendChild(pop);
-    lucide.createIcons();
-    setTimeout(() => document.addEventListener('click', _prCloseColumnFormatPopoverOnce, { once: true }), 0);
+  // Selects which column's format shows in the full-width panel above the
+  // preview table — click the same header again (or its own Close button)
+  // to deselect. Every control inside the panel just calls the existing
+  // _prSetExportFormat, so it stays the single source of truth the Column
+  // List (Advanced) table also uses.
+  function _prSelectFormatColumn(key) {
+    _prSelectedFormatColumnKey = _prSelectedFormatColumnKey === key ? null : key;
+    _prRenderExportPreview(); // also refreshes the panel, and (un)highlights the selected header
   }
-  function _prCloseColumnFormatPopoverOnce() { document.getElementById('prColumnFormatPopover')?.remove(); }
+
+  function _prRenderColumnFormatPanel() {
+    const host = document.getElementById('prColumnFormatPanel');
+    if (!host) return;
+    const key = _prSelectedFormatColumnKey;
+    const c = key ? _prExportColumnsCache.find(col => col.key === key && col.included) : null;
+    if (!c) {
+      host.innerHTML = `<div class="px-4 py-3 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center text-[11px] font-bold text-slate-400 uppercase tracking-widest">Click a column header below to format it here</div>`;
+      _prSelectedFormatColumnKey = null;
+      return;
+    }
+    host.innerHTML = `
+      <div class="bg-blue-50/60 border-2 border-blue-200 rounded-2xl p-4">
+        <div class="flex items-center gap-2 flex-wrap mb-3">
+          <input type="text" value="${_escHtml(c.label)}" onchange="_prSetExportFormat('${key}','label',this.value||'${_escHtml(c.label)}')" class="flex-1 min-w-[160px] px-3 py-2 bg-white border border-slate-200 rounded-lg font-black text-slate-800 text-sm" title="Header text — click to rename">
+          <div class="flex items-center gap-2 shrink-0">
+            <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Group</label>
+            <select onchange="_prOnGroupSelectChange('${key}',this)" class="px-2 py-2 bg-white border border-slate-200 rounded-lg font-bold text-xs">
+              <option value="">— No group —</option>
+              ${[...new Set(_prExportColumnsCache.map(x => x.group).filter(Boolean))].map(g => `<option value="${_escHtml(g)}" ${c.group === g ? 'selected' : ''}>${_escHtml(g)}</option>`).join('')}
+              <option value="__new__">+ Add new group…</option>
+            </select>
+          </div>
+          ${c.group ? `<button onclick="_prAddGroupTotalColumn('${_escHtml(c.group)}')" class="shrink-0 px-3 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="sigma" class="h-3.5 w-3.5"></i>Add Total for "${_escHtml(c.group)}"</button>` : ''}
+          <button onclick="_prSetExportFormat('${key}','included',false)" class="shrink-0 px-3 py-2 border border-red-200 text-red-500 bg-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-red-50 transition-all">Remove Column</button>
+          <button onclick="_prSelectFormatColumn(null)" title="Close" class="shrink-0 w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-white rounded-lg transition-all"><i data-lucide="x" class="h-4 w-4"></i></button>
+        </div>
+        <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div>
+            <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Header</p>
+            <div class="flex items-center gap-1 mb-1.5">
+              <button onclick="_prSetExportFormat('${key}','headerBold',${!c.headerBold})" class="w-8 h-8 border rounded-lg font-black text-xs ${c.headerBold ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-500'}">B</button>
+              <button onclick="_prSetExportFormat('${key}','headerItalic',${!c.headerItalic})" class="w-8 h-8 border rounded-lg italic font-black text-xs ${c.headerItalic ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-500'}">I</button>
+              <input type="color" value="${c.headerColor || '#000000'}" onchange="_prSetExportFormat('${key}','headerColor',this.value)" title="Text color" class="w-8 h-8 rounded-lg cursor-pointer border border-slate-200">
+              <input type="color" value="${c.headerBg || '#ffffff'}" onchange="_prSetExportFormat('${key}','headerBg',this.value)" title="Background" class="w-8 h-8 rounded-lg cursor-pointer border border-slate-200">
+            </div>
+            <select onchange="_prSetExportFormat('${key}','headerRotation',Number(this.value))" class="w-full px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-[10px] mb-1.5">
+              ${[0, 90, 180, 270].map(deg => `<option value="${deg}" ${Number(c.headerRotation) === deg ? 'selected' : ''}>${deg}° rotation</option>`).join('')}
+            </select>
+            <div class="flex items-center gap-1">
+              ${['left', 'center', 'right'].map(a => `<button onclick="_prSetExportFormat('${key}','headerAlign','${a}')" title="${a}" class="flex-1 h-7 border rounded-md flex items-center justify-center ${(c.headerAlign || 'center') === a ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-500'}"><i data-lucide="align-${a}" class="h-3 w-3"></i></button>`).join('')}
+            </div>
+          </div>
+          <div>
+            <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Data</p>
+            <div class="flex items-center gap-1 mb-1.5">
+              <button onclick="_prSetExportFormat('${key}','bold',${!c.bold})" class="w-8 h-8 border rounded-lg font-black text-xs ${c.bold ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-500'}">B</button>
+              <button onclick="_prSetExportFormat('${key}','italic',${!c.italic})" class="w-8 h-8 border rounded-lg italic font-black text-xs ${c.italic ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-500'}">I</button>
+              <input type="color" value="${c.color || '#000000'}" onchange="_prSetExportFormat('${key}','color',this.value)" title="Text color" class="w-8 h-8 rounded-lg cursor-pointer border border-slate-200">
+            </div>
+            <select onchange="_prSetExportFormat('${key}','rotation',Number(this.value))" class="w-full px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-[10px] mb-1.5">
+              ${[0, 90, 180, 270].map(deg => `<option value="${deg}" ${Number(c.rotation) === deg ? 'selected' : ''}>${deg}° rotation</option>`).join('')}
+            </select>
+            <div class="flex items-center gap-1">
+              ${['left', 'center', 'right'].map(a => `<button onclick="_prSetExportFormat('${key}','align','${a}')" title="${a}" class="flex-1 h-7 border rounded-md flex items-center justify-center ${(c.align || 'left') === a ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-500'}"><i data-lucide="align-${a}" class="h-3 w-3"></i></button>`).join('')}
+            </div>
+          </div>
+          <div>
+            <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Width</p>
+            <div class="flex items-center gap-1.5 mb-1.5">
+              <input type="number" value="${c.width || ''}" placeholder="auto" min="0" step="any" onchange="_prSetExportFormat('${key}','width',this.value?Number(this.value):null)" class="flex-1 min-w-0 px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-[10px]">
+              <select onchange="_prSetExportFormat('${key}','widthUnit',this.value)" class="px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-[10px] shrink-0">
+                ${['px', '%', 'in'].map(u => `<option value="${u}" ${(c.widthUnit || 'px') === u ? 'selected' : ''}>${u}</option>`).join('')}
+              </select>
+            </div>
+            <p class="text-[9px] text-slate-400 font-bold leading-snug">% is of the printable page width. Dragging the header edge always sets px.</p>
+          </div>
+          <div>
+            <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Number</p>
+            <div class="flex items-center gap-1.5 mb-1.5">
+              <select onchange="_prSetExportFormat('${key}','numberFormat',this.value)" class="flex-1 min-w-0 px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-[10px]">
+                <option value="none" ${(c.numberFormat || 'none') === 'none' ? 'selected' : ''}>Plain — 245345</option>
+                <option value="comma" ${c.numberFormat === 'comma' ? 'selected' : ''}>Comma — 2,45,345</option>
+              </select>
+              <input type="number" value="${c.decimals != null ? c.decimals : ''}" placeholder="dp" min="0" max="4" title="Decimal places — blank leaves the number's own precision alone" onchange="_prSetExportFormat('${key}','decimals',this.value!==''?Number(this.value):null)" class="w-14 px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-[10px] shrink-0">
+            </div>
+            <p class="text-[9px] text-slate-400 font-bold leading-snug">Comma + 2 dp = 2,45,345.00. Numeric columns only.</p>
+          </div>
+        </div>
+      </div>
+    `;
+    lucide.createIcons();
+  }
 
   function _prSetExportFormat(key, prop, value) {
     const col = _prExportColumnsCache.find(c => c.key === key);
     if (col) col[prop] = value;
-    _prRenderExportPreview();
+    _prRenderExportPreview(); // also refreshes the panel if this is the selected column
   }
 
   // The Group dropdown's "+ Add new group…" option prompts for a name
@@ -19056,7 +19070,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const name = (window.prompt('New group name:') || '').trim();
       if (!name) { const col = _prExportColumnsCache.find(c => c.key === key); selectEl.value = (col && col.group) || ''; return; }
       _prSetExportFormat(key, 'group', name);
-      document.getElementById('prColumnFormatPopover')?.remove();
     } else {
       _prSetExportFormat(key, 'group', selectEl.value || null);
     }

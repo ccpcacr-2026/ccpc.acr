@@ -80,7 +80,7 @@ const RESERVED = [
   '_prBulkAddAllStaff','_prLoadExportColumns','_prSetExportFormat','_prSetAllHeaderRotation','_prRemoveExportColumn','loadPayrollAuditLog',
   '_prSetExportPersonMode','_prRenderPersonSelectionPicker','_prToggleExportPersonCategory','_prToggleExportPersonIndividual',
   '_prLoadExportTemplatesList','_prSaveExportTemplate','_prApplyExportTemplate','_prDeleteExportTemplate',
-  '_prPreviewColumnDrop','_prOpenColumnFormatPopover','_prPreviewDragKey','_prResetColumnOrderToSheet','_prStartColumnResize',
+  '_prPreviewColumnDrop','_prSelectFormatColumn','_prPreviewDragKey','_prResetColumnOrderToSheet','_prStartColumnResize',
   '_prOnVcTypeChange','_prVcAddSegment','_prVcRemoveSegment','_prVcUpdateSegment','_prVcAddRule','_prVcRemoveRule','_prVcUpdateRule',
   'loadPayrollMpoTab','_prRenderMpoTable','_prSaveMpoAmount','_prRenderMpoLockBar','_prLockMpo','_prUnlockMpo',
   '_prSetExportBorderStyle','_prAddGroupTotalColumn','_prOnGroupSelectChange','_prSetExportSummaryRowStyle',
