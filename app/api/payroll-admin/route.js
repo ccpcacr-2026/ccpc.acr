@@ -371,7 +371,18 @@ function _computePayslipForPerson(personSetup, roles, category, ref, month, year
   const entryAmountById = {};
   const sectionEntryByFieldId = {};
   personEntries.forEach(entry => {
-    const amt = entry.emi_amount != null ? Number(entry.emi_amount) : (Number(entry.total_amount) / (Number(entry.emi_months) || 1));
+    const flatRate = entry.emi_amount != null ? Number(entry.emi_amount) : (Number(entry.total_amount) / (Number(entry.emi_months) || 1));
+    // Capped at what's actually still owed — total_amount doesn't always
+    // divide evenly by the flat rate (e.g. Tk.50000 total at a fixed
+    // Tk.4000/month is 12 full installments + a final Tk.2000), and
+    // without this the LAST month would deduct the full flat rate even
+    // though only the remainder is actually owed, overcharging the person
+    // by the difference. remaining_amount is the authoritative running
+    // balance (kept in sync by approve_run/revert_run_to_draft), so
+    // whatever's left simply wins once it's less than a full installment.
+    // Recurring entries have no remaining_amount (null) and are never
+    // capped — there's no total to run out against.
+    const amt = entry.remaining_amount != null ? Math.min(flatRate, Number(entry.remaining_amount)) : flatRate;
     entryAmountById[entry.id] = amt;
     const section = ref.sectionsById[entry.section_id];
     if (section && section.field_id) sectionEntryByFieldId[section.field_id] = amt;

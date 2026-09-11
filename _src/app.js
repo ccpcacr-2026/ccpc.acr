@@ -14326,19 +14326,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <div id="prSEntryEmiFields">
               <div>
                 <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Total Amount <span class="text-red-500">*</span></label>
-                <input type="number" id="prSEntryTotal" placeholder="0" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                <input type="number" id="prSEntryTotal" placeholder="0" oninput="_prSEntryRecalcTotal()" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
               </div>
-              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest my-2">Set either a fixed EMI amount, or a number of months to spread the total over</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest my-2">Set one of these two — the other calculates automatically</p>
               <div class="grid grid-cols-2 gap-3">
                 <div>
                   <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Fixed EMI / Month</label>
-                  <input type="number" id="prSEntryEmiAmount" placeholder="—" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                  <input type="number" id="prSEntryEmiAmount" placeholder="—" oninput="_prSEntryRecalcFromAmount()" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
                 </div>
                 <div>
                   <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">EMI Months</label>
-                  <input type="number" id="prSEntryEmiMonths" placeholder="—" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                  <input type="number" id="prSEntryEmiMonths" placeholder="—" oninput="_prSEntryRecalcFromMonths()" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
                 </div>
               </div>
+              <p id="prSEntryEmiNote" class="text-[10px] text-amber-600 font-bold uppercase tracking-widest mt-2"></p>
               <div class="mt-3">
                 <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Installments Already Paid <span class="font-normal normal-case text-slate-400">(optional)</span></label>
                 <input type="number" id="prSEntryAlreadyPaid" placeholder="0" min="0" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
@@ -18225,6 +18226,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prSEntryAlreadyPaid').value = '';
     document.getElementById('prSEntryFlatAmount').value = '';
     document.getElementById('prSEntryNote').value = '';
+    document.getElementById('prSEntryEmiNote').textContent = '';
+    _prSEntryEmiDriver = null;
     _prSetSectionEntryMode('emi');
     _ensureStaffCache(() => {
       _wireSearchCombo('prSEntryPersonSearch', 'prSEntryPersonSelect', 'prSEntryPersonDropdown',
@@ -18235,6 +18238,60 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prSectionEntryFormModal').classList.remove('hidden');
   }
   function _prCloseSectionEntryForm() { document.getElementById('prSectionEntryFormModal').classList.add('hidden'); }
+
+  // Fixed EMI/Month and EMI Months both being independently fillable was
+  // contradictory — filling one now calculates the other, tracking which
+  // one the admin actually typed into (_prSEntryEmiDriver) so editing
+  // Total Amount afterward re-derives from the SAME field, and manually
+  // overriding whichever field got auto-filled correctly flips the
+  // relationship the other way rather than fighting it. Setting .value via
+  // JS doesn't fire its own oninput, so this can't ping-pong into a loop.
+  let _prSEntryEmiDriver = null; // 'amount' | 'months' | null
+
+  // Months (a whole count of installments) driving Amount always divides
+  // evenly by definition — no "last installment differs" case this
+  // direction, only the reverse (see _prSEntryRecalcFromAmount).
+  function _prSEntryRecalcFromMonths() {
+    _prSEntryEmiDriver = 'months';
+    const total = Number(document.getElementById('prSEntryTotal').value) || 0;
+    const months = Number(document.getElementById('prSEntryEmiMonths').value) || 0;
+    const note = document.getElementById('prSEntryEmiNote');
+    if (!total || !months) { if (note) note.textContent = ''; return; }
+    document.getElementById('prSEntryEmiAmount').value = Math.round((total / months) * 100) / 100;
+    if (note) note.textContent = '';
+  }
+
+  // Amount driving Months: total doesn't always divide evenly by a round
+  // EMI figure (e.g. Tk.50000 total at a fixed Tk.4000/month is 12 full
+  // installments + a remaining Tk.2000) — months rounds UP to cover the
+  // full total, and the last of those months is called out separately
+  // since _computePayslipForPerson caps that final deduction at whatever's
+  // actually still owed rather than the full flat rate.
+  function _prSEntryRecalcFromAmount() {
+    _prSEntryEmiDriver = 'amount';
+    const total = Number(document.getElementById('prSEntryTotal').value) || 0;
+    const amount = Number(document.getElementById('prSEntryEmiAmount').value) || 0;
+    const note = document.getElementById('prSEntryEmiNote');
+    if (!total || !amount) { if (note) note.textContent = ''; return; }
+    const exact = total / amount;
+    const rounded = Math.round(exact);
+    const isWhole = Math.abs(exact - rounded) < 1e-6;
+    const months = isWhole ? rounded : Math.ceil(exact);
+    document.getElementById('prSEntryEmiMonths').value = months;
+    if (!note) return;
+    if (isWhole) { note.textContent = ''; return; }
+    const lastInstallment = Math.round((total - amount * (months - 1)) * 100) / 100;
+    note.textContent = `${months} installments: ${months - 1} × Tk.${_prFormatTaka(amount)}, then a final Tk.${_prFormatTaka(lastInstallment)} to close the balance.`;
+  }
+
+  // Total Amount changing re-runs whichever direction is currently driving
+  // (set by the admin's last edit to Amount or Months) rather than
+  // guessing from which field happens to be non-blank — both are non-blank
+  // most of the time once either one has auto-filled the other.
+  function _prSEntryRecalcTotal() {
+    if (_prSEntryEmiDriver === 'amount') _prSEntryRecalcFromAmount();
+    else if (_prSEntryEmiDriver === 'months') _prSEntryRecalcFromMonths();
+  }
 
   // EMI keeps the existing Total+EMI-Amount/Months inputs; One-Time and
   // Recurring both collapse to a single flat Amount — the server derives
