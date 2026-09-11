@@ -14730,13 +14730,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </div>
             <div id="prVcTextSection" class="hidden space-y-3">
               <div>
-                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Join With <span class="font-normal normal-case text-slate-400">(between segments)</span></label>
-                <div class="flex items-center gap-2">
-                  <input type="text" id="prVcJoinWith" placeholder="e.g. a space, a comma, or leave blank" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
-                  <button onclick="document.getElementById('prVcJoinWith').value=' '" class="px-2 py-2 border border-slate-200 rounded-lg font-black text-[10px] uppercase text-slate-500 hover:bg-slate-50">Space</button>
-                  <button onclick="document.getElementById('prVcJoinWith').value=', '" class="px-2 py-2 border border-slate-200 rounded-lg font-black text-[10px] uppercase text-slate-500 hover:bg-slate-50">Comma</button>
-                  <button onclick="document.getElementById('prVcJoinWith').value='\\n'" class="px-2 py-2 border border-slate-200 rounded-lg font-black text-[10px] uppercase text-slate-500 hover:bg-slate-50">New Line</button>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Join With <span class="font-normal normal-case text-slate-400">(between every segment — e.g. Name and Designation stacked on two lines)</span></label>
+                <div class="flex items-start gap-2">
+                  <textarea id="prVcJoinWith" rows="2" placeholder="e.g. a space, a comma, or leave blank — click New Line to stack segments" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs resize-none"></textarea>
+                  <div class="flex flex-col gap-1 shrink-0">
+                    <button onclick="document.getElementById('prVcJoinWith').value=' '" class="px-2 py-1.5 border border-slate-200 rounded-lg font-black text-[10px] uppercase text-slate-500 hover:bg-slate-50">Space</button>
+                    <button onclick="document.getElementById('prVcJoinWith').value=', '" class="px-2 py-1.5 border border-slate-200 rounded-lg font-black text-[10px] uppercase text-slate-500 hover:bg-slate-50">Comma</button>
+                    <button onclick="document.getElementById('prVcJoinWith').value='\\n'" class="px-2 py-1.5 border border-slate-200 rounded-lg font-black text-[10px] uppercase text-slate-500 hover:bg-slate-50">New Line</button>
+                  </div>
                 </div>
+                <p class="text-[9px] text-slate-400 font-bold mt-1">This box is 2 rows tall on purpose — click New Line and you'll see the cursor drop to the second line, confirming it's set.</p>
               </div>
               <div>
                 <div class="flex items-center justify-between mb-1">
