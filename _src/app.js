@@ -14553,6 +14553,50 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
         </div>
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
+          <p class="font-black text-slate-800 text-xs mb-3">Summary Rows (PDF only) — C.F. / Sub Total</p>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div>
+              <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">C.F. Row</p>
+              <div class="flex items-center gap-3 flex-wrap">
+                <label class="flex items-center gap-1.5 text-xs font-black text-slate-600 cursor-pointer">
+                  <input type="checkbox" id="prCfBold" checked onchange="_prSetExportSummaryRowStyle('cf','bold',this.checked)" class="w-4 h-4 rounded accent-blue-600">Bold
+                </label>
+                <label class="flex items-center gap-1.5 text-xs font-black text-slate-600 cursor-pointer">
+                  <input type="checkbox" id="prCfItalic" onchange="_prSetExportSummaryRowStyle('cf','italic',this.checked)" class="w-4 h-4 rounded accent-blue-600">Italic
+                </label>
+                <div class="flex items-center gap-1.5">
+                  <label class="text-[10px] font-black text-slate-400 uppercase">Text</label>
+                  <input type="color" id="prCfColor" value="#000000" onchange="_prSetExportSummaryRowStyle('cf','color',this.value)" class="w-7 h-6 rounded cursor-pointer border border-slate-200">
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <label class="text-[10px] font-black text-slate-400 uppercase">Fill</label>
+                  <input type="color" id="prCfBg" value="#f1f5f9" onchange="_prSetExportSummaryRowStyle('cf','bg',this.value)" class="w-7 h-6 rounded cursor-pointer border border-slate-200">
+                </div>
+              </div>
+            </div>
+            <div>
+              <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Sub Total Row</p>
+              <div class="flex items-center gap-3 flex-wrap">
+                <label class="flex items-center gap-1.5 text-xs font-black text-slate-600 cursor-pointer">
+                  <input type="checkbox" id="prSubtotalBold" checked onchange="_prSetExportSummaryRowStyle('subtotal','bold',this.checked)" class="w-4 h-4 rounded accent-blue-600">Bold
+                </label>
+                <label class="flex items-center gap-1.5 text-xs font-black text-slate-600 cursor-pointer">
+                  <input type="checkbox" id="prSubtotalItalic" onchange="_prSetExportSummaryRowStyle('subtotal','italic',this.checked)" class="w-4 h-4 rounded accent-blue-600">Italic
+                </label>
+                <div class="flex items-center gap-1.5">
+                  <label class="text-[10px] font-black text-slate-400 uppercase">Text</label>
+                  <input type="color" id="prSubtotalColor" value="#000000" onchange="_prSetExportSummaryRowStyle('subtotal','color',this.value)" class="w-7 h-6 rounded cursor-pointer border border-slate-200">
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <label class="text-[10px] font-black text-slate-400 uppercase">Fill</label>
+                  <input type="color" id="prSubtotalBg" value="#f1f5f9" onchange="_prSetExportSummaryRowStyle('subtotal','bg',this.value)" class="w-7 h-6 rounded cursor-pointer border border-slate-200">
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-3">C.F. (Carried Forward) shows the running total from prior pages at the top of every page after the first; Sub Total shows this page's own sum at the bottom of every page. PDF export only — shown live in the preview below.</p>
+        </div>
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
           <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
             <div>
               <p class="font-black text-slate-800 text-xs">Person Selection</p>
@@ -18215,6 +18259,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // edges of each Group's column span, header through the last body row
   // (0 = no outline).
   let _prExportBorderStyle = { showGrid: true, gridWidth: 0.5, topWidth: 1.5, bottomWidth: 1.5, groupOutlineWidth: 1 };
+  // Independent formatting for the PDF's two synthetic per-page rows —
+  // C.F. (carried-forward running total) and Sub Total (this page's own
+  // sum) — same bold/italic/color/background shape as a column's own
+  // header/data format controls.
+  let _prExportSummaryRowStyle = {
+    cf: { bold: true, italic: false, color: '', bg: '#f1f5f9' },
+    subtotal: { bold: true, italic: false, color: '', bg: '#f1f5f9' },
+  };
   let _prExportRowOrderCache = []; // [{user_id, position}] — only people who've been manually dragged
   let _prExportSortBy = 'name';
   let _prExportSortDir = 'asc';
@@ -18258,6 +18310,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prExportTopWidth').value = _prExportBorderStyle.topWidth;
     document.getElementById('prExportBottomWidth').value = _prExportBorderStyle.bottomWidth;
     document.getElementById('prExportGroupOutlineWidth').value = _prExportBorderStyle.groupOutlineWidth || 0;
+    document.getElementById('prCfBold').checked = _prExportSummaryRowStyle.cf.bold;
+    document.getElementById('prCfItalic').checked = _prExportSummaryRowStyle.cf.italic;
+    document.getElementById('prCfColor').value = _prExportSummaryRowStyle.cf.color || '#000000';
+    document.getElementById('prCfBg').value = _prExportSummaryRowStyle.cf.bg || '#f1f5f9';
+    document.getElementById('prSubtotalBold').checked = _prExportSummaryRowStyle.subtotal.bold;
+    document.getElementById('prSubtotalItalic').checked = _prExportSummaryRowStyle.subtotal.italic;
+    document.getElementById('prSubtotalColor').value = _prExportSummaryRowStyle.subtotal.color || '#000000';
+    document.getElementById('prSubtotalBg').value = _prExportSummaryRowStyle.subtotal.bg || '#f1f5f9';
     document.getElementById('prExportSortField').value = _prExportSortBy;
     _prUpdateExportSortDirBtn();
     const populate = () => {
@@ -18273,6 +18333,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _prSetExportSplitByGroup(checked) { _prExportSplitByGroup = checked; }
   function _prSetExportRowDesign(prop, value) { _prExportRowDesign[prop] = value; }
   function _prSetExportBorderStyle(prop, value) { _prExportBorderStyle[prop] = value; _prRenderExportPreview(); }
+  function _prSetExportSummaryRowStyle(rowType, prop, value) {
+    if (!_prExportSummaryRowStyle[rowType]) return;
+    _prExportSummaryRowStyle[rowType][prop] = value;
+    _prRenderExportPreview();
+  }
 
   // ── Person Selection (Everyone / Pick People — individual or by whole category) ──
   function _prSetExportPersonMode(mode) {
@@ -18360,6 +18425,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       splitByGroup: _prExportSplitByGroup,
       rowDesign: _prExportRowDesign,
       borderStyle: _prExportBorderStyle,
+      summaryRowStyle: _prExportSummaryRowStyle,
       sortBy: _prExportSortBy,
       sortDir: _prExportSortDir,
     };
@@ -18405,6 +18471,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }
     if (cfg.rowDesign) _prExportRowDesign = { ..._prExportRowDesign, ...cfg.rowDesign };
     if (cfg.borderStyle) _prExportBorderStyle = { ..._prExportBorderStyle, ...cfg.borderStyle };
+    if (cfg.summaryRowStyle) _prExportSummaryRowStyle = { cf: { ..._prExportSummaryRowStyle.cf, ...cfg.summaryRowStyle.cf }, subtotal: { ..._prExportSummaryRowStyle.subtotal, ...cfg.summaryRowStyle.subtotal } };
     if (cfg.splitByGroup != null) _prExportSplitByGroup = cfg.splitByGroup;
     if (cfg.sortBy) _prExportSortBy = cfg.sortBy;
     if (cfg.sortDir) _prExportSortDir = cfg.sortDir;
@@ -18419,6 +18486,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prExportTopWidth').value = _prExportBorderStyle.topWidth;
     document.getElementById('prExportBottomWidth').value = _prExportBorderStyle.bottomWidth;
     document.getElementById('prExportGroupOutlineWidth').value = _prExportBorderStyle.groupOutlineWidth || 0;
+    document.getElementById('prCfBold').checked = _prExportSummaryRowStyle.cf.bold;
+    document.getElementById('prCfItalic').checked = _prExportSummaryRowStyle.cf.italic;
+    document.getElementById('prCfColor').value = _prExportSummaryRowStyle.cf.color || '#000000';
+    document.getElementById('prCfBg').value = _prExportSummaryRowStyle.cf.bg || '#f1f5f9';
+    document.getElementById('prSubtotalBold').checked = _prExportSummaryRowStyle.subtotal.bold;
+    document.getElementById('prSubtotalItalic').checked = _prExportSummaryRowStyle.subtotal.italic;
+    document.getElementById('prSubtotalColor').value = _prExportSummaryRowStyle.subtotal.color || '#000000';
+    document.getElementById('prSubtotalBg').value = _prExportSummaryRowStyle.subtotal.bg || '#f1f5f9';
     document.getElementById('prExportSortField').value = _prExportSortBy;
     _prUpdateExportSortDirBtn();
     _prRenderExportColumnsTable();
@@ -18625,6 +18700,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         headerAlign: priorState[c.key] ? priorState[c.key].headerAlign : 'center',
         width: priorState[c.key] ? priorState[c.key].width : null,
         widthUnit: priorState[c.key] ? priorState[c.key].widthUnit : 'px',
+        // 'comma' = South Asian lakh/crore grouping (2,45,345); decimals
+        // null leaves the number's own precision alone, 0-4 forces exactly
+        // that many digits — combining both gives "2,45,345.00".
+        numberFormat: priorState[c.key] ? priorState[c.key].numberFormat : 'none',
+        decimals: priorState[c.key] && priorState[c.key].decimals !== undefined ? priorState[c.key].decimals : null,
         headerBold: priorState[c.key] ? priorState[c.key].headerBold : false,
         headerItalic: priorState[c.key] ? priorState[c.key].headerItalic : false,
         headerColor: priorState[c.key] ? priorState[c.key].headerColor : '',
@@ -18772,12 +18852,37 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 const sep = si < arr.length - 1 ? _escHtml(c.joinWith || '').replace(/\n/g, '<br>') : '';
                 return `<span style="${segCss}">${_escHtml(seg.text)}</span>${sep}`;
               }).join('')
-            : _escHtml(String(_prColumnValue(c, slip)));
-          return `<td class="px-3 py-1.5 ${isRichText ? '' : 'whitespace-nowrap'}" style="${_prColumnCellCss(c, false)}${_prGridBorderCss(false, ri === sampleSlips.length - 1)}">${cellContent}</td>`;
+            : _escHtml(String(_prFormatColumnValue(c, _prColumnValue(c, slip))));
+          return `<td class="px-3 py-1.5 ${isRichText ? '' : 'whitespace-nowrap'}" style="${_prColumnCellCss(c, false)}${_prGridBorderCss(false, false)}">${cellContent}</td>`;
         }).join('')}</tr>`).join('')}
+        ${_prExportSummaryRowHtml(included, sampleSlips, 'C.F.', 'cf', false)}
+        ${_prExportSummaryRowHtml(included, sampleSlips, 'Sub Total', 'subtotal', true)}
       </tbody>`;
     lucide.createIcons();
     _prRenderMergeSelectionBar();
+  }
+
+  // Preview-only render of the PDF's C.F./Sub Total rows, so their style
+  // settings (bold/italic/color/fill) are visible without generating a
+  // PDF — the SUM shown here is only over the handful of sample rows the
+  // preview displays, not the real per-page totals the actual export
+  // computes; it exists to check formatting, not to predict real numbers.
+  function _prExportSummaryRowHtml(cols, sampleSlips, label, styleKey, isLastRow) {
+    const srs = _prExportSummaryRowStyle[styleKey];
+    const firstLabelCol = cols.findIndex(c => !_prIsSummableColumn(c));
+    const cells = cols.map((c, ci) => {
+      let val = '';
+      if (_prIsSummableColumn(c)) {
+        const sum = sampleSlips.reduce((a, s) => a + (Number(_prColumnValue(c, s)) || 0), 0);
+        val = _escHtml(String(_prFormatColumnValue(c, sum)));
+      } else if (ci === firstLabelCol) {
+        val = _escHtml(label);
+      }
+      let css = `font-weight:${srs.bold ? '700' : '400'};font-style:${srs.italic ? 'italic' : 'normal'};text-align:${c.align || 'left'};background:${srs.bg || '#f1f5f9'};`;
+      if (srs.color) css += `color:${srs.color};`;
+      return `<td class="px-3 py-1.5 whitespace-nowrap" title="PDF-only — sample sum, not the real page total" style="${css}${_prGridBorderCss(false, isLastRow)}">${val}</td>`;
+    }).join('');
+    return `<tr>${cells}</tr>`;
   }
 
   // Ticking 2+ header checkboxes surfaces this bar instead of requiring
@@ -18920,6 +19025,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </select>
       </div>
       <p class="text-[9px] text-slate-400 font-bold mb-2">% is of the printable page width. Dragging the header edge always sets px.</p>
+      <div class="flex items-center gap-2 mb-1">
+        <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest shrink-0">Number</label>
+        <select onchange="_prSetExportFormat('${key}','numberFormat',this.value)" class="flex-1 min-w-0 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]">
+          <option value="none" ${(c.numberFormat || 'none') === 'none' ? 'selected' : ''}>Plain — 245345</option>
+          <option value="comma" ${c.numberFormat === 'comma' ? 'selected' : ''}>Comma — 2,45,345</option>
+        </select>
+        <input type="number" value="${c.decimals != null ? c.decimals : ''}" placeholder="dp" min="0" max="4" title="Decimal places — blank leaves the number's own precision alone" onchange="_prSetExportFormat('${key}','decimals',this.value!==''?Number(this.value):null)" class="w-14 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px] shrink-0">
+      </div>
+      <p class="text-[9px] text-slate-400 font-bold mb-2">Comma + 2 decimal places = 2,45,345.00. Applies to any numeric column — base/field amounts or a Sum/Difference virtual column (not Text virtual columns).</p>
       <button onclick="_prSetExportFormat('${key}','included',false);document.getElementById('prColumnFormatPopover').remove()" class="w-full px-2 py-1.5 border border-red-200 text-red-500 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-red-50 transition-all">Remove Column</button>
     `;
     document.body.appendChild(pop);
@@ -19186,6 +19300,34 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return '';
   }
 
+  // A column whose value is meaningful to add up — everything else (Name,
+  // Designation, Grade, Step, Join Date, SL No, a Text virtual column)
+  // gets blanked in a C.F./Sub Total row instead of a nonsense sum.
+  // Shared by the PDF export and the Visual Editor preview so both agree
+  // on which columns get a running total.
+  function _prIsSummableColumn(c) {
+    return c.type === 'field' || (c.type === 'virtual' && (c.vtype === 'sum' || c.vtype === 'diff')) ||
+      (c.type === 'base' && !['sl_no', 'person', 'designation', 'grade', 'step', 'joining_date'].includes(c.key));
+  }
+
+  // Renders a raw cell value through a column's optional Number Format —
+  // 'comma' groups digits the South Asian way (2,45,345 — every 2 digits
+  // after the first 3, not every 3), decimals forces exactly that many
+  // fraction digits when set. Combining both gives "2,45,345.00". Leaves
+  // non-numeric values (names, dates, already-resolved Text segments) and
+  // completely unconfigured columns untouched.
+  function _prFormatColumnValue(c, raw) {
+    if (raw === '' || raw === null || raw === undefined) return raw;
+    const num = Number(raw);
+    if (isNaN(num)) return raw;
+    if ((!c.numberFormat || c.numberFormat === 'none') && (c.decimals === null || c.decimals === undefined)) return raw;
+    const opts = {};
+    if (c.decimals !== null && c.decimals !== undefined) { opts.minimumFractionDigits = Number(c.decimals); opts.maximumFractionDigits = Number(c.decimals); }
+    if (c.numberFormat === 'comma') return num.toLocaleString('en-IN', opts);
+    opts.useGrouping = false;
+    return num.toLocaleString('en-US', opts);
+  }
+
   // SL No renumbers 1..N within whatever set of rows it's part of — the
   // whole run when not split, or fresh per group/Ungrouped when split, same
   // as the running number on a printed sheet restarting each page.
@@ -19273,6 +19415,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (pt <= 0.75) return 'thin';
     if (pt <= 1.75) return 'medium';
     return 'thick';
+  }
+
+  // A column's Number Format as an Excel custom format code — 'comma'
+  // groups the South Asian way (custom Excel format codes can place a
+  // comma anywhere, so "#,##,##0" groups in twos after the first three
+  // digits — the standard trick for Indian-style grouping in Excel/xlsx),
+  // decimals forces that many fraction digits either way. Unlike PDF, the
+  // underlying cell stays a real Excel number either way — this only
+  // changes how it displays, so sorting/summing in Excel itself still works.
+  function _prExcelNumFmt(c) {
+    if ((!c.numberFormat || c.numberFormat === 'none') && (c.decimals === null || c.decimals === undefined)) return null;
+    const dec = c.decimals !== null && c.decimals !== undefined ? Number(c.decimals) : 0;
+    const decPart = dec > 0 ? '.' + '0'.repeat(dec) : '';
+    return (c.numberFormat === 'comma' ? '#,##,##0' : '0') + decPart;
   }
 
   function _prExportExcel() {
@@ -19398,6 +19554,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             }
             const edge = groupEdgeSide[ci];
             s.border = cellBorder(false, ri === dataStartRow + g.rows.length - 1, edge && edge.left, edge && edge.right);
+            if (!firstStyledSeg) { const numFmt = _prExcelNumFmt(c); if (numFmt) s.numFmt = numFmt; }
             if (Object.keys(s).length) ws[addr].s = s;
           }
         });
@@ -19843,13 +20000,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       // group row above it, row 1 when there is.
       const labelHeadRow = hasAnyGroup ? 1 : 0;
 
-      // A column whose value is meaningful to add up — everything else
-      // (Name, Designation, Grade, Step, Join Date, a Text virtual column)
-      // gets blanked in the C.F./Sub Total rows instead of a nonsense sum.
-      const isSummable = c => c.type === 'field' || (c.type === 'virtual' && (c.vtype === 'sum' || c.vtype === 'diff')) ||
-        (c.type === 'base' && !['sl_no', 'person', 'designation', 'grade', 'step', 'joining_date'].includes(c.key));
-      const firstLabelCol = data.cols.findIndex(c => !isSummable(c));
-      const sumChunk = rows => data.cols.map((c, ci) => isSummable(c) ? rows.reduce((a, r) => a + (Number(r[ci]) || 0), 0) : '');
+      const firstLabelCol = data.cols.findIndex(c => !_prIsSummableColumn(c));
+      const sumChunk = rows => data.cols.map((c, ci) => _prIsSummableColumn(c) ? rows.reduce((a, r) => a + (Number(r[ci]) || 0), 0) : '');
       const buildTotalRow = (rows, label) => {
         const row = sumChunk(rows);
         if (firstLabelCol >= 0) row[firstLabelCol] = label;
@@ -19940,9 +20092,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               const col = data.cols[hook.column.index];
               if (!col) return;
               if (isSyntheticRow(hook.row.index)) {
-                hook.cell.styles.fontStyle = 'bold'; hook.cell.styles.fillColor = [241, 245, 249];
+                const srs = hook.row.index === cfRowIndex ? _prExportSummaryRowStyle.cf : _prExportSummaryRowStyle.subtotal;
+                if (srs.bold && srs.italic) hook.cell.styles.fontStyle = 'bolditalic';
+                else if (srs.bold) hook.cell.styles.fontStyle = 'bold';
+                else if (srs.italic) hook.cell.styles.fontStyle = 'italic';
+                else hook.cell.styles.fontStyle = 'normal';
+                hook.cell.styles.textColor = srs.color ? _prHexToRgbArr(srs.color) : [0, 0, 0];
+                hook.cell.styles.fillColor = srs.bg ? _prHexToRgbArr(srs.bg) : [255, 255, 255];
                 if (hook.row.index === subTotalRowIndex) hook.cell.styles.lineWidth = { top: gridMm, right: gridMm, bottom: bottomMm, left: gridMm };
                 applyGroupOutline(hook.column.index, hook.cell.styles);
+                if (col.numberFormat && col.numberFormat !== 'none' || col.decimals != null) {
+                  hook.cell.text = [String(_prFormatColumnValue(col, rawRowForBodyRow(hook.row.index)[hook.column.index]))];
+                }
                 return;
               }
               // autotable can invoke this hook with row.index === -1 for an
@@ -19958,6 +20119,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               if (col.color) hook.cell.styles.textColor = _prHexToRgbArr(col.color);
               if (_prExportRowDesign.zebra && hook.row.index % 2 === 1) hook.cell.styles.fillColor = _prHexToRgbArr(_prExportRowDesign.zebraColor || '#f1f5f9');
               applyGroupOutline(hook.column.index, hook.cell.styles);
+              // Number Format is display-only — the raw numeric value in
+              // `body` (needed for the C.F./Sub Total sums above) is left
+              // untouched; only the rendered text changes. Skipped when
+              // rotated since didDrawCell's custom draw below re-formats
+              // and draws it itself instead.
+              if (!col.rotation && !isTextVirtual && (col.numberFormat && col.numberFormat !== 'none' || col.decimals != null)) {
+                hook.cell.text = [String(_prFormatColumnValue(col, rawRowForBodyRow(hook.row.index)[hook.column.index]))];
+              }
               // A Text virtual column always needs the custom multi-segment
               // draw below (to show each segment's own style), regardless of
               // rotation; a plain column only needs it when rotated.
@@ -19987,7 +20156,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               }
               if (!col.rotation) return;
               const raw = rawRowForBodyRow(hook.row.index)[hook.column.index];
-              doc.text(String(raw), x + width / 2, y + height / 2, { angle: col.rotation, align: 'center', baseline: 'middle' });
+              doc.text(String(_prFormatColumnValue(col, raw)), x + width / 2, y + height / 2, { angle: col.rotation, align: 'center', baseline: 'middle' });
             },
           });
         });

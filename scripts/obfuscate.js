@@ -83,7 +83,7 @@ const RESERVED = [
   '_prPreviewColumnDrop','_prOpenColumnFormatPopover','_prPreviewDragKey','_prResetColumnOrderToSheet','_prStartColumnResize',
   '_prOnVcTypeChange','_prVcAddSegment','_prVcRemoveSegment','_prVcUpdateSegment','_prVcAddRule','_prVcRemoveRule','_prVcUpdateRule',
   'loadPayrollMpoTab','_prRenderMpoTable','_prSaveMpoAmount','_prRenderMpoLockBar','_prLockMpo','_prUnlockMpo',
-  '_prSetExportBorderStyle','_prAddGroupTotalColumn','_prOnGroupSelectChange',
+  '_prSetExportBorderStyle','_prAddGroupTotalColumn','_prOnGroupSelectChange','_prSetExportSummaryRowStyle',
   '_prToggleColumnMergeSelect','_prClearMergeSelection','_prMergeSelectedAsSum',
   '_prOpenDesignationCategoryMapper','_prSaveDesignationCategoryMap','_prApplyDesignationCategoryMapToAllStaff',
   '_prOpenCategoryTreeManager','_prAddCategoryGroup','_prRenameCategoryGroup','_prDeleteCategoryGroup',
