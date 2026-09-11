@@ -49,6 +49,11 @@ exception when duplicate_object then null;
 end $$;
 alter table payroll.section_entries validate constraint section_entries_mode_check;
 alter table payroll.section_entries alter column total_amount drop not null;
+-- 'recurring' mode (and a 'per_unit' section's entries — see
+-- migration_section_child_allowance.sql) always leave remaining_amount
+-- null (no total to pay off), same as total_amount above. Missing this
+-- meant NO recurring-style entry could ever be saved at all.
+alter table payroll.section_entries alter column remaining_amount drop not null;
 alter table payroll.section_entries add column if not exists paid_installments integer not null default 0;
 
 notify pgrst, 'reload schema';
