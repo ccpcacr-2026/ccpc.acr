@@ -14333,10 +14333,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div id="prSectionEntryFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
         <div class="bg-white rounded-2xl p-5 w-full max-w-sm max-h-[85vh] overflow-y-auto">
           <div class="flex items-center justify-between mb-4">
-            <p class="font-black text-slate-800 text-sm">Add Entry</p>
+            <p id="prSEntryFormTitle" class="font-black text-slate-800 text-sm">Add Entry</p>
             <button onclick="_prCloseSectionEntryForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
           </div>
           <input type="hidden" id="prSEntrySectionId">
+          <input type="hidden" id="prSEntryEditId">
           <div class="space-y-3">
             <div class="relative">
               <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Person <span class="text-red-500">*</span></label>
@@ -14392,7 +14393,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
           <div class="flex justify-end gap-2 mt-5">
             <button onclick="_prCloseSectionEntryForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
-            <button onclick="_prSaveSectionEntry()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Add Entry</button>
+            <button id="prSEntrySaveBtn" onclick="_prSaveSectionEntry()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Add Entry</button>
           </div>
         </div>
       </div>
@@ -18070,6 +18071,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // ── Loan / Advance sections ──
   let _prSectionsCache = [];
   let _prSelectedSectionId = null;
+  let _prCurrentSectionEntries = [];
 
   function loadPayrollSections() {
     Promise.all([
@@ -18220,6 +18222,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     ]).then(([res, fieldsRes]) => {
       if (fieldsRes) _prFieldsCache = (fieldsRes.result === 'success' && fieldsRes.fields) || [];
       const entries = (res && res.result === 'success' && res.entries) || [];
+      // Cached so _prOpenSectionEntryForm can look an entry up by id when
+      // opened for Edit, without a second round-trip.
+      _prCurrentSectionEntries = entries;
       const MODE_LABEL = { emi: 'EMI', one_time: 'One-Time', recurring: 'Recurring' };
       // The Field link (if any) lives on the SECTION, not per-entry — every
       // row below is counted under it the same way — so it's shown once
@@ -18254,6 +18259,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                   <td class="py-1.5 px-3">${_prFormatTaka(amount)}/mo</td>
                   <td class="py-1.5 px-3"><span class="font-black ${statusColor}">${e.status}</span></td>
                   <td class="py-1.5 px-3 text-right">
+                    <button onclick="_prOpenSectionEntryForm(${sectionId},${e.id})" class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-black mr-3">Edit</button>
                     ${e.status === 'active' ? `<button onclick="_prUpdateSectionEntryStatus(${e.id},'cancelled',${sectionId})" class="text-[10px] font-black text-amber-600 uppercase tracking-widest hover:text-black mr-3">Cancel</button>` : ''}
                     <button onclick="_prDeleteSectionEntry(${e.id},${sectionId})" class="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-700">Delete</button>
                   </td>
@@ -18282,6 +18288,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                   <td class="py-1.5 px-3">${isRecurring ? '<span class="text-slate-400">Ongoing</span>' : _prFormatTaka(e.remaining_amount)}</td>
                   <td class="py-1.5 px-3"><span class="font-black ${statusColor}">${e.status}</span></td>
                   <td class="py-1.5 px-3 text-right">
+                    <button onclick="_prOpenSectionEntryForm(${sectionId},${e.id})" class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-black mr-3">Edit</button>
                     ${e.status === 'active' ? `<button onclick="_prUpdateSectionEntryStatus(${e.id},'cancelled',${sectionId})" class="text-[10px] font-black text-amber-600 uppercase tracking-widest hover:text-black mr-3">Cancel</button>` : ''}
                     <button onclick="_prDeleteSectionEntry(${e.id},${sectionId})" class="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-700">Delete</button>
                   </td>
@@ -18300,17 +18307,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // just need the one currently open.
   let _prSEntryMode = 'emi';
 
-  function _prOpenSectionEntryForm(sectionId) {
+  // entryId omitted/null opens this as "Add Entry"; passing an id (from the
+  // Edit button in _prSelectSection's table) opens it pre-filled for that
+  // entry instead — see update_section_entry for what's actually editable.
+  function _prOpenSectionEntryForm(sectionId, entryId) {
+    const entry = entryId != null ? _prCurrentSectionEntries.find(e => e.id === entryId) : null;
     document.getElementById('prSEntrySectionId').value = sectionId;
-    document.getElementById('prSEntryPersonSelect').value = '';
-    document.getElementById('prSEntryPersonSearch').value = '';
-    document.getElementById('prSEntryTotal').value = '';
-    document.getElementById('prSEntryEmiAmount').value = '';
-    document.getElementById('prSEntryEmiMonths').value = '';
+    document.getElementById('prSEntryEditId').value = entry ? entry.id : '';
+    document.getElementById('prSEntryFormTitle').textContent = entry ? 'Edit Entry' : 'Add Entry';
+    document.getElementById('prSEntrySaveBtn').textContent = entry ? 'Save Changes' : 'Add Entry';
+    document.getElementById('prSEntryPersonSelect').value = entry ? entry.user_id : '';
+    document.getElementById('prSEntryPersonSearch').value = entry ? staffLabel(entry.user_id) : '';
+    document.getElementById('prSEntryPersonSearch').disabled = !!entry; // who an entry belongs to isn't editable — add a new entry instead to reassign
+    document.getElementById('prSEntryTotal').value = entry && entry.total_amount != null ? entry.total_amount : '';
+    document.getElementById('prSEntryEmiAmount').value = entry && entry.emi_amount != null && entry.mode === 'emi' ? entry.emi_amount : '';
+    document.getElementById('prSEntryEmiMonths').value = entry && entry.emi_months != null ? entry.emi_months : '';
     document.getElementById('prSEntryAlreadyPaid').value = '';
-    document.getElementById('prSEntryFlatAmount').value = '';
-    document.getElementById('prSEntryUnitCount').value = '';
-    document.getElementById('prSEntryNote').value = '';
+    document.getElementById('prSEntryFlatAmount').value = entry && entry.emi_amount != null && entry.mode !== 'emi' ? entry.emi_amount : '';
+    document.getElementById('prSEntryUnitCount').value = entry && entry.unit_count != null ? entry.unit_count : '';
+    document.getElementById('prSEntryNote').value = entry ? (entry.note || '') : '';
     document.getElementById('prSEntryEmiNote').textContent = '';
     _prSEntryEmiDriver = null;
 
@@ -18329,7 +18344,31 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       document.getElementById('prSEntryUnitLabel').innerHTML = `Number of ${_escHtml(section.unit_plural || 'Units')} <span class="text-red-500">*</span>`;
       document.getElementById('prSEntryUnitHint').textContent = `Counted at Tk.${section.unit_rate}/${(section.unit_singular || 'unit').toLowerCase()}, up to ${section.unit_max} — recalculates automatically if that rate or cap ever changes.`;
     } else {
-      _prSetSectionEntryMode('emi');
+      _prSetSectionEntryMode(entry ? entry.mode : 'emi');
+    }
+
+    // Payment Style itself never changes on an existing entry (EMI vs.
+    // Recurring are structurally different rows) — cancel and add a new
+    // one instead. An 'emi'/'one_time' entry that already has a payment
+    // recorded (a run has been finalized against it) can't have its
+    // amount safely redefined either — see update_section_entry — so those
+    // inputs lock too, leaving only the Note editable. A per_unit or plain
+    // Recurring entry has no such history to protect, so its one amount
+    // input always stays editable.
+    ['prSEntryModeBtn-emi', 'prSEntryModeBtn-one_time', 'prSEntryModeBtn-recurring'].forEach(id => {
+      const btn = document.getElementById(id);
+      if (btn) btn.disabled = !!entry;
+    });
+    const touched = !!entry && !isPerUnit && entry.mode !== 'recurring' &&
+      !(Number(entry.paid_installments) === 0 && Number(entry.remaining_amount) === Number(entry.total_amount));
+    ['prSEntryTotal', 'prSEntryEmiAmount', 'prSEntryEmiMonths', 'prSEntryAlreadyPaid', 'prSEntryFlatAmount'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.disabled = touched;
+    });
+    if (touched) document.getElementById('prSEntryEmiNote').textContent = 'This entry already has a payment recorded — only the note can be edited here. Cancel it and add a new one to change the amount.';
+
+    if (entry) {
+      document.getElementById('prSectionEntryFormModal').classList.remove('hidden');
+      return;
     }
     _ensureStaffCache(() => {
       _wireSearchCombo('prSEntryPersonSearch', 'prSEntryPersonSelect', 'prSEntryPersonDropdown',
@@ -18416,37 +18455,53 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function _prSaveSectionEntry() {
     const section_id = document.getElementById('prSEntrySectionId').value;
+    const editId = document.getElementById('prSEntryEditId').value;
+    const isEdit = editId !== '';
     const user_id = document.getElementById('prSEntryPersonSelect').value;
     const note = document.getElementById('prSEntryNote').value.trim();
-    if (!user_id) { showToast('Person is required', 'error'); return; }
+    if (!isEdit && !user_id) { showToast('Person is required', 'error'); return; }
+    const action = isEdit ? 'update_section_entry' : 'add_section_entry';
+    const submit = payload => {
+      _payrollFetch(action, payload).then(res => {
+        if (res && res.result === 'success') { showToast(isEdit ? 'Entry saved' : 'Entry added'); _prCloseSectionEntryForm(); _prSelectSection(Number(section_id)); }
+        else showToast((res && res.message) || 'Failed to save', 'error');
+      }).catch(err => showToast(err.message || 'Failed to save', 'error'));
+    };
+
     const section = _prSectionsCache.find(s => s.id === Number(section_id));
     if (section && section.calc_style === 'per_unit') {
       const unit_count = document.getElementById('prSEntryUnitCount').value;
       if (unit_count === '') { showToast(`Number of ${(section.unit_plural || 'units').toLowerCase()} is required`, 'error'); return; }
-      _payrollFetch('add_section_entry', { section_id, user_id, unit_count, note }).then(res => {
-        if (res && res.result === 'success') { showToast('Entry added'); _prCloseSectionEntryForm(); _prSelectSection(Number(section_id)); }
-        else showToast((res && res.message) || 'Failed to add', 'error');
-      }).catch(err => showToast(err.message || 'Failed to add', 'error'));
+      submit(isEdit ? { id: editId, unit_count, note } : { section_id, user_id, unit_count, note });
       return;
     }
-    const payload = { section_id, user_id, mode: _prSEntryMode, note };
+
+    const payload = isEdit ? { id: editId, note } : { section_id, user_id, mode: _prSEntryMode, note };
     if (_prSEntryMode === 'emi') {
-      const total_amount = document.getElementById('prSEntryTotal').value;
-      const emi_amount = document.getElementById('prSEntryEmiAmount').value;
-      const emi_months = document.getElementById('prSEntryEmiMonths').value;
-      const already_paid = document.getElementById('prSEntryAlreadyPaid').value;
-      if (!total_amount) { showToast('Total amount is required', 'error'); return; }
-      if (!emi_amount && !emi_months) { showToast('Set either a fixed EMI amount or EMI months', 'error'); return; }
-      Object.assign(payload, { total_amount, emi_amount, emi_months, already_paid });
+      const totalEl = document.getElementById('prSEntryTotal');
+      // Disabled means this entry already has a payment recorded — see
+      // _prOpenSectionEntryForm/update_section_entry — so the amount
+      // fields are left out of the payload entirely rather than sent
+      // unchanged, which is what tells the backend this is a note-only
+      // edit and not an (otherwise refused) attempt to redefine the loan.
+      if (!totalEl.disabled) {
+        const total_amount = totalEl.value;
+        const emi_amount = document.getElementById('prSEntryEmiAmount').value;
+        const emi_months = document.getElementById('prSEntryEmiMonths').value;
+        const already_paid = document.getElementById('prSEntryAlreadyPaid').value;
+        if (!total_amount) { showToast('Total amount is required', 'error'); return; }
+        if (!emi_amount && !emi_months) { showToast('Set either a fixed EMI amount or EMI months', 'error'); return; }
+        Object.assign(payload, { total_amount, emi_amount, emi_months, already_paid });
+      }
     } else {
-      const amount = document.getElementById('prSEntryFlatAmount').value;
-      if (!amount) { showToast('Amount is required', 'error'); return; }
-      payload.amount = amount;
+      const amountEl = document.getElementById('prSEntryFlatAmount');
+      if (!isEdit || !amountEl.disabled) {
+        const amount = amountEl.value;
+        if (!amount) { showToast('Amount is required', 'error'); return; }
+        payload.amount = amount;
+      }
     }
-    _payrollFetch('add_section_entry', payload).then(res => {
-      if (res && res.result === 'success') { showToast('Entry added'); _prCloseSectionEntryForm(); _prSelectSection(Number(section_id)); }
-      else showToast((res && res.message) || 'Failed to add', 'error');
-    }).catch(err => showToast(err.message || 'Failed to add', 'error'));
+    submit(payload);
   }
 
   function _prUpdateSectionEntryStatus(id, status, sectionId) {

@@ -1174,6 +1174,9 @@ button { user-select: none; }
 }
 .pr-sentry-mode-btn:hover { background: #f8fafc; }
 .pr-sentry-mode-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+.pr-sentry-mode-btn:disabled { cursor: not-allowed; opacity: 0.55; }
+.pr-sentry-mode-btn:disabled:hover { background: #fff; }
+.pr-sentry-mode-btn.active:disabled:hover { background: #2563eb; }
 
 #bus-sidebar {
   position: absolute; z-index: 900;

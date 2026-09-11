@@ -511,6 +511,35 @@ function _computePayslipForPerson(personSetup, roles, category, ref, month, year
   };
 }
 
+// Shared by add_section_entry and update_section_entry — an EMI entry's
+// stored fields, given a total, an optional fixed rate/months, and how
+// many installments were already paid before this entry existed (or, on
+// an edit, is being redefined) in this system. See add_section_entry for
+// why "Installments Already Paid" backs remaining_amount down to match.
+function _computeEmiEntryFields(payload) {
+  const { total_amount, emi_amount, emi_months } = payload;
+  if (!total_amount) return { error: 'Total amount is required' };
+  if (!emi_amount && !emi_months) return { error: 'Set either a fixed EMI amount or a number of EMI months' };
+  const totalNum = Number(total_amount);
+  const emiAmountNum = emi_amount ? Number(emi_amount) : null;
+  const emiMonthsNum = emi_months ? Number(emi_months) : null;
+  const emiRate = emiAmountNum != null ? emiAmountNum : (totalNum / (emiMonthsNum || 1));
+  const monthsTotal = emiMonthsNum || (emiRate ? Math.round(totalNum / emiRate) : 0);
+  // Clamped to the loan's own span — an accidental "20 already paid" on a
+  // 12-month loan would otherwise show as a nonsensical "20 of 12" in
+  // loan-statement remarks, on top of never actually reaching remaining
+  // <= 0 via that overshoot (Math.max(0, ...) below stops the balance
+  // itself from going negative either way).
+  const alreadyPaid = Math.max(0, Math.min(Math.floor(Number(payload.already_paid) || 0), monthsTotal || Infinity));
+  const remaining = Math.max(0, Math.round((totalNum - alreadyPaid * emiRate) * 100) / 100);
+  const fields = {
+    total_amount: totalNum, emi_amount: emiAmountNum, emi_months: emiMonthsNum,
+    remaining_amount: remaining, paid_installments: alreadyPaid,
+  };
+  if (remaining <= 0) fields.status = 'completed';
+  return { fields };
+}
+
 // Fetches every table the engine needs, once, for a given set of user ids + period.
 async function _loadPayrollRef(userIds, month, year) {
   const [fields, gradeFields, gradeConditional, roleDefaults, statutoryItemsRaw, sections, sectionEntriesRaw, bonusesRaw, personFieldValuesRaw, applicableRolesRaw, conditionRulesRaw, leaveDeductionsRaw, applicableCategoriesRaw, busFareEntriesRaw, busStoppagesRaw, gradeStepValuesRaw] = await Promise.all([
@@ -2124,12 +2153,6 @@ export async function POST(req) {
     // itself, not a per-entry choice — see save_section.
     let rowData = { section_id, user_id: personId, mode, note: note || null, paid_installments: 0, unit_count: null };
     if (mode === 'emi') {
-      const { total_amount, emi_amount, emi_months } = payload;
-      if (!total_amount) return NextResponse.json({ result: 'error', message: 'Total amount is required' }, { status: 400 });
-      if (!emi_amount && !emi_months) return NextResponse.json({ result: 'error', message: 'Set either a fixed EMI amount or a number of EMI months' }, { status: 400 });
-      const totalNum = Number(total_amount);
-      const emiAmountNum = emi_amount ? Number(emi_amount) : null;
-      const emiMonthsNum = emi_months ? Number(emi_months) : null;
       // An EMI can be set up mid-flight for a loan that already had some
       // installments paid before it existed in this system (migrating from
       // paper records, or adopted partway through) — "Installments Already
@@ -2137,23 +2160,9 @@ export async function POST(req) {
       // same flat per-month rate _computePayslipForPerson derives (fixed
       // emi_amount if set, else total/emi_months), so the balance and
       // eventual completion land on the correct month either way.
-      const emiRate = emiAmountNum != null ? emiAmountNum : (totalNum / (emiMonthsNum || 1));
-      const monthsTotal = emiMonthsNum || (emiRate ? Math.round(totalNum / emiRate) : 0);
-      // Clamped to the loan's own span — an accidental "20 already paid" on
-      // a 12-month loan would otherwise show as a nonsensical "20 of 12" in
-      // loan-statement remarks, on top of never actually reaching remaining
-      // <= 0 via that overshoot (it's the Math.max(0, ...) below that
-      // stops the balance itself from going negative either way).
-      const alreadyPaid = Math.max(0, Math.min(Math.floor(Number(payload.already_paid) || 0), monthsTotal || Infinity));
-      const remaining = Math.max(0, Math.round((totalNum - alreadyPaid * emiRate) * 100) / 100);
-      rowData = {
-        ...rowData, total_amount: totalNum,
-        emi_amount: emiAmountNum,
-        emi_months: emiMonthsNum,
-        remaining_amount: remaining,
-        paid_installments: alreadyPaid,
-      };
-      if (remaining <= 0) rowData.status = 'completed';
+      const computed = _computeEmiEntryFields(payload);
+      if (computed.error) return NextResponse.json({ result: 'error', message: computed.error }, { status: 400 });
+      Object.assign(rowData, computed.fields);
     } else if (mode === 'one_time') {
       // Applies to exactly the next payroll calculation, then stops — built
       // as an EMI whose total equals one installment, so it reuses the
@@ -2178,6 +2187,71 @@ export async function POST(req) {
     const savedRow = Array.isArray(saved) ? saved[0] : saved;
     _prAudit(user_id, 'add_section_entry', 'section_entries', savedRow?.id, rowData);
     return NextResponse.json({ result: 'success', entry: savedRow });
+  }
+
+  // Corrects an existing entry rather than deleting and re-adding it (which
+  // would lose its note/history and, worse, its running paid_installments
+  // count). What's editable depends on the entry's shape:
+  //   - a 'per_unit' entry (see save_section) is always safe to fully edit
+  //     — the amount is computed fresh every run from the section's own
+  //     rate/cap, never stored, so there's no history to disturb.
+  //   - a 'recurring' (amount-style) entry has no total/remaining
+  //     bookkeeping either — its flat monthly amount is safe to change.
+  //   - an 'emi'/'one_time' entry can only be fully redefined while still
+  //     untouched (no run has been finalized against it yet — remaining_
+  //     amount still equals total_amount and paid_installments is 0).
+  //     Once a run has been finalized, its total/rate are refused rather
+  //     than silently reinterpreted; the admin cancels it and adds a fresh
+  //     entry instead, the same way a mid-flight policy change would.
+  if (action === 'update_section_entry') {
+    const { id, note } = payload;
+    if (!id) return NextResponse.json({ result: 'error', message: 'id required' }, { status: 400 });
+    const entryRows = await sbPayroll(`section_entries?id=eq.${encodeURIComponent(id)}&select=*`);
+    const entry = Array.isArray(entryRows) && entryRows[0];
+    if (!entry) return NextResponse.json({ result: 'error', message: 'Entry not found' }, { status: 404 });
+    const sectionRows = await sbPayroll(`sections?id=eq.${encodeURIComponent(entry.section_id)}&select=*`);
+    const section = Array.isArray(sectionRows) && sectionRows[0];
+
+    let rowData = { note: note !== undefined ? (note || null) : entry.note };
+
+    if (section && section.calc_style === 'per_unit') {
+      const unitCount = Math.max(0, Math.floor(Number(payload.unit_count)));
+      if (!Number.isFinite(unitCount) || payload.unit_count === '' || payload.unit_count == null) {
+        return NextResponse.json({ result: 'error', message: 'A count is required' }, { status: 400 });
+      }
+      rowData.unit_count = unitCount;
+    } else if (entry.mode === 'recurring') {
+      const amount = Number(payload.amount);
+      if (!amount) return NextResponse.json({ result: 'error', message: 'Amount is required' }, { status: 400 });
+      rowData.emi_amount = amount;
+    } else {
+      // Sending an amount field at all means the admin is trying to
+      // redefine the loan itself — only safe while still untouched.
+      // Omitting them (editing just the Note, which the frontend disables
+      // these inputs for anyway once touched) is always fine regardless
+      // of payment history.
+      const wantsAmountChange = entry.mode === 'emi' ? payload.total_amount !== undefined : payload.amount !== undefined;
+      if (wantsAmountChange) {
+        const untouched = Number(entry.paid_installments) === 0 && Number(entry.remaining_amount) === Number(entry.total_amount);
+        if (!untouched) {
+          return NextResponse.json({ result: 'error', message: 'This entry already has a payment recorded against it — cancel it and add a new one instead of changing the amount.' }, { status: 400 });
+        }
+      }
+      if (entry.mode === 'emi' && wantsAmountChange) {
+        const computed = _computeEmiEntryFields(payload);
+        if (computed.error) return NextResponse.json({ result: 'error', message: computed.error }, { status: 400 });
+        Object.assign(rowData, computed.fields);
+      } else if (entry.mode !== 'emi' && wantsAmountChange) { // one_time
+        const amount = Number(payload.amount);
+        if (!amount) return NextResponse.json({ result: 'error', message: 'Amount is required' }, { status: 400 });
+        Object.assign(rowData, { total_amount: amount, emi_amount: amount, emi_months: 1, remaining_amount: amount });
+      }
+    }
+
+    const saved = await sbPayroll(`section_entries?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData);
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    _prAudit(user_id, 'update_section_entry', 'section_entries', id, rowData);
+    return NextResponse.json({ result: 'success' });
   }
 
   if (action === 'update_section_entry_status') {
