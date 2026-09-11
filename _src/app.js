@@ -14213,7 +14213,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </div>
             <div class="flex items-center gap-2">
               <button onclick="_prOpenImportModal('bonus_payments')" class="px-3 py-2 bg-slate-100 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-1.5"><i data-lucide="upload" class="h-3.5 w-3.5"></i>Import</button>
-              <button onclick="_prOpenBonusForm(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Bonus</button>
+              <button onclick="_prOpenAddBonusForm()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Bonus</button>
             </div>
           </div>
           <div class="overflow-auto border border-slate-200 rounded-xl">
@@ -14438,6 +14438,92 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex justify-end gap-2 mt-5">
             <button onclick="_prCloseBonusForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
             <button onclick="_prSaveBonusPayment()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="prAddBonusFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-md max-h-[85vh] overflow-y-auto">
+          <div class="flex items-center justify-between mb-4">
+            <p class="font-black text-slate-800 text-sm">Add Bonus</p>
+            <button onclick="_prCloseAddBonusForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+          </div>
+          <div class="space-y-3">
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Who</label>
+              <div class="grid grid-cols-2 gap-1.5">
+                <button type="button" id="prBonusScopeBtn-one" onclick="_prSetBonusScope('one')" class="pr-sentry-mode-btn">One Person</button>
+                <button type="button" id="prBonusScopeBtn-all" onclick="_prSetBonusScope('all')" class="pr-sentry-mode-btn">Everyone</button>
+              </div>
+            </div>
+            <div id="prBonusPersonWrap" class="relative">
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Person <span class="text-red-500">*</span></label>
+              <input type="text" id="prAddBonusPersonSearch" placeholder="Search by name, designation or ID…" autocomplete="off" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocorrect="off" autocapitalize="off" spellcheck="false">
+              <input type="hidden" id="prAddBonusPersonSelect">
+              <div id="prAddBonusPersonDropdown" class="hidden absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto"></div>
+            </div>
+            <p id="prBonusAllNote" class="hidden text-[10px] text-slate-400 font-bold uppercase tracking-widest">Applies to every active person in Payroll — each gets their own bonus payment row.</p>
+
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Label <span class="text-red-500">*</span></label>
+              <input type="text" id="prAddBonusLabel" placeholder="e.g. Eid Bonus 2026" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            </div>
+
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Amount</label>
+              <div class="grid grid-cols-2 gap-1.5">
+                <button type="button" id="prBonusAmountModeBtn-fixed" onclick="_prSetBonusAmountMode('fixed')" class="pr-sentry-mode-btn">Fixed</button>
+                <button type="button" id="prBonusAmountModeBtn-percent" onclick="_prSetBonusAmountMode('percent')" class="pr-sentry-mode-btn">% of a Field</button>
+              </div>
+            </div>
+            <div id="prBonusFixedFields">
+              <input type="number" id="prAddBonusAmount" placeholder="0" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            </div>
+            <div id="prBonusPercentFields" class="hidden space-y-2">
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Field</label>
+                  <select id="prBonusBaseField" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></select>
+                </div>
+                <div>
+                  <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Percent</label>
+                  <input type="number" id="prBonusPercent" placeholder="e.g. 100" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                </div>
+              </div>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Computed once now, per person, from that field's current value for the chosen month — a snapshot amount, same as Fixed, not a formula that changes later.</p>
+            </div>
+
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Shows Up As</label>
+              <div class="grid grid-cols-2 gap-1.5">
+                <button type="button" id="prBonusMergeModeBtn-new" onclick="_prSetBonusMergeMode('new')" class="pr-sentry-mode-btn">New Column</button>
+                <button type="button" id="prBonusMergeModeBtn-merge" onclick="_prSetBonusMergeMode('merge')" class="pr-sentry-mode-btn">Merge Into a Column</button>
+              </div>
+            </div>
+            <div id="prBonusMergeFields" class="hidden">
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Merge Into</label>
+              <select id="prBonusMergeField" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></select>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Adds this bonus's amount directly into that field's own value instead of showing as its own Bonus line.</p>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Month <span class="text-red-500">*</span></label>
+                <input type="number" id="prAddBonusMonth" min="1" max="12" placeholder="1-12" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              </div>
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Year <span class="text-red-500">*</span></label>
+                <input type="number" id="prAddBonusYear" placeholder="2026" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              </div>
+            </div>
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Note</label>
+              <input type="text" id="prAddBonusNote" placeholder="optional" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            </div>
+          </div>
+          <div class="flex justify-end gap-2 mt-5">
+            <button onclick="_prCloseAddBonusForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
+            <button onclick="_prSaveBulkBonus()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Add Bonus</button>
           </div>
         </div>
       </div>
@@ -17732,6 +17818,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _ensureStaffCache(() => {
       _wireSearchCombo('prBonusPersonSearch', 'prBonusPersonSelect', 'prBonusPersonDropdown',
         allStaffCache.map(s => ({ value: s.teacher_id, label: s.full_name || s.teacher_id, sub: [s.designation, s.teacher_id].filter(Boolean).join(' · ') })));
+      _wireSearchCombo('prAddBonusPersonSearch', 'prAddBonusPersonSelect', 'prAddBonusPersonDropdown',
+        allStaffCache.map(s => ({ value: s.teacher_id, label: s.full_name || s.teacher_id, sub: [s.designation, s.teacher_id].filter(Boolean).join(' · ') })));
     });
     _payrollFetch('get_bonus_payments', {}).then(res => {
       _prBonusCache = (res && res.result === 'success' && res.payments) || [];
@@ -17748,10 +17836,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }
     tbody.innerHTML = _prBonusCache.map(b => {
       const label = staffLabel(b.user_id);
+      // Both are informational (the amount is already a snapshot either
+      // way) -- just so it's auditable later where a number came from.
+      const percentNote = b.amount_mode === 'percent' ? `<br><span class="text-[9px] font-black text-slate-400 uppercase">${b.percent}% of ${_prAutoRemarkFieldLabel(b.base_field_key)}</span>` : '';
+      const mergeNote = b.merge_field_key ? `<br><span class="text-[9px] font-black text-indigo-500 uppercase">→ ${_prAutoRemarkFieldLabel(b.merge_field_key)}</span>` : '';
       return `<tr class="border-b border-slate-50">
         <td class="py-1.5 px-3 font-black text-slate-800">${label !== b.user_id ? label : b.user_id}</td>
-        <td class="py-1.5 px-3">${b.label}</td>
-        <td class="py-1.5 px-3">${_prFormatTaka(b.amount)}</td>
+        <td class="py-1.5 px-3">${_escHtml(b.label)}${mergeNote}</td>
+        <td class="py-1.5 px-3">${_prFormatTaka(b.amount)}${percentNote}</td>
         <td class="py-1.5 px-3">${b.month}/${b.year}</td>
         <td class="py-1.5 px-3">${b.status === 'paid' ? '<span class="text-emerald-600 font-black">Paid</span>' : '<span class="text-amber-600 font-black">Pending</span>'}</td>
         <td class="py-1.5 px-3 text-right">
@@ -17792,6 +17884,95 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (res && res.result === 'success') { showToast('Saved'); _prCloseBonusForm(); loadBonusPayments(); }
       else showToast((res && res.message) || 'Failed to save', 'error');
     }).catch(err => showToast(err.message || 'Failed to save', 'error'));
+  }
+
+  // ── Add Bonus: the three choices behind creating a new one (editing an
+  // existing bonus stays the simple form above) — who it applies to, how
+  // the amount is decided, and where it shows up. See add_bulk_bonus.
+  let _prBonusScope = 'one';
+  let _prBonusAmountMode = 'fixed';
+  let _prBonusMergeMode = 'new';
+
+  function _prOpenAddBonusForm() {
+    document.getElementById('prAddBonusPersonSelect').value = '';
+    document.getElementById('prAddBonusPersonSearch').value = '';
+    document.getElementById('prAddBonusLabel').value = '';
+    document.getElementById('prAddBonusAmount').value = '';
+    document.getElementById('prBonusPercent').value = '';
+    document.getElementById('prAddBonusMonth').value = '';
+    document.getElementById('prAddBonusYear').value = new Date().getFullYear();
+    document.getElementById('prAddBonusNote').value = '';
+    _prSetBonusScope('one');
+    _prSetBonusAmountMode('fixed');
+    _prSetBonusMergeMode('new');
+    const populateFieldSelects = () => {
+      const activeFields = _prFieldsCache.filter(f => f.is_active !== false);
+      document.getElementById('prBonusBaseField').innerHTML =
+        '<option value="gross">Gross</option><option value="total_deductions">Total Deductions</option><option value="net">Net</option>' +
+        activeFields.map(f => `<option value="${f.key}">${_escHtml(f.label)} (${f.category === 'deduction' ? 'Deduction' : 'Addition'})</option>`).join('');
+      // Merge target is restricted to Addition fields — merging a bonus
+      // into a Deduction field has no sensible meaning (it would silently
+      // partially offset that deduction rather than pay out anything).
+      document.getElementById('prBonusMergeField').innerHTML =
+        activeFields.filter(f => f.category !== 'deduction').map(f => `<option value="${f.key}">${_escHtml(f.label)}</option>`).join('');
+    };
+    if (_prFieldsCache.length) populateFieldSelects();
+    else _payrollFetch('get_fields', {}).then(res => { _prFieldsCache = (res && res.result === 'success' && res.fields) || []; populateFieldSelects(); });
+    document.getElementById('prAddBonusFormModal').classList.remove('hidden');
+  }
+  function _prCloseAddBonusForm() { document.getElementById('prAddBonusFormModal').classList.add('hidden'); }
+
+  function _prSetBonusScope(scope) {
+    _prBonusScope = scope;
+    ['one', 'all'].forEach(s => { const btn = document.getElementById('prBonusScopeBtn-' + s); if (btn) btn.classList.toggle('active', s === scope); });
+    document.getElementById('prBonusPersonWrap').classList.toggle('hidden', scope === 'all');
+    document.getElementById('prBonusAllNote').classList.toggle('hidden', scope !== 'all');
+  }
+
+  function _prSetBonusAmountMode(mode) {
+    _prBonusAmountMode = mode;
+    ['fixed', 'percent'].forEach(m => { const btn = document.getElementById('prBonusAmountModeBtn-' + m); if (btn) btn.classList.toggle('active', m === mode); });
+    document.getElementById('prBonusFixedFields').classList.toggle('hidden', mode !== 'fixed');
+    document.getElementById('prBonusPercentFields').classList.toggle('hidden', mode === 'fixed');
+  }
+
+  function _prSetBonusMergeMode(mode) {
+    _prBonusMergeMode = mode;
+    ['new', 'merge'].forEach(m => { const btn = document.getElementById('prBonusMergeModeBtn-' + m); if (btn) btn.classList.toggle('active', m === mode); });
+    document.getElementById('prBonusMergeFields').classList.toggle('hidden', mode !== 'merge');
+  }
+
+  function _prSaveBulkBonus() {
+    const label = document.getElementById('prAddBonusLabel').value.trim();
+    const month = document.getElementById('prAddBonusMonth').value;
+    const year = document.getElementById('prAddBonusYear').value;
+    const note = document.getElementById('prAddBonusNote').value.trim();
+    if (!label || !month || !year) { showToast('Label, month and year are required', 'error'); return; }
+    const payload = { scope: _prBonusScope, label, month, year, note, amount_mode: _prBonusAmountMode };
+    if (_prBonusScope === 'one') {
+      const user_id = document.getElementById('prAddBonusPersonSelect').value;
+      if (!user_id) { showToast('Person is required', 'error'); return; }
+      payload.user_id = user_id;
+    }
+    if (_prBonusAmountMode === 'fixed') {
+      const amount = document.getElementById('prAddBonusAmount').value;
+      if (!amount) { showToast('Amount is required', 'error'); return; }
+      payload.amount = amount;
+    } else {
+      const base_field_key = document.getElementById('prBonusBaseField').value;
+      const percent = document.getElementById('prBonusPercent').value;
+      if (!base_field_key || !percent) { showToast('Pick a field and a percentage', 'error'); return; }
+      Object.assign(payload, { base_field_key, percent });
+    }
+    if (_prBonusMergeMode === 'merge') {
+      const merge_field_key = document.getElementById('prBonusMergeField').value;
+      if (!merge_field_key) { showToast('Pick a field to merge into', 'error'); return; }
+      payload.merge_field_key = merge_field_key;
+    }
+    _payrollFetch('add_bulk_bonus', payload).then(res => {
+      if (res && res.result === 'success') { showToast(`${res.count} bonus payment${res.count === 1 ? '' : 's'} added`); _prCloseAddBonusForm(); loadBonusPayments(); }
+      else showToast((res && res.message) || 'Failed to add', 'error');
+    }).catch(err => showToast(err.message || 'Failed to add', 'error'));
   }
 
   function _prDeleteBonusPayment(id) {

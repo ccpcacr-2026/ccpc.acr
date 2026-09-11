@@ -464,9 +464,25 @@ function _computePayslipForPerson(personSetup, roles, category, ref, month, year
     if (section.direction === 'add') gross += amt; else totalDeductions += amt;
   });
 
-  // Pending bonus payments for this exact month/year.
+  // Pending bonus payments for this exact month/year — each one either
+  // folds into the generic Bonus column (fieldValues.bonus_total, the
+  // default) or, when it has a merge_field_key (see save/add_bulk_bonus),
+  // adds directly into that field's OWN resolved value instead, so it
+  // shows up as part of an existing column rather than a separate line.
+  // A merge target may not have been in applicableFields at all (e.g. a
+  // grade-conditional field this person doesn't otherwise qualify for) —
+  // fieldValues[key] simply starts from 0 in that case via the `|| 0`
+  // below, same end result either way.
   let bonusTotal = 0;
-  (ref.bonusesByUser[personSetup.user_id] || []).forEach(b => { bonusTotal += Number(b.amount) || 0; });
+  (ref.bonusesByUser[personSetup.user_id] || []).forEach(b => {
+    const amt = Number(b.amount) || 0;
+    if (b.merge_field_key && fieldsByKey[b.merge_field_key]) {
+      fieldValues[b.merge_field_key] = (fieldValues[b.merge_field_key] || 0) + amt;
+      gross += amt;
+    } else {
+      bonusTotal += amt;
+    }
+  });
   if (bonusTotal) { fieldValues['bonus_total'] = bonusTotal; gross += bonusTotal; }
 
   // Leave/attendance deductions entered for this exact month/year.
@@ -1497,17 +1513,88 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success', payments: rows });
   }
 
+  // Edits an EXISTING bonus payment only — plain label/amount/month/year/
+  // note correction, same shape regardless of how it was originally
+  // created. See add_bulk_bonus for creating new ones (one person or all,
+  // fixed or percent-of-field) — that richer flow only makes sense once,
+  // at creation; editing stays this simple on purpose.
   if (action === 'save_bonus_payment') {
     const { id, user_id: personId, label, amount, month, year, status, note } = payload;
+    if (!id) return NextResponse.json({ result: 'error', message: 'id required' }, { status: 400 });
     if (!personId || !label || !amount || !month || !year) return NextResponse.json({ result: 'error', message: 'Person, label, amount, month and year are required' }, { status: 400 });
     const rowData = { user_id: personId, label, amount: Number(amount), month: Number(month), year: Number(year), status: status || 'pending', note: note || null };
-    const saved = id
-      ? await sbPayroll(`bonus_payments?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
-      : await sbPayroll('bonus_payments', 'POST', rowData);
+    const saved = await sbPayroll(`bonus_payments?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData);
     if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
     const savedRow = Array.isArray(saved) ? saved[0] : saved;
     _prAudit(user_id, 'save_bonus_payment', 'bonus_payments', savedRow?.id, rowData);
     return NextResponse.json({ result: 'success', payment: savedRow });
+  }
+
+  // Creates one or more new bonus payments in one go — the three choices
+  // behind "Add Bonus": who it applies to (scope: 'one' picks a single
+  // person via user_id, 'all' applies to every active person in Payroll),
+  // how the amount is decided (amount_mode: 'fixed' is a flat Taka figure
+  // same for everyone in scope, 'percent' resolves each targeted person's
+  // OWN value of base_field_key for this exact month/year through the same
+  // engine a real payroll run uses, then takes `percent` of it — computed
+  // once now and stored as a plain amount, not a live formula), and where
+  // it shows up (merge_field_key null = the generic Bonus column, set =
+  // folds into that field's own value instead — see
+  // _computePayslipForPerson).
+  if (action === 'add_bulk_bonus') {
+    const { scope, user_id: personId, label, month, year, note, merge_field_key } = payload;
+    const amount_mode = payload.amount_mode === 'percent' ? 'percent' : 'fixed';
+    if (!label || !month || !year) return NextResponse.json({ result: 'error', message: 'Label, month and year are required' }, { status: 400 });
+    if (scope === 'one' && !personId) return NextResponse.json({ result: 'error', message: 'Person is required' }, { status: 400 });
+    if (amount_mode === 'percent' && (!payload.base_field_key || !payload.percent)) {
+      return NextResponse.json({ result: 'error', message: 'Pick a field and a percentage' }, { status: 400 });
+    }
+    if (amount_mode === 'fixed' && !payload.amount) {
+      return NextResponse.json({ result: 'error', message: 'Amount is required' }, { status: 400 });
+    }
+
+    let targetIds;
+    if (scope === 'all') {
+      const peopleRows = await sbPayroll('person_setup?is_active=eq.true&select=user_id');
+      if (peopleRows?.error) return NextResponse.json({ result: 'error', message: peopleRows.error }, { status: 500 });
+      targetIds = (peopleRows || []).map(p => p.user_id);
+    } else {
+      targetIds = [personId];
+    }
+    if (!targetIds.length) return NextResponse.json({ result: 'error', message: 'No one to apply this to' }, { status: 400 });
+
+    const amountByUser = {};
+    if (amount_mode === 'percent') {
+      const idList = targetIds.map(id => encodeURIComponent(id)).join(',');
+      const peopleRows = await sbPayroll(`person_setup?user_id=in.(${idList})&select=*`);
+      if (peopleRows?.error) return NextResponse.json({ result: 'error', message: peopleRows.error }, { status: 500 });
+      const people = peopleRows || [];
+      const [roles, categories, ref] = await Promise.all([
+        _rolesForUsers(people.map(p => p.user_id)),
+        _categoriesForUsers(people.map(p => p.user_id)),
+        _loadPayrollRef(people.map(p => p.user_id), month, year),
+      ]);
+      people.forEach(p => {
+        const slip = _computePayslipForPerson(p, roles[p.user_id] || [], categories[p.user_id] || '', ref, Number(month), Number(year));
+        const baseVal = Number(slip.field_values[payload.base_field_key]) || 0;
+        amountByUser[p.user_id] = Math.round(baseVal * (Number(payload.percent) / 100) * 100) / 100;
+      });
+    } else {
+      targetIds.forEach(id => { amountByUser[id] = Number(payload.amount); });
+    }
+
+    const rowsToInsert = targetIds.filter(id => amountByUser[id] != null).map(id => ({
+      user_id: id, label, amount: amountByUser[id], month: Number(month), year: Number(year),
+      status: 'pending', note: note || null, amount_mode,
+      base_field_key: amount_mode === 'percent' ? payload.base_field_key : null,
+      percent: amount_mode === 'percent' ? Number(payload.percent) : null,
+      merge_field_key: merge_field_key || null,
+    }));
+    if (!rowsToInsert.length) return NextResponse.json({ result: 'error', message: 'Nothing to create' }, { status: 400 });
+    const saved = await sbPayroll('bonus_payments', 'POST', rowsToInsert);
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    _prAudit(user_id, 'add_bulk_bonus', 'bonus_payments', null, { scope, label, month, year, count: rowsToInsert.length });
+    return NextResponse.json({ result: 'success', count: Array.isArray(saved) ? saved.length : rowsToInsert.length });
   }
 
   if (action === 'delete_bonus_payment') {

@@ -67,6 +67,7 @@ const RESERVED = [
   '_prSelectPerson','_prSavePersonSetup','_prSavePersonFieldOverride',
   '_prOpenStatutoryForm','_prCloseStatutoryForm','_prToggleStatutoryCalcFields','_prToggleStatutoryEmployerFields','_prSaveStatutoryItem','_prDeleteStatutoryItem',
   '_prOpenBonusForm','_prCloseBonusForm','_prSaveBonusPayment','_prDeleteBonusPayment',
+  '_prOpenAddBonusForm','_prCloseAddBonusForm','_prSetBonusScope','_prSetBonusAmountMode','_prSetBonusMergeMode','_prSaveBulkBonus',
   '_prOpenLeaveForm','_prCloseLeaveForm','_prSaveLeaveDeduction','_prDeleteLeaveDeduction','loadMyPayslipsView',
   '_prOpenStoppageForm','_prCloseStoppageForm','_prSaveStoppage','_prDeleteStoppage',
   '_prOpenBusFareForm','_prCloseBusFareForm','_prSaveBusFareEntry','_prDeleteBusFareEntry',
