@@ -19743,65 +19743,111 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       // group row above it, row 1 when there is.
       const labelHeadRow = hasAnyGroup ? 1 : 0;
 
+      // A column whose value is meaningful to add up — everything else
+      // (Name, Designation, Grade, Step, Join Date, a Text virtual column)
+      // gets blanked in the C.F./Sub Total rows instead of a nonsense sum.
+      const isSummable = c => c.type === 'field' || (c.type === 'virtual' && (c.vtype === 'sum' || c.vtype === 'diff')) ||
+        (c.type === 'base' && !['person', 'designation', 'grade', 'step', 'joining_date'].includes(c.key));
+      const firstLabelCol = data.cols.findIndex(c => !isSummable(c));
+      const sumChunk = rows => data.cols.map((c, ci) => isSummable(c) ? rows.reduce((a, r) => a + (Number(r[ci]) || 0), 0) : '');
+      const buildTotalRow = (rows, label) => {
+        const row = sumChunk(rows);
+        if (firstLabelCol >= 0) row[firstLabelCol] = label;
+        return row;
+      };
+      // Rough available body height per page, in mm — used only to decide
+      // a safe row count per page; deliberately conservative (a rotated
+      // header eats much more vertical space than a flat one).
+      const pageH = doc.internal.pageSize.getHeight();
+      const headerRowsMm = (hasAnyGroup ? 8 : 0) + (hasRotatedHeaders ? 36 : 8);
+      const dataRowMm = hasRotatedData ? 20 : 6;
+      const rowsPerPage = Math.max(5, Math.floor((pageH - 18 - 14 - headerRowsMm) / dataRowMm));
+
       data.groups.forEach((g, gi) => {
-        if (gi > 0) doc.addPage();
-        doc.setFontSize(12);
-        doc.text(`Payroll — ${periodLabel}${g.name ? ' — ' + g.name : ''}`, 14, 12);
-        doc.autoTable({
-          startY: 18,
-          head,
-          body: g.rows,
-          styles: { fontSize: 8, lineWidth: gridMm, lineColor: [203, 213, 225] },
-          headStyles: Object.assign({ halign: 'center' }, hasRotatedHeaders ? { minCellHeight: 36, valign: 'middle' } : {}),
-          bodyStyles: hasRotatedData ? { minCellHeight: 20, valign: 'middle', halign: 'center' } : {},
-          columnStyles,
-          didParseCell: hook => {
-            if (hook.section === 'head' && hook.row.index !== labelHeadRow) return; // the group super-header row — already styled inline above
-            const col = data.cols[hook.column.index];
-            if (!col) return;
-            if (hook.section === 'head') {
-              if (col.headerBold && col.headerItalic) hook.cell.styles.fontStyle = 'bolditalic';
-              else if (col.headerBold) hook.cell.styles.fontStyle = 'bold';
-              else if (col.headerItalic) hook.cell.styles.fontStyle = 'italic';
-              if (col.headerColor) hook.cell.styles.textColor = _prHexToRgbArr(col.headerColor);
-              if (col.headerBg) hook.cell.styles.fillColor = _prHexToRgbArr(col.headerBg);
-              hook.cell.styles.halign = col.headerAlign || 'center';
-              if (hook.row.index === 0) hook.cell.styles.lineWidth = { top: topMm, right: gridMm, bottom: gridMm, left: gridMm };
-              if (col.headerRotation) hook.cell.text = []; // suppress default draw — didDrawCell below draws it rotated instead
-              return;
-            }
-            const isTextVirtual = col.type === 'virtual' && col.vtype === 'text';
-            if (col.bold && col.italic) hook.cell.styles.fontStyle = 'bolditalic';
-            else if (col.bold) hook.cell.styles.fontStyle = 'bold';
-            else if (col.italic) hook.cell.styles.fontStyle = 'italic';
-            if (col.color) hook.cell.styles.textColor = _prHexToRgbArr(col.color);
-            if (_prExportRowDesign.zebra && hook.row.index % 2 === 1) hook.cell.styles.fillColor = _prHexToRgbArr(_prExportRowDesign.zebraColor || '#f1f5f9');
-            if (hook.row.index === g.rows.length - 1) hook.cell.styles.lineWidth = { top: gridMm, right: gridMm, bottom: bottomMm, left: gridMm };
-            // A Text virtual column always needs the custom multi-segment
-            // draw below (to show each segment's own style), regardless of
-            // rotation; a plain column only needs it when rotated.
-            if (col.rotation || isTextVirtual) hook.cell.text = [];
-          },
-          didDrawCell: hook => {
-            if (hook.section === 'head' && hook.row.index !== labelHeadRow) return;
-            const col = data.cols[hook.column.index];
-            if (!col) return;
-            const { x, y, width, height } = hook.cell;
-            if (hook.section === 'head') {
-              if (!col.headerRotation) return;
-              doc.text(String(col.label), x + width / 2, y + height / 2, { angle: col.headerRotation, align: 'center', baseline: 'middle' });
-              return;
-            }
-            const isTextVirtual = col.type === 'virtual' && col.vtype === 'text';
-            if (isTextVirtual) {
-              const slip = g.slips[hook.row.index];
-              _prDrawTextSegmentsInCell(doc, col, slip, x, y, width, height, col.align || 'left');
-              return;
-            }
-            if (!col.rotation) return;
-            const raw = g.rows[hook.row.index][hook.column.index];
-            doc.text(String(raw), x + width / 2, y + height / 2, { angle: col.rotation, align: 'center', baseline: 'middle' });
-          },
+        const chunks = [];
+        for (let i = 0; i < g.rows.length; i += rowsPerPage) chunks.push({ rows: g.rows.slice(i, i + rowsPerPage), slips: g.slips.slice(i, i + rowsPerPage), startIndex: i });
+        if (!chunks.length) chunks.push({ rows: [], slips: [], startIndex: 0 });
+
+        chunks.forEach((chunk, ci) => {
+          if (gi > 0 || ci > 0) doc.addPage();
+          doc.setFontSize(12);
+          const pageNote = chunks.length > 1 ? ` — Page ${ci + 1} of ${chunks.length}` : '';
+          doc.text(`Payroll — ${periodLabel}${g.name ? ' — ' + g.name : ''}${pageNote}`, 14, 12);
+
+          // C.F. carries the running sum of every row on every PRIOR page
+          // of this same group — the ledger convention seen in the actual
+          // source sheets (a literal "CF" row at each page/section break).
+          const priorRows = g.rows.slice(0, chunk.startIndex);
+          const cfRowIndex = ci > 0 ? 0 : -1;
+          const body = [
+            ...(ci > 0 ? [buildTotalRow(priorRows, 'C.F.')] : []),
+            ...chunk.rows,
+            buildTotalRow(chunk.rows, 'Sub Total'),
+          ];
+          const subTotalRowIndex = body.length - 1;
+          const isSyntheticRow = idx => idx === cfRowIndex || idx === subTotalRowIndex;
+          // Maps a body row index back to its slip for the rich Text-column
+          // draw below — synthetic rows have none.
+          const slipForBodyRow = idx => (idx === cfRowIndex || idx === subTotalRowIndex) ? null : chunk.slips[idx - (ci > 0 ? 1 : 0)];
+          const rawRowForBodyRow = idx => body[idx];
+
+          doc.autoTable({
+            startY: 18,
+            head,
+            body,
+            styles: { fontSize: 8, lineWidth: gridMm, lineColor: [203, 213, 225] },
+            headStyles: Object.assign({ halign: 'center' }, hasRotatedHeaders ? { minCellHeight: 36, valign: 'middle' } : {}),
+            bodyStyles: hasRotatedData ? { minCellHeight: 20, valign: 'middle', halign: 'center' } : {},
+            columnStyles,
+            didParseCell: hook => {
+              if (hook.section === 'head' && hook.row.index !== labelHeadRow) return; // the group super-header row — already styled inline above
+              const col = data.cols[hook.column.index];
+              if (!col) return;
+              if (hook.section === 'head') {
+                if (col.headerBold && col.headerItalic) hook.cell.styles.fontStyle = 'bolditalic';
+                else if (col.headerBold) hook.cell.styles.fontStyle = 'bold';
+                else if (col.headerItalic) hook.cell.styles.fontStyle = 'italic';
+                if (col.headerColor) hook.cell.styles.textColor = _prHexToRgbArr(col.headerColor);
+                if (col.headerBg) hook.cell.styles.fillColor = _prHexToRgbArr(col.headerBg);
+                hook.cell.styles.halign = col.headerAlign || 'center';
+                if (hook.row.index === 0) hook.cell.styles.lineWidth = { top: topMm, right: gridMm, bottom: gridMm, left: gridMm };
+                if (col.headerRotation) hook.cell.text = []; // suppress default draw — didDrawCell below draws it rotated instead
+                return;
+              }
+              if (isSyntheticRow(hook.row.index)) { hook.cell.styles.fontStyle = 'bold'; hook.cell.styles.fillColor = [241, 245, 249]; if (hook.row.index === subTotalRowIndex) hook.cell.styles.lineWidth = { top: gridMm, right: gridMm, bottom: bottomMm, left: gridMm }; return; }
+              const isTextVirtual = col.type === 'virtual' && col.vtype === 'text';
+              if (col.bold && col.italic) hook.cell.styles.fontStyle = 'bolditalic';
+              else if (col.bold) hook.cell.styles.fontStyle = 'bold';
+              else if (col.italic) hook.cell.styles.fontStyle = 'italic';
+              if (col.color) hook.cell.styles.textColor = _prHexToRgbArr(col.color);
+              if (_prExportRowDesign.zebra && hook.row.index % 2 === 1) hook.cell.styles.fillColor = _prHexToRgbArr(_prExportRowDesign.zebraColor || '#f1f5f9');
+              // A Text virtual column always needs the custom multi-segment
+              // draw below (to show each segment's own style), regardless of
+              // rotation; a plain column only needs it when rotated.
+              if (col.rotation || isTextVirtual) hook.cell.text = [];
+            },
+            didDrawCell: hook => {
+              if (hook.section === 'head' && hook.row.index !== labelHeadRow) return;
+              const col = data.cols[hook.column.index];
+              if (!col) return;
+              const { x, y, width, height } = hook.cell;
+              if (hook.section === 'head') {
+                if (!col.headerRotation) return;
+                doc.text(String(col.label), x + width / 2, y + height / 2, { angle: col.headerRotation, align: 'center', baseline: 'middle' });
+                return;
+              }
+              if (isSyntheticRow(hook.row.index)) return; // plain bold text, no per-column rich rendering
+              const isTextVirtual = col.type === 'virtual' && col.vtype === 'text';
+              if (isTextVirtual) {
+                const slip = slipForBodyRow(hook.row.index);
+                if (slip) _prDrawTextSegmentsInCell(doc, col, slip, x, y, width, height, col.align || 'left');
+                return;
+              }
+              if (!col.rotation) return;
+              const raw = rawRowForBodyRow(hook.row.index)[hook.column.index];
+              doc.text(String(raw), x + width / 2, y + height / 2, { angle: col.rotation, align: 'center', baseline: 'middle' });
+            },
+          });
         });
       });
       doc.save(`payroll_${run ? PAYROLL_MONTH_NAMES[run.month] + '_' + run.year : 'export'}.pdf`);
