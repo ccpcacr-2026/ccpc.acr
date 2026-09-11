@@ -18467,6 +18467,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (Array.isArray(cfg.columns) && _prExportColumnsCache.length) {
       const savedByKey = {}; cfg.columns.forEach(c => { savedByKey[c.key] = c; });
       _prExportColumnsCache = _prExportColumnsCache.map(c => savedByKey[c.key] ? { ...c, ...savedByKey[c.key], key: c.key } : { ...c, included: false });
+      // The map above restores every saved PROPERTY by key but leaves the
+      // array in whatever order it already had (today's run's default
+      // sheet order) — a column dragged to a new position and saved in a
+      // template would silently snap back to that default order every
+      // time the template got reapplied. Re-sort to the template's own
+      // saved sequence instead; anything not in the saved template (a
+      // field added to the run since) sinks to the end, in the order the
+      // stable sort already had it.
+      const savedOrder = cfg.columns.map(c => c.key);
+      _prExportColumnsCache.sort((a, b) => {
+        const ai = savedOrder.indexOf(a.key), bi = savedOrder.indexOf(b.key);
+        if (ai === -1 && bi === -1) return 0;
+        if (ai === -1) return 1;
+        if (bi === -1) return -1;
+        return ai - bi;
+      });
       // Virtual columns aren't part of the run's own field list — carry them over as-is.
       const currentKeys = new Set(_prExportColumnsCache.map(c => c.key));
       cfg.columns.filter(c => c.type === 'virtual' && !currentKeys.has(c.key)).forEach(c => _prExportColumnsCache.push(c));
