@@ -19543,6 +19543,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const source = _prExportColumnsCache.find(c => c.key === sourceKey);
     if (!source || !source.foldedInto) return;
     const target = _prExportColumnsCache.find(c => c.key === source.foldedInto);
+    if (!window.confirm(`Bring "${source.label}" back as its own column? It'll stop being added into "${target ? target.label : source.foldedInto}", and any remark rules set up for it will be lost.`)) return;
     if (target && target.foldedFrom) target.foldedFrom = target.foldedFrom.filter(e => e.key !== sourceKey);
     source.included = true;
     source.foldedInto = null;
