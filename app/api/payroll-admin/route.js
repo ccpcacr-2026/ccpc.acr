@@ -357,20 +357,24 @@ function _computePayslipForPerson(personSetup, roles, category, ref, month, year
   const gradeId = personSetup?.grade_id || null;
 
   // Active loan/advance/allowance Section entries for this person, split by
-  // whether they're linked to a specific Field. A field-linked entry's
-  // computed amount becomes that field's own resolved value (see
+  // whether their SECTION is linked to a specific Field (the link lives on
+  // the section, picked once — see save_section — and every entry under it
+  // inherits it). A field-linked section's entries have their computed
+  // amount become that field's own resolved value (see
   // ctx.sectionEntryByFieldId / _resolveFieldValue) — direction then comes
   // from the FIELD's own category (deduction = loan repayment, addition =
-  // allowance), not the section's fixed direction. An entry with no
-  // field_id is the older, unattributed style: a lump sum still added
-  // straight onto gross/totalDeductions per the section's own direction.
+  // allowance), not the section's fixed direction. An entry under an
+  // unlinked section is the older, unattributed style: a lump sum still
+  // added straight onto gross/totalDeductions per the section's own
+  // direction.
   const personEntries = ref.sectionEntriesByUser[personSetup.user_id] || [];
   const entryAmountById = {};
   const sectionEntryByFieldId = {};
   personEntries.forEach(entry => {
     const amt = entry.emi_amount != null ? Number(entry.emi_amount) : (Number(entry.total_amount) / (Number(entry.emi_months) || 1));
     entryAmountById[entry.id] = amt;
-    if (entry.field_id) sectionEntryByFieldId[entry.field_id] = amt;
+    const section = ref.sectionsById[entry.section_id];
+    if (section && section.field_id) sectionEntryByFieldId[section.field_id] = amt;
   });
 
   const applicableFields = ref.fields.filter(f => {
@@ -428,16 +432,17 @@ function _computePayslipForPerson(personSetup, roles, category, ref, month, year
 
   // section_amounts is still recorded for EVERY active entry regardless of
   // field-linkage — approve_run/revert_run_to_draft key off it to know how
-  // much to move on/off remaining_amount. Only entries with no field_id add
-  // their amount directly here; field-linked ones were already folded into
-  // gross/totalDeductions via fieldValues above (see sectionEntryByFieldId).
+  // much to move on/off remaining_amount. Only entries under an unlinked
+  // section add their amount directly here; entries under a field-linked
+  // section were already folded into gross/totalDeductions via fieldValues
+  // above (see sectionEntryByFieldId).
   const sectionAmounts = {};
   personEntries.forEach(entry => {
     const section = ref.sectionsById[entry.section_id];
     if (!section) return;
     const amt = entryAmountById[entry.id];
     sectionAmounts[entry.id] = amt;
-    if (entry.field_id) return;
+    if (section.field_id) return;
     if (section.direction === 'add') gross += amt; else totalDeductions += amt;
   });
 
@@ -2006,9 +2011,21 @@ export async function POST(req) {
   }
 
   if (action === 'save_section') {
-    const { id, name, direction } = payload;
+    const { id, name, field_id } = payload;
     if (!name) return NextResponse.json({ result: 'error', message: 'Name is required' }, { status: 400 });
-    const rowData = { name, direction: direction === 'add' ? 'add' : 'deduct' };
+    // Direction is decided in exactly one place: when a Field is linked, it
+    // comes from that field's own category (deduction = loan repayment,
+    // addition = allowance) so every entry under this section inherits it
+    // automatically. Only an unlinked (legacy-style, plain lump-sum) section
+    // falls back to a manually-picked direction.
+    let direction = payload.direction === 'add' ? 'add' : 'deduct';
+    if (field_id) {
+      const fieldRows = await sbPayroll(`fields?id=eq.${encodeURIComponent(field_id)}&select=category`);
+      const field = Array.isArray(fieldRows) && fieldRows[0];
+      if (!field) return NextResponse.json({ result: 'error', message: 'Field not found' }, { status: 400 });
+      direction = field.category === 'deduction' ? 'deduct' : 'add';
+    }
+    const rowData = { name, direction, field_id: field_id || null };
     const saved = id
       ? await sbPayroll(`sections?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
       : await sbPayroll('sections', 'POST', rowData);
@@ -2037,11 +2054,13 @@ export async function POST(req) {
   }
 
   if (action === 'add_section_entry') {
-    const { section_id, user_id: personId, field_id, note } = payload;
+    const { section_id, user_id: personId, note } = payload;
     const mode = ['emi', 'one_time', 'recurring'].includes(payload.mode) ? payload.mode : 'emi';
     if (!section_id || !personId) return NextResponse.json({ result: 'error', message: 'Section and person are required' }, { status: 400 });
 
-    let rowData = { section_id, user_id: personId, field_id: field_id || null, mode, note: note || null };
+    // Which field (if any) this entry counts under comes from the section
+    // itself, not a per-entry choice — see save_section.
+    let rowData = { section_id, user_id: personId, mode, note: note || null };
     if (mode === 'emi') {
       const { total_amount, emi_amount, emi_months } = payload;
       if (!total_amount) return NextResponse.json({ result: 'error', message: 'Total amount is required' }, { status: 400 });
@@ -2130,7 +2149,7 @@ export async function POST(req) {
     const fieldByIdForLines = {}; ref.fields.forEach(f => { fieldByIdForLines[f.id] = f; });
     const sectionLines = (ref.sectionEntriesByUser[personId] || []).map(entry => {
       const section = ref.sectionsById[entry.section_id];
-      const field = entry.field_id ? fieldByIdForLines[entry.field_id] : null;
+      const field = section && section.field_id ? fieldByIdForLines[section.field_id] : null;
       return {
         entry_id: entry.id, section_name: section ? section.name : `Section #${entry.section_id}`,
         field_label: field ? field.label : null,

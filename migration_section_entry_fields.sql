@@ -1,14 +1,19 @@
--- Lets a Section entry (Loan and Advance, etc.) attach to a specific
--- payroll Field instead of just adding/deducting a lump sum — the entry's
--- computed amount then becomes that field's own value for the person (same
--- precedence as a manual person_field_values override), so it shows up
--- under that field's column everywhere (Payroll Export, Acquittance Roll)
--- instead of only ever appearing as an unattributed line in Total
--- Deductions. Direction (add vs deduct) then comes from the field's own
--- category, not the section's fixed direction — a deduction field means
--- "loan repayment," an addition field means "allowance under this section."
+-- Lets a Section (Loan and Advance, etc.) attach to a specific payroll
+-- Field instead of just adding/deducting a lump sum — every entry added
+-- under that section then has its computed amount become that field's own
+-- value for the person (same precedence as a manual person_field_values
+-- override), so it shows up under that field's column everywhere (Payroll
+-- Export, Acquittance Roll) instead of only ever appearing as an
+-- unattributed line in Total Deductions.
 --
--- mode distinguishes three payment shapes:
+-- The field is picked ONCE, on the section itself (not per entry) — a
+-- deduction field means "this section is a loan repayment," an addition
+-- field means "this section is an allowance," and every entry added under
+-- it inherits that automatically. The section's own `direction` is then
+-- derived server-side from the field's category rather than chosen
+-- separately, so direction is only ever decided in one place.
+--
+-- section_entries.mode distinguishes three payment shapes:
 --   'emi'       existing behavior — total_amount spread over
 --               emi_amount/emi_months, auto-completes when paid off.
 --   'one_time'  applies to exactly the next payroll calculation, then
@@ -22,9 +27,18 @@
 --
 -- Run in Supabase SQL editor.
 
-alter table payroll.section_entries add column if not exists field_id bigint references payroll.fields(id) on delete set null;
+alter table payroll.sections add column if not exists field_id bigint references payroll.fields(id) on delete set null;
+
+-- Defensive: an earlier draft of this migration put field_id on
+-- section_entries instead. Drop it there if present, so the link only ever
+-- lives in the one place (the section) the app now reads it from.
+alter table payroll.section_entries drop column if exists field_id;
+
 alter table payroll.section_entries add column if not exists mode text not null default 'emi';
-alter table payroll.section_entries add constraint section_entries_mode_check check (mode in ('emi', 'one_time', 'recurring')) not valid;
+do $$ begin
+  alter table payroll.section_entries add constraint section_entries_mode_check check (mode in ('emi', 'one_time', 'recurring')) not valid;
+exception when duplicate_object then null;
+end $$;
 alter table payroll.section_entries validate constraint section_entries_mode_check;
 alter table payroll.section_entries alter column total_amount drop not null;
 

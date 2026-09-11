@@ -14269,21 +14269,30 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div id="prSectionFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
         <div class="bg-white rounded-2xl p-5 w-full max-w-sm max-h-[85vh] overflow-y-auto">
           <div class="flex items-center justify-between mb-4">
-            <p class="font-black text-slate-800 text-sm">Add Section</p>
+            <p id="prSectionFormTitle" class="font-black text-slate-800 text-sm">Add Section</p>
             <button onclick="_prCloseSectionForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
           </div>
+          <input type="hidden" id="prSectionFormId">
           <div class="space-y-3">
             <div>
               <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Name <span class="text-red-500">*</span></label>
               <input type="text" id="prSectionName" placeholder="e.g. Staff Loan" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
             </div>
             <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Field <span class="font-normal normal-case text-slate-400">(optional)</span></label>
+              <select id="prSectionFieldId" onchange="_prOnSectionFieldChange()" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                <option value="">— Not linked to a field —</option>
+              </select>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Pick a Deduction field to count every entry added here as a loan repayment under that field, or an Addition field to count them as an allowance — every entry inherits it, no need to pick it again per entry. Leave blank to just add/deduct a plain lump sum.</p>
+            </div>
+            <div id="prSectionDirectionWrap">
               <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Direction</label>
               <select id="prSectionDirection" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
                 <option value="deduct">Deduct from salary (loan/advance repayment)</option>
                 <option value="add">Add to salary (recurring extra payment)</option>
               </select>
             </div>
+            <p id="prSectionFieldDirectionNote" class="hidden text-[10px] font-black uppercase tracking-widest"></p>
           </div>
           <div class="flex justify-end gap-2 mt-5">
             <button onclick="_prCloseSectionForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
@@ -14305,13 +14314,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <input type="text" id="prSEntryPersonSearch" placeholder="Search…" autocomplete="off" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocorrect="off" autocapitalize="off" spellcheck="false">
               <input type="hidden" id="prSEntryPersonSelect">
               <div id="prSEntryPersonDropdown" class="hidden absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto"></div>
-            </div>
-            <div>
-              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Field <span class="font-normal normal-case text-slate-400">(optional)</span></label>
-              <select id="prSEntryFieldId" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
-                <option value="">— Not linked to a field —</option>
-              </select>
-              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Pick a Deduction field to count this as a loan repayment under that field, or an Addition field to count it as an allowance. Leave blank to just add/deduct a lump sum, matching this section's own direction.</p>
             </div>
             <div>
               <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Payment Style</label>
@@ -17962,10 +17964,26 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _prSelectedSectionId = null;
 
   function loadPayrollSections() {
-    _payrollFetch('get_sections', {}).then(res => {
+    Promise.all([
+      _payrollFetch('get_sections', {}),
+      _prFieldsCache.length ? Promise.resolve(null) : _payrollFetch('get_fields', {}),
+    ]).then(([res, fieldsRes]) => {
+      if (fieldsRes) _prFieldsCache = (fieldsRes.result === 'success' && fieldsRes.fields) || [];
       _prSectionsCache = (res && res.result === 'success' && res.sections) || [];
       _prRenderSectionsList();
     }).catch(err => showToast(err.message || 'Failed to load sections', 'error'));
+  }
+
+  // A section's field link (picked once on the section itself — see
+  // _prOpenSectionForm/_prSaveSection) decides direction for every entry
+  // under it, so the list shows that instead of a separate direction label.
+  function _prSectionFieldSubtitle(s) {
+    if (s.field_id) {
+      const field = _prFieldsCache.find(f => f.id === s.field_id);
+      const label = field ? field.label : `Field #${s.field_id}`;
+      return `${s.direction === 'add' ? 'Allowance' : 'Loan repayment'} under "${label}"`;
+    }
+    return s.direction === 'add' ? 'Adds to salary' : 'Deducts from salary';
   }
 
   function _prRenderSectionsList() {
@@ -17979,25 +17997,65 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div onclick="_prSelectSection(${s.id})" class="p-2.5 rounded-xl cursor-pointer transition-all flex items-center justify-between group ${_prSelectedSectionId === s.id ? 'bg-blue-600 text-white' : 'bg-slate-50 hover:bg-slate-100 text-slate-700'}">
         <div>
           <p class="font-black text-xs">${s.name}</p>
-          <p class="text-[10px] font-bold ${_prSelectedSectionId === s.id ? 'text-blue-100' : 'text-slate-400'}">${s.direction === 'add' ? 'Adds to salary' : 'Deducts from salary'}</p>
+          <p class="text-[10px] font-bold ${_prSelectedSectionId === s.id ? 'text-blue-100' : 'text-slate-400'}">${_escHtml(_prSectionFieldSubtitle(s))}</p>
         </div>
-        <button onclick="event.stopPropagation(); _prDeleteSection(${s.id})" class="opacity-0 group-hover:opacity-100 transition-opacity ${_prSelectedSectionId === s.id ? 'text-white' : 'text-red-500'}"><i data-lucide="trash-2" class="h-3 w-3"></i></button>
+        <div class="flex items-center gap-2">
+          <button onclick="event.stopPropagation(); _prOpenSectionForm(${s.id})" class="opacity-0 group-hover:opacity-100 transition-opacity ${_prSelectedSectionId === s.id ? 'text-white' : 'text-slate-400 hover:text-slate-700'}"><i data-lucide="pencil" class="h-3 w-3"></i></button>
+          <button onclick="event.stopPropagation(); _prDeleteSection(${s.id})" class="opacity-0 group-hover:opacity-100 transition-opacity ${_prSelectedSectionId === s.id ? 'text-white' : 'text-red-500'}"><i data-lucide="trash-2" class="h-3 w-3"></i></button>
+        </div>
       </div>`).join('');
     lucide.createIcons();
   }
 
-  function _prOpenSectionForm() {
-    document.getElementById('prSectionName').value = '';
-    document.getElementById('prSectionDirection').value = 'deduct';
+  function _prOpenSectionForm(sectionId) {
+    const section = sectionId ? _prSectionsCache.find(s => s.id === sectionId) : null;
+    document.getElementById('prSectionFormTitle').textContent = section ? 'Edit Section' : 'Add Section';
+    document.getElementById('prSectionFormId').value = section ? section.id : '';
+    document.getElementById('prSectionName').value = section ? section.name : '';
+    document.getElementById('prSectionDirection').value = (section && section.direction) || 'deduct';
+    const populateFieldOptions = () => {
+      const sel = document.getElementById('prSectionFieldId');
+      if (!sel) return;
+      sel.innerHTML = '<option value="">— Not linked to a field —</option>' +
+        _prFieldsCache.filter(f => f.is_active !== false).map(f => `<option value="${f.id}">${_escHtml(f.label)} (${f.category === 'deduction' ? 'Deduction — loan repayment' : 'Addition — allowance'})</option>`).join('');
+      sel.value = (section && section.field_id) || '';
+      _prOnSectionFieldChange();
+    };
+    if (_prFieldsCache.length) populateFieldOptions();
+    else _payrollFetch('get_fields', {}).then(res => { _prFieldsCache = (res && res.result === 'success' && res.fields) || []; populateFieldOptions(); });
     document.getElementById('prSectionFormModal').classList.remove('hidden');
   }
   function _prCloseSectionForm() { document.getElementById('prSectionFormModal').classList.add('hidden'); }
 
+  // Direction is decided in exactly one place: when a Field is picked, it's
+  // derived from that field's own category and the manual Direction picker
+  // hides (server re-derives the same thing — see save_section — this is
+  // just so the form doesn't show two contradictory direction controls).
+  function _prOnSectionFieldChange() {
+    const fieldId = document.getElementById('prSectionFieldId').value;
+    const wrap = document.getElementById('prSectionDirectionWrap');
+    const note = document.getElementById('prSectionFieldDirectionNote');
+    if (!fieldId) {
+      if (wrap) wrap.classList.remove('hidden');
+      if (note) note.classList.add('hidden');
+      return;
+    }
+    if (wrap) wrap.classList.add('hidden');
+    const field = _prFieldsCache.find(f => f.id === Number(fieldId));
+    const isDeduction = field && field.category === 'deduction';
+    if (note) {
+      note.textContent = isDeduction ? 'Direction: deducts from salary (loan repayment)' : 'Direction: adds to salary (allowance)';
+      note.className = 'text-[10px] font-black uppercase tracking-widest ' + (isDeduction ? 'text-red-500' : 'text-emerald-600');
+    }
+  }
+
   function _prSaveSection() {
+    const id = document.getElementById('prSectionFormId').value || null;
     const name = document.getElementById('prSectionName').value.trim();
     if (!name) { showToast('Name is required', 'error'); return; }
+    const field_id = document.getElementById('prSectionFieldId').value || null;
     const direction = document.getElementById('prSectionDirection').value;
-    _payrollFetch('save_section', { name, direction }).then(res => {
+    _payrollFetch('save_section', { id, name, field_id, direction }).then(res => {
       if (res && res.result === 'success') { showToast('Section saved'); _prCloseSectionForm(); loadPayrollSections(); }
       else showToast((res && res.message) || 'Failed to save', 'error');
     }).catch(err => showToast(err.message || 'Failed to save', 'error'));
@@ -18026,12 +18084,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _prFieldsCache.length ? Promise.resolve(null) : _payrollFetch('get_fields', {}),
     ]).then(([res, fieldsRes]) => {
       if (fieldsRes) _prFieldsCache = (fieldsRes.result === 'success' && fieldsRes.fields) || [];
-      const fieldById = {}; _prFieldsCache.forEach(f => { fieldById[f.id] = f; });
       const entries = (res && res.result === 'success' && res.entries) || [];
       const MODE_LABEL = { emi: 'EMI', one_time: 'One-Time', recurring: 'Recurring' };
+      // The Field link (if any) lives on the SECTION, not per-entry — every
+      // row below is counted under it the same way — so it's shown once
+      // here instead of repeated in its own column.
       detail.innerHTML = `
         <div class="flex items-center justify-between mb-3">
-          <p class="font-black text-slate-800 text-sm">${section.name} — Entries</p>
+          <div>
+            <p class="font-black text-slate-800 text-sm">${section.name} — Entries</p>
+            <p class="text-[10px] font-bold text-slate-400">${_escHtml(_prSectionFieldSubtitle(section))} <button onclick="_prOpenSectionForm(${sectionId})" class="text-blue-600 hover:text-black uppercase tracking-widest ml-1">Edit</button></p>
+          </div>
           <div class="flex items-center gap-2">
             <button onclick="_prOpenImportModal('section_entries', {section_id: ${sectionId}})" class="px-3 py-2 bg-slate-100 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-1.5"><i data-lucide="upload" class="h-3.5 w-3.5"></i>Import</button>
             <button onclick="_prOpenSectionEntryForm(${sectionId})" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Entry</button>
@@ -18039,17 +18102,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
         <div class="overflow-auto border border-slate-200 rounded-xl">
           <table class="w-full text-left border-collapse text-xs">
-            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Person</th><th class="py-2 px-3">Field</th><th class="py-2 px-3">Style</th><th class="py-2 px-3">Total</th><th class="py-2 px-3">EMI</th><th class="py-2 px-3">Remaining</th><th class="py-2 px-3">Status</th><th class="py-2 px-3 text-right">Actions</th></tr></thead>
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Person</th><th class="py-2 px-3">Style</th><th class="py-2 px-3">Total</th><th class="py-2 px-3">EMI</th><th class="py-2 px-3">Remaining</th><th class="py-2 px-3">Status</th><th class="py-2 px-3 text-right">Actions</th></tr></thead>
             <tbody>
               ${entries.map(e => {
                 const label = staffLabel(e.user_id);
-                const field = e.field_id ? fieldById[e.field_id] : null;
                 const emiLabel = e.emi_amount != null ? `${_prFormatTaka(e.emi_amount)}/mo` : (e.emi_months ? `${e.emi_months} mo` : '—');
                 const statusColor = e.status === 'completed' ? 'text-emerald-600' : e.status === 'cancelled' ? 'text-slate-400' : 'text-amber-600';
                 const isRecurring = e.total_amount == null;
                 return `<tr class="border-b border-slate-50">
                   <td class="py-1.5 px-3 font-black text-slate-700">${label !== e.user_id ? label : e.user_id}</td>
-                  <td class="py-1.5 px-3">${field ? `${_escHtml(field.label)} <span class="text-[9px] font-black uppercase ${field.category === 'deduction' ? 'text-red-500' : 'text-emerald-600'}">${field.category === 'deduction' ? 'repayment' : 'allowance'}</span>` : `<span class="text-slate-400">— (${section.direction === 'add' ? 'adds' : 'deducts'})</span>`}</td>
                   <td class="py-1.5 px-3 text-slate-500 font-bold">${MODE_LABEL[e.mode] || 'EMI'}</td>
                   <td class="py-1.5 px-3">${isRecurring ? '<span class="text-slate-400">—</span>' : _prFormatTaka(e.total_amount)}</td>
                   <td class="py-1.5 px-3">${emiLabel}</td>
@@ -18060,7 +18121,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                     <button onclick="_prDeleteSectionEntry(${e.id},${sectionId})" class="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-700">Delete</button>
                   </td>
                 </tr>`;
-              }).join('') || `<tr><td colspan="8" class="p-3 text-slate-400 font-bold text-xs text-center">No entries yet.</td></tr>`}
+              }).join('') || `<tr><td colspan="7" class="p-3 text-slate-400 font-bold text-xs text-center">No entries yet.</td></tr>`}
             </tbody>
           </table>
         </div>
@@ -18078,21 +18139,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prSEntrySectionId').value = sectionId;
     document.getElementById('prSEntryPersonSelect').value = '';
     document.getElementById('prSEntryPersonSearch').value = '';
-    document.getElementById('prSEntryFieldId').value = '';
     document.getElementById('prSEntryTotal').value = '';
     document.getElementById('prSEntryEmiAmount').value = '';
     document.getElementById('prSEntryEmiMonths').value = '';
     document.getElementById('prSEntryFlatAmount').value = '';
     document.getElementById('prSEntryNote').value = '';
     _prSetSectionEntryMode('emi');
-    const populateFieldOptions = () => {
-      const sel = document.getElementById('prSEntryFieldId');
-      if (!sel) return;
-      sel.innerHTML = '<option value="">— Not linked to a field —</option>' +
-        _prFieldsCache.filter(f => f.is_active !== false).map(f => `<option value="${f.id}">${_escHtml(f.label)} (${f.category === 'deduction' ? 'Deduction — loan repayment' : 'Addition — allowance'})</option>`).join('');
-    };
-    if (_prFieldsCache.length) populateFieldOptions();
-    else _payrollFetch('get_fields', {}).then(res => { _prFieldsCache = (res && res.result === 'success' && res.fields) || []; populateFieldOptions(); });
     _ensureStaffCache(() => {
       _wireSearchCombo('prSEntryPersonSearch', 'prSEntryPersonSelect', 'prSEntryPersonDropdown',
         allStaffCache.map(s => ({ value: s.teacher_id, label: s.full_name || s.teacher_id, sub: [s.designation, s.teacher_id].filter(Boolean).join(' · ') })));
@@ -18125,10 +18177,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _prSaveSectionEntry() {
     const section_id = document.getElementById('prSEntrySectionId').value;
     const user_id = document.getElementById('prSEntryPersonSelect').value;
-    const field_id = document.getElementById('prSEntryFieldId').value || null;
     const note = document.getElementById('prSEntryNote').value.trim();
     if (!user_id) { showToast('Person is required', 'error'); return; }
-    const payload = { section_id, user_id, field_id, mode: _prSEntryMode, note };
+    const payload = { section_id, user_id, mode: _prSEntryMode, note };
     if (_prSEntryMode === 'emi') {
       const total_amount = document.getElementById('prSEntryTotal').value;
       const emi_amount = document.getElementById('prSEntryEmiAmount').value;
