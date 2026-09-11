@@ -19747,7 +19747,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       // (Name, Designation, Grade, Step, Join Date, a Text virtual column)
       // gets blanked in the C.F./Sub Total rows instead of a nonsense sum.
       const isSummable = c => c.type === 'field' || (c.type === 'virtual' && (c.vtype === 'sum' || c.vtype === 'diff')) ||
-        (c.type === 'base' && !['person', 'designation', 'grade', 'step', 'joining_date'].includes(c.key));
+        (c.type === 'base' && !['sl_no', 'person', 'designation', 'grade', 'step', 'joining_date'].includes(c.key));
       const firstLabelCol = data.cols.findIndex(c => !isSummable(c));
       const sumChunk = rows => data.cols.map((c, ci) => isSummable(c) ? rows.reduce((a, r) => a + (Number(r[ci]) || 0), 0) : '');
       const buildTotalRow = (rows, label) => {
@@ -19815,6 +19815,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 return;
               }
               if (isSyntheticRow(hook.row.index)) { hook.cell.styles.fontStyle = 'bold'; hook.cell.styles.fillColor = [241, 245, 249]; if (hook.row.index === subTotalRowIndex) hook.cell.styles.lineWidth = { top: gridMm, right: gridMm, bottom: bottomMm, left: gridMm }; return; }
+              // autotable can invoke this hook with row.index === -1 for an
+              // internal "continuation" fragment of a row too tall to fit
+              // on the page (common with rotated cells) — it doesn't map
+              // to any real body row, so leave it on the default (unrotated)
+              // draw rather than reaching into body[-1] below.
+              if (hook.row.index < 0) return;
               const isTextVirtual = col.type === 'virtual' && col.vtype === 'text';
               if (col.bold && col.italic) hook.cell.styles.fontStyle = 'bolditalic';
               else if (col.bold) hook.cell.styles.fontStyle = 'bold';
@@ -19837,6 +19843,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 return;
               }
               if (isSyntheticRow(hook.row.index)) return; // plain bold text, no per-column rich rendering
+              if (hook.row.index < 0) return; // see matching guard in didParseCell above
               const isTextVirtual = col.type === 'virtual' && col.vtype === 'text';
               if (isTextVirtual) {
                 const slip = slipForBodyRow(hook.row.index);
