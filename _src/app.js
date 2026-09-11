@@ -14295,18 +14295,30 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <p id="prSectionFieldDirectionNote" class="hidden text-[10px] font-black uppercase tracking-widest"></p>
             <div class="pt-1 border-t border-slate-100">
               <label class="flex items-center gap-2 text-xs font-black text-slate-600 cursor-pointer mt-2">
-                <input type="checkbox" id="prSectionCalcStylePerChild" onchange="_prOnSectionCalcStyleChange()" class="w-4 h-4 rounded accent-blue-600">
-                Calculate by number of children
+                <input type="checkbox" id="prSectionCalcStylePerUnit" onchange="_prOnSectionCalcStyleChange()" class="w-4 h-4 rounded accent-blue-600">
+                Calculate from a count (e.g. per child, per session)
               </label>
-              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Each entry then just records a child count — the amount (rate × count, capped) is computed fresh every payroll run, so changing the rate/cap here instantly applies everywhere instead of going stale.</p>
-              <div id="prSectionChildFields" class="hidden grid grid-cols-2 gap-3 mt-2">
-                <div>
-                  <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Rate / Child</label>
-                  <input type="number" id="prSectionChildRate" placeholder="500" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Each entry then just records a count of whatever you name below — the amount (rate × count, capped) is computed fresh every payroll run, so changing the rate/cap here instantly applies everywhere instead of going stale.</p>
+              <div id="prSectionUnitFields" class="hidden space-y-2 mt-2">
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">What's Counted (singular)</label>
+                    <input type="text" id="prSectionUnitSingular" placeholder="e.g. Child" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                  </div>
+                  <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">What's Counted (plural)</label>
+                    <input type="text" id="prSectionUnitPlural" placeholder="e.g. Children" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                  </div>
                 </div>
-                <div>
-                  <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Max Children Counted</label>
-                  <input type="number" id="prSectionChildMax" placeholder="2" min="1" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Rate / Unit</label>
+                    <input type="number" id="prSectionUnitRate" placeholder="500" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                  </div>
+                  <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Max Counted</label>
+                    <input type="number" id="prSectionUnitMax" placeholder="2" min="1" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                  </div>
                 </div>
               </div>
             </div>
@@ -14332,10 +14344,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <input type="hidden" id="prSEntryPersonSelect">
               <div id="prSEntryPersonDropdown" class="hidden absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto"></div>
             </div>
-            <div id="prSEntryChildFields" class="hidden">
-              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Number of Children <span class="text-red-500">*</span></label>
-              <input type="number" id="prSEntryChildrenCount" placeholder="0" min="0" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
-              <p id="prSEntryChildHint" class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1"></p>
+            <div id="prSEntryUnitFields" class="hidden">
+              <label id="prSEntryUnitLabel" class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Number of <span class="text-red-500">*</span></label>
+              <input type="number" id="prSEntryUnitCount" placeholder="0" min="0" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              <p id="prSEntryUnitHint" class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1"></p>
             </div>
             <div id="prSEntryStyleWrap">
               <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Payment Style</label>
@@ -15061,7 +15073,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Once Completed <span class="font-normal normal-case text-slate-400">(optional)</span></label>
                 <textarea id="prAutoRemarkCompletedTemplate" rows="2" placeholder="e.g. {field_label} fully recovered" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></textarea>
               </div>
-              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Placeholders: {field_label} {section_name} {emi} {months} {paid} {remaining} {total} {children}. A "by number of children" section only ever uses "While Active" ({children} = the count, the rest blank) since it has no total to complete. Leave "Once Completed" blank to just stop showing a remark once it's paid off. Leave Section as "Any" to match every Field-linked loan/allowance the person has.</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Placeholders: {field_label} {section_name} {emi} {months} {paid} {remaining} {total} {count}. A "calculate from a count" section only ever uses "While Active" ({count} = the number counted, the rest blank) since it has no total to complete. Leave "Once Completed" blank to just stop showing a remark once it's paid off. Leave Section as "Any" to match every Field-linked loan/allowance the person has.</p>
             </div>
           </div>
           <div class="flex justify-end gap-2 mt-5">
@@ -18074,13 +18086,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // _prOpenSectionForm/_prSaveSection) decides direction for every entry
   // under it, so the list shows that instead of a separate direction label.
   function _prSectionFieldSubtitle(s) {
-    const perChild = s.calc_style === 'per_child' ? ` — Tk.${s.child_rate}/child, max ${s.child_max}` : '';
+    const perUnit = s.calc_style === 'per_unit' ? ` — Tk.${s.unit_rate}/${(s.unit_singular || 'unit').toLowerCase()}, max ${s.unit_max}` : '';
     if (s.field_id) {
       const field = _prFieldsCache.find(f => f.id === s.field_id);
       const label = field ? field.label : `Field #${s.field_id}`;
-      return `${s.direction === 'add' ? 'Allowance' : 'Loan repayment'} under "${label}"${perChild}`;
+      return `${s.direction === 'add' ? 'Allowance' : 'Loan repayment'} under "${label}"${perUnit}`;
     }
-    return (s.direction === 'add' ? 'Adds to salary' : 'Deducts from salary') + perChild;
+    return (s.direction === 'add' ? 'Adds to salary' : 'Deducts from salary') + perUnit;
   }
 
   function _prRenderSectionsList() {
@@ -18110,9 +18122,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prSectionFormId').value = section ? section.id : '';
     document.getElementById('prSectionName').value = section ? section.name : '';
     document.getElementById('prSectionDirection').value = (section && section.direction) || 'deduct';
-    document.getElementById('prSectionCalcStylePerChild').checked = !!(section && section.calc_style === 'per_child');
-    document.getElementById('prSectionChildRate').value = section && section.child_rate != null ? section.child_rate : '';
-    document.getElementById('prSectionChildMax').value = section && section.child_max != null ? section.child_max : '';
+    document.getElementById('prSectionCalcStylePerUnit').checked = !!(section && section.calc_style === 'per_unit');
+    document.getElementById('prSectionUnitSingular').value = (section && section.unit_singular) || 'Child';
+    document.getElementById('prSectionUnitPlural').value = (section && section.unit_plural) || 'Children';
+    document.getElementById('prSectionUnitRate').value = section && section.unit_rate != null ? section.unit_rate : '';
+    document.getElementById('prSectionUnitMax').value = section && section.unit_max != null ? section.unit_max : '';
     _prOnSectionCalcStyleChange();
     const populateFieldOptions = () => {
       const sel = document.getElementById('prSectionFieldId');
@@ -18151,10 +18165,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   // Mirrors _prOnSectionFieldChange's show/hide-one-control-at-a-time
-  // pattern — the rate/cap inputs only make sense once "by children" is on.
+  // pattern — the naming/rate/cap inputs only make sense once "calculate
+  // from a count" is on.
   function _prOnSectionCalcStyleChange() {
-    const on = document.getElementById('prSectionCalcStylePerChild').checked;
-    const wrap = document.getElementById('prSectionChildFields');
+    const on = document.getElementById('prSectionCalcStylePerUnit').checked;
+    const wrap = document.getElementById('prSectionUnitFields');
     if (wrap) wrap.classList.toggle('hidden', !on);
   }
 
@@ -18164,13 +18179,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!name) { showToast('Name is required', 'error'); return; }
     const field_id = document.getElementById('prSectionFieldId').value || null;
     const direction = document.getElementById('prSectionDirection').value;
-    const perChild = document.getElementById('prSectionCalcStylePerChild').checked;
-    const payload = { id, name, field_id, direction, calc_style: perChild ? 'per_child' : 'amount' };
-    if (perChild) {
-      const child_rate = document.getElementById('prSectionChildRate').value;
-      const child_max = document.getElementById('prSectionChildMax').value;
-      if (!child_rate || !child_max) { showToast('Set both Rate / Child and Max Children Counted', 'error'); return; }
-      Object.assign(payload, { child_rate, child_max });
+    const perUnit = document.getElementById('prSectionCalcStylePerUnit').checked;
+    const payload = { id, name, field_id, direction, calc_style: perUnit ? 'per_unit' : 'amount' };
+    if (perUnit) {
+      const unit_rate = document.getElementById('prSectionUnitRate').value;
+      const unit_max = document.getElementById('prSectionUnitMax').value;
+      const unit_singular = document.getElementById('prSectionUnitSingular').value.trim();
+      const unit_plural = document.getElementById('prSectionUnitPlural').value.trim();
+      if (!unit_rate || !unit_max) { showToast('Set both Rate / Unit and Max Counted', 'error'); return; }
+      if (!unit_singular || !unit_plural) { showToast("Name what's being counted (singular and plural)", 'error'); return; }
+      Object.assign(payload, { unit_rate, unit_max, unit_singular, unit_plural });
     }
     _payrollFetch('save_section', payload).then(res => {
       if (res && res.result === 'success') { showToast('Section saved'); _prCloseSectionForm(); loadPayrollSections(); }
@@ -18219,20 +18237,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
         <div class="overflow-auto border border-slate-200 rounded-xl">
           <table class="w-full text-left border-collapse text-xs">
-            ${section.calc_style === 'per_child' ? `
-            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Person</th><th class="py-2 px-3">Children</th><th class="py-2 px-3">Amount / Month</th><th class="py-2 px-3">Status</th><th class="py-2 px-3 text-right">Actions</th></tr></thead>
+            ${section.calc_style === 'per_unit' ? `
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Person</th><th class="py-2 px-3">${_escHtml(section.unit_plural || 'Count')}</th><th class="py-2 px-3">Amount / Month</th><th class="py-2 px-3">Status</th><th class="py-2 px-3 text-right">Actions</th></tr></thead>
             <tbody>
               ${entries.map(e => {
                 // Live-computed from the SECTION's current rate/cap, same as
                 // _computePayslipForPerson — never a stale stored amount.
-                const counted = Math.min(Number(e.children_count) || 0, section.child_max != null ? Number(section.child_max) : Infinity);
-                const amount = counted * (Number(section.child_rate) || 0);
-                const cappedNote = Number(e.children_count) > counted ? ` <span class="text-amber-600">(capped from ${e.children_count})</span>` : '';
+                const counted = Math.min(Number(e.unit_count) || 0, section.unit_max != null ? Number(section.unit_max) : Infinity);
+                const amount = counted * (Number(section.unit_rate) || 0);
+                const cappedNote = Number(e.unit_count) > counted ? ` <span class="text-amber-600">(capped from ${e.unit_count})</span>` : '';
                 const statusColor = e.status === 'cancelled' ? 'text-slate-400' : 'text-emerald-600';
                 const label = staffLabel(e.user_id);
                 return `<tr class="border-b border-slate-50">
                   <td class="py-1.5 px-3 font-black text-slate-700">${label !== e.user_id ? label : e.user_id}</td>
-                  <td class="py-1.5 px-3">${e.children_count}${cappedNote}</td>
+                  <td class="py-1.5 px-3">${e.unit_count}${cappedNote}</td>
                   <td class="py-1.5 px-3">${_prFormatTaka(amount)}/mo</td>
                   <td class="py-1.5 px-3"><span class="font-black ${statusColor}">${e.status}</span></td>
                   <td class="py-1.5 px-3 text-right">
@@ -18291,23 +18309,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prSEntryEmiMonths').value = '';
     document.getElementById('prSEntryAlreadyPaid').value = '';
     document.getElementById('prSEntryFlatAmount').value = '';
-    document.getElementById('prSEntryChildrenCount').value = '';
+    document.getElementById('prSEntryUnitCount').value = '';
     document.getElementById('prSEntryNote').value = '';
     document.getElementById('prSEntryEmiNote').textContent = '';
     _prSEntryEmiDriver = null;
 
-    // A 'per_child' section (see _prOpenSectionForm) skips Payment Style
-    // and the amount inputs entirely — just how many children, with the
-    // amount computed fresh from the section's own current rate/cap every
-    // payroll run (see _computePayslipForPerson), never stored here.
+    // A 'per_unit' section (see _prOpenSectionForm) skips Payment Style
+    // and the amount inputs entirely — just a count of whatever the
+    // section names below, with the amount computed fresh from the
+    // section's own current rate/cap every payroll run (see
+    // _computePayslipForPerson), never stored here.
     const section = _prSectionsCache.find(s => s.id === sectionId);
-    const isPerChild = section && section.calc_style === 'per_child';
-    document.getElementById('prSEntryChildFields').classList.toggle('hidden', !isPerChild);
-    document.getElementById('prSEntryStyleWrap').classList.toggle('hidden', isPerChild);
-    document.getElementById('prSEntryEmiFields').classList.toggle('hidden', isPerChild);
+    const isPerUnit = section && section.calc_style === 'per_unit';
+    document.getElementById('prSEntryUnitFields').classList.toggle('hidden', !isPerUnit);
+    document.getElementById('prSEntryStyleWrap').classList.toggle('hidden', isPerUnit);
+    document.getElementById('prSEntryEmiFields').classList.toggle('hidden', isPerUnit);
     document.getElementById('prSEntryFlatFields').classList.toggle('hidden', true);
-    if (isPerChild) {
-      document.getElementById('prSEntryChildHint').textContent = `Counted at Tk.${section.child_rate}/child, up to ${section.child_max} — recalculates automatically if that rate or cap ever changes.`;
+    if (isPerUnit) {
+      document.getElementById('prSEntryUnitLabel').innerHTML = `Number of ${_escHtml(section.unit_plural || 'Units')} <span class="text-red-500">*</span>`;
+      document.getElementById('prSEntryUnitHint').textContent = `Counted at Tk.${section.unit_rate}/${(section.unit_singular || 'unit').toLowerCase()}, up to ${section.unit_max} — recalculates automatically if that rate or cap ever changes.`;
     } else {
       _prSetSectionEntryMode('emi');
     }
@@ -18400,10 +18420,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const note = document.getElementById('prSEntryNote').value.trim();
     if (!user_id) { showToast('Person is required', 'error'); return; }
     const section = _prSectionsCache.find(s => s.id === Number(section_id));
-    if (section && section.calc_style === 'per_child') {
-      const children_count = document.getElementById('prSEntryChildrenCount').value;
-      if (children_count === '') { showToast('Number of children is required', 'error'); return; }
-      _payrollFetch('add_section_entry', { section_id, user_id, children_count, note }).then(res => {
+    if (section && section.calc_style === 'per_unit') {
+      const unit_count = document.getElementById('prSEntryUnitCount').value;
+      if (unit_count === '') { showToast(`Number of ${(section.unit_plural || 'units').toLowerCase()} is required`, 'error'); return; }
+      _payrollFetch('add_section_entry', { section_id, user_id, unit_count, note }).then(res => {
         if (res && res.result === 'success') { showToast('Entry added'); _prCloseSectionEntryForm(); _prSelectSection(Number(section_id)); }
         else showToast((res && res.message) || 'Failed to add', 'error');
       }).catch(err => showToast(err.message || 'Failed to add', 'error'));
@@ -19911,27 +19931,27 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       .filter(e => { const s = _prSectionsCache.find(sec => sec.id === e.section_id); return s && s.field_id; });
     const texts = [];
     entries.forEach(e => {
-      // A per_child entry (see _prOpenSectionForm) never completes on its
+      // A per_unit entry (see _prOpenSectionForm) never completes on its
       // own (no total to pay off — it runs until manually cancelled, same
       // as any other recurring entry), so it only ever uses activeTemplate.
-      const isPerChild = e.children_count != null;
+      const isPerUnit = e.unit_count != null;
       const template = e.status === 'completed' ? rule.completedTemplate : rule.activeTemplate;
       if (!template) return;
       const section = _prSectionsCache.find(s => s.id === e.section_id);
       const field = section ? _prFieldsCache.find(f => f.id === section.field_id) : null;
-      const emiRate = isPerChild
-        ? (Number(section && section.child_rate) || 0) * Math.min(Number(e.children_count) || 0, section && section.child_max != null ? Number(section.child_max) : Infinity)
+      const emiRate = isPerUnit
+        ? (Number(section && section.unit_rate) || 0) * Math.min(Number(e.unit_count) || 0, section && section.unit_max != null ? Number(section.unit_max) : Infinity)
         : (e.emi_amount != null ? Number(e.emi_amount) : (Number(e.total_amount) / (Number(e.emi_months) || 1)));
-      const monthsTotal = e.emi_months || (!isPerChild && emiRate ? Math.round(Number(e.total_amount) / emiRate) : 0);
+      const monthsTotal = e.emi_months || (!isPerUnit && emiRate ? Math.round(Number(e.total_amount) / emiRate) : 0);
       const vars = {
         field_label: field ? field.label : (section ? section.name : ''),
         section_name: section ? section.name : '',
         emi: _prFormatTaka(emiRate),
-        total: isPerChild ? '' : _prFormatTaka(e.total_amount),
-        remaining: isPerChild ? '' : _prFormatTaka(e.remaining_amount),
-        paid: isPerChild ? '' : (e.paid_installments || 0),
-        months: isPerChild ? '' : monthsTotal,
-        children: isPerChild ? e.children_count : '',
+        total: isPerUnit ? '' : _prFormatTaka(e.total_amount),
+        remaining: isPerUnit ? '' : _prFormatTaka(e.remaining_amount),
+        paid: isPerUnit ? '' : (e.paid_installments || 0),
+        months: isPerUnit ? '' : monthsTotal,
+        count: isPerUnit ? e.unit_count : '',
       };
       let text = template;
       Object.keys(vars).forEach(k => { text = text.replace(new RegExp(`\\{${k}\\}`, 'g'), String(vars[k])); });

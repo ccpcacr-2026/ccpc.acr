@@ -372,13 +372,13 @@ function _computePayslipForPerson(personSetup, roles, category, ref, month, year
   const sectionEntryByFieldId = {};
   personEntries.forEach(entry => {
     const section = ref.sectionsById[entry.section_id];
-    // A 'per_child' section (see save_section) computes its entries' rate
-    // fresh from the section's OWN current child_rate/child_max every run
-    // — never from anything stored on the entry itself — so a policy
-    // change (rate goes up, cap changes) takes effect for every entry
+    // A 'per_unit' section (see save_section) computes its entries' rate
+    // fresh from the section's OWN current unit_rate/unit_max every run —
+    // never from anything stored on the entry itself — so a policy change
+    // (rate goes up, cap changes) takes effect for every entry
     // immediately, with nothing to re-save by hand.
-    const flatRate = entry.children_count != null && section
-      ? (Number(section.child_rate) || 0) * Math.min(Number(entry.children_count) || 0, section.child_max != null ? Number(section.child_max) : Infinity)
+    const flatRate = entry.unit_count != null && section
+      ? (Number(section.unit_rate) || 0) * Math.min(Number(entry.unit_count) || 0, section.unit_max != null ? Number(section.unit_max) : Infinity)
       : (entry.emi_amount != null ? Number(entry.emi_amount) : (Number(entry.total_amount) / (Number(entry.emi_months) || 1)));
     // Capped at what's actually still owed — total_amount doesn't always
     // divide evenly by the flat rate (e.g. Tk.50000 total at a fixed
@@ -2045,15 +2045,21 @@ export async function POST(req) {
       if (!field) return NextResponse.json({ result: 'error', message: 'Field not found' }, { status: 400 });
       direction = field.category === 'deduction' ? 'deduct' : 'add';
     }
-    // 'per_child' sections compute every entry's amount fresh each run from
-    // child_rate x children_count (capped at child_max) instead of a typed
+    // 'per_unit' sections compute every entry's amount fresh each run from
+    // unit_rate x unit_count (capped at unit_max) instead of a typed
     // amount — see _computePayslipForPerson — so a rate/cap change here
     // applies to every entry under it immediately, nothing to re-save.
-    const calc_style = payload.calc_style === 'per_child' ? 'per_child' : 'amount';
+    // What's actually being counted (children, sessions, whatever the next
+    // such need turns out to be) is admin-named via unit_singular/plural
+    // rather than hardcoded, so this same mechanism covers any future
+    // count-based allowance, not just this one.
+    const calc_style = payload.calc_style === 'per_unit' ? 'per_unit' : 'amount';
     const rowData = {
       name, direction, field_id: field_id || null, calc_style,
-      child_rate: calc_style === 'per_child' ? (Number(payload.child_rate) || 0) : null,
-      child_max: calc_style === 'per_child' ? (Number(payload.child_max) || null) : null,
+      unit_rate: calc_style === 'per_unit' ? (Number(payload.unit_rate) || 0) : null,
+      unit_max: calc_style === 'per_unit' ? (Number(payload.unit_max) || null) : null,
+      unit_singular: calc_style === 'per_unit' ? (payload.unit_singular || 'Child') : 'Child',
+      unit_plural: calc_style === 'per_unit' ? (payload.unit_plural || 'Children') : 'Children',
     };
     const saved = id
       ? await sbPayroll(`sections?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
@@ -2086,23 +2092,24 @@ export async function POST(req) {
     const { section_id, user_id: personId, note } = payload;
     if (!section_id || !personId) return NextResponse.json({ result: 'error', message: 'Section and person are required' }, { status: 400 });
 
-    // A 'per_child' section (see save_section) skips the EMI/One-Time/
-    // Recurring picker entirely — an entry here is just "how many
-    // children" and always behaves like a recurring entry (ongoing, no
-    // total to pay off), since _computePayslipForPerson computes the
-    // actual amount fresh every run from the section's own current
-    // child_rate/child_max rather than anything stored on the entry.
+    // A 'per_unit' section (see save_section) skips the EMI/One-Time/
+    // Recurring picker entirely — an entry here is just a count of
+    // whatever the section is counting, and always behaves like a
+    // recurring entry (ongoing, no total to pay off), since
+    // _computePayslipForPerson computes the actual amount fresh every run
+    // from the section's own current unit_rate/unit_max rather than
+    // anything stored on the entry.
     const sectionRows = await sbPayroll(`sections?id=eq.${encodeURIComponent(section_id)}&select=calc_style`);
     const targetSection = Array.isArray(sectionRows) && sectionRows[0];
-    if (targetSection && targetSection.calc_style === 'per_child') {
-      const childrenCount = Math.max(0, Math.floor(Number(payload.children_count)));
-      if (!Number.isFinite(childrenCount) || payload.children_count === '' || payload.children_count == null) {
-        return NextResponse.json({ result: 'error', message: 'Number of children is required' }, { status: 400 });
+    if (targetSection && targetSection.calc_style === 'per_unit') {
+      const unitCount = Math.max(0, Math.floor(Number(payload.unit_count)));
+      if (!Number.isFinite(unitCount) || payload.unit_count === '' || payload.unit_count == null) {
+        return NextResponse.json({ result: 'error', message: 'A count is required' }, { status: 400 });
       }
       const rowData = {
         section_id, user_id: personId, note: note || null, paid_installments: 0,
         mode: 'recurring', total_amount: null, emi_amount: null, emi_months: null, remaining_amount: null,
-        children_count: childrenCount,
+        unit_count: unitCount,
       };
       const saved = await sbPayroll('section_entries', 'POST', rowData);
       if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
@@ -2115,7 +2122,7 @@ export async function POST(req) {
 
     // Which field (if any) this entry counts under comes from the section
     // itself, not a per-entry choice — see save_section.
-    let rowData = { section_id, user_id: personId, mode, note: note || null, paid_installments: 0, children_count: null };
+    let rowData = { section_id, user_id: personId, mode, note: note || null, paid_installments: 0, unit_count: null };
     if (mode === 'emi') {
       const { total_amount, emi_amount, emi_months } = payload;
       if (!total_amount) return NextResponse.json({ result: 'error', message: 'Total amount is required' }, { status: 400 });
