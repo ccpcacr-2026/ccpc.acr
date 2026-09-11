@@ -14521,6 +14521,27 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <input type="color" id="prExportZebraColor" value="#f1f5f9" onchange="_prSetExportRowDesign('zebraColor',this.value)" class="w-8 h-6 rounded cursor-pointer border border-slate-200">
             </div>
           </div>
+          <hr class="border-slate-100 my-3">
+          <div class="flex flex-wrap items-center gap-5">
+            <p class="font-black text-slate-800 text-xs">Grid &amp; Borders</p>
+            <label class="flex items-center gap-2 text-xs font-black text-slate-600 cursor-pointer">
+              <input type="checkbox" id="prExportShowGrid" checked onchange="_prSetExportBorderStyle('showGrid',this.checked)" class="w-4 h-4 rounded accent-blue-600">
+              Show grid lines
+            </label>
+            <div class="flex items-center gap-2">
+              <label class="text-[10px] font-black text-slate-400 uppercase">Grid Thickness (pt)</label>
+              <input type="number" id="prExportGridWidth" value="0.5" min="0" step="0.25" onchange="_prSetExportBorderStyle('gridWidth',Number(this.value))" class="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+            </div>
+            <div class="flex items-center gap-2">
+              <label class="text-[10px] font-black text-slate-400 uppercase">Top Line (pt)</label>
+              <input type="number" id="prExportTopWidth" value="1.5" min="0" step="0.25" onchange="_prSetExportBorderStyle('topWidth',Number(this.value))" class="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+            </div>
+            <div class="flex items-center gap-2">
+              <label class="text-[10px] font-black text-slate-400 uppercase">Bottom Line (pt)</label>
+              <input type="number" id="prExportBottomWidth" value="1.5" min="0" step="0.25" onchange="_prSetExportBorderStyle('bottomWidth',Number(this.value))" class="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+            </div>
+            <span class="text-[10px] text-slate-400 font-bold normal-case">Top/Bottom are the outer rule above the header and below the last row — independent of the grid, like a classic printed table.</span>
+          </div>
         </div>
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
           <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
@@ -18172,6 +18193,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _prExportColumnsCache = []; // [{key,label,type:'base'|'field'|'virtual',included,bold,italic,color,headerBold,headerItalic,headerColor,headerBg,headerRotation,vtype,sources}]
   let _prExportSplitByGroup = false;
   let _prExportRowDesign = { zebra: false, zebraColor: '#f1f5f9' };
+  // Grid/border style, in pt (the unit PDF export already works in — the
+  // Visual Editor preview and Excel export each convert from pt to their
+  // own units). gridWidth is every internal cell border; topWidth/
+  // bottomWidth are the outer rule above the header and below the very
+  // last row, independent of the internal grid, matching a classic
+  // three-line printed table.
+  let _prExportBorderStyle = { showGrid: true, gridWidth: 0.5, topWidth: 1.5, bottomWidth: 1.5 };
   let _prExportRowOrderCache = []; // [{user_id, position}] — only people who've been manually dragged
   let _prExportSortBy = 'name';
   let _prExportSortDir = 'asc';
@@ -18209,6 +18237,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prExportSplitByGroup').checked = _prExportSplitByGroup;
     document.getElementById('prExportZebra').checked = _prExportRowDesign.zebra;
     document.getElementById('prExportZebraColor').value = _prExportRowDesign.zebraColor;
+    document.getElementById('prExportShowGrid').checked = _prExportBorderStyle.showGrid;
+    document.getElementById('prExportGridWidth').value = _prExportBorderStyle.gridWidth;
+    document.getElementById('prExportTopWidth').value = _prExportBorderStyle.topWidth;
+    document.getElementById('prExportBottomWidth').value = _prExportBorderStyle.bottomWidth;
     document.getElementById('prExportSortField').value = _prExportSortBy;
     _prUpdateExportSortDirBtn();
     const populate = () => {
@@ -18223,6 +18255,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function _prSetExportSplitByGroup(checked) { _prExportSplitByGroup = checked; }
   function _prSetExportRowDesign(prop, value) { _prExportRowDesign[prop] = value; }
+  function _prSetExportBorderStyle(prop, value) { _prExportBorderStyle[prop] = value; _prRenderExportPreview(); }
 
   // ── Person Selection (Everyone / Pick People — individual or by whole category) ──
   function _prSetExportPersonMode(mode) {
@@ -18309,6 +18342,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       columns: _prExportColumnsCache,
       splitByGroup: _prExportSplitByGroup,
       rowDesign: _prExportRowDesign,
+      borderStyle: _prExportBorderStyle,
       sortBy: _prExportSortBy,
       sortDir: _prExportSortDir,
     };
@@ -18353,6 +18387,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       cfg.columns.filter(c => c.type === 'virtual' && !currentKeys.has(c.key)).forEach(c => _prExportColumnsCache.push(c));
     }
     if (cfg.rowDesign) _prExportRowDesign = { ..._prExportRowDesign, ...cfg.rowDesign };
+    if (cfg.borderStyle) _prExportBorderStyle = { ..._prExportBorderStyle, ...cfg.borderStyle };
     if (cfg.splitByGroup != null) _prExportSplitByGroup = cfg.splitByGroup;
     if (cfg.sortBy) _prExportSortBy = cfg.sortBy;
     if (cfg.sortDir) _prExportSortDir = cfg.sortDir;
@@ -18361,6 +18396,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prExportSplitByGroup').checked = _prExportSplitByGroup;
     document.getElementById('prExportZebra').checked = _prExportRowDesign.zebra;
     document.getElementById('prExportZebraColor').value = _prExportRowDesign.zebraColor;
+    document.getElementById('prExportShowGrid').checked = _prExportBorderStyle.showGrid;
+    document.getElementById('prExportGridWidth').value = _prExportBorderStyle.gridWidth;
+    document.getElementById('prExportTopWidth').value = _prExportBorderStyle.topWidth;
+    document.getElementById('prExportBottomWidth').value = _prExportBorderStyle.bottomWidth;
     document.getElementById('prExportSortField').value = _prExportSortBy;
     _prUpdateExportSortDirBtn();
     _prRenderExportColumnsTable();
@@ -18529,11 +18568,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         if (key.startsWith('statutory_employer:')) return `${(_prStatutoryCache.find(s => s.key === key.split(':')[1]) || {}).label || key} (Employer)`;
         if (key.startsWith('statutory:')) return (_prStatutoryCache.find(s => s.key === key.split(':')[1]) || {}).label || key;
         const f = _prFieldsCache.find(f => f.key === key);
-        return f ? _prFieldLabelWithCategory(f) : key;
+        // Plain label, no "(Addition)/(Deduction)" suffix — the group
+        // header row below already conveys that visually, and the header
+        // is renamable anyway if a plain label is still ambiguous.
+        return f ? f.label : key;
       };
       const baseCols = [
         { key: 'sl_no', label: 'SL No', type: 'sl' },
-        { key: 'person', label: 'Person', type: 'base' },
+        { key: 'person', label: 'Name', type: 'base' },
         { key: 'designation', label: 'Designation', type: 'base' },
         { key: 'grade', label: 'Grade', type: 'base' },
         { key: 'step', label: 'Step', type: 'base' },
@@ -18550,6 +18592,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const priorState = {}; _prExportColumnsCache.forEach(c => { priorState[c.key] = c; });
       _prExportColumnsCache = _prSortColumnsLikeSheet([...baseCols, ...fieldCols]).map(c => ({
         ...c,
+        // A renamed header (via the Visual Editor popover) survives
+        // switching runs/reloading — c.label is only the freshly-computed
+        // default (e.g. "PF 10% (Addition)"), used the first time only.
+        label: priorState[c.key] && priorState[c.key].label ? priorState[c.key].label : c.label,
+        group: priorState[c.key] ? priorState[c.key].group : null,
         included: priorState[c.key] ? priorState[c.key].included : true,
         bold: priorState[c.key] ? priorState[c.key].bold : false,
         italic: priorState[c.key] ? priorState[c.key].italic : false,
@@ -18626,6 +18673,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return css;
   }
 
+  // Grid CSS for one cell — pt (the setting's unit) converted to px for
+  // screen display (1pt ≈ 1.333px). extraTop/extraBottom add the outer
+  // rule on top of (not instead of) the internal grid, so a thick top/
+  // bottom line still shows even with "Show grid lines" off.
+  function _prGridBorderCss(extraTop, extraBottom) {
+    const st = _prExportBorderStyle;
+    const gridPx = st.showGrid ? Math.max(0.5, (Number(st.gridWidth) || 0) * 1.333) : 0;
+    let css = `border:${gridPx}px solid #cbd5e1;`;
+    if (extraTop && st.topWidth) css += `border-top:${Math.max(1, st.topWidth * 1.333)}px solid #0f172a;`;
+    if (extraBottom && st.bottomWidth) css += `border-bottom:${Math.max(1, st.bottomWidth * 1.333)}px solid #0f172a;`;
+    return css;
+  }
+
   // The Visual Editor: a real <table> built from the same
   // _prExportColumnsCache the old list edits, showing actual sample rows
   // (respecting the current Person Selection) with every format applied
@@ -18645,21 +18705,37 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!included.length) { host.innerHTML = `<tr><td class="p-4 text-slate-400 font-bold text-xs text-center">No columns included — click a chip above to add one.</td></tr>`; lucide.createIcons(); return; }
     const sampleSlips = _prApplyPersonSelection(_prExportSlips).slice(0, 6);
     host.style.tableLayout = 'fixed';
+    // Contiguous runs of the same Group become one merged header cell
+    // above the normal header row — a column with no group gets a plain
+    // header spanning both rows instead (rowspan), same shape as the
+    // Acquittance Roll's own SL/Name/Grade columns next to its merged
+    // "Payments & Allowances" / "Deduction" groups.
+    const runs = [];
+    included.forEach(c => {
+      const last = runs[runs.length - 1];
+      if (c.group && last && last.group === c.group) last.cols.push(c);
+      else runs.push({ group: c.group || null, cols: [c] });
+    });
+    const hasAnyGroup = runs.some(r => r.group);
+    const colHeaderHtml = (c, isTopRow) => `
+      <th draggable="true"
+          ondragstart="_prPreviewDragKey='${c.key}'" ondragover="event.preventDefault()" ondrop="_prPreviewColumnDrop('${c.key}')"
+          onclick="_prOpenColumnFormatPopover('${c.key}', event)" ${!c.group && hasAnyGroup ? 'rowspan="2"' : ''}
+          class="relative px-3 py-2 bg-slate-50 cursor-grab select-none hover:bg-blue-50 transition-all align-bottom"
+          style="${_prColumnCellCss(c, true)}${_prGridBorderCss(isTopRow, false)}" title="Drag to reorder, click to format">
+        <button onclick="event.stopPropagation();_prSetExportFormat('${c.key}','included',false)" class="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-slate-200 text-slate-500 hover:bg-red-200 hover:text-red-600 flex items-center justify-center text-[9px] leading-none">×</button>
+        ${_escHtml(c.label)}
+        <div onmousedown="_prStartColumnResize('${c.key}', event)" class="absolute top-0 right-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-300"></div>
+      </th>`;
     host.innerHTML = `
-      <thead><tr>
-        ${included.map(c => `
-          <th draggable="true"
-              ondragstart="_prPreviewDragKey='${c.key}'" ondragover="event.preventDefault()" ondrop="_prPreviewColumnDrop('${c.key}')"
-              onclick="_prOpenColumnFormatPopover('${c.key}', event)"
-              class="relative px-3 py-2 border border-slate-200 bg-slate-50 cursor-grab select-none hover:bg-blue-50 transition-all align-bottom"
-              style="${_prColumnCellCss(c, true)}" title="Drag to reorder, click to format">
-            <button onclick="event.stopPropagation();_prSetExportFormat('${c.key}','included',false)" class="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-slate-200 text-slate-500 hover:bg-red-200 hover:text-red-600 flex items-center justify-center text-[9px] leading-none">×</button>
-            ${_escHtml(c.label)}
-            <div onmousedown="_prStartColumnResize('${c.key}', event)" class="absolute top-0 right-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-300"></div>
-          </th>`).join('')}
-      </tr></thead>
+      <thead>
+        ${hasAnyGroup ? `<tr>${runs.map(r => r.group
+          ? `<th colspan="${r.cols.length}" class="px-3 py-1.5 bg-slate-100 font-black text-[10px] uppercase tracking-widest text-slate-600 text-center" style="${_prGridBorderCss(true, false)}">${_escHtml(r.group)}</th>`
+          : colHeaderHtml(r.cols[0], true)).join('')}</tr>` : ''}
+        <tr>${runs.filter(r => r.group).flatMap(r => r.cols).map(c => colHeaderHtml(c, !hasAnyGroup)).join('') || (!hasAnyGroup ? included.map(c => colHeaderHtml(c, true)).join('') : '')}</tr>
+      </thead>
       <tbody>
-        ${sampleSlips.map(slip => `<tr>${included.map(c => {
+        ${sampleSlips.map((slip, ri) => `<tr>${included.map(c => {
           const isRichText = c.type === 'virtual' && c.vtype === 'text';
           const cellContent = isRichText
             ? _prResolveTextSegments(c, slip).map((seg, si, arr) => {
@@ -18669,7 +18745,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 return `<span style="${segCss}">${_escHtml(seg.text)}</span>${sep}`;
               }).join('')
             : _escHtml(String(_prColumnValue(c, slip)));
-          return `<td class="px-3 py-1.5 border border-slate-100 ${isRichText ? '' : 'whitespace-nowrap'}" style="${_prColumnCellCss(c, false)}">${cellContent}</td>`;
+          return `<td class="px-3 py-1.5 ${isRichText ? '' : 'whitespace-nowrap'}" style="${_prColumnCellCss(c, false)}${_prGridBorderCss(false, ri === sampleSlips.length - 1)}">${cellContent}</td>`;
         }).join('')}</tr>`).join('')}
       </tbody>`;
     lucide.createIcons();
@@ -18720,7 +18796,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     pop.style.left = `${Math.min(rect.left + window.scrollX, window.innerWidth - 270)}px`;
     pop.onclick = e => e.stopPropagation();
     pop.innerHTML = `
-      <p class="font-black text-slate-800 text-xs mb-2">${_escHtml(c.label)}</p>
+      <input type="text" value="${_escHtml(c.label)}" onchange="_prSetExportFormat('${key}','label',this.value||'${_escHtml(c.label)}')" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-black text-slate-800 text-xs mb-2" title="Header text — click to rename">
+      <div class="flex items-center gap-2 mb-2">
+        <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest shrink-0">Group</label>
+        <input type="text" list="prVcGroupOptions" value="${_escHtml(c.group || '')}" placeholder="e.g. Additions, Deductions" onchange="_prSetExportFormat('${key}','group',this.value||null)" class="flex-1 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]">
+        <datalist id="prVcGroupOptions">${[...new Set(_prExportColumnsCache.map(x => x.group).filter(Boolean))].map(g => `<option value="${_escHtml(g)}">`).join('')}</datalist>
+      </div>
       <div class="grid grid-cols-2 gap-2 mb-2">
         <div>
           <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Header</p>
@@ -18752,6 +18833,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
         </div>
       </div>
+      ${c.group ? `<button onclick="_prAddGroupTotalColumn('${_escHtml(c.group)}');document.getElementById('prColumnFormatPopover').remove()" class="w-full mb-2 px-2 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center justify-center gap-1.5"><i data-lucide="sigma" class="h-3.5 w-3.5"></i>Add Total for "${_escHtml(c.group)}"</button>` : ''}
       <div class="flex items-center gap-2 mb-2">
         <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest shrink-0">Width</label>
         <input type="number" value="${c.width || ''}" placeholder="auto" min="30" onchange="_prSetExportFormat('${key}','width',this.value?Number(this.value):null)" class="flex-1 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]">
@@ -18930,6 +19012,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _prCloseVirtualColumnForm();
   }
 
+  // The convenience button in a grouped column's popover — a "Total"
+  // column is just an ordinary sum-type virtual column, sourced from
+  // every OTHER currently-included member of the same group (so it never
+  // sums itself if called again) and placed in that same group, so it
+  // renders under the same merged header instead of looking orphaned.
+  function _prAddGroupTotalColumn(groupName) {
+    const members = _prExportColumnsCache.filter(c => c.group === groupName && c.included && !(c.type === 'virtual' && /^total_/.test(c.key.replace('virtual:', ''))));
+    if (members.length < 2) { showToast('Need at least 2 columns in this group first', 'error'); return; }
+    const key = `virtual:total_${groupName.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
+    if (_prExportColumnsCache.some(c => c.key === key)) { showToast('This group already has a Total column', 'error'); return; }
+    _prExportColumnsCache.push({
+      key, label: `Total ${groupName}`, type: 'virtual', vtype: 'sum', sources: members.map(c => c.key), included: true, group: groupName,
+      bold: true, italic: false, color: '', rotation: 0, align: 'left', headerAlign: 'center', width: null,
+      headerBold: true, headerItalic: false, headerColor: '', headerBg: '', headerRotation: 90,
+    });
+    _prRenderExportColumnsTable();
+    showToast(`Added Total ${groupName}`);
+  }
+
   function _prCompareVcCondition(val, op, cmp) {
     const n = Number(val), cn = Number(cmp);
     const bothNumeric = val !== '' && cmp !== '' && !isNaN(n) && !isNaN(cn);
@@ -18965,7 +19066,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _prColumnValue(col, slip) {
     if (!col) return '';
     if (col.type === 'base') {
-      if (col.key === 'person') { const l = staffLabel(slip.user_id); return l !== slip.user_id ? l : slip.user_id; }
+      // Name alone — staffLabel() bundles in Designation for other screens'
+      // display purposes, but this export already has Designation as its
+      // own separate column, so Person must not also carry it (otherwise
+      // it shows twice, and a Text virtual column referencing "Person"
+      // could never get the bare name on its own).
+      if (col.key === 'person') { const s = (allStaffCache || []).find(x => x.teacher_id === slip.user_id); return (s && s.full_name) || slip.user_id; }
       if (col.key === 'grade') return (_prGradesCache.find(g => g.id === slip.grade_id) || {}).name || '';
       if (col.key === 'designation') return ((allStaffCache || []).find(s => s.teacher_id === slip.user_id) || {}).designation || '';
       if (col.key === 'step') {
@@ -19064,6 +19170,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
   }
 
+  // pt -> Excel's named border weights (xlsx-js-style has no raw-pt border
+  // width, only style keywords) — thin/medium/thick roughly tracking the
+  // same visual weight as the PDF/preview's pt value.
+  function _prExcelBorderStyle(pt) {
+    if (!pt || pt <= 0) return null;
+    if (pt <= 0.75) return 'thin';
+    if (pt <= 1.75) return 'medium';
+    return 'thick';
+  }
+
   function _prExportExcel() {
     const data = _prExportRowsAndCols();
     if (!data) return;
@@ -19071,16 +19187,57 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const header = data.cols.map(c => c.label);
       const wb = XLSX.utils.book_new();
       const usedNames = new Set();
+      const bs = _prExportBorderStyle;
+      const gridStyle = bs.showGrid ? _prExcelBorderStyle(bs.gridWidth) : null;
+      const topStyle = _prExcelBorderStyle(bs.topWidth);
+      const bottomStyle = _prExcelBorderStyle(bs.bottomWidth);
+      const gridSide = st => st ? { style: st, color: { rgb: 'CBD5E1' } } : undefined;
+      const accentSide = st => st ? { style: st, color: { rgb: '0F172A' } } : undefined;
+      const cellBorder = (isTop, isBottom) => {
+        if (!gridStyle && !isTop && !isBottom) return undefined;
+        return {
+          top: isTop ? accentSide(topStyle) : gridSide(gridStyle),
+          bottom: isBottom ? accentSide(bottomStyle) : gridSide(gridStyle),
+          left: gridSide(gridStyle), right: gridSide(gridStyle),
+        };
+      };
+      // Same group-header idea as the PDF/preview: contiguous same-Group
+      // columns get one merged cell in an extra row above the normal
+      // header; an ungrouped column's cell spans both header rows via a
+      // vertical merge instead.
+      const runs = [];
+      data.cols.forEach((c, ci) => {
+        const last = runs[runs.length - 1];
+        if (c.group && last && last.group === c.group) last.cols.push(ci);
+        else runs.push({ group: c.group || null, cols: [ci] });
+      });
+      const hasAnyGroup = runs.some(r => r.group);
+      const headerRow = hasAnyGroup ? 1 : 0;
+      const dataStartRow = headerRow + 1;
+
       data.groups.forEach(g => {
-        const aoa = [header, ...g.rows];
+        const groupRow = hasAnyGroup ? data.cols.map(() => '') : null;
+        if (hasAnyGroup) runs.forEach(r => { if (r.group) groupRow[r.cols[0]] = r.group; });
+        const aoa = hasAnyGroup ? [groupRow, header, ...g.rows] : [header, ...g.rows];
         const ws = XLSX.utils.aoa_to_sheet(aoa);
+        if (hasAnyGroup) {
+          ws['!merges'] = [];
+          runs.forEach(r => {
+            if (r.group && r.cols.length > 1) ws['!merges'].push({ s: { r: 0, c: r.cols[0] }, e: { r: 0, c: r.cols[r.cols.length - 1] } });
+            if (!r.group) ws['!merges'].push({ s: { r: 0, c: r.cols[0] }, e: { r: 1, c: r.cols[0] } });
+          });
+          runs.filter(r => r.group).forEach(r => {
+            const addr = XLSX.utils.encode_cell({ r: 0, c: r.cols[0] });
+            if (ws[addr]) ws[addr].s = { font: { bold: true }, fill: { fgColor: { rgb: 'F1F5F9' } }, alignment: { horizontal: 'center' }, border: cellBorder(true, false) };
+          });
+        }
         // Column widths — px (the Visual Editor's drag-resize unit) to
         // Excel's "characters" unit is inherently approximate (character
         // width varies by font), ~7px/char at the default font is close
         // enough for a usable starting width.
         ws['!cols'] = data.cols.map(c => c.width ? { wch: Math.max(4, Math.round(c.width / 7)) } : {});
         data.cols.forEach((c, ci) => {
-          const addr = XLSX.utils.encode_cell({ r: 0, c: ci });
+          const addr = XLSX.utils.encode_cell({ r: headerRow, c: ci });
           if (!ws[addr]) return;
           const s = {};
           if (c.headerBold || c.headerItalic || c.headerColor) {
@@ -19094,6 +19251,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           // rather than silently doing nothing. PDF export supports all
           // four angles exactly since it draws the text directly.
           if (c.headerRotation === 90 || c.headerRotation === 270) s.alignment.textRotation = 90;
+          s.border = cellBorder(!hasAnyGroup, false); // when grouped, the real top edge is row 0 above, already bordered
           if (Object.keys(s).length) ws[addr].s = s;
         });
         data.cols.forEach((c, ci) => {
@@ -19105,7 +19263,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           // color only renders in the Visual Editor preview and the PDF
           // export, which draws each run itself.
           const firstStyledSeg = c.type === 'virtual' && c.vtype === 'text' ? (c.segments || []).find(s => s.bold || s.italic || s.color) : null;
-          for (let ri = 1; ri <= g.rows.length; ri++) {
+          for (let ri = dataStartRow; ri < dataStartRow + g.rows.length; ri++) {
             const addr = XLSX.utils.encode_cell({ r: ri, c: ci });
             if (!ws[addr]) continue;
             const s = {};
@@ -19115,9 +19273,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             if (bold || italic || color) s.font = { bold: !!bold, italic: !!italic, color: color ? { rgb: color.replace('#', '') } : undefined };
             s.alignment = { horizontal: c.align || 'left' };
             if (c.rotation === 90 || c.rotation === 270) s.alignment.textRotation = 90;
-            if (_prExportRowDesign.zebra && (ri - 1) % 2 === 1) {
+            if (_prExportRowDesign.zebra && (ri - dataStartRow) % 2 === 1) {
               s.fill = { fgColor: { rgb: (_prExportRowDesign.zebraColor || '#f1f5f9').replace('#', '') } };
             }
+            s.border = cellBorder(false, ri === dataStartRow + g.rows.length - 1);
             if (Object.keys(s).length) ws[addr].s = s;
           }
         });
@@ -19478,6 +19637,42 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         columnStyles[ci] = { halign: c.align || 'left' };
         if (c.width) columnStyles[ci].cellWidth = Math.max(8, c.width * 0.2646);
       });
+      // Grid thickness in pt -> mm (jsPDF's default unit). Top/bottom are
+      // drawn as extra rules on top of the grid in didDrawCell below,
+      // rather than through autotable's own lineWidth, so they can be a
+      // different thickness from the internal grid.
+      const bs = _prExportBorderStyle;
+      const gridMm = bs.showGrid ? Math.max(0.05, (Number(bs.gridWidth) || 0) * 0.352778) : 0;
+      const topMm = Math.max(0.1, (Number(bs.topWidth) || 0) * 0.352778);
+      const bottomMm = Math.max(0.1, (Number(bs.bottomWidth) || 0) * 0.352778);
+      // Same group-header idea as the Acquittance Roll PDF: contiguous
+      // same-Group columns get one merged cell in an extra head row above
+      // the normal one; an ungrouped column spans both head rows instead.
+      const runs = [];
+      data.cols.forEach((c, ci) => {
+        const last = runs[runs.length - 1];
+        if (c.group && last && last.group === c.group) last.cols.push(ci);
+        else runs.push({ group: c.group || null, cols: [ci] });
+      });
+      const hasAnyGroup = runs.some(r => r.group);
+      // The true top edge of the table is always row 0 of `head` — when
+      // grouped that's the merged-group row, not the per-column label row
+      // the shared hook below otherwise operates on, so its top rule is
+      // set right here instead.
+      const topRowLineWidth = { top: topMm, right: gridMm, bottom: gridMm, left: gridMm };
+      const head = hasAnyGroup
+        ? [
+            runs.map(r => r.group
+              ? { content: r.group, colSpan: r.cols.length, styles: { halign: 'center', fontStyle: 'bold', fillColor: [241, 245, 249], lineWidth: topRowLineWidth } }
+              : { content: data.cols[r.cols[0]].label, rowSpan: 2, styles: { lineWidth: topRowLineWidth } }),
+            runs.filter(r => r.group).flatMap(r => r.cols).map(ci => data.cols[ci].label),
+          ]
+        : [data.cols.map(c => c.label)];
+      // The row within `head` that actually carries each column's OWN
+      // label (and so is the only head row didParseCell/didDrawCell below
+      // apply per-column formatting/rotation to) — row 0 when there's no
+      // group row above it, row 1 when there is.
+      const labelHeadRow = hasAnyGroup ? 1 : 0;
 
       data.groups.forEach((g, gi) => {
         if (gi > 0) doc.addPage();
@@ -19485,13 +19680,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         doc.text(`Payroll — ${periodLabel}${g.name ? ' — ' + g.name : ''}`, 14, 12);
         doc.autoTable({
           startY: 18,
-          head: [data.cols.map(c => c.label)],
+          head,
           body: g.rows,
-          styles: { fontSize: 8 },
+          styles: { fontSize: 8, lineWidth: gridMm, lineColor: [203, 213, 225] },
           headStyles: Object.assign({ halign: 'center' }, hasRotatedHeaders ? { minCellHeight: 36, valign: 'middle' } : {}),
           bodyStyles: hasRotatedData ? { minCellHeight: 20, valign: 'middle', halign: 'center' } : {},
           columnStyles,
           didParseCell: hook => {
+            if (hook.section === 'head' && hook.row.index !== labelHeadRow) return; // the group super-header row — already styled inline above
             const col = data.cols[hook.column.index];
             if (!col) return;
             if (hook.section === 'head') {
@@ -19501,6 +19697,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               if (col.headerColor) hook.cell.styles.textColor = _prHexToRgbArr(col.headerColor);
               if (col.headerBg) hook.cell.styles.fillColor = _prHexToRgbArr(col.headerBg);
               hook.cell.styles.halign = col.headerAlign || 'center';
+              if (hook.row.index === 0) hook.cell.styles.lineWidth = { top: topMm, right: gridMm, bottom: gridMm, left: gridMm };
               if (col.headerRotation) hook.cell.text = []; // suppress default draw — didDrawCell below draws it rotated instead
               return;
             }
@@ -19510,12 +19707,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             else if (col.italic) hook.cell.styles.fontStyle = 'italic';
             if (col.color) hook.cell.styles.textColor = _prHexToRgbArr(col.color);
             if (_prExportRowDesign.zebra && hook.row.index % 2 === 1) hook.cell.styles.fillColor = _prHexToRgbArr(_prExportRowDesign.zebraColor || '#f1f5f9');
+            if (hook.row.index === g.rows.length - 1) hook.cell.styles.lineWidth = { top: gridMm, right: gridMm, bottom: bottomMm, left: gridMm };
             // A Text virtual column always needs the custom multi-segment
             // draw below (to show each segment's own style), regardless of
             // rotation; a plain column only needs it when rotated.
             if (col.rotation || isTextVirtual) hook.cell.text = [];
           },
           didDrawCell: hook => {
+            if (hook.section === 'head' && hook.row.index !== labelHeadRow) return;
             const col = data.cols[hook.column.index];
             if (!col) return;
             const { x, y, width, height } = hook.cell;
