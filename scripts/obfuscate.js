@@ -73,7 +73,7 @@ const RESERVED = [
   '_prSuggestFromLeaveRequests','_prPrefillLeaveFromRequest','_prExportBankFile','_prExportCategoryTemplates','_prExportAcquittanceRollPdf',
   '_prOpenImportModal','_prCloseImportModal','_prHandleImportFile','_prOpenBulkFieldValuesImport',
   '_prDownloadImportSample','updatePayrollImportSample','_prConfirmImport',
-  '_prSelectSection','_prOpenSectionForm','_prCloseSectionForm','_prSaveSection','_prDeleteSection','_prOnSectionFieldChange',
+  '_prSelectSection','_prOpenSectionForm','_prCloseSectionForm','_prSaveSection','_prDeleteSection','_prOnSectionFieldChange','_prOnSectionCalcStyleChange',
   '_prOpenSectionEntryForm','_prCloseSectionEntryForm','_prSaveSectionEntry','_prUpdateSectionEntryStatus','_prDeleteSectionEntry','_prSetSectionEntryMode',
   '_prSEntryRecalcFromMonths','_prSEntryRecalcFromAmount','_prSEntryRecalcTotal',
   '_prRunPayroll','_prSelectRun','_prSubmitRunForApproval','_prApproveRun','_prDeleteRun','_prRevertRunToDraft',

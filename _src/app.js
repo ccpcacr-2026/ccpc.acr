@@ -14293,6 +14293,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               </select>
             </div>
             <p id="prSectionFieldDirectionNote" class="hidden text-[10px] font-black uppercase tracking-widest"></p>
+            <div class="pt-1 border-t border-slate-100">
+              <label class="flex items-center gap-2 text-xs font-black text-slate-600 cursor-pointer mt-2">
+                <input type="checkbox" id="prSectionCalcStylePerChild" onchange="_prOnSectionCalcStyleChange()" class="w-4 h-4 rounded accent-blue-600">
+                Calculate by number of children
+              </label>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Each entry then just records a child count — the amount (rate × count, capped) is computed fresh every payroll run, so changing the rate/cap here instantly applies everywhere instead of going stale.</p>
+              <div id="prSectionChildFields" class="hidden grid grid-cols-2 gap-3 mt-2">
+                <div>
+                  <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Rate / Child</label>
+                  <input type="number" id="prSectionChildRate" placeholder="500" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                </div>
+                <div>
+                  <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Max Children Counted</label>
+                  <input type="number" id="prSectionChildMax" placeholder="2" min="1" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                </div>
+              </div>
+            </div>
           </div>
           <div class="flex justify-end gap-2 mt-5">
             <button onclick="_prCloseSectionForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
@@ -14315,7 +14332,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <input type="hidden" id="prSEntryPersonSelect">
               <div id="prSEntryPersonDropdown" class="hidden absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto"></div>
             </div>
-            <div>
+            <div id="prSEntryChildFields" class="hidden">
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Number of Children <span class="text-red-500">*</span></label>
+              <input type="number" id="prSEntryChildrenCount" placeholder="0" min="0" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              <p id="prSEntryChildHint" class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1"></p>
+            </div>
+            <div id="prSEntryStyleWrap">
               <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Payment Style</label>
               <div class="grid grid-cols-3 gap-1.5">
                 <button type="button" id="prSEntryModeBtn-emi" onclick="_prSetSectionEntryMode('emi')" class="pr-sentry-mode-btn">EMI</button>
@@ -15039,7 +15061,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Once Completed <span class="font-normal normal-case text-slate-400">(optional)</span></label>
                 <textarea id="prAutoRemarkCompletedTemplate" rows="2" placeholder="e.g. {field_label} fully recovered" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></textarea>
               </div>
-              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Placeholders: {field_label} {section_name} {emi} {months} {paid} {remaining} {total}. Leave "Once Completed" blank to just stop showing a remark once it's paid off. Leave Section as "Any" to match every Field-linked loan/allowance the person has.</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Placeholders: {field_label} {section_name} {emi} {months} {paid} {remaining} {total} {children}. A "by number of children" section only ever uses "While Active" ({children} = the count, the rest blank) since it has no total to complete. Leave "Once Completed" blank to just stop showing a remark once it's paid off. Leave Section as "Any" to match every Field-linked loan/allowance the person has.</p>
             </div>
           </div>
           <div class="flex justify-end gap-2 mt-5">
@@ -18052,12 +18074,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // _prOpenSectionForm/_prSaveSection) decides direction for every entry
   // under it, so the list shows that instead of a separate direction label.
   function _prSectionFieldSubtitle(s) {
+    const perChild = s.calc_style === 'per_child' ? ` — Tk.${s.child_rate}/child, max ${s.child_max}` : '';
     if (s.field_id) {
       const field = _prFieldsCache.find(f => f.id === s.field_id);
       const label = field ? field.label : `Field #${s.field_id}`;
-      return `${s.direction === 'add' ? 'Allowance' : 'Loan repayment'} under "${label}"`;
+      return `${s.direction === 'add' ? 'Allowance' : 'Loan repayment'} under "${label}"${perChild}`;
     }
-    return s.direction === 'add' ? 'Adds to salary' : 'Deducts from salary';
+    return (s.direction === 'add' ? 'Adds to salary' : 'Deducts from salary') + perChild;
   }
 
   function _prRenderSectionsList() {
@@ -18087,6 +18110,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prSectionFormId').value = section ? section.id : '';
     document.getElementById('prSectionName').value = section ? section.name : '';
     document.getElementById('prSectionDirection').value = (section && section.direction) || 'deduct';
+    document.getElementById('prSectionCalcStylePerChild').checked = !!(section && section.calc_style === 'per_child');
+    document.getElementById('prSectionChildRate').value = section && section.child_rate != null ? section.child_rate : '';
+    document.getElementById('prSectionChildMax').value = section && section.child_max != null ? section.child_max : '';
+    _prOnSectionCalcStyleChange();
     const populateFieldOptions = () => {
       const sel = document.getElementById('prSectionFieldId');
       if (!sel) return;
@@ -18123,13 +18150,29 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }
   }
 
+  // Mirrors _prOnSectionFieldChange's show/hide-one-control-at-a-time
+  // pattern — the rate/cap inputs only make sense once "by children" is on.
+  function _prOnSectionCalcStyleChange() {
+    const on = document.getElementById('prSectionCalcStylePerChild').checked;
+    const wrap = document.getElementById('prSectionChildFields');
+    if (wrap) wrap.classList.toggle('hidden', !on);
+  }
+
   function _prSaveSection() {
     const id = document.getElementById('prSectionFormId').value || null;
     const name = document.getElementById('prSectionName').value.trim();
     if (!name) { showToast('Name is required', 'error'); return; }
     const field_id = document.getElementById('prSectionFieldId').value || null;
     const direction = document.getElementById('prSectionDirection').value;
-    _payrollFetch('save_section', { id, name, field_id, direction }).then(res => {
+    const perChild = document.getElementById('prSectionCalcStylePerChild').checked;
+    const payload = { id, name, field_id, direction, calc_style: perChild ? 'per_child' : 'amount' };
+    if (perChild) {
+      const child_rate = document.getElementById('prSectionChildRate').value;
+      const child_max = document.getElementById('prSectionChildMax').value;
+      if (!child_rate || !child_max) { showToast('Set both Rate / Child and Max Children Counted', 'error'); return; }
+      Object.assign(payload, { child_rate, child_max });
+    }
+    _payrollFetch('save_section', payload).then(res => {
       if (res && res.result === 'success') { showToast('Section saved'); _prCloseSectionForm(); loadPayrollSections(); }
       else showToast((res && res.message) || 'Failed to save', 'error');
     }).catch(err => showToast(err.message || 'Failed to save', 'error'));
@@ -18176,6 +18219,29 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
         <div class="overflow-auto border border-slate-200 rounded-xl">
           <table class="w-full text-left border-collapse text-xs">
+            ${section.calc_style === 'per_child' ? `
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Person</th><th class="py-2 px-3">Children</th><th class="py-2 px-3">Amount / Month</th><th class="py-2 px-3">Status</th><th class="py-2 px-3 text-right">Actions</th></tr></thead>
+            <tbody>
+              ${entries.map(e => {
+                // Live-computed from the SECTION's current rate/cap, same as
+                // _computePayslipForPerson — never a stale stored amount.
+                const counted = Math.min(Number(e.children_count) || 0, section.child_max != null ? Number(section.child_max) : Infinity);
+                const amount = counted * (Number(section.child_rate) || 0);
+                const cappedNote = Number(e.children_count) > counted ? ` <span class="text-amber-600">(capped from ${e.children_count})</span>` : '';
+                const statusColor = e.status === 'cancelled' ? 'text-slate-400' : 'text-emerald-600';
+                const label = staffLabel(e.user_id);
+                return `<tr class="border-b border-slate-50">
+                  <td class="py-1.5 px-3 font-black text-slate-700">${label !== e.user_id ? label : e.user_id}</td>
+                  <td class="py-1.5 px-3">${e.children_count}${cappedNote}</td>
+                  <td class="py-1.5 px-3">${_prFormatTaka(amount)}/mo</td>
+                  <td class="py-1.5 px-3"><span class="font-black ${statusColor}">${e.status}</span></td>
+                  <td class="py-1.5 px-3 text-right">
+                    ${e.status === 'active' ? `<button onclick="_prUpdateSectionEntryStatus(${e.id},'cancelled',${sectionId})" class="text-[10px] font-black text-amber-600 uppercase tracking-widest hover:text-black mr-3">Cancel</button>` : ''}
+                    <button onclick="_prDeleteSectionEntry(${e.id},${sectionId})" class="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-700">Delete</button>
+                  </td>
+                </tr>`;
+              }).join('') || `<tr><td colspan="5" class="p-3 text-slate-400 font-bold text-xs text-center">No entries yet.</td></tr>`}
+            </tbody>` : `
             <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Person</th><th class="py-2 px-3">Style</th><th class="py-2 px-3">Total</th><th class="py-2 px-3">EMI</th><th class="py-2 px-3">Paid</th><th class="py-2 px-3">Remaining</th><th class="py-2 px-3">Status</th><th class="py-2 px-3 text-right">Actions</th></tr></thead>
             <tbody>
               ${entries.map(e => {
@@ -18203,7 +18269,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                   </td>
                 </tr>`;
               }).join('') || `<tr><td colspan="8" class="p-3 text-slate-400 font-bold text-xs text-center">No entries yet.</td></tr>`}
-            </tbody>
+            </tbody>`}
           </table>
         </div>
       `;
@@ -18225,10 +18291,26 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prSEntryEmiMonths').value = '';
     document.getElementById('prSEntryAlreadyPaid').value = '';
     document.getElementById('prSEntryFlatAmount').value = '';
+    document.getElementById('prSEntryChildrenCount').value = '';
     document.getElementById('prSEntryNote').value = '';
     document.getElementById('prSEntryEmiNote').textContent = '';
     _prSEntryEmiDriver = null;
-    _prSetSectionEntryMode('emi');
+
+    // A 'per_child' section (see _prOpenSectionForm) skips Payment Style
+    // and the amount inputs entirely — just how many children, with the
+    // amount computed fresh from the section's own current rate/cap every
+    // payroll run (see _computePayslipForPerson), never stored here.
+    const section = _prSectionsCache.find(s => s.id === sectionId);
+    const isPerChild = section && section.calc_style === 'per_child';
+    document.getElementById('prSEntryChildFields').classList.toggle('hidden', !isPerChild);
+    document.getElementById('prSEntryStyleWrap').classList.toggle('hidden', isPerChild);
+    document.getElementById('prSEntryEmiFields').classList.toggle('hidden', isPerChild);
+    document.getElementById('prSEntryFlatFields').classList.toggle('hidden', true);
+    if (isPerChild) {
+      document.getElementById('prSEntryChildHint').textContent = `Counted at Tk.${section.child_rate}/child, up to ${section.child_max} — recalculates automatically if that rate or cap ever changes.`;
+    } else {
+      _prSetSectionEntryMode('emi');
+    }
     _ensureStaffCache(() => {
       _wireSearchCombo('prSEntryPersonSearch', 'prSEntryPersonSelect', 'prSEntryPersonDropdown',
         allStaffCache.map(s => ({ value: s.teacher_id, label: s.full_name || s.teacher_id, sub: [s.designation, s.teacher_id].filter(Boolean).join(' · ') })));
@@ -18317,6 +18399,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const user_id = document.getElementById('prSEntryPersonSelect').value;
     const note = document.getElementById('prSEntryNote').value.trim();
     if (!user_id) { showToast('Person is required', 'error'); return; }
+    const section = _prSectionsCache.find(s => s.id === Number(section_id));
+    if (section && section.calc_style === 'per_child') {
+      const children_count = document.getElementById('prSEntryChildrenCount').value;
+      if (children_count === '') { showToast('Number of children is required', 'error'); return; }
+      _payrollFetch('add_section_entry', { section_id, user_id, children_count, note }).then(res => {
+        if (res && res.result === 'success') { showToast('Entry added'); _prCloseSectionEntryForm(); _prSelectSection(Number(section_id)); }
+        else showToast((res && res.message) || 'Failed to add', 'error');
+      }).catch(err => showToast(err.message || 'Failed to add', 'error'));
+      return;
+    }
     const payload = { section_id, user_id, mode: _prSEntryMode, note };
     if (_prSEntryMode === 'emi') {
       const total_amount = document.getElementById('prSEntryTotal').value;
@@ -19819,20 +19911,27 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       .filter(e => { const s = _prSectionsCache.find(sec => sec.id === e.section_id); return s && s.field_id; });
     const texts = [];
     entries.forEach(e => {
+      // A per_child entry (see _prOpenSectionForm) never completes on its
+      // own (no total to pay off — it runs until manually cancelled, same
+      // as any other recurring entry), so it only ever uses activeTemplate.
+      const isPerChild = e.children_count != null;
       const template = e.status === 'completed' ? rule.completedTemplate : rule.activeTemplate;
       if (!template) return;
       const section = _prSectionsCache.find(s => s.id === e.section_id);
       const field = section ? _prFieldsCache.find(f => f.id === section.field_id) : null;
-      const emiRate = e.emi_amount != null ? Number(e.emi_amount) : (Number(e.total_amount) / (Number(e.emi_months) || 1));
-      const monthsTotal = e.emi_months || (emiRate ? Math.round(Number(e.total_amount) / emiRate) : 0);
+      const emiRate = isPerChild
+        ? (Number(section && section.child_rate) || 0) * Math.min(Number(e.children_count) || 0, section && section.child_max != null ? Number(section.child_max) : Infinity)
+        : (e.emi_amount != null ? Number(e.emi_amount) : (Number(e.total_amount) / (Number(e.emi_months) || 1)));
+      const monthsTotal = e.emi_months || (!isPerChild && emiRate ? Math.round(Number(e.total_amount) / emiRate) : 0);
       const vars = {
         field_label: field ? field.label : (section ? section.name : ''),
         section_name: section ? section.name : '',
         emi: _prFormatTaka(emiRate),
-        total: _prFormatTaka(e.total_amount),
-        remaining: _prFormatTaka(e.remaining_amount),
-        paid: e.paid_installments || 0,
-        months: monthsTotal,
+        total: isPerChild ? '' : _prFormatTaka(e.total_amount),
+        remaining: isPerChild ? '' : _prFormatTaka(e.remaining_amount),
+        paid: isPerChild ? '' : (e.paid_installments || 0),
+        months: isPerChild ? '' : monthsTotal,
+        children: isPerChild ? e.children_count : '',
       };
       let text = template;
       Object.keys(vars).forEach(k => { text = text.replace(new RegExp(`\\{${k}\\}`, 'g'), String(vars[k])); });

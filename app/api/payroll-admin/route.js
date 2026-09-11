@@ -371,7 +371,15 @@ function _computePayslipForPerson(personSetup, roles, category, ref, month, year
   const entryAmountById = {};
   const sectionEntryByFieldId = {};
   personEntries.forEach(entry => {
-    const flatRate = entry.emi_amount != null ? Number(entry.emi_amount) : (Number(entry.total_amount) / (Number(entry.emi_months) || 1));
+    const section = ref.sectionsById[entry.section_id];
+    // A 'per_child' section (see save_section) computes its entries' rate
+    // fresh from the section's OWN current child_rate/child_max every run
+    // — never from anything stored on the entry itself — so a policy
+    // change (rate goes up, cap changes) takes effect for every entry
+    // immediately, with nothing to re-save by hand.
+    const flatRate = entry.children_count != null && section
+      ? (Number(section.child_rate) || 0) * Math.min(Number(entry.children_count) || 0, section.child_max != null ? Number(section.child_max) : Infinity)
+      : (entry.emi_amount != null ? Number(entry.emi_amount) : (Number(entry.total_amount) / (Number(entry.emi_months) || 1)));
     // Capped at what's actually still owed — total_amount doesn't always
     // divide evenly by the flat rate (e.g. Tk.50000 total at a fixed
     // Tk.4000/month is 12 full installments + a final Tk.2000), and
@@ -384,7 +392,6 @@ function _computePayslipForPerson(personSetup, roles, category, ref, month, year
     // capped — there's no total to run out against.
     const amt = entry.remaining_amount != null ? Math.min(flatRate, Number(entry.remaining_amount)) : flatRate;
     entryAmountById[entry.id] = amt;
-    const section = ref.sectionsById[entry.section_id];
     if (section && section.field_id) sectionEntryByFieldId[section.field_id] = amt;
   });
 
@@ -2038,7 +2045,16 @@ export async function POST(req) {
       if (!field) return NextResponse.json({ result: 'error', message: 'Field not found' }, { status: 400 });
       direction = field.category === 'deduction' ? 'deduct' : 'add';
     }
-    const rowData = { name, direction, field_id: field_id || null };
+    // 'per_child' sections compute every entry's amount fresh each run from
+    // child_rate x children_count (capped at child_max) instead of a typed
+    // amount — see _computePayslipForPerson — so a rate/cap change here
+    // applies to every entry under it immediately, nothing to re-save.
+    const calc_style = payload.calc_style === 'per_child' ? 'per_child' : 'amount';
+    const rowData = {
+      name, direction, field_id: field_id || null, calc_style,
+      child_rate: calc_style === 'per_child' ? (Number(payload.child_rate) || 0) : null,
+      child_max: calc_style === 'per_child' ? (Number(payload.child_max) || null) : null,
+    };
     const saved = id
       ? await sbPayroll(`sections?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
       : await sbPayroll('sections', 'POST', rowData);
@@ -2068,12 +2084,38 @@ export async function POST(req) {
 
   if (action === 'add_section_entry') {
     const { section_id, user_id: personId, note } = payload;
-    const mode = ['emi', 'one_time', 'recurring'].includes(payload.mode) ? payload.mode : 'emi';
     if (!section_id || !personId) return NextResponse.json({ result: 'error', message: 'Section and person are required' }, { status: 400 });
+
+    // A 'per_child' section (see save_section) skips the EMI/One-Time/
+    // Recurring picker entirely — an entry here is just "how many
+    // children" and always behaves like a recurring entry (ongoing, no
+    // total to pay off), since _computePayslipForPerson computes the
+    // actual amount fresh every run from the section's own current
+    // child_rate/child_max rather than anything stored on the entry.
+    const sectionRows = await sbPayroll(`sections?id=eq.${encodeURIComponent(section_id)}&select=calc_style`);
+    const targetSection = Array.isArray(sectionRows) && sectionRows[0];
+    if (targetSection && targetSection.calc_style === 'per_child') {
+      const childrenCount = Math.max(0, Math.floor(Number(payload.children_count)));
+      if (!Number.isFinite(childrenCount) || payload.children_count === '' || payload.children_count == null) {
+        return NextResponse.json({ result: 'error', message: 'Number of children is required' }, { status: 400 });
+      }
+      const rowData = {
+        section_id, user_id: personId, note: note || null, paid_installments: 0,
+        mode: 'recurring', total_amount: null, emi_amount: null, emi_months: null, remaining_amount: null,
+        children_count: childrenCount,
+      };
+      const saved = await sbPayroll('section_entries', 'POST', rowData);
+      if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+      const savedRow = Array.isArray(saved) ? saved[0] : saved;
+      _prAudit(user_id, 'add_section_entry', 'section_entries', savedRow?.id, rowData);
+      return NextResponse.json({ result: 'success', entry: savedRow });
+    }
+
+    const mode = ['emi', 'one_time', 'recurring'].includes(payload.mode) ? payload.mode : 'emi';
 
     // Which field (if any) this entry counts under comes from the section
     // itself, not a per-entry choice — see save_section.
-    let rowData = { section_id, user_id: personId, mode, note: note || null, paid_installments: 0 };
+    let rowData = { section_id, user_id: personId, mode, note: note || null, paid_installments: 0, children_count: null };
     if (mode === 'emi') {
       const { total_amount, emi_amount, emi_months } = payload;
       if (!total_amount) return NextResponse.json({ result: 'error', message: 'Total amount is required' }, { status: 400 });
