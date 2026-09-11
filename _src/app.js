@@ -14585,14 +14585,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
             <div>
               <p class="font-black text-slate-800 text-xs">Visual Editor</p>
-              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Real data, formatted live. Drag a header to reorder columns. Click a header to format it. Click the × to drop a column, or click a chip below to bring one back.</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Real data, formatted live. Drag a header to reorder columns. Click a header to format it. Tick the checkbox in a header to select it — pick 2+ to merge them into one Sum column right here. Click the × to drop a column, or click a chip below to bring one back.</p>
             </div>
             <div class="flex items-center gap-2">
               <button onclick="_prResetColumnOrderToSheet()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Sheet Order</button>
               <button onclick="_prSetAllHeaderRotation(90)" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Vertical Headers</button>
               <button onclick="_prSetAllHeaderRotation(0)" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Horizontal Headers</button>
+              <button onclick="_prAddVirtualColumn()" class="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Virtual Column</button>
             </div>
           </div>
+          <div id="prMergeSelectionBar" class="hidden items-center gap-2 mb-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl"></div>
           <div id="prExportExcludedChips" class="flex flex-wrap gap-1.5 mb-2"></div>
           <div id="prExportPreviewWrap" class="overflow-auto border border-slate-200 rounded-xl" style="max-height:60vh;">
             <table id="prExportPreviewTable" class="border-collapse text-xs"></table>
@@ -18653,6 +18655,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   let _prPreviewDragKey = null;
+  // Columns ticked in the Visual Editor for a one-click Sum merge — lives
+  // only while the tab is open, cleared once the merge happens (or on
+  // demand), never persisted as part of a saved template.
+  let _prMergeSelectedKeys = new Set();
 
   function _prColumnCellCss(c, isHeader) {
     const bold = isHeader ? c.headerBold : c.bold;
@@ -18723,6 +18729,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           onclick="_prOpenColumnFormatPopover('${c.key}', event)" ${!c.group && hasAnyGroup ? 'rowspan="2"' : ''}
           class="relative px-3 py-2 bg-slate-50 cursor-grab select-none hover:bg-blue-50 transition-all align-bottom"
           style="${_prColumnCellCss(c, true)}${_prGridBorderCss(isTopRow, false)}" title="Drag to reorder, click to format">
+        <input type="checkbox" ${_prMergeSelectedKeys.has(c.key) ? 'checked' : ''} onclick="event.stopPropagation();_prToggleColumnMergeSelect('${c.key}',this.checked)" title="Select for merge" class="absolute top-0.5 left-0.5 w-3.5 h-3.5 rounded accent-blue-600 cursor-pointer">
         <button onclick="event.stopPropagation();_prSetExportFormat('${c.key}','included',false)" class="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-slate-200 text-slate-500 hover:bg-red-200 hover:text-red-600 flex items-center justify-center text-[9px] leading-none">×</button>
         ${_escHtml(c.label)}
         <div onmousedown="_prStartColumnResize('${c.key}', event)" class="absolute top-0 right-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-300"></div>
@@ -18749,6 +18756,51 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         }).join('')}</tr>`).join('')}
       </tbody>`;
     lucide.createIcons();
+    _prRenderMergeSelectionBar();
+  }
+
+  // Ticking 2+ header checkboxes surfaces this bar instead of requiring
+  // the separate Add Virtual Column modal — the common case (just sum a
+  // handful of columns you can already see) never needs to leave the
+  // table. Selection itself isn't part of a saved template; it's cleared
+  // the moment a merge happens or the bar's own Clear is clicked.
+  function _prRenderMergeSelectionBar() {
+    const bar = document.getElementById('prMergeSelectionBar');
+    if (!bar) return;
+    // Drop any selected key that's no longer an included column (removed,
+    // or hidden by a chip click) so the count/button never lies.
+    const includedKeys = new Set(_prExportColumnsCache.filter(c => c.included).map(c => c.key));
+    [..._prMergeSelectedKeys].forEach(k => { if (!includedKeys.has(k)) _prMergeSelectedKeys.delete(k); });
+    if (!_prMergeSelectedKeys.size) { bar.classList.add('hidden'); bar.classList.remove('flex'); return; }
+    bar.classList.remove('hidden'); bar.classList.add('flex');
+    const names = [..._prMergeSelectedKeys].map(k => (_prExportColumnsCache.find(c => c.key === k) || {}).label).filter(Boolean);
+    bar.innerHTML = `
+      <span class="text-xs font-black text-blue-700">${_prMergeSelectedKeys.size} selected</span>
+      <span class="text-[10px] text-blue-600 font-bold truncate flex-1">${_escHtml(names.join(', '))}</span>
+      ${_prMergeSelectedKeys.size >= 2 ? `<button onclick="_prMergeSelectedAsSum()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="sigma" class="h-3.5 w-3.5"></i>Merge as Sum</button>` : `<span class="text-[10px] text-blue-500 font-bold">Pick at least 2 to merge</span>`}
+      <button onclick="_prClearMergeSelection()" class="px-3 py-1.5 border border-blue-200 text-blue-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-blue-100 transition-all">Clear</button>`;
+    lucide.createIcons();
+  }
+  function _prToggleColumnMergeSelect(key, checked) {
+    if (checked) _prMergeSelectedKeys.add(key); else _prMergeSelectedKeys.delete(key);
+    _prRenderMergeSelectionBar();
+  }
+  function _prClearMergeSelection() { _prMergeSelectedKeys.clear(); _prRenderMergeSelectionBar(); }
+  function _prMergeSelectedAsSum() {
+    const cols = [..._prMergeSelectedKeys].map(k => _prExportColumnsCache.find(c => c.key === k)).filter(Boolean);
+    if (cols.length < 2) return;
+    const name = (window.prompt('Name this Sum column:', `Sum of ${cols.map(c => c.label).join(' + ')}`) || '').trim();
+    if (!name) return;
+    const key = `virtual:sum_${name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
+    if (_prExportColumnsCache.some(c => c.key === key)) { showToast('A column with that name already exists', 'error'); return; }
+    _prExportColumnsCache.push({
+      key, label: name, type: 'virtual', vtype: 'sum', sources: cols.map(c => c.key), included: true,
+      bold: true, italic: false, color: '', rotation: 0, align: 'left', headerAlign: 'center', width: null,
+      headerBold: true, headerItalic: false, headerColor: '', headerBg: '', headerRotation: 90,
+    });
+    _prMergeSelectedKeys.clear();
+    _prRenderExportColumnsTable();
+    showToast(`Added "${name}"`);
   }
 
   // Live resize by dragging the thin handle on a header's right edge —
@@ -18799,8 +18851,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <input type="text" value="${_escHtml(c.label)}" onchange="_prSetExportFormat('${key}','label',this.value||'${_escHtml(c.label)}')" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-black text-slate-800 text-xs mb-2" title="Header text — click to rename">
       <div class="flex items-center gap-2 mb-2">
         <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest shrink-0">Group</label>
-        <input type="text" list="prVcGroupOptions" value="${_escHtml(c.group || '')}" placeholder="e.g. Additions, Deductions" onchange="_prSetExportFormat('${key}','group',this.value||null)" class="flex-1 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]">
-        <datalist id="prVcGroupOptions">${[...new Set(_prExportColumnsCache.map(x => x.group).filter(Boolean))].map(g => `<option value="${_escHtml(g)}">`).join('')}</datalist>
+        <select onchange="_prOnGroupSelectChange('${key}',this)" class="flex-1 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]">
+          <option value="">— No group —</option>
+          ${[...new Set(_prExportColumnsCache.map(x => x.group).filter(Boolean))].map(g => `<option value="${_escHtml(g)}" ${c.group === g ? 'selected' : ''}>${_escHtml(g)}</option>`).join('')}
+          <option value="__new__">+ Add new group…</option>
+        </select>
       </div>
       <div class="grid grid-cols-2 gap-2 mb-2">
         <div>
@@ -18851,6 +18906,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const col = _prExportColumnsCache.find(c => c.key === key);
     if (col) col[prop] = value;
     _prRenderExportPreview();
+  }
+
+  // The Group dropdown's "+ Add new group…" option prompts for a name
+  // instead of applying it literally — every other option is an existing
+  // group name, picked straight off whatever's already in use.
+  function _prOnGroupSelectChange(key, selectEl) {
+    if (selectEl.value === '__new__') {
+      const name = (window.prompt('New group name:') || '').trim();
+      if (!name) { const col = _prExportColumnsCache.find(c => c.key === key); selectEl.value = (col && col.group) || ''; return; }
+      _prSetExportFormat(key, 'group', name);
+      document.getElementById('prColumnFormatPopover')?.remove();
+    } else {
+      _prSetExportFormat(key, 'group', selectEl.value || null);
+    }
   }
 
   // Bulk-set every column's header rotation in one click — 'person' (the
