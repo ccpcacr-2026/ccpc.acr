@@ -25,6 +25,14 @@
 --               remaining_amount stay null and are never touched by
 --               approve_run/revert_run_to_draft.
 --
+-- section_entries.paid_installments is a running count of installments
+-- actually paid — seeded from the "Installments Already Paid" input when an
+-- EMI entry is set up for a loan that already had some paid before it
+-- existed in this system, then incremented by approve_run (decremented by
+-- revert_run_to_draft) exactly alongside remaining_amount, so it's always
+-- an accurate "X of Y paid" figure for loan-statement remarks (see
+-- _prResolveLoanRemarkRule) without drifting out of sync with the balance.
+--
 -- Run in Supabase SQL editor.
 
 alter table payroll.sections add column if not exists field_id bigint references payroll.fields(id) on delete set null;
@@ -41,5 +49,6 @@ exception when duplicate_object then null;
 end $$;
 alter table payroll.section_entries validate constraint section_entries_mode_check;
 alter table payroll.section_entries alter column total_amount drop not null;
+alter table payroll.section_entries add column if not exists paid_installments integer not null default 0;
 
 notify pgrst, 'reload schema';

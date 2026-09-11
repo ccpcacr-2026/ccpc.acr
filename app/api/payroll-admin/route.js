@@ -1536,6 +1536,7 @@ export async function POST(req) {
           await sbPayroll(`section_entries?id=eq.${encodeURIComponent(entryId)}`, 'PATCH', {
             remaining_amount: newRemaining,
             status: newRemaining <= 0 ? 'completed' : 'active',
+            paid_installments: (Number(entry.paid_installments) || 0) + 1,
           });
         }
       }
@@ -1583,6 +1584,7 @@ export async function POST(req) {
             await sbPayroll(`section_entries?id=eq.${encodeURIComponent(entryId)}`, 'PATCH', {
               remaining_amount: restoredRemaining,
               status: 'active',
+              paid_installments: Math.max(0, (Number(entry.paid_installments) || 0) - 1),
             });
           }
         }
@@ -2060,17 +2062,38 @@ export async function POST(req) {
 
     // Which field (if any) this entry counts under comes from the section
     // itself, not a per-entry choice — see save_section.
-    let rowData = { section_id, user_id: personId, mode, note: note || null };
+    let rowData = { section_id, user_id: personId, mode, note: note || null, paid_installments: 0 };
     if (mode === 'emi') {
       const { total_amount, emi_amount, emi_months } = payload;
       if (!total_amount) return NextResponse.json({ result: 'error', message: 'Total amount is required' }, { status: 400 });
       if (!emi_amount && !emi_months) return NextResponse.json({ result: 'error', message: 'Set either a fixed EMI amount or a number of EMI months' }, { status: 400 });
+      const totalNum = Number(total_amount);
+      const emiAmountNum = emi_amount ? Number(emi_amount) : null;
+      const emiMonthsNum = emi_months ? Number(emi_months) : null;
+      // An EMI can be set up mid-flight for a loan that already had some
+      // installments paid before it existed in this system (migrating from
+      // paper records, or adopted partway through) — "Installments Already
+      // Paid" backs the starting remaining_amount down to match, using the
+      // same flat per-month rate _computePayslipForPerson derives (fixed
+      // emi_amount if set, else total/emi_months), so the balance and
+      // eventual completion land on the correct month either way.
+      const emiRate = emiAmountNum != null ? emiAmountNum : (totalNum / (emiMonthsNum || 1));
+      const monthsTotal = emiMonthsNum || (emiRate ? Math.round(totalNum / emiRate) : 0);
+      // Clamped to the loan's own span — an accidental "20 already paid" on
+      // a 12-month loan would otherwise show as a nonsensical "20 of 12" in
+      // loan-statement remarks, on top of never actually reaching remaining
+      // <= 0 via that overshoot (it's the Math.max(0, ...) below that
+      // stops the balance itself from going negative either way).
+      const alreadyPaid = Math.max(0, Math.min(Math.floor(Number(payload.already_paid) || 0), monthsTotal || Infinity));
+      const remaining = Math.max(0, Math.round((totalNum - alreadyPaid * emiRate) * 100) / 100);
       rowData = {
-        ...rowData, total_amount: Number(total_amount),
-        emi_amount: emi_amount ? Number(emi_amount) : null,
-        emi_months: emi_months ? Number(emi_months) : null,
-        remaining_amount: Number(total_amount),
+        ...rowData, total_amount: totalNum,
+        emi_amount: emiAmountNum,
+        emi_months: emiMonthsNum,
+        remaining_amount: remaining,
+        paid_installments: alreadyPaid,
       };
+      if (remaining <= 0) rowData.status = 'completed';
     } else if (mode === 'one_time') {
       // Applies to exactly the next payroll calculation, then stops — built
       // as an EMI whose total equals one installment, so it reuses the

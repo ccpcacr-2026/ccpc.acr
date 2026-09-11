@@ -14339,6 +14339,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                   <input type="number" id="prSEntryEmiMonths" placeholder="—" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
                 </div>
               </div>
+              <div class="mt-3">
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Installments Already Paid <span class="font-normal normal-case text-slate-400">(optional)</span></label>
+                <input type="number" id="prSEntryAlreadyPaid" placeholder="0" min="0" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">If some EMIs on this loan were already paid before setting it up here (paper records, mid-year adoption), enter how many — the starting balance backs down to match.</p>
+              </div>
             </div>
             <div id="prSEntryFlatFields" class="hidden">
               <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Amount <span class="text-red-500">*</span></label>
@@ -14619,6 +14624,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </div>
           </div>
           <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-3">C.F. (Carried Forward) shows the running total from prior pages at the top of every page after the first; Sub Total shows this page's own sum at the bottom of every page. PDF export only — shown live in the preview below.</p>
+        </div>
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
+          <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+            <div>
+              <p class="font-black text-slate-800 text-xs">Auto Remarks</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Conditionally generated notes for the Remarks column (far right), the way a manual payroll sheet's own Remarks column works — triggered by any field's value, or by a person's loan/allowance statement under a Field-linked Section.</p>
+            </div>
+            <button onclick="_prOpenAutoRemarkForm(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Rule</button>
+          </div>
+          <div id="prAutoRemarkRulesList" class="space-y-1.5"></div>
         </div>
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
           <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
@@ -14971,6 +14986,64 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex justify-end gap-2 mt-5">
             <button onclick="_prCloseGradeForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
             <button onclick="_prSaveGrade()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Grade</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="prAutoRemarkFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-md max-h-[85vh] overflow-y-auto">
+          <div class="flex items-center justify-between mb-4">
+            <p id="prAutoRemarkFormTitle" class="font-black text-slate-800 text-sm">Add Auto Remark Rule</p>
+            <button onclick="_prCloseAutoRemarkForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+          </div>
+          <input type="hidden" id="prAutoRemarkFormId">
+          <div class="space-y-3">
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Trigger</label>
+              <div class="grid grid-cols-2 gap-1.5">
+                <button type="button" id="prAutoRemarkKindBtn-field" onclick="_prSetAutoRemarkKind('field')" class="pr-sentry-mode-btn">Field Value</button>
+                <button type="button" id="prAutoRemarkKindBtn-loan" onclick="_prSetAutoRemarkKind('loan')" class="pr-sentry-mode-btn">Loan / Allowance Statement</button>
+              </div>
+            </div>
+            <div id="prAutoRemarkFieldFields">
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Field</label>
+                  <select id="prAutoRemarkFieldKey" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></select>
+                </div>
+                <div>
+                  <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Condition</label>
+                  <div class="flex gap-1.5">
+                    <select id="prAutoRemarkOp" class="w-20 px-2 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></select>
+                    <input type="text" id="prAutoRemarkCompareValue" placeholder="value" class="flex-1 min-w-0 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                  </div>
+                </div>
+              </div>
+              <div class="mt-2">
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Remark Text</label>
+                <input type="text" id="prAutoRemarkTemplate" placeholder="e.g. {label} started @ Tk. {value}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">{value} = this row's value for the picked field (formatted); {label} = the field's name.</p>
+              </div>
+            </div>
+            <div id="prAutoRemarkLoanFields" class="hidden">
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Section</label>
+                <select id="prAutoRemarkSectionId" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></select>
+              </div>
+              <div class="mt-2">
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">While Active</label>
+                <textarea id="prAutoRemarkActiveTemplate" rows="2" placeholder="e.g. {field_label} recovery @ Tk.{emi} x {months} = Tk.{total} ({paid} of {months} paid, Tk.{remaining} left)" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></textarea>
+              </div>
+              <div class="mt-2">
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Once Completed <span class="font-normal normal-case text-slate-400">(optional)</span></label>
+                <textarea id="prAutoRemarkCompletedTemplate" rows="2" placeholder="e.g. {field_label} fully recovered" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></textarea>
+              </div>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Placeholders: {field_label} {section_name} {emi} {months} {paid} {remaining} {total}. Leave "Once Completed" blank to just stop showing a remark once it's paid off. Leave Section as "Any" to match every Field-linked loan/allowance the person has.</p>
+            </div>
+          </div>
+          <div class="flex justify-end gap-2 mt-5">
+            <button onclick="_prCloseAutoRemarkForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
+            <button onclick="_prSaveAutoRemarkRule()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button>
           </div>
         </div>
       </div>
@@ -18102,18 +18175,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
         <div class="overflow-auto border border-slate-200 rounded-xl">
           <table class="w-full text-left border-collapse text-xs">
-            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Person</th><th class="py-2 px-3">Style</th><th class="py-2 px-3">Total</th><th class="py-2 px-3">EMI</th><th class="py-2 px-3">Remaining</th><th class="py-2 px-3">Status</th><th class="py-2 px-3 text-right">Actions</th></tr></thead>
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Person</th><th class="py-2 px-3">Style</th><th class="py-2 px-3">Total</th><th class="py-2 px-3">EMI</th><th class="py-2 px-3">Paid</th><th class="py-2 px-3">Remaining</th><th class="py-2 px-3">Status</th><th class="py-2 px-3 text-right">Actions</th></tr></thead>
             <tbody>
               ${entries.map(e => {
                 const label = staffLabel(e.user_id);
                 const emiLabel = e.emi_amount != null ? `${_prFormatTaka(e.emi_amount)}/mo` : (e.emi_months ? `${e.emi_months} mo` : '—');
                 const statusColor = e.status === 'completed' ? 'text-emerald-600' : e.status === 'cancelled' ? 'text-slate-400' : 'text-amber-600';
                 const isRecurring = e.total_amount == null;
+                // How many installments actually paid so far, out of however
+                // many the loan spans — kept live by approve_run/
+                // revert_run_to_draft (see migration_section_entry_fields.sql).
+                const emiRateForCount = e.emi_amount != null ? Number(e.emi_amount) : (e.emi_months ? Number(e.total_amount) / Number(e.emi_months) : null);
+                const monthsTotal = e.emi_months || (emiRateForCount ? Math.round(Number(e.total_amount) / emiRateForCount) : null);
+                const paidLabel = isRecurring ? '<span class="text-slate-400">—</span>' : `${e.paid_installments || 0}${monthsTotal ? ' of ' + monthsTotal : ''}`;
                 return `<tr class="border-b border-slate-50">
                   <td class="py-1.5 px-3 font-black text-slate-700">${label !== e.user_id ? label : e.user_id}</td>
                   <td class="py-1.5 px-3 text-slate-500 font-bold">${MODE_LABEL[e.mode] || 'EMI'}</td>
                   <td class="py-1.5 px-3">${isRecurring ? '<span class="text-slate-400">—</span>' : _prFormatTaka(e.total_amount)}</td>
                   <td class="py-1.5 px-3">${emiLabel}</td>
+                  <td class="py-1.5 px-3 text-slate-500 font-bold">${paidLabel}</td>
                   <td class="py-1.5 px-3">${isRecurring ? '<span class="text-slate-400">Ongoing</span>' : _prFormatTaka(e.remaining_amount)}</td>
                   <td class="py-1.5 px-3"><span class="font-black ${statusColor}">${e.status}</span></td>
                   <td class="py-1.5 px-3 text-right">
@@ -18121,7 +18201,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                     <button onclick="_prDeleteSectionEntry(${e.id},${sectionId})" class="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-700">Delete</button>
                   </td>
                 </tr>`;
-              }).join('') || `<tr><td colspan="7" class="p-3 text-slate-400 font-bold text-xs text-center">No entries yet.</td></tr>`}
+              }).join('') || `<tr><td colspan="8" class="p-3 text-slate-400 font-bold text-xs text-center">No entries yet.</td></tr>`}
             </tbody>
           </table>
         </div>
@@ -18142,6 +18222,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prSEntryTotal').value = '';
     document.getElementById('prSEntryEmiAmount').value = '';
     document.getElementById('prSEntryEmiMonths').value = '';
+    document.getElementById('prSEntryAlreadyPaid').value = '';
     document.getElementById('prSEntryFlatAmount').value = '';
     document.getElementById('prSEntryNote').value = '';
     _prSetSectionEntryMode('emi');
@@ -18184,9 +18265,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const total_amount = document.getElementById('prSEntryTotal').value;
       const emi_amount = document.getElementById('prSEntryEmiAmount').value;
       const emi_months = document.getElementById('prSEntryEmiMonths').value;
+      const already_paid = document.getElementById('prSEntryAlreadyPaid').value;
       if (!total_amount) { showToast('Total amount is required', 'error'); return; }
       if (!emi_amount && !emi_months) { showToast('Set either a fixed EMI amount or EMI months', 'error'); return; }
-      Object.assign(payload, { total_amount, emi_amount, emi_months });
+      Object.assign(payload, { total_amount, emi_amount, emi_months, already_paid });
     } else {
       const amount = document.getElementById('prSEntryFlatAmount').value;
       if (!amount) { showToast('Amount is required', 'error'); return; }
@@ -18377,6 +18459,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // ── Export (Excel + PDF, column picker, virtual columns, formatting) ──
   let _prExportTabLoaded = false;
   let _prExportSlips = [];
+  // Every Section entry, system-wide (not scoped to one section) — feeds
+  // Auto Remarks' Loan/Allowance Statement rules, refetched each time the
+  // Export tab loads a run (see _prLoadExportColumns).
+  let _prAllSectionEntriesCache = [];
   let _prExportColumnsCache = []; // [{key,label,type:'base'|'field'|'virtual',included,bold,italic,color,headerBold,headerItalic,headerColor,headerBg,headerRotation,vtype,sources}]
   let _prSelectedFormatColumnKey = null; // which column's format is shown in the full-width panel above the preview table
   let _prExportSplitByGroup = false;
@@ -18561,6 +18647,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       summaryRowStyle: _prExportSummaryRowStyle,
       sortBy: _prExportSortBy,
       sortDir: _prExportSortDir,
+      autoRemarkRules: _prAutoRemarkRules,
     };
   }
 
@@ -18624,6 +18711,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (cfg.splitByGroup != null) _prExportSplitByGroup = cfg.splitByGroup;
     if (cfg.sortBy) _prExportSortBy = cfg.sortBy;
     if (cfg.sortDir) _prExportSortDir = cfg.sortDir;
+    if (Array.isArray(cfg.autoRemarkRules)) _prAutoRemarkRules = cfg.autoRemarkRules;
     _prExportPersonSelection = template.person_selection || { mode: 'all', user_ids: [] };
 
     document.getElementById('prExportSplitByGroup').checked = _prExportSplitByGroup;
@@ -18645,6 +18733,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prSubtotalBg').value = _prExportSummaryRowStyle.subtotal.bg || '#f1f5f9';
     document.getElementById('prExportSortField').value = _prExportSortBy;
     _prUpdateExportSortDirBtn();
+    _prSyncRemarksColumn();
+    _prRenderAutoRemarkRulesList();
     _prRenderExportColumnsTable();
     _prSetExportPersonMode(_prExportPersonSelection.mode || 'all');
     showToast(`Loaded "${template.name}"`);
@@ -18802,8 +18892,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _prLoadExportColumns() {
     const runId = document.getElementById('prExportRunSelect').value;
     if (!runId) return;
-    _payrollFetch('get_payslips', { run_id: runId }).then(res => {
+    Promise.all([
+      _payrollFetch('get_payslips', { run_id: runId }),
+      // Auto Remarks' Loan/Allowance Statement rules need every person's
+      // Section entries (fetched fresh each load — a loan could've just
+      // been added/edited) plus Sections/Fields for their labels/links.
+      _payrollFetch('get_section_entries', {}),
+      _prSectionsCache.length ? Promise.resolve(null) : _payrollFetch('get_sections', {}),
+      _prFieldsCache.length ? Promise.resolve(null) : _payrollFetch('get_fields', {}),
+    ]).then(([res, entriesRes, sectionsRes, fieldsRes]) => {
       _prExportSlips = (res && res.result === 'success' && res.payslips) || [];
+      _prAllSectionEntriesCache = (entriesRes && entriesRes.result === 'success' && entriesRes.entries) || [];
+      if (sectionsRes) _prSectionsCache = (sectionsRes.result === 'success' && sectionsRes.sections) || [];
+      if (fieldsRes) _prFieldsCache = (fieldsRes.result === 'success' && fieldsRes.fields) || [];
       const fieldKeys = new Set();
       _prExportSlips.forEach(s => Object.keys(s.field_values || {}).forEach(k => fieldKeys.add(k)));
       const labelFor = key => {
@@ -18877,6 +18978,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         // horizontal since a name column is naturally wide text anyway.
         headerRotation: priorState[c.key] ? priorState[c.key].headerRotation : (c.key === 'person' ? 0 : 90),
       })).concat(priorVirtuals);
+      _prRenderAutoRemarkRulesList();
       _prRenderExportColumnsTable();
       _prRenderExportOrderPreview();
     });
@@ -19618,10 +19720,179 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return _prFillRemarkTemplate(entry.remarkDefault, srcCol, val);
   }
 
+  // ── Auto Remarks: conditional notes driven by any field's value, or by a
+  // person's loan/allowance statement under a Field-linked Section — the
+  // app-side equivalent of the free-text Remarks column accountants filled
+  // in by hand on the paper salary sheet ("P.F Loan recovery @ Tk3500*48
+  // =168000/- From Feb25", "TDS Stop from May24", etc.). Global rules
+  // (not tied to a folded column), so they ride in the export template's
+  // own config — see _prBuildExportTemplateConfig/_prApplyExportTemplate —
+  // rather than on any one column. Feed the same Remarks column as Fold
+  // notes; see _prBuildRemarksText.
+  let _prAutoRemarkRules = [];
+  let _prAutoRemarkFormKind = 'field';
+
+  function _prAutoRemarkFieldLabel(fieldKey) {
+    if (fieldKey === 'gross') return 'Gross';
+    if (fieldKey === 'total_deductions') return 'Total Deductions';
+    if (fieldKey === 'net') return 'Net';
+    const f = _prFieldsCache.find(f => f.key === fieldKey);
+    return f ? f.label : (fieldKey || '');
+  }
+
+  // A Field Value rule's text for THIS row — checked against the field's
+  // raw resolved value directly (not only columns currently added to the
+  // export), so it really is "any field," matching the export column's own
+  // Number Format/decimals when that field does happen to be a column too.
+  function _prResolveFieldRemarkRule(rule, slip) {
+    const srcCol = _prExportColumnsCache.find(c => c.key === rule.fieldKey);
+    const val = srcCol ? _prColumnValue(srcCol, slip) : ((slip.field_values || {})[rule.fieldKey] ?? '');
+    if (!_prCompareVcCondition(val, rule.op, rule.compareValue)) return '';
+    return _prFillRemarkTemplate(rule.template, srcCol, val);
+  }
+
+  // A Loan/Allowance Statement rule's text for THIS row — one line per
+  // matching active Section entry the person has (a rule with a blank
+  // Section matches every Field-linked entry; a specific Section only its
+  // own). Only Field-linked entries carry a real "statement" to report —
+  // an unattributed lump-sum entry has no field to describe it against.
+  function _prResolveLoanRemarkRule(rule, slip) {
+    const entries = (_prAllSectionEntriesCache || []).filter(e => e.user_id === slip.user_id && e.status !== 'cancelled')
+      .filter(e => !rule.sectionId || String(e.section_id) === String(rule.sectionId))
+      .filter(e => { const s = _prSectionsCache.find(sec => sec.id === e.section_id); return s && s.field_id; });
+    const texts = [];
+    entries.forEach(e => {
+      const template = e.status === 'completed' ? rule.completedTemplate : rule.activeTemplate;
+      if (!template) return;
+      const section = _prSectionsCache.find(s => s.id === e.section_id);
+      const field = section ? _prFieldsCache.find(f => f.id === section.field_id) : null;
+      const emiRate = e.emi_amount != null ? Number(e.emi_amount) : (Number(e.total_amount) / (Number(e.emi_months) || 1));
+      const monthsTotal = e.emi_months || (emiRate ? Math.round(Number(e.total_amount) / emiRate) : 0);
+      const vars = {
+        field_label: field ? field.label : (section ? section.name : ''),
+        section_name: section ? section.name : '',
+        emi: _prFormatTaka(emiRate),
+        total: _prFormatTaka(e.total_amount),
+        remaining: _prFormatTaka(e.remaining_amount),
+        paid: e.paid_installments || 0,
+        months: monthsTotal,
+      };
+      let text = template;
+      Object.keys(vars).forEach(k => { text = text.replace(new RegExp(`\\{${k}\\}`, 'g'), String(vars[k])); });
+      texts.push(text);
+    });
+    return texts.join('; ');
+  }
+
+  function _prBuildAutoRemarksText(slip) {
+    const notes = [];
+    (_prAutoRemarkRules || []).forEach(rule => {
+      const text = rule.kind === 'loan' ? _prResolveLoanRemarkRule(rule, slip) : _prResolveFieldRemarkRule(rule, slip);
+      if (text) notes.push(text);
+    });
+    return notes.join('; ');
+  }
+
+  function _prRenderAutoRemarkRulesList() {
+    const list = document.getElementById('prAutoRemarkRulesList');
+    if (!list) return;
+    if (!_prAutoRemarkRules.length) { list.innerHTML = `<p class="text-slate-400 font-bold text-xs">No auto remarks yet.</p>`; return; }
+    list.innerHTML = _prAutoRemarkRules.map((r, i) => {
+      // Decorative quotes are the literal entity, not a bare " — this string
+      // is embedded both as text content and inside a title="" attribute
+      // below, and a bare " there would prematurely close the attribute.
+      const desc = r.kind === 'loan'
+        ? `Loan: ${_escHtml((_prSectionsCache.find(s => s.id === Number(r.sectionId)) || {}).name || 'Any section')} — while active: &quot;${_escHtml(r.activeTemplate || '')}&quot;`
+        : `${_escHtml(_prAutoRemarkFieldLabel(r.fieldKey))} ${_escHtml(r.op)} ${_escHtml(r.compareValue)} → &quot;${_escHtml(r.template || '')}&quot;`;
+      return `<div class="p-2.5 rounded-xl bg-slate-50 flex items-center justify-between gap-2">
+        <p class="text-xs font-bold text-slate-600 flex-1 truncate" title="${desc}">${desc}</p>
+        <div class="flex items-center gap-2 shrink-0">
+          <button onclick="_prOpenAutoRemarkForm(${i})" class="text-slate-400 hover:text-slate-700"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button>
+          <button onclick="_prDeleteAutoRemarkRule(${i})" class="text-red-500 hover:text-red-700"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+        </div>
+      </div>`;
+    }).join('');
+    lucide.createIcons();
+  }
+
+  function _prOpenAutoRemarkForm(index) {
+    const rule = index != null ? _prAutoRemarkRules[index] : null;
+    document.getElementById('prAutoRemarkFormTitle').textContent = rule ? 'Edit Auto Remark Rule' : 'Add Auto Remark Rule';
+    document.getElementById('prAutoRemarkFormId').value = index != null ? index : '';
+
+    const fieldSel = document.getElementById('prAutoRemarkFieldKey');
+    fieldSel.innerHTML = '<option value="gross">Gross</option><option value="total_deductions">Total Deductions</option><option value="net">Net</option>' +
+      _prFieldsCache.filter(f => f.is_active !== false).map(f => `<option value="${f.key}">${_escHtml(f.label)} (${f.category === 'deduction' ? 'Deduction' : 'Addition'})</option>`).join('');
+    const opSel = document.getElementById('prAutoRemarkOp');
+    opSel.innerHTML = PR_VC_RULE_OPS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+    const sectionSel = document.getElementById('prAutoRemarkSectionId');
+    sectionSel.innerHTML = '<option value="">— Any section —</option>' + _prSectionsCache.map(s => `<option value="${s.id}">${_escHtml(s.name)}</option>`).join('');
+
+    fieldSel.value = rule ? rule.fieldKey : (fieldSel.options[0] ? fieldSel.options[0].value : '');
+    opSel.value = rule ? rule.op : '>';
+    document.getElementById('prAutoRemarkCompareValue').value = rule ? rule.compareValue : '';
+    document.getElementById('prAutoRemarkTemplate').value = rule ? rule.template : '';
+    sectionSel.value = rule && rule.sectionId ? rule.sectionId : '';
+    document.getElementById('prAutoRemarkActiveTemplate').value = rule ? rule.activeTemplate || '' : '';
+    document.getElementById('prAutoRemarkCompletedTemplate').value = rule ? rule.completedTemplate || '' : '';
+
+    _prSetAutoRemarkKind(rule ? rule.kind : 'field');
+    document.getElementById('prAutoRemarkFormModal').classList.remove('hidden');
+  }
+  function _prCloseAutoRemarkForm() { document.getElementById('prAutoRemarkFormModal').classList.add('hidden'); }
+
+  function _prSetAutoRemarkKind(kind) {
+    _prAutoRemarkFormKind = kind;
+    ['field', 'loan'].forEach(k => {
+      const btn = document.getElementById('prAutoRemarkKindBtn-' + k);
+      if (btn) btn.classList.toggle('active', k === kind);
+    });
+    const fieldFields = document.getElementById('prAutoRemarkFieldFields');
+    const loanFields = document.getElementById('prAutoRemarkLoanFields');
+    if (fieldFields) fieldFields.classList.toggle('hidden', kind !== 'field');
+    if (loanFields) loanFields.classList.toggle('hidden', kind !== 'loan');
+  }
+
+  function _prSaveAutoRemarkRule() {
+    const idxStr = document.getElementById('prAutoRemarkFormId').value;
+    const kind = _prAutoRemarkFormKind;
+    let rule;
+    if (kind === 'field') {
+      const fieldKey = document.getElementById('prAutoRemarkFieldKey').value;
+      const op = document.getElementById('prAutoRemarkOp').value;
+      const compareValue = document.getElementById('prAutoRemarkCompareValue').value.trim();
+      const template = document.getElementById('prAutoRemarkTemplate').value.trim();
+      if (!fieldKey || compareValue === '' || !template) { showToast('Field, condition value, and remark text are all required', 'error'); return; }
+      rule = { kind, fieldKey, op, compareValue, template };
+    } else {
+      const sectionId = document.getElementById('prAutoRemarkSectionId').value || null;
+      const activeTemplate = document.getElementById('prAutoRemarkActiveTemplate').value.trim();
+      const completedTemplate = document.getElementById('prAutoRemarkCompletedTemplate').value.trim();
+      if (!activeTemplate && !completedTemplate) { showToast('Set at least one remark text', 'error'); return; }
+      rule = { kind, sectionId, activeTemplate, completedTemplate };
+    }
+    if (idxStr !== '') _prAutoRemarkRules[Number(idxStr)] = rule;
+    else _prAutoRemarkRules.push(rule);
+    _prSyncRemarksColumn();
+    _prRenderAutoRemarkRulesList();
+    _prRenderExportColumnsTable();
+    _prCloseAutoRemarkForm();
+    showToast('Remark rule saved');
+  }
+
+  function _prDeleteAutoRemarkRule(index) {
+    if (!window.confirm('Delete this auto remark rule?')) return;
+    _prAutoRemarkRules.splice(index, 1);
+    _prSyncRemarksColumn();
+    _prRenderAutoRemarkRulesList();
+    _prRenderExportColumnsTable();
+  }
+
   // Every active fold's remark for THIS row, joined — each fold's text
   // can vary row to row (conditional on that row's own folded value), so
   // unlike most other things about a fold, this is NOT the same for
-  // every person.
+  // every person. Auto Remarks (field-value/loan-statement rules, global
+  // rather than tied to any one folded column) are appended after.
   function _prBuildRemarksText(slip) {
     const notes = [];
     _prExportColumnsCache.forEach(target => {
@@ -19630,17 +19901,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         if (text) notes.push(text);
       });
     });
+    const autoText = _prBuildAutoRemarksText(slip);
+    if (autoText) notes.push(autoText);
     return notes.join('; ');
   }
 
-  // Creates the Remarks column the first time any fold exists, keeps it
-  // pinned as the very last column, and drops it again once the last fold
-  // is extracted (only if the user never renamed it — a renamed Remarks
-  // column is treated as theirs to keep).
+  // Creates the Remarks column the first time any fold or Auto Remark rule
+  // exists, keeps it pinned as the very last column, and drops it again
+  // once the last one is removed (only if the user never renamed it — a
+  // renamed Remarks column is treated as theirs to keep).
   function _prSyncRemarksColumn() {
     const hasFolds = _prExportColumnsCache.some(c => c.foldedFrom && c.foldedFrom.length);
+    const hasAutoRemarks = (_prAutoRemarkRules || []).length > 0;
     let remarksCol = _prExportColumnsCache.find(c => c.key === PR_REMARKS_KEY);
-    if (hasFolds && !remarksCol) {
+    if ((hasFolds || hasAutoRemarks) && !remarksCol) {
       remarksCol = {
         key: PR_REMARKS_KEY, label: 'Remarks', type: 'remark', included: true,
         bold: false, italic: false, color: '', rotation: 0, align: 'left', headerAlign: 'center',
@@ -19656,7 +19930,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _prExportColumnsCache.splice(idx, 1);
       _prExportColumnsCache.push(remarksCol);
     }
-    if (!hasFolds && remarksCol.label === 'Remarks') {
+    if (!hasFolds && !hasAutoRemarks && remarksCol.label === 'Remarks') {
       _prExportColumnsCache = _prExportColumnsCache.filter(c => c.key !== PR_REMARKS_KEY);
     }
   }

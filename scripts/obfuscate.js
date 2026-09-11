@@ -86,6 +86,7 @@ const RESERVED = [
   '_prSetExportBorderStyle','_prAddGroupTotalColumn','_prOnGroupSelectChange','_prSetExportSummaryRowStyle',
   '_prFoldColumnInto','_prExtractFoldedColumn','_prToggleFoldRemarkEditor','_prSetFoldRemarkDefault',
   '_prAddFoldRemarkRule','_prUpdateFoldRemarkRule','_prRemoveFoldRemarkRule',
+  '_prOpenAutoRemarkForm','_prCloseAutoRemarkForm','_prSetAutoRemarkKind','_prSaveAutoRemarkRule','_prDeleteAutoRemarkRule',
   '_prToggleColumnMergeSelect','_prClearMergeSelection','_prMergeSelectedAsSum',
   '_prOpenDesignationCategoryMapper','_prSaveDesignationCategoryMap','_prApplyDesignationCategoryMapToAllStaff',
   '_prOpenCategoryTreeManager','_prAddCategoryGroup','_prRenameCategoryGroup','_prDeleteCategoryGroup',
