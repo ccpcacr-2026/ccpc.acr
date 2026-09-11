@@ -261,6 +261,19 @@ function _resolveFieldValue(fieldKey, fieldsByKey, ctx, memo, visiting) {
   if (!field) { memo.set(fieldKey, 0); return 0; }
   visiting.add(fieldKey);
 
+  // An active Section entry linked to this exact field (a loan repayment
+  // or recurring allowance set up under Sections > Loan and Advance, etc.)
+  // — wins over everything, including a manual person_field_values entry,
+  // since it's a deliberate transactional amount with its own start/stop
+  // lifecycle rather than a static override. See _computePayslipForPerson
+  // for how ctx.sectionEntryByFieldId is built.
+  const sectionAmount = ctx.sectionEntryByFieldId ? ctx.sectionEntryByFieldId[field.id] : null;
+  if (sectionAmount != null) {
+    visiting.delete(fieldKey);
+    memo.set(fieldKey, sectionAmount);
+    return sectionAmount;
+  }
+
   // A manually-entered or imported value for this specific person — see
   // payroll.person_field_values — always wins outright over condition
   // rules, percent-of-field calc, grade/role defaults, and yearly
@@ -342,7 +355,31 @@ function _resolveFieldValue(fieldKey, fieldsByKey, ctx, memo, visiting) {
 function _computePayslipForPerson(personSetup, roles, category, ref, month, year) {
   const roleList = Array.isArray(roles) ? roles : (roles ? [roles] : []);
   const gradeId = personSetup?.grade_id || null;
+
+  // Active loan/advance/allowance Section entries for this person, split by
+  // whether they're linked to a specific Field. A field-linked entry's
+  // computed amount becomes that field's own resolved value (see
+  // ctx.sectionEntryByFieldId / _resolveFieldValue) — direction then comes
+  // from the FIELD's own category (deduction = loan repayment, addition =
+  // allowance), not the section's fixed direction. An entry with no
+  // field_id is the older, unattributed style: a lump sum still added
+  // straight onto gross/totalDeductions per the section's own direction.
+  const personEntries = ref.sectionEntriesByUser[personSetup.user_id] || [];
+  const entryAmountById = {};
+  const sectionEntryByFieldId = {};
+  personEntries.forEach(entry => {
+    const amt = entry.emi_amount != null ? Number(entry.emi_amount) : (Number(entry.total_amount) / (Number(entry.emi_months) || 1));
+    entryAmountById[entry.id] = amt;
+    if (entry.field_id) sectionEntryByFieldId[entry.field_id] = amt;
+  });
+
   const applicableFields = ref.fields.filter(f => {
+    // A field this person has an active linked entry for is included
+    // regardless of its own grade/role/category gates — attaching a loan/
+    // allowance to it is an explicit per-person choice that shouldn't be
+    // silently defeated by an unrelated conditional the admin never meant
+    // to apply here.
+    if (sectionEntryByFieldId[f.id] != null) return true;
     if (f.is_grade_conditional && !(gradeId && ref.gradeConditionalSet.has(`${gradeId}:${f.id}`))) return false;
     if (f.is_role_conditional && !roleList.some(r => (ref.applicableRolesByField[f.id] || new Set()).has(r))) return false;
     if (f.is_category_conditional && !(ref.applicableCategoriesByField[f.id] || new Set()).has(category)) return false;
@@ -361,6 +398,7 @@ function _computePayslipForPerson(personSetup, roles, category, ref, month, year
 
   const ctx = {
     personFieldValuesRow: ref.personFieldValuesByUser[personSetup.user_id] || null,
+    sectionEntryByFieldId,
     gradeFieldsByField, roleDefaultsByField,
     joiningDate: personSetup.joining_date, refDate: new Date(Date.UTC(year, month, 0)),
     conditionRulesByField: ref.conditionRulesByField,
@@ -388,13 +426,18 @@ function _computePayslipForPerson(personSetup, roles, category, ref, month, year
     if (s.employer_matches) statutoryValues[`statutory_employer:${s.key}`] = ((Number(s.employer_percent) || 0) / 100) * (fieldValues[s.employee_base_field_key] || 0);
   });
 
-  // Active loan/advance section entries for this person.
+  // section_amounts is still recorded for EVERY active entry regardless of
+  // field-linkage — approve_run/revert_run_to_draft key off it to know how
+  // much to move on/off remaining_amount. Only entries with no field_id add
+  // their amount directly here; field-linked ones were already folded into
+  // gross/totalDeductions via fieldValues above (see sectionEntryByFieldId).
   const sectionAmounts = {};
-  (ref.sectionEntriesByUser[personSetup.user_id] || []).forEach(entry => {
+  personEntries.forEach(entry => {
     const section = ref.sectionsById[entry.section_id];
     if (!section) return;
-    const amt = entry.emi_amount != null ? Number(entry.emi_amount) : (Number(entry.total_amount) / (Number(entry.emi_months) || 1));
+    const amt = entryAmountById[entry.id];
     sectionAmounts[entry.id] = amt;
+    if (entry.field_id) return;
     if (section.direction === 'add') gross += amt; else totalDeductions += amt;
   });
 
@@ -1480,6 +1523,10 @@ export async function POST(req) {
           const entryRows = await sbPayroll(`section_entries?id=eq.${encodeURIComponent(entryId)}`);
           const entry = (!entryRows?.error && entryRows[0]) || null;
           if (!entry) continue;
+          // A 'recurring' entry (mode='recurring', total_amount left null)
+          // has no balance to pay off — it stays active indefinitely until
+          // manually cancelled, so finalizing a run must never touch it.
+          if (entry.total_amount == null) continue;
           const newRemaining = Math.max(0, Number(entry.remaining_amount) - Number(sectionAmounts[entryId]));
           await sbPayroll(`section_entries?id=eq.${encodeURIComponent(entryId)}`, 'PATCH', {
             remaining_amount: newRemaining,
@@ -1526,6 +1573,7 @@ export async function POST(req) {
             const entryRows = await sbPayroll(`section_entries?id=eq.${encodeURIComponent(entryId)}`);
             const entry = (!entryRows?.error && entryRows[0]) || null;
             if (!entry) continue;
+            if (entry.total_amount == null) continue; // recurring entry — see the matching guard in approve_run
             const restoredRemaining = Number(entry.remaining_amount) + Number(sectionAmounts[entryId]);
             await sbPayroll(`section_entries?id=eq.${encodeURIComponent(entryId)}`, 'PATCH', {
               remaining_amount: restoredRemaining,
@@ -1989,17 +2037,40 @@ export async function POST(req) {
   }
 
   if (action === 'add_section_entry') {
-    const { section_id, user_id: personId, total_amount, emi_amount, emi_months, note } = payload;
-    if (!section_id || !personId || !total_amount) return NextResponse.json({ result: 'error', message: 'Section, person and total amount are required' }, { status: 400 });
-    if (!emi_amount && !emi_months) return NextResponse.json({ result: 'error', message: 'Set either a fixed EMI amount or a number of EMI months' }, { status: 400 });
-    const rowData = {
-      section_id, user_id: personId,
-      total_amount: Number(total_amount),
-      emi_amount: emi_amount ? Number(emi_amount) : null,
-      emi_months: emi_months ? Number(emi_months) : null,
-      remaining_amount: Number(total_amount),
-      note: note || null,
-    };
+    const { section_id, user_id: personId, field_id, note } = payload;
+    const mode = ['emi', 'one_time', 'recurring'].includes(payload.mode) ? payload.mode : 'emi';
+    if (!section_id || !personId) return NextResponse.json({ result: 'error', message: 'Section and person are required' }, { status: 400 });
+
+    let rowData = { section_id, user_id: personId, field_id: field_id || null, mode, note: note || null };
+    if (mode === 'emi') {
+      const { total_amount, emi_amount, emi_months } = payload;
+      if (!total_amount) return NextResponse.json({ result: 'error', message: 'Total amount is required' }, { status: 400 });
+      if (!emi_amount && !emi_months) return NextResponse.json({ result: 'error', message: 'Set either a fixed EMI amount or a number of EMI months' }, { status: 400 });
+      rowData = {
+        ...rowData, total_amount: Number(total_amount),
+        emi_amount: emi_amount ? Number(emi_amount) : null,
+        emi_months: emi_months ? Number(emi_months) : null,
+        remaining_amount: Number(total_amount),
+      };
+    } else if (mode === 'one_time') {
+      // Applies to exactly the next payroll calculation, then stops — built
+      // as an EMI whose total equals one installment, so it reuses the
+      // exact same finalize (auto-completes after that one run) and revert
+      // (re-opens if that run is undone/recalculated) bookkeeping as a
+      // multi-month EMI, rather than a separate mechanism to keep in sync.
+      const amount = Number(payload.amount);
+      if (!amount) return NextResponse.json({ result: 'error', message: 'Amount is required' }, { status: 400 });
+      rowData = { ...rowData, total_amount: amount, emi_amount: amount, emi_months: 1, remaining_amount: amount };
+    } else {
+      // recurring — a flat amount every month with no total to pay off;
+      // total_amount/remaining_amount stay null and approve_run/
+      // revert_run_to_draft skip it entirely, so it just keeps applying
+      // until manually cancelled.
+      const amount = Number(payload.amount);
+      if (!amount) return NextResponse.json({ result: 'error', message: 'Amount is required' }, { status: 400 });
+      rowData = { ...rowData, total_amount: null, emi_amount: amount, emi_months: null, remaining_amount: null };
+    }
+
     const saved = await sbPayroll('section_entries', 'POST', rowData);
     if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
     const savedRow = Array.isArray(saved) ? saved[0] : saved;
@@ -2056,11 +2127,19 @@ export async function POST(req) {
     // for every `statutory:<key>` field_values entry — both are looked up
     // by id/key elsewhere but never returned with a human-readable label,
     // which a one-off preview needs to actually be readable.
+    const fieldByIdForLines = {}; ref.fields.forEach(f => { fieldByIdForLines[f.id] = f; });
     const sectionLines = (ref.sectionEntriesByUser[personId] || []).map(entry => {
       const section = ref.sectionsById[entry.section_id];
+      const field = entry.field_id ? fieldByIdForLines[entry.field_id] : null;
       return {
         entry_id: entry.id, section_name: section ? section.name : `Section #${entry.section_id}`,
-        direction: section ? section.direction : 'deduct', amount: slip.section_amounts[entry.id] || 0, note: entry.note || null,
+        field_label: field ? field.label : null,
+        // A field-linked entry's direction comes from the FIELD's own
+        // category (deduction = loan repayment, addition = allowance),
+        // not the section's fixed direction — see _computePayslipForPerson.
+        direction: field ? field.category === 'deduction' ? 'deduct' : 'add' : (section ? section.direction : 'deduct'),
+        mode: entry.mode || 'emi',
+        amount: slip.section_amounts[entry.id] || 0, note: entry.note || null,
       };
     });
     const statutoryLabels = {}; ref.statutoryItems.forEach(s => { statutoryLabels[s.key] = s.label || s.name || s.key; });

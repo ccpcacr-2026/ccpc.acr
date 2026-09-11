@@ -1163,6 +1163,18 @@ button { user-select: none; }
 .pr-cat-filter-btn:hover, .pr-fv-mode-btn:hover { background: #f8fafc; }
 .pr-cat-filter-btn.active, .pr-fv-mode-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; }
 
+/* Section entry "Payment Style" switcher (EMI / One-Time / Monthly, Until
+   Stopped) — a 3-up grid rather than a pill row, so the longer "Monthly,
+   Until Stopped" label has room without forcing the others to wrap oddly. */
+.pr-sentry-mode-btn {
+  padding: 8px 6px; border-radius: 10px; border: 1px solid #e2e8f0;
+  background: #fff; color: #64748b; font-size: 9px; font-weight: 900;
+  text-transform: uppercase; letter-spacing: 0.03em; cursor: pointer; transition: all 0.15s;
+  line-height: 1.3;
+}
+.pr-sentry-mode-btn:hover { background: #f8fafc; }
+.pr-sentry-mode-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+
 #bus-sidebar {
   position: absolute; z-index: 900;
   /* Semi-transparent + blurred rather than solid white — the fleet list

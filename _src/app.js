@@ -14307,19 +14307,41 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <div id="prSEntryPersonDropdown" class="hidden absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto"></div>
             </div>
             <div>
-              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Total Amount <span class="text-red-500">*</span></label>
-              <input type="number" id="prSEntryTotal" placeholder="0" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Field <span class="font-normal normal-case text-slate-400">(optional)</span></label>
+              <select id="prSEntryFieldId" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                <option value="">— Not linked to a field —</option>
+              </select>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Pick a Deduction field to count this as a loan repayment under that field, or an Addition field to count it as an allowance. Leave blank to just add/deduct a lump sum, matching this section's own direction.</p>
             </div>
-            <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Set either a fixed EMI amount, or a number of months to spread the total over</p>
-            <div class="grid grid-cols-2 gap-3">
-              <div>
-                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Fixed EMI / Month</label>
-                <input type="number" id="prSEntryEmiAmount" placeholder="—" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Payment Style</label>
+              <div class="grid grid-cols-3 gap-1.5">
+                <button type="button" id="prSEntryModeBtn-emi" onclick="_prSetSectionEntryMode('emi')" class="pr-sentry-mode-btn">EMI</button>
+                <button type="button" id="prSEntryModeBtn-one_time" onclick="_prSetSectionEntryMode('one_time')" class="pr-sentry-mode-btn">One-Time</button>
+                <button type="button" id="prSEntryModeBtn-recurring" onclick="_prSetSectionEntryMode('recurring')" class="pr-sentry-mode-btn">Monthly, Until Stopped</button>
               </div>
+            </div>
+            <div id="prSEntryEmiFields">
               <div>
-                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">EMI Months</label>
-                <input type="number" id="prSEntryEmiMonths" placeholder="—" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Total Amount <span class="text-red-500">*</span></label>
+                <input type="number" id="prSEntryTotal" placeholder="0" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
               </div>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest my-2">Set either a fixed EMI amount, or a number of months to spread the total over</p>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Fixed EMI / Month</label>
+                  <input type="number" id="prSEntryEmiAmount" placeholder="—" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                </div>
+                <div>
+                  <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">EMI Months</label>
+                  <input type="number" id="prSEntryEmiMonths" placeholder="—" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                </div>
+              </div>
+            </div>
+            <div id="prSEntryFlatFields" class="hidden">
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Amount <span class="text-red-500">*</span></label>
+              <input type="number" id="prSEntryFlatAmount" placeholder="0" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              <p id="prSEntryFlatHint" class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1"></p>
             </div>
             <div>
               <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Note</label>
@@ -17999,8 +18021,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const detail = document.getElementById('prSectionDetail');
     if (!detail || !section) return;
     detail.innerHTML = `<p class="text-slate-400 font-bold text-xs p-4">Loading…</p>`;
-    _payrollFetch('get_section_entries', { section_id: sectionId }).then(res => {
+    Promise.all([
+      _payrollFetch('get_section_entries', { section_id: sectionId }),
+      _prFieldsCache.length ? Promise.resolve(null) : _payrollFetch('get_fields', {}),
+    ]).then(([res, fieldsRes]) => {
+      if (fieldsRes) _prFieldsCache = (fieldsRes.result === 'success' && fieldsRes.fields) || [];
+      const fieldById = {}; _prFieldsCache.forEach(f => { fieldById[f.id] = f; });
       const entries = (res && res.result === 'success' && res.entries) || [];
+      const MODE_LABEL = { emi: 'EMI', one_time: 'One-Time', recurring: 'Recurring' };
       detail.innerHTML = `
         <div class="flex items-center justify-between mb-3">
           <p class="font-black text-slate-800 text-sm">${section.name} — Entries</p>
@@ -18011,24 +18039,28 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
         <div class="overflow-auto border border-slate-200 rounded-xl">
           <table class="w-full text-left border-collapse text-xs">
-            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Person</th><th class="py-2 px-3">Total</th><th class="py-2 px-3">EMI</th><th class="py-2 px-3">Remaining</th><th class="py-2 px-3">Status</th><th class="py-2 px-3 text-right">Actions</th></tr></thead>
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Person</th><th class="py-2 px-3">Field</th><th class="py-2 px-3">Style</th><th class="py-2 px-3">Total</th><th class="py-2 px-3">EMI</th><th class="py-2 px-3">Remaining</th><th class="py-2 px-3">Status</th><th class="py-2 px-3 text-right">Actions</th></tr></thead>
             <tbody>
               ${entries.map(e => {
                 const label = staffLabel(e.user_id);
-                const emiLabel = e.emi_amount != null ? `${_prFormatTaka(e.emi_amount)}/mo` : `${e.emi_months} mo`;
+                const field = e.field_id ? fieldById[e.field_id] : null;
+                const emiLabel = e.emi_amount != null ? `${_prFormatTaka(e.emi_amount)}/mo` : (e.emi_months ? `${e.emi_months} mo` : '—');
                 const statusColor = e.status === 'completed' ? 'text-emerald-600' : e.status === 'cancelled' ? 'text-slate-400' : 'text-amber-600';
+                const isRecurring = e.total_amount == null;
                 return `<tr class="border-b border-slate-50">
                   <td class="py-1.5 px-3 font-black text-slate-700">${label !== e.user_id ? label : e.user_id}</td>
-                  <td class="py-1.5 px-3">${_prFormatTaka(e.total_amount)}</td>
+                  <td class="py-1.5 px-3">${field ? `${_escHtml(field.label)} <span class="text-[9px] font-black uppercase ${field.category === 'deduction' ? 'text-red-500' : 'text-emerald-600'}">${field.category === 'deduction' ? 'repayment' : 'allowance'}</span>` : `<span class="text-slate-400">— (${section.direction === 'add' ? 'adds' : 'deducts'})</span>`}</td>
+                  <td class="py-1.5 px-3 text-slate-500 font-bold">${MODE_LABEL[e.mode] || 'EMI'}</td>
+                  <td class="py-1.5 px-3">${isRecurring ? '<span class="text-slate-400">—</span>' : _prFormatTaka(e.total_amount)}</td>
                   <td class="py-1.5 px-3">${emiLabel}</td>
-                  <td class="py-1.5 px-3">${_prFormatTaka(e.remaining_amount)}</td>
+                  <td class="py-1.5 px-3">${isRecurring ? '<span class="text-slate-400">Ongoing</span>' : _prFormatTaka(e.remaining_amount)}</td>
                   <td class="py-1.5 px-3"><span class="font-black ${statusColor}">${e.status}</span></td>
                   <td class="py-1.5 px-3 text-right">
                     ${e.status === 'active' ? `<button onclick="_prUpdateSectionEntryStatus(${e.id},'cancelled',${sectionId})" class="text-[10px] font-black text-amber-600 uppercase tracking-widest hover:text-black mr-3">Cancel</button>` : ''}
                     <button onclick="_prDeleteSectionEntry(${e.id},${sectionId})" class="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-700">Delete</button>
                   </td>
                 </tr>`;
-              }).join('') || `<tr><td colspan="6" class="p-3 text-slate-400 font-bold text-xs text-center">No entries yet.</td></tr>`}
+              }).join('') || `<tr><td colspan="8" class="p-3 text-slate-400 font-bold text-xs text-center">No entries yet.</td></tr>`}
             </tbody>
           </table>
         </div>
@@ -18037,14 +18069,30 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
   }
 
+  // Which "Payment Style" button is active in the Add Entry form — module-
+  // level since the form's onclick handlers (no argument for "which form")
+  // just need the one currently open.
+  let _prSEntryMode = 'emi';
+
   function _prOpenSectionEntryForm(sectionId) {
     document.getElementById('prSEntrySectionId').value = sectionId;
     document.getElementById('prSEntryPersonSelect').value = '';
     document.getElementById('prSEntryPersonSearch').value = '';
+    document.getElementById('prSEntryFieldId').value = '';
     document.getElementById('prSEntryTotal').value = '';
     document.getElementById('prSEntryEmiAmount').value = '';
     document.getElementById('prSEntryEmiMonths').value = '';
+    document.getElementById('prSEntryFlatAmount').value = '';
     document.getElementById('prSEntryNote').value = '';
+    _prSetSectionEntryMode('emi');
+    const populateFieldOptions = () => {
+      const sel = document.getElementById('prSEntryFieldId');
+      if (!sel) return;
+      sel.innerHTML = '<option value="">— Not linked to a field —</option>' +
+        _prFieldsCache.filter(f => f.is_active !== false).map(f => `<option value="${f.id}">${_escHtml(f.label)} (${f.category === 'deduction' ? 'Deduction — loan repayment' : 'Addition — allowance'})</option>`).join('');
+    };
+    if (_prFieldsCache.length) populateFieldOptions();
+    else _payrollFetch('get_fields', {}).then(res => { _prFieldsCache = (res && res.result === 'success' && res.fields) || []; populateFieldOptions(); });
     _ensureStaffCache(() => {
       _wireSearchCombo('prSEntryPersonSearch', 'prSEntryPersonSelect', 'prSEntryPersonDropdown',
         allStaffCache.map(s => ({ value: s.teacher_id, label: s.full_name || s.teacher_id, sub: [s.designation, s.teacher_id].filter(Boolean).join(' · ') })));
@@ -18055,16 +18103,45 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   function _prCloseSectionEntryForm() { document.getElementById('prSectionEntryFormModal').classList.add('hidden'); }
 
+  // EMI keeps the existing Total+EMI-Amount/Months inputs; One-Time and
+  // Recurring both collapse to a single flat Amount — the server derives
+  // total_amount/emi_months from that (see add_section_entry).
+  function _prSetSectionEntryMode(mode) {
+    _prSEntryMode = mode;
+    ['emi', 'one_time', 'recurring'].forEach(m => {
+      const btn = document.getElementById('prSEntryModeBtn-' + m);
+      if (btn) btn.classList.toggle('active', m === mode);
+    });
+    const emiFields = document.getElementById('prSEntryEmiFields');
+    const flatFields = document.getElementById('prSEntryFlatFields');
+    if (emiFields) emiFields.classList.toggle('hidden', mode !== 'emi');
+    if (flatFields) flatFields.classList.toggle('hidden', mode === 'emi');
+    const hint = document.getElementById('prSEntryFlatHint');
+    if (hint) hint.textContent = mode === 'one_time'
+      ? 'Applies to the next payroll calculation only, then stops automatically — safely re-applies if that run is cancelled or recalculated.'
+      : mode === 'recurring' ? 'Applies every month with no end date, until you cancel this entry.' : '';
+  }
+
   function _prSaveSectionEntry() {
     const section_id = document.getElementById('prSEntrySectionId').value;
     const user_id = document.getElementById('prSEntryPersonSelect').value;
-    const total_amount = document.getElementById('prSEntryTotal').value;
-    const emi_amount = document.getElementById('prSEntryEmiAmount').value;
-    const emi_months = document.getElementById('prSEntryEmiMonths').value;
+    const field_id = document.getElementById('prSEntryFieldId').value || null;
     const note = document.getElementById('prSEntryNote').value.trim();
-    if (!user_id || !total_amount) { showToast('Person and total amount are required', 'error'); return; }
-    if (!emi_amount && !emi_months) { showToast('Set either a fixed EMI amount or EMI months', 'error'); return; }
-    _payrollFetch('add_section_entry', { section_id, user_id, total_amount, emi_amount, emi_months, note }).then(res => {
+    if (!user_id) { showToast('Person is required', 'error'); return; }
+    const payload = { section_id, user_id, field_id, mode: _prSEntryMode, note };
+    if (_prSEntryMode === 'emi') {
+      const total_amount = document.getElementById('prSEntryTotal').value;
+      const emi_amount = document.getElementById('prSEntryEmiAmount').value;
+      const emi_months = document.getElementById('prSEntryEmiMonths').value;
+      if (!total_amount) { showToast('Total amount is required', 'error'); return; }
+      if (!emi_amount && !emi_months) { showToast('Set either a fixed EMI amount or EMI months', 'error'); return; }
+      Object.assign(payload, { total_amount, emi_amount, emi_months });
+    } else {
+      const amount = document.getElementById('prSEntryFlatAmount').value;
+      if (!amount) { showToast('Amount is required', 'error'); return; }
+      payload.amount = amount;
+    }
+    _payrollFetch('add_section_entry', payload).then(res => {
       if (res && res.result === 'success') { showToast('Entry added'); _prCloseSectionEntryForm(); _prSelectSection(Number(section_id)); }
       else showToast((res && res.message) || 'Failed to add', 'error');
     }).catch(err => showToast(err.message || 'Failed to add', 'error'));
