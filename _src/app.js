@@ -18700,6 +18700,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         rotation: priorState[c.key] ? priorState[c.key].rotation : 0,
         align: priorState[c.key] ? priorState[c.key].align : 'left',
         headerAlign: priorState[c.key] ? priorState[c.key].headerAlign : 'center',
+        // Vertical alignment — 'top'|'middle'|'bottom'. Matters once a cell
+        // has more height than its own text needs: a rotated header, a
+        // custom Row Height, or a tall neighboring cell in the same row.
+        valign: priorState[c.key] ? priorState[c.key].valign : 'middle',
+        headerValign: priorState[c.key] ? priorState[c.key].headerValign : 'middle',
         width: priorState[c.key] ? priorState[c.key].width : null,
         widthUnit: priorState[c.key] ? priorState[c.key].widthUnit : 'px',
         // 'comma' = South Asian lakh/crore grouping (2,45,345); decimals
@@ -18767,7 +18772,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const bg = isHeader ? c.headerBg : null;
     const rot = Number(isHeader ? c.headerRotation : c.rotation) || 0;
     const align = (isHeader ? c.headerAlign : c.align) || (isHeader ? 'center' : 'left');
-    let css = `font-weight:${bold ? '700' : '400'};font-style:${italic ? 'italic' : 'normal'};text-align:${align};`;
+    const valign = (isHeader ? c.headerValign : c.valign) || 'middle';
+    let css = `font-weight:${bold ? '700' : '400'};font-style:${italic ? 'italic' : 'normal'};text-align:${align};vertical-align:${valign};`;
     if (color) css += `color:${color};`;
     if (bg) css += `background:${bg};`;
     if (c.width) {
@@ -19011,8 +19017,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <select onchange="_prSetExportFormat('${key}','headerRotation',Number(this.value))" class="w-full px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-[10px] mb-1.5">
               ${[0, 90, 180, 270].map(deg => `<option value="${deg}" ${Number(c.headerRotation) === deg ? 'selected' : ''}>${deg}° rotation</option>`).join('')}
             </select>
+            <div class="flex items-center gap-1 mb-1">
+              ${['left', 'center', 'right'].map(a => `<button onclick="_prSetExportFormat('${key}','headerAlign','${a}')" title="Horizontal: ${a}" class="flex-1 h-7 border rounded-md flex items-center justify-center ${(c.headerAlign || 'center') === a ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-500'}"><i data-lucide="align-${a}" class="h-3 w-3"></i></button>`).join('')}
+            </div>
             <div class="flex items-center gap-1">
-              ${['left', 'center', 'right'].map(a => `<button onclick="_prSetExportFormat('${key}','headerAlign','${a}')" title="${a}" class="flex-1 h-7 border rounded-md flex items-center justify-center ${(c.headerAlign || 'center') === a ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-500'}"><i data-lucide="align-${a}" class="h-3 w-3"></i></button>`).join('')}
+              ${[['top', 'T'], ['middle', 'M'], ['bottom', 'B']].map(([v, l]) => `<button onclick="_prSetExportFormat('${key}','headerValign','${v}')" title="Vertical: ${v}" class="flex-1 h-7 border rounded-md flex items-center justify-center font-black text-[10px] ${(c.headerValign || 'middle') === v ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-500'}">${l}</button>`).join('')}
             </div>
           </div>
           <div>
@@ -19025,8 +19034,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <select onchange="_prSetExportFormat('${key}','rotation',Number(this.value))" class="w-full px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-[10px] mb-1.5">
               ${[0, 90, 180, 270].map(deg => `<option value="${deg}" ${Number(c.rotation) === deg ? 'selected' : ''}>${deg}° rotation</option>`).join('')}
             </select>
+            <div class="flex items-center gap-1 mb-1">
+              ${['left', 'center', 'right'].map(a => `<button onclick="_prSetExportFormat('${key}','align','${a}')" title="Horizontal: ${a}" class="flex-1 h-7 border rounded-md flex items-center justify-center ${(c.align || 'left') === a ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-500'}"><i data-lucide="align-${a}" class="h-3 w-3"></i></button>`).join('')}
+            </div>
             <div class="flex items-center gap-1">
-              ${['left', 'center', 'right'].map(a => `<button onclick="_prSetExportFormat('${key}','align','${a}')" title="${a}" class="flex-1 h-7 border rounded-md flex items-center justify-center ${(c.align || 'left') === a ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-500'}"><i data-lucide="align-${a}" class="h-3 w-3"></i></button>`).join('')}
+              ${[['top', 'T'], ['middle', 'M'], ['bottom', 'B']].map(([v, l]) => `<button onclick="_prSetExportFormat('${key}','valign','${v}')" title="Vertical: ${v}" class="flex-1 h-7 border rounded-md flex items-center justify-center font-black text-[10px] ${(c.valign || 'middle') === v ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-500'}">${l}</button>`).join('')}
             </div>
           </div>
           <div>
@@ -19444,6 +19456,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return (c.numberFormat === 'comma' ? '#,##,##0' : '0') + decPart;
   }
 
+  // SheetJS/xlsx-js-style spells the middle option 'center', not 'middle'.
+  function _prExcelVAlign(v) {
+    return v === 'top' ? 'top' : v === 'bottom' ? 'bottom' : 'center';
+  }
+
   function _prExportExcel() {
     const data = _prExportRowsAndCols();
     if (!data) return;
@@ -19532,7 +19549,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             s.font = { bold: !!c.headerBold, italic: !!c.headerItalic, color: c.headerColor ? { rgb: c.headerColor.replace('#', '') } : undefined };
           }
           if (c.headerBg) s.fill = { fgColor: { rgb: c.headerBg.replace('#', '') } };
-          s.alignment = { horizontal: c.headerAlign || 'center' };
+          s.alignment = { horizontal: c.headerAlign || 'center', vertical: _prExcelVAlign(c.headerValign) };
           // Excel's own rotation model (OOXML textRotation) only cleanly
           // covers 0-90° — 180°/270° have no faithful equivalent (Excel's
           // UI itself tops out at ±90°), so both collapse to 90° here
@@ -19560,7 +19577,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             const italic = firstStyledSeg ? firstStyledSeg.italic : c.italic;
             const color = firstStyledSeg ? firstStyledSeg.color : c.color;
             if (bold || italic || color) s.font = { bold: !!bold, italic: !!italic, color: color ? { rgb: color.replace('#', '') } : undefined };
-            s.alignment = { horizontal: c.align || 'left' };
+            s.alignment = { horizontal: c.align || 'left', vertical: _prExcelVAlign(c.valign) };
             if (c.rotation === 90 || c.rotation === 270) s.alignment.textRotation = 90;
             if (_prExportRowDesign.zebra && (ri - dataStartRow) % 2 === 1) {
               s.fill = { fgColor: { rgb: (_prExportRowDesign.zebraColor || '#f1f5f9').replace('#', '') } };
@@ -19956,7 +19973,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const pageWidthMm = doc.internal.pageSize.getWidth() - 28;
       const columnStyles = {};
       data.cols.forEach((c, ci) => {
-        columnStyles[ci] = { halign: c.align || 'left', cellWidth: _prColumnWidthMm(c, pageWidthMm) };
+        // Data's own valign default — the head branch below explicitly
+        // overrides this per header cell with headerValign instead, since
+        // columnStyles doesn't distinguish head from body.
+        columnStyles[ci] = { halign: c.align || 'left', valign: c.valign || 'middle', cellWidth: _prColumnWidthMm(c, pageWidthMm) };
       });
       // Same group-header idea as the Acquittance Roll PDF: contiguous
       // same-Group columns get one merged cell in an extra head row above
@@ -20068,7 +20088,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             // headStyles default also forces the plain, one-line group-name
             // row to that same tall height, which is never needed there.
             headStyles: { halign: 'center' },
-            bodyStyles: minBodyRowMm ? Object.assign({ minCellHeight: minBodyRowMm, valign: 'middle' }, hasRotatedData ? { halign: 'center' } : {}) : {},
+            // valign/halign are deliberately left out here — columnStyles
+            // above already sets both per column (and takes precedence
+            // over bodyStyles regardless), this only needs the height.
+            bodyStyles: minBodyRowMm ? { minCellHeight: minBodyRowMm } : {},
             columnStyles,
             didParseCell: hook => {
               if (hook.section === 'head') {
@@ -20091,7 +20114,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 }
                 if (!isColumnLabelRow) return;
                 applyGroupOutline(hook.column.index, hook.cell.styles);
-                if (hasRotatedHeaders) { hook.cell.styles.minCellHeight = 36; hook.cell.styles.valign = 'middle'; }
+                hook.cell.styles.valign = col.headerValign || 'middle';
+                if (hasRotatedHeaders) hook.cell.styles.minCellHeight = 36;
                 if (col.headerBold && col.headerItalic) hook.cell.styles.fontStyle = 'bolditalic';
                 else if (col.headerBold) hook.cell.styles.fontStyle = 'bold';
                 else if (col.headerItalic) hook.cell.styles.fontStyle = 'italic';
