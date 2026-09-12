@@ -694,12 +694,86 @@ export async function POST(req) {
   // Self-service: any authenticated staff member can read their OWN finalized
   // payslips, no Payroll Admin role required — checked before the admin gate
   // below, same pattern as get_my_payslips in app/api/student-admin/route.js.
+  // Enriched with a labeled, categorized line-item breakdown ("My Payroll")
+  // rather than just the bare gross/net summary the field previously
+  // returned — the same field_values a real payslip already stores, just
+  // resolved to human-readable labels the way preview_payslip does for an
+  // admin, since a self-service caller can't call the admin-gated
+  // get_fields to label its own numbers.
   if (action === 'get_my_payslips') {
     if (!user_id) return NextResponse.json({ result: 'error', message: 'Not signed in' }, { status: 401 });
-    const rows = await sbPayroll(`payslips?user_id=eq.${encodeURIComponent(user_id)}&select=*,runs(month,year,status)&order=id.desc`);
+    const [rows, fields, sections, statutoryItems, gradeRows, profileRows] = await Promise.all([
+      sbPayroll(`payslips?user_id=eq.${encodeURIComponent(user_id)}&select=*,runs(month,year,status)&order=id.desc`),
+      sbPayroll('fields?select=id,key,label,category'),
+      sbPayroll('sections?select=id,name,direction,field_id'),
+      sbPayroll('statutory_items?select=key,label,name'),
+      sbPayroll('grades?select=id,name'),
+      _teacherSchemaFetch(`users_profile?teacher_id=eq.${encodeURIComponent(user_id)}&select=full_name,designation`),
+    ]);
     if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
     const finalized = (Array.isArray(rows) ? rows : []).filter(p => p.runs && p.runs.status === 'finalized');
-    return NextResponse.json({ result: 'success', payslips: finalized });
+
+    const fieldByKey = {}; (fields || []).forEach(f => { fieldByKey[f.key] = f; });
+    const sectionById = {}; (sections || []).forEach(s => { sectionById[s.id] = s; });
+    const gradeById = {}; (gradeRows || []).forEach(g => { gradeById[g.id] = g; });
+    const statutoryByKey = {}; (statutoryItems || []).forEach(s => { statutoryByKey[s.key] = s.label || s.name || s.key; });
+    const profile = (Array.isArray(profileRows) && profileRows[0]) || {};
+
+    const labelForKey = key => {
+      if (key === 'bonus_total') return 'Bonus';
+      if (key === 'leave_deduction') return 'Leave Deduction';
+      if (key === 'bus_fare') return 'Bus Fare';
+      if (key.startsWith('statutory_employer:')) return `${statutoryByKey[key.split(':')[1]] || key} (Employer)`;
+      if (key.startsWith('statutory:')) return statutoryByKey[key.split(':')[1]] || key;
+      return fieldByKey[key] ? fieldByKey[key].label : key;
+    };
+    const categoryForKey = key => {
+      if (key === 'leave_deduction' || key.startsWith('statutory:')) return 'deduction';
+      if (key === 'bonus_total' || key === 'bus_fare') return 'addition';
+      return fieldByKey[key] ? fieldByKey[key].category : 'addition';
+    };
+
+    // Section entries not linked to any field (the older, unattributed
+    // lump-sum style — a field-linked entry's amount already appears in
+    // field_lines above via that field's own key, so it's skipped here to
+    // avoid double-counting). The specific entry may since have been
+    // deleted (e.g. a paid-off loan) — shown as a generic fallback line
+    // rather than silently dropped, so the breakdown still reconciles
+    // with gross/net.
+    const allEntryIds = new Set();
+    finalized.forEach(p => Object.keys(p.section_amounts || {}).forEach(id => allEntryIds.add(id)));
+    let entryById = {};
+    if (allEntryIds.size) {
+      const entryRows = await sbPayroll(`section_entries?id=in.(${[...allEntryIds].map(id => encodeURIComponent(id)).join(',')})&select=id,section_id`);
+      (Array.isArray(entryRows) ? entryRows : []).forEach(e => { entryById[e.id] = e; });
+    }
+
+    const detailed = finalized.map(p => {
+      const fieldLines = Object.keys(p.field_values || {})
+        .filter(k => !k.startsWith('statutory_employer:')) // employer's own match isn't the employee's money — omit from their breakdown
+        .map(k => ({ key: k, label: labelForKey(k), category: categoryForKey(k), amount: Math.round((Number(p.field_values[k]) || 0) * 100) / 100 }))
+        .filter(l => l.amount !== 0);
+
+      const sectionLines = [];
+      Object.keys(p.section_amounts || {}).forEach(entryId => {
+        const amt = Math.round((Number(p.section_amounts[entryId]) || 0) * 100) / 100;
+        if (!amt) return;
+        const entry = entryById[entryId];
+        const section = entry ? sectionById[entry.section_id] : null;
+        if (section && section.field_id) return; // already represented in fieldLines
+        sectionLines.push({ label: section ? section.name : 'Other Adjustment', category: section && section.direction === 'add' ? 'addition' : 'deduction', amount: amt });
+      });
+
+      return {
+        ...p,
+        full_name: profile.full_name || null,
+        designation: profile.designation || null,
+        grade_name: (gradeById[p.grade_id] || {}).name || null,
+        field_lines: fieldLines,
+        section_lines: sectionLines,
+      };
+    });
+    return NextResponse.json({ result: 'success', payslips: detailed });
   }
 
   if (!(await _isPayrollAdmin(user_id))) {
@@ -2469,6 +2543,40 @@ export async function POST(req) {
     const rows = await sbPayroll(q);
     if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
     return NextResponse.json({ result: 'success', log: rows });
+  }
+
+  // ── Remarks Log — one archived {name, designation, remarks} table per
+  // month/year, saved from the Export tab's already-computed Remarks
+  // column (see migration_remarks_log.sql for why this isn't recomputed
+  // server-side). One row per month/year; saving again for the same month
+  // replaces it rather than accumulating near-duplicate snapshots.
+  if (action === 'get_remarks_log') {
+    const rows = await sbPayroll('remarks_log?select=*&order=year.desc,month.desc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', logs: rows });
+  }
+
+  if (action === 'save_remarks_log') {
+    const { run_id, month, year, rows } = payload;
+    if (!month || !year || !Array.isArray(rows)) return NextResponse.json({ result: 'error', message: 'month, year and rows are required' }, { status: 400 });
+    const rowData = { run_id: run_id || null, month: Number(month), year: Number(year), rows, created_by: user_id, updated_at: new Date().toISOString() };
+    const existing = await sbPayroll(`remarks_log?month=eq.${encodeURIComponent(month)}&year=eq.${encodeURIComponent(year)}`);
+    const saved = (!existing?.error && existing[0])
+      ? await sbPayroll(`remarks_log?id=eq.${existing[0].id}`, 'PATCH', rowData)
+      : await sbPayroll('remarks_log', 'POST', rowData);
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    const savedRow = Array.isArray(saved) ? saved[0] : saved;
+    _prAudit(user_id, 'save_remarks_log', 'remarks_log', savedRow?.id, { month, year, count: rows.length });
+    return NextResponse.json({ result: 'success', log: savedRow });
+  }
+
+  if (action === 'delete_remarks_log') {
+    const { id } = payload;
+    if (!id) return NextResponse.json({ result: 'error', message: 'id required' }, { status: 400 });
+    const del = await sbPayroll(`remarks_log?id=eq.${encodeURIComponent(id)}`, 'DELETE');
+    if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
+    _prAudit(user_id, 'delete_remarks_log', 'remarks_log', id);
+    return NextResponse.json({ result: 'success' });
   }
 
   return NextResponse.json({ result: 'error', message: 'Unknown action' }, { status: 400 });

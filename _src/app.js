@@ -13966,22 +13966,56 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const list = document.getElementById('myPayslipsList');
       if (!list) return;
       if (!slips.length) { list.innerHTML = `<p class="text-slate-400 font-bold text-xs p-6 text-center bg-white rounded-2xl border border-slate-200">No finalized payslips yet.</p>`; return; }
-      const monthNames = ['','January','February','March','April','May','June','July','August','September','October','November','December'];
-      list.innerHTML = slips.map(s => `
-        <div class="bg-white rounded-2xl border border-slate-200 p-4">
-          <div class="flex items-center justify-between mb-3">
-            <p class="font-black text-slate-800 text-sm">${monthNames[s.runs?.month] || ''} ${s.runs?.year || ''}</p>
-            <span class="text-lg font-black text-emerald-600">৳${Number(s.net).toLocaleString()}</span>
+      const monthNames = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+      const lineRow = l => `<div class="flex items-center justify-between text-xs py-1 border-b border-slate-50 last:border-b-0"><span class="font-bold text-slate-600">${_escHtml(l.label)}</span><span class="font-black text-slate-800">৳${l.amount.toLocaleString('en-IN')}</span></div>`;
+      list.innerHTML = slips.map((s, idx) => {
+        const lines = [...(s.field_lines || []), ...(s.section_lines || [])];
+        const additions = lines.filter(l => l.category !== 'deduction');
+        const deductions = lines.filter(l => l.category === 'deduction');
+        const open = idx === 0; // most recent month expanded by default, rest collapsed
+        return `
+        <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+          <button onclick="_prToggleMyPayslip(${idx})" class="w-full flex items-center justify-between p-4 text-left">
+            <div>
+              <p class="font-black text-slate-800 text-sm">${monthNames[s.runs?.month] || ''} ${s.runs?.year || ''}</p>
+              ${s.designation || s.grade_name ? `<p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">${_escHtml([s.designation, s.grade_name].filter(Boolean).join(' · '))}</p>` : ''}
+            </div>
+            <div class="flex items-center gap-3">
+              <span class="text-lg font-black text-emerald-600">৳${Number(s.net).toLocaleString('en-IN')}</span>
+              <i data-lucide="chevron-down" class="h-4 w-4 text-slate-400 transition-transform${open ? ' rotate-180' : ''}" id="myPayslipChevron-${idx}"></i>
+            </div>
+          </button>
+          <div id="myPayslipBody-${idx}" class="${open ? '' : 'hidden'} border-t border-slate-100 p-4 pt-3">
+            <div class="grid grid-cols-2 gap-3 text-xs mb-4">
+              <div class="bg-slate-50 rounded-xl p-3"><p class="text-[10px] text-slate-400 font-black uppercase">Gross</p><p class="font-black text-slate-700 mt-0.5">৳${Number(s.gross).toLocaleString('en-IN')}</p></div>
+              <div class="bg-slate-50 rounded-xl p-3"><p class="text-[10px] text-slate-400 font-black uppercase">Total Deductions</p><p class="font-black text-slate-700 mt-0.5">৳${Number(s.total_deductions).toLocaleString('en-IN')}</p></div>
+            </div>
+            <div class="grid md:grid-cols-2 gap-4">
+              <div>
+                <p class="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1.5">Additions</p>
+                ${additions.map(lineRow).join('') || '<p class="text-[10px] text-slate-400 font-bold">None</p>'}
+              </div>
+              <div>
+                <p class="text-[10px] font-black text-red-500 uppercase tracking-widest mb-1.5">Deductions</p>
+                ${deductions.map(lineRow).join('') || '<p class="text-[10px] text-slate-400 font-bold">None</p>'}
+              </div>
+            </div>
           </div>
-          <div class="grid grid-cols-2 gap-3 text-xs">
-            <div class="bg-slate-50 rounded-xl p-3"><p class="text-[10px] text-slate-400 font-black uppercase">Gross</p><p class="font-black text-slate-700 mt-0.5">৳${Number(s.gross).toLocaleString()}</p></div>
-            <div class="bg-slate-50 rounded-xl p-3"><p class="text-[10px] text-slate-400 font-black uppercase">Deductions</p><p class="font-black text-slate-700 mt-0.5">৳${Number(s.total_deductions).toLocaleString()}</p></div>
-          </div>
-        </div>`).join('');
+        </div>`;
+      }).join('');
+      lucide.createIcons();
     }).catch(() => {
       const list = document.getElementById('myPayslipsList');
       if (list) list.innerHTML = `<p class="text-red-500 font-bold text-xs p-6 text-center bg-white rounded-2xl border border-slate-200">Failed to load payslips.</p>`;
     });
+  }
+
+  function _prToggleMyPayslip(idx) {
+    const body = document.getElementById('myPayslipBody-' + idx);
+    const chevron = document.getElementById('myPayslipChevron-' + idx);
+    if (!body) return;
+    const nowOpen = body.classList.toggle('hidden') === false;
+    if (chevron) chevron.classList.toggle('rotate-180', nowOpen);
   }
 
   // South Asian digit grouping (lakh/crore — last 3 digits, then pairs:
@@ -14001,6 +14035,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { id: 'pr-mpo', label: 'MPO' },
     { id: 'pr-run', label: 'Run & Payslips' },
     { id: 'pr-export', label: 'Export' },
+    { id: 'pr-remarks-log', label: 'Remarks Log' },
     { id: 'pr-audit', label: 'Audit Log' },
   ];
 
@@ -14650,6 +14685,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="_prExportBankFile()" class="px-4 py-2.5 bg-indigo-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="landmark" class="h-3.5 w-3.5"></i>Bank Disbursement File</button>
             <button onclick="_prExportCategoryTemplates()" class="px-4 py-2.5 bg-slate-800 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="layout-template" class="h-3.5 w-3.5"></i>Acquittance Roll Format (Excel)</button>
             <button onclick="_prExportAcquittanceRollPdf()" class="px-4 py-2.5 bg-slate-800 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="layout-template" class="h-3.5 w-3.5"></i>Acquittance Roll Format (PDF)</button>
+            <button onclick="_prSaveRemarksToLog()" class="px-4 py-2.5 bg-teal-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="archive" class="h-3.5 w-3.5"></i>Save to Remarks Log</button>
           </div>
           <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-2">Bank Disbursement File and both Acquittance Roll formats are fixed formats that ignore the column picker below — one page/sheet per category (Staff / Teacher School / Teacher College / Driver-Helper), laid out exactly like the paper Acquittance Roll: merged group headers, the sheet's own column numbers, and a Sub Total row. The PDF one is Legal-size landscape.</p>
         </div>
@@ -14830,6 +14866,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               </tr></thead>
               <tbody id="prExportColumnsBody"><tr><td colspan="13" class="p-4 text-slate-400 font-bold text-xs text-center">Pick a run above to load its columns.</td></tr></tbody>
             </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="pr-remarks-log" style="display:none">
+        <div class="grid md:grid-cols-3 gap-4">
+          <div class="bg-white rounded-2xl border border-slate-200 p-4">
+            <div class="flex items-center justify-between mb-3">
+              <p class="font-black text-slate-800 text-xs">Saved Months</p>
+            </div>
+            <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-3">Archived Name/Post/Remarks tables — save one from a "Save to Remarks Log" button on the Export tab, so this month's remarks stay exactly as computed even if later changes (a loan paid off, a rate changed) would otherwise alter them.</p>
+            <div id="prRemarksLogList" class="space-y-1.5"><p class="text-slate-400 font-bold text-xs">Loading…</p></div>
+          </div>
+          <div class="md:col-span-2 bg-white rounded-2xl border border-slate-200 p-4">
+            <div id="prRemarksLogDetail"><p class="text-slate-400 font-bold text-xs p-4">Select a month on the left to see its remarks.</p></div>
           </div>
         </div>
       </div>
@@ -15224,6 +15275,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (tabId === 'pr-mpo' && !_prMpoLoaded) loadPayrollMpoTab();
     if (tabId === 'pr-run' && !_prRunTabLoaded) loadPayrollRunTab();
     if (tabId === 'pr-export' && !_prExportTabLoaded) loadPayrollExportTab();
+    if (tabId === 'pr-remarks-log') loadRemarksLog();
     if (tabId === 'pr-audit') loadPayrollAuditLog();
   }
 
@@ -15303,6 +15355,105 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (res && res.result === 'success') { const p = _prMpoPeople.find(x => x.user_id === userId); if (p) p.mpo_amount = value === '' ? null : Number(value); showToast('Saved'); }
       else showToast((res && res.message) || 'Failed to save', 'error');
     }).catch(err => showToast(err.message || 'Failed to save', 'error'));
+  }
+
+  // ── Remarks Log — archived Name/Post/Remarks snapshots, one per month,
+  // saved from the Export tab (see _prSaveRemarksToLog) so a month's
+  // remarks stay exactly as they were computed even after later changes
+  // to the underlying loans/fields would otherwise alter them.
+  let _prRemarksLogCache = [];
+  let _prSelectedRemarksLogId = null;
+
+  function loadRemarksLog() {
+    _payrollFetch('get_remarks_log', {}).then(res => {
+      _prRemarksLogCache = (res && res.result === 'success' && res.logs) || [];
+      _prRenderRemarksLogList();
+    }).catch(err => showToast(err.message || 'Failed to load remarks log', 'error'));
+  }
+
+  function _prRenderRemarksLogList() {
+    const list = document.getElementById('prRemarksLogList');
+    if (!list) return;
+    if (!_prRemarksLogCache.length) {
+      list.innerHTML = `<p class="text-slate-400 font-bold text-xs">No saved months yet — save one from the Export tab.</p>`;
+      return;
+    }
+    list.innerHTML = _prRemarksLogCache.map(l => `
+      <div onclick="_prSelectRemarksLog(${l.id})" class="p-2.5 rounded-xl cursor-pointer transition-all flex items-center justify-between group ${_prSelectedRemarksLogId === l.id ? 'bg-blue-600 text-white' : 'bg-slate-50 hover:bg-slate-100 text-slate-700'}">
+        <div>
+          <p class="font-black text-xs">${PAYROLL_MONTH_NAMES[l.month]} ${l.year}</p>
+          <p class="text-[10px] font-bold ${_prSelectedRemarksLogId === l.id ? 'text-blue-100' : 'text-slate-400'}">${(l.rows || []).length} with remarks</p>
+        </div>
+        <button onclick="event.stopPropagation(); _prDeleteRemarksLog(${l.id})" class="opacity-0 group-hover:opacity-100 transition-opacity ${_prSelectedRemarksLogId === l.id ? 'text-white' : 'text-red-500'}"><i data-lucide="trash-2" class="h-3 w-3"></i></button>
+      </div>`).join('');
+    lucide.createIcons();
+  }
+
+  function _prSelectRemarksLog(id) {
+    _prSelectedRemarksLogId = id;
+    _prRenderRemarksLogList();
+    const log = _prRemarksLogCache.find(l => l.id === id);
+    const detail = document.getElementById('prRemarksLogDetail');
+    if (!detail || !log) return;
+    detail.innerHTML = `
+      <div class="flex items-center justify-between mb-3">
+        <p class="font-black text-slate-800 text-sm">${PAYROLL_MONTH_NAMES[log.month]} ${log.year} — Remarks</p>
+        <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Saved ${new Date(log.updated_at || log.created_at).toLocaleString()}</p>
+      </div>
+      <div class="overflow-auto border border-slate-200 rounded-xl">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Name</th><th class="py-2 px-3">Post</th><th class="py-2 px-3">Remarks</th></tr></thead>
+          <tbody>
+            ${(log.rows || []).map(r => `<tr class="border-b border-slate-50">
+              <td class="py-1.5 px-3 font-black text-slate-700">${_escHtml(r.name)}</td>
+              <td class="py-1.5 px-3 text-slate-500 font-bold">${_escHtml(r.designation || '')}</td>
+              <td class="py-1.5 px-3">${_escHtml(r.remarks)}</td>
+            </tr>`).join('') || `<tr><td colspan="3" class="p-3 text-slate-400 font-bold text-xs text-center">No remarks recorded for this month.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  function _prDeleteRemarksLog(id) {
+    if (!confirm('Delete this saved remarks log?')) return;
+    _payrollFetch('delete_remarks_log', { id }).then(res => {
+      if (res && res.result === 'success') {
+        showToast('Deleted');
+        if (_prSelectedRemarksLogId === id) {
+          _prSelectedRemarksLogId = null;
+          const detail = document.getElementById('prRemarksLogDetail');
+          if (detail) detail.innerHTML = `<p class="text-slate-400 font-bold text-xs p-4">Select a month on the left to see its remarks.</p>`;
+        }
+        loadRemarksLog();
+      } else showToast((res && res.message) || 'Failed to delete', 'error');
+    }).catch(err => showToast(err.message || 'Failed to delete', 'error'));
+  }
+
+  // Gathers the CURRENT Export tab's already-computed Remarks column
+  // (Auto Remark Rules + Fold — see _prBuildRemarksText) into a plain
+  // Name/Post/Remarks table and archives it — only people with a
+  // non-empty remark are included, matching what an accountant would
+  // actually have typed onto the paper sheet's own Remarks column.
+  function _prSaveRemarksToLog() {
+    if (!_prExportSlips.length) { showToast('Pick a run above first', 'error'); return; }
+    const runId = document.getElementById('prExportRunSelect').value;
+    const run = _prRunsCache.find(r => r.id === Number(runId));
+    if (!run) { showToast('Pick a run above first', 'error'); return; }
+    _ensureStaffCache(() => {
+      const rows = _prApplyPersonSelection(_prExportSlips).map(s => {
+        const remarks = _prBuildRemarksText(s);
+        if (!remarks) return null;
+        const staff = (allStaffCache || []).find(x => x.teacher_id === s.user_id);
+        return { user_id: s.user_id, name: (staff && staff.full_name) || s.user_id, designation: (staff && staff.designation) || '', remarks };
+      }).filter(Boolean);
+      if (!rows.length) { showToast('No remarks to save for this run', 'error'); return; }
+      if (!confirm(`Save ${rows.length} remark${rows.length === 1 ? '' : 's'} for ${PAYROLL_MONTH_NAMES[run.month]} ${run.year} to the Remarks Log? This replaces any previously saved log for that month.`)) return;
+      _payrollFetch('save_remarks_log', { run_id: run.id, month: run.month, year: run.year, rows }).then(res => {
+        if (res && res.result === 'success') showToast('Saved to Remarks Log');
+        else showToast((res && res.message) || 'Failed to save', 'error');
+      }).catch(err => showToast(err.message || 'Failed to save', 'error'));
+    });
   }
 
   function loadPayrollAuditLog() {

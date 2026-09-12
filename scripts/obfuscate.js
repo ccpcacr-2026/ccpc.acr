@@ -80,6 +80,7 @@ const RESERVED = [
   '_prRunPayroll','_prSelectRun','_prSubmitRunForApproval','_prApproveRun','_prDeleteRun','_prRevertRunToDraft',
   '_prLockRun','_prUnlockRun',
   '_prBulkAddAllStaff','_prLoadExportColumns','_prSetExportFormat','_prSetAllHeaderRotation','_prRemoveExportColumn','loadPayrollAuditLog',
+  '_prSelectRemarksLog','_prDeleteRemarksLog','_prSaveRemarksToLog','_prToggleMyPayslip',
   '_prSetExportPersonMode','_prRenderPersonSelectionPicker','_prToggleExportPersonCategory','_prToggleExportPersonIndividual',
   '_prLoadExportTemplatesList','_prSaveExportTemplate','_prApplyExportTemplate','_prDeleteExportTemplate',
   '_prPreviewColumnDrop','_prSelectFormatColumn','_prPreviewDragKey','_prResetColumnOrderToSheet','_prStartColumnResize',
