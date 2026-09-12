@@ -3837,16 +3837,40 @@
           </div>`).join('')
         : `<div class="px-3 py-3 text-[10px] text-slate-400 font-black uppercase tracking-widest">No matches</div>`;
     };
-    search.addEventListener('input', () => { hidden.value = ''; renderList(search.value); drop.classList.remove('hidden'); });
-    search.addEventListener('focus', () => { renderList(search.value); drop.classList.remove('hidden'); });
-    search.addEventListener('blur', () => setTimeout(() => drop.classList.add('hidden'), 150));
+    // Every card on this page is glassmorphism (.bg-white → backdrop-filter
+    // in styles.css), which creates a CSS stacking context per card — that
+    // traps this dropdown under whichever card comes next in the DOM no
+    // matter how high its own z-index goes (a child's z-index only orders it
+    // within its own card's stacking context, never against a sibling
+    // card's). Escape that by detaching the dropdown to <body> with fixed
+    // positioning computed from the input's own rect while it's open, then
+    // returning it to its original spot when it closes — so a modal that
+    // owns this combo still removes it correctly when the modal closes.
+    const homeParent = drop.parentNode;
+    const homeNext = drop.nextSibling;
+    const showDrop = () => {
+      const r = search.getBoundingClientRect();
+      drop.style.position = 'fixed';
+      drop.style.left = r.left + 'px';
+      drop.style.top = r.bottom + 'px';
+      drop.style.width = r.width + 'px';
+      document.body.appendChild(drop);
+      drop.classList.remove('hidden');
+    };
+    const hideDrop = () => {
+      drop.classList.add('hidden');
+      homeParent.insertBefore(drop, homeNext);
+    };
+    search.addEventListener('input', () => { hidden.value = ''; renderList(search.value); showDrop(); });
+    search.addEventListener('focus', () => { renderList(search.value); showDrop(); });
+    search.addEventListener('blur', () => setTimeout(hideDrop, 150));
     drop.addEventListener('mousedown', e => {
       const item = e.target.closest('[data-val]');
       if (!item) return;
       e.preventDefault();
       hidden.value = item.dataset.val;
       search.value = item.dataset.label;
-      drop.classList.add('hidden');
+      hideDrop();
     });
     // Preselect the first option so Module always has a usable default.
     if (!hidden.value && options.length) { hidden.value = options[0].value; search.value = options[0].label; }
