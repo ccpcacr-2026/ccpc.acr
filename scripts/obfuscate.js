@@ -64,7 +64,7 @@ const RESERVED = [
   '_prRenderSpecialAllowancesList',
   '_prOpenConditionRuleForm','_prCloseConditionRuleForm','_prToggleConditionThenFields','_prSaveConditionRule','_prDeleteConditionRule',
   '_prOpenGradeForm','_prCloseGradeForm','_prSaveGrade','_prDeleteGrade','_prSelectGrade','_prSaveGradeField','_prToggleGradeConditionalField',
-  '_prSelectPerson','_prSavePersonSetup','_prSavePersonFieldOverride',
+  '_prSelectPerson','_prSavePersonSetup','_prSavePersonFieldOverride','_prTogglePfoReferenceMode','_prRenderPfoStepOptions',
   '_prOpenStatutoryForm','_prCloseStatutoryForm','_prToggleStatutoryCalcFields','_prToggleStatutoryEmployerFields','_prSaveStatutoryItem','_prDeleteStatutoryItem',
   '_prOpenBonusForm','_prCloseBonusForm','_prSaveBonusPayment','_prDeleteBonusPayment',
   '_prOpenAddBonusForm','_prCloseAddBonusForm','_prSetBonusScope','_prSetBonusAmountMode','_prSetBonusMergeMode','_prSaveBulkBonus',

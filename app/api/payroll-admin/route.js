@@ -135,19 +135,33 @@ function _yearsSince(joiningDate, refDate) {
 }
 
 function _resolveFieldConfig(field, ctx) {
+  // A per-person override (payroll.person_field_overrides) outranks the
+  // blanket grade/role default — someone's own Incentive percent or
+  // Reference Basic pin should win over "everyone in this grade gets X%,"
+  // the same way a person-specific setting always beats a group-wide one.
+  const po = ctx.personOverridesByField ? ctx.personOverridesByField[field.id] : null;
   const gf = ctx.gradeFieldsByField[field.id];
   const rd = ctx.roleDefaultsByField[field.id];
-  const value = gf?.value ?? rd?.value ?? null;
-  const percent = gf?.percent ?? rd?.percent ?? null;
-  const base_field_key = gf?.base_field_key || rd?.base_field_key || field.calc_base_field_key || null;
-  // Grade-level only (no role-default equivalent) — a fixed reference step
-  // within the person's OWN grade to compute a percent field's base from,
-  // instead of the person's own resolved value. e.g. "Incentive = 20% of
-  // Basic at Step 1," true for everyone on this grade regardless of which
-  // step they're actually sitting at. Unset (the default) keeps today's
-  // behaviour.
+  const value = po?.value ?? gf?.value ?? rd?.value ?? null;
+  const percent = po?.percent ?? gf?.percent ?? rd?.percent ?? null;
+  const base_field_key = po?.base_field_key || gf?.base_field_key || rd?.base_field_key || field.calc_base_field_key || null;
+  // Grade-level — a fixed reference step within the person's OWN CURRENT
+  // grade to compute a percent field's base from, instead of the person's
+  // own resolved value. e.g. "Incentive = 20% of Basic at Step 1," true for
+  // everyone on this grade regardless of which step they're actually
+  // sitting at. Unset (the default) keeps today's behaviour.
   const base_step_id = gf?.base_step_id ?? null;
-  return { value, percent, base_field_key, base_step_id };
+  // Person-level — "Reference Basic": pins the field's percentage to a
+  // SPECIFIC Grade+Step's Basic (via grade_step_values), independent of
+  // the person's actual current grade — two people on the same rule can
+  // each be anchored to a different grade. Stays fixed through ordinary
+  // step increments; only re-picked by hand on a promotion (see
+  // save_person_field_override). Only meaningful when base_field_key
+  // resolves to 'basic' — _resolveFieldValue ignores it otherwise rather
+  // than silently producing a wrong number from a mismatched pin.
+  const reference_grade_id = po?.reference_grade_id ?? null;
+  const reference_step_id = po?.reference_step_id ?? null;
+  return { value, percent, base_field_key, base_step_id, reference_grade_id, reference_step_id };
 }
 
 function _compareOp(a, op, b) {
@@ -327,12 +341,20 @@ function _resolveFieldValue(fieldKey, fieldsByKey, ctx, memo, visiting) {
   } else {
     const cfg = _resolveFieldConfig(field, ctx);
     if (field.calc_mode === 'percent_of_field' && cfg.base_field_key) {
-      // A fixed reference step overrides the usual "resolve the base field
-      // for this person" lookup — go straight to that (grade, step) cell's
+      // Person-level "Reference Basic" pin wins first (a SPECIFIC Grade+
+      // Step, which may not be this person's current grade at all — see
+      // _resolveFieldConfig) — only honored when the base field is
+      // actually 'basic', since grade_step_values only ever stores Basic
+      // figures; a pin against any other base field is ignored rather than
+      // silently resolving to 0. Failing that, a grade-level fixed
+      // reference step overrides the usual "resolve the base field for
+      // this person" lookup — go straight to that (grade, step) cell's
       // Basic instead, ignoring which step the person is actually on.
-      const baseAmt = cfg.base_step_id && ctx.gradeId
-        ? (Number(ctx.gradeStepValuesByGradeStep[`${ctx.gradeId}:${cfg.base_step_id}`]) || 0)
-        : _resolveFieldValue(cfg.base_field_key, fieldsByKey, ctx, memo, visiting);
+      const baseAmt = cfg.base_field_key === 'basic' && cfg.reference_grade_id && cfg.reference_step_id
+        ? (Number(ctx.gradeStepValuesByGradeStep[`${cfg.reference_grade_id}:${cfg.reference_step_id}`]) || 0)
+        : cfg.base_step_id && ctx.gradeId
+          ? (Number(ctx.gradeStepValuesByGradeStep[`${ctx.gradeId}:${cfg.base_step_id}`]) || 0)
+          : _resolveFieldValue(cfg.base_field_key, fieldsByKey, ctx, memo, visiting);
       amount = ((Number(cfg.percent) || 0) / 100) * baseAmt;
     } else {
       amount = Number(cfg.value) || 0;
@@ -420,6 +442,7 @@ function _computePayslipForPerson(personSetup, roles, category, ref, month, year
 
   const ctx = {
     personFieldValuesRow: ref.personFieldValuesByUser[personSetup.user_id] || null,
+    personOverridesByField: ref.personFieldOverridesByUser[personSetup.user_id] || {},
     sectionEntryByFieldId,
     gradeFieldsByField, roleDefaultsByField,
     joiningDate: personSetup.joining_date, refDate: new Date(Date.UTC(year, month, 0)),
@@ -558,7 +581,7 @@ function _computeEmiEntryFields(payload) {
 
 // Fetches every table the engine needs, once, for a given set of user ids + period.
 async function _loadPayrollRef(userIds, month, year) {
-  const [fields, gradeFields, gradeConditional, roleDefaults, statutoryItemsRaw, sections, sectionEntriesRaw, bonusesRaw, personFieldValuesRaw, applicableRolesRaw, conditionRulesRaw, leaveDeductionsRaw, applicableCategoriesRaw, busFareEntriesRaw, busStoppagesRaw, gradeStepValuesRaw] = await Promise.all([
+  const [fields, gradeFields, gradeConditional, roleDefaults, statutoryItemsRaw, sections, sectionEntriesRaw, bonusesRaw, personFieldValuesRaw, applicableRolesRaw, conditionRulesRaw, leaveDeductionsRaw, applicableCategoriesRaw, busFareEntriesRaw, busStoppagesRaw, gradeStepValuesRaw, personFieldOverridesRaw] = await Promise.all([
     sbPayroll('fields?is_active=eq.true&select=*'),
     sbPayroll('grade_fields?select=*'),
     sbPayroll('grade_conditional_fields?select=*'),
@@ -575,6 +598,7 @@ async function _loadPayrollRef(userIds, month, year) {
     sbPayroll('bus_fare_entries?is_active=eq.true&select=*'),
     _studentSchemaFetch('bus_stoppages?select=*'),
     sbPayroll('grade_step_values?select=*'),
+    sbPayroll('person_field_overrides?select=*'),
   ]);
   const gradeFieldsByGrade = {}; (gradeFields || []).forEach(g => { (gradeFieldsByGrade[g.grade_id] = gradeFieldsByGrade[g.grade_id] || []).push(g); });
   // Keyed "grade_id:step_id" -> that cell's fixed Basic — lets a percent
@@ -597,11 +621,19 @@ async function _loadPayrollRef(userIds, month, year) {
   const applicableCategoriesByField = {}; (applicableCategoriesRaw || []).forEach(a => { (applicableCategoriesByField[a.field_id] = applicableCategoriesByField[a.field_id] || new Set()).add(a.category); });
   const stoppagesById = {}; (busStoppagesRaw || []).forEach(s => { stoppagesById[s.id] = s; });
   const busFareEntriesByUser = {}; (busFareEntriesRaw || []).forEach(e => { (busFareEntriesByUser[e.user_id] = busFareEntriesByUser[e.user_id] || []).push(e); });
+  // Per-person, per-field override of a percent_of_field calc's own
+  // percent/base_field_key/reference Grade+Step ("Reference Basic") —
+  // outranks the blanket grade/role default for that field but still
+  // loses to a flat person_field_values override or a matched condition
+  // rule, same tier as grade_fields/field_role_defaults. See
+  // _resolveFieldConfig.
+  const personFieldOverridesByUser = {};
+  (personFieldOverridesRaw || []).forEach(row => { (personFieldOverridesByUser[row.user_id] = personFieldOverridesByUser[row.user_id] || {})[row.field_id] = row; });
   return {
     fields: fields || [], gradeFieldsByGrade, gradeConditionalSet, roleDefaults: roleDefaults || [],
     statutoryItems: statutoryItemsRaw || [], sectionsById, sectionEntriesByUser, bonusesByUser, personFieldValuesByUser,
     applicableRolesByField, conditionRulesByField, leaveDeductionsByUser, applicableCategoriesByField,
-    stoppagesById, busFareEntriesByUser, gradeStepValuesByGradeStep,
+    stoppagesById, busFareEntriesByUser, gradeStepValuesByGradeStep, personFieldOverridesByUser,
   };
 }
 
@@ -1542,22 +1574,31 @@ export async function POST(req) {
   }
 
   if (action === 'save_person_field_override') {
-    const { user_id: personId, field_id, value, percent, base_field_key } = payload;
+    const { user_id: personId, field_id, value, percent, base_field_key, reference_grade_id, reference_step_id } = payload;
     if (!personId || !field_id) return NextResponse.json({ result: 'error', message: 'user_id and field_id required' }, { status: 400 });
-    // Blank value AND blank percent means "clear the override" — delete rather
-    // than leave a dangling all-null row that would otherwise still win over
-    // the grade/role default at resolution time.
-    if ((value === '' || value == null) && (percent === '' || percent == null)) {
+    const blank = v => v === '' || v == null;
+    // Everything blank means "clear the override" — delete rather than
+    // leave a dangling all-null row that would otherwise still win over
+    // the grade/role default at resolution time (see _resolveFieldConfig).
+    if (blank(value) && blank(percent) && blank(reference_grade_id) && blank(reference_step_id)) {
       const del = await sbPayroll(`person_field_overrides?user_id=eq.${encodeURIComponent(personId)}&field_id=eq.${encodeURIComponent(field_id)}`, 'DELETE');
       if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
       _prAudit(user_id, 'clear_person_field_override', 'person_field_overrides', `${personId}:${field_id}`);
       return NextResponse.json({ result: 'success', cleared: true });
     }
+    // "Reference Basic" is a pair — a grade with no step (or vice versa)
+    // can't look anything up, so require both together rather than
+    // silently resolving to 0 from a half-set pin.
+    if (blank(reference_grade_id) !== blank(reference_step_id)) {
+      return NextResponse.json({ result: 'error', message: 'Pick both a Grade and a Step for Reference Basic, or leave both blank' }, { status: 400 });
+    }
     const rowData = {
       user_id: personId, field_id,
-      value: value === '' || value == null ? null : Number(value),
-      percent: percent === '' || percent == null ? null : Number(percent),
+      value: blank(value) ? null : Number(value),
+      percent: blank(percent) ? null : Number(percent),
       base_field_key: base_field_key || null,
+      reference_grade_id: blank(reference_grade_id) ? null : Number(reference_grade_id),
+      reference_step_id: blank(reference_step_id) ? null : Number(reference_step_id),
     };
     const existing = await sbPayroll(`person_field_overrides?user_id=eq.${encodeURIComponent(personId)}&field_id=eq.${encodeURIComponent(field_id)}`);
     const saved = (!existing?.error && existing.length)

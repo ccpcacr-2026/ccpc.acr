@@ -17078,10 +17078,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _payrollFetch('get_people_setup', {}),
       _prFieldsCache.length ? Promise.resolve({ result: 'success', fields: _prFieldsCache }) : _payrollFetch('get_fields', {}),
       _payrollFetch('get_person_field_values', { user_id: userId }),
-    ]).then(([peopleRes, fieldsRes, valuesRes]) => {
+      _payrollFetch('get_person_field_overrides', { user_id: userId }),
+    ]).then(([peopleRes, fieldsRes, valuesRes, overridesRes]) => {
       _prPeopleSetupCache = (peopleRes && peopleRes.result === 'success' && peopleRes.people) || [];
       _prFieldsCache = (fieldsRes && fieldsRes.result === 'success' && fieldsRes.fields) || _prFieldsCache;
       const personFieldValues = (valuesRes && valuesRes.result === 'success' && valuesRes.values) || {};
+      const personFieldOverridesByFieldId = {};
+      ((overridesRes && overridesRes.result === 'success' && overridesRes.overrides) || []).forEach(o => { personFieldOverridesByFieldId[o.field_id] = o; });
       _prRenderPeopleRoster();
       const detail = document.getElementById('prPersonDetailBody');
       if (!detail) return;
@@ -17192,6 +17195,40 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                   <td class="py-1.5 px-3"><input type="number" value="${val != null ? val : ''}" placeholder="— (default)" onchange="_prSaveSinglePersonFieldValue('${userId}','${f.key}',this.value)" class="w-32 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></td>
                 </tr>`;
               }).join('') || `<tr><td colspan="2" class="p-3 text-slate-400 font-bold text-xs text-center">No fields yet.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+        <p class="font-black text-slate-800 text-xs mb-1 mt-5">Percent-of-Field Overrides — this person only</p>
+        <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-3">For fields calculated as a percentage of another field (Incentive, etc.) — blank percent falls back to the grade/role default. "Incremental Basic" checked (default) tracks this person's own current Grade/Step automatically, same as today; unchecked pins the percentage to a specific Grade+Step's Basic instead — two people on the same rule can each be anchored to a different grade — which then stays fixed through ordinary step increments until manually re-picked, typically right after a promotion.</p>
+        <div class="overflow-auto border border-slate-200 rounded-xl">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Field</th><th class="py-2 px-3">Percent</th><th class="py-2 px-3">Incremental Basic</th><th class="py-2 px-3">Reference Grade / Step</th><th class="py-2 px-3 text-right">Actions</th></tr></thead>
+            <tbody>
+              ${_prFieldsCache.filter(f => f.calc_mode === 'percent_of_field').map(f => {
+                const ov = personFieldOverridesByFieldId[f.id] || {};
+                const isPinned = !!(ov.reference_grade_id && ov.reference_step_id);
+                const currentGradeName = (_prGradesCache.find(g => g.id === setup.grade_id) || {}).name;
+                const pinnedGradeName = isPinned ? (_prGradesCache.find(g => g.id === ov.reference_grade_id) || {}).name : null;
+                const stale = isPinned && setup.grade_id && Number(ov.reference_grade_id) !== Number(setup.grade_id);
+                return `<tr class="border-b border-slate-50">
+                  <td class="py-1.5 px-3 font-black text-slate-700">${_escHtml(f.label)}</td>
+                  <td class="py-1.5 px-3"><input type="number" id="prPFO_pct_${f.id}" value="${ov.percent != null ? ov.percent : ''}" placeholder="— (default)" class="w-20 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></td>
+                  <td class="py-1.5 px-3 text-center"><input type="checkbox" id="prPFO_incremental_${f.id}" ${isPinned ? '' : 'checked'} onchange="_prTogglePfoReferenceMode(${f.id})" class="w-4 h-4 rounded accent-blue-600"></td>
+                  <td class="py-1.5 px-3">
+                    <div class="flex items-center gap-1.5">
+                      <select id="prPFO_refgrade_${f.id}" onchange="_prRenderPfoStepOptions(${f.id})" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px] ${isPinned ? '' : 'hidden'}">
+                        <option value="">Grade…</option>
+                        ${_prGradesCache.map(g => `<option value="${g.id}" ${Number(ov.reference_grade_id) === g.id ? 'selected' : ''}>${_escHtml(g.name)}</option>`).join('')}
+                      </select>
+                      <select id="prPFO_refstep_${f.id}" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px] ${isPinned ? '' : 'hidden'}">
+                        ${_prStepOptionsForGrade(ov.reference_grade_id, ov.reference_step_id)}
+                      </select>
+                    </div>
+                    ${stale ? `<p class="text-[9px] text-amber-600 font-black uppercase tracking-widest mt-1">⚠ Pinned to ${_escHtml(pinnedGradeName || '?')}, but currently on ${_escHtml(currentGradeName || '—')} — promoted since?</p>` : ''}
+                  </td>
+                  <td class="py-1.5 px-3 text-right"><button onclick="_prSavePersonFieldOverride('${userId}',${f.id})" class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-black">Save</button></td>
+                </tr>`;
+              }).join('') || `<tr><td colspan="5" class="p-3 text-slate-400 font-bold text-xs text-center">No percent-of-field fields set up yet.</td></tr>`}
             </tbody>
           </table>
         </div>
@@ -17951,11 +17988,42 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }).catch(err => showToast(err.message || `Failed to ${verb}`, 'error'));
   }
 
+  // Client-side only — the "Incremental Basic" checkbox shows/hides the
+  // Grade+Step selects, no save. Checked (the default) = today's normal
+  // behavior, tracks the person's own current grade/step automatically.
+  // Unchecked = Reference Basic is pinned to a specific Grade+Step
+  // instead — see _prSavePersonFieldOverride for when that actually saves.
+  function _prTogglePfoReferenceMode(fieldId) {
+    const pinned = !document.getElementById(`prPFO_incremental_${fieldId}`).checked;
+    const gradeSel = document.getElementById(`prPFO_refgrade_${fieldId}`);
+    const stepSel = document.getElementById(`prPFO_refstep_${fieldId}`);
+    if (gradeSel) gradeSel.classList.toggle('hidden', !pinned);
+    if (stepSel) stepSel.classList.toggle('hidden', !pinned);
+  }
+
+  // Reference Grade changed — refresh which Steps actually have a Basic
+  // value under that grade (same helper the main Grade/Step picker above
+  // uses), client-side only, no save.
+  function _prRenderPfoStepOptions(fieldId) {
+    const gradeId = document.getElementById(`prPFO_refgrade_${fieldId}`).value;
+    const stepSel = document.getElementById(`prPFO_refstep_${fieldId}`);
+    if (stepSel) stepSel.innerHTML = _prStepOptionsForGrade(gradeId, null);
+  }
+
+  // One explicit Save per row rather than auto-saving on every input — this
+  // row has four interdependent controls (percent, the Incremental Basic
+  // checkbox, reference grade, reference step), and saving on every
+  // individual change would fire a request the moment Grade is picked but
+  // Step still isn't, tripping the backend's "pick both or neither"
+  // validation before the admin's done.
   function _prSavePersonFieldOverride(userId, fieldId) {
-    const value = document.getElementById(`prPFO_val_${fieldId}`).value;
     const percent = document.getElementById(`prPFO_pct_${fieldId}`).value;
-    _payrollFetch('save_person_field_override', { user_id: userId, field_id: fieldId, value, percent }).then(res => {
-      if (res && res.result === 'success') showToast(res.cleared ? 'Override cleared' : 'Saved');
+    const pinned = !document.getElementById(`prPFO_incremental_${fieldId}`).checked;
+    const reference_grade_id = pinned ? document.getElementById(`prPFO_refgrade_${fieldId}`).value : '';
+    const reference_step_id = pinned ? document.getElementById(`prPFO_refstep_${fieldId}`).value : '';
+    if (pinned && (!reference_grade_id || !reference_step_id)) { showToast('Pick both a Grade and a Step, or check Incremental Basic back on', 'error'); return; }
+    _payrollFetch('save_person_field_override', { user_id: userId, field_id: fieldId, percent, reference_grade_id, reference_step_id }).then(res => {
+      if (res && res.result === 'success') { showToast(res.cleared ? 'Override cleared' : 'Saved'); _prSelectPerson(userId); }
       else showToast((res && res.message) || 'Failed to save', 'error');
     }).catch(err => showToast(err.message || 'Failed to save', 'error'));
   }
