@@ -21069,15 +21069,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             '', '',
           ];
         });
+        // Rounded to 2dp per cell — plain float addition of many rows
+        // reliably produces trailing binary noise (e.g. 8730.999999999998)
+        // that a single-value data cell never shows.
+        const sumCol = offset => Math.round(dataRows.reduce((a, r) => a + (Number(r[offset]) || 0), 0) * 100) / 100;
         const subTotalRow = ['Sub Total', '', '', '',
-          ...template.additions.map((c, ci) => dataRows.reduce((a, r) => a + (Number(r[4 + ci]) || 0), 0)),
-          dataRows.reduce((a, r) => a + (Number(r[4 + nAdd]) || 0), 0),
-          ...template.deductions.map((c, ci) => dataRows.reduce((a, r) => a + (Number(r[4 + nAdd + 1 + ci]) || 0), 0)),
-          dataRows.reduce((a, r) => a + (Number(r[4 + nAdd + 1 + nDed]) || 0), 0),
-          dataRows.reduce((a, r) => a + (Number(r[4 + nAdd + 1 + nDed + 1]) || 0), 0),
-          dataRows.reduce((a, r) => a + (Number(r[4 + nAdd + 1 + nDed + 2]) || 0), 0),
-          dataRows.reduce((a, r) => a + (Number(r[4 + nAdd + 1 + nDed + 3]) || 0), 0),
-          dataRows.reduce((a, r) => a + (Number(r[4 + nAdd + 1 + nDed + 4]) || 0), 0),
+          ...template.additions.map((c, ci) => sumCol(4 + ci)),
+          sumCol(4 + nAdd),
+          ...template.deductions.map((c, ci) => sumCol(4 + nAdd + 1 + ci)),
+          sumCol(4 + nAdd + 1 + nDed),
+          sumCol(4 + nAdd + 1 + nDed + 1),
+          sumCol(4 + nAdd + 1 + nDed + 2),
+          sumCol(4 + nAdd + 1 + nDed + 3),
+          sumCol(4 + nAdd + 1 + nDed + 4),
           '', ''];
         const aoa = [groupRow, labelRow, subTotalRow, ...dataRows];
         const ws = XLSX.utils.aoa_to_sheet(aoa);
@@ -21364,7 +21368,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const labelHeadRow = hasAnyGroup ? 1 : 0;
 
       const firstLabelCol = data.cols.findIndex(c => !_prIsSummableColumn(c));
-      const sumChunk = rows => data.cols.map((c, ci) => _prIsSummableColumn(c) ? rows.reduce((a, r) => a + (Number(r[ci]) || 0), 0) : '');
+      // Rounded to 2dp right at the sum — plain float addition of many rows
+      // reliably produces trailing binary noise (e.g. 8730.999999999998),
+      // which is invisible on a single-value data cell but shows up exactly
+      // here, since C.F./Sub Total are the only cells holding a sum of many.
+      const sumChunk = rows => data.cols.map((c, ci) => _prIsSummableColumn(c) ? Math.round(rows.reduce((a, r) => a + (Number(r[ci]) || 0), 0) * 100) / 100 : '');
       const buildTotalRow = (rows, label) => {
         const row = sumChunk(rows);
         if (firstLabelCol >= 0) row[firstLabelCol] = label;
