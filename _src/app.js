@@ -3504,14 +3504,14 @@
               <input type="text" id="upmUserSearch" placeholder="Search people…" autocomplete="off"
                 class="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-blue-600" autocorrect="off" autocapitalize="off" spellcheck="false">
               <input type="hidden" id="upmUserSelect">
-              <div id="upmUserDropdown" class="hidden absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-y-auto"></div>
+              <div id="upmUserDropdown" class="hidden absolute z-40 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-y-auto"></div>
             </div>
             <div class="flex-1 min-w-[180px] relative">
               <label class="text-[10px] font-black text-slate-400 uppercase mb-1.5 block">Module</label>
               <input type="text" id="upmModuleSearch" placeholder="Search modules…" autocomplete="off"
                 class="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-blue-600" autocorrect="off" autocapitalize="off" spellcheck="false">
               <input type="hidden" id="upmModuleSelect">
-              <div id="upmModuleDropdown" class="hidden absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-y-auto"></div>
+              <div id="upmModuleDropdown" class="hidden absolute z-40 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-y-auto"></div>
             </div>
             <div class="flex items-center gap-4 pb-2.5">
               <label class="flex items-center gap-1.5 text-xs font-black text-slate-600 cursor-pointer"><input type="checkbox" id="upmView" class="w-4 h-4 rounded accent-blue-600">View</label>
@@ -14213,7 +14213,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <input type="text" id="prPersonSearch" placeholder="Search by name, designation or ID…" autocomplete="off"
               class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocorrect="off" autocapitalize="off" spellcheck="false">
             <input type="hidden" id="prPersonSelect">
-            <div id="prPersonDropdown" class="hidden absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-y-auto"></div>
+            <div id="prPersonDropdown" class="hidden absolute z-40 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-y-auto"></div>
           </div>
           <p id="prBulkAddStatus" class="text-xs font-bold mt-2"></p>
         </div>
@@ -14378,7 +14378,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Person <span class="text-red-500">*</span></label>
               <input type="text" id="prSEntryPersonSearch" placeholder="Search…" autocomplete="off" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocorrect="off" autocapitalize="off" spellcheck="false">
               <input type="hidden" id="prSEntryPersonSelect">
-              <div id="prSEntryPersonDropdown" class="hidden absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto"></div>
+              <div id="prSEntryPersonDropdown" class="hidden absolute z-40 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto"></div>
             </div>
             <div id="prSEntryUnitFields" class="hidden">
               <label id="prSEntryUnitLabel" class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Number of <span class="text-red-500">*</span></label>
@@ -14445,7 +14445,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Person <span class="text-red-500">*</span></label>
               <input type="text" id="prBonusPersonSearch" placeholder="Search by name, designation or ID…" autocomplete="off" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocorrect="off" autocapitalize="off" spellcheck="false">
               <input type="hidden" id="prBonusPersonSelect">
-              <div id="prBonusPersonDropdown" class="hidden absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto"></div>
+              <div id="prBonusPersonDropdown" class="hidden absolute z-40 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto"></div>
             </div>
             <div>
               <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Label <span class="text-red-500">*</span></label>
@@ -14495,7 +14495,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Person <span class="text-red-500">*</span></label>
               <input type="text" id="prAddBonusPersonSearch" placeholder="Search by name, designation or ID…" autocomplete="off" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocorrect="off" autocapitalize="off" spellcheck="false">
               <input type="hidden" id="prAddBonusPersonSelect">
-              <div id="prAddBonusPersonDropdown" class="hidden absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto"></div>
+              <div id="prAddBonusPersonDropdown" class="hidden absolute z-40 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto"></div>
             </div>
             <p id="prBonusAllNote" class="hidden text-[10px] text-slate-400 font-bold uppercase tracking-widest">Applies to every active person in Payroll — each gets their own bonus payment row.</p>
 
@@ -14575,7 +14575,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Person <span class="text-red-500">*</span></label>
               <input type="text" id="prLeavePersonSearch" placeholder="Search…" autocomplete="off" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocorrect="off" autocapitalize="off" spellcheck="false">
               <input type="hidden" id="prLeavePersonSelect">
-              <div id="prLeavePersonDropdown" class="hidden absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto"></div>
+              <div id="prLeavePersonDropdown" class="hidden absolute z-40 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto"></div>
             </div>
             <div class="grid grid-cols-3 gap-3">
               <div>
@@ -21747,7 +21747,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Person <span class="text-red-500">*</span></label>
               <input type="text" id="prBusFarePersonSearch" placeholder="Search…" autocomplete="off" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocorrect="off" autocapitalize="off" spellcheck="false">
               <input type="hidden" id="prBusFarePersonSelect">
-              <div id="prBusFarePersonDropdown" class="hidden absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto"></div>
+              <div id="prBusFarePersonDropdown" class="hidden absolute z-40 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto"></div>
             </div>
             <div>
               <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Stoppage <span class="text-red-500">*</span></label>
