@@ -19884,27 +19884,30 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // sensibly to a different run) — a saved column with no match today is
     // dropped rather than crashing the export.
     if (Array.isArray(cfg.columns) && _prExportColumnsCache.length) {
-      const savedByKey = {}; cfg.columns.forEach(c => { savedByKey[c.key] = c; });
-      _prExportColumnsCache = _prExportColumnsCache.map(c => savedByKey[c.key] ? { ...c, ...savedByKey[c.key], key: c.key } : { ...c, included: false });
-      // The map above restores every saved PROPERTY by key but leaves the
-      // array in whatever order it already had (today's run's default
-      // sheet order) — a column dragged to a new position and saved in a
-      // template would silently snap back to that default order every
-      // time the template got reapplied. Re-sort to the template's own
-      // saved sequence instead; anything not in the saved template (a
-      // field added to the run since) sinks to the end, in the order the
-      // stable sort already had it.
-      const savedOrder = cfg.columns.map(c => c.key);
-      _prExportColumnsCache.sort((a, b) => {
-        const ai = savedOrder.indexOf(a.key), bi = savedOrder.indexOf(b.key);
-        if (ai === -1 && bi === -1) return 0;
-        if (ai === -1) return 1;
-        if (bi === -1) return -1;
-        return ai - bi;
-      });
-      // Virtual columns aren't part of the run's own field list — carry them over as-is.
-      const currentKeys = new Set(_prExportColumnsCache.map(c => c.key));
-      cfg.columns.filter(c => c.type === 'virtual' && !currentKeys.has(c.key)).forEach(c => _prExportColumnsCache.push(c));
+      const currentByKey = {}; _prExportColumnsCache.forEach(c => { currentByKey[c.key] = c; });
+      // Build the result by walking the TEMPLATE's own saved order first,
+      // not the current run's default sheet order — a virtual column (a
+      // merge/sum the admin created) has no counterpart in the current
+      // run's own field list at all, so sorting the current list and only
+      // patching missing virtual columns in AFTERWARD (the previous
+      // approach) always dropped them at the very end regardless of where
+      // they'd been dragged to. Walking cfg.columns directly instead means
+      // every saved column — virtual or not — lands exactly where it was
+      // saved. A field/base column still prefers the CURRENT run's own
+      // copy as its base (fresh data/definition), with the saved
+      // formatting layered on top; a virtual column has no current
+      // counterpart to merge, so its saved copy is recreated as-is. A
+      // saved field/base column absent from the current run entirely
+      // (deleted, or simply not applicable this month) is dropped rather
+      // than resurrected with stale data, same as before this rewrite.
+      _prExportColumnsCache = cfg.columns
+        .map(sc => currentByKey[sc.key] ? { ...currentByKey[sc.key], ...sc, key: sc.key } : (sc.type === 'virtual' ? { ...sc } : null))
+        .filter(Boolean);
+      // Anything in the CURRENT run the template never mentioned (a field
+      // added since it was saved) sinks to the end, excluded — dropped
+      // rather than silently appearing mid-layout unformatted.
+      const mergedKeys = new Set(_prExportColumnsCache.map(c => c.key));
+      Object.values(currentByKey).forEach(c => { if (!mergedKeys.has(c.key)) _prExportColumnsCache.push({ ...c, included: false }); });
     }
     if (cfg.rowDesign) _prExportRowDesign = { ..._prExportRowDesign, ...cfg.rowDesign };
     if (cfg.borderStyle) _prExportBorderStyle = { ..._prExportBorderStyle, ...cfg.borderStyle };
