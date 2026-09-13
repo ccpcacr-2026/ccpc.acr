@@ -545,45 +545,20 @@ function _computePayslipForPerson(personSetup, roles, category, ref, month, year
   });
   if (busFareTotal) { fieldValues['bus_fare'] = busFareTotal; totalDeductions += busFareTotal; }
 
-  // MPO deduction — a flat 10% of this person's OWN MPO Bill Basic (their
-  // separate Grade+Step pin there, never personSetup's own grade_id/
-  // step_id — see mpoRosterByUser in _loadPayrollRef), 0 for anyone not on
-  // the MPO Bill roster at all. A real deduction line, subtracted from
-  // Gross like any other, before Net Salary — matching the source sheets'
-  // own "MPO" column in the Deduction section (distinct from the later
-  // fund-source MPO/College split below, which the sheets also just call
-  // "MPO" — same duplicate naming as the paper forms themselves).
-  const mpoRosterEntry = ref.mpoRosterByUser[personSetup.user_id];
-  const mpoGrade = mpoRosterEntry && mpoRosterEntry.grade_id ? ref.gradesById[mpoRosterEntry.grade_id] : null;
-  const mpoBillBasic = mpoRosterEntry
-    ? (mpoRosterEntry.basic_override != null
-        ? Number(mpoRosterEntry.basic_override) || 0
-        : Number(ref.gradeStepValuesByGradeStep[`${mpoRosterEntry.grade_id}:${mpoRosterEntry.step_id}`]) || 0)
-    : 0;
-  const mpoDeduction = mpoRosterEntry ? Math.round(mpoBillBasic * 0.10) : 0;
-  if (mpoDeduction) { fieldValues['mpo_deduction'] = mpoDeduction; totalDeductions += mpoDeduction; }
-
   const net = gross - totalDeductions;
-  // Fund-source MPO/College split — MPO is this person's MPO Bill Net
-  // Payable (the exact same Incentive/House Rent/Welfare/Retirement
-  // formula as the MPO Bill tab's own _mpoComputeRow, kept in sync
-  // deliberately) minus the mpoDeduction above; College is the remainder
-  // of THIS payroll's own Net Salary after that. Both 0 for anyone not on
-  // the MPO Bill — the college pays the whole thing in that case, which
-  // "College = Net - 0 = Net" already expresses correctly.
-  const mpoPct = v => Math.round((mpoBillBasic * (Number(v) || 0)) / 100);
-  let mpoBillNet = 0;
-  if (mpoRosterEntry) {
-    const mpoIncentive = mpoGrade ? mpoPct(mpoGrade.mpo_incentive_percent) : 0;
-    let mpoHouseRent = mpoGrade ? mpoPct(mpoGrade.mpo_house_rent_percent) : 0;
-    if (mpoGrade && mpoGrade.mpo_house_rent_min != null) mpoHouseRent = Math.max(mpoHouseRent, Number(mpoGrade.mpo_house_rent_min) || 0);
-    const mpoMedical = mpoGrade && mpoGrade.mpo_medical_amount != null ? Number(mpoGrade.mpo_medical_amount) : 0;
-    const mpoWelfare = mpoGrade ? mpoPct(mpoGrade.mpo_welfare_percent) : 0;
-    const mpoRetirement = mpoGrade ? mpoPct(mpoGrade.mpo_retirement_percent) : 0;
-    const mpoArrear = Number(mpoRosterEntry.arrear) || 0;
-    mpoBillNet = mpoBillBasic + mpoIncentive + mpoHouseRent + mpoMedical + mpoArrear - mpoWelfare - mpoRetirement;
-  }
-  const mpoAmount = mpoRosterEntry ? Math.max(0, Math.min(mpoBillNet - mpoDeduction, net)) : 0;
+  // Fund-source MPO/College split — mpo_deduction and mpo_payable are
+  // ordinary "From Another Table" fields now (see Global Tables / the two
+  // migration_*.sql files), sourced straight from mpo_roster's own
+  // materialized columns: 0 for anyone not on the MPO Bill roster.
+  // mpo_deduction already resolved above like any other field and is
+  // already folded into totalDeductions via the normal category==
+  // 'deduction' branch; mpo_payable is 'reference' category, so it
+  // resolved into fieldValues too but was deliberately excluded from
+  // gross/totalDeductions there — read directly here instead. College is
+  // the remainder of THIS payroll's own Net Salary after MPO Payable,
+  // which for anyone not on the MPO Bill (mpo_payable resolves to 0)
+  // correctly leaves College = Net.
+  const mpoAmount = Math.max(0, Math.min(fieldValues['mpo_payable'] || 0, net));
   const collegeAmount = net - mpoAmount;
 
   return {
@@ -630,7 +605,7 @@ function _computeEmiEntryFields(payload) {
 
 // Fetches every table the engine needs, once, for a given set of user ids + period.
 async function _loadPayrollRef(userIds, month, year) {
-  const [fields, gradeFields, gradeConditional, roleDefaults, statutoryItemsRaw, sections, sectionEntriesRaw, bonusesRaw, personFieldValuesRaw, applicableRolesRaw, conditionRulesRaw, leaveDeductionsRaw, applicableCategoriesRaw, busFareEntriesRaw, busStoppagesRaw, gradeStepValuesRaw, personFieldOverridesRaw, gradesRaw, mpoRosterRaw] = await Promise.all([
+  const [fields, gradeFields, gradeConditional, roleDefaults, statutoryItemsRaw, sections, sectionEntriesRaw, bonusesRaw, personFieldValuesRaw, applicableRolesRaw, conditionRulesRaw, leaveDeductionsRaw, applicableCategoriesRaw, busFareEntriesRaw, busStoppagesRaw, gradeStepValuesRaw, personFieldOverridesRaw] = await Promise.all([
     sbPayroll('fields?is_active=eq.true&select=*'),
     sbPayroll('grade_fields?select=*'),
     sbPayroll('grade_conditional_fields?select=*'),
@@ -648,8 +623,6 @@ async function _loadPayrollRef(userIds, month, year) {
     _studentSchemaFetch('bus_stoppages?select=*'),
     sbPayroll('grade_step_values?select=*'),
     sbPayroll('person_field_overrides?select=*'),
-    sbPayroll('grades?select=*'),
-    sbPayroll('mpo_roster?select=*'),
   ]);
   const gradeFieldsByGrade = {}; (gradeFields || []).forEach(g => { (gradeFieldsByGrade[g.grade_id] = gradeFieldsByGrade[g.grade_id] || []).push(g); });
   // Keyed "grade_id:step_id" -> that cell's fixed Basic — lets a percent
@@ -680,13 +653,6 @@ async function _loadPayrollRef(userIds, month, year) {
   // _resolveFieldConfig.
   const personFieldOverridesByUser = {};
   (personFieldOverridesRaw || []).forEach(row => { (personFieldOverridesByUser[row.user_id] = personFieldOverridesByUser[row.user_id] || {})[row.field_id] = row; });
-  // MPO Bill — a person's OWN, separate Grade+Step pin into this SAME
-  // grade_step_values matrix (see _mpoComputeRow in the MPO Bill actions
-  // below), used only to derive the deduction-section "MPO" field and the
-  // fund-source MPO/College split just below in _computePayslipForPerson.
-  // Never the same Grade+Step as personSetup.grade_id/step_id.
-  const gradesById = {}; (gradesRaw || []).forEach(g => { gradesById[g.id] = g; });
-  const mpoRosterByUser = {}; (mpoRosterRaw || []).forEach(r => { mpoRosterByUser[r.user_id] = r; });
 
   // "From Another Table" fields (see save_field/set_table_global) — one
   // extra fetch per such field, straight from its own Global table+column,
@@ -713,7 +679,7 @@ async function _loadPayrollRef(userIds, month, year) {
     statutoryItems: statutoryItemsRaw || [], sectionsById, sectionEntriesByUser, bonusesByUser, personFieldValuesByUser,
     applicableRolesByField, conditionRulesByField, leaveDeductionsByUser, applicableCategoriesByField,
     stoppagesById, busFareEntriesByUser, gradeStepValuesByGradeStep, personFieldOverridesByUser,
-    gradesById, mpoRosterByUser, externalTableDataByField,
+    externalTableDataByField,
   };
 }
 
