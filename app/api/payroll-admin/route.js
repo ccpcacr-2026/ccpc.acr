@@ -1240,8 +1240,12 @@ export async function POST(req) {
     const retirement = grade ? pct(grade.mpo_retirement_percent) : 0;
     const arrear = Number(r.arrear) || 0;
     const net = basic + incentive + houseRent + medical + arrear - welfare - retirement;
+    // What "MPO Amount" (person_setup.mpo_amount) should actually be set
+    // to — Net Payable minus a flat 10% of MPO Basic, not Net Payable
+    // itself (per explicit instruction).
+    const mpoTarget = Math.round(net - basic * 0.10);
     const ratesMissing = !!r.grade_id && (!grade || (grade.mpo_incentive_percent == null && grade.mpo_house_rent_percent == null && grade.mpo_welfare_percent == null && grade.mpo_retirement_percent == null));
-    return { basic, incentive, house_rent: houseRent, medical, arrear, welfare, retirement, net, rates_missing: ratesMissing };
+    return { basic, incentive, house_rent: houseRent, medical, arrear, welfare, retirement, net, mpo_target: mpoTarget, rates_missing: ratesMissing };
   }
 
   if (action === 'get_mpo_roster') {
@@ -1300,10 +1304,10 @@ export async function POST(req) {
     const gradesById = {}; (gradeRows || []).forEach(g => { gradesById[g.id] = g; });
     const stepValueByKey = {}; (stepValueRows || []).forEach(c => { stepValueByKey[`${row.grade_id}:${row.step_id}`] = c.basic_value; });
     const computed = _mpoComputeRow(row, gradesById, stepValueByKey);
-    const saved = await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(row.user_id)}`, 'PATCH', { mpo_amount: computed.net });
+    const saved = await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(row.user_id)}`, 'PATCH', { mpo_amount: computed.mpo_target });
     if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
-    _prAudit(user_id, 'sync_mpo_amount_from_bill', 'person_setup', row.user_id, { mpo_amount: computed.net });
-    return NextResponse.json({ result: 'success', mpo_amount: computed.net });
+    _prAudit(user_id, 'sync_mpo_amount_from_bill', 'person_setup', row.user_id, { mpo_amount: computed.mpo_target });
+    return NextResponse.json({ result: 'success', mpo_amount: computed.mpo_target });
   }
 
   if (action === 'add_mpo_roster_person') {

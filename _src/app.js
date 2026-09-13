@@ -15479,8 +15479,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const retirement = grade ? pct(grade.mpo_retirement_percent) : 0;
     const arrear = Number(r.arrear) || 0;
     const net = basic + incentive + houseRent + medical + arrear - welfare - retirement;
+    // What "MPO Amount" should actually be set to when synced — Net
+    // Payable minus a flat 10% of Basic, not Net Payable itself.
+    const mpoTarget = Math.round(net - basic * 0.10);
     const ratesMissing = !!r.grade_id && (!grade || (grade.mpo_incentive_percent == null && grade.mpo_house_rent_percent == null && grade.mpo_welfare_percent == null && grade.mpo_retirement_percent == null));
-    return { basic, incentive, house_rent: houseRent, medical, arrear, welfare, retirement, net, rates_missing: ratesMissing };
+    return { basic, incentive, house_rent: houseRent, medical, arrear, welfare, retirement, net, mpo_target: mpoTarget, rates_missing: ratesMissing };
   }
 
   function _prRecomputeAllMpoRosterRows() {
@@ -15503,9 +15506,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <td class="py-1.5 px-2"><input type="date" value="${r.date_of_birth || ''}" onchange="_prSaveMpoBillField(${r.id},'date_of_birth',this.value)" class="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]"></td>
         <td class="py-1.5 px-2"><input type="text" value="${_escHtml(r.bank_acc_no || '')}" onchange="_prSaveMpoBillField(${r.id},'bank_acc_no',this.value)" class="w-28 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]"></td>
         <td class="py-1.5 px-2">
-          <select onchange="_prSaveMpoBillField(${r.id},'grade_id',this.value)" class="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]">
+          <select onchange="_prSaveMpoBillField(${r.id},'grade_id',this.value)" title="${_escHtml((_prGradesCache.find(g => g.id === r.grade_id) || {}).name || '')}" class="w-14 px-1 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]">
             <option value="">—</option>
-            ${_prGradesCache.map(g => `<option value="${g.id}" ${r.grade_id === g.id ? 'selected' : ''}>${_escHtml(g.name)}</option>`).join('')}
+            ${_prGradesCache.map(g => `<option value="${g.id}" ${r.grade_id === g.id ? 'selected' : ''}>${_escHtml(g.name.replace(/^Grade /i, ''))}</option>`).join('')}
           </select>
         </td>
         <td class="py-1.5 px-2">
@@ -15527,7 +15530,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <td class="py-1.5 px-2">
           <div class="flex items-center gap-1">
             <span class="font-bold">${r.mpo_amount != null ? fmt(r.mpo_amount) : '—'}</span>
-            <button onclick="_prSyncMpoAmount(${r.id})" title="Set MPO Amount to this row's Net Payable" class="text-blue-500 hover:text-blue-700"><i data-lucide="refresh-cw" class="h-3 w-3"></i></button>
+            <button onclick="_prSyncMpoAmount(${r.id})" title="Set MPO Amount to Net Payable minus 10% of Basic (Tk ${fmt(r.mpo_target)})" class="text-blue-500 hover:text-blue-700"><i data-lucide="refresh-cw" class="h-3 w-3"></i></button>
           </div>
         </td>
         <td class="py-1.5 px-2"><button onclick="_prRemoveMpoBillPerson(${r.id})" class="text-red-400 hover:text-red-600"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button></td>
