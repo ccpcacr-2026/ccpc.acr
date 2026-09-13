@@ -14845,6 +14845,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                   <label class="text-[10px] font-black text-slate-400 uppercase">Dp</label>
                   <input type="number" id="prCfDecimals" value="" placeholder="2" min="0" max="4" title="Decimal places — blank defaults to 2dp" onchange="_prSetExportSummaryRowStyle('cf','decimals',this.value!==''?Number(this.value):null)" class="w-14 px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-[10px]">
                 </div>
+                <div class="flex items-center gap-1.5">
+                  <label class="text-[10px] font-black text-slate-400 uppercase">Rotation</label>
+                  <select id="prCfRotation" onchange="_prSetExportSummaryRowStyle('cf','rotation',this.value===''?null:Number(this.value))" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-[10px]">
+                    <option value="">Same as column</option>
+                    <option value="0">0°</option>
+                    <option value="90">90°</option>
+                    <option value="180">180°</option>
+                    <option value="270">270°</option>
+                  </select>
+                </div>
               </div>
             </div>
             <div>
@@ -14880,6 +14890,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 <div class="flex items-center gap-1.5">
                   <label class="text-[10px] font-black text-slate-400 uppercase">Dp</label>
                   <input type="number" id="prSubtotalDecimals" value="" placeholder="2" min="0" max="4" title="Decimal places — blank defaults to 2dp" onchange="_prSetExportSummaryRowStyle('subtotal','decimals',this.value!==''?Number(this.value):null)" class="w-14 px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-[10px]">
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <label class="text-[10px] font-black text-slate-400 uppercase">Rotation</label>
+                  <select id="prSubtotalRotation" onchange="_prSetExportSummaryRowStyle('subtotal','rotation',this.value===''?null:Number(this.value))" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-[10px]">
+                    <option value="">Same as column</option>
+                    <option value="0">0°</option>
+                    <option value="90">90°</option>
+                    <option value="180">180°</option>
+                    <option value="270">270°</option>
+                  </select>
                 </div>
               </div>
             </div>
@@ -19660,9 +19680,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // meaningless once many rows' binary floating-point noise is added
   // together — see _prFormatSummaryValue) unless the column itself set a
   // decimals count, same precedence order PDF/preview both apply.
+  // rotation: null inherits whichever rotation that column's own DATA
+  // cells already use (see _prSummaryRotation) — most columns leave data
+  // unrotated even with vertical headers, so this matches today's look
+  // until explicitly overridden.
   let _prExportSummaryRowStyle = {
-    cf: { bold: true, italic: false, color: '', bg: '#f1f5f9', fontSize: null, align: '', decimals: null },
-    subtotal: { bold: true, italic: false, color: '', bg: '#f1f5f9', fontSize: null, align: '', decimals: null },
+    cf: { bold: true, italic: false, color: '', bg: '#f1f5f9', fontSize: null, align: '', decimals: null, rotation: null },
+    subtotal: { bold: true, italic: false, color: '', bg: '#f1f5f9', fontSize: null, align: '', decimals: null, rotation: null },
   };
   // Per-Group-name formatting (font size/color/bold/italic/alignment) for
   // the merged header cell a Group's columns share — keyed by the Group's
@@ -19722,6 +19746,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prCfFontSize').value = _prExportSummaryRowStyle.cf.fontSize || '';
     document.getElementById('prCfAlign').value = _prExportSummaryRowStyle.cf.align || '';
     document.getElementById('prCfDecimals').value = _prExportSummaryRowStyle.cf.decimals != null ? _prExportSummaryRowStyle.cf.decimals : '';
+    document.getElementById('prCfRotation').value = _prExportSummaryRowStyle.cf.rotation != null ? _prExportSummaryRowStyle.cf.rotation : '';
     document.getElementById('prSubtotalBold').checked = _prExportSummaryRowStyle.subtotal.bold;
     document.getElementById('prSubtotalItalic').checked = _prExportSummaryRowStyle.subtotal.italic;
     document.getElementById('prSubtotalColor').value = _prExportSummaryRowStyle.subtotal.color || '#000000';
@@ -19729,6 +19754,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prSubtotalFontSize').value = _prExportSummaryRowStyle.subtotal.fontSize || '';
     document.getElementById('prSubtotalAlign').value = _prExportSummaryRowStyle.subtotal.align || '';
     document.getElementById('prSubtotalDecimals').value = _prExportSummaryRowStyle.subtotal.decimals != null ? _prExportSummaryRowStyle.subtotal.decimals : '';
+    document.getElementById('prSubtotalRotation').value = _prExportSummaryRowStyle.subtotal.rotation != null ? _prExportSummaryRowStyle.subtotal.rotation : '';
     document.getElementById('prExportSortField').value = _prExportSortBy;
     _prUpdateExportSortDirBtn();
     const populate = () => {
@@ -19950,6 +19976,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prCfFontSize').value = _prExportSummaryRowStyle.cf.fontSize || '';
     document.getElementById('prCfAlign').value = _prExportSummaryRowStyle.cf.align || '';
     document.getElementById('prCfDecimals').value = _prExportSummaryRowStyle.cf.decimals != null ? _prExportSummaryRowStyle.cf.decimals : '';
+    document.getElementById('prCfRotation').value = _prExportSummaryRowStyle.cf.rotation != null ? _prExportSummaryRowStyle.cf.rotation : '';
     document.getElementById('prSubtotalBold').checked = _prExportSummaryRowStyle.subtotal.bold;
     document.getElementById('prSubtotalItalic').checked = _prExportSummaryRowStyle.subtotal.italic;
     document.getElementById('prSubtotalColor').value = _prExportSummaryRowStyle.subtotal.color || '#000000';
@@ -19957,6 +19984,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prSubtotalFontSize').value = _prExportSummaryRowStyle.subtotal.fontSize || '';
     document.getElementById('prSubtotalAlign').value = _prExportSummaryRowStyle.subtotal.align || '';
     document.getElementById('prSubtotalDecimals').value = _prExportSummaryRowStyle.subtotal.decimals != null ? _prExportSummaryRowStyle.subtotal.decimals : '';
+    document.getElementById('prSubtotalRotation').value = _prExportSummaryRowStyle.subtotal.rotation != null ? _prExportSummaryRowStyle.subtotal.rotation : '';
     document.getElementById('prExportSortField').value = _prExportSortBy;
     _prUpdateExportSortDirBtn();
     _prSyncRemarksColumn();
@@ -20444,6 +20472,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       let css = `font-weight:${srs.bold ? '700' : '400'};font-style:${srs.italic ? 'italic' : 'normal'};text-align:${srs.align || c.align || 'left'};background:${srs.bg || '#f1f5f9'};`;
       if (srs.color) css += `color:${srs.color};`;
       if (srs.fontSize) css += `font-size:${srs.fontSize}px;`;
+      const rot = _prSummaryRotation(srs, c);
+      if (rot === 90) css += `writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;`;
+      else if (rot === 270) css += `writing-mode:vertical-rl;white-space:nowrap;`;
+      else if (rot === 180) css += `transform:rotate(180deg);`;
       return `<td class="px-3 py-1.5 whitespace-nowrap" title="PDF-only — sample sum, not the real page total" style="${css}${_prGridBorderCss(false, isLastRow, groupOutlineSide && groupOutlineSide[c.key])}">${val}</td>`;
     }).join('');
     return `<tr>${cells}</tr>`;
@@ -21348,6 +21380,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return srs.decimals != null ? srs.decimals : (col.decimals != null ? col.decimals : 2);
   }
 
+  // C.F./Sub Total rotation — the row's own override wins, else inherits
+  // that column's own DATA rotation (0/90/180/270), same shared-precedence
+  // shape as _prSummaryDecimals above and used by the same three sites.
+  function _prSummaryRotation(srs, col) {
+    return srs.rotation != null ? srs.rotation : (Number(col.rotation) || 0);
+  }
+
   function _prFormatColumnValue(c, raw) {
     if (raw === '' || raw === null || raw === undefined) return raw;
     const num = Number(raw);
@@ -21985,7 +22024,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const runId = document.getElementById('prExportRunSelect').value;
       const run = _prRunsCache.find(r => r.id === Number(runId));
       const hasRotatedHeaders = data.cols.some(c => c.headerRotation === 90 || c.headerRotation === 270);
-      const hasRotatedData = data.cols.some(c => c.rotation === 90 || c.rotation === 270);
+      const hasRotatedData = data.cols.some(c => c.rotation === 90 || c.rotation === 270)
+        || [90, 270].includes(_prExportSummaryRowStyle.cf.rotation) || [90, 270].includes(_prExportSummaryRowStyle.subtotal.rotation);
       const periodLabel = run ? `${PAYROLL_MONTH_NAMES[run.month]} ${run.year}` : '';
       // Grid thickness in pt -> mm (jsPDF's default unit). Top/bottom are
       // drawn as extra rules on top of the grid in didDrawCell below,
@@ -22186,11 +22226,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 // non-numeric input).
                 const summaryFmtCfg = { ...col, decimals: _prSummaryDecimals(srs, col) };
                 hook.cell.text = [String(_prFormatColumnValue(summaryFmtCfg, rawRowForBodyRow(hook.row.index)[hook.column.index]))];
-                // Rotated the same way this column's own data cells are, so
-                // it fits a column sized for vertical text instead of
-                // wrapping/overflowing — didDrawCell below does the actual
-                // rotated draw, matching the regular-row pattern.
-                if (col.rotation) hook.cell.text = [];
+                // Rotated per this row's own override, or else the same way
+                // this column's own data cells are — didDrawCell below does
+                // the actual rotated draw, matching the regular-row pattern.
+                if (_prSummaryRotation(srs, col)) hook.cell.text = [];
                 return;
               }
               // autotable can invoke this hook with row.index === -1 for an
@@ -22235,12 +22274,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               if (!col) return;
               const { x, y, width, height } = hook.cell;
               if (isSyntheticRow(hook.row.index)) {
-                if (!col.rotation) return; // plain bold text, autotable's own default draw is fine
+                const srs = hook.row.index === cfRowIndex ? _prExportSummaryRowStyle.cf : _prExportSummaryRowStyle.subtotal;
+                const rot = _prSummaryRotation(srs, col);
+                if (!rot) return; // plain bold text, autotable's own default draw is fine
                 const raw = rawRowForBodyRow(hook.row.index)[hook.column.index];
                 if (raw == null || raw === '') return; // an unlabeled non-summable cell on this row — nothing to draw
-                const srs = hook.row.index === cfRowIndex ? _prExportSummaryRowStyle.cf : _prExportSummaryRowStyle.subtotal;
                 const summaryFmtCfg = { ...col, decimals: _prSummaryDecimals(srs, col) };
-                doc.text(String(_prFormatColumnValue(summaryFmtCfg, raw)), x + width / 2, y + height / 2, { angle: col.rotation, align: 'center', baseline: 'middle' });
+                doc.text(String(_prFormatColumnValue(summaryFmtCfg, raw)), x + width / 2, y + height / 2, { angle: rot, align: 'center', baseline: 'middle' });
                 return;
               }
               if (hook.row.index < 0) return; // see matching guard in didParseCell above
