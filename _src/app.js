@@ -14656,7 +14656,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex items-center justify-between flex-wrap gap-3 mb-3">
             <div>
               <p class="font-black text-slate-800 text-sm">MPO Bill</p>
-              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5 max-w-2xl">DSHE Monthly EFT Payment Sheet. Pick each person's Grade + Step (or type Basic directly) using the same chart as the Grades tab — Incentive, House Rent, Welfare, Retirement and Net Payable all compute automatically. Net Payable is also this school's real answer to "MPO Amount": sync it into the internal payroll register with one click below.</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5 max-w-2xl">DSHE Monthly EFT Payment Sheet. Pick each person's Grade + Step (or type Basic directly) using the same chart as the Grades tab — Incentive, House Rent, Welfare, Retirement and Net Payable all compute automatically as you type. Net Payable is also this school's real answer to "MPO Amount": sync it into the internal payroll register with the ↻ button on each row.</p>
             </div>
             <div class="flex items-center gap-2 shrink-0">
               <div id="prMpoLockBar" class="flex items-center gap-2"></div>
@@ -14691,23 +14691,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
         </div>
 
-        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
-          <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
-            <div>
-              <p class="font-black text-slate-800 text-sm">Other Staff (not on this MPO Bill)</p>
-              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5 max-w-2xl">Anyone not MPO-listed still needs an MPO Amount for the internal payroll register's Net Salary = MPO + College split — set it directly here instead.</p>
-            </div>
-          </div>
-          <input type="text" id="prMpoSearch" oninput="_prRenderMpoTable()" placeholder="Search name or ID…" class="w-full max-w-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs mb-3">
-          <div class="overflow-auto border border-slate-200 rounded-xl">
-            <table class="w-full text-left border-collapse text-xs">
-              <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
-                <th class="py-2 px-3">Name</th><th class="py-2 px-3">Designation</th><th class="py-2 px-3">MPO Amount</th>
-              </tr></thead>
-              <tbody id="prMpoBody"><tr><td colspan="3" class="p-4 text-slate-400 font-bold text-xs text-center">Loading…</td></tr></tbody>
-            </table>
-          </div>
-        </div>
       </div>
 
       <div id="pr-run" style="display:none">
@@ -15375,10 +15358,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _payrollFetch('get_people_setup', {}),
       _payrollFetch('get_mpo_lock', {}),
     ]).then(([, res, lockRes]) => {
+      // _prMpoPeople is now only a lookup used when adding someone to the
+      // MPO Bill below (their existing mpo_index/mpo_amount, if any) — the
+      // standalone table this used to feed is gone; the Bill is the only
+      // place MPO Amount is edited now.
       _prMpoPeople = (res && res.result === 'success' && res.people) || [];
       _prMpoLock = (lockRes && lockRes.result === 'success' && lockRes.lock) || { is_locked: false };
       _prRenderMpoLockBar();
-      _prRenderMpoTable();
     });
   }
   function _prRenderMpoLockBar() {
@@ -15399,43 +15385,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _prLockMpo() {
     if (!confirm('Lock MPO amounts? Only a Super Admin will be able to unlock them again.')) return;
     _payrollFetch('lock_mpo', {}).then(res => {
-      if (res && res.result === 'success') { _prMpoLock = { is_locked: true }; _prRenderMpoLockBar(); _prRenderMpoTable(); showToast('MPO amounts locked'); }
+      if (res && res.result === 'success') { _prMpoLock = { is_locked: true }; _prRenderMpoLockBar(); showToast('MPO amounts locked'); }
       else showToast((res && res.message) || 'Failed to lock', 'error');
     });
   }
   function _prUnlockMpo() {
     if (!confirm('Unlock MPO amounts so they can be edited again?')) return;
     _payrollFetch('unlock_mpo', {}).then(res => {
-      if (res && res.result === 'success') { _prMpoLock = { is_locked: false }; _prRenderMpoLockBar(); _prRenderMpoTable(); showToast('MPO amounts unlocked'); }
+      if (res && res.result === 'success') { _prMpoLock = { is_locked: false }; _prRenderMpoLockBar(); showToast('MPO amounts unlocked'); }
       else showToast((res && res.message) || 'Failed to unlock', 'error');
     });
-  }
-  function _prRenderMpoTable() {
-    const tbody = document.getElementById('prMpoBody');
-    if (!tbody) return;
-    const search = (document.getElementById('prMpoSearch').value || '').trim().toLowerCase();
-    const staffByUser = {}; (allStaffCache || []).forEach(s => { staffByUser[s.teacher_id] = s; });
-    const locked = _prMpoLock.is_locked;
-    const onBillIds = new Set((_prMpoBillRoster || []).map(r => r.user_id));
-    const rows = _prMpoPeople
-      .filter(p => p.is_active !== false && !onBillIds.has(p.user_id))
-      .map(p => ({ p, staff: staffByUser[p.user_id] || {} }))
-      .filter(({ p, staff }) => !search || (staff.full_name || '').toLowerCase().includes(search) || p.user_id.toLowerCase().includes(search))
-      .sort((a, b) => (a.staff.full_name || a.p.user_id).localeCompare(b.staff.full_name || b.p.user_id));
-    tbody.innerHTML = rows.map(({ p, staff }) => `
-      <tr class="border-b border-slate-50">
-        <td class="py-1.5 px-3 font-black text-slate-700">${_escHtml(staff.full_name || p.user_id)}</td>
-        <td class="py-1.5 px-3 text-slate-500">${_escHtml(staff.designation || '')}</td>
-        <td class="py-1.5 px-3">${locked
-          ? `<span class="font-bold text-slate-600">${p.mpo_amount != null ? _prFormatTaka(p.mpo_amount) : '—'}</span>`
-          : `<input type="number" value="${p.mpo_amount != null ? p.mpo_amount : ''}" placeholder="0 = not MPO-enlisted" onchange="_prSaveMpoAmount('${p.user_id}',this.value)" class="w-40 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">`}</td>
-      </tr>`).join('') || `<tr><td colspan="3" class="p-4 text-slate-400 font-bold text-xs text-center">No one matches.</td></tr>`;
-  }
-  function _prSaveMpoAmount(userId, value) {
-    _payrollFetch('set_mpo_amount', { user_id: userId, mpo_amount: value }).then(res => {
-      if (res && res.result === 'success') { const p = _prMpoPeople.find(x => x.user_id === userId); if (p) p.mpo_amount = value === '' ? null : Number(value); showToast('Saved'); }
-      else showToast((res && res.message) || 'Failed to save', 'error');
-    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
   }
 
   // ── MPO Bill (DSHE Monthly EFT Payment Sheet) — reuses the SAME Grade/
@@ -15497,7 +15456,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _prPayStepsCache = res.steps || [];
       _prGradeStepValuesCache = res.cells || [];
       _prRenderMpoBillTable();
-      _prRenderMpoTable(); // "Other Staff" below excludes whoever's now on this roster
     }).catch(err => showToast(err.message || 'Failed to load MPO roster', 'error'));
   }
 
@@ -15558,14 +15516,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 ${_prPayStepsCache.map(s => `<option value="${s.id}" ${r.step_id === s.id ? 'selected' : ''}>${s.step_number}</option>`).join('')}
               </select>`}
         </td>
-        <td class="py-1.5 px-2"><input type="number" step="0.01" value="${r.basic_override != null ? r.basic_override : ''}" placeholder="${fmt(r.basic)}" onchange="_prSaveMpoBillField(${r.id},'basic_override',this.value)" title="Type a value to override Basic manually instead of Grade + Step; clear it to go back to automatic" class="w-24 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]"></td>
-        <td class="py-1.5 px-2 font-bold">${r.rates_missing ? '<span class="text-red-500" title="This Grade has no MPO rates configured yet — Configure Grade MPO Rates above">—</span>' : fmt(r.incentive)}</td>
-        <td class="py-1.5 px-2 font-bold">${r.rates_missing ? '—' : fmt(r.house_rent)}</td>
-        <td class="py-1.5 px-2 font-bold">${r.rates_missing ? '—' : fmt(r.medical)}</td>
-        <td class="py-1.5 px-2"><input type="number" step="0.01" value="${r.arrear || 0}" onchange="_prSaveMpoBillField(${r.id},'arrear',this.value)" class="w-20 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]"></td>
-        <td class="py-1.5 px-2 font-bold">${r.rates_missing ? '—' : fmt(r.welfare)}</td>
-        <td class="py-1.5 px-2 font-bold">${r.rates_missing ? '—' : fmt(r.retirement)}</td>
-        <td class="py-1.5 px-2 font-black text-emerald-700">${r.rates_missing ? '—' : fmt(r.net)}</td>
+        <td class="py-1.5 px-2"><input type="number" step="0.01" value="${r.basic_override != null ? r.basic_override : ''}" placeholder="${fmt(r.basic)}" oninput="_prLiveUpdateMpoBasic(${r.id},this.value)" onchange="_prSaveMpoBillField(${r.id},'basic_override',this.value)" title="Type a value to override Basic manually instead of Grade + Step; clear it to go back to automatic" class="w-24 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]"></td>
+        <td class="py-1.5 px-2 font-bold" id="mpoInc_${r.id}">${r.rates_missing ? '<span class="text-red-500" title="This Grade has no MPO rates configured yet — Configure Grade MPO Rates above">—</span>' : fmt(r.incentive)}</td>
+        <td class="py-1.5 px-2 font-bold" id="mpoHr_${r.id}">${r.rates_missing ? '—' : fmt(r.house_rent)}</td>
+        <td class="py-1.5 px-2 font-bold" id="mpoMed_${r.id}">${r.rates_missing ? '—' : fmt(r.medical)}</td>
+        <td class="py-1.5 px-2"><input type="number" step="0.01" value="${r.arrear || 0}" oninput="_prLiveUpdateMpoArrear(${r.id},this.value)" onchange="_prSaveMpoBillField(${r.id},'arrear',this.value)" class="w-20 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]"></td>
+        <td class="py-1.5 px-2 font-bold" id="mpoWel_${r.id}">${r.rates_missing ? '—' : fmt(r.welfare)}</td>
+        <td class="py-1.5 px-2 font-bold" id="mpoRet_${r.id}">${r.rates_missing ? '—' : fmt(r.retirement)}</td>
+        <td class="py-1.5 px-2 font-black text-emerald-700" id="mpoNet_${r.id}">${r.rates_missing ? '—' : fmt(r.net)}</td>
         <td class="py-1.5 px-2">
           <div class="flex items-center gap-1">
             <span class="font-bold">${r.mpo_amount != null ? fmt(r.mpo_amount) : '—'}</span>
@@ -15575,6 +15533,39 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <td class="py-1.5 px-2"><button onclick="_prRemoveMpoBillPerson(${r.id})" class="text-red-400 hover:text-red-600"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button></td>
       </tr>`).join('');
     lucide.createIcons();
+  }
+
+  // Surgical cell update, not a full table re-render — a full innerHTML
+  // rebuild on every keystroke would replace the input the admin is
+  // actively typing into, throwing away focus and cursor position. Typing
+  // into Basic (or Arrear) recomputes and repaints just that row's five
+  // downstream cells, live, on every keystroke (oninput); the actual save
+  // still only fires on blur (onchange, calling _prSaveMpoBillField).
+  function _prLiveUpdateMpoCells(row) {
+    const computed = _mpoComputeRowClient(row);
+    Object.assign(row, computed);
+    const fmt = n => (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = row.rates_missing ? '—' : fmt(val); };
+    set(`mpoInc_${row.id}`, row.incentive);
+    set(`mpoHr_${row.id}`, row.house_rent);
+    set(`mpoMed_${row.id}`, row.medical);
+    set(`mpoWel_${row.id}`, row.welfare);
+    set(`mpoRet_${row.id}`, row.retirement);
+    set(`mpoNet_${row.id}`, row.net);
+  }
+
+  function _prLiveUpdateMpoBasic(id, value) {
+    const row = _prMpoBillRoster.find(r => r.id === id);
+    if (!row) return;
+    row.basic_override = value === '' ? null : Number(value);
+    _prLiveUpdateMpoCells(row);
+  }
+
+  function _prLiveUpdateMpoArrear(id, value) {
+    const row = _prMpoBillRoster.find(r => r.id === id);
+    if (!row) return;
+    row.arrear = value === '' ? 0 : Number(value);
+    _prLiveUpdateMpoCells(row);
   }
 
   // Adds exactly one row to the sheet, in place — never a full reload of
@@ -15587,7 +15578,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const newRow = { ...res.row, full_name: staff.full_name || userId, designation: staff.designation || '', mpo_index: person.mpo_index || '', mpo_amount: person.mpo_amount };
       _prMpoBillRoster.push(Object.assign(newRow, _mpoComputeRowClient(newRow)));
       _prRenderMpoBillTable();
-      _prRenderMpoTable();
       showToast('Added');
     }).catch(err => showToast(err.message || 'Failed to add', 'error'));
   }
@@ -15598,10 +15588,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (idx === -1) return;
     const [removed] = _prMpoBillRoster.splice(idx, 1);
     _prRenderMpoBillTable();
-    _prRenderMpoTable();
     _payrollFetch('remove_mpo_roster_person', { id }).then(res => {
-      if (!res || res.result !== 'success') { _prMpoBillRoster.splice(idx, 0, removed); _prRenderMpoBillTable(); _prRenderMpoTable(); showToast((res && res.message) || 'Failed to remove', 'error'); }
-    }).catch(err => { _prMpoBillRoster.splice(idx, 0, removed); _prRenderMpoBillTable(); _prRenderMpoTable(); showToast(err.message || 'Failed to remove', 'error'); });
+      if (!res || res.result !== 'success') { _prMpoBillRoster.splice(idx, 0, removed); _prRenderMpoBillTable(); showToast((res && res.message) || 'Failed to remove', 'error'); }
+    }).catch(err => { _prMpoBillRoster.splice(idx, 0, removed); _prRenderMpoBillTable(); showToast(err.message || 'Failed to remove', 'error'); });
   }
 
   // One shared handler for every inline-editable roster cell — updates the
