@@ -21494,9 +21494,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 hook.cell.styles.fillColor = srs.bg ? _prHexToRgbArr(srs.bg) : [255, 255, 255];
                 if (hook.row.index === subTotalRowIndex) hook.cell.styles.lineWidth = { top: gridMm, right: gridMm, bottom: bottomMm, left: gridMm };
                 applyGroupOutline(hook.column.index, hook.cell.styles);
-                if (col.numberFormat && col.numberFormat !== 'none' || col.decimals != null) {
-                  hook.cell.text = [String(_prFormatColumnValue(col, rawRowForBodyRow(hook.row.index)[hook.column.index]))];
-                }
+                // C.F./Sub Total are the only cells holding a sum of many
+                // rows — always shown to exactly 2dp regardless of whether
+                // the column itself has a Number Format configured (a
+                // non-numeric label like "C.F." passes through unchanged,
+                // since _prFormatColumnValue no-ops on non-numeric input).
+                const summaryFmtCfg = { ...col, decimals: col.decimals != null ? col.decimals : 2 };
+                hook.cell.text = [String(_prFormatColumnValue(summaryFmtCfg, rawRowForBodyRow(hook.row.index)[hook.column.index]))];
+                // Rotated the same way this column's own data cells are, so
+                // it fits a column sized for vertical text instead of
+                // wrapping/overflowing — didDrawCell below does the actual
+                // rotated draw, matching the regular-row pattern.
+                if (col.rotation) hook.cell.text = [];
                 return;
               }
               // autotable can invoke this hook with row.index === -1 for an
@@ -21539,7 +21548,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               const col = data.cols[hook.column.index];
               if (!col) return;
               const { x, y, width, height } = hook.cell;
-              if (isSyntheticRow(hook.row.index)) return; // plain bold text, no per-column rich rendering
+              if (isSyntheticRow(hook.row.index)) {
+                if (!col.rotation) return; // plain bold text, autotable's own default draw is fine
+                const raw = rawRowForBodyRow(hook.row.index)[hook.column.index];
+                if (raw == null || raw === '') return; // an unlabeled non-summable cell on this row — nothing to draw
+                const summaryFmtCfg = { ...col, decimals: col.decimals != null ? col.decimals : 2 };
+                doc.text(String(_prFormatColumnValue(summaryFmtCfg, raw)), x + width / 2, y + height / 2, { angle: col.rotation, align: 'center', baseline: 'middle' });
+                return;
+              }
               if (hook.row.index < 0) return; // see matching guard in didParseCell above
               const isTextVirtual = col.type === 'virtual' && col.vtype === 'text';
               if (isTextVirtual) {
