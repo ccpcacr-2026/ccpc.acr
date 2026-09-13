@@ -22172,12 +22172,26 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       // grouped that's the merged-group row, not the per-column label row
       // the shared hook below otherwise operates on, so its top rule is
       // set right here instead.
-      const topRowLineWidth = { top: topMm, right: gridMm, bottom: gridMm, left: gridMm };
-      const head = hasAnyGroup
+      //
+      // Built as a FACTORY, called fresh for every page below, rather
+      // than a single `head` array reused across doc.autoTable() calls —
+      // jsPDF-autotable's own Cell class assigns `this.styles = <the
+      // object passed in>` by reference, never a clone, and didParseCell's
+      // "head" branch below mutates that SAME object in place (`cur.left
+      // = outlineMm`) when framing a Group's outline. A single shared
+      // {top,right,bottom,left} literal handed to every group/ungrouped
+      // column AND reused page after page meant that ONE mutation bled
+      // into every other column's row-0 border, compounding on every
+      // subsequent page — the likely cause of cell borders/sizes drifting
+      // partway through a real export. Each call below is a fresh object
+      // literal, so nothing here is ever shared between two cells or two
+      // pages.
+      const freshTopRowLineWidth = () => ({ top: topMm, right: gridMm, bottom: gridMm, left: gridMm });
+      const buildHead = () => hasAnyGroup
         ? [
             runs.map(r => r.group
-              ? { content: r.group, colSpan: r.cols.length, styles: _prGroupHeaderPdfStyles(r.group, topRowLineWidth) }
-              : { content: data.cols[r.cols[0]].label, rowSpan: 2, styles: { lineWidth: topRowLineWidth } }),
+              ? { content: r.group, colSpan: r.cols.length, styles: _prGroupHeaderPdfStyles(r.group, freshTopRowLineWidth()) }
+              : { content: data.cols[r.cols[0]].label, rowSpan: 2, styles: { lineWidth: freshTopRowLineWidth() } }),
             runs.filter(r => r.group).flatMap(r => r.cols).map(ci => data.cols[ci].label),
           ]
         : [data.cols.map(c => c.label)];
@@ -22239,6 +22253,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           // draw below — synthetic rows have none.
           const slipForBodyRow = idx => isSyntheticRow(idx) ? null : chunk.slips[idx - (ci > 0 ? 1 : 0)];
           const rawRowForBodyRow = idx => body[idx];
+          const head = buildHead();
 
           doc.autoTable({
             startY: 18,
