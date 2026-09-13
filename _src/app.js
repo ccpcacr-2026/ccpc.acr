@@ -20346,16 +20346,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // moment 2+ columns share a Group, no separate on/off toggle. Darker AND
   // wider than the plain grid so it actually reads as a distinct border,
   // not just a slightly-thicker line in the same pale grid color.
+  // jsPDF-autotable draws every line of a table (grid, top/bottom outer
+  // rules, Group Outline) in the SAME single lineColor — there is no
+  // per-side color, only per-side WIDTH (confirmed directly against the
+  // library's own source). A thicker rule reads as "stronger" purely
+  // from width, never from a darker shade — so every accent here uses
+  // the identical pale grid color the real PDF is stuck with, not a
+  // darker one, or the preview would promise a look the export can't
+  // actually produce.
   function _prGridBorderCss(extraTop, extraBottom, groupEdge) {
     const st = _prExportBorderStyle;
+    const lineColor = '#cbd5e1';
     const gridPx = st.showGrid ? Math.max(0.5, (Number(st.gridWidth) || 0) * 1.333) : 0;
-    let css = `border:${gridPx}px solid #cbd5e1;`;
-    if (extraTop && st.topWidth) css += `border-top:${Math.max(1, st.topWidth * 1.333)}px solid #0f172a;`;
-    if (extraBottom && st.bottomWidth) css += `border-bottom:${Math.max(1, st.bottomWidth * 1.333)}px solid #0f172a;`;
+    let css = `border:${gridPx}px solid ${lineColor};`;
+    if (extraTop && st.topWidth) css += `border-top:${Math.max(1, st.topWidth * 1.333)}px solid ${lineColor};`;
+    if (extraBottom && st.bottomWidth) css += `border-bottom:${Math.max(1, st.bottomWidth * 1.333)}px solid ${lineColor};`;
     if (groupEdge && st.groupOutlineWidth) {
       const outlinePx = Math.max(1.5, Number(st.groupOutlineWidth) * 1.333);
-      if (groupEdge.left) css += `border-left:${outlinePx}px solid #0f172a;`;
-      if (groupEdge.right) css += `border-right:${outlinePx}px solid #0f172a;`;
+      if (groupEdge.left) css += `border-left:${outlinePx}px solid ${lineColor};`;
+      if (groupEdge.right) css += `border-right:${outlinePx}px solid ${lineColor};`;
     }
     return css;
   }
@@ -20413,6 +20422,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // every header/data/summary cell used to carry — matches the PDF's own
     // cellPadding (mm) setting instead of an unrelated fixed value.
     const cellPaddingPx = Math.max(0, Number(_prExportRowDesign.cellPadding) || 0) * 3.7795;
+    // Row Height (mm) and Alternate row shading are both real PDF/Excel
+    // settings (see _prExportPdf/_prExportExcel) the preview never
+    // reflected at all — same minCellHeight logic _prExportPdf uses
+    // (rotated data needs real vertical room even with Row Height left at
+    // auto/0), mm -> px at the same 96dpi factor as cellPaddingPx.
+    const hasRotatedDataPreview = included.some(c => c.rotation === 90 || c.rotation === 270)
+      || [90, 270].includes(_prSummaryRotation(_prExportSummaryRowStyle.cf, {}))
+      || [90, 270].includes(_prSummaryRotation(_prExportSummaryRowStyle.subtotal, {}));
+    const minBodyRowPx = Math.max(Number(_prExportRowDesign.rowHeight) || 0, hasRotatedDataPreview ? 20 : 0) * 3.7795;
     // The header <th> ALSO carries the merge checkbox and × remove button
     // (absolute-positioned in its top corners) — editor-only affordances
     // that don't exist in the actual PDF/Excel output. At a near-zero
@@ -20450,7 +20468,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 return `<span style="${segCss}">${_escHtml(seg.text)}</span>${sep}`;
               }).join('')
             : _escHtml(String(_prFormatColumnValue(c, _prColumnValue(c, slip))));
-          return `<td class="${isRichText ? '' : 'whitespace-nowrap'}" style="padding:${cellPaddingPx}px;${_prColumnCellCss(c, false)}${_prGridBorderCss(false, false, groupOutlineSide[c.key])}">${cellContent}</td>`;
+          const zebraCss = (_prExportRowDesign.zebra && ri % 2 === 1) ? `background:${_prExportRowDesign.zebraColor || '#f1f5f9'};` : '';
+          const rowHeightCss = minBodyRowPx ? `min-height:${minBodyRowPx}px;` : '';
+          return `<td class="${isRichText ? '' : 'whitespace-nowrap'}" style="padding:${cellPaddingPx}px;${rowHeightCss}${_prColumnCellCss(c, false)}${zebraCss}${_prGridBorderCss(false, false, groupOutlineSide[c.key])}">${cellContent}</td>`;
         }).join('')}</tr>`).join('')}
         ${_prExportSummaryRowHtml(included, sampleSlips, 'C.F.', 'cf', false, groupOutlineSide, cellPaddingPx)}
         ${_prExportSummaryRowHtml(included, sampleSlips, 'Sub Total', 'subtotal', true, groupOutlineSide, cellPaddingPx)}
@@ -22286,6 +22306,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                   ? { top: gridMm, right: gridMm, bottom: bottomMm, left: gridMm }
                   : hook.cell.styles.lineWidth;
                 hook.cell.styles.lineWidth = _prSummaryLineWidth(srs, summaryDefaultLineWidth);
+                // Unlike Group Outline (which only ever touches one cell's
+                // left/right, alongside a top/bottom it must leave at the
+                // table's shared pale color), this border is the WHOLE
+                // cell's own box — safe to also override lineColor dark to
+                // match, since autotable applies one lineColor per cell
+                // (all 4 sides), never per-side within a single cell.
+                if (Number(srs.borderWidth) > 0) hook.cell.styles.lineColor = _prHexToRgbArr('#0f172a');
                 applyGroupOutline(hook.column.index, hook.cell.styles);
                 // C.F./Sub Total are the only cells holding a sum of many
                 // rows — always shown to a fixed dp (see _prSummaryDecimals)
