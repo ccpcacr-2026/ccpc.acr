@@ -198,6 +198,14 @@ const CLASS_TEACHER_SECTION_ALIASES = { 'BS-EV': 'BS-E' };
 // ESP32-device-derived present/absent baseline (see getMyClassTodayAttendance).
 const MY_CLASS_ATTENDANCE_STATUSES = new Set(['present', 'absent', 'late', 'missing', 'late_absent', 'leave']);
 
+// This server process runs in UTC, not Bangladesh time — a plain
+// new Date().toISOString() "today" would resolve to yesterday for the
+// first 6 hours of every Bangladesh day (UTC+6, no DST), hiding today's
+// real device punches behind a "today" that's actually still yesterday.
+function _todayBdIso() {
+  return new Date(Date.now() + 6 * 3600 * 1000).toISOString().slice(0, 10);
+}
+
 // Authorization gate for the per-student attendance-marking endpoints below:
 // re-derives the caller's own class-teacher assignments (never trusts a
 // class from the client) and confirms the target student actually sits in
@@ -2921,7 +2929,7 @@ const handlers = {
   // checked server-side, never trusted from the client.
   async getMyClassTodayAttendance([userId]) {
     if (!userId) return { classes: [] };
-    const today = new Date().toISOString().slice(0, 10);
+    const today = _todayBdIso();
     const assignments = await _getClassTeacherAssignments();
     const mine = assignments.filter(a => a.resolvedUserId === userId);
     if (!mine.length) return { classes: [] };
@@ -2960,7 +2968,7 @@ const handlers = {
     if (!userId || !studentId) return { success: false, message: 'Missing student.' };
     if (!MY_CLASS_ATTENDANCE_STATUSES.has(status)) return { success: false, message: 'Invalid status.' };
     if (!(await _isCallerStudentAuthorized(userId, studentId))) return { success: false, message: 'Not your student.' };
-    const today = new Date().toISOString().slice(0, 10);
+    const today = _todayBdIso();
     const r = await _sbStudentUpsert('manual_attendance_overrides?on_conflict=student_id,date', {
       student_id: studentId, date: today, status, marked_by: userId,
     });
@@ -2971,7 +2979,7 @@ const handlers = {
   async revertMyClassStudentAttendance([userId, studentId]) {
     if (!userId || !studentId) return { success: false, message: 'Missing student.' };
     if (!(await _isCallerStudentAuthorized(userId, studentId))) return { success: false, message: 'Not your student.' };
-    const today = new Date().toISOString().slice(0, 10);
+    const today = _todayBdIso();
     const r = await _sbStudentWrite(`manual_attendance_overrides?student_id=eq.${encodeURIComponent(studentId)}&date=eq.${today}`, 'DELETE');
     if (r && r.error) return { success: false, message: r.error };
     const presentRows = await _sbStudent(`attendance_records?date=eq.${today}&student_id=eq.${encodeURIComponent(studentId)}&select=student_id`);
@@ -2988,7 +2996,7 @@ const handlers = {
     const assignments = await _getClassTeacherAssignments();
     const mine = assignments.filter(a => a.resolvedUserId === userId);
     if (!mine.length) return { success: false, message: 'You are not currently assigned as a class teacher.' };
-    const today = new Date().toISOString().slice(0, 10);
+    const today = _todayBdIso();
 
     const rosters = await Promise.all(mine.map(async ({ className, section, extraCriteria }) => {
       const studentClass = CLASS_TEACHER_NAME_TO_STUDENT_CLASS[className] || className;
