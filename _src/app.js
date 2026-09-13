@@ -14781,6 +14781,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <input type="number" id="prExportRowsPerPage" value="6" min="1" step="1" onchange="_prSetExportRowDesign('rowsPerPage',Math.max(1,Number(this.value)||6))" class="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
               <span class="text-[10px] text-slate-400 font-bold normal-case">Hard page break after this many people — the last row of every page is that page's own Sub Total.</span>
             </div>
+            <div class="flex items-center gap-2">
+              <label class="text-[10px] font-black text-slate-400 uppercase">Cell Padding (mm)</label>
+              <input type="number" id="prExportCellPadding" value="0.5" min="0" step="0.1" onchange="_prSetExportRowDesign('cellPadding',Math.max(0,Number(this.value)||0))" class="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <span class="text-[10px] text-slate-400 font-bold normal-case">Space around text inside every header and data cell — 0 for none.</span>
+            </div>
           </div>
           <hr class="border-slate-100 my-3">
           <div class="flex flex-wrap items-center gap-5">
@@ -14855,6 +14860,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                     <option value="270">270°</option>
                   </select>
                 </div>
+                <div class="flex items-center gap-1.5">
+                  <label class="text-[10px] font-black text-slate-400 uppercase">Border (pt)</label>
+                  <input type="number" id="prCfBorderWidth" value="1" min="0" step="0.25" title="Full dark border around every cell in this row — 0 falls back to the plain grid" onchange="_prSetExportSummaryRowStyle('cf','borderWidth',Number(this.value)||0)" class="w-14 px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-[10px]">
+                </div>
               </div>
             </div>
             <div>
@@ -14901,10 +14910,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                     <option value="270">270°</option>
                   </select>
                 </div>
+                <div class="flex items-center gap-1.5">
+                  <label class="text-[10px] font-black text-slate-400 uppercase">Border (pt)</label>
+                  <input type="number" id="prSubtotalBorderWidth" value="1" min="0" step="0.25" title="Full dark border around every cell in this row — 0 falls back to the plain grid (plus this row's own extra-strong bottom rule)" onchange="_prSetExportSummaryRowStyle('subtotal','borderWidth',Number(this.value)||0)" class="w-14 px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-[10px]">
+                </div>
               </div>
             </div>
           </div>
-          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-3">C.F. (Carried Forward) shows the running total from prior pages at the top of every page after the first; Sub Total shows this page's own sum at the bottom of every page. Size/Align default to the table's normal look ("Per column" keeps each column's own alignment) until set here. PDF export only — shown live in the preview below.</p>
+          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-3">C.F. (Carried Forward) shows the running total from prior pages at the top of every page after the first; Sub Total shows this page's own sum at the bottom of every page. Size/Align default to the table's normal look ("Per column" keeps each column's own alignment) until set here; Border defaults to a solid dark box (0 = plain grid). PDF export only — shown live in the preview below.</p>
         </div>
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
           <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
@@ -19660,8 +19673,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // page-break rule for the PDF only (Excel just lists every row on one
   // continuous sheet) — a fixed headcount per page, not a height estimate,
   // so every page holds exactly this many people plus its own C.F./Sub
-  // Total rows (see _prExportPdf).
-  let _prExportRowDesign = { zebra: false, zebraColor: '#f1f5f9', rowHeight: 0, rowsPerPage: 6 };
+  // Total rows (see _prExportPdf). cellPadding (mm) applies to every
+  // header AND data cell alike (autotable's own unset default is a
+  // comparatively roomy 5/scaleFactor) — defaults small rather than 0 so
+  // text doesn't touch the grid lines, 0 itself is a valid choice.
+  let _prExportRowDesign = { zebra: false, zebraColor: '#f1f5f9', rowHeight: 0, rowsPerPage: 6, cellPadding: 0.5 };
   // Grid/border style, in pt (the unit PDF export already works in — the
   // Visual Editor preview and Excel export each convert from pt to their
   // own units). gridWidth is every internal cell border; topWidth/
@@ -19684,9 +19700,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // cells already use (see _prSummaryRotation) — most columns leave data
   // unrotated even with vertical headers, so this matches today's look
   // until explicitly overridden.
+  // borderWidth (pt): a full, dark box around every cell in that row,
+  // overriding the plain shared grid entirely — defaults to a real value
+  // (not null/off) since the shared grid alone (thin, pale slate) barely
+  // reads as a border at all against a filled summary row; explicitly
+  // set to 0 to fall back to the plain shared grid instead.
   let _prExportSummaryRowStyle = {
-    cf: { bold: true, italic: false, color: '', bg: '#f1f5f9', fontSize: null, align: '', decimals: null, rotation: null },
-    subtotal: { bold: true, italic: false, color: '', bg: '#f1f5f9', fontSize: null, align: '', decimals: null, rotation: null },
+    cf: { bold: true, italic: false, color: '', bg: '#f1f5f9', fontSize: null, align: '', decimals: null, rotation: null, borderWidth: 1 },
+    subtotal: { bold: true, italic: false, color: '', bg: '#f1f5f9', fontSize: null, align: '', decimals: null, rotation: null, borderWidth: 1 },
   };
   // Per-Group-name formatting (font size/color/bold/italic/alignment) for
   // the merged header cell a Group's columns share — keyed by the Group's
@@ -19734,6 +19755,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prExportZebraColor').value = _prExportRowDesign.zebraColor;
     document.getElementById('prExportRowHeight').value = _prExportRowDesign.rowHeight || 0;
     document.getElementById('prExportRowsPerPage').value = _prExportRowDesign.rowsPerPage || 6;
+    document.getElementById('prExportCellPadding').value = _prExportRowDesign.cellPadding != null ? _prExportRowDesign.cellPadding : 0.5;
     document.getElementById('prExportShowGrid').checked = _prExportBorderStyle.showGrid;
     document.getElementById('prExportGridWidth').value = _prExportBorderStyle.gridWidth;
     document.getElementById('prExportTopWidth').value = _prExportBorderStyle.topWidth;
@@ -19747,6 +19769,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prCfAlign').value = _prExportSummaryRowStyle.cf.align || '';
     document.getElementById('prCfDecimals').value = _prExportSummaryRowStyle.cf.decimals != null ? _prExportSummaryRowStyle.cf.decimals : '';
     document.getElementById('prCfRotation').value = _prExportSummaryRowStyle.cf.rotation != null ? _prExportSummaryRowStyle.cf.rotation : '';
+    document.getElementById('prCfBorderWidth').value = _prExportSummaryRowStyle.cf.borderWidth != null ? _prExportSummaryRowStyle.cf.borderWidth : 1;
     document.getElementById('prSubtotalBold').checked = _prExportSummaryRowStyle.subtotal.bold;
     document.getElementById('prSubtotalItalic').checked = _prExportSummaryRowStyle.subtotal.italic;
     document.getElementById('prSubtotalColor').value = _prExportSummaryRowStyle.subtotal.color || '#000000';
@@ -19755,6 +19778,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prSubtotalAlign').value = _prExportSummaryRowStyle.subtotal.align || '';
     document.getElementById('prSubtotalDecimals').value = _prExportSummaryRowStyle.subtotal.decimals != null ? _prExportSummaryRowStyle.subtotal.decimals : '';
     document.getElementById('prSubtotalRotation').value = _prExportSummaryRowStyle.subtotal.rotation != null ? _prExportSummaryRowStyle.subtotal.rotation : '';
+    document.getElementById('prSubtotalBorderWidth').value = _prExportSummaryRowStyle.subtotal.borderWidth != null ? _prExportSummaryRowStyle.subtotal.borderWidth : 1;
     document.getElementById('prExportSortField').value = _prExportSortBy;
     _prUpdateExportSortDirBtn();
     const populate = () => {
@@ -19964,6 +19988,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prExportZebraColor').value = _prExportRowDesign.zebraColor;
     document.getElementById('prExportRowHeight').value = _prExportRowDesign.rowHeight || 0;
     document.getElementById('prExportRowsPerPage').value = _prExportRowDesign.rowsPerPage || 6;
+    document.getElementById('prExportCellPadding').value = _prExportRowDesign.cellPadding != null ? _prExportRowDesign.cellPadding : 0.5;
     document.getElementById('prExportShowGrid').checked = _prExportBorderStyle.showGrid;
     document.getElementById('prExportGridWidth').value = _prExportBorderStyle.gridWidth;
     document.getElementById('prExportTopWidth').value = _prExportBorderStyle.topWidth;
@@ -19977,6 +20002,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prCfAlign').value = _prExportSummaryRowStyle.cf.align || '';
     document.getElementById('prCfDecimals').value = _prExportSummaryRowStyle.cf.decimals != null ? _prExportSummaryRowStyle.cf.decimals : '';
     document.getElementById('prCfRotation').value = _prExportSummaryRowStyle.cf.rotation != null ? _prExportSummaryRowStyle.cf.rotation : '';
+    document.getElementById('prCfBorderWidth').value = _prExportSummaryRowStyle.cf.borderWidth != null ? _prExportSummaryRowStyle.cf.borderWidth : 1;
     document.getElementById('prSubtotalBold').checked = _prExportSummaryRowStyle.subtotal.bold;
     document.getElementById('prSubtotalItalic').checked = _prExportSummaryRowStyle.subtotal.italic;
     document.getElementById('prSubtotalColor').value = _prExportSummaryRowStyle.subtotal.color || '#000000';
@@ -19985,6 +20011,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prSubtotalAlign').value = _prExportSummaryRowStyle.subtotal.align || '';
     document.getElementById('prSubtotalDecimals').value = _prExportSummaryRowStyle.subtotal.decimals != null ? _prExportSummaryRowStyle.subtotal.decimals : '';
     document.getElementById('prSubtotalRotation').value = _prExportSummaryRowStyle.subtotal.rotation != null ? _prExportSummaryRowStyle.subtotal.rotation : '';
+    document.getElementById('prSubtotalBorderWidth').value = _prExportSummaryRowStyle.subtotal.borderWidth != null ? _prExportSummaryRowStyle.subtotal.borderWidth : 1;
     document.getElementById('prExportSortField').value = _prExportSortBy;
     _prUpdateExportSortDirBtn();
     _prSyncRemarksColumn();
@@ -20382,12 +20409,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       groupOutlineSide[first] = Object.assign({}, groupOutlineSide[first], { left: true });
       groupOutlineSide[last] = Object.assign({}, groupOutlineSide[last], { right: true });
     });
+    // mm -> px at 96dpi, replacing the fixed px-3/py-1.5 Tailwind padding
+    // every header/data/summary cell used to carry — matches the PDF's own
+    // cellPadding (mm) setting instead of an unrelated fixed value.
+    const cellPaddingPx = Math.max(0, Number(_prExportRowDesign.cellPadding) || 0) * 3.7795;
     const colHeaderHtml = (c, isTopRow) => `
       <th draggable="true" data-col-key="${_escHtml(c.key)}"
           ondragstart="_prPreviewDragKey='${c.key}'" ondragover="event.preventDefault()" ondrop="_prPreviewColumnDrop('${c.key}')"
           onclick="_prSelectFormatColumn('${c.key}')" ${!c.group && hasAnyGroup ? 'rowspan="2"' : ''}
-          class="relative px-3 py-2 ${c.key === _prSelectedFormatColumnKey ? 'bg-blue-100 ring-2 ring-inset ring-blue-400' : 'bg-slate-50'} cursor-grab select-none hover:bg-blue-50 transition-all align-bottom"
-          style="${_prColumnCellCss(c, true)}${_prGridBorderCss(isTopRow, false, groupOutlineSide[c.key])}" title="Drag to reorder, click to format">
+          class="relative ${c.key === _prSelectedFormatColumnKey ? 'bg-blue-100 ring-2 ring-inset ring-blue-400' : 'bg-slate-50'} cursor-grab select-none hover:bg-blue-50 transition-all align-bottom"
+          style="padding:${cellPaddingPx}px;${_prColumnCellCss(c, true)}${_prGridBorderCss(isTopRow, false, groupOutlineSide[c.key])}" title="Drag to reorder, click to format">
         <input type="checkbox" ${_prMergeSelectedKeys.has(c.key) ? 'checked' : ''} onclick="event.stopPropagation();_prToggleColumnMergeSelect('${c.key}',this.checked)" title="Select for merge" class="absolute top-0.5 left-0.5 w-3.5 h-3.5 rounded accent-blue-600 cursor-pointer">
         <button onclick="event.stopPropagation();_prSetExportFormat('${c.key}','included',false)" class="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-slate-200 text-slate-500 hover:bg-red-200 hover:text-red-600 flex items-center justify-center text-[9px] leading-none">×</button>
         ${_escHtml(c.label)}
@@ -20411,10 +20442,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 return `<span style="${segCss}">${_escHtml(seg.text)}</span>${sep}`;
               }).join('')
             : _escHtml(String(_prFormatColumnValue(c, _prColumnValue(c, slip))));
-          return `<td class="px-3 py-1.5 ${isRichText ? '' : 'whitespace-nowrap'}" style="${_prColumnCellCss(c, false)}${_prGridBorderCss(false, false, groupOutlineSide[c.key])}">${cellContent}</td>`;
+          return `<td class="${isRichText ? '' : 'whitespace-nowrap'}" style="padding:${cellPaddingPx}px;${_prColumnCellCss(c, false)}${_prGridBorderCss(false, false, groupOutlineSide[c.key])}">${cellContent}</td>`;
         }).join('')}</tr>`).join('')}
-        ${_prExportSummaryRowHtml(included, sampleSlips, 'C.F.', 'cf', false, groupOutlineSide)}
-        ${_prExportSummaryRowHtml(included, sampleSlips, 'Sub Total', 'subtotal', true, groupOutlineSide)}
+        ${_prExportSummaryRowHtml(included, sampleSlips, 'C.F.', 'cf', false, groupOutlineSide, cellPaddingPx)}
+        ${_prExportSummaryRowHtml(included, sampleSlips, 'Sub Total', 'subtotal', true, groupOutlineSide, cellPaddingPx)}
       </tbody>`;
     lucide.createIcons();
     _prRenderMergeSelectionBar();
@@ -20458,7 +20489,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // PDF — the SUM shown here is only over the handful of sample rows the
   // preview displays, not the real per-page totals the actual export
   // computes; it exists to check formatting, not to predict real numbers.
-  function _prExportSummaryRowHtml(cols, sampleSlips, label, styleKey, isLastRow, groupOutlineSide) {
+  function _prExportSummaryRowHtml(cols, sampleSlips, label, styleKey, isLastRow, groupOutlineSide, cellPaddingPx) {
     const srs = _prExportSummaryRowStyle[styleKey];
     const firstLabelCol = cols.findIndex(c => !_prIsSummableColumn(c));
     const cells = cols.map((c, ci) => {
@@ -20476,7 +20507,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (rot === 90) css += `writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;`;
       else if (rot === 270) css += `writing-mode:vertical-rl;white-space:nowrap;`;
       else if (rot === 180) css += `transform:rotate(180deg);`;
-      return `<td class="px-3 py-1.5 whitespace-nowrap" title="PDF-only — sample sum, not the real page total" style="${css}${_prGridBorderCss(false, isLastRow, groupOutlineSide && groupOutlineSide[c.key])}">${val}</td>`;
+      // A dedicated, dark full-box border by default (see _prSummaryLineWidth's
+      // PDF-side twin) — the plain shared grid alone (thin, pale slate) barely
+      // reads as a border against a filled summary row; 0 falls back to the
+      // normal grid (plus Sub Total's own extra-strong bottom rule).
+      const bw = Number(srs.borderWidth) || 0;
+      const borderCss = bw
+        ? `border:${Math.max(1, bw * 1.333)}px solid #0f172a;`
+        : _prGridBorderCss(false, isLastRow, groupOutlineSide && groupOutlineSide[c.key]);
+      return `<td class="whitespace-nowrap" title="PDF-only — sample sum, not the real page total" style="padding:${cellPaddingPx || 0}px;${css}${borderCss}">${val}</td>`;
     }).join('');
     return `<tr>${cells}</tr>`;
   }
@@ -21387,6 +21426,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return srs.rotation != null ? srs.rotation : (Number(col.rotation) || 0);
   }
 
+  // C.F./Sub Total border — a full, dark (pt -> mm) box around every cell
+  // in that row when borderWidth is set (the default), overriding
+  // whatever lineWidth that row would otherwise inherit; 0 explicitly
+  // falls back to defaultLineWidth (the plain shared grid, same as any
+  // regular cell — CF's own default, or Sub Total's own extra-strong
+  // bottom rule). Group-outline edges (see applyGroupOutline) are still
+  // layered on top of whichever of these two this returns, same as
+  // every other row.
+  function _prSummaryLineWidth(srs, defaultLineWidth) {
+    const bw = Number(srs.borderWidth) || 0;
+    if (!bw) return defaultLineWidth;
+    const mm = Math.max(0.05, bw * 0.352778);
+    return { top: mm, right: mm, bottom: mm, left: mm };
+  }
+
   function _prFormatColumnValue(c, raw) {
     if (raw === '' || raw === null || raw === undefined) return raw;
     const num = Number(raw);
@@ -22159,7 +22213,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             startY: 18,
             head,
             body,
-            styles: { fontSize: 8, lineWidth: gridMm, lineColor: [203, 213, 225] },
+            styles: { fontSize: 8, lineWidth: gridMm, lineColor: [203, 213, 225], cellPadding: Math.max(0, Number(_prExportRowDesign.cellPadding) || 0) },
             // Rotated-header height only belongs on the row that actually
             // carries rotated text (labelHeadRow) — applying it as a blanket
             // headStyles default also forces the plain, one-line group-name
@@ -22216,7 +22270,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 hook.cell.styles.fillColor = srs.bg ? _prHexToRgbArr(srs.bg) : [255, 255, 255];
                 if (srs.fontSize) hook.cell.styles.fontSize = srs.fontSize;
                 if (srs.align) hook.cell.styles.halign = srs.align;
-                if (hook.row.index === subTotalRowIndex) hook.cell.styles.lineWidth = { top: gridMm, right: gridMm, bottom: bottomMm, left: gridMm };
+                // Sub Total's own DEFAULT (borderWidth: 0) is the plain
+                // grid plus an extra-strong bottom rule; C.F.'s own
+                // default is just the plain grid (hook.cell.styles.
+                // lineWidth already holds it, inherited from the table).
+                const summaryDefaultLineWidth = hook.row.index === subTotalRowIndex
+                  ? { top: gridMm, right: gridMm, bottom: bottomMm, left: gridMm }
+                  : hook.cell.styles.lineWidth;
+                hook.cell.styles.lineWidth = _prSummaryLineWidth(srs, summaryDefaultLineWidth);
                 applyGroupOutline(hook.column.index, hook.cell.styles);
                 // C.F./Sub Total are the only cells holding a sum of many
                 // rows — always shown to a fixed dp (see _prSummaryDecimals)
