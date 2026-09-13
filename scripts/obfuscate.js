@@ -89,7 +89,7 @@ const RESERVED = [
   '_prPreviewColumnDrop','_prSelectFormatColumn','_prPreviewDragKey','_prResetColumnOrderToSheet','_prStartColumnResize',
   '_prOnVcTypeChange','_prVcAddSegment','_prVcRemoveSegment','_prVcUpdateSegment','_prVcAddRule','_prVcRemoveRule','_prVcUpdateRule',
   'loadPayrollMpoTab','_prRenderMpoLockBar','_prLockMpo','_prUnlockMpo',
-  '_prSetExportBorderStyle','_prAddGroupTotalColumn','_prOnGroupSelectChange','_prSetExportSummaryRowStyle',
+  '_prSetExportBorderStyle','_prAddGroupTotalColumn','_prOnGroupSelectChange','_prSetExportSummaryRowStyle','_prSetExportGroupStyle',
   '_prFoldColumnInto','_prExtractFoldedColumn','_prToggleFoldRemarkEditor','_prSetFoldRemarkDefault',
   '_prAddFoldRemarkRule','_prUpdateFoldRemarkRule','_prRemoveFoldRemarkRule',
   '_prOpenAutoRemarkForm','_prCloseAutoRemarkForm','_prSetAutoRemarkKind','_prSaveAutoRemarkRule','_prDeleteAutoRemarkRule',

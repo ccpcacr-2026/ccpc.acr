@@ -14776,6 +14776,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <input type="number" id="prExportRowHeight" value="0" min="0" step="1" placeholder="auto" onchange="_prSetExportRowDesign('rowHeight',Number(this.value)||0)" class="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
               <span class="text-[10px] text-slate-400 font-bold normal-case">0 = fits the content</span>
             </div>
+            <div class="flex items-center gap-2">
+              <label class="text-[10px] font-black text-slate-400 uppercase">Rows/Page (PDF)</label>
+              <input type="number" id="prExportRowsPerPage" value="6" min="1" step="1" onchange="_prSetExportRowDesign('rowsPerPage',Math.max(1,Number(this.value)||6))" class="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <span class="text-[10px] text-slate-400 font-bold normal-case">Hard page break after this many people — the last row of every page is that page's own Sub Total.</span>
+            </div>
           </div>
           <hr class="border-slate-100 my-3">
           <div class="flex flex-wrap items-center gap-5">
@@ -14798,9 +14803,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </div>
             <div class="flex items-center gap-2">
               <label class="text-[10px] font-black text-slate-400 uppercase">Group Outline (pt)</label>
-              <input type="number" id="prExportGroupOutlineWidth" value="1" min="0" step="0.25" onchange="_prSetExportBorderStyle('groupOutlineWidth',Number(this.value))" class="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <input type="number" id="prExportGroupOutlineWidth" value="1.5" min="0" step="0.25" onchange="_prSetExportBorderStyle('groupOutlineWidth',Number(this.value))" class="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
             </div>
-            <span class="text-[10px] text-slate-400 font-bold normal-case">Top/Bottom are the outer rule above the header and below the last row. Group Outline frames the left/right edges of each Group's columns, header through the last row — 0 to turn off.</span>
+            <span class="text-[10px] text-slate-400 font-bold normal-case">Top/Bottom are the outer rule above the header and below the last row. Group Outline is applied automatically to any Group's columns (thicker than the plain grid by default) — frames their left/right edges header through the last row — 0 to turn off.</span>
           </div>
         </div>
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
@@ -14823,6 +14828,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                   <label class="text-[10px] font-black text-slate-400 uppercase">Fill</label>
                   <input type="color" id="prCfBg" value="#f1f5f9" onchange="_prSetExportSummaryRowStyle('cf','bg',this.value)" class="w-7 h-6 rounded cursor-pointer border border-slate-200">
                 </div>
+                <div class="flex items-center gap-1.5">
+                  <label class="text-[10px] font-black text-slate-400 uppercase">Size</label>
+                  <input type="number" id="prCfFontSize" value="" placeholder="auto" min="4" max="24" step="0.5" onchange="_prSetExportSummaryRowStyle('cf','fontSize',this.value?Number(this.value):null)" class="w-14 px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-[10px]">
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <label class="text-[10px] font-black text-slate-400 uppercase">Align</label>
+                  <select id="prCfAlign" onchange="_prSetExportSummaryRowStyle('cf','align',this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-[10px]">
+                    <option value="">Per column</option>
+                    <option value="left">Left</option>
+                    <option value="center">Center</option>
+                    <option value="right">Right</option>
+                  </select>
+                </div>
               </div>
             </div>
             <div>
@@ -14842,10 +14860,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                   <label class="text-[10px] font-black text-slate-400 uppercase">Fill</label>
                   <input type="color" id="prSubtotalBg" value="#f1f5f9" onchange="_prSetExportSummaryRowStyle('subtotal','bg',this.value)" class="w-7 h-6 rounded cursor-pointer border border-slate-200">
                 </div>
+                <div class="flex items-center gap-1.5">
+                  <label class="text-[10px] font-black text-slate-400 uppercase">Size</label>
+                  <input type="number" id="prSubtotalFontSize" value="" placeholder="auto" min="4" max="24" step="0.5" onchange="_prSetExportSummaryRowStyle('subtotal','fontSize',this.value?Number(this.value):null)" class="w-14 px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-[10px]">
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <label class="text-[10px] font-black text-slate-400 uppercase">Align</label>
+                  <select id="prSubtotalAlign" onchange="_prSetExportSummaryRowStyle('subtotal','align',this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-[10px]">
+                    <option value="">Per column</option>
+                    <option value="left">Left</option>
+                    <option value="center">Center</option>
+                    <option value="right">Right</option>
+                  </select>
+                </div>
               </div>
             </div>
           </div>
-          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-3">C.F. (Carried Forward) shows the running total from prior pages at the top of every page after the first; Sub Total shows this page's own sum at the bottom of every page. PDF export only — shown live in the preview below.</p>
+          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-3">C.F. (Carried Forward) shows the running total from prior pages at the top of every page after the first; Sub Total shows this page's own sum at the bottom of every page. Size/Align default to the table's normal look ("Per column" keeps each column's own alignment) until set here. PDF export only — shown live in the preview below.</p>
         </div>
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
           <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
@@ -14911,6 +14942,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div id="prColumnFormatPanel" class="mb-3"></div>
           <div id="prMergeSelectionBar" class="hidden items-center gap-2 mb-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl"></div>
           <div id="prExportExcludedChips" class="flex flex-wrap gap-1.5 mb-2"></div>
+          <div id="prExportPageFitRuler" class="mb-3"></div>
           <div id="prExportPreviewWrap" class="overflow-auto border border-slate-200 rounded-xl" style="max-height:60vh;">
             <table id="prExportPreviewTable" class="border-collapse text-xs"></table>
           </div>
@@ -19596,8 +19628,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _prSelectedFormatColumnKey = null; // which column's format is shown in the full-width panel above the preview table
   let _prExportSplitByGroup = false;
   // rowHeight is a minimum row height in mm applied to every data row
-  // (0 = natural/auto height from content alone).
-  let _prExportRowDesign = { zebra: false, zebraColor: '#f1f5f9', rowHeight: 0 };
+  // (0 = natural/auto height from content alone). rowsPerPage is a hard
+  // page-break rule for the PDF only (Excel just lists every row on one
+  // continuous sheet) — a fixed headcount per page, not a height estimate,
+  // so every page holds exactly this many people plus its own C.F./Sub
+  // Total rows (see _prExportPdf).
+  let _prExportRowDesign = { zebra: false, zebraColor: '#f1f5f9', rowHeight: 0, rowsPerPage: 6 };
   // Grid/border style, in pt (the unit PDF export already works in — the
   // Visual Editor preview and Excel export each convert from pt to their
   // own units). gridWidth is every internal cell border; topWidth/
@@ -19605,16 +19641,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // last row, independent of the internal grid, matching a classic
   // three-line printed table. groupOutlineWidth frames the left/right
   // edges of each Group's column span, header through the last body row
-  // (0 = no outline).
-  let _prExportBorderStyle = { showGrid: true, gridWidth: 0.5, topWidth: 1.5, bottomWidth: 1.5, groupOutlineWidth: 1 };
+  // (0 = no outline) — thicker than the plain grid by default, and applied
+  // automatically the moment 2+ columns share a Group, no extra toggle.
+  let _prExportBorderStyle = { showGrid: true, gridWidth: 0.5, topWidth: 1.5, bottomWidth: 1.5, groupOutlineWidth: 1.5 };
   // Independent formatting for the PDF's two synthetic per-page rows —
   // C.F. (carried-forward running total) and Sub Total (this page's own
   // sum) — same bold/italic/color/background shape as a column's own
-  // header/data format controls.
+  // header/data format controls, plus their own font size/alignment.
   let _prExportSummaryRowStyle = {
-    cf: { bold: true, italic: false, color: '', bg: '#f1f5f9' },
-    subtotal: { bold: true, italic: false, color: '', bg: '#f1f5f9' },
+    cf: { bold: true, italic: false, color: '', bg: '#f1f5f9', fontSize: null, align: '' },
+    subtotal: { bold: true, italic: false, color: '', bg: '#f1f5f9', fontSize: null, align: '' },
   };
+  // Per-Group-name formatting (font size/color/bold/italic/alignment) for
+  // the merged header cell a Group's columns share — keyed by the Group's
+  // own name string, so every column under that name renders identically
+  // without repeating the choice per column. Border thickness is NOT part
+  // of this — that's the single shared groupOutlineWidth above, applied to
+  // every Group uniformly and automatically. See _prGroupStyle for defaults.
+  let _prExportGroupStyles = {};
   let _prExportRowOrderCache = []; // [{user_id, position}] — only people who've been manually dragged
   let _prExportSortBy = 'name';
   let _prExportSortDir = 'asc';
@@ -19653,6 +19697,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prExportZebra').checked = _prExportRowDesign.zebra;
     document.getElementById('prExportZebraColor').value = _prExportRowDesign.zebraColor;
     document.getElementById('prExportRowHeight').value = _prExportRowDesign.rowHeight || 0;
+    document.getElementById('prExportRowsPerPage').value = _prExportRowDesign.rowsPerPage || 6;
     document.getElementById('prExportShowGrid').checked = _prExportBorderStyle.showGrid;
     document.getElementById('prExportGridWidth').value = _prExportBorderStyle.gridWidth;
     document.getElementById('prExportTopWidth').value = _prExportBorderStyle.topWidth;
@@ -19662,10 +19707,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prCfItalic').checked = _prExportSummaryRowStyle.cf.italic;
     document.getElementById('prCfColor').value = _prExportSummaryRowStyle.cf.color || '#000000';
     document.getElementById('prCfBg').value = _prExportSummaryRowStyle.cf.bg || '#f1f5f9';
+    document.getElementById('prCfFontSize').value = _prExportSummaryRowStyle.cf.fontSize || '';
+    document.getElementById('prCfAlign').value = _prExportSummaryRowStyle.cf.align || '';
     document.getElementById('prSubtotalBold').checked = _prExportSummaryRowStyle.subtotal.bold;
     document.getElementById('prSubtotalItalic').checked = _prExportSummaryRowStyle.subtotal.italic;
     document.getElementById('prSubtotalColor').value = _prExportSummaryRowStyle.subtotal.color || '#000000';
     document.getElementById('prSubtotalBg').value = _prExportSummaryRowStyle.subtotal.bg || '#f1f5f9';
+    document.getElementById('prSubtotalFontSize').value = _prExportSummaryRowStyle.subtotal.fontSize || '';
+    document.getElementById('prSubtotalAlign').value = _prExportSummaryRowStyle.subtotal.align || '';
     document.getElementById('prExportSortField').value = _prExportSortBy;
     _prUpdateExportSortDirBtn();
     const populate = () => {
@@ -19685,6 +19734,28 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!_prExportSummaryRowStyle[rowType]) return;
     _prExportSummaryRowStyle[rowType][prop] = value;
     _prRenderExportPreview();
+  }
+
+  // A Group's formatting, merged over sane defaults that reproduce the
+  // look every Group already had before this was configurable — called
+  // fresh every render rather than stored pre-merged, so a Group with no
+  // customization yet still renders identically to one explicitly set to
+  // these same values. Border thickness is deliberately NOT here; that's
+  // the single shared groupOutlineWidth (Grid & Borders section), applied
+  // to every Group automatically.
+  function _prGroupStyle(groupName) {
+    return Object.assign({ bold: true, italic: false, color: '#475569', fontSize: null, align: 'center' }, _prExportGroupStyles[groupName] || {});
+  }
+  function _prSetExportGroupStyle(groupName, prop, value) {
+    if (!groupName) return;
+    _prExportGroupStyles[groupName] = { ..._prGroupStyle(groupName), [prop]: value };
+    _prRenderExportPreview();
+  }
+  // Live-preview CSS for a Group's merged header cell — the PDF's own
+  // equivalent is _prGroupHeaderPdfStyles, kept deliberately in sync.
+  function _prGroupHeaderCss(groupName) {
+    const gs = _prGroupStyle(groupName);
+    return `font-weight:${gs.bold ? '900' : '400'};font-style:${gs.italic ? 'italic' : 'normal'};color:${gs.color || '#475569'};font-size:${gs.fontSize || 10}px;text-align:${gs.align || 'center'};`;
   }
 
   // ── Person Selection (Everyone / Pick People — individual or by whole category) ──
@@ -19774,6 +19845,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       rowDesign: _prExportRowDesign,
       borderStyle: _prExportBorderStyle,
       summaryRowStyle: _prExportSummaryRowStyle,
+      groupStyles: _prExportGroupStyles,
       sortBy: _prExportSortBy,
       sortDir: _prExportSortDir,
       autoRemarkRules: _prAutoRemarkRules,
@@ -19837,6 +19909,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (cfg.rowDesign) _prExportRowDesign = { ..._prExportRowDesign, ...cfg.rowDesign };
     if (cfg.borderStyle) _prExportBorderStyle = { ..._prExportBorderStyle, ...cfg.borderStyle };
     if (cfg.summaryRowStyle) _prExportSummaryRowStyle = { cf: { ..._prExportSummaryRowStyle.cf, ...cfg.summaryRowStyle.cf }, subtotal: { ..._prExportSummaryRowStyle.subtotal, ...cfg.summaryRowStyle.subtotal } };
+    if (cfg.groupStyles) _prExportGroupStyles = { ...cfg.groupStyles };
     if (cfg.splitByGroup != null) _prExportSplitByGroup = cfg.splitByGroup;
     if (cfg.sortBy) _prExportSortBy = cfg.sortBy;
     if (cfg.sortDir) _prExportSortDir = cfg.sortDir;
@@ -19847,6 +19920,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prExportZebra').checked = _prExportRowDesign.zebra;
     document.getElementById('prExportZebraColor').value = _prExportRowDesign.zebraColor;
     document.getElementById('prExportRowHeight').value = _prExportRowDesign.rowHeight || 0;
+    document.getElementById('prExportRowsPerPage').value = _prExportRowDesign.rowsPerPage || 6;
     document.getElementById('prExportShowGrid').checked = _prExportBorderStyle.showGrid;
     document.getElementById('prExportGridWidth').value = _prExportBorderStyle.gridWidth;
     document.getElementById('prExportTopWidth').value = _prExportBorderStyle.topWidth;
@@ -19856,10 +19930,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prCfItalic').checked = _prExportSummaryRowStyle.cf.italic;
     document.getElementById('prCfColor').value = _prExportSummaryRowStyle.cf.color || '#000000';
     document.getElementById('prCfBg').value = _prExportSummaryRowStyle.cf.bg || '#f1f5f9';
+    document.getElementById('prCfFontSize').value = _prExportSummaryRowStyle.cf.fontSize || '';
+    document.getElementById('prCfAlign').value = _prExportSummaryRowStyle.cf.align || '';
     document.getElementById('prSubtotalBold').checked = _prExportSummaryRowStyle.subtotal.bold;
     document.getElementById('prSubtotalItalic').checked = _prExportSummaryRowStyle.subtotal.italic;
     document.getElementById('prSubtotalColor').value = _prExportSummaryRowStyle.subtotal.color || '#000000';
     document.getElementById('prSubtotalBg').value = _prExportSummaryRowStyle.subtotal.bg || '#f1f5f9';
+    document.getElementById('prSubtotalFontSize').value = _prExportSummaryRowStyle.subtotal.fontSize || '';
+    document.getElementById('prSubtotalAlign').value = _prExportSummaryRowStyle.subtotal.align || '';
     document.getElementById('prExportSortField').value = _prExportSortBy;
     _prUpdateExportSortDirBtn();
     _prSyncRemarksColumn();
@@ -20186,12 +20264,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // screen display (1pt ≈ 1.333px). extraTop/extraBottom add the outer
   // rule on top of (not instead of) the internal grid, so a thick top/
   // bottom line still shows even with "Show grid lines" off.
-  function _prGridBorderCss(extraTop, extraBottom) {
+  // groupEdge is { left, right } — whichever sides of THIS cell sit on the
+  // boundary of a Group's column span (see the `runs`/groupOutlineSide
+  // logic in _prRenderExportPreview and _prExportPdf) — automatic the
+  // moment 2+ columns share a Group, no separate on/off toggle. Darker AND
+  // wider than the plain grid so it actually reads as a distinct border,
+  // not just a slightly-thicker line in the same pale grid color.
+  function _prGridBorderCss(extraTop, extraBottom, groupEdge) {
     const st = _prExportBorderStyle;
     const gridPx = st.showGrid ? Math.max(0.5, (Number(st.gridWidth) || 0) * 1.333) : 0;
     let css = `border:${gridPx}px solid #cbd5e1;`;
     if (extraTop && st.topWidth) css += `border-top:${Math.max(1, st.topWidth * 1.333)}px solid #0f172a;`;
     if (extraBottom && st.bottomWidth) css += `border-bottom:${Math.max(1, st.bottomWidth * 1.333)}px solid #0f172a;`;
+    if (groupEdge && st.groupOutlineWidth) {
+      const outlinePx = Math.max(1.5, Number(st.groupOutlineWidth) * 1.333);
+      if (groupEdge.left) css += `border-left:${outlinePx}px solid #0f172a;`;
+      if (groupEdge.right) css += `border-right:${outlinePx}px solid #0f172a;`;
+    }
     return css;
   }
 
@@ -20218,7 +20307,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           .join('')
         : '';
     }
-    if (!included.length) { host.innerHTML = `<tr><td class="p-4 text-slate-400 font-bold text-xs text-center">No columns included — click a chip above to add one.</td></tr>`; lucide.createIcons(); return; }
+    if (!included.length) { host.innerHTML = `<tr><td class="p-4 text-slate-400 font-bold text-xs text-center">No columns included — click a chip above to add one.</td></tr>`; lucide.createIcons(); _prRenderPageFitRuler(included); return; }
     const sampleSlips = _prApplyPersonSelection(_prExportSlips).slice(0, 6);
     host.style.tableLayout = 'fixed';
     // Contiguous runs of the same Group become one merged header cell
@@ -20233,12 +20322,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       else runs.push({ group: c.group || null, cols: [c] });
     });
     const hasAnyGroup = runs.some(r => r.group);
+    // Which columns sit on the left/right edge of a Group's span — those
+    // sides get the thicker/darker outline automatically (see
+    // _prGridBorderCss), keyed by column key since this preview works
+    // with column objects, not the PDF code's plain indexes.
+    const groupOutlineSide = {};
+    runs.forEach(r => {
+      if (!r.group) return;
+      const first = r.cols[0].key, last = r.cols[r.cols.length - 1].key;
+      groupOutlineSide[first] = Object.assign({}, groupOutlineSide[first], { left: true });
+      groupOutlineSide[last] = Object.assign({}, groupOutlineSide[last], { right: true });
+    });
     const colHeaderHtml = (c, isTopRow) => `
       <th draggable="true" data-col-key="${_escHtml(c.key)}"
           ondragstart="_prPreviewDragKey='${c.key}'" ondragover="event.preventDefault()" ondrop="_prPreviewColumnDrop('${c.key}')"
           onclick="_prSelectFormatColumn('${c.key}')" ${!c.group && hasAnyGroup ? 'rowspan="2"' : ''}
           class="relative px-3 py-2 ${c.key === _prSelectedFormatColumnKey ? 'bg-blue-100 ring-2 ring-inset ring-blue-400' : 'bg-slate-50'} cursor-grab select-none hover:bg-blue-50 transition-all align-bottom"
-          style="${_prColumnCellCss(c, true)}${_prGridBorderCss(isTopRow, false)}" title="Drag to reorder, click to format">
+          style="${_prColumnCellCss(c, true)}${_prGridBorderCss(isTopRow, false, groupOutlineSide[c.key])}" title="Drag to reorder, click to format">
         <input type="checkbox" ${_prMergeSelectedKeys.has(c.key) ? 'checked' : ''} onclick="event.stopPropagation();_prToggleColumnMergeSelect('${c.key}',this.checked)" title="Select for merge" class="absolute top-0.5 left-0.5 w-3.5 h-3.5 rounded accent-blue-600 cursor-pointer">
         <button onclick="event.stopPropagation();_prSetExportFormat('${c.key}','included',false)" class="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-slate-200 text-slate-500 hover:bg-red-200 hover:text-red-600 flex items-center justify-center text-[9px] leading-none">×</button>
         ${_escHtml(c.label)}
@@ -20247,7 +20347,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     host.innerHTML = `
       <thead>
         ${hasAnyGroup ? `<tr>${runs.map(r => r.group
-          ? `<th colspan="${r.cols.length}" class="px-3 py-1.5 bg-slate-100 font-black text-[10px] uppercase tracking-widest text-slate-600 text-center" style="${_prGridBorderCss(true, false)}">${_escHtml(r.group)}</th>`
+          ? `<th colspan="${r.cols.length}" class="px-3 py-1.5 bg-slate-100 uppercase tracking-widest text-center" style="${_prGridBorderCss(true, false, { left: true, right: true })}${_prGroupHeaderCss(r.group)}">${_escHtml(r.group)}</th>`
           : colHeaderHtml(r.cols[0], true)).join('')}</tr>` : ''}
         <tr>${runs.filter(r => r.group).flatMap(r => r.cols).map(c => colHeaderHtml(c, !hasAnyGroup)).join('') || (!hasAnyGroup ? included.map(c => colHeaderHtml(c, true)).join('') : '')}</tr>
       </thead>
@@ -20262,13 +20362,46 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 return `<span style="${segCss}">${_escHtml(seg.text)}</span>${sep}`;
               }).join('')
             : _escHtml(String(_prFormatColumnValue(c, _prColumnValue(c, slip))));
-          return `<td class="px-3 py-1.5 ${isRichText ? '' : 'whitespace-nowrap'}" style="${_prColumnCellCss(c, false)}${_prGridBorderCss(false, false)}">${cellContent}</td>`;
+          return `<td class="px-3 py-1.5 ${isRichText ? '' : 'whitespace-nowrap'}" style="${_prColumnCellCss(c, false)}${_prGridBorderCss(false, false, groupOutlineSide[c.key])}">${cellContent}</td>`;
         }).join('')}</tr>`).join('')}
-        ${_prExportSummaryRowHtml(included, sampleSlips, 'C.F.', 'cf', false)}
-        ${_prExportSummaryRowHtml(included, sampleSlips, 'Sub Total', 'subtotal', true)}
+        ${_prExportSummaryRowHtml(included, sampleSlips, 'C.F.', 'cf', false, groupOutlineSide)}
+        ${_prExportSummaryRowHtml(included, sampleSlips, 'Sub Total', 'subtotal', true, groupOutlineSide)}
       </tbody>`;
     lucide.createIcons();
     _prRenderMergeSelectionBar();
+    _prRenderPageFitRuler(included);
+  }
+
+  // A "will this fit" ruler for the PDF's real Legal-size page — resolves
+  // every included column's width in mm exactly the way _prExportPdf
+  // itself does (same _prColumnWidthMm helper, same >6-columns
+  // portrait/landscape rule it uses to pick orientation), so the answer
+  // shown here is the real one, not a rough guess. The wider of "table"
+  // and "page" always spans the full track, so the marker/fill stay
+  // visible and legible whether the table comfortably fits or overflows.
+  function _prRenderPageFitRuler(included) {
+    const host = document.getElementById('prExportPageFitRuler');
+    if (!host) return;
+    if (!included.length) { host.innerHTML = ''; return; }
+    const isLandscape = included.length > 6; // matches _prExportPdf's own orientation rule
+    const pageWidthMmFull = isLandscape ? 355.6 : 215.9; // US Legal
+    const pageUsableMm = pageWidthMmFull - 28; // matches _prExportPdf's own 14mm side margins
+    const tableWidthMm = included.reduce((a, c) => a + _prColumnWidthMm(c, pageUsableMm), 0);
+    const fits = tableWidthMm <= pageUsableMm;
+    const scale = 100 / Math.max(tableWidthMm, pageUsableMm);
+    const pageMarkPct = pageUsableMm * scale;
+    const tableFillPct = Math.min(100, tableWidthMm * scale);
+    host.innerHTML = `
+      <div class="flex items-center justify-between mb-1 flex-wrap gap-1">
+        <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Legal ${isLandscape ? 'Landscape' : 'Portrait'} page width — ${included.length} column${included.length === 1 ? '' : 's'} (${isLandscape ? '>6' : '≤6'} columns)</p>
+        <p class="text-[10px] font-black ${fits ? 'text-emerald-600' : 'text-red-600'}">${fits ? `Fits — ${Math.round(tableWidthMm)}mm of ${Math.round(pageUsableMm)}mm` : `Exceeds by ${Math.round(tableWidthMm - pageUsableMm)}mm — ${Math.round(tableWidthMm)}mm of ${Math.round(pageUsableMm)}mm`}</p>
+      </div>
+      <div class="relative h-4 rounded-full bg-slate-100 border border-slate-200 overflow-hidden">
+        <div class="absolute inset-y-0 left-0 ${fits ? 'bg-emerald-200' : 'bg-red-200'} transition-all" style="width:${tableFillPct}%"></div>
+        <div class="absolute inset-y-0 border-r-2 border-slate-700" style="left:${Math.min(100, pageMarkPct)}%" title="Legal ${isLandscape ? 'landscape' : 'portrait'} printable edge — ${pageUsableMm.toFixed(1)}mm"></div>
+      </div>
+      <p class="text-[9px] text-slate-400 font-bold normal-case mt-1">Dark line marks the printable page edge (14mm margins each side). ${fits ? 'The table fits inside one page width.' : 'Columns past the line will be squeezed or clipped in the PDF — narrow or drop some columns, or rotate headers to fit more in less width.'}</p>
+    `;
   }
 
   // Preview-only render of the PDF's C.F./Sub Total rows, so their style
@@ -20276,7 +20409,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // PDF — the SUM shown here is only over the handful of sample rows the
   // preview displays, not the real per-page totals the actual export
   // computes; it exists to check formatting, not to predict real numbers.
-  function _prExportSummaryRowHtml(cols, sampleSlips, label, styleKey, isLastRow) {
+  function _prExportSummaryRowHtml(cols, sampleSlips, label, styleKey, isLastRow, groupOutlineSide) {
     const srs = _prExportSummaryRowStyle[styleKey];
     const firstLabelCol = cols.findIndex(c => !_prIsSummableColumn(c));
     const cells = cols.map((c, ci) => {
@@ -20287,9 +20420,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       } else if (ci === firstLabelCol) {
         val = _escHtml(label);
       }
-      let css = `font-weight:${srs.bold ? '700' : '400'};font-style:${srs.italic ? 'italic' : 'normal'};text-align:${c.align || 'left'};background:${srs.bg || '#f1f5f9'};`;
+      let css = `font-weight:${srs.bold ? '700' : '400'};font-style:${srs.italic ? 'italic' : 'normal'};text-align:${srs.align || c.align || 'left'};background:${srs.bg || '#f1f5f9'};`;
       if (srs.color) css += `color:${srs.color};`;
-      return `<td class="px-3 py-1.5 whitespace-nowrap" title="PDF-only — sample sum, not the real page total" style="${css}${_prGridBorderCss(false, isLastRow)}">${val}</td>`;
+      if (srs.fontSize) css += `font-size:${srs.fontSize}px;`;
+      return `<td class="px-3 py-1.5 whitespace-nowrap" title="PDF-only — sample sum, not the real page total" style="${css}${_prGridBorderCss(false, isLastRow, groupOutlineSide && groupOutlineSide[c.key])}">${val}</td>`;
     }).join('');
     return `<tr>${cells}</tr>`;
   }
@@ -20489,6 +20623,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button onclick="_prSetExportFormat('${key}','included',false)" class="shrink-0 px-3 py-2 border border-red-200 text-red-500 bg-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-red-50 transition-all">Remove Column</button>
           <button onclick="_prSelectFormatColumn(null)" title="Close" class="shrink-0 w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-white rounded-lg transition-all"><i data-lucide="x" class="h-4 w-4"></i></button>
         </div>
+        ${c.group ? (() => {
+          const gs = _prGroupStyle(c.group);
+          const gKey = _escHtml(c.group);
+          return `
+        <div class="flex items-center gap-2 flex-wrap bg-white/70 border border-slate-200 rounded-xl px-3 py-2 mb-3">
+          <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest shrink-0 mr-1">Group Header "${gKey}"</p>
+          <button onclick="_prSetExportGroupStyle('${gKey}','bold',${!gs.bold})" class="w-8 h-8 border rounded-lg font-black text-xs ${gs.bold ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-500'}">B</button>
+          <button onclick="_prSetExportGroupStyle('${gKey}','italic',${!gs.italic})" class="w-8 h-8 border rounded-lg italic font-black text-xs ${gs.italic ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-500'}">I</button>
+          <input type="color" value="${gs.color || '#475569'}" onchange="_prSetExportGroupStyle('${gKey}','color',this.value)" title="Text color" class="w-8 h-8 rounded-lg cursor-pointer border border-slate-200">
+          <div class="flex items-center gap-1">
+            <label class="text-[9px] font-black text-slate-400 uppercase">Size</label>
+            <input type="number" value="${gs.fontSize || ''}" placeholder="auto" min="4" max="24" step="0.5" onchange="_prSetExportGroupStyle('${gKey}','fontSize',this.value?Number(this.value):null)" class="w-14 px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-[10px]">
+          </div>
+          <div class="flex items-center gap-1">
+            ${['left', 'center', 'right'].map(a => `<button onclick="_prSetExportGroupStyle('${gKey}','align','${a}')" title="Align ${a}" class="w-8 h-8 border rounded-md flex items-center justify-center ${(gs.align || 'center') === a ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-500'}"><i data-lucide="align-${a}" class="h-3.5 w-3.5"></i></button>`).join('')}
+          </div>
+          <span class="text-[9px] text-slate-400 font-bold normal-case">Applies to every column in this Group. Border thickness is the shared Group Outline setting under Grid &amp; Borders.</span>
+        </div>` ;
+        })() : ''}
         <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
             <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Header</p>
@@ -21713,6 +21866,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
   }
 
+  // jsPDF-autotable cell styles for a Group's merged header cell — the
+  // live preview's own equivalent is _prGroupHeaderCss (kept deliberately
+  // in sync). fontSize is left unset (inherits the table's own base size)
+  // unless the admin explicitly picked one, so an unconfigured Group's PDF
+  // header renders exactly as it always did before this was configurable.
+  function _prGroupHeaderPdfStyles(groupName, lineWidth) {
+    const gs = _prGroupStyle(groupName);
+    const styles = {
+      halign: gs.align || 'center',
+      fontStyle: gs.bold && gs.italic ? 'bolditalic' : gs.bold ? 'bold' : gs.italic ? 'italic' : 'normal',
+      textColor: _prHexToRgbArr(gs.color || '#475569'),
+      fillColor: [241, 245, 249],
+      lineWidth,
+    };
+    if (gs.fontSize) styles.fontSize = gs.fontSize;
+    return styles;
+  }
+
   // A column's configured width, resolved to mm regardless of which unit
   // (px/%/in) it was set in — px matches the Visual Editor's drag-resize
   // unit (96dpi), in is a literal inch, % is relative to the usable page
@@ -21846,7 +22017,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const head = hasAnyGroup
         ? [
             runs.map(r => r.group
-              ? { content: r.group, colSpan: r.cols.length, styles: { halign: 'center', fontStyle: 'bold', fillColor: [241, 245, 249], lineWidth: topRowLineWidth } }
+              ? { content: r.group, colSpan: r.cols.length, styles: _prGroupHeaderPdfStyles(r.group, topRowLineWidth) }
               : { content: data.cols[r.cols[0]].label, rowSpan: 2, styles: { lineWidth: topRowLineWidth } }),
             runs.filter(r => r.group).flatMap(r => r.cols).map(ci => data.cols[ci].label),
           ]
@@ -21868,15 +22039,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         if (firstLabelCol >= 0) row[firstLabelCol] = label;
         return row;
       };
-      // Rough available body height per page, in mm — used only to decide
-      // a safe row count per page; deliberately conservative (a rotated
-      // header eats much more vertical space than a flat one).
-      const pageH = doc.internal.pageSize.getHeight();
-      const headerRowsMm = (hasAnyGroup ? 8 : 0) + (hasRotatedHeaders ? 36 : 8);
       const customRowMm = Number(_prExportRowDesign.rowHeight) || 0;
       const minBodyRowMm = Math.max(customRowMm, hasRotatedData ? 20 : 0);
-      const dataRowMm = Math.max(minBodyRowMm, 6);
-      const rowsPerPage = Math.max(5, Math.floor((pageH - 18 - 14 - headerRowsMm) / dataRowMm));
+      // A hard page-break rule (default 6), not a height estimate — every
+      // page holds exactly this many people, so admin-picked Row Height/
+      // rotation choices are on them to keep within one legal-size page.
+      const rowsPerPage = Math.max(1, Number(_prExportRowDesign.rowsPerPage) || 6);
 
       data.groups.forEach((g, gi) => {
         const chunks = [];
@@ -21964,6 +22132,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 else hook.cell.styles.fontStyle = 'normal';
                 hook.cell.styles.textColor = srs.color ? _prHexToRgbArr(srs.color) : [0, 0, 0];
                 hook.cell.styles.fillColor = srs.bg ? _prHexToRgbArr(srs.bg) : [255, 255, 255];
+                if (srs.fontSize) hook.cell.styles.fontSize = srs.fontSize;
+                if (srs.align) hook.cell.styles.halign = srs.align;
                 if (hook.row.index === subTotalRowIndex) hook.cell.styles.lineWidth = { top: gridMm, right: gridMm, bottom: bottomMm, left: gridMm };
                 applyGroupOutline(hook.column.index, hook.cell.styles);
                 // C.F./Sub Total are the only cells holding a sum of many
