@@ -21304,7 +21304,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!data) return;
     ensureJsPDF().then(() => {
       const { jsPDF } = window.jspdf;
-      const doc = new jsPDF({ orientation: data.cols.length > 6 ? 'landscape' : 'portrait' });
+      const doc = new jsPDF({ orientation: data.cols.length > 6 ? 'landscape' : 'portrait', format: 'legal' });
       const runId = document.getElementById('prExportRunSelect').value;
       const run = _prRunsCache.find(r => r.id === Number(runId));
       const hasRotatedHeaders = data.cols.some(c => c.headerRotation === 90 || c.headerRotation === 270);
