@@ -12140,6 +12140,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           ${info('Queue', d.status_queue)}
           ${info('Device Hash', d.device_hash)}
         </div>
+        ${d.status_error ? `
+        <div class="flex items-center gap-1.5 mb-2 px-2 py-1.5 bg-red-50 border border-red-200 rounded-lg" title="${_escHtml(d.raw_status || '')}">
+          <i data-lucide="alert-triangle" class="h-3 w-3 text-red-500 shrink-0"></i>
+          <span class="text-[10px] font-black text-red-600 uppercase tracking-widest truncate">Sync failing: ${_escHtml(d.status_error)}</span>
+        </div>` : ''}
         <p class="text-[10px] text-slate-300 font-bold mb-3 truncate" title="${_escHtml(d.raw_status || '')}">${_escHtml(d.raw_status || 'No status reported yet')}</p>
 
         ${isP10 ? `

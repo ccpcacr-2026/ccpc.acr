@@ -180,6 +180,11 @@ function _decodeDeviceHealthList(rows, opts) {
       status_uptime: (str(/Up:\s*([^|]+)/) || '').trim() || null,
       status_in_out: str(/In\/Out:\s*(\d+\/\d+)/),
       status_queue: num(/Q:\s*(\d+)/),
+      // Present whenever the device itself is reporting a sync failure (e.g.
+      // "Err: A-1:connection refused") — the device can still be online and
+      // counting real taps locally while every upload attempt fails, which
+      // otherwise only shows up buried inside the truncated raw_status line.
+      status_error: (str(/Err:\s*([^|]+)/) || '').trim() || null,
       last_seen: lastSeen ? lastSeen.toISOString() : null,
       minutes_ago: minutesAgo,
       offline: minutesAgo == null || minutesAgo > 20,
