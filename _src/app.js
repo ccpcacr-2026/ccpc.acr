@@ -20413,12 +20413,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // every header/data/summary cell used to carry — matches the PDF's own
     // cellPadding (mm) setting instead of an unrelated fixed value.
     const cellPaddingPx = Math.max(0, Number(_prExportRowDesign.cellPadding) || 0) * 3.7795;
+    // The header <th> ALSO carries the merge checkbox and × remove button
+    // (absolute-positioned in its top corners) — editor-only affordances
+    // that don't exist in the actual PDF/Excel output. At a near-zero
+    // configured padding those icons sit directly on top of a rotated
+    // header's label text instead of clearing it, so the header keeps a
+    // floor here; data/summary cells have no such icons and use the
+    // configured value exactly, 0 included.
+    const headerPaddingPx = Math.max(cellPaddingPx, 16);
     const colHeaderHtml = (c, isTopRow) => `
       <th draggable="true" data-col-key="${_escHtml(c.key)}"
           ondragstart="_prPreviewDragKey='${c.key}'" ondragover="event.preventDefault()" ondrop="_prPreviewColumnDrop('${c.key}')"
           onclick="_prSelectFormatColumn('${c.key}')" ${!c.group && hasAnyGroup ? 'rowspan="2"' : ''}
           class="relative ${c.key === _prSelectedFormatColumnKey ? 'bg-blue-100 ring-2 ring-inset ring-blue-400' : 'bg-slate-50'} cursor-grab select-none hover:bg-blue-50 transition-all align-bottom"
-          style="padding:${cellPaddingPx}px;${_prColumnCellCss(c, true)}${_prGridBorderCss(isTopRow, false, groupOutlineSide[c.key])}" title="Drag to reorder, click to format">
+          style="padding:${headerPaddingPx}px;${_prColumnCellCss(c, true)}${_prGridBorderCss(isTopRow, false, groupOutlineSide[c.key])}" title="Drag to reorder, click to format">
         <input type="checkbox" ${_prMergeSelectedKeys.has(c.key) ? 'checked' : ''} onclick="event.stopPropagation();_prToggleColumnMergeSelect('${c.key}',this.checked)" title="Select for merge" class="absolute top-0.5 left-0.5 w-3.5 h-3.5 rounded accent-blue-600 cursor-pointer">
         <button onclick="event.stopPropagation();_prSetExportFormat('${c.key}','included',false)" class="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-slate-200 text-slate-500 hover:bg-red-200 hover:text-red-600 flex items-center justify-center text-[9px] leading-none">×</button>
         ${_escHtml(c.label)}
@@ -20427,7 +20435,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     host.innerHTML = `
       <thead>
         ${hasAnyGroup ? `<tr>${runs.map(r => r.group
-          ? `<th colspan="${r.cols.length}" class="px-3 py-1.5 bg-slate-100 uppercase tracking-widest text-center" style="${_prGridBorderCss(true, false, { left: true, right: true })}${_prGroupHeaderCss(r.group)}">${_escHtml(r.group)}</th>`
+          ? `<th colspan="${r.cols.length}" class="bg-slate-100 uppercase tracking-widest text-center" style="padding:${cellPaddingPx}px;${_prGridBorderCss(true, false, { left: true, right: true })}${_prGroupHeaderCss(r.group)}">${_escHtml(r.group)}</th>`
           : colHeaderHtml(r.cols[0], true)).join('')}</tr>` : ''}
         <tr>${runs.filter(r => r.group).flatMap(r => r.cols).map(c => colHeaderHtml(c, !hasAnyGroup)).join('') || (!hasAnyGroup ? included.map(c => colHeaderHtml(c, true)).join('') : '')}</tr>
       </thead>
