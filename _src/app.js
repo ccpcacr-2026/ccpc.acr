@@ -20424,13 +20424,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const cellPaddingPx = Math.max(0, Number(_prExportRowDesign.cellPadding) || 0) * 3.7795;
     // Row Height (mm) and Alternate row shading are both real PDF/Excel
     // settings (see _prExportPdf/_prExportExcel) the preview never
-    // reflected at all — same minCellHeight logic _prExportPdf uses
-    // (rotated data needs real vertical room even with Row Height left at
-    // auto/0), mm -> px at the same 96dpi factor as cellPaddingPx.
-    const hasRotatedDataPreview = included.some(c => c.rotation === 90 || c.rotation === 270)
-      || [90, 270].includes(_prSummaryRotation(_prExportSummaryRowStyle.cf, {}))
-      || [90, 270].includes(_prSummaryRotation(_prExportSummaryRowStyle.subtotal, {}));
-    const minBodyRowPx = Math.max(Number(_prExportRowDesign.rowHeight) || 0, hasRotatedDataPreview ? 20 : 0) * 3.7795;
+    // reflected at all. Deliberately only the admin's OWN explicit value
+    // here (0 by default, i.e. no min-height at all) — _prExportPdf's
+    // extra 20mm-for-rotated-data floor exists purely to keep autotable's
+    // manual per-page chunking from overflowing onto an internal
+    // continuation page, a PDF-pagination concern with no equivalent
+    // failure mode in a plain scrolling HTML table, and forcing every
+    // cell to that floor here was the likely cause of cells resizing/
+    // text shifting unexpectedly whenever any column happened to be
+    // rotated. mm -> px at the same 96dpi factor as cellPaddingPx.
+    const minBodyRowPx = (Number(_prExportRowDesign.rowHeight) || 0) * 3.7795;
     // The header <th> ALSO carries the merge checkbox and × remove button
     // (absolute-positioned in its top corners) — editor-only affordances
     // that don't exist in the actual PDF/Excel output. At a near-zero
