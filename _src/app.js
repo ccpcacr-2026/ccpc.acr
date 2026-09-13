@@ -2077,6 +2077,16 @@
     lucide.createIcons();
   }
 
+  // new Date().toISOString() always converts to UTC first — Bangladesh is
+  // UTC+6, so anywhere from local midnight to 5:59am, that silently returns
+  // YESTERDAY's date. A "today" default built that way can show nothing (or
+  // yesterday's data mislabeled as today) for exactly the first ~6 hours of
+  // a real school day, despite attendance punches already having landed.
+  function _todayLocalIso() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
   function normalizeDate(raw) {
     if (!raw) return '';
     const s = String(raw).trim();
@@ -4175,7 +4185,10 @@
     if (forceMode) _mcaMode = forceMode;
     const today = new Date();
     const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-    const fmt = dt => dt.toISOString().slice(0, 10);
+    // dt.toISOString() converts to UTC first — during Bangladesh's (UTC+6)
+    // local midnight-to-5:59am window that silently rolls the date back one
+    // day, defaulting "To" to yesterday and hiding today's attendance.
+    const fmt = dt => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
     document.getElementById('myClassAttOverlay')?.remove();
     const overlay = document.createElement('div');
     overlay.id = 'myClassAttOverlay';
@@ -11834,7 +11847,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     `;
     lucide.createIcons();
     const todayDateEl = document.getElementById('todayOverviewDate');
-    if (todayDateEl) todayDateEl.value = new Date().toISOString().slice(0, 10);
+    if (todayDateEl) todayDateEl.value = _todayLocalIso();
     loadTodayOverview();
     _adminFetch('get_absent_fee_setting', {}).then(res => {
       const el = document.getElementById('absentFeeAmount');
@@ -11858,7 +11871,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const body = document.getElementById('todayOverviewBody');
     const dateEl = document.getElementById('todayOverviewDate');
     if (!body) return;
-    const date = (dateEl && dateEl.value) || new Date().toISOString().slice(0, 10);
+    const date = (dateEl && dateEl.value) || _todayLocalIso();
     body.innerHTML = `<div class="text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`;
     _adminFetch('get_today_attendance_overview', { date }).then(res => {
       if (!res || res.result !== 'success') { body.innerHTML = `<div class="text-center py-8 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml((res && res.message) || 'Failed to load')}</div>`; return; }
@@ -11965,7 +11978,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function loadTodaysAttendance() {
     const dateEl = document.getElementById('attDate');
-    if (dateEl) dateEl.value = new Date().toISOString().slice(0, 10);
+    if (dateEl) dateEl.value = _todayLocalIso();
     if (!document.getElementById('attClass').value.trim()) { showToast('Enter a class first', 'error'); return; }
     loadAttendanceReport();
   }

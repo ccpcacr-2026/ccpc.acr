@@ -2035,7 +2035,13 @@ export async function POST(req) {
   // a manual_attendance_overrides row wins, else presence = has an
   // attendance_records row for the date.
   if (action === 'get_today_attendance_overview') {
-    const date = (payload && payload.date) || new Date().toISOString().slice(0, 10);
+    // Only reached if a caller omits `date` — the admin UI always sends one
+    // explicitly. The server process runs in UTC, not Bangladesh time, so a
+    // plain new Date() default would resolve to yesterday for the first 6
+    // hours of every Bangladesh day (UTC+6, no DST — a fixed +6h shift before
+    // reading UTC date parts reliably lands on Bangladesh's actual calendar
+    // date).
+    const date = (payload && payload.date) || new Date(Date.now() + 6 * 3600 * 1000).toISOString().slice(0, 10);
     // attendance_records/manual_attendance_overrides here are school-wide,
     // unfiltered by class — plain sb() silently caps at PostgREST's
     // 3000-row max_rows with no guaranteed order, so on a normal school day
