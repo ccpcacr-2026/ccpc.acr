@@ -14977,6 +14977,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <button onclick="_prResetColumnOrderToSheet()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Sheet Order</button>
               <button onclick="_prSetAllHeaderRotation(90)" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Vertical Headers</button>
               <button onclick="_prSetAllHeaderRotation(0)" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Horizontal Headers</button>
+              <button onclick="_prAutoFitColumnsToPage()" title="Sets every included column's width (mm) so the whole table sums to exactly one Legal page's usable width" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="scan" class="h-3.5 w-3.5"></i>Fit to Page Width</button>
               <button onclick="_prAddVirtualColumn()" class="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Virtual Column</button>
             </div>
           </div>
@@ -20857,6 +20858,40 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _prExportColumnsCache.forEach(c => { if (c.key !== 'person') c.headerRotation = deg; });
     _prRenderExportColumnsTable();
     showToast(deg ? 'Headers set to vertical' : 'Headers set to horizontal');
+  }
+
+  // Sets every included column's own width (mm) so the whole table's
+  // widths sum to exactly one Legal page's usable width — same
+  // orientation rule and usable-width math the Page Fit ruler and
+  // _prExportPdf itself already use. Each column's CURRENT natural width
+  // (its own explicit setting, or the same label-length fallback
+  // _prExportPdf falls back to when unset) sets its share of the total,
+  // so a column already sized generously (Name, Post) keeps
+  // proportionally more of the page than a narrow numeric one — one
+  // shared scale factor, not every column flattened to one identical
+  // width. Directly fixes the case that motivated this: a handful of
+  // columns with a tiny explicit width (e.g. a rotated numeric column
+  // manually squeezed to a few px) sitting alongside many more with no
+  // width set at all (each defaulting to a much wider label-based
+  // guess) — the combined total can run to 2-3x one page's width, which
+  // forces autotable's own proportional auto-shrink to kick in and
+  // squash the already-narrow columns toward zero instead of shrinking
+  // everyone evenly.
+  function _prAutoFitColumnsToPage() {
+    const included = _prExportColumnsCache.filter(c => c.included);
+    if (!included.length) { showToast('No columns to fit', 'error'); return; }
+    const isLandscape = included.length > 6;
+    const pageUsableMm = (isLandscape ? 355.6 : 215.9) - 28;
+    const naturalMm = included.map(c => _prColumnWidthMm(c, pageUsableMm));
+    const totalMm = naturalMm.reduce((a, b) => a + b, 0);
+    if (!totalMm) { showToast('Nothing to fit', 'error'); return; }
+    const scale = pageUsableMm / totalMm;
+    included.forEach((c, i) => {
+      c.width = Math.round(naturalMm[i] * scale * 100) / 100;
+      c.widthUnit = 'mm';
+    });
+    _prRenderExportPreview();
+    showToast(`Fit ${included.length} columns to ${isLandscape ? 'Landscape' : 'Portrait'} Legal width (${Math.round(pageUsableMm)}mm)`);
   }
 
   // Snaps column ORDER back to the source sheet's own sequence at any
