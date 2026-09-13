@@ -15063,6 +15063,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                   <option value="earning">Earning (add)</option>
                   <option value="deduction">Deduction (subtract)</option>
                   <option value="special">Special Allowance (add, person-specific)</option>
+                  <option value="reference">Reference Only (not added to Gross/Net — a helper for other fields)</option>
                 </select>
               </div>
               <div>

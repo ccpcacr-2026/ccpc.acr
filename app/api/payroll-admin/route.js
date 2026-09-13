@@ -469,6 +469,11 @@ function _computePayslipForPerson(personSetup, roles, category, ref, month, year
 
   let gross = 0, totalDeductions = 0;
   applicableFields.forEach(f => {
+    // 'reference' fields (e.g. a "From Another Table" helper meant only to
+    // be the base of a % of Field elsewhere, like MPO Basic/MPO Payable)
+    // still resolve into field_values above and stay available for other
+    // fields to reference — they just never touch Gross or Net themselves.
+    if (f.category === 'reference') return;
     const amt = fieldValues[f.key] || 0;
     if (f.category === 'deduction') totalDeductions += amt; else gross += amt;
   });
@@ -975,7 +980,11 @@ export async function POST(req) {
 
   if (action === 'list_payroll_tables') {
     const [spec, globalRows] = await Promise.all([_payrollSchemaSpec(), sbPayroll('global_tables?select=*')]);
-    const globalByName = {}; (globalRows || []).forEach(g => { globalByName[g.table_name] = g; });
+    // global_tables not existing yet (migration_global_tables.sql not run)
+    // is a valid, expected state here — same as it having zero rows, not
+    // an error: this view's whole point is listing candidates BEFORE
+    // anything's been marked Global.
+    const globalByName = {}; (Array.isArray(globalRows) ? globalRows : []).forEach(g => { globalByName[g.table_name] = g; });
     const tables = Object.keys(spec).sort().map(name => ({
       table_name: name,
       columns: Object.keys(spec[name].properties || {}),
@@ -1451,10 +1460,48 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success', mpo_amount: computed.mpo_target });
   }
 
+  // Recomputes resolved_basic/resolved_deduction/resolved_net/
+  // resolved_payable for one roster row and returns them ready to merge
+  // into its INSERT/PATCH body — these are genuinely derived (never a
+  // literal stored column on their own), so they're materialized here
+  // specifically so "MPO Deduction" and "MPO Payable" can exist as
+  // ordinary "From Another Table" fields (see Global Tables) instead of
+  // needing bespoke calculation code.
+  async function _mpoResolvedFields(rowData) {
+    let grade = null, stepValue = null;
+    if (rowData.grade_id) {
+      const g = await sbPayroll(`grades?id=eq.${encodeURIComponent(rowData.grade_id)}&select=*`);
+      grade = (!g?.error && g[0]) || null;
+    }
+    if (rowData.grade_id && rowData.step_id) {
+      const c = await sbPayroll(`grade_step_values?grade_id=eq.${encodeURIComponent(rowData.grade_id)}&step_id=eq.${encodeURIComponent(rowData.step_id)}&select=basic_value`);
+      stepValue = (!c?.error && c[0]) ? c[0].basic_value : null;
+    }
+    const gradesById = grade ? { [grade.id]: grade } : {};
+    const stepValueByKey = stepValue != null ? { [`${rowData.grade_id}:${rowData.step_id}`]: stepValue } : {};
+    const computed = _mpoComputeRow(rowData, gradesById, stepValueByKey);
+    const deduction = Math.round(computed.basic * 0.10);
+    return { resolved_basic: computed.basic, resolved_deduction: deduction, resolved_net: computed.net, resolved_payable: computed.net - deduction };
+  }
+
+  // Populates resolved_*/deduction/net/payable opportunistically — if
+  // migration_mpo_materialized.sql hasn't been run yet, those columns
+  // don't exist and this write would otherwise fail outright. Retrying
+  // without them keeps ordinary roster add/edit working either way; they
+  // start populating automatically the moment the migration lands, no
+  // redeploy needed.
+  async function _mpoRosterWrite(path, method, rowData) {
+    const withResolved = { ...rowData, ...(await _mpoResolvedFields(rowData)) };
+    const saved = await sbPayroll(path, method, withResolved);
+    if (!saved?.error) return saved;
+    return sbPayroll(path, method, rowData);
+  }
+
   if (action === 'add_mpo_roster_person') {
     const { target_user_id, institution } = payload;
     if (!target_user_id || (institution !== 'school' && institution !== 'college')) return NextResponse.json({ result: 'error', message: 'target_user_id and a valid institution are required' }, { status: 400 });
-    const saved = await sbPayroll('mpo_roster', 'POST', { user_id: target_user_id, institution });
+    const rowData = { user_id: target_user_id, institution, grade_id: null, step_id: null, basic_override: null, arrear: 0 };
+    const saved = await _mpoRosterWrite('mpo_roster', 'POST', rowData);
     if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
     _prAudit(user_id, 'add_mpo_roster_person', 'mpo_roster', target_user_id, { institution });
     return NextResponse.json({ result: 'success', row: Array.isArray(saved) ? saved[0] : saved });
@@ -1481,7 +1528,7 @@ export async function POST(req) {
       bank_acc_no: bank_acc_no || null,
       arrear: arrear === '' || arrear == null ? 0 : Number(arrear),
     };
-    const saved = await sbPayroll(`mpo_roster?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData);
+    const saved = await _mpoRosterWrite(`mpo_roster?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData);
     if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
     _prAudit(user_id, 'save_mpo_roster_person', 'mpo_roster', id, rowData);
     return NextResponse.json({ result: 'success', row: Array.isArray(saved) ? saved[0] : saved });
