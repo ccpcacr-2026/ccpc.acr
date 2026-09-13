@@ -19794,7 +19794,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prSubtotalDecimals').value = _prExportSummaryRowStyle.subtotal.decimals != null ? _prExportSummaryRowStyle.subtotal.decimals : '';
     document.getElementById('prSubtotalRotation').value = _prExportSummaryRowStyle.subtotal.rotation != null ? _prExportSummaryRowStyle.subtotal.rotation : '';
     document.getElementById('prSubtotalBorderWidth').value = _prExportSummaryRowStyle.subtotal.borderWidth != null ? _prExportSummaryRowStyle.subtotal.borderWidth : 1;
-    document.getElementById('prExportSortField').value = _prExportSortBy;
+    _prRenderExportSortFieldOptions();
     _prUpdateExportSortDirBtn();
     const populate = () => {
       const sel = document.getElementById('prExportRunSelect');
@@ -20028,7 +20028,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prSubtotalDecimals').value = _prExportSummaryRowStyle.subtotal.decimals != null ? _prExportSummaryRowStyle.subtotal.decimals : '';
     document.getElementById('prSubtotalRotation').value = _prExportSummaryRowStyle.subtotal.rotation != null ? _prExportSummaryRowStyle.subtotal.rotation : '';
     document.getElementById('prSubtotalBorderWidth').value = _prExportSummaryRowStyle.subtotal.borderWidth != null ? _prExportSummaryRowStyle.subtotal.borderWidth : 1;
-    document.getElementById('prExportSortField').value = _prExportSortBy;
+    _prRenderExportSortFieldOptions();
     _prUpdateExportSortDirBtn();
     _prSyncRemarksColumn();
     _prRenderAutoRemarkRulesList();
@@ -20072,6 +20072,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function _prSortSlips(slips) {
     const dir = _prExportSortDir === 'desc' ? -1 : 1;
+    // "col:<key>" sorts by that column's own resolved value (base/field/
+    // virtual alike, via the same _prColumnValue every cell already
+    // renders through) instead of one of the four fixed person fields
+    // below — numeric compare for a summable column (Basic, Net, any
+    // field), locale compare otherwise (Grade, Post, a text column).
+    if (_prExportSortBy && _prExportSortBy.indexOf('col:') === 0) {
+      const col = _prExportColumnsCache.find(c => c.key === _prExportSortBy.slice(4));
+      if (col) {
+        const numeric = _prIsSummableColumn(col);
+        return slips.slice().sort((a, b) => {
+          const va = _prColumnValue(col, a), vb = _prColumnValue(col, b);
+          return numeric
+            ? dir * ((Number(va) || 0) - (Number(vb) || 0))
+            : dir * String(va == null ? '' : va).localeCompare(String(vb == null ? '' : vb), undefined, { numeric: true });
+        });
+      }
+    }
     return slips.slice().sort((a, b) => {
       let va = '', vb = '';
       if (_prExportSortBy === 'user_id') { va = a.user_id; vb = b.user_id; }
@@ -20086,6 +20103,30 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       }
       return dir * String(va).localeCompare(String(vb), undefined, { numeric: true });
     });
+  }
+
+  // Rebuilds the Sort By dropdown's options from whatever columns are
+  // CURRENTLY included — called after every load/template-apply, since
+  // the column set changes independently of this dropdown. Preserves
+  // the current selection when it still exists; falls back to Name when
+  // the column it pointed to was removed/excluded since.
+  function _prRenderExportSortFieldOptions() {
+    const sel = document.getElementById('prExportSortField');
+    if (!sel) return;
+    const current = _prExportSortBy;
+    const colOptions = _prExportColumnsCache
+      .filter(c => c.included && c.type !== 'remark')
+      .map(c => `<option value="col:${_escHtml(c.key)}">${_escHtml(c.label)}</option>`)
+      .join('');
+    sel.innerHTML = `
+      <option value="name">Sort by Name</option>
+      <option value="user_id">Sort by ID</option>
+      <option value="email">Sort by Email</option>
+      <option value="designation">Sort by Designation</option>
+      ${colOptions ? `<optgroup label="Column Data">${colOptions}</optgroup>` : ''}
+    `;
+    sel.value = current;
+    if (sel.value !== current) { _prExportSortBy = 'name'; sel.value = 'name'; }
   }
 
   // Fractional-rank merge: pinned (dragged) slips keep their stored rank
@@ -20287,6 +20328,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _prRenderAutoRemarkRulesList();
       _prRenderExportColumnsTable();
       _prRenderExportOrderPreview();
+      _prRenderExportSortFieldOptions();
     });
   }
 
