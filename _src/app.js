@@ -14777,6 +14777,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <span class="text-[10px] text-slate-400 font-bold normal-case">0 = fits the content</span>
             </div>
             <div class="flex items-center gap-2">
+              <label class="text-[10px] font-black text-slate-400 uppercase">Rotated Cell Height (mm)</label>
+              <input type="number" id="prExportRotatedRowHeight" value="20" min="0" step="1" onchange="_prSetExportRowDesign('rotatedRowHeight',Number(this.value)||0)" class="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <span class="text-[10px] text-slate-400 font-bold normal-case">Floor applied only when a column's DATA is rotated — lower this if Rows/Page is spilling onto a second physical page.</span>
+            </div>
+            <div class="flex items-center gap-2">
               <label class="text-[10px] font-black text-slate-400 uppercase">Rows/Page (PDF)</label>
               <input type="number" id="prExportRowsPerPage" value="6" min="1" step="1" onchange="_prSetExportRowDesign('rowsPerPage',Math.max(1,Number(this.value)||6))" class="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
               <span class="text-[10px] text-slate-400 font-bold normal-case">Hard page break after this many people — the last row of every page is that page's own Sub Total.</span>
@@ -14978,6 +14983,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <button onclick="_prSetAllHeaderRotation(90)" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Vertical Headers</button>
               <button onclick="_prSetAllHeaderRotation(0)" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Horizontal Headers</button>
               <button onclick="_prAutoFitColumnsToPage()" title="Sets every included column's width (mm) so the whole table sums to exactly one Legal page's usable width" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="scan" class="h-3.5 w-3.5"></i>Fit to Page Width</button>
+              <button onclick="_prSetAllAlign('center')" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="align-center" class="h-3.5 w-3.5"></i>Center All</button>
               <button onclick="_prAddVirtualColumn()" class="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Virtual Column</button>
             </div>
           </div>
@@ -19678,7 +19684,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // header AND data cell alike (autotable's own unset default is a
   // comparatively roomy 5/scaleFactor) — defaults small rather than 0 so
   // text doesn't touch the grid lines, 0 itself is a valid choice.
-  let _prExportRowDesign = { zebra: false, zebraColor: '#f1f5f9', rowHeight: 0, rowsPerPage: 6, cellPadding: 0.5 };
+  // rotatedRowHeight (mm) is the floor applied ONLY when at least one
+  // column's DATA is rotated 90/270° — a rotated value needs real
+  // vertical room regardless of rowHeight, but a flat guess either
+  // wastes page height or (as reported) isn't enough, forcing Rows/Page
+  // to spill onto a second physical page. Kept as its own dial rather
+  // than baked in, so a template with many narrow rotated-data columns
+  // can be tuned down until Rows/Page genuinely fits one page.
+  let _prExportRowDesign = { zebra: false, zebraColor: '#f1f5f9', rowHeight: 0, rowsPerPage: 6, cellPadding: 0.5, rotatedRowHeight: 20 };
   // Grid/border style, in pt (the unit PDF export already works in — the
   // Visual Editor preview and Excel export each convert from pt to their
   // own units). gridWidth is every internal cell border; topWidth/
@@ -19755,6 +19768,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prExportZebra').checked = _prExportRowDesign.zebra;
     document.getElementById('prExportZebraColor').value = _prExportRowDesign.zebraColor;
     document.getElementById('prExportRowHeight').value = _prExportRowDesign.rowHeight || 0;
+    document.getElementById('prExportRotatedRowHeight').value = _prExportRowDesign.rotatedRowHeight != null ? _prExportRowDesign.rotatedRowHeight : 20;
     document.getElementById('prExportRowsPerPage').value = _prExportRowDesign.rowsPerPage || 6;
     document.getElementById('prExportCellPadding').value = _prExportRowDesign.cellPadding != null ? _prExportRowDesign.cellPadding : 0.5;
     document.getElementById('prExportShowGrid').checked = _prExportBorderStyle.showGrid;
@@ -19988,6 +20002,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prExportZebra').checked = _prExportRowDesign.zebra;
     document.getElementById('prExportZebraColor').value = _prExportRowDesign.zebraColor;
     document.getElementById('prExportRowHeight').value = _prExportRowDesign.rowHeight || 0;
+    document.getElementById('prExportRotatedRowHeight').value = _prExportRowDesign.rotatedRowHeight != null ? _prExportRowDesign.rotatedRowHeight : 20;
     document.getElementById('prExportRowsPerPage').value = _prExportRowDesign.rowsPerPage || 6;
     document.getElementById('prExportCellPadding').value = _prExportRowDesign.cellPadding != null ? _prExportRowDesign.cellPadding : 0.5;
     document.getElementById('prExportShowGrid').checked = _prExportBorderStyle.showGrid;
@@ -20425,16 +20440,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const cellPaddingPx = Math.max(0, Number(_prExportRowDesign.cellPadding) || 0) * 3.7795;
     // Row Height (mm) and Alternate row shading are both real PDF/Excel
     // settings (see _prExportPdf/_prExportExcel) the preview never
-    // reflected at all. Deliberately only the admin's OWN explicit value
-    // here (0 by default, i.e. no min-height at all) — _prExportPdf's
-    // extra 20mm-for-rotated-data floor exists purely to keep autotable's
-    // manual per-page chunking from overflowing onto an internal
-    // continuation page, a PDF-pagination concern with no equivalent
-    // failure mode in a plain scrolling HTML table, and forcing every
-    // cell to that floor here was the likely cause of cells resizing/
-    // text shifting unexpectedly whenever any column happened to be
-    // rotated. mm -> px at the same 96dpi factor as cellPaddingPx.
-    const minBodyRowPx = (Number(_prExportRowDesign.rowHeight) || 0) * 3.7795;
+    // reflected at all. Rotated Cell Height is now its OWN explicit,
+    // admin-set dial (not an automatic surprise like the old hardcoded
+    // 20mm was) — safe to reflect here too, since the admin is
+    // deliberately choosing it and expects to see the effect. mm -> px
+    // at the same 96dpi factor as cellPaddingPx.
+    const hasRotatedDataPreview = included.some(c => c.rotation === 90 || c.rotation === 270);
+    const minBodyRowPx = Math.max(Number(_prExportRowDesign.rowHeight) || 0, hasRotatedDataPreview ? (Number(_prExportRowDesign.rotatedRowHeight) || 0) : 0) * 3.7795;
     // The header <th> ALSO carries the merge checkbox and × remove button
     // (absolute-positioned in its top corners) — editor-only affordances
     // that don't exist in the actual PDF/Excel output. At a near-zero
@@ -20474,7 +20486,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             : _escHtml(String(_prFormatColumnValue(c, _prColumnValue(c, slip))));
           const zebraCss = (_prExportRowDesign.zebra && ri % 2 === 1) ? `background:${_prExportRowDesign.zebraColor || '#f1f5f9'};` : '';
           const rowHeightCss = minBodyRowPx ? `min-height:${minBodyRowPx}px;` : '';
-          return `<td class="${isRichText ? '' : 'whitespace-nowrap'}" style="padding:${cellPaddingPx}px;${rowHeightCss}${_prColumnCellCss(c, false)}${zebraCss}${_prGridBorderCss(false, false, groupOutlineSide[c.key])}">${cellContent}</td>`;
+          // Only a numeric (summable) column forces one line — breaking a
+          // number mid-digit is never useful, and it rarely needs more
+          // than one line anyway. Everything else (Name, Post, Join Date,
+          // rich text) wraps normally, same as autotable's own default
+          // 'linebreak' overflow already does in the real PDF — matches
+          // the actual output instead of clipping/overflowing long names.
+          const wrapClass = (!isRichText && _prIsSummableColumn(c)) ? 'whitespace-nowrap' : '';
+          return `<td class="${wrapClass}" style="padding:${cellPaddingPx}px;${rowHeightCss}${_prColumnCellCss(c, false)}${zebraCss}${_prGridBorderCss(false, false, groupOutlineSide[c.key])}">${cellContent}</td>`;
         }).join('')}</tr>`).join('')}
         ${_prExportSummaryRowHtml(included, sampleSlips, 'C.F.', 'cf', false, groupOutlineSide, cellPaddingPx)}
         ${_prExportSummaryRowHtml(included, sampleSlips, 'Sub Total', 'subtotal', true, groupOutlineSide, cellPaddingPx)}
@@ -20892,6 +20911,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
     _prRenderExportPreview();
     showToast(`Fit ${included.length} columns to ${isLandscape ? 'Landscape' : 'Portrait'} Legal width (${Math.round(pageUsableMm)}mm)`);
+  }
+
+  // Sets every included column's header AND data alignment to the same
+  // value in one click — the per-column Format panel already offers
+  // this individually, but a dense sheet with 20-30 columns needs it
+  // applied uniformly at once, matching the printed sheet's own
+  // centered-everything convention.
+  function _prSetAllAlign(align) {
+    const included = _prExportColumnsCache.filter(c => c.included);
+    if (!included.length) { showToast('No columns to align', 'error'); return; }
+    included.forEach(c => { c.align = align; c.headerAlign = align; });
+    _prRenderExportPreview();
+    showToast(`Header + data centered for ${included.length} columns`);
   }
 
   // Snaps column ORDER back to the source sheet's own sequence at any
@@ -22248,7 +22280,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         return row;
       };
       const customRowMm = Number(_prExportRowDesign.rowHeight) || 0;
-      const minBodyRowMm = Math.max(customRowMm, hasRotatedData ? 20 : 0);
+      const minBodyRowMm = Math.max(customRowMm, hasRotatedData ? (Number(_prExportRowDesign.rotatedRowHeight) || 0) : 0);
       // A hard page-break rule (default 6), not a height estimate — every
       // page holds exactly this many people, so admin-picked Row Height/
       // rotation choices are on them to keep within one legal-size page.
