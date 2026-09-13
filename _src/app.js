@@ -14110,6 +14110,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
               <p class="font-black text-slate-800 text-xs">Additions &amp; Deductions</p>
               <div class="flex items-center gap-2">
+                <button onclick="_prOpenGlobalTablesModal()" title="Mark a payroll table reachable so a Field can pull one of its columns directly" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="table-2" class="h-3.5 w-3.5"></i>Global Tables</button>
                 <button onclick="_prOpenBulkFieldValuesImport()" title="One row per person, one column per field — like the paper salary sheet" class="px-3 py-2 bg-slate-100 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-1.5"><i data-lucide="upload" class="h-3.5 w-3.5"></i>Bulk Import All Fields</button>
                 <button onclick="_prOpenFieldForm(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>New Field</button>
               </div>
@@ -15069,14 +15070,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 <select id="prFieldCalcMode" onchange="_prToggleCalcModeFields()" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
                   <option value="fixed">Fixed Amount</option>
                   <option value="percent_of_field">A Percentage of Another Field</option>
+                  <option value="external_table">From Another Table</option>
                 </select>
               </div>
             </div>
-            <p class="text-[9px] text-slate-400 font-bold -mt-1.5">Fixed = a flat number, set per grade under Grades &rarr; Field Values (Basic instead comes from Grade + Step — see the Pay Scale Grid). Percentage = a % of some other field's resolved value.</p>
+            <p class="text-[9px] text-slate-400 font-bold -mt-1.5">Fixed = a flat number, set per grade under Grades &rarr; Field Values (Basic instead comes from Grade + Step — see the Pay Scale Grid). Percentage = a % of some other field's resolved value. From Another Table = a column's value straight from a table marked Global under Fields &rarr; Global Tables, for whoever has a matching row there (0 otherwise).</p>
             <div id="prFieldPercentRow" class="hidden">
               <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">This Field Is a Percentage Of…</label>
               <select id="prFieldBaseKey" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></select>
-              <p class="text-[9px] text-slate-400 font-bold mt-1">e.g. to make Incentive 20% of Basic, edit <strong>Incentive</strong> (not Basic) and pick Basic here. To pin the percentage to one fixed step instead of the person's own — "20% of Basic at Step 1" for everyone on a grade — save this first, then set it per-grade under Grades &rarr; (grade) &rarr; Field Values &rarr; "Of Step" (only available when the base field above is Basic).</p>
+              <p class="text-[9px] text-slate-400 font-bold mt-1">e.g. to make Incentive 20% of Basic, edit <strong>Incentive</strong> (not Basic) and pick Basic here. To pin the percentage to one fixed step instead of the person's own — "20% of Basic at Step 1" for everyone on a grade — save this first, then set it per-grade under Grades &rarr; (grade) &rarr; Field Values &rarr; "Of Step" (only available when the base field above is Basic). A "From Another Table" field works as a base here too — pick it same as any other field.</p>
+            </div>
+            <div id="prFieldExternalRow" class="hidden grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Source Table (Global only)</label>
+                <select id="prFieldExternalTable" onchange="_prLoadExternalTableColumns()" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></select>
+              </div>
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Source Column</label>
+                <select id="prFieldExternalColumn" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></select>
+              </div>
             </div>
             <div class="grid grid-cols-2 gap-3">
               <div>
@@ -15155,6 +15167,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </div>
             <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-2">If saved, this replaces the IF/THEN Rules above entirely for this field — nest conditions inside Then/Else, and combine multiple fields with +−×÷</p>
             <div id="prLogicTreeRoot" class="border border-slate-200 rounded-xl p-3 bg-slate-50"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="prGlobalTablesModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-3xl max-h-[85vh] overflow-y-auto">
+          <div class="flex items-center justify-between mb-2">
+            <p class="font-black text-slate-800 text-sm">Global Tables</p>
+            <button onclick="document.getElementById('prGlobalTablesModal').classList.add('hidden')" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+          </div>
+          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-3 max-w-xl normal-case tracking-normal">Mark a table Global to let a Field pull one of its columns directly (Fields &rarr; New Field &rarr; "From Another Table"). Join Column is whichever column on that table identifies the person a row belongs to — usually user_id.</p>
+          <div class="overflow-auto border border-slate-200 rounded-xl">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
+                <th class="py-2 px-3">Table</th><th class="py-2 px-3">Global</th><th class="py-2 px-3">Join Column</th><th class="py-2 px-3">Label</th>
+              </tr></thead>
+              <tbody id="prGlobalTablesBody"><tr><td colspan="4" class="p-4 text-slate-400 font-bold text-xs text-center">Loading…</td></tr></tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -15933,7 +15963,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       return;
     }
     tbody.innerHTML = list.map(f => {
-      const calcLabel = f.calc_mode === 'percent_of_field' ? `% of ${f.calc_base_field_key || '—'}` : 'Fixed amount';
+      const calcLabel = f.calc_mode === 'percent_of_field' ? `% of ${f.calc_base_field_key || '—'}`
+        : f.calc_mode === 'external_table' ? `From ${(_prPayrollTablesCache.find(t => t.global && t.global.id === f.external_table_id) || {}).table_name || 'table'}.${f.external_column || '—'}`
+        : 'Fixed amount';
       const incLabel = f.increment_mode ? `${f.increment_mode === 'yearly_percent' ? f.increment_value + '%/yr' : _prFormatTaka(f.increment_value || 0) + '/yr'}` : '—';
       return `<tr class="border-b border-slate-50" onmouseenter="_prShowFieldSummary(event,${f.id})" onmouseleave="_prHideFieldSummary()">
         <td class="py-1.5 px-3 font-black text-slate-800">${f.label}${f.is_grade_conditional ? ' <span class=\"text-[9px] text-amber-600 font-black uppercase\">(grade)</span>' : ''}${f.is_role_conditional ? ' <span class=\"text-[9px] text-indigo-600 font-black uppercase\">(role)</span>' : ''}</td>
@@ -16035,7 +16067,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (tip) tip.classList.add('hidden');
   }
 
+  let _prFieldFormCurrent = null;
   function _prOpenFieldForm(field, defaultCategory) {
+    _prFieldFormCurrent = field || null;
     document.getElementById('prFieldFormTitle').textContent = field ? 'Edit Field' : (defaultCategory === 'special' ? 'Add Special Allowance' : 'Add Field');
     document.getElementById('prFieldId').value = field ? field.id : '';
     document.getElementById('prFieldKey').value = field ? field.key : '';
@@ -16074,9 +16108,75 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     warn.classList.toggle('hidden', keyEl.value.trim().toLowerCase() !== 'basic');
   }
 
+  let _prPayrollTablesCache = [];
+  function _prEnsurePayrollTablesCache(cb) {
+    if (_prPayrollTablesCache.length) { cb(); return; }
+    _payrollFetch('list_payroll_tables', {}).then(res => {
+      _prPayrollTablesCache = (res && res.result === 'success' && res.tables) || [];
+      cb();
+    }).catch(() => cb());
+  }
+
   function _prToggleCalcModeFields() {
     const mode = document.getElementById('prFieldCalcMode').value;
     document.getElementById('prFieldPercentRow').classList.toggle('hidden', mode !== 'percent_of_field');
+    document.getElementById('prFieldExternalRow').classList.toggle('hidden', mode !== 'external_table');
+    if (mode !== 'external_table') return;
+    _prEnsurePayrollTablesCache(() => {
+      const globals = _prPayrollTablesCache.filter(t => t.global);
+      const sel = document.getElementById('prFieldExternalTable');
+      sel.innerHTML = `<option value="">— Pick a table —</option>` + globals.map(t => `<option value="${t.global.id}">${_escHtml(t.global.label || t.table_name)}</option>`).join('');
+      const f = _prFieldFormCurrent;
+      if (f && f.external_table_id) sel.value = f.external_table_id;
+      _prLoadExternalTableColumns(f && f.external_column);
+    });
+  }
+
+  function _prOpenGlobalTablesModal() {
+    document.getElementById('prGlobalTablesModal').classList.remove('hidden');
+    document.getElementById('prGlobalTablesBody').innerHTML = `<tr><td colspan="4" class="p-4 text-slate-400 font-bold text-xs text-center">Loading…</td></tr>`;
+    _payrollFetch('list_payroll_tables', {}).then(res => {
+      _prPayrollTablesCache = (res && res.result === 'success' && res.tables) || [];
+      _prRenderGlobalTablesTable();
+    }).catch(err => showToast(err.message || 'Failed to load tables', 'error'));
+  }
+
+  function _prRenderGlobalTablesTable() {
+    const tbody = document.getElementById('prGlobalTablesBody');
+    if (!tbody) return;
+    tbody.innerHTML = _prPayrollTablesCache.map(t => {
+      const isGlobal = !!t.global;
+      return `
+      <tr class="border-b border-slate-50">
+        <td class="py-1.5 px-3 font-black text-slate-700">${_escHtml(t.table_name)}</td>
+        <td class="py-1.5 px-3"><input type="checkbox" id="gtGlobal_${t.table_name}" ${isGlobal ? 'checked' : ''} onchange="_prSaveGlobalTableRow('${t.table_name}')" class="w-4 h-4 accent-emerald-600"></td>
+        <td class="py-1.5 px-3"><select id="gtJoinCol_${t.table_name}" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
+          ${t.columns.map(c => `<option value="${_escHtml(c)}" ${t.global && t.global.join_column === c ? 'selected' : (c === 'user_id' ? 'selected' : '')}>${_escHtml(c)}</option>`).join('')}
+        </select></td>
+        <td class="py-1.5 px-3"><input type="text" id="gtLabel_${t.table_name}" value="${_escHtml((t.global && t.global.label) || '')}" placeholder="${_escHtml(t.table_name)}" onchange="_prSaveGlobalTableRow('${t.table_name}')" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]"></td>
+      </tr>`;
+    }).join('');
+  }
+
+  function _prSaveGlobalTableRow(tableName) {
+    const isGlobal = document.getElementById(`gtGlobal_${tableName}`).checked;
+    const joinColumn = document.getElementById(`gtJoinCol_${tableName}`).value;
+    const label = document.getElementById(`gtLabel_${tableName}`).value.trim();
+    _payrollFetch('set_table_global', { table_name: tableName, is_global: isGlobal, join_column: joinColumn, label }).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed to save', 'error'); return; }
+      showToast(isGlobal ? 'Marked Global' : 'No longer Global');
+      const t = _prPayrollTablesCache.find(x => x.table_name === tableName);
+      if (t) t.global = isGlobal ? { id: (res.table && res.table.id) || (t.global && t.global.id), table_name: tableName, join_column: joinColumn, label } : null;
+    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
+  }
+
+  function _prLoadExternalTableColumns(preselectColumn) {
+    const tableSel = document.getElementById('prFieldExternalTable');
+    const colSel = document.getElementById('prFieldExternalColumn');
+    const globalTableId = Number(tableSel.value) || null;
+    const t = _prPayrollTablesCache.find(x => x.global && x.global.id === globalTableId);
+    colSel.innerHTML = t ? t.columns.map(c => `<option value="${_escHtml(c)}">${_escHtml(c)}</option>`).join('') : '';
+    if (preselectColumn) colSel.value = preselectColumn;
   }
 
   function _prSaveField() {
@@ -16090,6 +16190,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       category: document.getElementById('prFieldCategory').value,
       calc_mode: document.getElementById('prFieldCalcMode').value,
       calc_base_field_key: document.getElementById('prFieldCalcMode').value === 'percent_of_field' ? document.getElementById('prFieldBaseKey').value : null,
+      external_table_id: document.getElementById('prFieldCalcMode').value === 'external_table' ? (document.getElementById('prFieldExternalTable').value || null) : null,
+      external_column: document.getElementById('prFieldCalcMode').value === 'external_table' ? (document.getElementById('prFieldExternalColumn').value || null) : null,
       increment_mode: document.getElementById('prFieldIncrementMode').value || null,
       increment_value: document.getElementById('prFieldIncrementValue').value || null,
       is_grade_conditional: document.getElementById('prFieldGradeConditional').checked,

@@ -356,6 +356,13 @@ function _resolveFieldValue(fieldKey, fieldsByKey, ctx, memo, visiting) {
           ? (Number(ctx.gradeStepValuesByGradeStep[`${ctx.gradeId}:${cfg.base_step_id}`]) || 0)
           : _resolveFieldValue(cfg.base_field_key, fieldsByKey, ctx, memo, visiting);
       amount = ((Number(cfg.percent) || 0) / 100) * baseAmt;
+    } else if (field.calc_mode === 'external_table') {
+      // A straight column passthrough from a Global table (see
+      // set_table_global/_loadPayrollRef) — 0 for anyone with no matching
+      // row there. This value can still be the base of a SEPARATE % of
+      // Field field, composing the two instead of needing one mechanism
+      // that does both at once.
+      amount = (ctx.externalValuesByFieldId && ctx.externalValuesByFieldId[field.id]) || 0;
     } else {
       amount = Number(cfg.value) || 0;
     }
@@ -449,6 +456,13 @@ function _computePayslipForPerson(personSetup, roles, category, ref, month, year
     conditionRulesByField: ref.conditionRulesByField,
     gradeId, gradeStepValuesByGradeStep: ref.gradeStepValuesByGradeStep,
   };
+  // "From Another Table" fields — resolved to THIS person's own value now
+  // (same pattern as personFieldValuesRow above), since _resolveFieldValue
+  // only ever sees ctx, never personSetup itself.
+  ctx.externalValuesByFieldId = {};
+  Object.keys(ref.externalTableDataByField || {}).forEach(fieldId => {
+    ctx.externalValuesByFieldId[fieldId] = ref.externalTableDataByField[fieldId][personSetup.user_id] || 0;
+  });
   const memo = new Map();
   const fieldValues = {};
   applicableFields.forEach(f => { fieldValues[f.key] = _resolveFieldValue(f.key, fieldsByKey, ctx, memo, new Set()); });
@@ -668,12 +682,33 @@ async function _loadPayrollRef(userIds, month, year) {
   // Never the same Grade+Step as personSetup.grade_id/step_id.
   const gradesById = {}; (gradesRaw || []).forEach(g => { gradesById[g.id] = g; });
   const mpoRosterByUser = {}; (mpoRosterRaw || []).forEach(r => { mpoRosterByUser[r.user_id] = r; });
+
+  // "From Another Table" fields (see save_field/set_table_global) — one
+  // extra fetch per such field, straight from its own Global table+column,
+  // keyed by that table's own Join Column value (assumed to line up with
+  // person_setup.user_id, same as every other person-keyed payroll table).
+  const externalTableFields = (fields || []).filter(f => f.calc_mode === 'external_table' && f.external_table_id && f.external_column);
+  const externalTableDataByField = {};
+  if (externalTableFields.length) {
+    const globalTableIds = [...new Set(externalTableFields.map(f => f.external_table_id))];
+    const globalTablesRaw = await sbPayroll(`global_tables?id=in.(${globalTableIds.join(',')})&select=*`);
+    const globalTablesById = {}; (globalTablesRaw || []).forEach(g => { globalTablesById[g.id] = g; });
+    await Promise.all(externalTableFields.map(async f => {
+      const gt = globalTablesById[f.external_table_id];
+      if (!gt) return;
+      const rows = await sbPayroll(`${gt.table_name}?select=${encodeURIComponent(gt.join_column)},${encodeURIComponent(f.external_column)}`);
+      const map = {};
+      (Array.isArray(rows) ? rows : []).forEach(r => { map[r[gt.join_column]] = Number(r[f.external_column]) || 0; });
+      externalTableDataByField[f.id] = map;
+    }));
+  }
+
   return {
     fields: fields || [], gradeFieldsByGrade, gradeConditionalSet, roleDefaults: roleDefaults || [],
     statutoryItems: statutoryItemsRaw || [], sectionsById, sectionEntriesByUser, bonusesByUser, personFieldValuesByUser,
     applicableRolesByField, conditionRulesByField, leaveDeductionsByUser, applicableCategoriesByField,
     stoppagesById, busFareEntriesByUser, gradeStepValuesByGradeStep, personFieldOverridesByUser,
-    gradesById, mpoRosterByUser,
+    gradesById, mpoRosterByUser, externalTableDataByField,
   };
 }
 
@@ -860,8 +895,11 @@ export async function POST(req) {
   }
 
   if (action === 'save_field') {
-    const { id, key, label, category, calc_mode, calc_base_field_key, increment_mode, increment_value, is_grade_conditional, is_role_conditional, is_category_conditional, is_active, sort_order } = payload;
+    const { id, key, label, category, calc_mode, calc_base_field_key, increment_mode, increment_value, is_grade_conditional, is_role_conditional, is_category_conditional, is_active, sort_order, external_table_id, external_column } = payload;
     if (!key || !label) return NextResponse.json({ result: 'error', message: 'Key and label are required' }, { status: 400 });
+    if (calc_mode === 'external_table' && (!external_table_id || !external_column)) {
+      return NextResponse.json({ result: 'error', message: 'Pick a Global table and a column' }, { status: 400 });
+    }
 
     // key becomes a real column name in payroll.person_field_values (the
     // wide Manual/Import values table — see add_field_column below), so a
@@ -884,6 +922,8 @@ export async function POST(req) {
       category: category || 'earning',
       calc_mode: calc_mode || 'fixed',
       calc_base_field_key: calc_base_field_key || null,
+      external_table_id: calc_mode === 'external_table' ? external_table_id : null,
+      external_column: calc_mode === 'external_table' ? external_column : null,
       increment_mode: increment_mode || null,
       increment_value: increment_value === '' || increment_value == null ? null : Number(increment_value),
       is_grade_conditional: !!is_grade_conditional,
@@ -916,6 +956,67 @@ export async function POST(req) {
     if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
     _prAudit(user_id, 'delete_field', 'fields', id);
     return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Global Tables (generic "From Another Table" field source) ──────────
+  // PostgREST's own root endpoint returns an OpenAPI doc describing every
+  // table/column it exposes for a schema — the simplest reliable way to
+  // enumerate real payroll tables/columns without a raw-SQL RPC. Used both
+  // to list candidates for marking Global and to populate a field's
+  // "Source Column" picker once a table's chosen.
+  async function _payrollSchemaSpec() {
+    const res = await fetch(`${SB_URL}/rest/v1/`, {
+      headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'payroll' },
+    });
+    if (!res.ok) return {};
+    const spec = await res.json();
+    return spec.definitions || spec.components?.schemas || {};
+  }
+
+  if (action === 'list_payroll_tables') {
+    const [spec, globalRows] = await Promise.all([_payrollSchemaSpec(), sbPayroll('global_tables?select=*')]);
+    const globalByName = {}; (globalRows || []).forEach(g => { globalByName[g.table_name] = g; });
+    const tables = Object.keys(spec).sort().map(name => ({
+      table_name: name,
+      columns: Object.keys(spec[name].properties || {}),
+      global: globalByName[name] || null,
+    }));
+    return NextResponse.json({ result: 'success', tables });
+  }
+
+  if (action === 'get_global_tables') {
+    const rows = await sbPayroll('global_tables?select=*&order=table_name.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', tables: rows });
+  }
+
+  if (action === 'set_table_global') {
+    const { table_name, is_global, join_column, label } = payload;
+    if (!table_name) return NextResponse.json({ result: 'error', message: 'table_name required' }, { status: 400 });
+    // Confirmed against the live schema spec, not trusted from the client
+    // as-is — this table name ends up directly in a REST path below (both
+    // here indirectly via global_tables, and later whenever a field reads
+    // from it), so it must be a real payroll table, never an arbitrary
+    // client-supplied string.
+    const spec = await _payrollSchemaSpec();
+    if (!spec[table_name]) return NextResponse.json({ result: 'error', message: 'Not a real payroll table' }, { status: 400 });
+    if (!is_global) {
+      const del = await sbPayroll(`global_tables?table_name=eq.${encodeURIComponent(table_name)}`, 'DELETE');
+      if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
+      _prAudit(user_id, 'set_table_global', 'global_tables', table_name, { is_global: false });
+      return NextResponse.json({ result: 'success' });
+    }
+    if (!join_column || !spec[table_name].properties?.[join_column]) {
+      return NextResponse.json({ result: 'error', message: 'Pick a real column on this table as the Join Column' }, { status: 400 });
+    }
+    const existing = await sbPayroll(`global_tables?table_name=eq.${encodeURIComponent(table_name)}&select=id`);
+    const rowData = { table_name, join_column, label: label || table_name };
+    const saved = (!existing?.error && existing.length)
+      ? await sbPayroll(`global_tables?table_name=eq.${encodeURIComponent(table_name)}`, 'PATCH', rowData)
+      : await sbPayroll('global_tables', 'POST', rowData);
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    _prAudit(user_id, 'set_table_global', 'global_tables', table_name, rowData);
+    return NextResponse.json({ result: 'success', table: Array.isArray(saved) ? saved[0] : saved });
   }
 
   // ── Field conditional logic: role-gated applicability + IF/THEN rules ──
