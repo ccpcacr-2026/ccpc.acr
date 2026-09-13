@@ -15486,13 +15486,48 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _prLoadMpoBillRoster() {
     const tbody = document.getElementById('prMpoBillBody');
     if (tbody) tbody.innerHTML = `<tr><td colspan="18" class="p-4 text-slate-400 font-bold text-xs text-center">Loading…</td></tr>`;
-    _payrollFetch('get_mpo_roster', { institution: _prMpoBillInstitution }).then(res => {
+    Promise.all([
+      _payrollFetch('get_mpo_roster', { institution: _prMpoBillInstitution }),
+      _payrollFetch('get_mpo_grade_step_matrix', {}),
+    ]).then(([res, matrixRes]) => {
       if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed to load MPO roster', 'error'); return; }
       _prMpoBillRoster = res.roster || [];
       _prMpoGradesCache = res.grades || [];
       _prMpoStepsCache = res.steps || [];
+      // Fetched here too (not just by the rates panel) so Pay Code/Step
+      // edits made directly in the roster below can recompute Basic
+      // instantly even if the rates panel was never opened this session.
+      _prMpoStepValuesCache = (matrixRes && matrixRes.result === 'success' && matrixRes.cells) || [];
       _prRenderMpoBillTable();
     }).catch(err => showToast(err.message || 'Failed to load MPO roster', 'error'));
+  }
+
+  // Exact mirror of _mpoComputeRow in app/api/payroll-admin/route.js — kept
+  // in sync deliberately, so every edit recalculates instantly in the
+  // browser (type into Basic, or pick a Pay Code/Step, and Incentive/House
+  // Rent/Welfare/Retirement/Net all update immediately) instead of waiting
+  // on a server round trip. The save still goes to the server in the
+  // background for persistence; a failed save re-syncs from the server
+  // instead of risking the screen drifting from what's actually stored.
+  function _mpoComputeRowClient(r) {
+    const grade = r.mpo_grade_id ? _prMpoGradesCache.find(g => g.id === r.mpo_grade_id) : null;
+    const stepCell = r.mpo_grade_id && r.mpo_step_id ? _prMpoStepValuesCache.find(c => c.mpo_grade_id === r.mpo_grade_id && c.mpo_step_id === r.mpo_step_id) : null;
+    const basic = r.basic_override != null ? Number(r.basic_override) || 0 : Number(stepCell && stepCell.basic_value) || 0;
+    const pct = v => Math.round((basic * (Number(v) || 0)) / 100);
+    const incentive = grade ? pct(grade.mpo_incentive_percent) : 0;
+    let houseRent = grade ? pct(grade.mpo_house_rent_percent) : 0;
+    if (grade && grade.mpo_house_rent_min != null) houseRent = Math.max(houseRent, Number(grade.mpo_house_rent_min) || 0);
+    const medical = grade && grade.mpo_medical_amount != null ? Number(grade.mpo_medical_amount) : 0;
+    const welfare = grade ? pct(grade.mpo_welfare_percent) : 0;
+    const retirement = grade ? pct(grade.mpo_retirement_percent) : 0;
+    const arrear = Number(r.arrear) || 0;
+    const net = basic + incentive + houseRent + medical + arrear - welfare - retirement;
+    return { basic, incentive, house_rent: houseRent, medical, arrear, welfare, retirement, net, pay_code: grade ? grade.pay_code : null, rates_missing: !!r.mpo_grade_id && !grade };
+  }
+
+  function _prRecomputeAllMpoRosterRows() {
+    _prMpoBillRoster.forEach(r => Object.assign(r, _mpoComputeRowClient(r)));
+    _prRenderMpoBillTable();
   }
 
   function _prRenderMpoBillTable() {
@@ -15536,41 +15571,52 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     lucide.createIcons();
   }
 
+  // Adds exactly one row to the sheet, in place — never a full reload of
+  // everyone else already on it.
   function _prAddMpoBillPerson(userId) {
     _payrollFetch('add_mpo_roster_person', { target_user_id: userId, institution: _prMpoBillInstitution }).then(res => {
-      if (res && res.result === 'success') { showToast('Added'); _prLoadMpoBillRoster(); }
-      else showToast((res && res.message) || 'Failed to add — already on this roster?', 'error');
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed to add — already on this roster?', 'error'); return; }
+      const staff = (allStaffCache || []).find(s => s.teacher_id === userId) || {};
+      const newRow = { ...res.row, full_name: staff.full_name || userId, designation: staff.designation || '', mpo_index: '' };
+      _prMpoBillRoster.push(Object.assign(newRow, _mpoComputeRowClient(newRow)));
+      _prRenderMpoBillTable();
+      showToast('Added');
     }).catch(err => showToast(err.message || 'Failed to add', 'error'));
   }
 
   function _prRemoveMpoBillPerson(id) {
     if (!confirm('Remove this person from the MPO roster?')) return;
+    const idx = _prMpoBillRoster.findIndex(r => r.id === id);
+    if (idx === -1) return;
+    const [removed] = _prMpoBillRoster.splice(idx, 1);
+    _prRenderMpoBillTable();
     _payrollFetch('remove_mpo_roster_person', { id }).then(res => {
-      if (res && res.result === 'success') _prLoadMpoBillRoster();
-      else showToast((res && res.message) || 'Failed to remove', 'error');
-    }).catch(err => showToast(err.message || 'Failed to remove', 'error'));
+      if (!res || res.result !== 'success') { _prMpoBillRoster.splice(idx, 0, removed); _prRenderMpoBillTable(); showToast((res && res.message) || 'Failed to remove', 'error'); }
+    }).catch(err => { _prMpoBillRoster.splice(idx, 0, removed); _prRenderMpoBillTable(); showToast(err.message || 'Failed to remove', 'error'); });
   }
 
-  // One shared saver for every inline-editable roster cell — the backend
-  // replaces the whole row, so this always resends the row's other
-  // current fields too. Picking a Step returns Basic to automatic
-  // (clears any manual override); typing an override doesn't need to
-  // touch Grade/Step, since basic_override always wins while it's set.
+  // One shared handler for every inline-editable roster cell — updates the
+  // row and recomputes it LOCALLY first (instant, spreadsheet-style
+  // forward recalculation into every dependent cell), then saves in the
+  // background. Picking a Step returns Basic to automatic (clears any
+  // manual override); typing an override doesn't need to touch Grade/
+  // Step, since basic_override always wins while it's set. A failed save
+  // re-syncs the whole roster from the server rather than risk drifting
+  // from what's actually stored.
   function _prSaveMpoBillField(id, field, value) {
     const row = _prMpoBillRoster.find(r => r.id === id);
     if (!row) return;
-    const payload = {
-      id,
-      mpo_grade_id: row.mpo_grade_id, mpo_step_id: row.mpo_step_id, basic_override: row.basic_override,
-      subject: row.subject, date_of_birth: row.date_of_birth, bank_acc_no: row.bank_acc_no, arrear: row.arrear,
-    };
     const isTextField = field === 'subject' || field === 'date_of_birth' || field === 'bank_acc_no';
-    payload[field] = value === '' ? null : (isTextField ? value : Number(value));
-    if (field === 'mpo_step_id') payload.basic_override = null;
-    _payrollFetch('save_mpo_roster_person', payload).then(res => {
-      if (res && res.result === 'success') _prLoadMpoBillRoster();
-      else showToast((res && res.message) || 'Failed to save', 'error');
-    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
+    row[field] = value === '' ? null : (isTextField ? value : Number(value));
+    if (field === 'mpo_step_id') row.basic_override = null;
+    Object.assign(row, _mpoComputeRowClient(row));
+    _prRenderMpoBillTable();
+    _payrollFetch('save_mpo_roster_person', {
+      id, mpo_grade_id: row.mpo_grade_id, mpo_step_id: row.mpo_step_id, basic_override: row.basic_override,
+      subject: row.subject, date_of_birth: row.date_of_birth, bank_acc_no: row.bank_acc_no, arrear: row.arrear,
+    }).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed to save — reloading', 'error'); _prLoadMpoBillRoster(); }
+    }).catch(err => { showToast(err.message || 'Failed to save — reloading', 'error'); _prLoadMpoBillRoster(); });
   }
 
   function _prSaveMpoIndexInline(userId, value) {
@@ -15618,20 +15664,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _prLoadMpoStepGrid();
   }
 
+  // A rate change affects every roster row on this Pay Code, not just one
+  // — updates the cache locally, recomputes the whole roster in place, and
+  // only THEN fires the background save (same optimistic-then-persist
+  // shape as _prSaveMpoBillField above).
   function _prSaveMpoGradeField(id, field, value) {
     const g = _prMpoGradesCache.find(x => x.id === id);
     if (!g) return;
-    const payload = {
+    g[field] = value === '' ? null : Number(value);
+    _prRecomputeAllMpoRosterRows();
+    _payrollFetch('save_mpo_grade', {
       id, pay_code: g.pay_code, label: g.label,
       mpo_incentive_percent: g.mpo_incentive_percent, mpo_house_rent_percent: g.mpo_house_rent_percent,
       mpo_house_rent_min: g.mpo_house_rent_min, mpo_welfare_percent: g.mpo_welfare_percent,
       mpo_retirement_percent: g.mpo_retirement_percent, mpo_medical_amount: g.mpo_medical_amount,
-    };
-    payload[field] = value === '' ? null : Number(value);
-    _payrollFetch('save_mpo_grade', payload).then(res => {
-      if (res && res.result === 'success') { g[field] = payload[field]; _prLoadMpoBillRoster(); }
-      else showToast((res && res.message) || 'Failed to save', 'error');
-    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
+    }).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed to save — reloading', 'error'); _prReloadMpoGradesAndRoster(); }
+    }).catch(err => { showToast(err.message || 'Failed to save — reloading', 'error'); _prReloadMpoGradesAndRoster(); });
   }
 
   function _prAddMpoGrade() {
@@ -15693,10 +15742,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   function _prSaveMpoGradeStepValue(gradeId, stepId, value) {
+    const num = value === '' ? null : Number(value);
+    const cell = _prMpoStepValuesCache.find(c => c.mpo_grade_id === gradeId && c.mpo_step_id === stepId);
+    if (cell) cell.basic_value = num;
+    else _prMpoStepValuesCache.push({ mpo_grade_id: gradeId, mpo_step_id: stepId, basic_value: num });
+    _prRecomputeAllMpoRosterRows();
     _payrollFetch('save_mpo_grade_step_value', { mpo_grade_id: gradeId, mpo_step_id: stepId, basic_value: value }).then(res => {
-      if (res && res.result === 'success') { _prLoadMpoStepGrid(); _prLoadMpoBillRoster(); }
-      else showToast((res && res.message) || 'Failed to save', 'error');
-    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed to save — reloading', 'error'); _prLoadMpoStepGrid(); _prLoadMpoBillRoster(); }
+    }).catch(err => { showToast(err.message || 'Failed to save — reloading', 'error'); _prLoadMpoStepGrid(); _prLoadMpoBillRoster(); });
   }
 
   // Fixed institutional facts (EIIN/district/thana never change; the two
