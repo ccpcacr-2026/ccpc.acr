@@ -22072,10 +22072,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             buildTotalRow(chunk.rows, 'Sub Total'),
           ];
           const subTotalRowIndex = body.length - 1;
-          const isSyntheticRow = idx => idx === cfRowIndex || idx === subTotalRowIndex;
+          // idx >= 0 guards against a real collision, not just a defensive
+          // extra check: on a group's first page cfRowIndex is -1 (no C.F.
+          // row yet) — the exact same sentinel autotable itself passes for
+          // an internal "continuation" fragment of a row too tall to fit on
+          // the page (rotated headers, tall custom row heights). Without
+          // this guard that continuation call is misread as the C.F. row
+          // and crashes reaching into body[-1] below.
+          const isSyntheticRow = idx => idx >= 0 && (idx === cfRowIndex || idx === subTotalRowIndex);
           // Maps a body row index back to its slip for the rich Text-column
           // draw below — synthetic rows have none.
-          const slipForBodyRow = idx => (idx === cfRowIndex || idx === subTotalRowIndex) ? null : chunk.slips[idx - (ci > 0 ? 1 : 0)];
+          const slipForBodyRow = idx => isSyntheticRow(idx) ? null : chunk.slips[idx - (ci > 0 ? 1 : 0)];
           const rawRowForBodyRow = idx => body[idx];
 
           doc.autoTable({
