@@ -14841,6 +14841,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                     <option value="right">Right</option>
                   </select>
                 </div>
+                <div class="flex items-center gap-1.5">
+                  <label class="text-[10px] font-black text-slate-400 uppercase">Dp</label>
+                  <input type="number" id="prCfDecimals" value="" placeholder="2" min="0" max="4" title="Decimal places — blank defaults to 2dp" onchange="_prSetExportSummaryRowStyle('cf','decimals',this.value!==''?Number(this.value):null)" class="w-14 px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-[10px]">
+                </div>
               </div>
             </div>
             <div>
@@ -14872,6 +14876,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                     <option value="center">Center</option>
                     <option value="right">Right</option>
                   </select>
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <label class="text-[10px] font-black text-slate-400 uppercase">Dp</label>
+                  <input type="number" id="prSubtotalDecimals" value="" placeholder="2" min="0" max="4" title="Decimal places — blank defaults to 2dp" onchange="_prSetExportSummaryRowStyle('subtotal','decimals',this.value!==''?Number(this.value):null)" class="w-14 px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-[10px]">
                 </div>
               </div>
             </div>
@@ -19648,9 +19656,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // C.F. (carried-forward running total) and Sub Total (this page's own
   // sum) — same bold/italic/color/background shape as a column's own
   // header/data format controls, plus their own font size/alignment.
+  // decimals: null defaults to 2dp (a sum's own natural precision is
+  // meaningless once many rows' binary floating-point noise is added
+  // together — see _prFormatSummaryValue) unless the column itself set a
+  // decimals count, same precedence order PDF/preview both apply.
   let _prExportSummaryRowStyle = {
-    cf: { bold: true, italic: false, color: '', bg: '#f1f5f9', fontSize: null, align: '' },
-    subtotal: { bold: true, italic: false, color: '', bg: '#f1f5f9', fontSize: null, align: '' },
+    cf: { bold: true, italic: false, color: '', bg: '#f1f5f9', fontSize: null, align: '', decimals: null },
+    subtotal: { bold: true, italic: false, color: '', bg: '#f1f5f9', fontSize: null, align: '', decimals: null },
   };
   // Per-Group-name formatting (font size/color/bold/italic/alignment) for
   // the merged header cell a Group's columns share — keyed by the Group's
@@ -19709,12 +19721,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prCfBg').value = _prExportSummaryRowStyle.cf.bg || '#f1f5f9';
     document.getElementById('prCfFontSize').value = _prExportSummaryRowStyle.cf.fontSize || '';
     document.getElementById('prCfAlign').value = _prExportSummaryRowStyle.cf.align || '';
+    document.getElementById('prCfDecimals').value = _prExportSummaryRowStyle.cf.decimals != null ? _prExportSummaryRowStyle.cf.decimals : '';
     document.getElementById('prSubtotalBold').checked = _prExportSummaryRowStyle.subtotal.bold;
     document.getElementById('prSubtotalItalic').checked = _prExportSummaryRowStyle.subtotal.italic;
     document.getElementById('prSubtotalColor').value = _prExportSummaryRowStyle.subtotal.color || '#000000';
     document.getElementById('prSubtotalBg').value = _prExportSummaryRowStyle.subtotal.bg || '#f1f5f9';
     document.getElementById('prSubtotalFontSize').value = _prExportSummaryRowStyle.subtotal.fontSize || '';
     document.getElementById('prSubtotalAlign').value = _prExportSummaryRowStyle.subtotal.align || '';
+    document.getElementById('prSubtotalDecimals').value = _prExportSummaryRowStyle.subtotal.decimals != null ? _prExportSummaryRowStyle.subtotal.decimals : '';
     document.getElementById('prExportSortField').value = _prExportSortBy;
     _prUpdateExportSortDirBtn();
     const populate = () => {
@@ -19935,12 +19949,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prCfBg').value = _prExportSummaryRowStyle.cf.bg || '#f1f5f9';
     document.getElementById('prCfFontSize').value = _prExportSummaryRowStyle.cf.fontSize || '';
     document.getElementById('prCfAlign').value = _prExportSummaryRowStyle.cf.align || '';
+    document.getElementById('prCfDecimals').value = _prExportSummaryRowStyle.cf.decimals != null ? _prExportSummaryRowStyle.cf.decimals : '';
     document.getElementById('prSubtotalBold').checked = _prExportSummaryRowStyle.subtotal.bold;
     document.getElementById('prSubtotalItalic').checked = _prExportSummaryRowStyle.subtotal.italic;
     document.getElementById('prSubtotalColor').value = _prExportSummaryRowStyle.subtotal.color || '#000000';
     document.getElementById('prSubtotalBg').value = _prExportSummaryRowStyle.subtotal.bg || '#f1f5f9';
     document.getElementById('prSubtotalFontSize').value = _prExportSummaryRowStyle.subtotal.fontSize || '';
     document.getElementById('prSubtotalAlign').value = _prExportSummaryRowStyle.subtotal.align || '';
+    document.getElementById('prSubtotalDecimals').value = _prExportSummaryRowStyle.subtotal.decimals != null ? _prExportSummaryRowStyle.subtotal.decimals : '';
     document.getElementById('prExportSortField').value = _prExportSortBy;
     _prUpdateExportSortDirBtn();
     _prSyncRemarksColumn();
@@ -20421,7 +20437,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       let val = '';
       if (_prIsSummableColumn(c)) {
         const sum = sampleSlips.reduce((a, s) => a + (Number(_prColumnValue(c, s)) || 0), 0);
-        val = _escHtml(String(_prFormatColumnValue(c, sum)));
+        val = _escHtml(String(_prFormatColumnValue({ ...c, decimals: _prSummaryDecimals(srs, c) }, sum)));
       } else if (ci === firstLabelCol) {
         val = _escHtml(label);
       }
@@ -21321,6 +21337,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // fraction digits when set. Combining both gives "2,45,345.00". Leaves
   // non-numeric values (names, dates, already-resolved Text segments) and
   // completely unconfigured columns untouched.
+  // C.F./Sub Total decimal places — the row's own dp setting (Summary
+  // Rows panel) wins, then the column's own Number Format decimals, then
+  // 2dp: a sum of many rows always needs SOME fixed precision (plain
+  // float addition reliably produces trailing binary noise), unlike a
+  // single data cell which is fine left at its natural precision by
+  // default. Shared by the PDF (didParseCell/didDrawCell) and the live
+  // preview (_prExportSummaryRowHtml) so both agree on the same number.
+  function _prSummaryDecimals(srs, col) {
+    return srs.decimals != null ? srs.decimals : (col.decimals != null ? col.decimals : 2);
+  }
+
   function _prFormatColumnValue(c, raw) {
     if (raw === '' || raw === null || raw === undefined) return raw;
     const num = Number(raw);
@@ -22152,11 +22179,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 if (hook.row.index === subTotalRowIndex) hook.cell.styles.lineWidth = { top: gridMm, right: gridMm, bottom: bottomMm, left: gridMm };
                 applyGroupOutline(hook.column.index, hook.cell.styles);
                 // C.F./Sub Total are the only cells holding a sum of many
-                // rows — always shown to exactly 2dp regardless of whether
-                // the column itself has a Number Format configured (a
-                // non-numeric label like "C.F." passes through unchanged,
-                // since _prFormatColumnValue no-ops on non-numeric input).
-                const summaryFmtCfg = { ...col, decimals: col.decimals != null ? col.decimals : 2 };
+                // rows — always shown to a fixed dp (see _prSummaryDecimals)
+                // regardless of whether the column itself has a Number
+                // Format configured (a non-numeric label like "C.F." passes
+                // through unchanged, since _prFormatColumnValue no-ops on
+                // non-numeric input).
+                const summaryFmtCfg = { ...col, decimals: _prSummaryDecimals(srs, col) };
                 hook.cell.text = [String(_prFormatColumnValue(summaryFmtCfg, rawRowForBodyRow(hook.row.index)[hook.column.index]))];
                 // Rotated the same way this column's own data cells are, so
                 // it fits a column sized for vertical text instead of
@@ -22210,7 +22238,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 if (!col.rotation) return; // plain bold text, autotable's own default draw is fine
                 const raw = rawRowForBodyRow(hook.row.index)[hook.column.index];
                 if (raw == null || raw === '') return; // an unlabeled non-summable cell on this row — nothing to draw
-                const summaryFmtCfg = { ...col, decimals: col.decimals != null ? col.decimals : 2 };
+                const srs = hook.row.index === cfRowIndex ? _prExportSummaryRowStyle.cf : _prExportSummaryRowStyle.subtotal;
+                const summaryFmtCfg = { ...col, decimals: _prSummaryDecimals(srs, col) };
                 doc.text(String(_prFormatColumnValue(summaryFmtCfg, raw)), x + width / 2, y + height / 2, { angle: col.rotation, align: 'center', baseline: 'middle' });
                 return;
               }
