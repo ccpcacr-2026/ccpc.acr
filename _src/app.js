@@ -14074,7 +14074,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { id: 'pr-grades', label: 'Grades' },
     { id: 'pr-people', label: 'People Setup' },
     { id: 'pr-sections', label: 'Sections' },
-    { id: 'pr-mpo', label: 'MPO' },
+    { id: 'pr-mpo', label: 'MPO Amount' },
+    { id: 'pr-mpo-bill', label: 'MPO Bill' },
     { id: 'pr-run', label: 'Run & Payslips' },
     { id: 'pr-export', label: 'Export' },
     { id: 'pr-remarks-log', label: 'Remarks Log' },
@@ -14667,6 +14668,44 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 <th class="py-2 px-3">Name</th><th class="py-2 px-3">Designation</th><th class="py-2 px-3">MPO Amount</th>
               </tr></thead>
               <tbody id="prMpoBody"><tr><td colspan="3" class="p-4 text-slate-400 font-bold text-xs text-center">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="pr-mpo-bill" style="display:none">
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
+          <div class="flex items-center justify-between flex-wrap gap-3 mb-3">
+            <div>
+              <p class="font-black text-slate-800 text-sm">MPO Bill</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5 max-w-2xl">DSHE Monthly EFT Payment Sheet. Its own Pay Code + Step system — separate from this school's internal Grade/Step, since the two numbering schemes don't correspond. Set each Pay Code's rates once, then add people below; Basic, Incentive, House Rent, Welfare, Retirement and Net Payable all compute automatically.</p>
+            </div>
+            <div class="flex bg-slate-100 rounded-xl p-1 shrink-0">
+              <button id="prMpoBillInstBtn-school" onclick="_prSwitchMpoBillInstitution('school')" class="px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all">School</button>
+              <button id="prMpoBillInstBtn-college" onclick="_prSwitchMpoBillInstitution('college')" class="px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all">College</button>
+            </div>
+          </div>
+          <button onclick="_prToggleMpoBillRates()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5 mb-3"><i data-lucide="settings" class="h-3.5 w-3.5"></i>Configure Pay Code Rates</button>
+          <div id="prMpoBillRatesPanel" class="hidden mb-4 border border-slate-200 rounded-xl p-3 bg-slate-50"></div>
+
+          <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+            <div class="relative max-w-sm w-full">
+              <input type="text" id="prMpoBillPersonSearch" placeholder="Add a person…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              <input type="hidden" id="prMpoBillPersonSelect">
+              <div id="prMpoBillPersonDropdown" style="z-index:9999" class="hidden absolute z-40 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-y-auto"></div>
+            </div>
+            <button onclick="_prExportMpoBillPdf()" class="px-3 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5 shrink-0"><i data-lucide="file-down" class="h-3.5 w-3.5"></i>Export PDF</button>
+          </div>
+          <div class="overflow-auto border border-slate-200 rounded-xl">
+            <table class="w-full text-left border-collapse text-[11px] whitespace-nowrap">
+              <thead class="bg-slate-50"><tr class="text-[9px] font-black text-slate-500 uppercase">
+                <th class="py-2 px-2">SL</th><th class="py-2 px-2">Index No.</th><th class="py-2 px-2">Teacher ID</th><th class="py-2 px-2">Name</th>
+                <th class="py-2 px-2">Subject</th><th class="py-2 px-2">DOB</th><th class="py-2 px-2">Bank A/C</th>
+                <th class="py-2 px-2">Pay Code</th><th class="py-2 px-2">Step</th><th class="py-2 px-2">Basic</th>
+                <th class="py-2 px-2">Incentive</th><th class="py-2 px-2">House Rent</th><th class="py-2 px-2">Medical</th><th class="py-2 px-2">Arrear</th>
+                <th class="py-2 px-2">Welfare</th><th class="py-2 px-2">Retirement</th><th class="py-2 px-2">Net Payable</th><th class="py-2 px-2"></th>
+              </tr></thead>
+              <tbody id="prMpoBillBody"><tr><td colspan="18" class="p-4 text-slate-400 font-bold text-xs text-center">Loading…</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -15315,6 +15354,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (tabId === 'pr-people' && !_prPeopleComboWired) loadPayrollPeopleTab();
     if (tabId === 'pr-sections' && !_prBonusLoaded) { loadBonusPayments(); loadPayrollSections(); loadLeaveDeductions(); }
     if (tabId === 'pr-mpo' && !_prMpoLoaded) loadPayrollMpoTab();
+    if (tabId === 'pr-mpo-bill' && !_prMpoBillLoaded) loadMpoBillTab();
     if (tabId === 'pr-run' && !_prRunTabLoaded) loadPayrollRunTab();
     if (tabId === 'pr-export' && !_prExportTabLoaded) loadPayrollExportTab();
     if (tabId === 'pr-remarks-log') loadRemarksLog();
@@ -15397,6 +15437,328 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (res && res.result === 'success') { const p = _prMpoPeople.find(x => x.user_id === userId); if (p) p.mpo_amount = value === '' ? null : Number(value); showToast('Saved'); }
       else showToast((res && res.message) || 'Failed to save', 'error');
     }).catch(err => showToast(err.message || 'Failed to save', 'error'));
+  }
+
+  // ── MPO Bill (DSHE Monthly EFT Payment Sheet) — its own Pay Code + Step
+  // system, deliberately never the internal Grade/Step above (confirmed:
+  // the two numbering schemes don't correspond for the same person). Not
+  // to be confused with the MPO Amount tab above — that's a single flat
+  // government-funded-portion split for the internal payroll register;
+  // this is the actual DSHE compliance report.
+  let _prMpoBillLoaded = false;
+  let _prMpoBillInstitution = 'school';
+  let _prMpoBillRoster = [];
+  let _prMpoGradesCache = [];
+  let _prMpoStepsCache = [];
+  let _prMpoStepValuesCache = [];
+
+  function loadMpoBillTab() {
+    _prMpoBillLoaded = true;
+    _ensureStaffCache(() => {
+      _wireSearchCombo('prMpoBillPersonSearch', 'prMpoBillPersonSelect', 'prMpoBillPersonDropdown',
+        (allStaffCache || []).map(s => ({ value: s.teacher_id, label: s.full_name || s.teacher_id, sub: [s.designation, s.teacher_id].filter(Boolean).join(' · ') })));
+      document.getElementById('prMpoBillPersonSelect').value = '';
+      document.getElementById('prMpoBillPersonSearch').value = '';
+      document.getElementById('prMpoBillPersonDropdown').addEventListener('mousedown', () => {
+        setTimeout(() => {
+          const uid = document.getElementById('prMpoBillPersonSelect').value;
+          if (!uid) return;
+          document.getElementById('prMpoBillPersonSelect').value = '';
+          document.getElementById('prMpoBillPersonSearch').value = '';
+          _prAddMpoBillPerson(uid);
+        }, 0);
+      });
+    });
+    _prSwitchMpoBillInstitution('school');
+  }
+
+  function _prSwitchMpoBillInstitution(inst) {
+    _prMpoBillInstitution = inst;
+    ['school', 'college'].forEach(i => {
+      const btn = document.getElementById('prMpoBillInstBtn-' + i);
+      if (!btn) return;
+      btn.className = btn.className.replace(/ bg-blue-600 text-white| bg-white text-slate-400/g, '');
+      btn.className += i === inst ? ' bg-blue-600 text-white' : ' bg-white text-slate-400';
+    });
+    _prLoadMpoBillRoster();
+  }
+
+  function _prLoadMpoBillRoster() {
+    const tbody = document.getElementById('prMpoBillBody');
+    if (tbody) tbody.innerHTML = `<tr><td colspan="18" class="p-4 text-slate-400 font-bold text-xs text-center">Loading…</td></tr>`;
+    _payrollFetch('get_mpo_roster', { institution: _prMpoBillInstitution }).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed to load MPO roster', 'error'); return; }
+      _prMpoBillRoster = res.roster || [];
+      _prMpoGradesCache = res.grades || [];
+      _prMpoStepsCache = res.steps || [];
+      _prRenderMpoBillTable();
+    }).catch(err => showToast(err.message || 'Failed to load MPO roster', 'error'));
+  }
+
+  function _prRenderMpoBillTable() {
+    const tbody = document.getElementById('prMpoBillBody');
+    if (!tbody) return;
+    if (!_prMpoBillRoster.length) { tbody.innerHTML = `<tr><td colspan="18" class="p-4 text-slate-400 font-bold text-xs text-center">Nobody on the ${_prMpoBillInstitution} MPO roster yet — search above to add someone.</td></tr>`; return; }
+    const fmt = n => (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    tbody.innerHTML = _prMpoBillRoster.map((r, i) => `
+      <tr class="border-b border-slate-50">
+        <td class="py-1.5 px-2">${i + 1}</td>
+        <td class="py-1.5 px-2"><input type="text" value="${_escHtml(r.mpo_index || '')}" onchange="_prSaveMpoIndexInline('${r.user_id}',this.value)" class="w-24 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]"></td>
+        <td class="py-1.5 px-2 font-bold text-slate-500">${_escHtml(r.user_id)}</td>
+        <td class="py-1.5 px-2 font-black text-slate-800">${_escHtml(r.full_name)}</td>
+        <td class="py-1.5 px-2"><input type="text" value="${_escHtml(r.subject || '')}" onchange="_prSaveMpoBillField(${r.id},'subject',this.value)" class="w-28 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]"></td>
+        <td class="py-1.5 px-2"><input type="date" value="${r.date_of_birth || ''}" onchange="_prSaveMpoBillField(${r.id},'date_of_birth',this.value)" class="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]"></td>
+        <td class="py-1.5 px-2"><input type="text" value="${_escHtml(r.bank_acc_no || '')}" onchange="_prSaveMpoBillField(${r.id},'bank_acc_no',this.value)" class="w-28 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]"></td>
+        <td class="py-1.5 px-2">
+          <select onchange="_prSaveMpoBillField(${r.id},'mpo_grade_id',this.value)" class="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]">
+            <option value="">—</option>
+            ${_prMpoGradesCache.map(g => `<option value="${g.id}" ${r.mpo_grade_id === g.id ? 'selected' : ''}>${g.pay_code}</option>`).join('')}
+          </select>
+        </td>
+        <td class="py-1.5 px-2">
+          ${r.basic_override != null
+            ? `<span class="text-amber-600 font-black text-[10px] uppercase" title="Manual Basic override is set — clear the Basic field to go back to Pay Code + Step">Manual</span>`
+            : `<select onchange="_prSaveMpoBillField(${r.id},'mpo_step_id',this.value)" class="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]">
+                <option value="">—</option>
+                ${_prMpoStepsCache.map(s => `<option value="${s.id}" ${r.mpo_step_id === s.id ? 'selected' : ''}>${s.step_number}</option>`).join('')}
+              </select>`}
+        </td>
+        <td class="py-1.5 px-2"><input type="number" step="0.01" value="${r.basic_override != null ? r.basic_override : ''}" placeholder="${fmt(r.basic)}" onchange="_prSaveMpoBillField(${r.id},'basic_override',this.value)" title="Type a value to override Basic manually instead of Pay Code + Step; clear it to go back to automatic" class="w-24 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]"></td>
+        <td class="py-1.5 px-2 font-bold">${r.rates_missing ? '<span class="text-red-500" title="This Pay Code has no rates configured yet — Configure Pay Code Rates above">—</span>' : fmt(r.incentive)}</td>
+        <td class="py-1.5 px-2 font-bold">${r.rates_missing ? '—' : fmt(r.house_rent)}</td>
+        <td class="py-1.5 px-2 font-bold">${r.rates_missing ? '—' : fmt(r.medical)}</td>
+        <td class="py-1.5 px-2"><input type="number" step="0.01" value="${r.arrear || 0}" onchange="_prSaveMpoBillField(${r.id},'arrear',this.value)" class="w-20 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px]"></td>
+        <td class="py-1.5 px-2 font-bold">${r.rates_missing ? '—' : fmt(r.welfare)}</td>
+        <td class="py-1.5 px-2 font-bold">${r.rates_missing ? '—' : fmt(r.retirement)}</td>
+        <td class="py-1.5 px-2 font-black text-emerald-700">${r.rates_missing ? '—' : fmt(r.net)}</td>
+        <td class="py-1.5 px-2"><button onclick="_prRemoveMpoBillPerson(${r.id})" class="text-red-400 hover:text-red-600"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button></td>
+      </tr>`).join('');
+    lucide.createIcons();
+  }
+
+  function _prAddMpoBillPerson(userId) {
+    _payrollFetch('add_mpo_roster_person', { target_user_id: userId, institution: _prMpoBillInstitution }).then(res => {
+      if (res && res.result === 'success') { showToast('Added'); _prLoadMpoBillRoster(); }
+      else showToast((res && res.message) || 'Failed to add — already on this roster?', 'error');
+    }).catch(err => showToast(err.message || 'Failed to add', 'error'));
+  }
+
+  function _prRemoveMpoBillPerson(id) {
+    if (!confirm('Remove this person from the MPO roster?')) return;
+    _payrollFetch('remove_mpo_roster_person', { id }).then(res => {
+      if (res && res.result === 'success') _prLoadMpoBillRoster();
+      else showToast((res && res.message) || 'Failed to remove', 'error');
+    }).catch(err => showToast(err.message || 'Failed to remove', 'error'));
+  }
+
+  // One shared saver for every inline-editable roster cell — the backend
+  // replaces the whole row, so this always resends the row's other
+  // current fields too. Picking a Step returns Basic to automatic
+  // (clears any manual override); typing an override doesn't need to
+  // touch Grade/Step, since basic_override always wins while it's set.
+  function _prSaveMpoBillField(id, field, value) {
+    const row = _prMpoBillRoster.find(r => r.id === id);
+    if (!row) return;
+    const payload = {
+      id,
+      mpo_grade_id: row.mpo_grade_id, mpo_step_id: row.mpo_step_id, basic_override: row.basic_override,
+      subject: row.subject, date_of_birth: row.date_of_birth, bank_acc_no: row.bank_acc_no, arrear: row.arrear,
+    };
+    const isTextField = field === 'subject' || field === 'date_of_birth' || field === 'bank_acc_no';
+    payload[field] = value === '' ? null : (isTextField ? value : Number(value));
+    if (field === 'mpo_step_id') payload.basic_override = null;
+    _payrollFetch('save_mpo_roster_person', payload).then(res => {
+      if (res && res.result === 'success') _prLoadMpoBillRoster();
+      else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
+  }
+
+  function _prSaveMpoIndexInline(userId, value) {
+    _payrollFetch('save_mpo_index', { target_user_id: userId, mpo_index: value }).then(res => {
+      if (res && res.result === 'success') showToast('Saved');
+      else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
+  }
+
+  function _prToggleMpoBillRates() {
+    const panel = document.getElementById('prMpoBillRatesPanel');
+    if (!panel) return;
+    if (panel.classList.contains('hidden')) { panel.classList.remove('hidden'); _prRenderMpoBillRatesPanel(); }
+    else panel.classList.add('hidden');
+  }
+
+  function _prRenderMpoBillRatesPanel() {
+    const panel = document.getElementById('prMpoBillRatesPanel');
+    if (!panel) return;
+    const rateFields = ['mpo_incentive_percent', 'mpo_house_rent_percent', 'mpo_house_rent_min', 'mpo_welfare_percent', 'mpo_retirement_percent', 'mpo_medical_amount'];
+    panel.innerHTML = `
+      <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Pay Code Rates — % of Basic unless noted. Leave a field blank if you don't know it yet; a Pay Code with no rates shows "—" on the roster instead of a wrong number.</p>
+      <div class="overflow-auto">
+        <table class="w-full text-left border-collapse text-[11px]">
+          <thead><tr class="text-[9px] font-black text-slate-500 uppercase">
+            <th class="py-1.5 px-2">Pay Code</th><th class="py-1.5 px-2">Incentive %</th><th class="py-1.5 px-2">House Rent %</th><th class="py-1.5 px-2">House Rent Min</th><th class="py-1.5 px-2">Welfare %</th><th class="py-1.5 px-2">Retirement %</th><th class="py-1.5 px-2">Medical</th><th class="py-1.5 px-2"></th>
+          </tr></thead>
+          <tbody>
+            ${_prMpoGradesCache.map(g => `
+            <tr class="border-b border-slate-100">
+              <td class="py-1 px-2 font-black">${g.pay_code}</td>
+              ${rateFields.map(f => `<td class="py-1 px-2"><input type="number" step="0.01" value="${g[f] != null ? g[f] : ''}" onchange="_prSaveMpoGradeField(${g.id},'${f}',this.value)" class="w-20 px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-[10px]"></td>`).join('')}
+              <td class="py-1 px-2"><button onclick="_prDeleteMpoGrade(${g.id})" class="text-red-400 hover:text-red-600"><i data-lucide="trash-2" class="h-3 w-3"></i></button></td>
+            </tr>`).join('')}
+            <tr>
+              <td class="py-1 px-2"><input type="number" id="prMpoNewPayCode" placeholder="Pay code#" class="w-24 px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-[10px]"></td>
+              <td colspan="7" class="py-1 px-2"><button onclick="_prAddMpoGrade()" class="px-2.5 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Add Pay Code</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-3 mb-2">Basic by Step</p>
+      <div class="overflow-auto border border-slate-200 rounded-xl bg-white" id="prMpoStepGrid">Loading…</div>`;
+    lucide.createIcons();
+    _prLoadMpoStepGrid();
+  }
+
+  function _prSaveMpoGradeField(id, field, value) {
+    const g = _prMpoGradesCache.find(x => x.id === id);
+    if (!g) return;
+    const payload = {
+      id, pay_code: g.pay_code, label: g.label,
+      mpo_incentive_percent: g.mpo_incentive_percent, mpo_house_rent_percent: g.mpo_house_rent_percent,
+      mpo_house_rent_min: g.mpo_house_rent_min, mpo_welfare_percent: g.mpo_welfare_percent,
+      mpo_retirement_percent: g.mpo_retirement_percent, mpo_medical_amount: g.mpo_medical_amount,
+    };
+    payload[field] = value === '' ? null : Number(value);
+    _payrollFetch('save_mpo_grade', payload).then(res => {
+      if (res && res.result === 'success') { g[field] = payload[field]; _prLoadMpoBillRoster(); }
+      else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
+  }
+
+  function _prAddMpoGrade() {
+    const input = document.getElementById('prMpoNewPayCode');
+    const payCode = input && input.value ? Number(input.value) : null;
+    if (!payCode) { showToast('Enter a pay code number first', 'error'); return; }
+    _payrollFetch('save_mpo_grade', { pay_code: payCode }).then(res => {
+      if (res && res.result === 'success') _prReloadMpoGradesAndRoster();
+      else showToast((res && res.message) || 'Failed to add', 'error');
+    }).catch(err => showToast(err.message || 'Failed to add', 'error'));
+  }
+
+  function _prDeleteMpoGrade(id) {
+    if (!confirm('Delete this Pay Code? Anyone on the MPO roster currently set to it will show as unconfigured.')) return;
+    _payrollFetch('delete_mpo_grade', { id }).then(res => {
+      if (res && res.result === 'success') _prReloadMpoGradesAndRoster();
+      else showToast((res && res.message) || 'Failed to delete', 'error');
+    }).catch(err => showToast(err.message || 'Failed to delete', 'error'));
+  }
+
+  function _prReloadMpoGradesAndRoster() {
+    _payrollFetch('get_mpo_grades', {}).then(res => {
+      _prMpoGradesCache = (res && res.result === 'success' && res.grades) || [];
+      _prRenderMpoBillRatesPanel();
+      _prLoadMpoBillRoster();
+    });
+  }
+
+  function _prLoadMpoStepGrid() {
+    Promise.all([_payrollFetch('get_mpo_steps', {}), _payrollFetch('get_mpo_grade_step_matrix', {})]).then(([stepsRes, matrixRes]) => {
+      _prMpoStepsCache = (stepsRes && stepsRes.result === 'success' && stepsRes.steps) || [];
+      _prMpoStepValuesCache = (matrixRes && matrixRes.result === 'success' && matrixRes.cells) || [];
+      _prRenderMpoStepGrid();
+    });
+  }
+
+  function _prRenderMpoStepGrid() {
+    const host = document.getElementById('prMpoStepGrid');
+    if (!host) return;
+    if (!_prMpoGradesCache.length) { host.innerHTML = '<p class="text-slate-400 font-bold text-xs p-3">Add a Pay Code above first.</p>'; return; }
+    const cellMap = {}; _prMpoStepValuesCache.forEach(c => { cellMap[`${c.mpo_grade_id}:${c.mpo_step_id}`] = c.basic_value; });
+    host.innerHTML = `
+      <table class="w-full text-left border-collapse text-[11px]">
+        <thead class="bg-slate-50"><tr class="text-[9px] font-black text-slate-500 uppercase">
+          <th class="py-1.5 px-2 sticky left-0 bg-slate-50">Pay Code</th>
+          ${_prMpoStepsCache.map(s => `<th class="py-1.5 px-2 text-center">Step ${s.step_number}</th>`).join('')}
+        </tr></thead>
+        <tbody>
+          ${_prMpoGradesCache.map(g => `
+          <tr class="border-b border-slate-100">
+            <td class="py-1 px-2 font-black sticky left-0 bg-white">${g.pay_code}</td>
+            ${_prMpoStepsCache.map(s => {
+              const val = cellMap[`${g.id}:${s.id}`];
+              return `<td class="py-1 px-2 text-center"><input type="number" step="0.01" value="${val != null ? val : ''}" placeholder="—" onchange="_prSaveMpoGradeStepValue(${g.id},${s.id},this.value)" class="w-20 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[10px] text-center"></td>`;
+            }).join('')}
+          </tr>`).join('')}
+        </tbody>
+      </table>`;
+  }
+
+  function _prSaveMpoGradeStepValue(gradeId, stepId, value) {
+    _payrollFetch('save_mpo_grade_step_value', { mpo_grade_id: gradeId, mpo_step_id: stepId, basic_value: value }).then(res => {
+      if (res && res.result === 'success') { _prLoadMpoStepGrid(); _prLoadMpoBillRoster(); }
+      else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
+  }
+
+  // Fixed institutional facts (EIIN/district/thana never change; the two
+  // MPO Codes and levels are one per institution) — not worth a settings
+  // screen for numbers that are effectively permanent for this one school.
+  const MPO_INSTITUTION_INFO = {
+    school: { mpoCode: '0209051301', level: 'Secondary' },
+    college: { mpoCode: '0209053101', level: 'Higher Secondary' },
+  };
+  const MPO_INSTITUTION_NAME = 'CHATTOGRAM CANTONMENT PUBLIC COLLEGE';
+  const MPO_EIIN = '104051';
+  const MPO_DISTRICT = 'CHATTOGRAM';
+  const MPO_THANA = 'PANCHLAISH';
+
+  function _prExportMpoBillPdf() {
+    if (!_prMpoBillRoster.length) { showToast('Nobody on this roster yet', 'error'); return; }
+    ensureJsPDF().then(() => {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ orientation: 'landscape', format: 'legal' });
+      const pageW = doc.internal.pageSize.getWidth();
+      const info = MPO_INSTITUTION_INFO[_prMpoBillInstitution];
+      const monthLabel = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
+      doc.setFontSize(13);
+      doc.text('Directorate of Secondary and Higher Education (DSHE)', pageW / 2, 10, { align: 'center' });
+      doc.setFontSize(11);
+      doc.text('MONTHLY EFT PAYMENT SHEET', pageW / 2, 16, { align: 'center' });
+      doc.setFontSize(9);
+      doc.text(monthLabel, pageW / 2, 21, { align: 'center' });
+      doc.setFontSize(8);
+      doc.text(`MPO CODE : ${info.mpoCode}     EIIN : ${MPO_EIIN}     LEVEL OF MPO : ${info.level}`, 10, 28);
+      doc.text(`INSTITUTION'S NAME : ${MPO_INSTITUTION_NAME}     DISTRICT : ${MPO_DISTRICT}     THANA : ${MPO_THANA}`, 10, 33);
+
+      const fmt = n => (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const head = [
+        [
+          { content: 'SL', rowSpan: 2 }, { content: 'Index No.', rowSpan: 2 }, { content: 'Name', rowSpan: 2 }, { content: 'Designation', rowSpan: 2 },
+          { content: 'Subject', rowSpan: 2 }, { content: 'Date of Birth', rowSpan: 2 }, { content: 'Bank Acc No.', rowSpan: 2 }, { content: 'Pay Code', rowSpan: 2 }, { content: 'Basic', rowSpan: 2 },
+          { content: 'Addition', colSpan: 5 }, { content: 'Deduction', colSpan: 2 },
+          { content: 'Net Payable Amount', rowSpan: 2 }, { content: 'Remarks', rowSpan: 2 }, { content: 'Signature', rowSpan: 2 },
+        ],
+        ['Basic', 'Incentive', 'House Rent', 'Medical', 'Arrear', 'Welfare', 'Retirement'],
+      ];
+      const body = _prMpoBillRoster.map((r, i) => [
+        i + 1, r.mpo_index || '', r.full_name, r.designation || '', r.subject || 'N/A',
+        r.date_of_birth || '', r.bank_acc_no || '', r.pay_code || '', fmt(r.basic),
+        fmt(r.basic), fmt(r.incentive), fmt(r.house_rent), fmt(r.medical), fmt(r.arrear),
+        fmt(r.welfare), fmt(r.retirement), fmt(r.net), '', '',
+      ]);
+      doc.autoTable({
+        startY: 38, head, body,
+        styles: { fontSize: 7, cellPadding: 1.2, halign: 'center', valign: 'middle', lineWidth: 0.1 },
+        headStyles: { fillColor: [241, 245, 249], textColor: [15, 23, 42], fontStyle: 'bold' },
+        columnStyles: { 2: { halign: 'left' }, 3: { halign: 'left' } },
+      });
+      const finalY = doc.lastAutoTable.finalY + 15;
+      doc.setFontSize(9);
+      doc.text('Institution Head', 20, finalY);
+      doc.text('Date & Seal', 20, finalY + 6);
+      doc.text('President, Managing Committee/Governing Body', pageW - 95, finalY);
+      doc.text('Date', pageW - 95, finalY + 6);
+      doc.save(`mpo_bill_${_prMpoBillInstitution}_${monthLabel.replace(' ', '_')}.pdf`);
+    });
   }
 
   // ── Remarks Log — archived Name/Post/Remarks snapshots, one per month,

@@ -1183,6 +1183,187 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success' });
   }
 
+  // ── MPO Bill (DSHE Monthly EFT Payment Sheet) ───────────────────────────
+  // A wholly separate Pay-Code + Step + Basic system from the school's own
+  // internal Grade/Step above — confirmed the two numbering schemes do not
+  // correspond for the same person (e.g. one real staff member is
+  // internally Grade 4 but MPO Pay Code 6), so this can never reuse
+  // grade_step_values. Not to be confused with the existing, unrelated
+  // person_setup.mpo_amount / mpo_lock above — that's a single flat
+  // government-funded-portion figure for the internal payroll register;
+  // this is the actual DSHE compliance report a Pay Code's Incentive/House
+  // Rent/Welfare/Retirement schedule computes toward.
+  if (action === 'get_mpo_grades') {
+    const rows = await sbPayroll('mpo_grades?select=*&order=pay_code.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', grades: rows });
+  }
+
+  if (action === 'save_mpo_grade') {
+    const { id, pay_code, label, mpo_incentive_percent, mpo_house_rent_percent, mpo_house_rent_min, mpo_welfare_percent, mpo_retirement_percent, mpo_medical_amount } = payload;
+    const pc = Number(pay_code);
+    if (!pc) return NextResponse.json({ result: 'error', message: 'Pay Code is required' }, { status: 400 });
+    const num = v => (v === '' || v == null ? null : Number(v));
+    const rowData = {
+      pay_code: pc, label: label || `Pay Code ${pc}`,
+      mpo_incentive_percent: num(mpo_incentive_percent), mpo_house_rent_percent: num(mpo_house_rent_percent),
+      mpo_house_rent_min: num(mpo_house_rent_min), mpo_welfare_percent: num(mpo_welfare_percent),
+      mpo_retirement_percent: num(mpo_retirement_percent), mpo_medical_amount: num(mpo_medical_amount),
+    };
+    const saved = id
+      ? await sbPayroll(`mpo_grades?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sbPayroll('mpo_grades', 'POST', rowData);
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    const savedGrade = Array.isArray(saved) ? saved[0] : saved;
+    _prAudit(user_id, 'save_mpo_grade', 'mpo_grades', savedGrade?.id || id, rowData);
+    return NextResponse.json({ result: 'success', grade: savedGrade });
+  }
+
+  if (action === 'delete_mpo_grade') {
+    const { id } = payload;
+    if (!id) return NextResponse.json({ result: 'error', message: 'id required' }, { status: 400 });
+    const del = await sbPayroll(`mpo_grades?id=eq.${encodeURIComponent(id)}`, 'DELETE');
+    if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
+    _prAudit(user_id, 'delete_mpo_grade', 'mpo_grades', id, null);
+    return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'get_mpo_steps') {
+    const rows = await sbPayroll('mpo_steps?select=*&order=step_number.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', steps: rows });
+  }
+
+  if (action === 'save_mpo_step') {
+    const { id, step_number } = payload;
+    const n = Number(step_number);
+    if (step_number === '' || step_number == null || Number.isNaN(n)) return NextResponse.json({ result: 'error', message: 'Step number is required' }, { status: 400 });
+    const rowData = { step_number: n };
+    const saved = id
+      ? await sbPayroll(`mpo_steps?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sbPayroll('mpo_steps', 'POST', rowData);
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    _prAudit(user_id, 'save_mpo_step', 'mpo_steps', id || null, rowData);
+    return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'get_mpo_grade_step_matrix') {
+    const cells = await sbPayroll('mpo_grade_step_values?select=*');
+    if (cells?.error) return NextResponse.json({ result: 'error', message: cells.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', cells });
+  }
+
+  if (action === 'save_mpo_grade_step_value') {
+    const { mpo_grade_id, mpo_step_id, basic_value } = payload;
+    if (!mpo_grade_id || !mpo_step_id) return NextResponse.json({ result: 'error', message: 'mpo_grade_id and mpo_step_id required' }, { status: 400 });
+    const rowData = { mpo_grade_id, mpo_step_id, basic_value: basic_value === '' || basic_value == null ? null : Number(basic_value) };
+    const existing = await sbPayroll(`mpo_grade_step_values?mpo_grade_id=eq.${encodeURIComponent(mpo_grade_id)}&mpo_step_id=eq.${encodeURIComponent(mpo_step_id)}&select=id`);
+    const saved = (!existing?.error && existing.length)
+      ? await sbPayroll(`mpo_grade_step_values?mpo_grade_id=eq.${encodeURIComponent(mpo_grade_id)}&mpo_step_id=eq.${encodeURIComponent(mpo_step_id)}`, 'PATCH', rowData)
+      : await sbPayroll('mpo_grade_step_values', 'POST', rowData);
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    _prAudit(user_id, 'save_mpo_grade_step_value', 'mpo_grade_step_values', `${mpo_grade_id}:${mpo_step_id}`, rowData);
+    return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'save_mpo_index') {
+    const { target_user_id, mpo_index } = payload;
+    if (!target_user_id) return NextResponse.json({ result: 'error', message: 'target_user_id required' }, { status: 400 });
+    const saved = await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(target_user_id)}`, 'PATCH', { mpo_index: mpo_index || null });
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    _prAudit(user_id, 'save_mpo_index', 'person_setup', target_user_id, { mpo_index });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // Every computed figure a roster row needs, shared by get_mpo_roster and
+  // the PDF export path so the on-screen table and the exported document
+  // can never drift from each other.
+  function _mpoComputeRow(r, gradesById, stepValueByKey) {
+    const grade = r.mpo_grade_id ? gradesById[r.mpo_grade_id] : null;
+    const basic = r.basic_override != null
+      ? Number(r.basic_override) || 0
+      : (r.mpo_grade_id && r.mpo_step_id ? Number(stepValueByKey[`${r.mpo_grade_id}:${r.mpo_step_id}`]) || 0 : 0);
+    const pct = v => Math.round((basic * (Number(v) || 0)) / 100);
+    const incentive = grade ? pct(grade.mpo_incentive_percent) : 0;
+    let houseRent = grade ? pct(grade.mpo_house_rent_percent) : 0;
+    if (grade && grade.mpo_house_rent_min != null) houseRent = Math.max(houseRent, Number(grade.mpo_house_rent_min) || 0);
+    const medical = grade && grade.mpo_medical_amount != null ? Number(grade.mpo_medical_amount) : 0;
+    const welfare = grade ? pct(grade.mpo_welfare_percent) : 0;
+    const retirement = grade ? pct(grade.mpo_retirement_percent) : 0;
+    const arrear = Number(r.arrear) || 0;
+    const net = basic + incentive + houseRent + medical + arrear - welfare - retirement;
+    return { basic, incentive, house_rent: houseRent, medical, arrear, welfare, retirement, net, pay_code: grade ? grade.pay_code : null, rates_missing: !!r.mpo_grade_id && !grade };
+  }
+
+  if (action === 'get_mpo_roster') {
+    const { institution } = payload;
+    if (institution !== 'school' && institution !== 'college') return NextResponse.json({ result: 'error', message: "institution must be 'school' or 'college'" }, { status: 400 });
+    const [rosterRows, gradeRows, stepValueRows, peopleRows] = await Promise.all([
+      sbPayroll(`mpo_roster?institution=eq.${encodeURIComponent(institution)}&select=*&order=id.asc`),
+      sbPayroll('mpo_grades?select=*'),
+      sbPayroll('mpo_grade_step_values?select=*'),
+      sbPayroll('person_setup?select=user_id,mpo_index'),
+    ]);
+    if (rosterRows?.error) return NextResponse.json({ result: 'error', message: rosterRows.error }, { status: 500 });
+    const userIds = rosterRows.map(r => r.user_id);
+    const staffRows = userIds.length
+      ? await _teacherSchemaFetch(`users_profile?teacher_id=in.(${userIds.map(id => encodeURIComponent(id)).join(',')})&select=teacher_id,full_name,designation`)
+      : [];
+    const staffByUser = {}; (staffRows || []).forEach(s => { staffByUser[s.teacher_id] = s; });
+    const indexByUser = {}; (peopleRows || []).forEach(p => { indexByUser[p.user_id] = p.mpo_index; });
+    const gradesById = {}; (gradeRows || []).forEach(g => { gradesById[g.id] = g; });
+    const stepValueByKey = {}; (stepValueRows || []).forEach(c => { stepValueByKey[`${c.mpo_grade_id}:${c.mpo_step_id}`] = c.basic_value; });
+
+    const roster = rosterRows.map(r => {
+      const staff = staffByUser[r.user_id] || {};
+      const computed = _mpoComputeRow(r, gradesById, stepValueByKey);
+      return {
+        ...r,
+        full_name: staff.full_name || r.user_id,
+        designation: staff.designation || '',
+        mpo_index: indexByUser[r.user_id] || '',
+        ...computed,
+      };
+    });
+    return NextResponse.json({ result: 'success', roster, grades: gradeRows, steps: (await sbPayroll('mpo_steps?select=*&order=step_number.asc')) || [] });
+  }
+
+  if (action === 'add_mpo_roster_person') {
+    const { target_user_id, institution } = payload;
+    if (!target_user_id || (institution !== 'school' && institution !== 'college')) return NextResponse.json({ result: 'error', message: 'target_user_id and a valid institution are required' }, { status: 400 });
+    const saved = await sbPayroll('mpo_roster', 'POST', { user_id: target_user_id, institution });
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    _prAudit(user_id, 'add_mpo_roster_person', 'mpo_roster', target_user_id, { institution });
+    return NextResponse.json({ result: 'success', row: Array.isArray(saved) ? saved[0] : saved });
+  }
+
+  if (action === 'remove_mpo_roster_person') {
+    const { id } = payload;
+    if (!id) return NextResponse.json({ result: 'error', message: 'id required' }, { status: 400 });
+    const del = await sbPayroll(`mpo_roster?id=eq.${encodeURIComponent(id)}`, 'DELETE');
+    if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
+    _prAudit(user_id, 'remove_mpo_roster_person', 'mpo_roster', id, null);
+    return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'save_mpo_roster_person') {
+    const { id, mpo_grade_id, mpo_step_id, basic_override, subject, date_of_birth, bank_acc_no, arrear } = payload;
+    if (!id) return NextResponse.json({ result: 'error', message: 'id required' }, { status: 400 });
+    const rowData = {
+      mpo_grade_id: mpo_grade_id || null,
+      mpo_step_id: mpo_step_id || null,
+      basic_override: basic_override === '' || basic_override == null ? null : Number(basic_override),
+      subject: subject || null,
+      date_of_birth: date_of_birth || null,
+      bank_acc_no: bank_acc_no || null,
+      arrear: arrear === '' || arrear == null ? 0 : Number(arrear),
+    };
+    const saved = await sbPayroll(`mpo_roster?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData);
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    _prAudit(user_id, 'save_mpo_roster_person', 'mpo_roster', id, rowData);
+    return NextResponse.json({ result: 'success', row: Array.isArray(saved) ? saved[0] : saved });
+  }
+
   // ── People (grade assignment + per-person field overrides) ──
   if (action === 'get_people_setup') {
     const rows = await sbPayroll('person_setup?select=*&order=created_at.desc');
