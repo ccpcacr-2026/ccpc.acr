@@ -19931,7 +19931,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _prAllSectionEntriesCache = (entriesRes && entriesRes.result === 'success' && entriesRes.entries) || [];
       if (sectionsRes) _prSectionsCache = (sectionsRes.result === 'success' && sectionsRes.sections) || [];
       if (fieldsRes) _prFieldsCache = (fieldsRes.result === 'success' && fieldsRes.fields) || [];
-      const fieldKeys = new Set();
+      // bonus_total/leave_deduction/bus_fare/mpo_deduction are computed
+      // directly in _computePayslipForPerson, not real payroll.fields rows
+      // — so they only ever show up here by being scanned out of an actual
+      // payslip's field_values. Seeded explicitly instead, so they're
+      // always offered as export columns even for a run whose data
+      // predates one of them, or where nobody triggered a non-zero value
+      // this particular month.
+      const SPECIAL_FIELD_KEYS = ['bonus_total', 'leave_deduction', 'bus_fare', 'mpo_deduction'];
+      const fieldKeys = new Set(SPECIAL_FIELD_KEYS);
       _prExportSlips.forEach(s => Object.keys(s.field_values || {}).forEach(k => fieldKeys.add(k)));
       const labelFor = key => {
         if (key === 'bonus_total') return 'Bonus';
