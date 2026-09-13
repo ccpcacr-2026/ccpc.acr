@@ -66,7 +66,7 @@ const RESERVED = [
   '_prOpenGradeForm','_prCloseGradeForm','_prSaveGrade','_prDeleteGrade','_prSelectGrade','_prSaveGradeField','_prToggleGradeConditionalField',
   '_prSelectPerson','_prSavePersonSetup','_prSavePersonFieldOverride','_prTogglePfoReferenceMode','_prRenderPfoStepOptions',
   '_prSwitchMpoBillInstitution','_prToggleMpoBillRates','_prExportMpoBillPdf','_prSaveMpoIndexInline','_prSaveMpoBillField',
-  '_prRemoveMpoBillPerson','_prSaveMpoGradeField','_prAddMpoGrade','_prDeleteMpoGrade','_prSaveMpoGradeStepValue',
+  '_prRemoveMpoBillPerson','_prSaveMpoGradeField','_prSyncMpoAmount',
   '_prOpenStatutoryForm','_prCloseStatutoryForm','_prToggleStatutoryCalcFields','_prToggleStatutoryEmployerFields','_prSaveStatutoryItem','_prDeleteStatutoryItem',
   '_prOpenBonusForm','_prCloseBonusForm','_prSaveBonusPayment','_prDeleteBonusPayment',
   '_prOpenAddBonusForm','_prCloseAddBonusForm','_prSetBonusScope','_prSetBonusAmountMode','_prSetBonusMergeMode','_prSaveBulkBonus',
