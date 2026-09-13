@@ -19903,7 +19903,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     'hr', 'tiffin', 'washing', 'conveyance', 'medical', 'pf_10_percent',
     'class_teacher_allowance', 'education', 'mobile_bill', 'entertainment_allowance', 'imam_allowance', 'muazzin_allowance',
     'other_addition', 'special', 'gross',
-    'tuition', 'bus', 'hr_deduction', 'utilities', 'pf_loan', 'pf_20_percent', 'tds', 'welfare', 'ts_club', 'other_deduction', 'total_deductions',
+    'tuition', 'bus', 'hr_deduction', 'utilities', 'mpo_deduction', 'pf_loan', 'pf_20_percent', 'tds', 'welfare', 'ts_club', 'other_deduction', 'total_deductions',
     'net', 'mpo_amount', 'college_amount',
   ];
   function _prSortColumnsLikeSheet(cols) {
@@ -19935,6 +19935,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _prExportSlips.forEach(s => Object.keys(s.field_values || {}).forEach(k => fieldKeys.add(k)));
       const labelFor = key => {
         if (key === 'bonus_total') return 'Bonus';
+        if (key === 'mpo_deduction') return 'MPO';
         if (key.startsWith('statutory_employer:')) return `${(_prStatutoryCache.find(s => s.key === key.split(':')[1]) || {}).label || key} (Employer)`;
         if (key.startsWith('statutory:')) return (_prStatutoryCache.find(s => s.key === key.split(':')[1]) || {}).label || key;
         const f = _prFieldsCache.find(f => f.key === key);
