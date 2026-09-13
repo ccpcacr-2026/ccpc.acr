@@ -20242,12 +20242,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const italic = isHeader ? c.headerItalic : c.italic;
     const color = isHeader ? c.headerColor : c.color;
     const bg = isHeader ? c.headerBg : null;
+    const fontSize = isHeader ? c.headerFontSize : c.fontSize; // pt, same unit as the PDF's own fontSize style
     const rot = Number(isHeader ? c.headerRotation : c.rotation) || 0;
     const align = (isHeader ? c.headerAlign : c.align) || (isHeader ? 'center' : 'left');
     const valign = (isHeader ? c.headerValign : c.valign) || 'middle';
     let css = `font-weight:${bold ? '700' : '400'};font-style:${italic ? 'italic' : 'normal'};text-align:${align};vertical-align:${valign};`;
     if (color) css += `color:${color};`;
     if (bg) css += `background:${bg};`;
+    if (fontSize) css += `font-size:${(fontSize * 1.333).toFixed(2)}px;`;
     if (c.width) {
       const u = c.widthUnit === '%' ? '%' : c.widthUnit === 'in' ? 'in' : 'px'; // CSS natively supports all three
       css += `width:${c.width}${u};max-width:${c.width}${u};min-width:${c.width}${u};`;
@@ -20650,6 +20652,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <button onclick="_prSetExportFormat('${key}','headerItalic',${!c.headerItalic})" class="w-8 h-8 border rounded-lg italic font-black text-xs ${c.headerItalic ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-500'}">I</button>
               <input type="color" value="${c.headerColor || '#000000'}" onchange="_prSetExportFormat('${key}','headerColor',this.value)" title="Text color" class="w-8 h-8 rounded-lg cursor-pointer border border-slate-200">
               <input type="color" value="${c.headerBg || '#ffffff'}" onchange="_prSetExportFormat('${key}','headerBg',this.value)" title="Background" class="w-8 h-8 rounded-lg cursor-pointer border border-slate-200">
+              <input type="number" value="${c.headerFontSize || ''}" placeholder="auto" min="4" max="24" step="0.5" title="Font size" onchange="_prSetExportFormat('${key}','headerFontSize',this.value?Number(this.value):null)" class="w-14 px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-[10px]">
             </div>
             <select onchange="_prSetExportFormat('${key}','headerRotation',Number(this.value))" class="w-full px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-[10px] mb-1.5">
               ${[0, 90, 180, 270].map(deg => `<option value="${deg}" ${Number(c.headerRotation) === deg ? 'selected' : ''}>${deg}° rotation</option>`).join('')}
@@ -20667,6 +20670,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <button onclick="_prSetExportFormat('${key}','bold',${!c.bold})" class="w-8 h-8 border rounded-lg font-black text-xs ${c.bold ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-500'}">B</button>
               <button onclick="_prSetExportFormat('${key}','italic',${!c.italic})" class="w-8 h-8 border rounded-lg italic font-black text-xs ${c.italic ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-500'}">I</button>
               <input type="color" value="${c.color || '#000000'}" onchange="_prSetExportFormat('${key}','color',this.value)" title="Text color" class="w-8 h-8 rounded-lg cursor-pointer border border-slate-200">
+              <input type="number" value="${c.fontSize || ''}" placeholder="auto" min="4" max="24" step="0.5" title="Font size" onchange="_prSetExportFormat('${key}','fontSize',this.value?Number(this.value):null)" class="w-14 px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-[10px]">
             </div>
             <select onchange="_prSetExportFormat('${key}','rotation',Number(this.value))" class="w-full px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-[10px] mb-1.5">
               ${[0, 90, 180, 270].map(deg => `<option value="${deg}" ${Number(c.rotation) === deg ? 'selected' : ''}>${deg}° rotation</option>`).join('')}
@@ -21518,8 +21522,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           const addr = XLSX.utils.encode_cell({ r: headerRow, c: ci });
           if (!ws[addr]) return;
           const s = {};
-          if (c.headerBold || c.headerItalic || c.headerColor) {
-            s.font = { bold: !!c.headerBold, italic: !!c.headerItalic, color: c.headerColor ? { rgb: c.headerColor.replace('#', '') } : undefined };
+          if (c.headerBold || c.headerItalic || c.headerColor || c.headerFontSize) {
+            s.font = { bold: !!c.headerBold, italic: !!c.headerItalic, color: c.headerColor ? { rgb: c.headerColor.replace('#', '') } : undefined, sz: c.headerFontSize || undefined };
           }
           if (c.headerBg) s.fill = { fgColor: { rgb: c.headerBg.replace('#', '') } };
           s.alignment = { horizontal: c.headerAlign || 'center', vertical: _prExcelVAlign(c.headerValign) };
@@ -21549,7 +21553,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             const bold = firstStyledSeg ? firstStyledSeg.bold : c.bold;
             const italic = firstStyledSeg ? firstStyledSeg.italic : c.italic;
             const color = firstStyledSeg ? firstStyledSeg.color : c.color;
-            if (bold || italic || color) s.font = { bold: !!bold, italic: !!italic, color: color ? { rgb: color.replace('#', '') } : undefined };
+            if (bold || italic || color || c.fontSize) s.font = { bold: !!bold, italic: !!italic, color: color ? { rgb: color.replace('#', '') } : undefined, sz: c.fontSize || undefined };
             s.alignment = { horizontal: c.align || 'left', vertical: _prExcelVAlign(c.valign) };
             if (c.rotation === 90 || c.rotation === 270) s.alignment.textRotation = 90;
             if (_prExportRowDesign.zebra && (ri - dataStartRow) % 2 === 1) {
@@ -22117,6 +22121,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 else if (col.headerItalic) hook.cell.styles.fontStyle = 'italic';
                 if (col.headerColor) hook.cell.styles.textColor = _prHexToRgbArr(col.headerColor);
                 if (col.headerBg) hook.cell.styles.fillColor = _prHexToRgbArr(col.headerBg);
+                if (col.headerFontSize) hook.cell.styles.fontSize = col.headerFontSize;
                 hook.cell.styles.halign = col.headerAlign || 'center';
                 if (hook.row.index === 0) hook.cell.styles.lineWidth = { top: topMm, right: gridMm, bottom: gridMm, left: gridMm };
                 if (col.headerRotation) hook.cell.text = []; // suppress default draw — didDrawCell below draws it rotated instead
@@ -22161,6 +22166,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               else if (col.bold) hook.cell.styles.fontStyle = 'bold';
               else if (col.italic) hook.cell.styles.fontStyle = 'italic';
               if (col.color) hook.cell.styles.textColor = _prHexToRgbArr(col.color);
+              if (col.fontSize) hook.cell.styles.fontSize = col.fontSize;
               if (_prExportRowDesign.zebra && hook.row.index % 2 === 1) hook.cell.styles.fillColor = _prHexToRgbArr(_prExportRowDesign.zebraColor || '#f1f5f9');
               applyGroupOutline(hook.column.index, hook.cell.styles);
               // Number Format is display-only — the raw numeric value in
