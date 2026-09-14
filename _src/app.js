@@ -19520,6 +19520,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const now = new Date();
     document.getElementById('prRunMonth').value = now.getMonth() + 1;
     document.getElementById('prRunYear').value = now.getFullYear();
+    // staffLabel() (used by _prSelectRun's payslip summary table below)
+    // silently falls back to the raw Teacher ID when allStaffCache is
+    // still empty — this tab never pre-loaded it (unlike the Export tab,
+    // which already does this exact check), so visiting Run & Payslips
+    // before any other tab had a chance to populate the cache showed
+    // Teacher ID instead of Name — Designation for everyone.
+    if (!allStaffCache || !allStaffCache.length) _ensureStaffCache(() => {});
     _prLoadRunsList();
   }
 
