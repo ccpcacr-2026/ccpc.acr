@@ -20834,7 +20834,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </select>
           </div>
           ${c.group ? `<button onclick="_prAddGroupTotalColumn('${_escHtml(c.group)}')" class="shrink-0 px-3 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="sigma" class="h-3.5 w-3.5"></i>Add Total for "${_escHtml(c.group)}"</button>` : ''}
-          <button onclick="_prSetExportFormat('${key}','included',false)" class="shrink-0 px-3 py-2 border border-red-200 text-red-500 bg-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-red-50 transition-all">Remove Column</button>
+          <button onclick="${c.type === 'virtual' ? `_prRemoveExportColumn('${key}')` : `_prSetExportFormat('${key}','included',false)`}" class="shrink-0 px-3 py-2 border border-red-200 text-red-500 bg-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-red-50 transition-all">Remove Column</button>
           <button onclick="_prSelectFormatColumn(null)" title="Close" class="shrink-0 w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-white rounded-lg transition-all"><i data-lucide="x" class="h-4 w-4"></i></button>
         </div>
         ${c.group ? (() => {
@@ -21130,6 +21130,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const vtype = document.getElementById('prVcType').value;
     if (!name) { showToast('Name is required', 'error'); return; }
     const key = `virtual:${name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
+    // Same name -> same derived key: without this guard a second virtual
+    // column of the same name doesn't just look redundant, it silently
+    // breaks the first one. Every format control (_prSetExportFormat)
+    // looks its column up by key alone, with no tie-breaker for two
+    // objects sharing one — it always resolves to whichever was pushed
+    // first, so every edit made through the visibly-selected (second,
+    // newer) column would actually land on the invisible first one,
+    // reading as "nothing I change here ever takes effect."
+    if (_prExportColumnsCache.some(c => c.key === key)) {
+      showToast(`A column named "${name}" already exists — remove it first or use a different name`, 'error');
+      return;
+    }
     const base = {
       key, label: name, type: 'virtual', vtype, included: true,
       bold: false, italic: false, color: '', rotation: 0, align: 'left', headerAlign: 'center', width: null,
@@ -21862,6 +21874,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             if (bold || italic || color || c.fontSize) s.font = { bold: !!bold, italic: !!italic, color: color ? { rgb: color.replace('#', '') } : undefined, sz: c.fontSize || undefined };
             s.alignment = { horizontal: c.align || 'left', vertical: _prExcelVAlign(c.valign) };
             if (c.rotation === 90 || c.rotation === 270) s.alignment.textRotation = 90;
+            // A Text virtual column's whole point is concatenating several
+            // fields into one, usually longer than any single source field
+            // — Excel's own default is to run that past the cell and rely
+            // on an empty neighbor to show it, same gap the PDF side just
+            // got fixed for. Excel already auto-grows an unfixed row's
+            // height for wrapped content on its own, so this alone is
+            // enough (no manual height math needed, unlike the PDF path).
+            if (c.type === 'virtual' && c.vtype === 'text') s.alignment.wrapText = true;
             if (_prExportRowDesign.zebra && (ri - dataStartRow) % 2 === 1) {
               s.fill = { fgColor: { rgb: (_prExportRowDesign.zebraColor || '#f1f5f9').replace('#', '') } };
             }
@@ -22251,39 +22271,91 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return Math.max(16, Math.min(60, String(c.label || '').length * 2.2 + 8));
   }
 
-  // Draws a Text virtual column's resolved segments with each one's own
-  // bold/italic/color — jsPDF has no native rich-text-in-one-cell API, so
-  // this measures each segment's width (font style affects width, so it's
-  // set before each measurement) and places them left to right itself.
-  // joinWith containing '\n' starts a new line between segments instead of
-  // drawing it as a literal separator glyph.
-  function _prDrawTextSegmentsInCell(doc, col, slip, x, y, width, height, align) {
+  // Word-wraps a Text virtual column's resolved segments to a target
+  // width — every ordinary column gets this for free from autotable's
+  // own default 'linebreak' overflow, but a Text virtual column draws
+  // itself manually (jsPDF has no native rich-text-in-one-cell API), so
+  // a long concatenation used to just run past the cell's right edge
+  // instead of dropping to a second line. Shared by the actual draw
+  // (_prDrawTextSegmentsInCell) below and the per-page row-height pass
+  // in _prExportPdf, so the two can never disagree on how many lines a
+  // given cell needs (a mismatch there would reopen the exact "text
+  // crosses the grid line" class of bug already fixed this session).
+  // joinWith containing '\n' still forces a line break between segments
+  // (unchanged); anywhere else — including a non-newline joinWith and
+  // the inside of a single long segment — now wraps by width like any
+  // other column. Returns an array of lines, each an array of
+  // {text,bold,italic,color} word tokens (a bare space is its own
+  // token, dropped by the draw pass but harmless for a line-count-only
+  // caller).
+  function _prWrapTextVirtualLines(doc, col, slip, maxWidthMm) {
     const segments = _prResolveTextSegments(col, slip);
-    if (!segments.length) return;
+    if (!segments.length) return [[]];
     const sep = col.joinWith || '';
     const sepIsNewline = sep.includes('\n');
     const baseFont = doc.getFont();
-    const lines = [[]];
+    const widthOf = t => {
+      doc.setFont(baseFont.fontName, t.bold && t.italic ? 'bolditalic' : t.bold ? 'bold' : t.italic ? 'italic' : 'normal');
+      return doc.getTextWidth(t.text);
+    };
+    const tokens = [];
     segments.forEach((seg, i) => {
-      lines[lines.length - 1].push(seg);
-      if (i < segments.length - 1 && sepIsNewline) lines.push([]);
+      String(seg.text).split(' ').forEach((word, wi) => {
+        if (wi > 0) tokens.push({ text: ' ', bold: seg.bold, italic: seg.italic, space: true });
+        if (word) tokens.push({ text: word, bold: seg.bold, italic: seg.italic, color: seg.color });
+      });
+      if (i < segments.length - 1) {
+        if (sepIsNewline) tokens.push({ hardBreak: true });
+        else if (sep) tokens.push({ text: sep, sep: true });
+      }
     });
+    const lines = [[]];
+    let lineWidth = 0;
+    tokens.forEach(t => {
+      if (t.hardBreak) { lines.push([]); lineWidth = 0; return; }
+      const w = widthOf(t);
+      if (t.space) {
+        if (lines[lines.length - 1].length) { lines[lines.length - 1].push(t); lineWidth += w; }
+        return;
+      }
+      if (lineWidth + w > maxWidthMm && lines[lines.length - 1].length) {
+        const cur = lines[lines.length - 1];
+        if (cur.length && cur[cur.length - 1].space) cur.pop(); // no dangling space at a wrap point
+        lines.push([]);
+        lineWidth = 0;
+      }
+      lines[lines.length - 1].push(t);
+      lineWidth += w;
+    });
+    doc.setFont(baseFont.fontName, baseFont.fontStyle);
+    return lines;
+  }
+
+  // Draws a Text virtual column's resolved segments with each one's own
+  // bold/italic/color, wrapped to the cell's real width via
+  // _prWrapTextVirtualLines above.
+  function _prDrawTextSegmentsInCell(doc, col, slip, x, y, width, height, align) {
+    const lines = _prWrapTextVirtualLines(doc, col, slip, Math.max(4, width - 2));
+    if (!lines.length || (lines.length === 1 && !lines[0].length)) return;
+    const baseFont = doc.getFont();
     const fontSize = doc.internal.getFontSize();
     const lineHeight = (fontSize * 1.15) / doc.internal.scaleFactor;
     const startY = y + height / 2 - (lines.length * lineHeight) / 2 + lineHeight / 2;
-    const styleFor = seg => (seg.bold && seg.italic ? 'bolditalic' : seg.bold ? 'bold' : seg.italic ? 'italic' : 'normal');
-    lines.forEach((lineSegs, li) => {
-      const widths = lineSegs.map(seg => { doc.setFont(baseFont.fontName, styleFor(seg)); return doc.getTextWidth(seg.text); });
-      const sepWidth = !sepIsNewline && sep ? doc.getTextWidth(sep) : 0;
-      const totalWidth = widths.reduce((a, w) => a + w, 0) + sepWidth * Math.max(0, lineSegs.length - 1);
+    const widthOf = t => {
+      doc.setFont(baseFont.fontName, t.bold && t.italic ? 'bolditalic' : t.bold ? 'bold' : t.italic ? 'italic' : 'normal');
+      return doc.getTextWidth(t.text);
+    };
+    lines.forEach((lineTokens, li) => {
+      const totalWidth = lineTokens.reduce((a, t) => a + widthOf(t), 0);
       let curX = align === 'center' ? x + width / 2 - totalWidth / 2 : align === 'right' ? x + width - totalWidth - 1 : x + 1;
       const curY = startY + li * lineHeight;
-      lineSegs.forEach((seg, i) => {
-        doc.setFont(baseFont.fontName, styleFor(seg));
-        doc.setTextColor(...(seg.color ? _prHexToRgbArr(seg.color) : [0, 0, 0]));
-        doc.text(seg.text, curX, curY, { baseline: 'middle' });
-        curX += widths[i];
-        if (i < lineSegs.length - 1 && !sepIsNewline && sep) { doc.setTextColor(0, 0, 0); doc.setFont(baseFont.fontName, 'normal'); doc.text(sep, curX, curY, { baseline: 'middle' }); curX += sepWidth; }
+      lineTokens.forEach(t => {
+        const w = widthOf(t);
+        if (!t.space) {
+          doc.setTextColor(...(t.color ? _prHexToRgbArr(t.color) : [0, 0, 0]));
+          doc.text(t.text, curX, curY, { baseline: 'middle' });
+        }
+        curX += w;
       });
     });
     doc.setTextColor(0, 0, 0);
@@ -22465,6 +22537,26 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         const dp = Math.max(_prSummaryDecimals(_prExportSummaryRowStyle.cf, col), _prSummaryDecimals(_prExportSummaryRowStyle.subtotal, col));
         return measureRotatedMm(col, _prFormatColumnValue({ ...col, decimals: dp }, sum));
       })) : 0;
+      // A Text virtual column now wraps (_prWrapTextVirtualLines) instead
+      // of running past its cell's right edge — but a wrapped cell only
+      // stays inside its row if the row is actually tall enough, and
+      // autotable never measures this column's height itself (its cell
+      // text is cleared to '' in didParseCell below; the whole thing is
+      // drawn manually in didDrawCell). So, same per-page-floor pattern
+      // as longestValueMm/longestSumMm above: find the tallest wrap any
+      // Text virtual column needs on THIS page's own rows and feed it
+      // into minBodyRowMm as another floor.
+      const textVirtualColIdx = data.cols.map((c, i) => (c.type === 'virtual' && c.vtype === 'text') ? i : -1).filter(i => i >= 0);
+      const longestTextWrapMm = (rows, slips) => textVirtualColIdx.length ? Math.max(0, ...textVirtualColIdx.map(colIdx => {
+        const col = data.cols[colIdx];
+        const maxWidthMm = Math.max(4, _prColumnWidthMm(col, pageWidthMm) - 2);
+        const baseSize = doc.internal.getFontSize();
+        doc.setFontSize(Number(col.fontSize) || 8);
+        const lineCount = Math.max(1, ...slips.map(slip => _prWrapTextVirtualLines(doc, col, slip, maxWidthMm).length));
+        doc.setFontSize(baseSize);
+        const lineHeightMm = ((Number(col.fontSize) || 8) * 1.15) / doc.internal.scaleFactor;
+        return lineCount * lineHeightMm + 2;
+      })) : 0;
       // A hard page-break rule (default 6), not a height estimate — every
       // page holds exactly this many people, so admin-picked Row Height/
       // rotation choices are on them to keep within one legal-size page.
@@ -22528,7 +22620,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           // Rotated Cell Height is still respected as a MINIMUM they can
           // push higher; it just can't silently clip this page's real
           // figures by being set too low.
-          const minBodyRowMm = Math.max(customRowMm, hasRotatedData ? Math.max(Number(_prExportRowDesign.rotatedRowHeight) || 0, longestValueMm(chunk.rows)) : 0);
+          const minBodyRowMm = Math.max(customRowMm, hasRotatedData ? Math.max(Number(_prExportRowDesign.rotatedRowHeight) || 0, longestValueMm(chunk.rows)) : 0, longestTextWrapMm(chunk.rows, chunk.slips));
           const cfMinRowMm = Math.max(minBodyRowMm, longestSumMm(priorRows));
           const subtotalMinRowMm = Math.max(minBodyRowMm, longestSumMm(chunk.rows));
 

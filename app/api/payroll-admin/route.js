@@ -784,17 +784,25 @@ export async function POST(req) {
       sbPayroll(`payslips?user_id=eq.${encodeURIComponent(user_id)}&select=*,runs(month,year,status)&order=id.desc`),
       sbPayroll('fields?select=id,key,label,category'),
       sbPayroll('sections?select=id,name,direction,field_id'),
-      sbPayroll('statutory_items?select=key,label,name'),
+      sbPayroll('statutory_items?select=key,label'),
       sbPayroll('grades?select=id,name'),
       _teacherSchemaFetch(`users_profile?teacher_id=eq.${encodeURIComponent(user_id)}&select=full_name,designation`),
     ]);
-    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+    // Every query above runs in parallel and only `rows` (the actual
+    // payslips) was ever checked for a PostgREST error object — any of
+    // the other four erroring (e.g. a stale column in a select list)
+    // came back as {error} instead of an array, and (fields||[]).forEach
+    // etc. below would throw on a plain object, crashing the whole
+    // endpoint with an opaque 500 for a problem in what's meant to be
+    // just label lookups. Checked the same way `rows` already was.
+    const firstError = [rows, fields, sections, statutoryItems, gradeRows].find(r => r?.error);
+    if (firstError) return NextResponse.json({ result: 'error', message: firstError.error }, { status: 500 });
     const finalized = (Array.isArray(rows) ? rows : []).filter(p => p.runs && p.runs.status === 'finalized');
 
     const fieldByKey = {}; (fields || []).forEach(f => { fieldByKey[f.key] = f; });
     const sectionById = {}; (sections || []).forEach(s => { sectionById[s.id] = s; });
     const gradeById = {}; (gradeRows || []).forEach(g => { gradeById[g.id] = g; });
-    const statutoryByKey = {}; (statutoryItems || []).forEach(s => { statutoryByKey[s.key] = s.label || s.name || s.key; });
+    const statutoryByKey = {}; (statutoryItems || []).forEach(s => { statutoryByKey[s.key] = s.label || s.key; });
     const profile = (Array.isArray(profileRows) && profileRows[0]) || {};
 
     const labelForKey = key => {
