@@ -21278,6 +21278,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     for (const rule of (entry.remarkRules || [])) {
       if (_prCompareVcCondition(val, rule.op, rule.compareValue)) return _prFillRemarkTemplate(rule.text, srcCol, val);
     }
+    // The default note ("{label} Tk. {value} included") only makes sense
+    // when the folded source actually had a nonzero value for THIS
+    // person — without this check every single person shows "X Tk. 0
+    // included" regardless of whether X ever applied to them at all,
+    // since a fold's default previously ran unconditionally whenever no
+    // explicit rule matched.
+    if (!(Number(val) || 0)) return '';
     return _prFillRemarkTemplate(entry.remarkDefault, srcCol, val);
   }
 
