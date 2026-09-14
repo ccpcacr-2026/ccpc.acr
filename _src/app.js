@@ -22347,43 +22347,39 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       // height measurement (didParseCell empties hook.cell.text so
       // didDrawCell can draw it rotated instead), so autotable has no way
       // to know how much room the ACTUAL longest value in a rotated
-      // column needs — only Rotated Cell Height (an admin-set floor)
-      // constrains it, and a value even a little longer than expected
-      // (a big salary, a person's own addition/deduction total, and
-      // especially a C.F./Sub Total SUM — always the longest, being a
-      // sum of many) would otherwise clip or overlap the next row
-      // silently. Compute the true longest rendered value per rotated
-      // column — every person's own value, and every group's own C.F./
-      // Sub Total — and use whichever is larger: the admin's own
-      // setting, or what the real content needs. The admin's number is
-      // still respected as a MINIMUM they can push higher; it just can't
-      // silently clip real payroll figures by being too low.
+      // column needs — only a floor (admin-set or computed) constrains
+      // it, and a value even a little longer than expected would
+      // otherwise clip or overlap the next row silently.
+      //
+      // Computed PER PAGE below (not once globally) — an earlier version
+      // scanned the whole export for its single longest value and
+      // applied that ONE height to every page uniformly, which meant one
+      // unusually long figure anywhere in a large run forced every OTHER
+      // page's rows tall too, leaving a visible gap between each row's
+      // own (much shorter) text and the grid line at its actual bottom —
+      // reported as "grid lines shifted down" / text not lining up with
+      // its own cell. Each page now sizes its own regular rows from only
+      // its own 6 people, and its C.F./Sub Total rows from only their
+      // own (page-specific) sums — C.F.'s running total and this page's
+      // own Sub Total are rarely the same length, so they get their own
+      // independent floor rather than sharing one.
       const rotatedDataColIdx = data.cols.map((c, i) => (c.rotation === 90 || c.rotation === 270) ? i : -1).filter(i => i >= 0);
-      let longestIndividualMm = 0, longestSummaryMm = 0;
-      if (rotatedDataColIdx.length) {
-        data.groups.forEach(g => {
-          rotatedDataColIdx.forEach(ci => {
-            const col = data.cols[ci];
-            const fontSize = Number(col.fontSize) || 8;
-            // ~0.5em per character is a generous, safe overestimate for a
-            // numeric/currency string in a standard font — erring toward
-            // "too tall" beats clipping a real payroll figure.
-            const mmPerChar = fontSize * 0.5 * 0.352778;
-            g.rows.forEach(row => {
-              const text = String(_prFormatColumnValue(col, row[ci]) ?? '');
-              const mm = text.length * mmPerChar + 4;
-              if (mm > longestIndividualMm) longestIndividualMm = mm;
-            });
-            const sum = Math.round(g.rows.reduce((a, r) => a + (Number(r[ci]) || 0), 0) * 100) / 100;
-            const dp = Math.max(_prSummaryDecimals(_prExportSummaryRowStyle.cf, col), _prSummaryDecimals(_prExportSummaryRowStyle.subtotal, col));
-            const sumText = String(_prFormatColumnValue({ ...col, decimals: dp }, sum));
-            const sumMm = sumText.length * mmPerChar + 4;
-            if (sumMm > longestSummaryMm) longestSummaryMm = sumMm;
-          });
-        });
-      }
-      const minBodyRowMm = Math.max(customRowMm, hasRotatedData ? Math.max(Number(_prExportRowDesign.rotatedRowHeight) || 0, longestIndividualMm) : 0);
-      const summaryMinRowMm = Math.max(minBodyRowMm, longestSummaryMm);
+      const mmPerCharFor = col => (Number(col.fontSize) || 8) * 0.5 * 0.352778;
+      // ~0.5em per character is a generous, safe overestimate for a
+      // numeric/currency string in a standard font — erring toward "too
+      // tall" beats clipping a real payroll figure.
+      const longestValueMm = rows => rotatedDataColIdx.length ? Math.max(0, ...rotatedDataColIdx.map(colIdx => {
+        const col = data.cols[colIdx];
+        const mmPerChar = mmPerCharFor(col);
+        return Math.max(0, ...rows.map(row => String(_prFormatColumnValue(col, row[colIdx]) ?? '').length * mmPerChar + 4));
+      })) : 0;
+      const longestSumMm = rows => rotatedDataColIdx.length ? Math.max(0, ...rotatedDataColIdx.map(colIdx => {
+        const col = data.cols[colIdx];
+        const mmPerChar = mmPerCharFor(col);
+        const sum = Math.round(rows.reduce((a, r) => a + (Number(r[colIdx]) || 0), 0) * 100) / 100;
+        const dp = Math.max(_prSummaryDecimals(_prExportSummaryRowStyle.cf, col), _prSummaryDecimals(_prExportSummaryRowStyle.subtotal, col));
+        return String(_prFormatColumnValue({ ...col, decimals: dp }, sum)).length * mmPerChar + 4;
+      })) : 0;
       // A hard page-break rule (default 6), not a height estimate — every
       // page holds exactly this many people, so admin-picked Row Height/
       // rotation choices are on them to keep within one legal-size page.
@@ -22424,6 +22420,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           const slipForBodyRow = idx => isSyntheticRow(idx) ? null : chunk.slips[idx - (ci > 0 ? 1 : 0)];
           const rawRowForBodyRow = idx => body[idx];
           const head = buildHead();
+          // This PAGE's own floors — see the longestValueMm/longestSumMm
+          // comment above for why these are computed fresh per page
+          // rather than once for the whole export. The admin's own
+          // Rotated Cell Height is still respected as a MINIMUM they can
+          // push higher; it just can't silently clip this page's real
+          // figures by being set too low.
+          const minBodyRowMm = Math.max(customRowMm, hasRotatedData ? Math.max(Number(_prExportRowDesign.rotatedRowHeight) || 0, longestValueMm(chunk.rows)) : 0);
+          const cfMinRowMm = Math.max(minBodyRowMm, longestSumMm(priorRows));
+          const subtotalMinRowMm = Math.max(minBodyRowMm, longestSumMm(chunk.rows));
 
           doc.autoTable({
             startY: 18,
@@ -22501,7 +22506,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 // match, since autotable applies one lineColor per cell
                 // (all 4 sides), never per-side within a single cell.
                 if (Number(srs.borderWidth) > 0) hook.cell.styles.lineColor = _prHexToRgbArr('#0f172a');
-                hook.cell.styles.minCellHeight = summaryMinRowMm;
+                hook.cell.styles.minCellHeight = hook.row.index === cfRowIndex ? cfMinRowMm : subtotalMinRowMm;
                 applyGroupOutline(hook.column.index, hook.cell.styles);
                 // C.F./Sub Total are the only cells holding a sum of many
                 // rows — always shown to a fixed dp (see _prSummaryDecimals)
