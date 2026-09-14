@@ -19841,7 +19841,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // the single shared groupOutlineWidth (Grid & Borders section), applied
   // to every Group automatically.
   function _prGroupStyle(groupName) {
-    return Object.assign({ bold: true, italic: false, color: '#475569', fontSize: null, align: 'center' }, _prExportGroupStyles[groupName] || {});
+    return Object.assign({ bold: true, italic: false, color: '#475569', fontSize: null, align: 'center', valign: 'middle' }, _prExportGroupStyles[groupName] || {});
   }
   function _prSetExportGroupStyle(groupName, prop, value) {
     if (!groupName) return;
@@ -19852,7 +19852,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // equivalent is _prGroupHeaderPdfStyles, kept deliberately in sync.
   function _prGroupHeaderCss(groupName) {
     const gs = _prGroupStyle(groupName);
-    return `font-weight:${gs.bold ? '900' : '400'};font-style:${gs.italic ? 'italic' : 'normal'};color:${gs.color || '#475569'};font-size:${gs.fontSize || 10}px;text-align:${gs.align || 'center'};`;
+    return `font-weight:${gs.bold ? '900' : '400'};font-style:${gs.italic ? 'italic' : 'normal'};color:${gs.color || '#475569'};font-size:${gs.fontSize || 10}px;text-align:${gs.align || 'center'};vertical-align:${gs.valign || 'middle'};`;
   }
 
   // ── Person Selection (Everyone / Pick People — individual or by whole category) ──
@@ -20843,6 +20843,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
           <div class="flex items-center gap-1">
             ${['left', 'center', 'right'].map(a => `<button onclick="_prSetExportGroupStyle('${gKey}','align','${a}')" title="Align ${a}" class="w-8 h-8 border rounded-md flex items-center justify-center ${(gs.align || 'center') === a ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-500'}"><i data-lucide="align-${a}" class="h-3.5 w-3.5"></i></button>`).join('')}
+          </div>
+          <div class="flex items-center gap-1">
+            ${[['top', 'T'], ['middle', 'M'], ['bottom', 'B']].map(([v, l]) => `<button onclick="_prSetExportGroupStyle('${gKey}','valign','${v}')" title="Vertical: ${v}" class="w-8 h-8 border rounded-md flex items-center justify-center font-black text-[10px] ${(gs.valign || 'middle') === v ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-500'}">${l}</button>`).join('')}
           </div>
           <span class="text-[9px] text-slate-400 font-bold normal-case">Applies to every column in this Group. Border thickness is the shared Group Outline setting under Grid &amp; Borders.</span>
         </div>` ;
@@ -22191,6 +22194,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const gs = _prGroupStyle(groupName);
     const styles = {
       halign: gs.align || 'center',
+      valign: gs.valign || 'middle',
       fontStyle: gs.bold && gs.italic ? 'bolditalic' : gs.bold ? 'bold' : gs.italic ? 'italic' : 'normal',
       textColor: _prHexToRgbArr(gs.color || '#475569'),
       fillColor: [241, 245, 249],
