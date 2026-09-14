@@ -20279,6 +20279,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const baseCols = [
         { key: 'sl_no', label: 'SL No', type: 'sl' },
         { key: 'person', label: 'Name', type: 'base' },
+        { key: 'user_id', label: 'Teacher ID', type: 'base' },
         { key: 'designation', label: 'Designation', type: 'base' },
         { key: 'grade', label: 'Grade', type: 'base' },
         { key: 'step', label: 'Step', type: 'base' },
@@ -21192,6 +21193,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       // it shows twice, and a Text virtual column referencing "Person"
       // could never get the bare name on its own).
       if (col.key === 'person') { const s = (allStaffCache || []).find(x => x.teacher_id === slip.user_id); return (s && s.full_name) || slip.user_id; }
+      if (col.key === 'user_id') return slip.user_id || '';
       if (col.key === 'grade') return (_prGradesCache.find(g => g.id === slip.grade_id) || {}).name || '';
       if (col.key === 'designation') return ((allStaffCache || []).find(s => s.teacher_id === slip.user_id) || {}).designation || '';
       if (col.key === 'step') {
@@ -21226,7 +21228,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // on which columns get a running total.
   function _prIsSummableColumn(c) {
     return c.type === 'field' || (c.type === 'virtual' && (c.vtype === 'sum' || c.vtype === 'diff')) ||
-      (c.type === 'base' && !['sl_no', 'person', 'designation', 'grade', 'step', 'joining_date'].includes(c.key));
+      (c.type === 'base' && !['sl_no', 'person', 'user_id', 'designation', 'grade', 'step', 'joining_date'].includes(c.key));
   }
 
   // ── Fold: hide a column and add its value into another one, leaving a
