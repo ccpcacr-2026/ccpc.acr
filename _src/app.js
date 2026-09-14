@@ -21136,7 +21136,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       headerBold: false, headerItalic: false, headerColor: '', headerBg: '', headerRotation: vtype === 'text' ? 0 : 90,
     };
     if (vtype === 'text') {
-      if (!_prVcSegments.length && !_prVcRules.some(r => r.segments.length)) { showToast('Add at least one segment', 'error'); return; }
+      // Zero segments is a legitimate, intentional choice — a blank
+      // column with no source data at all, for something like a
+      // "Signature" line the person fills in by hand on the printed
+      // sheet, rather than a mistake to block.
       base.segments = _prVcSegments;
       base.rules = _prVcRules.filter(r => r.segments.length);
       base.joinWith = document.getElementById('prVcJoinWith').value;
