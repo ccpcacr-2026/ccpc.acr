@@ -14782,6 +14782,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <span class="text-[10px] text-slate-400 font-bold normal-case">Floor applied only when a column's DATA is rotated — lower this if Rows/Page is spilling onto a second physical page.</span>
             </div>
             <div class="flex items-center gap-2">
+              <label class="text-[10px] font-black text-slate-400 uppercase">Header Row Height (mm)</label>
+              <input type="number" id="prExportHeaderRowHeight" value="36" min="0" step="1" onchange="_prSetExportRowDesign('headerRowHeight',Number(this.value)||0)" class="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <span class="text-[10px] text-slate-400 font-bold normal-case">Floor for the row carrying each column's own (often rotated) label — same idea as Rotated Cell Height, for the header instead.</span>
+            </div>
+            <div class="flex items-center gap-2">
               <label class="text-[10px] font-black text-slate-400 uppercase">Rows/Page (PDF)</label>
               <input type="number" id="prExportRowsPerPage" value="6" min="1" step="1" onchange="_prSetExportRowDesign('rowsPerPage',Math.max(1,Number(this.value)||6))" class="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
               <span class="text-[10px] text-slate-400 font-bold normal-case">Hard page break after this many people — the last row of every page is that page's own Sub Total.</span>
@@ -19691,7 +19696,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // to spill onto a second physical page. Kept as its own dial rather
   // than baked in, so a template with many narrow rotated-data columns
   // can be tuned down until Rows/Page genuinely fits one page.
-  let _prExportRowDesign = { zebra: false, zebraColor: '#f1f5f9', rowHeight: 0, rowsPerPage: 6, cellPadding: 0.5, rotatedRowHeight: 20 };
+  // headerRowHeight (mm) is the SAME idea for the header row that
+  // actually carries each column's own (often rotated) label — was a
+  // flat hardcoded 36mm whenever any header is rotated; now its own
+  // dial too, since a header floor that's too generous is one more way
+  // Rows/Page can end up spilling onto a second page.
+  let _prExportRowDesign = { zebra: false, zebraColor: '#f1f5f9', rowHeight: 0, rowsPerPage: 6, cellPadding: 0.5, rotatedRowHeight: 20, headerRowHeight: 36 };
   // Grid/border style, in pt (the unit PDF export already works in — the
   // Visual Editor preview and Excel export each convert from pt to their
   // own units). gridWidth is every internal cell border; topWidth/
@@ -19769,6 +19779,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prExportZebraColor').value = _prExportRowDesign.zebraColor;
     document.getElementById('prExportRowHeight').value = _prExportRowDesign.rowHeight || 0;
     document.getElementById('prExportRotatedRowHeight').value = _prExportRowDesign.rotatedRowHeight != null ? _prExportRowDesign.rotatedRowHeight : 20;
+    document.getElementById('prExportHeaderRowHeight').value = _prExportRowDesign.headerRowHeight != null ? _prExportRowDesign.headerRowHeight : 36;
     document.getElementById('prExportRowsPerPage').value = _prExportRowDesign.rowsPerPage || 6;
     document.getElementById('prExportCellPadding').value = _prExportRowDesign.cellPadding != null ? _prExportRowDesign.cellPadding : 0.5;
     document.getElementById('prExportShowGrid').checked = _prExportBorderStyle.showGrid;
@@ -20003,6 +20014,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prExportZebraColor').value = _prExportRowDesign.zebraColor;
     document.getElementById('prExportRowHeight').value = _prExportRowDesign.rowHeight || 0;
     document.getElementById('prExportRotatedRowHeight').value = _prExportRowDesign.rotatedRowHeight != null ? _prExportRowDesign.rotatedRowHeight : 20;
+    document.getElementById('prExportHeaderRowHeight').value = _prExportRowDesign.headerRowHeight != null ? _prExportRowDesign.headerRowHeight : 36;
     document.getElementById('prExportRowsPerPage').value = _prExportRowDesign.rowsPerPage || 6;
     document.getElementById('prExportCellPadding').value = _prExportRowDesign.cellPadding != null ? _prExportRowDesign.cellPadding : 0.5;
     document.getElementById('prExportShowGrid').checked = _prExportBorderStyle.showGrid;
@@ -22441,7 +22453,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 if (!isColumnLabelRow) return;
                 applyGroupOutline(hook.column.index, hook.cell.styles);
                 hook.cell.styles.valign = col.headerValign || 'middle';
-                if (hasRotatedHeaders) hook.cell.styles.minCellHeight = 36;
+                if (hasRotatedHeaders) hook.cell.styles.minCellHeight = Number(_prExportRowDesign.headerRowHeight) || 0;
                 if (col.headerBold && col.headerItalic) hook.cell.styles.fontStyle = 'bolditalic';
                 else if (col.headerBold) hook.cell.styles.fontStyle = 'bold';
                 else if (col.headerItalic) hook.cell.styles.fontStyle = 'italic';
