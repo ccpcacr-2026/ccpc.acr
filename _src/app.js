@@ -22154,6 +22154,34 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
   }
 
+  // jsPDF's own align:'center' computes the horizontal-centering offset
+  // along the text's UNROTATED axis, before the whole thing is rotated
+  // onto the page — for a 90°/270° rotation that offset ends up applied
+  // perpendicular to the direction the text actually reads in, not along
+  // it. The anchor point then stays exactly where it's given and the
+  // full text extends from there in ONE direction, rather than being
+  // centered on it — matching the reported symptom exactly (a gap on one
+  // side, then the text overflowing past the cell into the next row).
+  // 0°/180° don't have this problem — their own "along the text" axis
+  // still runs parallel to the document's X-axis, so align:'center'
+  // centers them correctly as-is.
+  //
+  // Bypasses align entirely for 90/270: measures the real rendered
+  // length with the exact getTextWidth() jsPDF itself uses, and
+  // manually offsets the anchor so the text's own center lands on
+  // (cx, cy) — bottom-to-top for 90°, top-to-bottom for 270°, matching
+  // the reading direction _prColumnCellCss already documents for the
+  // live preview's own writing-mode equivalent.
+  function _prDrawRotatedCenteredText(doc, text, cx, cy, angle) {
+    if (angle === 90 || angle === 270) {
+      const half = doc.getTextWidth(text) / 2;
+      const startY = angle === 90 ? cy + half : cy - half;
+      doc.text(text, cx, startY, { angle, align: 'left', baseline: 'middle' });
+    } else {
+      doc.text(text, cx, cy, { angle, align: 'center', baseline: 'middle' });
+    }
+  }
+
   // jsPDF-autotable cell styles for a Group's merged header cell — the
   // live preview's own equivalent is _prGroupHeaderCss (kept deliberately
   // in sync). fontSize is left unset (inherits the table's own base size)
@@ -22364,21 +22392,36 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       // own Sub Total are rarely the same length, so they get their own
       // independent floor rather than sharing one.
       const rotatedDataColIdx = data.cols.map((c, i) => (c.rotation === 90 || c.rotation === 270) ? i : -1).filter(i => i >= 0);
-      const mmPerCharFor = col => (Number(col.fontSize) || 8) * 0.5 * 0.352778;
-      // ~0.5em per character is a generous, safe overestimate for a
-      // numeric/currency string in a standard font — erring toward "too
-      // tall" beats clipping a real payroll figure.
+      // Measures with jsPDF's OWN text-width function — the doc's current
+      // font/size/style, matching however this column will actually
+      // render — instead of a rough "characters × a guessed width"
+      // heuristic. That heuristic (~0.5em/character) could undershoot the
+      // real rendered length slightly, which is exactly what would make a
+      // rotated value overlap/cross into the next row: the computed
+      // minCellHeight came out a little too short for what jsPDF was
+      // actually about to draw. Restores the doc's own font state
+      // afterward so this measuring pass never affects the real
+      // rendering below it.
+      const measureRotatedMm = (col, text) => {
+        const baseFont = doc.getFont();
+        const baseSize = doc.internal.getFontSize();
+        const style = col.bold && col.italic ? 'bolditalic' : col.bold ? 'bold' : col.italic ? 'italic' : 'normal';
+        doc.setFont(baseFont.fontName, style);
+        doc.setFontSize(Number(col.fontSize) || 8);
+        const mm = doc.getTextWidth(String(text)) + 4;
+        doc.setFont(baseFont.fontName, baseFont.fontStyle);
+        doc.setFontSize(baseSize);
+        return mm;
+      };
       const longestValueMm = rows => rotatedDataColIdx.length ? Math.max(0, ...rotatedDataColIdx.map(colIdx => {
         const col = data.cols[colIdx];
-        const mmPerChar = mmPerCharFor(col);
-        return Math.max(0, ...rows.map(row => String(_prFormatColumnValue(col, row[colIdx]) ?? '').length * mmPerChar + 4));
+        return Math.max(0, ...rows.map(row => measureRotatedMm(col, _prFormatColumnValue(col, row[colIdx]) ?? '')));
       })) : 0;
       const longestSumMm = rows => rotatedDataColIdx.length ? Math.max(0, ...rotatedDataColIdx.map(colIdx => {
         const col = data.cols[colIdx];
-        const mmPerChar = mmPerCharFor(col);
         const sum = Math.round(rows.reduce((a, r) => a + (Number(r[colIdx]) || 0), 0) * 100) / 100;
         const dp = Math.max(_prSummaryDecimals(_prExportSummaryRowStyle.cf, col), _prSummaryDecimals(_prExportSummaryRowStyle.subtotal, col));
-        return String(_prFormatColumnValue({ ...col, decimals: dp }, sum)).length * mmPerChar + 4;
+        return measureRotatedMm(col, _prFormatColumnValue({ ...col, decimals: dp }, sum));
       })) : 0;
       // A hard page-break rule (default 6), not a height estimate — every
       // page holds exactly this many people, so admin-picked Row Height/
@@ -22557,7 +22600,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 if (!isColumnLabelRow) return;
                 if (!col.headerRotation) return;
                 const { x, y, width, height } = hook.cell;
-                doc.text(String(col.label), x + width / 2, y + height / 2, { angle: col.headerRotation, align: 'center', baseline: 'middle' });
+                _prDrawRotatedCenteredText(doc, String(col.label), x + width / 2, y + height / 2, col.headerRotation);
                 return;
               }
               const col = data.cols[hook.column.index];
@@ -22570,7 +22613,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 const raw = rawRowForBodyRow(hook.row.index)[hook.column.index];
                 if (raw == null || raw === '') return; // an unlabeled non-summable cell on this row — nothing to draw
                 const summaryFmtCfg = { ...col, decimals: _prSummaryDecimals(srs, col) };
-                doc.text(String(_prFormatColumnValue(summaryFmtCfg, raw)), x + width / 2, y + height / 2, { angle: rot, align: 'center', baseline: 'middle' });
+                _prDrawRotatedCenteredText(doc, String(_prFormatColumnValue(summaryFmtCfg, raw)), x + width / 2, y + height / 2, rot);
                 return;
               }
               if (hook.row.index < 0) return; // see matching guard in didParseCell above
@@ -22582,7 +22625,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               }
               if (!col.rotation) return;
               const raw = rawRowForBodyRow(hook.row.index)[hook.column.index];
-              doc.text(String(_prFormatColumnValue(col, raw)), x + width / 2, y + height / 2, { angle: col.rotation, align: 'center', baseline: 'middle' });
+              _prDrawRotatedCenteredText(doc, String(_prFormatColumnValue(col, raw)), x + width / 2, y + height / 2, col.rotation);
             },
           });
         });
