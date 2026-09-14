@@ -22194,13 +22194,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // (cx, cy) — bottom-to-top for 90°, top-to-bottom for 270°, matching
   // the reading direction _prColumnCellCss already documents for the
   // live preview's own writing-mode equivalent.
-  function _prDrawRotatedCenteredText(doc, text, cx, cy, angle) {
+  // valign (top/middle/bottom) is jsPDF's own "baseline" option — for a
+  // rotated cell this is the ONE axis that still applies correctly after
+  // rotation (unlike align, which needed the manual fix above), since it
+  // controls the perpendicular/thickness axis rather than the
+  // along-the-text one. Previously hardcoded to 'middle' here regardless
+  // of the column's own Top/Middle/Bottom setting, which is why T/M/B
+  // appeared to do nothing for any rotated header or data cell — the
+  // vast majority of columns in a dense sheet like this one.
+  function _prDrawRotatedCenteredText(doc, text, cx, cy, angle, valign) {
+    const baseline = valign || 'middle';
     if (angle === 90 || angle === 270) {
       const half = doc.getTextWidth(text) / 2;
       const startY = angle === 90 ? cy + half : cy - half;
-      doc.text(text, cx, startY, { angle, align: 'left', baseline: 'middle' });
+      doc.text(text, cx, startY, { angle, align: 'left', baseline });
     } else {
-      doc.text(text, cx, cy, { angle, align: 'center', baseline: 'middle' });
+      doc.text(text, cx, cy, { angle, align: 'center', baseline });
     }
   }
 
@@ -22650,7 +22659,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 if (!isColumnLabelRow) return;
                 if (!col.headerRotation) return;
                 const { x, y, width, height } = hook.cell;
-                _prDrawRotatedCenteredText(doc, String(col.label), x + width / 2, y + height / 2, col.headerRotation);
+                _prDrawRotatedCenteredText(doc, String(col.label), x + width / 2, y + height / 2, col.headerRotation, col.headerValign);
                 return;
               }
               const col = data.cols[hook.column.index];
@@ -22663,7 +22672,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 const raw = rawRowForBodyRow(hook.row.index)[hook.column.index];
                 if (raw == null || raw === '') return; // an unlabeled non-summable cell on this row — nothing to draw
                 const summaryFmtCfg = { ...col, decimals: _prSummaryDecimals(srs, col) };
-                _prDrawRotatedCenteredText(doc, String(_prFormatColumnValue(summaryFmtCfg, raw)), x + width / 2, y + height / 2, rot);
+                _prDrawRotatedCenteredText(doc, String(_prFormatColumnValue(summaryFmtCfg, raw)), x + width / 2, y + height / 2, rot, col.valign || 'middle');
                 return;
               }
               if (hook.row.index < 0) return; // see matching guard in didParseCell above
@@ -22675,7 +22684,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               }
               if (!col.rotation) return;
               const raw = rawRowForBodyRow(hook.row.index)[hook.column.index];
-              _prDrawRotatedCenteredText(doc, String(_prFormatColumnValue(col, raw)), x + width / 2, y + height / 2, col.rotation);
+              _prDrawRotatedCenteredText(doc, String(_prFormatColumnValue(col, raw)), x + width / 2, y + height / 2, col.rotation, col.valign || 'middle');
             },
           });
         });
