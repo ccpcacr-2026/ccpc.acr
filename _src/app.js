@@ -20605,7 +20605,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _prExportSummaryRowHtml(cols, sampleSlips, label, styleKey, isLastRow, groupOutlineSide, cellPaddingPx) {
     const srs = _prExportSummaryRowStyle[styleKey];
     const firstLabelCol = cols.findIndex(c => !_prIsSummableColumn(c));
-    const cells = cols.map((c, ci) => {
+    // Same leading-label-run merge as the PDF (see _prExportPdf's
+    // leadingLabelSpan/spanLabelRow) — SL No/Name/Post/etc. would
+    // otherwise show as several blank cells before the label appears.
+    let leadingLabelSpan = 0;
+    while (leadingLabelSpan < cols.length && !_prIsSummableColumn(cols[leadingLabelSpan])) leadingLabelSpan++;
+    const cellHtml = (c, ci, colSpan) => {
       let val = '';
       if (_prIsSummableColumn(c)) {
         const sum = sampleSlips.reduce((a, s) => a + (Number(_prColumnValue(c, s)) || 0), 0);
@@ -20628,8 +20633,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const borderCss = bw
         ? `border:${Math.max(1, bw * 1.333)}px solid #0f172a;`
         : _prGridBorderCss(false, isLastRow, groupOutlineSide && groupOutlineSide[c.key]);
-      return `<td class="whitespace-nowrap" title="PDF-only — sample sum, not the real page total" style="padding:${cellPaddingPx || 0}px;${css}${borderCss}">${val}</td>`;
-    }).join('');
+      const spanAttr = colSpan > 1 ? ` colspan="${colSpan}"` : '';
+      return `<td${spanAttr} class="whitespace-nowrap" title="PDF-only — sample sum, not the real page total" style="padding:${cellPaddingPx || 0}px;${css}${borderCss}">${val}</td>`;
+    };
+    const cells = leadingLabelSpan > 1
+      ? cellHtml(cols[0], 0, leadingLabelSpan) + cols.slice(leadingLabelSpan).map((c, i) => cellHtml(c, i + leadingLabelSpan, 1)).join('')
+      : cols.map((c, ci) => cellHtml(c, ci, 1)).join('');
     return `<tr>${cells}</tr>`;
   }
 
@@ -22364,6 +22373,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const labelHeadRow = hasAnyGroup ? 1 : 0;
 
       const firstLabelCol = data.cols.findIndex(c => !_prIsSummableColumn(c));
+      // How many CONSECUTIVE non-summable columns sit at the very start
+      // (SL No, Name, Teacher ID, Post, Join Date, ...) — buildTotalRow
+      // below only ever puts the "C.F."/"Sub Total" label in the first of
+      // these, leaving the rest permanently blank on those two rows. That
+      // run gets merged into one wide cell for the label instead (a
+      // standard ledger convention), rather than showing several empty
+      // cells before the label appears. 0 (a summable column sits first,
+      // an unusual layout) means no merge — safe no-op.
+      let leadingLabelSpan = 0;
+      while (leadingLabelSpan < data.cols.length && !_prIsSummableColumn(data.cols[leadingLabelSpan])) leadingLabelSpan++;
       // Rounded to 2dp right at the sum — plain float addition of many rows
       // reliably produces trailing binary noise (e.g. 8730.999999999998),
       // which is invisible on a single-value data cell but shows up exactly
@@ -22448,10 +22467,27 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           // source sheets (a literal "CF" row at each page/section break).
           const priorRows = g.rows.slice(0, chunk.startIndex);
           const cfRowIndex = ci > 0 ? 0 : -1;
+          // buildTotalRow's own shape (one value per logical column) is
+          // kept as flatCf/flatSubtotal for every lookup below (decimals,
+          // rotation, formatting all key off a real column index) — the
+          // ARRAY actually handed to autotable's `body` merges the
+          // leading label run into a single {content,colSpan} cell
+          // instead, same technique already used for the head row's own
+          // Group cells. autotable remaps hook.column.index correctly
+          // past a colSpan cell regardless of how many array entries came
+          // before it (proven by that same existing Group-header usage),
+          // so every column from leadingLabelSpan onward still resolves
+          // to the right one; only rawRowForBodyRow needs to read from
+          // the flat version instead of this shorter one directly.
+          const flatCf = ci > 0 ? buildTotalRow(priorRows, 'C.F.') : null;
+          const flatSubtotal = buildTotalRow(chunk.rows, 'Sub Total');
+          const spanLabelRow = flat => leadingLabelSpan > 1
+            ? [{ content: flat[firstLabelCol], colSpan: leadingLabelSpan }, ...flat.slice(leadingLabelSpan)]
+            : flat;
           const body = [
-            ...(ci > 0 ? [buildTotalRow(priorRows, 'C.F.')] : []),
+            ...(flatCf ? [spanLabelRow(flatCf)] : []),
             ...chunk.rows,
-            buildTotalRow(chunk.rows, 'Sub Total'),
+            spanLabelRow(flatSubtotal),
           ];
           const subTotalRowIndex = body.length - 1;
           // idx >= 0 guards against a real collision, not just a defensive
@@ -22465,7 +22501,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           // Maps a body row index back to its slip for the rich Text-column
           // draw below — synthetic rows have none.
           const slipForBodyRow = idx => isSyntheticRow(idx) ? null : chunk.slips[idx - (ci > 0 ? 1 : 0)];
-          const rawRowForBodyRow = idx => body[idx];
+          const rawRowForBodyRow = idx => idx === cfRowIndex ? flatCf : idx === subTotalRowIndex ? flatSubtotal : body[idx];
           const head = buildHead();
           // This PAGE's own floors — see the longestValueMm/longestSumMm
           // comment above for why these are computed fresh per page
