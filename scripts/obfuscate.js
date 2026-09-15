@@ -250,6 +250,11 @@ const RESERVED = [
   // Payroll tab native port
   'loadAdminPayrollView','switchPayrollTab','saveSalaryStructure','runPayroll',
   'approveLeave',
+  // Payroll Groups ("Group Maker") — onclick/onchange/oninput-referenced
+  '_prSetExportSplitByPayrollGroup','_prOpenPayrollGroupsManager','_prClosePayrollGroupsManager',
+  '_prSelectPayrollGroup','_prDeletePayrollGroup','_prAddPayrollGroup',
+  '_prTogglePayrollGroupDesignation','_prTogglePayrollGroupMember',
+  '_prSaveGroupDesignations','_prSaveGroupMembers','_prRenamePayrollGroup','_prRenderPayrollGroupEditor',
   // Accounts Admin (Tally replacement) — onclick/onchange-referenced
   'loadAccountsAdminView',
   '_acOpenGroupForm','_acCloseGroupForm','_acSaveGroup','_acDeleteGroup',

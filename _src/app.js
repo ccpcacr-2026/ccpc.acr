@@ -14487,6 +14487,28 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
       </div>
 
+      <div id="prPayrollGroupsModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-3xl max-h-[85vh] overflow-y-auto">
+          <div class="flex items-center justify-between mb-1">
+            <p class="font-black text-slate-800 text-sm">Payroll Groups</p>
+            <button onclick="_prClosePayrollGroupsManager()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+          </div>
+          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-4">For group-wise payroll printing — matching your original sheet's own tabs (School Teacher / College Teacher / Driver-Helper / Staff, or any other split you set up)</p>
+          <div class="grid md:grid-cols-[200px_1fr] gap-4">
+            <div>
+              <div id="prPayrollGroupsList" class="space-y-1 mb-2"></div>
+              <div class="flex gap-1.5">
+                <input type="text" id="prNewPayrollGroupName" placeholder="New group name" class="flex-1 min-w-0 px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+                <button onclick="_prAddPayrollGroup()" class="px-2.5 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all shrink-0"><i data-lucide="plus" class="h-3.5 w-3.5"></i></button>
+              </div>
+            </div>
+            <div id="prPayrollGroupEditor" class="border border-slate-200 rounded-xl p-4 min-h-[300px]">
+              <p class="text-slate-400 font-bold text-xs text-center mt-10">Select a group on the left, or create a new one.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div id="prBonusFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
         <div class="bg-white rounded-2xl p-5 w-full max-w-md max-h-[85vh] overflow-y-auto">
           <div class="flex items-center justify-between mb-4">
@@ -14770,6 +14792,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <input type="checkbox" id="prExportSplitByGroup" onchange="_prSetExportSplitByGroup(this.checked)" class="w-4 h-4 rounded accent-blue-600">
               Split by Category <span class="text-slate-400 font-bold normal-case">— one Excel sheet / PDF page per staff category (School/College/Administration/3rd-4th Class — see "Manage Categories" under People Setup)</span>
             </label>
+          </div>
+          <div class="flex flex-wrap items-center gap-5 mt-2">
+            <label class="flex items-center gap-2 text-xs font-black text-slate-600 cursor-pointer">
+              <input type="checkbox" id="prExportSplitByPayrollGroup" onchange="_prSetExportSplitByPayrollGroup(this.checked)" class="w-4 h-4 rounded accent-blue-600">
+              Split by Payroll Group <span class="text-slate-400 font-bold normal-case">— one Excel sheet / PDF page per Payroll Group (Teacher School/Teacher College/Driver-Helper/Staff, matching your original sheet's own tabs)</span>
+            </label>
+            <button onclick="_prOpenPayrollGroupsManager()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="users" class="h-3.5 w-3.5"></i>Payroll Groups</button>
           </div>
           <hr class="border-slate-100 my-3">
           <div class="flex flex-wrap items-center gap-5">
@@ -19706,6 +19735,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _prExportColumnsCache = []; // [{key,label,type:'base'|'field'|'virtual',included,bold,italic,color,headerBold,headerItalic,headerColor,headerBg,headerRotation,vtype,sources}]
   let _prSelectedFormatColumnKey = null; // which column's format is shown in the full-width panel above the preview table
   let _prExportSplitByGroup = false;
+  let _prExportSplitByPayrollGroup = false; // the newer Payroll Groups ("Group Maker") split — see _prResolvePayrollGroup; takes precedence over the above when both are set
   // rowHeight is a minimum row height in mm applied to every data row
   // (0 = natural/auto height from content alone). rowsPerPage is a hard
   // page-break rule for the PDF only (Excel just lists every row on one
@@ -19787,6 +19817,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // Split by Category (below) reads allStaffCache directly — ensure it's
     // loaded regardless of whether People Setup was visited first.
     if (!allStaffCache || !allStaffCache.length) _ensureStaffCache(() => {});
+    _prLoadPayrollGroups();
     _payrollFetch('get_export_row_order', {}).then(res => {
       _prExportRowOrderCache = (res && res.result === 'success' && res.order) || [];
       _prRenderExportOrderPreview();
@@ -19801,6 +19832,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // Rebuilt fresh from container.innerHTML on every tab switch — sync
     // the controls' visual state back to whatever's still set from before.
     document.getElementById('prExportSplitByGroup').checked = _prExportSplitByGroup;
+    document.getElementById('prExportSplitByPayrollGroup').checked = _prExportSplitByPayrollGroup;
     document.getElementById('prExportZebra').checked = _prExportRowDesign.zebra;
     document.getElementById('prExportZebraColor').value = _prExportRowDesign.zebraColor;
     document.getElementById('prExportRowHeight').value = _prExportRowDesign.rowHeight || 0;
@@ -19843,7 +19875,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     else _payrollFetch('get_payroll_runs', {}).then(res => { _prRunsCache = (res && res.result === 'success' && res.runs) || []; populate(); });
   }
 
-  function _prSetExportSplitByGroup(checked) { _prExportSplitByGroup = checked; }
+  // The two split modes are mutually exclusive in the UI (checking one
+  // unchecks the other) — _prExportRowsAndCols would otherwise have to
+  // pick a precedence silently; being explicit here is clearer than
+  // leaving that to be inferred from the export code.
+  function _prSetExportSplitByGroup(checked) {
+    _prExportSplitByGroup = checked;
+    if (checked) { _prExportSplitByPayrollGroup = false; const el = document.getElementById('prExportSplitByPayrollGroup'); if (el) el.checked = false; }
+  }
+  function _prSetExportSplitByPayrollGroup(checked) {
+    _prExportSplitByPayrollGroup = checked;
+    if (checked) { _prExportSplitByGroup = false; const el = document.getElementById('prExportSplitByGroup'); if (el) el.checked = false; }
+  }
   function _prSetExportRowDesign(prop, value) { _prExportRowDesign[prop] = value; }
   function _prSetExportBorderStyle(prop, value) { _prExportBorderStyle[prop] = value; _prRenderExportPreview(); }
   function _prSetExportSummaryRowStyle(rowType, prop, value) {
@@ -19958,6 +20001,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return {
       columns: _prExportColumnsCache,
       splitByGroup: _prExportSplitByGroup,
+      splitByPayrollGroup: _prExportSplitByPayrollGroup,
       rowDesign: _prExportRowDesign,
       borderStyle: _prExportBorderStyle,
       summaryRowStyle: _prExportSummaryRowStyle,
@@ -20030,12 +20074,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (cfg.summaryRowStyle) _prExportSummaryRowStyle = { cf: { ..._prExportSummaryRowStyle.cf, ...cfg.summaryRowStyle.cf }, subtotal: { ..._prExportSummaryRowStyle.subtotal, ...cfg.summaryRowStyle.subtotal } };
     if (cfg.groupStyles) _prExportGroupStyles = { ...cfg.groupStyles };
     if (cfg.splitByGroup != null) _prExportSplitByGroup = cfg.splitByGroup;
+    if (cfg.splitByPayrollGroup != null) _prExportSplitByPayrollGroup = cfg.splitByPayrollGroup;
     if (cfg.sortBy) _prExportSortBy = cfg.sortBy;
     if (cfg.sortDir) _prExportSortDir = cfg.sortDir;
     if (Array.isArray(cfg.autoRemarkRules)) _prAutoRemarkRules = cfg.autoRemarkRules;
     _prExportPersonSelection = template.person_selection || { mode: 'all', user_ids: [] };
 
     document.getElementById('prExportSplitByGroup').checked = _prExportSplitByGroup;
+    document.getElementById('prExportSplitByPayrollGroup').checked = _prExportSplitByPayrollGroup;
     document.getElementById('prExportZebra').checked = _prExportRowDesign.zebra;
     document.getElementById('prExportZebraColor').value = _prExportRowDesign.zebraColor;
     document.getElementById('prExportRowHeight').value = _prExportRowDesign.rowHeight || 0;
@@ -21703,6 +21749,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // the plain-text rows — Excel/CSV-shaped output only ever needs the
     // strings, but a rich Text virtual column needs the underlying slip
     // back to re-resolve its own per-segment styling at draw time.
+    // Payroll Group (the "Group Maker") takes precedence over the older
+    // Category split when both are somehow on — see _prResolvePayrollGroup.
+    if (_prExportSplitByPayrollGroup) {
+      const designationByUser = {};
+      (allStaffCache || []).forEach(s => { designationByUser[s.teacher_id] = s.designation || ''; });
+      const nameByUser = {};
+      orderedSlips.forEach(s => { nameByUser[s.user_id] = _prResolvePayrollGroup(s.user_id, designationByUser[s.user_id]); });
+      const groupNames = [...new Set(_prPayrollGroupsCache.map(g => g.name))]; // fixed order: the groups themselves, not discovered from slips, so an empty group still keeps its place
+      const groups = groupNames.map(name => {
+        const slips = orderedSlips.filter(s => nameByUser[s.user_id] === name);
+        return { name, rows: _prSlipsToRows(slips, cols), slips };
+      }).filter(g => g.rows.length);
+      const unassignedSlips = orderedSlips.filter(s => !nameByUser[s.user_id]);
+      if (unassignedSlips.length) groups.push({ name: 'Unassigned', rows: _prSlipsToRows(unassignedSlips, cols), slips: unassignedSlips });
+      return { cols, groups };
+    }
     if (!_prExportSplitByGroup) {
       return { cols, groups: [{ name: null, rows: _prSlipsToRows(orderedSlips, cols), slips: orderedSlips }] };
     }
@@ -21720,6 +21782,192 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const uncategorizedSlips = orderedSlips.filter(s => !categoryByUser[s.user_id]);
     if (uncategorizedSlips.length) groups.push({ name: 'Uncategorized', rows: _prSlipsToRows(uncategorizedSlips, cols), slips: uncategorizedSlips });
     return { cols, groups };
+  }
+
+  // ── Payroll Groups ("Group Maker") ───────────────────────────────────────
+  // A person's effective group: an explicit individual membership always
+  // wins when present; otherwise whichever group's designation list
+  // includes their own designation. Both are unique-per-designation/
+  // per-user at the DB level (migration_payroll_groups.sql), so there's
+  // never more than one candidate to resolve here.
+  let _prPayrollGroupsCache = [];
+  function _prLoadPayrollGroups(cb) {
+    _payrollFetch('get_payroll_groups', {}).then(res => {
+      _prPayrollGroupsCache = (res && res.result === 'success' && res.groups) || [];
+      if (cb) cb();
+    }).catch(() => { if (cb) cb(); });
+  }
+  function _prResolvePayrollGroup(userId, designation) {
+    const byMember = _prPayrollGroupsCache.find(g => (g.member_user_ids || []).includes(userId));
+    if (byMember) return byMember.name;
+    if (!designation) return null;
+    const byDesignation = _prPayrollGroupsCache.find(g => (g.designations || []).includes(designation));
+    return byDesignation ? byDesignation.name : null;
+  }
+
+  // ── Payroll Groups Manager UI ────────────────────────────────────────────
+  let _prPayrollGroupsManagerSelectedId = null;
+  let _prPayrollGroupDraft = null; // { designations: Set, member_user_ids: Set } for whichever group is open — a local working copy, only written back on Save
+
+  function _prOpenPayrollGroupsManager() {
+    Promise.all([
+      new Promise(resolve => _ensureStaffCache(resolve)),
+      new Promise(resolve => _prLoadPayrollGroups(resolve)),
+    ]).then(() => {
+      document.getElementById('prPayrollGroupsModal').classList.remove('hidden');
+      _prRenderPayrollGroupsList();
+      const stillExists = _prPayrollGroupsCache.some(g => g.id === _prPayrollGroupsManagerSelectedId);
+      if (stillExists) _prSelectPayrollGroup(_prPayrollGroupsManagerSelectedId);
+      else if (_prPayrollGroupsCache.length) _prSelectPayrollGroup(_prPayrollGroupsCache[0].id);
+      lucide.createIcons();
+    });
+  }
+  function _prClosePayrollGroupsManager() { document.getElementById('prPayrollGroupsModal').classList.add('hidden'); }
+
+  function _prRenderPayrollGroupsList() {
+    const host = document.getElementById('prPayrollGroupsList');
+    if (!host) return;
+    host.innerHTML = _prPayrollGroupsCache.map(g => `
+      <div class="flex items-center gap-1 group">
+        <button onclick="_prSelectPayrollGroup(${g.id})" class="flex-1 text-left px-2.5 py-2 rounded-lg font-black text-xs transition-all ${g.id === _prPayrollGroupsManagerSelectedId ? 'bg-blue-600 text-white' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}">
+          ${_escHtml(g.name)} <span class="${g.id === _prPayrollGroupsManagerSelectedId ? 'text-blue-100' : 'text-slate-400'} font-bold">(${(g.designations || []).length + (g.member_user_ids || []).length})</span>
+        </button>
+        <button onclick="_prDeletePayrollGroup(${g.id})" class="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 transition-all px-1"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+      </div>`).join('') || `<p class="text-slate-400 font-bold text-[10px] text-center py-4">No groups yet.</p>`;
+    lucide.createIcons();
+  }
+
+  function _prAddPayrollGroup() {
+    const input = document.getElementById('prNewPayrollGroupName');
+    const name = input.value.trim();
+    if (!name) { showToast('Name is required', 'error'); return; }
+    _payrollFetch('save_payroll_group', { name, sort_order: _prPayrollGroupsCache.length }).then(res => {
+      if (res && res.result === 'success') {
+        input.value = '';
+        _prLoadPayrollGroups(() => { _prRenderPayrollGroupsList(); _prSelectPayrollGroup(res.group.id); });
+      } else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(err => showToast(err.message, 'error'));
+  }
+
+  function _prDeletePayrollGroup(id) {
+    showConfirm('Delete this group? Anyone in it (by designation or individually) becomes Unassigned for group-wise printing.', () => {
+      _payrollFetch('delete_payroll_group', { id }).then(res => {
+        if (res && res.result === 'success') {
+          if (_prPayrollGroupsManagerSelectedId === id) _prPayrollGroupsManagerSelectedId = null;
+          _prLoadPayrollGroups(() => {
+            _prRenderPayrollGroupsList();
+            if (_prPayrollGroupsCache.length) _prSelectPayrollGroup(_prPayrollGroupsCache[0].id);
+            else document.getElementById('prPayrollGroupEditor').innerHTML = `<p class="text-slate-400 font-bold text-xs text-center mt-10">Select a group on the left, or create a new one.</p>`;
+          });
+        } else showToast((res && res.message) || 'Failed to delete', 'error');
+      }).catch(err => showToast(err.message, 'error'));
+    });
+  }
+
+  function _prSelectPayrollGroup(groupId) {
+    _prPayrollGroupsManagerSelectedId = groupId;
+    const group = _prPayrollGroupsCache.find(g => g.id === groupId);
+    if (!group) return;
+    _prPayrollGroupDraft = { designations: new Set(group.designations || []), member_user_ids: new Set(group.member_user_ids || []) };
+    _prRenderPayrollGroupsList();
+    _prRenderPayrollGroupEditor();
+  }
+
+  // Every distinct designation currently in use, each tagged with
+  // whichever group (if any) already owns it — so picking it for THIS
+  // group makes clear it'll be moved away from there (set_group_
+  // designations enforces one group per designation server-side too,
+  // this is purely so the admin isn't surprised by that).
+  function _prRenderPayrollGroupEditor() {
+    const host = document.getElementById('prPayrollGroupEditor');
+    const group = _prPayrollGroupsCache.find(g => g.id === _prPayrollGroupsManagerSelectedId);
+    if (!host || !group || !_prPayrollGroupDraft) return;
+    const ownerOf = {};
+    _prPayrollGroupsCache.forEach(g => { (g.designations || []).forEach(d => { ownerOf[d] = g.name; }); });
+    const memberOwnerOf = {};
+    _prPayrollGroupsCache.forEach(g => { (g.member_user_ids || []).forEach(u => { memberOwnerOf[u] = g.name; }); });
+    const allDesignations = [...new Set((allStaffCache || []).map(s => (s.designation || '').trim()).filter(Boolean))].sort();
+    const searchEl = document.getElementById('prPgMemberSearch');
+    const search = (searchEl ? searchEl.value : '').trim().toLowerCase();
+    const staffList = (allStaffCache || []).filter(s => !search || (s.full_name || '').toLowerCase().includes(search) || s.teacher_id.toLowerCase().includes(search));
+
+    host.innerHTML = `
+      <div class="flex items-center gap-2 mb-4">
+        <input type="text" id="prPgGroupName" value="${_escHtml(group.name)}" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-black text-sm">
+        <button onclick="_prRenamePayrollGroup(${group.id})" class="px-3 py-2 bg-slate-100 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all">Rename</button>
+      </div>
+      <div class="grid md:grid-cols-2 gap-4">
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <p class="font-black text-slate-800 text-xs">By Designation</p>
+            <button onclick="_prSaveGroupDesignations()" class="px-2.5 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button>
+          </div>
+          <p class="text-[10px] text-slate-400 font-bold mb-2">Everyone holding this title lands here automatically, including future hires.</p>
+          <div class="border border-slate-200 rounded-xl max-h-64 overflow-y-auto">
+            ${allDesignations.map(d => {
+              const checked = _prPayrollGroupDraft.designations.has(d);
+              const owner = ownerOf[d];
+              const ownedElsewhere = owner && owner !== group.name;
+              return `<label class="flex items-center gap-2 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer border-b border-slate-50 last:border-b-0">
+                <input type="checkbox" ${checked ? 'checked' : ''} onchange="_prTogglePayrollGroupDesignation('${_escHtml(d)}',this.checked)" class="w-3.5 h-3.5 rounded accent-blue-600">
+                ${_escHtml(d)} ${ownedElsewhere ? `<span class="text-amber-500 font-black text-[9px] uppercase ml-auto">in ${_escHtml(owner)}</span>` : ''}
+              </label>`;
+            }).join('') || `<p class="p-3 text-slate-400 font-bold text-[10px] text-center">No designations found.</p>`}
+          </div>
+        </div>
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <p class="font-black text-slate-800 text-xs">Individual Overrides</p>
+            <button onclick="_prSaveGroupMembers()" class="px-2.5 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button>
+          </div>
+          <p class="text-[10px] text-slate-400 font-bold mb-2">For the one person whose real assignment differs from their designation's default group.</p>
+          <input type="text" id="prPgMemberSearch" placeholder="Search…" oninput="_prRenderPayrollGroupEditor()" class="w-full mb-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+          <div class="border border-slate-200 rounded-xl max-h-48 overflow-y-auto">
+            ${staffList.map(s => {
+              const checked = _prPayrollGroupDraft.member_user_ids.has(s.teacher_id);
+              const owner = memberOwnerOf[s.teacher_id];
+              const ownedElsewhere = owner && owner !== group.name;
+              return `<label class="flex items-center gap-2 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer border-b border-slate-50 last:border-b-0">
+                <input type="checkbox" ${checked ? 'checked' : ''} onchange="_prTogglePayrollGroupMember('${s.teacher_id}',this.checked)" class="w-3.5 h-3.5 rounded accent-blue-600">
+                <span class="truncate">${_escHtml(s.full_name || s.teacher_id)}</span>
+                <span class="text-slate-400 font-normal shrink-0">${_escHtml(s.designation || '')}</span>
+                ${ownedElsewhere ? `<span class="text-amber-500 font-black text-[9px] uppercase ml-auto shrink-0">in ${_escHtml(owner)}</span>` : ''}
+              </label>`;
+            }).join('') || `<p class="p-3 text-slate-400 font-bold text-[10px] text-center">No one matches.</p>`}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function _prTogglePayrollGroupDesignation(designation, checked) {
+    if (checked) _prPayrollGroupDraft.designations.add(designation); else _prPayrollGroupDraft.designations.delete(designation);
+  }
+  function _prTogglePayrollGroupMember(userId, checked) {
+    if (checked) _prPayrollGroupDraft.member_user_ids.add(userId); else _prPayrollGroupDraft.member_user_ids.delete(userId);
+  }
+  function _prSaveGroupDesignations() {
+    const group_id = _prPayrollGroupsManagerSelectedId;
+    _payrollFetch('set_group_designations', { group_id, designations: [..._prPayrollGroupDraft.designations] }).then(res => {
+      if (res && res.result === 'success') { showToast('Designations saved'); _prLoadPayrollGroups(() => { _prRenderPayrollGroupsList(); _prSelectPayrollGroup(group_id); }); }
+      else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(err => showToast(err.message, 'error'));
+  }
+  function _prSaveGroupMembers() {
+    const group_id = _prPayrollGroupsManagerSelectedId;
+    _payrollFetch('set_group_members', { group_id, user_ids: [..._prPayrollGroupDraft.member_user_ids] }).then(res => {
+      if (res && res.result === 'success') { showToast('Members saved'); _prLoadPayrollGroups(() => { _prRenderPayrollGroupsList(); _prSelectPayrollGroup(group_id); }); }
+      else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(err => showToast(err.message, 'error'));
+  }
+  function _prRenamePayrollGroup(id) {
+    const name = document.getElementById('prPgGroupName').value.trim();
+    if (!name) { showToast('Name is required', 'error'); return; }
+    const group = _prPayrollGroupsCache.find(g => g.id === id);
+    _payrollFetch('save_payroll_group', { id, name, sort_order: group ? group.sort_order : 0 }).then(res => {
+      if (res && res.result === 'success') { showToast('Renamed'); _prLoadPayrollGroups(() => { _prRenderPayrollGroupsList(); _prSelectPayrollGroup(id); }); }
+      else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(err => showToast(err.message, 'error'));
   }
 
   // Excel sheet names: max 31 chars, can't contain / \ ? * [ ] : , and must
@@ -22013,15 +22261,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       new Promise(resolve => _ensureStaffCache(resolve)),
       _payrollFetch('get_people_setup', {}),
       _prEnsureStyledXLSX(),
+      new Promise(resolve => _prLoadPayrollGroups(resolve)),
     ]).then(([, peopleRes]) => {
       const people = (peopleRes && peopleRes.result === 'success' && peopleRes.people) || [];
       const setupByUser = {}; people.forEach(p => { setupByUser[p.user_id] = p; });
       const staffByUser = {}; (allStaffCache || []).forEach(s => { staffByUser[s.teacher_id] = s; });
       const gradeById = {}; _prGradesCache.forEach(g => { gradeById[g.id] = g.name; });
 
+      // Resolved via Payroll Groups (see _prResolvePayrollGroup), not the
+      // older allStaffCache.category — that field's live values
+      // ("Teaching"/"Non-Teaching"/etc) never actually matched any of
+      // PR_ACQUITTANCE_TEMPLATES' 4 keys, so this export was silently
+      // dropping everyone before Payroll Groups existed to fix that.
       const slipsByCategory = {};
       _prApplyPersonSelection(_prExportSlips).forEach(s => {
-        const cat = (staffByUser[s.user_id] || {}).category || 'Other';
+        const staff = staffByUser[s.user_id] || {};
+        const cat = _prResolvePayrollGroup(s.user_id, staff.designation) || 'Other';
         (slipsByCategory[cat] = slipsByCategory[cat] || []).push(s);
       });
 
@@ -22112,15 +22367,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       new Promise(resolve => _ensureStaffCache(resolve)),
       _payrollFetch('get_people_setup', {}),
       ensureJsPDF(),
+      new Promise(resolve => _prLoadPayrollGroups(resolve)),
     ]).then(([, peopleRes]) => {
       const people = (peopleRes && peopleRes.result === 'success' && peopleRes.people) || [];
       const setupByUser = {}; people.forEach(p => { setupByUser[p.user_id] = p; });
       const staffByUser = {}; (allStaffCache || []).forEach(s => { staffByUser[s.teacher_id] = s; });
       const gradeById = {}; _prGradesCache.forEach(g => { gradeById[g.id] = g.name; });
 
+      // See _prExportCategoryTemplates — same fix, same reason.
       const slipsByCategory = {};
       _prApplyPersonSelection(_prExportSlips).forEach(s => {
-        const cat = (staffByUser[s.user_id] || {}).category || 'Other';
+        const staff = staffByUser[s.user_id] || {};
+        const cat = _prResolvePayrollGroup(s.user_id, staff.designation) || 'Other';
         (slipsByCategory[cat] = slipsByCategory[cat] || []).push(s);
       });
       const categories = Object.keys(slipsByCategory).filter(cat => PR_ACQUITTANCE_TEMPLATES[cat]);

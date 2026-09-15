@@ -2644,6 +2644,98 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success', entries: rows });
   }
 
+  // ── Payroll Groups ("Group Maker") — see migration_payroll_groups.sql
+  // for why this is its own payroll-scoped mechanism rather than reusing
+  // teacher_staff's system-wide category hierarchy. Both children are
+  // returned nested under each group so the frontend can resolve every
+  // person's effective group in one pass (explicit membership first,
+  // designation rule otherwise) without a second round-trip.
+  if (action === 'get_payroll_groups') {
+    const [groups, designations, members] = await Promise.all([
+      sbPayroll('payroll_groups?select=*&order=sort_order.asc,id.asc'),
+      sbPayroll('payroll_group_designations?select=*'),
+      sbPayroll('payroll_group_members?select=*'),
+    ]);
+    if (groups?.error) return NextResponse.json({ result: 'error', message: groups.error }, { status: 500 });
+    if (designations?.error) return NextResponse.json({ result: 'error', message: designations.error }, { status: 500 });
+    if (members?.error) return NextResponse.json({ result: 'error', message: members.error }, { status: 500 });
+    const result = (groups || []).map(g => ({
+      ...g,
+      designations: (designations || []).filter(d => d.group_id === g.id).map(d => d.designation),
+      member_user_ids: (members || []).filter(m => m.group_id === g.id).map(m => m.user_id),
+    }));
+    return NextResponse.json({ result: 'success', groups: result });
+  }
+
+  if (action === 'save_payroll_group') {
+    const { id, name, sort_order } = payload;
+    if (!name) return NextResponse.json({ result: 'error', message: 'Name is required' }, { status: 400 });
+    const rowData = { name, sort_order: sort_order == null ? 0 : Number(sort_order) };
+    const saved = id
+      ? await sbPayroll(`payroll_groups?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sbPayroll('payroll_groups', 'POST', rowData);
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    const savedRow = Array.isArray(saved) ? saved[0] : saved;
+    _prAudit(user_id, 'save_payroll_group', 'payroll_groups', savedRow?.id, rowData);
+    return NextResponse.json({ result: 'success', group: savedRow });
+  }
+
+  if (action === 'delete_payroll_group') {
+    const { id } = payload;
+    if (!id) return NextResponse.json({ result: 'error', message: 'id required' }, { status: 400 });
+    const del = await sbPayroll(`payroll_groups?id=eq.${encodeURIComponent(id)}`, 'DELETE');
+    if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
+    _prAudit(user_id, 'delete_payroll_group', 'payroll_groups', id);
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // Replaces a group's WHOLE designation list in one call (the UI is a
+  // checkbox picker over every distinct designation, submitted as one
+  // list) — a designation can only ever sit under one group at a time
+  // (unique constraint), so it's first cleared from wherever it
+  // currently lives (any group) before being re-inserted here, letting
+  // the admin freely move a designation from one group to another
+  // without a separate "remove from old group" step.
+  if (action === 'set_group_designations') {
+    const { group_id, designations } = payload;
+    if (!group_id) return NextResponse.json({ result: 'error', message: 'group_id is required' }, { status: 400 });
+    const list = Array.isArray(designations) ? [...new Set(designations.filter(Boolean))] : [];
+    if (list.length) {
+      const orFilter = list.map(d => `designation.eq.${encodeURIComponent(d)}`).join(',');
+      const cleared = await sbPayroll(`payroll_group_designations?or=(${orFilter})`, 'DELETE');
+      if (cleared?.error) return NextResponse.json({ result: 'error', message: cleared.error }, { status: 500 });
+    }
+    const existingForGroup = await sbPayroll(`payroll_group_designations?group_id=eq.${encodeURIComponent(group_id)}`, 'DELETE');
+    if (existingForGroup?.error) return NextResponse.json({ result: 'error', message: existingForGroup.error }, { status: 500 });
+    if (list.length) {
+      const inserted = await sbPayroll('payroll_group_designations', 'POST', list.map(designation => ({ group_id, designation })));
+      if (inserted?.error) return NextResponse.json({ result: 'error', message: inserted.error }, { status: 500 });
+    }
+    _prAudit(user_id, 'set_group_designations', 'payroll_group_designations', group_id, { designations: list });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // Same replace-the-whole-list shape as set_group_designations above,
+  // for the explicit individual-person override list instead.
+  if (action === 'set_group_members') {
+    const { group_id, user_ids } = payload;
+    if (!group_id) return NextResponse.json({ result: 'error', message: 'group_id is required' }, { status: 400 });
+    const list = Array.isArray(user_ids) ? [...new Set(user_ids.filter(Boolean).map(String))] : [];
+    if (list.length) {
+      const orFilter = list.map(u => `user_id.eq.${encodeURIComponent(u)}`).join(',');
+      const cleared = await sbPayroll(`payroll_group_members?or=(${orFilter})`, 'DELETE');
+      if (cleared?.error) return NextResponse.json({ result: 'error', message: cleared.error }, { status: 500 });
+    }
+    const existingForGroup = await sbPayroll(`payroll_group_members?group_id=eq.${encodeURIComponent(group_id)}`, 'DELETE');
+    if (existingForGroup?.error) return NextResponse.json({ result: 'error', message: existingForGroup.error }, { status: 500 });
+    if (list.length) {
+      const inserted = await sbPayroll('payroll_group_members', 'POST', list.map(user_id2 => ({ group_id, user_id: user_id2 })));
+      if (inserted?.error) return NextResponse.json({ result: 'error', message: inserted.error }, { status: 500 });
+    }
+    _prAudit(user_id, 'set_group_members', 'payroll_group_members', group_id, { user_ids: list });
+    return NextResponse.json({ result: 'success' });
+  }
+
   if (action === 'add_section_entry') {
     const { section_id, user_id: personId, note, start_date } = payload;
     if (!section_id || !personId) return NextResponse.json({ result: 'error', message: 'Section and person are required' }, { status: 400 });
