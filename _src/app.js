@@ -22229,10 +22229,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _prRenderPayrollGroupsList() {
     const host = document.getElementById('prPayrollGroupsList');
     if (!host) return;
+    const counts = _prPayrollGroupPersonCounts();
     host.innerHTML = _prPayrollGroupsCache.map(g => `
       <div class="flex items-center gap-1 group">
         <button onclick="_prSelectPayrollGroup(${g.id})" class="flex-1 text-left px-2.5 py-2 rounded-lg font-black text-xs transition-all ${g.id === _prPayrollGroupsManagerSelectedId ? 'bg-blue-600 text-white' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}">
-          ${_escHtml(g.name)} <span class="${g.id === _prPayrollGroupsManagerSelectedId ? 'text-blue-100' : 'text-slate-400'} font-bold">(${(g.designations || []).length + (g.member_user_ids || []).length})</span>
+          ${_escHtml(g.name)} <span class="${g.id === _prPayrollGroupsManagerSelectedId ? 'text-blue-100' : 'text-slate-400'} font-bold">(${counts[g.name] || 0} people)</span>
         </button>
         <button onclick="_prDeletePayrollGroup(${g.id})" class="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 transition-all px-1"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
       </div>`).join('') || `<p class="text-slate-400 font-bold text-[10px] text-center py-4">No groups yet.</p>`;
@@ -22267,6 +22268,42 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
   }
 
+  // Live person-counts for the Payroll Groups Manager — resolves everyone
+  // in allStaffCache through the SAME rule the roster/exports use (explicit
+  // member wins over designation), but with the currently-open group's
+  // in-progress draft substituted in for its saved cache entry, so a
+  // checkbox toggled here updates counts everywhere in the modal (this
+  // group, the group something got moved away from, the group list on the
+  // left) before Save is ever clicked.
+  function _prPayrollGroupsEffective() {
+    return _prPayrollGroupsCache.map(g => g.id === _prPayrollGroupsManagerSelectedId && _prPayrollGroupDraft
+      ? { ...g, designations: [..._prPayrollGroupDraft.designations], member_user_ids: [..._prPayrollGroupDraft.member_user_ids] }
+      : g);
+  }
+  function _prResolveGroupFrom(groups, userId, designation) {
+    const byMember = groups.find(g => (g.member_user_ids || []).includes(userId));
+    if (byMember) return byMember.name;
+    if (!designation) return null;
+    const byDesignation = groups.find(g => (g.designations || []).includes(designation));
+    return byDesignation ? byDesignation.name : null;
+  }
+  function _prPayrollGroupPersonCounts() {
+    const groups = _prPayrollGroupsEffective();
+    const counts = {};
+    groups.forEach(g => { counts[g.name] = 0; });
+    (allStaffCache || []).forEach(s => {
+      const name = _prResolveGroupFrom(groups, s.teacher_id, s.designation);
+      if (name && counts[name] != null) counts[name]++;
+    });
+    return counts;
+  }
+  // How many people currently hold this exact designation, full stop —
+  // independent of grouping, just what the "(N)" next to each checkbox in
+  // "By Designation" shows.
+  function _prDesignationPersonCount(d) {
+    return (allStaffCache || []).filter(s => (s.designation || '').trim() === d).length;
+  }
+
   function _prSelectPayrollGroup(groupId) {
     _prPayrollGroupsManagerSelectedId = groupId;
     const group = _prPayrollGroupsCache.find(g => g.id === groupId);
@@ -22290,15 +22327,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const memberOwnerOf = {};
     _prPayrollGroupsCache.forEach(g => { (g.member_user_ids || []).forEach(u => { memberOwnerOf[u] = g.name; }); });
     const allDesignations = [...new Set((allStaffCache || []).map(s => (s.designation || '').trim()).filter(Boolean))].sort();
+    const liveCount = _prPayrollGroupPersonCounts()[group.name] || 0;
     const searchEl = document.getElementById('prPgMemberSearch');
     const search = (searchEl ? searchEl.value : '').trim().toLowerCase();
     const staffList = (allStaffCache || []).filter(s => !search || (s.full_name || '').toLowerCase().includes(search) || s.teacher_id.toLowerCase().includes(search));
 
     host.innerHTML = `
-      <div class="flex items-center gap-2 mb-4">
+      <div class="flex items-center gap-2 mb-1">
         <input type="text" id="prPgGroupName" value="${_escHtml(group.name)}" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-black text-sm">
         <button onclick="_prRenamePayrollGroup(${group.id})" class="px-3 py-2 bg-slate-100 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all">Rename</button>
       </div>
+      <p class="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-4">${liveCount} ${liveCount === 1 ? 'person' : 'people'} in this group right now</p>
       <div class="grid md:grid-cols-2 gap-4">
         <div>
           <div class="flex items-center justify-between mb-1.5">
@@ -22311,9 +22350,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               const checked = _prPayrollGroupDraft.designations.has(d);
               const owner = ownerOf[d];
               const ownedElsewhere = owner && owner !== group.name;
+              const n = _prDesignationPersonCount(d);
               return `<label class="flex items-center gap-2 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer border-b border-slate-50 last:border-b-0">
                 <input type="checkbox" ${checked ? 'checked' : ''} onchange="_prTogglePayrollGroupDesignation('${_escHtml(d)}',this.checked)" class="w-3.5 h-3.5 rounded accent-blue-600">
-                ${_escHtml(d)} ${ownedElsewhere ? `<span class="text-amber-500 font-black text-[9px] uppercase ml-auto">in ${_escHtml(owner)}</span>` : ''}
+                <span class="truncate">${_escHtml(d)}</span>
+                <span class="text-slate-400 font-normal shrink-0">${n} ${n === 1 ? 'person' : 'people'}</span>
+                ${ownedElsewhere ? `<span class="text-amber-500 font-black text-[9px] uppercase ml-auto shrink-0">in ${_escHtml(owner)}</span>` : ''}
               </label>`;
             }).join('') || `<p class="p-3 text-slate-400 font-bold text-[10px] text-center">No designations found.</p>`}
           </div>
@@ -22343,11 +22385,57 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     `;
   }
 
+  // Checking a designation/person already claimed by ANOTHER group pauses
+  // on a confirm instead of silently double-booking them (the backend's
+  // save_group_designations/members would eventually resolve the conflict
+  // by deleting them from wherever else they were — see
+  // migration_payroll_groups.sql's own comment on that — but doing it
+  // silently on Save would be a surprise; asking here means the admin
+  // always knows exactly who's moving and from where). Confirming moves
+  // it out of the other group in _prPayrollGroupsCache right away, purely
+  // client-side, so counts and ownership everywhere in the modal — this
+  // panel, the group list on the left, and that other group if the admin
+  // switches to it — reflect the move immediately, before either group's
+  // Save button is ever clicked.
   function _prTogglePayrollGroupDesignation(designation, checked) {
-    if (checked) _prPayrollGroupDraft.designations.add(designation); else _prPayrollGroupDraft.designations.delete(designation);
+    if (!checked) { _prPayrollGroupDraft.designations.delete(designation); _prRenderPayrollGroupEditor(); _prRenderPayrollGroupsList(); return; }
+    const group = _prPayrollGroupsCache.find(g => g.id === _prPayrollGroupsManagerSelectedId);
+    const owner = _prPayrollGroupsCache.find(g => g.id !== group.id && (g.designations || []).includes(designation));
+    if (owner) {
+      const n = _prDesignationPersonCount(designation);
+      showConfirm(`"${designation}" (${n} ${n === 1 ? 'person' : 'people'}) is currently grouped under "${owner.name}". Move it to "${group.name}" instead?`, () => {
+        owner.designations = (owner.designations || []).filter(d => d !== designation);
+        _prPayrollGroupDraft.designations.add(designation);
+        _prRenderPayrollGroupEditor();
+        _prRenderPayrollGroupsList();
+        showToast(`Moved from "${owner.name}"`);
+      });
+      _prRenderPayrollGroupEditor(); // reverts the checkbox until/unless confirmed above
+      return;
+    }
+    _prPayrollGroupDraft.designations.add(designation);
+    _prRenderPayrollGroupEditor();
+    _prRenderPayrollGroupsList();
   }
   function _prTogglePayrollGroupMember(userId, checked) {
-    if (checked) _prPayrollGroupDraft.member_user_ids.add(userId); else _prPayrollGroupDraft.member_user_ids.delete(userId);
+    if (!checked) { _prPayrollGroupDraft.member_user_ids.delete(userId); _prRenderPayrollGroupEditor(); _prRenderPayrollGroupsList(); return; }
+    const group = _prPayrollGroupsCache.find(g => g.id === _prPayrollGroupsManagerSelectedId);
+    const owner = _prPayrollGroupsCache.find(g => g.id !== group.id && (g.member_user_ids || []).includes(userId));
+    if (owner) {
+      const label = staffLabel(userId);
+      showConfirm(`${label} is currently an individual override in "${owner.name}". Move to "${group.name}" instead?`, () => {
+        owner.member_user_ids = (owner.member_user_ids || []).filter(id => id !== userId);
+        _prPayrollGroupDraft.member_user_ids.add(userId);
+        _prRenderPayrollGroupEditor();
+        _prRenderPayrollGroupsList();
+        showToast(`Moved from "${owner.name}"`);
+      });
+      _prRenderPayrollGroupEditor();
+      return;
+    }
+    _prPayrollGroupDraft.member_user_ids.add(userId);
+    _prRenderPayrollGroupEditor();
+    _prRenderPayrollGroupsList();
   }
   function _prSaveGroupDesignations() {
     const group_id = _prPayrollGroupsManagerSelectedId;
