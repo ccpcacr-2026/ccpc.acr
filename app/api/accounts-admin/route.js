@@ -1,0 +1,253 @@
+import { NextResponse } from 'next/server';
+
+// ── Accounts Admin (Tally replacement — chart of accounts + double-entry) ──
+// Own Postgres schema (`accounts`), own route file — same shape as
+// app/api/payroll-admin/route.js and app/api/inventory-admin/route.js. See
+// migration_accounts_schema.sql and TALLY_MIGRATION_PLAN.md for the schema
+// and the full context behind this module (replacing TallyPrime Gold).
+//
+// Auth model: identical to inventory-admin's — one gate at the top covers
+// every action below (no self-service exception exists here, unlike
+// payroll-admin's get_my_payslips).
+
+const SB_URL = process.env.SUPABASE_URL;
+const SB_KEY = process.env.SUPABASE_SERVICE_KEY;
+
+async function sbAccounts(path, method = 'GET', body = null) {
+  const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
+    method,
+    headers: {
+      apikey: SB_KEY,
+      Authorization: `Bearer ${SB_KEY}`,
+      'Content-Type': 'application/json',
+      ...(method !== 'GET' ? { Prefer: 'return=representation' } : {}),
+      'Accept-Profile': 'accounts',
+      'Content-Profile': 'accounts',
+    },
+    ...(body !== null ? { body: JSON.stringify(body) } : {}),
+  });
+  const text = await res.text();
+  if (!res.ok) return { error: text };
+  return text ? JSON.parse(text) : null;
+}
+
+// Fresh per-request check against teacher_staff.app_users — never trust a cached role.
+async function _getUserRoles(userId) {
+  if (!userId) return [];
+  const res = await fetch(`${SB_URL}/rest/v1/app_users?user_id=eq.${encodeURIComponent(userId)}&select=role`, {
+    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher_staff' },
+  });
+  if (!res.ok) return [];
+  const rows = await res.json();
+  const role = Array.isArray(rows) && rows[0] ? rows[0].role : '';
+  return String(role || '').split(',').map(r => r.trim()).filter(Boolean);
+}
+
+async function _isAccountsAdmin(userId) {
+  const roles = await _getUserRoles(userId);
+  return roles.includes('Admin') || roles.includes('Accounts Admin');
+}
+
+const NATURES = ['asset', 'liability', 'income', 'expense', 'equity'];
+
+// A voucher's own entries must balance — same rule Tally itself enforces
+// at entry time, checked here so a hand-crafted request can't bypass it
+// either. Rounds to paisa/cent (2dp) before comparing so float drift from
+// the client never trips a false imbalance.
+function _entriesBalance(entries) {
+  const round2 = n => Math.round((Number(n) || 0) * 100) / 100;
+  const debit = entries.reduce((a, e) => a + round2(e.debit), 0);
+  const credit = entries.reduce((a, e) => a + round2(e.credit), 0);
+  return Math.abs(round2(debit) - round2(credit)) < 0.01;
+}
+
+export async function POST(req) {
+  const body = await req.json().catch(() => ({}));
+  const { action, user_id } = body || {};
+  const payload = body.payload || {};
+
+  if (!(await _isAccountsAdmin(user_id))) {
+    return NextResponse.json({ result: 'error', message: 'Admin or Accounts Admin access only' }, { status: 403 });
+  }
+
+  // ── Chart of Accounts: Groups ──
+  if (action === 'get_account_groups') {
+    const rows = await sbAccounts('account_groups?select=*&order=name.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', groups: rows });
+  }
+
+  if (action === 'save_account_group') {
+    const { id, name, parent_group_id, nature } = payload;
+    if (!name || !nature) return NextResponse.json({ result: 'error', message: 'Name and nature are required' }, { status: 400 });
+    if (!NATURES.includes(nature)) return NextResponse.json({ result: 'error', message: 'Invalid nature' }, { status: 400 });
+    if (parent_group_id && id && Number(parent_group_id) === Number(id)) {
+      return NextResponse.json({ result: 'error', message: 'A group cannot be its own parent' }, { status: 400 });
+    }
+    const rowData = { name, parent_group_id: parent_group_id || null, nature };
+    const saved = id
+      ? await sbAccounts(`account_groups?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sbAccounts('account_groups', 'POST', rowData);
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', group: Array.isArray(saved) ? saved[0] : saved });
+  }
+
+  if (action === 'delete_account_group') {
+    const { id } = payload;
+    if (!id) return NextResponse.json({ result: 'error', message: 'Missing id' }, { status: 400 });
+    const [children, ledgers] = await Promise.all([
+      sbAccounts(`account_groups?parent_group_id=eq.${encodeURIComponent(id)}&select=id&limit=1`),
+      sbAccounts(`ledgers?group_id=eq.${encodeURIComponent(id)}&select=id&limit=1`),
+    ]);
+    if (Array.isArray(children) && children.length) return NextResponse.json({ result: 'error', message: 'Move or delete its sub-groups first' }, { status: 400 });
+    if (Array.isArray(ledgers) && ledgers.length) return NextResponse.json({ result: 'error', message: 'Move or delete its ledgers first' }, { status: 400 });
+    const res = await sbAccounts(`account_groups?id=eq.${encodeURIComponent(id)}`, 'DELETE');
+    if (res?.error) return NextResponse.json({ result: 'error', message: res.error }, { status: 500 });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Ledgers ──
+  if (action === 'get_ledgers') {
+    const [ledgers, entries] = await Promise.all([
+      sbAccounts('ledgers?select=*,account_groups(id,name,nature)&order=name.asc'),
+      sbAccounts('voucher_entries?select=ledger_id,debit,credit'),
+    ]);
+    if (ledgers?.error) return NextResponse.json({ result: 'error', message: ledgers.error }, { status: 500 });
+    const movement = {};
+    (Array.isArray(entries) ? entries : []).forEach(e => {
+      const m = movement[e.ledger_id] || (movement[e.ledger_id] = { debit: 0, credit: 0 });
+      m.debit += Number(e.debit) || 0;
+      m.credit += Number(e.credit) || 0;
+    });
+    const withBalance = (Array.isArray(ledgers) ? ledgers : []).map(l => {
+      const m = movement[l.id] || { debit: 0, credit: 0 };
+      const balance = Math.round(((Number(l.opening_balance) || 0) + m.debit - m.credit) * 100) / 100;
+      return { ...l, debit_movement: Math.round(m.debit * 100) / 100, credit_movement: Math.round(m.credit * 100) / 100, balance };
+    });
+    return NextResponse.json({ result: 'success', ledgers: withBalance });
+  }
+
+  if (action === 'save_ledger') {
+    const { id, name, group_id, opening_balance, opening_balance_date, is_active } = payload;
+    if (!name || !group_id) return NextResponse.json({ result: 'error', message: 'Name and Group are required' }, { status: 400 });
+    const rowData = {
+      name, group_id,
+      opening_balance: opening_balance === '' || opening_balance == null ? 0 : Number(opening_balance),
+      opening_balance_date: opening_balance_date || null,
+      is_active: is_active !== false,
+    };
+    const saved = id
+      ? await sbAccounts(`ledgers?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sbAccounts('ledgers', 'POST', rowData);
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', ledger: Array.isArray(saved) ? saved[0] : saved });
+  }
+
+  if (action === 'delete_ledger') {
+    const { id } = payload;
+    if (!id) return NextResponse.json({ result: 'error', message: 'Missing id' }, { status: 400 });
+    const used = await sbAccounts(`voucher_entries?ledger_id=eq.${encodeURIComponent(id)}&select=id&limit=1`);
+    if (Array.isArray(used) && used.length) return NextResponse.json({ result: 'error', message: 'This ledger has voucher entries — cannot delete (mark inactive instead)' }, { status: 400 });
+    const res = await sbAccounts(`ledgers?id=eq.${encodeURIComponent(id)}`, 'DELETE');
+    if (res?.error) return NextResponse.json({ result: 'error', message: res.error }, { status: 500 });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Vouchers (Day Book) ──
+  if (action === 'get_vouchers') {
+    const { from_date, to_date, voucher_type } = payload;
+    let q = 'vouchers?select=*,voucher_entries(id,ledger_id,debit,credit,narration,ledgers(name))&order=voucher_date.desc,id.desc';
+    if (from_date) q += `&voucher_date=gte.${encodeURIComponent(from_date)}`;
+    if (to_date) q += `&voucher_date=lte.${encodeURIComponent(to_date)}`;
+    if (voucher_type) q += `&voucher_type=eq.${encodeURIComponent(voucher_type)}`;
+    const rows = await sbAccounts(q);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', vouchers: rows });
+  }
+
+  if (action === 'save_voucher') {
+    const { id, voucher_type, voucher_number, voucher_date, narration, entries } = payload;
+    if (!voucher_type || !voucher_date) return NextResponse.json({ result: 'error', message: 'Voucher type and date are required' }, { status: 400 });
+    if (!Array.isArray(entries) || entries.length < 2) return NextResponse.json({ result: 'error', message: 'At least two ledger entries are required' }, { status: 400 });
+    if (entries.some(e => !e.ledger_id || ((Number(e.debit) || 0) === 0 && (Number(e.credit) || 0) === 0))) {
+      return NextResponse.json({ result: 'error', message: 'Every entry needs a ledger and a non-zero debit or credit' }, { status: 400 });
+    }
+    if (entries.some(e => (Number(e.debit) || 0) > 0 && (Number(e.credit) || 0) > 0)) {
+      return NextResponse.json({ result: 'error', message: 'An entry cannot have both a debit and a credit' }, { status: 400 });
+    }
+    if (!_entriesBalance(entries)) {
+      return NextResponse.json({ result: 'error', message: 'Debit and credit totals must be equal' }, { status: 400 });
+    }
+
+    const voucherRow = { voucher_type, voucher_number: voucher_number || null, voucher_date, narration: narration || null };
+    let voucherId = id;
+    if (id) {
+      const saved = await sbAccounts(`vouchers?id=eq.${encodeURIComponent(id)}`, 'PATCH', voucherRow);
+      if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+      const cleared = await sbAccounts(`voucher_entries?voucher_id=eq.${encodeURIComponent(id)}`, 'DELETE');
+      if (cleared?.error) return NextResponse.json({ result: 'error', message: cleared.error }, { status: 500 });
+    } else {
+      const saved = await sbAccounts('vouchers', 'POST', { ...voucherRow, created_by: user_id || null });
+      if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+      voucherId = Array.isArray(saved) && saved[0] && saved[0].id;
+    }
+    const entryRows = entries.map(e => ({
+      voucher_id: voucherId, ledger_id: e.ledger_id,
+      debit: Number(e.debit) || 0, credit: Number(e.credit) || 0,
+      narration: e.narration || null,
+    }));
+    const savedEntries = await sbAccounts('voucher_entries', 'POST', entryRows);
+    if (savedEntries?.error) return NextResponse.json({ result: 'error', message: savedEntries.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', voucher_id: voucherId });
+  }
+
+  if (action === 'delete_voucher') {
+    const { id } = payload;
+    if (!id) return NextResponse.json({ result: 'error', message: 'Missing id' }, { status: 400 });
+    // voucher_entries.voucher_id is ON DELETE CASCADE — no separate cleanup needed.
+    const res = await sbAccounts(`vouchers?id=eq.${encodeURIComponent(id)}`, 'DELETE');
+    if (res?.error) return NextResponse.json({ result: 'error', message: res.error }, { status: 500 });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Reports ──
+  // Trial Balance: every ledger's net closing balance as of a date (or
+  // all time if omitted), split into a Debit or Credit column the way
+  // Tally's own Trial Balance report shows it — a debit-positive
+  // ledger's balance lands in Debit, a net-negative one in Credit. The
+  // two column totals should always match; the frontend surfaces that
+  // as a live correctness check.
+  if (action === 'get_trial_balance') {
+    const { as_of_date } = payload;
+    let entriesQ = 'voucher_entries?select=ledger_id,debit,credit,vouchers!inner(voucher_date)';
+    if (as_of_date) entriesQ += `&vouchers.voucher_date=lte.${encodeURIComponent(as_of_date)}`;
+    const [ledgers, entries] = await Promise.all([
+      sbAccounts('ledgers?select=id,name,opening_balance,account_groups(name,nature)&order=name.asc'),
+      sbAccounts(entriesQ),
+    ]);
+    if (ledgers?.error) return NextResponse.json({ result: 'error', message: ledgers.error }, { status: 500 });
+    if (entries?.error) return NextResponse.json({ result: 'error', message: entries.error }, { status: 500 });
+    const movement = {};
+    (Array.isArray(entries) ? entries : []).forEach(e => {
+      const m = movement[e.ledger_id] || (movement[e.ledger_id] = { debit: 0, credit: 0 });
+      m.debit += Number(e.debit) || 0;
+      m.credit += Number(e.credit) || 0;
+    });
+    let totalDebit = 0, totalCredit = 0;
+    const rows = (Array.isArray(ledgers) ? ledgers : []).map(l => {
+      const m = movement[l.id] || { debit: 0, credit: 0 };
+      const balance = Math.round(((Number(l.opening_balance) || 0) + m.debit - m.credit) * 100) / 100;
+      const debit = balance > 0 ? balance : 0;
+      const credit = balance < 0 ? -balance : 0;
+      totalDebit += debit; totalCredit += credit;
+      return { ledger_id: l.id, name: l.name, group_name: l.account_groups?.name, nature: l.account_groups?.nature, debit, credit };
+    }).filter(r => r.debit !== 0 || r.credit !== 0);
+    return NextResponse.json({
+      result: 'success', rows,
+      total_debit: Math.round(totalDebit * 100) / 100,
+      total_credit: Math.round(totalCredit * 100) / 100,
+    });
+  }
+
+  return NextResponse.json({ result: 'error', message: 'Unknown action' }, { status: 400 });
+}

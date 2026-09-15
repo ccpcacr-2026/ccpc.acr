@@ -250,6 +250,12 @@ const RESERVED = [
   // Payroll tab native port
   'loadAdminPayrollView','switchPayrollTab','saveSalaryStructure','runPayroll',
   'approveLeave',
+  // Accounts Admin (Tally replacement) — onclick/onchange-referenced
+  'loadAccountsAdminView','_acSwitchTab',
+  '_acOpenGroupForm','_acCloseGroupForm','_acSaveGroup','_acDeleteGroup',
+  '_acOpenLedgerForm','_acCloseLedgerForm','_acSaveLedger','_acDeleteLedger',
+  '_acAddVoucherEntryRow','_acVoucherRecalc','_acOpenVoucherForm','_acCloseVoucherForm','_acSaveVoucher','_acDeleteVoucher',
+  '_acLoadVouchers','_acLoadTrialBalance',
   // Transport tab native port (incl. Bus/GPS Config)
   'loadAdminTransportView','switchTransportTab','saveTransportRoute',
   'saveTransportVehicle','saveTransportPickupPoint','saveTransportFeeMaster',

@@ -549,6 +549,7 @@
     student_portal_menu: () => _openStudentPortalMobileMenu(),
     bus_tracker:   () => loadAdminBusTrackerView(),
     payroll:       () => loadAdminPayrollView(),
+    accounts_admin:() => loadAccountsAdminView(),
     profile:       () => openMyProfile(),
     ssc_result_analysis: () => loadSscResultAnalysisView(),
     home:          () => renderMobileHomeGrid(),
@@ -25422,6 +25423,461 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     room_types: 'tag', departments: 'network', distributor_assignments: 'user-cog',
   };
 
+  // ══════════════════════════ ACCOUNTS ADMIN ══════════════════════════
+  // Tally replacement — chart of accounts + double-entry vouchers. See
+  // TALLY_MIGRATION_PLAN.md / migration_accounts_schema.sql for the full
+  // context and schema. First working cut: CRUD for Groups/Ledgers/
+  // Vouchers plus a Trial Balance report — P&L, Balance Sheet, and the
+  // actual Tally XML importer come next, once real exported data is in
+  // hand (see the plan doc's Next Steps).
+
+  function _accountsFetch(action, payload) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    return fetch('/api/accounts-admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, payload: payload || {}, user_id: myId })
+    }).then(async r => {
+      let body = null;
+      try { body = await r.json(); } catch (_) {}
+      if (!r.ok) throw new Error((body && body.message) || ('Network error ' + r.status));
+      return body;
+    });
+  }
+
+  let _acGroupsCache = [];
+  let _acLedgersCache = [];
+  let _acVouchersCache = [];
+  let _acVoucherEntryRows = 0;
+
+  const ACCOUNTS_SUBTABS = [
+    { id: 'groups', label: 'Chart of Accounts' },
+    { id: 'ledgers', label: 'Ledgers' },
+    { id: 'vouchers', label: 'Day Book' },
+    { id: 'trial-balance', label: 'Trial Balance' },
+  ];
+
+  function loadAccountsAdminView() {
+    if (!_hasModuleAccess('accounts_admin')) { showToast('Not available in current role', 'error'); return; }
+    _setViewHash('accounts_admin');
+    setActiveNavLink('nav-accounts-admin');
+    setContentHeader('Accounts Admin', 'landmark');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    const tabBar = ACCOUNTS_SUBTABS.map(t => `<button onclick="_acSwitchTab('${t.id}')" id="actab-${t.id}"
+      class="fees-tab-btn flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all whitespace-nowrap
+             ${t.id === 'ledgers' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50'}">${t.label}</button>`).join('');
+    container.innerHTML = `
+      <div class="mb-4">
+        <h2 class="text-2xl font-black text-slate-800 tracking-tight">Accounts Admin</h2>
+        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Chart of accounts, ledgers, vouchers — replacing Tally</p>
+      </div>
+      <div class="flex flex-nowrap gap-2 mb-5 overflow-x-auto pb-1 -mx-1 px-1" style="scrollbar-width:none">${tabBar}</div>
+
+      <div id="ac-groups" style="display:none">
+        <div class="bg-white rounded-2xl border border-slate-200 p-4">
+          <div class="flex items-center justify-between mb-3">
+            <p class="font-black text-slate-800 text-xs">Groups</p>
+            <button onclick="_acOpenGroupForm(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>New Group</button>
+          </div>
+          <div class="overflow-auto border border-slate-200 rounded-xl">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
+                <th class="py-2 px-3">Name</th><th class="py-2 px-3">Parent</th><th class="py-2 px-3">Nature</th><th class="py-2 px-3 text-right">Actions</th>
+              </tr></thead>
+              <tbody id="acGroupsBody"><tr><td colspan="4" class="p-4 text-slate-400 font-bold text-xs text-center">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="ac-ledgers">
+        <div class="bg-white rounded-2xl border border-slate-200 p-4">
+          <div class="flex items-center justify-between mb-3">
+            <p class="font-black text-slate-800 text-xs">Ledgers</p>
+            <button onclick="_acOpenLedgerForm(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>New Ledger</button>
+          </div>
+          <div class="overflow-auto border border-slate-200 rounded-xl">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
+                <th class="py-2 px-3">Name</th><th class="py-2 px-3">Group</th><th class="py-2 px-3 text-right">Opening</th><th class="py-2 px-3 text-right">Balance</th><th class="py-2 px-3">Status</th><th class="py-2 px-3 text-right">Actions</th>
+              </tr></thead>
+              <tbody id="acLedgersBody"><tr><td colspan="6" class="p-4 text-slate-400 font-bold text-xs text-center">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="ac-vouchers" style="display:none">
+        <div class="bg-white rounded-2xl border border-slate-200 p-4">
+          <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <p class="font-black text-slate-800 text-xs">Day Book</p>
+            <div class="flex items-center gap-2 flex-wrap">
+              <input type="date" id="acVoucherFromDate" onchange="_acLoadVouchers()" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <input type="date" id="acVoucherToDate" onchange="_acLoadVouchers()" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <button onclick="_acOpenVoucherForm(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>New Voucher</button>
+            </div>
+          </div>
+          <div id="acVouchersList" class="space-y-2"><p class="text-slate-400 font-bold text-xs">Loading…</p></div>
+        </div>
+      </div>
+
+      <div id="ac-trial-balance" style="display:none">
+        <div class="bg-white rounded-2xl border border-slate-200 p-4">
+          <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <p class="font-black text-slate-800 text-xs">Trial Balance</p>
+            <input type="date" id="acTrialBalanceDate" onchange="_acLoadTrialBalance()" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          </div>
+          <div class="overflow-auto border border-slate-200 rounded-xl">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
+                <th class="py-2 px-3">Ledger</th><th class="py-2 px-3">Group</th><th class="py-2 px-3 text-right">Debit</th><th class="py-2 px-3 text-right">Credit</th>
+              </tr></thead>
+              <tbody id="acTrialBalanceBody"><tr><td colspan="4" class="p-4 text-slate-400 font-bold text-xs text-center">Loading…</td></tr></tbody>
+              <tfoot id="acTrialBalanceFoot"></tfoot>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="acGroupModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-sm">
+          <div class="flex items-center justify-between mb-4">
+            <p class="font-black text-slate-800 text-sm" id="acGroupModalTitle">New Group</p>
+            <button onclick="_acCloseGroupForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+          </div>
+          <input type="hidden" id="acGroupId">
+          <div class="space-y-3">
+            <div><label class="text-[10px] font-black text-slate-400 uppercase">Name</label><input type="text" id="acGroupName" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></div>
+            <div><label class="text-[10px] font-black text-slate-400 uppercase">Parent Group</label><select id="acGroupParent" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"><option value="">— None (top-level) —</option></select></div>
+            <div><label class="text-[10px] font-black text-slate-400 uppercase">Nature</label><select id="acGroupNature" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm">
+              <option value="asset">Asset</option><option value="liability">Liability</option><option value="income">Income</option><option value="expense">Expense</option><option value="equity">Equity</option>
+            </select></div>
+          </div>
+          <button onclick="_acSaveGroup()" class="w-full mt-4 py-3 bg-blue-600 text-white font-black text-xs uppercase tracking-widest rounded-xl hover:bg-black transition-all">Save</button>
+        </div>
+      </div>
+
+      <div id="acLedgerModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-sm">
+          <div class="flex items-center justify-between mb-4">
+            <p class="font-black text-slate-800 text-sm" id="acLedgerModalTitle">New Ledger</p>
+            <button onclick="_acCloseLedgerForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+          </div>
+          <input type="hidden" id="acLedgerId">
+          <div class="space-y-3">
+            <div><label class="text-[10px] font-black text-slate-400 uppercase">Name</label><input type="text" id="acLedgerName" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></div>
+            <div><label class="text-[10px] font-black text-slate-400 uppercase">Group</label><select id="acLedgerGroup" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></select></div>
+            <div class="grid grid-cols-2 gap-3">
+              <div><label class="text-[10px] font-black text-slate-400 uppercase">Opening Balance</label><input type="number" step="0.01" id="acLedgerOpening" value="0" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></div>
+              <div><label class="text-[10px] font-black text-slate-400 uppercase">As of</label><input type="date" id="acLedgerOpeningDate" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></div>
+            </div>
+            <label class="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase cursor-pointer"><input type="checkbox" id="acLedgerActive" checked class="w-4 h-4 rounded accent-blue-600">Active</label>
+          </div>
+          <button onclick="_acSaveLedger()" class="w-full mt-4 py-3 bg-blue-600 text-white font-black text-xs uppercase tracking-widest rounded-xl hover:bg-black transition-all">Save</button>
+        </div>
+      </div>
+
+      <div id="acVoucherModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-2xl max-h-[88vh] overflow-y-auto">
+          <div class="flex items-center justify-between mb-4">
+            <p class="font-black text-slate-800 text-sm" id="acVoucherModalTitle">New Voucher</p>
+            <button onclick="_acCloseVoucherForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+          </div>
+          <input type="hidden" id="acVoucherId">
+          <div class="grid grid-cols-3 gap-3 mb-3">
+            <div><label class="text-[10px] font-black text-slate-400 uppercase">Type</label><select id="acVoucherType" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm">
+              <option>Payment</option><option>Receipt</option><option>Journal</option><option>Contra</option><option>Sales</option><option>Purchase</option>
+            </select></div>
+            <div><label class="text-[10px] font-black text-slate-400 uppercase">Date</label><input type="date" id="acVoucherDate" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></div>
+            <div><label class="text-[10px] font-black text-slate-400 uppercase">Number</label><input type="text" id="acVoucherNumber" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></div>
+          </div>
+          <div class="mb-3"><label class="text-[10px] font-black text-slate-400 uppercase">Narration</label><input type="text" id="acVoucherNarration" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></div>
+          <div class="flex items-center justify-between mb-2">
+            <p class="text-[10px] font-black text-slate-400 uppercase">Entries</p>
+            <button onclick="_acAddVoucherEntryRow()" class="px-2.5 py-1.5 bg-slate-100 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all">+ Row</button>
+          </div>
+          <div id="acVoucherEntries" class="space-y-2 mb-2"></div>
+          <div class="flex items-center justify-end gap-4 text-xs font-black mb-4">
+            <span>Debit: <span id="acVoucherDebitTotal" class="text-slate-800">0.00</span></span>
+            <span>Credit: <span id="acVoucherCreditTotal" class="text-slate-800">0.00</span></span>
+            <span id="acVoucherBalanceFlag" class="text-red-500">Unbalanced</span>
+          </div>
+          <button onclick="_acSaveVoucher()" class="w-full py-3 bg-blue-600 text-white font-black text-xs uppercase tracking-widest rounded-xl hover:bg-black transition-all">Save Voucher</button>
+        </div>
+      </div>
+    `;
+    lucide.createIcons();
+    _acLoadGroups();
+    _acLoadLedgers();
+  }
+
+  function _acSwitchTab(id) {
+    ACCOUNTS_SUBTABS.forEach(t => {
+      const panel = document.getElementById('ac-' + t.id);
+      const btn = document.getElementById('actab-' + t.id);
+      if (panel) panel.style.display = t.id === id ? '' : 'none';
+      if (btn) btn.className = `fees-tab-btn flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all whitespace-nowrap ${t.id === id ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50'}`;
+    });
+    if (id === 'vouchers') _acLoadVouchers();
+    if (id === 'trial-balance') _acLoadTrialBalance();
+  }
+
+  function _acGroupOptionsHtml(selectedId, excludeId) {
+    return _acGroupsCache.filter(g => g.id !== excludeId).map(g =>
+      `<option value="${g.id}" ${Number(selectedId) === g.id ? 'selected' : ''}>${_escHtml(g.name)}</option>`).join('');
+  }
+
+  function _acLoadGroups() {
+    _accountsFetch('get_account_groups', {}).then(res => {
+      _acGroupsCache = (res && res.result === 'success' && res.groups) || [];
+      const byId = {}; _acGroupsCache.forEach(g => { byId[g.id] = g; });
+      const body = document.getElementById('acGroupsBody');
+      if (body) {
+        body.innerHTML = _acGroupsCache.length ? _acGroupsCache.map(g => `
+          <tr class="border-t border-slate-100">
+            <td class="py-2 px-3 font-bold text-slate-700">${_escHtml(g.name)}</td>
+            <td class="py-2 px-3 text-slate-500">${g.parent_group_id && byId[g.parent_group_id] ? _escHtml(byId[g.parent_group_id].name) : '—'}</td>
+            <td class="py-2 px-3 text-slate-500 uppercase text-[10px] font-black">${g.nature}</td>
+            <td class="py-2 px-3 text-right">
+              <button onclick="_acOpenGroupForm(${g.id})" class="text-blue-600 hover:underline text-[10px] font-black uppercase mr-2">Edit</button>
+              <button onclick="_acDeleteGroup(${g.id})" class="text-red-500 hover:underline text-[10px] font-black uppercase">Delete</button>
+            </td>
+          </tr>`).join('') : `<tr><td colspan="4" class="p-4 text-slate-400 font-bold text-xs text-center">No groups yet.</td></tr>`;
+      }
+      const ledgerGroupSel = document.getElementById('acLedgerGroup');
+      if (ledgerGroupSel) ledgerGroupSel.innerHTML = _acGroupOptionsHtml(null, null);
+    }).catch(err => showToast(err.message, 'error'));
+  }
+
+  function _acOpenGroupForm(id) {
+    const g = id ? _acGroupsCache.find(x => x.id === id) : null;
+    document.getElementById('acGroupModalTitle').textContent = g ? 'Edit Group' : 'New Group';
+    document.getElementById('acGroupId').value = id || '';
+    document.getElementById('acGroupName').value = g ? g.name : '';
+    document.getElementById('acGroupNature').value = g ? g.nature : 'asset';
+    document.getElementById('acGroupParent').innerHTML = `<option value="">— None (top-level) —</option>` + _acGroupOptionsHtml(g ? g.parent_group_id : null, id || null);
+    document.getElementById('acGroupModal').classList.remove('hidden');
+    lucide.createIcons();
+  }
+  function _acCloseGroupForm() { document.getElementById('acGroupModal').classList.add('hidden'); }
+  function _acSaveGroup() {
+    const id = document.getElementById('acGroupId').value;
+    const payload = {
+      id: id || undefined,
+      name: document.getElementById('acGroupName').value.trim(),
+      parent_group_id: document.getElementById('acGroupParent').value || null,
+      nature: document.getElementById('acGroupNature').value,
+    };
+    if (!payload.name) { showToast('Name is required', 'error'); return; }
+    _accountsFetch('save_account_group', payload).then(res => {
+      if (res && res.result === 'success') { showToast('Group saved'); _acCloseGroupForm(); _acLoadGroups(); }
+      else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(err => showToast(err.message, 'error'));
+  }
+  function _acDeleteGroup(id) {
+    showConfirm('Delete this group?', () => {
+      _accountsFetch('delete_account_group', { id }).then(res => {
+        if (res && res.result === 'success') { showToast('Group deleted'); _acLoadGroups(); }
+        else showToast((res && res.message) || 'Failed to delete', 'error');
+      }).catch(err => showToast(err.message, 'error'));
+    });
+  }
+
+  function _acLoadLedgers() {
+    _accountsFetch('get_ledgers', {}).then(res => {
+      _acLedgersCache = (res && res.result === 'success' && res.ledgers) || [];
+      const body = document.getElementById('acLedgersBody');
+      if (!body) return;
+      body.innerHTML = _acLedgersCache.length ? _acLedgersCache.map(l => `
+        <tr class="border-t border-slate-100">
+          <td class="py-2 px-3 font-bold text-slate-700">${_escHtml(l.name)}</td>
+          <td class="py-2 px-3 text-slate-500">${_escHtml((l.account_groups && l.account_groups.name) || '—')}</td>
+          <td class="py-2 px-3 text-right font-bold text-slate-500">${Number(l.opening_balance || 0).toLocaleString('en-IN')}</td>
+          <td class="py-2 px-3 text-right font-black ${l.balance < 0 ? 'text-red-500' : 'text-slate-800'}">${Number(l.balance || 0).toLocaleString('en-IN')}</td>
+          <td class="py-2 px-3">${l.is_active ? '<span class="text-emerald-600 text-[10px] font-black uppercase">Active</span>' : '<span class="text-slate-400 text-[10px] font-black uppercase">Inactive</span>'}</td>
+          <td class="py-2 px-3 text-right">
+            <button onclick="_acOpenLedgerForm(${l.id})" class="text-blue-600 hover:underline text-[10px] font-black uppercase mr-2">Edit</button>
+            <button onclick="_acDeleteLedger(${l.id})" class="text-red-500 hover:underline text-[10px] font-black uppercase">Delete</button>
+          </td>
+        </tr>`).join('') : `<tr><td colspan="6" class="p-4 text-slate-400 font-bold text-xs text-center">No ledgers yet.</td></tr>`;
+    }).catch(err => showToast(err.message, 'error'));
+  }
+
+  function _acOpenLedgerForm(id) {
+    const l = id ? _acLedgersCache.find(x => x.id === id) : null;
+    document.getElementById('acLedgerModalTitle').textContent = l ? 'Edit Ledger' : 'New Ledger';
+    document.getElementById('acLedgerId').value = id || '';
+    document.getElementById('acLedgerName').value = l ? l.name : '';
+    document.getElementById('acLedgerGroup').innerHTML = _acGroupOptionsHtml(l ? l.group_id : null, null);
+    document.getElementById('acLedgerOpening').value = l ? l.opening_balance : 0;
+    document.getElementById('acLedgerOpeningDate').value = l && l.opening_balance_date ? String(l.opening_balance_date).slice(0, 10) : '';
+    document.getElementById('acLedgerActive').checked = l ? !!l.is_active : true;
+    document.getElementById('acLedgerModal').classList.remove('hidden');
+    lucide.createIcons();
+  }
+  function _acCloseLedgerForm() { document.getElementById('acLedgerModal').classList.add('hidden'); }
+  function _acSaveLedger() {
+    const id = document.getElementById('acLedgerId').value;
+    const payload = {
+      id: id || undefined,
+      name: document.getElementById('acLedgerName').value.trim(),
+      group_id: document.getElementById('acLedgerGroup').value || null,
+      opening_balance: document.getElementById('acLedgerOpening').value,
+      opening_balance_date: document.getElementById('acLedgerOpeningDate').value || null,
+      is_active: document.getElementById('acLedgerActive').checked,
+    };
+    if (!payload.name || !payload.group_id) { showToast('Name and Group are required', 'error'); return; }
+    _accountsFetch('save_ledger', payload).then(res => {
+      if (res && res.result === 'success') { showToast('Ledger saved'); _acCloseLedgerForm(); _acLoadLedgers(); }
+      else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(err => showToast(err.message, 'error'));
+  }
+  function _acDeleteLedger(id) {
+    showConfirm('Delete this ledger?', () => {
+      _accountsFetch('delete_ledger', { id }).then(res => {
+        if (res && res.result === 'success') { showToast('Ledger deleted'); _acLoadLedgers(); }
+        else showToast((res && res.message) || 'Failed to delete', 'error');
+      }).catch(err => showToast(err.message, 'error'));
+    });
+  }
+
+  // ── Vouchers ──
+  function _acAddVoucherEntryRow(prefill) {
+    _acVoucherEntryRows++;
+    const opts = _acLedgersCache.map(l => `<option value="${l.id}">${_escHtml(l.name)}</option>`).join('');
+    const row = document.createElement('div');
+    row.className = 'grid grid-cols-12 gap-2 items-center';
+    row.innerHTML = `
+      <select class="col-span-5 px-2 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs ac-ve-ledger"><option value="">Select ledger…</option>${opts}</select>
+      <input type="number" step="0.01" placeholder="Debit" value="${prefill && prefill.debit ? prefill.debit : ''}" class="col-span-3 px-2 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs ac-ve-debit" oninput="_acVoucherRecalc()">
+      <input type="number" step="0.01" placeholder="Credit" value="${prefill && prefill.credit ? prefill.credit : ''}" class="col-span-3 px-2 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs ac-ve-credit" oninput="_acVoucherRecalc()">
+      <button onclick="this.parentElement.remove();_acVoucherRecalc()" class="col-span-1 text-red-400 hover:text-red-600"><i data-lucide="trash-2" class="h-4 w-4"></i></button>
+    `;
+    document.getElementById('acVoucherEntries').appendChild(row);
+    if (prefill && prefill.ledger_id) row.querySelector('.ac-ve-ledger').value = prefill.ledger_id;
+    lucide.createIcons();
+  }
+  function _acVoucherRecalc() {
+    let debit = 0, credit = 0;
+    document.querySelectorAll('#acVoucherEntries > div').forEach(row => {
+      debit += Number(row.querySelector('.ac-ve-debit').value) || 0;
+      credit += Number(row.querySelector('.ac-ve-credit').value) || 0;
+    });
+    document.getElementById('acVoucherDebitTotal').textContent = debit.toFixed(2);
+    document.getElementById('acVoucherCreditTotal').textContent = credit.toFixed(2);
+    const flag = document.getElementById('acVoucherBalanceFlag');
+    const balanced = Math.abs(debit - credit) < 0.01 && debit > 0;
+    flag.textContent = balanced ? 'Balanced' : 'Unbalanced';
+    flag.className = balanced ? 'text-emerald-600' : 'text-red-500';
+  }
+
+  function _acOpenVoucherForm(id) {
+    document.getElementById('acVoucherEntries').innerHTML = '';
+    const open = v => {
+      document.getElementById('acVoucherModalTitle').textContent = v ? 'Edit Voucher' : 'New Voucher';
+      document.getElementById('acVoucherId').value = id || '';
+      document.getElementById('acVoucherType').value = v ? v.voucher_type : 'Payment';
+      document.getElementById('acVoucherDate').value = v ? String(v.voucher_date).slice(0, 10) : new Date().toISOString().slice(0, 10);
+      document.getElementById('acVoucherNumber').value = v ? (v.voucher_number || '') : '';
+      document.getElementById('acVoucherNarration').value = v ? (v.narration || '') : '';
+      if (v && v.voucher_entries && v.voucher_entries.length) v.voucher_entries.forEach(e => _acAddVoucherEntryRow(e));
+      else { _acAddVoucherEntryRow(); _acAddVoucherEntryRow(); }
+      _acVoucherRecalc();
+      document.getElementById('acVoucherModal').classList.remove('hidden');
+      lucide.createIcons();
+    };
+    if (!id) { open(null); return; }
+    const cached = _acVouchersCache.find(x => x.id === id);
+    if (cached) { open(cached); return; }
+    _accountsFetch('get_vouchers', {}).then(res => open(res && res.vouchers && res.vouchers.find(x => x.id === id))).catch(err => showToast(err.message, 'error'));
+  }
+  function _acCloseVoucherForm() { document.getElementById('acVoucherModal').classList.add('hidden'); }
+  function _acSaveVoucher() {
+    const entries = [];
+    document.querySelectorAll('#acVoucherEntries > div').forEach(row => {
+      const ledger_id = row.querySelector('.ac-ve-ledger').value;
+      const debit = row.querySelector('.ac-ve-debit').value;
+      const credit = row.querySelector('.ac-ve-credit').value;
+      if (ledger_id && (Number(debit) || Number(credit))) entries.push({ ledger_id, debit: debit || 0, credit: credit || 0 });
+    });
+    const payload = {
+      id: document.getElementById('acVoucherId').value || undefined,
+      voucher_type: document.getElementById('acVoucherType').value,
+      voucher_date: document.getElementById('acVoucherDate').value,
+      voucher_number: document.getElementById('acVoucherNumber').value.trim(),
+      narration: document.getElementById('acVoucherNarration').value.trim(),
+      entries,
+    };
+    if (!payload.voucher_date) { showToast('Date is required', 'error'); return; }
+    _accountsFetch('save_voucher', payload).then(res => {
+      if (res && res.result === 'success') { showToast('Voucher saved'); _acCloseVoucherForm(); _acLoadVouchers(); _acLoadLedgers(); }
+      else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(err => showToast(err.message, 'error'));
+  }
+  function _acDeleteVoucher(id) {
+    showConfirm('Delete this voucher?', () => {
+      _accountsFetch('delete_voucher', { id }).then(res => {
+        if (res && res.result === 'success') { showToast('Voucher deleted'); _acLoadVouchers(); _acLoadLedgers(); }
+        else showToast((res && res.message) || 'Failed to delete', 'error');
+      }).catch(err => showToast(err.message, 'error'));
+    });
+  }
+
+  function _acLoadVouchers() {
+    const from_date = document.getElementById('acVoucherFromDate') ? document.getElementById('acVoucherFromDate').value : '';
+    const to_date = document.getElementById('acVoucherToDate') ? document.getElementById('acVoucherToDate').value : '';
+    _accountsFetch('get_vouchers', { from_date, to_date }).then(res => {
+      _acVouchersCache = (res && res.result === 'success' && res.vouchers) || [];
+      const list = document.getElementById('acVouchersList');
+      if (!list) return;
+      if (!_acVouchersCache.length) { list.innerHTML = '<p class="text-slate-400 font-bold text-xs p-4 text-center">No vouchers yet.</p>'; return; }
+      list.innerHTML = _acVouchersCache.map(v => {
+        const total = (v.voucher_entries || []).reduce((a, e) => a + (Number(e.debit) || 0), 0);
+        const lines = (v.voucher_entries || []).map(e => `<span class="mr-3">${_escHtml((e.ledgers && e.ledgers.name) || '')} — ${Number(e.debit) > 0 ? 'Dr ' + Number(e.debit).toLocaleString('en-IN') : 'Cr ' + Number(e.credit).toLocaleString('en-IN')}</span>`).join('');
+        return `<div class="border border-slate-100 rounded-xl p-3">
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <span class="text-[10px] font-black uppercase text-blue-600 mr-2">${_escHtml(v.voucher_type)}</span>
+              <span class="text-xs font-bold text-slate-700">${_escHtml(v.voucher_date)}</span>
+              ${v.voucher_number ? `<span class="text-[10px] text-slate-400 font-bold ml-2">#${_escHtml(v.voucher_number)}</span>` : ''}
+              ${v.narration ? `<span class="text-[10px] text-slate-400 ml-2">${_escHtml(v.narration)}</span>` : ''}
+            </div>
+            <div class="flex items-center gap-3">
+              <span class="text-xs font-black text-slate-800">৳${total.toLocaleString('en-IN')}</span>
+              <button onclick="_acOpenVoucherForm(${v.id})" class="text-blue-600 hover:underline text-[10px] font-black uppercase">Edit</button>
+              <button onclick="_acDeleteVoucher(${v.id})" class="text-red-500 hover:underline text-[10px] font-black uppercase">Delete</button>
+            </div>
+          </div>
+          <div class="text-[10px] text-slate-500 font-bold mt-1.5">${lines}</div>
+        </div>`;
+      }).join('');
+    }).catch(err => showToast(err.message, 'error'));
+  }
+
+  function _acLoadTrialBalance() {
+    const as_of_date = document.getElementById('acTrialBalanceDate') ? document.getElementById('acTrialBalanceDate').value : '';
+    _accountsFetch('get_trial_balance', { as_of_date }).then(res => {
+      if (!(res && res.result === 'success')) { showToast((res && res.message) || 'Failed to load', 'error'); return; }
+      const body = document.getElementById('acTrialBalanceBody');
+      const foot = document.getElementById('acTrialBalanceFoot');
+      if (!body) return;
+      body.innerHTML = res.rows.length ? res.rows.map(r => `
+        <tr class="border-t border-slate-100">
+          <td class="py-2 px-3 font-bold text-slate-700">${_escHtml(r.name)}</td>
+          <td class="py-2 px-3 text-slate-500">${_escHtml(r.group_name || '—')}</td>
+          <td class="py-2 px-3 text-right font-bold text-slate-700">${r.debit ? Number(r.debit).toLocaleString('en-IN') : ''}</td>
+          <td class="py-2 px-3 text-right font-bold text-slate-700">${r.credit ? Number(r.credit).toLocaleString('en-IN') : ''}</td>
+        </tr>`).join('') : `<tr><td colspan="4" class="p-4 text-slate-400 font-bold text-xs text-center">No activity yet.</td></tr>`;
+      const balanced = Math.abs(res.total_debit - res.total_credit) < 0.01;
+      foot.innerHTML = `<tr class="border-t-2 border-slate-800">
+        <td class="py-2 px-3 font-black text-slate-800" colspan="2">Total${balanced ? '' : ' — books do not balance, check entries'}</td>
+        <td class="py-2 px-3 text-right font-black ${balanced ? 'text-slate-800' : 'text-red-500'}">${Number(res.total_debit).toLocaleString('en-IN')}</td>
+        <td class="py-2 px-3 text-right font-black ${balanced ? 'text-slate-800' : 'text-red-500'}">${Number(res.total_credit).toLocaleString('en-IN')}</td>
+      </tr>`;
+    }).catch(err => showToast(err.message, 'error'));
+  }
+
   let _invAdminActiveTab = 'stock';
   let _invCurrentEntity = null;
   let _invEntityRows = [];
@@ -28688,6 +29144,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { key: 'student_portal',   label: 'Student Portal',     navId: 'nav-student-portal' },
     { key: 'inventory_admin',  label: 'Inventory Admin',    navId: 'nav-inventory-admin' },
     { key: 'payroll_admin',    label: 'Payroll Admin',      navId: 'nav-payroll' },
+    { key: 'accounts_admin',   label: 'Accounts Admin',     navId: 'nav-accounts-admin' },
     { key: 'announcements_admin', label: 'Announcements',   navId: 'nav-announcements' },
     { key: 'my_payslips',      label: 'My Payslips',        navId: 'nav-my-payslips' },
     { key: 'inventory',        label: 'Inventory',          navId: 'nav-inventory' },
@@ -28721,6 +29178,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     student_portal:['Admin','Student Portal Admin','HR'],
     inventory_admin:['Admin','Inventory Admin'],
     payroll_admin: ['Admin','Accounts Admin'],
+    accounts_admin: ['Admin','Accounts Admin'],
     announcements_admin: ['Admin'],
     my_payslips: ALL_ROLES,
     // Mirrors the previous hardcoded behavior (this nav link had no
