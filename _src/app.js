@@ -14544,7 +14544,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <p class="font-black text-slate-800 text-sm">Payroll Groups</p>
             <button onclick="_prClosePayrollGroupsManager()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
           </div>
-          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-4">For group-wise payroll printing — matching your original sheet's own tabs (School Teacher / College Teacher / Driver-Helper / Staff, or any other split you set up)</p>
+          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-4">For group-wise payroll printing (Teaching (School) / Teaching (College) / Non-Teaching (School) / Non-Teaching (College), or any other split you set up)</p>
           <div class="grid md:grid-cols-[200px_1fr] gap-4">
             <div>
               <div id="prPayrollGroupsList" class="space-y-1 mb-2"></div>
@@ -14835,7 +14835,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="_prExportAcquittanceRollPdf()" class="px-4 py-2.5 bg-slate-800 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="layout-template" class="h-3.5 w-3.5"></i>Acquittance Roll Format (PDF)</button>
             <button onclick="_prSaveRemarksToLog()" class="px-4 py-2.5 bg-teal-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="archive" class="h-3.5 w-3.5"></i>Save to Remarks Log</button>
           </div>
-          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-2">Bank Disbursement File and both Acquittance Roll formats are fixed formats that ignore the column picker below — one page/sheet per category (Staff / Teacher School / Teacher College / Driver-Helper), laid out exactly like the paper Acquittance Roll: merged group headers, the sheet's own column numbers, and a Sub Total row. The PDF one is Legal-size landscape.</p>
+          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-2">Bank Disbursement File and both Acquittance Roll formats are fixed formats that ignore the column picker below — one page/sheet per role-shape and institution (Teacher / Staff / Driver-Helper, each split School/College), laid out exactly like the paper Acquittance Roll: merged group headers, the sheet's own column numbers, and a Sub Total row. The PDF one is Legal-size landscape.</p>
         </div>
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
           <div class="flex flex-wrap items-center gap-5">
@@ -14847,7 +14847,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex flex-wrap items-center gap-5 mt-2">
             <label class="flex items-center gap-2 text-xs font-black text-slate-600 cursor-pointer">
               <input type="checkbox" id="prExportSplitByPayrollGroup" onchange="_prSetExportSplitByPayrollGroup(this.checked)" class="w-4 h-4 rounded accent-blue-600">
-              Split by Payroll Group <span class="text-slate-400 font-bold normal-case">— one Excel sheet / PDF page per Payroll Group (Teacher School/Teacher College/Driver-Helper/Staff, matching your original sheet's own tabs)</span>
+              Split by Payroll Group <span class="text-slate-400 font-bold normal-case">— one Excel sheet / PDF page per Payroll Group (Teaching (School)/Teaching (College)/Non-Teaching (School)/Non-Teaching (College), or any other split you set up)</span>
             </label>
             <button onclick="_prOpenPayrollGroupsManager()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="users" class="h-3.5 w-3.5"></i>Payroll Groups</button>
           </div>
@@ -22471,8 +22471,27 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // all. Reuses whichever field already exists (Basic/HR/Medical/etc. are
   // shared across categories) — the header text below is what's shown in
   // THIS export regardless of that field's own label elsewhere.
+  // The paper Acquittance Roll needs a genuinely different column layout
+  // per role-shape (Teacher / Staff / Driver-Helper), which is a different
+  // split than Payroll Groups (Teaching/Non-Teaching × School/College) —
+  // Driver/Bus Assistant rows are "Non-Teaching" for print-grouping
+  // purposes but keep their own distinct column set here, matching the
+  // source sheet's own separate "Driver helper" tabs. _prAcquittanceCategory
+  // below combines the two: School/College comes from whichever Payroll
+  // Group the person resolves to (so this export always agrees with
+  // whatever's configured there), role-shape comes from designation.
+  const PR_DRIVER_HELPER_DESIGNATIONS = new Set(['Driver', 'Bus Assistant']);
+  function _prAcquittanceCategory(userId, designation) {
+    const groupName = _prResolvePayrollGroup(userId, designation);
+    if (!groupName) return null;
+    const institution = groupName.includes('School') ? 'School' : groupName.includes('College') ? 'College' : null;
+    if (!institution) return null;
+    const shape = groupName.startsWith('Teaching') ? 'Teacher' : PR_DRIVER_HELPER_DESIGNATIONS.has(designation) ? 'Driver/Helper' : 'Staff';
+    return `${shape} (${institution})`;
+  }
+
   const PR_ACQUITTANCE_TEMPLATES = {
-    'Staff': {
+    'Staff (School)': {
       additions: [
         { header: 'Basic', keys: ['basic'] }, { header: 'Incentive', keys: ['incentive'] }, { header: 'Special', keys: ['special'] },
         { header: 'HR', keys: ['hr'] }, { header: 'Tiffin', keys: ['tiffin'] }, { header: 'Washing', keys: ['washing'] },
@@ -22486,7 +22505,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       ],
       totalPf: s => (Number((s.field_values || {}).pf_20_percent) || 0) + (Number((s.field_values || {}).pf_loan) || 0),
     },
-    'Driver/Helper': {
+    'Driver/Helper (School)': {
       additions: [
         { header: 'Basic Pay', keys: ['basic'] }, { header: 'Incentive & Special Pay/Extra Allowance', keys: ['incentive', 'special'] },
         { header: 'H. Rent Allwnce', keys: ['hr'] }, { header: 'Tiffin Allowance', keys: ['tiffin'] }, { header: 'Washing Allwnc', keys: ['washing'] },
@@ -22501,10 +22520,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       totalPf: s => (Number((s.field_values || {}).pf_20_percent) || 0) + (Number((s.field_values || {}).pf_loan) || 0),
     },
   };
-  // Teacher School and Teacher College share the same column layout (only
-  // "01 ST" — School Teachers — exists in the source file; assuming the
-  // College sheet would match since no evidence otherwise).
-  PR_ACQUITTANCE_TEMPLATES['Teacher School'] = {
+  PR_ACQUITTANCE_TEMPLATES['Staff (College)'] = PR_ACQUITTANCE_TEMPLATES['Staff (School)'];
+  PR_ACQUITTANCE_TEMPLATES['Driver/Helper (College)'] = PR_ACQUITTANCE_TEMPLATES['Driver/Helper (School)'];
+  // Teacher (School) and Teacher (College) share the same column layout
+  // (only "01 ST" — School Teachers — exists in the source file; assuming
+  // the College sheet would match since no evidence otherwise).
+  PR_ACQUITTANCE_TEMPLATES['Teacher (School)'] = {
     additions: [
       { header: 'Basic', keys: ['basic'] }, { header: 'Incentive', keys: ['incentive'] }, { header: 'Incharge', keys: ['charge_allowance', 'coordinator_allowance', 'mt_incharge_allowance'] },
       { header: 'HR', keys: ['hr'] }, { header: 'Medical', keys: ['medical'] }, { header: 'PF 10%', keys: ['pf_10_percent'] },
@@ -22518,7 +22539,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     ],
     totalPf: s => (Number((s.field_values || {}).pf_20_percent) || 0) + (Number((s.field_values || {}).pf_loan) || 0),
   };
-  PR_ACQUITTANCE_TEMPLATES['Teacher College'] = PR_ACQUITTANCE_TEMPLATES['Teacher School'];
+  PR_ACQUITTANCE_TEMPLATES['Teacher (College)'] = PR_ACQUITTANCE_TEMPLATES['Teacher (School)'];
 
   function _prAcqColumnValue(col, slip) {
     if (col.computed) return col.computed(slip);
@@ -22548,7 +22569,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const slipsByCategory = {};
       _prApplyPersonSelection(_prExportSlips).forEach(s => {
         const staff = staffByUser[s.user_id] || {};
-        const cat = _prResolvePayrollGroup(s.user_id, staff.designation) || 'Other';
+        const cat = _prAcquittanceCategory(s.user_id, staff.designation) || 'Other';
         (slipsByCategory[cat] = slipsByCategory[cat] || []).push(s);
       });
 
@@ -22650,7 +22671,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const slipsByCategory = {};
       _prApplyPersonSelection(_prExportSlips).forEach(s => {
         const staff = staffByUser[s.user_id] || {};
-        const cat = _prResolvePayrollGroup(s.user_id, staff.designation) || 'Other';
+        const cat = _prAcquittanceCategory(s.user_id, staff.designation) || 'Other';
         (slipsByCategory[cat] = slipsByCategory[cat] || []).push(s);
       });
       const categories = Object.keys(slipsByCategory).filter(cat => PR_ACQUITTANCE_TEMPLATES[cat]);
