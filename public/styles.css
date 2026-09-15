@@ -1351,7 +1351,8 @@ button { user-select: none; }
 .tp-menubar-item:hover { background: rgba(255,255,255,0.12); }
 .tp-menubar-item.inactive { background: #eceff0; color: #9aa6a5; cursor: default; }
 .tp-menubar-item.inactive:hover { background: #eceff0; }
-.tp-menubar-hot { font-weight: 700; }
+.tp-menubar-hot { font-weight: 700; color: #7fd4e8; text-decoration: underline; }
+.tp-menubar-item.inactive .tp-menubar-hot { color: #9aa6a5; }
 
 /* Light-blue screen-title strip below the menu bar — shows the active
    screen's own breadcrumb (Gateway of Tally / Create / Voucher Entry…)
