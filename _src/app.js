@@ -26231,21 +26231,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   const _AC_SCREENS = {
     gateway: {
       title: 'Gateway of Tally', isMenu: true,
-      // TallyPrime's own Gateway layout: Masters/Transactions/Reports
-      // menu docked to the rightmost column, and the large main panel on
-      // the left is a Voucher quick-launch grid — same F4-F9 actions as
-      // the bottom button bar, just also reachable as big clickable
-      // tiles the way real Tally's Gateway shows them.
+      // A single header-styled panel at the top of the screen — no
+      // voucher tiles on desktop (F4-F9 and the bottom button bar
+      // already cover that); the header strip uses the same blue/yellow
+      // treatment as a table header (.tp-col-head/.tp-table th) so the
+      // panel itself reads as a headed block, not a plain list box.
       render(host) {
         _acCurrentMenuItems = _AC_GATEWAY_MENU.filter(it => !it.section);
-        const voucherTiles = _AC_FKEYS.map(f => `<button class="tp-voucher-tile" onclick="_acOpenVoucherScreen('${f.type}')"><span class="tp-vt-key">${f.key}</span><span class="tp-vt-label">${f.label}</span></button>`).join('');
         host.innerHTML = `
-          <div class="tp-gateway-layout">
-            <div>
-              <div class="tp-field-label" style="margin-bottom:8px">Vouchers</div>
-              <div class="tp-voucher-grid">${voucherTiles}</div>
-            </div>
-            <div class="tp-menu-panel" style="margin:0;max-width:none">${_acMenuHtml(_AC_GATEWAY_MENU, _acMenuIndex)}</div>
+          <div class="tp-menu-panel tp-menu-panel-top">
+            <div class="tp-col-head">Gateway of Tally</div>
+            ${_acMenuHtml(_AC_GATEWAY_MENU, _acMenuIndex)}
           </div>
         `;
       },
