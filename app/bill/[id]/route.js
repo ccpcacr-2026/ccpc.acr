@@ -128,7 +128,7 @@ export async function GET(request, { params }) {
 
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(`${origin}/bill/${voucher.id}`)}`;
 
-  const rowsHtml = entries.map((e, i) => {
+  const filledRowsHtml = entries.map((e, i) => {
     const amt = Number(e.debit) || 0;
     const taka = Math.floor(amt);
     const poisha = Math.round((amt - taka) * 100);
@@ -139,6 +139,14 @@ export async function GET(request, { params }) {
       <td class="c-poisha">${poisha ? toBnDigits(poisha) : ''}</td>
     </tr>`;
   }).join('');
+  // The real paper form has a generously-sized, mostly-blank box for line
+  // items regardless of how many are actually filled in — a voucher with
+  // just 1-2 entries would otherwise leave the whole page looking cramped
+  // into its top third. Pad with blank ruled rows up to a fixed minimum so
+  // the table (and therefore the page) always fills out properly.
+  const MIN_ITEM_ROWS = 16;
+  const blankRowHtml = `<tr><td class="c-sl">&nbsp;</td><td class="c-desc">&nbsp;</td><td class="c-taka">&nbsp;</td><td class="c-poisha">&nbsp;</td></tr>`;
+  const rowsHtml = filledRowsHtml + blankRowHtml.repeat(Math.max(0, MIN_ITEM_ROWS - entries.length));
   const totalTaka = Math.floor(total);
   const totalPoisha = Math.round((total - totalTaka) * 100);
 
@@ -146,7 +154,13 @@ export async function GET(request, { params }) {
     @page { size: legal portrait; margin: 12mm 14mm; }
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
     body{font-family:'Noto Sans Bengali','Nirmala UI','Vrinda',Arial,sans-serif;font-size:10.5pt;line-height:1.5;color:#000;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
-    .page{max-width:215.9mm;margin:0 auto;padding:6mm 0;}
+    /* 355.6mm Legal height minus the @page's own 12mm top+bottom margin —
+       min-height plus a flex column with the ack/stamp block pushed to
+       margin-top:auto means the form fills the physical page edge-to-edge
+       regardless of how many real line items exist, instead of collapsing
+       into whatever the content alone happens to need. */
+    .page{max-width:215.9mm;min-height:331.6mm;margin:0 auto;padding:6mm 0;display:flex;flex-direction:column;}
+    .fill-rest{margin-top:auto;}
     .hdr{display:flex;align-items:center;gap:10pt;justify-content:center;text-align:center;position:relative;min-height:60pt;}
     .hdr img.crest{height:56pt;width:auto;position:absolute;left:0;top:0;}
     .hdr img.qr{height:56pt;width:56pt;position:absolute;right:0;top:0;}
@@ -160,7 +174,7 @@ export async function GET(request, { params }) {
     table.items th,table.items td{border:1pt solid #000;padding:4pt 6pt;}
     table.items th{font-weight:700;text-align:center;font-size:9.5pt;}
     .c-sl{width:8%;text-align:center;} .c-taka{width:15%;text-align:right;} .c-poisha{width:8%;text-align:right;}
-    table.items td{height:16pt;}
+    table.items td{height:19pt;}
     .total-row td{font-weight:700;border-top:1.3pt solid #000;}
     .lower{display:flex;margin-top:0;}
     .lower-left{flex:1;border:1pt solid #000;border-top:none;border-right:none;padding:6pt 8pt;font-size:9.5pt;}
@@ -229,9 +243,11 @@ export async function GET(request, { params }) {
         </div>
       </div>
     </div>
-    <div class="ack">উল্লিখিত বিলের সাকুল্যে টাকা বুঝে পেলাম। অগ্রিম চেক প্রাপ্তির ক্ষেত্রে কার্য সমাপ্তির তিন (০৩) কার্য দিবসের মধ্যে ভাউচার প্রদান করা হবে।</div>
-    <div class="stamp-box">রাজস্ব ষ্ট্যাম্প</div>
-    <div class="bottom-sig">সিসিপিসি/বাহ্যিক গ্রহীতার স্বাক্ষর ও তারিখ</div>
+    <div class="fill-rest">
+      <div class="ack">উল্লিখিত বিলের সাকুল্যে টাকা বুঝে পেলাম। অগ্রিম চেক প্রাপ্তির ক্ষেত্রে কার্য সমাপ্তির তিন (০৩) কার্য দিবসের মধ্যে ভাউচার প্রদান করা হবে।</div>
+      <div class="stamp-box">রাজস্ব ষ্ট্যাম্প</div>
+      <div class="bottom-sig">সিসিপিসি/বাহ্যিক গ্রহীতার স্বাক্ষর ও তারিখ</div>
+    </div>
   </div>
   ${shouldPrint ? `<script>window.addEventListener('load', function(){ setTimeout(function(){ window.print(); }, 300); });</script>` : ''}
   </body></html>`;
