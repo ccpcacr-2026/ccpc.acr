@@ -254,6 +254,8 @@ const RESERVED = [
   // onclick/onchange-referenced
   '_prOpenGradeHistoryForm','_prCloseGradeHistoryForm','_prSaveGradeHistoryForm',
   '_prDeleteGradeHistoryRow','_prGhRenderStepOptions','_prHistoryLogRespond',
+  // Export Row Order — per-Payroll-Group tabs + per-group lock — onclick-referenced
+  '_prSetExportOrderTab','_prLockExportOrder','_prUnlockExportOrder',
   // Payroll Groups ("Group Maker") — onclick/onchange/oninput-referenced
   '_prSetExportSplitByPayrollGroup','_prOpenPayrollGroupsManager','_prClosePayrollGroupsManager',
   '_prSelectPayrollGroup','_prDeletePayrollGroup','_prAddPayrollGroup',

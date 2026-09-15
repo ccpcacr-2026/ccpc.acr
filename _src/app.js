@@ -15053,7 +15053,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
             <div>
               <p class="font-black text-slate-800 text-xs">Row Order</p>
-              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Drag a row to fix its spot — it stays there even if you change Sort By later. Everyone else sorts fresh by the field below. Remembered globally, reused on every export.</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">One tab per Payroll Group — pick a tab, drag a row to fix its spot there. Everyone else in that group sorts fresh by the field below. Remembered globally, reused on every export; lock a group once its order is final.</p>
             </div>
             <div class="flex items-center gap-2">
               <select id="prExportSortField" onchange="_prSetExportSort(this.value, undefined)" class="px-2 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
@@ -15063,9 +15063,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 <option value="designation">Sort by Designation</option>
               </select>
               <button onclick="_prSetExportSort(undefined, _prExportSortDir === 'asc' ? 'desc' : 'asc')" id="prExportSortDirBtn" title="Toggle ascending/descending" class="px-2.5 py-2 border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50"><i data-lucide="arrow-up-narrow-wide" class="h-3.5 w-3.5"></i></button>
-              <button onclick="_prResetExportRowOrder()" class="px-3 py-2 border border-slate-200 text-slate-500 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Reset Order</button>
+              <button onclick="_prResetExportRowOrder()" class="px-3 py-2 border border-slate-200 text-slate-500 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Reset This Tab's Order</button>
             </div>
           </div>
+          <div id="prExportOrderTabs" class="flex flex-wrap items-center gap-1.5 mb-2"></div>
+          <div id="prExportOrderLockBar" class="flex items-center gap-2 mb-2"></div>
           <div id="prExportOrderPreview" class="flex flex-col gap-1 max-h-64 overflow-y-auto"></div>
         </div>
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
@@ -20078,6 +20080,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // every Group uniformly and automatically. See _prGroupStyle for defaults.
   let _prExportGroupStyles = {};
   let _prExportRowOrderCache = []; // [{user_id, position}] — only people who've been manually dragged
+  let _prExportOrderActiveGroup = null; // which Row Order tab is showing — a Payroll Group name, or 'Ungrouped'
+  let _prExportOrderLocks = []; // [{group_id, is_locked, locked_by, locked_at}] — payroll.export_row_order_lock, one row per group that's ever been locked
   let _prExportSortBy = 'name';
   let _prExportSortDir = 'asc';
   let _prExportEmailByUser = {};
@@ -20098,9 +20102,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // Split by Category (below) reads allStaffCache directly — ensure it's
     // loaded regardless of whether People Setup was visited first.
     if (!allStaffCache || !allStaffCache.length) _ensureStaffCache(() => {});
-    _prLoadPayrollGroups();
+    // Row Order's tabs are Payroll Groups and its Lock is per-group, so
+    // both of these need to be in before that section can render sensibly
+    // — re-render from whichever of the three resolves last.
+    _prLoadPayrollGroups(() => _prRenderExportOrderPreview());
     _payrollFetch('get_export_row_order', {}).then(res => {
       _prExportRowOrderCache = (res && res.result === 'success' && res.order) || [];
+      _prRenderExportOrderPreview();
+    });
+    _payrollFetch('get_export_order_locks', {}).then(res => {
+      _prExportOrderLocks = (res && res.result === 'success' && res.locks) || [];
       _prRenderExportOrderPreview();
     });
     _payrollFetch('get_staff_emails', {}).then(res => {
@@ -20428,10 +20439,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   function _prResetExportRowOrder() {
-    if (!confirm('Clear every manually-dragged row position? Everyone will go back to sorting purely by the Sort By field.')) return;
-    _payrollFetch('clear_export_row_order', {}).then(res => {
-      if (res && res.result === 'success') { _prExportRowOrderCache = []; _prRenderExportOrderPreview(); showToast('Order reset'); }
-      else showToast((res && res.message) || 'Failed to reset', 'error');
+    if (_prExportOrderIsActiveGroupLocked()) { showToast('This group\'s row order is locked', 'error'); return; }
+    const tabLabel = _prExportOrderActiveGroup || 'this tab';
+    if (!confirm(`Clear every manually-dragged row position in "${tabLabel}"? Everyone in it will go back to sorting purely by the Sort By field. Other tabs are untouched.`)) return;
+    const slipsInTab = (_prExportOrderGroupedSlips()[_prExportOrderActiveGroup] || []);
+    const userIds = slipsInTab.map(s => s.user_id);
+    _payrollFetch('clear_export_row_order', { user_ids: userIds, group_id: _prExportOrderGroupId(_prExportOrderActiveGroup) }).then(res => {
+      if (res && res.result === 'success') {
+        const idSet = new Set(userIds);
+        _prExportRowOrderCache = _prExportRowOrderCache.filter(o => !idSet.has(o.user_id));
+        _prRenderExportOrderPreview();
+        showToast('Order reset');
+      } else showToast((res && res.message) || 'Failed to reset', 'error');
     }).catch(err => showToast(err.message || 'Failed to reset', 'error'));
   }
 
@@ -20512,25 +20531,124 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   function _prComputeExportOrder(slips) { return _prComputeExportOrderRanked(slips).map(w => w.slip); }
 
+  // Splits the current run's slips into one bucket per Payroll Group (same
+  // resolution as the roster/exports — _prResolvePayrollGroup, explicit
+  // member wins over designation), plus 'Ungrouped' for anyone neither
+  // covers. Row Order's tabs are exactly these buckets' names.
+  function _prExportOrderGroupedSlips() {
+    const staffByUser = {}; (allStaffCache || []).forEach(s => { staffByUser[s.teacher_id] = s; });
+    const groupsSorted = _prPayrollGroupsCache.slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    const byGroup = {};
+    groupsSorted.forEach(g => { byGroup[g.name] = []; });
+    const ungrouped = [];
+    _prExportSlips.forEach(s => {
+      const staff = staffByUser[s.user_id] || {};
+      const groupName = _prResolvePayrollGroup(s.user_id, staff.designation);
+      (groupName && byGroup[groupName] ? byGroup[groupName] : ungrouped).push(s);
+    });
+    if (ungrouped.length) byGroup['Ungrouped'] = ungrouped;
+    return byGroup;
+  }
+  function _prExportOrderGroupId(name) {
+    const g = _prPayrollGroupsCache.find(g => g.name === name);
+    return g ? g.id : null;
+  }
+  function _prExportOrderIsActiveGroupLocked() {
+    const groupId = _prExportOrderGroupId(_prExportOrderActiveGroup);
+    if (!groupId) return false;
+    const lock = _prExportOrderLocks.find(l => l.group_id === groupId);
+    return !!(lock && lock.is_locked);
+  }
+
+  function _prSetExportOrderTab(name) { _prExportOrderActiveGroup = name; _prRenderExportOrderPreview(); }
+
   function _prRenderExportOrderPreview() {
     const host = document.getElementById('prExportOrderPreview');
+    const tabsHost = document.getElementById('prExportOrderTabs');
+    const lockBar = document.getElementById('prExportOrderLockBar');
     if (!host) return;
-    if (!_prExportSlips.length) { host.innerHTML = `<p class="text-slate-400 font-bold text-xs p-2">Pick a run above first.</p>`; return; }
+    if (!_prExportSlips.length) {
+      host.innerHTML = `<p class="text-slate-400 font-bold text-xs p-2">Pick a run above first.</p>`;
+      if (tabsHost) tabsHost.innerHTML = '';
+      if (lockBar) lockBar.innerHTML = '';
+      return;
+    }
+    const byGroup = _prExportOrderGroupedSlips();
+    const tabNames = Object.keys(byGroup).filter(n => byGroup[n].length);
+    if (!tabNames.length) { host.innerHTML = `<p class="text-slate-400 font-bold text-xs p-2">No one in this run.</p>`; if (tabsHost) tabsHost.innerHTML = ''; if (lockBar) lockBar.innerHTML = ''; return; }
+    if (!_prExportOrderActiveGroup || !tabNames.includes(_prExportOrderActiveGroup)) _prExportOrderActiveGroup = tabNames[0];
+
+    if (tabsHost) {
+      tabsHost.innerHTML = tabNames.map(n => {
+        const groupId = _prExportOrderGroupId(n);
+        const lock = groupId ? _prExportOrderLocks.find(l => l.group_id === groupId) : null;
+        const active = n === _prExportOrderActiveGroup;
+        return `<button onclick="_prSetExportOrderTab(${JSON.stringify(n).replace(/"/g, '&quot;')})" class="px-3 py-1.5 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-1 ${active ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}">
+          ${lock && lock.is_locked ? '<i data-lucide="lock" class="h-3 w-3"></i>' : ''}${_escHtml(n)} <span class="opacity-70">(${byGroup[n].length})</span>
+        </button>`;
+      }).join('');
+    }
+
+    if (lockBar) {
+      const groupId = _prExportOrderGroupId(_prExportOrderActiveGroup);
+      const lock = groupId ? _prExportOrderLocks.find(l => l.group_id === groupId) : null;
+      if (!groupId) {
+        lockBar.innerHTML = `<span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Ungrouped people aren't lockable — assign them to a Payroll Group first.</span>`;
+      } else if (lock && lock.is_locked) {
+        const isSuperAdmin = (window.USER_ROLES || [window.ACTIVE_ROLE]).includes('Super Admin');
+        const who = lock.locked_by ? ` by ${_escHtml(staffLabel(lock.locked_by))}` : '';
+        lockBar.innerHTML = `<span class="px-3 py-1.5 bg-amber-50 text-amber-700 rounded-lg font-black text-[10px] uppercase tracking-widest flex items-center gap-1.5"><i data-lucide="lock" class="h-3.5 w-3.5"></i>Locked${who}</span>` +
+          (isSuperAdmin ? `<button onclick="_prUnlockExportOrder()" class="px-3 py-1.5 border border-amber-300 text-amber-700 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-amber-50 transition-all">Unlock (Super Admin)</button>`
+            : `<span class="text-[10px] font-bold text-slate-400">Only the Super Admin can unlock</span>`);
+      } else {
+        lockBar.innerHTML = `<button onclick="_prLockExportOrder()" title="Lock once this group's order is final — manual, permanent until a Super Admin unlocks it" class="px-3 py-1.5 border border-slate-200 text-slate-500 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="lock" class="h-3.5 w-3.5"></i>Lock This Group's Order</button>`;
+      }
+    }
+
+    const slipsInTab = byGroup[_prExportOrderActiveGroup] || [];
+    const locked = _prExportOrderIsActiveGroupLocked();
     const posByUser = {}; _prExportRowOrderCache.forEach(o => { posByUser[o.user_id] = o.position; });
-    const ranked = _prComputeExportOrderRanked(_prExportSlips);
+    const ranked = _prComputeExportOrderRanked(slipsInTab);
     host.innerHTML = ranked.map((w, i) => {
       const uid = w.slip.user_id;
       const label = staffLabel(uid);
       const pinned = posByUser[uid] != null;
-      return `<div class="pr-order-row flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg" draggable="true" data-user="${uid}"
-          ondragstart="_prRowDragStart(event)" ondragover="_prRowDragOver(event)" ondrop="_prRowDrop(event)" ondragend="_prRowDragEnd(event)" style="cursor:grab">
-        <i data-lucide="grip-vertical" class="h-3.5 w-3.5 text-slate-300 shrink-0"></i>
+      return `<div class="pr-order-row flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg" ${locked ? '' : 'draggable="true"'} data-user="${uid}"
+          ${locked ? '' : `ondragstart="_prRowDragStart(event)" ondragover="_prRowDragOver(event)" ondrop="_prRowDrop(event)" ondragend="_prRowDragEnd(event)"`} style="cursor:${locked ? 'default' : 'grab'}">
+        <i data-lucide="${locked ? 'lock' : 'grip-vertical'}" class="h-3.5 w-3.5 text-slate-300 shrink-0"></i>
         <span class="text-[10px] font-black text-slate-400 w-6 shrink-0">${i + 1}</span>
         <span class="text-xs font-bold text-slate-700 flex-1 truncate">${label !== uid ? label : uid}</span>
         ${pinned ? '<span class="text-[9px] text-blue-600 font-black uppercase shrink-0">Pinned</span>' : ''}
       </div>`;
     }).join('');
     lucide.createIcons();
+  }
+
+  function _prLockExportOrder() {
+    const groupId = _prExportOrderGroupId(_prExportOrderActiveGroup);
+    if (!groupId) return;
+    if (!confirm(`Lock "${_prExportOrderActiveGroup}"'s row order? Only a Super Admin will be able to unlock it again.`)) return;
+    _payrollFetch('lock_export_order', { group_id: groupId }).then(res => {
+      if (res && res.result === 'success') {
+        _prExportOrderLocks = _prExportOrderLocks.filter(l => l.group_id !== groupId);
+        _prExportOrderLocks.push({ group_id: groupId, is_locked: true });
+        _prRenderExportOrderPreview();
+        showToast('Row order locked');
+      } else showToast((res && res.message) || 'Failed to lock', 'error');
+    }).catch(err => showToast(err.message || 'Failed to lock', 'error'));
+  }
+  function _prUnlockExportOrder() {
+    const groupId = _prExportOrderGroupId(_prExportOrderActiveGroup);
+    if (!groupId) return;
+    if (!confirm(`Unlock "${_prExportOrderActiveGroup}"'s row order so it can be edited again?`)) return;
+    _payrollFetch('unlock_export_order', { group_id: groupId }).then(res => {
+      if (res && res.result === 'success') {
+        _prExportOrderLocks = _prExportOrderLocks.filter(l => l.group_id !== groupId);
+        _prExportOrderLocks.push({ group_id: groupId, is_locked: false });
+        _prRenderExportOrderPreview();
+        showToast('Row order unlocked');
+      } else showToast((res && res.message) || 'Failed to unlock', 'error');
+    }).catch(err => showToast(err.message || 'Failed to unlock', 'error'));
   }
 
   function _prRowDragStart(e) {
@@ -20547,7 +20665,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const draggedUserId = _prExportDragUserId;
     _prExportDragUserId = null;
     if (!draggedUserId || draggedUserId === targetUserId) return;
-    const ranked = _prComputeExportOrderRanked(_prExportSlips);
+    if (_prExportOrderIsActiveGroupLocked()) { showToast('This group\'s row order is locked', 'error'); return; }
+    const slipsInTab = (_prExportOrderGroupedSlips()[_prExportOrderActiveGroup] || []);
+    const ranked = _prComputeExportOrderRanked(slipsInTab);
     const withoutDragged = ranked.filter(w => w.slip.user_id !== draggedUserId);
     const insertAt = withoutDragged.findIndex(w => w.slip.user_id === targetUserId);
     if (insertAt < 0) return;
@@ -20561,7 +20681,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (existing) existing.position = newRank;
     else _prExportRowOrderCache.push({ user_id: draggedUserId, position: newRank });
     _prRenderExportOrderPreview();
-    _payrollFetch('set_export_row_order', { user_id: draggedUserId, position: newRank }).catch(err => showToast(err.message || 'Failed to save order', 'error'));
+    _payrollFetch('set_export_row_order', { user_id: draggedUserId, position: newRank, group_id: _prExportOrderGroupId(_prExportOrderActiveGroup) }).catch(err => showToast(err.message || 'Failed to save order', 'error'));
   }
 
   // The exact column sequence from the source payroll sheets (checksum-

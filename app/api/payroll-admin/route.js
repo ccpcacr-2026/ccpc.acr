@@ -61,6 +61,13 @@ async function _isMpoLocked() {
   return !rows?.error && rows[0] && rows[0].is_locked === true;
 }
 
+// See the Export Row Order actions below for how group_id is decided.
+async function _isExportOrderLocked(groupId) {
+  if (!groupId) return false;
+  const rows = await sbPayroll(`export_row_order_lock?group_id=eq.${encodeURIComponent(groupId)}&select=is_locked`);
+  return !rows?.error && rows[0] && rows[0].is_locked === true;
+}
+
 // Reads from the `teacher_staff` schema (staff directory) — same raw-fetch pattern.
 async function _teacherSchemaFetch(path) {
   const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
@@ -1900,6 +1907,13 @@ export async function POST(req) {
   }
 
   // ── Export row order (global, persistent — see payroll.export_row_order) ──
+  // The Row Order screen shows one tab per Payroll Group and locks per
+  // group (payroll.export_row_order_lock, keyed by group_id, row only
+  // exists once a group has been locked at least once) — matching the
+  // real workflow: finish arranging one group, lock it, move to the next,
+  // without freezing groups you haven't gotten to yet. group_id here is
+  // always the group the drag/reset happened in on the frontend (already
+  // resolved there via _prResolvePayrollGroup), not re-derived server-side.
   if (action === 'get_export_row_order') {
     const rows = await sbPayroll('export_row_order?select=user_id,position');
     if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
@@ -1907,8 +1921,9 @@ export async function POST(req) {
   }
 
   if (action === 'set_export_row_order') {
-    const { user_id: rowUserId, position } = payload;
+    const { user_id: rowUserId, position, group_id } = payload;
     if (!rowUserId || position == null) return NextResponse.json({ result: 'error', message: 'user_id and position required' }, { status: 400 });
+    if (await _isExportOrderLocked(group_id)) return NextResponse.json({ result: 'error', message: 'This group\'s row order is locked. Ask the Super Admin to unlock it first.' }, { status: 400 });
     const rowData = { user_id: rowUserId, position: Number(position), updated_at: new Date().toISOString() };
     const existing = await sbPayroll(`export_row_order?user_id=eq.${encodeURIComponent(rowUserId)}&select=user_id`);
     if (existing?.error) return NextResponse.json({ result: 'error', message: existing.error }, { status: 500 });
@@ -1919,10 +1934,46 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success' });
   }
 
+  // user_ids scopes the clear to one group's tab (the normal case, from the
+  // per-tab Reset Order button); omitted clears everything, kept for any
+  // other caller.
   if (action === 'clear_export_row_order') {
-    const del = await sbPayroll('export_row_order?user_id=neq.__none__', 'DELETE');
+    const { user_ids, group_id } = payload;
+    if (await _isExportOrderLocked(group_id)) return NextResponse.json({ result: 'error', message: 'This group\'s row order is locked. Ask the Super Admin to unlock it first.' }, { status: 400 });
+    const del = Array.isArray(user_ids) && user_ids.length
+      ? await sbPayroll(`export_row_order?user_id=in.(${user_ids.map(id => encodeURIComponent(id)).join(',')})`, 'DELETE')
+      : await sbPayroll('export_row_order?user_id=neq.__none__', 'DELETE');
     if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
-    _prAudit(user_id, 'clear_export_row_order', 'export_row_order', null);
+    _prAudit(user_id, 'clear_export_row_order', 'export_row_order', null, { user_ids: user_ids || 'all' });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'get_export_order_locks') {
+    const rows = await sbPayroll('export_row_order_lock?select=*');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', locks: rows });
+  }
+
+  if (action === 'lock_export_order') {
+    const { group_id } = payload;
+    if (!group_id) return NextResponse.json({ result: 'error', message: 'group_id required' }, { status: 400 });
+    const rowData = { group_id, is_locked: true, locked_by: user_id || null, locked_at: new Date().toISOString() };
+    const existing = await sbPayroll(`export_row_order_lock?group_id=eq.${encodeURIComponent(group_id)}&select=group_id`);
+    const saved = (!existing?.error && existing.length)
+      ? await sbPayroll(`export_row_order_lock?group_id=eq.${encodeURIComponent(group_id)}`, 'PATCH', rowData)
+      : await sbPayroll('export_row_order_lock', 'POST', rowData);
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    _prAudit(user_id, 'lock_export_order', 'export_row_order_lock', group_id, {});
+    return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'unlock_export_order') {
+    if (!(await _isSuperAdmin(user_id))) return NextResponse.json({ result: 'error', message: 'Only the Super Admin can unlock the row order.' }, { status: 403 });
+    const { group_id } = payload;
+    if (!group_id) return NextResponse.json({ result: 'error', message: 'group_id required' }, { status: 400 });
+    const saved = await sbPayroll(`export_row_order_lock?group_id=eq.${encodeURIComponent(group_id)}`, 'PATCH', { is_locked: false, locked_by: null, locked_at: null });
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    _prAudit(user_id, 'unlock_export_order', 'export_row_order_lock', group_id, {});
     return NextResponse.json({ result: 'success' });
   }
 
