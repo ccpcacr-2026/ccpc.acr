@@ -84,6 +84,9 @@ function amountInWordsBn(amount) {
 // Figures on the paper form are in Bengali digits (০-৯), not Latin ones.
 const BN_DIGITS = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
 function toBnDigits(n) { return String(n).replace(/[0-9]/g, d => BN_DIGITS[d]); }
+// পঃ (Poisha) always shows two digits, even ৳০০ — standard currency
+// formatting, not left blank just because there's no fractional amount.
+function poishaBn(p) { return toBnDigits(String(p).padStart(2, '0')); }
 
 const BN_MONTHS = ['জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন', 'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'];
 function formatDateBn(iso) {
@@ -136,7 +139,7 @@ export async function GET(request, { params }) {
       <td class="c-sl">${toBnDigits(i + 1)}</td>
       <td class="c-desc">${esc(e.narration || (e.ledgers && e.ledgers.name) || '')}</td>
       <td class="c-taka">${toBnDigits(taka.toLocaleString('en-IN'))}</td>
-      <td class="c-poisha">${poisha ? toBnDigits(poisha) : ''}</td>
+      <td class="c-poisha">${poishaBn(poisha)}</td>
     </tr>`;
   }).join('');
   // The real paper form's blank area below the entries is one plain white
@@ -220,7 +223,7 @@ export async function GET(request, { params }) {
       <tr><th>টাকা</th><th>পঃ</th></tr></thead>
       <tbody>
         ${rowsHtml}
-        <tr class="total-row"><td colspan="2" style="text-align:right">মোট</td><td class="c-taka">${toBnDigits(totalTaka.toLocaleString('en-IN'))}</td><td class="c-poisha">${totalPoisha ? toBnDigits(totalPoisha) : ''}</td></tr>
+        <tr class="total-row"><td colspan="2" style="text-align:right">মোট</td><td class="c-taka">${toBnDigits(totalTaka.toLocaleString('en-IN'))}</td><td class="c-poisha">${poishaBn(totalPoisha)}</td></tr>
       </tbody>
     </table>
     <div class="lower">
