@@ -78,9 +78,13 @@ delete from payroll.payroll_group_members;
 delete from payroll.payroll_group_designations;
 delete from payroll.payroll_groups;
 
+-- Order matches the source workbooks' own tab order (read directly from
+-- each file's SheetNames): in both files the Driver/Helper and
+-- general-Staff tabs -- now merged into Non-Teaching -- sit before the
+-- Teacher tab, and School was named first throughout.
 insert into payroll.payroll_groups (name, sort_order) values
-  ('Teaching (School)', 1), ('Teaching (College)', 2),
-  ('Non-Teaching (School)', 3), ('Non-Teaching (College)', 4);
+  ('Non-Teaching (School)', 1), ('Teaching (School)', 2),
+  ('Non-Teaching (College)', 3), ('Teaching (College)', 4);
 
 do $$
 declare
