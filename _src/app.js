@@ -26392,6 +26392,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     help: 'See the Gateway of Tally menu for what\'s available.',
     stock: 'No stock/inventory tracked in Accounts — see the separate Inventory module.',
     ratio: 'Ratio Analysis isn\'t built yet.',
+    notifications: 'No backup reminders here — your data lives in the school\'s own live database, already backed up automatically.',
   };
   function _acInertMenuItem(key) { showToast(_AC_INERT_MESSAGES[key] || 'Not available', 'info'); }
   function _acRenderMenuBar() {
@@ -26405,7 +26406,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     bar.innerHTML = `
       <div class="tp-menubar-row1">
         <input type="text" class="tp-menubar-search" placeholder="Find details entered in masters and transactions. (Alt+F)" disabled>
-        <div class="tp-menubar-icons"><i data-lucide="bell" class="h-4 w-4"></i></div>
+        <div class="tp-menubar-icons"><button class="tp-menubar-item" style="padding:2px" onclick="_acInertMenuItem('notifications')" title="Notifications"><i data-lucide="bell" class="h-4 w-4"></i></button></div>
       </div>
       <div class="tp-menubar-row2">${items}</div>
     `;
