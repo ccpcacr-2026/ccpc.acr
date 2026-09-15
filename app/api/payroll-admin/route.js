@@ -2912,6 +2912,16 @@ export async function POST(req) {
     if (!personId || !month || !year) return NextResponse.json({ result: 'error', message: 'user_id, month and year are required' }, { status: 400 });
     const personRows = await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(personId)}`);
     const personSetup = (!personRows?.error && personRows[0]) || { user_id: personId, grade_id: null, joining_date: null };
+    // Optional hypothetical Grade/Step — lets the People Setup screen show
+    // a live "what would Basic (and anything a percent of it) be" preview
+    // while the admin is still picking a Grade/Step, before Save Setup
+    // actually writes it. Undefined means "use whatever's saved" (the
+    // normal case, previewing an existing person's real payslip);
+    // explicitly sent (including '' for "no grade") overrides it.
+    const gradeOverridden = payload.grade_id !== undefined;
+    const stepOverridden = payload.step_id !== undefined;
+    if (gradeOverridden) personSetup.grade_id = payload.grade_id || null;
+    if (stepOverridden) personSetup.step_id = payload.step_id || null;
     const roles = await _rolesForUsers([personId]);
     const categories = await _categoriesForUsers([personId]);
     const [ref, profileRows, gradeRows] = await Promise.all([
@@ -2919,6 +2929,22 @@ export async function POST(req) {
       _teacherSchemaFetch(`users_profile?teacher_id=eq.${encodeURIComponent(personId)}&select=full_name,designation`),
       personSetup.grade_id ? sbPayroll(`grades?id=eq.${encodeURIComponent(personSetup.grade_id)}&select=name`) : Promise.resolve([]),
     ]);
+    // Basic itself is a stored per-person override (person_field_values.
+    // basic), never recomputed live from Grade+Step at payslip time — see
+    // save_person_setup, the ONE place that normally writes it. A
+    // hypothetical Grade/Step override above would otherwise just keep
+    // showing whatever Basic is already saved, since _computePayslipFor
+    // Person reads it straight off ref.personFieldValuesByUser. Simulate
+    // that exact same lookup here (never written to the DB) so this
+    // preview's Basic — and anything computed as a percent of it —
+    // actually reflects the hypothetical Grade+Step being tried.
+    if ((gradeOverridden || stepOverridden) && personSetup.grade_id && personSetup.step_id) {
+      const cellRows = await sbPayroll(`grade_step_values?grade_id=eq.${encodeURIComponent(personSetup.grade_id)}&step_id=eq.${encodeURIComponent(personSetup.step_id)}&select=basic_value`);
+      const basicValue = Array.isArray(cellRows) && cellRows[0] && cellRows[0].basic_value != null ? Number(cellRows[0].basic_value) : null;
+      if (basicValue != null) {
+        ref.personFieldValuesByUser[personId] = { ...(ref.personFieldValuesByUser[personId] || { user_id: personId }), basic: basicValue };
+      }
+    }
     const slip = _computePayslipForPerson(personSetup, roles[personId] || [], categories[personId] || '', ref, Number(month), Number(year));
     // Name/designation/grade name/step number — the preview shows a bare
     // gross/net breakdown otherwise, with no way to tell who or what setup

@@ -249,7 +249,7 @@ const RESERVED = [
   'saveBoardExamRecord',
   // Payroll tab native port
   'loadAdminPayrollView','switchPayrollTab','saveSalaryStructure','runPayroll',
-  'approveLeave',
+  'approveLeave','_prRefreshPersonLivePreview',
   // Payroll Groups ("Group Maker") — onclick/onchange/oninput-referenced
   '_prSetExportSplitByPayrollGroup','_prOpenPayrollGroupsManager','_prClosePayrollGroupsManager',
   '_prSelectPayrollGroup','_prDeletePayrollGroup','_prAddPayrollGroup',

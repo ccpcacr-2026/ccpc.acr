@@ -17732,14 +17732,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
           <div>
             <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Grade</label>
-            <select id="prPersonGrade" onchange="_prRenderPersonStepOptions(null)" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            <select id="prPersonGrade" onchange="_prRenderPersonStepOptions(null);_prRefreshPersonLivePreview('${userId}')" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
               <option value="">None</option>
               ${_prGradesForPayType(payType).map(g => `<option value="${g.id}" ${setup.grade_id === g.id ? 'selected' : ''}>${g.name}</option>`).join('')}
             </select>
           </div>
           <div>
             <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Step</label>
-            <select id="prPersonStep" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></select>
+            <select id="prPersonStep" onchange="_prRefreshPersonLivePreview('${userId}')" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></select>
             <p class="text-[9px] text-slate-400 font-bold mt-1">Grade + Step sets Basic from the Pay Scale Grid.</p>
           </div>
           <div>
@@ -17747,6 +17747,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <input type="date" id="prPersonEffectiveDate" value="${new Date().toISOString().slice(0, 10)}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
           </div>
         </div>
+        <div id="prPersonLivePreview" class="mb-3"></div>
         <div class="grid md:grid-cols-4 gap-3 mb-3">
           <div>
             <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Joining Date</label>
@@ -17864,11 +17865,50 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
       `;
       _prRenderPersonStepOptions(setup.step_id);
+      _prRefreshPersonLivePreview(userId);
       lucide.createIcons();
     }).catch(err => {
       const detail = document.getElementById('prPersonDetailBody');
       if (detail) detail.innerHTML = `<p class="text-red-500 font-bold text-xs text-center py-8">${_escHtml(err.message || 'Failed to load')}</p>`;
     });
+  }
+
+  // Live "what would Basic (and anything a percent of it) be" preview,
+  // reacting to the Grade/Step selects before Save Setup is ever clicked
+  // — calls preview_payslip with those as hypothetical overrides (see the
+  // matching backend comment: Basic is normally a stored per-person
+  // value, only ever recomputed at Save time, so the backend has to
+  // simulate that same Grade+Step-> grid-cell lookup for a preview to
+  // reflect a not-yet-saved choice at all). Debounced against rapid
+  // Grade→Step->Grade reselection since each call is a real round-trip.
+  let _prPersonLivePreviewTimer = null;
+  function _prRefreshPersonLivePreview(userId) {
+    const host = document.getElementById('prPersonLivePreview');
+    if (!host) return;
+    const gradeSel = document.getElementById('prPersonGrade');
+    const stepSel = document.getElementById('prPersonStep');
+    const gradeId = gradeSel ? gradeSel.value : '';
+    const stepId = stepSel ? stepSel.value : '';
+    clearTimeout(_prPersonLivePreviewTimer);
+    _prPersonLivePreviewTimer = setTimeout(() => {
+      const now = new Date();
+      _payrollFetch('preview_payslip', { user_id: userId, month: now.getMonth() + 1, year: now.getFullYear(), grade_id: gradeId, step_id: stepId }).then(res => {
+        const host2 = document.getElementById('prPersonLivePreview');
+        if (!host2) return; // modal closed while this was in flight
+        if (!res || res.result !== 'success') { host2.innerHTML = ''; return; }
+        const fv = res.payslip.field_values || {};
+        const basic = Number(fv.basic) || 0;
+        // Every field that's a percentage OF Basic specifically —
+        // exactly what the user asked to see update alongside it, since
+        // its own amount moves whenever Basic does.
+        const dependents = _prFieldsCache.filter(f => f.calc_mode === 'percent_of_field' && f.calc_base_field_key === 'basic');
+        host2.innerHTML = `
+          <div class="bg-blue-50 border border-blue-100 rounded-xl p-3 flex flex-wrap items-center gap-x-5 gap-y-1.5">
+            <div><span class="text-[9px] font-black text-blue-400 uppercase tracking-widest block">Basic ${!gradeId || !stepId ? '(pick Grade + Step)' : ''}</span><span class="text-sm font-black text-blue-700">${_prFormatTaka(basic)}</span></div>
+            ${dependents.map(f => `<div><span class="text-[9px] font-black text-blue-400 uppercase tracking-widest block">${_escHtml(f.label)}</span><span class="text-xs font-black text-blue-700">${_prFormatTaka(Number(fv[f.key]) || 0)}</span></div>`).join('')}
+          </div>`;
+      }).catch(() => { const host3 = document.getElementById('prPersonLivePreview'); if (host3) host3.innerHTML = ''; });
+    }, 200);
   }
 
   function _prSaveSinglePersonFieldValue(userId, fieldKey, value) {
@@ -17900,6 +17940,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!paySel || !gradeSel) return;
     gradeSel.innerHTML = `<option value="">None</option>` + _prGradesForPayType(paySel.value).map(g => `<option value="${g.id}">${_escHtml(g.name)}</option>`).join('');
     _prRenderPersonStepOptions(null);
+    if (_prSelectedPersonId) _prRefreshPersonLivePreview(_prSelectedPersonId);
   }
 
   // ── Generic Excel import (People / Section Entries / Bonus / Leave Deductions) ──
