@@ -1636,7 +1636,7 @@ export async function POST(req) {
   }
 
   if (action === 'save_person_setup') {
-    const { user_id: personId, grade_id, step_id, pay_type, effective_date, joining_date, is_active, bank_name, bank_account_no, mobile_banking_provider, mobile_banking_number, mpo_amount, history_note } = payload;
+    const { user_id: personId, grade_id, step_id, pay_type, effective_date, joining_date, is_active, bank_name, bank_account_no, mobile_banking_provider, mobile_banking_number, mpo_amount, history_note, skip_history } = payload;
     if (!personId) return NextResponse.json({ result: 'error', message: 'user_id required' }, { status: 400 });
     const normPayType = pay_type === 'contractual' ? 'contractual' : 'regular';
     const rowData = {
@@ -1662,8 +1662,11 @@ export async function POST(req) {
     // Log a promotion-history row only when the grade/step/pay type actually
     // changed — so the People Setup roster can show every past promotion
     // date, not just today's, without one row per unrelated field edit
-    // (bank info, joining date, etc.) cluttering the timeline.
-    if (grade_id && (!prior || prior.grade_id !== grade_id || prior.step_id !== step_id || prior.pay_type !== normPayType)) {
+    // (bank info, joining date, etc.) cluttering the timeline. skip_history
+    // lets the detail panel's "Record this in their history?" popup honor a
+    // declined log — otherwise a change the admin explicitly chose not to
+    // log would still silently create a (note-less) row here.
+    if (!skip_history && grade_id && (!prior || prior.grade_id !== grade_id || prior.step_id !== step_id || prior.pay_type !== normPayType)) {
       const histRow = {
         user_id: personId, grade_id, step_id: step_id || null, pay_type: normPayType,
         effective_date: effective_date || new Date().toISOString().slice(0, 10),

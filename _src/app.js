@@ -18832,7 +18832,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const gradeChanged = !!fields.grade_id && (String(setup.grade_id || '') !== String(fields.grade_id) || String(setup.step_id || '') !== String(fields.step_id || ''));
     const designationChanged = !!fields.designation && fields.designation !== originalDesignation;
 
-    if (!gradeChanged && !designationChanged) { _prDoSavePersonSetup(userId, fields, { gradeChanged, designationChanged, historyNote: null }); return; }
+    if (!gradeChanged && !designationChanged) { _prDoSavePersonSetup(userId, fields, { gradeChanged, designationChanged, shouldLog: false, historyNote: null }); return; }
 
     const changeLines = [];
     if (designationChanged) changeLines.push(`Designation: <b>${_escHtml(originalDesignation || '—')}</b> → <b>${_escHtml(fields.designation)}</b>`);
@@ -18847,20 +18847,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         gradeChanged ? 'Grade/Step updated.' : '',
       ].filter(Boolean).join(' ');
       const historyNote = shouldLog ? [autoSummary, note].filter(Boolean).join(' ') : null;
-      _prDoSavePersonSetup(userId, fields, { gradeChanged, designationChanged, historyNote });
+      _prDoSavePersonSetup(userId, fields, { gradeChanged, designationChanged, shouldLog, historyNote });
     });
   }
 
-  function _prDoSavePersonSetup(userId, fields, { gradeChanged, designationChanged, historyNote }) {
+  function _prDoSavePersonSetup(userId, fields, { gradeChanged, designationChanged, shouldLog, historyNote }) {
     const { designation, ...setupFields } = fields;
-    const calls = [_payrollFetch('save_person_setup', { user_id: userId, ...setupFields, history_note: gradeChanged ? historyNote : null })];
+    // skip_history: a grade/step change normally auto-logs itself in
+    // save_person_setup unconditionally — when the admin explicitly declined
+    // to log via the popup, that default has to be turned off here, or
+    // "Just Save, Don't Log" would still leave a (note-less) row behind.
+    const calls = [_payrollFetch('save_person_setup', { user_id: userId, ...setupFields, history_note: historyNote, skip_history: gradeChanged && !shouldLog })];
     if (designationChanged) calls.push(_payrollFetch('update_person_designation', { user_id: userId, designation }));
     // A pure designation change (no grade change) has no auto-created
     // history row for the note to ride along on, unlike a grade change
     // which save_person_setup already logs itself — so log it explicitly
     // here instead. When both changed, the note already went on the
     // grade-history row above; adding a second one would just duplicate it.
-    if (designationChanged && !gradeChanged && historyNote) {
+    if (designationChanged && !gradeChanged && shouldLog) {
       calls.push(_payrollFetch('add_grade_history_row', { user_id: userId, effective_date: fields.effective_date || new Date().toISOString().slice(0, 10), grade_id: null, step_id: null, note: historyNote }));
     }
     Promise.all(calls).then(results => {
