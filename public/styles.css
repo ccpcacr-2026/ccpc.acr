@@ -1353,36 +1353,52 @@ button { user-select: none; }
 .tp-menubar-item.inactive:hover { background: #eceff0; }
 .tp-menubar-hot { font-weight: 700; }
 
-/* Light screen-title strip below the menu bar — shows the active
+/* Light-blue screen-title strip below the menu bar — shows the active
    screen's own breadcrumb (Gateway of Tally / Create / Voucher Entry…)
    with a close (= back one screen) control, matching the real
-   software's own title strip under its menu bar. */
-.tp-screentitle { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; background: #f4f6f7; color: #33474a; padding: 5px 16px; font-size: 12px; font-weight: 700; border-bottom: 1px solid #dfe6e7; }
-.tp-screentitle-close { background: none; border: none; color: #8a9a9c; cursor: pointer; padding: 2px; display: flex; }
-.tp-screentitle-close:hover { color: #33474a; }
+   software's own title strip exactly (checked against a screenshot —
+   corrected from an earlier too-gray first guess). */
+.tp-screentitle { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; background: #a9d4ea; color: #1c2b2e; padding: 5px 16px; font-size: 12px; font-weight: 700; }
+.tp-screentitle-close { background: none; border: none; color: #33474a; cursor: pointer; padding: 2px; display: flex; }
+.tp-screentitle-close:hover { color: #1c2b2e; }
 
 /* Main content is a row: the active screen's own body on the left, a
-   small contextual shortcuts sliver on the right — real Tally's own
-   layout, where the Gateway-of-Tally MENU only fills the body when
-   you're actually at that screen (see the gateway screen's own
-   render()), not a permanently-docked destination list.
-   min-height:0 is required for a flex child to actually scroll instead
-   of stretching its parent. */
+   contextual shortcuts sliver on the right — real Tally's own layout,
+   where the Gateway-of-Tally MENU only fills the body when you're
+   actually at that screen (see the gateway screen's own render()), not
+   a permanently-docked destination list. On the Voucher Entry screen
+   specifically, this sliver also lists F4-F9's voucher types (see
+   _acRenderContextPanel) — real Tally's own placement for them, not the
+   bottom button bar. min-height:0 is required for a flex child to
+   actually scroll instead of stretching its parent. */
 .tp-main-area { flex: 1; display: flex; overflow: hidden; min-height: 0; }
 .tp-body { flex: 1; overflow-y: auto; padding: 16px 20px; min-width: 0; }
-.tp-gateway-panel { width: 150px; flex-shrink: 0; overflow-y: auto; border-left: 1px solid #dfe6e7; background: #eef4f9; padding: 10px 8px; }
-.tp-context-pill { display: block; width: 100%; background: #fff; border: 1px solid #dfe6e7; border-radius: 6px; color: #33474a; font-family: inherit; font-size: 11.5px; font-weight: 600; text-align: left; padding: 6px 8px; margin-bottom: 6px; cursor: pointer; }
-.tp-context-pill:hover { border-color: #f5c04d; }
-.tp-context-pill b { color: #1f3a5f; }
+.tp-gateway-panel { width: 150px; flex-shrink: 0; overflow-y: auto; border-left: 1px solid #dfe6e7; background: #fff; padding: 6px 0; }
+.tp-context-item { display: block; width: 100%; background: none; border: none; border-bottom: 1px solid #eef1f2; color: #1f6fb2; font-family: inherit; font-size: 12px; font-weight: 600; text-align: left; padding: 7px 12px; cursor: pointer; }
+.tp-context-item:hover { background: #eef4f9; }
+.tp-context-item.inactive { color: #a7b3b5; cursor: default; }
+.tp-context-item.inactive:hover { background: none; }
+.tp-context-item b { font-weight: 700; }
+.tp-context-gap { height: 10px; }
 
 /* The Gateway-of-Tally card itself — only ever the gateway screen's
    own body content. Deliberately not full-width, matching the
    screenshot's proportions. Create/the ledger picker reuse the plainer
    .tp-menu-panel instead (they're not the floor screen). */
-.tp-gateway-card { background: #dfeaf6; border: 1px solid #c3d7ea; max-width: 460px; margin: 20px 0 20px 12px; }
-.tp-gateway-card-head { background: #1f3a5f; color: #fff; font-weight: 700; padding: 8px 16px; }
+.tp-gateway-card { background: #dfeaf6; border: 1px solid #c3d7ea; max-width: 350px; margin: 20px auto 20px 0; }
+.tp-gateway-card-head { background: #3d6d9e; color: #fff; font-weight: 700; padding: 8px 16px; }
 .tp-gateway-card .tp-menu-section-label { color: #4a6485; }
 .tp-gateway-card .tp-menu-row { color: #1f3a5f; }
+
+/* Current Period / Current Date / Company info strip — only on the
+   Gateway floor screen, to the left of the Gateway card itself, matching
+   real Tally's own home-screen layout exactly. */
+.tp-company-info { padding: 4px 0 16px; }
+.tp-company-info-row { display: flex; gap: 48px; padding: 8px 0; border-bottom: 1px solid #dfe6e7; margin-bottom: 8px; }
+.tp-company-info-label { color: #1f6fb2; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; display: block; margin-bottom: 2px; }
+.tp-company-info-value { color: #1c2b2e; font-size: 13px; font-weight: 700; }
+.tp-gateway-floor { display: flex; align-items: flex-start; gap: 24px; }
+.tp-gateway-floor-left { flex: 1; min-width: 0; }
 
 .tp-menu-panel { background: #fff; border: 1px solid #dfe6e7; max-width: 460px; margin: 24px auto; padding: 4px 0; box-shadow: 0 2px 10px rgba(15,40,45,0.08); }
 .tp-menu-section-label { color: #7a8c8f; font-size: 11px; letter-spacing: .08em; padding: 8px 16px 4px; text-transform: uppercase; }

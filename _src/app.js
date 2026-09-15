@@ -26271,11 +26271,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { label: 'Alter', hot: 'A', go: 'chart' },
     { label: 'Chart of Accounts', hot: 'H', go: 'chart' },
     { section: 'Transactions' },
-    { label: 'Voucher Entry', hot: 'V', go: 'voucher', params: { type: 'Payment' } },
+    { label: 'Vouchers', hot: 'V', go: 'voucher', params: { type: 'Payment' } },
     { label: 'Day Book', hot: 'D', go: 'daybook' },
     { section: 'Reports' },
     { label: 'Balance Sheet', hot: 'B', go: 'balance-sheet' },
     { label: 'Profit & Loss A/c', hot: 'P', go: 'pnl' },
+    // Stock Summary/Ratio Analysis are real Tally Gateway items shown for
+    // fidelity — this app has no stock/inventory concept inside Accounts
+    // (Inventory is its own separate module), so they stay inert.
+    { label: 'Stock Summary', hot: 'S', action: () => _acInertMenuItem('stock') },
+    { label: 'Ratio Analysis', hot: 'R', action: () => _acInertMenuItem('ratio') },
     { label: 'Trial Balance', hot: 'T', go: 'trial-balance' },
     { label: 'Ledger Vouchers', hot: 'L', go: 'ledger-picker' },
   ];
@@ -26335,20 +26340,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (_acStack.length > 1) { _acStack.pop(); _acMenuIndex = 0; _acRender(); }
   }
 
-  // The F4-F9 voucher-type shortcuts only show on screens where creating
-  // a voucher is actually the point (the Gateway floor and Voucher Entry
-  // itself) — real Tally doesn't clutter a report or Chart-of-Accounts
-  // screen's button bar with them, even though the keyboard shortcuts
-  // themselves keep working from anywhere (see _acKeydown, unaffected by
-  // this — it's a display-only distinction).
-  const AC_FKEY_SCREENS = new Set(['gateway', 'voucher']);
-  function _acRenderButtonBar(extra, screenId) {
+  // Bottom bar is generic actions only (a screen's own buttons() + Esc
+  // Back) — real Tally's F4-F9 voucher-type shortcuts actually live in
+  // the RIGHT PANEL as a contextual list, only on the Voucher Entry
+  // screen (see _acRenderContextPanel), not here. Checked against a real
+  // screenshot of Tally's own Voucher Entry screen.
+  function _acRenderButtonBar(extra) {
     const bar = document.getElementById('tp-buttonbar');
     if (!bar) return;
-    const fkeyBtns = AC_FKEY_SCREENS.has(screenId) ? _AC_FKEYS.map(f => `<button class="tp-fkey" onclick="_acOpenVoucherScreen('${f.type}')"><b>${f.key}</b> ${f.label}</button>`).join('') : '';
     const extraBtns = (extra || []).map(b => `<button class="tp-fkey" onclick="${b.onclick}"><b>${_escHtml(b.key)}</b> ${_escHtml(b.label)}</button>`).join('');
     const backBtn = _acStack.length > 1 ? `<button class="tp-fkey" onclick="_acPop()"><b>Esc</b> Back</button>` : '';
-    bar.innerHTML = fkeyBtns + extraBtns + backBtn;
+    bar.innerHTML = extraBtns + backBtn;
   }
 
   function _acRender() {
@@ -26360,8 +26362,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const body = document.getElementById('tp-body');
     if (!body) return;
     screen.render(body, top.params || {});
-    _acRenderButtonBar(screen.buttons ? screen.buttons(top.params || {}) : [], top.id);
-    _acRenderContextPanel();
+    _acRenderButtonBar(screen.buttons ? screen.buttons(top.params || {}) : []);
+    _acRenderContextPanel(top.id, top.params || {});
   }
 
   // Dark menu bar — static content, rendered once at open (unlike
@@ -26388,6 +26390,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     goto: 'Use the Gateway of Tally menu, or Esc to go back.',
     share: 'Sharing isn\'t available yet.',
     help: 'See the Gateway of Tally menu for what\'s available.',
+    stock: 'No stock/inventory tracked in Accounts — see the separate Inventory module.',
+    ratio: 'Ratio Analysis isn\'t built yet.',
   };
   function _acInertMenuItem(key) { showToast(_AC_INERT_MESSAGES[key] || 'Not available', 'info'); }
   function _acRenderMenuBar() {
@@ -26408,18 +26412,31 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     lucide.createIcons();
   }
 
-  // Small contextual shortcuts sliver on the right — real Tally's own
-  // layout keeps this present on every screen but its content varies;
-  // this app has no real per-screen company/period context to show, so
-  // it stays deliberately minimal rather than inventing placeholder
-  // chrome. Same _acInertMenuItem toast as the menu bar's K/Y/Z/G items.
-  function _acRenderContextPanel() {
+  // Contextual shortcuts sliver on the right — real Tally's own layout
+  // keeps F2:Date/F3:Company here on every screen, then adds more below
+  // depending which screen you're on (checked against a real screenshot
+  // of Tally's own Voucher Entry screen: F4-F9's voucher-type switcher
+  // lives HERE as a list, not as buttons in the bottom bar — the
+  // currently-open type shows greyed/inactive since switching to what
+  // you're already on doesn't make sense). Other per-screen extras real
+  // Tally shows here (Autofill, Change Mode, Optional, Post-Dated, …)
+  // don't have a real feature behind them in this app yet, so they're
+  // left out rather than added as inert decoration.
+  function _acRenderContextPanel(screenId, params) {
     const panel = document.getElementById('tp-gateway-panel');
     if (!panel) return;
-    panel.innerHTML = `
-      <button class="tp-context-pill" onclick="_acInertMenuItem('goto')"><b>F2</b>:Date</button>
-      <button class="tp-context-pill" onclick="_acInertMenuItem('company')"><b>F3</b>:Company</button>
+    let html = `
+      <button class="tp-context-item" onclick="_acInertMenuItem('goto')"><b>F2</b>:Date</button>
+      <button class="tp-context-item" onclick="_acInertMenuItem('company')"><b>F3</b>:Company</button>
     `;
+    if (screenId === 'voucher') {
+      const currentType = (params || {}).type || '';
+      html += '<div class="tp-context-gap"></div>' + _AC_FKEYS.map(f => f.type === currentType
+        ? `<span class="tp-context-item inactive"><b>${f.key}</b>:${f.label}</span>`
+        : `<button class="tp-context-item" onclick="_acOpenVoucherScreen('${f.type}')"><b>${f.key}</b>:${f.label}</button>`
+      ).join('');
+    }
+    panel.innerHTML = html;
   }
 
   // Two independent gates on the global keydown listener (see
@@ -27411,10 +27428,39 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       // for the small sliver that replaces it on every OTHER screen) —
       // reuses the exact same _acMenuHtml/_acMenuHover/_acActivateMenuItem
       // machinery every other menu screen already drives, just painted
-      // into a styled card instead of the plain .tp-menu-panel.
+      // into a styled card instead of the plain .tp-menu-panel. The
+      // Current Period/Date/Company strip to its left matches real
+      // Tally's own floor-screen layout exactly (checked against a
+      // screenshot) — period is Bangladesh's real 1 Jul-30 Jun fiscal
+      // year, computed from today's date rather than hardcoded; company
+      // name reuses the same MPO_INSTITUTION_NAME the Payroll module
+      // already prints on its own official documents.
       render(host) {
         _acCurrentMenuItems = _AC_GATEWAY_MENU.filter(it => !it.section);
-        host.innerHTML = `<div class="tp-gateway-card"><div class="tp-gateway-card-head">Gateway of Tally</div>${_acMenuHtml(_AC_GATEWAY_MENU, _acMenuIndex)}</div>`;
+        const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const fmtShort = d => `${d.getDate()}-${MONTH_ABBR[d.getMonth()]}-${String(d.getFullYear()).slice(2)}`;
+        const now = new Date();
+        const fyStartYear = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
+        const periodFrom = fmtShort(new Date(fyStartYear, 6, 1));
+        const periodTo = fmtShort(new Date(fyStartYear + 1, 5, 30));
+        const dateLabel = `${DAY_NAMES[now.getDay()]}, ${fmtShort(now)}`;
+        host.innerHTML = `
+          <div class="tp-gateway-floor">
+            <div class="tp-gateway-floor-left">
+              <div class="tp-company-info">
+                <div class="tp-company-info-row">
+                  <div><span class="tp-company-info-label">Current Period</span><span class="tp-company-info-value">${periodFrom} to ${periodTo}</span></div>
+                  <div><span class="tp-company-info-label">Current Date</span><span class="tp-company-info-value">${_escHtml(dateLabel)}</span></div>
+                </div>
+                <div class="tp-company-info-row" style="border-bottom:none;margin-bottom:0">
+                  <div><span class="tp-company-info-label">Name of Company</span><span class="tp-company-info-value">${_escHtml(MPO_INSTITUTION_NAME)}</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="tp-gateway-card"><div class="tp-gateway-card-head">Gateway of Tally</div>${_acMenuHtml(_AC_GATEWAY_MENU, _acMenuIndex)}</div>
+          </div>
+        `;
       },
     },
     create: {
