@@ -27236,7 +27236,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <td>${_escHtml(v.voucher_date)}</td><td>${_escHtml(v.voucher_type)}</td><td>${_escHtml(v.voucher_number || '')}</td>
           <td>${parts}${v.narration ? ' — ' + _escHtml(v.narration) : ''}</td>
           <td class="tp-num">${total.toLocaleString('en-IN')}</td>
-          <td><button class="tp-inline-btn" onclick="_acOpenVoucherScreen('${_escHtml(v.voucher_type)}',${v.id})">Edit</button><button class="tp-inline-btn" onclick="_acDeleteVoucher(${v.id})">Del</button></td>
+          <td><button class="tp-inline-btn" onclick="_acOpenVoucherScreen('${_escHtml(v.voucher_type)}',${v.id})">Edit</button>${v.voucher_type === 'Payment' ? `<button class="tp-inline-btn" onclick="window.open('/bill/${v.id}?print=1','_blank')" title="Print the office's Bill Payment Order form for this voucher">Bill</button>` : ''}<button class="tp-inline-btn" onclick="_acDeleteVoucher(${v.id})">Del</button></td>
         </tr>`;
       }).join('')}
     </tbody></table>`;
