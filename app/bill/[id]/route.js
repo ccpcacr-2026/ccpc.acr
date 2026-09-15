@@ -186,11 +186,12 @@ export async function GET(request, { params }) {
       <td class="c-poisha">${poishaBn(poisha)}</td>
     </tr>`;
   }).join('');
-  // The real paper form's blank area below the entries is one plain white
-  // box with no ruling at all — not a grid of empty rows, and not even a
-  // boxed outline — so a voucher with just 1-2 entries still gets a
-  // properly page-filling, genuinely blank middle section instead of a
-  // stack of empty ruled boxes or a hollow rectangle.
+  // The real paper form's blank area below the entries keeps the table's
+  // own left/right edges running through it (so the whole item table
+  // still reads as one continuous box), but has no horizontal ruling
+  // inside it — not a grid of empty rows, and not a separately boxed-off
+  // rectangle either — so a voucher with just 1-2 entries still gets a
+  // properly page-filling, genuinely blank middle section.
   const ITEM_AREA_HEIGHT_PT = 320;
   const usedHeightPt = entries.length * 19;
   const fillerHeightPt = Math.max(0, ITEM_AREA_HEIGHT_PT - usedHeightPt);
@@ -237,7 +238,13 @@ export async function GET(request, { params }) {
     table.items th{font-weight:700;text-align:center;font-size:9.5pt;}
     .c-sl{width:8%;text-align:center;} .c-taka{width:15%;text-align:right;} .c-poisha{width:8%;text-align:right;}
     table.items td{height:19pt;}
-    table.items td.filler{border:none;padding:0;}
+    /* border-style:hidden (not "none") on the shared top/bottom edges --
+       under border-collapse, "none" loses to a solid border declared by
+       the neighboring row and the line would still be drawn; "hidden"
+       is the one value that always wins the conflict and actually
+       suppresses it, regardless of what the row above or the total row
+       below declare on their own touching edge. */
+    table.items td.filler{border-left:1pt solid #000;border-right:1pt solid #000;border-top-style:hidden;border-bottom-style:hidden;padding:0;}
     .total-row td{font-weight:700;border-top:1.3pt solid #000;}
     .lower{display:flex;margin-top:0;}
     .lower-left{flex:1;border:1pt solid #000;border-top:none;border-right:none;padding:6pt 8pt;font-size:9.5pt;}
