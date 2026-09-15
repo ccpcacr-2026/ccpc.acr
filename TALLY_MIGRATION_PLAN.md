@@ -49,12 +49,16 @@ Following this app's existing pattern (one Postgres schema + one API route file 
 - **Done (2026-09-15): `migration_accounts_schema.sql`** — creates the `accounts` schema and its four core tables (`account_groups`, `ledgers`, `vouchers`, `voucher_entries`), seeded with Tally's standard top-level Groups. Built ahead of seeing the real Tally export (a reasonable first cut, since double-entry structure is standard), so it may need adjusting once real Masters/Vouchers XML is in hand — e.g. new Groups the office's Tally actually uses, or GST-related ledgers.
   - **User action required, not yet done**: run `migration_accounts_schema.sql` in the Supabase SQL editor (I can't execute DDL myself — no direct Postgres connection, only the REST API via the service key). Then add `accounts` to **Settings → API → Data API → Exposed schemas** in the Supabase dashboard, the same manual step `payroll`/`inventory`/`student` needed — PostgREST won't serve `Accept-Profile: accounts` until that's done.
 
+- **Done (2026-09-15): `app/api/accounts-admin/route.js` + Accounts Admin UI in `_src/app.js`** — CRUD for Groups, Ledgers, and Vouchers, plus a Trial Balance report. Gated to Admin/Accounts Admin (same role already used for Payroll). New "Accounts Admin" sidebar item. Not tested against live data yet — can't be, until the schema migration below is actually run.
+  - **Not yet built**: Day Book already exists as the Vouchers list itself (with date filters); Ledger statement (one ledger's own running balance over time), Profit & Loss, and Balance Sheet reports are still pending.
+  - **Not yet built**: the Tally XML importer — needs a real exported file to write against (see below), not guessed structure.
+
 ## Next steps
 
-1. Run `migration_accounts_schema.sql` (above) and expose the `accounts` schema — blocks everything else below.
-2. Build `app/api/accounts-admin/route.js` (ledger/voucher CRUD, role-gated) and a matching UI module in `_src/app.js`, so the schema is actually usable for day-to-day entry even before Tally data is imported.
+1. Run `migration_accounts_schema.sql` and expose the `accounts` schema in Supabase (Settings → API → Data API → Exposed schemas) — blocks using the module at all, still not done.
+2. Manually test the new Accounts Admin module against real entries once the above is done (create a Group, a Ledger, a Voucher, confirm the Trial Balance balances) before trusting it with real data.
 3. User exports Masters + Vouchers XML from Tally and shares the files.
 4. Inspect the real XML structure, confirm what account groups/ledgers/voucher types are actually in use (including whether GST/tax ledgers are present) — adjust the schema/seed Groups if needed.
 5. Build the importer, run it against a copy of the data, and manually reconcile a sample (e.g. one ledger's balance) against Tally's own report for the same ledger before trusting the import.
-6. Build the remaining reports: Day Book, Ledger statement, Trial Balance, P&L, Balance Sheet.
+6. Build the remaining reports: Ledger statement, Profit & Loss, Balance Sheet.
 7. Only after the above is verified correct: start treating this app as the system of record and wind down day-to-day Tally use.
