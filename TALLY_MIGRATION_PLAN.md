@@ -52,12 +52,13 @@ Following this app's existing pattern (one Postgres schema + one API route file 
 - **Done (2026-09-15): `app/api/accounts-admin/route.js` + Accounts Admin UI in `_src/app.js`** — CRUD for Groups, Ledgers, and Vouchers, plus a Trial Balance report. Gated to Admin/Accounts Admin (same role already used for Payroll). New "Accounts Admin" sidebar item.
   - **Not yet built**: Day Book already exists as the Vouchers list itself (with date filters); Ledger statement (one ledger's own running balance over time), Profit & Loss, and Balance Sheet reports are still pending.
   - **Not yet built**: the Tally XML importer — needs a real exported file to write against (see below), not guessed structure.
+- **Done (2026-09-15): UI rebuilt as a TallyPrime emulation**, per explicit user request. Dark screen-stack UI (Gateway menu, F4-F9 voucher shortcuts, Esc/Ctrl+A/Alt+C, Enter-driven fields) replaces the earlier tab shell; P&L and Balance Sheet added as new report screens (derived client-side from the existing Trial Balance data, no backend change). Mobile got its own separate touch UI per the standing mobile/desktop-split rule. Backend/schema untouched. Verified: build succeeds, and every onclick-referenced function name survives minification unmangled in the deployed bundle. **Not yet done: an actual hands-on click-and-keyboard test in a real browser** — that needs the user's own pass (see Next Steps).
 - **Done (2026-09-15): schema migration run, `accounts` schema exposed, end-to-end verified.** User ran `migration_accounts_schema.sql` and added `accounts` to Supabase's Exposed schemas. Confirmed live against the deployed app: created a test Group + two Ledgers, posted a balanced Journal voucher, Trial Balance reflected correct closing balances, Day Book listed it, then all four test records were deleted to leave the real books untouched. The module is confirmed working end to end.
 
 ## Next steps
 
-1. User exports Masters + Vouchers XML from Tally and shares the files.
-2. Inspect the real XML structure, confirm what account groups/ledgers/voucher types are actually in use (including whether GST/tax ledgers are present) — adjust the schema/seed Groups if needed.
-3. Build the importer, run it against a copy of the data, and manually reconcile a sample (e.g. one ledger's balance) against Tally's own report for the same ledger before trusting the import.
-4. Build the remaining reports: Ledger statement, Profit & Loss, Balance Sheet.
+1. **User: click-test the new Tally-style UI** in a real browser (desktop and a phone) — try F4-F9, Esc, Ctrl+A, Alt+C, the Gateway menu's arrow keys/hotkeys, and confirm nothing feels broken. Report anything that doesn't behave as expected.
+2. User exports Masters + Vouchers XML from Tally and shares the files.
+3. Inspect the real XML structure, confirm what account groups/ledgers/voucher types are actually in use (including whether GST/tax ledgers are present) — adjust the schema/seed Groups if needed.
+4. Build the importer, run it against a copy of the data, and manually reconcile a sample (e.g. one ledger's balance) against Tally's own report for the same ledger before trusting the import.
 5. Only after the above is verified correct: start treating this app as the system of record and wind down day-to-day Tally use.
