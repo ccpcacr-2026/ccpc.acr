@@ -1334,16 +1334,24 @@ button { user-select: none; }
 }
 @media (min-width: 768px) { .tp-shell { margin: 0 -32px -32px; } }
 
-/* Dark-teal menu bar — brand, a cosmetic search field, then the real
-   K/Y/Z/G/O/E/M/P/F1 menu (see _acRenderMenuBar). Hotkey letters use a
-   light cyan accent instead of the old red-underline treatment. */
-.tp-menubar { flex-shrink: 0; display: flex; align-items: center; gap: 16px; background: #17282b; color: #fff; padding: 8px 16px; font-size: 12.5px; }
+/* Muted grayish-teal menu bar — two rows, matching real TallyPrime EDU
+   exactly (checked against a close-up screenshot, corrected from an
+   earlier, too-dark/too-saturated first guess): a search row (brand +
+   cosmetic search field + notification/window icons), then a second row
+   with the real K/Y/Z/G/O/E/M/P/F1 menu spread edge-to-edge. Hotkey
+   letters are bold white like the rest of the label, not a separate
+   accent color — real Tally marks them with weight, not color. */
+.tp-menubar { flex-shrink: 0; background: #5c6e6c; color: #fff; font-size: 12.5px; }
+.tp-menubar-row1 { display: flex; align-items: center; gap: 16px; padding: 7px 16px; }
 .tp-menubar-brand { font-weight: 800; letter-spacing: .02em; white-space: nowrap; }
-.tp-menubar-search { flex: 1; max-width: 420px; background: #24393c; border: 1px solid #344b4e; border-radius: 6px; color: #b7c4c6; padding: 5px 10px; font-size: 12px; }
-.tp-menubar-items { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-.tp-menubar-item { background: none; border: none; color: #fff; font-family: inherit; font-size: 12.5px; cursor: pointer; padding: 2px 0; white-space: nowrap; }
-.tp-menubar-item:hover { color: #9fe3ec; }
-.tp-menubar-hot { color: #5fd0dc; font-weight: 700; }
+.tp-menubar-search { flex: 1; max-width: 420px; margin: 0 auto; background: #fff; border: 1px solid #cfd8d7; border-radius: 6px; color: #4a5a58; padding: 5px 10px; font-size: 12px; }
+.tp-menubar-icons { display: flex; align-items: center; gap: 12px; color: #e7ecec; }
+.tp-menubar-row2 { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 16px; border-top: 1px solid rgba(255,255,255,0.12); flex-wrap: wrap; }
+.tp-menubar-item { background: none; border: none; color: #fff; font-family: inherit; font-size: 12.5px; cursor: pointer; padding: 4px 6px; white-space: nowrap; border-radius: 4px; }
+.tp-menubar-item:hover { background: rgba(255,255,255,0.12); }
+.tp-menubar-item.inactive { background: #eceff0; color: #9aa6a5; cursor: default; }
+.tp-menubar-item.inactive:hover { background: #eceff0; }
+.tp-menubar-hot { font-weight: 700; }
 
 /* Light screen-title strip below the menu bar — shows the active
    screen's own breadcrumb (Gateway of Tally / Create / Voucher Entry…)

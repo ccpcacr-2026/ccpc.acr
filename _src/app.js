@@ -26335,10 +26335,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (_acStack.length > 1) { _acStack.pop(); _acMenuIndex = 0; _acRender(); }
   }
 
-  function _acRenderButtonBar(extra) {
+  // The F4-F9 voucher-type shortcuts only show on screens where creating
+  // a voucher is actually the point (the Gateway floor and Voucher Entry
+  // itself) — real Tally doesn't clutter a report or Chart-of-Accounts
+  // screen's button bar with them, even though the keyboard shortcuts
+  // themselves keep working from anywhere (see _acKeydown, unaffected by
+  // this — it's a display-only distinction).
+  const AC_FKEY_SCREENS = new Set(['gateway', 'voucher']);
+  function _acRenderButtonBar(extra, screenId) {
     const bar = document.getElementById('tp-buttonbar');
     if (!bar) return;
-    const fkeyBtns = _AC_FKEYS.map(f => `<button class="tp-fkey" onclick="_acOpenVoucherScreen('${f.type}')"><b>${f.key}</b> ${f.label}</button>`).join('');
+    const fkeyBtns = AC_FKEY_SCREENS.has(screenId) ? _AC_FKEYS.map(f => `<button class="tp-fkey" onclick="_acOpenVoucherScreen('${f.type}')"><b>${f.key}</b> ${f.label}</button>`).join('') : '';
     const extraBtns = (extra || []).map(b => `<button class="tp-fkey" onclick="${b.onclick}"><b>${_escHtml(b.key)}</b> ${_escHtml(b.label)}</button>`).join('');
     const backBtn = _acStack.length > 1 ? `<button class="tp-fkey" onclick="_acPop()"><b>Esc</b> Back</button>` : '';
     bar.innerHTML = fkeyBtns + extraBtns + backBtn;
@@ -26353,7 +26360,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const body = document.getElementById('tp-body');
     if (!body) return;
     screen.render(body, top.params || {});
-    _acRenderButtonBar(screen.buttons ? screen.buttons(top.params || {}) : []);
+    _acRenderButtonBar(screen.buttons ? screen.buttons(top.params || {}) : [], top.id);
     _acRenderContextPanel();
   }
 
@@ -26386,12 +26393,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _acRenderMenuBar() {
     const bar = document.getElementById('tp-menubar');
     if (!bar) return;
-    const items = _AC_MENUBAR_ITEMS.map(it => `<button class="tp-menubar-item" onclick="${it.onclick}"><span class="tp-menubar-hot">${_escHtml(it.hot)}</span>:${_escHtml(it.label)}</button>`).join('');
+    // G:Go To renders as a distinct light box (not plain text like its
+    // neighbors) matching real Tally — it behaves as a quick-jump search
+    // trigger there, which this app doesn't build, so it's styled the
+    // same but stays inert (see _AC_INERT_MESSAGES).
+    const items = _AC_MENUBAR_ITEMS.map(it => `<button class="tp-menubar-item${it.hot === 'G' ? ' inactive' : ''}" onclick="${it.onclick}"><span class="tp-menubar-hot">${_escHtml(it.hot)}</span>:${_escHtml(it.label)}</button>`).join('');
     bar.innerHTML = `
-      <span class="tp-menubar-brand">CCPC · Accounts</span>
-      <input type="text" class="tp-menubar-search" placeholder="Find details entered in masters and transactions." disabled>
-      <div class="tp-menubar-items">${items}</div>
+      <div class="tp-menubar-row1">
+        <input type="text" class="tp-menubar-search" placeholder="Find details entered in masters and transactions. (Alt+F)" disabled>
+        <div class="tp-menubar-icons"><i data-lucide="bell" class="h-4 w-4"></i></div>
+      </div>
+      <div class="tp-menubar-row2">${items}</div>
     `;
+    lucide.createIcons();
   }
 
   // Small contextual shortcuts sliver on the right — real Tally's own
