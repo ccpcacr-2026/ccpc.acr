@@ -139,14 +139,17 @@ export async function GET(request, { params }) {
       <td class="c-poisha">${poisha ? toBnDigits(poisha) : ''}</td>
     </tr>`;
   }).join('');
-  // The real paper form has a generously-sized, mostly-blank box for line
-  // items regardless of how many are actually filled in — a voucher with
-  // just 1-2 entries would otherwise leave the whole page looking cramped
-  // into its top third. Pad with blank ruled rows up to a fixed minimum so
-  // the table (and therefore the page) always fills out properly.
-  const MIN_ITEM_ROWS = 16;
-  const blankRowHtml = `<tr><td class="c-sl">&nbsp;</td><td class="c-desc">&nbsp;</td><td class="c-taka">&nbsp;</td><td class="c-poisha">&nbsp;</td></tr>`;
-  const rowsHtml = filledRowsHtml + blankRowHtml.repeat(Math.max(0, MIN_ITEM_ROWS - entries.length));
+  // The real paper form's blank area below the entries is one plain white
+  // box, not a grid of ruled empty rows — a single unlined filler cell
+  // (bordered only left/right, matching the table's own outer edge) fills
+  // the rest of a fixed item-area height, so a voucher with just 1-2
+  // entries still gets a properly page-filling, but genuinely blank,
+  // middle section instead of a stack of empty ruled boxes.
+  const ITEM_AREA_HEIGHT_PT = 320;
+  const usedHeightPt = entries.length * 19;
+  const fillerHeightPt = Math.max(0, ITEM_AREA_HEIGHT_PT - usedHeightPt);
+  const fillerRowHtml = fillerHeightPt > 0 ? `<tr><td class="filler" colspan="4" style="height:${fillerHeightPt}pt"></td></tr>` : '';
+  const rowsHtml = filledRowsHtml + fillerRowHtml;
   const totalTaka = Math.floor(total);
   const totalPoisha = Math.round((total - totalTaka) * 100);
 
@@ -175,6 +178,7 @@ export async function GET(request, { params }) {
     table.items th{font-weight:700;text-align:center;font-size:9.5pt;}
     .c-sl{width:8%;text-align:center;} .c-taka{width:15%;text-align:right;} .c-poisha{width:8%;text-align:right;}
     table.items td{height:19pt;}
+    table.items td.filler{border-top:none;border-bottom:none;border-left:1pt solid #000;border-right:1pt solid #000;padding:0;}
     .total-row td{font-weight:700;border-top:1.3pt solid #000;}
     .lower{display:flex;margin-top:0;}
     .lower-left{flex:1;border:1pt solid #000;border-top:none;border-right:none;padding:6pt 8pt;font-size:9.5pt;}
