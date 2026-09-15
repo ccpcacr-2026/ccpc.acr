@@ -25566,6 +25566,41 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!body) return;
     screen.render(body, top.params || {});
     _acRenderButtonBar(screen.buttons ? screen.buttons(top.params || {}) : []);
+    _acRenderGatewayPanel(top.id === 'gateway');
+  }
+  // The Gateway of Tally menu, permanently docked on the right on every
+  // screen — real Tally always keeps it there so another destination is
+  // one click away without backing out first. Deliberately NOT built on
+  // _acMenuHtml/_acActivateMenuItem: those read the shared
+  // _acCurrentMenuItems/_acMenuIndex, which belong to whichever menu the
+  // MAIN body is currently driving (e.g. Create) — reusing them here
+  // would activate the wrong item the moment this panel's clicks were
+  // routed through that shared, screen-dependent state. This panel gets
+  // its own small self-contained render+activate pair instead. Its row
+  // only shows the arrow-key highlight when we're actually AT the floor
+  // (atFloor) — on any other screen it's still fully clickable, it just
+  // isn't what arrow keys are currently driving.
+  function _acGatewayMenuItems() { return _AC_GATEWAY_MENU.filter(it => !it.section); }
+  function _acActivateGatewayItem(idx) {
+    const item = _acGatewayMenuItems()[idx];
+    if (!item) return;
+    if (item.action) item.action(); else _acGo(item.go, item.params);
+  }
+  function _acRenderGatewayPanel(atFloor) {
+    const panel = document.getElementById('tp-gateway-panel');
+    if (!panel) return;
+    let rowIdx = -1;
+    const rows = _AC_GATEWAY_MENU.map(it => {
+      if (it.section) return `<div class="tp-menu-section-label">${_escHtml(it.section)}</div>`;
+      rowIdx++;
+      const isActive = atFloor && rowIdx === _acMenuIndex;
+      const hotPos = it.hot ? it.label.toUpperCase().indexOf(it.hot.toUpperCase()) : -1;
+      const labelHtml = hotPos >= 0
+        ? _escHtml(it.label.slice(0, hotPos)) + `<span class="tp-menu-hot">${_escHtml(it.label[hotPos])}</span>` + _escHtml(it.label.slice(hotPos + 1))
+        : _escHtml(it.label);
+      return `<div class="tp-menu-row${isActive ? ' active' : ''}" onclick="_acActivateGatewayItem(${rowIdx})">${labelHtml}</div>`;
+    }).join('');
+    panel.innerHTML = `<div class="tp-col-head">Gateway of Tally</div>${rows}`;
   }
 
   // Two independent gates on the global keydown listener (see
@@ -25769,7 +25804,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       container.innerHTML = `
         <div class="tp-shell" id="tp-shell">
           <div class="tp-titlebar"><span>TALLY.ERP — ACCOUNTS</span><span class="tp-path" id="tp-path"></span></div>
-          <div class="tp-body" id="tp-body"></div>
+          <div class="tp-main-area">
+            <div class="tp-body" id="tp-body"></div>
+            <div class="tp-gateway-panel" id="tp-gateway-panel"></div>
+          </div>
           <div class="tp-buttonbar" id="tp-buttonbar"></div>
         </div>
         ${_acModalsHtml()}
@@ -26231,19 +26269,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   const _AC_SCREENS = {
     gateway: {
       title: 'Gateway of Tally', isMenu: true,
-      // A single header-styled panel at the top of the screen — no
-      // voucher tiles on desktop (F4-F9 and the bottom button bar
-      // already cover that); the header strip uses the same blue/yellow
-      // treatment as a table header (.tp-col-head/.tp-table th) so the
-      // panel itself reads as a headed block, not a plain list box.
+      // The menu itself now lives permanently in the right-hand
+      // #tp-gateway-panel (see _acRenderGatewayPanel/_acRender) instead
+      // of the main body — this screen is only the "at rest" state, so
+      // its own body is just a quiet welcome. isMenu stays true and
+      // _acCurrentMenuItems is still set here so arrow-key/hotkey
+      // navigation keeps working exactly as before; it now highlights
+      // the row in the side panel rather than a copy in the main body.
       render(host) {
         _acCurrentMenuItems = _AC_GATEWAY_MENU.filter(it => !it.section);
-        host.innerHTML = `
-          <div class="tp-menu-panel tp-menu-panel-top">
-            <div class="tp-col-head">Gateway of Tally</div>
-            ${_acMenuHtml(_AC_GATEWAY_MENU, _acMenuIndex)}
-          </div>
-        `;
+        host.innerHTML = `<div class="tp-empty" style="margin-top:40px">Select a destination from the Gateway of Tally menu on the right.</div>`;
       },
     },
     create: {

@@ -257,7 +257,7 @@ const RESERVED = [
   '_acAddVoucherEntryRow','_acVoucherRecalc','_acOpenVoucherForm','_acCloseVoucherForm','_acSaveVoucher','_acDeleteVoucher',
   '_acLoadVouchers','_acLoadTrialBalance',
   // TallyPrime-emulation screen stack — onclick/onmouseenter-referenced
-  '_acPop','_acActivateMenuItem','_acMenuHover','_acOpenVoucherScreen','_acAccept','_acMobileGo',
+  '_acPop','_acActivateMenuItem','_acMenuHover','_acOpenVoucherScreen','_acAccept','_acMobileGo','_acActivateGatewayItem',
   // Transport tab native port (incl. Bus/GPS Config)
   'loadAdminTransportView','switchTransportTab','saveTransportRoute',
   'saveTransportVehicle','saveTransportPickupPoint','saveTransportFeeMaster',
