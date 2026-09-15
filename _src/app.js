@@ -17639,6 +17639,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       // whole roster, which is what happens if this rejects inside the same
       // Promise.all as everything the roster actually needs to render.
       _payrollFetch('get_grade_history', {}).catch(() => ({ result: 'error' })),
+      new Promise(resolve => _prLoadPayrollGroups(resolve)),
     ]).then(([, peopleRes, gradesRes, stepsRes, matrixRes, historyRes]) => {
       _prPeopleSetupCache = (peopleRes && peopleRes.result === 'success' && peopleRes.people) || [];
       _prGradesCache = (gradesRes && gradesRes.result === 'success' && gradesRes.grades) || _prGradesCache;
@@ -17692,21 +17693,29 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const setupByUser = {}; _prPeopleSetupCache.forEach(p => { setupByUser[p.user_id] = p; });
     const gradeById = {}; _prGradesCache.forEach(g => { gradeById[g.id] = g; });
     const stepById = {}; _prPayStepsCache.forEach(s => { stepById[s.id] = s; });
+    // Grouped by Payroll Group (see _prResolvePayrollGroup — explicit
+    // per-person membership wins, else whichever group lists their current
+    // designation), not the older free-text Category field, so the roster
+    // always matches whatever's actually configured under Payroll Groups
+    // and picks up a designation or membership change the moment it's
+    // saved — both save paths (_prDoSavePersonSetup, _prSaveGroupDesignations/
+    // _prSaveGroupMembers) re-render this same list afterward.
+    const groupsSorted = _prPayrollGroupsCache.slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
     const staffByCategory = {};
-    PR_FV_CATEGORIES.forEach(c => { staffByCategory[c] = []; });
+    groupsSorted.forEach(g => { staffByCategory[g.name] = []; });
     const other = [];
     const abandonedCount = (allStaffCache || []).filter(s => setupByUser[s.teacher_id] && setupByUser[s.teacher_id].is_active === false).length;
     (allStaffCache || []).forEach(s => {
       const setup = setupByUser[s.teacher_id];
       if (setup && setup.is_active === false && !_prShowAbandoned) return;
-      const cat = (s.category || '').trim();
-      (staffByCategory[cat] || other).push(s);
+      const groupName = _prResolvePayrollGroup(s.teacher_id, s.designation);
+      (groupName && staffByCategory[groupName] ? staffByCategory[groupName] : other).push(s);
     });
-    if (other.length) staffByCategory['Other'] = other;
+    if (other.length) staffByCategory['Ungrouped'] = other;
     const abandonedNote = document.getElementById('prAbandonedNote');
     if (abandonedNote) abandonedNote.textContent = abandonedCount ? `${abandonedCount} abandoned from payroll` : '';
 
-    const cats = Object.keys(staffByCategory).filter(c => staffByCategory[c].length);
+    const cats = [...groupsSorted.map(g => g.name), 'Ungrouped'].filter(c => staffByCategory[c] && staffByCategory[c].length);
     // Minimal glance info only — Name, Designation, a read-only Grade/Step/
     // Pay Type summary. Everything editable (Pay Type, Grade, Step, Field
     // Overrides, History, Payment Info) lives in the popup opened by
@@ -22116,7 +22125,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _payrollFetch('save_payroll_group', { name, sort_order: _prPayrollGroupsCache.length }).then(res => {
       if (res && res.result === 'success') {
         input.value = '';
-        _prLoadPayrollGroups(() => { _prRenderPayrollGroupsList(); _prSelectPayrollGroup(res.group.id); });
+        _prLoadPayrollGroups(() => { _prRenderPayrollGroupsList(); _prSelectPayrollGroup(res.group.id); _prRenderPeopleRoster(); });
       } else showToast((res && res.message) || 'Failed to save', 'error');
     }).catch(err => showToast(err.message, 'error'));
   }
@@ -22130,6 +22139,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             _prRenderPayrollGroupsList();
             if (_prPayrollGroupsCache.length) _prSelectPayrollGroup(_prPayrollGroupsCache[0].id);
             else document.getElementById('prPayrollGroupEditor').innerHTML = `<p class="text-slate-400 font-bold text-xs text-center mt-10">Select a group on the left, or create a new one.</p>`;
+            _prRenderPeopleRoster();
           });
         } else showToast((res && res.message) || 'Failed to delete', 'error');
       }).catch(err => showToast(err.message, 'error'));
@@ -22221,14 +22231,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _prSaveGroupDesignations() {
     const group_id = _prPayrollGroupsManagerSelectedId;
     _payrollFetch('set_group_designations', { group_id, designations: [..._prPayrollGroupDraft.designations] }).then(res => {
-      if (res && res.result === 'success') { showToast('Designations saved'); _prLoadPayrollGroups(() => { _prRenderPayrollGroupsList(); _prSelectPayrollGroup(group_id); }); }
+      if (res && res.result === 'success') { showToast('Designations saved'); _prLoadPayrollGroups(() => { _prRenderPayrollGroupsList(); _prSelectPayrollGroup(group_id); _prRenderPeopleRoster(); }); }
       else showToast((res && res.message) || 'Failed to save', 'error');
     }).catch(err => showToast(err.message, 'error'));
   }
   function _prSaveGroupMembers() {
     const group_id = _prPayrollGroupsManagerSelectedId;
     _payrollFetch('set_group_members', { group_id, user_ids: [..._prPayrollGroupDraft.member_user_ids] }).then(res => {
-      if (res && res.result === 'success') { showToast('Members saved'); _prLoadPayrollGroups(() => { _prRenderPayrollGroupsList(); _prSelectPayrollGroup(group_id); }); }
+      if (res && res.result === 'success') { showToast('Members saved'); _prLoadPayrollGroups(() => { _prRenderPayrollGroupsList(); _prSelectPayrollGroup(group_id); _prRenderPeopleRoster(); }); }
       else showToast((res && res.message) || 'Failed to save', 'error');
     }).catch(err => showToast(err.message, 'error'));
   }
@@ -22237,7 +22247,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!name) { showToast('Name is required', 'error'); return; }
     const group = _prPayrollGroupsCache.find(g => g.id === id);
     _payrollFetch('save_payroll_group', { id, name, sort_order: group ? group.sort_order : 0 }).then(res => {
-      if (res && res.result === 'success') { showToast('Renamed'); _prLoadPayrollGroups(() => { _prRenderPayrollGroupsList(); _prSelectPayrollGroup(id); }); }
+      if (res && res.result === 'success') { showToast('Renamed'); _prLoadPayrollGroups(() => { _prRenderPayrollGroupsList(); _prSelectPayrollGroup(id); _prRenderPeopleRoster(); }); }
       else showToast((res && res.message) || 'Failed to save', 'error');
     }).catch(err => showToast(err.message, 'error'));
   }
