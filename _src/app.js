@@ -26527,9 +26527,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const wasMobile = !!document.getElementById('tpm-shell');
       const wasDesktop = !!document.getElementById('tp-shell');
       if (!wasMobile && !wasDesktop) { window.removeEventListener('resize', _acHandleResize); return; }
-      if (wasMobile === (window.innerWidth < 768)) return;
-      loadAccountsAdminView();
+      if (wasMobile === (window.innerWidth < 768)) { loadAccountsAdminView(); return; }
+      if (wasDesktop) _acFitContainerHeight(); // same shell, just re-measure — a real resize, not a breakpoint cross
     }, 200);
+  }
+
+  // #view-container's own wrapper (in app.html) is a flex child with no
+  // min-height:0, so a plain height:100% on the container silently stops
+  // bounding it the moment content (Chart of Accounts, a long Day Book,
+  // etc.) wants to be taller than the viewport — the wrapper just grows
+  // to fit instead of clipping+scrolling, which drags the WHOLE Tally
+  // shell (menu bar, right panel and all) along with it instead of
+  // letting .tp-body's own overflow-y:auto handle it internally.
+  // Measuring the real available space and setting it as a plain pixel
+  // height sidesteps that ancestor chain instead of fighting it.
+  function _acFitContainerHeight() {
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    const top = container.getBoundingClientRect().top;
+    container.style.height = Math.max(200, window.innerHeight - top) + 'px';
   }
 
   // Reused verbatim by both the desktop Tally screen (Alt+C / Create
@@ -26949,7 +26965,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _acRenderMobile();
     } else {
       if (header) header.classList.add('hidden');
-      container.style.height = '100%';
       container.innerHTML = `
         <div class="tp-shell" id="tp-shell">
           <div class="tp-menubar" id="tp-menubar"></div>
@@ -26965,6 +26980,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
         ${_acModalsHtml()}
       `;
+      _acFitContainerHeight();
       if (!_acKeyBound) { document.addEventListener('keydown', _acKeydown); _acKeyBound = true; }
       _acRenderMenuBar();
       _acRender();
