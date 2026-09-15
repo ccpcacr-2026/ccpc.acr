@@ -256,6 +256,10 @@ const RESERVED = [
   '_prDeleteGradeHistoryRow','_prGhRenderStepOptions','_prHistoryLogRespond',
   // Export Row Order — per-Payroll-Group tabs + per-group lock — onclick-referenced
   '_prSetExportOrderTab','_prLockExportOrder','_prUnlockExportOrder',
+  // Accounts Admin — TallyPrime-modern menu bar + Import/Export/Print — onclick-referenced
+  '_acInertMenuItem','_acOpenImportModal','_acExportCurrentScreen','_acPrintCurrentScreen',
+  '_acCloseImportModal','_acSetImportTarget','_acHandleImportFile','_acDownloadImportSample',
+  '_acUpdateImportSample','_acConfirmImport','_acConfirmXmlImport',
   // Payroll Groups ("Group Maker") — onclick/onchange/oninput-referenced
   '_prSetExportSplitByPayrollGroup','_prOpenPayrollGroupsManager','_prClosePayrollGroupsManager',
   '_prSelectPayrollGroup','_prDeletePayrollGroup','_prAddPayrollGroup',

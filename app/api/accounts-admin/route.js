@@ -249,5 +249,87 @@ export async function POST(req) {
     });
   }
 
+  // ── Bulk import — same target-keyed shape as payroll-admin's import_rows
+  // (per-row error reporting, `imported` count, never one bad row failing
+  // the whole batch). Rows arrive already normalized to plain field names
+  // regardless of source — the frontend's Excel column-mapper and its
+  // Tally-XML parser both produce the same shape before calling this. ──
+  if (action === 'import_rows') {
+    const { target, rows } = payload;
+    if (!target || !Array.isArray(rows) || !rows.length) return NextResponse.json({ result: 'error', message: 'target and rows are required' }, { status: 400 });
+    const errors = [];
+    let imported = 0;
+
+    if (target === 'ledgers') {
+      const groupsRes = await sbAccounts('account_groups?select=id,name');
+      const groupByName = {}; (groupsRes || []).forEach(g => { groupByName[String(g.name).toLowerCase()] = g.id; });
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r.name) { errors.push({ row: i + 2, message: 'name is required' }); continue; }
+        if (!r.group_name) { errors.push({ row: i + 2, message: 'group_name is required' }); continue; }
+        const group_id = groupByName[String(r.group_name).toLowerCase()];
+        if (!group_id) { errors.push({ row: i + 2, message: `Group "${r.group_name}" not found` }); continue; }
+        // Re-importing the same sheet updates the existing ledger by name
+        // rather than creating a duplicate — matches how re-uploading a
+        // People sheet in Payroll behaves.
+        const existing = await sbAccounts(`ledgers?name=eq.${encodeURIComponent(r.name)}&select=id`);
+        const rowData = {
+          name: r.name, group_id,
+          opening_balance: r.opening_balance === '' || r.opening_balance == null ? 0 : Number(r.opening_balance),
+          opening_balance_date: r.opening_balance_date || null,
+        };
+        const saved = (!existing?.error && existing.length)
+          ? await sbAccounts(`ledgers?id=eq.${encodeURIComponent(existing[0].id)}`, 'PATCH', rowData)
+          : await sbAccounts('ledgers', 'POST', rowData);
+        if (saved?.error) { errors.push({ row: i + 2, message: saved.error }); continue; }
+        imported++;
+      }
+    } else if (target === 'vouchers') {
+      // Excel/XML is flat, a voucher isn't — rows sharing the same
+      // voucher_ref become one voucher's entries. A row with no ref at
+      // all is treated as its own single-row group (reported as an
+      // error below, since a real voucher needs 2+ entries) rather than
+      // silently merging unrelated rows together.
+      const ledgersRes = await sbAccounts('ledgers?select=id,name');
+      const ledgerByName = {}; (ledgersRes || []).forEach(l => { ledgerByName[String(l.name).toLowerCase()] = l.id; });
+      const groups = {};
+      rows.forEach((r, i) => {
+        const ref = String(r.voucher_ref || '').trim() || `__row_${i}`;
+        (groups[ref] = groups[ref] || []).push({ r, i });
+      });
+      for (const ref of Object.keys(groups)) {
+        const lines = groups[ref];
+        const first = lines[0].r;
+        const firstRow = lines[0].i + 2;
+        if (!first.voucher_type || !first.voucher_date) { errors.push({ row: firstRow, message: 'voucher_type and voucher_date are required' }); continue; }
+        const entries = [];
+        let failed = false;
+        for (const { r, i } of lines) {
+          const ledger_id = r.ledger_name ? ledgerByName[String(r.ledger_name).toLowerCase()] : null;
+          if (!ledger_id) { errors.push({ row: i + 2, message: `Ledger "${r.ledger_name || ''}" not found` }); failed = true; break; }
+          const debit = Number(r.debit) || 0, credit = Number(r.credit) || 0;
+          if (!debit && !credit) { errors.push({ row: i + 2, message: 'Needs a non-zero debit or credit' }); failed = true; break; }
+          entries.push({ ledger_id, debit, credit, narration: r.narration || null });
+        }
+        if (failed) continue;
+        if (entries.length < 2) { errors.push({ row: firstRow, message: 'A voucher needs at least 2 entries — give shared rows the same voucher_ref' }); continue; }
+        if (!_entriesBalance(entries)) { errors.push({ row: firstRow, message: 'Debit and credit totals must be equal' }); continue; }
+        const savedVoucher = await sbAccounts('vouchers', 'POST', {
+          voucher_type: first.voucher_type, voucher_number: first.voucher_number || null,
+          voucher_date: first.voucher_date, narration: first.narration || null, created_by: user_id || null,
+        });
+        if (savedVoucher?.error) { errors.push({ row: firstRow, message: savedVoucher.error }); continue; }
+        const voucherId = Array.isArray(savedVoucher) && savedVoucher[0] && savedVoucher[0].id;
+        const savedEntries = await sbAccounts('voucher_entries', 'POST', entries.map(e => ({ voucher_id: voucherId, ...e })));
+        if (savedEntries?.error) { errors.push({ row: firstRow, message: savedEntries.error }); continue; }
+        imported++;
+      }
+    } else {
+      return NextResponse.json({ result: 'error', message: `Unknown import target "${target}"` }, { status: 400 });
+    }
+
+    return NextResponse.json({ result: 'success', imported, errors });
+  }
+
   return NextResponse.json({ result: 'error', message: 'Unknown action' }, { status: 400 });
 }

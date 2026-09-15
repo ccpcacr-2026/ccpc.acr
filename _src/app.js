@@ -26284,17 +26284,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // and the dynamically-built Ledger Picker. A row with no `hot` (the
   // ledger picker's dynamic list, where single-letter hotkeys would
   // collide constantly) just skips the underline.
+  // Real Tally capitalizes the hotkey letter IN PLACE within the label
+  // (e.g. "BaNking", "Day BooK", "DashbOard") rather than coloring or
+  // underlining it — _acHotLabel below does that; hotPos still finds the
+  // same letter the old red-underline version did.
+  function _acHotLabel(label, hot) {
+    const hotPos = hot ? label.toUpperCase().indexOf(hot.toUpperCase()) : -1;
+    if (hotPos < 0) return _escHtml(label);
+    return _escHtml(label.slice(0, hotPos)) + `<span class="tp-menu-hot">${_escHtml(label[hotPos].toUpperCase())}</span>` + _escHtml(label.slice(hotPos + 1));
+  }
   function _acMenuHtml(items, activeIndex) {
     let rowIdx = -1;
     return items.map(it => {
       if (it.section) return `<div class="tp-menu-section-label">${_escHtml(it.section)}</div>`;
       rowIdx++;
       const isActive = rowIdx === activeIndex;
-      const hotPos = it.hot ? it.label.toUpperCase().indexOf(it.hot.toUpperCase()) : -1;
-      const labelHtml = hotPos >= 0
-        ? _escHtml(it.label.slice(0, hotPos)) + `<span class="tp-menu-hot">${_escHtml(it.label[hotPos])}</span>` + _escHtml(it.label.slice(hotPos + 1))
-        : _escHtml(it.label);
-      return `<div class="tp-menu-row${isActive ? ' active' : ''}" onmouseenter="_acMenuHover(${rowIdx})" onclick="_acActivateMenuItem(${rowIdx})">${labelHtml}</div>`;
+      return `<div class="tp-menu-row${isActive ? ' active' : ''}" onmouseenter="_acMenuHover(${rowIdx})" onclick="_acActivateMenuItem(${rowIdx})">${_acHotLabel(it.label, it.hot)}</div>`;
     }).join('');
   }
   function _acMenuHover(idx) {
@@ -26349,41 +26354,58 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!body) return;
     screen.render(body, top.params || {});
     _acRenderButtonBar(screen.buttons ? screen.buttons(top.params || {}) : []);
-    _acRenderGatewayPanel(top.id === 'gateway');
+    _acRenderContextPanel();
   }
-  // The Gateway of Tally menu, permanently docked on the right on every
-  // screen — real Tally always keeps it there so another destination is
-  // one click away without backing out first. Deliberately NOT built on
-  // _acMenuHtml/_acActivateMenuItem: those read the shared
-  // _acCurrentMenuItems/_acMenuIndex, which belong to whichever menu the
-  // MAIN body is currently driving (e.g. Create) — reusing them here
-  // would activate the wrong item the moment this panel's clicks were
-  // routed through that shared, screen-dependent state. This panel gets
-  // its own small self-contained render+activate pair instead. Its row
-  // only shows the arrow-key highlight when we're actually AT the floor
-  // (atFloor) — on any other screen it's still fully clickable, it just
-  // isn't what arrow keys are currently driving.
-  function _acGatewayMenuItems() { return _AC_GATEWAY_MENU.filter(it => !it.section); }
-  function _acActivateGatewayItem(idx) {
-    const item = _acGatewayMenuItems()[idx];
-    if (!item) return;
-    if (item.action) item.action(); else _acGo(item.go, item.params);
+
+  // Dark menu bar — static content, rendered once at open (unlike
+  // _acRenderButtonBar/_acRenderContextPanel, which change per screen).
+  // K:Company/Y:Data/Z:Exchange/G:Go To are real Tally's multi-company/
+  // currency-exchange tools; CCPC ACR manages one institution, so these
+  // stay visible for fidelity but explain themselves via a toast instead
+  // of silently doing nothing. O:Import/E:Export/P:Print are real.
+  const _AC_MENUBAR_ITEMS = [
+    { label: 'Company', hot: 'K', onclick: "_acInertMenuItem('company')" },
+    { label: 'Data', hot: 'Y', onclick: "_acInertMenuItem('data')" },
+    { label: 'Exchange', hot: 'Z', onclick: "_acInertMenuItem('exchange')" },
+    { label: 'Go To', hot: 'G', onclick: "_acInertMenuItem('goto')" },
+    { label: 'Import', hot: 'O', onclick: '_acOpenImportModal()' },
+    { label: 'Export', hot: 'E', onclick: '_acExportCurrentScreen()' },
+    { label: 'Share', hot: 'M', onclick: "_acInertMenuItem('share')" },
+    { label: 'Print', hot: 'P', onclick: '_acPrintCurrentScreen()' },
+    { label: 'Help', hot: 'F1', onclick: "_acInertMenuItem('help')" },
+  ];
+  const _AC_INERT_MESSAGES = {
+    company: 'CCPC ACR manages one institution — no company switching needed.',
+    data: 'Backup/restore isn\'t needed here — your data lives in the school\'s own database.',
+    exchange: 'Single currency (BDT) — no exchange rates to manage.',
+    goto: 'Use the Gateway of Tally menu, or Esc to go back.',
+    share: 'Sharing isn\'t available yet.',
+    help: 'See the Gateway of Tally menu for what\'s available.',
+  };
+  function _acInertMenuItem(key) { showToast(_AC_INERT_MESSAGES[key] || 'Not available', 'info'); }
+  function _acRenderMenuBar() {
+    const bar = document.getElementById('tp-menubar');
+    if (!bar) return;
+    const items = _AC_MENUBAR_ITEMS.map(it => `<button class="tp-menubar-item" onclick="${it.onclick}"><span class="tp-menubar-hot">${_escHtml(it.hot)}</span>:${_escHtml(it.label)}</button>`).join('');
+    bar.innerHTML = `
+      <span class="tp-menubar-brand">CCPC · Accounts</span>
+      <input type="text" class="tp-menubar-search" placeholder="Find details entered in masters and transactions." disabled>
+      <div class="tp-menubar-items">${items}</div>
+    `;
   }
-  function _acRenderGatewayPanel(atFloor) {
+
+  // Small contextual shortcuts sliver on the right — real Tally's own
+  // layout keeps this present on every screen but its content varies;
+  // this app has no real per-screen company/period context to show, so
+  // it stays deliberately minimal rather than inventing placeholder
+  // chrome. Same _acInertMenuItem toast as the menu bar's K/Y/Z/G items.
+  function _acRenderContextPanel() {
     const panel = document.getElementById('tp-gateway-panel');
     if (!panel) return;
-    let rowIdx = -1;
-    const rows = _AC_GATEWAY_MENU.map(it => {
-      if (it.section) return `<div class="tp-menu-section-label">${_escHtml(it.section)}</div>`;
-      rowIdx++;
-      const isActive = atFloor && rowIdx === _acMenuIndex;
-      const hotPos = it.hot ? it.label.toUpperCase().indexOf(it.hot.toUpperCase()) : -1;
-      const labelHtml = hotPos >= 0
-        ? _escHtml(it.label.slice(0, hotPos)) + `<span class="tp-menu-hot">${_escHtml(it.label[hotPos])}</span>` + _escHtml(it.label.slice(hotPos + 1))
-        : _escHtml(it.label);
-      return `<div class="tp-menu-row${isActive ? ' active' : ''}" onclick="_acActivateGatewayItem(${rowIdx})">${labelHtml}</div>`;
-    }).join('');
-    panel.innerHTML = `<div class="tp-col-head">Gateway of Tally</div>${rows}`;
+    panel.innerHTML = `
+      <button class="tp-context-pill" onclick="_acInertMenuItem('goto')"><b>F2</b>:Date</button>
+      <button class="tp-context-pill" onclick="_acInertMenuItem('company')"><b>F3</b>:Company</button>
+    `;
   }
 
   // Two independent gates on the global keydown listener (see
@@ -26550,7 +26572,320 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button onclick="_acSaveVoucher()" class="w-full py-3 bg-blue-600 text-white font-black text-xs uppercase tracking-widest rounded-xl hover:bg-black transition-all">Save Voucher</button>
         </div>
       </div>
+
+      <div id="acImportModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-2xl max-h-[85vh] overflow-y-auto">
+          <div class="flex items-center justify-between mb-3">
+            <p class="font-black text-slate-800 text-sm">Import</p>
+            <button onclick="_acCloseImportModal()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+          </div>
+          <div class="mb-3">
+            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">What to import</label>
+            <select id="acImportTarget" onchange="_acSetImportTarget(this.value)" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm">
+              <option value="ledgers">Ledgers</option>
+              <option value="vouchers">Vouchers</option>
+            </select>
+          </div>
+          <div class="flex items-center gap-3 flex-wrap mb-1">
+            <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Step 1 · Choose File</span>
+            <input type="file" id="acImportFileInput" accept=".xlsx,.xls,.csv,.xml" onchange="_acHandleImportFile(event)" class="text-xs font-bold" style="max-width:260px">
+            <button onclick="_acDownloadImportSample()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Download Sample</button>
+            <span id="acImportFileStatus" class="text-xs text-slate-400 font-bold"></span>
+          </div>
+          <p class="text-[11px] text-slate-400 font-semibold mb-3">Excel (.xlsx/.xls/.csv) uses the column mapping below. A real TallyPrime export (.xml, from Gateway of Tally → Export) is read directly — its parser hasn't been checked against a real exported file yet, so check the preview carefully before confirming.</p>
+          <div id="acImportMappingSection" class="hidden mb-3">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Step 2 · Match Columns</span>
+              <span id="acImportRowCount" class="text-xs text-slate-400 font-bold"></span>
+            </div>
+            <div id="acImportMappingList" class="flex flex-col gap-2 mb-3"></div>
+            <button onclick="_acConfirmImport()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Import</button>
+          </div>
+          <div id="acImportXmlPreviewSection" class="hidden mb-3">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Step 2 · Preview</span>
+              <span id="acImportXmlRowCount" class="text-xs text-slate-400 font-bold"></span>
+            </div>
+            <div id="acImportXmlPreview" class="border border-slate-200 rounded-xl overflow-auto max-h-56 mb-3"></div>
+            <button onclick="_acConfirmXmlImport()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Import</button>
+          </div>
+          <div id="acImportResult"></div>
+        </div>
+      </div>
     `;
+  }
+
+  // ── Import — Excel column-mapping (mirrors PAYROLL_IMPORT_SPECS/
+  // _prOpenImportModal exactly, same UX) and a direct Tally-XML path,
+  // both feeding the same accounts-admin import_rows action. ──
+  const AC_IMPORT_SPECS = {
+    ledgers: {
+      title: 'Import Ledgers',
+      fields: [
+        { key: 'name', label: 'Ledger Name', required: true },
+        { key: 'group_name', label: 'Group', required: true },
+        { key: 'opening_balance', label: 'Opening Balance', required: false },
+        { key: 'opening_balance_date', label: 'Opening Balance Date', required: false },
+      ],
+    },
+    vouchers: {
+      title: 'Import Vouchers',
+      fields: [
+        { key: 'voucher_ref', label: 'Voucher Ref (same value on every line of one voucher)', required: true },
+        { key: 'voucher_type', label: 'Voucher Type', required: true },
+        { key: 'voucher_date', label: 'Voucher Date (YYYY-MM-DD)', required: true },
+        { key: 'voucher_number', label: 'Voucher Number', required: false },
+        { key: 'narration', label: 'Narration', required: false },
+        { key: 'ledger_name', label: 'Ledger Name (this line)', required: true },
+        { key: 'debit', label: 'Debit', required: false },
+        { key: 'credit', label: 'Credit', required: false },
+      ],
+    },
+  };
+  const AC_IMPORT_SAMPLE_HINTS = {
+    name: 'Cash in Hand', group_name: 'Cash-in-hand', opening_balance: 5000, opening_balance_date: '2026-04-01',
+    voucher_ref: 'V1', voucher_type: 'Payment', voucher_date: '2026-07-05', voucher_number: '1',
+    narration: 'Office rent', ledger_name: 'Cash in Hand', debit: 5000, credit: '',
+  };
+  let _acImportTarget = 'ledgers';
+  let _acImportHeaders = [];
+  let _acImportRows = [];
+  let _acImportXmlRows = null; // set only when the last file loaded parsed as XML
+
+  function _acOpenImportModal() {
+    _acImportTarget = 'ledgers';
+    _acImportHeaders = [];
+    _acImportRows = [];
+    _acImportXmlRows = null;
+    document.getElementById('acImportTarget').value = 'ledgers';
+    document.getElementById('acImportFileInput').value = '';
+    document.getElementById('acImportFileStatus').textContent = '';
+    document.getElementById('acImportResult').innerHTML = '';
+    document.getElementById('acImportMappingSection').classList.add('hidden');
+    document.getElementById('acImportXmlPreviewSection').classList.add('hidden');
+    document.getElementById('acImportModal').classList.remove('hidden');
+  }
+  function _acCloseImportModal() { document.getElementById('acImportModal').classList.add('hidden'); }
+  function _acSetImportTarget(target) { _acImportTarget = target; }
+
+  function _acDownloadImportSample() {
+    const spec = AC_IMPORT_SPECS[_acImportTarget];
+    if (!spec) return;
+    const headerRow = spec.fields.map(f => f.label);
+    const sampleRow = spec.fields.map(f => String(AC_IMPORT_SAMPLE_HINTS[f.key] ?? ''));
+    ensureXLSX().then(() => {
+      const ws = XLSX.utils.aoa_to_sheet([headerRow, sampleRow]);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Sample');
+      XLSX.writeFile(wb, `accounts_${_acImportTarget}_import_template.xlsx`);
+    }).catch(err => showToast(err.message, 'error'));
+  }
+
+  function _acHandleImportFile(e) {
+    const file = e.target.files[0];
+    const status = document.getElementById('acImportFileStatus');
+    document.getElementById('acImportMappingSection').classList.add('hidden');
+    document.getElementById('acImportXmlPreviewSection').classList.add('hidden');
+    document.getElementById('acImportResult').innerHTML = '';
+    if (!file) return;
+    if (/\.xml$/i.test(file.name)) { _acHandleImportXmlFile(file); return; }
+    status.textContent = 'Reading file…';
+    const reader = new FileReader();
+    reader.onload = evt => {
+      ensureXLSX().then(() => {
+        try {
+          const wb = XLSX.read(evt.target.result, { type: 'array' });
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const grid = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+          if (!grid.length) { status.textContent = 'File appears to be empty.'; return; }
+          _acImportHeaders = grid[0].map(h => String(h || '').trim());
+          _acImportRows = grid.slice(1).filter(r => r.some(c => String(c || '').trim() !== ''));
+          if (!_acImportRows.length) { status.textContent = 'No data rows found below the header row.'; return; }
+          status.textContent = `${file.name} — ${_acImportRows.length} row(s), ${_acImportHeaders.length} column(s).`;
+          _acRenderImportMapping();
+        } catch (err) {
+          status.textContent = 'Could not read this file: ' + err.message;
+        }
+      }).catch(err => { status.textContent = err.message; });
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function _acRenderImportMapping() {
+    const spec = AC_IMPORT_SPECS[_acImportTarget];
+    const list = document.getElementById('acImportMappingList');
+    if (!spec || !list) return;
+    document.getElementById('acImportRowCount').textContent = `${_acImportRows.length} row(s) detected`;
+    const claimedIdx = new Set();
+    list.innerHTML = spec.fields.map(f => {
+      const guessIdx = _acImportHeaders.findIndex((h, i) => !claimedIdx.has(i) && (normImportKey(h) === normImportKey(f.key) || normImportKey(h) === normImportKey(f.label)));
+      if (guessIdx >= 0) claimedIdx.add(guessIdx);
+      const options = ['<option value="-1">— Skip —</option>'].concat(_acImportHeaders.map((h, i) => `<option value="${i}" ${i === guessIdx ? 'selected' : ''}>${_escHtml(h || '(blank header)')}</option>`));
+      const sample = guessIdx >= 0 && _acImportRows[0] ? String(_acImportRows[0][guessIdx] ?? '') : '';
+      return `<div class="grid grid-cols-12 gap-2 items-center py-1 ac-import-map-row" data-field="${f.key}">
+        <div class="col-span-4"><span class="font-bold text-xs text-slate-700">${_escHtml(f.label)}${f.required ? ' <span class="text-red-500">*</span>' : ''}</span></div>
+        <div class="col-span-4"><select class="ac-import-map-select w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" onchange="_acUpdateImportSample(this)">${options.join('')}</select></div>
+        <div class="col-span-4"><span class="text-xs text-slate-400 italic ac-import-map-sample">${sample ? 'e.g. ' + _escHtml(sample) : ''}</span></div>
+      </div>`;
+    }).join('');
+    document.getElementById('acImportMappingSection').classList.remove('hidden');
+  }
+  function _acUpdateImportSample(sel) {
+    const idx = parseInt(sel.value, 10);
+    const sampleEl = sel.closest('.ac-import-map-row').querySelector('.ac-import-map-sample');
+    const sample = idx >= 0 && _acImportRows[0] ? String(_acImportRows[0][idx] ?? '') : '';
+    sampleEl.textContent = sample ? 'e.g. ' + sample : '';
+  }
+  function _acGetImportMapping() {
+    const mapping = {};
+    document.querySelectorAll('.ac-import-map-row').forEach(row => {
+      const idx = parseInt(row.querySelector('.ac-import-map-select').value, 10);
+      if (idx >= 0) mapping[row.dataset.field] = idx;
+    });
+    return mapping;
+  }
+  function _acConfirmImport() {
+    const spec = AC_IMPORT_SPECS[_acImportTarget];
+    const mapping = _acGetImportMapping();
+    const missingRequired = spec.fields.filter(f => f.required && !(f.key in mapping));
+    if (missingRequired.length) { showToast(`Map a column to ${missingRequired.map(f => f.label).join(', ')} first`, 'error'); return; }
+    const rows = _acImportRows.map(r => {
+      const obj = {};
+      Object.entries(mapping).forEach(([key, idx]) => { obj[key] = String(r[idx] ?? '').trim(); });
+      return obj;
+    });
+    _acSubmitImport(rows);
+  }
+  function _acConfirmXmlImport() {
+    if (!_acImportXmlRows || !_acImportXmlRows.length) return;
+    _acSubmitImport(_acImportXmlRows);
+  }
+  function _acSubmitImport(rows) {
+    const resultBox = document.getElementById('acImportResult');
+    resultBox.innerHTML = `<p class="text-slate-400 font-bold text-xs">Importing ${rows.length} row(s)…</p>`;
+    _accountsFetch('import_rows', { target: _acImportTarget, rows }).then(res => {
+      if (!res || res.result !== 'success') { resultBox.innerHTML = `<p class="text-red-500 font-bold text-xs">${(res && res.message) || 'Import failed'}</p>`; return; }
+      const errors = res.errors || [];
+      resultBox.innerHTML = `
+        <p class="text-xs font-black ${errors.length ? 'text-amber-600' : 'text-emerald-600'} mb-2">Imported ${res.imported} ${_acImportTarget === 'vouchers' ? 'voucher(s)' : 'row(s)'}${errors.length ? `, ${errors.length} failed` : ''}.</p>
+        ${errors.length ? `<div class="border border-red-200 bg-red-50 rounded-xl p-3 space-y-1 max-h-48 overflow-y-auto">
+          ${errors.map(er => `<p class="text-[10px] font-bold text-red-600">Row ${er.row}: ${er.message}</p>`).join('')}
+        </div>` : ''}
+      `;
+      if (res.imported) {
+        _acLoadGroups(); _acLoadLedgers();
+        const topId = _acStack[_acStack.length - 1].id;
+        if (topId === 'chart') _acRenderChart();
+        if (topId === 'daybook') _acRenderDaybook(document.getElementById('tp-body'));
+      }
+    }).catch(err => { resultBox.innerHTML = `<p class="text-red-500 font-bold text-xs">${err.message || 'Import failed.'}</p>`; });
+  }
+
+  // Real Tally's own "Export" (Gateway of Tally → Export → Masters/
+  // Vouchers) produces <ENVELOPE><BODY><IMPORTDATA><REQUESTDATA>
+  // <TALLYMESSAGE> XML: <LEDGER NAME="..."> with <PARENT> (its group) and
+  // <OPENINGBALANCE>; <VOUCHER> with <DATE>/<VOUCHERTYPENAME>/<NARRATION>
+  // plus nested <ALLLEDGERENTRIES.LIST> blocks (<LEDGERNAME>/<AMOUNT>,
+  // amount negative = debit in Tally's own sign convention). This follows
+  // that documented shape but has NOT been checked against a real export
+  // file — the preview step exists specifically so a mismatch shows up
+  // before anything is written, not after.
+  function _acHandleImportXmlFile(file) {
+    const status = document.getElementById('acImportFileStatus');
+    status.textContent = 'Reading file…';
+    const reader = new FileReader();
+    reader.onload = evt => {
+      try {
+        const doc = new DOMParser().parseFromString(evt.target.result, 'text/xml');
+        if (doc.querySelector('parsererror')) throw new Error('Not a valid XML file');
+        const messages = [...doc.querySelectorAll('TALLYMESSAGE')];
+        let rows = [];
+        if (_acImportTarget === 'ledgers') {
+          rows = messages.map(m => m.querySelector(':scope > LEDGER')).filter(Boolean).map(led => ({
+            name: led.getAttribute('NAME') || led.querySelector('NAME')?.textContent || '',
+            group_name: led.querySelector('PARENT')?.textContent || '',
+            opening_balance: led.querySelector('OPENINGBALANCE')?.textContent || '',
+            opening_balance_date: '',
+          }));
+        } else {
+          messages.forEach((m, vi) => {
+            const v = m.querySelector(':scope > VOUCHER');
+            if (!v) return;
+            const ref = `xml_${vi}`;
+            const voucher_type = v.querySelector('VOUCHERTYPENAME')?.textContent || v.getAttribute('VCHTYPE') || '';
+            const voucher_date = _acTallyDateToIso(v.querySelector('DATE')?.textContent || '');
+            const voucher_number = v.querySelector('VOUCHERNUMBER')?.textContent || '';
+            const narration = v.querySelector('NARRATION')?.textContent || '';
+            [...v.querySelectorAll('ALLLEDGERENTRIES\\.LIST, LEDGERENTRIES\\.LIST')].forEach(line => {
+              const amount = Number(line.querySelector('AMOUNT')?.textContent || 0);
+              rows.push({
+                voucher_ref: ref, voucher_type, voucher_date, voucher_number, narration,
+                ledger_name: line.querySelector('LEDGERNAME')?.textContent || '',
+                debit: amount < 0 ? Math.abs(amount) : '', credit: amount > 0 ? amount : '',
+              });
+            });
+          });
+        }
+        if (!rows.length) { status.textContent = `No ${_acImportTarget} found in this file.`; return; }
+        _acImportXmlRows = rows;
+        status.textContent = `${file.name} — ${rows.length} row(s) parsed.`;
+        _acRenderXmlPreview(rows);
+      } catch (err) {
+        status.textContent = 'Could not read this XML file: ' + err.message;
+      }
+    };
+    reader.readAsText(file);
+  }
+  function _acTallyDateToIso(d) {
+    const m = String(d || '').match(/^(\d{4})(\d{2})(\d{2})$/); // Tally XML dates are YYYYMMDD
+    return m ? `${m[1]}-${m[2]}-${m[3]}` : d;
+  }
+  function _acRenderXmlPreview(rows) {
+    const cols = Object.keys(rows[0]);
+    document.getElementById('acImportXmlRowCount').textContent = `${rows.length} row(s)`;
+    document.getElementById('acImportXmlPreview').innerHTML = `
+      <table class="tp-table" style="font-size:11px">
+        <thead><tr>${cols.map(c => `<th>${_escHtml(c)}</th>`).join('')}</tr></thead>
+        <tbody>${rows.slice(0, 20).map(r => `<tr>${cols.map(c => `<td>${_escHtml(String(r[c] ?? ''))}</td>`).join('')}</tr>`).join('')}</tbody>
+      </table>${rows.length > 20 ? `<p class="text-[10px] text-slate-400 font-bold p-2">…and ${rows.length - 20} more</p>` : ''}
+    `;
+    document.getElementById('acImportXmlPreviewSection').classList.remove('hidden');
+  }
+
+  // ── Export / Print — current screen's table to Excel or a printable
+  // page. Reuses ensureXLSX (already loaded for Import) and the browser's
+  // own print dialog rather than a new PDF library, since a Tally-style
+  // report is just a table — window.print() with a print stylesheet
+  // reads as close to "print this report" as a browser can get. ──
+  function _acCurrentScreenTableEl() {
+    return document.querySelector('#tp-body table.tp-table, #tp-body table');
+  }
+  function _acExportCurrentScreen() {
+    const table = _acCurrentScreenTableEl();
+    if (!table) { showToast('Nothing on this screen to export — open a report or Day Book first', 'error'); return; }
+    const top = _acStack[_acStack.length - 1];
+    const title = (_AC_SCREENS[top.id] && _AC_SCREENS[top.id].title) || 'Export';
+    ensureXLSX().then(() => {
+      const wb = XLSX.utils.table_to_book(table, { sheet: title.slice(0, 31) });
+      XLSX.writeFile(wb, `${title.replace(/[^a-z0-9]+/gi, '_')}.xlsx`);
+    }).catch(err => showToast(err.message || 'Export failed', 'error'));
+  }
+  function _acPrintCurrentScreen() {
+    const table = _acCurrentScreenTableEl();
+    if (!table) { showToast('Nothing on this screen to print — open a report or Day Book first', 'error'); return; }
+    const top = _acStack[_acStack.length - 1];
+    const title = (_AC_SCREENS[top.id] && _AC_SCREENS[top.id].title) || 'Print';
+    const win = window.open('', '_blank');
+    win.document.write(`<!doctype html><html><head><title>${title}</title><style>
+      body{font-family:-apple-system,'Segoe UI',sans-serif;padding:24px;color:#1c2b2e}
+      h1{font-size:16px;margin:0 0 12px}
+      table{width:100%;border-collapse:collapse;font-size:12px}
+      th,td{border:1px solid #c3d7ea;padding:4px 8px;text-align:left}
+      th{background:#1f3a5f;color:#fff}
+    </style></head><body><h1>${title}</h1>${table.outerHTML}</body></html>`);
+    win.document.close();
+    win.focus();
+    win.print();
   }
 
   // Entry point. Mobile/desktop is decided once here (and again by
@@ -26586,7 +26921,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       container.style.height = '100%';
       container.innerHTML = `
         <div class="tp-shell" id="tp-shell">
-          <div class="tp-titlebar"><span>TALLY.ERP — ACCOUNTS</span><span class="tp-path" id="tp-path"></span></div>
+          <div class="tp-menubar" id="tp-menubar"></div>
+          <div class="tp-screentitle">
+            <span id="tp-path"></span>
+            <button class="tp-screentitle-close" onclick="_acPop()" title="Back"><i data-lucide="x" class="h-4 w-4"></i></button>
+          </div>
           <div class="tp-main-area">
             <div class="tp-body" id="tp-body"></div>
             <div class="tp-gateway-panel" id="tp-gateway-panel"></div>
@@ -26596,6 +26935,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         ${_acModalsHtml()}
       `;
       if (!_acKeyBound) { document.addEventListener('keydown', _acKeydown); _acKeyBound = true; }
+      _acRenderMenuBar();
       _acRender();
     }
 
@@ -27052,16 +27392,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   const _AC_SCREENS = {
     gateway: {
       title: 'Gateway of Tally', isMenu: true,
-      // The menu itself now lives permanently in the right-hand
-      // #tp-gateway-panel (see _acRenderGatewayPanel/_acRender) instead
-      // of the main body — this screen is only the "at rest" state, so
-      // its own body is just a quiet welcome. isMenu stays true and
-      // _acCurrentMenuItems is still set here so arrow-key/hotkey
-      // navigation keeps working exactly as before; it now highlights
-      // the row in the side panel rather than a copy in the main body.
+      // Real Tally only shows this menu as the floor screen's own body
+      // content, not a permanently-docked panel (see _acRenderContextPanel
+      // for the small sliver that replaces it on every OTHER screen) —
+      // reuses the exact same _acMenuHtml/_acMenuHover/_acActivateMenuItem
+      // machinery every other menu screen already drives, just painted
+      // into a styled card instead of the plain .tp-menu-panel.
       render(host) {
         _acCurrentMenuItems = _AC_GATEWAY_MENU.filter(it => !it.section);
-        host.innerHTML = `<div class="tp-empty" style="margin-top:40px">Select a destination from the Gateway of Tally menu on the right.</div>`;
+        host.innerHTML = `<div class="tp-gateway-card"><div class="tp-gateway-card-head">Gateway of Tally</div>${_acMenuHtml(_AC_GATEWAY_MENU, _acMenuIndex)}</div>`;
       },
     },
     create: {
