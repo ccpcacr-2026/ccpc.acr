@@ -2361,7 +2361,7 @@ export async function POST(req) {
         const rowData = {
           section_id: sid, user_id: String(r.user_id), total_amount: Number(r.total_amount),
           emi_amount: r.emi_amount ? Number(r.emi_amount) : null, emi_months: r.emi_months ? Number(r.emi_months) : null,
-          remaining_amount: Number(r.total_amount), note: r.note || null,
+          remaining_amount: Number(r.total_amount), note: r.note || null, start_date: r.start_date || null,
         };
         const saved = await sbPayroll('section_entries', 'POST', rowData);
         if (saved?.error) { errors.push({ row: i + 2, message: saved.error }); continue; }
@@ -2645,7 +2645,7 @@ export async function POST(req) {
   }
 
   if (action === 'add_section_entry') {
-    const { section_id, user_id: personId, note } = payload;
+    const { section_id, user_id: personId, note, start_date } = payload;
     if (!section_id || !personId) return NextResponse.json({ result: 'error', message: 'Section and person are required' }, { status: 400 });
 
     // A 'per_unit' section (see save_section) skips the EMI/One-Time/
@@ -2663,7 +2663,7 @@ export async function POST(req) {
         return NextResponse.json({ result: 'error', message: 'A count is required' }, { status: 400 });
       }
       const rowData = {
-        section_id, user_id: personId, note: note || null, paid_installments: 0,
+        section_id, user_id: personId, note: note || null, start_date: start_date || null, paid_installments: 0,
         mode: 'recurring', total_amount: null, emi_amount: null, emi_months: null, remaining_amount: null,
         unit_count: unitCount,
       };
@@ -2678,7 +2678,7 @@ export async function POST(req) {
 
     // Which field (if any) this entry counts under comes from the section
     // itself, not a per-entry choice — see save_section.
-    let rowData = { section_id, user_id: personId, mode, note: note || null, paid_installments: 0, unit_count: null };
+    let rowData = { section_id, user_id: personId, mode, note: note || null, start_date: start_date || null, paid_installments: 0, unit_count: null };
     if (mode === 'emi') {
       // An EMI can be set up mid-flight for a loan that already had some
       // installments paid before it existed in this system (migrating from
@@ -2731,7 +2731,7 @@ export async function POST(req) {
   //     than silently reinterpreted; the admin cancels it and adds a fresh
   //     entry instead, the same way a mid-flight policy change would.
   if (action === 'update_section_entry') {
-    const { id, note } = payload;
+    const { id, note, start_date } = payload;
     if (!id) return NextResponse.json({ result: 'error', message: 'id required' }, { status: 400 });
     const entryRows = await sbPayroll(`section_entries?id=eq.${encodeURIComponent(id)}&select=*`);
     const entry = Array.isArray(entryRows) && entryRows[0];
@@ -2739,7 +2739,13 @@ export async function POST(req) {
     const sectionRows = await sbPayroll(`sections?id=eq.${encodeURIComponent(entry.section_id)}&select=*`);
     const section = Array.isArray(sectionRows) && sectionRows[0];
 
-    let rowData = { note: note !== undefined ? (note || null) : entry.note };
+    // start_date is metadata, same as note — when it started applying
+    // doesn't change the payoff math, so (unlike total/EMI/months) it
+    // stays editable regardless of payment history.
+    let rowData = {
+      note: note !== undefined ? (note || null) : entry.note,
+      start_date: start_date !== undefined ? (start_date || null) : entry.start_date,
+    };
 
     if (section && section.calc_style === 'per_unit') {
       const unitCount = Math.max(0, Math.floor(Number(payload.unit_count)));
@@ -2842,7 +2848,7 @@ export async function POST(req) {
         // not the section's fixed direction — see _computePayslipForPerson.
         direction: field ? field.category === 'deduction' ? 'deduct' : 'add' : (section ? section.direction : 'deduct'),
         mode: entry.mode || 'emi',
-        amount: slip.section_amounts[entry.id] || 0, note: entry.note || null,
+        amount: slip.section_amounts[entry.id] || 0, note: entry.note || null, start_date: entry.start_date || null,
       };
     });
     const statutoryLabels = {}; ref.statutoryItems.forEach(s => { statutoryLabels[s.key] = s.label || s.name || s.key; });

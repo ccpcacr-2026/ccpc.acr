@@ -14471,6 +14471,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <p id="prSEntryFlatHint" class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1"></p>
             </div>
             <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Applied Since <span class="font-normal normal-case text-slate-400">(optional)</span></label>
+              <input type="date" id="prSEntryStartDate" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">The month this actually started applying, e.g. May 2025 — for reference only, doesn't affect the amount deducted.</p>
+            </div>
+            <div>
               <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Note</label>
               <input type="text" id="prSEntryNote" placeholder="optional" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
             </div>
@@ -17895,6 +17900,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         { key: 'total_amount', label: 'Total Amount', required: true },
         { key: 'emi_amount', label: 'Fixed EMI / Month', required: false },
         { key: 'emi_months', label: 'EMI Months', required: false },
+        { key: 'start_date', label: 'Applied Since (YYYY-MM-DD)', required: false },
         { key: 'note', label: 'Note', required: false },
       ],
     },
@@ -17942,7 +17948,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     mobile_banking_provider: 'bKash', mobile_banking_number: '01700000000',
     mpo_amount: 15000, section_name: 'Staff Loan', total_amount: 50000,
     emi_amount: 5000, emi_months: 12, label: 'Eid Bonus', amount: 3000,
-    month: 8, year: new Date().getFullYear(), note: 'Optional note',
+    month: 8, year: new Date().getFullYear(), note: 'Optional note', start_date: '2026-05-01',
     days: 2, per_day_rate: 500, value: 1000,
   };
   let _prImportTarget = null;
@@ -19262,7 +19268,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 </tr>`;
               }).join('') || `<tr><td colspan="5" class="p-3 text-slate-400 font-bold text-xs text-center">No entries yet.</td></tr>`}
             </tbody>` : `
-            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Person</th><th class="py-2 px-3">Style</th><th class="py-2 px-3">Total</th><th class="py-2 px-3">EMI</th><th class="py-2 px-3">Paid</th><th class="py-2 px-3">Remaining</th><th class="py-2 px-3">Status</th><th class="py-2 px-3 text-right">Actions</th></tr></thead>
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Person</th><th class="py-2 px-3">Style</th><th class="py-2 px-3">Since</th><th class="py-2 px-3">Total</th><th class="py-2 px-3">EMI</th><th class="py-2 px-3">Paid</th><th class="py-2 px-3">Remaining</th><th class="py-2 px-3">Status</th><th class="py-2 px-3 text-right">Actions</th></tr></thead>
             <tbody>
               ${entries.map(e => {
                 const label = staffLabel(e.user_id);
@@ -19275,9 +19281,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 const emiRateForCount = e.emi_amount != null ? Number(e.emi_amount) : (e.emi_months ? Number(e.total_amount) / Number(e.emi_months) : null);
                 const monthsTotal = e.emi_months || (emiRateForCount ? Math.round(Number(e.total_amount) / emiRateForCount) : null);
                 const paidLabel = isRecurring ? '<span class="text-slate-400">—</span>' : `${e.paid_installments || 0}${monthsTotal ? ' of ' + monthsTotal : ''}`;
+                // "May 2025" style — when it's known at all; an entry from
+                // before this field existed, or whose source never stated
+                // one, legitimately has no start date to show.
+                const sinceLabel = e.start_date ? new Date(e.start_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '<span class="text-slate-400">—</span>';
                 return `<tr class="border-b border-slate-50">
                   <td class="py-1.5 px-3 font-black text-slate-700">${label !== e.user_id ? label : e.user_id}</td>
                   <td class="py-1.5 px-3 text-slate-500 font-bold">${MODE_LABEL[e.mode] || 'EMI'}</td>
+                  <td class="py-1.5 px-3 text-slate-500 font-bold">${sinceLabel}</td>
                   <td class="py-1.5 px-3">${isRecurring ? '<span class="text-slate-400">—</span>' : _prFormatTaka(e.total_amount)}</td>
                   <td class="py-1.5 px-3">${emiLabel}</td>
                   <td class="py-1.5 px-3 text-slate-500 font-bold">${paidLabel}</td>
@@ -19289,7 +19300,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                     <button onclick="_prDeleteSectionEntry(${e.id},${sectionId})" class="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-700">Delete</button>
                   </td>
                 </tr>`;
-              }).join('') || `<tr><td colspan="8" class="p-3 text-slate-400 font-bold text-xs text-center">No entries yet.</td></tr>`}
+              }).join('') || `<tr><td colspan="9" class="p-3 text-slate-400 font-bold text-xs text-center">No entries yet.</td></tr>`}
             </tbody>`}
           </table>
         </div>
@@ -19322,6 +19333,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('prSEntryFlatAmount').value = entry && entry.emi_amount != null && entry.mode !== 'emi' ? entry.emi_amount : '';
     document.getElementById('prSEntryUnitCount').value = entry && entry.unit_count != null ? entry.unit_count : '';
     document.getElementById('prSEntryNote').value = entry ? (entry.note || '') : '';
+    document.getElementById('prSEntryStartDate').value = entry && entry.start_date ? String(entry.start_date).slice(0, 10) : '';
     document.getElementById('prSEntryEmiNote').textContent = '';
     _prSEntryEmiDriver = null;
 
@@ -19455,6 +19467,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const isEdit = editId !== '';
     const user_id = document.getElementById('prSEntryPersonSelect').value;
     const note = document.getElementById('prSEntryNote').value.trim();
+    const start_date = document.getElementById('prSEntryStartDate').value || '';
     if (!isEdit && !user_id) { showToast('Person is required', 'error'); return; }
     const action = isEdit ? 'update_section_entry' : 'add_section_entry';
     const submit = payload => {
@@ -19468,11 +19481,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (section && section.calc_style === 'per_unit') {
       const unit_count = document.getElementById('prSEntryUnitCount').value;
       if (unit_count === '') { showToast(`Number of ${(section.unit_plural || 'units').toLowerCase()} is required`, 'error'); return; }
-      submit(isEdit ? { id: editId, unit_count, note } : { section_id, user_id, unit_count, note });
+      submit(isEdit ? { id: editId, unit_count, note, start_date } : { section_id, user_id, unit_count, note, start_date });
       return;
     }
 
-    const payload = isEdit ? { id: editId, note } : { section_id, user_id, mode: _prSEntryMode, note };
+    const payload = isEdit ? { id: editId, note, start_date } : { section_id, user_id, mode: _prSEntryMode, note, start_date };
     if (_prSEntryMode === 'emi') {
       const totalEl = document.getElementById('prSEntryTotal');
       // Disabled means this entry already has a payment recorded — see
