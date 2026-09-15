@@ -17722,8 +17722,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // Pay Type summary. Everything editable (Pay Type, Grade, Step, Field
     // Overrides, History, Payment Info) lives in the popup opened by
     // clicking the row or the Details button, not inline in this table.
+    const thClass = 'py-1.5 px-3 sticky top-0 bg-white';
     const theadHtml = `<thead><tr class="text-[10px] font-black text-slate-400 uppercase">
-          <th class="py-1.5 px-3">Name</th><th class="py-1.5 px-3">Designation</th><th class="py-1.5 px-3">Grade / Step</th><th class="py-1.5 px-3"></th>
+          <th class="${thClass}">Name</th><th class="${thClass}">Designation</th><th class="${thClass}">Grade / Step</th><th class="${thClass}"></th>
         </tr></thead>`;
     host.innerHTML = cats.length ? cats.map(cat => {
       const rowsHtml = staffByCategory[cat].map(s => {
@@ -17746,7 +17747,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       }).join('');
       return `<div class="bg-white rounded-2xl border border-slate-200 p-4 mb-3">
         <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">${cat} <span class="text-slate-300">(${staffByCategory[cat].length})</span></p>
-        <div class="overflow-auto border border-slate-200 rounded-xl">
+        <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:28rem;">
           <table class="w-full text-left border-collapse text-xs">${theadHtml}<tbody>${rowsHtml}</tbody></table>
         </div>
       </div>`;
