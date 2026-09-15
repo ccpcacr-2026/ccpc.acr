@@ -14487,6 +14487,57 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
       </div>
 
+      <div id="prGradeHistoryFormModal" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-sm max-h-[85vh] overflow-y-auto">
+          <div class="flex items-center justify-between mb-4">
+            <p id="prGhFormTitle" class="font-black text-slate-800 text-sm">Add History Entry</p>
+            <button onclick="_prCloseGradeHistoryForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+          </div>
+          <input type="hidden" id="prGhUserId">
+          <input type="hidden" id="prGhEditId">
+          <div class="space-y-3">
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Effective Date <span class="text-red-500">*</span></label>
+              <input type="date" id="prGhEffectiveDate" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Grade <span class="font-normal normal-case text-slate-400">(optional)</span></label>
+                <select id="prGhGrade" onchange="_prGhRenderStepOptions(null)" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"><option value="">Not known</option></select>
+              </div>
+              <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Step</label>
+                <select id="prGhStep" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"><option value="">—</option></select>
+              </div>
+            </div>
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Note</label>
+              <textarea id="prGhNote" rows="3" placeholder="optional — what changed, and why" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></textarea>
+            </div>
+          </div>
+          <div class="flex items-center justify-between gap-2 mt-5">
+            <button id="prGhDeleteBtn" onclick="_prDeleteGradeHistoryRow()" class="hidden px-4 py-2.5 border border-red-200 text-red-500 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-red-50">Delete</button>
+            <div class="flex items-center gap-2 ml-auto">
+              <button onclick="_prCloseGradeHistoryForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
+              <button id="prGhSaveBtn" onclick="_prSaveGradeHistoryForm()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Add Entry</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="prHistoryLogPromptModal" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-2xl p-5 w-full max-w-sm">
+          <p class="font-black text-slate-800 text-sm mb-1">Record this in their history?</p>
+          <p id="prHlpSummary" class="text-xs font-bold text-slate-600 bg-slate-50 border border-slate-200 rounded-xl p-3 mb-3"></p>
+          <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Note <span class="font-normal normal-case text-slate-400">(optional)</span></label>
+          <textarea id="prHlpNote" rows="3" placeholder="why this changed…" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></textarea>
+          <div class="flex justify-end gap-2 mt-5">
+            <button onclick="_prHistoryLogRespond(false)" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Just Save, Don't Log</button>
+            <button onclick="_prHistoryLogRespond(true)" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Log & Save</button>
+          </div>
+        </div>
+      </div>
+
       <div id="prPayrollGroupsModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
         <div class="bg-white rounded-2xl p-5 w-full max-w-3xl max-h-[85vh] overflow-y-auto">
           <div class="flex items-center justify-between mb-1">
@@ -17435,28 +17486,144 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return _prGradesCache.filter(g => (g.pay_system || 'regular') === (payType === 'contractual' ? 'contractual' : 'regular'));
   }
 
-  // Joining date (from person_setup) plus every promotion date after it, in
-  // order — "Joined 2015-01-15 → Grade 8 Step 5 since 2020-03-01 → Grade 8
-  // Step 10 since 2023-01-01" — for the roster's embedded History column and
-  // the detail panel.
-  function _prHistoryLineForUser(userId, joiningDate) {
+  // Joining date (from person_setup, not editable here — see the Joining
+  // Date field above) plus every person_grade_history row after it, one per
+  // line with its own Edit/Delete — the detail panel's Grade/Step History
+  // list. grade_id can be null for a backfilled historical date whose
+  // resulting grade wasn't independently confirmed (e.g. a promotion date
+  // parsed from a source sheet where only the CURRENT grade could be
+  // verified against Basic) — still worth showing the date, just not
+  // inventing a grade for it.
+  function _prRenderPersonHistoryListHtml(userId, joiningDate) {
     const gradeById = {}; _prGradesCache.forEach(g => { gradeById[g.id] = g.name; });
     const stepById = {}; _prPayStepsCache.forEach(s => { stepById[s.id] = s.step_number; });
-    const events = _prGradeHistoryCache.filter(h => h.user_id === userId);
-    const parts = [];
-    if (joiningDate) parts.push(`Joined ${joiningDate}`);
+    const events = _prGradeHistoryCache.filter(h => h.user_id === userId)
+      .slice().sort((a, b) => String(a.effective_date || '').localeCompare(String(b.effective_date || '')));
+    const rows = [];
+    if (joiningDate) rows.push(`
+      <div class="flex items-center justify-between gap-2 py-1.5 border-b border-slate-200/70">
+        <p class="text-xs font-bold text-slate-700">Joined <span class="font-black">${_escHtml(joiningDate)}</span></p>
+        <span class="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Edit via Joining Date above</span>
+      </div>`);
     events.forEach(h => {
-      // grade_id can be null for a backfilled historical date whose
-      // resulting grade wasn't independently confirmed (e.g. an
-      // intermediate promotion/time-scale date parsed from a source sheet
-      // where only the CURRENT grade could be verified against Basic) —
-      // still worth showing the date, just not inventing a grade for it.
-      if (!h.grade_id) { parts.push(`Promotion recorded ${h.effective_date}${h.note ? ` (${h.note})` : ' (grade not confirmed)'}`); return; }
-      const gName = gradeById[h.grade_id] || `Grade #${h.grade_id}`;
-      const sLabel = h.step_id && stepById[h.step_id] ? ` Step ${stepById[h.step_id]}` : '';
-      parts.push(`${gName}${sLabel} since ${h.effective_date}`);
+      const label = h.grade_id
+        ? `${_escHtml(gradeById[h.grade_id] || `Grade #${h.grade_id}`)}${h.step_id && stepById[h.step_id] ? ' Step ' + stepById[h.step_id] : ''} since ${_escHtml(h.effective_date)}`
+        : `Promotion recorded ${_escHtml(h.effective_date)}`;
+      rows.push(`
+        <div class="flex items-start justify-between gap-2 py-1.5 border-b border-slate-200/70 last:border-0">
+          <div class="min-w-0">
+            <p class="text-xs font-bold text-slate-700">${label}</p>
+            ${h.note ? `<p class="text-[10px] text-slate-400 font-semibold mt-0.5">${_escHtml(h.note)}</p>` : ''}
+          </div>
+          <div class="flex items-center gap-1 shrink-0">
+            <button onclick="_prOpenGradeHistoryForm('${userId}', ${h.id})" class="p-1 text-slate-400 hover:text-blue-600" title="Edit"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button>
+            <button onclick="_prDeleteGradeHistoryRow(${h.id}, '${userId}')" class="p-1 text-slate-400 hover:text-red-600" title="Delete"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+          </div>
+        </div>`);
     });
-    return parts;
+    return rows.length ? rows.join('') : '<p class="text-xs text-slate-400 font-bold text-center py-2">No history yet.</p>';
+  }
+
+  // Refetches the shared history cache (get_grade_history — one bulk fetch
+  // for everyone, see _prGradeHistoryCache above) and, if the person detail
+  // panel for `userId` is still open, redraws just its history list —
+  // called after every add/edit/delete so both the panel and the roster's
+  // own use of this cache stay in sync without a full _prSelectPerson reload.
+  function _prReloadGradeHistory(userId, cb) {
+    _payrollFetch('get_grade_history', {}).then(res => {
+      _prGradeHistoryCache = (res && res.result === 'success' && res.history) || _prGradeHistoryCache;
+      const list = document.getElementById('prPersonHistoryList');
+      if (list && userId) {
+        const setup = _prPeopleSetupCache.find(p => p.user_id === userId) || {};
+        list.innerHTML = _prRenderPersonHistoryListHtml(userId, setup.joining_date);
+        lucide.createIcons();
+      }
+      if (cb) cb();
+    }).catch(() => { if (cb) cb(); });
+  }
+
+  function _prGhRenderStepOptions(keepStepId) {
+    const stepSel = document.getElementById('prGhStep');
+    const gradeSel = document.getElementById('prGhGrade');
+    if (!stepSel) return;
+    const gradeId = gradeSel && gradeSel.value;
+    stepSel.innerHTML = _prStepOptionsForGrade(gradeId, keepStepId != null ? keepStepId : _prDefaultStepIdForGrade(gradeId));
+  }
+
+  // historyId null = add a new backfilled/manual entry; otherwise edit an
+  // existing person_grade_history row in place. Grade/Step are optional in
+  // both cases — a pure date+note record (no confirmed grade) is a normal,
+  // supported entry, same as the ones this session's sheet backfills wrote.
+  function _prOpenGradeHistoryForm(userId, historyId) {
+    const row = historyId != null ? _prGradeHistoryCache.find(h => h.id === historyId) : null;
+    document.getElementById('prGhUserId').value = userId;
+    document.getElementById('prGhEditId').value = row ? row.id : '';
+    document.getElementById('prGhFormTitle').textContent = row ? 'Edit History Entry' : 'Add History Entry';
+    document.getElementById('prGhSaveBtn').textContent = row ? 'Save Changes' : 'Add Entry';
+    document.getElementById('prGhDeleteBtn').classList.toggle('hidden', !row);
+    document.getElementById('prGhEffectiveDate').value = row ? String(row.effective_date || '').slice(0, 10) : new Date().toISOString().slice(0, 10);
+    document.getElementById('prGhNote').value = row ? (row.note || '') : '';
+    const setup = _prPeopleSetupCache.find(p => p.user_id === userId) || {};
+    const gradeSel = document.getElementById('prGhGrade');
+    const payType = setup.pay_type === 'contractual' ? 'contractual' : 'regular';
+    gradeSel.innerHTML = `<option value="">Not known</option>` + _prGradesForPayType(payType).map(g => `<option value="${g.id}" ${row && row.grade_id === g.id ? 'selected' : ''}>${_escHtml(g.name)}</option>`).join('');
+    _prGhRenderStepOptions(row ? row.step_id : null);
+    document.getElementById('prGradeHistoryFormModal').classList.remove('hidden');
+    lucide.createIcons();
+  }
+  function _prCloseGradeHistoryForm() { document.getElementById('prGradeHistoryFormModal').classList.add('hidden'); }
+
+  function _prSaveGradeHistoryForm() {
+    const userId = document.getElementById('prGhUserId').value;
+    const editId = document.getElementById('prGhEditId').value;
+    const effective_date = document.getElementById('prGhEffectiveDate').value;
+    if (!effective_date) { showToast('Effective date is required', 'error'); return; }
+    const grade_id = document.getElementById('prGhGrade').value || null;
+    const step_id = document.getElementById('prGhStep').value || null;
+    const note = document.getElementById('prGhNote').value.trim();
+    const action = editId ? 'update_grade_history_row' : 'add_grade_history_row';
+    const payload = editId ? { id: editId, effective_date, grade_id, step_id, note } : { user_id: userId, effective_date, grade_id, step_id, note };
+    _payrollFetch(action, payload).then(res => {
+      if (res && res.result === 'success') {
+        showToast(editId ? 'History entry updated' : 'History entry added');
+        _prCloseGradeHistoryForm();
+        _prReloadGradeHistory(userId);
+      } else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(err => showToast(err.message || 'Failed to save', 'error'));
+  }
+
+  // Delete button inside the edit form calls this with no args (reads the
+  // hidden edit-id field); the per-row trash icon in the list calls it
+  // directly with the id, skipping the form entirely.
+  function _prDeleteGradeHistoryRow(id, userId) {
+    if (id == null) { id = document.getElementById('prGhEditId').value; userId = document.getElementById('prGhUserId').value; }
+    if (!id) return;
+    if (!confirm('Delete this history entry? This cannot be undone.')) return;
+    _payrollFetch('delete_grade_history', { ids: [id] }).then(res => {
+      if (res && res.result === 'success') {
+        showToast('History entry deleted');
+        _prCloseGradeHistoryForm();
+        _prReloadGradeHistory(userId);
+      } else showToast((res && res.message) || 'Failed to delete', 'error');
+    }).catch(err => showToast(err.message || 'Failed to delete', 'error'));
+  }
+
+  // ── "Save Setup" confirmation when Designation or Grade/Step actually
+  // changed — a generic yes/no-with-note prompt, its "yes" callback stashed
+  // here since the modal itself is stateless HTML. See _prSavePersonSetup.
+  let _prHistoryLogPendingCb = null;
+  function _prConfirmHistoryLog(summaryHtml, onRespond) {
+    document.getElementById('prHlpSummary').innerHTML = summaryHtml;
+    document.getElementById('prHlpNote').value = '';
+    _prHistoryLogPendingCb = onRespond;
+    document.getElementById('prHistoryLogPromptModal').classList.remove('hidden');
+  }
+  function _prHistoryLogRespond(shouldLog) {
+    const note = document.getElementById('prHlpNote').value.trim();
+    document.getElementById('prHistoryLogPromptModal').classList.add('hidden');
+    const cb = _prHistoryLogPendingCb;
+    _prHistoryLogPendingCb = null;
+    if (cb) cb(shouldLog, note);
   }
 
   function loadPayrollPeopleTab() {
@@ -17720,9 +17887,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (!detail) return;
       const setup = _prPeopleSetupCache.find(p => p.user_id === userId) || {};
       const payType = setup.pay_type === 'contractual' ? 'contractual' : 'regular';
-      const historyParts = _prHistoryLineForUser(userId, setup.joining_date);
+      const staffRec = allStaffCache.find(s => s.teacher_id === userId);
       detail.innerHTML = `
         <div class="grid md:grid-cols-4 gap-3 mb-3">
+          <div>
+            <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Designation</label>
+            <input type="text" id="prPersonDesignation" value="${_escHtml((staffRec && staffRec.designation) || '')}" placeholder="e.g. Senior Teacher" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+          </div>
           <div>
             <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Pay Type</label>
             <select id="prPersonPayType" onchange="_prOnPersonPayTypeChange()" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
@@ -17742,13 +17913,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <select id="prPersonStep" onchange="_prRefreshPersonLivePreview('${userId}')" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></select>
             <p class="text-[9px] text-slate-400 font-bold mt-1">Grade + Step sets Basic from the Pay Scale Grid.</p>
           </div>
+        </div>
+        <div class="grid md:grid-cols-4 gap-3 mb-3">
           <div>
             <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Effective Date <span class="font-normal normal-case text-slate-400">(for a Grade/Step change)</span></label>
             <input type="date" id="prPersonEffectiveDate" value="${new Date().toISOString().slice(0, 10)}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
           </div>
-        </div>
-        <div id="prPersonLivePreview" class="mb-3"></div>
-        <div class="grid md:grid-cols-4 gap-3 mb-3">
           <div>
             <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Joining Date</label>
             <input type="date" id="prPersonJoiningDate" value="${setup.joining_date || ''}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
@@ -17758,10 +17928,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <input type="number" id="prPersonMpoAmount" value="${setup.mpo_amount != null ? setup.mpo_amount : ''}" placeholder="0 = not MPO-enlisted" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
           </div>
         </div>
-        ${historyParts.length ? `<div class="mb-5 bg-slate-50 border border-slate-200 rounded-xl p-3">
-          <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Grade / Step History</p>
-          <p class="text-xs font-bold text-slate-600">${historyParts.join(' → ')}</p>
-        </div>` : '<div class="mb-5"></div>'}
+        <div id="prPersonLivePreview" class="mb-3"></div>
+        <div class="mb-5 bg-slate-50 border border-slate-200 rounded-xl p-3">
+          <div class="flex items-center justify-between mb-1.5">
+            <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Grade / Step History</p>
+            <button onclick="_prOpenGradeHistoryForm('${userId}', null)" class="text-[9px] font-black text-blue-600 uppercase tracking-widest hover:underline flex items-center gap-1"><i data-lucide="plus" class="h-3 w-3"></i>Add Date</button>
+          </div>
+          <div id="prPersonHistoryList">${_prRenderPersonHistoryListHtml(userId, setup.joining_date)}</div>
+        </div>
         <p class="font-black text-slate-800 text-xs mb-2">Payment Info</p>
         <div class="grid md:grid-cols-4 gap-3 mb-5">
           <div>
@@ -18628,20 +18802,73 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>`;
   }
 
+  // Save Setup — if Designation and/or Grade/Step actually changed from
+  // what was loaded, this pauses on _prConfirmHistoryLog first ("Record
+  // this in their history?") rather than saving straight away, since a
+  // promotion or retitling is exactly the kind of event the Grade/Step
+  // History list exists to capture. Declining still saves everything else
+  // — the popup only ever gates whether a history row gets written, never
+  // the save itself.
   function _prSavePersonSetup(userId) {
-    const pay_type = document.getElementById('prPersonPayType').value;
-    const grade_id = document.getElementById('prPersonGrade').value || null;
-    const step_id = document.getElementById('prPersonStep').value || null;
-    const effective_date = document.getElementById('prPersonEffectiveDate').value || null;
-    const joining_date = document.getElementById('prPersonJoiningDate').value || null;
-    const bank_name = document.getElementById('prPersonBankName').value.trim();
-    const bank_account_no = document.getElementById('prPersonBankAccount').value.trim();
-    const mobile_banking_provider = document.getElementById('prPersonMbProvider').value;
-    const mobile_banking_number = document.getElementById('prPersonMbNumber').value.trim();
-    const mpo_amount = document.getElementById('prPersonMpoAmount').value;
-    _payrollFetch('save_person_setup', { user_id: userId, pay_type, grade_id, step_id, effective_date, joining_date, bank_name, bank_account_no, mobile_banking_provider, mobile_banking_number, mpo_amount }).then(res => {
-      if (res && res.result === 'success') { showToast('Person setup saved'); _prSelectPerson(userId); }
-      else showToast((res && res.message) || 'Failed to save', 'error');
+    const fields = {
+      designation: document.getElementById('prPersonDesignation').value.trim(),
+      pay_type: document.getElementById('prPersonPayType').value,
+      grade_id: document.getElementById('prPersonGrade').value || null,
+      step_id: document.getElementById('prPersonStep').value || null,
+      effective_date: document.getElementById('prPersonEffectiveDate').value || null,
+      joining_date: document.getElementById('prPersonJoiningDate').value || null,
+      bank_name: document.getElementById('prPersonBankName').value.trim(),
+      bank_account_no: document.getElementById('prPersonBankAccount').value.trim(),
+      mobile_banking_provider: document.getElementById('prPersonMbProvider').value,
+      mobile_banking_number: document.getElementById('prPersonMbNumber').value.trim(),
+      mpo_amount: document.getElementById('prPersonMpoAmount').value,
+    };
+    const setup = _prPeopleSetupCache.find(p => p.user_id === userId) || {};
+    const staffRec = allStaffCache.find(s => s.teacher_id === userId);
+    const originalDesignation = (staffRec && staffRec.designation) || '';
+    // Mirrors save_person_setup's own condition for when it actually writes
+    // a history row (grade_id truthy and something about it changed) — no
+    // point offering to log a change the backend wouldn't record anyway.
+    const gradeChanged = !!fields.grade_id && (String(setup.grade_id || '') !== String(fields.grade_id) || String(setup.step_id || '') !== String(fields.step_id || ''));
+    const designationChanged = !!fields.designation && fields.designation !== originalDesignation;
+
+    if (!gradeChanged && !designationChanged) { _prDoSavePersonSetup(userId, fields, { gradeChanged, designationChanged, historyNote: null }); return; }
+
+    const changeLines = [];
+    if (designationChanged) changeLines.push(`Designation: <b>${_escHtml(originalDesignation || '—')}</b> → <b>${_escHtml(fields.designation)}</b>`);
+    if (gradeChanged) {
+      const gName = (_prGradesCache.find(g => g.id === Number(fields.grade_id)) || {}).name || fields.grade_id;
+      const sNum = fields.step_id ? (_prPayStepsCache.find(s => s.id === Number(fields.step_id)) || {}).step_number : null;
+      changeLines.push(`Grade/Step: <b>${_escHtml(String(gName))}${sNum != null ? ' Step ' + sNum : ''}</b> effective ${_escHtml(fields.effective_date || '—')}`);
+    }
+    _prConfirmHistoryLog(changeLines.join('<br>'), (shouldLog, note) => {
+      const autoSummary = [
+        designationChanged ? `Designation changed from "${originalDesignation || '—'}" to "${fields.designation}".` : '',
+        gradeChanged ? 'Grade/Step updated.' : '',
+      ].filter(Boolean).join(' ');
+      const historyNote = shouldLog ? [autoSummary, note].filter(Boolean).join(' ') : null;
+      _prDoSavePersonSetup(userId, fields, { gradeChanged, designationChanged, historyNote });
+    });
+  }
+
+  function _prDoSavePersonSetup(userId, fields, { gradeChanged, designationChanged, historyNote }) {
+    const { designation, ...setupFields } = fields;
+    const calls = [_payrollFetch('save_person_setup', { user_id: userId, ...setupFields, history_note: gradeChanged ? historyNote : null })];
+    if (designationChanged) calls.push(_payrollFetch('update_person_designation', { user_id: userId, designation }));
+    // A pure designation change (no grade change) has no auto-created
+    // history row for the note to ride along on, unlike a grade change
+    // which save_person_setup already logs itself — so log it explicitly
+    // here instead. When both changed, the note already went on the
+    // grade-history row above; adding a second one would just duplicate it.
+    if (designationChanged && !gradeChanged && historyNote) {
+      calls.push(_payrollFetch('add_grade_history_row', { user_id: userId, effective_date: fields.effective_date || new Date().toISOString().slice(0, 10), grade_id: null, step_id: null, note: historyNote }));
+    }
+    Promise.all(calls).then(results => {
+      const failed = results.find(res => !res || res.result !== 'success');
+      if (failed) { showToast(failed.message || 'Failed to save', 'error'); return; }
+      showToast('Person setup saved');
+      if (designationChanged) loadStaffData(() => _prSelectPerson(userId));
+      else _prSelectPerson(userId);
     }).catch(err => showToast(err.message || 'Failed to save', 'error'));
   }
 

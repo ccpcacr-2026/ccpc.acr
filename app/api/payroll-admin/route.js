@@ -1545,6 +1545,38 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success', id: Array.isArray(saved) && saved[0] ? saved[0].id : null });
   }
 
+  // Edits one existing history row in place (date/grade/step/note) — the
+  // People Setup detail panel's per-row Edit button. Only touches fields the
+  // caller actually sends, same convention as update_section_entry, so a
+  // note-only correction can't accidentally blank out the date.
+  if (action === 'update_grade_history_row') {
+    const { id, effective_date, note, grade_id, step_id } = payload;
+    if (!id) return NextResponse.json({ result: 'error', message: 'id required' }, { status: 400 });
+    const rowData = {};
+    if (effective_date !== undefined) rowData.effective_date = effective_date || null;
+    if (note !== undefined) rowData.note = note || null;
+    if (grade_id !== undefined) rowData.grade_id = grade_id || null;
+    if (step_id !== undefined) rowData.step_id = step_id || null;
+    const saved = await sbPayroll(`person_grade_history?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData);
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    _prAudit(user_id, 'update_grade_history_row', 'person_grade_history', id, rowData);
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // Payroll admin editing a person's job title directly — writes through to
+  // teacher_staff.users_profile.designation (via _teacherSchemaWrite, the
+  // same cross-schema path create_payroll_person already uses), not just a
+  // payroll-local field, so HR's own screens and this one never disagree
+  // about someone's designation.
+  if (action === 'update_person_designation') {
+    const { user_id: personId, designation } = payload;
+    if (!personId || !designation || !designation.trim()) return NextResponse.json({ result: 'error', message: 'user_id and designation required' }, { status: 400 });
+    const saved = await _teacherSchemaWrite(`users_profile?teacher_id=eq.${encodeURIComponent(personId)}`, 'PATCH', { designation: designation.trim() });
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    _prAudit(user_id, 'update_person_designation', 'users_profile', personId, { designation: designation.trim() });
+    return NextResponse.json({ result: 'success' });
+  }
+
   // Narrow — only ever touches joining_date, for the same backfill reason
   // as add_grade_history_row: correcting/populating a real historical fact
   // without risking the full save_person_setup upsert clobbering grade/
@@ -1604,7 +1636,7 @@ export async function POST(req) {
   }
 
   if (action === 'save_person_setup') {
-    const { user_id: personId, grade_id, step_id, pay_type, effective_date, joining_date, is_active, bank_name, bank_account_no, mobile_banking_provider, mobile_banking_number, mpo_amount } = payload;
+    const { user_id: personId, grade_id, step_id, pay_type, effective_date, joining_date, is_active, bank_name, bank_account_no, mobile_banking_provider, mobile_banking_number, mpo_amount, history_note } = payload;
     if (!personId) return NextResponse.json({ result: 'error', message: 'user_id required' }, { status: 400 });
     const normPayType = pay_type === 'contractual' ? 'contractual' : 'regular';
     const rowData = {
@@ -1635,6 +1667,7 @@ export async function POST(req) {
       const histRow = {
         user_id: personId, grade_id, step_id: step_id || null, pay_type: normPayType,
         effective_date: effective_date || new Date().toISOString().slice(0, 10),
+        note: history_note || null,
         created_by: user_id || null,
       };
       const histSaved = await sbPayroll('person_grade_history', 'POST', histRow);

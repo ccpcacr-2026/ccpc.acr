@@ -250,6 +250,10 @@ const RESERVED = [
   // Payroll tab native port
   'loadAdminPayrollView','switchPayrollTab','saveSalaryStructure','runPayroll',
   'approveLeave','_prRefreshPersonLivePreview',
+  // Grade/Step History CRUD + Designation edit + change-confirmation popup —
+  // onclick/onchange-referenced
+  '_prOpenGradeHistoryForm','_prCloseGradeHistoryForm','_prSaveGradeHistoryForm',
+  '_prDeleteGradeHistoryRow','_prGhRenderStepOptions','_prHistoryLogRespond',
   // Payroll Groups ("Group Maker") — onclick/onchange/oninput-referenced
   '_prSetExportSplitByPayrollGroup','_prOpenPayrollGroupsManager','_prClosePayrollGroupsManager',
   '_prSelectPayrollGroup','_prDeletePayrollGroup','_prAddPayrollGroup',
