@@ -2754,9 +2754,14 @@ export async function POST(req) {
       }
       rowData.unit_count = unitCount;
     } else if (entry.mode === 'recurring') {
-      const amount = Number(payload.amount);
-      if (!amount) return NextResponse.json({ result: 'error', message: 'Amount is required' }, { status: 400 });
-      rowData.emi_amount = amount;
+      // Only touch the amount if the caller actually sent one — a
+      // Note/start_date-only save (e.g. backfilling start_date) must not
+      // be blocked by a field it never meant to change.
+      if (payload.amount !== undefined) {
+        const amount = Number(payload.amount);
+        if (!amount) return NextResponse.json({ result: 'error', message: 'Amount is required' }, { status: 400 });
+        rowData.emi_amount = amount;
+      }
     } else {
       // Sending an amount field at all means the admin is trying to
       // redefine the loan itself — only safe while still untouched.
