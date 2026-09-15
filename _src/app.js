@@ -938,6 +938,11 @@
   }
 
   function setActiveNavLink(id) {
+    // Called by literally every module loader with no exceptions (see the
+    // comment below) — the one universal choke point to tear down the
+    // Accounts Admin module's global keydown listener/resize listener/
+    // hidden header when navigating to any OTHER module.
+    if (_acViewActive && id !== 'nav-accounts-admin') _acTeardown();
     document.querySelectorAll('.nav-link').forEach(el => el.classList.remove('active'));
     const active = document.getElementById(id);
     if (active) active.classList.add('active');
@@ -25425,11 +25430,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   // ══════════════════════════ ACCOUNTS ADMIN ══════════════════════════
   // Tally replacement — chart of accounts + double-entry vouchers. See
-  // TALLY_MIGRATION_PLAN.md / migration_accounts_schema.sql for the full
-  // context and schema. First working cut: CRUD for Groups/Ledgers/
-  // Vouchers plus a Trial Balance report — P&L, Balance Sheet, and the
-  // actual Tally XML importer come next, once real exported data is in
-  // hand (see the plan doc's Next Steps).
+  // TALLY_MIGRATION_PLAN.md / migration_accounts_schema.sql. Desktop UI
+  // emulates TallyPrime itself (dark screen stack, F4-F9 voucher
+  // shortcuts, Esc-goes-back, Gateway-style keyboard menu) since the
+  // office staff are trained on Tally and this needs no retraining.
+  // Mobile gets a genuinely separate touch-first rendering — Tally's
+  // keyboard-driven UI has no faithful phone equivalent — sharing the
+  // same _accountsFetch data layer and the same Group/Ledger/Voucher
+  // create-edit modals (see loadAccountsAdminView).
 
   function _accountsFetch(action, payload) {
     const myId = window.APP_USER && window.APP_USER.user_id;
@@ -25449,97 +25457,215 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _acLedgersCache = [];
   let _acVouchersCache = [];
   let _acVoucherEntryRows = 0;
+  let _acTrialBalanceCache = null; // { rows, total_debit, total_credit, as_of_date } — shared source for Trial Balance/P&L/Balance Sheet
 
-  const ACCOUNTS_SUBTABS = [
-    { id: 'groups', label: 'Chart of Accounts' },
-    { id: 'ledgers', label: 'Ledgers' },
-    { id: 'vouchers', label: 'Day Book' },
-    { id: 'trial-balance', label: 'Trial Balance' },
+  // Screen stack — Tally itself IS a screen stack (Gateway -> menu ->
+  // report/voucher), so this models it literally rather than the old
+  // 4-tab shell. Floor element is always 'gateway'; _acPop no-ops at
+  // length 1 so Esc can never leave the user on a dead end.
+  let _acStack = [{ id: 'gateway', params: {} }];
+  let _acMenuIndex = 0;
+  let _acCurrentMenuItems = []; // flattened (section headers excluded) items of whatever menu screen is on top, for Arrow/Enter/hotkey lookup
+  let _acKeyBound = false;
+  let _acViewActive = false; // true once loadAccountsAdminView has run, in EITHER mobile or desktop mode — decoupled from _acKeyBound so mobile sessions still tear down their resize listener
+  let _acMobileView = 'home';
+
+  const _AC_FKEYS = [
+    { key: 'F4', label: 'Contra', type: 'Contra' },
+    { key: 'F5', label: 'Payment', type: 'Payment' },
+    { key: 'F6', label: 'Receipt', type: 'Receipt' },
+    { key: 'F7', label: 'Journal', type: 'Journal' },
+    { key: 'F8', label: 'Sales', type: 'Sales' },
+    { key: 'F9', label: 'Purchase', type: 'Purchase' },
   ];
 
-  function loadAccountsAdminView() {
-    if (!_hasModuleAccess('accounts_admin')) { showToast('Not available in current role', 'error'); return; }
-    _setViewHash('accounts_admin');
-    setActiveNavLink('nav-accounts-admin');
-    setContentHeader('Accounts Admin', 'landmark');
+  // Faithful to TallyPrime's own Gateway grouping. Hot letters are
+  // chosen to never collide with each other on this one screen (Tally's
+  // own rule) — Chart of Accounts uses H since Alter already claims A.
+  const _AC_GATEWAY_MENU = [
+    { section: 'Masters' },
+    { label: 'Create', hot: 'C', go: 'create' },
+    { label: 'Alter', hot: 'A', go: 'chart' },
+    { label: 'Chart of Accounts', hot: 'H', go: 'chart' },
+    { section: 'Transactions' },
+    { label: 'Voucher Entry', hot: 'V', go: 'voucher', params: { type: 'Payment' } },
+    { label: 'Day Book', hot: 'D', go: 'daybook' },
+    { section: 'Reports' },
+    { label: 'Balance Sheet', hot: 'B', go: 'balance-sheet' },
+    { label: 'Profit & Loss A/c', hot: 'P', go: 'pnl' },
+    { label: 'Trial Balance', hot: 'T', go: 'trial-balance' },
+    { label: 'Ledger Vouchers', hot: 'L', go: 'ledger-picker' },
+  ];
+
+  // Renders any menu screen's rows — one function serves Gateway, Create,
+  // and the dynamically-built Ledger Picker. A row with no `hot` (the
+  // ledger picker's dynamic list, where single-letter hotkeys would
+  // collide constantly) just skips the underline.
+  function _acMenuHtml(items, activeIndex) {
+    let rowIdx = -1;
+    return items.map(it => {
+      if (it.section) return `<div class="tp-menu-section-label">${_escHtml(it.section)}</div>`;
+      rowIdx++;
+      const isActive = rowIdx === activeIndex;
+      const hotPos = it.hot ? it.label.toUpperCase().indexOf(it.hot.toUpperCase()) : -1;
+      const labelHtml = hotPos >= 0
+        ? _escHtml(it.label.slice(0, hotPos)) + `<span class="tp-menu-hot">${_escHtml(it.label[hotPos])}</span>` + _escHtml(it.label.slice(hotPos + 1))
+        : _escHtml(it.label);
+      return `<div class="tp-menu-row${isActive ? ' active' : ''}" onmouseenter="_acMenuHover(${rowIdx})" onclick="_acActivateMenuItem(${rowIdx})">${labelHtml}</div>`;
+    }).join('');
+  }
+  function _acMenuHover(idx) {
+    _acMenuIndex = idx;
+    document.querySelectorAll('#tp-body .tp-menu-row').forEach((el, i) => el.classList.toggle('active', i === idx));
+  }
+  function _acActivateMenuItem(idx) {
+    const item = _acCurrentMenuItems[idx];
+    if (!item) return;
+    if (item.action) item.action(); else _acGo(item.go, item.params);
+  }
+  function _acMenuMove(delta) {
+    if (!_acCurrentMenuItems.length) return;
+    _acMenuIndex = (_acMenuIndex + delta + _acCurrentMenuItems.length) % _acCurrentMenuItems.length;
+    _acRender();
+  }
+
+  function _acGo(id, params) {
+    _acStack.push({ id, params: params || {} });
+    _acMenuIndex = 0;
+    _acRender();
+  }
+  // The one level of "switch in place instead of stack" Tally itself
+  // has: pressing another F-key while already on a voucher screen
+  // SWITCHES that screen's type rather than nesting a new one on top —
+  // otherwise repeated F-key presses would grow the stack forever.
+  function _acOpenVoucherScreen(type, voucherId) {
+    const top = _acStack[_acStack.length - 1];
+    if (top.id === 'voucher' && !voucherId) { top.params = { type, id: null }; _acMenuIndex = 0; _acRender(); }
+    else _acGo('voucher', { type, id: voucherId || null });
+  }
+  function _acPop() {
+    if (_acStack.length > 1) { _acStack.pop(); _acMenuIndex = 0; _acRender(); }
+  }
+
+  function _acRenderButtonBar(extra) {
+    const bar = document.getElementById('tp-buttonbar');
+    if (!bar) return;
+    const fkeyBtns = _AC_FKEYS.map(f => `<button class="tp-fkey" onclick="_acOpenVoucherScreen('${f.type}')"><b>${f.key}</b> ${f.label}</button>`).join('');
+    const extraBtns = (extra || []).map(b => `<button class="tp-fkey" onclick="${b.onclick}"><b>${_escHtml(b.key)}</b> ${_escHtml(b.label)}</button>`).join('');
+    const backBtn = _acStack.length > 1 ? `<button class="tp-fkey" onclick="_acPop()"><b>Esc</b> Back</button>` : '';
+    bar.innerHTML = fkeyBtns + extraBtns + backBtn;
+  }
+
+  function _acRender() {
+    const top = _acStack[_acStack.length - 1];
+    const screen = _AC_SCREENS[top.id];
+    if (!screen) return;
+    const pathEl = document.getElementById('tp-path');
+    if (pathEl) pathEl.textContent = _acStack.map(s => _AC_SCREENS[s.id].title).join(' › ');
+    const body = document.getElementById('tp-body');
+    if (!body) return;
+    screen.render(body, top.params || {});
+    _acRenderButtonBar(screen.buttons ? screen.buttons(top.params || {}) : []);
+  }
+
+  // Two independent gates on the global keydown listener (see
+  // loadAccountsAdminView for where it's bound): teardown removes it
+  // when setActiveNavLink fires for any OTHER module, and this self-gate
+  // (mirroring the payroll/form-builder handlers elsewhere in this file)
+  // makes it inert even if teardown is ever missed — the single most
+  // important safety property of this whole feature, since an
+  // un-gated F5/Ctrl+A/Esc would otherwise hijack those keys app-wide.
+  function _acKeydown(e) {
+    if (!document.getElementById('tp-shell')) return;
+    if (_modalBackStack.length) {
+      if (e.key === 'Escape') { e.preventDefault(); history.back(); }
+      else if (e.ctrlKey && e.key.toLowerCase() === 'a') { e.preventDefault(); _acAccept(); }
+      return;
+    }
+    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+    const top = _acStack[_acStack.length - 1];
+    const screen = _AC_SCREENS[top.id];
+
+    const fkeyMap = { F4: 'Contra', F5: 'Payment', F6: 'Receipt', F7: 'Journal', F8: 'Sales', F9: 'Purchase' };
+    if (fkeyMap[e.key]) { e.preventDefault(); _acOpenVoucherScreen(fkeyMap[e.key]); return; }
+    // Ctrl+A is Tally's single most iconic shortcut ("Accept") and works
+    // even mid-field there — deliberately NOT gated behind `!typing`,
+    // unlike arrow/Enter menu navigation below.
+    if (e.ctrlKey && e.key.toLowerCase() === 'a') { e.preventDefault(); _acAccept(); return; }
+    if (e.altKey && e.key.toLowerCase() === 'c') { e.preventDefault(); _acOpenLedgerForm(null); return; }
+    if (e.key === 'Escape') { e.preventDefault(); _acPop(); return; }
+
+    if (typing) {
+      if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') { e.preventDefault(); _acFocusNext(e.target); }
+      return;
+    }
+
+    if (screen && screen.isMenu) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); _acMenuMove(1); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); _acMenuMove(-1); return; }
+      if (e.key === 'Enter') { e.preventDefault(); _acActivateMenuItem(_acMenuIndex); return; }
+      const hotMatch = _acCurrentMenuItems.findIndex(it => it.hot && it.hot.toUpperCase() === e.key.toUpperCase());
+      if (hotMatch >= 0) { e.preventDefault(); _acActivateMenuItem(hotMatch); return; }
+    }
+  }
+  // Tally is Enter-driven, not Tab-driven. Voucher header fields carry
+  // data-tp-field explicitly; the .ac-ve-* entry-row fields are combined
+  // in via class instead (that row markup is generated by
+  // _acAddVoucherEntryRow, shared verbatim with the mobile modal, so it
+  // was never given the attribute) — querySelectorAll returns combined
+  // selectors in DOM order regardless of grouping, so this still walks
+  // Date -> Number -> Narration -> each entry row's Ledger/Debit/Credit
+  // in the order they actually appear, landing on Accept at the end.
+  function _acFocusNext(current) {
+    const fields = Array.from(document.querySelectorAll('#tp-body [data-tp-field], #tp-body .ac-ve-ledger, #tp-body .ac-ve-debit, #tp-body .ac-ve-credit'));
+    const idx = fields.indexOf(current);
+    if (idx >= 0 && idx < fields.length - 1) { fields[idx + 1].focus(); if (fields[idx + 1].select) fields[idx + 1].select(); }
+    else _acAccept();
+  }
+  function _acAccept() {
+    if (!document.getElementById('acLedgerModal').classList.contains('hidden')) { _acSaveLedger(); return; }
+    if (!document.getElementById('acGroupModal').classList.contains('hidden')) { _acSaveGroup(); return; }
+    const top = _acStack[_acStack.length - 1];
+    if (top.id === 'voucher') _acSaveVoucherScreen();
+  }
+
+  function _acTeardown() {
+    if (!_acViewActive) return;
+    _acViewActive = false;
+    if (_acKeyBound) { document.removeEventListener('keydown', _acKeydown); _acKeyBound = false; }
+    window.removeEventListener('resize', _acHandleResize);
+    _acStack = [{ id: 'gateway', params: {} }];
+    _acMenuIndex = 0;
+    _acTrialBalanceCache = null;
+    const header = document.getElementById('content-header');
+    if (header) header.classList.remove('hidden');
     const container = document.getElementById('view-container');
-    if (!container) return;
-    const tabBar = ACCOUNTS_SUBTABS.map(t => `<button onclick="_acSwitchTab('${t.id}')" id="actab-${t.id}"
-      class="fees-tab-btn flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all whitespace-nowrap
-             ${t.id === 'ledgers' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50'}">${t.label}</button>`).join('');
-    container.innerHTML = `
-      <div class="mb-4">
-        <h2 class="text-2xl font-black text-slate-800 tracking-tight">Accounts Admin</h2>
-        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Chart of accounts, ledgers, vouchers — replacing Tally</p>
-      </div>
-      <div class="flex flex-nowrap gap-2 mb-5 overflow-x-auto pb-1 -mx-1 px-1" style="scrollbar-width:none">${tabBar}</div>
+    if (container) container.style.height = '';
+  }
+  // Mobile <-> desktop is decided by viewport width at render time, per
+  // the "genuinely separate mobile rendering" rule — debounced so a
+  // live window resize across the 768px breakpoint (not a real device,
+  // but a resized desktop browser) switches cleanly instead of leaving
+  // a half-dark, half-card screen. Self-removes once neither shell is
+  // in the DOM, so it can't outlive the view even if teardown timing
+  // is ever imperfect.
+  let _acResizeTimer = null;
+  function _acHandleResize() {
+    clearTimeout(_acResizeTimer);
+    _acResizeTimer = setTimeout(() => {
+      const wasMobile = !!document.getElementById('tpm-shell');
+      const wasDesktop = !!document.getElementById('tp-shell');
+      if (!wasMobile && !wasDesktop) { window.removeEventListener('resize', _acHandleResize); return; }
+      if (wasMobile === (window.innerWidth < 768)) return;
+      loadAccountsAdminView();
+    }, 200);
+  }
 
-      <div id="ac-groups" style="display:none">
-        <div class="bg-white rounded-2xl border border-slate-200 p-4">
-          <div class="flex items-center justify-between mb-3">
-            <p class="font-black text-slate-800 text-xs">Groups</p>
-            <button onclick="_acOpenGroupForm(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>New Group</button>
-          </div>
-          <div class="overflow-auto border border-slate-200 rounded-xl">
-            <table class="w-full text-left border-collapse text-xs">
-              <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
-                <th class="py-2 px-3">Name</th><th class="py-2 px-3">Parent</th><th class="py-2 px-3">Nature</th><th class="py-2 px-3 text-right">Actions</th>
-              </tr></thead>
-              <tbody id="acGroupsBody"><tr><td colspan="4" class="p-4 text-slate-400 font-bold text-xs text-center">Loading…</td></tr></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      <div id="ac-ledgers">
-        <div class="bg-white rounded-2xl border border-slate-200 p-4">
-          <div class="flex items-center justify-between mb-3">
-            <p class="font-black text-slate-800 text-xs">Ledgers</p>
-            <button onclick="_acOpenLedgerForm(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>New Ledger</button>
-          </div>
-          <div class="overflow-auto border border-slate-200 rounded-xl">
-            <table class="w-full text-left border-collapse text-xs">
-              <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
-                <th class="py-2 px-3">Name</th><th class="py-2 px-3">Group</th><th class="py-2 px-3 text-right">Opening</th><th class="py-2 px-3 text-right">Balance</th><th class="py-2 px-3">Status</th><th class="py-2 px-3 text-right">Actions</th>
-              </tr></thead>
-              <tbody id="acLedgersBody"><tr><td colspan="6" class="p-4 text-slate-400 font-bold text-xs text-center">Loading…</td></tr></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      <div id="ac-vouchers" style="display:none">
-        <div class="bg-white rounded-2xl border border-slate-200 p-4">
-          <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
-            <p class="font-black text-slate-800 text-xs">Day Book</p>
-            <div class="flex items-center gap-2 flex-wrap">
-              <input type="date" id="acVoucherFromDate" onchange="_acLoadVouchers()" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-              <input type="date" id="acVoucherToDate" onchange="_acLoadVouchers()" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-              <button onclick="_acOpenVoucherForm(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>New Voucher</button>
-            </div>
-          </div>
-          <div id="acVouchersList" class="space-y-2"><p class="text-slate-400 font-bold text-xs">Loading…</p></div>
-        </div>
-      </div>
-
-      <div id="ac-trial-balance" style="display:none">
-        <div class="bg-white rounded-2xl border border-slate-200 p-4">
-          <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
-            <p class="font-black text-slate-800 text-xs">Trial Balance</p>
-            <input type="date" id="acTrialBalanceDate" onchange="_acLoadTrialBalance()" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-          </div>
-          <div class="overflow-auto border border-slate-200 rounded-xl">
-            <table class="w-full text-left border-collapse text-xs">
-              <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
-                <th class="py-2 px-3">Ledger</th><th class="py-2 px-3">Group</th><th class="py-2 px-3 text-right">Debit</th><th class="py-2 px-3 text-right">Credit</th>
-              </tr></thead>
-              <tbody id="acTrialBalanceBody"><tr><td colspan="4" class="p-4 text-slate-400 font-bold text-xs text-center">Loading…</td></tr></tbody>
-              <tfoot id="acTrialBalanceFoot"></tfoot>
-            </table>
-          </div>
-        </div>
-      </div>
-
+  // Reused verbatim by both the desktop Tally screen (Alt+C / Create
+  // menu / Chart of Accounts rows) and the mobile card UI's own + Ledger
+  // / + Group buttons — one pair of modals, two very different callers.
+  function _acModalsHtml() {
+    return `
       <div id="acGroupModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
         <div class="bg-white rounded-2xl p-5 w-full max-w-sm">
           <div class="flex items-center justify-between mb-4">
@@ -25607,20 +25733,56 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
       </div>
     `;
+  }
+
+  // Entry point. Mobile/desktop is decided once here (and again by
+  // _acHandleResize if the breakpoint is crossed live) — a genuinely
+  // separate rendering per module, not a CSS squeeze, since Tally's own
+  // UI has no faithful phone equivalent. Immersion level (agreed with
+  // the user): hide #content-header for an edge-to-edge Tally screen,
+  // but keep the sidebar so Payroll/Inventory/etc. are always one click
+  // away — no risk of feeling trapped inside the module.
+  function loadAccountsAdminView() {
+    if (!_hasModuleAccess('accounts_admin')) { showToast('Not available in current role', 'error'); return; }
+    _setViewHash('accounts_admin');
+    setActiveNavLink('nav-accounts-admin');
+    setContentHeader('Accounts Admin', 'landmark');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    _acStack = [{ id: 'gateway', params: {} }];
+    _acMenuIndex = 0;
+    _acTrialBalanceCache = null;
+    _acMobileView = 'home';
+    _acViewActive = true;
+
+    const header = document.getElementById('content-header');
+    const isMobile = window.innerWidth < 768;
+
+    if (isMobile) {
+      if (header) header.classList.remove('hidden');
+      container.style.height = '';
+      container.innerHTML = `<div class="tpm-shell" id="tpm-shell"></div>${_acModalsHtml()}`;
+      _acRenderMobile();
+    } else {
+      if (header) header.classList.add('hidden');
+      container.style.height = '100%';
+      container.innerHTML = `
+        <div class="tp-shell" id="tp-shell">
+          <div class="tp-titlebar"><span>TALLY.ERP — ACCOUNTS</span><span class="tp-path" id="tp-path"></span></div>
+          <div class="tp-body" id="tp-body"></div>
+          <div class="tp-buttonbar" id="tp-buttonbar"></div>
+        </div>
+        ${_acModalsHtml()}
+      `;
+      if (!_acKeyBound) { document.addEventListener('keydown', _acKeydown); _acKeyBound = true; }
+      _acRender();
+    }
+
     lucide.createIcons();
     _acLoadGroups();
     _acLoadLedgers();
-  }
-
-  function _acSwitchTab(id) {
-    ACCOUNTS_SUBTABS.forEach(t => {
-      const panel = document.getElementById('ac-' + t.id);
-      const btn = document.getElementById('actab-' + t.id);
-      if (panel) panel.style.display = t.id === id ? '' : 'none';
-      if (btn) btn.className = `fees-tab-btn flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all whitespace-nowrap ${t.id === id ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50'}`;
-    });
-    if (id === 'vouchers') _acLoadVouchers();
-    if (id === 'trial-balance') _acLoadTrialBalance();
+    window.removeEventListener('resize', _acHandleResize);
+    window.addEventListener('resize', _acHandleResize);
   }
 
   function _acGroupOptionsHtml(selectedId, excludeId) {
@@ -25628,26 +25790,50 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       `<option value="${g.id}" ${Number(selectedId) === g.id ? 'selected' : ''}>${_escHtml(g.name)}</option>`).join('');
   }
 
+  // Fetch-only, re-rendering whichever screen actually needs the fresh
+  // data — the old fixed #acGroupsBody it used to paint into only exists
+  // now while the Chart screen happens to be on top of the stack. Called
+  // unconditionally from loadAccountsAdminView on open (Create/Voucher
+  // need the cache immediately) and by _acSaveGroup/_acDeleteGroup below
+  // exactly as before — neither of those needed to change at all.
   function _acLoadGroups() {
-    _accountsFetch('get_account_groups', {}).then(res => {
+    return _accountsFetch('get_account_groups', {}).then(res => {
       _acGroupsCache = (res && res.result === 'success' && res.groups) || [];
-      const byId = {}; _acGroupsCache.forEach(g => { byId[g.id] = g; });
-      const body = document.getElementById('acGroupsBody');
-      if (body) {
-        body.innerHTML = _acGroupsCache.length ? _acGroupsCache.map(g => `
-          <tr class="border-t border-slate-100">
-            <td class="py-2 px-3 font-bold text-slate-700">${_escHtml(g.name)}</td>
-            <td class="py-2 px-3 text-slate-500">${g.parent_group_id && byId[g.parent_group_id] ? _escHtml(byId[g.parent_group_id].name) : '—'}</td>
-            <td class="py-2 px-3 text-slate-500 uppercase text-[10px] font-black">${g.nature}</td>
-            <td class="py-2 px-3 text-right">
-              <button onclick="_acOpenGroupForm(${g.id})" class="text-blue-600 hover:underline text-[10px] font-black uppercase mr-2">Edit</button>
-              <button onclick="_acDeleteGroup(${g.id})" class="text-red-500 hover:underline text-[10px] font-black uppercase">Delete</button>
-            </td>
-          </tr>`).join('') : `<tr><td colspan="4" class="p-4 text-slate-400 font-bold text-xs text-center">No groups yet.</td></tr>`;
-      }
       const ledgerGroupSel = document.getElementById('acLedgerGroup');
       if (ledgerGroupSel) ledgerGroupSel.innerHTML = _acGroupOptionsHtml(null, null);
+      if (_acStack.some(s => s.id === 'chart')) _acRender();
+      return _acGroupsCache;
     }).catch(err => showToast(err.message, 'error'));
+  }
+
+  // Chart of Accounts — Tally's own grouped presentation: every Group
+  // with its ledgers (and balances) nested directly underneath, groups
+  // themselves nested under their own parent one level at a time.
+  function _acRenderChart(host) {
+    const byGroupId = {};
+    _acLedgersCache.forEach(l => { (byGroupId[l.group_id] = byGroupId[l.group_id] || []).push(l); });
+    const childrenOf = pid => _acGroupsCache.filter(g => g.parent_group_id === pid);
+    const renderGroup = (g, depth) => {
+      const ledgers = byGroupId[g.id] || [];
+      const kids = childrenOf(g.id);
+      return `
+        <div style="margin-left:${depth * 16}px">
+          <div class="tp-group-head" onclick="_acOpenGroupForm(${g.id})">${_escHtml(g.name)} <span style="color:#8a8ad0;font-weight:normal;font-size:11px">(${g.nature})</span></div>
+          ${ledgers.map(l => `
+            <div class="tp-ledger-line" style="margin-left:16px" onclick="_acOpenLedgerForm(${l.id})">
+              ${_escHtml(l.name)}<span class="tp-num" style="float:right">${Number(l.balance || 0).toLocaleString('en-IN')}</span>
+            </div>`).join('')}
+          ${kids.map(k => renderGroup(k, depth + 1)).join('')}
+        </div>`;
+    };
+    const rootGroups = _acGroupsCache.filter(g => !g.parent_group_id);
+    host.innerHTML = `
+      <div style="margin-bottom:10px">
+        <button class="tp-inline-btn" onclick="_acOpenGroupForm(null)">+ Group</button>
+        <button class="tp-inline-btn" onclick="_acOpenLedgerForm(null)">+ Ledger</button>
+      </div>
+      ${rootGroups.length ? rootGroups.map(g => renderGroup(g, 0)).join('') : '<div class="tp-empty">No groups yet.</div>'}
+    `;
   }
 
   function _acOpenGroupForm(id) {
@@ -25684,23 +25870,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
   }
 
+  // Same fetch-only shape as _acLoadGroups above.
   function _acLoadLedgers() {
-    _accountsFetch('get_ledgers', {}).then(res => {
+    return _accountsFetch('get_ledgers', {}).then(res => {
       _acLedgersCache = (res && res.result === 'success' && res.ledgers) || [];
-      const body = document.getElementById('acLedgersBody');
-      if (!body) return;
-      body.innerHTML = _acLedgersCache.length ? _acLedgersCache.map(l => `
-        <tr class="border-t border-slate-100">
-          <td class="py-2 px-3 font-bold text-slate-700">${_escHtml(l.name)}</td>
-          <td class="py-2 px-3 text-slate-500">${_escHtml((l.account_groups && l.account_groups.name) || '—')}</td>
-          <td class="py-2 px-3 text-right font-bold text-slate-500">${Number(l.opening_balance || 0).toLocaleString('en-IN')}</td>
-          <td class="py-2 px-3 text-right font-black ${l.balance < 0 ? 'text-red-500' : 'text-slate-800'}">${Number(l.balance || 0).toLocaleString('en-IN')}</td>
-          <td class="py-2 px-3">${l.is_active ? '<span class="text-emerald-600 text-[10px] font-black uppercase">Active</span>' : '<span class="text-slate-400 text-[10px] font-black uppercase">Inactive</span>'}</td>
-          <td class="py-2 px-3 text-right">
-            <button onclick="_acOpenLedgerForm(${l.id})" class="text-blue-600 hover:underline text-[10px] font-black uppercase mr-2">Edit</button>
-            <button onclick="_acDeleteLedger(${l.id})" class="text-red-500 hover:underline text-[10px] font-black uppercase">Delete</button>
-          </td>
-        </tr>`).join('') : `<tr><td colspan="6" class="p-4 text-slate-400 font-bold text-xs text-center">No ledgers yet.</td></tr>`;
+      if (_acStack.some(s => s.id === 'chart')) _acRender();
+      return _acLedgersCache;
     }).catch(err => showToast(err.message, 'error'));
   }
 
@@ -25824,59 +25999,347 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
   }
 
-  function _acLoadVouchers() {
-    const from_date = document.getElementById('acVoucherFromDate') ? document.getElementById('acVoucherFromDate').value : '';
-    const to_date = document.getElementById('acVoucherToDate') ? document.getElementById('acVoucherToDate').value : '';
-    _accountsFetch('get_vouchers', { from_date, to_date }).then(res => {
+  // Fetch-only + repaint the Day Book LIST portion only (never the whole
+  // screen — that would recreate the From/To date inputs mid-edit and
+  // drop whatever the user just picked). Falls back to reading whatever
+  // Day Book filter inputs currently exist when called with no args, so
+  // _acDeleteVoucher's existing no-arg call above needed no change.
+  function _acLoadVouchers(filters) {
+    const f = filters || {
+      from_date: (document.getElementById('acVoucherFromDate') || {}).value || '',
+      to_date: (document.getElementById('acVoucherToDate') || {}).value || '',
+    };
+    return _accountsFetch('get_vouchers', f).then(res => {
       _acVouchersCache = (res && res.result === 'success' && res.vouchers) || [];
-      const list = document.getElementById('acVouchersList');
-      if (!list) return;
-      if (!_acVouchersCache.length) { list.innerHTML = '<p class="text-slate-400 font-bold text-xs p-4 text-center">No vouchers yet.</p>'; return; }
-      list.innerHTML = _acVouchersCache.map(v => {
+      _acRenderDaybookList();
+      return _acVouchersCache;
+    }).catch(err => showToast(err.message, 'error'));
+  }
+  function _acRenderDaybookList() {
+    const list = document.getElementById('acDaybookList');
+    if (!list) return;
+    if (!_acVouchersCache.length) { list.innerHTML = '<div class="tp-empty">No vouchers yet.</div>'; return; }
+    list.innerHTML = `<table class="tp-table"><thead><tr><th>Date</th><th>Type</th><th>No.</th><th>Particulars</th><th class="tp-num">Amount</th><th></th></tr></thead><tbody>
+      ${_acVouchersCache.map(v => {
         const total = (v.voucher_entries || []).reduce((a, e) => a + (Number(e.debit) || 0), 0);
-        const lines = (v.voucher_entries || []).map(e => `<span class="mr-3">${_escHtml((e.ledgers && e.ledgers.name) || '')} — ${Number(e.debit) > 0 ? 'Dr ' + Number(e.debit).toLocaleString('en-IN') : 'Cr ' + Number(e.credit).toLocaleString('en-IN')}</span>`).join('');
-        return `<div class="border border-slate-100 rounded-xl p-3">
-          <div class="flex items-center justify-between flex-wrap gap-2">
-            <div>
-              <span class="text-[10px] font-black uppercase text-blue-600 mr-2">${_escHtml(v.voucher_type)}</span>
-              <span class="text-xs font-bold text-slate-700">${_escHtml(v.voucher_date)}</span>
-              ${v.voucher_number ? `<span class="text-[10px] text-slate-400 font-bold ml-2">#${_escHtml(v.voucher_number)}</span>` : ''}
-              ${v.narration ? `<span class="text-[10px] text-slate-400 ml-2">${_escHtml(v.narration)}</span>` : ''}
-            </div>
-            <div class="flex items-center gap-3">
-              <span class="text-xs font-black text-slate-800">৳${total.toLocaleString('en-IN')}</span>
-              <button onclick="_acOpenVoucherForm(${v.id})" class="text-blue-600 hover:underline text-[10px] font-black uppercase">Edit</button>
-              <button onclick="_acDeleteVoucher(${v.id})" class="text-red-500 hover:underline text-[10px] font-black uppercase">Delete</button>
-            </div>
-          </div>
-          <div class="text-[10px] text-slate-500 font-bold mt-1.5">${lines}</div>
-        </div>`;
-      }).join('');
+        const parts = (v.voucher_entries || []).map(e => `${_escHtml((e.ledgers && e.ledgers.name) || '')} ${Number(e.debit) > 0 ? 'Dr' : 'Cr'} ${Number(e.debit || e.credit).toLocaleString('en-IN')}`).join(' / ');
+        return `<tr>
+          <td>${_escHtml(v.voucher_date)}</td><td>${_escHtml(v.voucher_type)}</td><td>${_escHtml(v.voucher_number || '')}</td>
+          <td>${parts}${v.narration ? ' — ' + _escHtml(v.narration) : ''}</td>
+          <td class="tp-num">${total.toLocaleString('en-IN')}</td>
+          <td><button class="tp-inline-btn" onclick="_acOpenVoucherScreen('${_escHtml(v.voucher_type)}',${v.id})">Edit</button><button class="tp-inline-btn" onclick="_acDeleteVoucher(${v.id})">Del</button></td>
+        </tr>`;
+      }).join('')}
+    </tbody></table>`;
+  }
+  function _acRenderDaybook(host) {
+    host.innerHTML = `
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+        <span class="tp-field-label" style="display:inline;margin:0">From</span>
+        <input type="date" id="acVoucherFromDate" class="tp-input" style="width:auto" onchange="_acLoadVouchers()">
+        <span class="tp-field-label" style="display:inline;margin:0">To</span>
+        <input type="date" id="acVoucherToDate" class="tp-input" style="width:auto" onchange="_acLoadVouchers()">
+      </div>
+      <div id="acDaybookList"></div>
+    `;
+    _acLoadVouchers({ from_date: '', to_date: '' });
+  }
+
+  // Desktop voucher SCREEN (F4-F9 / Create > Voucher / Day Book Edit) —
+  // separate from _acOpenVoucherForm's MODAL above, which mobile still
+  // uses. Both share the exact same #acVoucherEntries/.ac-ve-*/totals
+  // element ids, so _acAddVoucherEntryRow and _acVoucherRecalc need no
+  // changes at all to work with either one.
+  function _acRenderVoucherScreen(host, params) {
+    const type = params.type || 'Payment';
+    const editId = params.id || null;
+    const existing = editId ? _acVouchersCache.find(v => v.id === editId) : null;
+    host.innerHTML = `
+      <input type="hidden" id="acVoucherId" value="${editId || ''}">
+      <input type="hidden" id="acVoucherType" value="${_escHtml(type)}">
+      <div class="tp-voucher-head">
+        <div><span class="tp-field-label">Voucher Type</span><div style="color:#ffff00;font-weight:bold">${_escHtml(type)}</div></div>
+        <div><span class="tp-field-label">Date</span><input type="date" id="acVoucherDate" data-tp-field class="tp-input" value="${existing ? String(existing.voucher_date).slice(0, 10) : new Date().toISOString().slice(0, 10)}"></div>
+        <div><span class="tp-field-label">Voucher No.</span><input type="text" id="acVoucherNumber" data-tp-field class="tp-input" value="${existing ? _escHtml(existing.voucher_number || '') : ''}"></div>
+      </div>
+      <div style="margin-bottom:10px">
+        <span class="tp-field-label">Narration</span>
+        <input type="text" id="acVoucherNarration" data-tp-field class="tp-input" value="${existing ? _escHtml(existing.narration || '') : ''}">
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <span class="tp-field-label" style="margin:0">Particulars (Dr / Cr)</span>
+        <button class="tp-inline-btn" onclick="_acAddVoucherEntryRow()">+ Row</button>
+      </div>
+      <div id="acVoucherEntries"></div>
+      <div class="tp-totals-row">
+        <span>Debit: <span id="acVoucherDebitTotal">0.00</span></span>
+        <span>Credit: <span id="acVoucherCreditTotal">0.00</span></span>
+        <span id="acVoucherBalanceFlag" class="tp-flag-unbalanced">Unbalanced</span>
+      </div>
+      <button class="tp-inline-btn" style="margin-top:10px" onclick="_acAccept()">Accept (Ctrl+A)</button>
+    `;
+    document.getElementById('acVoucherEntries').innerHTML = '';
+    if (existing && existing.voucher_entries && existing.voucher_entries.length) existing.voucher_entries.forEach(e => _acAddVoucherEntryRow(e));
+    else { _acAddVoucherEntryRow(); _acAddVoucherEntryRow(); }
+    _acVoucherRecalc();
+    const dateField = document.getElementById('acVoucherDate');
+    if (dateField) dateField.focus();
+  }
+  function _acSaveVoucherScreen() {
+    const entries = [];
+    document.querySelectorAll('#acVoucherEntries > div').forEach(row => {
+      const ledger_id = row.querySelector('.ac-ve-ledger').value;
+      const debit = row.querySelector('.ac-ve-debit').value;
+      const credit = row.querySelector('.ac-ve-credit').value;
+      if (ledger_id && (Number(debit) || Number(credit))) entries.push({ ledger_id, debit: debit || 0, credit: credit || 0 });
+    });
+    const payload = {
+      id: document.getElementById('acVoucherId').value || undefined,
+      voucher_type: document.getElementById('acVoucherType').value,
+      voucher_date: document.getElementById('acVoucherDate').value,
+      voucher_number: document.getElementById('acVoucherNumber').value.trim(),
+      narration: document.getElementById('acVoucherNarration').value.trim(),
+      entries,
+    };
+    if (!payload.voucher_date) { showToast('Date is required', 'error'); return; }
+    _accountsFetch('save_voucher', payload).then(res => {
+      if (res && res.result === 'success') {
+        showToast('Voucher saved');
+        Promise.all([_acLoadVouchers({ from_date: '', to_date: '' }), _acLoadLedgers()]).then(() => _acPop());
+      } else showToast((res && res.message) || 'Failed to save', 'error');
     }).catch(err => showToast(err.message, 'error'));
   }
 
-  function _acLoadTrialBalance() {
-    const as_of_date = document.getElementById('acTrialBalanceDate') ? document.getElementById('acTrialBalanceDate').value : '';
-    _accountsFetch('get_trial_balance', { as_of_date }).then(res => {
-      if (!(res && res.result === 'success')) { showToast((res && res.message) || 'Failed to load', 'error'); return; }
-      const body = document.getElementById('acTrialBalanceBody');
-      const foot = document.getElementById('acTrialBalanceFoot');
-      if (!body) return;
-      body.innerHTML = res.rows.length ? res.rows.map(r => `
-        <tr class="border-t border-slate-100">
-          <td class="py-2 px-3 font-bold text-slate-700">${_escHtml(r.name)}</td>
-          <td class="py-2 px-3 text-slate-500">${_escHtml(r.group_name || '—')}</td>
-          <td class="py-2 px-3 text-right font-bold text-slate-700">${r.debit ? Number(r.debit).toLocaleString('en-IN') : ''}</td>
-          <td class="py-2 px-3 text-right font-bold text-slate-700">${r.credit ? Number(r.credit).toLocaleString('en-IN') : ''}</td>
-        </tr>`).join('') : `<tr><td colspan="4" class="p-4 text-slate-400 font-bold text-xs text-center">No activity yet.</td></tr>`;
-      const balanced = Math.abs(res.total_debit - res.total_credit) < 0.01;
-      foot.innerHTML = `<tr class="border-t-2 border-slate-800">
-        <td class="py-2 px-3 font-black text-slate-800" colspan="2">Total${balanced ? '' : ' — books do not balance, check entries'}</td>
-        <td class="py-2 px-3 text-right font-black ${balanced ? 'text-slate-800' : 'text-red-500'}">${Number(res.total_debit).toLocaleString('en-IN')}</td>
-        <td class="py-2 px-3 text-right font-black ${balanced ? 'text-slate-800' : 'text-red-500'}">${Number(res.total_credit).toLocaleString('en-IN')}</td>
-      </tr>`;
+  // Trial Balance / P&L / Balance Sheet all derive from ONE fetch — no
+  // new backend action needed, get_trial_balance already returns each
+  // row's nature and group_name. Cached so switching between the three
+  // report screens (or re-rendering on an Esc/menu move) doesn't refetch.
+  function _acLoadTrialBalance(as_of_date) {
+    const date = as_of_date != null ? as_of_date : (_acTrialBalanceCache ? _acTrialBalanceCache.as_of_date : '');
+    return _accountsFetch('get_trial_balance', { as_of_date: date }).then(res => {
+      if (!(res && res.result === 'success')) { showToast((res && res.message) || 'Failed to load', 'error'); return null; }
+      _acTrialBalanceCache = { rows: res.rows, total_debit: res.total_debit, total_credit: res.total_credit, as_of_date: date };
+      const top = _acStack[_acStack.length - 1];
+      if (top && ['trial-balance', 'pnl', 'balance-sheet'].includes(top.id)) _acRender();
+      return _acTrialBalanceCache;
     }).catch(err => showToast(err.message, 'error'));
   }
+  function _acRenderTrialBalance(host) {
+    if (!_acTrialBalanceCache) { host.innerHTML = '<div class="tp-empty">Loading…</div>'; _acLoadTrialBalance(''); return; }
+    const { rows, total_debit, total_credit, as_of_date } = _acTrialBalanceCache;
+    const balanced = Math.abs(total_debit - total_credit) < 0.01;
+    host.innerHTML = `
+      <div style="margin-bottom:8px">
+        <span class="tp-field-label" style="display:inline">As of:</span>
+        <input type="date" class="tp-input" style="width:auto;display:inline-block" value="${as_of_date || ''}" onchange="_acLoadTrialBalance(this.value)">
+      </div>
+      <table class="tp-table">
+        <thead><tr><th>Ledger</th><th>Group</th><th class="tp-num">Debit</th><th class="tp-num">Credit</th></tr></thead>
+        <tbody>${rows.length ? rows.map(r => `<tr><td>${_escHtml(r.name)}</td><td>${_escHtml(r.group_name || '—')}</td><td class="tp-num">${r.debit ? Number(r.debit).toLocaleString('en-IN') : ''}</td><td class="tp-num">${r.credit ? Number(r.credit).toLocaleString('en-IN') : ''}</td></tr>`).join('') : '<tr><td colspan="4" class="tp-empty">No activity yet.</td></tr>'}</tbody>
+        <tfoot><tr><td colspan="2">Total${balanced ? '' : ' — DOES NOT BALANCE'}</td><td class="tp-num">${Number(total_debit).toLocaleString('en-IN')}</td><td class="tp-num">${Number(total_credit).toLocaleString('en-IN')}</td></tr></tfoot>
+      </table>
+    `;
+  }
+  function _acRenderPnl(host) {
+    if (!_acTrialBalanceCache) { host.innerHTML = '<div class="tp-empty">Loading…</div>'; _acLoadTrialBalance(''); return; }
+    const rows = _acTrialBalanceCache.rows;
+    const income = rows.filter(r => r.nature === 'income');
+    const expense = rows.filter(r => r.nature === 'expense');
+    const netProfit = income.reduce((a, r) => a + (r.credit - r.debit), 0) - expense.reduce((a, r) => a + (r.debit - r.credit), 0);
+    const eLine = r => `<div class="tp-line-plain"><span>${_escHtml(r.name)}</span><span class="tp-num">${(r.debit - r.credit).toLocaleString('en-IN')}</span></div>`;
+    const iLine = r => `<div class="tp-line-plain"><span>${_escHtml(r.name)}</span><span class="tp-num">${(r.credit - r.debit).toLocaleString('en-IN')}</span></div>`;
+    host.innerHTML = `
+      <div class="tp-two-col">
+        <div>
+          <div class="tp-col-head">Expenditure</div>
+          ${expense.map(eLine).join('') || '<div class="tp-empty">None</div>'}
+          ${netProfit > 0 ? `<div class="tp-total-line"><span>Net Profit</span><span class="tp-num">${netProfit.toLocaleString('en-IN')}</span></div>` : ''}
+        </div>
+        <div>
+          <div class="tp-col-head">Income</div>
+          ${income.map(iLine).join('') || '<div class="tp-empty">None</div>'}
+          ${netProfit < 0 ? `<div class="tp-total-line"><span>Net Loss</span><span class="tp-num">${Math.abs(netProfit).toLocaleString('en-IN')}</span></div>` : ''}
+        </div>
+      </div>
+    `;
+  }
+  function _acRenderBalanceSheet(host) {
+    if (!_acTrialBalanceCache) { host.innerHTML = '<div class="tp-empty">Loading…</div>'; _acLoadTrialBalance(''); return; }
+    const rows = _acTrialBalanceCache.rows;
+    const liabilities = rows.filter(r => r.nature === 'liability' || r.nature === 'equity');
+    const assets = rows.filter(r => r.nature === 'asset');
+    const netProfit = rows.filter(r => r.nature === 'income').reduce((a, r) => a + (r.credit - r.debit), 0)
+      - rows.filter(r => r.nature === 'expense').reduce((a, r) => a + (r.debit - r.credit), 0);
+    const totalLiab = liabilities.reduce((a, r) => a + (r.credit - r.debit), 0) + (netProfit > 0 ? netProfit : 0);
+    const totalAssets = assets.reduce((a, r) => a + (r.debit - r.credit), 0) + (netProfit < 0 ? -netProfit : 0);
+    const lLine = r => `<div class="tp-line-plain"><span>${_escHtml(r.name)}</span><span class="tp-num">${(r.credit - r.debit).toLocaleString('en-IN')}</span></div>`;
+    const aLine = r => `<div class="tp-line-plain"><span>${_escHtml(r.name)}</span><span class="tp-num">${(r.debit - r.credit).toLocaleString('en-IN')}</span></div>`;
+    host.innerHTML = `
+      <div class="tp-two-col">
+        <div>
+          <div class="tp-col-head">Liabilities</div>
+          ${liabilities.map(lLine).join('') || '<div class="tp-empty">None</div>'}
+          ${netProfit > 0 ? `<div class="tp-line-plain"><span>Profit &amp; Loss A/c</span><span class="tp-num">${netProfit.toLocaleString('en-IN')}</span></div>` : ''}
+          <div class="tp-total-line"><span>Total</span><span class="tp-num">${totalLiab.toLocaleString('en-IN')}</span></div>
+        </div>
+        <div>
+          <div class="tp-col-head">Assets</div>
+          ${assets.map(aLine).join('') || '<div class="tp-empty">None</div>'}
+          ${netProfit < 0 ? `<div class="tp-line-plain"><span>Profit &amp; Loss A/c (Loss)</span><span class="tp-num">${Math.abs(netProfit).toLocaleString('en-IN')}</span></div>` : ''}
+          <div class="tp-total-line"><span>Total</span><span class="tp-num">${totalAssets.toLocaleString('en-IN')}</span></div>
+        </div>
+      </div>
+    `;
+  }
+
+  function _acRenderLedgerPicker(host) {
+    const items = _acLedgersCache.map(l => ({ label: l.name, go: 'ledger-vouchers', params: { ledgerId: l.id } }));
+    _acCurrentMenuItems = items;
+    host.innerHTML = `<div class="tp-menu-panel">${_acMenuHtml(items, _acMenuIndex)}</div>`;
+  }
+  function _acRenderLedgerVouchers(host, params) {
+    const ledger = _acLedgersCache.find(l => l.id === Number(params.ledgerId));
+    if (!ledger) { host.innerHTML = '<div class="tp-empty">Ledger not found.</div>'; return; }
+    _accountsFetch('get_vouchers', {}).then(res => {
+      const vouchers = (res && res.vouchers) || [];
+      let running = Number(ledger.opening_balance) || 0;
+      const rows = [];
+      vouchers.slice().sort((a, b) => a.voucher_date < b.voucher_date ? -1 : a.voucher_date > b.voucher_date ? 1 : a.id - b.id).forEach(v => {
+        (v.voucher_entries || []).forEach(e => {
+          if (Number(e.ledger_id) !== ledger.id) return;
+          running += (Number(e.debit) || 0) - (Number(e.credit) || 0);
+          rows.push({ date: v.voucher_date, type: v.voucher_type, narration: v.narration, debit: e.debit, credit: e.credit, running });
+        });
+      });
+      host.innerHTML = `
+        <div style="margin-bottom:8px;color:#ffff00;font-weight:bold">${_escHtml(ledger.name)} <span style="color:#8a8ad0;font-weight:normal;font-size:11px">(${_escHtml((ledger.account_groups && ledger.account_groups.name) || '')})</span></div>
+        <table class="tp-table">
+          <thead><tr><th>Date</th><th>Type</th><th>Particulars</th><th class="tp-num">Debit</th><th class="tp-num">Credit</th><th class="tp-num">Balance</th></tr></thead>
+          <tbody>
+            <tr><td colspan="5">Opening Balance</td><td class="tp-num">${Number(ledger.opening_balance || 0).toLocaleString('en-IN')}</td></tr>
+            ${rows.map(r => `<tr><td>${_escHtml(r.date)}</td><td>${_escHtml(r.type)}</td><td>${_escHtml(r.narration || '')}</td><td class="tp-num">${r.debit ? Number(r.debit).toLocaleString('en-IN') : ''}</td><td class="tp-num">${r.credit ? Number(r.credit).toLocaleString('en-IN') : ''}</td><td class="tp-num">${r.running.toLocaleString('en-IN')}</td></tr>`).join('')}
+          </tbody>
+        </table>
+      `;
+    }).catch(err => showToast(err.message, 'error'));
+  }
+
+  // Screen registry — every function referenced here is a plain hoisted
+  // `function` declaration, so definition order above doesn't matter;
+  // none of these are ever called from an onclick string (only from
+  // _acRender itself), so none need obfuscate.js's RESERVED list.
+  const _AC_SCREENS = {
+    gateway: {
+      title: 'Gateway of Tally', isMenu: true,
+      render(host) { _acCurrentMenuItems = _AC_GATEWAY_MENU.filter(it => !it.section); host.innerHTML = `<div class="tp-menu-panel">${_acMenuHtml(_AC_GATEWAY_MENU, _acMenuIndex)}</div>`; },
+    },
+    create: {
+      title: 'Create', isMenu: true,
+      render(host) {
+        const items = [
+          { label: 'Ledger', hot: 'L', action: () => _acOpenLedgerForm(null) },
+          { label: 'Group', hot: 'G', action: () => _acOpenGroupForm(null) },
+          { label: 'Voucher', hot: 'V', go: 'voucher', params: { type: 'Payment' } },
+        ];
+        _acCurrentMenuItems = items;
+        host.innerHTML = `<div class="tp-menu-panel">${_acMenuHtml(items, _acMenuIndex)}</div>`;
+      },
+    },
+    chart: { title: 'Chart of Accounts', render: _acRenderChart },
+    voucher: {
+      title: 'Voucher Entry', render: _acRenderVoucherScreen,
+      buttons: () => [{ key: 'Ctrl+A', label: 'Accept', onclick: '_acAccept()' }, { key: 'Alt+C', label: 'Create Ledger', onclick: '_acOpenLedgerForm(null)' }],
+    },
+    daybook: { title: 'Day Book', render: _acRenderDaybook },
+    'trial-balance': { title: 'Trial Balance', render: _acRenderTrialBalance },
+    pnl: { title: 'Profit & Loss A/c', render: _acRenderPnl },
+    'balance-sheet': { title: 'Balance Sheet', render: _acRenderBalanceSheet },
+    'ledger-picker': { title: 'Select Ledger', isMenu: true, render: _acRenderLedgerPicker },
+    'ledger-vouchers': { title: 'Ledger Vouchers', render: _acRenderLedgerVouchers },
+  };
+
+  // Mobile — a separate, plain touch UI (see loadAccountsAdminView):
+  // no Tally shell, no F-key bar, no monospace grid. Reuses the exact
+  // same _acLoad*/_accountsFetch data layer and the exact same Group/
+  // Ledger/Voucher modals as the desktop screen (defined once in
+  // _acModalsHtml). _acMobileView is plain internal state, not the
+  // keyboard-driven _acStack — mobile has no keyboard to drive it.
+  function _acRenderMobile() {
+    const host = document.getElementById('tpm-shell');
+    if (!host) return;
+    if (_acMobileView === 'home') {
+      host.innerHTML = `
+        <div class="tpm-header"><h2>Accounts</h2></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <button class="tpm-card" onclick="_acMobileGo('ledgers')" style="text-align:left"><i data-lucide="book-open" class="h-5 w-5 text-blue-600 mb-1"></i><div style="font-weight:900;font-size:.8rem">Ledgers</div></button>
+          <button class="tpm-card" onclick="_acMobileGo('vouchers')" style="text-align:left"><i data-lucide="receipt" class="h-5 w-5 text-blue-600 mb-1"></i><div style="font-weight:900;font-size:.8rem">Day Book</div></button>
+          <button class="tpm-card" onclick="_acMobileGo('trial-balance')" style="text-align:left"><i data-lucide="scale" class="h-5 w-5 text-blue-600 mb-1"></i><div style="font-weight:900;font-size:.8rem">Trial Balance</div></button>
+          <button class="tpm-card" onclick="_acMobileGo('groups')" style="text-align:left"><i data-lucide="folder-tree" class="h-5 w-5 text-blue-600 mb-1"></i><div style="font-weight:900;font-size:.8rem">Groups</div></button>
+        </div>
+        <div class="tpm-actionbar">
+          <button class="tpm-btn" style="background:#2563eb;color:#fff" onclick="_acOpenVoucherForm(null)">+ Voucher</button>
+          <button class="tpm-btn" style="background:#f1f5f9;color:#334155" onclick="_acOpenLedgerForm(null)">+ Ledger</button>
+        </div>
+      `;
+      lucide.createIcons();
+      return;
+    }
+    const backBtn = `<button onclick="_acMobileGo('home')" style="background:none;border:none;color:#2563eb;font-weight:900;font-size:.75rem;text-transform:uppercase">‹ Back</button>`;
+    if (_acMobileView === 'ledgers') {
+      host.innerHTML = `<div class="tpm-header">${backBtn}<h2>Ledgers</h2><span></span></div><div id="tpmList"><p class="text-slate-400 text-xs">Loading…</p></div>`;
+      _acLoadLedgers().then(() => {
+        const list = document.getElementById('tpmList');
+        if (!list) return;
+        list.innerHTML = _acLedgersCache.length ? _acLedgersCache.map(l => `
+          <button class="tpm-card" onclick="_acOpenLedgerForm(${l.id})" style="text-align:left">
+            <div class="tpm-card-row"><b>${_escHtml(l.name)}</b><span style="font-weight:900;color:${l.balance < 0 ? '#dc2626' : '#0f172a'}">৳${Number(l.balance || 0).toLocaleString('en-IN')}</span></div>
+            <div style="font-size:.65rem;color:#94a3b8;text-transform:uppercase;font-weight:700">${_escHtml((l.account_groups && l.account_groups.name) || '')}</div>
+          </button>`).join('') : '<p class="text-slate-400 text-xs">No ledgers yet.</p>';
+      });
+      return;
+    }
+    if (_acMobileView === 'groups') {
+      host.innerHTML = `<div class="tpm-header">${backBtn}<h2>Groups</h2><span></span></div><div id="tpmList"><p class="text-slate-400 text-xs">Loading…</p></div>`;
+      _acLoadGroups().then(() => {
+        const list = document.getElementById('tpmList');
+        if (!list) return;
+        list.innerHTML = _acGroupsCache.length ? _acGroupsCache.map(g => `
+          <button class="tpm-card" onclick="_acOpenGroupForm(${g.id})" style="text-align:left">
+            <div class="tpm-card-row"><b>${_escHtml(g.name)}</b><span style="font-size:.65rem;color:#94a3b8;text-transform:uppercase;font-weight:700">${g.nature}</span></div>
+          </button>`).join('') : '<p class="text-slate-400 text-xs">No groups yet.</p>';
+      });
+      return;
+    }
+    if (_acMobileView === 'vouchers') {
+      host.innerHTML = `<div class="tpm-header">${backBtn}<h2>Day Book</h2><span></span></div><div id="tpmList"><p class="text-slate-400 text-xs">Loading…</p></div>`;
+      _acLoadVouchers({ from_date: '', to_date: '' }).then(() => {
+        const list = document.getElementById('tpmList');
+        if (!list) return;
+        list.innerHTML = _acVouchersCache.length ? _acVouchersCache.slice(0, 50).map(v => {
+          const total = (v.voucher_entries || []).reduce((a, e) => a + (Number(e.debit) || 0), 0);
+          return `<button class="tpm-card" onclick="_acOpenVoucherForm(${v.id})" style="text-align:left">
+            <div class="tpm-card-row"><b>${_escHtml(v.voucher_type)}</b><span style="font-weight:900">৳${total.toLocaleString('en-IN')}</span></div>
+            <div style="font-size:.65rem;color:#94a3b8;font-weight:700">${_escHtml(v.voucher_date)}${v.narration ? ' · ' + _escHtml(v.narration) : ''}</div>
+          </button>`;
+        }).join('') : '<p class="text-slate-400 text-xs">No vouchers yet.</p>';
+      });
+      return;
+    }
+    if (_acMobileView === 'trial-balance') {
+      host.innerHTML = `<div class="tpm-header">${backBtn}<h2>Trial Balance</h2><span></span></div><div id="tpmList"><p class="text-slate-400 text-xs">Loading…</p></div>`;
+      _acLoadTrialBalance('').then(tb => {
+        const list = document.getElementById('tpmList');
+        if (!list || !tb) return;
+        const balanced = Math.abs(tb.total_debit - tb.total_credit) < 0.01;
+        list.innerHTML = tb.rows.map(r => `
+          <div class="tpm-card">
+            <div class="tpm-card-row"><b>${_escHtml(r.name)}</b><span style="font-weight:900;color:${r.credit ? '#dc2626' : '#0f172a'}">${r.debit ? 'Dr ' : 'Cr '}৳${Number(r.debit || r.credit).toLocaleString('en-IN')}</span></div>
+          </div>`).join('') + `<div class="tpm-card" style="background:${balanced ? '#f0fdf4' : '#fef2f2'};border-color:${balanced ? '#bbf7d0' : '#fecaca'}"><div class="tpm-card-row"><b>${balanced ? 'Balanced' : 'Out of balance'}</b><span>Dr ৳${Number(tb.total_debit).toLocaleString('en-IN')} / Cr ৳${Number(tb.total_credit).toLocaleString('en-IN')}</span></div></div>`;
+      });
+      return;
+    }
+  }
+  function _acMobileGo(view) { _acMobileView = view; _acRenderMobile(); }
 
   let _invAdminActiveTab = 'stock';
   let _invCurrentEntity = null;

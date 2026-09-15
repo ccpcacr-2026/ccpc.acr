@@ -251,11 +251,13 @@ const RESERVED = [
   'loadAdminPayrollView','switchPayrollTab','saveSalaryStructure','runPayroll',
   'approveLeave',
   // Accounts Admin (Tally replacement) — onclick/onchange-referenced
-  'loadAccountsAdminView','_acSwitchTab',
+  'loadAccountsAdminView',
   '_acOpenGroupForm','_acCloseGroupForm','_acSaveGroup','_acDeleteGroup',
   '_acOpenLedgerForm','_acCloseLedgerForm','_acSaveLedger','_acDeleteLedger',
   '_acAddVoucherEntryRow','_acVoucherRecalc','_acOpenVoucherForm','_acCloseVoucherForm','_acSaveVoucher','_acDeleteVoucher',
   '_acLoadVouchers','_acLoadTrialBalance',
+  // TallyPrime-emulation screen stack — onclick/onmouseenter-referenced
+  '_acPop','_acActivateMenuItem','_acMenuHover','_acOpenVoucherScreen','_acAccept','_acMobileGo',
   // Transport tab native port (incl. Bus/GPS Config)
   'loadAdminTransportView','switchTransportTab','saveTransportRoute',
   'saveTransportVehicle','saveTransportPickupPoint','saveTransportFeeMaster',
