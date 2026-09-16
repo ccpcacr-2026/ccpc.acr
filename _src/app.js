@@ -26570,7 +26570,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <option value="asset">Asset</option><option value="liability">Liability</option><option value="income">Income</option><option value="expense">Expense</option><option value="equity">Equity</option>
             </select></div>
           </div>
-          <button onclick="_acSaveGroup()" class="w-full mt-4 py-3 bg-blue-600 text-white font-black text-xs uppercase tracking-widest rounded-xl hover:bg-black transition-all">Save</button>
+          <div class="flex gap-2 mt-4">
+            <button id="acGroupDeleteBtn" onclick="_acDeleteGroup(document.getElementById('acGroupId').value)" class="hidden px-4 py-3 bg-red-50 text-red-600 font-black text-xs uppercase tracking-widest rounded-xl hover:bg-red-100 transition-all">Delete</button>
+            <button onclick="_acSaveGroup()" class="flex-1 py-3 bg-blue-600 text-white font-black text-xs uppercase tracking-widest rounded-xl hover:bg-black transition-all">Save</button>
+          </div>
         </div>
       </div>
 
@@ -26591,7 +26594,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <label class="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase cursor-pointer"><input type="checkbox" id="acLedgerActive" checked class="w-4 h-4 rounded accent-blue-600">Active</label>
           </div>
           <div id="acLedgerChequeSection" class="hidden mt-3 pt-3 border-t border-slate-100"></div>
-          <button onclick="_acSaveLedger()" class="w-full mt-4 py-3 bg-blue-600 text-white font-black text-xs uppercase tracking-widest rounded-xl hover:bg-black transition-all">Save</button>
+          <div class="flex gap-2 mt-4">
+            <button id="acLedgerDeleteBtn" onclick="_acDeleteLedger(document.getElementById('acLedgerId').value)" class="hidden px-4 py-3 bg-red-50 text-red-600 font-black text-xs uppercase tracking-widest rounded-xl hover:bg-red-100 transition-all">Delete</button>
+            <button onclick="_acSaveLedger()" class="flex-1 py-3 bg-blue-600 text-white font-black text-xs uppercase tracking-widest rounded-xl hover:bg-black transition-all">Save</button>
+          </div>
         </div>
       </div>
 
@@ -27055,6 +27061,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('acGroupName').value = g ? g.name : '';
     document.getElementById('acGroupNature').value = g ? g.nature : 'asset';
     document.getElementById('acGroupParent').innerHTML = `<option value="">— None (top-level) —</option>` + _acGroupOptionsHtml(g ? g.parent_group_id : null, id || null);
+    const delBtn = document.getElementById('acGroupDeleteBtn');
+    if (delBtn) delBtn.classList.toggle('hidden', !id);
     document.getElementById('acGroupModal').classList.remove('hidden');
     lucide.createIcons();
   }
@@ -27076,7 +27084,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _acDeleteGroup(id) {
     showConfirm('Delete this group?', () => {
       _accountsFetch('delete_account_group', { id }).then(res => {
-        if (res && res.result === 'success') { showToast('Group deleted'); _acLoadGroups(); }
+        if (res && res.result === 'success') { showToast('Group deleted'); _acCloseGroupForm(); _acLoadGroups(); }
         else showToast((res && res.message) || 'Failed to delete', 'error');
       }).catch(err => showToast(err.message, 'error'));
     });
@@ -27100,6 +27108,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('acLedgerOpening').value = l ? l.opening_balance : 0;
     document.getElementById('acLedgerOpeningDate').value = l && l.opening_balance_date ? String(l.opening_balance_date).slice(0, 10) : '';
     document.getElementById('acLedgerActive').checked = l ? !!l.is_active : true;
+    const delBtn = document.getElementById('acLedgerDeleteBtn');
+    if (delBtn) delBtn.classList.toggle('hidden', !id);
     _acRenderChequebookRanges(id);
     document.getElementById('acLedgerModal').classList.remove('hidden');
     lucide.createIcons();
@@ -27124,7 +27134,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _acDeleteLedger(id) {
     showConfirm('Delete this ledger?', () => {
       _accountsFetch('delete_ledger', { id }).then(res => {
-        if (res && res.result === 'success') { showToast('Ledger deleted'); _acLoadLedgers(); }
+        if (res && res.result === 'success') { showToast('Ledger deleted'); _acCloseLedgerForm(); _acLoadLedgers(); }
         else showToast((res && res.message) || 'Failed to delete', 'error');
       }).catch(err => showToast(err.message, 'error'));
     });
