@@ -91,7 +91,10 @@ grant usage, select on all sequences in schema student to service_role;
 insert into student.fee_types (name, code, description, is_active, ledger_id, sort_order)
 select
   l.name,
-  trim(both '_' from upper(regexp_replace(regexp_replace(l.name, '-INC$', '', 'i'), '[^a-zA-Z0-9]+', '_', 'g'))),
+  -- left(..., 40) matches the same truncation sync_fee_types_from_ledgers
+  -- applies, so re-syncing never derives a different code for a ledger
+  -- whose name is long enough to hit the cap.
+  left(trim(both '_' from upper(regexp_replace(regexp_replace(l.name, '-INC$', '', 'i'), '[^a-zA-Z0-9]+', '_', 'g'))), 40),
   'Linked to Accounts ledger: ' || l.name,
   true,
   l.id,
