@@ -27439,6 +27439,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }).catch(() => { preview.textContent = '—'; });
   }
 
+  // A chequebook's pages are always a straight increasing run from one
+  // number to another — nobody uses page 105 before 101 — so the lowest
+  // still-available number (get_chequebook_ranges already returns
+  // `available` in ascending order) IS "the next page", and the picker
+  // defaults straight to it instead of making someone hunt through a
+  // dropdown for what's obvious from the chequebook itself. Still a real
+  // <select>, so a genuine exception (skipping one on purpose) stays
+  // possible — it just isn't the default.
   function _acBillLoadChequeOptions() {
     const bankLedgerId = document.getElementById('billBankLedger').value;
     const sel = document.getElementById('billChequeNo');
@@ -27453,6 +27461,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         return;
       }
       sel.innerHTML += res.available.map(n => `<option value="${n}">${n}</option>`).join('');
+      sel.value = String(res.available[0]);
+      hint.innerHTML = `Next page in sequence — change it above if you need a different one.`;
     });
   }
 
