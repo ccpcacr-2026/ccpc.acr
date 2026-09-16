@@ -11268,6 +11268,27 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _feeTypes = [];
   let _curStudentFeeStudentId = null;
 
+  // ── Fees chart (the Fee Structures tab) ──────────────────────────────
+  // The office's fee sheet is a grid: rows = fee heads, columns = these
+  // collection cycles, cells = amounts. Mirrored by FEE_CYCLES in
+  // app/api/student-admin/route.js — keep the two in step.
+  const FEE_CYCLES = [
+    'Admission', 'Re-admission', 'Form Fillup',
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
+  ];
+  // Cohort dimensions a chart can be scoped by. student_group is
+  // students_data."group" (renamed to dodge the SQL reserved word).
+  const FEE_SCOPE_COLS = ['class', 'section', 'student_group', 'version', 'shift', 'session'];
+  let _fcMode = 'group';        // 'group' | 'student'
+  let _fcChart = null;          // last get_fee_chart response + the scope it was loaded for
+  let _fcScopeOpts = null;      // get_class_sections({dynamic:true}) — drives the scope dropdowns
+  let _fcFilter = '';
+  let _fcOnlyFilled = false;
+  let _fcRemission = null;      // in-progress remission: { lines, autoLines, total, payable, cycle, reason }
+  let _fcRemSaved = [];         // that student's already-saved remissions
+  let _fcMobileHead = null;     // fee_type_id whose cycle list is open on mobile
+
   function loadAdminFeesView() {
     _setViewHash('student_portal');
     setActiveNavLink('nav-erp-fees');
@@ -11288,32 +11309,48 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div id="fees-types">
         <div class="flex items-center justify-between mb-3">
           <p class="font-black text-slate-800 text-sm flex items-center gap-2"><i data-lucide="tags" class="h-4 w-4 text-blue-600"></i>Fee Types</p>
-          <button onclick="openFeeTypeEditor(null)" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">+ New Fee Type</button>
+          <div class="flex gap-2">
+            <button onclick="_fcSyncFeeTypes()" class="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all" title="Create a fee head for every Direct Income ledger in Accounts, and link ones that already match by name">Sync from Accounts Ledgers</button>
+            <button onclick="openFeeTypeEditor(null)" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">+ New Fee Type</button>
+          </div>
         </div>
+        <p class="text-[10px] text-slate-400 font-bold mb-3">Fee heads are the rows of the fee chart. Linking one to its Accounts ledger is what lets fee income reach the double-entry books later.</p>
         <div id="feeTypesList" class="flex flex-col gap-2"><span class="text-xs text-slate-400 font-bold italic">Loading…</span></div>
       </div>
 
       <div id="fees-structures" style="display:none">
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-3">
-          <p class="font-black text-slate-800 text-xs mb-3 flex items-center gap-2"><i data-lucide="git-branch" class="h-4 w-4 text-blue-600"></i>New Fee Structure</p>
-          <div class="grid grid-cols-2 md:grid-cols-6 gap-2">
-            <select id="fsFeeType" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Fee Type…</option></select>
-            <input type="text" id="fsClass" placeholder="Class" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-            <input type="text" id="fsSection" placeholder="Section (optional)" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-            <input type="text" id="fsYear" placeholder="Academic Year" value="2026" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-            <input type="number" id="fsAmount" placeholder="Amount" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-            <button onclick="saveFeeStructure()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase flex items-center justify-center"><i data-lucide="check" class="h-3.5 w-3.5"></i></button>
+          <div class="flex flex-wrap items-end gap-2">
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase block mb-1">Set fees for</label>
+              <div class="flex rounded-xl border border-slate-200 overflow-hidden">
+                <button id="fcTabGroup" onclick="_fcSetMode('group')" class="px-3 py-2 text-[10px] font-black uppercase tracking-widest bg-blue-600 text-white">Group</button>
+                <button id="fcTabStudent" onclick="_fcSetMode('student')" class="px-3 py-2 text-[10px] font-black uppercase tracking-widest bg-white text-slate-400">Student</button>
+              </div>
+            </div>
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase block mb-1">Year</label>
+              <input type="text" id="fcYear" value="2026" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="width:90px">
+            </div>
+            <div id="fcGroupScope" class="flex flex-wrap items-end gap-2"></div>
+            <div id="fcStudentScope" style="display:none">
+              <label class="text-[10px] font-black text-slate-400 uppercase block mb-1">Student ID</label>
+              <input type="text" id="fcStudentId" placeholder="Student ID" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" autocomplete="off" spellcheck="false">
+            </div>
+            <button onclick="_fcLoadChart()" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Load Chart</button>
           </div>
-          <select id="fsCollectionMode" class="mt-2 px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:220px">
-            <option value="Monthly">Monthly</option><option value="OnReceive">On Receive</option><option value="OneTime">One Time</option>
-          </select>
+          <div class="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-slate-100">
+            <input type="search" id="fcSearch" oninput="_fcSetFilter(this.value)" placeholder="Filter fee heads…" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="width:200px" autocomplete="off" spellcheck="false">
+            <label class="flex items-center gap-1.5 text-[10px] font-black text-slate-500 uppercase cursor-pointer"><input type="checkbox" id="fcOnlyFilled" onchange="_fcToggleOnlyFilled(this.checked)" class="w-3.5 h-3.5 rounded accent-blue-600">Only rows with amounts</label>
+            <div class="flex-1"></div>
+            <button onclick="_fcSyncFeeTypes()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Sync Fee Heads</button>
+            <button onclick="_fcExportChart()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Export</button>
+            <button onclick="_fcOpenImport()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Import</button>
+          </div>
+          <p class="text-[10px] text-slate-400 font-bold mt-2">A blank scope dropdown means “any”. A student's own amounts <b>add on top of</b> whatever their group chart already says. Cells save as you leave them.</p>
         </div>
-        <div class="overflow-auto border border-slate-200 rounded-xl">
-          <table class="w-full text-left border-collapse text-xs">
-            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Fee Type</th><th class="py-2 px-3">Class</th><th class="py-2 px-3">Section</th><th class="py-2 px-3">Year</th><th class="py-2 px-3">Amount</th><th class="py-2 px-3">Mode</th><th class="py-2 px-3">Actions</th></tr></thead>
-            <tbody id="feeStructuresBody"></tbody>
-          </table>
-        </div>
+        <div id="fcChartHost"><span class="text-xs text-slate-400 font-bold italic">Pick a scope and press Load Chart.</span></div>
+        <div id="fcRemissionHost" style="display:none"></div>
       </div>
 
       <div id="fees-generate" style="display:none">
@@ -11447,7 +11484,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         btn.className += active ? ' bg-blue-600 text-white shadow-lg shadow-blue-500/20' : ' bg-white text-slate-400 border border-slate-200 hover:bg-slate-50';
       }
     });
-    if (tabId === 'fees-structures') loadFeeStructures();
+    if (tabId === 'fees-structures') _fcInit();
     if (tabId === 'fees-late') loadLateFeeRules();
     if (tabId === 'fees-reports') { loadDefaultersList(); loadFeesCollectionReport(); }
     if (tabId === 'fees-accounts') { loadFeeAccounts(); loadAccountRegister(); }
@@ -11457,7 +11494,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return _feeTypes.map(f => `<option value="${f.id}" ${String(f.id) === String(selected) ? 'selected' : ''}>${f.name}</option>`).join('');
   }
   function _populateFeeTypeSelects() {
-    ['fsFeeType', 'genCwFeeType', 'genIndFeeType'].forEach(id => {
+    ['genCwFeeType', 'genIndFeeType'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.innerHTML = '<option value="">Fee Type…</option>' + _feeTypeOptions();
     });
@@ -11480,6 +11517,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div>
           <span class="font-black text-slate-800 text-xs">${f.name}</span>
           <span class="text-[10px] font-black text-slate-400 bg-slate-100 rounded px-1.5 py-0.5 ml-2">${f.code}</span>
+          ${f.ledger_id
+            ? '<span class="text-[10px] font-black text-emerald-700 bg-emerald-50 rounded px-1.5 py-0.5 ml-1" title="Linked to an Accounts ledger">ledger ✓</span>'
+            : '<span class="text-[10px] font-black text-amber-700 bg-amber-50 rounded px-1.5 py-0.5 ml-1" title="No Accounts ledger — fee income from this head can\'t reach the books yet">unlinked</span>'}
           ${!f.is_active ? '<span class="text-[10px] font-black text-white bg-slate-400 rounded px-1.5 py-0.5 ml-1">Inactive</span>' : ''}
           <span class="text-slate-400 text-xs ml-2">${f.description || ''}</span>
         </div>
@@ -11536,35 +11576,527 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _adminFetch('delete_fee_type', { id }).then(res => { if (res && res.result === 'success') loadFeeTypes(); });
   }
 
-  function loadFeeStructures() {
-    _adminFetch('get_fee_structures', {}).then(res => {
-      const rows = (res && res.result === 'success' && res.fee_structures) || [];
-      document.getElementById('feeStructuresBody').innerHTML = rows.map(r => `<tr class="border-b border-slate-50">
-        <td class="py-1.5 px-3">${r.fee_types ? r.fee_types.name : ''}</td><td class="py-1.5 px-3">${r.class}</td><td class="py-1.5 px-3">${r.section || '—'}</td><td class="py-1.5 px-3">${r.academic_year}</td>
-        <td class="py-1.5 px-3">৳${Number(r.amount).toLocaleString()}</td><td class="py-1.5 px-3">${r.collection_mode}</td>
-        <td class="py-1.5 px-3"><button onclick="deleteFeeStructure(${r.id})" class="w-6 h-6 flex items-center justify-center rounded border border-red-200 text-red-500 hover:bg-red-50"><i data-lucide="trash-2" class="h-3 w-3"></i></button></td>
-      </tr>`).join('') || '<tr><td colspan="7" class="p-3 text-slate-400 font-bold text-xs">No fee structures yet.</td></tr>';
-      lucide.createIcons();
+  // ── Fees chart ────────────────────────────────────────────────────────
+  // The Fee Structures tab, as the grid the office actually works in.
+  // Cells autosave on blur and recalculate live on input, the same shape
+  // as the MPO bill sheet (_prSaveMpoBillField / _prLiveUpdateMpoCells) —
+  // surgical textContent updates of the total cells rather than an
+  // innerHTML rebuild, which would drop focus mid-typing.
+  function _fcInit() {
+    _fcRenderScopeBar();
+    if (_fcScopeOpts) return;
+    _adminFetch('get_class_sections', { dynamic: true }).then(res => {
+      _fcScopeOpts = (res && Array.isArray(res.rows)) ? res : { candidateCols: [], rows: [] };
+      _fcRenderScopeBar();
+    }).catch(() => { _fcScopeOpts = { candidateCols: [], rows: [] }; _fcRenderScopeBar(); });
+  }
+
+  // Distinct non-empty values across the cohort tally. 'None' (what
+  // get_class_sections substitutes for a blank cell) is dropped — a
+  // student with no value for a dimension is already covered by "Any".
+  function _fcDistinct(getter) {
+    const set = new Set();
+    ((_fcScopeOpts && _fcScopeOpts.rows) || []).forEach(r => {
+      const v = String(getter(r) || '').trim();
+      if (v && v !== 'None') set.add(v);
+    });
+    return [...set].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }
+  function _fcScopeFields() {
+    const out = [
+      { key: 'class', label: 'Class', vals: _fcDistinct(r => r.class) },
+      { key: 'section', label: 'Section', vals: _fcDistinct(r => r.section) },
+    ];
+    ((_fcScopeOpts && _fcScopeOpts.candidateCols) || []).forEach(c => {
+      const key = c === 'group' ? 'student_group' : c;
+      if (!FEE_SCOPE_COLS.includes(key)) return;
+      const vals = _fcDistinct(r => r.extras && r.extras[c]);
+      if (!vals.length) return;
+      out.push({ key, label: c.charAt(0).toUpperCase() + c.slice(1), vals });
+    });
+    return out;
+  }
+  function _fcRenderScopeBar() {
+    const host = document.getElementById('fcGroupScope');
+    if (!host) return;
+    const prev = _fcScope();
+    host.innerHTML = _fcScopeFields().map(f => `
+      <div>
+        <label class="text-[10px] font-black text-slate-400 uppercase block mb-1">${_escHtml(f.label)}</label>
+        <select id="fcScope-${f.key}" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <option value="">Any</option>
+          ${f.vals.map(v => `<option value="${_escHtml(v)}" ${prev[f.key] === v ? 'selected' : ''}>${_escHtml(v)}</option>`).join('')}
+        </select>
+      </div>`).join('');
+  }
+  function _fcScope() {
+    const s = {};
+    FEE_SCOPE_COLS.forEach(k => {
+      const el = document.getElementById('fcScope-' + k);
+      s[k] = el ? el.value : '';
+    });
+    return s;
+  }
+  function _fcSetMode(mode) {
+    _fcMode = mode;
+    const g = document.getElementById('fcTabGroup'), s = document.getElementById('fcTabStudent');
+    const on = 'bg-blue-600 text-white', off = 'bg-white text-slate-400';
+    if (g) g.className = g.className.replace(on, '').replace(off, '').trim() + ' ' + (mode === 'group' ? on : off);
+    if (s) s.className = s.className.replace(on, '').replace(off, '').trim() + ' ' + (mode === 'student' ? on : off);
+    const gs = document.getElementById('fcGroupScope'), ss = document.getElementById('fcStudentScope');
+    if (gs) gs.style.display = mode === 'group' ? '' : 'none';
+    if (ss) ss.style.display = mode === 'student' ? '' : 'none';
+  }
+  function _fcSetFilter(v) { _fcFilter = String(v || '').trim().toLowerCase(); _fcRenderChart(); }
+  function _fcToggleOnlyFilled(v) { _fcOnlyFilled = !!v; _fcRenderChart(); }
+
+  function _fcLoadChart() {
+    const academic_year = (document.getElementById('fcYear').value || '').trim();
+    if (!academic_year) { showToast('Enter an academic year', 'error'); return; }
+    const student_id = _fcMode === 'student' ? (document.getElementById('fcStudentId').value || '').trim() : '';
+    if (_fcMode === 'student' && !student_id) { showToast('Enter a student ID', 'error'); return; }
+    const scope = _fcScope();
+    const host = document.getElementById('fcChartHost');
+    if (host) host.innerHTML = '<span class="text-xs text-slate-400 font-bold italic">Loading…</span>';
+    _adminFetch('get_fee_chart', { academic_year, scope, student_id: student_id || undefined }).then(res => {
+      if (!res || res.result !== 'success') {
+        if (host) host.innerHTML = '<span class="text-xs text-red-500 font-bold">' + _escHtml((res && res.message) || 'Could not load the chart.') + '</span>';
+        return;
+      }
+      _fcChart = {
+        fee_types: res.fee_types || [], cycles: res.cycles || FEE_CYCLES,
+        base: res.base || {}, extra: res.extra || {}, student: res.student || null,
+        academic_year, student_id, scope,
+      };
+      _fcMobileHead = null;
+      _fcRenderChart();
+      _fcLoadRemission();
     });
   }
-  function saveFeeStructure() {
-    const fee_type_id = document.getElementById('fsFeeType').value;
-    const cls = document.getElementById('fsClass').value.trim();
-    const section = document.getElementById('fsSection').value.trim();
-    const academic_year = document.getElementById('fsYear').value.trim();
-    const amount = document.getElementById('fsAmount').value;
-    const collection_mode = document.getElementById('fsCollectionMode').value;
-    if (!fee_type_id || !cls || !academic_year || !amount) { showToast('Fill all required fields', 'error'); return; }
-    _adminFetch('save_fee_structure', { fee_type_id, class: cls, section, academic_year, amount, collection_mode }).then(res => {
-      if (res && res.result === 'success') {
-        showToast('Fee structure saved');
-        document.getElementById('fsClass').value = ''; document.getElementById('fsAmount').value = '';
-        loadFeeStructures();
-      } else showToast((res && res.message) || 'Save failed', 'error');
+
+  function _fcCell(map, ftId, cycle) { return (map[ftId] && map[ftId][cycle]) || 0; }
+  function _fcRowEffective(ftId) {
+    if (!_fcChart) return 0;
+    return _fcChart.cycles.reduce((a, cy) => a + _fcCell(_fcChart.base, ftId, cy) + _fcCell(_fcChart.extra, ftId, cy), 0);
+  }
+  function _fcVisibleHeads() {
+    if (!_fcChart) return [];
+    return _fcChart.fee_types
+      .filter(f => f.is_active !== false)
+      .filter(f => !_fcFilter || String(f.name || '').toLowerCase().includes(_fcFilter))
+      .filter(f => !_fcOnlyFilled || _fcRowEffective(f.id) > 0);
+  }
+
+  function _fcRenderChart() {
+    const host = document.getElementById('fcChartHost');
+    if (!host) return;
+    if (!_fcChart) { host.innerHTML = '<span class="text-xs text-slate-400 font-bold italic">Pick a scope and press Load Chart.</span>'; return; }
+    if (window.innerWidth < 768) { _fcRenderChartMobile(host); return; }
+    const { cycles, student_id } = _fcChart;
+    const heads = _fcVisibleHeads();
+    if (!heads.length) {
+      host.innerHTML = '<span class="text-xs text-slate-400 font-bold italic">No fee heads match. Use <b>Sync Fee Heads</b> to pull them in from the Accounts ledgers.</span>';
+      return;
+    }
+    const scopeLabel = student_id
+      ? `${_escHtml((_fcChart.student && _fcChart.student.student_name) || student_id)} <span class="text-slate-400">(${_escHtml(student_id)})</span> — amounts below <b>add to</b> the group chart`
+      : (FEE_SCOPE_COLS.map(k => _fcChart.scope[k]).filter(Boolean).join(' · ') || 'All students (school-wide default)');
+    host.innerHTML = `
+      <p class="text-xs font-bold text-slate-500 mb-2">${scopeLabel} &nbsp;·&nbsp; ${_escHtml(_fcChart.academic_year)}</p>
+      <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:70vh">
+        <table class="text-left border-collapse text-xs" style="min-width:100%">
+          <thead class="bg-slate-100 sticky top-0 z-20">
+            <tr class="text-[10px] font-black text-slate-500 uppercase">
+              <th class="py-2 px-3 sticky left-0 bg-slate-100 z-30" style="min-width:210px">Fee Head</th>
+              ${cycles.map(c => `<th class="py-2 px-2 text-right whitespace-nowrap" style="min-width:86px">${_escHtml(c)}</th>`).join('')}
+              <th class="py-2 px-3 text-right bg-slate-200 whitespace-nowrap">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${heads.map(f => `
+              <tr class="border-b border-slate-50">
+                <td class="py-1 px-3 sticky left-0 bg-white z-10 font-bold text-slate-700">
+                  ${_escHtml(f.name)}
+                  ${f.ledger_id ? '' : '<span class="text-[9px] font-black text-amber-600 bg-amber-50 rounded px-1 ml-1" title="Not linked to an Accounts ledger">unlinked</span>'}
+                </td>
+                ${cycles.map((cy, ci) => {
+                  const b = _fcCell(_fcChart.base, f.id, cy);
+                  const e = _fcCell(_fcChart.extra, f.id, cy);
+                  const val = student_id ? e : b;
+                  return `<td class="py-1 px-1 text-right">
+                    ${student_id && b ? `<div class="text-[9px] text-slate-400 font-bold leading-none mb-0.5" title="From the group chart">${b.toLocaleString()}</div>` : ''}
+                    <input type="number" step="0.01" id="fc-${f.id}-${ci}" value="${val || ''}"
+                      oninput="_fcRecalc()" onchange="_fcSaveCell(${f.id},${ci},this)"
+                      class="w-full text-right px-1.5 py-1 bg-slate-50 border border-slate-200 rounded font-bold text-xs" style="min-width:74px">
+                  </td>`;
+                }).join('')}
+                <td class="py-1 px-3 text-right font-black text-slate-800 bg-slate-50" id="fc-total-${f.id}"></td>
+              </tr>`).join('')}
+          </tbody>
+          <tfoot class="bg-slate-100 sticky bottom-0">
+            <tr class="text-[10px] font-black text-slate-600 uppercase">
+              <td class="py-2 px-3 sticky left-0 bg-slate-100 z-10">Total (shown rows)</td>
+              ${cycles.map((c, ci) => `<td class="py-2 px-2 text-right" id="fc-coltotal-${ci}"></td>`).join('')}
+              <td class="py-2 px-3 text-right bg-slate-200" id="fc-grandtotal"></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>`;
+    _fcRecalc();
+  }
+
+  // Live totals. Reads the inputs rather than the cache so the numbers
+  // track what's being typed before it's saved; only textContent changes,
+  // so the field keeping focus is never re-created.
+  function _fcRecalc() {
+    if (!_fcChart) return;
+    const { cycles, student_id } = _fcChart;
+    const colSums = cycles.map(() => 0);
+    let grand = 0;
+    _fcVisibleHeads().forEach(f => {
+      let rowSum = 0;
+      cycles.forEach((cy, ci) => {
+        const el = document.getElementById(`fc-${f.id}-${ci}`);
+        if (!el) return;
+        const typed = Number(el.value) || 0;
+        const eff = typed + (student_id ? _fcCell(_fcChart.base, f.id, cy) : 0);
+        rowSum += eff;
+        colSums[ci] += eff;
+      });
+      const rt = document.getElementById(`fc-total-${f.id}`);
+      if (rt) rt.textContent = rowSum ? rowSum.toLocaleString() : '';
+      grand += rowSum;
+    });
+    cycles.forEach((cy, ci) => {
+      const ct = document.getElementById(`fc-coltotal-${ci}`);
+      if (ct) ct.textContent = colSums[ci] ? colSums[ci].toLocaleString() : '';
+    });
+    const g = document.getElementById('fc-grandtotal');
+    if (g) g.textContent = grand ? grand.toLocaleString() : '';
+  }
+
+  function _fcSaveCell(ftId, ci, el) {
+    if (!_fcChart) return;
+    const cycle = _fcChart.cycles[ci];
+    const amount = Number(el.value) || 0;
+    el.disabled = true;
+    _adminFetch('save_fee_chart_cell', {
+      academic_year: _fcChart.academic_year, fee_type_id: ftId, cycle,
+      scope: _fcChart.scope, student_id: _fcChart.student_id || undefined, amount,
+    }).then(res => {
+      el.disabled = false;
+      if (!res || res.result !== 'success') {
+        el.style.borderColor = '#f87171';
+        showToast((res && res.message) || 'Could not save that cell', 'error');
+        return;
+      }
+      el.style.borderColor = '';
+      const target = _fcChart.student_id ? _fcChart.extra : _fcChart.base;
+      if (!target[ftId]) target[ftId] = {};
+      if (amount > 0) target[ftId][cycle] = amount; else delete target[ftId][cycle];
+      el.value = amount > 0 ? amount : '';
+      _fcRecalc();
+    }).catch(e => { el.disabled = false; showToast(e.message, 'error'); });
+  }
+
+  // Mobile: never a sideways-scrolling 15-column matrix — a list of fee
+  // heads, and tapping one opens just that head's cycles.
+  function _fcRenderChartMobile(host) {
+    const { cycles, student_id } = _fcChart;
+    if (_fcMobileHead != null) {
+      const f = _fcChart.fee_types.find(x => String(x.id) === String(_fcMobileHead));
+      if (f) {
+        host.innerHTML = `
+          <button onclick="_fcMobileBack()" class="mb-2 text-blue-600 font-black text-[10px] uppercase tracking-widest">‹ All fee heads</button>
+          <p class="font-black text-slate-800 text-sm mb-2">${_escHtml(f.name)}</p>
+          <div class="flex flex-col gap-1.5">
+            ${cycles.map((cy, ci) => {
+              const b = _fcCell(_fcChart.base, f.id, cy);
+              const e = _fcCell(_fcChart.extra, f.id, cy);
+              return `<div class="flex items-center gap-2 border border-slate-200 rounded-xl px-3 py-2">
+                <span class="flex-1 font-bold text-xs text-slate-600">${_escHtml(cy)}${student_id && b ? ` <span class="text-[10px] text-slate-400">(group: ${b.toLocaleString()})</span>` : ''}</span>
+                <input type="number" step="0.01" id="fc-${f.id}-${ci}" value="${(student_id ? e : b) || ''}"
+                  onchange="_fcSaveCell(${f.id},${ci},this)"
+                  class="w-28 text-right px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              </div>`;
+            }).join('')}
+          </div>`;
+        return;
+      }
+    }
+    const heads = _fcVisibleHeads();
+    host.innerHTML = heads.length ? heads.map(f => {
+      const tot = _fcRowEffective(f.id);
+      return `<button onclick="_fcMobileOpen(${f.id})" class="w-full flex justify-between items-center border border-slate-200 rounded-xl px-3 py-2.5 mb-1.5 text-left">
+        <span class="font-bold text-xs text-slate-700">${_escHtml(f.name)}</span>
+        <span class="font-black text-xs ${tot ? 'text-slate-800' : 'text-slate-300'}">৳${tot.toLocaleString()}</span>
+      </button>`;
+    }).join('') : '<span class="text-xs text-slate-400 font-bold italic">No fee heads match.</span>';
+  }
+  function _fcMobileOpen(id) { _fcMobileHead = id; _fcRenderChart(); }
+  function _fcMobileBack() { _fcMobileHead = null; _fcRenderChart(); }
+
+  function _fcSyncFeeTypes() {
+    _adminFetch('sync_fee_types_from_ledgers', {}).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Sync failed', 'error'); return; }
+      showToast(`${res.created} fee head(s) added, ${res.linked} linked to existing`);
+      loadFeeTypes();
+      if (_fcChart) _fcLoadChart();
     });
   }
-  function deleteFeeStructure(id) {
-    _adminFetch('delete_fee_structure', { id }).then(res => { if (res && res.result === 'success') loadFeeStructures(); });
+
+  // Export/import round-trip on the SAME shape the grid shows: fee head
+  // name down column A, cycles across the top. No column-mapping step is
+  // needed because the layout is fixed — unlike the Payroll/Accounts
+  // importers, which take arbitrary sheets.
+  function _fcExportChart() {
+    if (!_fcChart) { showToast('Load a chart first', 'error'); return; }
+    ensureXLSX().then(() => {
+      const { cycles, student_id } = _fcChart;
+      const aoa = [['Fee Head', ...cycles]];
+      _fcVisibleHeads().forEach(f => {
+        aoa.push([f.name, ...cycles.map(cy => {
+          const v = student_id ? _fcCell(_fcChart.extra, f.id, cy) : _fcCell(_fcChart.base, f.id, cy);
+          return v || '';
+        })]);
+      });
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), 'Fee Chart');
+      const tag = student_id || FEE_SCOPE_COLS.map(k => _fcChart.scope[k]).filter(Boolean).join('-') || 'All';
+      XLSX.writeFile(wb, `fee-chart-${tag}-${_fcChart.academic_year}.xlsx`);
+    });
+  }
+  function _fcOpenImport() {
+    if (!_fcChart) { showToast('Load the chart you want to import into first', 'error'); return; }
+    const overlay = document.createElement('div');
+    overlay.id = 'fcImportOverlay';
+    overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
+    overlay.innerHTML = `
+      <div class="bg-white rounded-2xl w-full max-w-md">
+        <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+          <p class="font-black text-slate-800 text-sm">Import Fee Chart</p>
+          <button onclick="_fcCloseImport()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="h-4 w-4"></i></button>
+        </div>
+        <div class="p-4 flex flex-col gap-3">
+          <p class="text-xs text-slate-500 font-bold">The sheet must have <b>Fee Head</b> in the first column and the cycle names across the top row — exactly what <b>Export</b> produces. Fee heads are matched by name; unknown names are reported and skipped.</p>
+          <p class="text-[10px] font-black text-slate-400 uppercase">Importing into: ${_escHtml(_fcChart.student_id || FEE_SCOPE_COLS.map(k => _fcChart.scope[k]).filter(Boolean).join(' · ') || 'All students')} · ${_escHtml(_fcChart.academic_year)}</p>
+          <input type="file" id="fcImportFile" accept=".xlsx,.xls,.csv" class="text-xs font-bold">
+          <div id="fcImportStatus" class="text-xs font-bold"></div>
+        </div>
+        <div class="p-4 border-t border-slate-100 flex justify-end">
+          <button onclick="_fcConfirmImport()" class="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Import</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    lucide.createIcons();
+  }
+  function _fcCloseImport() { const o = document.getElementById('fcImportOverlay'); if (o) o.remove(); }
+  function _fcConfirmImport() {
+    const input = document.getElementById('fcImportFile');
+    const status = document.getElementById('fcImportStatus');
+    if (!input || !input.files || !input.files[0]) { if (status) { status.className = 'text-xs font-bold text-red-500'; status.textContent = 'Choose a file first.'; } return; }
+    status.className = 'text-xs font-bold text-slate-500';
+    status.textContent = 'Reading…';
+    ensureXLSX().then(() => {
+      const reader = new FileReader();
+      reader.onload = ev => {
+        let aoa;
+        try {
+          const wb = XLSX.read(new Uint8Array(ev.target.result), { type: 'array' });
+          aoa = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
+        } catch (e) { status.className = 'text-xs font-bold text-red-500'; status.textContent = 'Could not read that file.'; return; }
+        if (!aoa || aoa.length < 2) { status.className = 'text-xs font-bold text-red-500'; status.textContent = 'The sheet is empty.'; return; }
+        const header = aoa[0].map(h => String(h || '').trim());
+        const cycleAt = {};
+        header.forEach((h, i) => { const m = _fcChart.cycles.find(c => c.toLowerCase() === h.toLowerCase()); if (m) cycleAt[i] = m; });
+        if (!Object.keys(cycleAt).length) { status.className = 'text-xs font-bold text-red-500'; status.textContent = 'No cycle columns recognized in the header row.'; return; }
+        const byName = new Map(_fcChart.fee_types.map(f => [String(f.name).trim().toLowerCase(), f]));
+        const rows = [];
+        const unknown = [];
+        for (let i = 1; i < aoa.length; i++) {
+          const name = String(aoa[i][0] || '').trim();
+          if (!name) continue;
+          const f = byName.get(name.toLowerCase());
+          if (!f) { unknown.push(name); continue; }
+          Object.keys(cycleAt).forEach(idx => {
+            const raw = aoa[i][idx];
+            const amount = Number(String(raw === '' || raw == null ? 0 : raw).replace(/,/g, '')) || 0;
+            rows.push({
+              academic_year: _fcChart.academic_year, fee_type_id: f.id, cycle: cycleAt[idx],
+              scope: _fcChart.scope, student_id: _fcChart.student_id || undefined, amount,
+            });
+          });
+        }
+        if (!rows.length) { status.className = 'text-xs font-bold text-red-500'; status.textContent = 'Nothing to import — no fee head names matched.'; return; }
+        status.textContent = `Saving ${rows.length} cell(s)…`;
+        _adminFetch('bulk_save_fee_chart', { rows }).then(res => {
+          if (!res || res.result !== 'success') { status.className = 'text-xs font-bold text-red-500'; status.textContent = (res && res.message) || 'Import failed.'; return; }
+          _fcCloseImport();
+          const skipped = unknown.length ? ` · skipped unknown: ${unknown.slice(0, 3).join(', ')}${unknown.length > 3 ? '…' : ''}` : '';
+          showToast(`${res.saved} cell(s) imported${res.errors.length ? `, ${res.errors.length} failed` : ''}${skipped}`, res.errors.length ? 'error' : undefined);
+          _fcLoadChart();
+        });
+      };
+      reader.readAsArrayBuffer(input.files[0]);
+    });
+  }
+
+  // ── Remission ─────────────────────────────────────────────────────────
+  function _fcLoadRemission() {
+    const host = document.getElementById('fcRemissionHost');
+    if (!host || !_fcChart) return;
+    if (!_fcChart.student_id) { host.style.display = 'none'; host.innerHTML = ''; return; }
+    host.style.display = '';
+    _fcRemission = null;
+    _adminFetch('get_fee_remission', { student_id: _fcChart.student_id, academic_year: _fcChart.academic_year })
+      .then(res => { _fcRemSaved = (res && res.remissions) || []; _fcRenderRemission(); });
+  }
+  function _fcRenderRemission() {
+    const host = document.getElementById('fcRemissionHost');
+    if (!host || !_fcChart) return;
+    const list = _fcRemSaved || [];
+    const nameOf = id => {
+      const f = _fcChart.fee_types.find(x => String(x.id) === String(id));
+      return f ? f.name : ('#' + id);
+    };
+    const linesHtml = _fcRemission ? `
+      <div class="mt-3 border border-slate-200 rounded-xl overflow-auto" style="max-height:320px">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Fee Head</th><th class="py-2 px-3 text-right">Payable</th><th class="py-2 px-3 text-right">Remission</th></tr></thead>
+          <tbody>
+            ${_fcRemission.lines.map((l, i) => `<tr class="border-b border-slate-50">
+              <td class="py-1.5 px-3 font-bold text-slate-700">${_escHtml(nameOf(l.fee_type_id))}</td>
+              <td class="py-1.5 px-3 text-right text-slate-500">${Number(l.payable || 0).toLocaleString()}</td>
+              <td class="py-1.5 px-3 text-right"><input type="number" step="0.01" id="fcRemLine-${i}" value="${l.amount || ''}" oninput="_fcRemLineChanged()" class="w-28 text-right px-2 py-1 bg-slate-50 border border-slate-200 rounded font-bold text-xs"></td>
+            </tr>`).join('')}
+          </tbody>
+          <tfoot class="bg-slate-50"><tr class="text-[10px] font-black uppercase">
+            <td class="py-2 px-3" colspan="2">Lines total</td>
+            <td class="py-2 px-3 text-right" id="fcRemLinesTotal"></td>
+          </tr></tfoot>
+        </table>
+      </div>
+      <div class="flex items-center gap-2 mt-2">
+        <button onclick="_fcSaveRemission()" class="px-4 py-2 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Remission</button>
+        <button onclick="_fcResetRemission()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Reset to auto split</button>
+        <span id="fcRemWarn" class="text-[10px] font-black"></span>
+      </div>` : '';
+    host.innerHTML = `
+      <div class="bg-white rounded-2xl border border-slate-200 p-4 mt-3">
+        <p class="font-black text-slate-800 text-xs mb-1 flex items-center gap-2"><i data-lucide="badge-percent" class="h-4 w-4 text-emerald-600"></i>Remission</p>
+        <p class="text-[10px] text-slate-400 font-bold mb-3">The amount is split across this student's non-zero unpaid fee heads in proportion to what each one is worth. Revise any line by hand if the automatic split isn't right.</p>
+        <div class="flex flex-wrap items-end gap-2">
+          <div><label class="text-[10px] font-black text-slate-400 uppercase block mb-1">Amount</label>
+            <input type="number" step="0.01" id="fcRemAmount" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="width:120px"></div>
+          <div><label class="text-[10px] font-black text-slate-400 uppercase block mb-1">Applies to</label>
+            <select id="fcRemCycle" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <option value="">Whole year</option>
+              ${_fcChart.cycles.map(c => `<option value="${_escHtml(c)}">${_escHtml(c)}</option>`).join('')}
+            </select></div>
+          <div class="flex-1" style="min-width:160px"><label class="text-[10px] font-black text-slate-400 uppercase block mb-1">Reason</label>
+            <input type="text" id="fcRemReason" class="w-full px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></div>
+          <button onclick="_fcPreviewRemission()" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Calculate Split</button>
+        </div>
+        ${linesHtml}
+        ${list.length ? `
+          <div class="mt-4 pt-3 border-t border-slate-100">
+            <p class="text-[10px] font-black text-slate-400 uppercase mb-2">Saved remissions</p>
+            ${list.map(r => `<div class="flex items-center justify-between border border-slate-200 rounded-xl px-3 py-2 mb-1">
+              <div class="text-xs">
+                <span class="font-black text-slate-800">৳${Number(r.total_amount).toLocaleString()}</span>
+                <span class="text-slate-400 ml-2">${_escHtml(r.cycle || 'Whole year')} · ${_escHtml(r.academic_year)}${r.auto_split ? '' : ' · revised'}</span>
+                ${r.reason ? `<span class="text-slate-400 ml-2">${_escHtml(r.reason)}</span>` : ''}
+              </div>
+              <button onclick="_fcDeleteRemission(${r.id})" class="w-7 h-7 flex items-center justify-center rounded-lg border border-red-200 text-red-500 hover:bg-red-50"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+            </div>`).join('')}
+          </div>` : ''}
+      </div>`;
+    lucide.createIcons();
+    // Restore the editor's own inputs after a re-render (innerHTML wipes
+    // them), then refresh the running total/balance warning.
+    if (_fcRemission) {
+      const a = document.getElementById('fcRemAmount'); if (a) a.value = _fcRemission.total || '';
+      const c = document.getElementById('fcRemCycle'); if (c) c.value = _fcRemission.cycle || '';
+      const rr = document.getElementById('fcRemReason'); if (rr) rr.value = _fcRemission.reason || '';
+      _fcRemLineChanged();
+    }
+  }
+  function _fcPreviewRemission() {
+    if (!_fcChart || !_fcChart.student_id) return;
+    const total_amount = Number((document.getElementById('fcRemAmount') || {}).value) || 0;
+    const cycle = (document.getElementById('fcRemCycle') || {}).value || '';
+    const reason = (document.getElementById('fcRemReason') || {}).value || '';
+    if (!(total_amount > 0)) { showToast('Enter a remission amount', 'error'); return; }
+    _adminFetch('preview_fee_remission_split', {
+      student_id: _fcChart.student_id, academic_year: _fcChart.academic_year, cycle: cycle || undefined, total_amount,
+    }).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not calculate the split', 'error'); return; }
+      _fcRemission = {
+        lines: res.lines.map(l => ({ ...l })),
+        // Untouched copy of the automatic split, so saving can tell
+        // whether an admin actually revised any line.
+        autoLines: res.lines.map(l => ({ ...l })),
+        total: total_amount, payable: res.payable, cycle, reason,
+      };
+      _fcRenderRemission();
+    });
+  }
+  function _fcRemLineChanged() {
+    if (!_fcRemission) return;
+    let sum = 0;
+    _fcRemission.lines.forEach((l, i) => {
+      const el = document.getElementById('fcRemLine-' + i);
+      const v = el ? (Number(el.value) || 0) : (l.amount || 0);
+      l.amount = v;
+      sum += v;
+    });
+    sum = Math.round(sum * 100) / 100;
+    const tot = document.getElementById('fcRemLinesTotal');
+    if (tot) tot.textContent = sum.toLocaleString();
+    const warn = document.getElementById('fcRemWarn');
+    const target = Number(_fcRemission.total) || 0;
+    if (warn) {
+      if (Math.abs(sum - target) > 0.01) {
+        warn.className = 'text-[10px] font-black text-red-500';
+        warn.textContent = `Lines total ৳${sum.toLocaleString()} — must match ৳${target.toLocaleString()}`;
+      } else { warn.className = 'text-[10px] font-black text-emerald-600'; warn.textContent = 'Balanced'; }
+    }
+  }
+  function _fcResetRemission() {
+    if (!_fcRemission) return;
+    _fcPreviewRemission();
+  }
+  function _fcSaveRemission() {
+    if (!_fcChart || !_fcRemission) return;
+    _fcRemLineChanged();
+    const sum = Math.round(_fcRemission.lines.reduce((a, l) => a + (Number(l.amount) || 0), 0) * 100) / 100;
+    const total = Number((document.getElementById('fcRemAmount') || {}).value) || _fcRemission.total;
+    if (Math.abs(sum - total) > 0.01) { showToast(`Lines add up to ৳${sum.toLocaleString()}, not ৳${total.toLocaleString()}`, 'error'); return; }
+    const auto = _fcRemission.lines.every((l, i) => {
+      const orig = _fcRemission.autoLines ? _fcRemission.autoLines[i] : null;
+      return orig == null || Math.abs((orig.amount || 0) - (l.amount || 0)) < 0.005;
+    });
+    _adminFetch('save_fee_remission', {
+      student_id: _fcChart.student_id, academic_year: _fcChart.academic_year,
+      cycle: (document.getElementById('fcRemCycle') || {}).value || undefined,
+      total_amount: total,
+      lines: _fcRemission.lines.map(l => ({ fee_type_id: l.fee_type_id, amount: l.amount })),
+      auto_split: auto,
+      reason: (document.getElementById('fcRemReason') || {}).value || '',
+    }).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not save the remission', 'error'); return; }
+      showToast('Remission saved');
+      _fcRemission = null;
+      _fcLoadRemission();
+    });
+  }
+  function _fcDeleteRemission(id) {
+    showConfirm('Delete this remission?', () => {
+      _adminFetch('delete_fee_remission', { id }).then(res => {
+        if (res && res.result === 'success') { showToast('Remission deleted'); _fcRemission = null; _fcLoadRemission(); }
+        else showToast((res && res.message) || 'Delete failed', 'error');
+      });
+    });
   }
 
   function generateClasswiseFees() {

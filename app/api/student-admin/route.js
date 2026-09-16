@@ -238,6 +238,34 @@ async function sbExam(path, method = 'GET', body = null, extraHeaders = {}) {
   return text ? JSON.parse(text) : null;
 }
 
+// Read-only window into the `accounts` schema, so a fee head can be linked
+// to the real income ledger it posts to (see sync_fee_types_from_ledgers).
+// Deliberately GET-only — Accounts owns its own writes via
+// app/api/accounts-admin/route.js; this route only ever reads from it.
+async function sbAccountsRead(path) {
+  const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
+    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'accounts' },
+  });
+  const text = await res.text();
+  if (!res.ok) return { error: text };
+  return text ? JSON.parse(text) : null;
+}
+
+// The columns of the office's fee sheet, in sheet order: the three
+// admission-cycle events, then the twelve monthly columns. Mirrored by
+// FEE_CYCLES in _src/app.js — keep the two in step.
+const FEE_CYCLES = [
+  'Admission', 'Re-admission', 'Form Fillup',
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+// Cohort dimensions a chart row can be scoped by. Null/'' on a row means
+// "any" for that dimension, so a row with every one null is a school-wide
+// default and one with all six set is as specific as a cohort row gets.
+// `student_group` is students_data."group" (the reserved word is why the
+// column is renamed here).
+const FEE_SCOPE_COLS = ['class', 'section', 'student_group', 'version', 'shift', 'session'];
+
 // ── Shortname resolution for the staff-directory search ─────────────────────
 // Shortnames aren't a DB column anywhere — they only exist in the routine
 // Google Sheet's "Logged in info" tab (Full Name ↔ NAME IN SHORT), same
@@ -466,7 +494,12 @@ const STAFF_OPEN_ACTIONS = new Set(['get_tracking_config', 'get_bus_data']);
 // Class Teacher alike) may legitimately belong to more than one tab's set —
 // the caller only needs to clear ONE of them, not all.
 const ADMIN_TAB_ACTIONS = {
-  fees: new Set(['get_fee_types', 'save_fee_type', 'delete_fee_type', 'get_fee_structures', 'save_fee_structure', 'delete_fee_structure', 'get_late_fee_rules', 'save_late_fee_rule', 'delete_late_fee_rule', 'generate_classwise_fees', 'generate_individual_fee', 'remove_individual_fee', 'set_discount', 'get_discounts', 'set_partial_split', 'record_payment', 'get_student_fees', 'get_defaulters_list', 'get_fees_collection_report', 'get_fee_accounts', 'save_fee_account', 'record_account_transaction', 'get_account_register']),
+  fees: new Set(['get_fee_types', 'save_fee_type', 'delete_fee_type', 'get_fee_structures', 'save_fee_structure', 'delete_fee_structure', 'get_late_fee_rules', 'save_late_fee_rule', 'delete_late_fee_rule', 'generate_classwise_fees', 'generate_individual_fee', 'remove_individual_fee', 'set_discount', 'get_discounts', 'set_partial_split', 'record_payment', 'get_student_fees', 'get_defaulters_list', 'get_fees_collection_report', 'get_fee_accounts', 'save_fee_account', 'record_account_transaction', 'get_account_register',
+    // Fees chart (Fee Structures grid) + remission
+    'sync_fee_types_from_ledgers', 'get_fee_chart', 'save_fee_chart_cell', 'bulk_save_fee_chart',
+    'preview_fee_remission_split', 'get_fee_remission', 'save_fee_remission', 'delete_fee_remission',
+    // scope dropdowns on the chart's cohort picker
+    'get_class_sections', 'get_scope_column_values', 'search_students']),
   attendance: new Set(['get_attendance_report', 'save_manual_attendance', 'save_bulk_manual_attendance', 'get_staff_attendance_report', 'get_attendance_devices', 'save_attendance_device', 'delete_attendance_device', 'get_punch_log', 'get_device_health_list', 'get_p10_device_health_list', 'save_device_class_assignment', 'save_device_config', 'get_class_sections', 'get_absent_fee_setting', 'save_absent_fee_setting', 'get_today_attendance_overview']),
   exams: new Set([
     'get_exam_terms', 'save_exam_term', 'archive_exam_term',
@@ -1618,6 +1651,278 @@ export async function POST(req) {
   }
   if (action === 'delete_fee_structure') {
     const r = await sb(`fee_structures?id=eq.${encodeURIComponent(payload.id)}`, 'DELETE');
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Fees chart (the Fee Structures screen's grid) ─────────────────────────
+  // Rows = fee heads, columns = FEE_CYCLES, cells = amounts, all scoped to one
+  // cohort (or one student). "Any" is stored as '' rather than null in the
+  // scope columns — fee_structures was created by hand and `class` is
+  // required by the pre-existing save_fee_structure, so it may well be NOT
+  // NULL; '' satisfies either shape, and both '' and null are read back as
+  // "any" so legacy rows keep working.
+  const _feeAny = v => (v == null || v === '') ? '' : String(v);
+  const _feeScopeOf = p => {
+    const s = (p && p.scope) || {};
+    const out = {};
+    FEE_SCOPE_COLS.forEach(c => { out[c] = _feeAny(s[c]); });
+    return out;
+  };
+  const _feeScopeEq = (row, scope) => FEE_SCOPE_COLS.every(c => _feeAny(row[c]) === scope[c]);
+  // students_data calls the group column "group"; the chart column had to be
+  // renamed student_group to dodge the SQL reserved word.
+  const _feeStudentCol = c => (c === 'student_group' ? 'group' : c);
+  const _feeScopeMatchesStudent = (row, stu) => FEE_SCOPE_COLS.every(c => {
+    const want = _feeAny(row[c]);
+    return want === '' || want === _feeAny(stu[_feeStudentCol(c)]);
+  });
+  const _feeScopeSpecificity = row => FEE_SCOPE_COLS.reduce((n, c) => n + (_feeAny(row[c]) === '' ? 0 : 1), 0);
+  const _feePut = (obj, row) => {
+    if (!row.cycle) return; // pre-chart legacy row: no column to put it in
+    (obj[row.fee_type_id] = obj[row.fee_type_id] || {})[row.cycle] = Number(row.amount) || 0;
+  };
+
+  if (action === 'sync_fee_types_from_ledgers') {
+    const ledgers = await sbAccountsRead('ledgers?select=id,name,group_id,account_groups(name)&order=id.asc');
+    if (ledgers?.error) return NextResponse.json({ result: 'error', message: ledgers.error });
+    const income = (Array.isArray(ledgers) ? ledgers : []).filter(l => l.account_groups && l.account_groups.name === 'Direct Income');
+    const existing = await sb('fee_types?select=id,name,ledger_id');
+    if (existing?.error) return NextResponse.json({ result: 'error', message: existing.error });
+    const byLedger = new Set(), byName = new Map();
+    (existing || []).forEach(f => {
+      if (f.ledger_id != null) byLedger.add(String(f.ledger_id));
+      byName.set(String(f.name).trim().toLowerCase(), f);
+    });
+    let created = 0, linked = 0;
+    for (const l of income) {
+      if (byLedger.has(String(l.id))) continue;
+      const match = byName.get(String(l.name).trim().toLowerCase());
+      if (match) {
+        // Same name, no link yet — adopt the existing head rather than
+        // creating a duplicate fee type beside it.
+        const r = await sb(`fee_types?id=eq.${encodeURIComponent(match.id)}`, 'PATCH', { ledger_id: l.id });
+        if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+        linked++;
+        continue;
+      }
+      const code = String(l.name).replace(/-INC$/i, '').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').toUpperCase().slice(0, 40);
+      const r = await sb('fee_types', 'POST', {
+        name: l.name, code, description: 'Linked to Accounts ledger: ' + l.name,
+        is_active: true, ledger_id: l.id, sort_order: l.id,
+      });
+      if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+      created++;
+    }
+    return NextResponse.json({ result: 'success', created, linked, ledger_count: income.length });
+  }
+
+  if (action === 'get_fee_chart') {
+    const { academic_year, student_id } = payload || {};
+    if (!academic_year) return NextResponse.json({ result: 'error', message: 'Academic year required.' });
+    const scope = _feeScopeOf(payload);
+    const [types, allRows] = await Promise.all([
+      sb('fee_types?select=*&order=sort_order.asc,name.asc'),
+      sbAllRows(`fee_structures?academic_year=eq.${encodeURIComponent(academic_year)}&select=*`),
+    ]);
+    if (types?.error) return NextResponse.json({ result: 'error', message: types.error });
+    if (allRows?.error) return NextResponse.json({ result: 'error', message: allRows.error });
+    const rows = Array.isArray(allRows) ? allRows : [];
+    const cohortRows = rows.filter(r => !r.student_id);
+    const base = {}, extra = {};
+    let student = null;
+
+    if (student_id) {
+      const stuRows = await sb(`students_data?student_id=eq.${encodeURIComponent(student_id)}&select=*&limit=1`);
+      if (stuRows?.error) return NextResponse.json({ result: 'error', message: stuRows.error });
+      if (!stuRows.length) return NextResponse.json({ result: 'error', message: 'Student not found.' });
+      student = stuRows[0];
+      // Most specific matching cohort row wins per (fee head × cycle): a
+      // Class-6/Section-A row beats a Class-6 row beats a school-wide one.
+      // Equal specificity falls back to the newest row.
+      const best = {};
+      cohortRows.forEach(r => {
+        if (!_feeScopeMatchesStudent(r, student)) return;
+        const k = r.fee_type_id + '|' + (r.cycle || '');
+        const sp = _feeScopeSpecificity(r);
+        const cur = best[k];
+        if (!cur || sp > cur.sp || (sp === cur.sp && r.id > cur.row.id)) best[k] = { sp, row: r };
+      });
+      Object.values(best).forEach(b => _feePut(base, b.row));
+      rows.filter(r => String(r.student_id) === String(student_id)).forEach(r => _feePut(extra, r));
+    } else {
+      cohortRows.filter(r => _feeScopeEq(r, scope)).forEach(r => _feePut(base, r));
+    }
+    return NextResponse.json({ result: 'success', cycles: FEE_CYCLES, fee_types: types || [], base, extra, student });
+  }
+
+  // One cell. Scope matching is done here in JS rather than as PostgREST
+  // filters because "any" can be either '' or null on legacy rows, and
+  // expressing that as a query string is far more fragile than comparing a
+  // handful of candidate rows.
+  async function _saveFeeChartCell(p) {
+    const { academic_year, fee_type_id, cycle, student_id } = p;
+    if (!academic_year || !fee_type_id || !cycle) return { error: 'Academic year, fee type and cycle are required.' };
+    if (!FEE_CYCLES.includes(cycle)) return { error: `Unknown cycle "${cycle}".` };
+    const scope = _feeScopeOf(p);
+    const amt = Number(p.amount) || 0;
+    const candidates = await sb(`fee_structures?academic_year=eq.${encodeURIComponent(academic_year)}&fee_type_id=eq.${encodeURIComponent(fee_type_id)}&cycle=eq.${encodeURIComponent(cycle)}&select=*`);
+    if (candidates?.error) return { error: candidates.error };
+    const match = (candidates || []).find(r => (
+      student_id ? String(r.student_id || '') === String(student_id) : !r.student_id && _feeScopeEq(r, scope)
+    ));
+    // A zero/blank cell is an absent row, not a stored zero — keeps the
+    // table to only the fees that actually apply.
+    if (!(amt > 0)) {
+      if (match) {
+        const del = await sb(`fee_structures?id=eq.${encodeURIComponent(match.id)}`, 'DELETE');
+        if (del?.error) return { error: del.error };
+      }
+      return { ok: true, amount: 0 };
+    }
+    if (match) {
+      const upd = await sb(`fee_structures?id=eq.${encodeURIComponent(match.id)}`, 'PATCH', { amount: amt });
+      if (upd?.error) return { error: upd.error };
+      return { ok: true, amount: amt };
+    }
+    const row = {
+      fee_type_id, academic_year, cycle, amount: amt,
+      collection_mode: p.collection_mode || 'Monthly',
+      student_id: student_id || null,
+    };
+    FEE_SCOPE_COLS.forEach(c => { row[c] = student_id ? '' : scope[c]; });
+    const ins = await sb('fee_structures', 'POST', row);
+    if (ins?.error) return { error: ins.error };
+    return { ok: true, amount: amt };
+  }
+
+  if (action === 'save_fee_chart_cell') {
+    const r = await _saveFeeChartCell(payload || {});
+    if (r.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success', amount: r.amount });
+  }
+
+  if (action === 'bulk_save_fee_chart') {
+    const { rows } = payload || {};
+    if (!Array.isArray(rows) || !rows.length) return NextResponse.json({ result: 'error', message: 'No rows to save.' });
+    let saved = 0;
+    const errors = [];
+    for (let i = 0; i < rows.length; i++) {
+      const r = await _saveFeeChartCell(rows[i] || {});
+      if (r.error) errors.push({ row: i + 2, message: r.error });
+      else saved++;
+    }
+    return NextResponse.json({ result: 'success', saved, errors });
+  }
+
+  // ── Remission ────────────────────────────────────────────────────────────
+  // A lump sum waived for one student, split across their non-zero unpaid fee
+  // heads in proportion to what each head is worth. Split in whole paisa with
+  // largest-remainder distribution so the lines always add back to exactly the
+  // lump sum — a plain per-line round can drift by a few paisa, which on a
+  // financial record reads as a mistake.
+  function _feeProRata(total, weights) {
+    const totalPaisa = Math.round(Number(total) * 100);
+    const sum = weights.reduce((a, w) => a + w, 0);
+    if (!(sum > 0) || !(totalPaisa > 0)) return weights.map(() => 0);
+    const raw = weights.map(w => (totalPaisa * w) / sum);
+    const floors = raw.map(x => Math.floor(x));
+    let left = totalPaisa - floors.reduce((a, b) => a + b, 0);
+    const order = raw.map((x, i) => ({ i, frac: x - Math.floor(x) })).sort((a, b) => b.frac - a.frac);
+    for (let k = 0; k < order.length && left > 0; k++, left--) floors[order[k].i]++;
+    return floors.map(p => p / 100);
+  }
+
+  // Effective chart for one student = most-specific cohort match + their own
+  // additive rows, minus any head already settled in student_fees.
+  async function _feeEligibleHeads(student_id, academic_year, cycle) {
+    const stuRows = await sb(`students_data?student_id=eq.${encodeURIComponent(student_id)}&select=*&limit=1`);
+    if (stuRows?.error) return { error: stuRows.error };
+    if (!stuRows.length) return { error: 'Student not found.' };
+    const student = stuRows[0];
+    const allRows = await sbAllRows(`fee_structures?academic_year=eq.${encodeURIComponent(academic_year)}&select=*`);
+    if (allRows?.error) return { error: allRows.error };
+    const rows = Array.isArray(allRows) ? allRows : [];
+    const best = {};
+    rows.filter(r => !r.student_id).forEach(r => {
+      if (!_feeScopeMatchesStudent(r, student)) return;
+      const k = r.fee_type_id + '|' + (r.cycle || '');
+      const sp = _feeScopeSpecificity(r);
+      const cur = best[k];
+      if (!cur || sp > cur.sp || (sp === cur.sp && r.id > cur.row.id)) best[k] = { sp, row: r };
+    });
+    const eff = {};
+    const add = row => {
+      if (!row.cycle) return;
+      if (cycle && row.cycle !== cycle) return;
+      eff[row.fee_type_id] = (eff[row.fee_type_id] || 0) + (Number(row.amount) || 0);
+    };
+    Object.values(best).forEach(b => add(b.row));
+    rows.filter(r => String(r.student_id || '') === String(student_id)).forEach(add);
+
+    // Heads already settled: every generated row for them is marked paid.
+    const feeRows = await sb(`student_fees?student_id=eq.${encodeURIComponent(student_id)}&academic_year=eq.${encodeURIComponent(academic_year)}${cycle ? `&fee_month=eq.${encodeURIComponent(cycle)}` : ''}&select=fee_type_id,status`);
+    if (feeRows?.error) return { error: feeRows.error };
+    const seen = {}, unpaid = new Set();
+    (feeRows || []).forEach(f => { seen[f.fee_type_id] = true; if (f.status !== 'paid') unpaid.add(String(f.fee_type_id)); });
+    const heads = Object.keys(eff)
+      .filter(ft => eff[ft] > 0)
+      .filter(ft => !seen[ft] || unpaid.has(String(ft)))
+      .map(ft => ({ fee_type_id: isNaN(Number(ft)) ? ft : Number(ft), amount: eff[ft] }));
+    return { heads };
+  }
+
+  if (action === 'preview_fee_remission_split') {
+    const { student_id, academic_year, cycle, total_amount } = payload || {};
+    if (!student_id || !academic_year) return NextResponse.json({ result: 'error', message: 'Student and academic year required.' });
+    const total = Number(total_amount) || 0;
+    if (!(total > 0)) return NextResponse.json({ result: 'error', message: 'Remission amount must be greater than zero.' });
+    const res = await _feeEligibleHeads(student_id, academic_year, cycle || null);
+    if (res.error) return NextResponse.json({ result: 'error', message: res.error });
+    const heads = res.heads;
+    if (!heads.length) return NextResponse.json({ result: 'error', message: 'This student has no non-zero unpaid fees to apply a remission to.' });
+    const payable = heads.reduce((a, h) => a + h.amount, 0);
+    if (total > payable) return NextResponse.json({ result: 'error', message: `Remission (৳${total}) is more than the student's outstanding fees (৳${payable}).` });
+    const split = _feeProRata(total, heads.map(h => h.amount));
+    const lines = heads.map((h, i) => ({ fee_type_id: h.fee_type_id, payable: h.amount, amount: split[i] }));
+    return NextResponse.json({ result: 'success', lines, payable, total });
+  }
+
+  if (action === 'get_fee_remission') {
+    const { student_id, academic_year } = payload || {};
+    if (!student_id) return NextResponse.json({ result: 'error', message: 'student_id required.' });
+    const rows = await sb(`fee_remissions?student_id=eq.${encodeURIComponent(student_id)}${academic_year ? `&academic_year=eq.${encodeURIComponent(academic_year)}` : ''}&select=*&order=created_at.desc`);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', remissions: rows });
+  }
+
+  if (action === 'save_fee_remission') {
+    const { id, student_id, academic_year, cycle, total_amount, lines, auto_split, reason } = payload || {};
+    if (!student_id || !academic_year) return NextResponse.json({ result: 'error', message: 'Student and academic year required.' });
+    const total = Number(total_amount) || 0;
+    if (!(total > 0)) return NextResponse.json({ result: 'error', message: 'Remission amount must be greater than zero.' });
+    const cleanLines = (Array.isArray(lines) ? lines : [])
+      .map(l => ({ fee_type_id: l.fee_type_id, amount: Number(l.amount) || 0 }))
+      .filter(l => l.fee_type_id != null && l.amount > 0);
+    if (!cleanLines.length) return NextResponse.json({ result: 'error', message: 'The remission has no lines to apply.' });
+    const lineSum = Math.round(cleanLines.reduce((a, l) => a + l.amount, 0) * 100) / 100;
+    if (Math.abs(lineSum - total) > 0.01) {
+      return NextResponse.json({ result: 'error', message: `The lines add up to ৳${lineSum}, which doesn't match the remission total of ৳${total}.` });
+    }
+    const rowData = {
+      student_id, academic_year, cycle: cycle || null, total_amount: total,
+      lines: cleanLines, auto_split: auto_split !== false, reason: reason || '',
+      created_by: user_id || null, updated_at: new Date().toISOString(),
+    };
+    const r = id
+      ? await sb(`fee_remissions?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData)
+      : await sb('fee_remissions', 'POST', rowData);
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'delete_fee_remission') {
+    const r = await sb(`fee_remissions?id=eq.${encodeURIComponent(payload.id)}`, 'DELETE');
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
     return NextResponse.json({ result: 'success' });
   }

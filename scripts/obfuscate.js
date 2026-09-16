@@ -221,6 +221,11 @@ const RESERVED = [
   'generateIndividualFee','openLateFeeEditor','saveLateFeeRuleFromEditor',
   'deleteLateFeeRule','loadStudentFees','promptRecordPayment','saveFeeDiscount',
   'loadDefaultersList','saveFeeAccount','recordAccountTransaction',
+  // Fees chart (the Fee Structures grid) + remission
+  '_fcSetMode','_fcLoadChart','_fcSetFilter','_fcToggleOnlyFilled','_fcSyncFeeTypes',
+  '_fcExportChart','_fcOpenImport','_fcCloseImport','_fcConfirmImport',
+  '_fcRecalc','_fcSaveCell','_fcMobileOpen','_fcMobileBack',
+  '_fcPreviewRemission','_fcRemLineChanged','_fcSaveRemission','_fcResetRemission','_fcDeleteRemission',
   // Attendance tab native port
   'loadAdminAttendanceView','switchAttendanceTab','loadAttendanceReport',
   'markManualAttendance','openAttendanceDeviceEditor',
