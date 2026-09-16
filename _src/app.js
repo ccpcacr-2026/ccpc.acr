@@ -27514,16 +27514,29 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // wasted, browsing bills) lives in the dedicated Gateway > Chequebooks
   // screen below, which has the room for it.
 
-  // One line per range ("101-150" / "101,150" / an en-dash), so several
-  // new chequebooks can be registered in one paste instead of one row at
-  // a time — shared by both the ledger-modal and Chequebooks-screen forms.
+  // Real cheque leaves are often printed as a fixed text prefix plus an
+  // incrementing, zero-padded number (e.g. "KA00123"), not always a bare
+  // integer — _formatChequeNo rebuilds that full printed string; kept as
+  // a manual client-side twin of the same helper in
+  // app/api/accounts-admin/route.js (no shared-import path between them).
+  function _acFormatChequeNo(prefix, n, padWidth) {
+    return `${prefix || ''}${String(n).padStart(padWidth || 1, '0')}`;
+  }
+  // One line per range ("101-150" / "KA00101-00150" / an en-dash), so
+  // several new chequebooks can be registered in one paste instead of
+  // one row at a time — shared by the ledger-modal and Chequebooks-
+  // screen forms. Whatever non-digit text sits before the first number
+  // is the prefix, applied to both ends of that line; pad_width is
+  // however many digits the longer of the two sides was typed with, so
+  // "00101-00150" keeps its leading zeros and plain "101-150" doesn't.
   function _acParseChequeRangeLines(raw) {
     const lines = String(raw || '').split('\n').map(s => s.trim()).filter(Boolean);
     const parsed = [];
     for (const line of lines) {
-      const m = line.match(/^(\d+)\s*[-–,]\s*(\d+)$/);
-      if (!m) return { error: `Could not read "${line}" — use e.g. 101-150, one range per line` };
-      parsed.push({ range_start: m[1], range_end: m[2] });
+      const m = line.match(/^([^\d]*)(\d+)\s*[-–,]\s*(\d+)$/);
+      if (!m) return { error: `Could not read "${line}" — use e.g. 101-150 or KA00101-00150, one range per line` };
+      const [, prefix, startDigits, endDigits] = m;
+      parsed.push({ prefix, range_start: startDigits, range_end: endDigits, pad_width: Math.max(startDigits.length, endDigits.length) });
     }
     return { parsed };
   }
@@ -27536,10 +27549,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const next = () => {
       if (i >= parsed.length) { onDone(failed); return; }
       const r = parsed[i];
-      _accountsFetch('save_chequebook_range', { ledger_id: ledgerId, range_start: r.range_start, range_end: r.range_end }).then(res => {
-        if (!(res && res.result === 'success')) failed.push(`${r.range_start}-${r.range_end}: ${(res && res.message) || 'error'}`);
+      const label = `${_acFormatChequeNo(r.prefix, r.range_start, r.pad_width)}-${_acFormatChequeNo('', r.range_end, r.pad_width)}`;
+      _accountsFetch('save_chequebook_range', { ledger_id: ledgerId, range_start: r.range_start, range_end: r.range_end, prefix: r.prefix, pad_width: r.pad_width }).then(res => {
+        if (!(res && res.result === 'success')) failed.push(`${label}: ${(res && res.message) || 'error'}`);
         i++; next();
-      }).catch(() => { failed.push(`${r.range_start}-${r.range_end}: network error`); i++; next(); });
+      }).catch(() => { failed.push(`${label}: network error`); i++; next(); });
     };
     next();
   }
@@ -27552,7 +27566,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     section.innerHTML = `
       <p class="text-[10px] font-black text-slate-400 uppercase mb-2">Chequebook Page Ranges</p>
       <div id="acChequeRangeList" class="space-y-1 mb-2"><p class="text-slate-400 text-xs">Loading…</p></div>
-      <textarea id="acChequeRangesInput" placeholder="e.g. 101-150 (one range per line for several chequebooks at once)" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" rows="2"></textarea>
+      <textarea id="acChequeRangesInput" placeholder="e.g. 101-150 or KA00101-00150 (one range per line for several chequebooks at once)" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" rows="2"></textarea>
       <button onclick="_acAddChequeRange(${ledgerId})" class="mt-1 px-2.5 py-1.5 bg-slate-100 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all">+ Add Range(s)</button>
       <p class="text-[10px] text-slate-400 mt-1">Manage wasted pages and see this account's bills under Gateway &gt; Chequebooks.</p>
     `;
@@ -27566,10 +27580,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const usedSet = new Set(res.used);
       list.innerHTML = res.ranges.length ? res.ranges.map(r => {
         let usedCount = 0;
-        for (let n = r.range_start; n <= r.range_end; n++) if (usedSet.has(String(n))) usedCount++;
+        for (let n = r.range_start; n <= r.range_end; n++) if (usedSet.has(_acFormatChequeNo(r.prefix, n, r.pad_width))) usedCount++;
         const total = r.range_end - r.range_start + 1;
         return `<div class="flex items-center justify-between text-xs bg-slate-50 rounded-lg px-2.5 py-1.5">
-          <span class="font-bold">${r.range_start}–${r.range_end}</span>
+          <span class="font-bold">${_escHtml(_acFormatChequeNo(r.prefix, r.range_start, r.pad_width))}–${_escHtml(_acFormatChequeNo(r.prefix, r.range_end, r.pad_width))}</span>
           <span class="text-slate-400">${usedCount}/${total} used</span>
           <button onclick="_acDeleteChequeRange(${r.id},${ledgerId})" class="text-red-400 hover:text-red-600"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
         </div>`;
@@ -27614,12 +27628,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div class="tp-group-head">${_escHtml(l.name)}</div>
       <div id="cbList-${l.id}" style="margin:4px 0 8px"><span class="tp-empty">Loading…</span></div>
       <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:8px">
-        <textarea id="cbRanges-${l.id}" placeholder="e.g. 101-150 (one range per line for several chequebooks at once)" class="tp-input" style="flex:1;height:44px;font-family:monospace;font-size:11px"></textarea>
+        <textarea id="cbRanges-${l.id}" placeholder="e.g. 101-150 or KA00101-00150 (one range per line for several chequebooks at once)" class="tp-input" style="flex:1;height:44px;font-family:monospace;font-size:11px"></textarea>
         <button class="tp-inline-btn" onclick="_acCbAddRange(${l.id})">+ Add Range(s)</button>
       </div>
       <div id="cbWasted-${l.id}" style="margin-bottom:6px"></div>
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">
-        <input type="number" id="cbWasteNo-${l.id}" placeholder="Page no." class="tp-input" style="width:90px">
+        <input type="text" id="cbWasteNo-${l.id}" placeholder="Page no. (e.g. KA00123)" class="tp-input" style="width:130px">
         <input type="text" id="cbWasteReason-${l.id}" placeholder="Reason (torn, spoiled…)" class="tp-input" style="width:180px">
         <button class="tp-inline-btn" onclick="_acCbMarkWasted(${l.id})">Mark Wasted</button>
         <button class="tp-inline-btn" onclick="_acCbToggleBills(${l.id})" style="margin-left:auto">View Bills</button>
@@ -27637,9 +27651,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const usedSet = new Set(res.used);
       list.innerHTML = res.ranges.length ? res.ranges.map(r => {
         let usedCount = 0;
-        for (let n = r.range_start; n <= r.range_end; n++) if (usedSet.has(String(n))) usedCount++;
+        for (let n = r.range_start; n <= r.range_end; n++) if (usedSet.has(_acFormatChequeNo(r.prefix, n, r.pad_width))) usedCount++;
         const total = r.range_end - r.range_start + 1;
-        return `<span style="display:inline-block;background:#f1f5f9;border-radius:6px;padding:2px 8px;margin:0 6px 6px 0;font-size:11px">${r.range_start}–${r.range_end} (${usedCount}/${total} used) <a href="#" onclick="_acCbDeleteRange(${r.id},${ledgerId});return false" style="color:#dc2626;margin-left:4px">✕</a></span>`;
+        const label = `${_escHtml(_acFormatChequeNo(r.prefix, r.range_start, r.pad_width))}–${_escHtml(_acFormatChequeNo(r.prefix, r.range_end, r.pad_width))}`;
+        return `<span style="display:inline-block;background:#f1f5f9;border-radius:6px;padding:2px 8px;margin:0 6px 6px 0;font-size:11px">${label} (${usedCount}/${total} used) <a href="#" onclick="_acCbDeleteRange(${r.id},${ledgerId});return false" style="color:#dc2626;margin-left:4px">✕</a></span>`;
       }).join('') : '<span class="tp-empty">No ranges yet.</span>';
       if (wastedBox) {
         wastedBox.innerHTML = (res.wasted || []).length ? `<span style="font-size:11px;color:#94a3b8;margin-right:4px">Wasted:</span>` + res.wasted.map(w =>

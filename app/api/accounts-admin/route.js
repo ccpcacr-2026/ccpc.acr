@@ -290,6 +290,34 @@ export async function POST(req) {
   }
 
   // ── Chequebook ranges (per bank/cash ledger) ──
+  // A real cheque leaf's printed number is often a fixed text prefix plus
+  // an incrementing, zero-padded numeric part (e.g. "KA00123") — prefix
+  // and pad_width are stored per range (range_start/range_end stay bare
+  // integers, so the range can still be expanded/incremented normally);
+  // _formatChequeNo rebuilds the full printed string, which is what's
+  // actually stored in bills.cheque_no/chequebook_voids.cheque_no and
+  // compared for "used"/"wasted"/"available".
+  function _formatChequeNo(prefix, n, padWidth) {
+    return `${prefix || ''}${String(n).padStart(padWidth || 1, '0')}`;
+  }
+  // Matches a person's typed page number (with or without its account's
+  // prefix, any padding) against this ledger's registered ranges, and
+  // returns the canonical formatted string to actually store — so
+  // "KA123" and "KA00123" always resolve to the same value instead of
+  // silently creating two different-looking records for one real page.
+  function _matchChequeNoToRange(input, ranges) {
+    const s = String(input || '').trim();
+    for (const r of ranges) {
+      const prefix = r.prefix || '';
+      if (!s.startsWith(prefix)) continue;
+      const rest = s.slice(prefix.length);
+      if (!/^\d+$/.test(rest)) continue;
+      const n = Number(rest);
+      if (n >= r.range_start && n <= r.range_end) return _formatChequeNo(prefix, n, r.pad_width);
+    }
+    return null;
+  }
+
   if (action === 'get_chequebook_ranges') {
     const { ledger_id } = payload;
     if (!ledger_id) return NextResponse.json({ result: 'error', message: 'Missing ledger_id' }, { status: 400 });
@@ -305,23 +333,30 @@ export async function POST(req) {
     const wastedSet = new Set(wastedList.map(w => String(w.cheque_no)));
     const available = [];
     (Array.isArray(ranges) ? ranges : []).forEach(r => {
-      for (let n = r.range_start; n <= r.range_end; n++) { if (!usedSet.has(String(n)) && !wastedSet.has(String(n))) available.push(n); }
+      for (let n = r.range_start; n <= r.range_end; n++) {
+        const full = _formatChequeNo(r.prefix, n, r.pad_width);
+        if (!usedSet.has(full) && !wastedSet.has(full)) available.push(full);
+      }
     });
     return NextResponse.json({ result: 'success', ranges, used: Array.from(usedSet), wasted: wastedList, available });
   }
 
   if (action === 'save_chequebook_range') {
-    const { ledger_id, range_start, range_end } = payload;
+    const { ledger_id, range_start, range_end, prefix, pad_width } = payload;
     const start = Number(range_start), end = Number(range_end);
+    const pfx = String(prefix || '');
+    const pad = Number.isInteger(Number(pad_width)) && Number(pad_width) > 0 ? Number(pad_width) : 1;
     if (!ledger_id || !Number.isInteger(start) || !Number.isInteger(end) || end < start) {
       return NextResponse.json({ result: 'error', message: 'A valid ledger and range are required' }, { status: 400 });
     }
     if (end - start > 1000) return NextResponse.json({ result: 'error', message: 'Range too large (max 1000 cheque leaves at a time)' }, { status: 400 });
-    const existing = await sbAccounts(`chequebook_ranges?ledger_id=eq.${encodeURIComponent(ledger_id)}&select=range_start,range_end`);
-    if (Array.isArray(existing) && existing.some(r => start <= r.range_end && end >= r.range_start)) {
+    const existing = await sbAccounts(`chequebook_ranges?ledger_id=eq.${encodeURIComponent(ledger_id)}&select=prefix,range_start,range_end`);
+    // Different prefixes never collide even over the same numeric span —
+    // "KA100-200" and "KB100-200" are different physical pages.
+    if (Array.isArray(existing) && existing.some(r => (r.prefix || '') === pfx && start <= r.range_end && end >= r.range_start)) {
       return NextResponse.json({ result: 'error', message: 'This range overlaps an existing one for this account' }, { status: 400 });
     }
-    const saved = await sbAccounts('chequebook_ranges', 'POST', { ledger_id, range_start: start, range_end: end });
+    const saved = await sbAccounts('chequebook_ranges', 'POST', { ledger_id, range_start: start, range_end: end, prefix: pfx, pad_width: pad });
     if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
     return NextResponse.json({ result: 'success', range: Array.isArray(saved) ? saved[0] : saved });
   }
@@ -341,17 +376,16 @@ export async function POST(req) {
   if (action === 'mark_cheque_wasted') {
     const { ledger_id, cheque_no, reason } = payload;
     if (!ledger_id || !cheque_no) return NextResponse.json({ result: 'error', message: 'Account and page number are required' }, { status: 400 });
-    const n = String(Number(cheque_no));
-    const [ranges, usedRows, voidRows] = await Promise.all([
-      sbAccounts(`chequebook_ranges?ledger_id=eq.${encodeURIComponent(ledger_id)}&select=range_start,range_end`),
-      sbAccounts(`bills?bank_ledger_id=eq.${encodeURIComponent(ledger_id)}&cheque_no=eq.${encodeURIComponent(n)}&select=bill_number&limit=1`),
-      sbAccounts(`chequebook_voids?ledger_id=eq.${encodeURIComponent(ledger_id)}&cheque_no=eq.${encodeURIComponent(n)}&select=id&limit=1`),
+    const ranges = await sbAccounts(`chequebook_ranges?ledger_id=eq.${encodeURIComponent(ledger_id)}&select=prefix,range_start,range_end,pad_width`);
+    const matched = _matchChequeNoToRange(cheque_no, Array.isArray(ranges) ? ranges : []);
+    if (!matched) return NextResponse.json({ result: 'error', message: 'That page number is not in any registered range for this account' }, { status: 400 });
+    const [usedRows, voidRows] = await Promise.all([
+      sbAccounts(`bills?bank_ledger_id=eq.${encodeURIComponent(ledger_id)}&cheque_no=eq.${encodeURIComponent(matched)}&select=bill_number&limit=1`),
+      sbAccounts(`chequebook_voids?ledger_id=eq.${encodeURIComponent(ledger_id)}&cheque_no=eq.${encodeURIComponent(matched)}&select=id&limit=1`),
     ]);
-    const inRange = Array.isArray(ranges) && ranges.some(r => Number(n) >= r.range_start && Number(n) <= r.range_end);
-    if (!inRange) return NextResponse.json({ result: 'error', message: 'That page number is not in any registered range for this account' }, { status: 400 });
     if (Array.isArray(usedRows) && usedRows.length) return NextResponse.json({ result: 'error', message: `Already used on bill ${usedRows[0].bill_number}` }, { status: 400 });
     if (Array.isArray(voidRows) && voidRows.length) return NextResponse.json({ result: 'error', message: 'Already marked wasted' }, { status: 400 });
-    const saved = await sbAccounts('chequebook_voids', 'POST', { ledger_id, cheque_no: n, reason: reason || null, created_by: user_id || null });
+    const saved = await sbAccounts('chequebook_voids', 'POST', { ledger_id, cheque_no: matched, reason: reason || null, created_by: user_id || null });
     if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
     return NextResponse.json({ result: 'success' });
   }
