@@ -27498,6 +27498,42 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // ledger_id in once it's known), since a physical chequebook belongs to
   // one specific account. "Used" is derived live from accounts.bills, not
   // stored as a flag, so deleting a range can never desync from history.
+  // This modal copy is deliberately kept to just add/view/delete ranges
+  // (a quick "while I'm already editing this ledger" convenience) — the
+  // fuller management (multiple chequebooks at once, marking a page
+  // wasted, browsing bills) lives in the dedicated Gateway > Chequebooks
+  // screen below, which has the room for it.
+
+  // One line per range ("101-150" / "101,150" / an en-dash), so several
+  // new chequebooks can be registered in one paste instead of one row at
+  // a time — shared by both the ledger-modal and Chequebooks-screen forms.
+  function _acParseChequeRangeLines(raw) {
+    const lines = String(raw || '').split('\n').map(s => s.trim()).filter(Boolean);
+    const parsed = [];
+    for (const line of lines) {
+      const m = line.match(/^(\d+)\s*[-–,]\s*(\d+)$/);
+      if (!m) return { error: `Could not read "${line}" — use e.g. 101-150, one range per line` };
+      parsed.push({ range_start: m[1], range_end: m[2] });
+    }
+    return { parsed };
+  }
+  // Sequential on purpose, not Promise.all — save_chequebook_range checks
+  // for overlap against whatever is already saved, so two ranges in the
+  // same paste must commit one at a time or an overlap between THEM
+  // (rather than against an existing row) could slip through uncaught.
+  function _acSubmitChequeRanges(ledgerId, parsed, onDone) {
+    let i = 0; const failed = [];
+    const next = () => {
+      if (i >= parsed.length) { onDone(failed); return; }
+      const r = parsed[i];
+      _accountsFetch('save_chequebook_range', { ledger_id: ledgerId, range_start: r.range_start, range_end: r.range_end }).then(res => {
+        if (!(res && res.result === 'success')) failed.push(`${r.range_start}-${r.range_end}: ${(res && res.message) || 'error'}`);
+        i++; next();
+      }).catch(() => { failed.push(`${r.range_start}-${r.range_end}: network error`); i++; next(); });
+    };
+    next();
+  }
+
   function _acRenderChequebookRanges(ledgerId) {
     const section = document.getElementById('acLedgerChequeSection');
     if (!section) return;
@@ -27506,11 +27542,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     section.innerHTML = `
       <p class="text-[10px] font-black text-slate-400 uppercase mb-2">Chequebook Page Ranges</p>
       <div id="acChequeRangeList" class="space-y-1 mb-2"><p class="text-slate-400 text-xs">Loading…</p></div>
-      <div class="flex items-center gap-2">
-        <input type="number" id="acChequeRangeStart" placeholder="From" class="w-1/3 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-        <input type="number" id="acChequeRangeEnd" placeholder="To" class="w-1/3 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-        <button onclick="_acAddChequeRange(${ledgerId})" class="px-2.5 py-1.5 bg-slate-100 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all">+ Add</button>
-      </div>
+      <textarea id="acChequeRangesInput" placeholder="e.g. 101-150 (one range per line for several chequebooks at once)" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" rows="2"></textarea>
+      <button onclick="_acAddChequeRange(${ledgerId})" class="mt-1 px-2.5 py-1.5 bg-slate-100 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all">+ Add Range(s)</button>
+      <p class="text-[10px] text-slate-400 mt-1">Manage wasted pages and see this account's bills under Gateway &gt; Chequebooks.</p>
     `;
     _acLoadChequeRangeList(ledgerId);
   }
@@ -27534,16 +27568,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
   }
   function _acAddChequeRange(ledgerId) {
-    const range_start = document.getElementById('acChequeRangeStart').value;
-    const range_end = document.getElementById('acChequeRangeEnd').value;
-    if (!range_start || !range_end) { showToast('Enter both a start and end page number', 'error'); return; }
-    _accountsFetch('save_chequebook_range', { ledger_id: ledgerId, range_start, range_end }).then(res => {
-      if (res && res.result === 'success') {
-        document.getElementById('acChequeRangeStart').value = '';
-        document.getElementById('acChequeRangeEnd').value = '';
-        _acLoadChequeRangeList(ledgerId);
-      } else showToast((res && res.message) || 'Failed to save', 'error');
-    }).catch(err => showToast(err.message, 'error'));
+    const { parsed, error } = _acParseChequeRangeLines(document.getElementById('acChequeRangesInput').value);
+    if (error) { showToast(error, 'error'); return; }
+    if (!parsed.length) { showToast('Enter at least one range, e.g. 101-150', 'error'); return; }
+    _acSubmitChequeRanges(ledgerId, parsed, failed => {
+      document.getElementById('acChequeRangesInput').value = '';
+      _acLoadChequeRangeList(ledgerId);
+      showToast(failed.length ? `${parsed.length - failed.length} saved, ${failed.length} failed — ${failed.join('; ')}` : `${parsed.length} range(s) saved`, failed.length ? 'error' : undefined);
+    });
   }
   function _acDeleteChequeRange(id, ledgerId) {
     showConfirm('Delete this cheque range?', () => {
@@ -27554,11 +27586,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
   }
 
-  // Gateway > Chequebooks — every bank/cash account with its own ranges
-  // section, so registering/reviewing chequebooks is organized by
-  // account in one screen instead of opening each ledger's Edit modal
-  // one at a time (that quick-access copy, _acRenderChequebookRanges
-  // above, stays too — same backend actions, just a second entry point).
+  // Gateway > Chequebooks — every bank/cash account with its own section:
+  // register one or several ranges at once, mark a specific page wasted/
+  // torn/spoiled (removed from the available pool without ever being
+  // tied to a real bill — accounts.chequebook_voids, separate from
+  // accounts.bills since a wasted page has no voucher or amount), and
+  // browse that account's bills (accounts.bills is exactly the flat,
+  // queryable table built for this — no reconstructing it through
+  // voucher_entries).
   function _acRenderChequebooksScreen(host) {
     const bankLedgers = _acLedgersCache.filter(l => l.account_groups && l.account_groups.nature === 'asset');
     if (!bankLedgers.length) {
@@ -27568,17 +27603,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     host.innerHTML = bankLedgers.map(l => `
       <div class="tp-group-head">${_escHtml(l.name)}</div>
       <div id="cbList-${l.id}" style="margin:4px 0 8px"><span class="tp-empty">Loading…</span></div>
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:20px">
-        <input type="number" id="cbStart-${l.id}" placeholder="From" class="tp-input" style="width:100px">
-        <input type="number" id="cbEnd-${l.id}" placeholder="To" class="tp-input" style="width:100px">
-        <button class="tp-inline-btn" onclick="_acCbAddRange(${l.id})">+ Add Range</button>
+      <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:8px">
+        <textarea id="cbRanges-${l.id}" placeholder="e.g. 101-150 (one range per line for several chequebooks at once)" class="tp-input" style="flex:1;height:44px;font-family:monospace;font-size:11px"></textarea>
+        <button class="tp-inline-btn" onclick="_acCbAddRange(${l.id})">+ Add Range(s)</button>
       </div>
+      <div id="cbWasted-${l.id}" style="margin-bottom:6px"></div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">
+        <input type="number" id="cbWasteNo-${l.id}" placeholder="Page no." class="tp-input" style="width:90px">
+        <input type="text" id="cbWasteReason-${l.id}" placeholder="Reason (torn, spoiled…)" class="tp-input" style="width:180px">
+        <button class="tp-inline-btn" onclick="_acCbMarkWasted(${l.id})">Mark Wasted</button>
+        <button class="tp-inline-btn" onclick="_acCbToggleBills(${l.id})" style="margin-left:auto">View Bills</button>
+      </div>
+      <div id="cbBills-${l.id}" class="hidden" style="margin-bottom:20px"></div>
     `).join('');
     bankLedgers.forEach(l => _acCbLoadList(l.id));
   }
   function _acCbLoadList(ledgerId) {
     _accountsFetch('get_chequebook_ranges', { ledger_id: ledgerId }).then(res => {
       const list = document.getElementById(`cbList-${ledgerId}`);
+      const wastedBox = document.getElementById(`cbWasted-${ledgerId}`);
       if (!list) return;
       if (!(res && res.result === 'success')) { list.innerHTML = '<span class="tp-empty">Failed to load.</span>'; return; }
       const usedSet = new Set(res.used);
@@ -27588,19 +27631,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         const total = r.range_end - r.range_start + 1;
         return `<span style="display:inline-block;background:#f1f5f9;border-radius:6px;padding:2px 8px;margin:0 6px 6px 0;font-size:11px">${r.range_start}–${r.range_end} (${usedCount}/${total} used) <a href="#" onclick="_acCbDeleteRange(${r.id},${ledgerId});return false" style="color:#dc2626;margin-left:4px">✕</a></span>`;
       }).join('') : '<span class="tp-empty">No ranges yet.</span>';
+      if (wastedBox) {
+        wastedBox.innerHTML = (res.wasted || []).length ? `<span style="font-size:11px;color:#94a3b8;margin-right:4px">Wasted:</span>` + res.wasted.map(w =>
+          `<span style="display:inline-block;background:#fef2f2;color:#b91c1c;border-radius:6px;padding:2px 8px;margin:0 6px 6px 0;font-size:11px" title="${_escHtml(w.reason || '')}">${_escHtml(w.cheque_no)}${w.reason ? ' — ' + _escHtml(w.reason) : ''} <a href="#" onclick="_acCbUnmarkWasted(${w.id},${ledgerId});return false" style="color:#b91c1c;margin-left:4px">✕</a></span>`
+        ).join('') : '';
+      }
     });
   }
   function _acCbAddRange(ledgerId) {
-    const range_start = document.getElementById(`cbStart-${ledgerId}`).value;
-    const range_end = document.getElementById(`cbEnd-${ledgerId}`).value;
-    if (!range_start || !range_end) { showToast('Enter both a start and end page number', 'error'); return; }
-    _accountsFetch('save_chequebook_range', { ledger_id: ledgerId, range_start, range_end }).then(res => {
-      if (res && res.result === 'success') {
-        document.getElementById(`cbStart-${ledgerId}`).value = '';
-        document.getElementById(`cbEnd-${ledgerId}`).value = '';
-        _acCbLoadList(ledgerId);
-      } else showToast((res && res.message) || 'Failed to save', 'error');
-    }).catch(err => showToast(err.message, 'error'));
+    const { parsed, error } = _acParseChequeRangeLines(document.getElementById(`cbRanges-${ledgerId}`).value);
+    if (error) { showToast(error, 'error'); return; }
+    if (!parsed.length) { showToast('Enter at least one range, e.g. 101-150', 'error'); return; }
+    _acSubmitChequeRanges(ledgerId, parsed, failed => {
+      document.getElementById(`cbRanges-${ledgerId}`).value = '';
+      _acCbLoadList(ledgerId);
+      showToast(failed.length ? `${parsed.length - failed.length} saved, ${failed.length} failed — ${failed.join('; ')}` : `${parsed.length} range(s) saved`, failed.length ? 'error' : undefined);
+    });
   }
   function _acCbDeleteRange(id, ledgerId) {
     showConfirm('Delete this cheque range?', () => {
@@ -27608,6 +27654,43 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         if (res && res.result === 'success') _acCbLoadList(ledgerId);
         else showToast((res && res.message) || 'Failed to delete', 'error');
       }).catch(err => showToast(err.message, 'error'));
+    });
+  }
+  function _acCbMarkWasted(ledgerId) {
+    const cheque_no = document.getElementById(`cbWasteNo-${ledgerId}`).value;
+    const reason = document.getElementById(`cbWasteReason-${ledgerId}`).value.trim();
+    if (!cheque_no) { showToast('Enter a page number', 'error'); return; }
+    _accountsFetch('mark_cheque_wasted', { ledger_id: ledgerId, cheque_no, reason }).then(res => {
+      if (res && res.result === 'success') {
+        document.getElementById(`cbWasteNo-${ledgerId}`).value = '';
+        document.getElementById(`cbWasteReason-${ledgerId}`).value = '';
+        _acCbLoadList(ledgerId);
+      } else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(err => showToast(err.message, 'error'));
+  }
+  function _acCbUnmarkWasted(id, ledgerId) {
+    showConfirm('Restore this page as available again?', () => {
+      _accountsFetch('unmark_cheque_wasted', { id }).then(res => {
+        if (res && res.result === 'success') _acCbLoadList(ledgerId);
+        else showToast((res && res.message) || 'Failed to restore', 'error');
+      }).catch(err => showToast(err.message, 'error'));
+    });
+  }
+  function _acCbToggleBills(ledgerId) {
+    const box = document.getElementById(`cbBills-${ledgerId}`);
+    if (!box) return;
+    if (!box.classList.contains('hidden')) { box.classList.add('hidden'); return; }
+    box.classList.remove('hidden');
+    box.innerHTML = '<p class="tp-empty">Loading…</p>';
+    _accountsFetch('get_bills', { bank_ledger_id: ledgerId }).then(res => {
+      if (!(res && res.result === 'success')) { box.innerHTML = '<p class="tp-empty">Failed to load.</p>'; return; }
+      if (!res.bills.length) { box.innerHTML = '<p class="tp-empty">No bills yet for this account.</p>'; return; }
+      box.innerHTML = `<table class="tp-table"><thead><tr><th>Date</th><th>Bill No.</th><th>Title</th><th>Ledger</th><th class="tp-num">Amount</th><th>Cheque</th><th></th></tr></thead><tbody>
+        ${res.bills.map(b => {
+          const ledger = _acLedgersCache.find(x => x.id === b.ledger_id);
+          return `<tr><td>${_escHtml(b.bill_date)}</td><td>${_escHtml(b.bill_number)}</td><td>${_escHtml(b.title || '—')}</td><td>${_escHtml(ledger ? ledger.name : '')}</td><td class="tp-num">${Number(b.amount).toLocaleString('en-IN')}</td><td>${_escHtml(b.cheque_no || '—')}</td><td><button class="tp-inline-btn" onclick="window.open('/bill/${b.voucher_id}','_blank')">View</button></td></tr>`;
+        }).join('')}
+      </tbody></table>`;
     });
   }
 

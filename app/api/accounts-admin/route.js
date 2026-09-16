@@ -293,17 +293,21 @@ export async function POST(req) {
   if (action === 'get_chequebook_ranges') {
     const { ledger_id } = payload;
     if (!ledger_id) return NextResponse.json({ result: 'error', message: 'Missing ledger_id' }, { status: 400 });
-    const [ranges, used] = await Promise.all([
+    const [ranges, used, voids] = await Promise.all([
       sbAccounts(`chequebook_ranges?ledger_id=eq.${encodeURIComponent(ledger_id)}&select=*&order=range_start.asc`),
       sbAccounts(`bills?bank_ledger_id=eq.${encodeURIComponent(ledger_id)}&cheque_no=not.is.null&select=cheque_no`),
+      sbAccounts(`chequebook_voids?ledger_id=eq.${encodeURIComponent(ledger_id)}&select=*&order=cheque_no.asc`),
     ]);
     if (ranges?.error) return NextResponse.json({ result: 'error', message: ranges.error }, { status: 500 });
+    if (voids?.error) return NextResponse.json({ result: 'error', message: voids.error }, { status: 500 });
     const usedSet = new Set((Array.isArray(used) ? used : []).map(b => String(b.cheque_no)));
+    const wastedList = Array.isArray(voids) ? voids : [];
+    const wastedSet = new Set(wastedList.map(w => String(w.cheque_no)));
     const available = [];
     (Array.isArray(ranges) ? ranges : []).forEach(r => {
-      for (let n = r.range_start; n <= r.range_end; n++) { if (!usedSet.has(String(n))) available.push(n); }
+      for (let n = r.range_start; n <= r.range_end; n++) { if (!usedSet.has(String(n)) && !wastedSet.has(String(n))) available.push(n); }
     });
-    return NextResponse.json({ result: 'success', ranges, used: Array.from(usedSet), available });
+    return NextResponse.json({ result: 'success', ranges, used: Array.from(usedSet), wasted: wastedList, available });
   }
 
   if (action === 'save_chequebook_range') {
@@ -328,6 +332,52 @@ export async function POST(req) {
     const res = await sbAccounts(`chequebook_ranges?id=eq.${encodeURIComponent(id)}`, 'DELETE');
     if (res?.error) return NextResponse.json({ result: 'error', message: res.error }, { status: 500 });
     return NextResponse.json({ result: 'success' });
+  }
+
+  // A page marked wasted was never actually paid out — no voucher, no
+  // amount — so it lives in its own table rather than accounts.bills.
+  // Only a page that's (a) inside a registered range, (b) not already
+  // used on a real bill, and (c) not already marked wasted can be marked.
+  if (action === 'mark_cheque_wasted') {
+    const { ledger_id, cheque_no, reason } = payload;
+    if (!ledger_id || !cheque_no) return NextResponse.json({ result: 'error', message: 'Account and page number are required' }, { status: 400 });
+    const n = String(Number(cheque_no));
+    const [ranges, usedRows, voidRows] = await Promise.all([
+      sbAccounts(`chequebook_ranges?ledger_id=eq.${encodeURIComponent(ledger_id)}&select=range_start,range_end`),
+      sbAccounts(`bills?bank_ledger_id=eq.${encodeURIComponent(ledger_id)}&cheque_no=eq.${encodeURIComponent(n)}&select=bill_number&limit=1`),
+      sbAccounts(`chequebook_voids?ledger_id=eq.${encodeURIComponent(ledger_id)}&cheque_no=eq.${encodeURIComponent(n)}&select=id&limit=1`),
+    ]);
+    const inRange = Array.isArray(ranges) && ranges.some(r => Number(n) >= r.range_start && Number(n) <= r.range_end);
+    if (!inRange) return NextResponse.json({ result: 'error', message: 'That page number is not in any registered range for this account' }, { status: 400 });
+    if (Array.isArray(usedRows) && usedRows.length) return NextResponse.json({ result: 'error', message: `Already used on bill ${usedRows[0].bill_number}` }, { status: 400 });
+    if (Array.isArray(voidRows) && voidRows.length) return NextResponse.json({ result: 'error', message: 'Already marked wasted' }, { status: 400 });
+    const saved = await sbAccounts('chequebook_voids', 'POST', { ledger_id, cheque_no: n, reason: reason || null, created_by: user_id || null });
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'unmark_cheque_wasted') {
+    const { id } = payload;
+    if (!id) return NextResponse.json({ result: 'error', message: 'Missing id' }, { status: 400 });
+    const res = await sbAccounts(`chequebook_voids?id=eq.${encodeURIComponent(id)}`, 'DELETE');
+    if (res?.error) return NextResponse.json({ result: 'error', message: res.error }, { status: 500 });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // "See the bills under an account" — the whole reason accounts.bills is
+  // its own flat table: no need to reconstruct this by joining back
+  // through voucher_entries. Ledger/Group names are resolved client-side
+  // from the already-loaded _acLedgersCache/_acGroupsCache instead of
+  // embedding them here, which would need a !constraint-name hint anyway
+  // since bills has two separate FKs into ledgers (ledger_id and
+  // bank_ledger_id).
+  if (action === 'get_bills') {
+    const { bank_ledger_id } = payload;
+    let q = 'bills?select=*&order=bill_date.desc,id.desc';
+    if (bank_ledger_id) q += `&bank_ledger_id=eq.${encodeURIComponent(bank_ledger_id)}`;
+    const rows = await sbAccounts(q);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', bills: rows });
   }
 
   // ── Reports ──

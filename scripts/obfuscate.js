@@ -277,7 +277,7 @@ const RESERVED = [
   '_acBillOnAccountChange','_acBillRefreshNumber','_acBillShowGroup','_acBillRecalcWords',
   '_acAddChequeRange','_acDeleteChequeRange',
   // Gateway > Chequebooks screen (per-account ranges, second entry point)
-  '_acCbAddRange','_acCbDeleteRange',
+  '_acCbAddRange','_acCbDeleteRange','_acCbMarkWasted','_acCbUnmarkWasted','_acCbToggleBills',
   // Transport tab native port (incl. Bus/GPS Config)
   'loadAdminTransportView','switchTransportTab','saveTransportRoute',
   'saveTransportVehicle','saveTransportPickupPoint','saveTransportFeeMaster',
