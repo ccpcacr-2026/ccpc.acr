@@ -210,6 +210,126 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success' });
   }
 
+  // ── Bills (Create > Bill) ──
+  // A Bill is a specially-templated Payment voucher: one expense ledger,
+  // one bank/cash ledger, one amount — always exactly the two
+  // voucher_entries a balanced voucher needs. accounts.bills is a flat,
+  // one-row-per-bill history table alongside that (bill number, date,
+  // title, description, group, ledger, cheque no.) — see
+  // migration_bill_creation.sql — so a Bill's own fields are queryable
+  // directly without reconstructing them through voucher_entries. Trial
+  // Balance/P&L/Balance Sheet/Day Book are untouched by any of this: they
+  // still just read voucher_entries like they always have.
+  async function _nextBillSerial(bank_ledger_id, bill_date) {
+    const d = new Date(bill_date);
+    const y = d.getFullYear(), m = d.getMonth() + 1;
+    const monthStart = `${y}-${String(m).padStart(2, '0')}-01`;
+    const nextMonth = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`;
+    const existing = await sbAccounts(`bills?bank_ledger_id=eq.${encodeURIComponent(bank_ledger_id)}&bill_date=gte.${monthStart}&bill_date=lt.${nextMonth}&select=id`);
+    const serial = (Array.isArray(existing) ? existing.length : 0) + 1;
+    return { serial, mm: String(m).padStart(2, '0'), yyyy: String(y) };
+  }
+
+  if (action === 'preview_bill_number') {
+    const { bank_ledger_id, bill_date } = payload;
+    if (!bank_ledger_id || !bill_date) return NextResponse.json({ result: 'error', message: 'Account and date are required' }, { status: 400 });
+    const ledgerRows = await sbAccounts(`ledgers?id=eq.${encodeURIComponent(bank_ledger_id)}&select=name`);
+    const ledgerName = Array.isArray(ledgerRows) && ledgerRows[0] && ledgerRows[0].name;
+    if (!ledgerName) return NextResponse.json({ result: 'error', message: 'Account not found' }, { status: 404 });
+    const { serial, mm, yyyy } = await _nextBillSerial(bank_ledger_id, bill_date);
+    return NextResponse.json({ result: 'success', bill_number: `${serial}/${mm}/${yyyy}-${ledgerName}` });
+  }
+
+  if (action === 'save_bill') {
+    const { bill_date, title, description, amount, ledger_id, bank_ledger_id, cheque_no } = payload;
+    if (!bill_date || !ledger_id || !bank_ledger_id || !(Number(amount) > 0)) {
+      return NextResponse.json({ result: 'error', message: 'Date, ledger, account and a positive amount are required' }, { status: 400 });
+    }
+    if (String(ledger_id) === String(bank_ledger_id)) {
+      return NextResponse.json({ result: 'error', message: 'Expense ledger and paying account must be different' }, { status: 400 });
+    }
+    if (cheque_no) {
+      const clash = await sbAccounts(`bills?bank_ledger_id=eq.${encodeURIComponent(bank_ledger_id)}&cheque_no=eq.${encodeURIComponent(cheque_no)}&select=id&limit=1`);
+      if (Array.isArray(clash) && clash.length) return NextResponse.json({ result: 'error', message: 'That cheque number has already been used' }, { status: 400 });
+    }
+    const [ledgerRows, bankLedgerRows] = await Promise.all([
+      sbAccounts(`ledgers?id=eq.${encodeURIComponent(ledger_id)}&select=name,group_id`),
+      sbAccounts(`ledgers?id=eq.${encodeURIComponent(bank_ledger_id)}&select=name`),
+    ]);
+    const ledger = Array.isArray(ledgerRows) && ledgerRows[0];
+    const bankLedger = Array.isArray(bankLedgerRows) && bankLedgerRows[0];
+    if (!ledger || !bankLedger) return NextResponse.json({ result: 'error', message: 'Ledger not found' }, { status: 404 });
+
+    // Authoritative — recomputed here rather than trusting whatever
+    // number the client last previewed, in case something else was
+    // saved against this account in the meantime.
+    const { serial, mm, yyyy } = await _nextBillSerial(bank_ledger_id, bill_date);
+    const billNumber = `${serial}/${mm}/${yyyy}-${bankLedger.name}`;
+
+    const savedVoucher = await sbAccounts('vouchers', 'POST', {
+      voucher_type: 'Payment', voucher_number: billNumber, voucher_date: bill_date,
+      narration: description || null, created_by: user_id || null,
+    });
+    if (savedVoucher?.error) return NextResponse.json({ result: 'error', message: savedVoucher.error }, { status: 500 });
+    const voucherId = Array.isArray(savedVoucher) && savedVoucher[0] && savedVoucher[0].id;
+
+    const savedEntries = await sbAccounts('voucher_entries', 'POST', [
+      { voucher_id: voucherId, ledger_id, debit: Number(amount), credit: 0, narration: description || null },
+      { voucher_id: voucherId, ledger_id: bank_ledger_id, debit: 0, credit: Number(amount), narration: description || null },
+    ]);
+    if (savedEntries?.error) return NextResponse.json({ result: 'error', message: savedEntries.error }, { status: 500 });
+
+    const savedBill = await sbAccounts('bills', 'POST', {
+      voucher_id: voucherId, bill_number: billNumber, bill_date, title: title || null, description: description || null,
+      group_id: ledger.group_id, ledger_id, bank_ledger_id, cheque_no: cheque_no || null, amount: Number(amount),
+      created_by: user_id || null,
+    });
+    if (savedBill?.error) return NextResponse.json({ result: 'error', message: savedBill.error }, { status: 500 });
+
+    return NextResponse.json({ result: 'success', voucher_id: voucherId, bill_number: billNumber });
+  }
+
+  // ── Chequebook ranges (per bank/cash ledger) ──
+  if (action === 'get_chequebook_ranges') {
+    const { ledger_id } = payload;
+    if (!ledger_id) return NextResponse.json({ result: 'error', message: 'Missing ledger_id' }, { status: 400 });
+    const [ranges, used] = await Promise.all([
+      sbAccounts(`chequebook_ranges?ledger_id=eq.${encodeURIComponent(ledger_id)}&select=*&order=range_start.asc`),
+      sbAccounts(`bills?bank_ledger_id=eq.${encodeURIComponent(ledger_id)}&cheque_no=not.is.null&select=cheque_no`),
+    ]);
+    if (ranges?.error) return NextResponse.json({ result: 'error', message: ranges.error }, { status: 500 });
+    const usedSet = new Set((Array.isArray(used) ? used : []).map(b => String(b.cheque_no)));
+    const available = [];
+    (Array.isArray(ranges) ? ranges : []).forEach(r => {
+      for (let n = r.range_start; n <= r.range_end; n++) { if (!usedSet.has(String(n))) available.push(n); }
+    });
+    return NextResponse.json({ result: 'success', ranges, used: Array.from(usedSet), available });
+  }
+
+  if (action === 'save_chequebook_range') {
+    const { ledger_id, range_start, range_end } = payload;
+    const start = Number(range_start), end = Number(range_end);
+    if (!ledger_id || !Number.isInteger(start) || !Number.isInteger(end) || end < start) {
+      return NextResponse.json({ result: 'error', message: 'A valid ledger and range are required' }, { status: 400 });
+    }
+    if (end - start > 1000) return NextResponse.json({ result: 'error', message: 'Range too large (max 1000 cheque leaves at a time)' }, { status: 400 });
+    const existing = await sbAccounts(`chequebook_ranges?ledger_id=eq.${encodeURIComponent(ledger_id)}&select=range_start,range_end`);
+    if (Array.isArray(existing) && existing.some(r => start <= r.range_end && end >= r.range_start)) {
+      return NextResponse.json({ result: 'error', message: 'This range overlaps an existing one for this account' }, { status: 400 });
+    }
+    const saved = await sbAccounts('chequebook_ranges', 'POST', { ledger_id, range_start: start, range_end: end });
+    if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+    return NextResponse.json({ result: 'success', range: Array.isArray(saved) ? saved[0] : saved });
+  }
+
+  if (action === 'delete_chequebook_range') {
+    const { id } = payload;
+    if (!id) return NextResponse.json({ result: 'error', message: 'Missing id' }, { status: 400 });
+    const res = await sbAccounts(`chequebook_ranges?id=eq.${encodeURIComponent(id)}`, 'DELETE');
+    if (res?.error) return NextResponse.json({ result: 'error', message: res.error }, { status: 500 });
+    return NextResponse.json({ result: 'success' });
+  }
+
   // ── Reports ──
   // Trial Balance: every ledger's net closing balance as of a date (or
   // all time if omitted), split into a Debit or Credit column the way

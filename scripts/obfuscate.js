@@ -273,6 +273,11 @@ const RESERVED = [
   '_acLoadVouchers','_acLoadTrialBalance',
   // TallyPrime-emulation screen stack — onclick/onmouseenter-referenced
   '_acPop','_acActivateMenuItem','_acMenuHover','_acOpenVoucherScreen','_acAccept','_acMobileGo','_acActivateGatewayItem',
+  // Create > Bill screen + its chequebook-range picker on the Ledger modal
+  '_acBillOnAccountChange','_acBillRefreshNumber','_acBillShowGroup','_acBillRecalcWords',
+  '_acAddChequeRange','_acDeleteChequeRange',
+  // Gateway > Chequebooks screen (per-account ranges, second entry point)
+  '_acCbAddRange','_acCbDeleteRange',
   // Transport tab native port (incl. Bus/GPS Config)
   'loadAdminTransportView','switchTransportTab','saveTransportRoute',
   'saveTransportVehicle','saveTransportPickupPoint','saveTransportFeeMaster',

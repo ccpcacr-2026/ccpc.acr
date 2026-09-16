@@ -26270,6 +26270,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { label: 'Create', hot: 'C', go: 'create' },
     { label: 'Alter', hot: 'A', go: 'chart' },
     { label: 'Chart of Accounts', hot: 'H', go: 'chart' },
+    { label: 'Chequebooks', hot: 'Q', go: 'chequebooks' },
     { section: 'Transactions' },
     { label: 'Vouchers', hot: 'V', go: 'voucher', params: { type: 'Payment' } },
     { label: 'Day Book', hot: 'D', go: 'daybook' },
@@ -26499,6 +26500,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!document.getElementById('acGroupModal').classList.contains('hidden')) { _acSaveGroup(); return; }
     const top = _acStack[_acStack.length - 1];
     if (top.id === 'voucher') _acSaveVoucherScreen();
+    if (top.id === 'bill') _acSaveBillScreen();
   }
 
   function _acTeardown() {
@@ -26588,6 +26590,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </div>
             <label class="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase cursor-pointer"><input type="checkbox" id="acLedgerActive" checked class="w-4 h-4 rounded accent-blue-600">Active</label>
           </div>
+          <div id="acLedgerChequeSection" class="hidden mt-3 pt-3 border-t border-slate-100"></div>
           <button onclick="_acSaveLedger()" class="w-full mt-4 py-3 bg-blue-600 text-white font-black text-xs uppercase tracking-widest rounded-xl hover:bg-black transition-all">Save</button>
         </div>
       </div>
@@ -27097,6 +27100,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('acLedgerOpening').value = l ? l.opening_balance : 0;
     document.getElementById('acLedgerOpeningDate').value = l && l.opening_balance_date ? String(l.opening_balance_date).slice(0, 10) : '';
     document.getElementById('acLedgerActive').checked = l ? !!l.is_active : true;
+    _acRenderChequebookRanges(id);
     document.getElementById('acLedgerModal').classList.remove('hidden');
     lucide.createIcons();
   }
@@ -27319,6 +27323,294 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }).catch(err => showToast(err.message, 'error'));
   }
 
+  // ── Bills (Create > Bill) ── one description + one amount per bill,
+  // not a repeating item grid — Date + Pay-From account auto-generate the
+  // Bill No. live, Ledger auto-fills its Group, Amount auto-fills its
+  // Bengali words live. Still saves as a real balanced Payment voucher
+  // (save_bill on the backend creates the voucher + its two entries AND
+  // the flat accounts.bills history row in one call) so Trial Balance/
+  // P&L/Balance Sheet/Day Book need no changes at all.
+
+  // Client-side twin of the exact same table/logic in
+  // app/bill/[id]/route.js's amountInWordsBn — there's no shared-import
+  // path between app/ (server) and _src/ (browser bundle), so this is a
+  // deliberate, manually-kept-in-sync duplicate, not accidental drift.
+  const _AC_BN_ONES = [
+    'শূন্য', 'এক', 'দুই', 'তিন', 'চার', 'পাঁচ', 'ছয়', 'সাত', 'আট', 'নয়', 'দশ',
+    'এগার', 'বার', 'তের', 'চৌদ্দ', 'পনের', 'ষোল', 'সতের', 'আঠার', 'উনিশ', 'বিশ',
+    'একুশ', 'বাইশ', 'তেইশ', 'চব্বিশ', 'পঁচিশ', 'ছাব্বিশ', 'সাতাশ', 'আটাশ', 'ঊনত্রিশ', 'ত্রিশ',
+    'একত্রিশ', 'বত্রিশ', 'তেত্রিশ', 'চৌত্রিশ', 'পঁয়ত্রিশ', 'ছত্রিশ', 'সাঁইত্রিশ', 'আটত্রিশ', 'ঊনচল্লিশ', 'চল্লিশ',
+    'একচল্লিশ', 'বিয়াল্লিশ', 'তেতাল্লিশ', 'চুয়াল্লিশ', 'পঁয়তাল্লিশ', 'ছেচল্লিশ', 'সাতচল্লিশ', 'আটচল্লিশ', 'ঊনপঞ্চাশ', 'পঞ্চাশ',
+    'একান্ন', 'বাহান্ন', 'তিপ্পান্ন', 'চুয়ান্ন', 'পঞ্চান্ন', 'ছাপ্পান্ন', 'সাতান্ন', 'আটান্ন', 'ঊনষাট', 'ষাট',
+    'একষট্টি', 'বাষট্টি', 'তেষট্টি', 'চৌষট্টি', 'পঁয়ষট্টি', 'ছেষট্টি', 'সাতষট্টি', 'আটষট্টি', 'ঊনসত্তর', 'সত্তর',
+    'একাত্তর', 'বাহাত্তর', 'তিয়াত্তর', 'চুয়াত্তর', 'পঁচাত্তর', 'ছিয়াত্তর', 'সাতাত্তর', 'আটাত্তর', 'ঊনআশি', 'আশি',
+    'একাশি', 'বিরাশি', 'তিরাশি', 'চুরাশি', 'পঁচাশি', 'ছিয়াশি', 'সাতাশি', 'আটাশি', 'ঊননব্বই', 'নব্বই',
+    'একানব্বই', 'বিরানব্বই', 'তিরানব্বই', 'চুরানব্বই', 'পঁচানব্বই', 'ছিয়ানব্বই', 'সাতানব্বই', 'আটানব্বই', 'নিরানব্বই',
+  ];
+  function _acBnTwoDigit(n) { return n === 0 ? '' : _AC_BN_ONES[n]; }
+  function _acBnThreeDigit(n) {
+    if (n === 0) return '';
+    const hundred = Math.floor(n / 100);
+    const rest = n % 100;
+    const parts = [];
+    if (hundred) parts.push(_AC_BN_ONES[hundred] + ' শত');
+    if (rest) parts.push(_acBnTwoDigit(rest));
+    return parts.join(' ');
+  }
+  function _acAmountInWordsBn(amount) {
+    const n = Math.abs(Number(amount) || 0);
+    const taka = Math.floor(n);
+    const poisha = Math.round((n - taka) * 100);
+    const crore = Math.floor(taka / 10000000);
+    const lakh = Math.floor((taka % 10000000) / 100000);
+    const thousand = Math.floor((taka % 100000) / 1000);
+    const rest = taka % 1000;
+    const parts = [];
+    if (crore) parts.push(_acBnTwoDigit(crore) + ' কোটি');
+    if (lakh) parts.push(_acBnTwoDigit(lakh) + ' লক্ষ');
+    if (thousand) parts.push(_acBnTwoDigit(thousand) + ' হাজার');
+    if (rest) parts.push(_acBnThreeDigit(rest));
+    let words = parts.length ? parts.join(' ') : 'শূন্য';
+    words += ' টাকা';
+    if (poisha) words += ' ' + _acBnTwoDigit(poisha) + ' পয়সা';
+    return words + ' মাত্র';
+  }
+
+  // "Pay From" is restricted to asset-nature ledgers (a reasonable proxy
+  // for "bank/cash account" — nothing in the schema marks a ledger as
+  // specifically Bank/Cash beyond its Group's nature); "Ledger (Expense)"
+  // deliberately isn't filtered, same as real Tally doesn't restrict it.
+  function _acBillBankLedgerOptions() {
+    return _acLedgersCache.filter(l => l.account_groups && l.account_groups.nature === 'asset')
+      .map(l => `<option value="${l.id}">${_escHtml(l.name)}</option>`).join('');
+  }
+  function _acBillLedgerOptions() {
+    return _acLedgersCache.map(l => `<option value="${l.id}">${_escHtml(l.name)}</option>`).join('');
+  }
+
+  function _acRenderBillScreen(host) {
+    host.innerHTML = `
+      <div class="tp-voucher-head">
+        <div><span class="tp-field-label">Pay From (Bank/Cash A/C)</span><select id="billBankLedger" data-tp-field class="tp-input" onchange="_acBillOnAccountChange()"><option value="">Select account…</option>${_acBillBankLedgerOptions()}</select></div>
+        <div><span class="tp-field-label">Date</span><input type="date" id="billDate" data-tp-field class="tp-input" value="${new Date().toISOString().slice(0, 10)}" onchange="_acBillRefreshNumber()"></div>
+        <div><span class="tp-field-label">Bill No.</span><div id="billNumberPreview" style="color:#ffff00;font-weight:bold">—</div></div>
+      </div>
+      <div style="margin-bottom:10px">
+        <span class="tp-field-label">Title</span>
+        <input type="text" id="billTitle" data-tp-field class="tp-input">
+      </div>
+      <div style="margin-bottom:10px">
+        <span class="tp-field-label">Description</span>
+        <input type="text" id="billDescription" data-tp-field class="tp-input">
+      </div>
+      <div style="display:flex;gap:10px;margin-bottom:10px">
+        <div style="flex:1"><span class="tp-field-label">Amount</span><input type="number" step="0.01" id="billAmount" data-tp-field class="tp-input" oninput="_acBillRecalcWords()"></div>
+        <div style="flex:2"><span class="tp-field-label">In Words</span><div id="billAmountWords" style="font-style:italic;font-size:12px;padding-top:6px">—</div></div>
+      </div>
+      <div style="display:flex;gap:10px;margin-bottom:10px">
+        <div style="flex:1"><span class="tp-field-label">Ledger (Expense)</span><select id="billLedger" data-tp-field class="tp-input" onchange="_acBillShowGroup()"><option value="">Select ledger…</option>${_acBillLedgerOptions()}</select></div>
+        <div style="flex:1"><span class="tp-field-label">Fund / Group</span><div id="billGroupDisplay" class="tp-input" style="background:#f1f5f9">—</div></div>
+      </div>
+      <div style="margin-bottom:10px">
+        <span class="tp-field-label">Cheque No.</span>
+        <select id="billChequeNo" data-tp-field class="tp-input"><option value="">— None / Cash —</option></select>
+        <div id="billChequeHint" style="font-size:11px;color:#94a3b8;margin-top:2px"></div>
+      </div>
+      <button class="tp-inline-btn" style="margin-top:10px" onclick="_acAccept()">Accept (Ctrl+A)</button>
+    `;
+    _acBillRefreshNumber();
+    const acctField = document.getElementById('billBankLedger');
+    if (acctField) acctField.focus();
+  }
+
+  function _acBillOnAccountChange() {
+    _acBillRefreshNumber();
+    _acBillLoadChequeOptions();
+  }
+
+  function _acBillRefreshNumber() {
+    const bankLedgerId = document.getElementById('billBankLedger').value;
+    const billDate = document.getElementById('billDate').value;
+    const preview = document.getElementById('billNumberPreview');
+    if (!bankLedgerId || !billDate) { preview.textContent = '—'; return; }
+    preview.textContent = '…';
+    _accountsFetch('preview_bill_number', { bank_ledger_id: bankLedgerId, bill_date: billDate }).then(res => {
+      preview.textContent = (res && res.result === 'success') ? res.bill_number : '—';
+    }).catch(() => { preview.textContent = '—'; });
+  }
+
+  function _acBillLoadChequeOptions() {
+    const bankLedgerId = document.getElementById('billBankLedger').value;
+    const sel = document.getElementById('billChequeNo');
+    const hint = document.getElementById('billChequeHint');
+    sel.innerHTML = '<option value="">— None / Cash —</option>';
+    hint.innerHTML = '';
+    if (!bankLedgerId) return;
+    _accountsFetch('get_chequebook_ranges', { ledger_id: bankLedgerId }).then(res => {
+      if (!(res && res.result === 'success')) return;
+      if (!res.available.length) {
+        hint.innerHTML = `No cheque ranges registered for this account — <a href="#" onclick="_acOpenLedgerForm(${Number(bankLedgerId)});return false" style="color:#2563eb">add one</a>.`;
+        return;
+      }
+      sel.innerHTML += res.available.map(n => `<option value="${n}">${n}</option>`).join('');
+    });
+  }
+
+  function _acBillShowGroup() {
+    const ledgerId = Number(document.getElementById('billLedger').value);
+    const disp = document.getElementById('billGroupDisplay');
+    const ledger = _acLedgersCache.find(l => l.id === ledgerId);
+    const group = ledger ? _acGroupsCache.find(g => g.id === ledger.group_id) : null;
+    disp.textContent = group ? group.name : '—';
+  }
+
+  function _acBillRecalcWords() {
+    const amount = Number(document.getElementById('billAmount').value) || 0;
+    document.getElementById('billAmountWords').textContent = amount > 0 ? _acAmountInWordsBn(amount) : '—';
+  }
+
+  function _acSaveBillScreen() {
+    const bank_ledger_id = document.getElementById('billBankLedger').value;
+    const bill_date = document.getElementById('billDate').value;
+    const title = document.getElementById('billTitle').value.trim();
+    const description = document.getElementById('billDescription').value.trim();
+    const amount = document.getElementById('billAmount').value;
+    const ledger_id = document.getElementById('billLedger').value;
+    const cheque_no = document.getElementById('billChequeNo').value;
+    if (!bank_ledger_id) { showToast('Select the paying account', 'error'); return; }
+    if (!bill_date) { showToast('Date is required', 'error'); return; }
+    if (!ledger_id) { showToast('Select the expense ledger', 'error'); return; }
+    if (!(Number(amount) > 0)) { showToast('Enter a valid amount', 'error'); return; }
+    if (ledger_id === bank_ledger_id) { showToast('Expense ledger and paying account must be different', 'error'); return; }
+    _accountsFetch('save_bill', { bill_date, title, description, amount, ledger_id, bank_ledger_id, cheque_no }).then(res => {
+      if (res && res.result === 'success') {
+        showToast(`Bill ${res.bill_number} saved`);
+        Promise.all([_acLoadVouchers({ from_date: '', to_date: '' }), _acLoadLedgers()]).then(() => {
+          _acPop();
+          window.open(`/bill/${res.voucher_id}?print=1`, '_blank');
+        });
+      } else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(err => showToast(err.message, 'error'));
+  }
+
+  // Chequebook page-number ranges for a bank/cash ledger — managed from
+  // that ledger's own edit modal (_acOpenLedgerForm below adds the
+  // ledger_id in once it's known), since a physical chequebook belongs to
+  // one specific account. "Used" is derived live from accounts.bills, not
+  // stored as a flag, so deleting a range can never desync from history.
+  function _acRenderChequebookRanges(ledgerId) {
+    const section = document.getElementById('acLedgerChequeSection');
+    if (!section) return;
+    if (!ledgerId) { section.classList.add('hidden'); section.innerHTML = ''; return; }
+    section.classList.remove('hidden');
+    section.innerHTML = `
+      <p class="text-[10px] font-black text-slate-400 uppercase mb-2">Chequebook Page Ranges</p>
+      <div id="acChequeRangeList" class="space-y-1 mb-2"><p class="text-slate-400 text-xs">Loading…</p></div>
+      <div class="flex items-center gap-2">
+        <input type="number" id="acChequeRangeStart" placeholder="From" class="w-1/3 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+        <input type="number" id="acChequeRangeEnd" placeholder="To" class="w-1/3 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+        <button onclick="_acAddChequeRange(${ledgerId})" class="px-2.5 py-1.5 bg-slate-100 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all">+ Add</button>
+      </div>
+    `;
+    _acLoadChequeRangeList(ledgerId);
+  }
+  function _acLoadChequeRangeList(ledgerId) {
+    _accountsFetch('get_chequebook_ranges', { ledger_id: ledgerId }).then(res => {
+      const list = document.getElementById('acChequeRangeList');
+      if (!list) return;
+      if (!(res && res.result === 'success')) { list.innerHTML = '<p class="text-slate-400 text-xs">Failed to load.</p>'; return; }
+      const usedSet = new Set(res.used);
+      list.innerHTML = res.ranges.length ? res.ranges.map(r => {
+        let usedCount = 0;
+        for (let n = r.range_start; n <= r.range_end; n++) if (usedSet.has(String(n))) usedCount++;
+        const total = r.range_end - r.range_start + 1;
+        return `<div class="flex items-center justify-between text-xs bg-slate-50 rounded-lg px-2.5 py-1.5">
+          <span class="font-bold">${r.range_start}–${r.range_end}</span>
+          <span class="text-slate-400">${usedCount}/${total} used</span>
+          <button onclick="_acDeleteChequeRange(${r.id},${ledgerId})" class="text-red-400 hover:text-red-600"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+        </div>`;
+      }).join('') : '<p class="text-slate-400 text-xs">No ranges yet.</p>';
+      lucide.createIcons();
+    });
+  }
+  function _acAddChequeRange(ledgerId) {
+    const range_start = document.getElementById('acChequeRangeStart').value;
+    const range_end = document.getElementById('acChequeRangeEnd').value;
+    if (!range_start || !range_end) { showToast('Enter both a start and end page number', 'error'); return; }
+    _accountsFetch('save_chequebook_range', { ledger_id: ledgerId, range_start, range_end }).then(res => {
+      if (res && res.result === 'success') {
+        document.getElementById('acChequeRangeStart').value = '';
+        document.getElementById('acChequeRangeEnd').value = '';
+        _acLoadChequeRangeList(ledgerId);
+      } else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(err => showToast(err.message, 'error'));
+  }
+  function _acDeleteChequeRange(id, ledgerId) {
+    showConfirm('Delete this cheque range?', () => {
+      _accountsFetch('delete_chequebook_range', { id }).then(res => {
+        if (res && res.result === 'success') _acLoadChequeRangeList(ledgerId);
+        else showToast((res && res.message) || 'Failed to delete', 'error');
+      }).catch(err => showToast(err.message, 'error'));
+    });
+  }
+
+  // Gateway > Chequebooks — every bank/cash account with its own ranges
+  // section, so registering/reviewing chequebooks is organized by
+  // account in one screen instead of opening each ledger's Edit modal
+  // one at a time (that quick-access copy, _acRenderChequebookRanges
+  // above, stays too — same backend actions, just a second entry point).
+  function _acRenderChequebooksScreen(host) {
+    const bankLedgers = _acLedgersCache.filter(l => l.account_groups && l.account_groups.nature === 'asset');
+    if (!bankLedgers.length) {
+      host.innerHTML = '<div class="tp-empty">No bank/cash ledgers yet — create one under Create &gt; Ledger first (Group nature must be Asset).</div>';
+      return;
+    }
+    host.innerHTML = bankLedgers.map(l => `
+      <div class="tp-group-head">${_escHtml(l.name)}</div>
+      <div id="cbList-${l.id}" style="margin:4px 0 8px"><span class="tp-empty">Loading…</span></div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:20px">
+        <input type="number" id="cbStart-${l.id}" placeholder="From" class="tp-input" style="width:100px">
+        <input type="number" id="cbEnd-${l.id}" placeholder="To" class="tp-input" style="width:100px">
+        <button class="tp-inline-btn" onclick="_acCbAddRange(${l.id})">+ Add Range</button>
+      </div>
+    `).join('');
+    bankLedgers.forEach(l => _acCbLoadList(l.id));
+  }
+  function _acCbLoadList(ledgerId) {
+    _accountsFetch('get_chequebook_ranges', { ledger_id: ledgerId }).then(res => {
+      const list = document.getElementById(`cbList-${ledgerId}`);
+      if (!list) return;
+      if (!(res && res.result === 'success')) { list.innerHTML = '<span class="tp-empty">Failed to load.</span>'; return; }
+      const usedSet = new Set(res.used);
+      list.innerHTML = res.ranges.length ? res.ranges.map(r => {
+        let usedCount = 0;
+        for (let n = r.range_start; n <= r.range_end; n++) if (usedSet.has(String(n))) usedCount++;
+        const total = r.range_end - r.range_start + 1;
+        return `<span style="display:inline-block;background:#f1f5f9;border-radius:6px;padding:2px 8px;margin:0 6px 6px 0;font-size:11px">${r.range_start}–${r.range_end} (${usedCount}/${total} used) <a href="#" onclick="_acCbDeleteRange(${r.id},${ledgerId});return false" style="color:#dc2626;margin-left:4px">✕</a></span>`;
+      }).join('') : '<span class="tp-empty">No ranges yet.</span>';
+    });
+  }
+  function _acCbAddRange(ledgerId) {
+    const range_start = document.getElementById(`cbStart-${ledgerId}`).value;
+    const range_end = document.getElementById(`cbEnd-${ledgerId}`).value;
+    if (!range_start || !range_end) { showToast('Enter both a start and end page number', 'error'); return; }
+    _accountsFetch('save_chequebook_range', { ledger_id: ledgerId, range_start, range_end }).then(res => {
+      if (res && res.result === 'success') {
+        document.getElementById(`cbStart-${ledgerId}`).value = '';
+        document.getElementById(`cbEnd-${ledgerId}`).value = '';
+        _acCbLoadList(ledgerId);
+      } else showToast((res && res.message) || 'Failed to save', 'error');
+    }).catch(err => showToast(err.message, 'error'));
+  }
+  function _acCbDeleteRange(id, ledgerId) {
+    showConfirm('Delete this cheque range?', () => {
+      _accountsFetch('delete_chequebook_range', { id }).then(res => {
+        if (res && res.result === 'success') _acCbLoadList(ledgerId);
+        else showToast((res && res.message) || 'Failed to delete', 'error');
+      }).catch(err => showToast(err.message, 'error'));
+    });
+  }
+
   // Trial Balance / P&L / Balance Sheet all derive from ONE fetch — no
   // new backend action needed, get_trial_balance already returns each
   // row's nature and group_name. Cached so switching between the three
@@ -27487,15 +27779,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           { label: 'Ledger', hot: 'L', action: () => _acOpenLedgerForm(null) },
           { label: 'Group', hot: 'G', action: () => _acOpenGroupForm(null) },
           { label: 'Voucher', hot: 'V', go: 'voucher', params: { type: 'Payment' } },
+          { label: 'Bill', hot: 'B', go: 'bill' },
         ];
         _acCurrentMenuItems = items;
         host.innerHTML = `<div class="tp-menu-panel">${_acMenuHtml(items, _acMenuIndex)}</div>`;
       },
     },
     chart: { title: 'Chart of Accounts', render: _acRenderChart },
+    chequebooks: { title: 'Chequebooks', render: _acRenderChequebooksScreen },
     voucher: {
       title: 'Voucher Entry', render: _acRenderVoucherScreen,
       buttons: () => [{ key: 'Ctrl+A', label: 'Accept', onclick: '_acAccept()' }, { key: 'Alt+C', label: 'Create Ledger', onclick: '_acOpenLedgerForm(null)' }],
+    },
+    bill: {
+      title: 'Create Bill', render: _acRenderBillScreen,
+      buttons: () => [{ key: 'Ctrl+A', label: 'Accept', onclick: '_acAccept()' }],
     },
     daybook: { title: 'Day Book', render: _acRenderDaybook },
     'trial-balance': { title: 'Trial Balance', render: _acRenderTrialBalance },

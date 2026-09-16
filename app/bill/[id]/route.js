@@ -150,6 +150,15 @@ export async function GET(request, { params }) {
     return new Response(notFoundHtml(), { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
   }
 
+  // Only vouchers created via the dedicated Create > Bill screen have a
+  // matching row here (title, the cheque no. picked from a registered
+  // chequebook range) — a voucher made through the generic Voucher
+  // screen, including everything created before this screen existed,
+  // simply won't, and that's fine: every field below already has a
+  // sensible fallback for that case.
+  const billRows = await sbAccounts(`bills?voucher_id=eq.${encodeURIComponent(voucher.id)}&select=title,cheque_no`);
+  const bill = !billRows?.error && Array.isArray(billRows) && billRows[0];
+
   // The paper form's single "খরচের বিবরণ" column is the expense side of a
   // Payment voucher — the debit entries. The credit side (e.g. "Cash" or
   // "Bank") is what the payment came FROM, not part of the itemized bill.
@@ -202,8 +211,13 @@ export async function GET(request, { params }) {
 
   const notesheetDefault = voucher.narration || '';
   const notesheetValue = savedDetails.notesheetRef != null ? savedDetails.notesheetRef : notesheetDefault;
-  const chequeNoValue = savedDetails.chequeNo || '';
+  // The cheque no. picked from a registered chequebook range at bill
+  // creation time is the real default; bill_details.chequeNo (the
+  // print-time-editable override) only kicks in on top of that — e.g.
+  // for a voucher made before this screen existed, or a correction.
+  const chequeNoValue = savedDetails.chequeNo != null ? savedDetails.chequeNo : ((bill && bill.cheque_no) || '');
   const chequeDateValue = savedDetails.chequeDate || '';
+  const billTitle = (bill && bill.title) || '';
 
   const css = `
     @page { size: legal portrait; margin: 12mm 14mm; }
@@ -233,6 +247,7 @@ export async function GET(request, { params }) {
     .serial{font-weight:700;margin-left:10pt;font-size:12pt;}
     .printed-badge{display:inline-flex;align-items:center;gap:4pt;margin-top:6pt;padding:2pt 10pt;border:1pt dashed #b45309;border-radius:10pt;color:#b45309;font-size:8.5pt;font-weight:700;cursor:default;}
     .top-fields{display:flex;justify-content:space-between;border-bottom:1pt solid #000;padding-bottom:6pt;margin-bottom:6pt;font-size:10.5pt;}
+    .bill-title{font-weight:700;margin-bottom:6pt;font-size:10.5pt;}
     table.items{width:100%;border-collapse:collapse;}
     table.items th,table.items td{border:1pt solid #000;padding:4pt 6pt;}
     table.items th{font-weight:700;text-align:center;font-size:9.5pt;}
@@ -301,6 +316,7 @@ export async function GET(request, { params }) {
       <div>বিল নং- ${esc(billNo)}</div>
       <div>তারিখ: ${formatDateBn(voucher.voucher_date)}</div>
     </div>
+    ${billTitle ? `<div class="bill-title">বিষয়: ${esc(billTitle)}</div>` : ''}
     <table class="items">
       <thead><tr><th rowspan="2">ক্রমিক নং</th><th rowspan="2">খরচের বিবরণ</th><th colspan="2">পরিমাণ</th></tr>
       <tr><th>টাকা</th><th>পঃ</th></tr></thead>
