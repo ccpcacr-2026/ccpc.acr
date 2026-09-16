@@ -1972,15 +1972,15 @@ export async function POST(req) {
   }
 
   if (action === 'generate_classwise_fees') {
-    const { fee_type_id, class: cls, section, academic_year, fee_month } = payload;
+    const { fee_type_id, class: cls, section, academic_year, fee_month, student_category } = payload;
     if (!fee_type_id || !cls || !academic_year || !fee_month) return NextResponse.json({ result: 'error', message: 'Fee type, class, academic year, and month required.' });
     const structRows = await sb(`fee_structures?fee_type_id=eq.${encodeURIComponent(fee_type_id)}&class=eq.${encodeURIComponent(cls)}&academic_year=eq.${encodeURIComponent(academic_year)}${section ? `&section=eq.${encodeURIComponent(section)}` : ''}`);
     if (structRows?.error || !structRows.length) return NextResponse.json({ result: 'error', message: 'No fee structure found for this class/year.' });
     const amount = Number(structRows[0].amount) || 0;
-    const studentRows = await sb(`students_data?class=eq.${encodeURIComponent(cls)}${section ? `&section=eq.${encodeURIComponent(section)}` : ''}&select=student_id`);
+    const studentRows = await sb(`students_data?class=eq.${encodeURIComponent(cls)}${section ? `&section=eq.${encodeURIComponent(section)}` : ''}${student_category ? `&student_category=eq.${encodeURIComponent(student_category)}` : ''}&select=student_id`);
     if (studentRows?.error) return NextResponse.json({ result: 'error', message: studentRows.error });
     const rows = studentRows.map(s => ({ student_id: s.student_id, fee_type_id, academic_year, fee_month, amount, active_amount: amount, deferred_amount: 0 }));
-    if (!rows.length) return NextResponse.json({ result: 'error', message: 'No students found for this class.' });
+    if (!rows.length) return NextResponse.json({ result: 'error', message: `No students found for this class${student_category ? ' in category ' + student_category : ''}.` });
     // on_conflict skip: a student already billed for this fee/month is left untouched.
     const ins = await fetch(`${SB_URL}/rest/v1/student_fees?on_conflict=student_id,fee_type_id,academic_year,fee_month`, {
       method: 'POST',
@@ -2073,13 +2073,20 @@ export async function POST(req) {
   }
 
   if (action === 'get_defaulters_list') {
-    const { class: cls, academic_year } = payload || {};
-    const rows = await sb(`student_fees?status=eq.due${cls ? '' : ''}&select=student_id,fee_type_id,academic_year,fee_month,active_amount,fee_types(name)&order=student_id.asc`);
+    const { class: cls, academic_year, student_category } = payload || {};
+    const rows = await sb(`student_fees?status=eq.due&select=student_id,fee_type_id,academic_year,fee_month,active_amount,fee_types(name)&order=student_id.asc`);
     if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
     let filtered = rows.filter(r => Number(r.active_amount) > 0 && (!academic_year || r.academic_year === academic_year));
-    if (cls) {
-      const idsInClass = new Set((await sb(`students_data?class=eq.${encodeURIComponent(cls)}&select=student_id`)).map(s => s.student_id));
-      filtered = filtered.filter(r => idsInClass.has(r.student_id));
+    // One roster lookup covers both filters — class and category narrow the
+    // same student_id set, so they compose instead of needing two passes.
+    if (cls || student_category) {
+      let q = 'students_data?select=student_id';
+      if (cls) q += `&class=eq.${encodeURIComponent(cls)}`;
+      if (student_category) q += `&student_category=eq.${encodeURIComponent(student_category)}`;
+      const roster = await sb(q);
+      if (roster?.error) return NextResponse.json({ result: 'error', message: roster.error });
+      const ids = new Set((roster || []).map(s => s.student_id));
+      filtered = filtered.filter(r => ids.has(r.student_id));
     }
     return NextResponse.json({ result: 'success', defaulters: filtered });
   }
@@ -3234,8 +3241,13 @@ export async function POST(req) {
   // download_students_by_category live earlier, right after the access
   // gate, and return before execution ever reaches here. ──────────────────
   if (action === 'search_students') {
-    const { student_id, class: cls, section, roll, group } = payload || {};
-    const rows = await _searchStudents({ student_id, class: cls, section, roll, group }, null);
+    const { student_id, class: cls, section, roll, group, student_category } = payload || {};
+    // student_category rides in through extraFilter rather than becoming
+    // another named clause — _searchStudents already handles arbitrary
+    // column IN-filters, and this keeps its signature from growing a
+    // parameter per students_data column.
+    const extra = student_category ? { student_category: [student_category] } : null;
+    const rows = await _searchStudents({ student_id, class: cls, section, roll, group }, null, extra);
     if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
     return NextResponse.json({ result: 'success', rows });
   }

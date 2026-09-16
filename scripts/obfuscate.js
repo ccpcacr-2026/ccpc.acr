@@ -226,6 +226,7 @@ const RESERVED = [
   '_fcExportChart','_fcOpenImport','_fcCloseImport','_fcConfirmImport',
   '_fcRecalc','_fcSaveCell','_fcMobileOpen','_fcMobileBack',
   '_fcPreviewRemission','_fcRemLineChanged','_fcSaveRemission','_fcResetRemission','_fcDeleteRemission',
+  '_fcOpenStudentPicker','_fcCloseStudentPicker','_fcRunStudentSearch','_fcPickStudent',
   // Attendance tab native port
   'loadAdminAttendanceView','switchAttendanceTab','loadAttendanceReport',
   'markManualAttendance','openAttendanceDeviceEditor',

@@ -11338,8 +11338,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </div>
             <div id="fcGroupScope" class="flex flex-wrap items-end gap-2"></div>
             <div id="fcStudentScope" style="display:none">
-              <label class="text-[10px] font-black text-slate-400 uppercase block mb-1">Student ID</label>
-              <input type="text" id="fcStudentId" placeholder="Student ID" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" autocomplete="off" spellcheck="false">
+              <label class="text-[10px] font-black text-slate-400 uppercase block mb-1">Student</label>
+              <div class="flex gap-2">
+                <input type="text" id="fcStudentId" placeholder="Student ID" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" autocomplete="off" spellcheck="false">
+                <button onclick="_fcOpenStudentPicker()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50 whitespace-nowrap">Find…</button>
+              </div>
+              <span id="fcStudentName" class="text-[10px] font-bold text-slate-500"></span>
             </div>
             <button onclick="_fcLoadChart()" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Load Chart</button>
           </div>
@@ -11363,10 +11367,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <p class="font-black text-slate-800 text-xs mb-3 flex items-center gap-2"><i data-lucide="users" class="h-4 w-4 text-blue-600"></i>Classwise Fee Generation</p>
             <div class="flex flex-col gap-2">
               <select id="genCwFeeType" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Fee Type…</option></select>
-              <input type="text" id="genCwClass" placeholder="Class" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-              <input type="text" id="genCwSection" placeholder="Section (optional)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <select id="genCwClass" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Class…</option></select>
+              <select id="genCwSection" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Any section</option></select>
+              <select id="genCwCategory" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Any category</option></select>
               <input type="text" id="genCwYear" placeholder="Academic Year" value="2026" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-              <input type="text" id="genCwMonth" placeholder="Fee Month (e.g. January)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <select id="genCwMonth" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Cycle / Month…</option></select>
               <button onclick="generateClasswiseFees()" class="px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Generate for Class</button>
               <span id="genCwStatus" class="text-xs font-bold"></span>
             </div>
@@ -11421,8 +11426,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div class="grid md:grid-cols-2 gap-4">
           <div>
             <p class="font-black text-slate-800 text-xs mb-2 flex items-center gap-2"><i data-lucide="alert-triangle" class="h-4 w-4 text-red-500"></i>Defaulters List</p>
-            <input type="search" id="defClassFilter" placeholder="Filter by class (optional)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mb-2" style="max-width:260px" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-def-class-filter">
-            <button onclick="loadDefaultersList()" class="px-3 py-1.5 border border-red-200 text-red-500 rounded-lg font-black text-[10px] uppercase mb-2 hover:bg-red-50">Refresh</button>
+            <div class="flex flex-wrap items-center gap-2 mb-2">
+              <select id="defClassFilter" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Any class</option></select>
+              <select id="defCategoryFilter" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Any category</option></select>
+              <button onclick="loadDefaultersList()" class="px-3 py-1.5 border border-red-200 text-red-500 rounded-lg font-black text-[10px] uppercase hover:bg-red-50">Refresh</button>
+            </div>
             <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:340px">
               <table class="w-full text-left border-collapse text-xs">
                 <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Student</th><th class="py-2 px-3">Fee Type</th><th class="py-2 px-3">Month</th><th class="py-2 px-3">Due</th></tr></thead>
@@ -11489,8 +11497,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       }
     });
     if (tabId === 'fees-structures') _fcInit();
+    if (tabId === 'fees-generate') _feeEnsureScopeOpts(() => {
+      _feeFillSelect('genCwClass', 'class', 'Class…');
+      _feeFillSelect('genCwSection', 'section', 'Any section');
+      _feeFillSelect('genCwCategory', 'student_category', 'Any category');
+      const m = document.getElementById('genCwMonth');
+      if (m && m.options.length <= 1) m.innerHTML = '<option value="">Cycle / Month…</option>' + FEE_CYCLES.map(c => `<option value="${_escHtml(c)}">${_escHtml(c)}</option>`).join('');
+    });
     if (tabId === 'fees-late') loadLateFeeRules();
-    if (tabId === 'fees-reports') { loadDefaultersList(); loadFeesCollectionReport(); }
+    if (tabId === 'fees-reports') {
+      _feeEnsureScopeOpts(() => {
+        _feeFillSelect('defClassFilter', 'class', 'Any class');
+        _feeFillSelect('defCategoryFilter', 'student_category', 'Any category');
+      });
+      loadDefaultersList(); loadFeesCollectionReport();
+    }
     if (tabId === 'fees-accounts') { loadFeeAccounts(); loadAccountRegister(); }
   }
 
@@ -11586,13 +11607,34 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // as the MPO bill sheet (_prSaveMpoBillField / _prLiveUpdateMpoCells) —
   // surgical textContent updates of the total cells rather than an
   // innerHTML rebuild, which would drop focus mid-typing.
-  function _fcInit() {
-    _fcRenderScopeBar();
-    if (_fcScopeOpts) return;
+  // One cohort tally serves every Fees screen that needs class / section /
+  // category pickers (the chart's scope bar, Generate Fees, the Defaulters
+  // filter), so switching tabs doesn't refetch all of students_data.
+  function _feeEnsureScopeOpts(cb) {
+    if (_fcScopeOpts) { cb && cb(); return; }
     _adminFetch('get_class_sections', { dynamic: true }).then(res => {
       _fcScopeOpts = (res && Array.isArray(res.rows)) ? res : { candidateCols: [], rows: [] };
-      _fcRenderScopeBar();
-    }).catch(() => { _fcScopeOpts = { candidateCols: [], rows: [] }; _fcRenderScopeBar(); });
+      cb && cb();
+    }).catch(() => { _fcScopeOpts = { candidateCols: [], rows: [] }; cb && cb(); });
+  }
+  // Distinct values for one students_data column out of that tally.
+  function _feeColValues(col) {
+    if (col === 'class') return _fcDistinct(r => r.class);
+    if (col === 'section') return _fcDistinct(r => r.section);
+    return _fcDistinct(r => r.extras && r.extras[col]);
+  }
+  function _feeFillSelect(id, col, placeholder) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const keep = el.value;
+    el.innerHTML = `<option value="">${_escHtml(placeholder)}</option>`
+      + _feeColValues(col).map(v => `<option value="${_escHtml(v)}">${_escHtml(v)}</option>`).join('');
+    if (keep) el.value = keep;
+  }
+
+  function _fcInit() {
+    _fcRenderScopeBar();
+    _feeEnsureScopeOpts(() => _fcRenderScopeBar());
   }
 
   // Distinct non-empty values across the cohort tally. 'None' (what
@@ -11652,6 +11694,79 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (gs) gs.style.display = mode === 'group' ? '' : 'none';
     if (ss) ss.style.display = mode === 'student' ? '' : 'none';
   }
+  // Finding a student by class/section/category, for when you don't know
+  // the ID by heart — reuses the existing search_students action rather
+  // than adding a fees-specific roster query.
+  function _fcOpenStudentPicker() {
+    const overlay = document.createElement('div');
+    overlay.id = 'fcStuPickOverlay';
+    overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4';
+    overlay.innerHTML = `
+      <div class="bg-white rounded-2xl w-full max-w-2xl flex flex-col" style="max-height:85vh">
+        <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+          <p class="font-black text-slate-800 text-sm">Find Student</p>
+          <button onclick="_fcCloseStudentPicker()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="h-4 w-4"></i></button>
+        </div>
+        <div class="p-4 flex flex-wrap items-end gap-2 border-b border-slate-100">
+          <div><label class="text-[10px] font-black text-slate-400 uppercase block mb-1">Class</label>
+            <select id="fcPickClass" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></select></div>
+          <div><label class="text-[10px] font-black text-slate-400 uppercase block mb-1">Section</label>
+            <select id="fcPickSection" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></select></div>
+          <div><label class="text-[10px] font-black text-slate-400 uppercase block mb-1">Category</label>
+            <select id="fcPickCategory" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></select></div>
+          <div class="flex-1" style="min-width:140px"><label class="text-[10px] font-black text-slate-400 uppercase block mb-1">Name / ID contains</label>
+            <input type="text" id="fcPickText" class="w-full px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" autocomplete="off" spellcheck="false"></div>
+          <button onclick="_fcRunStudentSearch()" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Search</button>
+        </div>
+        <div id="fcPickResults" class="p-4 overflow-auto"><span class="text-xs text-slate-400 font-bold italic">Pick a class or category, then Search.</span></div>
+      </div>`;
+    document.body.appendChild(overlay);
+    lucide.createIcons();
+    _feeEnsureScopeOpts(() => {
+      _feeFillSelect('fcPickClass', 'class', 'Any class');
+      _feeFillSelect('fcPickSection', 'section', 'Any section');
+      _feeFillSelect('fcPickCategory', 'student_category', 'Any category');
+    });
+  }
+  function _fcCloseStudentPicker() { const o = document.getElementById('fcStuPickOverlay'); if (o) o.remove(); }
+  function _fcRunStudentSearch() {
+    const host = document.getElementById('fcPickResults');
+    if (!host) return;
+    const cls = (document.getElementById('fcPickClass') || {}).value || '';
+    const section = (document.getElementById('fcPickSection') || {}).value || '';
+    const student_category = (document.getElementById('fcPickCategory') || {}).value || '';
+    const text = ((document.getElementById('fcPickText') || {}).value || '').trim().toLowerCase();
+    if (!cls && !section && !student_category && !text) { host.innerHTML = '<span class="text-xs text-red-500 font-bold">Narrow it down with at least one filter.</span>'; return; }
+    host.innerHTML = '<span class="text-xs text-slate-400 font-bold italic">Searching…</span>';
+    _adminFetch('search_students', { class: cls, section, student_category }).then(res => {
+      if (!res || res.result !== 'success') { host.innerHTML = '<span class="text-xs text-red-500 font-bold">' + _escHtml((res && res.message) || 'Search failed.') + '</span>'; return; }
+      // The action has no free-text clause, so name/ID narrowing happens
+      // here over the (max 500) rows it returns.
+      let rows = res.rows || [];
+      if (text) rows = rows.filter(r => String(r.student_name || '').toLowerCase().includes(text) || String(r.student_id || '').toLowerCase().includes(text));
+      if (!rows.length) { host.innerHTML = '<span class="text-xs text-slate-400 font-bold italic">No students matched.</span>'; return; }
+      host.innerHTML = `<p class="text-[10px] font-black text-slate-400 uppercase mb-2">${rows.length} student(s)</p>
+        <table class="w-full text-left border-collapse text-xs">
+          <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">ID</th><th class="py-2 px-3">Name</th><th class="py-2 px-3">Class</th><th class="py-2 px-3">Sec</th><th class="py-2 px-3">Roll</th><th class="py-2 px-3">Category</th></tr></thead>
+          <tbody>${rows.slice(0, 300).map(r => `<tr class="border-b border-slate-50 hover:bg-blue-50 cursor-pointer" onclick="_fcPickStudent('${_escHtml(String(r.student_id)).replace(/'/g, '&#39;')}')">
+            <td class="py-1.5 px-3 font-bold">${_escHtml(String(r.student_id || ''))}</td>
+            <td class="py-1.5 px-3">${_escHtml(r.student_name || '')}</td>
+            <td class="py-1.5 px-3">${_escHtml(r.class || '')}</td>
+            <td class="py-1.5 px-3">${_escHtml(r.section || '')}</td>
+            <td class="py-1.5 px-3">${_escHtml(String(r.roll || ''))}</td>
+            <td class="py-1.5 px-3">${_escHtml(r.student_category || '—')}</td>
+          </tr>`).join('')}</tbody>
+        </table>
+        ${rows.length > 300 ? '<p class="text-[10px] text-slate-400 font-bold mt-2">Showing the first 300 — narrow the filters to see the rest.</p>' : ''}`;
+    });
+  }
+  function _fcPickStudent(id) {
+    const el = document.getElementById('fcStudentId');
+    if (el) el.value = id;
+    _fcCloseStudentPicker();
+    _fcLoadChart();
+  }
+
   function _fcSetFilter(v) { _fcFilter = String(v || '').trim().toLowerCase(); _fcRenderChart(); }
   function _fcToggleOnlyFilled(v) { _fcOnlyFilled = !!v; _fcRenderChart(); }
 
@@ -11674,6 +11789,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         academic_year, student_id, scope,
       };
       _fcMobileHead = null;
+      const nameEl = document.getElementById('fcStudentName');
+      if (nameEl) {
+        const s = _fcChart.student;
+        nameEl.textContent = s ? `${s.student_name || ''} · ${s.class || ''}${s.section ? '/' + s.section : ''}${s.student_category ? ' · ' + s.student_category : ''}` : '';
+      }
       _fcRenderChart();
       _fcLoadRemission();
     });
@@ -12111,6 +12231,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       section: document.getElementById('genCwSection').value.trim(),
       academic_year: document.getElementById('genCwYear').value.trim(),
       fee_month: document.getElementById('genCwMonth').value.trim(),
+      student_category: document.getElementById('genCwCategory').value.trim(),
     };
     const status = document.getElementById('genCwStatus');
     if (!payload.fee_type_id || !payload.class || !payload.academic_year || !payload.fee_month) { status.className = 'text-xs font-bold text-red-500'; status.textContent = 'Fill all required fields.'; return; }
@@ -12233,7 +12354,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function loadDefaultersList() {
     const cls = document.getElementById('defClassFilter').value.trim();
-    _adminFetch('get_defaulters_list', { class: cls }).then(res => {
+    const cat = (document.getElementById('defCategoryFilter') || {}).value || '';
+    _adminFetch('get_defaulters_list', { class: cls, student_category: cat }).then(res => {
       const rows = (res && res.result === 'success' && res.defaulters) || [];
       document.getElementById('defaultersBody').innerHTML = rows.length ? rows.map(r => `<tr class="border-b border-slate-50"><td class="py-1.5 px-3">${r.student_id}</td><td class="py-1.5 px-3">${r.fee_types ? r.fee_types.name : ''}</td><td class="py-1.5 px-3">${r.fee_month}</td><td class="py-1.5 px-3">৳${Number(r.active_amount).toLocaleString()}</td></tr>`).join('') : '<tr><td colspan="4" class="p-3 text-slate-400 font-bold text-xs">No defaulters found.</td></tr>';
     });
