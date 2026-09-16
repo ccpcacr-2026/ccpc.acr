@@ -261,10 +261,11 @@ const FEE_CYCLES = [
 ];
 // Cohort dimensions a chart row can be scoped by. Null/'' on a row means
 // "any" for that dimension, so a row with every one null is a school-wide
-// default and one with all six set is as specific as a cohort row gets.
+// default and one with all of them set is as specific as a cohort row gets.
 // `student_group` is students_data."group" (the reserved word is why the
-// column is renamed here).
-const FEE_SCOPE_COLS = ['class', 'section', 'student_group', 'version', 'shift', 'session'];
+// column is renamed here); student_category is Civil / Army / Retired
+// Army / Defense / Teacher-Staff Child, which fees genuinely differ by.
+const FEE_SCOPE_COLS = ['class', 'section', 'student_group', 'version', 'shift', 'session', 'student_category'];
 
 // ── Shortname resolution for the staff-directory search ─────────────────────
 // Shortnames aren't a DB column anywhere — they only exist in the routine

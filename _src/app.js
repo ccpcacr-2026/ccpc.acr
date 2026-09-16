@@ -11278,8 +11278,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     'July', 'August', 'September', 'October', 'November', 'December',
   ];
   // Cohort dimensions a chart can be scoped by. student_group is
-  // students_data."group" (renamed to dodge the SQL reserved word).
-  const FEE_SCOPE_COLS = ['class', 'section', 'student_group', 'version', 'shift', 'session'];
+  // students_data."group" (renamed to dodge the SQL reserved word);
+  // student_category is Civil / Army / Retired Army / Defense /
+  // Teacher-Staff Child, which fees genuinely differ by.
+  const FEE_SCOPE_COLS = ['class', 'section', 'student_group', 'version', 'shift', 'session', 'student_category'];
+  // Only where the raw column name would read badly as a dropdown label.
+  const FEE_SCOPE_LABELS = { student_group: 'Group', student_category: 'Category' };
   let _fcMode = 'group';        // 'group' | 'student'
   let _fcChart = null;          // last get_fee_chart response + the scope it was loaded for
   let _fcScopeOpts = null;      // get_class_sections({dynamic:true}) — drives the scope dropdowns
@@ -11612,7 +11616,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (!FEE_SCOPE_COLS.includes(key)) return;
       const vals = _fcDistinct(r => r.extras && r.extras[c]);
       if (!vals.length) return;
-      out.push({ key, label: c.charAt(0).toUpperCase() + c.slice(1), vals });
+      const label = FEE_SCOPE_LABELS[key] || (c.charAt(0).toUpperCase() + c.slice(1)).replace(/_/g, ' ');
+      out.push({ key, label, vals });
     });
     return out;
   }
