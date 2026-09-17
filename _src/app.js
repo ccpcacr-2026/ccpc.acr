@@ -15821,7 +15821,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div id="prVirtualColumnFormModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
         <div class="bg-white rounded-2xl p-5 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
           <div class="flex items-center justify-between mb-4">
-            <p class="font-black text-slate-800 text-sm">Add Virtual Column</p>
+            <p class="font-black text-slate-800 text-sm" id="prVcModalTitle">Add Virtual Column</p>
             <button onclick="_prCloseVirtualColumnForm()" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-5 w-5"></i></button>
           </div>
           <div class="space-y-3">
@@ -15872,7 +15872,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
           <div class="flex justify-end gap-2 mt-5">
             <button onclick="_prCloseVirtualColumnForm()" class="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
-            <button onclick="_prSaveVirtualColumn()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Add</button>
+            <button onclick="_prSaveVirtualColumn()" id="prVcSaveBtn" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Add</button>
           </div>
         </div>
       </div>
@@ -21504,7 +21504,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             ${[0, 90, 180, 270].map(deg => `<option value="${deg}" ${Number(c.headerRotation) === deg ? 'selected' : ''}>${deg}°</option>`).join('')}
           </select>
         </td>
-        <td class="py-1.5 px-3 text-right">${c.type === 'virtual' ? `<button onclick="_prRemoveExportColumn('${c.key}')" class="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-700">Remove</button>` : ''}</td>
+        <td class="py-1.5 px-3 text-right">${c.type === 'virtual' ? `<button onclick="_prEditVirtualColumn('${c.key}')" class="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-blue-800 mr-3">Edit</button><button onclick="_prRemoveExportColumn('${c.key}')" class="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-700">Remove</button>` : ''}</td>
       </tr>`).join('');
     _prRenderExportPreview();
   }
@@ -21960,6 +21960,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </select>
           </div>
           ${c.group ? `<button onclick="_prAddGroupTotalColumn('${_escHtml(c.group)}')" class="shrink-0 px-3 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="sigma" class="h-3.5 w-3.5"></i>Add Total for "${_escHtml(c.group)}"</button>` : ''}
+          ${c.type === 'virtual' ? `<button onclick="_prEditVirtualColumn('${key}')" class="shrink-0 px-3 py-2 border border-blue-200 text-blue-600 bg-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-blue-50 transition-all">Edit Definition</button>` : ''}
           <button onclick="${c.type === 'virtual' ? `_prRemoveExportColumn('${key}')` : `_prSetExportFormat('${key}','included',false)`}" class="shrink-0 px-3 py-2 border border-red-200 text-red-500 bg-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-red-50 transition-all">Remove Column</button>
           <button onclick="_prSelectFormatColumn(null)" title="Close" class="shrink-0 w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-white rounded-lg transition-all"><i data-lucide="x" class="h-4 w-4"></i></button>
         </div>
@@ -22147,24 +22148,44 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // independent segment list (same row-editor, different container id).
   let _prVcSegments = [];
   let _prVcRules = [];
+  // Which virtual column the modal is currently editing (null = adding a new
+  // one). Set only while the modal is open.
+  let _prVcEditingKey = null;
 
-  function _prAddVirtualColumn() {
-    document.getElementById('prVcName').value = '';
-    document.getElementById('prVcType').value = 'sum';
-    document.getElementById('prVcJoinWith').value = '';
-    _prVcSegments = [];
-    _prVcRules = [];
+  function _prAddVirtualColumn() { _prOpenVirtualColumnForm(null); }
+  function _prEditVirtualColumn(key) { _prOpenVirtualColumnForm(key); }
+
+  function _prOpenVirtualColumnForm(editKey) {
+    const col = editKey ? _prExportColumnsCache.find(c => c.key === editKey) : null;
+    if (editKey && !col) { showToast('That column no longer exists', 'error'); return; }
+    _prVcEditingKey = col ? col.key : null;
+    document.getElementById('prVcName').value = col ? (col.label || '') : '';
+    document.getElementById('prVcType').value = col ? (col.vtype || 'sum') : 'sum';
+    document.getElementById('prVcJoinWith').value = col ? (col.joinWith || '') : '';
+    // Deep-copied so the segment/rule editors mutate a scratch copy — Cancel
+    // then genuinely discards, instead of having already edited the live
+    // column in place.
+    _prVcSegments = (col && Array.isArray(col.segments)) ? JSON.parse(JSON.stringify(col.segments)) : [];
+    _prVcRules = (col && Array.isArray(col.rules)) ? JSON.parse(JSON.stringify(col.rules)) : [];
+    const chosen = new Set((col && col.sources) || []);
     const box = document.getElementById('prVcSourceCheckboxes');
     box.innerHTML = _prExportColumnsCache.filter(c => c.type !== 'virtual').map(c => `
       <label class="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer">
-        <input type="checkbox" value="${c.key}" class="prVcSourceCb w-4 h-4 rounded accent-blue-600">${c.label}
+        <input type="checkbox" value="${c.key}" ${chosen.has(c.key) ? 'checked' : ''} class="prVcSourceCb w-4 h-4 rounded accent-blue-600">${c.label}
       </label>`).join('');
+    const title = document.getElementById('prVcModalTitle');
+    if (title) title.textContent = col ? 'Edit Virtual Column' : 'Add Virtual Column';
+    const btn = document.getElementById('prVcSaveBtn');
+    if (btn) btn.textContent = col ? 'Save' : 'Add';
     _prOnVcTypeChange();
     _prVcRenderSegments();
     _prVcRenderRules();
     document.getElementById('prVirtualColumnFormModal').classList.remove('hidden');
   }
-  function _prCloseVirtualColumnForm() { document.getElementById('prVirtualColumnFormModal').classList.add('hidden'); }
+  function _prCloseVirtualColumnForm() {
+    _prVcEditingKey = null;
+    document.getElementById('prVirtualColumnFormModal').classList.add('hidden');
+  }
 
   function _prOnVcTypeChange() {
     const isText = document.getElementById('prVcType').value === 'text';
@@ -22255,7 +22276,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const name = document.getElementById('prVcName').value.trim();
     const vtype = document.getElementById('prVcType').value;
     if (!name) { showToast('Name is required', 'error'); return; }
-    const key = `virtual:${name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
+    const editing = _prVcEditingKey ? _prExportColumnsCache.find(c => c.key === _prVcEditingKey) : null;
+    if (_prVcEditingKey && !editing) { showToast('That column no longer exists', 'error'); _prCloseVirtualColumnForm(); return; }
+    // An edit KEEPS its original key even when the label changes. The key is
+    // this column's identity everywhere else — the saved column order, group
+    // merges, and another virtual column's `sources` all reference it — so
+    // re-deriving it from the new name would silently orphan those and drop
+    // the column out of its saved position. The label is display only.
+    const key = editing ? editing.key : `virtual:${name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
     // Same name -> same derived key: without this guard a second virtual
     // column of the same name doesn't just look redundant, it silently
     // breaks the first one. Every format control (_prSetExportFormat)
@@ -22264,15 +22292,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // first, so every edit made through the visibly-selected (second,
     // newer) column would actually land on the invisible first one,
     // reading as "nothing I change here ever takes effect."
-    if (_prExportColumnsCache.some(c => c.key === key)) {
+    if (!editing && _prExportColumnsCache.some(c => c.key === key)) {
       showToast(`A column named "${name}" already exists — remove it first or use a different name`, 'error');
       return;
     }
-    const base = {
+    // On edit, reuse the existing object so its position in the array (= its
+    // column order) and any formatting already applied to it survive; only
+    // the definition below is rewritten. A fresh column gets the defaults.
+    const base = editing || {
       key, label: name, type: 'virtual', vtype, included: true,
       bold: false, italic: false, color: '', rotation: 0, align: 'left', headerAlign: 'center', width: null,
       headerBold: false, headerItalic: false, headerColor: '', headerBg: '', headerRotation: vtype === 'text' ? 0 : 90,
     };
+    base.label = name;
+    base.vtype = vtype;
     if (vtype === 'text') {
       // Zero segments is a legitimate, intentional choice — a blank
       // column with no source data at all, for something like a
@@ -22281,12 +22314,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       base.segments = _prVcSegments;
       base.rules = _prVcRules.filter(r => r.segments.length);
       base.joinWith = document.getElementById('prVcJoinWith').value;
+      // Switching an existing column sum -> text: drop the aggregate's
+      // sources so the two definitions can't both linger on one column and
+      // leave which one wins down to whatever reads it first.
+      delete base.sources;
     } else {
       const sources = [...document.querySelectorAll('.prVcSourceCb:checked')].map(cb => cb.value);
       if (sources.length < 2) { showToast('Pick at least 2 source columns', 'error'); return; }
       base.sources = sources;
+      delete base.segments; delete base.rules; delete base.joinWith;
     }
-    _prExportColumnsCache.push(base);
+    if (!editing) _prExportColumnsCache.push(base);
     _prRenderExportColumnsTable();
     _prCloseVirtualColumnForm();
   }
