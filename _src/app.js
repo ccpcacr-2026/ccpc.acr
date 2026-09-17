@@ -4001,7 +4001,15 @@
   }
 
   function loadMyCommittees() {
-    if (!['Teacher','Staff'].includes(window.ACTIVE_ROLE)) {
+    // Gate on the module matrix, same as every other view — NOT a hardcoded
+    // role list. This check predated MODULE_REGISTRY and had drifted out of
+    // step with it: _isModuleVisibleForRole lets Admin through
+    // unconditionally (and Permission Control can grant any other role, or
+    // one named person, view access), so the sidebar link was shown to
+    // people this then turned away at the door. Nothing here is
+    // teacher-specific anyway - the view lists whichever committees YOUR
+    // user_id is a member of, and already has an empty state for none.
+    if (!_hasModuleAccess('committees')) {
       showToast('Not available in current role', 'error'); return;
     }
     _setViewHash('committees');
