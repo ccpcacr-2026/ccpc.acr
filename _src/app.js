@@ -13067,6 +13067,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
 
       <div id="ex-subjects" style="display:none">
+        <div class="flex flex-wrap items-center gap-2 mb-3">
+          <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-scm-newclass" id="scmNewClassName" placeholder="New class (e.g. Eleven-Science)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:220px">
+          <button onclick="scmAddClass()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ Add Class</button>
+          <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-scm-filter" id="scmFilter" placeholder="Find class…" oninput="scmRender()" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:160px">
+          <button onclick="scmManageParts()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Exam Parts</button>
+          <button onclick="scmManageSubjects()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">All Subjects</button>
+          <button id="scmGridBtn" onclick="scmShowGrid()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50 ml-auto">Grid View</button>
+        </div>
+        <div id="scmHost" class="flex flex-col gap-4"><span class="text-xs text-slate-400 font-bold italic">Loading…</span></div>
+        <div id="subjGridLegacy" style="display:none">
         <div class="flex items-center gap-2 mb-3">
           <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-subject-name" id="subjNewName" placeholder="New subject(s), comma-separated (e.g. Bangla, English, Math)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:280px">
           <button onclick="saveSubject()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ Add Subject</button>
@@ -13095,6 +13105,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <thead class="bg-slate-50"><tr id="subjPatternHeaderRow" class="text-[10px] font-black text-slate-500 uppercase"><th class="sticky top-0 left-0 z-20 bg-slate-50 py-2 px-3">Subject</th></tr></thead>
             <tbody id="subjPatternBody"></tbody>
           </table>
+        </div>
         </div>
       </div>
 
@@ -13236,7 +13247,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const loaders = {
       'ex-terms': loadExamTerms,
       'ex-classes': loadClassPatternSetup,
-      'ex-subjects': loadSubjectSetup,
+      'ex-subjects': () => (_scmGrid ? loadSubjectSetup() : scmLoad()),
       'ex-marks-setup': () => _populateClassPatternSelects(),
       'ex-pattern': loadExamPatternSetup,
       'ex-exam-setup': loadExamSetupList,
@@ -13490,6 +13501,381 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       showToast(failed.length ? `${_subjects.length - failed.length} of ${_subjects.length} updated — ${failed.length} failed` : `${_subjects.length} subjects updated`, failed.length ? 'error' : undefined);
       loadSubjectSetup();
     });
+  }
+
+  // ── Subject Setup, class view — one card per class, subjects as rows,
+  // one tick box per exam part (CT/CQ/MCQ/Practical…). A tick is a
+  // subject_components row for that class+subject+part; full/pass/weight
+  // stay 0 until Class-Subject Marks Setup fills them in.
+  let _scm = null;
+  let _scmGrid = false;
+  const _SCM_ORDER = ['nursery', 'kg', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
+  function _scmRank(name) {
+    const i = _SCM_ORDER.indexOf(String(name || '').toLowerCase().split(/[-\s]/)[0]);
+    return i === -1 ? 99 : i;
+  }
+  function scmLoad() {
+    const host = document.getElementById('scmHost');
+    _adminFetch('get_subject_class_matrix', {}).then(res => {
+      if (!res || res.result !== 'success') { if (host) host.innerHTML = `<span class="text-xs text-red-500 font-bold">${_escHtml((res && res.message) || 'Could not load subject setup.')}</span>`; return; }
+      const patterns = (res.patterns || []).slice().sort((a, b) => _scmRank(a.name) - _scmRank(b.name) || a.name.localeCompare(b.name));
+      _scm = {
+        patterns,
+        subjects: res.subjects || [],
+        map: new Set((res.map || []).map(m => `${m.pattern_id}|${m.subject_id}`)),
+        comps: new Map((res.components || []).map(c => [`${c.pattern_id}|${c.subject_id}|${c.component_type_id}`, c])),
+        types: res.types || [],
+      };
+      _classPatterns = patterns;
+      _populateClassPatternSelects();
+      scmRender();
+    });
+  }
+  function _scmSubjectName(id) { return ((_scm.subjects.find(s => s.id === id) || {}).name) || ''; }
+  function _scmClassSubjects(pid) {
+    return _scm.subjects.filter(s => _scm.map.has(`${pid}|${s.id}`));
+  }
+  function _scmAddRowHtml(p) {
+    const avail = _scm.subjects.filter(s => !_scm.map.has(`${p.id}|${s.id}`));
+    return `<div class="flex items-center gap-2 px-3 py-2.5 border-t border-slate-100">
+      <select id="scmAdd-${p.id}" class="flex-1 min-w-0 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+        <option value="">Add a subject…</option>
+        ${avail.map(s => `<option value="${s.id}">${_escHtml(s.name)}</option>`).join('')}
+        <option value="__new">+ New subject…</option>
+      </select>
+      <button onclick="scmAddSubject(${p.id})" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Add</button>
+    </div>`;
+  }
+  function _scmCardHead(p, n) {
+    return `<div class="flex items-center justify-between gap-2 px-4 py-2.5 bg-slate-50 border-b border-slate-200">
+      <p class="font-black text-slate-800 text-sm">${_escHtml(p.name)} <span class="text-[10px] font-bold text-slate-400 ml-1">${n} subject${n === 1 ? '' : 's'}</span></p>
+      <div class="flex items-center gap-2.5">
+        <i data-lucide="pencil" class="h-3.5 w-3.5 text-blue-500 cursor-pointer" title="Rename class" onclick="scmRenameClass(${p.id})"></i>
+        <i data-lucide="trash-2" class="h-3.5 w-3.5 text-red-500 cursor-pointer" title="Delete class" onclick="scmDeleteClass(${p.id})"></i>
+      </div>
+    </div>`;
+  }
+  const _SCM_PASS_RULES = [
+    ['number|marks', 'marks'],
+    ['percent|marks', '% of marks'],
+    ['number|weight', 'on weight'],
+    ['percent|weight', '% of weight'],
+  ];
+  function _scmPassRule(c) { return `${c.pass_type || 'number'}|${c.pass_basis || 'marks'}`; }
+  function _scmNum(v) { return (v === null || v === undefined) ? '' : String(Number(v)); }
+  // Marks / Weight % / Pass inputs for one part of one subject. An empty
+  // Marks box means the subject doesn't have that part in this class.
+  function _scmPartInputs(p, s, t, compact) {
+    const c = _scm.comps.get(`${p.id}|${s.id}|${t.id}`);
+    const idp = `scm-${p.id}-${s.id}-${t.id}`;
+    const box = (field, val, ph, title, w) => `<input type="number" inputmode="decimal" min="0" step="any" id="${idp}-${field}" value="${val}" placeholder="${ph}" title="${_escHtml(title)}" onchange="scmSetField(${p.id},${s.id},${t.id},'${field}',this.value)" class="${w} px-1 py-1 border rounded font-bold text-xs text-center ${c ? 'bg-white border-slate-300' : 'bg-slate-50 border-slate-200'}">`;
+    const marks = box('full_marks', c ? _scmNum(c.full_marks) : '', '—', `Marks (leave empty if this subject has no ${t.name})`, compact ? 'w-14' : 'w-12');
+    if (!c) return compact ? `<div class="flex items-center gap-1.5">${marks}</div>` : `<td class="py-1.5 pl-2 pr-1">${marks}</td><td></td><td class="border-r border-slate-100"></td>`;
+    const weight = box('weight_percent', _scmNum(c.weight_percent), '%', 'Weight %', compact ? 'w-14' : 'w-12');
+    const pass = box('pass_marks', _scmNum(c.pass_marks), 'pass', 'Pass', compact ? 'w-14' : 'w-12');
+    const rule = `<select id="${idp}-rule" title="How the pass value is read" onchange="scmSetField(${p.id},${s.id},${t.id},'pass_rule',this.value)" class="px-0.5 py-1 bg-white border border-slate-300 rounded font-bold text-[10px] text-slate-600">${_SCM_PASS_RULES.map(([v, l]) => `<option value="${v}" ${_scmPassRule(c) === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+    if (compact) return `<div class="flex items-center gap-1.5 flex-wrap">${marks}<span class="text-[10px] text-slate-400">wt</span>${weight}<span class="text-[10px] text-slate-400">pass</span>${pass}${rule}</div>`;
+    return `<td class="py-1.5 pl-2 pr-1">${marks}</td><td class="py-1.5 px-1">${weight}</td><td class="py-1.5 pl-1 pr-2 border-r border-slate-100 whitespace-nowrap">${pass} ${rule}</td>`;
+  }
+  function _scmSubjectActions(p, s) {
+    return `<i data-lucide="pencil" class="h-3 w-3 text-slate-400 hover:text-blue-600 cursor-pointer inline" title="Rename subject (everywhere)" onclick="scmRenameSubject(${s.id})"></i>
+      <i data-lucide="x" class="h-3.5 w-3.5 text-slate-400 hover:text-red-500 cursor-pointer inline ml-1.5" title="Remove from ${_escHtml(p.name)}" onclick="scmRemoveSubject(${p.id},${s.id})"></i>`;
+  }
+  function _scmNoParts(p, s) {
+    return _scm.types.some(t => _scm.comps.has(`${p.id}|${s.id}|${t.id}`)) ? '' : ' <span class="text-[9px] font-black text-amber-500 uppercase ml-1">no marks yet</span>';
+  }
+  function _scmCardDesktop(p) {
+    const subs = _scmClassSubjects(p.id);
+    const types = _scm.types;
+    const rows = subs.map(s => `<tr class="border-b border-slate-50 hover:bg-slate-50/60">
+        <td class="sticky left-0 z-10 bg-white py-1.5 px-3 font-bold text-slate-700 whitespace-nowrap border-r border-slate-100">${_escHtml(s.name)}${_scmNoParts(p, s)}</td>
+        ${types.map(t => _scmPartInputs(p, s, t, false)).join('')}
+        <td class="py-1.5 px-3 text-right whitespace-nowrap">${_scmSubjectActions(p, s)}</td>
+      </tr>`).join('');
+    return `<div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+      ${_scmCardHead(p, subs.length)}
+      <div class="overflow-x-auto"><table class="text-left border-collapse text-xs">
+        <thead>
+          <tr class="text-[11px] font-black text-slate-700 uppercase">
+            <th rowspan="2" class="sticky left-0 z-10 bg-white py-2 px-3 border-r border-b border-slate-100 align-bottom">Subject</th>
+            ${types.map(t => `<th colspan="3" class="pt-2 px-2 text-center border-r border-slate-100 bg-blue-50/60">${_escHtml(t.name)}</th>`).join('')}
+            <th rowspan="2" class="border-b border-slate-100"></th>
+          </tr>
+          <tr class="text-[9px] font-bold text-slate-400 uppercase border-b border-slate-100">
+            ${types.map(() => '<th class="pb-1.5 pl-2 text-center bg-blue-50/60">Marks</th><th class="pb-1.5 px-1 text-center bg-blue-50/60">Wt %</th><th class="pb-1.5 pl-1 pr-2 text-left border-r border-slate-100 bg-blue-50/60">Pass</th>').join('')}
+          </tr>
+        </thead>
+        <tbody>${rows || `<tr><td colspan="${types.length * 3 + 2}" class="py-3 px-3 text-slate-400 font-bold italic">No subjects yet — add one below.</td></tr>`}</tbody>
+      </table></div>
+      ${_scmAddRowHtml(p)}
+    </div>`;
+  }
+  function _scmCardMobile(p) {
+    const subs = _scmClassSubjects(p.id);
+    const rows = subs.map(s => `<div class="px-3 py-2.5 border-b border-slate-100">
+      <div class="flex items-start justify-between gap-2 mb-2">
+        <p class="font-bold text-slate-800 text-[13px] leading-snug">${_escHtml(s.name)}${_scmNoParts(p, s)}</p>
+        <div class="flex items-center gap-2 shrink-0 pt-0.5">${_scmSubjectActions(p, s)}</div>
+      </div>
+      <div class="flex flex-col gap-1.5">${_scm.types.map(t => `<div class="flex items-center gap-2">
+        <span class="w-16 shrink-0 text-[10px] font-black uppercase text-slate-500">${_escHtml(t.name)}</span>
+        ${_scmPartInputs(p, s, t, true)}
+      </div>`).join('')}</div>
+    </div>`).join('');
+    return `<div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+      ${_scmCardHead(p, subs.length)}
+      ${rows || '<p class="px-3 py-3 text-xs text-slate-400 font-bold italic">No subjects yet — add one below.</p>'}
+      ${_scmAddRowHtml(p)}
+    </div>`;
+  }
+  function scmRender() {
+    const host = document.getElementById('scmHost');
+    if (!host || !_scm) return;
+    const q = (document.getElementById('scmFilter')?.value || '').trim().toLowerCase();
+    const list = _scm.patterns.filter(p => !q || p.name.toLowerCase().includes(q));
+    const mobile = window.innerWidth < 768;
+    host.innerHTML = list.map(p => (mobile ? _scmCardMobile(p) : _scmCardDesktop(p))).join('')
+      || `<span class="text-xs text-slate-400 font-bold italic">${q ? 'No class matches that search.' : 'No classes yet — add one above.'}</span>`;
+    lucide.createIcons();
+  }
+  // Saves one field of one part. Typing Marks into an empty part creates
+  // it (weight 100, pass 0 until set); clearing Marks removes the part.
+  function scmSetField(pid, sid, tid, field, raw) {
+    const key = `${pid}|${sid}|${tid}`;
+    const prev = _scm.comps.get(key);
+    const cls = (_scm.patterns.find(p => p.id === pid) || {}).name || '';
+    const part = (_scm.types.find(t => t.id === tid) || {}).name || '';
+    const val = String(raw).trim();
+    if (field === 'full_marks' && val === '') {
+      if (!prev) return;
+      if (!confirm(`Remove ${part} from ${_scmSubjectName(sid)} in ${cls}?`)) { scmRender(); return; }
+      _scm.comps.delete(key);
+      scmRender();
+      _adminFetch('toggle_subject_component', { pattern_id: pid, subject_id: sid, component_type_id: tid, checked: false }).then(res => {
+        if (res && res.result === 'success') return;
+        _scm.comps.set(key, prev); scmRender();
+        showToast((res && res.message) || 'Not removed', 'error');
+      });
+      return;
+    }
+    const next = { ...(prev || { pattern_id: pid, subject_id: sid, component_type_id: tid, full_marks: 0, weight_percent: 100, pass_marks: 0, pass_type: 'number', pass_basis: 'marks' }) };
+    if (field === 'pass_rule') {
+      [next.pass_type, next.pass_basis] = val.split('|');
+    } else {
+      const n = Number(val);
+      if (val === '' || !isFinite(n) || n < 0) { showToast('Enter a number of 0 or more', 'error'); scmRender(); return; }
+      next[field] = n;
+    }
+    if (next.pass_type === 'percent' && Number(next.pass_marks) > 100) { showToast("A percentage pass can't be over 100", 'error'); scmRender(); return; }
+    if (next.pass_type !== 'percent' && next.pass_basis !== 'weight' && Number(next.pass_marks) > Number(next.full_marks)) showToast(`Pass (${next.pass_marks}) is more than the marks (${next.full_marks})`, 'error');
+    _scm.comps.set(key, next);
+    if (!prev) {
+      scmRender();
+      const w = document.getElementById(`scm-${pid}-${sid}-${tid}-weight_percent`);
+      if (w) { w.focus(); w.select(); }
+    }
+    _adminFetch('save_subject_part', {
+      pattern_id: pid, subject_id: sid, component_type_id: tid,
+      full_marks: next.full_marks, weight_percent: next.weight_percent, pass_marks: next.pass_marks,
+      pass_type: next.pass_type, pass_basis: next.pass_basis,
+    }).then(res => {
+      if (res && res.result === 'success') {
+        _scm.map.add(`${pid}|${sid}`);
+        if (res.component) _scm.comps.set(key, { ...next, id: res.component.id });
+        return;
+      }
+      if (prev) _scm.comps.set(key, prev); else _scm.comps.delete(key);
+      scmRender();
+      showToast((res && res.message) || 'Not saved', 'error');
+    });
+  }
+  // Parts (CT, CQ, MCQ, Practical…) — shared by every class and subject.
+  function scmManageParts() {
+    if (!_scm) return;
+    let ov = document.getElementById('scmPartsOverlay');
+    if (!ov) {
+      ov = document.createElement('div');
+      ov.id = 'scmPartsOverlay';
+      ov.className = 'fixed inset-0 z-[80] bg-slate-900/40 flex items-center justify-center p-4';
+      ov.onclick = e => { if (e.target === ov) ov.remove(); };
+      document.body.appendChild(ov);
+    }
+    const uses = tid => [..._scm.comps.values()].filter(c => c.component_type_id === tid).length;
+    ov.innerHTML = `<div class="bg-white rounded-2xl shadow-xl w-full max-w-sm flex flex-col" style="max-height:85vh">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+        <p class="font-black text-slate-800 text-sm">Exam Parts</p>
+        <i data-lucide="x" class="h-4 w-4 text-slate-500 cursor-pointer" onclick="document.getElementById('scmPartsOverlay').remove()"></i>
+      </div>
+      <div class="overflow-y-auto">${_scm.types.map(t => `<div class="flex items-center justify-between gap-2 px-4 py-2 border-b border-slate-50">
+        <span class="text-xs font-bold text-slate-700">${_escHtml(t.name)}</span>
+        <span class="flex items-center gap-3">
+          <span class="text-[10px] font-bold text-slate-400">used ${uses(t.id)}×</span>
+          <i data-lucide="pencil" class="h-3.5 w-3.5 text-blue-500 cursor-pointer" onclick="scmRenamePart(${t.id})"></i>
+          <i data-lucide="trash-2" class="h-3.5 w-3.5 text-red-500 cursor-pointer" onclick="scmDeletePart(${t.id})"></i>
+        </span>
+      </div>`).join('')}</div>
+      <div class="flex items-center gap-2 px-4 py-3 border-t border-slate-200">
+        <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-scm-newpart" id="scmNewPartName" placeholder="New part (e.g. Viva)" class="flex-1 min-w-0 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+        <button onclick="scmAddPart()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Add</button>
+      </div>
+    </div>`;
+    lucide.createIcons();
+  }
+  function _scmAfterPartChange() {
+    _componentTypes = [];
+    scmLoad();
+    setTimeout(() => { if (document.getElementById('scmPartsOverlay')) scmManageParts(); }, 600);
+  }
+  function scmAddPart() {
+    const name = (document.getElementById('scmNewPartName')?.value || '').trim();
+    if (!name) return;
+    if (_scm.types.some(t => t.name.toLowerCase() === name.toLowerCase())) { showToast(`"${name}" already exists`, 'error'); return; }
+    _adminFetch('save_exam_component_type', { name }).then(res => {
+      if (res && res.result === 'success') { showToast('Part added'); _scmAfterPartChange(); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+  function scmRenamePart(tid) {
+    const t = _scm.types.find(x => x.id === tid);
+    const name = (prompt('Rename part (changes it for every subject and class):', t ? t.name : '') || '').trim();
+    if (!name || (t && name === t.name)) return;
+    _adminFetch('rename_exam_component_type', { id: tid, name }).then(res => {
+      if (res && res.result === 'success') { showToast('Part renamed'); _scmAfterPartChange(); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+  function scmDeletePart(tid) {
+    const t = _scm.types.find(x => x.id === tid);
+    const nm = t ? t.name : '';
+    const n = [..._scm.comps.values()].filter(c => c.component_type_id === tid).length;
+    if (!confirm(`Delete part "${nm}"?${n ? `\n\nIt is set on ${n} subject(s) across classes; that ${nm} marks setup will be deleted too.` : ''}`)) return;
+    _adminFetch('delete_exam_component_type', { id: tid }).then(res => {
+      if (res && res.result === 'success') { showToast('Part deleted'); _scmAfterPartChange(); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+  function scmAddSubject(pid) {
+    const sel = document.getElementById(`scmAdd-${pid}`);
+    const val = sel ? sel.value : '';
+    if (!val) return;
+    const link = subject_id => _adminFetch('save_subject_pattern_map', { subject_id, pattern_id: pid, checked: true }).then(res => {
+      if (res && res.result === 'success') scmLoad();
+      else showToast((res && res.message) || 'Failed', 'error');
+    });
+    if (val !== '__new') { link(Number(val)); return; }
+    const name = (prompt('New subject name (full English name):') || '').trim();
+    if (!name) { sel.value = ''; return; }
+    if (_scm.subjects.some(s => s.name.toLowerCase() === name.toLowerCase())) { showToast(`"${name}" already exists — pick it from the list`, 'error'); return; }
+    _adminFetch('save_subject', { name }).then(res => {
+      if (res && res.result === 'success' && res.subject && res.subject.id) link(res.subject.id);
+      else showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+  function scmRemoveSubject(pid, sid) {
+    const cls = (_scm.patterns.find(p => p.id === pid) || {}).name || 'this class';
+    if (!confirm(`Remove "${_scmSubjectName(sid)}" from ${cls}? Its ticks and marks setup are kept — adding it back brings them back.`)) return;
+    _adminFetch('save_subject_pattern_map', { subject_id: sid, pattern_id: pid, checked: false }).then(res => {
+      if (res && res.result === 'success') { _scm.map.delete(`${pid}|${sid}`); scmRender(); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+  function scmRenameSubject(sid) {
+    const cur = _scmSubjectName(sid);
+    const name = (prompt('Rename subject (changes it in every class):', cur) || '').trim();
+    if (!name || name === cur) return;
+    if (_scm.subjects.some(s => s.id !== sid && s.name.toLowerCase() === name.toLowerCase())) { showToast(`"${name}" already exists`, 'error'); return; }
+    _adminFetch('save_subject', { id: sid, name }).then(res => {
+      if (res && res.result === 'success') { showToast('Subject renamed'); scmLoad(); _scmRefreshManager(); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+  function scmDeleteSubject(sid) {
+    const name = _scmSubjectName(sid);
+    const used = _scm.patterns.filter(p => _scm.map.has(`${p.id}|${sid}`)).map(p => p.name);
+    const warn = used.length ? `\n\nIt is used in ${used.length} class(es): ${used.join(', ')}. It will be removed from all of them, with its marks setup.` : '';
+    if (!confirm(`Delete subject "${name}" permanently?${warn}`)) return;
+    _adminFetch('delete_subject', { id: sid }).then(res => {
+      if (res && res.result === 'success') { showToast('Subject deleted'); scmLoad(); setTimeout(_scmRefreshManager, 400); }
+      else showToast(`Can't delete "${name}" — ${(res && res.message) || 'it is still in use (entered marks or exam sheets)'}`, 'error');
+    });
+  }
+  function scmAddClass() {
+    const el = document.getElementById('scmNewClassName');
+    const name = (el ? el.value : '').trim();
+    if (!name) return;
+    if (_scm && _scm.patterns.some(p => p.name.toLowerCase() === name.toLowerCase())) { showToast(`Class "${name}" already exists`, 'error'); return; }
+    _adminFetch('save_class_pattern', { name }).then(res => {
+      if (res && res.result === 'success') { showToast('Class added'); el.value = ''; scmLoad(); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+  function scmRenameClass(pid) {
+    const p = _scm.patterns.find(x => x.id === pid);
+    const name = (prompt('Rename class:', p ? p.name : '') || '').trim();
+    if (!name || (p && name === p.name)) return;
+    _adminFetch('save_class_pattern', { id: pid, name }).then(res => {
+      if (res && res.result === 'success') { showToast('Class renamed'); scmLoad(); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+  function scmDeleteClass(pid) {
+    const p = _scm.patterns.find(x => x.id === pid);
+    const name = p ? p.name : 'this class';
+    _adminFetch('get_class_pattern_usage', { id: pid }).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed to check usage', 'error'); return; }
+      if (res.exams > 0) { showToast(`Can't delete "${name}" — ${res.exams} exam(s) use it. Archive or reassign them first.`, 'error'); return; }
+      const parts = [];
+      if (res.class_sections) parts.push(`${res.class_sections} section(s) linked to it in Class Setup will be unlinked`);
+      if (res.subjects) parts.push(`its ${res.subjects} subject(s) and their ticks will be deleted`);
+      if (!confirm(`Delete class "${name}"?${parts.length ? ' ' + parts.join('; ') + '.' : ''}`)) return;
+      _adminFetch('delete_class_pattern', { id: pid }).then(res2 => {
+        if (res2 && res2.result === 'success') { showToast('Class deleted'); scmLoad(); }
+        else showToast((res2 && res2.message) || 'Failed', 'error');
+      });
+    });
+  }
+  // Global subject list — rename/delete a subject everywhere, see where it's used.
+  function scmManageSubjects() {
+    if (!_scm) return;
+    let ov = document.getElementById('scmSubjOverlay');
+    if (!ov) {
+      ov = document.createElement('div');
+      ov.id = 'scmSubjOverlay';
+      ov.className = 'fixed inset-0 z-[80] bg-slate-900/40 flex items-center justify-center p-4';
+      ov.onclick = e => { if (e.target === ov) ov.remove(); };
+      document.body.appendChild(ov);
+    }
+    _scmRefreshManager();
+  }
+  function _scmRefreshManager() {
+    const ov = document.getElementById('scmSubjOverlay');
+    if (!ov || !_scm) return;
+    const rows = _scm.subjects.map(s => {
+      const n = _scm.patterns.filter(p => _scm.map.has(`${p.id}|${s.id}`)).length;
+      return `<div class="flex items-center justify-between gap-2 px-4 py-2 border-b border-slate-50">
+        <span class="text-xs font-bold text-slate-700">${_escHtml(s.name)}</span>
+        <span class="flex items-center gap-3 shrink-0">
+          <span class="text-[10px] font-bold ${n ? 'text-slate-400' : 'text-amber-500'}">${n ? `${n} class${n === 1 ? '' : 'es'}` : 'not used'}</span>
+          <i data-lucide="pencil" class="h-3.5 w-3.5 text-blue-500 cursor-pointer" onclick="scmRenameSubject(${s.id})"></i>
+          <i data-lucide="trash-2" class="h-3.5 w-3.5 text-red-500 cursor-pointer" onclick="scmDeleteSubject(${s.id})"></i>
+        </span>
+      </div>`;
+    }).join('');
+    ov.innerHTML = `<div class="bg-white rounded-2xl shadow-xl w-full max-w-md flex flex-col" style="max-height:85vh">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+        <p class="font-black text-slate-800 text-sm">All Subjects <span class="text-[10px] text-slate-400 ml-1">${_scm.subjects.length}</span></p>
+        <i data-lucide="x" class="h-4 w-4 text-slate-500 cursor-pointer" onclick="document.getElementById('scmSubjOverlay').remove()"></i>
+      </div>
+      <div class="overflow-y-auto">${rows}</div>
+    </div>`;
+    lucide.createIcons();
+  }
+  function scmShowGrid() {
+    _scmGrid = !_scmGrid;
+    document.getElementById('subjGridLegacy').style.display = _scmGrid ? '' : 'none';
+    document.getElementById('scmHost').style.display = _scmGrid ? 'none' : '';
+    document.getElementById('scmGridBtn').textContent = _scmGrid ? 'Class View' : 'Grid View';
+    if (_scmGrid) loadSubjectSetup(); else scmLoad();
   }
 
   // ── Class-Subject Marks Setup — standing per-(pattern,subject) components

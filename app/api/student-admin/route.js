@@ -517,6 +517,8 @@ const ADMIN_TAB_ACTIONS = {
     'get_class_pattern_setup', 'get_class_patterns', 'save_class_pattern', 'save_class_pattern_map',
     'get_class_pattern_usage', 'delete_class_pattern',
     'get_subjects', 'save_subject', 'delete_subject', 'get_subject_pattern_map', 'save_subject_pattern_map',
+    'get_subject_class_matrix', 'toggle_subject_component', 'save_subject_part',
+    'rename_exam_component_type', 'delete_exam_component_type',
     'get_exam_component_types', 'save_exam_component_type', 'get_subject_components_setup', 'save_subject_component', 'delete_subject_component',
     'get_exam_patterns', 'save_exam_pattern', 'duplicate_exam_pattern', 'delete_exam_pattern',
     'get_exams', 'save_exam', 'lock_exam', 'archive_exam', 'duplicate_exam',
@@ -2535,6 +2537,16 @@ export async function POST(req) {
     return rows.map(r => r.subjects).filter(Boolean);
   }
 
+  // A part's pass rule as the raw mark the student must reach on that part.
+  // pass_type number|percent, pass_basis marks|weight (weighted mark =
+  // marks × weight / 100). Rows from before the rule columns = number on marks.
+  function _passMarksRaw(c) {
+    const full = Number(c.full_marks) || 0, weight = Number(c.weight_percent) || 0, v = Number(c.pass_marks) || 0;
+    if (c.pass_type === 'percent') return v / 100 * full; // same threshold on marks or on weight
+    if (c.pass_basis === 'weight') return weight ? v * 100 / weight : 0;
+    return v;
+  }
+
   async function _componentsForSubject(patternId, subjectId) {
     const rows = await sbExam(`subject_components?pattern_id=eq.${encodeURIComponent(patternId)}&subject_id=eq.${encodeURIComponent(subjectId)}&select=*,exam_component_types(id,name)&order=sort_order.asc`);
     return Array.isArray(rows) ? rows : [];
@@ -2657,7 +2669,7 @@ export async function POST(req) {
       ? await sbExam(`subjects?id=eq.${encodeURIComponent(id)}`, 'PATCH', { name })
       : await sbExam('subjects', 'POST', { name });
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
-    return NextResponse.json({ result: 'success' });
+    return NextResponse.json({ result: 'success', subject: Array.isArray(r) ? r[0] : r });
   }
   if (action === 'delete_subject') {
     const r = await sbExam(`subjects?id=eq.${encodeURIComponent(payload.id)}`, 'DELETE');
@@ -2690,6 +2702,82 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success' });
   }
 
+  // Everything the class-by-class Subject Setup view needs in one round trip:
+  // each class pattern, the subjects ticked for it, and which parts
+  // (CT/CQ/MCQ/Practical…) each of those subjects has there.
+  if (action === 'get_subject_class_matrix') {
+    const [patterns, subjects, mapRows, comps, types] = await Promise.all([
+      sbExam('class_patterns?select=id,name&order=name.asc'),
+      sbExam('subjects?select=id,name&order=name.asc'),
+      sbExam('subject_pattern_map?select=subject_id,pattern_id'),
+      sbExam('subject_components?select=*'),
+      sbExam('exam_component_types?select=id,name&order=id.asc'),
+    ]);
+    const bad = [patterns, subjects, mapRows, comps, types].find(x => x?.error || !Array.isArray(x));
+    if (bad) return NextResponse.json({ result: 'error', message: bad?.error || 'Failed to load subject setup.' });
+    return NextResponse.json({ result: 'success', patterns, subjects, map: mapRows, components: comps, types });
+  }
+  // Tick = the subject has this part in this class (a component row with
+  // zero marks until Marks Setup fills them in). Ticking also puts the
+  // subject on the class. Unticking removes just that part's row.
+  if (action === 'toggle_subject_component') {
+    const { pattern_id, subject_id, component_type_id, checked } = payload;
+    if (!pattern_id || !subject_id || !component_type_id) return NextResponse.json({ result: 'error', message: 'Class, subject and part required.' });
+    const q = `pattern_id=eq.${encodeURIComponent(pattern_id)}&subject_id=eq.${encodeURIComponent(subject_id)}`;
+    const existing = await sbExam(`subject_components?${q}&component_type_id=eq.${encodeURIComponent(component_type_id)}&select=id`);
+    if (existing?.error) return NextResponse.json({ result: 'error', message: existing.error });
+    if (!checked) {
+      if (existing.length) {
+        const r = await sbExam(`subject_components?${q}&component_type_id=eq.${encodeURIComponent(component_type_id)}`, 'DELETE');
+        if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+      }
+      return NextResponse.json({ result: 'success', component: null });
+    }
+    const mapped = await sbExam(`subject_pattern_map?${q}&select=id`);
+    if (!mapped?.error && !mapped.length) {
+      const m = await sbExam('subject_pattern_map', 'POST', { subject_id, pattern_id });
+      if (m?.error) return NextResponse.json({ result: 'error', message: m.error });
+    }
+    if (existing.length) return NextResponse.json({ result: 'success', component: existing[0] });
+    const r = await sbExam('subject_components', 'POST', { pattern_id, subject_id, component_type_id, full_marks: 0, pass_marks: 0, weight_percent: 0, sort_order: 0 });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success', component: Array.isArray(r) ? r[0] : r });
+  }
+  // One part of one subject in one class: marks, weight and pass rule.
+  // Upserts by (class, subject, part) and puts the subject on the class.
+  if (action === 'save_subject_part') {
+    const { pattern_id, subject_id, component_type_id, full_marks, weight_percent, pass_marks, pass_type, pass_basis } = payload;
+    if (!pattern_id || !subject_id || !component_type_id) return NextResponse.json({ result: 'error', message: 'Class, subject and part required.' });
+    if (pass_type && !['number', 'percent'].includes(pass_type)) return NextResponse.json({ result: 'error', message: 'Pass must be a number or a percentage.' });
+    if (pass_basis && !['marks', 'weight'].includes(pass_basis)) return NextResponse.json({ result: 'error', message: 'Pass must be on marks or on weight.' });
+    const q = `pattern_id=eq.${encodeURIComponent(pattern_id)}&subject_id=eq.${encodeURIComponent(subject_id)}`;
+    const mapped = await sbExam(`subject_pattern_map?${q}&select=id`);
+    if (!mapped?.error && !mapped.length) {
+      const m = await sbExam('subject_pattern_map', 'POST', { subject_id, pattern_id });
+      if (m?.error) return NextResponse.json({ result: 'error', message: m.error });
+    }
+    const rowData = { pattern_id, subject_id, component_type_id, full_marks: Number(full_marks) || 0, weight_percent: Number(weight_percent) || 0, pass_marks: Number(pass_marks) || 0 };
+    const ruleCols = {};
+    if (pass_type) ruleCols.pass_type = pass_type;
+    if (pass_basis) ruleCols.pass_basis = pass_basis;
+    const existing = await sbExam(`subject_components?${q}&component_type_id=eq.${encodeURIComponent(component_type_id)}&select=id`);
+    if (existing?.error) return NextResponse.json({ result: 'error', message: existing.error });
+    const write = data => existing.length
+      ? sbExam(`subject_components?id=eq.${existing[0].id}`, 'PATCH', data)
+      : sbExam('subject_components', 'POST', { ...data, sort_order: 0 });
+    let r = await write({ ...rowData, ...ruleCols });
+    // Before migration_exam_pass_rule.sql is run the two rule columns don't
+    // exist. A plain "number on marks" rule is what the old columns already
+    // mean, so save without them; anything else needs the migration.
+    if (r?.error && /pass_type|pass_basis/.test(String(r.error))) {
+      const isDefault = (!pass_type || pass_type === 'number') && (!pass_basis || pass_basis === 'marks');
+      if (!isDefault) return NextResponse.json({ result: 'error', message: 'Percentage / on-weight pass needs the database update (migration_exam_pass_rule.sql) to be run first.' });
+      r = await write(rowData);
+    }
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success', component: Array.isArray(r) ? r[0] : r });
+  }
+
   // ── Class-Subject Marks Setup — the standing per-(pattern,subject)
   // component/weight breakdown, reused across every term until changed ──
   if (action === 'get_exam_component_types') {
@@ -2705,6 +2793,31 @@ export async function POST(req) {
     const r = await sbExam('exam_component_types', 'POST', { name });
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
     return NextResponse.json({ result: 'success', type: Array.isArray(r) ? r[0] : r });
+  }
+  if (action === 'rename_exam_component_type') {
+    const { id, name } = payload;
+    const clean = String(name || '').trim();
+    if (!id || !clean) return NextResponse.json({ result: 'error', message: 'Part name required.' });
+    const clash = await sbExam(`exam_component_types?name=ilike.${encodeURIComponent(clean)}&id=neq.${encodeURIComponent(id)}&select=id`);
+    if (Array.isArray(clash) && clash.length) return NextResponse.json({ result: 'error', message: `A part named "${clean}" already exists.` });
+    const r = await sbExam(`exam_component_types?id=eq.${encodeURIComponent(id)}`, 'PATCH', { name: clean });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  // Refuses while any entered marks use the part; otherwise removes the part
+  // from every subject/class first so nothing is left pointing at it.
+  if (action === 'delete_exam_component_type') {
+    const { id } = payload;
+    if (!id) return NextResponse.json({ result: 'error', message: 'Part required.' });
+    const marks = await sbExam(`exam_marks?component_type_id=eq.${encodeURIComponent(id)}&select=id&limit=1`);
+    if (Array.isArray(marks) && marks.length) return NextResponse.json({ result: 'error', message: 'Marks have already been entered for this part — it cannot be deleted.' });
+    const sheets = await sbExam(`exam_entry_sheets?component_type_id=eq.${encodeURIComponent(id)}`, 'DELETE');
+    if (sheets?.error) return NextResponse.json({ result: 'error', message: sheets.error });
+    const comps = await sbExam(`subject_components?component_type_id=eq.${encodeURIComponent(id)}`, 'DELETE');
+    if (comps?.error) return NextResponse.json({ result: 'error', message: comps.error });
+    const r = await sbExam(`exam_component_types?id=eq.${encodeURIComponent(id)}`, 'DELETE');
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
   }
   if (action === 'get_subject_components_setup') {
     const { pattern_id } = payload;
@@ -2966,7 +3079,8 @@ export async function POST(req) {
         let weightedSum = 0, weightSum = 0, gateFail = false, aggregatePassWeighted = 0;
         const compBreakdown = comps.map(c => {
           const marks = Number((marksMap[sub.id]?.[c.component_type_id]?.[stu.student_id]) ?? 0);
-          const full = Number(c.full_marks) || 0, weight = Number(c.weight_percent) || 0, pass = Number(c.pass_marks) || 0;
+          const full = Number(c.full_marks) || 0, weight = Number(c.weight_percent) || 0;
+          const pass = _passMarksRaw(c);
           weightedSum += full ? (marks / full * weight) : 0;
           weightSum += weight;
           aggregatePassWeighted += full ? (pass / full * weight) : 0;
