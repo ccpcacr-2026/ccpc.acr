@@ -11265,8 +11265,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // ══════════════════════════════════════════════════════════════════════
 
   const FEES_SUBTABS = [
-    { id: 'fees-types', label: 'Fee Types' },
-    { id: 'fees-structures', label: 'Fee Structures' },
     { id: 'fees-generate', label: 'Generate Fees' },
     { id: 'fees-late', label: 'Late Fee Rules' },
     { id: 'fees-student', label: 'Student Fees / Discounts' },
@@ -11314,60 +11312,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     container.innerHTML = `
       <div class="mb-4">
         <h2 class="text-2xl font-black text-slate-800 tracking-tight">Fees</h2>
-        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Fee types, structures, generation, late fees, discounts, reports, accounts</p>
+        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Generation, late fees, discounts, reports, accounts &middot; fee heads &amp; the fee chart are in Accounts Admin &rarr; Fees Setup</p>
       </div>
       <div class="flex flex-wrap gap-2 mb-5">${tabBar}</div>
-
-      <div id="fees-types">
-        <div class="flex items-center justify-between mb-3">
-          <p class="font-black text-slate-800 text-sm flex items-center gap-2"><i data-lucide="tags" class="h-4 w-4 text-blue-600"></i>Fee Types</p>
-          <div class="flex gap-2">
-            <button onclick="_fcSyncFeeTypes()" class="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all" title="Create a fee head for every Direct Income ledger in Accounts, and link ones that already match by name">Sync from Accounts Ledgers</button>
-            <button onclick="openFeeTypeEditor(null)" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">+ New Fee Type</button>
-          </div>
-        </div>
-        <p class="text-[10px] text-slate-400 font-bold mb-3">Fee heads are the rows of the fee chart. Linking one to its Accounts ledger is what lets fee income reach the double-entry books later.</p>
-        <div id="feeTypesList" class="flex flex-col gap-2"><span class="text-xs text-slate-400 font-bold italic">Loading…</span></div>
-      </div>
-
-      <div id="fees-structures" style="display:none">
-        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-3">
-          <div class="flex flex-wrap items-end gap-2">
-            <div>
-              <label class="text-[10px] font-black text-slate-400 uppercase block mb-1">Set fees for</label>
-              <div class="flex rounded-xl border border-slate-200 overflow-hidden">
-                <button id="fcTabGroup" onclick="_fcSetMode('group')" class="px-3 py-2 text-[10px] font-black uppercase tracking-widest bg-blue-600 text-white">Group</button>
-                <button id="fcTabStudent" onclick="_fcSetMode('student')" class="px-3 py-2 text-[10px] font-black uppercase tracking-widest bg-white text-slate-400">Student</button>
-              </div>
-            </div>
-            <div>
-              <label class="text-[10px] font-black text-slate-400 uppercase block mb-1">Year</label>
-              <input type="text" id="fcYear" value="2026" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="width:90px">
-            </div>
-            <div id="fcGroupScope" class="flex flex-wrap items-end gap-2"></div>
-            <div id="fcStudentScope" style="display:none">
-              <label class="text-[10px] font-black text-slate-400 uppercase block mb-1">Student</label>
-              <div class="flex gap-2">
-                <input type="text" id="fcStudentId" placeholder="Student ID" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" autocomplete="off" spellcheck="false">
-                <button onclick="_fcOpenStudentPicker()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50 whitespace-nowrap">Find…</button>
-              </div>
-              <span id="fcStudentName" class="text-[10px] font-bold text-slate-500"></span>
-            </div>
-            <button onclick="_fcLoadChart()" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Load Chart</button>
-          </div>
-          <div class="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-slate-100">
-            <input type="search" id="fcSearch" oninput="_fcSetFilter(this.value)" placeholder="Filter fee heads…" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="width:200px" autocomplete="off" spellcheck="false">
-            <label class="flex items-center gap-1.5 text-[10px] font-black text-slate-500 uppercase cursor-pointer"><input type="checkbox" id="fcOnlyFilled" onchange="_fcToggleOnlyFilled(this.checked)" class="w-3.5 h-3.5 rounded accent-blue-600">Only rows with amounts</label>
-            <div class="flex-1"></div>
-            <button onclick="_fcSyncFeeTypes()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Sync Fee Heads</button>
-            <button onclick="_fcExportChart()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Export</button>
-            <button onclick="_fcOpenImport()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Import</button>
-          </div>
-          <p class="text-[10px] text-slate-400 font-bold mt-2">A blank scope dropdown means “any”. A student's own amounts <b>add on top of</b> whatever their group chart already says. Cells save as you leave them.</p>
-        </div>
-        <div id="fcChartHost"><span class="text-xs text-slate-400 font-bold italic">Pick a scope and press Load Chart.</span></div>
-        <div id="fcRemissionHost" style="display:none"></div>
-      </div>
 
       <div id="fees-generate" style="display:none">
         <div class="grid md:grid-cols-2 gap-4">
@@ -11490,7 +11437,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
     `;
     lucide.createIcons();
-    loadFeeTypes();
+    loadFeeTypes(); // still needed: Generate / Discount pick from the fee heads
+    switchFeesTab(FEES_SUBTABS[0].id);
   }
 
   function switchFeesTab(tabId) {
@@ -11504,7 +11452,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         btn.className += active ? ' bg-blue-600 text-white shadow-lg shadow-blue-500/20' : ' bg-white text-slate-400 border border-slate-200 hover:bg-slate-50';
       }
     });
-    if (tabId === 'fees-structures') _fcInit();
     if (tabId === 'fees-generate') _feeEnsureScopeOpts(() => {
       _feeFillSelect('genCwClass', 'class', 'Class…');
       _feeFillSelect('genCwSection', 'section', 'Any section');
@@ -11521,6 +11468,92 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       loadDefaultersList(); loadFeesCollectionReport();
     }
     if (tabId === 'fees-accounts') { loadFeeAccounts(); loadAccountRegister(); }
+  }
+
+  // ── Fees Setup (fee heads + fee chart + remission) ─────────────────────
+  // Lives in Accounts Admin (Gateway > Fees Setup, desktop and mobile). The
+  // markup keeps its original element ids, so loadFeeTypes() and every _fc*
+  // function work unchanged wherever this is rendered.
+  let _feesSetupActive = 'fees-types';
+  function _feesSetupHtml() {
+    return `
+      <div class="flex gap-2 mb-4">
+        <button onclick="_feesSetupTab('fees-types')" id="fsetab-fees-types">Fee Heads</button>
+        <button onclick="_feesSetupTab('fees-structures')" id="fsetab-fees-structures">Fee Chart</button>
+      </div>
+      <div id="fees-types">
+        <div class="flex items-center justify-between mb-3">
+          <p class="font-black text-slate-800 text-sm flex items-center gap-2"><i data-lucide="tags" class="h-4 w-4 text-blue-600"></i>Fee Types</p>
+          <div class="flex gap-2">
+            <button onclick="_fcSyncFeeTypes()" class="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all" title="Create a fee head for every Direct Income ledger in Accounts, and link ones that already match by name">Sync from Accounts Ledgers</button>
+            <button onclick="openFeeTypeEditor(null)" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">+ New Fee Type</button>
+          </div>
+        </div>
+        <p class="text-[10px] text-slate-400 font-bold mb-3">Fee heads are the rows of the fee chart. Linking one to its Accounts ledger is what lets fee income reach the double-entry books later.</p>
+        <div id="feeTypesList" class="flex flex-col gap-2"><span class="text-xs text-slate-400 font-bold italic">Loading…</span></div>
+      </div>
+
+      <div id="fees-structures" style="display:none">
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-3">
+          <div class="flex flex-wrap items-end gap-2">
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase block mb-1">Set fees for</label>
+              <div class="flex rounded-xl border border-slate-200 overflow-hidden">
+                <button id="fcTabGroup" onclick="_fcSetMode('group')" class="px-3 py-2 text-[10px] font-black uppercase tracking-widest bg-blue-600 text-white">Group</button>
+                <button id="fcTabStudent" onclick="_fcSetMode('student')" class="px-3 py-2 text-[10px] font-black uppercase tracking-widest bg-white text-slate-400">Student</button>
+              </div>
+            </div>
+            <div>
+              <label class="text-[10px] font-black text-slate-400 uppercase block mb-1">Year</label>
+              <input type="text" id="fcYear" value="2026" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="width:90px">
+            </div>
+            <div id="fcGroupScope" class="flex flex-wrap items-end gap-2"></div>
+            <div id="fcStudentScope" style="display:none">
+              <label class="text-[10px] font-black text-slate-400 uppercase block mb-1">Student</label>
+              <div class="flex gap-2">
+                <input type="text" id="fcStudentId" placeholder="Student ID" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" autocomplete="off" spellcheck="false">
+                <button onclick="_fcOpenStudentPicker()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50 whitespace-nowrap">Find…</button>
+              </div>
+              <span id="fcStudentName" class="text-[10px] font-bold text-slate-500"></span>
+            </div>
+            <button onclick="_fcLoadChart()" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Load Chart</button>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-slate-100">
+            <input type="search" id="fcSearch" oninput="_fcSetFilter(this.value)" placeholder="Filter fee heads…" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="width:200px" autocomplete="off" spellcheck="false">
+            <label class="flex items-center gap-1.5 text-[10px] font-black text-slate-500 uppercase cursor-pointer"><input type="checkbox" id="fcOnlyFilled" onchange="_fcToggleOnlyFilled(this.checked)" class="w-3.5 h-3.5 rounded accent-blue-600">Only rows with amounts</label>
+            <div class="flex-1"></div>
+            <button onclick="_fcSyncFeeTypes()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Sync Fee Heads</button>
+            <button onclick="_fcExportChart()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Export</button>
+            <button onclick="_fcOpenImport()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Import</button>
+          </div>
+          <p class="text-[10px] text-slate-400 font-bold mt-2">A blank scope dropdown means “any”. A student's own amounts <b>add on top of</b> whatever their group chart already says. Cells save as you leave them.</p>
+        </div>
+        <div id="fcChartHost"><span class="text-xs text-slate-400 font-bold italic">Pick a scope and press Load Chart.</span></div>
+        <div id="fcRemissionHost" style="display:none"></div>
+      </div>
+
+    `;
+  }
+  function _feesSetupTab(id) {
+    _feesSetupActive = id;
+    ['fees-types', 'fees-structures'].forEach(t => {
+      const panel = document.getElementById(t);
+      const btn = document.getElementById('fsetab-' + t);
+      if (panel) panel.style.display = t === id ? '' : 'none';
+      if (btn) btn.className = 'px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all '
+        + (t === id ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50');
+    });
+    if (id === 'fees-structures') {
+      _fcInit();
+      _fcSetMode(_fcMode);
+      if (_fcChart) { _fcRenderChart(); _fcLoadRemission(); } // re-entering keeps the last loaded chart
+    }
+  }
+  function _acRenderFeesSetup(host) {
+    host.innerHTML = `<div style="padding:6px 2px">${_feesSetupHtml()}</div>`;
+    lucide.createIcons();
+    loadFeeTypes();
+    _feesSetupTab(_feesSetupActive);
   }
 
   function _feeTypeOptions(selected) {
@@ -11620,7 +11653,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // filter), so switching tabs doesn't refetch all of students_data.
   function _feeEnsureScopeOpts(cb) {
     if (_fcScopeOpts) { cb && cb(); return; }
-    _adminFetch('get_class_sections', { dynamic: true }).then(res => {
+    _adminFetch('fee_scope_options', {}).then(res => {
       _fcScopeOpts = (res && Array.isArray(res.rows)) ? res : { candidateCols: [], rows: [] };
       cb && cb();
     }).catch(() => { _fcScopeOpts = { candidateCols: [], rows: [] }; cb && cb(); });
@@ -11746,7 +11779,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const text = ((document.getElementById('fcPickText') || {}).value || '').trim().toLowerCase();
     if (!cls && !section && !student_category && !text) { host.innerHTML = '<span class="text-xs text-red-500 font-bold">Narrow it down with at least one filter.</span>'; return; }
     host.innerHTML = '<span class="text-xs text-slate-400 font-bold italic">Searching…</span>';
-    _adminFetch('search_students', { class: cls, section, student_category }).then(res => {
+    _adminFetch('fee_search_students', { class: cls, section, student_category }).then(res => {
       if (!res || res.result !== 'success') { host.innerHTML = '<span class="text-xs text-red-500 font-bold">' + _escHtml((res && res.message) || 'Search failed.') + '</span>'; return; }
       // The action has no free-text clause, so name/ID narrowing happens
       // here over the (max 500) rows it returns.
@@ -26976,6 +27009,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { label: 'Alter', hot: 'A', go: 'chart' },
     { label: 'Chart of Accounts', hot: 'H', go: 'chart' },
     { label: 'Chequebooks', hot: 'Q', go: 'chequebooks' },
+    { label: 'Fees Setup', hot: 'F', go: 'fees-setup' },
     { section: 'Transactions' },
     { label: 'Vouchers', hot: 'V', go: 'voucher', params: { type: 'Payment' } },
     { label: 'Day Book', hot: 'D', go: 'daybook' },
@@ -27155,6 +27189,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // un-gated F5/Ctrl+A/Esc would otherwise hijack those keys app-wide.
   function _acKeydown(e) {
     if (!document.getElementById('tp-shell')) return;
+    if (e.key === 'Escape') {
+      const ov = ['fcStuPickOverlay', 'fcImportOverlay', 'feeTypeOverlay'].map(id => document.getElementById(id)).find(Boolean);
+      if (ov) { e.preventDefault(); ov.remove(); return; }
+    }
     if (_modalBackStack.length) {
       if (e.key === 'Escape') { e.preventDefault(); history.back(); }
       else if (e.ctrlKey && e.key.toLowerCase() === 'a') { e.preventDefault(); _acAccept(); }
@@ -28610,6 +28648,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     },
     chart: { title: 'Chart of Accounts', render: _acRenderChart },
     chequebooks: { title: 'Chequebooks', render: _acRenderChequebooksScreen },
+    'fees-setup': { title: 'Fees Setup', render: _acRenderFeesSetup },
     voucher: {
       title: 'Voucher Entry', render: _acRenderVoucherScreen,
       buttons: () => [{ key: 'Ctrl+A', label: 'Accept', onclick: '_acAccept()' }, { key: 'Alt+C', label: 'Create Ledger', onclick: '_acOpenLedgerForm(null)' }],
@@ -28643,6 +28682,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button class="tpm-card" onclick="_acMobileGo('vouchers')" style="text-align:left"><i data-lucide="receipt" class="h-5 w-5 text-blue-600 mb-1"></i><div style="font-weight:900;font-size:.8rem">Day Book</div></button>
           <button class="tpm-card" onclick="_acMobileGo('trial-balance')" style="text-align:left"><i data-lucide="scale" class="h-5 w-5 text-blue-600 mb-1"></i><div style="font-weight:900;font-size:.8rem">Trial Balance</div></button>
           <button class="tpm-card" onclick="_acMobileGo('groups')" style="text-align:left"><i data-lucide="folder-tree" class="h-5 w-5 text-blue-600 mb-1"></i><div style="font-weight:900;font-size:.8rem">Groups</div></button>
+          <button class="tpm-card" onclick="_acMobileGo('fees')" style="text-align:left"><i data-lucide="wallet" class="h-5 w-5 text-blue-600 mb-1"></i><div style="font-weight:900;font-size:.8rem">Fees Setup</div></button>
         </div>
         <div class="tpm-actionbar">
           <button class="tpm-btn" style="background:#2563eb;color:#fff" onclick="_acOpenVoucherForm(null)">+ Voucher</button>
@@ -28653,6 +28693,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       return;
     }
     const backBtn = `<button onclick="_acMobileGo('home')" style="background:none;border:none;color:#2563eb;font-weight:900;font-size:.75rem;text-transform:uppercase">‹ Back</button>`;
+    if (_acMobileView === 'fees') {
+      host.innerHTML = `<div class="tpm-header">${backBtn}<h2>Fees Setup</h2><span></span></div><div>${_feesSetupHtml()}</div>`;
+      lucide.createIcons();
+      loadFeeTypes();
+      _feesSetupTab(_feesSetupActive);
+      return;
+    }
     if (_acMobileView === 'ledgers') {
       host.innerHTML = `<div class="tpm-header">${backBtn}<h2>Ledgers</h2><span></span></div><div id="tpmList"><p class="text-slate-400 text-xs">Loading…</p></div>`;
       _acLoadLedgers().then(() => {

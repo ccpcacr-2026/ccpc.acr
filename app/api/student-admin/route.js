@@ -495,12 +495,22 @@ const STAFF_OPEN_ACTIONS = new Set(['get_tracking_config', 'get_bus_data']);
 // Class Teacher alike) may legitimately belong to more than one tab's set —
 // the caller only needs to clear ONE of them, not all.
 const ADMIN_TAB_ACTIONS = {
-  fees: new Set(['get_fee_types', 'save_fee_type', 'delete_fee_type', 'get_fee_structures', 'save_fee_structure', 'delete_fee_structure', 'get_late_fee_rules', 'save_late_fee_rule', 'delete_late_fee_rule', 'generate_classwise_fees', 'generate_individual_fee', 'remove_individual_fee', 'set_discount', 'get_discounts', 'set_partial_split', 'record_payment', 'get_student_fees', 'get_defaulters_list', 'get_fees_collection_report', 'get_fee_accounts', 'save_fee_account', 'record_account_transaction', 'get_account_register',
-    // Fees chart (Fee Structures grid) + remission
-    'sync_fee_types_from_ledgers', 'get_fee_chart', 'save_fee_chart_cell', 'bulk_save_fee_chart',
+  fees: new Set(['get_fee_structures', 'save_fee_structure', 'delete_fee_structure', 'get_late_fee_rules', 'save_late_fee_rule', 'delete_late_fee_rule', 'generate_classwise_fees', 'generate_individual_fee', 'remove_individual_fee', 'set_discount', 'get_discounts', 'set_partial_split', 'record_payment', 'get_student_fees', 'get_defaulters_list', 'get_fees_collection_report', 'get_fee_accounts', 'save_fee_account', 'record_account_transaction', 'get_account_register']),
+  // Fees SETUP (fee heads, the fee chart, remission) lives in Accounts Admin,
+  // so it follows that module's audience (Admin / Accounts Admin) rather than
+  // the super-admin-only wall on the rest of fees. It deliberately contains
+  // NO action shared with another tab: the wall is "any super-admin tab =>
+  // super admin required", so a shared action listed under `fees` (as
+  // get_class_sections / get_scope_column_values / search_students once
+  // were) silently locks every OTHER tab that uses it to the super admin.
+  // The chart gets its own narrow lookups (fee_scope_options,
+  // fee_search_students) instead of the full-record student search.
+  fees_setup: new Set([
+    'get_fee_types', 'save_fee_type', 'delete_fee_type', 'sync_fee_types_from_ledgers',
+    'get_fee_chart', 'save_fee_chart_cell', 'bulk_save_fee_chart',
     'preview_fee_remission_split', 'get_fee_remission', 'save_fee_remission', 'delete_fee_remission',
-    // scope dropdowns on the chart's cohort picker
-    'get_class_sections', 'get_scope_column_values', 'search_students']),
+    'fee_scope_options', 'fee_search_students',
+  ]),
   attendance: new Set(['get_attendance_report', 'save_manual_attendance', 'save_bulk_manual_attendance', 'get_staff_attendance_report', 'get_attendance_devices', 'save_attendance_device', 'delete_attendance_device', 'get_punch_log', 'get_device_health_list', 'get_p10_device_health_list', 'save_device_class_assignment', 'save_device_config', 'get_class_sections', 'get_absent_fee_setting', 'save_absent_fee_setting', 'get_today_attendance_overview']),
   exams: new Set([
     'get_exam_terms', 'save_exam_term', 'archive_exam_term',
@@ -561,6 +571,7 @@ const CT_EXCLUDED_COLS = new Set([
 // actively widens or narrows one from the Access tab).
 const ADMIN_TAB_DEFAULTS = {
   fees: ['Admin', 'Student Portal Admin'],
+  fees_setup: ['Admin', 'Accounts Admin'],
   attendance: ['Admin', 'Student Portal Admin', 'VP', 'Cord'],
   exams: ['Admin', 'Student Portal Admin'],
   payroll: ['Admin', 'HR'],
@@ -806,6 +817,10 @@ export async function POST(req) {
     // Super-Admin-only tabs never come back for anyone else, regardless of
     // what the (Admin-editable) matrix says — see SUPER_ADMIN_ONLY_TABS.
     if (!_isSuperAdmin(user_id)) tabs = tabs.filter(tab => !SUPER_ADMIN_ONLY_TABS.has(tab));
+    // fees_setup is an Accounts Admin screen, not a Student Portal tab - listing
+    // it would flip the frontend's "has Student Portal access" flag for every
+    // Accounts Admin user.
+    tabs = tabs.filter(tab => tab !== 'fees_setup');
     return NextResponse.json({ result: 'success', tabs });
   }
 
@@ -892,7 +907,7 @@ export async function POST(req) {
   } else if (tabKeys.length) {
     const roles = await _getUserRoles(user_id);
     const matrix = await _getAdminTabVisibility();
-    isAdmin = tabKeys.some(tk => _isTabAllowed(tk, roles, matrix));
+    isAdmin = _isSuperAdmin(user_id) || tabKeys.some(tk => _isTabAllowed(tk, roles, matrix));
     if (!isAdmin && !VIEWER_SAFE_ACTIONS.has(action)) {
       return NextResponse.json({ result: 'error', message: 'This module requires additional permissions.' }, { status: 403 });
     }
@@ -1683,6 +1698,39 @@ export async function POST(req) {
     if (!row.cycle) return; // pre-chart legacy row: no column to put it in
     (obj[row.fee_type_id] = obj[row.fee_type_id] || {})[row.cycle] = Number(row.amount) || 0;
   };
+
+  // Cohort tally for the fee screens' Class/Section/Group/... dropdowns: the
+  // same {candidateCols, rows} shape as get_class_sections' dynamic mode, but
+  // limited to the dimensions a fee chart can actually be scoped by, and only
+  // counts - no student records.
+  if (action === 'fee_scope_options') {
+    const dims = ['group', 'version', 'shift', 'session', 'student_category'];
+    const rows = await sbAllRows(`students_data?select=${['class', 'section', ...dims].join(',')}`);
+    if (rows?.error) return NextResponse.json({ candidateCols: [], rows: [] });
+    const seen = new Map();
+    rows.forEach(r => {
+      const cls = String(r.class || '').trim(), sec = String(r.section || '').trim();
+      if (!cls || !sec) return;
+      const extras = {};
+      dims.forEach(c => { extras[c] = String(r[c] || '').trim() || 'None'; });
+      const key = JSON.stringify([cls, sec, extras]);
+      if (!seen.has(key)) seen.set(key, { class: cls, section: sec, extras, count: 0 });
+      seen.get(key).count++;
+    });
+    return NextResponse.json({ candidateCols: dims, rows: [...seen.values()] });
+  }
+
+  // Student finder for per-student fees: only the fields needed to pick the
+  // right student - not the full record search_students returns (phones,
+  // parents' names), which the fees audience has no need to see.
+  if (action === 'fee_search_students') {
+    const { class: cls, section, student_category } = payload || {};
+    if (!cls && !section && !student_category) return NextResponse.json({ result: 'error', message: 'Pick at least one filter.' });
+    const rows = await _searchStudents({ class: cls, section }, ['student_id', 'student_name', 'class', 'section', 'roll', 'student_category'],
+      student_category ? { student_category: [student_category] } : null);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', rows });
+  }
 
   if (action === 'sync_fee_types_from_ledgers') {
     const ledgers = await sbAccountsRead('ledgers?select=id,name,group_id,account_groups(name)&order=id.asc');
