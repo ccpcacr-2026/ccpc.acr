@@ -282,7 +282,7 @@ const RESERVED = [
   '_acAddVoucherEntryRow','_acVoucherRecalc','_acOpenVoucherForm','_acCloseVoucherForm','_acSaveVoucher','_acDeleteVoucher',
   '_acLoadVouchers','_acLoadTrialBalance',
   // TallyPrime-emulation screen stack — onclick/onmouseenter-referenced
-  '_acPop','_acActivateMenuItem','_acMenuHover','_acOpenVoucherScreen','_acAccept','_acMobileGo','_acActivateGatewayItem',
+  '_acPop','_acNavTo','_acCrumb','_acChartSetFilter','_acLsPick','_acGo','_acActivateMenuItem','_acMenuHover','_acOpenVoucherScreen','_acAccept','_acMobileGo','_acActivateGatewayItem',
   // Create > Bill screen + its chequebook-range picker on the Ledger modal
   '_acBillOnAccountChange','_acBillRefreshNumber','_acBillShowGroup','_acBillRecalcWords',
   '_acAddChequeRange','_acDeleteChequeRange',

@@ -11454,7 +11454,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   // ── Fees Setup (fee heads + fee chart + remission) ─────────────────────
-  // Lives in Accounts Admin (Gateway > Fees Setup, desktop and mobile). The
+  // Lives in Accounts Admin (Fees, desktop and mobile). The
   // markup keeps its original element ids, so loadFeeTypes() and every _fc*
   // function work unchanged wherever this is rendered.
   let _feesSetupActive = 'fees-types';
@@ -27490,193 +27490,101 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { key: 'F9', label: 'Purchase', type: 'Purchase' },
   ];
 
-  // Faithful to TallyPrime's own Gateway grouping. Hot letters are
-  // chosen to never collide with each other on this one screen (Tally's
-  // own rule) — Chart of Accounts uses H since Alter already claims A.
-  const _AC_GATEWAY_MENU = [
+  // Left-hand navigation of the desktop Accounts screen. `go` is a screen id
+  // in _AC_SCREENS; picking one starts a fresh trail (Overview › that page),
+  // while drill-downs from inside a page (edit a voucher, open a ledger's
+  // statement) push onto the trail so Back returns to where you were.
+  const _AC_NAV = [
+    { label: 'Overview', icon: 'layout-dashboard', go: 'gateway' },
     { section: 'Masters' },
-    { label: 'Create', hot: 'C', go: 'create' },
-    { label: 'Alter', hot: 'A', go: 'chart' },
-    { label: 'Chart of Accounts', hot: 'H', go: 'chart' },
-    { label: 'Chequebooks', hot: 'Q', go: 'chequebooks' },
-    { label: 'Fees', hot: 'F', go: 'fees-setup' },
+    { label: 'Chart of Accounts', icon: 'folder-tree', go: 'chart' },
+    { label: 'Chequebooks', icon: 'book-marked', go: 'chequebooks' },
+    { label: 'Fees', icon: 'wallet', go: 'fees-setup' },
     { section: 'Transactions' },
-    { label: 'Vouchers', hot: 'V', go: 'voucher', params: { type: 'Payment' } },
-    { label: 'Day Book', hot: 'D', go: 'daybook' },
+    { label: 'New Voucher', icon: 'file-plus-2', go: 'voucher', params: { type: 'Payment' } },
+    { label: 'New Bill', icon: 'receipt-text', go: 'bill' },
+    { label: 'Day Book', icon: 'notebook-tabs', go: 'daybook' },
     { section: 'Reports' },
-    { label: 'Balance Sheet', hot: 'B', go: 'balance-sheet' },
-    { label: 'Profit & Loss A/c', hot: 'P', go: 'pnl' },
-    // Stock Summary/Ratio Analysis are real Tally Gateway items shown for
-    // fidelity — this app has no stock/inventory concept inside Accounts
-    // (Inventory is its own separate module), so they stay inert.
-    { label: 'Stock Summary', hot: 'S', action: () => _acInertMenuItem('stock') },
-    { label: 'Ratio Analysis', hot: 'R', action: () => _acInertMenuItem('ratio') },
-    { label: 'Trial Balance', hot: 'T', go: 'trial-balance' },
-    { label: 'Ledger Vouchers', hot: 'L', go: 'ledger-picker' },
+    { label: 'Trial Balance', icon: 'scale', go: 'trial-balance' },
+    { label: 'Profit & Loss', icon: 'trending-up', go: 'pnl' },
+    { label: 'Balance Sheet', icon: 'landmark', go: 'balance-sheet' },
+    { label: 'Ledger Statement', icon: 'scroll-text', go: 'ledger-vouchers' },
   ];
-
-  // Renders any menu screen's rows — one function serves Gateway, Create,
-  // and the dynamically-built Ledger Picker. A row with no `hot` (the
-  // ledger picker's dynamic list, where single-letter hotkeys would
-  // collide constantly) just skips the underline.
-  // Real Tally capitalizes the hotkey letter IN PLACE within the label
-  // (e.g. "BaNking", "Day BooK", "DashbOard") rather than coloring or
-  // underlining it — _acHotLabel below does that; hotPos still finds the
-  // same letter the old red-underline version did.
-  function _acHotLabel(label, hot) {
-    const hotPos = hot ? label.toUpperCase().indexOf(hot.toUpperCase()) : -1;
-    if (hotPos < 0) return _escHtml(label);
-    return _escHtml(label.slice(0, hotPos)) + `<span class="tp-menu-hot">${_escHtml(label[hotPos].toUpperCase())}</span>` + _escHtml(label.slice(hotPos + 1));
+  function _acRenderNav() {
+    const nav = document.getElementById('tp-nav');
+    if (!nav) return;
+    const trail = _acStack.map(s => s.id);
+    // The page you're on is whichever nav target sits deepest in the trail
+    // (editing a voucher from the Day Book keeps "Day Book" lit).
+    let activeId = 'gateway';
+    for (let i = trail.length - 1; i >= 0; i--) { if (_AC_NAV.some(n => n.go === trail[i])) { activeId = trail[i]; break; } }
+    nav.innerHTML = _AC_NAV.map((n, i) => n.section
+      ? `<div class="ac-nav-section">${_escHtml(n.section)}</div>`
+      : `<button class="ac-nav-item${n.go === activeId ? ' active' : ''}" onclick="_acNavTo(${i})"><i data-lucide="${n.icon}" class="h-4 w-4"></i><span>${_escHtml(n.label)}</span></button>`
+    ).join('');
+    lucide.createIcons();
   }
-  function _acMenuHtml(items, activeIndex) {
-    let rowIdx = -1;
-    return items.map(it => {
-      if (it.section) return `<div class="tp-menu-section-label">${_escHtml(it.section)}</div>`;
-      rowIdx++;
-      const isActive = rowIdx === activeIndex;
-      return `<div class="tp-menu-row${isActive ? ' active' : ''}" onmouseenter="_acMenuHover(${rowIdx})" onclick="_acActivateMenuItem(${rowIdx})">${_acHotLabel(it.label, it.hot)}</div>`;
-    }).join('');
-  }
-  function _acMenuHover(idx) {
-    _acMenuIndex = idx;
-    document.querySelectorAll('#tp-body .tp-menu-row').forEach((el, i) => el.classList.toggle('active', i === idx));
-  }
-  function _acActivateMenuItem(idx) {
-    const item = _acCurrentMenuItems[idx];
-    if (!item) return;
-    if (item.action) item.action(); else _acGo(item.go, item.params);
-  }
-  function _acMenuMove(delta) {
-    if (!_acCurrentMenuItems.length) return;
-    _acMenuIndex = (_acMenuIndex + delta + _acCurrentMenuItems.length) % _acCurrentMenuItems.length;
+  function _acNavTo(idx) {
+    const n = _AC_NAV[idx];
+    if (!n || !n.go) return;
+    _acStack = n.go === 'gateway' ? [{ id: 'gateway', params: {} }] : [{ id: 'gateway', params: {} }, { id: n.go, params: n.params || {} }];
     _acRender();
   }
 
+  function _acCrumb(i) { _acStack.length = i + 1; _acRender(); }
   function _acGo(id, params) {
     _acStack.push({ id, params: params || {} });
-    _acMenuIndex = 0;
     _acRender();
   }
-  // The one level of "switch in place instead of stack" Tally itself
-  // has: pressing another F-key while already on a voucher screen
-  // SWITCHES that screen's type rather than nesting a new one on top —
-  // otherwise repeated F-key presses would grow the stack forever.
+  // Switching voucher type while already on the voucher page changes it in
+  // place rather than stacking another voucher page on top.
   function _acOpenVoucherScreen(type, voucherId) {
     const top = _acStack[_acStack.length - 1];
-    if (top.id === 'voucher' && !voucherId) { top.params = { type, id: null }; _acMenuIndex = 0; _acRender(); }
+    if (top.id === 'voucher' && !voucherId) { top.params = { type, id: null }; _acRender(); }
     else _acGo('voucher', { type, id: voucherId || null });
   }
   function _acPop() {
-    if (_acStack.length > 1) { _acStack.pop(); _acMenuIndex = 0; _acRender(); }
+    if (_acStack.length > 1) { _acStack.pop(); _acRender(); }
   }
 
-  // Bottom bar is generic actions only (a screen's own buttons() + Esc
-  // Back) — real Tally's F4-F9 voucher-type shortcuts actually live in
-  // the RIGHT PANEL as a contextual list, only on the Voucher Entry
-  // screen (see _acRenderContextPanel), not here. Checked against a real
-  // screenshot of Tally's own Voucher Entry screen.
-  function _acRenderButtonBar(extra) {
-    const bar = document.getElementById('tp-buttonbar');
+  // Page-level buttons: the screen's own (from its `buttons()`), then the
+  // Import / Export / Print tools every page shares.
+  function _acRenderPageActions(extra) {
+    const bar = document.getElementById('tp-actions');
     if (!bar) return;
-    const extraBtns = (extra || []).map(b => `<button class="tp-fkey" onclick="${b.onclick}"><b>${_escHtml(b.key)}</b> ${_escHtml(b.label)}</button>`).join('');
-    const backBtn = _acStack.length > 1 ? `<button class="tp-fkey" onclick="_acPop()"><b>Esc</b> Back</button>` : '';
-    bar.innerHTML = extraBtns + backBtn;
+    const own = (extra || []).map(b => `<button class="ac-btn ${b.primary ? 'ac-btn-primary' : ''}" onclick="${b.onclick}" title="${_escHtml(b.key || '')}">${_escHtml(b.label)}${b.key ? ` <kbd>${_escHtml(b.key)}</kbd>` : ''}</button>`).join('');
+    bar.innerHTML = own + `
+      <button class="ac-btn ac-btn-ghost" onclick="_acOpenImportModal()" title="Import ledgers, groups or vouchers from Excel / Tally XML"><i data-lucide="upload" class="h-3.5 w-3.5"></i>Import</button>
+      <button class="ac-btn ac-btn-ghost" onclick="_acExportCurrentScreen()" title="Download this page's table as Excel"><i data-lucide="download" class="h-3.5 w-3.5"></i>Export</button>
+      <button class="ac-btn ac-btn-ghost" onclick="_acPrintCurrentScreen()" title="Print this page's table"><i data-lucide="printer" class="h-3.5 w-3.5"></i>Print</button>`;
   }
 
   function _acRender() {
     const top = _acStack[_acStack.length - 1];
     const screen = _AC_SCREENS[top.id];
     if (!screen) return;
-    const pathEl = document.getElementById('tp-path');
-    if (pathEl) pathEl.textContent = _acStack.map(s => _AC_SCREENS[s.id].title).join(' › ');
+    const params = top.params || {};
+    const titleEl = document.getElementById('tp-path');
+    if (titleEl) titleEl.textContent = typeof screen.title === 'function' ? screen.title(params) : screen.title;
+    const crumbs = document.getElementById('tp-crumbs');
+    if (crumbs) crumbs.innerHTML = _acStack.length > 1
+      ? _acStack.slice(0, -1).map((s, i) => `<a href="#" onclick="_acCrumb(${i});return false">${_escHtml(typeof _AC_SCREENS[s.id].title === 'function' ? _AC_SCREENS[s.id].title(s.params || {}) : _AC_SCREENS[s.id].title)}</a>`).join(' <span>›</span> ') + ' <span>›</span>'
+      : '';
+    const back = document.getElementById('tp-back');
+    if (back) back.style.visibility = _acStack.length > 1 ? 'visible' : 'hidden';
     const body = document.getElementById('tp-body');
     if (!body) return;
-    screen.render(body, top.params || {});
-    _acRenderButtonBar(screen.buttons ? screen.buttons(top.params || {}) : []);
-    _acRenderContextPanel(top.id, top.params || {});
-  }
-
-  // Dark menu bar — static content, rendered once at open (unlike
-  // _acRenderButtonBar/_acRenderContextPanel, which change per screen).
-  // K:Company/Y:Data/Z:Exchange/G:Go To are real Tally's multi-company/
-  // currency-exchange tools; CCPC ACR manages one institution, so these
-  // stay visible for fidelity but explain themselves via a toast instead
-  // of silently doing nothing. O:Import/E:Export/P:Print are real.
-  const _AC_MENUBAR_ITEMS = [
-    { label: 'Company', hot: 'K', onclick: "_acInertMenuItem('company')" },
-    { label: 'Data', hot: 'Y', onclick: "_acInertMenuItem('data')" },
-    { label: 'Exchange', hot: 'Z', onclick: "_acInertMenuItem('exchange')" },
-    { label: 'Go To', hot: 'G', onclick: "_acInertMenuItem('goto')" },
-    { label: 'Import', hot: 'O', onclick: '_acOpenImportModal()' },
-    { label: 'Export', hot: 'E', onclick: '_acExportCurrentScreen()' },
-    { label: 'Share', hot: 'M', onclick: "_acInertMenuItem('share')" },
-    { label: 'Print', hot: 'P', onclick: '_acPrintCurrentScreen()' },
-    { label: 'Help', hot: 'F1', onclick: "_acInertMenuItem('help')" },
-  ];
-  const _AC_INERT_MESSAGES = {
-    company: 'CCPC ACR manages one institution — no company switching needed.',
-    data: 'Backup/restore isn\'t needed here — your data lives in the school\'s own database.',
-    exchange: 'Single currency (BDT) — no exchange rates to manage.',
-    goto: 'Use the Gateway of Tally menu, or Esc to go back.',
-    share: 'Sharing isn\'t available yet.',
-    help: 'See the Gateway of Tally menu for what\'s available.',
-    stock: 'No stock/inventory tracked in Accounts — see the separate Inventory module.',
-    ratio: 'Ratio Analysis isn\'t built yet.',
-    notifications: 'No backup reminders here — your data lives in the school\'s own live database, already backed up automatically.',
-  };
-  function _acInertMenuItem(key) { showToast(_AC_INERT_MESSAGES[key] || 'Not available', 'info'); }
-  function _acRenderMenuBar() {
-    const bar = document.getElementById('tp-menubar');
-    if (!bar) return;
-    // G:Go To renders as a distinct light box (not plain text like its
-    // neighbors) matching real Tally — it behaves as a quick-jump search
-    // trigger there, which this app doesn't build, so it's styled the
-    // same but stays inert (see _AC_INERT_MESSAGES).
-    const items = _AC_MENUBAR_ITEMS.map(it => `<button class="tp-menubar-item${it.hot === 'G' ? ' inactive' : ''}" onclick="${it.onclick}"><span class="tp-menubar-hot">${_escHtml(it.hot)}</span>:${_escHtml(it.label)}</button>`).join('');
-    bar.innerHTML = `
-      <div class="tp-menubar-row1">
-        <input type="text" class="tp-menubar-search" placeholder="Find details entered in masters and transactions. (Alt+F)" disabled>
-        <div class="tp-menubar-icons"><button class="tp-menubar-item" style="padding:2px" onclick="_acInertMenuItem('notifications')" title="Notifications"><i data-lucide="bell" class="h-4 w-4"></i></button></div>
-      </div>
-      <div class="tp-menubar-row2">${items}</div>
-    `;
+    screen.render(body, params);
+    _acRenderPageActions(screen.buttons ? screen.buttons(params) : []);
+    _acRenderNav();
     lucide.createIcons();
   }
 
-  // Contextual shortcuts sliver on the right — real Tally's own layout
-  // keeps F2:Date/F3:Company here on every screen, then adds more below
-  // depending which screen you're on (checked against a real screenshot
-  // of Tally's own Voucher Entry screen: F4-F9's voucher-type switcher
-  // lives HERE as a list, not as buttons in the bottom bar — the
-  // currently-open type shows greyed/inactive since switching to what
-  // you're already on doesn't make sense). Other per-screen extras real
-  // Tally shows here (Autofill, Change Mode, Optional, Post-Dated, …)
-  // don't have a real feature behind them in this app yet, so they're
-  // left out rather than added as inert decoration.
-  function _acRenderContextPanel(screenId, params) {
-    const panel = document.getElementById('tp-gateway-panel');
-    if (!panel) return;
-    let html = `
-      <button class="tp-context-item" onclick="_acInertMenuItem('goto')"><b>F2</b>:Date</button>
-      <button class="tp-context-item" onclick="_acInertMenuItem('company')"><b>F3</b>:Company</button>
-    `;
-    if (screenId === 'voucher') {
-      const currentType = (params || {}).type || '';
-      html += '<div class="tp-context-gap"></div>' + _AC_FKEYS.map(f => f.type === currentType
-        ? `<span class="tp-context-item inactive"><b>${f.key}</b>:${f.label}</span>`
-        : `<button class="tp-context-item" onclick="_acOpenVoucherScreen('${f.type}')"><b>${f.key}</b>:${f.label}</button>`
-      ).join('');
-    }
-    panel.innerHTML = html;
-  }
-
-  // Two independent gates on the global keydown listener (see
-  // loadAccountsAdminView for where it's bound): teardown removes it
-  // when setActiveNavLink fires for any OTHER module, and this self-gate
-  // (mirroring the payroll/form-builder handlers elsewhere in this file)
-  // makes it inert even if teardown is ever missed — the single most
-  // important safety property of this whole feature, since an
-  // un-gated F5/Ctrl+A/Esc would otherwise hijack those keys app-wide.
+  // Keyboard shortcuts kept from the Tally days because they're genuinely
+  // quick: F4-F9 open a voucher of that type, Ctrl+A saves the open
+  // voucher / bill / form, Alt+C adds a ledger, Esc goes back (never while
+  // typing, so a half-filled voucher can't be thrown away by accident).
+  // Only live while the desktop Accounts screen is on the page.
   function _acKeydown(e) {
     if (!document.getElementById('tp-shell')) return;
     if (e.key === 'Escape') {
@@ -27689,39 +27597,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       return;
     }
     const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
-    const top = _acStack[_acStack.length - 1];
-    const screen = _AC_SCREENS[top.id];
-
     const fkeyMap = { F4: 'Contra', F5: 'Payment', F6: 'Receipt', F7: 'Journal', F8: 'Sales', F9: 'Purchase' };
     if (fkeyMap[e.key]) { e.preventDefault(); _acOpenVoucherScreen(fkeyMap[e.key]); return; }
-    // Ctrl+A is Tally's single most iconic shortcut ("Accept") and works
-    // even mid-field there — deliberately NOT gated behind `!typing`,
-    // unlike arrow/Enter menu navigation below.
-    if (e.ctrlKey && e.key.toLowerCase() === 'a') { e.preventDefault(); _acAccept(); return; }
+    if (e.ctrlKey && e.key.toLowerCase() === 'a') {
+      const top = _acStack[_acStack.length - 1];
+      const formOpen = !document.getElementById('acLedgerModal').classList.contains('hidden') || !document.getElementById('acGroupModal').classList.contains('hidden');
+      if (formOpen || top.id === 'voucher' || top.id === 'bill') { e.preventDefault(); _acAccept(); }
+      return; // elsewhere Ctrl+A keeps its normal select-all
+    }
     if (e.altKey && e.key.toLowerCase() === 'c') { e.preventDefault(); _acOpenLedgerForm(null); return; }
-    if (e.key === 'Escape') { e.preventDefault(); _acPop(); return; }
-
     if (typing) {
-      if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') { e.preventDefault(); _acFocusNext(e.target); }
+      if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA' && e.target.closest('#tp-body') && (e.target.matches('[data-tp-field], .ac-ve-ledger, .ac-ve-debit, .ac-ve-credit'))) { e.preventDefault(); _acFocusNext(e.target); }
       return;
     }
-
-    if (screen && screen.isMenu) {
-      if (e.key === 'ArrowDown') { e.preventDefault(); _acMenuMove(1); return; }
-      if (e.key === 'ArrowUp') { e.preventDefault(); _acMenuMove(-1); return; }
-      if (e.key === 'Enter') { e.preventDefault(); _acActivateMenuItem(_acMenuIndex); return; }
-      const hotMatch = _acCurrentMenuItems.findIndex(it => it.hot && it.hot.toUpperCase() === e.key.toUpperCase());
-      if (hotMatch >= 0) { e.preventDefault(); _acActivateMenuItem(hotMatch); return; }
-    }
+    if (e.key === 'Escape') { e.preventDefault(); _acPop(); }
   }
-  // Tally is Enter-driven, not Tab-driven. Voucher header fields carry
-  // data-tp-field explicitly; the .ac-ve-* entry-row fields are combined
-  // in via class instead (that row markup is generated by
-  // _acAddVoucherEntryRow, shared verbatim with the mobile modal, so it
-  // was never given the attribute) — querySelectorAll returns combined
-  // selectors in DOM order regardless of grouping, so this still walks
-  // Date -> Number -> Narration -> each entry row's Ledger/Debit/Credit
-  // in the order they actually appear, landing on Accept at the end.
+  // Enter moves to the next field on the voucher / bill pages (Date ->
+  // Number -> Narration -> each row's Ledger/Debit/Credit), saving at the end.
   function _acFocusNext(current) {
     const fields = Array.from(document.querySelectorAll('#tp-body [data-tp-field], #tp-body .ac-ve-ledger, #tp-body .ac-ve-debit, #tp-body .ac-ve-credit'));
     const idx = fields.indexOf(current);
@@ -27742,20 +27634,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (_acKeyBound) { document.removeEventListener('keydown', _acKeydown); _acKeyBound = false; }
     window.removeEventListener('resize', _acHandleResize);
     _acStack = [{ id: 'gateway', params: {} }];
-    _acMenuIndex = 0;
     _acTrialBalanceCache = null;
     const header = document.getElementById('content-header');
     if (header) header.classList.remove('hidden');
     const container = document.getElementById('view-container');
     if (container) container.style.height = '';
   }
-  // Mobile <-> desktop is decided by viewport width at render time, per
-  // the "genuinely separate mobile rendering" rule — debounced so a
-  // live window resize across the 768px breakpoint (not a real device,
-  // but a resized desktop browser) switches cleanly instead of leaving
-  // a half-dark, half-card screen. Self-removes once neither shell is
-  // in the DOM, so it can't outlive the view even if teardown timing
-  // is ever imperfect.
+  // Phone and desktop are separate renderings; crossing the 768px line
+  // while the page is open (a resized desktop window) re-renders cleanly.
   let _acResizeTimer = null;
   function _acHandleResize() {
     clearTimeout(_acResizeTimer);
@@ -27763,25 +27649,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const wasMobile = !!document.getElementById('tpm-shell');
       const wasDesktop = !!document.getElementById('tp-shell');
       if (!wasMobile && !wasDesktop) { window.removeEventListener('resize', _acHandleResize); return; }
-      if (wasMobile === (window.innerWidth < 768)) { loadAccountsAdminView(); return; }
-      if (wasDesktop) _acFitContainerHeight(); // same shell, just re-measure — a real resize, not a breakpoint cross
+      if (wasMobile === (window.innerWidth < 768)) loadAccountsAdminView();
     }, 200);
-  }
-
-  // #view-container's own wrapper (in app.html) is a flex child with no
-  // min-height:0, so a plain height:100% on the container silently stops
-  // bounding it the moment content (Chart of Accounts, a long Day Book,
-  // etc.) wants to be taller than the viewport — the wrapper just grows
-  // to fit instead of clipping+scrolling, which drags the WHOLE Tally
-  // shell (menu bar, right panel and all) along with it instead of
-  // letting .tp-body's own overflow-y:auto handle it internally.
-  // Measuring the real available space and setting it as a plain pixel
-  // height sidesteps that ancestor chain instead of fighting it.
-  function _acFitContainerHeight() {
-    const container = document.getElementById('view-container');
-    if (!container) return;
-    const top = container.getBoundingClientRect().top;
-    container.style.height = Math.max(200, window.innerHeight - top) + 'px';
   }
 
   // Reused verbatim by both the desktop Tally screen (Alt+C / Create
@@ -28200,32 +28069,33 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
     const header = document.getElementById('content-header');
     const isMobile = window.innerWidth < 768;
-
+    if (header) header.classList.remove('hidden');
+    container.style.height = '';
     if (isMobile) {
-      if (header) header.classList.remove('hidden');
-      container.style.height = '';
       container.innerHTML = `<div class="tpm-shell" id="tpm-shell"></div>${_acModalsHtml()}`;
       _acRenderMobile();
     } else {
-      if (header) header.classList.add('hidden');
+      const fy = _acFyLabel();
       container.innerHTML = `
-        <div class="tp-shell" id="tp-shell">
-          <div class="tp-menubar" id="tp-menubar"></div>
-          <div class="tp-screentitle">
-            <span id="tp-path"></span>
-            <button class="tp-screentitle-close" onclick="_acPop()" title="Back"><i data-lucide="x" class="h-4 w-4"></i></button>
-          </div>
-          <div class="tp-main-area">
-            <div class="tp-body" id="tp-body"></div>
-            <div class="tp-gateway-panel" id="tp-gateway-panel"></div>
-          </div>
-          <div class="tp-buttonbar" id="tp-buttonbar"></div>
+        <div class="ac-shell" id="tp-shell">
+          <aside class="ac-side">
+            <div class="ac-side-head"><i data-lucide="landmark" class="h-5 w-5"></i><div><b>Accounts</b><span>FY ${fy.short}</span></div></div>
+            <nav id="tp-nav"></nav>
+          </aside>
+          <main class="ac-main">
+            <div class="ac-pagehead">
+              <div class="ac-titlewrap">
+                <button id="tp-back" class="ac-back" onclick="_acPop()" title="Back (Esc)"><i data-lucide="arrow-left" class="h-4 w-4"></i></button>
+                <div><div id="tp-crumbs" class="ac-crumbs"></div><h2 id="tp-path"></h2></div>
+              </div>
+              <div id="tp-actions" class="ac-actions"></div>
+            </div>
+            <div id="tp-body" class="ac-body"></div>
+          </main>
         </div>
         ${_acModalsHtml()}
       `;
-      _acFitContainerHeight();
       if (!_acKeyBound) { document.addEventListener('keydown', _acKeydown); _acKeyBound = true; }
-      _acRenderMenuBar();
       _acRender();
     }
 
@@ -28257,34 +28127,107 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }).catch(err => showToast(err.message, 'error'));
   }
 
-  // Chart of Accounts — Tally's own grouped presentation: every Group
-  // with its ledgers (and balances) nested directly underneath, groups
-  // themselves nested under their own parent one level at a time.
-  function _acRenderChart(host) {
-    const byGroupId = {};
-    _acLedgersCache.forEach(l => { (byGroupId[l.group_id] = byGroupId[l.group_id] || []).push(l); });
-    const childrenOf = pid => _acGroupsCache.filter(g => g.parent_group_id === pid);
-    const renderGroup = (g, depth) => {
-      const ledgers = byGroupId[g.id] || [];
-      const kids = childrenOf(g.id);
-      return `
-        <div style="margin-left:${depth * 16}px">
-          <div class="tp-group-head" onclick="_acOpenGroupForm(${g.id})">${_escHtml(g.name)} <span style="color:#8a8ad0;font-weight:normal;font-size:11px">(${g.nature})</span></div>
-          ${ledgers.map(l => `
-            <div class="tp-ledger-line" style="margin-left:16px" onclick="_acOpenLedgerForm(${l.id})">
-              ${_escHtml(l.name)}<span class="tp-num" style="float:right">${Number(l.balance || 0).toLocaleString('en-IN')}</span>
-            </div>`).join('')}
-          ${kids.map(k => renderGroup(k, depth + 1)).join('')}
-        </div>`;
-    };
-    const rootGroups = _acGroupsCache.filter(g => !g.parent_group_id);
+  // ── Overview (the page Accounts opens on) ──────────────────────────────
+  // Period is Bangladesh's 1 Jul - 30 Jun financial year, from today's date.
+  function _acFyLabel() {
+    const now = new Date();
+    const y = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
+    return { from: `1 Jul ${y}`, to: `30 Jun ${y + 1}`, short: `${y}-${String(y + 1).slice(2)}` };
+  }
+  function _acMoney(n) { return '৳' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 }); }
+  function _acRenderOverview(host) {
+    const fy = _acFyLabel();
+    const quick = _AC_FKEYS.map(f => `<button class="ac-quick" onclick="_acOpenVoucherScreen('${f.type}')"><span>${_escHtml(f.label)}</span><kbd>${f.key}</kbd></button>`).join('');
     host.innerHTML = `
-      <div style="margin-bottom:10px">
-        <button class="tp-inline-btn" onclick="_acOpenGroupForm(null)">+ Group</button>
-        <button class="tp-inline-btn" onclick="_acOpenLedgerForm(null)">+ Ledger</button>
+      <p class="ac-muted" style="margin:-4px 0 16px">${_escHtml(MPO_INSTITUTION_NAME)} · Financial year ${fy.from} – ${fy.to}</p>
+      <div class="ac-kpis" id="acKpis">
+        ${['Income', 'Expenditure', 'Surplus', 'Trial balance'].map(l => `<div class="ac-kpi"><span>${l}</span><b>…</b></div>`).join('')}
       </div>
-      ${rootGroups.length ? rootGroups.map(g => renderGroup(g, 0)).join('') : '<div class="tp-empty">No groups yet.</div>'}
-    `;
+      <div class="ac-grid2">
+        <section class="ac-card">
+          <h3>New entry</h3>
+          <div class="ac-quick-grid">
+            ${quick}
+            <button class="ac-quick" onclick="_acGo('bill')"><span>Bill</span><kbd>print</kbd></button>
+            <button class="ac-quick" onclick="_acOpenLedgerForm(null)"><span>Ledger</span><kbd>Alt+C</kbd></button>
+            <button class="ac-quick" onclick="_acOpenGroupForm(null)"><span>Group</span></button>
+          </div>
+        </section>
+        <section class="ac-card">
+          <div class="ac-card-head"><h3>Recent vouchers</h3><a href="#" onclick="_acNavTo(${_AC_NAV.findIndex(n => n.go === 'daybook')});return false">Open Day Book →</a></div>
+          <div id="acRecent"><p class="tp-empty">Loading…</p></div>
+        </section>
+      </div>`;
+    _acLoadTrialBalance('').then(tb => {
+      const box = document.getElementById('acKpis');
+      if (!box || !tb) return;
+      const income = tb.rows.filter(r => r.nature === 'income').reduce((a, r) => a + (r.credit - r.debit), 0);
+      const expense = tb.rows.filter(r => r.nature === 'expense').reduce((a, r) => a + (r.debit - r.credit), 0);
+      const net = income - expense;
+      const diff = Math.abs(tb.total_debit - tb.total_credit);
+      box.innerHTML = `
+        <div class="ac-kpi"><span>Income</span><b>${_acMoney(income)}</b></div>
+        <div class="ac-kpi"><span>Expenditure</span><b>${_acMoney(expense)}</b></div>
+        <div class="ac-kpi ${net < 0 ? 'bad' : 'good'}"><span>${net < 0 ? 'Deficit' : 'Surplus'}</span><b>${_acMoney(Math.abs(net))}</b></div>
+        <div class="ac-kpi ${diff < 0.01 ? 'good' : 'bad'}"><span>Trial balance</span><b>${diff < 0.01 ? 'Balanced' : 'Out by ' + _acMoney(diff)}</b></div>`;
+    });
+    _accountsFetch('get_vouchers', {}).then(res => {
+      const box = document.getElementById('acRecent');
+      if (!box) return;
+      _acVouchersCache = (res && res.result === 'success' && res.vouchers) || [];
+      const recent = _acVouchersCache.slice().sort((a, b) => (a.voucher_date < b.voucher_date ? 1 : a.voucher_date > b.voucher_date ? -1 : b.id - a.id)).slice(0, 8);
+      box.innerHTML = recent.length ? `<table class="tp-table"><thead><tr><th>Date</th><th>Type</th><th>Narration</th><th class="tp-num">Amount</th></tr></thead><tbody>
+        ${recent.map(v => {
+          const total = (v.voucher_entries || []).reduce((a, e) => a + (Number(e.debit) || 0), 0);
+          return `<tr class="ac-click" onclick="_acOpenVoucherScreen('${_escJs(v.voucher_type)}',${v.id})"><td>${_escHtml(v.voucher_date)}</td><td><span class="ac-pill">${_escHtml(v.voucher_type)}</span></td><td>${_escHtml(v.narration || '—')}</td><td class="tp-num">${total.toLocaleString('en-IN')}</td></tr>`;
+        }).join('')}</tbody></table>` : '<p class="tp-empty">No vouchers yet — start with one of the buttons on the left.</p>';
+    }).catch(err => showToast(err.message, 'error'));
+  }
+
+  // ── Chart of Accounts — groups and their ledgers as one table ─────────
+  let _acChartFilter = '';
+  function _acRenderChart(host) {
+    host.innerHTML = `
+      <div class="ac-toolbar">
+        <input type="search" id="acChartFilter" class="tp-input" style="max-width:280px" placeholder="Find a ledger or group…" value="${_escHtml(_acChartFilter)}" oninput="_acChartSetFilter(this.value)" autocomplete="off" spellcheck="false">
+        <span class="ac-muted">${_acGroupsCache.length} groups · ${_acLedgersCache.length} ledgers · click a row to edit</span>
+      </div>
+      <div id="acChartTable"></div>`;
+    _acChartPaint();
+  }
+  function _acChartSetFilter(v) { _acChartFilter = v; _acChartPaint(); }
+  function _acChartPaint() {
+    const box = document.getElementById('acChartTable');
+    if (!box) return;
+    const q = _acChartFilter.trim().toLowerCase();
+    const byGroup = {};
+    _acLedgersCache.forEach(l => { (byGroup[l.group_id] = byGroup[l.group_id] || []).push(l); });
+    const kids = pid => _acGroupsCache.filter(g => (g.parent_group_id || null) === pid);
+    const subtotal = g => (byGroup[g.id] || []).reduce((a, l) => a + (Number(l.balance) || 0), 0) + kids(g.id).reduce((a, k) => a + subtotal(k), 0);
+    const rows = [];
+    const walk = (g, depth) => {
+      const groupHit = !q || g.name.toLowerCase().includes(q);
+      const ledgers = (byGroup[g.id] || []).filter(l => groupHit || l.name.toLowerCase().includes(q));
+      const before = rows.length;
+      kids(g.id).forEach(k => walk(k, depth + 1));
+      const childHtml = rows.splice(before);
+      if (!groupHit && !ledgers.length && !childHtml.length) return;
+      rows.push(`<tr class="ac-row-group ac-click" onclick="_acOpenGroupForm(${g.id})">
+        <td style="padding-left:${12 + depth * 20}px"><i data-lucide="folder" class="h-3.5 w-3.5"></i> ${_escHtml(g.name)}</td>
+        <td><span class="ac-pill ac-pill-${g.nature}">${_escHtml(g.nature)}</span></td>
+        <td class="tp-num">${subtotal(g).toLocaleString('en-IN')}</td><td></td></tr>`);
+      ledgers.forEach(l => rows.push(`<tr class="ac-click${l.is_active === false ? ' ac-inactive' : ''}" onclick="_acOpenLedgerForm(${l.id})">
+        <td style="padding-left:${32 + depth * 20}px">${_escHtml(l.name)}${l.is_active === false ? ' <span class="ac-muted">(inactive)</span>' : ''}</td>
+        <td></td>
+        <td class="tp-num ${Number(l.balance) < 0 ? 'ac-neg' : ''}">${Number(l.balance || 0).toLocaleString('en-IN')}</td>
+        <td class="tp-num"><button class="tp-inline-btn" onclick="event.stopPropagation();_acGo('ledger-vouchers',{ledgerId:${l.id}})">Statement</button></td></tr>`));
+      rows.push(...childHtml);
+    };
+    kids(null).forEach(g => walk(g, 0));
+    box.innerHTML = rows.length
+      ? `<table class="tp-table"><thead><tr><th>Name</th><th>Nature</th><th class="tp-num">Balance</th><th></th></tr></thead><tbody>${rows.join('')}</tbody></table>`
+      : `<p class="tp-empty">${q ? 'Nothing matches that search.' : 'No groups yet — add one with + Group.'}</p>`;
+    lucide.createIcons();
   }
 
   function _acOpenGroupForm(id) {
@@ -28513,26 +28456,29 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     host.innerHTML = `
       <input type="hidden" id="acVoucherId" value="${editId || ''}">
       <input type="hidden" id="acVoucherType" value="${_escHtml(type)}">
-      <div class="tp-voucher-head">
-        <div><span class="tp-field-label">Voucher Type</span><div style="color:#ffff00;font-weight:bold">${_escHtml(type)}</div></div>
-        <div><span class="tp-field-label">Date</span><input type="date" id="acVoucherDate" data-tp-field class="tp-input" value="${existing ? String(existing.voucher_date).slice(0, 10) : new Date().toISOString().slice(0, 10)}"></div>
-        <div><span class="tp-field-label">Voucher No.</span><input type="text" id="acVoucherNumber" data-tp-field class="tp-input" value="${existing ? _escHtml(existing.voucher_number || '') : ''}"></div>
+      <div class="ac-seg">${_AC_FKEYS.map(f => f.type === type
+        ? `<button class="active">${f.label}<kbd>${f.key}</kbd></button>`
+        : `<button ${editId ? 'disabled title="An existing voucher keeps its type"' : `onclick="_acOpenVoucherScreen('${f.type}')"`}>${f.label}<kbd>${f.key}</kbd></button>`).join('')}</div>
+      <div class="ac-card">
+        <div class="tp-voucher-head">
+          <label><span class="tp-field-label">Date</span><input type="date" id="acVoucherDate" data-tp-field class="tp-input" value="${existing ? String(existing.voucher_date).slice(0, 10) : new Date().toISOString().slice(0, 10)}"></label>
+          <label><span class="tp-field-label">Voucher No.</span><input type="text" id="acVoucherNumber" data-tp-field class="tp-input" placeholder="optional" value="${existing ? _escHtml(existing.voucher_number || '') : ''}"></label>
+          <label><span class="tp-field-label">Narration</span><input type="text" id="acVoucherNarration" data-tp-field class="tp-input" placeholder="What this entry is for" value="${existing ? _escHtml(existing.narration || '') : ''}"></label>
+        </div>
+        <div class="grid grid-cols-12 gap-2 ac-entry-head"><span class="col-span-5">Ledger</span><span class="col-span-3">Debit</span><span class="col-span-3">Credit</span></div>
+        <div id="acVoucherEntries" class="flex flex-col gap-2"></div>
+        <div class="tp-totals-row">
+          <button class="tp-inline-btn" style="margin-right:auto" onclick="_acAddVoucherEntryRow()">+ Add line</button>
+          <span>Debit <b id="acVoucherDebitTotal">0.00</b></span>
+          <span>Credit <b id="acVoucherCreditTotal">0.00</b></span>
+          <span id="acVoucherBalanceFlag" class="tp-flag-unbalanced">Unbalanced</span>
+        </div>
       </div>
-      <div style="margin-bottom:10px">
-        <span class="tp-field-label">Narration</span>
-        <input type="text" id="acVoucherNarration" data-tp-field class="tp-input" value="${existing ? _escHtml(existing.narration || '') : ''}">
+      <div class="ac-formfoot">
+        <button class="ac-btn" onclick="_acPop()">Cancel</button>
+        <button class="ac-btn ac-btn-primary" onclick="_acAccept()">Save Voucher <kbd>Ctrl+A</kbd></button>
       </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-        <span class="tp-field-label" style="margin:0">Particulars (Dr / Cr)</span>
-        <button class="tp-inline-btn" onclick="_acAddVoucherEntryRow()">+ Row</button>
-      </div>
-      <div id="acVoucherEntries"></div>
-      <div class="tp-totals-row">
-        <span>Debit: <span id="acVoucherDebitTotal">0.00</span></span>
-        <span>Credit: <span id="acVoucherCreditTotal">0.00</span></span>
-        <span id="acVoucherBalanceFlag" class="tp-flag-unbalanced">Unbalanced</span>
-      </div>
-      <button class="tp-inline-btn" style="margin-top:10px" onclick="_acAccept()">Accept (Ctrl+A)</button>
+      <p class="ac-muted" style="margin-top:8px">Enter moves to the next field · F4–F9 switch voucher type · Debit and credit totals must match.</p>
     `;
     document.getElementById('acVoucherEntries').innerHTML = '';
     if (existing && existing.voucher_entries && existing.voucher_entries.length) existing.voucher_entries.forEach(e => _acAddVoucherEntryRow(e));
@@ -28633,10 +28579,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function _acRenderBillScreen(host) {
     host.innerHTML = `
+      <p class="ac-muted" style="margin:-4px 0 12px">Saves a balanced Payment voucher and opens the office's Bill Payment Order for printing.</p>
       <div class="tp-voucher-head">
         <div><span class="tp-field-label">Pay From (Bank/Cash A/C)</span><select id="billBankLedger" data-tp-field class="tp-input" onchange="_acBillOnAccountChange()"><option value="">Select account…</option>${_acBillBankLedgerOptions()}</select></div>
         <div><span class="tp-field-label">Date</span><input type="date" id="billDate" data-tp-field class="tp-input" value="${new Date().toISOString().slice(0, 10)}" onchange="_acBillRefreshNumber()"></div>
-        <div><span class="tp-field-label">Bill No.</span><div id="billNumberPreview" style="color:#ffff00;font-weight:bold">—</div></div>
+        <div><span class="tp-field-label">Bill No.</span><div id="billNumberPreview" class="ac-strong">—</div></div>
       </div>
       <div style="margin-bottom:10px">
         <span class="tp-field-label">Title</span>
@@ -28659,7 +28606,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <select id="billChequeNo" data-tp-field class="tp-input"><option value="">— None / Cash —</option></select>
         <div id="billChequeHint" style="font-size:11px;color:#94a3b8;margin-top:2px"></div>
       </div>
-      <button class="tp-inline-btn" style="margin-top:10px" onclick="_acAccept()">Accept (Ctrl+A)</button>
+      <div class="ac-formfoot">
+        <button class="ac-btn" onclick="_acPop()">Cancel</button>
+        <button class="ac-btn ac-btn-primary" onclick="_acAccept()">Save &amp; Print Bill <kbd>Ctrl+A</kbd></button>
+      </div>
     `;
     _acBillRefreshNumber();
     const acctField = document.getElementById('billBankLedger');
@@ -28754,7 +28704,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // This modal copy is deliberately kept to just add/view/delete ranges
   // (a quick "while I'm already editing this ledger" convenience) — the
   // fuller management (multiple chequebooks at once, marking a page
-  // wasted, browsing bills) lives in the dedicated Gateway > Chequebooks
+  // wasted, browsing bills) lives in the dedicated Chequebooks
   // screen below, which has the room for it.
 
   // Real cheque leaves are often printed as a fixed text prefix plus an
@@ -28811,7 +28761,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div id="acChequeRangeList" class="space-y-1 mb-2"><p class="text-slate-400 text-xs">Loading…</p></div>
       <textarea id="acChequeRangesInput" placeholder="e.g. 101-150 or KA00101-00150 (one range per line for several chequebooks at once)" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" rows="2"></textarea>
       <button onclick="_acAddChequeRange(${ledgerId})" class="mt-1 px-2.5 py-1.5 bg-slate-100 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all">+ Add Range(s)</button>
-      <p class="text-[10px] text-slate-400 mt-1">Manage wasted pages and see this account's bills under Gateway &gt; Chequebooks.</p>
+      <p class="text-[10px] text-slate-400 mt-1">Manage wasted pages and see this account's bills under Chequebooks.</p>
     `;
     _acLoadChequeRangeList(ledgerId);
   }
@@ -28853,7 +28803,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
   }
 
-  // Gateway > Chequebooks — every bank/cash account with its own section:
+  // Chequebooks page — every bank/cash account with its own section:
   // register one or several ranges at once, mark a specific page wasted/
   // torn/spoiled (removed from the available pool without ever being
   // tied to a real bill — accounts.chequebook_voids, separate from
@@ -28864,7 +28814,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _acRenderChequebooksScreen(host) {
     const bankLedgers = _acLedgersCache.filter(l => l.account_groups && l.account_groups.nature === 'asset');
     if (!bankLedgers.length) {
-      host.innerHTML = '<div class="tp-empty">No bank/cash ledgers yet — create one under Create &gt; Ledger first (Group nature must be Asset).</div>';
+      host.innerHTML = '<div class="tp-empty">No bank/cash ledgers yet — add one in Chart of Accounts first (its group must be an Asset group).</div>';
       return;
     }
     host.innerHTML = bankLedgers.map(l => `
@@ -29044,35 +28994,57 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     `;
   }
 
-  function _acRenderLedgerPicker(host) {
-    const items = _acLedgersCache.map(l => ({ label: l.name, go: 'ledger-vouchers', params: { ledgerId: l.id } }));
-    _acCurrentMenuItems = items;
-    host.innerHTML = `<div class="tp-menu-panel">${_acMenuHtml(items, _acMenuIndex)}</div>`;
+  // Ledger Statement — pick a ledger at the top; without one, the page
+  // lists every ledger with its balance to choose from.
+  function _acLsPick(id) {
+    const top = _acStack[_acStack.length - 1];
+    top.params = { ledgerId: Number(id) || null };
+    _acRender();
   }
   function _acRenderLedgerVouchers(host, params) {
     const ledger = _acLedgersCache.find(l => l.id === Number(params.ledgerId));
-    if (!ledger) { host.innerHTML = '<div class="tp-empty">Ledger not found.</div>'; return; }
+    const picker = `<div class="ac-toolbar">
+      <select class="tp-input" style="max-width:340px" onchange="_acLsPick(this.value)">
+        <option value="">Choose a ledger…</option>
+        ${_acLedgersCache.map(l => `<option value="${l.id}" ${ledger && l.id === ledger.id ? 'selected' : ''}>${_escHtml(l.name)}</option>`).join('')}
+      </select>
+      ${ledger ? `<span class="ac-muted">${_escHtml((ledger.account_groups && ledger.account_groups.name) || '')}</span>
+        <button class="tp-inline-btn" onclick="_acOpenLedgerForm(${ledger.id})">Edit ledger</button>` : ''}
+    </div>`;
+    if (!ledger) {
+      host.innerHTML = picker + (_acLedgersCache.length
+        ? `<table class="tp-table"><thead><tr><th>Ledger</th><th>Group</th><th class="tp-num">Balance</th></tr></thead><tbody>
+            ${_acLedgersCache.map(l => `<tr class="ac-click" onclick="_acLsPick(${l.id})"><td>${_escHtml(l.name)}</td><td>${_escHtml((l.account_groups && l.account_groups.name) || '')}</td><td class="tp-num ${Number(l.balance) < 0 ? 'ac-neg' : ''}">${Number(l.balance || 0).toLocaleString('en-IN')}</td></tr>`).join('')}
+          </tbody></table>`
+        : '<p class="tp-empty">No ledgers yet.</p>');
+      return;
+    }
+    host.innerHTML = picker + '<p class="tp-empty">Loading…</p>';
     _accountsFetch('get_vouchers', {}).then(res => {
+      if (Number((_acStack[_acStack.length - 1].params || {}).ledgerId) !== ledger.id) return; // switched away meanwhile
       const vouchers = (res && res.vouchers) || [];
+      _acVouchersCache = vouchers;
       let running = Number(ledger.opening_balance) || 0;
+      let totDr = 0, totCr = 0;
       const rows = [];
       vouchers.slice().sort((a, b) => a.voucher_date < b.voucher_date ? -1 : a.voucher_date > b.voucher_date ? 1 : a.id - b.id).forEach(v => {
         (v.voucher_entries || []).forEach(e => {
           if (Number(e.ledger_id) !== ledger.id) return;
-          running += (Number(e.debit) || 0) - (Number(e.credit) || 0);
-          rows.push({ date: v.voucher_date, type: v.voucher_type, narration: v.narration, debit: e.debit, credit: e.credit, running });
+          const dr = Number(e.debit) || 0, cr = Number(e.credit) || 0;
+          running += dr - cr; totDr += dr; totCr += cr;
+          rows.push({ id: v.id, date: v.voucher_date, type: v.voucher_type, no: v.voucher_number, narration: v.narration, debit: dr, credit: cr, running });
         });
       });
-      host.innerHTML = `
-        <div style="margin-bottom:8px;color:#ffff00;font-weight:bold">${_escHtml(ledger.name)} <span style="color:#8a8ad0;font-weight:normal;font-size:11px">(${_escHtml((ledger.account_groups && ledger.account_groups.name) || '')})</span></div>
+      const fmt = n => Number(n).toLocaleString('en-IN');
+      host.innerHTML = picker + `
         <table class="tp-table">
-          <thead><tr><th>Date</th><th>Type</th><th>Particulars</th><th class="tp-num">Debit</th><th class="tp-num">Credit</th><th class="tp-num">Balance</th></tr></thead>
+          <thead><tr><th>Date</th><th>Type</th><th>No.</th><th>Narration</th><th class="tp-num">Debit</th><th class="tp-num">Credit</th><th class="tp-num">Balance</th></tr></thead>
           <tbody>
-            <tr><td colspan="5">Opening Balance</td><td class="tp-num">${Number(ledger.opening_balance || 0).toLocaleString('en-IN')}</td></tr>
-            ${rows.map(r => `<tr><td>${_escHtml(r.date)}</td><td>${_escHtml(r.type)}</td><td>${_escHtml(r.narration || '')}</td><td class="tp-num">${r.debit ? Number(r.debit).toLocaleString('en-IN') : ''}</td><td class="tp-num">${r.credit ? Number(r.credit).toLocaleString('en-IN') : ''}</td><td class="tp-num">${r.running.toLocaleString('en-IN')}</td></tr>`).join('')}
+            <tr class="ac-row-group"><td colspan="6">Opening balance</td><td class="tp-num">${fmt(ledger.opening_balance || 0)}</td></tr>
+            ${rows.map(r => `<tr class="ac-click" onclick="_acOpenVoucherScreen('${_escJs(r.type)}',${r.id})"><td>${_escHtml(r.date)}</td><td><span class="ac-pill">${_escHtml(r.type)}</span></td><td>${_escHtml(r.no || '')}</td><td>${_escHtml(r.narration || '')}</td><td class="tp-num">${r.debit ? fmt(r.debit) : ''}</td><td class="tp-num">${r.credit ? fmt(r.credit) : ''}</td><td class="tp-num ${r.running < 0 ? 'ac-neg' : ''}">${fmt(r.running)}</td></tr>`).join('') || '<tr><td colspan="7" class="tp-empty">No entries for this ledger yet.</td></tr>'}
           </tbody>
-        </table>
-      `;
+          <tfoot><tr><td colspan="4">Closing balance</td><td class="tp-num">${fmt(totDr)}</td><td class="tp-num">${fmt(totCr)}</td><td class="tp-num">${fmt(running)}</td></tr></tfoot>
+        </table>`;
     }).catch(err => showToast(err.message, 'error'));
   }
 
@@ -29081,78 +29053,26 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // none of these are ever called from an onclick string (only from
   // _acRender itself), so none need obfuscate.js's RESERVED list.
   const _AC_SCREENS = {
-    gateway: {
-      title: 'Gateway of Tally', isMenu: true,
-      // Real Tally only shows this menu as the floor screen's own body
-      // content, not a permanently-docked panel (see _acRenderContextPanel
-      // for the small sliver that replaces it on every OTHER screen) —
-      // reuses the exact same _acMenuHtml/_acMenuHover/_acActivateMenuItem
-      // machinery every other menu screen already drives, just painted
-      // into a styled card instead of the plain .tp-menu-panel. The
-      // Current Period/Date/Company strip to its left matches real
-      // Tally's own floor-screen layout exactly (checked against a
-      // screenshot) — period is Bangladesh's real 1 Jul-30 Jun fiscal
-      // year, computed from today's date rather than hardcoded; company
-      // name reuses the same MPO_INSTITUTION_NAME the Payroll module
-      // already prints on its own official documents.
-      render(host) {
-        _acCurrentMenuItems = _AC_GATEWAY_MENU.filter(it => !it.section);
-        const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-        const fmtShort = d => `${d.getDate()}-${MONTH_ABBR[d.getMonth()]}-${String(d.getFullYear()).slice(2)}`;
-        const now = new Date();
-        const fyStartYear = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
-        const periodFrom = fmtShort(new Date(fyStartYear, 6, 1));
-        const periodTo = fmtShort(new Date(fyStartYear + 1, 5, 30));
-        const dateLabel = `${DAY_NAMES[now.getDay()]}, ${fmtShort(now)}`;
-        host.innerHTML = `
-          <div class="tp-gateway-floor">
-            <div class="tp-gateway-floor-left">
-              <div class="tp-company-info">
-                <div class="tp-company-info-row">
-                  <div><span class="tp-company-info-label">Current Period</span><span class="tp-company-info-value">${periodFrom} to ${periodTo}</span></div>
-                  <div><span class="tp-company-info-label">Current Date</span><span class="tp-company-info-value">${_escHtml(dateLabel)}</span></div>
-                </div>
-                <div class="tp-company-info-row" style="border-bottom:none;margin-bottom:0">
-                  <div><span class="tp-company-info-label">Name of Company</span><span class="tp-company-info-value">${_escHtml(MPO_INSTITUTION_NAME)}</span></div>
-                </div>
-              </div>
-            </div>
-            <div class="tp-gateway-card"><div class="tp-gateway-card-head">Gateway of Tally</div>${_acMenuHtml(_AC_GATEWAY_MENU, _acMenuIndex)}</div>
-          </div>
-        `;
-      },
+    gateway: { title: 'Overview', render: _acRenderOverview },
+    chart: {
+      title: 'Chart of Accounts', render: _acRenderChart,
+      buttons: () => [{ label: '+ Group', onclick: '_acOpenGroupForm(null)' }, { label: '+ Ledger', key: 'Alt+C', onclick: '_acOpenLedgerForm(null)', primary: true }],
     },
-    create: {
-      title: 'Create', isMenu: true,
-      render(host) {
-        const items = [
-          { label: 'Ledger', hot: 'L', action: () => _acOpenLedgerForm(null) },
-          { label: 'Group', hot: 'G', action: () => _acOpenGroupForm(null) },
-          { label: 'Voucher', hot: 'V', go: 'voucher', params: { type: 'Payment' } },
-          { label: 'Bill', hot: 'B', go: 'bill' },
-        ];
-        _acCurrentMenuItems = items;
-        host.innerHTML = `<div class="tp-menu-panel">${_acMenuHtml(items, _acMenuIndex)}</div>`;
-      },
-    },
-    chart: { title: 'Chart of Accounts', render: _acRenderChart },
     chequebooks: { title: 'Chequebooks', render: _acRenderChequebooksScreen },
     'fees-setup': { title: 'Fees', render: _acRenderFeesSetup },
-    voucher: {
-      title: 'Voucher Entry', render: _acRenderVoucherScreen,
-      buttons: () => [{ key: 'Ctrl+A', label: 'Accept', onclick: '_acAccept()' }, { key: 'Alt+C', label: 'Create Ledger', onclick: '_acOpenLedgerForm(null)' }],
+    voucher: { title: p => `${p.id ? 'Edit' : 'New'} ${p.type || 'Payment'} Voucher`, render: _acRenderVoucherScreen },
+    bill: { title: 'New Bill', render: _acRenderBillScreen },
+    daybook: {
+      title: 'Day Book', render: _acRenderDaybook,
+      buttons: () => [{ label: '+ Voucher', key: 'F5', onclick: "_acOpenVoucherScreen('Payment')", primary: true }],
     },
-    bill: {
-      title: 'Create Bill', render: _acRenderBillScreen,
-      buttons: () => [{ key: 'Ctrl+A', label: 'Accept', onclick: '_acAccept()' }],
-    },
-    daybook: { title: 'Day Book', render: _acRenderDaybook },
     'trial-balance': { title: 'Trial Balance', render: _acRenderTrialBalance },
-    pnl: { title: 'Profit & Loss A/c', render: _acRenderPnl },
+    pnl: { title: 'Profit & Loss', render: _acRenderPnl },
     'balance-sheet': { title: 'Balance Sheet', render: _acRenderBalanceSheet },
-    'ledger-picker': { title: 'Select Ledger', isMenu: true, render: _acRenderLedgerPicker },
-    'ledger-vouchers': { title: 'Ledger Vouchers', render: _acRenderLedgerVouchers },
+    'ledger-vouchers': {
+      title: p => { const l = _acLedgersCache.find(x => x.id === Number(p.ledgerId)); return l ? l.name : 'Ledger Statement'; },
+      render: _acRenderLedgerVouchers,
+    },
   };
 
   // Mobile — a separate, plain touch UI (see loadAccountsAdminView):
