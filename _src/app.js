@@ -13071,6 +13071,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-scm-newclass" id="scmNewClassName" placeholder="New class (e.g. Eleven-Science)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:220px">
           <button onclick="scmAddClass()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ Add Class</button>
           <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-scm-filter" id="scmFilter" placeholder="Find class…" oninput="scmRender()" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:160px">
+          <button onclick="scmExpandAll(true)" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Expand All</button>
+          <button onclick="scmExpandAll(false)" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Collapse All</button>
           <button onclick="scmManageParts()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Exam Parts</button>
           <button onclick="scmManageSubjects()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">All Subjects</button>
           <button id="scmGridBtn" onclick="scmShowGrid()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50 ml-auto">Grid View</button>
@@ -13509,6 +13511,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // stay 0 until Class-Subject Marks Setup fills them in.
   let _scm = null;
   let _scmGrid = false;
+  // Which class cards are open. Starts all collapsed; remembered per browser.
+  let _scmOpen = new Set();
+  try { _scmOpen = new Set(JSON.parse(localStorage.getItem('ccpc.scmOpen') || '[]')); } catch (e) {}
+  function _scmSaveOpen() { try { localStorage.setItem('ccpc.scmOpen', JSON.stringify([..._scmOpen])); } catch (e) {} }
+  function scmToggleClass(pid) {
+    if (_scmOpen.has(pid)) _scmOpen.delete(pid); else _scmOpen.add(pid);
+    _scmSaveOpen();
+    scmRender();
+  }
+  function scmExpandAll(open) {
+    const q = (document.getElementById('scmFilter')?.value || '').trim().toLowerCase();
+    (_scm ? _scm.patterns : []).filter(p => !q || p.name.toLowerCase().includes(q)).forEach(p => { if (open) _scmOpen.add(p.id); else _scmOpen.delete(p.id); });
+    _scmSaveOpen();
+    scmRender();
+  }
   const _SCM_ORDER = ['nursery', 'kg', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
   function _scmRank(name) {
     const i = _SCM_ORDER.indexOf(String(name || '').toLowerCase().split(/[-\s]/)[0]);
@@ -13547,13 +13564,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     </div>`;
   }
   function _scmCardHead(p, n) {
-    return `<div class="flex items-center justify-between gap-2 px-4 py-2.5 bg-slate-50 border-b border-slate-200">
-      <p class="font-black text-slate-800 text-sm">${_escHtml(p.name)} <span class="text-[10px] font-bold text-slate-400 ml-1">${n} subject${n === 1 ? '' : 's'}</span></p>
+    const open = _scmOpen.has(p.id);
+    const subs = _scmClassSubjects(p.id);
+    const done = subs.filter(s => _scm.types.some(t => _scm.comps.has(`${p.id}|${s.id}|${t.id}`))).length;
+    const status = !n ? '' : done === n
+      ? '<span class="text-[10px] font-bold text-emerald-600 ml-1">all marks set</span>'
+      : `<span class="text-[10px] font-bold text-amber-500 ml-1">${n - done} without marks</span>`;
+    return `<div class="flex items-center justify-between gap-2 px-4 py-2.5 bg-slate-50 ${open ? 'border-b border-slate-200' : ''} cursor-pointer select-none hover:bg-slate-100" onclick="scmToggleClass(${p.id})" title="${open ? 'Collapse' : 'Expand'}">
+      <p class="flex items-center gap-1.5 font-black text-slate-800 text-sm"><i data-lucide="${open ? 'chevron-down' : 'chevron-right'}" class="h-4 w-4 text-slate-400"></i>${_escHtml(p.name)} <span class="text-[10px] font-bold text-slate-400 ml-1">${n} subject${n === 1 ? '' : 's'}</span>${status}</p>
       <div class="flex items-center gap-2.5">
-        <i data-lucide="pencil" class="h-3.5 w-3.5 text-blue-500 cursor-pointer" title="Rename class" onclick="scmRenameClass(${p.id})"></i>
-        <i data-lucide="trash-2" class="h-3.5 w-3.5 text-red-500 cursor-pointer" title="Delete class" onclick="scmDeleteClass(${p.id})"></i>
+        <i data-lucide="pencil" class="h-3.5 w-3.5 text-blue-500 cursor-pointer" title="Rename class" onclick="event.stopPropagation(); scmRenameClass(${p.id})"></i>
+        <i data-lucide="trash-2" class="h-3.5 w-3.5 text-red-500 cursor-pointer" title="Delete class" onclick="event.stopPropagation(); scmDeleteClass(${p.id})"></i>
       </div>
     </div>`;
+  }
+  function _scmCardCollapsed(p) {
+    return `<div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">${_scmCardHead(p, _scmClassSubjects(p.id).length)}</div>`;
   }
   const _SCM_PASS_RULES = [
     ['number|marks', 'marks'],
@@ -13634,7 +13660,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const q = (document.getElementById('scmFilter')?.value || '').trim().toLowerCase();
     const list = _scm.patterns.filter(p => !q || p.name.toLowerCase().includes(q));
     const mobile = window.innerWidth < 768;
-    host.innerHTML = list.map(p => (mobile ? _scmCardMobile(p) : _scmCardDesktop(p))).join('')
+    host.innerHTML = list.map(p => (!_scmOpen.has(p.id) ? _scmCardCollapsed(p) : mobile ? _scmCardMobile(p) : _scmCardDesktop(p))).join('')
       || `<span class="text-xs text-slate-400 font-bold italic">${q ? 'No class matches that search.' : 'No classes yet — add one above.'}</span>`;
     lucide.createIcons();
   }
@@ -13758,6 +13784,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const sel = document.getElementById(`scmAdd-${pid}`);
     const val = sel ? sel.value : '';
     if (!val) return;
+    _scmOpen.add(pid); _scmSaveOpen();
     const link = subject_id => _adminFetch('save_subject_pattern_map', { subject_id, pattern_id: pid, checked: true }).then(res => {
       if (res && res.result === 'success') scmLoad();
       else showToast((res && res.message) || 'Failed', 'error');
@@ -13805,7 +13832,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!name) return;
     if (_scm && _scm.patterns.some(p => p.name.toLowerCase() === name.toLowerCase())) { showToast(`Class "${name}" already exists`, 'error'); return; }
     _adminFetch('save_class_pattern', { name }).then(res => {
-      if (res && res.result === 'success') { showToast('Class added'); el.value = ''; scmLoad(); }
+      if (res && res.result === 'success') { showToast('Class added'); el.value = ''; if (res.pattern && res.pattern.id) { _scmOpen.add(res.pattern.id); _scmSaveOpen(); } scmLoad(); }
       else showToast((res && res.message) || 'Failed', 'error');
     });
   }
