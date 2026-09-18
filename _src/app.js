@@ -809,7 +809,6 @@
     { key: 'add_custom_form', label: '+ Add Custom Form', icon: 'plus-circle', erp: false, action: { type: 'native', fn: 'loadAdminAddCustomFormView' } },
     { key: 'data', label: 'Data', icon: 'table', erp: false, action: { type: 'native', fn: 'loadAdminDataView' } },
     { key: 'access', label: 'Access', icon: 'shield-check', erp: false, action: { type: 'native', fn: 'loadAdminAccessView' } },
-    { key: 'fees', label: 'Fees', icon: 'wallet', erp: true, action: { type: 'native', fn: 'loadAdminFeesView' } },
     { key: 'attendance', label: 'Attendance', icon: 'fingerprint', erp: true, action: { type: 'native', fn: 'loadAdminAttendanceView' } },
     { key: 'exams', label: 'Exams', icon: 'clipboard-list', erp: true, action: { type: 'native', fn: 'loadAdminExamsView' } },
     // 'payroll' and 'transport' deliberately NOT here — both are standalone
@@ -11299,23 +11298,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _fcRemSaved = [];         // that student's already-saved remissions
   let _fcMobileHead = null;     // fee_type_id whose cycle list is open on mobile
 
+  // Student Admin > Fees moved to Accounts Admin > Fees. Kept as a redirect
+  // so any old bookmark / call still lands on the right screen.
   function loadAdminFeesView() {
-    _setViewHash('student_portal');
-    setActiveNavLink('nav-erp-fees');
-    setContentHeader('Fees', 'wallet');
-    const container = document.getElementById('view-container');
-    if (!container) return;
-    const tabBar = FEES_SUBTABS.map((t, i) => `<button onclick="switchFeesTab('${t.id}')" id="ftab-${t.id}"
-      class="fees-tab-btn flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all whitespace-nowrap
-             ${i === 0 ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50'}">${t.label}</button>`).join('');
+    loadAccountsAdminView();
+    if (window.innerWidth < 768) { if (typeof _acMobileGo === 'function') _acMobileGo('fees'); }
+    else _acGo('fees-setup');
+  }
 
-    container.innerHTML = `
-      <div class="mb-4">
-        <h2 class="text-2xl font-black text-slate-800 tracking-tight">Fees</h2>
-        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Generation, late fees, discounts, reports, accounts &middot; fee heads &amp; the fee chart are in Accounts Admin &rarr; Fees Setup</p>
-      </div>
-      <div class="flex flex-wrap gap-2 mb-5">${tabBar}</div>
-
+  // The operational fee screens (generation, late fees, student fees /
+  // discounts, reports, fee accounts). Rendered inside Accounts Admin > Fees
+  // with their original element ids, so every loader below works unchanged.
+  function _feesOpsPanelsHtml() {
+    return `
       <div id="fees-generate" style="display:none">
         <div class="grid md:grid-cols-2 gap-4">
           <div class="bg-white rounded-2xl border border-slate-200 p-4">
@@ -11436,22 +11431,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
       </div>
     `;
-    lucide.createIcons();
-    loadFeeTypes(); // still needed: Generate / Discount pick from the fee heads
-    switchFeesTab(FEES_SUBTABS[0].id);
   }
 
-  function switchFeesTab(tabId) {
-    FEES_SUBTABS.forEach(t => {
-      const panel = document.getElementById(t.id);
-      const btn = document.getElementById('ftab-' + t.id);
-      const active = t.id === tabId;
-      if (panel) panel.style.display = active ? '' : 'none';
-      if (btn) {
-        btn.className = btn.className.replace(/bg-blue-600 text-white shadow-lg shadow-blue-500\/20|bg-white text-slate-400 border border-slate-200 hover:bg-slate-50/g, '').trim();
-        btn.className += active ? ' bg-blue-600 text-white shadow-lg shadow-blue-500/20' : ' bg-white text-slate-400 border border-slate-200 hover:bg-slate-50';
-      }
-    });
+  function switchFeesTab(tabId) { _feesSetupTab(tabId); }
+  function _feesOpsLoad(tabId) {
     if (tabId === 'fees-generate') _feeEnsureScopeOpts(() => {
       _feeFillSelect('genCwClass', 'class', 'Class…');
       _feeFillSelect('genCwSection', 'section', 'Any section');
@@ -11475,11 +11458,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // markup keeps its original element ids, so loadFeeTypes() and every _fc*
   // function work unchanged wherever this is rendered.
   let _feesSetupActive = 'fees-types';
+  // Fee heads + chart follow Accounts Admin's audience; the operational tabs
+  // are still super-admin-only server-side (SUPER_ADMIN_ONLY_TABS 'fees'), so
+  // they're only shown to the super admin rather than failing for everyone else.
+  function _feesAllTabs() {
+    const setup = [{ id: 'fees-types', label: 'Fee Heads' }, { id: 'fees-structures', label: 'Fee Chart' }];
+    return _isSuperAdmin() ? setup.concat(FEES_SUBTABS) : setup;
+  }
   function _feesSetupHtml() {
     return `
-      <div class="flex gap-2 mb-4">
-        <button onclick="_feesSetupTab('fees-types')" id="fsetab-fees-types">Fee Heads</button>
-        <button onclick="_feesSetupTab('fees-structures')" id="fsetab-fees-structures">Fee Chart</button>
+      <div class="flex flex-wrap gap-2 mb-4">
+        ${_feesAllTabs().map(t => `<button onclick="_feesSetupTab('${t.id}')" id="fsetab-${t.id}">${t.label}</button>`).join('')}
       </div>
       <div id="fees-types">
         <div class="flex items-center justify-between mb-3">
@@ -11531,18 +11520,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div id="fcChartHost"><span class="text-xs text-slate-400 font-bold italic">Pick a scope and press Load Chart.</span></div>
         <div id="fcRemissionHost" style="display:none"></div>
       </div>
-
+      ${_isSuperAdmin() ? _feesOpsPanelsHtml() : ''}
     `;
   }
   function _feesSetupTab(id) {
+    const tabs = _feesAllTabs().map(t => t.id);
+    if (!tabs.includes(id)) id = tabs[0];
     _feesSetupActive = id;
-    ['fees-types', 'fees-structures'].forEach(t => {
+    tabs.forEach(t => {
       const panel = document.getElementById(t);
       const btn = document.getElementById('fsetab-' + t);
       if (panel) panel.style.display = t === id ? '' : 'none';
       if (btn) btn.className = 'px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all '
         + (t === id ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50');
     });
+    if (FEES_SUBTABS.some(t => t.id === id)) _feesOpsLoad(id);
     if (id === 'fees-structures') {
       _fcInit();
       _fcSetMode(_fcMode);
@@ -27507,7 +27499,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { label: 'Alter', hot: 'A', go: 'chart' },
     { label: 'Chart of Accounts', hot: 'H', go: 'chart' },
     { label: 'Chequebooks', hot: 'Q', go: 'chequebooks' },
-    { label: 'Fees Setup', hot: 'F', go: 'fees-setup' },
+    { label: 'Fees', hot: 'F', go: 'fees-setup' },
     { section: 'Transactions' },
     { label: 'Vouchers', hot: 'V', go: 'voucher', params: { type: 'Payment' } },
     { label: 'Day Book', hot: 'D', go: 'daybook' },
@@ -29146,7 +29138,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     },
     chart: { title: 'Chart of Accounts', render: _acRenderChart },
     chequebooks: { title: 'Chequebooks', render: _acRenderChequebooksScreen },
-    'fees-setup': { title: 'Fees Setup', render: _acRenderFeesSetup },
+    'fees-setup': { title: 'Fees', render: _acRenderFeesSetup },
     voucher: {
       title: 'Voucher Entry', render: _acRenderVoucherScreen,
       buttons: () => [{ key: 'Ctrl+A', label: 'Accept', onclick: '_acAccept()' }, { key: 'Alt+C', label: 'Create Ledger', onclick: '_acOpenLedgerForm(null)' }],
@@ -29180,7 +29172,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button class="tpm-card" onclick="_acMobileGo('vouchers')" style="text-align:left"><i data-lucide="receipt" class="h-5 w-5 text-blue-600 mb-1"></i><div style="font-weight:900;font-size:.8rem">Day Book</div></button>
           <button class="tpm-card" onclick="_acMobileGo('trial-balance')" style="text-align:left"><i data-lucide="scale" class="h-5 w-5 text-blue-600 mb-1"></i><div style="font-weight:900;font-size:.8rem">Trial Balance</div></button>
           <button class="tpm-card" onclick="_acMobileGo('groups')" style="text-align:left"><i data-lucide="folder-tree" class="h-5 w-5 text-blue-600 mb-1"></i><div style="font-weight:900;font-size:.8rem">Groups</div></button>
-          <button class="tpm-card" onclick="_acMobileGo('fees')" style="text-align:left"><i data-lucide="wallet" class="h-5 w-5 text-blue-600 mb-1"></i><div style="font-weight:900;font-size:.8rem">Fees Setup</div></button>
+          <button class="tpm-card" onclick="_acMobileGo('fees')" style="text-align:left"><i data-lucide="wallet" class="h-5 w-5 text-blue-600 mb-1"></i><div style="font-weight:900;font-size:.8rem">Fees</div></button>
         </div>
         <div class="tpm-actionbar">
           <button class="tpm-btn" style="background:#2563eb;color:#fff" onclick="_acOpenVoucherForm(null)">+ Voucher</button>
@@ -29192,7 +29184,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }
     const backBtn = `<button onclick="_acMobileGo('home')" style="background:none;border:none;color:#2563eb;font-weight:900;font-size:.75rem;text-transform:uppercase">‹ Back</button>`;
     if (_acMobileView === 'fees') {
-      host.innerHTML = `<div class="tpm-header">${backBtn}<h2>Fees Setup</h2><span></span></div><div>${_feesSetupHtml()}</div>`;
+      host.innerHTML = `<div class="tpm-header">${backBtn}<h2>Fees</h2><span></span></div><div>${_feesSetupHtml()}</div>`;
       lucide.createIcons();
       loadFeeTypes();
       _feesSetupTab(_feesSetupActive);
