@@ -12969,7 +12969,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { id: 'ex-terms', label: 'Term Setup' },
     { id: 'ex-classes', label: 'Class Setup' },
     { id: 'ex-subjects', label: 'Subject Setup' },
-    { id: 'ex-marks-setup', label: 'Class-Subject Marks Setup' },
     { id: 'ex-pattern', label: 'Exam Pattern Setup' },
     { id: 'ex-exam-setup', label: 'Exam Setup' },
     { id: 'ex-entry-setup', label: 'Marks Entry Setup' },
@@ -12988,9 +12987,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _subjPatternTargetSelected = new Set();
   let _bulkAssignSelectedSubjects = new Set();
   let _bulkAssignSelectedPatterns = new Set();
-  let _csmsExpanded = new Set();
-  let _csmsSelected = new Set();
-  let _csmsSubjects = [];
   let _entrySheetRows = [];
   let _meOpenSheets = [];
   let _examResults = [];
@@ -13102,16 +13098,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </table>
         </div>
         </div>
-      </div>
-
-      <div id="ex-marks-setup" style="display:none">
-        <select id="csmsPatternSelect" class="exam-pattern-select px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mb-3" onchange="loadSubjectComponentsSetup()"><option value="">Select class pattern…</option></select>
-        <div id="csmsAddSubjectRow" class="flex items-center gap-2 mb-3" style="display:none">
-          <select id="csmsAddSubjectSelect" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></select>
-          <button onclick="addSubjectToPattern()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ Add Subject to This Pattern</button>
-        </div>
-        <label class="flex items-center gap-1.5 text-[10px] font-black text-slate-500 uppercase cursor-pointer mb-2"><input type="checkbox" id="csmsSelectAll" onchange="toggleAllCsmsSelected(this.checked)">Select all subjects</label>
-        <div id="csmsSubjectsList" class="flex flex-col gap-3"></div>
       </div>
 
       <div id="ex-pattern" style="display:none">
@@ -13243,7 +13229,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       'ex-terms': loadExamTerms,
       'ex-classes': loadClassPatternSetup,
       'ex-subjects': () => (_scmGrid ? loadSubjectSetup() : scmLoad()),
-      'ex-marks-setup': () => _populateClassPatternSelects(),
       'ex-pattern': loadExamPatternSetup,
       'ex-exam-setup': loadExamSetupList,
       'ex-entry-setup': loadExamSetupList,
@@ -13355,12 +13340,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   // "Edit a class pattern" is split across two concerns handled by the two
   // tabs that already do them well — renaming stays here, and subjects/
-  // components jump straight into Class-Subject Marks Setup with this exact
-  // pattern pre-selected, rather than duplicating that whole editor here.
+  // marks jump straight into Subject Setup with this class's card opened
+  // and scrolled into view, rather than duplicating that editor here.
   function manageClassPatternSubjects(pattern_id) {
-    switchExamsTab('ex-marks-setup');
-    const sel = document.getElementById('csmsPatternSelect');
-    if (sel) { sel.value = pattern_id; loadSubjectComponentsSetup(); }
+    const id = Number(pattern_id);
+    _scmOpen.add(id);
+    _scmSaveOpen();
+    _scmScrollTo = id;
+    const f = document.getElementById('scmFilter');
+    if (f) f.value = '';
+    if (_scmGrid) scmShowGrid(); // back to the class view; that also reloads it
+    switchExamsTab('ex-subjects');
   }
   function deleteClassPattern(id) {
     const p = _classPatterns.find(x => x.id === id);
@@ -13501,9 +13491,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // ── Subject Setup, class view — one card per class, subjects as rows,
   // one tick box per exam part (CT/CQ/MCQ/Practical…). A tick is a
   // subject_components row for that class+subject+part; full/pass/weight
-  // stay 0 until Class-Subject Marks Setup fills them in.
+  // stay 0 until you fill them in on the card.
   let _scm = null;
   let _scmGrid = false;
+  let _scmScrollTo = null; // class card to bring into view after the next render
   // Which class cards are open. Starts all collapsed; remembered per browser.
   let _scmOpen = new Set();
   try { _scmOpen = new Set(JSON.parse(localStorage.getItem('ccpc.scmOpen') || '[]')); } catch (e) {}
@@ -13597,7 +13588,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return `<td class="py-1.5 pl-2 pr-1">${marks}</td><td class="py-1.5 px-1">${weight}</td><td class="py-1.5 pl-1 pr-2 border-r border-slate-100 whitespace-nowrap">${pass} ${rule}</td>`;
   }
   function _scmSubjectActions(p, s) {
-    return `<i data-lucide="pencil" class="h-3 w-3 text-slate-400 hover:text-blue-600 cursor-pointer inline" title="Rename subject (everywhere)" onclick="scmRenameSubject(${s.id})"></i>
+    return `<i data-lucide="copy" class="h-3 w-3 text-slate-400 hover:text-blue-600 cursor-pointer inline mr-1.5" title="Copy this marks setup to other subjects or classes" onclick="scmOpenCopy(${p.id},${s.id})"></i><i data-lucide="pencil" class="h-3 w-3 text-slate-400 hover:text-blue-600 cursor-pointer inline" title="Rename subject (everywhere)" onclick="scmRenameSubject(${s.id})"></i>
       <i data-lucide="x" class="h-3.5 w-3.5 text-slate-400 hover:text-red-500 cursor-pointer inline ml-1.5" title="Remove from ${_escHtml(p.name)}" onclick="scmRemoveSubject(${p.id},${s.id})"></i>`;
   }
   function _scmNoParts(p, s) {
@@ -13653,9 +13644,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const q = (document.getElementById('scmFilter')?.value || '').trim().toLowerCase();
     const list = _scm.patterns.filter(p => !q || p.name.toLowerCase().includes(q));
     const mobile = window.innerWidth < 768;
-    host.innerHTML = list.map(p => (!_scmOpen.has(p.id) ? _scmCardCollapsed(p) : mobile ? _scmCardMobile(p) : _scmCardDesktop(p))).join('')
+    host.innerHTML = list.map(p => `<div id="scm-card-${p.id}">${!_scmOpen.has(p.id) ? _scmCardCollapsed(p) : mobile ? _scmCardMobile(p) : _scmCardDesktop(p)}</div>`).join('')
       || `<span class="text-xs text-slate-400 font-bold italic">${q ? 'No class matches that search.' : 'No classes yet — add one above.'}</span>`;
     lucide.createIcons();
+    if (_scmScrollTo) {
+      const card = document.getElementById(`scm-card-${_scmScrollTo}`);
+      _scmScrollTo = null;
+      if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   }
   // Saves one field of one part. Typing Marks into an empty part creates
   // it (weight 100, pass 0 until set); clearing Marks removes the part.
@@ -13974,6 +13970,101 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (btn) { btn.disabled = false; btn.textContent = isNew ? 'Add Subject' : 'Save'; }
     });
   }
+  // Copy one subject's marks setup (in one class) onto other subjects in the
+  // same class and/or the same subject in other classes. A target ends up
+  // with exactly the source's parts: added or overwritten to match, and any
+  // part the source doesn't have is removed.
+  let _scmCopySrc = null; // { pid, sid }
+  function _scmPartsSummary(pid, sid) {
+    return _scm.types.map(t => {
+      const c = _scm.comps.get(`${pid}|${sid}|${t.id}`);
+      if (!c) return '';
+      const rule = (_SCM_PASS_RULES.find(([v]) => v === _scmPassRule(c)) || [, 'marks'])[1];
+      return `${_escHtml(t.name)} ${_scmNum(c.full_marks)} · wt ${_scmNum(c.weight_percent)}% · pass ${_scmNum(c.pass_marks)}${c.pass_type === 'percent' ? '%' : ''} (${rule})`;
+    }).filter(Boolean);
+  }
+  function scmOpenCopy(pid, sid) {
+    const parts = _scmPartsSummary(pid, sid);
+    if (!parts.length) { showToast('This subject has no marks set here yet — nothing to copy', 'error'); return; }
+    _scmCopySrc = { pid, sid };
+    const cls = _scm.patterns.find(p => p.id === pid);
+    const sameClass = _scmClassSubjects(pid).filter(s => s.id !== sid);
+    const otherClasses = _scm.patterns.filter(p => p.id !== pid);
+    const box = (cls2, value, label, note) => `<label class="flex items-center gap-2 px-2 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer text-xs font-bold text-slate-700">
+        <input type="checkbox" class="${cls2} h-4 w-4 accent-blue-600" value="${value}">${_escHtml(label)}${note ? ` <span class="text-[9px] font-black uppercase text-amber-500">${note}</span>` : ''}</label>`;
+    const allNone = cls2 => `<span class="flex gap-3 text-[10px] font-black uppercase">
+        <button class="text-blue-600" onclick="document.querySelectorAll('.${cls2}').forEach(c => { c.checked = true; })">All</button>
+        <button class="text-slate-400" onclick="document.querySelectorAll('.${cls2}').forEach(c => { c.checked = false; })">None</button></span>`;
+    let ov = document.getElementById('scmCopyOverlay');
+    if (!ov) {
+      ov = document.createElement('div');
+      ov.id = 'scmCopyOverlay';
+      ov.className = 'fixed inset-0 z-[80] bg-slate-900/40 flex items-center justify-center p-4';
+      ov.onclick = e => { if (e.target === ov) ov.remove(); };
+      document.body.appendChild(ov);
+    }
+    ov.innerHTML = `<div class="bg-white rounded-2xl shadow-xl w-full max-w-lg flex flex-col" style="max-height:88vh">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+        <p class="font-black text-slate-800 text-sm">Copy marks setup</p>
+        <i data-lucide="x" class="h-4 w-4 text-slate-500 cursor-pointer" onclick="document.getElementById('scmCopyOverlay').remove()"></i>
+      </div>
+      <div class="overflow-y-auto px-4 py-3 flex flex-col gap-4">
+        <div class="bg-blue-50 border border-blue-100 rounded-xl px-3 py-2">
+          <p class="text-xs font-black text-slate-800">${_escHtml(_scmSubjectName(sid))} <span class="text-slate-400 font-bold">in ${_escHtml(cls ? cls.name : '')}</span></p>
+          ${parts.map(x => `<p class="text-[11px] font-bold text-slate-600">${x}</p>`).join('')}
+        </div>
+        <div>
+          <div class="flex items-center justify-between mb-1.5"><span class="text-[10px] font-black text-slate-500 uppercase">Other subjects in ${_escHtml(cls ? cls.name : '')}</span>${sameClass.length ? allNone('scm-cp-subj') : ''}</div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">${sameClass.map(s => box('scm-cp-subj', s.id, s.name)).join('') || '<span class="text-xs text-slate-400 italic">No other subjects in this class.</span>'}</div>
+        </div>
+        <div>
+          <div class="flex items-center justify-between mb-1.5"><span class="text-[10px] font-black text-slate-500 uppercase">${_escHtml(_scmSubjectName(sid))} in other classes</span>${otherClasses.length ? allNone('scm-cp-cls') : ''}</div>
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-1.5">${otherClasses.map(p => box('scm-cp-cls', p.id, p.name, _scm.map.has(`${p.id}|${sid}`) ? '' : 'adds it')).join('')}</div>
+        </div>
+        <p class="text-[10px] text-slate-400 font-bold">Each ticked target gets exactly these parts: missing ones are added, existing ones overwritten, and parts not listed above are removed from it.</p>
+      </div>
+      <div class="flex items-center justify-end gap-2 px-4 py-3 border-t border-slate-200">
+        <button onclick="document.getElementById('scmCopyOverlay').remove()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Cancel</button>
+        <button id="scmCopyGo" onclick="scmDoCopy()" class="px-4 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Copy</button>
+      </div>
+    </div>`;
+    lucide.createIcons();
+  }
+  function scmDoCopy() {
+    if (!_scmCopySrc) return;
+    const { pid, sid } = _scmCopySrc;
+    const targets = [
+      ...[...document.querySelectorAll('.scm-cp-subj:checked')].map(c => ({ pid, sid: Number(c.value) })),
+      ...[...document.querySelectorAll('.scm-cp-cls:checked')].map(c => ({ pid: Number(c.value), sid })),
+    ];
+    if (!targets.length) { showToast('Tick at least one subject or class to copy to', 'error'); return; }
+    // Per target: the first write puts the subject on the class, so it runs
+    // alone; that target's remaining parts then go in parallel.
+    const jobsFor = tg => _scm.types.map(t => {
+      const src = _scm.comps.get(`${pid}|${sid}|${t.id}`);
+      const has = _scm.comps.has(`${tg.pid}|${tg.sid}|${t.id}`);
+      if (src) return () => _adminFetch('save_subject_part', {
+        pattern_id: tg.pid, subject_id: tg.sid, component_type_id: t.id,
+        full_marks: src.full_marks, weight_percent: src.weight_percent, pass_marks: src.pass_marks,
+        pass_type: src.pass_type || 'number', pass_basis: src.pass_basis || 'marks',
+      });
+      if (has) return () => _adminFetch('toggle_subject_component', { pattern_id: tg.pid, subject_id: tg.sid, component_type_id: t.id, checked: false });
+      return null;
+    }).filter(Boolean);
+    const runTarget = tg => { const [first, ...rest] = jobsFor(tg); return first ? first().then(r1 => Promise.all(rest.map(j => j())).then(rs => [r1, ...rs])) : Promise.resolve([]); };
+    const btn = document.getElementById('scmCopyGo');
+    if (btn) { btn.disabled = true; btn.textContent = 'Copying…'; }
+    Promise.all(targets.map(runTarget)).then(perTarget => {
+      const results = perTarget.flat();
+      const failed = results.filter(r => !r || r.result !== 'success');
+      showToast(failed.length ? `Copied with ${failed.length} error(s) — ${(failed[0] && failed[0].message) || ''}` : `Copied to ${targets.length} target(s)`, failed.length ? 'error' : undefined);
+      targets.forEach(tg => _scmOpen.add(tg.pid));
+      _scmSaveOpen();
+      const ov = document.getElementById('scmCopyOverlay');
+      if (ov) ov.remove();
+      scmLoad();
+    });
+  }
   function scmShowGrid() {
     _scmGrid = !_scmGrid;
     document.getElementById('subjGridLegacy').style.display = _scmGrid ? '' : 'none';
@@ -13982,172 +14073,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (_scmGrid) loadSubjectSetup(); else scmLoad();
   }
 
-  // ── Class-Subject Marks Setup — standing per-(pattern,subject) components
-  function loadSubjectComponentsSetup() {
-    const pattern_id = document.getElementById('csmsPatternSelect').value;
-    const host = document.getElementById('csmsSubjectsList');
-    const addRow = document.getElementById('csmsAddSubjectRow');
-    if (!pattern_id) { host.innerHTML = ''; addRow.style.display = 'none'; return; }
-    Promise.all([
-      _adminFetch('get_subject_components_setup', { pattern_id }),
-      _adminFetch('get_subjects', {}),
-      _componentTypes.length ? Promise.resolve({ result: 'success', types: _componentTypes }) : _adminFetch('get_exam_component_types', {}),
-    ]).then(([subRes, allSubRes, typesRes]) => {
-      if (typesRes && typesRes.result === 'success') _componentTypes = typesRes.types || [];
-      _csmsSubjects = (subRes && subRes.result === 'success' && subRes.subjects) || [];
-      host.innerHTML = _csmsSubjects.map(s => _renderCsmsSubjectCard(pattern_id, s)).join('') || '<span class="text-xs text-slate-400 font-bold italic">No subjects checked for this pattern yet — add one below, or from Subject Setup.</span>';
-      const selectAllCb = document.getElementById('csmsSelectAll');
-      if (selectAllCb) selectAllCb.checked = _csmsSubjects.length > 0 && _csmsSubjects.every(s => _csmsSelected.has(s.id));
-
-      const allSubjects = (allSubRes && allSubRes.result === 'success' && allSubRes.subjects) || [];
-      const appliedIds = new Set(_csmsSubjects.map(s => s.id));
-      const notYetApplied = allSubjects.filter(s => !appliedIds.has(s.id));
-      const addSelect = document.getElementById('csmsAddSubjectSelect');
-      addSelect.innerHTML = notYetApplied.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
-      addRow.style.display = notYetApplied.length ? '' : 'none';
-
-      lucide.createIcons();
-    });
-  }
-  function addSubjectToPattern() {
-    const pattern_id = document.getElementById('csmsPatternSelect').value;
-    const subject_id = document.getElementById('csmsAddSubjectSelect').value;
-    if (!pattern_id || !subject_id) return;
-    _adminFetch('save_subject_pattern_map', { subject_id, pattern_id, checked: true }).then(res => {
-      if (res && res.result === 'success') { _csmsExpanded.add(Number(subject_id)); loadSubjectComponentsSetup(); }
-      else showToast((res && res.message) || 'Failed', 'error');
-    });
-  }
-  function removeSubjectFromPattern(subject_id) {
-    const pattern_id = document.getElementById('csmsPatternSelect').value;
-    const subjectName = (_csmsSubjects.find(s => s.id === subject_id) || {}).name || 'this subject';
-    if (!confirm(`Remove "${subjectName}" from this class pattern? Its component setup is kept, not deleted — re-adding it will bring the same setup back.`)) return;
-    _adminFetch('save_subject_pattern_map', { subject_id, pattern_id, checked: false }).then(res => {
-      if (res && res.result === 'success') loadSubjectComponentsSetup();
-      else showToast((res && res.message) || 'Failed', 'error');
-    });
-  }
-  function toggleAllCsmsSelected(checked) {
-    _csmsSubjects.forEach(s => { if (checked) _csmsSelected.add(s.id); else _csmsSelected.delete(s.id); });
-    document.querySelectorAll('.csms-select-cb').forEach(cb => { cb.checked = checked; });
-  }
-  function _renderCsmsSubjectCard(pattern_id, s) {
-    const expanded = _csmsExpanded.has(s.id);
-    const comps = s.components || [];
-    const weightSum = comps.reduce((sum, c) => sum + Number(c.weight_percent || 0), 0);
-    const fullSum = comps.reduce((sum, c) => sum + Number(c.full_marks || 0), 0);
-    const summary = `${comps.length} component${comps.length === 1 ? '' : 's'} · full ${fullSum} · weight ${weightSum}%`;
-    return `<div class="bg-white rounded-2xl border border-slate-200 p-4">
-      <div class="flex items-center justify-between cursor-pointer" onclick="toggleCsmsSubject(${s.id})">
-        <div class="flex items-center gap-2">
-          <input type="checkbox" class="csms-select-cb" data-subject-id="${s.id}" title="Select as a copy target" ${_csmsSelected.has(s.id) ? 'checked' : ''} onclick="event.stopPropagation()" onchange="_toggleCsmsSelected(${s.id},this.checked)">
-          <p class="font-black text-slate-800 text-xs">${s.name}</p>
-        </div>
-        <div class="flex items-center gap-2">
-          <span class="text-[10px] font-bold uppercase ${weightSum === 100 ? 'text-emerald-500' : 'text-amber-500'}">${summary}</span>
-          <i data-lucide="x-circle" class="h-4 w-4 text-red-400 cursor-pointer" title="Remove from this class pattern" onclick="event.stopPropagation(); removeSubjectFromPattern(${s.id})"></i>
-          <i data-lucide="${expanded ? 'chevron-up' : 'chevron-down'}" class="h-4 w-4 text-slate-400"></i>
-        </div>
-      </div>
-      ${expanded ? `<div class="mt-3 pt-3 border-t border-slate-100">
-        <div class="overflow-auto">
-          <table class="w-full text-left border-collapse text-xs">
-            <thead><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-1 pr-2">Component</th><th class="py-1 pr-2">Full</th><th class="py-1 pr-2">Pass</th><th class="py-1 pr-2">Weight %</th><th></th></tr></thead>
-            <tbody>
-              ${comps.map(c => `<tr>
-                <td class="py-1 pr-2 font-bold">${c.exam_component_types?.name || ''}</td>
-                <td class="py-1 pr-2"><input type="number" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-comp-full" value="${c.full_marks}" class="w-16 px-1.5 py-1 bg-slate-50 border border-slate-200 rounded font-bold text-xs" onchange="updateSubjectComponent(${c.id},${pattern_id},${s.id},${c.component_type_id},this.value,${c.pass_marks},${c.weight_percent})"></td>
-                <td class="py-1 pr-2"><input type="number" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-comp-pass" value="${c.pass_marks}" class="w-16 px-1.5 py-1 bg-slate-50 border border-slate-200 rounded font-bold text-xs" onchange="updateSubjectComponent(${c.id},${pattern_id},${s.id},${c.component_type_id},${c.full_marks},this.value,${c.weight_percent})"></td>
-                <td class="py-1 pr-2"><input type="number" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-comp-weight" value="${c.weight_percent}" class="w-16 px-1.5 py-1 bg-slate-50 border border-slate-200 rounded font-bold text-xs" onchange="updateSubjectComponent(${c.id},${pattern_id},${s.id},${c.component_type_id},${c.full_marks},${c.pass_marks},this.value)"></td>
-                <td class="py-1"><i data-lucide="trash-2" class="h-3 w-3 text-red-400 cursor-pointer" onclick="deleteSubjectComponent(${c.id})"></i></td>
-              </tr>`).join('')}
-            </tbody>
-          </table>
-        </div>
-        <div class="flex items-center gap-2 mt-2 flex-wrap">
-          <select id="csmsNewCompType-${s.id}" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">${_componentTypes.map(t => `<option value="${t.id}">${t.name}</option>`).join('')}</select>
-          <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-newcomp-typename" id="csmsNewCompTypeName-${s.id}" placeholder="or type a new type name" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:160px">
-          <input type="number" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-newcomp-full" data-autofill-guard id="csmsNewFull-${s.id}" placeholder="Full" class="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-          <input type="number" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-newcomp-pass" data-autofill-guard id="csmsNewPass-${s.id}" placeholder="Pass" class="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-          <input type="number" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-newcomp-weight" data-autofill-guard id="csmsNewWeight-${s.id}" placeholder="Weight%" class="w-20 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-          <button onclick="addSubjectComponent(${pattern_id},${s.id})" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ Add</button>
-          ${comps.length ? `<button onclick="copyComponentsToSelected(${s.id})" class="px-3 py-1.5 border border-blue-200 text-blue-600 rounded-lg font-black text-[10px] uppercase hover:bg-blue-50">Copy to Selected</button>` : ''}
-        </div>
-      </div>` : ''}
-    </div>`;
-  }
-  function _toggleCsmsSelected(subjectId, checked) {
-    if (checked) _csmsSelected.add(subjectId); else _csmsSelected.delete(subjectId);
-  }
-  function copyComponentsToSelected(sourceSubjectId) {
-    const pattern_id = document.getElementById('csmsPatternSelect').value;
-    const source = _csmsSubjects.find(s => s.id === sourceSubjectId);
-    if (!source || !(source.components || []).length) { showToast('This subject has no components to copy', 'error'); return; }
-    const targetIds = [..._csmsSelected].filter(id => id !== sourceSubjectId);
-    if (!targetIds.length) { showToast('Select at least one other subject first', 'error'); return; }
-    if (!confirm(`Copy ${source.components.length} component(s) from "${source.name}" to ${targetIds.length} selected subject(s)? Matching component types on those subjects will be overwritten.`)) return;
-    const ops = [];
-    targetIds.forEach(targetId => {
-      const target = _csmsSubjects.find(s => s.id === targetId);
-      const existingByType = new Map((target?.components || []).map(c => [String(c.component_type_id), c.id]));
-      source.components.forEach(c => {
-        ops.push(_adminFetch('save_subject_component', {
-          id: existingByType.get(String(c.component_type_id)),
-          pattern_id, subject_id: targetId, component_type_id: c.component_type_id,
-          full_marks: c.full_marks, pass_marks: c.pass_marks, weight_percent: c.weight_percent,
-        }));
-      });
-    });
-    showToast(`Copying to ${targetIds.length} subject(s)…`);
-    Promise.all(ops).then(results => {
-      const failed = results.filter(r => !r || r.result !== 'success');
-      showToast(failed.length ? `${ops.length - failed.length} of ${ops.length} saved — ${failed.length} failed` : `Copied to ${targetIds.length} subject(s)`, failed.length ? 'error' : undefined);
-      if (!failed.length) _csmsSelected.clear();
-      loadSubjectComponentsSetup();
-    });
-  }
-  function toggleCsmsSubject(subjectId) {
-    if (_csmsExpanded.has(subjectId)) _csmsExpanded.delete(subjectId); else _csmsExpanded.add(subjectId);
-    loadSubjectComponentsSetup();
-  }
-  function updateSubjectComponent(id, pattern_id, subject_id, component_type_id, full_marks, pass_marks, weight_percent) {
-    _adminFetch('save_subject_component', { id, pattern_id, subject_id, component_type_id, full_marks, pass_marks, weight_percent }).then(res => {
-      if (res && res.result === 'success') loadSubjectComponentsSetup();
-      else showToast((res && res.message) || 'Failed', 'error');
-    });
-  }
-  function deleteSubjectComponent(id) {
-    _adminFetch('delete_subject_component', { id }).then(res => { if (res && res.result === 'success') loadSubjectComponentsSetup(); });
-  }
-  function addSubjectComponent(pattern_id, subject_id) {
-    const typeSel = document.getElementById(`csmsNewCompType-${subject_id}`);
-    const newTypeName = document.getElementById(`csmsNewCompTypeName-${subject_id}`).value.trim();
-    const full_marks = document.getElementById(`csmsNewFull-${subject_id}`).value;
-    const pass_marks = document.getElementById(`csmsNewPass-${subject_id}`).value;
-    const weight_percent = document.getElementById(`csmsNewWeight-${subject_id}`).value;
-    const proceed = component_type_id => {
-      _adminFetch('save_subject_component', { pattern_id, subject_id, component_type_id, full_marks, pass_marks, weight_percent }).then(res => {
-        if (res && res.result === 'success') { _csmsExpanded.add(subject_id); loadSubjectComponentsSetup(); }
-        else showToast((res && res.message) || 'Failed', 'error');
-      });
-    };
-    if (newTypeName) {
-      _adminFetch('save_exam_component_type', { name: newTypeName }).then(res => {
-        if (res && res.result === 'success' && res.type) { _componentTypes = []; proceed(res.type.id); }
-        else showToast((res && res.message) || 'Failed', 'error');
-      });
-    } else if (typeSel && typeSel.value) {
-      proceed(typeSel.value);
-    } else {
-      showToast('Pick or type a component type', 'error');
-    }
-  }
-
   // ── Exam Pattern Setup — reusable subset-of-components-per-occasion ─────
   function loadExamPatternSetup() {
     Promise.all([_adminFetch('get_exam_patterns', {}), _componentTypes.length ? Promise.resolve({ result: 'success', types: _componentTypes }) : _adminFetch('get_exam_component_types', {})]).then(([res, typesRes]) => {
       if (typesRes && typesRes.result === 'success') _componentTypes = typesRes.types || [];
-      document.getElementById('epTypeChecklist').innerHTML = _componentTypes.map(t => `<label class="flex items-center gap-1 text-xs font-bold text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1"><input type="checkbox" class="ep-type-cb" value="${t.id}">${t.name}</label>`).join('') || '<span class="text-xs text-slate-400 italic">Add component types first, from Class-Subject Marks Setup.</span>';
+      document.getElementById('epTypeChecklist').innerHTML = _componentTypes.map(t => `<label class="flex items-center gap-1 text-xs font-bold text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1"><input type="checkbox" class="ep-type-cb" value="${t.id}">${t.name}</label>`).join('') || '<span class="text-xs text-slate-400 italic">Add exam parts first — Subject Setup → Exam Parts.</span>';
       _examPatternTemplates = (res && res.result === 'success' && res.patterns) || [];
       _populateExamPatternTemplateSelects();
       document.getElementById('examPatternsList').innerHTML = _examPatternTemplates.map(p => `
@@ -14302,7 +14232,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </table>
           </div>
         </div>`;
-      }).join('') || '<span class="text-xs text-slate-400 font-bold italic">No subjects/components active for this exam yet — check Exam Pattern Setup and Class-Subject Marks Setup.</span>';
+      }).join('') || '<span class="text-xs text-slate-400 font-bold italic">No subjects/components active for this exam yet — check Exam Pattern Setup and the marks in Subject Setup.</span>';
     });
   }
   function bulkToggleEntrySheetsForClass(exam_id, cls, section, is_open) {
