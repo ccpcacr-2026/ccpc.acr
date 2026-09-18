@@ -13074,6 +13074,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button onclick="scmExpandAll(true)" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Expand All</button>
           <button onclick="scmExpandAll(false)" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Collapse All</button>
           <button onclick="scmManageParts()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Exam Parts</button>
+          <button onclick="scmManageSubjects(); scmEditSubject('new')" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ Add Subject</button>
           <button onclick="scmManageSubjects()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">All Subjects</button>
           <button id="scmGridBtn" onclick="scmShowGrid()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50 ml-auto">Grid View</button>
         </div>
@@ -13533,7 +13534,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   function scmLoad() {
     const host = document.getElementById('scmHost');
-    _adminFetch('get_subject_class_matrix', {}).then(res => {
+    return _adminFetch('get_subject_class_matrix', {}).then(res => {
       if (!res || res.result !== 'success') { if (host) host.innerHTML = `<span class="text-xs text-red-500 font-bold">${_escHtml((res && res.message) || 'Could not load subject setup.')}</span>`; return; }
       const patterns = (res.patterns || []).slice().sort((a, b) => _scmRank(a.name) - _scmRank(b.name) || a.name.localeCompare(b.name));
       _scm = {
@@ -13812,7 +13813,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!name || name === cur) return;
     if (_scm.subjects.some(s => s.id !== sid && s.name.toLowerCase() === name.toLowerCase())) { showToast(`"${name}" already exists`, 'error'); return; }
     _adminFetch('save_subject', { id: sid, name }).then(res => {
-      if (res && res.result === 'success') { showToast('Subject renamed'); scmLoad(); _scmRefreshManager(); }
+      if (res && res.result === 'success') { showToast('Subject renamed'); scmLoad().then(_scmRefreshManager); }
       else showToast((res && res.message) || 'Failed', 'error');
     });
   }
@@ -13822,7 +13823,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const warn = used.length ? `\n\nIt is used in ${used.length} class(es): ${used.join(', ')}. It will be removed from all of them, with its marks setup.` : '';
     if (!confirm(`Delete subject "${name}" permanently?${warn}`)) return;
     _adminFetch('delete_subject', { id: sid }).then(res => {
-      if (res && res.result === 'success') { showToast('Subject deleted'); scmLoad(); setTimeout(_scmRefreshManager, 400); }
+      if (res && res.result === 'success') { showToast('Subject deleted'); _scmEdit = null; scmLoad().then(_scmRefreshManager); }
       else showToast(`Can't delete "${name}" — ${(res && res.message) || 'it is still in use (entered marks or exam sheets)'}`, 'error');
     });
   }
@@ -13864,6 +13865,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // Global subject list — rename/delete a subject everywhere, see where it's used.
   function scmManageSubjects() {
     if (!_scm) return;
+    _scmEdit = null;
     let ov = document.getElementById('scmSubjOverlay');
     if (!ov) {
       ov = document.createElement('div');
@@ -13874,28 +13876,111 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }
     _scmRefreshManager();
   }
+  // null = list, 'new' = adding a subject, a number = editing that subject
+  let _scmEdit = null;
+  function scmEditSubject(id) { _scmEdit = id; _scmRefreshManager(); }
+  function _scmClassNamesFor(sid) { return _scm.patterns.filter(p => _scm.map.has(`${p.id}|${sid}`)).map(p => p.name); }
   function _scmRefreshManager() {
     const ov = document.getElementById('scmSubjOverlay');
     if (!ov || !_scm) return;
+    if (_scmEdit !== null && _scmEdit !== 'new' && !_scm.subjects.some(s => s.id === _scmEdit)) _scmEdit = null;
+    const closeX = `<i data-lucide="x" class="h-4 w-4 text-slate-500 cursor-pointer" onclick="document.getElementById('scmSubjOverlay').remove()"></i>`;
+    if (_scmEdit !== null) {
+      const isNew = _scmEdit === 'new';
+      const s = isNew ? { id: 0, name: '' } : _scm.subjects.find(x => x.id === _scmEdit);
+      const boxes = _scm.patterns.map(p => `<label class="flex items-center gap-2 px-2 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer text-xs font-bold text-slate-700">
+          <input type="checkbox" class="scm-ed-cls h-4 w-4 accent-blue-600" value="${p.id}" ${!isNew && _scm.map.has(`${p.id}|${s.id}`) ? 'checked' : ''}>${_escHtml(p.name)}</label>`).join('');
+      ov.innerHTML = `<div class="bg-white rounded-2xl shadow-xl w-full max-w-lg flex flex-col" style="max-height:88vh">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+          <p class="flex items-center gap-2 font-black text-slate-800 text-sm"><i data-lucide="arrow-left" class="h-4 w-4 text-slate-500 cursor-pointer" title="Back to all subjects" onclick="scmEditSubject(null)"></i>${isNew ? 'New Subject' : 'Edit Subject'}</p>
+          ${closeX}
+        </div>
+        <div class="overflow-y-auto px-4 py-3 flex flex-col gap-3">
+          <label class="flex flex-col gap-1"><span class="text-[10px] font-black text-slate-500 uppercase">Subject name (full English name)</span>
+            <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-scm-subjname" id="scmEdName" value="${_escHtml(s.name)}" placeholder="e.g. Agriculture Studies" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm"></label>
+          <div>
+            <div class="flex items-center justify-between mb-1.5">
+              <span class="text-[10px] font-black text-slate-500 uppercase">Classes that have this subject</span>
+              <span class="flex gap-3 text-[10px] font-black uppercase">
+                <button class="text-blue-600" onclick="document.querySelectorAll('.scm-ed-cls').forEach(c => { c.checked = true; })">All</button>
+                <button class="text-slate-400" onclick="document.querySelectorAll('.scm-ed-cls').forEach(c => { c.checked = false; })">None</button>
+              </span>
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-1.5">${boxes || '<span class="text-xs text-slate-400 italic">No classes yet.</span>'}</div>
+            ${isNew ? '' : '<p class="text-[10px] text-slate-400 font-bold mt-2">Unticking a class takes the subject off that class; its marks setup there is kept and comes back if you tick it again.</p>'}
+          </div>
+        </div>
+        <div class="flex items-center gap-2 px-4 py-3 border-t border-slate-200">
+          ${isNew ? '' : `<button onclick="scmDeleteSubject(${s.id})" class="px-3 py-2 border border-red-200 text-red-500 rounded-lg font-black text-[10px] uppercase hover:bg-red-50">Delete</button>`}
+          <button onclick="scmEditSubject(null)" class="ml-auto px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Cancel</button>
+          <button id="scmEdSave" onclick="scmSaveSubjectEdit()" class="px-4 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">${isNew ? 'Add Subject' : 'Save'}</button>
+        </div>
+      </div>`;
+      lucide.createIcons();
+      const nm = document.getElementById('scmEdName');
+      if (nm && isNew) nm.focus();
+      return;
+    }
     const rows = _scm.subjects.map(s => {
-      const n = _scm.patterns.filter(p => _scm.map.has(`${p.id}|${s.id}`)).length;
-      return `<div class="flex items-center justify-between gap-2 px-4 py-2 border-b border-slate-50">
-        <span class="text-xs font-bold text-slate-700">${_escHtml(s.name)}</span>
+      const cls = _scmClassNamesFor(s.id);
+      return `<div class="flex items-center justify-between gap-3 px-4 py-2 border-b border-slate-50 hover:bg-slate-50 cursor-pointer" onclick="scmEditSubject(${s.id})">
+        <div class="min-w-0">
+          <p class="text-xs font-bold text-slate-700">${_escHtml(s.name)}</p>
+          <p class="text-[10px] font-bold truncate ${cls.length ? 'text-slate-400' : 'text-amber-500'}">${cls.length ? _escHtml(cls.join(', ')) : 'not in any class'}</p>
+        </div>
         <span class="flex items-center gap-3 shrink-0">
-          <span class="text-[10px] font-bold ${n ? 'text-slate-400' : 'text-amber-500'}">${n ? `${n} class${n === 1 ? '' : 'es'}` : 'not used'}</span>
-          <i data-lucide="pencil" class="h-3.5 w-3.5 text-blue-500 cursor-pointer" onclick="scmRenameSubject(${s.id})"></i>
-          <i data-lucide="trash-2" class="h-3.5 w-3.5 text-red-500 cursor-pointer" onclick="scmDeleteSubject(${s.id})"></i>
+          <i data-lucide="pencil" class="h-3.5 w-3.5 text-blue-500" title="Edit name and classes"></i>
+          <i data-lucide="trash-2" class="h-3.5 w-3.5 text-red-500 cursor-pointer" title="Delete subject" onclick="event.stopPropagation(); scmDeleteSubject(${s.id})"></i>
         </span>
       </div>`;
     }).join('');
-    ov.innerHTML = `<div class="bg-white rounded-2xl shadow-xl w-full max-w-md flex flex-col" style="max-height:85vh">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+    ov.innerHTML = `<div class="bg-white rounded-2xl shadow-xl w-full max-w-lg flex flex-col" style="max-height:88vh">
+      <div class="flex items-center justify-between gap-2 px-4 py-3 border-b border-slate-200">
         <p class="font-black text-slate-800 text-sm">All Subjects <span class="text-[10px] text-slate-400 ml-1">${_scm.subjects.length}</span></p>
-        <i data-lucide="x" class="h-4 w-4 text-slate-500 cursor-pointer" onclick="document.getElementById('scmSubjOverlay').remove()"></i>
+        <span class="flex items-center gap-3">
+          <button onclick="scmEditSubject('new')" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ New Subject</button>
+          ${closeX}
+        </span>
       </div>
-      <div class="overflow-y-auto">${rows}</div>
+      <div class="overflow-y-auto">${rows || '<p class="px-4 py-3 text-xs text-slate-400 italic">No subjects yet.</p>'}</div>
     </div>`;
     lucide.createIcons();
+  }
+  function scmSaveSubjectEdit() {
+    const isNew = _scmEdit === 'new';
+    const sid = isNew ? null : _scmEdit;
+    const name = (document.getElementById('scmEdName')?.value || '').trim();
+    if (!name) { showToast('Enter the subject name', 'error'); return; }
+    if (_scm.subjects.some(s => s.id !== sid && s.name.toLowerCase() === name.toLowerCase())) { showToast(`"${name}" already exists`, 'error'); return; }
+    const chosen = new Set([...document.querySelectorAll('.scm-ed-cls:checked')].map(c => Number(c.value)));
+    const btn = document.getElementById('scmEdSave');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    const cur = isNew ? null : _scm.subjects.find(s => s.id === sid);
+    const nameStep = (isNew || (cur && cur.name !== name))
+      ? _adminFetch('save_subject', isNew ? { name } : { id: sid, name })
+      : Promise.resolve({ result: 'success', subject: { id: sid } });
+    nameStep.then(res => {
+      if (!res || res.result !== 'success') throw new Error((res && res.message) || 'Could not save the name');
+      const id = isNew ? (res.subject && res.subject.id) : sid;
+      if (!id) throw new Error('Subject saved but its id was not returned — reopen All Subjects');
+      const ops = [];
+      _scm.patterns.forEach(p => {
+        const has = _scm.map.has(`${p.id}|${id}`), want = chosen.has(p.id);
+        if (has !== want) ops.push(_adminFetch('save_subject_pattern_map', { subject_id: id, pattern_id: p.id, checked: want }));
+      });
+      return Promise.all(ops).then(results => {
+        const failed = results.filter(r => !r || r.result !== 'success').length;
+        showToast(failed ? `Saved, but ${failed} class change(s) failed` : (isNew ? 'Subject added' : 'Subject saved'), failed ? 'error' : undefined);
+        chosen.forEach(pid => _scmOpen.add(pid));
+        _scmSaveOpen();
+      });
+    }).then(() => {
+      _scmEdit = null;
+      return scmLoad();
+    }).then(() => _scmRefreshManager()).catch(e => {
+      showToast(e.message, 'error');
+      if (btn) { btn.disabled = false; btn.textContent = isNew ? 'Add Subject' : 'Save'; }
+    });
   }
   function scmShowGrid() {
     _scmGrid = !_scmGrid;

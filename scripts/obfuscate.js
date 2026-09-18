@@ -241,7 +241,7 @@ const RESERVED = [
   'toggleAllClassPatternRows','_updateClassPatternSelectedCount','bulkApplyClassPattern',
   'saveSubject','deleteSubject','saveSubjectPatternMap','toggleAllSubjectsForPattern',
   'scmAddClass','scmRender','scmManageSubjects','scmManageParts','scmShowGrid','scmSetField','scmRenameSubject','scmRemoveSubject',
-  'scmToggleClass','scmExpandAll',
+  'scmToggleClass','scmExpandAll','scmEditSubject','scmSaveSubjectEdit',
   'scmRenameClass','scmDeleteClass','scmAddSubject','scmDeleteSubject','scmRenamePart','scmDeletePart','scmAddPart',
   '_toggleSubjPatternTarget','copySubjectSelectionToSelected',
   '_toggleBulkAssignSelection','_filterBulkAssignList','bulkAssignSubjectsToPatterns',
