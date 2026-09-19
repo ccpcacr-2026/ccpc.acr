@@ -2859,11 +2859,14 @@ export async function POST(req) {
       sbExam(`subject_pattern_map?pattern_id=eq.${encodeURIComponent(id)}&select=id`),
       sbExam(`exams?pattern_id=eq.${encodeURIComponent(id)}&select=id`),
     ]);
+    const examIds = (Array.isArray(examRows) ? examRows : []).map(e => e.id);
+    const markRows = examIds.length ? await sbExam(`exam_marks?exam_id=in.(${examIds.join(',')})&select=id&limit=1`) : [];
     return NextResponse.json({
       result: 'success',
       class_sections: Array.isArray(mapRows) ? mapRows.length : 0,
       subjects: Array.isArray(subjRows) ? subjRows.length : 0,
-      exams: Array.isArray(examRows) ? examRows.length : 0,
+      exams: examIds.length,
+      exams_have_marks: Array.isArray(markRows) && markRows.length > 0,
     });
   }
   if (action === 'delete_class_pattern') {
@@ -2873,9 +2876,18 @@ export async function POST(req) {
       const left = await _rosterForClass(target);
       if (left.length) return NextResponse.json({ result: 'error', message: `${left.length} student(s) still use this list — a class's main list can only be deleted once it has none.` });
     }
+    // Exams using the list block the delete, unless the caller confirmed
+    // deleting them too (with_exams) AND none of them has a single mark.
     const examRows = await sbExam(`exams?pattern_id=eq.${encodeURIComponent(id)}&select=id`);
     if (Array.isArray(examRows) && examRows.length) {
-      return NextResponse.json({ result: 'error', message: `${examRows.length} exam(s) use this pattern — archive or reassign them first.` });
+      if (!payload.with_exams) return NextResponse.json({ result: 'error', message: `${examRows.length} exam(s) use this class — delete them too, or reassign them first.` });
+      const ids = examRows.map(e => e.id).join(',');
+      const marks = await sbExam(`exam_marks?exam_id=in.(${ids})&select=id&limit=1`);
+      if (!Array.isArray(marks) || marks.length) return NextResponse.json({ result: 'error', message: 'Marks have been entered in an exam that uses this class — it cannot be deleted.' });
+      const sheets = await sbExam(`exam_entry_sheets?exam_id=in.(${ids})`, 'DELETE');
+      if (sheets?.error) return NextResponse.json({ result: 'error', message: sheets.error });
+      const ex = await sbExam(`exams?id=in.(${ids})`, 'DELETE');
+      if (ex?.error) return NextResponse.json({ result: 'error', message: ex.error });
     }
     const r = await sbExam(`class_patterns?id=eq.${encodeURIComponent(id)}`, 'DELETE');
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });

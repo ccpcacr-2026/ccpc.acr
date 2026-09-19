@@ -13756,12 +13756,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const name = p ? p.name : 'this class';
     _adminFetch('get_class_pattern_usage', { id: pid }).then(res => {
       if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed to check usage', 'error'); return; }
-      if (res.exams > 0) { showToast(`Can't delete "${name}" — ${res.exams} exam(s) use it. Archive or reassign them first.`, 'error'); return; }
+      if (res.exams > 0 && res.exams_have_marks) { showToast(`Can't delete "${name}" — marks have been entered in an exam that uses it.`, 'error'); return; }
       const parts = [];
-      if (res.subjects) parts.push(`its ${res.subjects} subject(s) and their ticks will be deleted`);
+      if (res.subjects) parts.push(`its ${res.subjects} subject(s) and their marks setup will be deleted`);
+      if (res.exams) parts.push(`the ${res.exams} exam(s) using it (no marks entered) will be deleted too, with their marks-entry assignments`);
       const why = p && !p.is_default && p.students ? ` Its ${p.students} student(s) go back to the broader list.` : '';
-      if (!confirm(`Delete "${name}"?${why}${parts.length ? ' ' + parts.join('; ') + '.' : ''}`)) return;
-      _adminFetch('delete_class_pattern', { id: pid }).then(res2 => {
+      if (!confirm(`Delete "${name}"?${why}${parts.length ? '\n\n' + parts.join(';\n') + '.' : ''}`)) return;
+      _adminFetch('delete_class_pattern', { id: pid, with_exams: res.exams > 0 }).then(res2 => {
         if (res2 && res2.result === 'success') { showToast('Class deleted'); scmLoad(); }
         else showToast((res2 && res2.message) || 'Failed', 'error');
       });
