@@ -517,7 +517,7 @@ const ADMIN_TAB_ACTIONS = {
     'get_class_pattern_setup', 'get_class_patterns', 'save_class_pattern', 'save_class_pattern_map',
     'get_class_pattern_usage', 'delete_class_pattern',
     'get_subjects', 'save_subject', 'delete_subject', 'get_subject_pattern_map', 'save_subject_pattern_map',
-    'get_subject_class_matrix', 'toggle_subject_component', 'save_subject_part', 'save_class_scope',
+    'get_subject_class_matrix', 'toggle_subject_component', 'save_subject_part', 'save_class_scope', 'save_exam_part',
     'rename_exam_component_type', 'delete_exam_component_type',
     'get_exam_component_types', 'save_exam_component_type', 'get_subject_components_setup', 'save_subject_component', 'delete_subject_component',
     'get_exam_patterns', 'save_exam_pattern', 'duplicate_exam_pattern', 'delete_exam_pattern',
@@ -2696,6 +2696,19 @@ export async function POST(req) {
     return rows.map(r => r.subjects).filter(Boolean);
   }
 
+  // A new subject_components row at a part's defaults (Exam Parts). Parts
+  // saved before migration_exam_part_defaults.sql fall back to 100 / 100 / 33.
+  function _partDefaultRow(t, pattern_id, subject_id) {
+    const n = (v, d) => (v === null || v === undefined || v === '' || !isFinite(Number(v)) ? d : Number(v));
+    const row = {
+      pattern_id, subject_id, component_type_id: t.id, sort_order: 0,
+      full_marks: n(t.default_full_marks, 100), weight_percent: n(t.default_weight_percent, 100), pass_marks: n(t.default_pass_marks, 33),
+    };
+    const type = t.default_pass_type || 'number', basis = t.default_pass_basis || 'marks';
+    if (type !== 'number' || basis !== 'marks') { row.pass_type = type; row.pass_basis = basis; }
+    return row;
+  }
+
   // A part's pass rule as the raw mark the student must reach on that part.
   // pass_type number|percent, pass_basis marks|weight (weighted mark =
   // marks × weight / 100). Rows from before the rule columns = number on marks.
@@ -2896,17 +2909,23 @@ export async function POST(req) {
       if (!existing?.error && !existing.length) {
         const r = await sbExam('subject_pattern_map', 'POST', { subject_id, pattern_id });
         if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
-        // A subject newly added to a class starts with every exam part at a
-        // placeholder setup (100 marks, 100% weight, pass 33), edited later.
-        // Parts it already has here (from before it was removed) are kept.
+        // A subject newly added to a class starts with every exam part at
+        // that part's defaults (Exam Parts), edited later. Parts it already
+        // has here (from before it was removed) are kept.
         const [types, have] = await Promise.all([
-          sbExam('exam_component_types?select=id'),
+          sbExam('exam_component_types?select=*'),
           sbExam(`subject_components?pattern_id=eq.${encodeURIComponent(pattern_id)}&subject_id=eq.${encodeURIComponent(subject_id)}&select=component_type_id`),
         ]);
         const got = new Set((Array.isArray(have) ? have : []).map(c => String(c.component_type_id)));
-        const add = (Array.isArray(types) ? types : []).filter(t => !got.has(String(t.id)))
-          .map(t => ({ pattern_id, subject_id, component_type_id: t.id, full_marks: 100, weight_percent: 100, pass_marks: 33, sort_order: 0 }));
-        if (add.length) await sbExam('subject_components', 'POST', add);
+        const add = (Array.isArray(types) ? types : []).filter(t => !got.has(String(t.id))).map(t => _partDefaultRow(t, pattern_id, subject_id));
+        if (add.length) {
+          const ins = await sbExam('subject_components', 'POST', add);
+          // Before migration_exam_pass_rule.sql the rule columns don't exist:
+          // store the same threshold as a plain mark instead.
+          if (ins?.error && /pass_type|pass_basis/.test(String(ins.error))) {
+            await sbExam('subject_components', 'POST', add.map(({ pass_type, pass_basis, ...r }) => ({ ...r, pass_marks: _passMarksRaw({ ...r, pass_type, pass_basis }) })));
+          }
+        }
       }
     } else {
       // Deliberately does NOT touch subject_components — unchecking hides
@@ -2929,7 +2948,7 @@ export async function POST(req) {
       sbExam('subjects?select=id,name&order=name.asc'),
       sbExam('subject_pattern_map?select=subject_id,pattern_id'),
       sbExam('subject_components?select=*'),
-      sbExam('exam_component_types?select=id,name&order=id.asc'),
+      sbExam('exam_component_types?select=*&order=id.asc'),
     ]);
     const bad = [subjects, mapRows, comps, types].find(x => x?.error || !Array.isArray(x));
     if (bad) return NextResponse.json({ result: 'error', message: bad?.error || 'Failed to load subject setup.' });
@@ -3011,6 +3030,36 @@ export async function POST(req) {
     const r = await sbExam('exam_component_types', 'POST', { name });
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
     return NextResponse.json({ result: 'success', type: Array.isArray(r) ? r[0] : r });
+  }
+  // Add or edit an exam part: its name and the default setup new subjects
+  // get for it.
+  if (action === 'save_exam_part') {
+    const { id } = payload;
+    const name = String(payload.name || '').trim();
+    if (!name) return NextResponse.json({ result: 'error', message: 'Part name required.' });
+    const clash = await sbExam(`exam_component_types?name=ilike.${encodeURIComponent(name)}${id ? `&id=neq.${encodeURIComponent(id)}` : ''}&select=id`);
+    if (Array.isArray(clash) && clash.length) return NextResponse.json({ result: 'error', message: `A part named "${name}" already exists.` });
+    const num = (v, label) => { const x = Number(v); if (v === '' || v === null || v === undefined || !isFinite(x) || x < 0) throw new Error(`${label} must be a number of 0 or more.`); return x; };
+    let defaults;
+    try {
+      defaults = {
+        default_full_marks: num(payload.default_full_marks, 'Marks'),
+        default_weight_percent: num(payload.default_weight_percent, 'Weight'),
+        default_pass_marks: num(payload.default_pass_marks, 'Pass'),
+        default_pass_type: payload.default_pass_type === 'percent' ? 'percent' : 'number',
+        default_pass_basis: payload.default_pass_basis === 'weight' ? 'weight' : 'marks',
+      };
+    } catch (e) { return NextResponse.json({ result: 'error', message: e.message }); }
+    if (defaults.default_pass_type === 'percent' && defaults.default_pass_marks > 100) return NextResponse.json({ result: 'error', message: "A percentage pass can't be over 100." });
+    const row = { name, ...defaults };
+    let r = id ? await sbExam(`exam_component_types?id=eq.${encodeURIComponent(id)}`, 'PATCH', row) : await sbExam('exam_component_types', 'POST', row);
+    let warning = '';
+    if (r?.error && /default_/.test(String(r.error))) {
+      r = id ? await sbExam(`exam_component_types?id=eq.${encodeURIComponent(id)}`, 'PATCH', { name }) : await sbExam('exam_component_types', 'POST', { name });
+      warning = 'Name saved. Defaults need migration_exam_part_defaults.sql to be run first.';
+    }
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success', type: Array.isArray(r) ? r[0] : r, warning });
   }
   if (action === 'rename_exam_component_type') {
     const { id, name } = payload;

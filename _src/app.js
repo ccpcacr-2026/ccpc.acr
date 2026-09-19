@@ -13546,7 +13546,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }
   }
   // Saves one field of one part. Typing Marks into an empty part creates
-  // it (weight 100, pass 33% of the marks); clearing Marks removes the part.
+  // it from that part's defaults; clearing Marks removes the part.
   function scmSetField(pid, sid, tid, field, raw) {
     const key = `${pid}|${sid}|${tid}`;
     const prev = _scm.comps.get(key);
@@ -13565,9 +13565,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       });
       return;
     }
-    // A part typed in by hand starts at 100% weight and a 33% pass mark.
+    // A part typed in by hand starts from that part's defaults (Exam Parts):
+    // its weight and pass rule, with a pass MARK scaled to the marks typed.
     const typedMarks = field === 'full_marks' ? Number(val) || 0 : 0;
-    const next = { ...(prev || { pattern_id: pid, subject_id: sid, component_type_id: tid, full_marks: 0, weight_percent: 100, pass_marks: Math.round(typedMarks * 0.33 * 100) / 100, pass_type: 'number', pass_basis: 'marks' }) };
+    const pd = _scmPartDefaults(_scm.types.find(t => t.id === tid));
+    const [pdType, pdBasis] = pd.rule.split('|');
+    const pdPass = pdType === 'number' && pdBasis === 'marks' && pd.full ? Math.round(pd.pass / pd.full * typedMarks * 100) / 100 : pd.pass;
+    const next = { ...(prev || { pattern_id: pid, subject_id: sid, component_type_id: tid, full_marks: 0, weight_percent: pd.weight, pass_marks: pdPass, pass_type: pdType, pass_basis: pdBasis }) };
     if (field === 'pass_rule') {
       [next.pass_type, next.pass_basis] = val.split('|');
     } else {
@@ -13599,6 +13603,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
   }
   // Parts (CT, CQ, MCQ, Practical…) — shared by every class and subject.
+  // Each keeps a default setup (marks / weight / pass / pass rule) that a
+  // subject gets for that part when it's added to a class, edited later.
+  function _scmPartDefaults(t) {
+    const n = (v, d) => (v === null || v === undefined || v === '' || !isFinite(Number(v)) ? d : Number(v));
+    return {
+      full: n(t && t.default_full_marks, 100), weight: n(t && t.default_weight_percent, 100), pass: n(t && t.default_pass_marks, 33),
+      rule: `${(t && t.default_pass_type) || 'number'}|${(t && t.default_pass_basis) || 'marks'}`,
+    };
+  }
+  function _scmPartRowInputs(prefix, t) {
+    const d = _scmPartDefaults(t);
+    const box = (field, val, title) => `<input type="number" inputmode="decimal" min="0" step="any" id="${prefix}-${field}" value="${val}" title="${title}" ${t ? `onchange="scmSavePart(${t.id})"` : ''} class="w-14 px-1 py-1 bg-white border border-slate-300 rounded font-bold text-xs text-center">`;
+    return `<td class="py-1.5 px-1">${box('full', d.full, 'Default marks')}</td>
+      <td class="py-1.5 px-1">${box('weight', d.weight, 'Default weight %')}</td>
+      <td class="py-1.5 px-1 whitespace-nowrap">${box('pass', d.pass, 'Default pass')}
+        <select id="${prefix}-rule" ${t ? `onchange="scmSavePart(${t.id})"` : ''} title="How the pass value is read" class="px-0.5 py-1 bg-white border border-slate-300 rounded font-bold text-[10px] text-slate-600">${_SCM_PASS_RULES.map(([v, l]) => `<option value="${v}" ${d.rule === v ? 'selected' : ''}>${l}</option>`).join('')}</select></td>`;
+  }
   function scmManageParts() {
     if (!_scm) return;
     let ov = document.getElementById('scmPartsOverlay');
@@ -13610,46 +13631,67 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       document.body.appendChild(ov);
     }
     const uses = tid => [..._scm.comps.values()].filter(c => c.component_type_id === tid).length;
-    ov.innerHTML = `<div class="bg-white rounded-2xl shadow-xl w-full max-w-sm flex flex-col" style="max-height:85vh">
+    const th = 'py-2 px-1 text-[9px] font-black text-slate-400 uppercase text-center';
+    ov.innerHTML = `<div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl flex flex-col" style="max-height:88vh">
       <div class="flex items-center justify-between px-4 py-3 border-b border-slate-200">
         <p class="font-black text-slate-800 text-sm">Exam Parts</p>
         <i data-lucide="x" class="h-4 w-4 text-slate-500 cursor-pointer" onclick="document.getElementById('scmPartsOverlay').remove()"></i>
       </div>
-      <div class="overflow-y-auto">${_scm.types.map(t => `<div class="flex items-center justify-between gap-2 px-4 py-2 border-b border-slate-50">
-        <span class="text-xs font-bold text-slate-700">${_escHtml(t.name)}</span>
-        <span class="flex items-center gap-3">
-          <span class="text-[10px] font-bold text-slate-400">used ${uses(t.id)}×</span>
-          <i data-lucide="pencil" class="h-3.5 w-3.5 text-blue-500 cursor-pointer" onclick="scmRenamePart(${t.id})"></i>
-          <i data-lucide="trash-2" class="h-3.5 w-3.5 text-red-500 cursor-pointer" onclick="scmDeletePart(${t.id})"></i>
-        </span>
-      </div>`).join('')}</div>
-      <div class="flex items-center gap-2 px-4 py-3 border-t border-slate-200">
-        <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-scm-newpart" id="scmNewPartName" placeholder="New part (e.g. Viva)" class="flex-1 min-w-0 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-        <button onclick="scmAddPart()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Add</button>
+      <p class="px-4 pt-3 text-[10px] text-slate-400 font-bold">The marks, weight and pass here are each part's <b>default</b>: a subject added to a class starts with every part at these values, and you edit them per subject afterwards. Changes save as you leave a box.</p>
+      <div class="overflow-auto px-2">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead><tr class="border-b border-slate-100"><th class="${th} text-left px-2">Part</th><th class="${th}">Marks</th><th class="${th}">Wt %</th><th class="${th} text-left">Pass</th><th class="${th}">Used</th><th></th></tr></thead>
+          <tbody>
+            ${_scm.types.map(t => `<tr class="border-b border-slate-50">
+              <td class="py-1.5 px-2"><input type="search" autocomplete="off" spellcheck="false" id="scmPt-${t.id}-name" value="${_escHtml(t.name)}" onchange="scmSavePart(${t.id})" class="w-28 px-2 py-1 bg-white border border-slate-300 rounded font-bold text-xs"></td>
+              ${_scmPartRowInputs(`scmPt-${t.id}`, t)}
+              <td class="py-1.5 px-1 text-center text-[10px] font-bold text-slate-400">${uses(t.id)}×</td>
+              <td class="py-1.5 px-2 text-right"><i data-lucide="trash-2" class="h-3.5 w-3.5 text-red-500 cursor-pointer inline" title="Delete part" onclick="scmDeletePart(${t.id})"></i></td>
+            </tr>`).join('')}
+            <tr class="bg-slate-50">
+              <td class="py-2 px-2"><input type="search" autocomplete="off" spellcheck="false" name="ccpc-exam-scm-newpart" id="scmPt-new-name" placeholder="New part (e.g. Viva)" class="w-28 px-2 py-1 bg-white border border-slate-300 rounded font-bold text-xs"></td>
+              ${_scmPartRowInputs('scmPt-new', null)}
+              <td></td>
+              <td class="py-2 px-2 text-right"><button onclick="scmAddPart()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Add</button></td>
+            </tr>
+          </tbody>
+        </table>
       </div>
+      <div class="h-3"></div>
     </div>`;
     lucide.createIcons();
   }
+  function _scmPartPayload(prefix) {
+    const v = id => (document.getElementById(`${prefix}-${id}`) || {}).value;
+    const [pass_type, pass_basis] = String(v('rule') || 'number|marks').split('|');
+    return {
+      name: String(v('name') || '').trim(),
+      default_full_marks: v('full'), default_weight_percent: v('weight'), default_pass_marks: v('pass'),
+      default_pass_type: pass_type, default_pass_basis: pass_basis,
+    };
+  }
   function _scmAfterPartChange() {
     _componentTypes = [];
-    scmLoad();
-    setTimeout(() => { if (document.getElementById('scmPartsOverlay')) scmManageParts(); }, 600);
+    scmLoad().then(() => { if (document.getElementById('scmPartsOverlay')) scmManageParts(); });
   }
-  function scmAddPart() {
-    const name = (document.getElementById('scmNewPartName')?.value || '').trim();
-    if (!name) return;
-    if (_scm.types.some(t => t.name.toLowerCase() === name.toLowerCase())) { showToast(`"${name}" already exists`, 'error'); return; }
-    _adminFetch('save_exam_component_type', { name }).then(res => {
-      if (res && res.result === 'success') { showToast('Part added'); _scmAfterPartChange(); }
-      else showToast((res && res.message) || 'Failed', 'error');
+  function scmSavePart(tid) {
+    const payload = { id: tid, ..._scmPartPayload(`scmPt-${tid}`) };
+    if (!payload.name) { showToast('A part needs a name', 'error'); return; }
+    _adminFetch('save_exam_part', payload).then(res => {
+      if (res && res.result === 'success') {
+        const t = _scm.types.find(x => x.id === tid);
+        if (t && res.type) Object.assign(t, res.type);
+        if (res.warning) showToast(res.warning, 'error'); else showToast('Saved');
+        if (t && t.name !== payload.name) _scmAfterPartChange(); else scmRender();
+      } else { showToast((res && res.message) || 'Failed', 'error'); scmManageParts(); }
     });
   }
-  function scmRenamePart(tid) {
-    const t = _scm.types.find(x => x.id === tid);
-    const name = (prompt('Rename part (changes it for every subject and class):', t ? t.name : '') || '').trim();
-    if (!name || (t && name === t.name)) return;
-    _adminFetch('rename_exam_component_type', { id: tid, name }).then(res => {
-      if (res && res.result === 'success') { showToast('Part renamed'); _scmAfterPartChange(); }
+  function scmAddPart() {
+    const payload = _scmPartPayload('scmPt-new');
+    if (!payload.name) { showToast('Type a name for the new part', 'error'); return; }
+    if (_scm.types.some(t => t.name.toLowerCase() === payload.name.toLowerCase())) { showToast(`"${payload.name}" already exists`, 'error'); return; }
+    _adminFetch('save_exam_part', payload).then(res => {
+      if (res && res.result === 'success') { showToast(res.warning || 'Part added', res.warning ? 'error' : undefined); _scmAfterPartChange(); }
       else showToast((res && res.message) || 'Failed', 'error');
     });
   }
