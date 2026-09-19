@@ -517,7 +517,7 @@ const ADMIN_TAB_ACTIONS = {
     'get_class_pattern_setup', 'get_class_patterns', 'save_class_pattern', 'save_class_pattern_map',
     'get_class_pattern_usage', 'delete_class_pattern',
     'get_subjects', 'save_subject', 'delete_subject', 'get_subject_pattern_map', 'save_subject_pattern_map',
-    'get_subject_class_matrix', 'toggle_subject_component', 'save_subject_part', 'save_class_scope', 'save_exam_part', 'copy_class_subjects', 'set_subject_part_active', 'apply_part_to_all',
+    'get_subject_class_matrix', 'toggle_subject_component', 'save_subject_part', 'save_class_scope', 'save_exam_part', 'copy_class_subjects', 'set_subject_part_active', 'apply_part_to_all', 'set_part_weights',
     'rename_exam_component_type', 'delete_exam_component_type',
     'get_exam_component_types', 'save_exam_component_type', 'get_subject_components_setup', 'save_subject_component', 'delete_subject_component',
     'get_exam_patterns', 'save_exam_pattern', 'duplicate_exam_pattern', 'delete_exam_pattern',
@@ -3138,6 +3138,24 @@ export async function POST(req) {
     const reactivated = Array.isArray(re) ? re.length : 0; // 0 as well if the is_active column doesn't exist yet
     return NextResponse.json({ result: 'success', added: add.length, reactivated });
   }
+  // Set part weights in bulk: scope 'class' = every subject of one class
+  // list; scope 'subject' = one subject in every class. weights is
+  // { component_type_id: percent }; parts left out are unchanged.
+  if (action === 'set_part_weights') {
+    const { scope, id, weights } = payload;
+    if (!['class', 'subject'].includes(scope) || !id || !weights || typeof weights !== 'object') return NextResponse.json({ result: 'error', message: 'Scope, target and weights required.' });
+    const col = scope === 'class' ? 'pattern_id' : 'subject_id';
+    let changed = 0;
+    for (const [tid, raw] of Object.entries(weights)) {
+      if (raw === '' || raw === null || raw === undefined) continue;
+      const w = Number(raw);
+      if (!isFinite(w) || w < 0) return NextResponse.json({ result: 'error', message: 'Weights must be numbers of 0 or more.' });
+      const r = await sbExam(`subject_components?${col}=eq.${encodeURIComponent(id)}&component_type_id=eq.${encodeURIComponent(tid)}`, 'PATCH', { weight_percent: w });
+      if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+      changed += Array.isArray(r) ? r.length : 0;
+    }
+    return NextResponse.json({ result: 'success', changed });
+  }
   // Copy a whole class's subjects (and every part's marks setup) onto other
   // classes. mode 'merge': each copied subject is made to match the source,
   // subjects only the target has are kept. mode 'replace': the target ends
@@ -3462,23 +3480,22 @@ export async function POST(req) {
       subjects.forEach(sub => {
         const comps = componentsBySubject[sub.id] || [];
         if (!comps.length) return; // no active components for this subject this occasion — excluded
-        let weightedSum = 0, weightSum = 0, gateFail = false, aggregatePassWeighted = 0;
+        // Each part counts marks × weight% toward the subject, and its full
+        // marks count the same way: CT 20 @100% + CQ 70 @80% + MCQ 30 @80%
+        // is a subject out of 20 + 56 + 24 = 100.
+        let subjectFinal = 0, subjectFullMarks = 0, passNeeded = 0, gateFail = false;
         const compBreakdown = comps.map(c => {
           const marks = Number((marksMap[sub.id]?.[c.component_type_id]?.[stu.student_id]) ?? 0);
           const full = Number(c.full_marks) || 0, weight = Number(c.weight_percent) || 0;
           const pass = _passMarksRaw(c);
-          weightedSum += full ? (marks / full * weight) : 0;
-          weightSum += weight;
-          aggregatePassWeighted += full ? (pass / full * weight) : 0;
+          subjectFinal += marks * weight / 100;
+          subjectFullMarks += full * weight / 100;
+          passNeeded += pass * weight / 100;
           if (marks < pass) gateFail = true;
-          return { name: c.exam_component_types?.name || '', marks, full, weight, pass };
+          return { name: c.exam_component_types?.name || '', marks, full, weight, pass, counted: Math.round(marks * weight) / 100 };
         });
-        const weightedPct = weightSum ? (weightedSum / weightSum * 100) : 0;
-        const subjectFullMarks = comps.reduce((s, c) => s + (Number(c.full_marks) || 0), 0);
-        const subjectFinal = weightedPct / 100 * subjectFullMarks;
-        const subjectPass = ep.enforce_component_pass_gate
-          ? !gateFail
-          : weightedPct >= (weightSum ? (aggregatePassWeighted / weightSum * 100) : 0);
+        const weightedPct = subjectFullMarks ? (subjectFinal / subjectFullMarks * 100) : 0;
+        const subjectPass = ep.enforce_component_pass_gate ? !gateFail : subjectFinal >= passNeeded;
         if (!subjectPass) anyFail = true;
         total += subjectFinal;
         fullTotal += subjectFullMarks;

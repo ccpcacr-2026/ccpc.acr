@@ -13449,6 +13449,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <span class="text-[10px] font-bold text-slate-400 ml-1">${n} subject${n === 1 ? '' : 's'}${p.students != null && !p.orphan ? ` · ${p.students} students` : ''}</span>${status}
         ${p.orphan && p.students != null ? '<span class="text-[9px] font-black uppercase text-slate-500 bg-slate-200 rounded px-1.5 py-0.5 ml-1" title="No student matches this list right now">No students yet</span>' : ''}</p>
       <div class="flex items-center gap-2.5">
+        ${n ? `<i data-lucide="percent" class="h-3.5 w-3.5 text-slate-500 hover:text-blue-600 cursor-pointer" title="Weights for every subject in this class" onclick="event.stopPropagation(); scmOpenWeights('class',${p.id})"></i>` : ''}
         ${n ? `<i data-lucide="copy" class="h-3.5 w-3.5 text-slate-500 hover:text-blue-600 cursor-pointer" title="Copy this class's subjects to other classes" onclick="event.stopPropagation(); scmOpenClassCopy(${p.id})"></i>` : ''}
         ${_scm.needsMigration ? '' : `<i data-lucide="pencil" class="h-3.5 w-3.5 text-blue-500 cursor-pointer" title="Edit who this list covers, or the name it's shown as" onclick="event.stopPropagation(); scmOpenScope(${p.id})"></i>`}
         ${p.can_delete ? `<i data-lucide="trash-2" class="h-3.5 w-3.5 text-red-500 cursor-pointer" title="${p.is_default ? 'Delete — no students left in this class' : 'Delete this list — its students go back to the broader list'}" onclick="event.stopPropagation(); scmDeleteClass(${p.id})"></i>` : ''}
@@ -13518,12 +13519,72 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       scmRender();
     });
   }
+  // Bulk weights: scope 'class' = every subject of one class list, 'subject'
+  // = one subject in every class. Boxes show the current weight when all
+  // affected parts share it, otherwise "mixed"; blank boxes are left alone.
+  let _scmWeightsTarget = null;
+  function scmOpenWeights(scope, id) {
+    _scmWeightsTarget = { scope, id };
+    const rows = [..._scm.comps.values()].filter(c => c.is_active !== false && (scope === 'class' ? c.pattern_id === id : c.subject_id === id));
+    const title = scope === 'class'
+      ? `Weights for every subject in ${_escHtml((_scm.patterns.find(p => p.id === id) || {}).name || '')}`
+      : `Weights for ${_escHtml(_scmSubjectName(id))} in every class`;
+    let ov = document.getElementById('scmWeightsOverlay');
+    if (!ov) {
+      ov = document.createElement('div');
+      ov.id = 'scmWeightsOverlay';
+      ov.className = 'fixed inset-0 z-[80] bg-slate-900/40 flex items-center justify-center p-4';
+      ov.onclick = e => { if (e.target === ov) ov.remove(); };
+      document.body.appendChild(ov);
+    }
+    ov.innerHTML = `<div class="bg-white rounded-2xl shadow-xl w-full max-w-sm flex flex-col" style="max-height:88vh">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+        <p class="font-black text-slate-800 text-sm">${title}</p>
+        <i data-lucide="x" class="h-4 w-4 text-slate-500 cursor-pointer" onclick="document.getElementById('scmWeightsOverlay').remove()"></i>
+      </div>
+      <div class="px-4 py-3 flex flex-col gap-2">
+        ${_scm.types.map(t => {
+          const vals = [...new Set(rows.filter(c => c.component_type_id === t.id).map(c => Number(c.weight_percent)))];
+          const count = rows.filter(c => c.component_type_id === t.id).length;
+          return `<label class="flex items-center justify-between gap-3 text-xs font-bold text-slate-700">
+            <span>${_escHtml(t.name)} <span class="text-[10px] text-slate-400">${count ? `${count} subject${count === 1 ? '' : 's'}` : 'not used'}</span></span>
+            <span class="flex items-center gap-1"><input type="number" inputmode="decimal" min="0" step="any" class="scm-wt-in w-16 px-2 py-1 bg-white border border-slate-300 rounded font-bold text-xs text-center" data-tid="${t.id}" value="${vals.length === 1 ? vals[0] : ''}" placeholder="${vals.length > 1 ? 'mixed' : '—'}" ${count ? '' : 'disabled'}>%</span></label>`;
+        }).join('')}
+        <p class="text-[10px] text-slate-400 font-bold mt-1">A part counts marks × weight% toward the subject total — e.g. CQ 70 at 80% counts out of 56. Leave a box empty to keep its current weights.</p>
+      </div>
+      <div class="flex items-center justify-end gap-2 px-4 py-3 border-t border-slate-200">
+        <button onclick="document.getElementById('scmWeightsOverlay').remove()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Cancel</button>
+        <button id="scmWtGo" onclick="scmSaveWeights()" class="px-4 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Apply</button>
+      </div>
+    </div>`;
+    lucide.createIcons();
+  }
+  function scmSaveWeights() {
+    if (!_scmWeightsTarget) return;
+    const weights = {};
+    document.querySelectorAll('.scm-wt-in').forEach(inp => { if (!inp.disabled && String(inp.value).trim() !== '') weights[inp.dataset.tid] = inp.value; });
+    if (!Object.keys(weights).length) { showToast('Enter at least one weight', 'error'); return; }
+    const btn = document.getElementById('scmWtGo');
+    if (btn) btn.disabled = true;
+    _adminFetch('set_part_weights', { ..._scmWeightsTarget, weights }).then(res => {
+      if (btn) btn.disabled = false;
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Not saved', 'error'); return; }
+      showToast(`Weights updated on ${res.changed} part(s)`);
+      const ov = document.getElementById('scmWeightsOverlay');
+      if (ov) ov.remove();
+      scmLoad();
+    });
+  }
   function _scmSubjectActions(p, s) {
-    return `<i data-lucide="copy" class="h-3 w-3 text-slate-400 hover:text-blue-600 cursor-pointer inline mr-1.5" title="Copy this marks setup to other subjects or classes" onclick="scmOpenCopy(${p.id},${s.id})"></i><i data-lucide="pencil" class="h-3 w-3 text-slate-400 hover:text-blue-600 cursor-pointer inline" title="Rename subject (everywhere)" onclick="scmRenameSubject(${s.id})"></i>
+    return `<i data-lucide="percent" class="h-3 w-3 text-slate-400 hover:text-blue-600 cursor-pointer inline mr-1.5" title="Weights for ${_escHtml(s.name)} in every class" onclick="scmOpenWeights('subject',${s.id})"></i><i data-lucide="copy" class="h-3 w-3 text-slate-400 hover:text-blue-600 cursor-pointer inline mr-1.5" title="Copy this marks setup to other subjects or classes" onclick="scmOpenCopy(${p.id},${s.id})"></i><i data-lucide="pencil" class="h-3 w-3 text-slate-400 hover:text-blue-600 cursor-pointer inline" title="Rename subject (everywhere)" onclick="scmRenameSubject(${s.id})"></i>
       <i data-lucide="x" class="h-3.5 w-3.5 text-slate-400 hover:text-red-500 cursor-pointer inline ml-1.5" title="Remove from ${_escHtml(p.name)}" onclick="scmRemoveSubject(${p.id},${s.id})"></i>`;
   }
   function _scmNoParts(p, s) {
-    return _scm.types.some(t => _scmActive(p.id, s.id, t.id)) ? '' : ' <span class="text-[9px] font-black text-amber-500 uppercase ml-1">no marks yet</span>';
+    const active = _scm.types.filter(t => _scmActive(p.id, s.id, t.id)).map(t => _scm.comps.get(`${p.id}|${s.id}|${t.id}`));
+    if (!active.length) return ' <span class="text-[9px] font-black text-amber-500 uppercase ml-1">no marks yet</span>';
+    // The subject's total: each part's marks × its weight%.
+    const total = Math.round(active.reduce((sum, c) => sum + (Number(c.full_marks) || 0) * (Number(c.weight_percent) || 0) / 100, 0) * 100) / 100;
+    return ` <span class="text-[10px] font-bold text-slate-400 ml-1" title="Subject total: each part's marks × weight%">out of ${total}</span>`;
   }
   function _scmCardDesktop(p) {
     const subs = _scmClassSubjects(p.id);
