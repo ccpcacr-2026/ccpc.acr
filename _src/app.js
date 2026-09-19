@@ -12967,9 +12967,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   const EXAMS_SUBTABS = [
     { id: 'ex-subjects', label: 'Subject Setup' },
-    { id: 'ex-terms', label: 'Term Setup' },
-    { id: 'ex-pattern', label: 'Exam Pattern Setup' },
-    { id: 'ex-exam-setup', label: 'Exam Setup' },
+    // One page, three steps: terms, exam patterns, then the exams themselves.
+    { id: 'ex-setup', label: 'Term / Exam Setup', panels: ['ex-terms', 'ex-pattern', 'ex-exam-setup'] },
     { id: 'ex-entry-setup', label: 'Marks Entry Setup' },
     { id: 'ex-marks', label: 'Marks Entry' },
     { id: 'ex-process', label: 'Result Process' },
@@ -13008,7 +13007,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
       <div class="flex flex-wrap gap-2 mb-5">${tabBar}</div>
 
-      <div id="ex-terms">
+      <div id="ex-terms" style="display:none" class="mb-8">
+        <div class="flex items-baseline gap-3 mb-3 mt-2"><h3 class="text-sm font-black text-slate-800 uppercase tracking-widest">1 · Terms</h3><span class="text-[11px] font-bold text-slate-400">Half-yearly, annual, tests… for each academic year</span></div>
         <div class="grid md:grid-cols-2 gap-4">
           <div class="bg-white rounded-2xl border border-slate-200 p-4">
             <p class="font-black text-slate-800 text-xs mb-3 flex items-center gap-2"><i data-lucide="calendar" class="h-4 w-4 text-blue-600"></i>New Term</p>
@@ -13077,7 +13077,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
       </div>
 
-      <div id="ex-pattern" style="display:none">
+      <div id="ex-pattern" style="display:none" class="mb-8 pt-6 border-t border-slate-200">
+        <div class="flex items-baseline gap-3 mb-3 mt-2"><h3 class="text-sm font-black text-slate-800 uppercase tracking-widest">2 · Exam Patterns</h3><span class="text-[11px] font-bold text-slate-400">Which parts (CT, CQ, MCQ…) an exam uses</span></div>
         <div class="grid md:grid-cols-2 gap-4">
           <div class="bg-white rounded-2xl border border-slate-200 p-4">
             <p class="font-black text-slate-800 text-xs mb-3 flex items-center gap-2"><i data-lucide="filter" class="h-4 w-4 text-blue-600"></i>New Exam Pattern</p>
@@ -13095,7 +13096,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
       </div>
 
-      <div id="ex-exam-setup" style="display:none">
+      <div id="ex-exam-setup" style="display:none" class="pt-6 border-t border-slate-200">
+        <div class="flex items-baseline gap-3 mb-3 mt-2"><h3 class="text-sm font-black text-slate-800 uppercase tracking-widest">3 · Exams</h3><span class="text-[11px] font-bold text-slate-400">A term + class + exam pattern</span></div>
         <div class="grid md:grid-cols-2 gap-4">
           <div class="bg-white rounded-2xl border border-slate-200 p-4">
             <p class="font-black text-slate-800 text-xs mb-3 flex items-center gap-2"><i data-lucide="file-plus" class="h-4 w-4 text-blue-600"></i>New Exam</p>
@@ -13194,20 +13196,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function switchExamsTab(tabId) {
     EXAMS_SUBTABS.forEach(t => {
-      const panel = document.getElementById(t.id);
       const btn = document.getElementById('extab-' + t.id);
       const active = t.id === tabId;
-      if (panel) panel.style.display = active ? '' : 'none';
+      (t.panels || [t.id]).forEach(pid => { const panel = document.getElementById(pid); if (panel) panel.style.display = active ? '' : 'none'; });
       if (btn) {
         btn.className = btn.className.replace(/bg-blue-600 text-white shadow-lg shadow-blue-500\/20|bg-white text-slate-400 border border-slate-200 hover:bg-slate-50/g, '').trim();
         btn.className += active ? ' bg-blue-600 text-white shadow-lg shadow-blue-500/20' : ' bg-white text-slate-400 border border-slate-200 hover:bg-slate-50';
       }
     });
     const loaders = {
-      'ex-terms': loadExamTerms,
+      'ex-setup': () => { loadExamTerms(); loadExamPatternSetup(); loadExamSetupList(); },
       'ex-subjects': () => (_scmGrid ? loadSubjectSetup() : scmLoad()),
-      'ex-pattern': loadExamPatternSetup,
-      'ex-exam-setup': loadExamSetupList,
       'ex-entry-setup': loadExamSetupList,
       'ex-marks': loadExamSetupList,
       'ex-process': loadExamSetupList,
