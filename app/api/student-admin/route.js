@@ -3649,6 +3649,17 @@ export async function POST(req) {
       };
     }).sort((a, b) => b.total - a.total).map((r, i) => ({ ...r, position: i + 1 }));
     if (!scales.length) warnings.push('No grade scale is set up yet (Grade Setup) — grades and GP are blank.');
+    // Personal details for the result sheet's fields and photo (no PIN, card
+    // UID, balance or spending limits).
+    const INFO_COLS = 'student_id,student_name,class,section,roll,gender,version,shift,session,group,student_category,fathers_name,mothers_name,nick_name,house,blood,photo,phone_number,father_phone,mother_phone';
+    const ids = results.map(r => r.student_id);
+    const info = {};
+    for (let i = 0; i < ids.length; i += 150) {
+      const chunk = ids.slice(i, i + 150).map(x => `"${String(x).replace(/"/g, '')}"`).join(',');
+      const rows = await sbAllRows(`students_data?student_id=in.(${encodeURIComponent(chunk)})&select=${INFO_COLS}`);
+      (Array.isArray(rows) ? rows : []).forEach(row => { info[row.student_id] = row; });
+    }
+    results.forEach(r => { r.info = info[r.student_id] || {}; });
     return { subjects, sources: resolved.map(r => ({ label: r.label, share: r.share })), results, warnings };
   }
 

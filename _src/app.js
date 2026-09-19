@@ -13196,7 +13196,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex flex-wrap items-center gap-2 mt-4 pt-4 border-t border-slate-100">
             <button onclick="rbPrepare()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Prepare Result</button>
             <button onclick="rbExport()" class="px-3 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase hover:bg-slate-50">Export Excel</button>
-            <button onclick="rbPrint()" class="px-3 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase hover:bg-slate-50">Print</button>
+            <button onclick="rbPrint()" class="px-3 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase hover:bg-slate-50">Quick Print</button>
+            <span class="w-px h-6 bg-slate-200 mx-1"></span>
+            <button onclick="rsOpenDesigner()" class="px-3 py-2.5 border border-blue-200 text-blue-700 rounded-xl font-black text-[10px] uppercase hover:bg-blue-50">Design Sheet</button>
+            <button onclick="rsPrintCards()" class="px-3 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase hover:bg-slate-50">Print Report Cards</button>
+            <button onclick="rsPrintTabulation()" class="px-3 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase hover:bg-slate-50">Print Tabulation</button>
             <span id="rbStatus" class="text-xs font-bold text-slate-400 ml-1"></span>
           </div>
         </div>
@@ -14810,6 +14814,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       out_of: document.getElementById('rbOutOf').value,
       pass_rule: document.getElementById('rbPassRule').value,
       columns,
+      layout: _rsLayout,
     };
   }
   function _rbApplyConfig(cfg) {
@@ -14821,6 +14826,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('rbPassRule').value = cfg.pass_rule || 'combined';
     const cols = { ..._RB_DEFAULT_COLS, ...(cfg.columns || {}) };
     document.querySelectorAll('.rb-col').forEach(c => { c.checked = !!cols[c.value]; });
+    _rsLayout = cfg.layout ? JSON.parse(JSON.stringify(cfg.layout)) : null;
     _rbRenderSources();
   }
   function rbApplyTemplate(id) {
@@ -14981,6 +14987,399 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     win.document.close();
     win.focus();
     win.print();
+  }
+
+  // ══ Result sheet designer ═══════════════════════════════════════════════
+  // A result template carries a `layout` with two pages: `student` (a report
+  // card, printed once per student) and `class` (a tabulation sheet for the
+  // whole class). Each page is a list of freely placed blocks, positioned in
+  // millimetres so print matches the designer exactly.
+  const _RS_PAGES = { A4: [210, 297], Letter: [216, 279], Legal: [216, 356], A3: [297, 420] };
+  const _RS_FIELDS = [
+    ['Student', [['student_name', 'Name'], ['student_id', 'Student ID'], ['roll', 'Roll'], ['class', 'Class'], ['section', 'Section'], ['group', 'Group'], ['version', 'Version'], ['shift', 'Shift'], ['session', 'Session'], ['fathers_name', "Father's name"], ['mothers_name', "Mother's name"], ['gender', 'Gender'], ['blood', 'Blood group'], ['house', 'House'], ['phone_number', 'Phone']]],
+    ['Result', [['total', 'Total marks'], ['full', 'Out of'], ['percentage', 'Percentage'], ['gpa', 'GPA'], ['letter_grade', 'Grade'], ['position', 'Position'], ['result', 'Pass / Fail'], ['class_name', 'Class (as shown)'], ['exams', 'Exams in this result']]],
+    ['School', [['school_name', 'School name'], ['date', "Today's date"], ['students_count', 'Students in class'], ['passed_count', 'Students passed']]],
+  ];
+  const _RS_BLOCKS = [
+    ['text', 'Text / label', 'type'], ['field', 'Student field', 'user'], ['photo', 'Student photo', 'image'], ['image', 'Image / logo', 'image-plus'],
+    ['marks', 'Marks table', 'table'], ['summary', 'Result summary', 'list'], ['table', 'Static table', 'grid-3x3'],
+    ['tabulation', 'Class tabulation', 'sheet'], ['line', 'Line', 'minus'], ['box', 'Box', 'square'],
+  ];
+  let _rsLayout = null, _rsWhich = 'student', _rsSel = null, _rsZoom = 0.9, _rsDrag = null;
+  function _rsDefaultLayout() {
+    const t = (id, x, y, w, h, text, style) => ({ id, type: 'text', x, y, w, h, text, style: { size: 11, align: 'left', ...(style || {}) } });
+    return {
+      student: { page: 'A4', orient: 'portrait', blocks: [
+        t('s1', 15, 12, 180, 10, '{school_name}', { size: 16, bold: true, align: 'center' }),
+        t('s2', 15, 23, 180, 7, 'Result Card — {exams}', { size: 11, align: 'center' }),
+        { id: 's3', type: 'photo', x: 170, y: 34, w: 25, h: 30, style: { border: 1 } },
+        t('s4', 15, 36, 150, 28, 'Name: {student_name}\nClass: {class_name}    Section: {section}    Roll: {roll}\nFather: {fathers_name}\nMother: {mothers_name}', { size: 11 }),
+        { id: 's5', type: 'marks', x: 15, y: 70, w: 180, h: 120, cols: ['sources', 'final', 'grade', 'gp'], style: { size: 10, border: 1 } },
+        { id: 's6', type: 'summary', x: 15, y: 196, w: 90, h: 42, items: ['total', 'percentage', 'gpa', 'letter_grade', 'position', 'result'], style: { size: 10, border: 1 } },
+        { id: 's7', type: 'line', x: 20, y: 270, w: 45, h: 1, style: {} }, t('s8', 20, 272, 45, 6, 'Class Teacher', { size: 9, align: 'center' }),
+        { id: 's9', type: 'line', x: 145, y: 270, w: 45, h: 1, style: {} }, t('s10', 145, 272, 45, 6, 'Principal', { size: 9, align: 'center' }),
+      ] },
+      class: { page: 'A4', orient: 'landscape', blocks: [
+        t('c1', 10, 8, 277, 9, '{school_name}', { size: 15, bold: true, align: 'center' }),
+        t('c2', 10, 17, 277, 7, 'Tabulation Sheet — {class_name} — {exams}', { size: 11, align: 'center' }),
+        { id: 'c3', type: 'tabulation', x: 10, y: 27, w: 277, h: 170, style: { size: 8, border: 1 } },
+      ] },
+    };
+  }
+  function _rsPage(which) {
+    if (!_rsLayout) _rsLayout = _rsDefaultLayout();
+    if (!_rsLayout[which]) _rsLayout[which] = _rsDefaultLayout()[which];
+    return _rsLayout[which];
+  }
+  function _rsPageMm(pg) {
+    const [w, h] = _RS_PAGES[pg.page] || _RS_PAGES.A4;
+    return pg.orient === 'landscape' ? [h, w] : [w, h];
+  }
+  // Values for {fields}: a student's info + result, the class, the school.
+  function _rsValues(d, r) {
+    const info = (r && r.info) || {};
+    const passed = d ? d.results.filter(x => x.pass).length : 0;
+    return {
+      ...info, student_name: (r && (r.student_name || info.student_name)) || '', roll: r ? (r.roll ?? info.roll ?? '') : '',
+      total: r ? r.total : '', full: r ? r.full : '', percentage: r ? r.percentage : '', gpa: r ? r.gpa : '',
+      letter_grade: r ? r.letter_grade : '', position: r ? r.position : '', result: r ? (r.pass ? 'Passed' : 'Failed') : '',
+      class_name: d ? d.className : '', exams: d ? d.sources.map(s => s.label).join(' + ') : '',
+      school_name: MPO_INSTITUTION_NAME, date: new Date().toLocaleDateString('en-GB'),
+      students_count: d ? d.results.length : '', passed_count: passed,
+    };
+  }
+  function _rsFill(text, vals) {
+    return _escHtml(String(text || '')).replace(/\{(\w+)\}/g, (m, k) => (k in vals ? _escHtml(String(vals[k] ?? '')) : m)).replace(/\n/g, '<br>');
+  }
+  // Sample data so the designer shows something before a result is prepared.
+  function _rsSample() {
+    const subjects = [{ id: 1, name: 'Bangla 1st Paper' }, { id: 2, name: 'English 1st Paper' }, { id: 3, name: 'Mathematics' }];
+    const sv = f => ({ final: f, full: 130, percent: Math.round(f / 130 * 100), pass: true, grade: 'A', gp: 4, by_source: [f - 5, f + 3] });
+    const r = { student_id: 'S-001', student_name: 'Student Name', roll: 1, total: 330, full: 390, percentage: 84.6, gpa: 4.5, letter_grade: 'A', position: 1, pass: true,
+      subjects: { 1: sv(110), 2: sv(105), 3: sv(115) }, info: { class: 'Six', section: 'A', fathers_name: "Father's Name", mothers_name: "Mother's Name", session: '2026' } };
+    return { subjects, sources: [{ label: 'Half Yearly', share: 30 }, { label: 'Annual', share: 70 }], results: [r, { ...r, student_id: 'S-002', student_name: 'Second Student', roll: 2, position: 2 }], config: { method: 'weighted', columns: _RB_DEFAULT_COLS }, className: 'Six', sample: true };
+  }
+  function _rsBorder(st) { return st.border ? `${st.border}px solid ${st.borderColor || '#334155'}` : 'none'; }
+  function _rsMarksHtml(b, d, r, st) {
+    const cols = b.cols || ['final', 'grade'];
+    const multi = d.sources.length > 1;
+    const heads = ['Subject', ...(cols.includes('sources') && multi ? d.sources.map(s => s.label) : []), ...(cols.includes('final') ? [multi ? 'Result' : 'Marks'] : []), ...(cols.includes('full') ? ['Out of'] : []), ...(cols.includes('percent') ? ['%'] : []), ...(cols.includes('grade') ? ['Grade'] : []), ...(cols.includes('gp') ? ['GP'] : [])];
+    const cell = `border:${_rsBorder(st)};padding:1.2mm 1.5mm;`;
+    const rows = d.subjects.filter(s => r.subjects[s.id]).map(s => {
+      const v = r.subjects[s.id];
+      const c = [_escHtml(s.name), ...(cols.includes('sources') && multi ? v.by_source.map(x => x == null ? '—' : x) : []), ...(cols.includes('final') ? [v.final] : []), ...(cols.includes('full') ? [v.full] : []), ...(cols.includes('percent') ? [v.percent] : []), ...(cols.includes('grade') ? [v.grade] : []), ...(cols.includes('gp') ? [v.gp] : [])];
+      return `<tr style="${v.pass ? '' : 'color:#b91c1c;font-weight:700'}">${c.map((x, i) => `<td style="${cell}text-align:${i ? 'center' : 'left'}">${x}</td>`).join('')}</tr>`;
+    }).join('');
+    return `<table style="width:100%;border-collapse:collapse"><thead><tr>${heads.map((h, i) => `<th style="${cell}background:#f1f5f9;text-align:${i ? 'center' : 'left'}">${_escHtml(h)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>`;
+  }
+  function _rsSummaryHtml(b, d, r, st) {
+    const labels = { total: 'Total marks', percentage: 'Percentage', gpa: 'GPA', letter_grade: 'Grade', position: 'Position', result: 'Result' };
+    const vals = _rsValues(d, r);
+    vals.total = `${r.total} / ${r.full}`;
+    vals.percentage = `${r.percentage}%`;
+    const cell = `border:${_rsBorder(st)};padding:1.2mm 2mm;`;
+    return `<table style="width:100%;border-collapse:collapse">${(b.items || []).map(k => `<tr><td style="${cell}background:#f8fafc;font-weight:700">${labels[k] || k}</td><td style="${cell}">${_escHtml(String(vals[k] ?? ''))}</td></tr>`).join('')}</table>`;
+  }
+  function _rsStaticTableHtml(b, vals, st) {
+    const rows = String(b.rows || '').split('\n').filter(x => x.length);
+    const cell = `border:${_rsBorder(st)};padding:1.2mm 1.5mm;`;
+    return `<table style="width:100%;border-collapse:collapse">${rows.map((row, ri) => `<tr>${row.split('|').map(c => ri === 0 && b.header !== false ? `<th style="${cell}background:#f1f5f9">${_rsFill(c.trim(), vals)}</th>` : `<td style="${cell}">${_rsFill(c.trim(), vals)}</td>`).join('')}</tr>`).join('')}</table>`;
+  }
+  // One block, positioned in mm; `px` is set in the designer (mm → px).
+  function _rsBlockHtml(b, d, r, px, designer) {
+    const st = b.style || {};
+    const u = v => px ? `${v * px}px` : `${v}mm`;
+    const fs = (st.size || 11) * (px ? px / 3.7795 : 1);
+    const base = `position:absolute;left:${u(b.x)};top:${u(b.y)};width:${u(b.w)};height:${u(b.h)};font-size:${fs}pt;${st.bold ? 'font-weight:700;' : ''}${st.italic ? 'font-style:italic;' : ''}color:${st.color || '#0f172a'};text-align:${st.align || 'left'};${st.bg ? `background:${st.bg};` : ''}overflow:${designer ? 'hidden' : 'visible'};box-sizing:border-box;line-height:1.35;`;
+    const vals = _rsValues(d, r);
+    let inner = '';
+    let frame = '';
+    if (b.type === 'text') { inner = _rsFill(b.text, vals); frame = `border:${_rsBorder(st)};padding:${st.border ? '1mm 1.5mm' : '0'};`; }
+    else if (b.type === 'field') { inner = `${b.label ? `<b>${_escHtml(b.label)}</b> ` : ''}${_rsFill(`{${b.field || 'student_name'}}`, vals)}`; frame = `border:${_rsBorder(st)};`; }
+    else if (b.type === 'photo') {
+      const src = r && r.info && r.info.photo ? _photoUrl(r.info.photo) : '';
+      inner = src ? `<img src="${src}" style="width:100%;height:100%;object-fit:cover" onerror="this.style.display='none'">` : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:${8 * (px ? px / 3.7795 : 1)}pt">Photo</div>`;
+      frame = `border:${_rsBorder(st)};`;
+    } else if (b.type === 'image') {
+      inner = b.src ? `<img src="${_escHtml(b.src)}" style="width:100%;height:100%;object-fit:contain">` : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#94a3b8;border:1px dashed #cbd5e1">Image</div>`;
+    } else if (b.type === 'marks') inner = r ? _rsMarksHtml(b, d, r, st) : '';
+    else if (b.type === 'summary') inner = r ? _rsSummaryHtml(b, d, r, st) : '';
+    else if (b.type === 'table') inner = _rsStaticTableHtml(b, vals, st);
+    else if (b.type === 'tabulation') {
+      const keep = _rbLast; _rbLast = d;
+      try { inner = _rbTableHtml(true).replace('<table ', `<table style="width:100%;border-collapse:collapse" `).replace(/<td style="color:#b91c1c;font-weight:700">/g, `<td style="border:${_rsBorder(st)};padding:0.8mm;text-align:center;color:#b91c1c;font-weight:700">`).replace(/<th /g, `<th style="border:${_rsBorder(st)};background:#f1f5f9;padding:0.8mm" `).replace(/<td (?!style)/g, `<td style="border:${_rsBorder(st)};padding:0.8mm;text-align:center" `); }
+      finally { _rbLast = keep; }
+    } else if (b.type === 'line') inner = `<div style="position:absolute;left:0;right:0;top:0;border-top:${Math.max(1, st.border || 1)}px solid ${st.borderColor || '#334155'}"></div>`;
+    else if (b.type === 'box') frame = `border:${Math.max(1, st.border || 1)}px solid ${st.borderColor || '#334155'};`;
+    const sel = designer && _rsSel === b.id ? 'outline:2px solid #2563eb;outline-offset:1px;' : (designer ? 'outline:1px dashed rgba(100,116,139,.35);' : '');
+    const handle = designer && _rsSel === b.id ? `<div data-rs-resize="${b.id}" style="position:absolute;right:-5px;bottom:-5px;width:10px;height:10px;background:#2563eb;border-radius:2px;cursor:nwse-resize"></div>` : '';
+    return `<div ${designer ? `data-rs-block="${b.id}"` : ''} style="${base}${frame}${sel}${designer ? 'cursor:move;' : ''}">${inner}${handle}</div>`;
+  }
+  function _rsPageHtml(pg, d, r, px, designer) {
+    const [w, h] = _rsPageMm(pg);
+    const u = v => px ? `${v * px}px` : `${v}mm`;
+    return `<div class="rs-page" style="position:relative;width:${u(w)};height:${u(h)};background:#fff;overflow:hidden;font-family:'Segoe UI',Arial,sans-serif">${pg.blocks.map(b => _rsBlockHtml(b, d, r, px, designer)).join('')}</div>`;
+  }
+
+  // ── Designer window ─────────────────────────────────────────────────────
+  function rsOpenDesigner() {
+    if (window.innerWidth < 900) { showToast('Open the sheet designer on a computer — it needs a wide screen', 'error'); return; }
+    if (!_rsLayout) _rsLayout = _rsDefaultLayout();
+    let ov = document.getElementById('rsDesigner');
+    if (!ov) {
+      ov = document.createElement('div');
+      ov.id = 'rsDesigner';
+      ov.className = 'fixed inset-0 z-[90] bg-slate-100 flex flex-col';
+      document.body.appendChild(ov);
+      document.addEventListener('keydown', _rsKey);
+    }
+    _rsSel = null;
+    _rsRenderDesigner();
+  }
+  function rsCloseDesigner() {
+    const ov = document.getElementById('rsDesigner');
+    if (ov) ov.remove();
+    document.removeEventListener('keydown', _rsKey);
+  }
+  function _rsKey(e) {
+    if (!document.getElementById('rsDesigner')) return;
+    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+    if (e.key === 'Escape') { if (_rsSel) { _rsSel = null; _rsRenderDesigner(); } else rsCloseDesigner(); return; }
+    if (typing || !_rsSel) return;
+    const b = _rsPage(_rsWhich).blocks.find(x => x.id === _rsSel);
+    if (!b) return;
+    if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); rsDeleteBlock(); return; }
+    const step = e.shiftKey ? 5 : 1;
+    const mv = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+    if (mv) { e.preventDefault(); b.x = Math.max(0, b.x + mv[0]); b.y = Math.max(0, b.y + mv[1]); _rsRenderCanvas(); _rsRenderProps(); }
+  }
+  function _rsRenderDesigner() {
+    const ov = document.getElementById('rsDesigner');
+    if (!ov) return;
+    const pg = _rsPage(_rsWhich);
+    const tab = (k, l) => `<button onclick="rsSwitchPage('${k}')" class="px-3 py-1.5 rounded-lg text-[11px] font-black uppercase ${_rsWhich === k ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-100'}">${l}</button>`;
+    ov.innerHTML = `
+      <div class="flex flex-wrap items-center gap-2 px-4 py-2 bg-white border-b border-slate-200">
+        <p class="font-black text-slate-800 text-sm mr-2">Result Sheet Designer</p>
+        <div class="flex gap-1 bg-slate-50 rounded-xl p-1">${tab('student', 'Report card (per student)')}${tab('class', 'Tabulation sheet (class)')}</div>
+        <select onchange="rsSetPage('page',this.value)" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">${Object.keys(_RS_PAGES).map(p => `<option ${pg.page === p ? 'selected' : ''}>${p}</option>`).join('')}</select>
+        <select onchange="rsSetPage('orient',this.value)" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="portrait" ${pg.orient !== 'landscape' ? 'selected' : ''}>Portrait</option><option value="landscape" ${pg.orient === 'landscape' ? 'selected' : ''}>Landscape</option></select>
+        <select onchange="rsSetZoom(this.value)" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">${[0.6, 0.75, 0.9, 1, 1.25].map(z => `<option value="${z}" ${_rsZoom === z ? 'selected' : ''}>${Math.round(z * 100)}%</option>`).join('')}</select>
+        <span class="text-[10px] font-bold text-slate-400">${_rbLast ? `Preview: ${_escHtml(_rbLast.className)}` : 'Preview: sample data — prepare a result to see real data'}</span>
+        <span class="flex-1"></span>
+        <button onclick="rsResetPage()" class="px-3 py-1.5 border border-slate-200 text-slate-500 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Reset page</button>
+        <button onclick="rsCloseDesigner()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Done</button>
+      </div>
+      <div class="flex flex-1 min-h-0">
+        <div class="w-44 shrink-0 bg-white border-r border-slate-200 p-2 overflow-y-auto">
+          <p class="text-[10px] font-black text-slate-400 uppercase px-1 mb-1">Add</p>
+          ${_RS_BLOCKS.filter(([k]) => _rsWhich === 'class' ? k !== 'marks' && k !== 'summary' && k !== 'photo' && k !== 'field' : k !== 'tabulation').map(([k, l, ic]) => `<button onclick="rsAddBlock('${k}')" class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-bold text-slate-700 hover:bg-blue-50 hover:text-blue-700"><i data-lucide="${ic}" class="h-3.5 w-3.5"></i>${l}</button>`).join('')}
+          <p class="text-[10px] text-slate-400 font-bold px-1 mt-3 leading-snug">Drag a block to move it, drag its blue corner to resize. Arrow keys nudge (Shift = 5 mm). Delete removes it.</p>
+        </div>
+        <div id="rsCanvasWrap" class="flex-1 overflow-auto p-6"><div id="rsCanvas" class="mx-auto shadow-lg" style="width:max-content"></div></div>
+        <div id="rsProps" class="w-72 shrink-0 bg-white border-l border-slate-200 p-3 overflow-y-auto"></div>
+      </div>`;
+    lucide.createIcons();
+    _rsRenderCanvas();
+    _rsRenderProps();
+  }
+  function _rsPx() { return 3.7795 * _rsZoom; }
+  function _rsRenderCanvas() {
+    const host = document.getElementById('rsCanvas');
+    if (!host) return;
+    const d = _rbLast || _rsSample();
+    const r = _rsWhich === 'student' ? d.results[0] : null;
+    host.innerHTML = _rsPageHtml(_rsPage(_rsWhich), d, r, _rsPx(), true);
+    host.onpointerdown = _rsPointerDown;
+  }
+  function _rsPointerDown(e) {
+    const handle = e.target.closest('[data-rs-resize]');
+    const el = e.target.closest('[data-rs-block]');
+    if (!el && !handle) { if (_rsSel) { _rsSel = null; _rsRenderCanvas(); _rsRenderProps(); } return; }
+    const id = handle ? handle.dataset.rsResize : el.dataset.rsBlock;
+    const b = _rsPage(_rsWhich).blocks.find(x => x.id === id);
+    if (!b) return;
+    e.preventDefault();
+    if (_rsSel !== id) { _rsSel = id; _rsRenderCanvas(); _rsRenderProps(); }
+    _rsDrag = { id, mode: handle ? 'resize' : 'move', sx: e.clientX, sy: e.clientY, ox: b.x, oy: b.y, ow: b.w, oh: b.h };
+    document.addEventListener('pointermove', _rsPointerMove);
+    document.addEventListener('pointerup', _rsPointerUp, { once: true });
+  }
+  function _rsPointerMove(e) {
+    if (!_rsDrag) return;
+    const b = _rsPage(_rsWhich).blocks.find(x => x.id === _rsDrag.id);
+    if (!b) return;
+    const dx = (e.clientX - _rsDrag.sx) / _rsPx(), dy = (e.clientY - _rsDrag.sy) / _rsPx();
+    const snap = v => Math.round(v * 2) / 2; // half-millimetre grid
+    if (_rsDrag.mode === 'move') { b.x = Math.max(0, snap(_rsDrag.ox + dx)); b.y = Math.max(0, snap(_rsDrag.oy + dy)); }
+    else { b.w = Math.max(3, snap(_rsDrag.ow + dx)); b.h = Math.max(b.type === 'line' ? 0.5 : 3, snap(_rsDrag.oh + dy)); }
+    const node = document.querySelector(`[data-rs-block="${b.id}"]`);
+    const px = _rsPx();
+    if (node) { node.style.left = `${b.x * px}px`; node.style.top = `${b.y * px}px`; node.style.width = `${b.w * px}px`; node.style.height = `${b.h * px}px`; }
+  }
+  function _rsPointerUp() {
+    document.removeEventListener('pointermove', _rsPointerMove);
+    _rsDrag = null;
+    _rsRenderCanvas();
+    _rsRenderProps();
+  }
+  function rsSwitchPage(k) { _rsWhich = k; _rsSel = null; _rsRenderDesigner(); }
+  function rsSetPage(key, v) { _rsPage(_rsWhich)[key] = v; _rsRenderCanvas(); }
+  function rsSetZoom(v) { _rsZoom = Number(v) || 1; _rsRenderCanvas(); }
+  function rsResetPage() {
+    if (!confirm(`Reset the ${_rsWhich === 'student' ? 'report card' : 'tabulation sheet'} to the starting layout? Your blocks on this page will be replaced.`)) return;
+    _rsLayout[_rsWhich] = _rsDefaultLayout()[_rsWhich];
+    _rsSel = null;
+    _rsRenderDesigner();
+  }
+  function rsAddBlock(type) {
+    const pg = _rsPage(_rsWhich);
+    const id = 'b' + Date.now().toString(36);
+    const size = { text: [60, 8], field: [60, 7], photo: [25, 30], image: [25, 25], marks: [180, 100], summary: [80, 40], table: [90, 25], tabulation: [270, 160], line: [50, 1], box: [60, 30] }[type] || [50, 10];
+    const b = { id, type, x: 15, y: 15, w: size[0], h: size[1], style: { size: type === 'tabulation' ? 8 : 10, border: ['marks', 'summary', 'table', 'tabulation', 'box', 'photo'].includes(type) ? 1 : 0 } };
+    if (type === 'text') b.text = 'Text — use {student_name} style fields';
+    if (type === 'field') { b.field = 'student_name'; b.label = 'Name:'; }
+    if (type === 'marks') b.cols = ['sources', 'final', 'grade', 'gp'];
+    if (type === 'summary') b.items = ['total', 'percentage', 'gpa', 'letter_grade', 'position', 'result'];
+    if (type === 'table') b.rows = 'Grade | Marks | GP\nA+ | 80–100 | 5.00\nA | 70–79 | 4.00';
+    pg.blocks.push(b);
+    _rsSel = id;
+    _rsRenderCanvas();
+    _rsRenderProps();
+  }
+  function rsDeleteBlock() {
+    const pg = _rsPage(_rsWhich);
+    pg.blocks = pg.blocks.filter(b => b.id !== _rsSel);
+    _rsSel = null;
+    _rsRenderCanvas();
+    _rsRenderProps();
+  }
+  function rsDuplicateBlock() {
+    const pg = _rsPage(_rsWhich);
+    const b = pg.blocks.find(x => x.id === _rsSel);
+    if (!b) return;
+    const copy = JSON.parse(JSON.stringify(b));
+    copy.id = 'b' + Date.now().toString(36);
+    copy.x += 5; copy.y += 5;
+    pg.blocks.push(copy);
+    _rsSel = copy.id;
+    _rsRenderCanvas();
+    _rsRenderProps();
+  }
+  function rsOrderBlock(dir) {
+    const pg = _rsPage(_rsWhich);
+    const i = pg.blocks.findIndex(x => x.id === _rsSel);
+    if (i < 0) return;
+    const [b] = pg.blocks.splice(i, 1);
+    if (dir > 0) pg.blocks.push(b); else pg.blocks.unshift(b);
+    _rsRenderCanvas();
+  }
+  // Property edits: key 'x' / 'style.size' / 'cols' (checkbox list) …
+  function rsSetProp(key, value) {
+    const b = _rsPage(_rsWhich).blocks.find(x => x.id === _rsSel);
+    if (!b) return;
+    const num = ['x', 'y', 'w', 'h', 'style.size', 'style.border'];
+    const v = num.includes(key) ? (Number(value) || 0) : value;
+    if (key.startsWith('style.')) { b.style = b.style || {}; b.style[key.slice(6)] = v; } else b[key] = v;
+    _rsRenderCanvas();
+  }
+  function rsToggleList(key, item, on) {
+    const b = _rsPage(_rsWhich).blocks.find(x => x.id === _rsSel);
+    if (!b) return;
+    const set = new Set(b[key] || []);
+    if (on) set.add(item); else set.delete(item);
+    const order = key === 'cols' ? ['sources', 'final', 'full', 'percent', 'grade', 'gp'] : ['total', 'percentage', 'gpa', 'letter_grade', 'position', 'result'];
+    b[key] = order.filter(x => set.has(x));
+    _rsRenderCanvas();
+  }
+  function rsInsertField(field) {
+    if (!field) return;
+    const ta = document.getElementById('rsText');
+    if (!ta) return;
+    const pos = ta.selectionStart ?? ta.value.length;
+    ta.value = ta.value.slice(0, pos) + `{${field}}` + ta.value.slice(ta.selectionEnd ?? pos);
+    rsSetProp(ta.dataset.key, ta.value);
+    ta.focus();
+  }
+  function _rsFieldOptions(selected) {
+    return _RS_FIELDS.map(([g, list]) => `<optgroup label="${g}">${list.map(([k, l]) => `<option value="${k}" ${selected === k ? 'selected' : ''}>${l}</option>`).join('')}</optgroup>`).join('');
+  }
+  function _rsRenderProps() {
+    const host = document.getElementById('rsProps');
+    if (!host) return;
+    const b = _rsPage(_rsWhich).blocks.find(x => x.id === _rsSel);
+    if (!b) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold">Click a block to edit it, or add one from the left.</p>'; return; }
+    const st = b.style || {};
+    const lab = t => `<span class="text-[10px] font-black text-slate-400 uppercase">${t}</span>`;
+    const inp = (key, val, attrs) => `<input ${attrs || 'type="number" step="0.5"'} value="${_escHtml(String(val ?? ''))}" onchange="rsSetProp('${key}',this.value)" class="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">`;
+    const name = (_RS_BLOCKS.find(x => x[0] === b.type) || [, b.type])[1];
+    let specific = '';
+    if (b.type === 'text' || b.type === 'table') {
+      const key = b.type === 'text' ? 'text' : 'rows';
+      specific = `<label class="flex flex-col gap-1">${lab(b.type === 'text' ? 'Text' : 'Rows (one per line, cells split by |)')}
+        <textarea id="rsText" data-key="${key}" rows="${b.type === 'text' ? 4 : 6}" oninput="rsSetProp('${key}',this.value)" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-mono text-[11px]">${_escHtml(b[key] || '')}</textarea></label>
+        <select onchange="rsInsertField(this.value);this.value=''" class="w-full px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-xs"><option value="">+ Insert a field…</option>${_rsFieldOptions()}</select>
+        ${b.type === 'table' ? `<label class="flex items-center gap-2 text-xs font-bold text-slate-600"><input type="checkbox" ${b.header !== false ? 'checked' : ''} onchange="rsSetProp('header',this.checked)">First row is a heading</label>` : ''}`;
+    } else if (b.type === 'field') {
+      specific = `<label class="flex flex-col gap-1">${lab('Field')}<select onchange="rsSetProp('field',this.value)" class="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">${_rsFieldOptions(b.field)}</select></label>
+        <label class="flex flex-col gap-1">${lab('Label before it')}${inp('label', b.label, 'type="text"')}</label>`;
+    } else if (b.type === 'image') {
+      specific = `<label class="flex flex-col gap-1">${lab('Image link (logo, signature…)')}${inp('src', b.src, 'type="text" placeholder="https://…"')}</label>`;
+    } else if (b.type === 'marks') {
+      specific = `<div>${lab('Columns')}<div class="flex flex-col gap-1 mt-1">${[['sources', "Each exam's marks"], ['final', 'Result / marks'], ['full', 'Out of'], ['percent', '%'], ['grade', 'Grade'], ['gp', 'GP']].map(([k, l]) => `<label class="flex items-center gap-2 text-xs font-bold text-slate-600"><input type="checkbox" ${(b.cols || []).includes(k) ? 'checked' : ''} onchange="rsToggleList('cols','${k}',this.checked)">${l}</label>`).join('')}</div></div>`;
+    } else if (b.type === 'summary') {
+      specific = `<div>${lab('Rows')}<div class="flex flex-col gap-1 mt-1">${[['total', 'Total marks'], ['percentage', 'Percentage'], ['gpa', 'GPA'], ['letter_grade', 'Grade'], ['position', 'Position'], ['result', 'Result']].map(([k, l]) => `<label class="flex items-center gap-2 text-xs font-bold text-slate-600"><input type="checkbox" ${(b.items || []).includes(k) ? 'checked' : ''} onchange="rsToggleList('items','${k}',this.checked)">${l}</label>`).join('')}</div></div>`;
+    } else if (b.type === 'tabulation') {
+      specific = `<p class="text-[10px] font-bold text-slate-400">Shows the whole class result with the columns chosen under "Show in the result" on the Result Process screen.</p>`;
+    } else if (b.type === 'photo') {
+      specific = `<p class="text-[10px] font-bold text-slate-400">Each student's own photo from the student database; blank if they have none.</p>`;
+    }
+    host.innerHTML = `<div class="flex flex-col gap-3">
+      <div class="flex items-center justify-between"><p class="font-black text-slate-800 text-sm">${name}</p>
+        <span class="flex gap-2"><button onclick="rsDuplicateBlock()" title="Duplicate" class="text-[10px] font-black uppercase text-blue-600">Copy</button><button onclick="rsDeleteBlock()" class="text-[10px] font-black uppercase text-red-500">Delete</button></span></div>
+      <div class="grid grid-cols-4 gap-1.5">${[['x', 'X'], ['y', 'Y'], ['w', 'W'], ['h', 'H']].map(([k, l]) => `<label class="flex flex-col gap-0.5">${lab(l + ' mm')}${inp(k, b[k])}</label>`).join('')}</div>
+      ${specific}
+      ${b.type !== 'line' && b.type !== 'box' && b.type !== 'photo' && b.type !== 'image' ? `<div class="grid grid-cols-2 gap-1.5">
+        <label class="flex flex-col gap-0.5">${lab('Font size (pt)')}${inp('style.size', st.size || 11, 'type="number" step="0.5" min="5"')}</label>
+        <label class="flex flex-col gap-0.5">${lab('Align')}<select onchange="rsSetProp('style.align',this.value)" class="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">${['left', 'center', 'right'].map(a => `<option ${(st.align || 'left') === a ? 'selected' : ''}>${a}</option>`).join('')}</select></label>
+        <label class="flex items-center gap-1.5 text-xs font-bold text-slate-600"><input type="checkbox" ${st.bold ? 'checked' : ''} onchange="rsSetProp('style.bold',this.checked)">Bold</label>
+        <label class="flex items-center gap-1.5 text-xs font-bold text-slate-600"><input type="checkbox" ${st.italic ? 'checked' : ''} onchange="rsSetProp('style.italic',this.checked)">Italic</label>
+        <label class="flex flex-col gap-0.5">${lab('Text colour')}<input type="color" value="${st.color || '#0f172a'}" onchange="rsSetProp('style.color',this.value)" class="w-full h-7"></label>
+        <label class="flex flex-col gap-0.5">${lab('Background')}<input type="color" value="${st.bg || '#ffffff'}" onchange="rsSetProp('style.bg',this.value)" class="w-full h-7"></label>
+      </div>` : ''}
+      <div class="grid grid-cols-2 gap-1.5">
+        <label class="flex flex-col gap-0.5">${lab(b.type === 'line' ? 'Thickness (px)' : 'Border (px, 0 = none)')}${inp('style.border', st.border || 0, 'type="number" step="1" min="0"')}</label>
+        <label class="flex flex-col gap-0.5">${lab('Line colour')}<input type="color" value="${st.borderColor || '#334155'}" onchange="rsSetProp('style.borderColor',this.value)" class="w-full h-7"></label>
+      </div>
+      <div class="flex gap-2"><button onclick="rsOrderBlock(1)" class="flex-1 px-2 py-1.5 border border-slate-200 rounded-lg text-[10px] font-black uppercase text-slate-600">Bring to front</button><button onclick="rsOrderBlock(-1)" class="flex-1 px-2 py-1.5 border border-slate-200 rounded-lg text-[10px] font-black uppercase text-slate-600">Send to back</button></div>
+    </div>`;
+  }
+
+  // ── Printing with the design ────────────────────────────────────────────
+  function _rsPrintPages(pagesHtml, pg, title) {
+    const [w, h] = _rsPageMm(pg);
+    const win = window.open('', '_blank');
+    win.document.write(`<!doctype html><html><head><title>${_escHtml(title)}</title><style>
+      @page { size: ${w}mm ${h}mm; margin: 0; }
+      html, body { margin: 0; padding: 0; }
+      .rs-page { page-break-after: always; break-after: page; }
+      .rs-page:last-child { page-break-after: auto; break-after: auto; }
+      @media screen { body { background: #e2e8f0; } .rs-page { margin: 10mm auto; box-shadow: 0 2px 10px rgba(0,0,0,.15); } }
+    </style></head><body>${pagesHtml}</body></html>`);
+    win.document.close();
+    win.focus();
+    setTimeout(() => win.print(), 700); // give photos a moment to load
+  }
+  function rsPrintCards() {
+    if (!_rbLast) { showToast('Prepare a result first', 'error'); return; }
+    const pg = _rsPage('student');
+    const pages = _rbLast.results.slice().sort((a, b) => (Number(a.roll) || 0) - (Number(b.roll) || 0)).map(r => _rsPageHtml(pg, _rbLast, r, 0, false)).join('');
+    _rsPrintPages(pages, pg, `Report cards — ${_rbLast.className}`);
+  }
+  function rsPrintTabulation() {
+    if (!_rbLast) { showToast('Prepare a result first', 'error'); return; }
+    const pg = _rsPage('class');
+    _rsPrintPages(_rsPageHtml(pg, _rbLast, null, 0, false), pg, `Tabulation — ${_rbLast.className}`);
   }
 
   function loadGradeScales() {
