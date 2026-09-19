@@ -2896,6 +2896,17 @@ export async function POST(req) {
       if (!existing?.error && !existing.length) {
         const r = await sbExam('subject_pattern_map', 'POST', { subject_id, pattern_id });
         if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+        // A subject newly added to a class starts with every exam part at a
+        // placeholder setup (100 marks, 100% weight, pass 33), edited later.
+        // Parts it already has here (from before it was removed) are kept.
+        const [types, have] = await Promise.all([
+          sbExam('exam_component_types?select=id'),
+          sbExam(`subject_components?pattern_id=eq.${encodeURIComponent(pattern_id)}&subject_id=eq.${encodeURIComponent(subject_id)}&select=component_type_id`),
+        ]);
+        const got = new Set((Array.isArray(have) ? have : []).map(c => String(c.component_type_id)));
+        const add = (Array.isArray(types) ? types : []).filter(t => !got.has(String(t.id)))
+          .map(t => ({ pattern_id, subject_id, component_type_id: t.id, full_marks: 100, weight_percent: 100, pass_marks: 33, sort_order: 0 }));
+        if (add.length) await sbExam('subject_components', 'POST', add);
       }
     } else {
       // Deliberately does NOT touch subject_components — unchecking hides

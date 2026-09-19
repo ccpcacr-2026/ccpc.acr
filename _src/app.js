@@ -13546,7 +13546,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }
   }
   // Saves one field of one part. Typing Marks into an empty part creates
-  // it (weight 100, pass 0 until set); clearing Marks removes the part.
+  // it (weight 100, pass 33% of the marks); clearing Marks removes the part.
   function scmSetField(pid, sid, tid, field, raw) {
     const key = `${pid}|${sid}|${tid}`;
     const prev = _scm.comps.get(key);
@@ -13565,7 +13565,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       });
       return;
     }
-    const next = { ...(prev || { pattern_id: pid, subject_id: sid, component_type_id: tid, full_marks: 0, weight_percent: 100, pass_marks: 0, pass_type: 'number', pass_basis: 'marks' }) };
+    // A part typed in by hand starts at 100% weight and a 33% pass mark.
+    const typedMarks = field === 'full_marks' ? Number(val) || 0 : 0;
+    const next = { ...(prev || { pattern_id: pid, subject_id: sid, component_type_id: tid, full_marks: 0, weight_percent: 100, pass_marks: Math.round(typedMarks * 0.33 * 100) / 100, pass_type: 'number', pass_basis: 'marks' }) };
     if (field === 'pass_rule') {
       [next.pass_type, next.pass_basis] = val.split('|');
     } else {
