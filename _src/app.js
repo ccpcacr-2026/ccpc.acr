@@ -13579,12 +13579,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return `<i data-lucide="percent" class="h-3 w-3 text-slate-400 hover:text-blue-600 cursor-pointer inline mr-1.5" title="Weights for ${_escHtml(s.name)} in every class" onclick="scmOpenWeights('subject',${s.id})"></i><i data-lucide="copy" class="h-3 w-3 text-slate-400 hover:text-blue-600 cursor-pointer inline mr-1.5" title="Copy this marks setup to other subjects or classes" onclick="scmOpenCopy(${p.id},${s.id})"></i><i data-lucide="pencil" class="h-3 w-3 text-slate-400 hover:text-blue-600 cursor-pointer inline" title="Rename subject (everywhere)" onclick="scmRenameSubject(${s.id})"></i>
       <i data-lucide="x" class="h-3.5 w-3.5 text-slate-400 hover:text-red-500 cursor-pointer inline ml-1.5" title="Remove from ${_escHtml(p.name)}" onclick="scmRemoveSubject(${p.id},${s.id})"></i>`;
   }
-  function _scmNoParts(p, s) {
-    const active = _scm.types.filter(t => _scmActive(p.id, s.id, t.id)).map(t => _scm.comps.get(`${p.id}|${s.id}|${t.id}`));
-    if (!active.length) return ' <span class="text-[9px] font-black text-amber-500 uppercase ml-1">no marks yet</span>';
-    // The subject's total: each part's marks × its weight%.
+  // "out of <total>" (each part's marks × its weight%) or "no marks yet",
+  // in a span with its own id so a value change can refresh just this label.
+  function _scmTotalInner(pid, sid) {
+    const active = _scm.types.filter(t => _scmActive(pid, sid, t.id)).map(t => _scm.comps.get(`${pid}|${sid}|${t.id}`));
+    if (!active.length) return '<span class="text-[9px] font-black text-amber-500 uppercase ml-1">no marks yet</span>';
     const total = Math.round(active.reduce((sum, c) => sum + (Number(c.full_marks) || 0) * (Number(c.weight_percent) || 0) / 100, 0) * 100) / 100;
-    return ` <span class="text-[10px] font-bold text-slate-400 ml-1" title="Subject total: each part's marks × weight%">out of ${total}</span>`;
+    return `<span class="text-[10px] font-bold text-slate-400 ml-1" title="Subject total: each part's marks × weight%">out of ${total}</span>`;
+  }
+  function _scmNoParts(p, s) {
+    return ` <span id="scm-total-${p.id}-${s.id}">${_scmTotalInner(p.id, s.id)}</span>`;
+  }
+  function _scmRefreshTotal(pid, sid) {
+    const el = document.getElementById(`scm-total-${pid}-${sid}`);
+    if (el) el.innerHTML = _scmTotalInner(pid, sid);
   }
   function _scmCardDesktop(p) {
     const subs = _scmClassSubjects(p.id);
@@ -13682,6 +13690,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (next.pass_type === 'percent' && Number(next.pass_marks) > 100) { showToast("A percentage pass can't be over 100", 'error'); scmRender(); return; }
     if (next.pass_type !== 'percent' && next.pass_basis !== 'weight' && Number(next.pass_marks) > Number(next.full_marks)) showToast(`Pass (${next.pass_marks}) is more than the marks (${next.full_marks})`, 'error');
     _scm.comps.set(key, next);
+    _scmRefreshTotal(pid, sid);
     if (!prev) {
       scmRender();
       const w = document.getElementById(`scm-${pid}-${sid}-${tid}-weight_percent`);
