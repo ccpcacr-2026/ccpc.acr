@@ -13189,8 +13189,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                   <option value="combined">its combined result reaches the combined pass mark</option>
                   <option value="each">it is passed in every included exam</option>
                 </select></label>
-              <div><span class="text-[10px] font-black text-slate-400 uppercase">Show in the result</span>
-                <div id="rbColumns" class="flex flex-wrap gap-x-4 gap-y-1.5 mt-1.5"></div></div>
+              <p class="text-[10px] text-slate-400 font-bold">Columns and which students appear are set below — any column from any exam, subject blocks, and virtual columns with formulas or IF / THEN rules.</p>
             </div>
           </div>
           <div class="flex flex-wrap items-center gap-2 mt-4 pt-4 border-t border-slate-100">
@@ -13202,6 +13201,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="rsPrintCards()" class="px-3 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase hover:bg-slate-50">Print Report Cards</button>
             <button onclick="rsPrintTabulation()" class="px-3 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase hover:bg-slate-50">Print Tabulation</button>
             <span id="rbStatus" class="text-xs font-bold text-slate-400 ml-1"></span>
+          </div>
+        </div>
+        <div class="grid xl:grid-cols-3 gap-3 mb-3">
+          <div class="xl:col-span-2 bg-white rounded-2xl border border-slate-200 p-4">
+            <div class="flex flex-wrap items-center gap-2 mb-2">
+              <p class="font-black text-slate-800 text-xs uppercase tracking-widest mr-auto">Columns</p>
+              <button onclick="rcAdd('value')" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ Column</button>
+              <button onclick="rcAdd('block')" class="px-3 py-1.5 border border-emerald-200 text-emerald-700 rounded-lg font-black text-[10px] uppercase hover:bg-emerald-50">+ Subject block</button>
+              <button onclick="rcAdd('virtual')" class="px-3 py-1.5 border border-indigo-200 text-indigo-700 rounded-lg font-black text-[10px] uppercase hover:bg-indigo-50">+ Virtual column</button>
+              <button onclick="rcResetColumns()" class="px-3 py-1.5 border border-slate-200 text-slate-500 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Reset</button>
+            </div>
+            <div class="overflow-x-auto"><table class="w-full text-left border-collapse text-xs"><tbody id="rcColumns"></tbody></table></div>
+            <p class="text-[10px] text-slate-400 font-bold mt-2">Drag rows to reorder. Untick to hide a column (a hidden column can still feed a virtual one). Subject blocks repeat their columns under every subject.</p>
+          </div>
+          <div class="bg-white rounded-2xl border border-slate-200 p-4">
+            <p class="font-black text-slate-800 text-xs uppercase tracking-widest mb-2">Students</p>
+            <div id="rcPopulation"></div>
           </div>
         </div>
         <div id="rbWarnings"></div>
@@ -14734,23 +14750,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     ['average', 'Average of the exams'],
     ['best', 'Best of the exams'],
   ];
-  const _RB_COLS = [
-    ['sources', "Each exam's marks"], ['grade', 'Subject grade'], ['gp', 'Subject GP'],
-    ['total', 'Total'], ['percent', 'Percentage'], ['gpa', 'GPA'], ['position', 'Position'],
-  ];
   const _RB_DEFAULT_COLS = { sources: true, grade: true, gp: false, total: true, percent: true, gpa: true, position: true };
   let _rbTemplates = [], _rbTerms = [], _rbExams = [], _rbLast = null;
   let _rbSourcesState = [{ term_id: '', exam_name: '', share: 100 }];
   function rbInit() {
     const m = document.getElementById('rbMethod');
     if (m && !m.options.length) m.innerHTML = _RB_METHODS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
-    const cols = document.getElementById('rbColumns');
-    if (cols && !cols.children.length) cols.innerHTML = _RB_COLS.map(([k, l]) => `<label class="flex items-center gap-1.5 text-[11px] font-bold text-slate-600 cursor-pointer"><input type="checkbox" class="rb-col h-3.5 w-3.5 accent-blue-600" value="${k}" ${_RB_DEFAULT_COLS[k] ? 'checked' : ''}>${l}</label>`).join('');
     Promise.all([
+      _adminFetch('get_exam_component_types', {}).then(r => { if (r && r.result === 'success' && (r.types || []).length) _rbPartNames = r.types.map(t => t.name); }),
       _adminFetch('get_exam_terms', { include_archived: true }),
       _adminFetch('get_exams', { include_archived: true }),
       _adminFetch('get_result_templates', {}),
-    ]).then(([t, e, tp]) => {
+    ]).then(([, t, e, tp]) => {
       _rbTerms = (t && t.result === 'success' && t.terms) || [];
       _rbExams = (e && e.result === 'success' && e.exams) || [];
       _rbTemplates = (tp && tp.result === 'success' && tp.templates) || [];
@@ -14762,6 +14773,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       }
       if (tp && tp.result !== 'success' && tp.message) _rbWarn([tp.message]);
       _rbRenderSources();
+      rcRenderBuilder();
     });
   }
   function _rbExamNamesForTerm(termId) {
@@ -14806,14 +14818,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _rbRenderSources();
   }
   function _rbConfig() {
-    const columns = {};
-    document.querySelectorAll('.rb-col').forEach(c => { columns[c.value] = c.checked; });
     return {
       sources: _rbSourcesState.filter(s => s.term_id).map(s => ({ term_id: Number(s.term_id), exam_name: s.exam_name || '', share: Number(s.share) || 0 })),
       method: document.getElementById('rbMethod').value,
       out_of: document.getElementById('rbOutOf').value,
       pass_rule: document.getElementById('rbPassRule').value,
-      columns,
+      cols: _rcCols(),
+      population: _rbPop,
       layout: _rsLayout,
     };
   }
@@ -14824,10 +14835,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('rbMethod').value = cfg.method || 'weighted';
     document.getElementById('rbOutOf').value = cfg.out_of || '';
     document.getElementById('rbPassRule').value = cfg.pass_rule || 'combined';
-    const cols = { ..._RB_DEFAULT_COLS, ...(cfg.columns || {}) };
-    document.querySelectorAll('.rb-col').forEach(c => { c.checked = !!cols[c.value]; });
     _rsLayout = cfg.layout ? JSON.parse(JSON.stringify(cfg.layout)) : null;
+    _rbPop = cfg.population ? JSON.parse(JSON.stringify(cfg.population)) : { filters: [], match: 'all', sort: [{ path: 'result.position', dir: 'asc' }], limit: '' };
     _rbRenderSources();
+    // Templates saved before the column builder keep their old ticks as the starting columns.
+    _rbCols = cfg.cols ? JSON.parse(JSON.stringify(cfg.cols)) : _rcDefaultCols(cfg.columns);
+    _rcRefresh();
   }
   function rbApplyTemplate(id) {
     const t = _rbTemplates.find(x => String(x.id) === String(id));
@@ -14879,99 +14892,567 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _rbRender();
     });
   }
-  // Rows for the table, Excel and print: [header rows..., data rows...].
-  function _rbGrid() {
-    const d = _rbLast, c = { ..._RB_DEFAULT_COLS, ...(d.config.columns || {}) };
-    const subjCols = [
-      ...(c.sources && d.sources.length > 1 ? d.sources.map(s => s.label) : []),
-      d.sources.length > 1 ? 'Result' : 'Marks',
-      ...(c.grade ? ['Grade'] : []), ...(c.gp ? ['GP'] : []),
-    ];
-    const tail = [...(c.total ? ['Total'] : []), ...(c.percent ? ['%'] : []), ...(c.gpa ? ['GPA'] : []), 'Grade', 'Result'];
-    const head1 = [...(c.position ? ['Pos'] : []), 'Roll', 'Name'];
-    const rows = d.results.map(r => {
-      const cells = [...(c.position ? [r.position] : []), r.roll ?? '', r.student_name || r.student_id];
-      d.subjects.forEach(sub => {
-        const v = r.subjects[sub.id];
-        if (!v) { subjCols.forEach(() => cells.push('')); return; }
-        if (c.sources && d.sources.length > 1) v.by_source.forEach(x => cells.push(x == null ? '—' : x));
-        cells.push(v.final);
-        if (c.grade) cells.push(v.grade);
-        if (c.gp) cells.push(v.gp);
-      });
-      if (c.total) cells.push(`${r.total} / ${r.full}`);
-      if (c.percent) cells.push(r.percentage);
-      if (c.gpa) cells.push(r.gpa);
-      cells.push(r.letter_grade, r.pass ? 'Pass' : 'Fail');
-      return { cells, r };
+  // ══ Result columns & population (like Payroll's output template builder) ══
+  // Every column reads a "path":
+  //   student.<field>                 student info (name, roll, section, parents…)
+  //   result.<total|full|percentage|gpa|letter_grade|position|pass>
+  //   sub.<subject id|@>.combined.<final|full|percent|grade|gp|pass>
+  //   sub.<subject id|@>.src.<n>.<final|full|percent|pass|part.<Part name>>
+  //   col.<column id>                 another column's value (for virtual columns)
+  // "@" is "this subject" inside a Subject block, which repeats its items for
+  // every subject. Virtual columns are a formula ({path} × 0.3 + …) or
+  // IF / THEN rules; both work at the top level and inside Subject blocks.
+  let _rbCols = null;   // the column list; null = build the default from the result
+  let _rbPop = { filters: [], match: 'all', sort: [{ path: 'result.position', dir: 'asc' }], limit: '' };
+  let _rbPartNames = ['CT', 'CQ', 'MCQ', 'HW', 'CW', 'Practical'];
+  const _RC_STUDENT = [['student_name', 'Name'], ['roll', 'Roll'], ['student_id', 'Student ID'], ['section', 'Section'], ['group', 'Group'], ['class', 'Class'], ['version', 'Version'], ['shift', 'Shift'], ['session', 'Session'], ['gender', 'Gender'], ['fathers_name', "Father's name"], ['mothers_name', "Mother's name"], ['blood', 'Blood group'], ['house', 'House'], ['phone_number', 'Phone'], ['student_category', 'Category']];
+  const _RC_RESULT = [['position', 'Position'], ['total', 'Total marks'], ['full', 'Out of'], ['percentage', 'Percentage'], ['gpa', 'GPA'], ['letter_grade', 'Grade'], ['pass', 'Pass / Fail']];
+  const _RC_COMBINED = [['final', 'Result'], ['full', 'Out of'], ['percent', '%'], ['grade', 'Grade'], ['gp', 'GP'], ['pass', 'Pass / Fail']];
+  const _RC_SOURCE = [['final', 'Total'], ['full', 'Out of'], ['percent', '%'], ['pass', 'Pass / Fail']];
+  const _RC_OPS = [['==', '='], ['!=', '≠'], ['>', '>'], ['>=', '≥'], ['<', '<'], ['<=', '≤'], ['contains', 'contains'], ['in', 'is one of (a, b, c)'], ['empty', 'is empty'], ['notempty', 'is not empty']];
+  function _rcId() { return 'c' + Math.random().toString(36).slice(2, 8); }
+  function _rcSourceLabels() {
+    if (_rbLast && _rbLast.sources) return _rbLast.sources.map(s => s.label);
+    return _rbSourcesState.filter(s => s.term_id).map(s => {
+      const t = _rbTerms.find(x => String(x.id) === String(s.term_id));
+      return `${s.exam_name ? s.exam_name + ' · ' : ''}${t ? t.name : ''}`;
     });
-    return { head1, subjCols, tail, rows };
+  }
+  function _rcSubjectName(id) {
+    const d = _rbLast;
+    const s = d && d.subjects ? d.subjects.find(x => String(x.id) === String(id)) : null;
+    return s ? s.name : `Subject ${id}`;
+  }
+  // Human label for a path ("Half Yearly · CQ", "Mathematics · Grade" …).
+  function _rcPathLabel(path) {
+    const p = String(path || '').split('.');
+    if (p[0] === 'sl') return 'SL';
+    if (p[0] === 'student') return (_RC_STUDENT.find(x => x[0] === p[1]) || [, p[1]])[1];
+    if (p[0] === 'result') return (_RC_RESULT.find(x => x[0] === p[1]) || [, p[1]])[1];
+    if (p[0] === 'col') { const c = _rcFindCol(p[1]); return c ? c.label : 'Column'; }
+    if (p[0] === 'sub') {
+      const subj = p[1] === '@' ? '' : _rcSubjectName(p[1]) + ' · ';
+      if (p[2] === 'combined') return subj + (_RC_COMBINED.find(x => x[0] === p[3]) || [, p[3]])[1];
+      if (p[2] === 'src') {
+        const src = _rcSourceLabels()[Number(p[3])] || `Exam ${Number(p[3]) + 1}`;
+        const what = p[4] === 'part' ? p.slice(5).join('.') : (_RC_SOURCE.find(x => x[0] === p[4]) || [, p[4]])[1];
+        return `${subj}${src} · ${what}`;
+      }
+    }
+    return path;
+  }
+  // Options for a path picker. relative = inside a Subject block ("this subject").
+  function _rcPathOptionsHtml(selected, relative) {
+    const opt = (v, l) => `<option value="${_escHtml(v)}" ${v === selected ? 'selected' : ''}>${_escHtml(l)}</option>`;
+    const srcs = _rcSourceLabels();
+    const subjGroup = (sid, title) => `<optgroup label="${_escHtml(title)}">
+      ${_RC_COMBINED.map(([k, l]) => opt(`sub.${sid}.combined.${k}`, `Combined · ${l}`)).join('')}
+      ${srcs.map((s, i) => [..._RC_SOURCE.map(([k, l]) => opt(`sub.${sid}.src.${i}.${k}`, `${s} · ${l}`)), ..._rbPartNames.map(n => opt(`sub.${sid}.src.${i}.part.${n}`, `${s} · ${n}`))].join('')).join('')}
+    </optgroup>`;
+    let html = `<optgroup label="Student">${opt('sl', 'SL (serial number)')}${_RC_STUDENT.map(([k, l]) => opt(`student.${k}`, l)).join('')}</optgroup>
+      <optgroup label="Overall result">${_RC_RESULT.map(([k, l]) => opt(`result.${k}`, l)).join('')}</optgroup>`;
+    if (relative) html += subjGroup('@', 'This subject');
+    (_rbLast && _rbLast.subjects ? _rbLast.subjects : []).forEach(s => { html += subjGroup(s.id, s.name); });
+    const others = (_rbCols || []).filter(c => c.kind !== 'block');
+    if (others.length) html += `<optgroup label="Other columns">${others.map(c => opt(`col.${c.id}`, c.label)).join('')}</optgroup>`;
+    return html;
+  }
+  function _rcFindCol(id) { return (_rbCols || []).find(c => c.id === id) || null; }
+  // Value at a path for one student (subjId = the current subject in a block).
+  function _rcGet(r, path, subjId, seen) {
+    const p = String(path || '').split('.');
+    if (p[0] === 'sl') return r._sl ?? '';
+    if (p[0] === 'student') { const v = (r.info || {})[p[1]]; return v != null && v !== '' ? v : (r[p[1]] ?? ''); }
+    if (p[0] === 'result') return p[1] === 'pass' ? (r.pass ? 'Pass' : 'Fail') : (r[p[1]] ?? '');
+    if (p[0] === 'col') {
+      const c = _rcFindCol(p[1]);
+      if (!c || (seen && seen.has(c.id))) return '';
+      const s2 = new Set(seen || []); s2.add(c.id);
+      return c.kind === 'virtual' ? _rcEvalVirtual(c.vf, r, subjId, s2) : _rcGet(r, c.path, subjId, s2);
+    }
+    if (p[0] === 'sub') {
+      const sid = p[1] === '@' ? subjId : p[1];
+      const sv = (r.subjects || {})[sid];
+      if (!sv) return '';
+      if (p[2] === 'combined') return p[3] === 'pass' ? (sv.pass ? 'Pass' : 'Fail') : (sv[p[3]] ?? '');
+      if (p[2] === 'src') {
+        const one = (sv.sources || [])[Number(p[3])];
+        if (!one) return sv.by_source && p[4] === 'final' ? (sv.by_source[Number(p[3])] ?? '') : '';
+        if (p[4] === 'part') return one.parts ? (one.parts[p.slice(5).join('.')] ?? '') : '';
+        return p[4] === 'pass' ? (one.pass ? 'Pass' : 'Fail') : (one[p[4]] ?? '');
+      }
+    }
+    return '';
+  }
+  function _rcTest(v, op, target) {
+    const s = String(v ?? '').trim(), t = String(target ?? '').trim();
+    const nv = Number(s), nt = Number(t);
+    const num = s !== '' && t !== '' && isFinite(nv) && isFinite(nt);
+    switch (op) {
+      case '==': return num ? nv === nt : s.toLowerCase() === t.toLowerCase();
+      case '!=': return num ? nv !== nt : s.toLowerCase() !== t.toLowerCase();
+      case '>': return num && nv > nt; case '>=': return num && nv >= nt;
+      case '<': return num && nv < nt; case '<=': return num && nv <= nt;
+      case 'contains': return s.toLowerCase().includes(t.toLowerCase());
+      case 'in': return t.split(',').map(x => x.trim().toLowerCase()).includes(s.toLowerCase());
+      case 'empty': return s === '';
+      case 'notempty': return s !== '';
+    }
+    return false;
+  }
+  // Safe arithmetic: numbers, + - * / ( ), and round(x[,d]) min max abs.
+  function _rcCalc(expr, r, subjId, seen) {
+    const src = String(expr || '').replace(/\{([^}]+)\}/g, (m, path) => { const n = Number(_rcGet(r, path, subjId, seen)); return isFinite(n) ? `(${n})` : '(0)'; });
+    const tok = src.match(/\d+(\.\d+)?|[a-z]+|[-+*/(),]/gi) || [];
+    let i = 0;
+    const peek = () => tok[i], next = () => tok[i++];
+    const FN = { round: (x, d) => { const k = Math.pow(10, d || 0); return Math.round(x * k) / k; }, min: Math.min, max: Math.max, abs: Math.abs };
+    function expr0() { let v = term(); while (peek() === '+' || peek() === '-') { const o = next(); const w = term(); v = o === '+' ? v + w : v - w; } return v; }
+    function term() { let v = unary(); while (peek() === '*' || peek() === '/') { const o = next(); const w = unary(); v = o === '*' ? v * w : (w === 0 ? 0 : v / w); } return v; }
+    function unary() { if (peek() === '-') { next(); return -unary(); } if (peek() === '+') { next(); return unary(); } return atom(); }
+    function atom() {
+      const t = next();
+      if (t === undefined) return 0;
+      if (t === '(') { const v = expr0(); if (peek() === ')') next(); return v; }
+      if (/^[a-z]+$/i.test(t)) {
+        const f = FN[t.toLowerCase()];
+        const args = [];
+        if (peek() === '(') { next(); if (peek() !== ')') { args.push(expr0()); while (peek() === ',') { next(); args.push(expr0()); } } if (peek() === ')') next(); }
+        return f ? f(...args) : 0;
+      }
+      const n = Number(t);
+      return isFinite(n) ? n : 0;
+    }
+    try { const v = expr0(); return isFinite(v) ? Math.round(v * 10000) / 10000 : ''; } catch (e) { return ''; }
+  }
+  function _rcOutput(text, r, subjId, seen) {
+    const t = String(text ?? '');
+    if (t.trim().startsWith('=')) return _rcCalc(t.trim().slice(1), r, subjId, seen);
+    return t.replace(/\{([^}]+)\}/g, (m, path) => String(_rcGet(r, path, subjId, seen) ?? ''));
+  }
+  function _rcEvalVirtual(vf, r, subjId, seen) {
+    vf = vf || {};
+    if (vf.mode === 'rules') {
+      for (const rule of vf.rules || []) {
+        if (_rcTest(_rcGet(r, rule.path, subjId, seen), rule.op, _rcOutput(rule.value, r, subjId, seen))) return _rcOutput(rule.then, r, subjId, seen);
+      }
+      return _rcOutput(vf.else, r, subjId, seen);
+    }
+    return _rcCalc(vf.formula, r, subjId, seen);
+  }
+  // The starting columns, from a result's old "Show in the result" ticks.
+  function _rcDefaultCols(flags) {
+    const c = { ..._RB_DEFAULT_COLS, ...(flags || {}) };
+    const multi = _rcSourceLabels().length > 1;
+    const v = (path, label, extra) => ({ id: _rcId(), kind: 'value', path, label, fmt: { ...(extra || {}) } });
+    const items = [
+      ...(c.sources && multi ? _rcSourceLabels().map((s, i) => ({ id: _rcId(), kind: 'value', path: `sub.@.src.${i}.final`, label: s.split(' · ')[0] || `Exam ${i + 1}`, fmt: {} })) : []),
+      { id: _rcId(), kind: 'value', path: 'sub.@.combined.final', label: multi ? 'Result' : 'Marks', fmt: { bold: true } },
+      ...(c.grade ? [{ id: _rcId(), kind: 'value', path: 'sub.@.combined.grade', label: 'Grade', fmt: {} }] : []),
+      ...(c.gp ? [{ id: _rcId(), kind: 'value', path: 'sub.@.combined.gp', label: 'GP', fmt: {} }] : []),
+    ];
+    return [
+      ...(c.position ? [v('result.position', 'Pos')] : []), v('student.roll', 'Roll'), v('student.student_name', 'Name', { align: 'left' }),
+      { id: _rcId(), kind: 'block', label: 'Subjects', subjects: 'all', items, fmt: {} },
+      ...(c.total ? [v('result.total', 'Total', { bold: true })] : []), ...(c.percent ? [v('result.percentage', '%')] : []),
+      ...(c.gpa ? [v('result.gpa', 'GPA', { bold: true })] : []), v('result.letter_grade', 'Grade'), v('result.pass', 'Result'),
+    ];
+  }
+  function _rcCols() { if (!_rbCols) _rbCols = _rcDefaultCols(); return _rbCols; }
+  // Flattened, visible output columns for a prepared result.
+  function _rcFlat(d) {
+    const out = [];
+    _rcCols().forEach(c => {
+      if (c.fmt && c.fmt.visible === false) return;
+      if (c.kind === 'block') {
+        const subs = (d.subjects || []).filter(s => c.subjects === 'all' || (Array.isArray(c.subjects) && c.subjects.map(String).includes(String(s.id))));
+        subs.forEach(s => (c.items || []).forEach(it => {
+          if (it.fmt && it.fmt.visible === false) return;
+          out.push({ key: `${c.id}.${s.id}.${it.id}`, group: s.name, header: it.label, fmt: it.fmt || {}, path: it.path,
+            value: r => (it.kind === 'virtual' ? _rcEvalVirtual(it.vf, r, s.id) : _rcGet(r, it.path, s.id)),
+            failed: r => _rcFailed(r, it.path, s.id) });
+        }));
+      } else {
+        out.push({ key: c.id, group: null, header: c.label, fmt: c.fmt || {}, path: c.path,
+          value: r => (c.kind === 'virtual' ? _rcEvalVirtual(c.vf, r, null, new Set([c.id])) : _rcGet(r, c.path, null)),
+          failed: r => _rcFailed(r, c.path, null) });
+      }
+    });
+    return out;
+  }
+  // Subject values read from a failed subject (or failed exam) show in red.
+  function _rcFailed(r, path, subjId) {
+    const p = String(path || '').split('.');
+    if (p[0] === 'result') return !r.pass && (p[1] === 'pass' || p[1] === 'letter_grade');
+    if (p[0] !== 'sub') return false;
+    const sv = (r.subjects || {})[p[1] === '@' ? subjId : p[1]];
+    if (!sv) return false;
+    if (p[2] === 'combined') return !sv.pass;
+    const one = (sv.sources || [])[Number(p[3])];
+    return !!one && !one.pass;
+  }
+  function _rcFormat(v, fmt) {
+    if (v === '' || v == null) return '';
+    const n = Number(v);
+    if (typeof v !== 'boolean' && String(v).trim() !== '' && isFinite(n) && fmt && fmt.decimals !== undefined && fmt.decimals !== '' && fmt.decimals !== null) return n.toFixed(Number(fmt.decimals));
+    return String(v);
+  }
+  // Which students appear, and in what order.
+  function _rcPopulation(d) {
+    const pop = _rbPop || {};
+    const filters = (pop.filters || []).filter(f => f.path);
+    let rows = d.results.filter(r => {
+      if (!filters.length) return true;
+      const hits = filters.map(f => _rcTest(_rcGet(r, f.path, null), f.op, f.value));
+      return pop.match === 'any' ? hits.some(Boolean) : hits.every(Boolean);
+    });
+    const sorts = (pop.sort || []).filter(s => s.path);
+    if (sorts.length) rows = rows.slice().sort((a, b) => {
+      for (const s of sorts) {
+        const x = _rcGet(a, s.path, null), y = _rcGet(b, s.path, null);
+        const nx = Number(x), ny = Number(y);
+        const cmp = (String(x) !== '' && String(y) !== '' && isFinite(nx) && isFinite(ny)) ? nx - ny : String(x).localeCompare(String(y), undefined, { numeric: true });
+        if (cmp) return s.dir === 'desc' ? -cmp : cmp;
+      }
+      return 0;
+    });
+    const lim = Number(pop.limit);
+    if (lim > 0) rows = rows.slice(0, lim);
+    return rows.map((r, i) => ({ ...r, _sl: i + 1 }));
+  }
+  // Table / Excel / print share this grid.
+  function _rbGrid() {
+    const d = _rbLast;
+    const cols = _rcFlat(d);
+    const rows = _rcPopulation(d).map(r => ({ r, cells: cols.map(c => _rcFormat(c.value(r), c.fmt)) }));
+    return { cols, rows };
+  }
+  function _rcHeaderCss(f) {
+    const rot = Number(f.rotate) || 0;
+    return `${f.headerBg ? `background:${f.headerBg};` : ''}${f.headerColor ? `color:${f.headerColor};` : ''}${rot === 90 ? 'writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;' : ''}${f.width ? `width:${f.width}px;min-width:${f.width}px;` : ''}`;
+  }
+  function _rcCellCss(f) {
+    return `${f.bold ? 'font-weight:700;' : ''}${f.italic ? 'font-style:italic;' : ''}${f.color ? `color:${f.color};` : ''}text-align:${f.align || 'center'};`;
   }
   function _rbTableHtml(forPrint) {
-    const d = _rbLast, g = _rbGrid();
-    const full = sub => { const any = d.results.find(r => r.subjects[sub.id]); return any ? any.subjects[sub.id].full : ''; };
-    const th = forPrint ? '' : 'class="py-2 px-2 text-[10px] font-black text-slate-500 uppercase whitespace-nowrap border-b border-slate-200"';
-    const td = forPrint ? '' : 'class="py-1.5 px-2 whitespace-nowrap border-b border-slate-50"';
-    const failCell = forPrint ? 'style="color:#b91c1c;font-weight:700"' : 'class="py-1.5 px-2 whitespace-nowrap border-b border-slate-50 text-red-600 font-bold"';
-    return `<table ${forPrint ? '' : 'class="text-xs text-left border-collapse"'}>
-      <thead>
-        <tr>${g.head1.map(h => `<th rowspan="2" ${th}>${h}</th>`).join('')}${d.subjects.map(sub => `<th colspan="${g.subjCols.length}" ${th} style="text-align:center">${_escHtml(sub.name)}<br><span style="font-weight:600;opacity:.7">out of ${full(sub)}</span></th>`).join('')}${g.tail.map(h => `<th rowspan="2" ${th}>${h}</th>`).join('')}</tr>
-        <tr>${d.subjects.map(() => g.subjCols.map(h => `<th ${th}>${_escHtml(h)}</th>`).join('')).join('')}</tr>
-      </thead>
-      <tbody>${g.rows.map(({ cells, r }) => {
-        const lead = g.head1.length;
-        const per = g.subjCols.length;
-        return `<tr>${cells.map((v, idx) => {
-          let bad = false;
-          if (idx >= lead && idx < lead + per * d.subjects.length) {
-            const sub = d.subjects[Math.floor((idx - lead) / per)];
-            const sv = r.subjects[sub.id];
-            bad = sv && !sv.pass && (idx - lead) % per === (g.subjCols.indexOf(d.sources.length > 1 ? 'Result' : 'Marks'));
-          }
-          if (idx === cells.length - 1 && !r.pass) bad = true;
-          return `<td ${bad ? failCell : td}>${_escHtml(String(v))}</td>`;
-        }).join('')}</tr>`;
-      }).join('')}</tbody>
+    const g = _rbGrid();
+    // Header: ungrouped columns span both rows; each subject's columns sit under its name.
+    const spans = [];
+    g.cols.forEach(c => { const last = spans[spans.length - 1]; if (c.group && last && last.group === c.group) last.n++; else spans.push({ group: c.group, n: 1, col: c }); });
+    const thCls = forPrint ? '' : 'class="py-2 px-2 text-[10px] font-black text-slate-600 uppercase border border-slate-200 bg-slate-50"';
+    const tdCls = forPrint ? '' : 'class="py-1.5 px-2 whitespace-nowrap border border-slate-100"';
+    const head1 = spans.map(s => s.group
+      ? `<th colspan="${s.n}" ${thCls} style="text-align:center">${_escHtml(s.group)}</th>`
+      : `<th rowspan="2" ${thCls} style="${_rcHeaderCss(s.col.fmt)}">${_escHtml(s.col.header)}</th>`).join('');
+    const head2 = g.cols.filter(c => c.group).map(c => `<th ${thCls} style="${_rcHeaderCss(c.fmt)}">${_escHtml(c.header)}</th>`).join('');
+    return `<table ${forPrint ? '' : 'class="text-xs border-collapse"'}>
+      <thead><tr>${head1}</tr>${head2 ? `<tr>${head2}</tr>` : ''}</thead>
+      <tbody>${g.rows.map(({ r, cells }) => `<tr>${cells.map((v, i) => {
+        const c = g.cols[i];
+        const fail = c.failed(r);
+        return forPrint && fail
+          ? `<td style="color:#b91c1c;font-weight:700">${_escHtml(v)}</td>`
+          : `<td ${tdCls} style="${_rcCellCss(c.fmt)}${fail ? 'color:#b91c1c;font-weight:700;' : ''}">${_escHtml(v)}</td>`;
+      }).join('')}</tr>`).join('')}</tbody>
     </table>`;
   }
   function _rbRender() {
     const out = document.getElementById('rbOutput');
     if (!out || !_rbLast) return;
     const d = _rbLast;
-    const passed = d.results.filter(r => r.pass).length;
+    const g = _rbGrid();
+    const passed = g.rows.filter(x => x.r.pass).length;
     const summary = `<div class="flex flex-wrap items-center gap-3 mb-2 px-1 text-xs font-bold text-slate-500">
       <span class="font-black text-slate-800">${_escHtml(d.className)}</span>
-      <span>${d.results.length} students</span>
-      <span class="text-emerald-600">${passed} passed</span>
-      <span class="text-red-600">${d.results.length - passed} failed</span>
+      <span>${g.rows.length}${g.rows.length !== d.results.length ? ` of ${d.results.length}` : ''} students</span>
+      <span class="text-emerald-600">${passed} passed</span><span class="text-red-600">${g.rows.length - passed} failed</span>
       <span>${d.sources.map(s => _escHtml(s.label) + (d.config.method === 'weighted' && d.sources.length > 1 ? ` ${s.share}%` : '')).join(' + ')}</span>
     </div>`;
     if (window.innerWidth < 768) {
-      out.innerHTML = summary + d.results.map(r => `<div class="bg-white border border-slate-200 rounded-2xl p-3 mb-2">
-        <div class="flex items-start justify-between gap-2">
-          <div><p class="font-black text-slate-800 text-sm">${_escHtml(r.student_name || r.student_id)}</p><p class="text-[10px] font-bold text-slate-400">Roll ${_escHtml(String(r.roll ?? ''))} · Position ${r.position}</p></div>
-          <span class="px-2 py-0.5 rounded-full text-[10px] font-black ${r.pass ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}">${r.pass ? 'Pass' : 'Fail'}</span>
-        </div>
-        <p class="text-xs font-bold text-slate-600 mt-1">Total ${r.total}/${r.full} · ${r.percentage}% · GPA ${r.gpa} · ${_escHtml(r.letter_grade)}</p>
-        <div class="mt-2 flex flex-col gap-0.5">${d.subjects.filter(s => r.subjects[s.id]).map(s => { const v = r.subjects[s.id]; return `<div class="flex justify-between text-[11px] ${v.pass ? 'text-slate-600' : 'text-red-600 font-bold'}"><span>${_escHtml(s.name)}</span><span>${v.final}/${v.full} · ${_escHtml(v.grade)}</span></div>`; }).join('')}</div>
+      out.innerHTML = summary + g.rows.map(({ r, cells }) => `<div class="bg-white border border-slate-200 rounded-2xl p-3 mb-2">
+        <div class="flex items-start justify-between gap-2"><p class="font-black text-slate-800 text-sm">${_escHtml(r.student_name || r.student_id)}</p>
+          <span class="px-2 py-0.5 rounded-full text-[10px] font-black ${r.pass ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}">${r.pass ? 'Pass' : 'Fail'}</span></div>
+        <div class="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5">${cells.map((v, i) => { const c = g.cols[i]; return `<div class="flex justify-between gap-2 text-[11px] ${c.failed(r) ? 'text-red-600 font-bold' : 'text-slate-600'}"><span class="text-slate-400 truncate">${_escHtml((c.group ? c.group + ' · ' : '') + c.header)}</span><span>${_escHtml(v)}</span></div>`; }).join('')}</div>
       </div>`).join('');
       return;
     }
-    out.innerHTML = summary + `<div id="rbTableWrap" class="overflow-auto border border-slate-200 rounded-xl bg-white" style="max-height:640px">${_rbTableHtml(false)}</div>`;
+    out.innerHTML = summary + `<div class="overflow-auto border border-slate-200 rounded-xl bg-white" style="max-height:640px">${_rbTableHtml(false)}</div>`;
   }
   function rbExport() {
     if (!_rbLast) { showToast('Prepare a result first', 'error'); return; }
     const g = _rbGrid(), d = _rbLast;
-    const h1 = [...g.head1], h2 = g.head1.map(() => '');
-    d.subjects.forEach(sub => g.subjCols.forEach((c, i) => { h1.push(i === 0 ? sub.name : ''); h2.push(c); }));
-    g.tail.forEach(t => { h1.push(t); h2.push(''); });
+    const h1 = g.cols.map((c, i) => (c.group ? (i === 0 || g.cols[i - 1].group !== c.group ? c.group : '') : c.header));
+    const h2 = g.cols.map(c => (c.group ? c.header : ''));
+    const hasGroups = g.cols.some(c => c.group);
     ensureXLSX().then(() => {
-      const ws = XLSX.utils.aoa_to_sheet([h1, h2, ...g.rows.map(x => x.cells)]);
+      const aoa = [h1, ...(hasGroups ? [h2] : []), ...g.rows.map(x => x.cells.map(v => { const n = Number(v); return v !== '' && isFinite(n) ? n : v; }))];
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      if (hasGroups) {
+        const merges = [];
+        g.cols.forEach((c, i) => {
+          if (!c.group) merges.push({ s: { r: 0, c: i }, e: { r: 1, c: i } });
+          else if (i === 0 || g.cols[i - 1].group !== c.group) { let j = i; while (j + 1 < g.cols.length && g.cols[j + 1].group === c.group) j++; if (j > i) merges.push({ s: { r: 0, c: i }, e: { r: 0, c: j } }); }
+        });
+        ws['!merges'] = merges;
+      }
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Result');
       XLSX.writeFile(wb, `Result_${String(d.className).replace(/[^a-z0-9]+/gi, '_')}.xlsx`);
     }).catch(err => showToast(err.message || 'Export failed', 'error'));
   }
+
+  // ── Column builder UI ───────────────────────────────────────────────────
+  let _rcDragId = null;
+  function _rcDescribe(c) {
+    if (c.kind === 'block') return `Repeats for ${c.subjects === 'all' ? 'every subject' : `${(c.subjects || []).length} subject(s)`}: ${(c.items || []).map(i => i.label).join(', ') || '—'}`;
+    if (c.kind === 'virtual') return c.vf && c.vf.mode === 'rules' ? `IF … THEN … (${(c.vf.rules || []).length} rule${(c.vf.rules || []).length === 1 ? '' : 's'})` : `= ${(c.vf && c.vf.formula) || ''}`;
+    return _rcPathLabel(c.path);
+  }
+  function rcRenderBuilder() {
+    const host = document.getElementById('rcColumns');
+    if (!host) return;
+    const cols = _rcCols();
+    const btn = (on, label, handler, title) => `<button onclick="${handler}" title="${title || ''}" class="w-6 h-6 rounded border text-[10px] font-black ${on ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200'}">${label}</button>`;
+    host.innerHTML = cols.map(c => {
+      const f = c.fmt || {};
+      const kindTag = c.kind === 'block' ? '<span class="text-[9px] font-black uppercase text-emerald-700 bg-emerald-50 rounded px-1">subject block</span>' : c.kind === 'virtual' ? '<span class="text-[9px] font-black uppercase text-indigo-700 bg-indigo-50 rounded px-1">virtual</span>' : '';
+      return `<tr draggable="true" ondragstart="rcDragStart('${c.id}')" ondragover="event.preventDefault()" ondrop="rcDrop('${c.id}')" class="border-b border-slate-50 ${f.visible === false ? 'opacity-50' : ''}">
+        <td class="py-1.5 pl-1 text-slate-300 cursor-grab"><i data-lucide="grip-vertical" class="h-3.5 w-3.5"></i></td>
+        <td class="py-1.5 px-1"><input type="checkbox" ${f.visible === false ? '' : 'checked'} title="Show this column" onchange="rcSetFmt('${c.id}','visible',this.checked)" class="w-4 h-4 accent-blue-600"></td>
+        <td class="py-1.5 px-1"><input type="text" value="${_escHtml(c.label)}" onchange="rcSetLabel('${c.id}',this.value)" class="w-32 px-2 py-1 bg-white border border-slate-200 rounded font-bold text-xs"></td>
+        <td class="py-1.5 px-2 text-[11px] text-slate-500 max-w-[280px] truncate" title="${_escHtml(_rcDescribe(c))}">${kindTag} ${_escHtml(_rcDescribe(c))}</td>
+        <td class="py-1.5 px-1 whitespace-nowrap">${c.kind === 'block' ? '' : `${btn(f.bold, 'B', `rcSetFmt('${c.id}','bold',${!f.bold})`, 'Bold')} ${btn(f.italic, 'I', `rcSetFmt('${c.id}','italic',${!f.italic})`, 'Italic')}
+          <input type="color" value="${f.color || '#0f172a'}" title="Text colour" onchange="rcSetFmt('${c.id}','color',this.value)" class="w-6 h-6 align-middle border border-slate-200 rounded">
+          <select onchange="rcSetFmt('${c.id}','align',this.value)" title="Alignment" class="px-1 py-0.5 border border-slate-200 rounded text-[10px] font-bold">${['center', 'left', 'right'].map(a => `<option ${(f.align || 'center') === a ? 'selected' : ''}>${a}</option>`).join('')}</select>
+          <input type="number" min="0" max="4" value="${f.decimals ?? ''}" placeholder="dec" title="Decimal places (blank = as is)" onchange="rcSetFmt('${c.id}','decimals',this.value)" class="w-12 px-1 py-0.5 border border-slate-200 rounded text-[10px] font-bold">
+          <input type="color" value="${f.headerBg || '#f8fafc'}" title="Header background" onchange="rcSetFmt('${c.id}','headerBg',this.value)" class="w-6 h-6 align-middle border border-slate-200 rounded">
+          <select onchange="rcSetFmt('${c.id}','rotate',this.value)" title="Header direction" class="px-1 py-0.5 border border-slate-200 rounded text-[10px] font-bold"><option value="0" ${!Number(f.rotate) ? 'selected' : ''}>↔</option><option value="90" ${Number(f.rotate) === 90 ? 'selected' : ''}>↕</option></select>`}</td>
+        <td class="py-1.5 px-2 text-right whitespace-nowrap">
+          <button onclick="rcEdit('${c.id}')" class="text-[10px] font-black uppercase text-blue-600 mr-2">Edit</button>
+          <button onclick="rcDuplicate('${c.id}')" class="text-[10px] font-black uppercase text-slate-500 mr-2">Copy</button>
+          <button onclick="rcRemove('${c.id}')" class="text-[10px] font-black uppercase text-red-500">Remove</button></td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="6" class="p-3 text-xs text-slate-400 italic">No columns — add one above.</td></tr>';
+    lucide.createIcons();
+    _rcRenderPopulation();
+  }
+  function _rcRefresh() { rcRenderBuilder(); if (_rbLast) _rbRender(); }
+  function rcDragStart(id) { _rcDragId = id; }
+  function rcDrop(targetId) {
+    if (!_rcDragId || _rcDragId === targetId) return;
+    const cols = _rcCols();
+    const from = cols.findIndex(c => c.id === _rcDragId), to = cols.findIndex(c => c.id === targetId);
+    const [c] = cols.splice(from, 1);
+    cols.splice(to, 0, c);
+    _rcDragId = null;
+    _rcRefresh();
+  }
+  function rcSetFmt(id, key, value) {
+    const c = _rcFindCol(id);
+    if (!c) return;
+    c.fmt = c.fmt || {};
+    c.fmt[key] = value;
+    _rcRefresh();
+  }
+  function rcSetLabel(id, value) { const c = _rcFindCol(id); if (c) { c.label = value.trim() || c.label; _rcRefresh(); } }
+  function rcRemove(id) { _rbCols = _rcCols().filter(c => c.id !== id); _rcRefresh(); }
+  function rcDuplicate(id) {
+    const cols = _rcCols();
+    const i = cols.findIndex(c => c.id === id);
+    if (i < 0) return;
+    const copy = JSON.parse(JSON.stringify(cols[i]));
+    copy.id = _rcId();
+    copy.label += ' (copy)';
+    (copy.items || []).forEach(it => { it.id = _rcId(); });
+    cols.splice(i + 1, 0, copy);
+    _rcRefresh();
+  }
+  function rcResetColumns() {
+    if (!confirm('Replace the columns with the standard layout?')) return;
+    _rbCols = _rcDefaultCols();
+    _rcRefresh();
+  }
+
+  // ── Column editor window (value / subject block / virtual) ─────────────
+  let _rcEditing = null; // { col (scratch copy), isNew }
+  function rcAdd(kind) {
+    const base = { id: _rcId(), kind, fmt: {} };
+    if (kind === 'value') Object.assign(base, { label: 'Roll', path: 'student.roll' });
+    if (kind === 'block') Object.assign(base, { label: 'Subjects', subjects: 'all', items: [{ id: _rcId(), kind: 'value', path: 'sub.@.combined.final', label: 'Result', fmt: {} }] });
+    if (kind === 'virtual') Object.assign(base, { label: 'New column', vf: { mode: 'formula', formula: '', rules: [], else: '' } });
+    _rcEditing = { col: base, isNew: true };
+    _rcRenderEditor();
+  }
+  function rcEdit(id) {
+    const c = _rcFindCol(id);
+    if (!c) return;
+    _rcEditing = { col: JSON.parse(JSON.stringify(c)), isNew: false };
+    _rcRenderEditor();
+  }
+  function _rcVirtualEditorHtml(vf, prefix, relative) {
+    const opsHtml = sel => _RC_OPS.map(([v, l]) => `<option value="${v}" ${sel === v ? 'selected' : ''}>${l}</option>`).join('');
+    const insert = target => `<select onchange="rcInsertToken('${target}',this.value);this.value=''" class="px-2 py-1 bg-white border border-slate-200 rounded-lg text-[10px] font-bold max-w-[220px]"><option value="">+ Insert a value…</option>${_rcPathOptionsHtml('', relative)}</select>`;
+    return `<div class="flex gap-1 bg-slate-50 rounded-lg p-1 w-max">
+        <button onclick="rcSetV('${prefix}','mode','formula')" class="px-3 py-1 rounded-md text-[10px] font-black uppercase ${vf.mode !== 'rules' ? 'bg-white shadow text-blue-700' : 'text-slate-500'}">Formula</button>
+        <button onclick="rcSetV('${prefix}','mode','rules')" class="px-3 py-1 rounded-md text-[10px] font-black uppercase ${vf.mode === 'rules' ? 'bg-white shadow text-blue-700' : 'text-slate-500'}">IF / THEN rules</button></div>
+      ${vf.mode !== 'rules' ? `
+        <textarea id="rcF-${prefix}" rows="3" oninput="rcSetV('${prefix}','formula',this.value,true)" placeholder="e.g. {sub.@.src.0.final} * 0.3 + {sub.@.src.1.final} * 0.7" class="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-mono text-[11px]">${_escHtml(vf.formula || '')}</textarea>
+        <div class="flex items-center gap-2">${insert(`rcF-${prefix}`)}<span class="text-[10px] text-slate-400 font-bold">+ − × ÷ ( ) and round(x, 2), min, max, abs</span></div>`
+      : `<div class="flex flex-col gap-1.5">${(vf.rules || []).map((ru, i) => `<div class="border border-slate-200 rounded-lg p-2 bg-white flex flex-col gap-1.5">
+          <div class="flex flex-wrap items-center gap-1.5"><span class="text-[9px] font-black uppercase text-slate-400">If</span>
+            <select onchange="rcSetRule('${prefix}',${i},'path',this.value)" class="flex-1 min-w-[160px] px-1.5 py-1 bg-slate-50 border border-slate-200 rounded text-[10px] font-bold">${_rcPathOptionsHtml(ru.path, relative)}</select>
+            <select onchange="rcSetRule('${prefix}',${i},'op',this.value)" class="px-1.5 py-1 bg-slate-50 border border-slate-200 rounded text-[10px] font-bold">${opsHtml(ru.op)}</select>
+            <input type="text" value="${_escHtml(ru.value || '')}" oninput="rcSetRule('${prefix}',${i},'value',this.value,true)" placeholder="value" class="w-24 px-1.5 py-1 bg-slate-50 border border-slate-200 rounded text-[10px] font-bold">
+            <button onclick="rcRemoveRule('${prefix}',${i})" class="text-slate-300 hover:text-red-500 font-black px-1">×</button></div>
+          <div class="flex items-center gap-1.5"><span class="text-[9px] font-black uppercase text-slate-400">Then</span>
+            <input id="rcR-${prefix}-${i}" type="text" value="${_escHtml(ru.then || '')}" oninput="rcSetRule('${prefix}',${i},'then',this.value,true)" placeholder="text, {value}, or =formula" class="flex-1 px-1.5 py-1 bg-slate-50 border border-slate-200 rounded text-[10px] font-bold">${insert(`rcR-${prefix}-${i}`)}</div>
+        </div>`).join('')}
+        <button onclick="rcAddRule('${prefix}')" class="self-start text-[10px] font-black uppercase text-blue-600">+ Rule</button>
+        <div class="flex items-center gap-1.5"><span class="text-[9px] font-black uppercase text-slate-400">Else</span>
+          <input id="rcE-${prefix}" type="text" value="${_escHtml(vf.else || '')}" oninput="rcSetV('${prefix}','else',this.value,true)" placeholder="shown when no rule matches" class="flex-1 px-1.5 py-1 bg-slate-50 border border-slate-200 rounded text-[10px] font-bold">${insert(`rcE-${prefix}`)}</div>
+        <p class="text-[10px] text-slate-400 font-bold">Rules are checked top to bottom; the first match wins. Start an output with = to calculate, e.g. =round({result.percentage}, 0).</p></div>`}`;
+  }
+  // prefix 'c' = the column itself; a number = that Subject-block item.
+  function _rcVfFor(prefix) {
+    const col = _rcEditing.col;
+    if (prefix === 'c') return (col.vf = col.vf || { mode: 'formula', formula: '', rules: [], else: '' });
+    const it = col.items[Number(prefix)];
+    return (it.vf = it.vf || { mode: 'formula', formula: '', rules: [], else: '' });
+  }
+  function rcSetV(prefix, key, value, quiet) { _rcVfFor(prefix)[key] = value; if (!quiet) _rcRenderEditor(); }
+  function rcAddRule(prefix) { const vf = _rcVfFor(prefix); (vf.rules = vf.rules || []).push({ path: 'result.gpa', op: '>=', value: '', then: '' }); _rcRenderEditor(); }
+  function rcRemoveRule(prefix, i) { _rcVfFor(prefix).rules.splice(i, 1); _rcRenderEditor(); }
+  function rcSetRule(prefix, i, key, value, quiet) { _rcVfFor(prefix).rules[i][key] = value; if (!quiet) _rcRenderEditor(); }
+  function rcInsertToken(inputId, path) {
+    if (!path) return;
+    const el = document.getElementById(inputId);
+    if (!el) return;
+    const pos = el.selectionStart ?? el.value.length;
+    el.value = el.value.slice(0, pos) + `{${path}}` + el.value.slice(el.selectionEnd ?? pos);
+    el.dispatchEvent(new Event('input'));
+    el.focus();
+  }
+  // A value column takes its picked value's name as header until the header is typed in.
+  function rcPickPath(path) {
+    _rcEditing.col.path = path;
+    if (!_rcEditing.labelTouched) _rcEditing.col.label = _rcPathLabel(path);
+    _rcRenderEditor();
+  }
+  function rcTypeLabel(v) { _rcEditing.labelTouched = true; _rcEditing.col.label = v; }
+  function rcSetEdit(key, value, quiet) { _rcEditing.col[key] = value; if (!quiet) _rcRenderEditor(); }
+  function rcSetItem(i, key, value, quiet) {
+    const it = _rcEditing.col.items[i];
+    it[key] = value;
+    if (key === 'path' && !it.labelTouched) it.label = _rcPathLabel(value).split(' · ').pop();
+    if (key === 'label') it.labelTouched = true;
+    if (!quiet) _rcRenderEditor();
+  }
+  function rcAddItem(kind) { _rcEditing.col.items.push(kind === 'virtual' ? { id: _rcId(), kind, label: 'Calc', vf: { mode: 'formula', formula: '', rules: [], else: '' }, fmt: {} } : { id: _rcId(), kind: 'value', path: 'sub.@.combined.grade', label: 'Grade', fmt: {} }); _rcRenderEditor(); }
+  function rcMoveItem(i, dir) { const a = _rcEditing.col.items; const j = i + dir; if (j < 0 || j >= a.length) return; [a[i], a[j]] = [a[j], a[i]]; _rcRenderEditor(); }
+  function rcRemoveItem(i) { _rcEditing.col.items.splice(i, 1); _rcRenderEditor(); }
+  function rcToggleBlockSubject(id, on) {
+    const col = _rcEditing.col;
+    const all = (_rbLast && _rbLast.subjects || []).map(s => String(s.id));
+    let set = new Set(col.subjects === 'all' ? all : (col.subjects || []).map(String));
+    if (on) set.add(String(id)); else set.delete(String(id));
+    col.subjects = set.size === all.length ? 'all' : [...set];
+    _rcRenderEditor();
+  }
+  function _rcRenderEditor() {
+    let ov = document.getElementById('rcEditor');
+    if (!ov) {
+      ov = document.createElement('div');
+      ov.id = 'rcEditor';
+      ov.className = 'fixed inset-0 z-[85] bg-slate-900/40 flex items-center justify-center p-4';
+      ov.onclick = e => { if (e.target === ov) ov.remove(); };
+      document.body.appendChild(ov);
+    }
+    const c = _rcEditing.col;
+    const title = { value: 'Column', block: 'Subject block', virtual: 'Virtual column' }[c.kind];
+    let body = '';
+    if (c.kind === 'value') {
+      body = `<label class="flex flex-col gap-1"><span class="text-[10px] font-black text-slate-400 uppercase">Shows</span>
+        <select onchange="rcPickPath(this.value)" class="px-2 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">${_rcPathOptionsHtml(c.path, false)}</select></label>
+        ${!_rbLast ? '<p class="text-[10px] font-bold text-amber-600">Prepare the result once to pick a specific subject; to show every subject use a Subject block.</p>' : ''}`;
+    } else if (c.kind === 'virtual') {
+      body = _rcVirtualEditorHtml(c.vf || {}, 'c', false);
+    } else {
+      const subs = (_rbLast && _rbLast.subjects) || [];
+      body = `<div><span class="text-[10px] font-black text-slate-400 uppercase">Subjects</span>
+          <div class="flex flex-wrap gap-x-3 gap-y-1 mt-1">${subs.length ? subs.map(s => `<label class="flex items-center gap-1.5 text-[11px] font-bold text-slate-600"><input type="checkbox" ${c.subjects === 'all' || (c.subjects || []).map(String).includes(String(s.id)) ? 'checked' : ''} onchange="rcToggleBlockSubject(${s.id},this.checked)" class="accent-blue-600">${_escHtml(s.name)}</label>`).join('') : '<span class="text-[11px] font-bold text-slate-400">Every subject (prepare the result to pick particular ones)</span>'}</div></div>
+        <div><span class="text-[10px] font-black text-slate-400 uppercase">Columns under each subject</span>
+          <div class="flex flex-col gap-2 mt-1">${(c.items || []).map((it, i) => `<div class="border border-slate-200 rounded-lg p-2 bg-slate-50/50 flex flex-col gap-1.5">
+            <div class="flex items-center gap-1.5">
+              <input type="text" value="${_escHtml(it.label)}" oninput="rcSetItem(${i},'label',this.value,true)" class="w-28 px-2 py-1 bg-white border border-slate-200 rounded font-bold text-xs" title="Header">
+              ${it.kind === 'virtual' ? '<span class="flex-1 text-[10px] font-black uppercase text-indigo-600">virtual</span>' : `<select onchange="rcSetItem(${i},'path',this.value)" class="flex-1 px-1.5 py-1 bg-white border border-slate-200 rounded text-[10px] font-bold">${_rcPathOptionsHtml(it.path, true)}</select>`}
+              <button onclick="rcSetItemFmt(${i},'bold')" class="w-6 h-6 rounded border text-[10px] font-black ${it.fmt && it.fmt.bold ? 'bg-slate-800 text-white' : 'bg-white text-slate-500 border-slate-200'}">B</button>
+              <input type="number" min="0" max="4" value="${(it.fmt || {}).decimals ?? ''}" placeholder="dec" onchange="rcSetItemFmtVal(${i},'decimals',this.value)" class="w-12 px-1 py-1 border border-slate-200 rounded text-[10px] font-bold">
+              <button onclick="rcMoveItem(${i},-1)" class="text-slate-400 font-black px-1">↑</button><button onclick="rcMoveItem(${i},1)" class="text-slate-400 font-black px-1">↓</button>
+              <button onclick="rcRemoveItem(${i})" class="text-slate-300 hover:text-red-500 font-black px-1">×</button></div>
+            ${it.kind === 'virtual' ? _rcVirtualEditorHtml(it.vf || {}, String(i), true) : ''}
+          </div>`).join('')}</div>
+          <div class="flex gap-3 mt-2"><button onclick="rcAddItem('value')" class="text-[10px] font-black uppercase text-blue-600">+ Column</button><button onclick="rcAddItem('virtual')" class="text-[10px] font-black uppercase text-indigo-600">+ Virtual column</button></div>
+          <p class="text-[10px] text-slate-400 font-bold mt-1">"This subject" values are read for each subject in turn — e.g. "Half Yearly · CQ" becomes each subject's Half Yearly CQ.</p></div>`;
+    }
+    ov.innerHTML = `<div class="bg-white rounded-2xl shadow-xl w-full ${c.kind === 'value' ? 'max-w-md' : 'max-w-2xl'} flex flex-col" style="max-height:90vh">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-slate-200"><p class="font-black text-slate-800 text-sm">${_rcEditing.isNew ? 'Add' : 'Edit'} ${title}</p>
+        <i data-lucide="x" class="h-4 w-4 text-slate-500 cursor-pointer" onclick="document.getElementById('rcEditor').remove()"></i></div>
+      <div class="overflow-y-auto px-4 py-3 flex flex-col gap-3">
+        ${c.kind === 'block' ? '' : `<label class="flex flex-col gap-1"><span class="text-[10px] font-black text-slate-400 uppercase">Header</span>
+          <input type="text" value="${_escHtml(c.label)}" oninput="rcTypeLabel(this.value)" class="px-2 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></label>`}
+        ${body}
+      </div>
+      <div class="flex justify-end gap-2 px-4 py-3 border-t border-slate-200">
+        <button onclick="document.getElementById('rcEditor').remove()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase">Cancel</button>
+        <button onclick="rcSaveEditor()" class="px-4 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">${_rcEditing.isNew ? 'Add' : 'Save'}</button></div>
+    </div>`;
+    lucide.createIcons();
+  }
+  function rcSetItemFmt(i, key) { const it = _rcEditing.col.items[i]; it.fmt = it.fmt || {}; it.fmt[key] = !it.fmt[key]; _rcRenderEditor(); }
+  function rcSetItemFmtVal(i, key, v) { const it = _rcEditing.col.items[i]; it.fmt = it.fmt || {}; it.fmt[key] = v; }
+  function rcSaveEditor() {
+    const c = _rcEditing.col;
+    if (c.kind !== 'block' && !String(c.label || '').trim()) { showToast('Give the column a header', 'error'); return; }
+    if (c.kind === 'block' && !(c.items || []).length) { showToast('Add at least one column under each subject', 'error'); return; }
+    const cols = _rcCols();
+    const i = cols.findIndex(x => x.id === c.id);
+    if (i >= 0) cols[i] = c; else cols.push(c);
+    document.getElementById('rcEditor').remove();
+    _rcRefresh();
+  }
+
+  // ── Population (which students, in what order) ─────────────────────────
+  function _rcRenderPopulation() {
+    const host = document.getElementById('rcPopulation');
+    if (!host) return;
+    const pop = _rbPop;
+    const ops = sel => _RC_OPS.map(([v, l]) => `<option value="${v}" ${sel === v ? 'selected' : ''}>${l}</option>`).join('');
+    host.innerHTML = `
+      <div class="flex items-center gap-2 mb-1.5"><span class="text-[10px] font-black text-slate-400 uppercase">Show students who match</span>
+        <select onchange="rcSetPop('match',this.value)" class="px-1.5 py-1 bg-slate-50 border border-slate-200 rounded text-[10px] font-bold"><option value="all" ${pop.match !== 'any' ? 'selected' : ''}>all of</option><option value="any" ${pop.match === 'any' ? 'selected' : ''}>any of</option></select>
+        <span class="text-[10px] font-black text-slate-400 uppercase">these conditions</span>
+        <button onclick="rcAddFilter()" class="ml-auto text-[10px] font-black uppercase text-blue-600">+ Condition</button></div>
+      <div class="flex flex-col gap-1">${(pop.filters || []).map((f, i) => `<div class="flex flex-wrap items-center gap-1.5">
+        <select onchange="rcSetFilter(${i},'path',this.value)" class="flex-1 min-w-[160px] px-1.5 py-1 bg-white border border-slate-200 rounded text-[10px] font-bold">${_rcPathOptionsHtml(f.path, false)}</select>
+        <select onchange="rcSetFilter(${i},'op',this.value)" class="px-1.5 py-1 bg-white border border-slate-200 rounded text-[10px] font-bold">${ops(f.op)}</select>
+        <input type="text" value="${_escHtml(f.value || '')}" onchange="rcSetFilter(${i},'value',this.value)" placeholder="value" class="w-28 px-1.5 py-1 bg-white border border-slate-200 rounded text-[10px] font-bold">
+        <button onclick="rcRemoveFilter(${i})" class="text-slate-300 hover:text-red-500 font-black px-1">×</button></div>`).join('') || '<p class="text-[11px] text-slate-400 font-bold">Everyone in the class.</p>'}</div>
+      <div class="flex items-center gap-2 mt-3 mb-1.5"><span class="text-[10px] font-black text-slate-400 uppercase">Sort by</span><button onclick="rcAddSort()" class="ml-auto text-[10px] font-black uppercase text-blue-600">+ Sort</button></div>
+      <div class="flex flex-col gap-1">${(pop.sort || []).map((s, i) => `<div class="flex items-center gap-1.5">
+        <select onchange="rcSetSort(${i},'path',this.value)" class="flex-1 px-1.5 py-1 bg-white border border-slate-200 rounded text-[10px] font-bold">${_rcPathOptionsHtml(s.path, false)}</select>
+        <select onchange="rcSetSort(${i},'dir',this.value)" class="px-1.5 py-1 bg-white border border-slate-200 rounded text-[10px] font-bold"><option value="asc" ${s.dir !== 'desc' ? 'selected' : ''}>low → high</option><option value="desc" ${s.dir === 'desc' ? 'selected' : ''}>high → low</option></select>
+        <button onclick="rcRemoveSort(${i})" class="text-slate-300 hover:text-red-500 font-black px-1">×</button></div>`).join('') || '<p class="text-[11px] text-slate-400 font-bold">As the result comes (by position).</p>'}</div>
+      <label class="flex items-center gap-2 mt-3 text-[10px] font-black text-slate-400 uppercase">Show only the first
+        <input type="number" min="1" value="${_escHtml(String(pop.limit || ''))}" onchange="rcSetPop('limit',this.value)" placeholder="all" class="w-16 px-1.5 py-1 bg-white border border-slate-200 rounded text-[10px] font-bold"> students</label>`;
+  }
+  function rcSetPop(k, v) { _rbPop[k] = v; _rcRefresh(); }
+  function rcAddFilter() { (_rbPop.filters = _rbPop.filters || []).push({ path: 'student.section', op: '==', value: '' }); _rcRefresh(); }
+  function rcRemoveFilter(i) { _rbPop.filters.splice(i, 1); _rcRefresh(); }
+  function rcSetFilter(i, k, v) { _rbPop.filters[i][k] = v; _rcRefresh(); }
+  function rcAddSort() { (_rbPop.sort = _rbPop.sort || []).push({ path: 'student.roll', dir: 'asc' }); _rcRefresh(); }
+  function rcRemoveSort(i) { _rbPop.sort.splice(i, 1); _rcRefresh(); }
+  function rcSetSort(i, k, v) { _rbPop.sort[i][k] = v; _rcRefresh(); }
+
   function rbPrint() {
     if (!_rbLast) { showToast('Prepare a result first', 'error'); return; }
     const d = _rbLast;
@@ -15330,7 +15811,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     } else if (b.type === 'summary') {
       specific = `<div>${lab('Rows')}<div class="flex flex-col gap-1 mt-1">${[['total', 'Total marks'], ['percentage', 'Percentage'], ['gpa', 'GPA'], ['letter_grade', 'Grade'], ['position', 'Position'], ['result', 'Result']].map(([k, l]) => `<label class="flex items-center gap-2 text-xs font-bold text-slate-600"><input type="checkbox" ${(b.items || []).includes(k) ? 'checked' : ''} onchange="rsToggleList('items','${k}',this.checked)">${l}</label>`).join('')}</div></div>`;
     } else if (b.type === 'tabulation') {
-      specific = `<p class="text-[10px] font-bold text-slate-400">Shows the whole class result with the columns chosen under "Show in the result" on the Result Process screen.</p>`;
+      specific = `<p class="text-[10px] font-bold text-slate-400">Shows the class result with the Columns and Students set on the Result Process screen.</p>`;
     } else if (b.type === 'photo') {
       specific = `<p class="text-[10px] font-bold text-slate-400">Each student's own photo from the student database; blank if they have none.</p>`;
     }

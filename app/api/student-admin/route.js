@@ -3637,6 +3637,15 @@ export async function POST(req) {
           final: _r2(final), full: _r2(full), percent: _r2(pctVal), pass,
           grade: pass ? (g ? g.letter_grade : '') : 'F', gp,
           by_source: perExam.map((pe, i) => { const v = pe.per.get(stu.student_id)?.get(sub.id); return v ? _r2(v.final) : null; }),
+          // Each included exam's own subject result and part marks, for the
+          // result column builder (e.g. "Half Yearly · CQ").
+          sources: perExam.map(pe => {
+            const v = pe.per.get(stu.student_id)?.get(sub.id);
+            if (!v) return null;
+            const parts = {};
+            v.parts.forEach(p => { parts[p.name] = p.marks; });
+            return { final: _r2(v.final), full: _r2(v.full), pass: v.pass, percent: v.full ? _r2(v.final / v.full * 100) : 0, parts };
+          }),
         };
       });
       const pct = fullTotal ? total / fullTotal * 100 : 0;
