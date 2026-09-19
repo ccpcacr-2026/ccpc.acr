@@ -3292,25 +3292,36 @@ export async function POST(req) {
   // One exam per class for a term + exam pattern (e.g. Half Yearly for every
   // class at once). Classes that already have an exam in that term with the
   // same exam pattern are skipped, not duplicated.
+  // A term can hold several exams per class, told apart by name (Class
+  // Test 1, Half Yearly …). A class that already has an exam with this name
+  // in this term is skipped.
   if (action === 'save_exams_bulk') {
     const { term_id, exam_pattern_id } = payload;
+    const name = String(payload.name || '').trim() || null;
     const ids = [...new Set((Array.isArray(payload.pattern_ids) ? payload.pattern_ids : []).map(Number).filter(Boolean))];
     if (!term_id || !ids.length) return NextResponse.json({ result: 'error', message: 'Pick a term and at least one class.' });
-    const existing = await sbExam(`exams?term_id=eq.${encodeURIComponent(term_id)}&select=pattern_id,exam_pattern_id`);
+    const existing = await sbExam(`exams?term_id=eq.${encodeURIComponent(term_id)}&select=*`);
     if (existing?.error) return NextResponse.json({ result: 'error', message: existing.error });
-    const have = new Set(existing.filter(e => String(e.exam_pattern_id || '') === String(exam_pattern_id || '')).map(e => String(e.pattern_id)));
-    const rows = ids.filter(pid => !have.has(String(pid))).map(pid => ({ term_id, pattern_id: pid, exam_pattern_id: exam_pattern_id || null }));
+    const have = new Set(existing.filter(e => (e.name || null) === name).map(e => String(e.pattern_id)));
+    const rows = ids.filter(pid => !have.has(String(pid))).map(pid => ({ term_id, pattern_id: pid, exam_pattern_id: exam_pattern_id || null, ...(name ? { name } : {}) }));
     if (rows.length) {
       const r = await sbExam('exams', 'POST', rows);
-      if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+      if (r?.error) return NextResponse.json({ result: 'error', message: _examWriteError(r.error) });
     }
     return NextResponse.json({ result: 'success', created: rows.length, skipped: ids.length - rows.length });
+  }
+  function _examWriteError(err) {
+    const t = String(err || '');
+    if (/exams_term_id_pattern_id_key/.test(t) || /column .*name.* does not exist|'name' column/i.test(t)) return 'A class can only have one exam per term until migration_exam_multiple_per_term.sql is run in Supabase.';
+    if (/exams_term_class_name_uidx/.test(t)) return 'One of these classes already has an exam with this name in this term — use a different name.';
+    return t;
   }
   // Edit an exam group (one exam per class): new term / exam pattern for all
   // of them, classes ticked in are added, classes ticked out are deleted —
   // except ones with marks entered, which are kept and reported.
   if (action === 'update_exam_group') {
     const { term_id, exam_pattern_id } = payload;
+    const name = String(payload.name || '').trim() || null;
     const ids = (Array.isArray(payload.ids) ? payload.ids : []).map(Number).filter(Boolean);
     const want = new Set((Array.isArray(payload.pattern_ids) ? payload.pattern_ids : []).map(String));
     if (!ids.length || !term_id || !want.size) return NextResponse.json({ result: 'error', message: 'Pick a term and at least one class.' });
@@ -3324,13 +3335,13 @@ export async function POST(req) {
     const kept = drop.filter(e => withMarks.has(String(e.id)));
     const dropIds = drop.filter(e => !withMarks.has(String(e.id))).map(e => e.id);
     const have = new Set(group.map(e => String(e.pattern_id)));
-    const others = await sbExam(`exams?term_id=eq.${encodeURIComponent(term_id)}&select=id,pattern_id,exam_pattern_id`);
-    const clash = new Set((Array.isArray(others) ? others : []).filter(o => !ids.includes(o.id) && String(o.exam_pattern_id || '') === String(exam_pattern_id || '')).map(o => String(o.pattern_id)));
-    const add = [...want].filter(pid => !have.has(pid) && !clash.has(pid)).map(pid => ({ term_id, pattern_id: Number(pid), exam_pattern_id: exam_pattern_id || null }));
+    const others = await sbExam(`exams?term_id=eq.${encodeURIComponent(term_id)}&select=*`);
+    const clash = new Set((Array.isArray(others) ? others : []).filter(o => !ids.includes(o.id) && (o.name || null) === name).map(o => String(o.pattern_id)));
+    const add = [...want].filter(pid => !have.has(pid) && !clash.has(pid)).map(pid => ({ term_id, pattern_id: Number(pid), exam_pattern_id: exam_pattern_id || null, ...(name ? { name } : {}) }));
     const moveIds = [...keep, ...kept].map(e => e.id);
     if (moveIds.length) {
-      const r = await sbExam(`exams?id=in.(${moveIds.join(',')})`, 'PATCH', { term_id, exam_pattern_id: exam_pattern_id || null });
-      if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+      const r = await sbExam(`exams?id=in.(${moveIds.join(',')})`, 'PATCH', { term_id, exam_pattern_id: exam_pattern_id || null, ...(name || group.some(e => e.name) ? { name } : {}) });
+      if (r?.error) return NextResponse.json({ result: 'error', message: _examWriteError(r.error) });
     }
     if (dropIds.length) {
       await sbExam(`exam_entry_sheets?exam_id=in.(${dropIds.join(',')})`, 'DELETE');
@@ -3339,7 +3350,7 @@ export async function POST(req) {
     }
     if (add.length) {
       const r = await sbExam('exams', 'POST', add);
-      if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+      if (r?.error) return NextResponse.json({ result: 'error', message: _examWriteError(r.error) });
     }
     return NextResponse.json({ result: 'success', added: add.length, removed: dropIds.length, kept_with_marks: kept.length, skipped_existing: [...want].filter(pid => !have.has(pid) && clash.has(pid)).length });
   }
@@ -3376,8 +3387,8 @@ export async function POST(req) {
     const rows = await sbExam(`exams?id=eq.${encodeURIComponent(id)}`);
     if (rows?.error || !rows.length) return NextResponse.json({ result: 'error', message: 'Source exam not found.' });
     const src = rows[0];
-    const created = await sbExam('exams', 'POST', { term_id, pattern_id, exam_pattern_id: src.exam_pattern_id });
-    if (created?.error) return NextResponse.json({ result: 'error', message: created.error });
+    const created = await sbExam('exams', 'POST', { term_id, pattern_id, exam_pattern_id: src.exam_pattern_id, ...(src.name ? { name: src.name } : {}) });
+    if (created?.error) return NextResponse.json({ result: 'error', message: _examWriteError(created.error) });
     const newExam = Array.isArray(created) ? created[0] : created;
 
     const srcSheets = await sbExam(`exam_entry_sheets?exam_id=eq.${encodeURIComponent(id)}&select=subject_id,component_type_id,is_open,assigned_user_id`);

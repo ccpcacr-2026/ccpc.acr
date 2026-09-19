@@ -13107,6 +13107,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <p class="font-black text-slate-800 text-xs mb-3 flex items-center gap-2"><i data-lucide="file-plus" class="h-4 w-4 text-blue-600"></i><span id="exsFormTitle">New Exam</span></p>
             <div class="flex flex-col gap-2">
               <select id="exsTermSelect" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Select term…</option></select>
+              <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-name" id="exsName" placeholder="Exam name (e.g. Class Test 1, Half Yearly)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
               <div class="border border-slate-200 rounded-lg p-2">
                 <div class="flex items-center justify-between mb-1.5">
                   <span class="text-[10px] font-black text-slate-500 uppercase">Classes</span>
@@ -14433,7 +14434,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (host) {
         const groups = new Map();
         _examList.forEach(e => {
-          const k = `${e.term_id}|${e.exam_pattern_id || ''}`;
+          const k = `${e.term_id}|${e.name || ''}|${e.exam_pattern_id || ''}`;
           if (!groups.has(k)) groups.set(k, []);
           groups.get(k).push(e);
         });
@@ -14445,7 +14446,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           const sorted = list.slice().sort((a, b) => _scmRank(_examClassLabel(a.pattern_id, a.class_patterns?.name)) - _scmRank(_examClassLabel(b.pattern_id, b.class_patterns?.name)) || _examClassLabel(a.pattern_id).localeCompare(_examClassLabel(b.pattern_id)));
           return `<div class="border rounded-xl border-slate-200 ${allArchived ? 'opacity-60' : ''}">
             <div class="flex flex-wrap justify-between items-center gap-2 px-3 py-2 bg-slate-50 rounded-t-xl border-b border-slate-100">
-              <div><span class="font-black text-slate-800 text-xs">${_escHtml(e0.exam_terms?.name || '')}</span> <span class="text-slate-400 text-[11px] font-bold ml-1">${_escHtml(e0.exam_terms?.academic_year || '')} · ${_escHtml(e0.exam_patterns?.name || 'No exam pattern')} · ${list.length} class${list.length === 1 ? '' : 'es'}</span></div>
+              <div><span class="font-black text-slate-800 text-xs">${_escHtml(e0.name || e0.exam_terms?.name || '')}</span> <span class="text-slate-400 text-[11px] font-bold ml-1">${e0.name ? _escHtml(e0.exam_terms?.name || '') + ' · ' : ''}${_escHtml(e0.exam_terms?.academic_year || '')} · ${_escHtml(e0.exam_patterns?.name || 'No exam pattern')} · ${list.length} class${list.length === 1 ? '' : 'es'}</span></div>
               <div class="flex items-center gap-3"><button onclick="editExamGroup('${ids}')" class="text-[10px] font-black uppercase text-blue-600">Edit</button>${act(allLocked ? 'Unlock all' : 'Lock all', ids, allLocked ? 'unlock' : 'lock', 'text-red-500')}${act(allArchived ? 'Unarchive all' : 'Archive all', ids, allArchived ? 'unarchive' : 'archive', 'text-slate-500')}${act('Delete all', ids, 'delete', 'text-red-500')}</div>
             </div>
             <div class="divide-y divide-slate-50">${sorted.map(e => `<div class="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 ${e.is_archived ? 'opacity-50' : ''}">
@@ -14459,7 +14460,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>`;
         }).join('') || '<span class="text-xs text-slate-400 font-bold italic">No exams yet.</span>';
       }
-      const opts = '<option value="">Select exam…</option>' + _examList.filter(e => !e.is_archived).map(e => `<option value="${e.id}">${_escHtml(e.exam_terms?.name || '')} · ${_escHtml(_examClassLabel(e.pattern_id, e.class_patterns?.name))}${e.is_locked ? ' 🔒' : ''}</option>`).join('');
+      const opts = '<option value="">Select exam…</option>' + _examList.filter(e => !e.is_archived).map(e => `<option value="${e.id}">${_escHtml(e.exam_terms?.name || '')}${e.name ? ' · ' + _escHtml(e.name) : ''} · ${_escHtml(_examClassLabel(e.pattern_id, e.class_patterns?.name))}${e.is_locked ? ' 🔒' : ''}</option>`).join('');
       document.querySelectorAll('.exam-select').forEach(el => { const cur = el.value; el.innerHTML = opts; if (cur) el.value = cur; });
     });
   }
@@ -14470,7 +14471,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!term_id) { showToast('Pick a term', 'error'); return; }
     if (!pattern_ids.length) { showToast('Tick at least one class', 'error'); return; }
     if (_exsEditIds) {
-      _adminFetch('update_exam_group', { ids: _exsEditIds, term_id, exam_pattern_id: exam_pattern_id || null, pattern_ids }).then(res => {
+      _adminFetch('update_exam_group', { ids: _exsEditIds, term_id, name: document.getElementById('exsName').value.trim(), exam_pattern_id: exam_pattern_id || null, pattern_ids }).then(res => {
         if (!res || res.result !== 'success') { showToast((res && res.message) || 'Not saved', 'error'); return; }
         const bits = [];
         if (res.added) bits.push(`${res.added} class(es) added`);
@@ -14483,9 +14484,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       });
       return;
     }
-    _adminFetch('save_exams_bulk', { term_id, exam_pattern_id: exam_pattern_id || null, pattern_ids }).then(res => {
+    _adminFetch('save_exams_bulk', { term_id, name: document.getElementById('exsName').value.trim(), exam_pattern_id: exam_pattern_id || null, pattern_ids }).then(res => {
       if (res && res.result === 'success') {
-        showToast(`Exam created for ${res.created} class(es)${res.skipped ? ` — ${res.skipped} already had it` : ''}`);
+        showToast(`Exam created for ${res.created} class(es)${res.skipped ? ` — ${res.skipped} already had an exam with this name in this term` : ''}`);
         document.querySelectorAll('.exs-class-cb').forEach(c => { c.checked = false; });
         loadExamSetupList();
       } else showToast((res && res.message) || 'Failed', 'error');
@@ -14501,6 +14502,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _exsEditIds = list;
     const e0 = group[0];
     document.getElementById('exsTermSelect').value = String(e0.term_id);
+    document.getElementById('exsName').value = e0.name || '';
     document.getElementById('exsExamPatternSelect').value = e0.exam_pattern_id ? String(e0.exam_pattern_id) : '';
     const inGroup = new Set(group.map(e => String(e.pattern_id)));
     document.querySelectorAll('.exs-class-cb').forEach(c => { c.checked = inGroup.has(String(c.value)); });
@@ -14511,6 +14513,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('exsTermSelect').scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
   function cancelExamGroupEdit() {
+    document.getElementById('exsName').value = '';
     _exsEditIds = null;
     document.getElementById('exsFormTitle').textContent = 'New Exam';
     document.getElementById('exsSaveBtn').textContent = 'Create Exam';
