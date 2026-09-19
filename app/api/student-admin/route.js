@@ -3669,6 +3669,26 @@ export async function POST(req) {
       (Array.isArray(rows) ? rows : []).forEach(row => { info[row.student_id] = row; });
     }
     results.forEach(r => { r.info = info[r.student_id] || {}; });
+    // Position within the student's own section (by total, like the class position).
+    const bySection = new Map();
+    results.forEach(r => { const k = String(r.info.section ?? r.section ?? ''); if (!bySection.has(k)) bySection.set(k, []); bySection.get(k).push(r); });
+    bySection.forEach(list => list.sort((a, b) => b.total - a.total).forEach((r, i) => { r.section_position = i + 1; }));
+    // Attendance over the template's date range: a day with a record = present;
+    // working days = days on which anyone in this class was recorded.
+    const att = cfg.attendance || {};
+    if (att.from && att.to && /^\d{4}-\d{2}-\d{2}$/.test(att.from) && /^\d{4}-\d{2}-\d{2}$/.test(att.to)) {
+      const days = new Map(), allDays = new Set();
+      for (let i = 0; i < ids.length; i += 150) {
+        const chunk = ids.slice(i, i + 150).map(x => `"${String(x).replace(/"/g, '')}"`).join(',');
+        const rows = await sbAllRows(`attendance_records?student_id=in.(${encodeURIComponent(chunk)})&date=gte.${att.from}&date=lte.${att.to}&select=student_id,date`);
+        (Array.isArray(rows) ? rows : []).forEach(a => { if (!days.has(a.student_id)) days.set(a.student_id, new Set()); days.get(a.student_id).add(a.date); allDays.add(a.date); });
+      }
+      const total = allDays.size;
+      results.forEach(r => {
+        const present = days.has(r.student_id) ? days.get(r.student_id).size : 0;
+        r.attendance = { present, days: total, absent: Math.max(0, total - present), percent: total ? _r2(present / total * 100) : 0 };
+      });
+    }
     return { subjects, sources: resolved.map(r => ({ label: r.label, share: r.share })), results, warnings };
   }
 
