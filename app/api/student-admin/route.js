@@ -517,7 +517,7 @@ const ADMIN_TAB_ACTIONS = {
     'get_class_pattern_setup', 'get_class_patterns', 'save_class_pattern', 'save_class_pattern_map',
     'get_class_pattern_usage', 'delete_class_pattern',
     'get_subjects', 'save_subject', 'delete_subject', 'get_subject_pattern_map', 'save_subject_pattern_map',
-    'get_subject_class_matrix', 'toggle_subject_component', 'save_subject_part',
+    'get_subject_class_matrix', 'toggle_subject_component', 'save_subject_part', 'save_class_scope',
     'rename_exam_component_type', 'delete_exam_component_type',
     'get_exam_component_types', 'save_exam_component_type', 'get_subject_components_setup', 'save_subject_component', 'delete_subject_component',
     'get_exam_patterns', 'save_exam_pattern', 'duplicate_exam_pattern', 'delete_exam_pattern',
@@ -2499,18 +2499,177 @@ export async function POST(req) {
     return hit || null;
   }
 
-  // A Class Pattern's real class+section combos (crosscheck data from Class
-  // Setup), each carrying the `session` it was mapped under.
-  async function _classPatternRowsForPattern(patternId) {
+  // ── Exam subject lists scoped to real students ───────────────────────
+  // A subject list (class_patterns row) with class_name set covers the
+  // students matching its scope: class + optional section / group / session
+  // (null = any). When several fit a student, the list set up / edited most
+  // recently (scope_updated_at) wins; automatic lists have none and rank
+  // below every hand-made one, and among them the most specific wins
+  // (section 4, session 2, group 1). Rows without class_name are
+  // pre-migration / legacy lists that still use Class Setup's saved mapping.
+  function _normGroup(g) {
+    const v = String(g == null ? '' : g).trim();
+    return /^(none|null|-|n\/a)?$/i.test(v) ? '' : v;
+  }
+  function _scopeLabel(p) {
+    if (!p.class_name) return p.name;
+    return p.class_name + (p.section ? `-${p.section}` : '') + (p.student_group ? ` · ${p.student_group}` : '') + (p.session ? ` · ${p.session}` : '');
+  }
+  function _scopeScore(p, st) {
+    if (!p.class_name || p.class_name !== st.class) return -1;
+    let score = 0;
+    if (p.section) { if (p.section !== st.section) return -1; score += 4; }
+    if (p.session) { if (p.session !== st.session) return -1; score += 2; }
+    if (p.student_group) { if (p.student_group !== st.group) return -1; score += 1; }
+    return score;
+  }
+  function _sessionMatches(session, year) {
+    return !year || String(session || '').includes(String(year).trim());
+  }
+  async function _examYear(examOrId) {
+    const exam = typeof examOrId === 'object' ? examOrId : (await sbExam(`exams?id=eq.${encodeURIComponent(examOrId)}&select=term_id`))?.[0];
+    if (!exam || !exam.term_id) return '';
+    const t = (await sbExam(`exam_terms?id=eq.${encodeURIComponent(exam.term_id)}&select=academic_year`))?.[0];
+    return t && t.academic_year ? String(t.academic_year).trim() : '';
+  }
+  // Per-request caches: the roster and the list of subject lists are read
+  // once however many helpers below need them.
+  let _rosterMemo = null, _patternsMemo = null;
+  async function _roster() {
+    if (!_rosterMemo) {
+      const rows = await sbAllRows('students_data?select=student_id,student_name,roll,class,section,group,session');
+      if (rows?.error) return { error: rows.error };
+      _rosterMemo = rows.filter(r => String(r.class || '').trim()).map(r => ({
+        ...r, class: String(r.class).trim(), section: String(r.section || '').trim(),
+        group: _normGroup(r.group), session: String(r.session || '').trim(),
+      }));
+    }
+    return _rosterMemo;
+  }
+  async function _patterns(fresh) {
+    if (fresh || !_patternsMemo) {
+      const rows = await sbExam('class_patterns?select=*&order=id.asc');
+      if (rows?.error || !Array.isArray(rows)) return { error: rows?.error || 'Failed to load classes.' };
+      _patternsMemo = rows;
+    }
+    return _patternsMemo;
+  }
+  async function _patternById(patternId) {
+    const all = await _patterns();
+    return Array.isArray(all) ? (all.find(p => String(p.id) === String(patternId)) || null) : null;
+  }
+  // student_id -> id of the subject list they belong to.
+  function _assignStudents(patterns, roster) {
+    const scoped = patterns.filter(p => p.class_name);
+    const out = new Map();
+    roster.forEach(st => {
+      let best = null, bestScore = -1;
+      scoped.forEach(p => {
+        const sc = _scopeScore(p, st);
+        if (sc < 0) return;
+        const t = p.scope_updated_at ? Date.parse(p.scope_updated_at) : 0;
+        const bt = best && best.scope_updated_at ? Date.parse(best.scope_updated_at) : 0;
+        if (!best || t > bt || (t === bt && (sc > bestScore || (sc === bestScore && p.id < best.id)))) { best = p; bestScore = sc; }
+      });
+      if (best && bestScore >= 0) out.set(st.student_id, best.id);
+    });
+    return out;
+  }
+  // Students of a scoped list, optionally one section / one academic year.
+  async function _rosterForClass(p, sectionFilter, year) {
+    const [roster, patterns] = await Promise.all([_roster(), _patterns()]);
+    if (roster.error || patterns.error) return [];
+    const assigned = _assignStudents(patterns, roster);
+    return roster.filter(st => assigned.get(st.student_id) === p.id
+      && (!sectionFilter || st.section === String(sectionFilter).trim())
+      && _sessionMatches(st.session, year));
+  }
+  // Everything Subject Setup and the exam class pickers need. Creates the
+  // default list for any class (or class + group, where the class has
+  // groups) that has students but no list yet. needs_migration = the scope
+  // columns don't exist yet.
+  async function _examClassList() {
+    let patterns = await _patterns(true);
+    if (patterns.error) return { error: patterns.error };
+    const migrated = patterns.length === 0 || Object.prototype.hasOwnProperty.call(patterns[0], 'class_name');
+    if (!migrated) return { needs_migration: true, patterns: patterns.map(p => ({ ...p, label: p.name, default_label: p.name, students: null, orphan: false, can_delete: true })), scope_options: {} };
+    const roster = await _roster();
+    if (roster.error) return { error: roster.error };
+
+    const byClass = new Map();
+    roster.forEach(st => {
+      if (!byClass.has(st.class)) byClass.set(st.class, { sections: new Set(), groups: new Set(), sessions: new Set(), noGroup: false });
+      const c = byClass.get(st.class);
+      if (st.section) c.sections.add(st.section);
+      if (st.group) c.groups.add(st.group); else c.noGroup = true;
+      if (st.session) c.sessions.add(st.session);
+    });
+    const isDefault = p => p.class_name && !p.section && !p.session;
+    const wanted = [];
+    byClass.forEach((c, cls) => {
+      if (!c.groups.size) wanted.push({ class_name: cls, student_group: null });
+      else {
+        c.groups.forEach(g => wanted.push({ class_name: cls, student_group: g }));
+        if (c.noGroup) wanted.push({ class_name: cls, student_group: null });
+      }
+    });
+    const missing = wanted.filter(w => !patterns.some(p => isDefault(p) && p.class_name === w.class_name && (p.student_group || null) === w.student_group));
+    if (missing.length) {
+      await Promise.all(missing.map(w => sbExam('class_patterns', 'POST', { name: _scopeLabel(w), class_name: w.class_name, student_group: w.student_group })));
+      patterns = await _patterns(true);
+      if (patterns.error) return { error: patterns.error };
+    }
+    const [mapRows, compRows, examRows] = await Promise.all([
+      sbExam('subject_pattern_map?select=pattern_id'),
+      sbExam('subject_components?select=pattern_id'),
+      sbExam('exams?select=pattern_id'),
+    ]);
+    const used = new Set([...(Array.isArray(mapRows) ? mapRows : []), ...(Array.isArray(compRows) ? compRows : [])].map(r => r.pattern_id));
+    const inExam = new Set((Array.isArray(examRows) ? examRows : []).map(r => r.pattern_id));
+    const counts = new Map();
+    _assignStudents(patterns, roster).forEach(pid => counts.set(pid, (counts.get(pid) || 0) + 1));
+    const out = [];
+    patterns.forEach(p => {
+      const students = counts.get(p.id) || 0;
+      // Old unscoped lists nobody uses any more are simply not shown.
+      if (!p.class_name && !used.has(p.id) && !inExam.has(p.id)) return;
+      const defaultLabel = _scopeLabel(p);
+      out.push({
+        id: p.id, class_name: p.class_name || null, section: p.section || null, student_group: p.student_group || null, session: p.session || null,
+        display_name: p.display_name || null, default_label: defaultLabel,
+        label: (p.display_name && p.display_name.trim()) || defaultLabel,
+        students, orphan: students === 0, in_exam: inExam.has(p.id), is_default: isDefault(p),
+        // Narrower lists can go any time (their students fall back to the
+        // broader list); a class's default list only once nobody is left in it.
+        can_delete: !isDefault(p) || students === 0,
+      });
+    });
+    const scope_options = {};
+    byClass.forEach((c, cls) => {
+      const sort = a => [...a].sort((x, y) => x.localeCompare(y, undefined, { numeric: true }));
+      scope_options[cls] = { sections: sort(c.sections), groups: sort(c.groups), sessions: sort(c.sessions) };
+    });
+    return { patterns: out, scope_options };
+  }
+
+  // A list's real class+section(+session) combos: from its students for
+  // scoped lists, else Class Setup's saved mapping (legacy lists).
+  async function _classPatternRowsForPattern(patternId, year) {
+    const p = await _patternById(patternId);
+    if (p && p.class_name) {
+      const students = await _rosterForClass(p, null, year);
+      return [...new Map(students.map(r => [`${r.class}||${r.section}||${r.session}`, { class: r.class, section: r.section, session: r.session }])).values()];
+    }
     const rows = await sbExam(`class_pattern_map?pattern_id=eq.${encodeURIComponent(patternId)}&select=class,section,session`);
     return Array.isArray(rows) ? rows : [];
   }
 
-  // Real students belonging to a pattern — grouped by class+section (one
-  // fetch per unique combo) then filtered to just the session(s) that combo
-  // was actually mapped under, so two sections sharing a class+section but
-  // mapped under different sessions never cross-contaminate each other.
-  async function _studentsForPattern(patternId) {
+  // Real students belonging to a list — scoped lists straight from the
+  // roster; legacy lists grouped by class+section (one fetch per combo) then
+  // filtered to the session(s) that combo was mapped under.
+  async function _studentsForPattern(patternId, year) {
+    const p = await _patternById(patternId);
+    if (p && p.class_name) return _rosterForClass(p, null, year);
     const triples = await _classPatternRowsForPattern(patternId);
     if (!triples.length) return [];
     const groups = new Map();
@@ -2601,9 +2760,50 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success', rows, patterns: Array.isArray(patterns) ? patterns : [] });
   }
   if (action === 'get_class_patterns') {
-    const rows = await sbExam('class_patterns?select=*&order=name.asc');
-    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
-    return NextResponse.json({ result: 'success', patterns: rows });
+    const list = await _examClassList();
+    if (list.error) return NextResponse.json({ result: 'error', message: list.error });
+    return NextResponse.json({ result: 'success', patterns: list.patterns.map(p => ({ ...p, name: p.label })), scope_options: list.scope_options, needs_migration: !!list.needs_migration });
+  }
+  // Scope values must be ones that exist in the student database; empty =
+  // any. copy_from (new lists only) starts it with another list's subjects
+  // and marks setup.
+  if (action === 'save_class_scope') {
+    const { id, copy_from } = payload;
+    const clean = v => { const t = String(v == null ? '' : v).trim(); return t || null; };
+    const scope = { class_name: clean(payload.class_name), section: clean(payload.section), student_group: clean(payload.student_group), session: clean(payload.session) };
+    const display_name = clean(payload.display_name);
+    if (!scope.class_name) return NextResponse.json({ result: 'error', message: 'Pick a class.' });
+    const list = await _examClassList();
+    if (list.error) return NextResponse.json({ result: 'error', message: list.error });
+    if (list.needs_migration) return NextResponse.json({ result: 'error', message: 'Run migration_exam_classes_from_students.sql first.' });
+    const opts = list.scope_options[scope.class_name];
+    if (!opts) return NextResponse.json({ result: 'error', message: `No students are in class "${scope.class_name}".` });
+    if (scope.section && !opts.sections.includes(scope.section)) return NextResponse.json({ result: 'error', message: `Class ${scope.class_name} has no section "${scope.section}".` });
+    if (scope.student_group && !opts.groups.includes(scope.student_group)) return NextResponse.json({ result: 'error', message: `Class ${scope.class_name} has no group "${scope.student_group}".` });
+    if (scope.session && !opts.sessions.includes(scope.session)) return NextResponse.json({ result: 'error', message: `Class ${scope.class_name} has no session "${scope.session}".` });
+    const all = await _patterns(true);
+    const clash = (Array.isArray(all) ? all : []).find(p => String(p.id) !== String(id || '') && p.class_name === scope.class_name
+      && (p.section || null) === scope.section && (p.student_group || null) === scope.student_group && (p.session || null) === scope.session);
+    if (clash) return NextResponse.json({ result: 'error', message: `A subject list for "${_scopeLabel(clash)}" already exists.` });
+    // Only a new list or a changed scope becomes the "latest"; renaming alone
+    // (e.g. Six -> Grade Six) must not change which list students use.
+    const before = id ? (Array.isArray(all) ? all : []).find(p => String(p.id) === String(id)) : null;
+    const scopeChanged = !before || ['class_name', 'section', 'student_group', 'session'].some(k => (before[k] || null) !== scope[k]);
+    const row = { ...scope, display_name, name: display_name || _scopeLabel(scope), ...(scopeChanged ? { scope_updated_at: new Date().toISOString() } : {}) };
+    const r = id
+      ? await sbExam(`class_patterns?id=eq.${encodeURIComponent(id)}`, 'PATCH', row)
+      : await sbExam('class_patterns', 'POST', row);
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    const saved = Array.isArray(r) ? r[0] : r;
+    if (!id && copy_from && saved && saved.id) {
+      const [maps, comps] = await Promise.all([
+        sbExam(`subject_pattern_map?pattern_id=eq.${encodeURIComponent(copy_from)}&select=subject_id`),
+        sbExam(`subject_components?pattern_id=eq.${encodeURIComponent(copy_from)}&select=*`),
+      ]);
+      if (Array.isArray(maps) && maps.length) await sbExam('subject_pattern_map', 'POST', maps.map(m => ({ pattern_id: saved.id, subject_id: m.subject_id })));
+      if (Array.isArray(comps) && comps.length) await sbExam('subject_components', 'POST', comps.map(({ id: _i, created_at, pattern_id, ...c }) => ({ ...c, pattern_id: saved.id })));
+    }
+    return NextResponse.json({ result: 'success', pattern: saved });
   }
   if (action === 'save_class_pattern') {
     const { id, name } = payload;
@@ -2647,6 +2847,11 @@ export async function POST(req) {
   }
   if (action === 'delete_class_pattern') {
     const { id } = payload;
+    const target = await _patternById(id);
+    if (target && target.class_name && !target.section && !target.session) {
+      const left = await _rosterForClass(target);
+      if (left.length) return NextResponse.json({ result: 'error', message: `${left.length} student(s) still use this list — a class's main list can only be deleted once it has none.` });
+    }
     const examRows = await sbExam(`exams?pattern_id=eq.${encodeURIComponent(id)}&select=id`);
     if (Array.isArray(examRows) && examRows.length) {
       return NextResponse.json({ result: 'error', message: `${examRows.length} exam(s) use this pattern — archive or reassign them first.` });
@@ -2706,16 +2911,18 @@ export async function POST(req) {
   // each class pattern, the subjects ticked for it, and which parts
   // (CT/CQ/MCQ/Practical…) each of those subjects has there.
   if (action === 'get_subject_class_matrix') {
-    const [patterns, subjects, mapRows, comps, types] = await Promise.all([
-      sbExam('class_patterns?select=id,name&order=name.asc'),
+    const list = await _examClassList();
+    if (list.error) return NextResponse.json({ result: 'error', message: list.error });
+    const patterns = list.patterns;
+    const [subjects, mapRows, comps, types] = await Promise.all([
       sbExam('subjects?select=id,name&order=name.asc'),
       sbExam('subject_pattern_map?select=subject_id,pattern_id'),
       sbExam('subject_components?select=*'),
       sbExam('exam_component_types?select=id,name&order=id.asc'),
     ]);
-    const bad = [patterns, subjects, mapRows, comps, types].find(x => x?.error || !Array.isArray(x));
+    const bad = [subjects, mapRows, comps, types].find(x => x?.error || !Array.isArray(x));
     if (bad) return NextResponse.json({ result: 'error', message: bad?.error || 'Failed to load subject setup.' });
-    return NextResponse.json({ result: 'success', patterns, subjects, map: mapRows, components: comps, types });
+    return NextResponse.json({ result: 'success', patterns, subjects, map: mapRows, components: comps, types, scope_options: list.scope_options, needs_migration: !!list.needs_migration });
   }
   // Tick = the subject has this part in this class (a component row with
   // zero marks until Marks Setup fills them in). Ticking also puts the
@@ -2921,7 +3128,7 @@ export async function POST(req) {
     const srcSheets = await sbExam(`exam_entry_sheets?exam_id=eq.${encodeURIComponent(id)}&select=subject_id,component_type_id,is_open,assigned_user_id`);
     const intents = new Map();
     (Array.isArray(srcSheets) ? srcSheets : []).forEach(s => intents.set(`${s.subject_id}||${s.component_type_id}`, s));
-    const newSections = [...new Map((await _classPatternRowsForPattern(pattern_id)).map(s => [`${s.class}||${s.section}`, s])).values()];
+    const newSections = [...new Map((await _classPatternRowsForPattern(pattern_id, await _examYear({ term_id }))).map(s => [`${s.class}||${s.section}`, s])).values()];
     const newRows = [];
     intents.forEach(intent => newSections.forEach(sec => newRows.push({
       exam_id: newExam.id, subject_id: intent.subject_id, component_type_id: intent.component_type_id,
@@ -2974,7 +3181,7 @@ export async function POST(req) {
     const activeTypeIds = new Set((examRow.exam_patterns?.active_component_type_ids || []).map(String));
     const [subjects, sectionRows, existing] = await Promise.all([
       _subjectsForPattern(examRow.pattern_id),
-      _classPatternRowsForPattern(examRow.pattern_id),
+      _classPatternRowsForPattern(examRow.pattern_id, await _examYear(examRow)),
       sbExam(`exam_entry_sheets?exam_id=eq.${encodeURIComponent(exam_id)}&select=*`),
     ]);
     const uniqueSections = [...new Map(sectionRows.map(s => [`${s.class}||${s.section}`, s])).values()];
@@ -3009,8 +3216,16 @@ export async function POST(req) {
   // history (see exam._exam_marks_history in the schema) ────────────────
   if (action === 'get_exam_marks_for_entry') {
     const { exam_id, subject_id, component_type_id, class: cls, section } = payload;
-    const roster = await sb(`students_data?class=eq.${encodeURIComponent(cls)}${section ? `&section=eq.${encodeURIComponent(section)}` : ''}&select=student_id,student_name,roll&order=roll.asc`);
+    let roster = await sb(`students_data?class=eq.${encodeURIComponent(cls)}${section ? `&section=eq.${encodeURIComponent(section)}` : ''}&select=student_id,student_name,roll,group,session&order=roll.asc`);
     if (roster?.error) return NextResponse.json({ result: 'error', message: roster.error });
+    const examRow = (await sbExam(`exams?id=eq.${encodeURIComponent(exam_id)}&select=pattern_id,term_id`))?.[0];
+    const examClass = examRow ? await _patternById(examRow.pattern_id) : null;
+    if (examClass && examClass.class_name) {
+      const own = await _rosterForClass(examClass, section, await _examYear(examRow));
+      const ids = new Set(own.map(r => r.student_id));
+      roster = roster.filter(r => ids.has(r.student_id));
+    }
+    roster = roster.map(({ group, session, ...r }) => r);
     const marksRows = await sbExam(`exam_marks?exam_id=eq.${encodeURIComponent(exam_id)}&subject_id=eq.${encodeURIComponent(subject_id)}&component_type_id=eq.${encodeURIComponent(component_type_id)}&select=student_id,marks_obtained,update_history`);
     const marksMap = {};
     (Array.isArray(marksRows) ? marksRows : []).forEach(m => { marksMap[m.student_id] = m; });
@@ -3048,7 +3263,7 @@ export async function POST(req) {
 
     const [subjects, students, marksRows, scales] = await Promise.all([
       _subjectsForPattern(examRow.pattern_id),
-      _studentsForPattern(examRow.pattern_id),
+      _studentsForPattern(examRow.pattern_id, await _examYear(examRow)),
       sbExam(`exam_marks?exam_id=eq.${encodeURIComponent(exam_id)}&select=subject_id,component_type_id,student_id,marks_obtained`),
       sbExam('grade_scales?category=eq.default&select=*'),
     ]);

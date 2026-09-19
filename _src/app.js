@@ -12967,7 +12967,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   const EXAMS_SUBTABS = [
     { id: 'ex-terms', label: 'Term Setup' },
-    { id: 'ex-classes', label: 'Class Setup' },
     { id: 'ex-subjects', label: 'Subject Setup' },
     { id: 'ex-pattern', label: 'Exam Pattern Setup' },
     { id: 'ex-exam-setup', label: 'Exam Setup' },
@@ -12978,7 +12977,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { id: 'ex-board', label: 'Board Exam Records' },
   ];
   let _exTerms = [];
-  let _classPatterns = [];       // Class Pattern (Class Setup) — curriculum grouping of real class+sections
+  let _classPatterns = [];       // exam classes (class + group from the student database), labelled
   let _componentTypes = [];      // CT/CQ/MCQ/... reference list
   let _examPatternTemplates = []; // Exam Pattern (Exam Pattern Setup) — component-subset-per-occasion
   let _examList = [];
@@ -13031,34 +13030,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
       </div>
 
-      <div id="ex-classes" style="display:none">
-        <div class="flex items-center gap-2 mb-3">
-          <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-classpattern-name" id="cpNewPatternName" placeholder="New pattern name (e.g. Six, Ten-Science)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:280px">
-          <button onclick="saveClassPattern()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ Add Pattern</button>
-        </div>
-        <div id="classPatternsChips" class="flex flex-wrap gap-2 mb-3"></div>
-        <div class="flex items-center gap-2 mb-3 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
-          <span class="text-[10px] font-black text-slate-500 uppercase">Apply to selected:</span>
-          <select id="cpBulkPatternSelect" class="exam-pattern-select px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs"><option value="">Select class pattern…</option></select>
-          <button onclick="bulkApplyClassPattern()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Apply</button>
-          <span class="text-[10px] text-slate-400 font-bold ml-auto"><span id="cpSelectedCount">0</span> selected</span>
-        </div>
-        <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:520px">
-          <table class="w-full text-left border-collapse text-xs">
-            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
-              <th class="py-2 px-3"><input type="checkbox" id="cpSelectAll" onchange="toggleAllClassPatternRows(this.checked)"></th>
-              <th class="py-2 px-3">Class</th><th class="py-2 px-3">Section</th><th class="py-2 px-3">Session</th><th class="py-2 px-3">Students</th><th class="py-2 px-3">Pattern</th>
-            </tr></thead>
-            <tbody id="classPatternBody"><tr><td colspan="6" class="p-3 text-slate-400 font-bold">Loading…</td></tr></tbody>
-          </table>
-        </div>
-      </div>
-
       <div id="ex-subjects" style="display:none">
         <div class="flex flex-wrap items-center gap-2 mb-3">
-          <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-scm-newclass" id="scmNewClassName" placeholder="New class (e.g. Eleven-Science)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:220px">
-          <button onclick="scmAddClass()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ Add Class</button>
           <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-scm-filter" id="scmFilter" placeholder="Find class…" oninput="scmRender()" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:160px">
+          <button onclick="scmOpenScope(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ Subject List</button>
           <button onclick="scmExpandAll(true)" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Expand All</button>
           <button onclick="scmExpandAll(false)" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Collapse All</button>
           <button onclick="scmManageParts()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Exam Parts</button>
@@ -13066,6 +13041,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button onclick="scmManageSubjects()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">All Subjects</button>
           <button id="scmGridBtn" onclick="scmShowGrid()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50 ml-auto">Grid View</button>
         </div>
+        <p class="text-[10px] text-slate-400 font-bold mb-3">Classes come from the student database: every class (and class + group) gets its own list automatically. Add narrower lists — a section, a session, or any mix — with + Subject List; if several fit a student, the latest one is used.</p>
+        <div id="scmNotice"></div>
         <div id="scmHost" class="flex flex-col gap-4"><span class="text-xs text-slate-400 font-bold italic">Loading…</span></div>
         <div id="subjGridLegacy" style="display:none">
         <div class="flex items-center gap-2 mb-3">
@@ -13227,7 +13204,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
     const loaders = {
       'ex-terms': loadExamTerms,
-      'ex-classes': loadClassPatternSetup,
       'ex-subjects': () => (_scmGrid ? loadSubjectSetup() : scmLoad()),
       'ex-pattern': loadExamPatternSetup,
       'ex-exam-setup': loadExamSetupList,
@@ -13270,7 +13246,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _adminFetch('archive_exam_term', { id, archived }).then(res => { if (res && res.result === 'success') loadExamTerms(); });
   }
 
-  // ── Class Setup — crosscheck-only, pattern dropdown per class+section+session
+  // Exam classes come from the student database (class + group); the
+  // server labels each with its display name. Feeds every class picker.
   function _loadClassPatternsList() {
     return _adminFetch('get_class_patterns', {}).then(res => {
       _classPatterns = (res && res.result === 'success' && res.patterns) || [];
@@ -13278,105 +13255,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
   }
   function _populateClassPatternSelects() {
-    const opts = '<option value="">Select class pattern…</option>' + _classPatterns.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+    const opts = '<option value="">Select class…</option>' + _classPatterns.filter(p => !p.orphan || p.in_exam).map(p => `<option value="${p.id}">${_escHtml(p.name)}</option>`).join('');
     document.querySelectorAll('.exam-pattern-select').forEach(el => { const cur = el.value; el.innerHTML = opts; if (cur) el.value = cur; });
   }
-  function loadClassPatternSetup() {
-    _adminFetch('get_class_pattern_setup', {}).then(res => {
-      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed to load', 'error'); return; }
-      _classPatterns = res.patterns || [];
-      _populateClassPatternSelects();
-      document.getElementById('classPatternsChips').innerHTML = _classPatterns.map(p => `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 text-slate-700 rounded-full text-[11px] font-bold border border-slate-200">${p.name} <i data-lucide="pencil" class="h-3 w-3 text-blue-500 cursor-pointer" title="Rename" onclick="renameClassPattern(${p.id})"></i><i data-lucide="list-checks" class="h-3 w-3 text-emerald-600 cursor-pointer" title="Manage subjects for this pattern" onclick="manageClassPatternSubjects(${p.id})"></i><i data-lucide="trash-2" class="h-3 w-3 text-red-500 cursor-pointer" title="Delete" onclick="deleteClassPattern(${p.id})"></i></span>`).join('') || '<span class="text-xs text-slate-400 font-bold italic">No patterns yet — add one above.</span>';
-      lucide.createIcons();
-      document.getElementById('classPatternBody').innerHTML = res.rows.map(r => `<tr class="border-b border-slate-50">
-        <td class="py-1.5 px-3"><input type="checkbox" class="cp-row-cb" data-class="${r.class}" data-section="${r.section}" data-session="${r.session}" onchange="_updateClassPatternSelectedCount()"></td>
-        <td class="py-1.5 px-3 font-bold">${r.class}</td><td class="py-1.5 px-3">${r.section}</td><td class="py-1.5 px-3">${r.session || '—'}</td><td class="py-1.5 px-3">${r.count}</td>
-        <td class="py-1.5 px-3"><select data-class="${r.class}" data-section="${r.section}" data-session="${r.session}" onchange="saveClassPatternMap(this)" class="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">${_classPatternOptionsHtml(r.pattern_id)}</select></td>
-      </tr>`).join('') || '<tr><td colspan="6" class="p-3 text-slate-400 font-bold">No classes found.</td></tr>';
-      document.getElementById('cpSelectAll').checked = false;
-      _updateClassPatternSelectedCount();
-    });
-  }
-  function toggleAllClassPatternRows(checked) {
-    document.querySelectorAll('.cp-row-cb').forEach(cb => { cb.checked = checked; });
-    _updateClassPatternSelectedCount();
-  }
-  function _updateClassPatternSelectedCount() {
-    const n = document.querySelectorAll('.cp-row-cb:checked').length;
-    const el = document.getElementById('cpSelectedCount');
-    if (el) el.textContent = n;
-  }
-  function bulkApplyClassPattern() {
-    const pattern_id = document.getElementById('cpBulkPatternSelect').value || null;
-    const rows = Array.from(document.querySelectorAll('.cp-row-cb:checked')).map(cb => cb.dataset);
-    if (!rows.length) { showToast('Select at least one row', 'error'); return; }
-    Promise.all(rows.map(r => _adminFetch('save_class_pattern_map', { class: r.class, section: r.section, session: r.session, pattern_id }))).then(results => {
-      const failed = results.filter(r => !r || r.result !== 'success');
-      showToast(failed.length ? `Applied to ${rows.length - failed.length} of ${rows.length}` : `Applied to ${rows.length} row${rows.length === 1 ? '' : 's'}`, failed.length ? 'error' : undefined);
-      loadClassPatternSetup();
-    });
-  }
-  function _classPatternOptionsHtml(selectedId) {
-    return '<option value="">— none —</option>' + _classPatterns.map(p => `<option value="${p.id}" ${String(p.id) === String(selectedId) ? 'selected' : ''}>${p.name}</option>`).join('');
-  }
-  function saveClassPattern() {
-    const name = document.getElementById('cpNewPatternName').value.trim();
-    if (!name) return;
-    _adminFetch('save_class_pattern', { name }).then(res => {
-      if (res && res.result === 'success') { showToast('Pattern added'); document.getElementById('cpNewPatternName').value = ''; loadClassPatternSetup(); }
-      else showToast((res && res.message) || 'Failed', 'error');
-    });
-  }
-  function renameClassPattern(id) {
-    const p = _classPatterns.find(x => x.id === id);
-    const newName = prompt('Rename class pattern:', p ? p.name : '');
-    if (newName === null) return;
-    const trimmed = newName.trim();
-    if (!trimmed || (p && trimmed === p.name)) return;
-    _adminFetch('save_class_pattern', { id, name: trimmed }).then(res => {
-      if (res && res.result === 'success') { showToast('Pattern renamed'); loadClassPatternSetup(); }
-      else showToast((res && res.message) || 'Failed', 'error');
-    });
-  }
-  // "Edit a class pattern" is split across two concerns handled by the two
-  // tabs that already do them well — renaming stays here, and subjects/
-  // marks jump straight into Subject Setup with this class's card opened
-  // and scrolled into view, rather than duplicating that editor here.
-  function manageClassPatternSubjects(pattern_id) {
-    const id = Number(pattern_id);
-    _scmOpen.add(id);
-    _scmSaveOpen();
-    _scmScrollTo = id;
-    const f = document.getElementById('scmFilter');
-    if (f) f.value = '';
-    if (_scmGrid) scmShowGrid(); // back to the class view; that also reloads it
-    switchExamsTab('ex-subjects');
-  }
-  function deleteClassPattern(id) {
-    const p = _classPatterns.find(x => x.id === id);
-    const name = p ? p.name : 'this pattern';
-    _adminFetch('get_class_pattern_usage', { id }).then(res => {
-      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed to check usage', 'error'); return; }
-      if (res.exams > 0) { showToast(`Can't delete "${name}" — ${res.exams} exam(s) use it. Archive or reassign them first.`, 'error'); return; }
-      const parts = [];
-      if (res.class_sections) parts.push(`${res.class_sections} class+section mapping(s) will be unassigned (not deleted)`);
-      if (res.subjects) parts.push(`${res.subjects} subject link(s) and their component setup will be permanently deleted`);
-      const warn = parts.length ? ' ' + parts.join('; ') + '.' : ' It has no class or subject links yet.';
-      if (!confirm(`Delete class pattern "${name}"?${warn}`)) return;
-      _adminFetch('delete_class_pattern', { id }).then(res2 => {
-        if (res2 && res2.result === 'success') { showToast('Pattern deleted'); loadClassPatternSetup(); }
-        else showToast((res2 && res2.message) || 'Failed', 'error');
-      });
-    });
-  }
-  function saveClassPatternMap(sel) {
-    const { class: cls, section, session } = sel.dataset;
-    const pattern_id = sel.value || null;
-    _adminFetch('save_class_pattern_map', { class: cls, section, session, pattern_id }).then(res => {
-      if (!res || res.result !== 'success') showToast((res && res.message) || 'Failed', 'error');
-    });
-  }
-
   // ── Subject Setup — global catalog + per-pattern checklist ──────────────
   function loadSubjectSetup() {
     Promise.all([_adminFetch('get_subjects', {}), _adminFetch('get_subject_pattern_map', {})]).then(([subRes, mapRes]) => {
@@ -13519,13 +13400,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const host = document.getElementById('scmHost');
     return _adminFetch('get_subject_class_matrix', {}).then(res => {
       if (!res || res.result !== 'success') { if (host) host.innerHTML = `<span class="text-xs text-red-500 font-bold">${_escHtml((res && res.message) || 'Could not load subject setup.')}</span>`; return; }
-      const patterns = (res.patterns || []).slice().sort((a, b) => _scmRank(a.name) - _scmRank(b.name) || a.name.localeCompare(b.name));
+      const patterns = (res.patterns || []).map(p => ({ ...p, name: p.label || p.name }))
+        .sort((a, b) => _scmRank(a.class_name || a.name) - _scmRank(b.class_name || b.name)
+          || String(a.class_name || a.name).localeCompare(String(b.class_name || b.name))
+          || String(a.student_group || '').localeCompare(String(b.student_group || '')));
+      const notice = document.getElementById('scmNotice');
+      if (notice) notice.innerHTML = res.needs_migration
+        ? '<div class="mb-3 px-3 py-2 rounded-xl border border-amber-200 bg-amber-50 text-[11px] font-bold text-amber-700">Classes can\'t be read from the student database yet — run <b>migration_exam_classes_from_students.sql</b> in Supabase. Until then the old class lists are shown.</div>'
+        : '';
       _scm = {
         patterns,
         subjects: res.subjects || [],
         map: new Set((res.map || []).map(m => `${m.pattern_id}|${m.subject_id}`)),
         comps: new Map((res.components || []).map(c => [`${c.pattern_id}|${c.subject_id}|${c.component_type_id}`, c])),
         types: res.types || [],
+        scopeOptions: res.scope_options || {},
+        needsMigration: !!res.needs_migration,
       };
       _classPatterns = patterns;
       _populateClassPatternSelects();
@@ -13555,10 +13445,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       ? '<span class="text-[10px] font-bold text-emerald-600 ml-1">all marks set</span>'
       : `<span class="text-[10px] font-bold text-amber-500 ml-1">${n - done} without marks</span>`;
     return `<div class="flex items-center justify-between gap-2 px-4 py-2.5 bg-slate-50 ${open ? 'border-b border-slate-200' : ''} cursor-pointer select-none hover:bg-slate-100" onclick="scmToggleClass(${p.id})" title="${open ? 'Collapse' : 'Expand'}">
-      <p class="flex items-center gap-1.5 font-black text-slate-800 text-sm"><i data-lucide="${open ? 'chevron-down' : 'chevron-right'}" class="h-4 w-4 text-slate-400"></i>${_escHtml(p.name)} <span class="text-[10px] font-bold text-slate-400 ml-1">${n} subject${n === 1 ? '' : 's'}</span>${status}</p>
+      <p class="flex items-center flex-wrap gap-x-1.5 font-black text-slate-800 text-sm"><i data-lucide="${open ? 'chevron-down' : 'chevron-right'}" class="h-4 w-4 text-slate-400"></i>${_escHtml(p.name)}${p.display_name && p.default_label ? ` <span class="text-[10px] font-bold text-slate-400">(${_escHtml(p.default_label)})</span>` : ''}
+        <span class="text-[10px] font-bold text-slate-400 ml-1">${n} subject${n === 1 ? '' : 's'}${p.students != null && !p.orphan ? ` · ${p.students} students` : ''}</span>${status}
+        ${p.orphan && p.students != null ? '<span class="text-[9px] font-black uppercase text-white bg-red-500 rounded px-1.5 py-0.5 ml-1">No students</span>' : ''}</p>
       <div class="flex items-center gap-2.5">
-        <i data-lucide="pencil" class="h-3.5 w-3.5 text-blue-500 cursor-pointer" title="Rename class" onclick="event.stopPropagation(); scmRenameClass(${p.id})"></i>
-        <i data-lucide="trash-2" class="h-3.5 w-3.5 text-red-500 cursor-pointer" title="Delete class" onclick="event.stopPropagation(); scmDeleteClass(${p.id})"></i>
+        ${_scm.needsMigration ? '' : `<i data-lucide="pencil" class="h-3.5 w-3.5 text-blue-500 cursor-pointer" title="Edit who this list covers, or the name it's shown as" onclick="event.stopPropagation(); scmOpenScope(${p.id})"></i>`}
+        ${p.can_delete ? `<i data-lucide="trash-2" class="h-3.5 w-3.5 text-red-500 cursor-pointer" title="${p.is_default ? 'Delete — no students left in this class' : 'Delete this list — its students go back to the broader list'}" onclick="event.stopPropagation(); scmDeleteClass(${p.id})"></i>` : ''}
       </div>
     </div>`;
   }
@@ -13815,25 +13707,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       else showToast(`Can't delete "${name}" — ${(res && res.message) || 'it is still in use (entered marks or exam sheets)'}`, 'error');
     });
   }
-  function scmAddClass() {
-    const el = document.getElementById('scmNewClassName');
-    const name = (el ? el.value : '').trim();
-    if (!name) return;
-    if (_scm && _scm.patterns.some(p => p.name.toLowerCase() === name.toLowerCase())) { showToast(`Class "${name}" already exists`, 'error'); return; }
-    _adminFetch('save_class_pattern', { name }).then(res => {
-      if (res && res.result === 'success') { showToast('Class added'); el.value = ''; if (res.pattern && res.pattern.id) { _scmOpen.add(res.pattern.id); _scmSaveOpen(); } scmLoad(); }
-      else showToast((res && res.message) || 'Failed', 'error');
-    });
-  }
-  function scmRenameClass(pid) {
-    const p = _scm.patterns.find(x => x.id === pid);
-    const name = (prompt('Rename class:', p ? p.name : '') || '').trim();
-    if (!name || (p && name === p.name)) return;
-    _adminFetch('save_class_pattern', { id: pid, name }).then(res => {
-      if (res && res.result === 'success') { showToast('Class renamed'); scmLoad(); }
-      else showToast((res && res.message) || 'Failed', 'error');
-    });
-  }
   function scmDeleteClass(pid) {
     const p = _scm.patterns.find(x => x.id === pid);
     const name = p ? p.name : 'this class';
@@ -13841,13 +13714,105 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed to check usage', 'error'); return; }
       if (res.exams > 0) { showToast(`Can't delete "${name}" — ${res.exams} exam(s) use it. Archive or reassign them first.`, 'error'); return; }
       const parts = [];
-      if (res.class_sections) parts.push(`${res.class_sections} section(s) linked to it in Class Setup will be unlinked`);
       if (res.subjects) parts.push(`its ${res.subjects} subject(s) and their ticks will be deleted`);
-      if (!confirm(`Delete class "${name}"?${parts.length ? ' ' + parts.join('; ') + '.' : ''}`)) return;
+      const why = p && !p.is_default && p.students ? ` Its ${p.students} student(s) go back to the broader list.` : '';
+      if (!confirm(`Delete "${name}"?${why}${parts.length ? ' ' + parts.join('; ') + '.' : ''}`)) return;
       _adminFetch('delete_class_pattern', { id: pid }).then(res2 => {
         if (res2 && res2.result === 'success') { showToast('Class deleted'); scmLoad(); }
         else showToast((res2 && res2.message) || 'Failed', 'error');
       });
+    });
+  }
+  // Add / edit a subject list's scope. Every value comes from the student
+  // database (per class); "Any" leaves that part open. A new list can start
+  // with another list's subjects and marks.
+  let _scmScopeEdit = null; // null = new, else pattern id
+  function scmOpenScope(pid) {
+    if (!_scm) return;
+    if (_scm.needsMigration) { showToast('Run migration_exam_classes_from_students.sql in Supabase first', 'error'); return; }
+    _scmScopeEdit = pid || null;
+    const p = pid ? _scm.patterns.find(x => x.id === pid) : null;
+    const classes = Object.keys(_scm.scopeOptions || {}).sort((a, b) => _scmRank(a) - _scmRank(b) || a.localeCompare(b));
+    let ov = document.getElementById('scmScopeOverlay');
+    if (!ov) {
+      ov = document.createElement('div');
+      ov.id = 'scmScopeOverlay';
+      ov.className = 'fixed inset-0 z-[80] bg-slate-900/40 flex items-center justify-center p-4';
+      ov.onclick = e => { if (e.target === ov) ov.remove(); };
+      document.body.appendChild(ov);
+    }
+    const sel = (id, label) => `<label class="flex flex-col gap-1"><span class="text-[10px] font-black text-slate-500 uppercase">${label}</span>
+      <select id="${id}" onchange="_scmScopePreview()" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></select></label>`;
+    ov.innerHTML = `<div class="bg-white rounded-2xl shadow-xl w-full max-w-md flex flex-col" style="max-height:88vh">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+        <p class="font-black text-slate-800 text-sm">${p ? 'Edit subject list' : 'New subject list'}</p>
+        <i data-lucide="x" class="h-4 w-4 text-slate-500 cursor-pointer" onclick="document.getElementById('scmScopeOverlay').remove()"></i>
+      </div>
+      <div class="overflow-y-auto px-4 py-3 flex flex-col gap-3">
+        <label class="flex flex-col gap-1"><span class="text-[10px] font-black text-slate-500 uppercase">Class</span>
+          <select id="scmScClass" onchange="_scmScopeClassChanged()" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+            <option value="">Pick a class…</option>
+            ${classes.map(c => `<option value="${_escHtml(c)}" ${p && p.class_name === c ? 'selected' : ''}>${_escHtml(c)}</option>`).join('')}
+          </select></label>
+        <div class="grid grid-cols-3 gap-2">${sel('scmScSection', 'Section')}${sel('scmScGroup', 'Group')}${sel('scmScSession', 'Session')}</div>
+        <p id="scmScPreview" class="text-[11px] font-bold text-slate-500"></p>
+        <label class="flex flex-col gap-1"><span class="text-[10px] font-black text-slate-500 uppercase">Show as (optional)</span>
+          <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-scm-display" id="scmScDisplay" value="${_escHtml((p && p.display_name) || '')}" placeholder="e.g. Grade Six" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></label>
+        ${p ? '' : `<label class="flex flex-col gap-1"><span class="text-[10px] font-black text-slate-500 uppercase">Start with subjects from (optional)</span>
+          <select id="scmScCopy" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">— empty list —</option>
+            ${_scm.patterns.filter(x => _scmClassSubjects(x.id).length).map(x => `<option value="${x.id}">${_escHtml(x.name)} (${_scmClassSubjects(x.id).length} subjects)</option>`).join('')}</select></label>`}
+        <p class="text-[10px] text-slate-400 font-bold">Leave section, group or session on “Any” to cover all of them. If several lists fit a student, the one created or edited most recently is used (the automatic class lists always come last) — so e.g. a new Ten-A list takes over section A from Ten · Science.</p>
+      </div>
+      <div class="flex items-center justify-end gap-2 px-4 py-3 border-t border-slate-200">
+        <button onclick="document.getElementById('scmScopeOverlay').remove()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Cancel</button>
+        <button id="scmScSave" onclick="scmSaveScope()" class="px-4 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">${p ? 'Save' : 'Create'}</button>
+      </div>
+    </div>`;
+    lucide.createIcons();
+    _scmScopeClassChanged(p);
+  }
+  // Refill section / group / session with the chosen class's real values.
+  function _scmScopeClassChanged(p) {
+    const cls = (document.getElementById('scmScClass') || {}).value || '';
+    const o = (_scm.scopeOptions || {})[cls] || { sections: [], groups: [], sessions: [] };
+    const fill = (id, values, current) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.innerHTML = '<option value="">Any</option>' + values.map(v => `<option value="${_escHtml(v)}" ${current === v ? 'selected' : ''}>${_escHtml(v)}</option>`).join('');
+      el.disabled = !cls;
+    };
+    const cur = p && p.class_name === cls ? p : null;
+    fill('scmScSection', o.sections, cur && cur.section);
+    fill('scmScGroup', o.groups, cur && cur.student_group);
+    fill('scmScSession', o.sessions, cur && cur.session);
+    _scmScopePreview();
+  }
+  function _scmScopePreview() {
+    const v = id => (document.getElementById(id) || {}).value || '';
+    const cls = v('scmScClass');
+    const out = document.getElementById('scmScPreview');
+    if (!out) return;
+    out.textContent = cls ? 'Covers: ' + cls + (v('scmScSection') ? `-${v('scmScSection')}` : '') + (v('scmScGroup') ? ` · ${v('scmScGroup')}` : '') + (v('scmScSession') ? ` · ${v('scmScSession')}` : '') : '';
+  }
+  function scmSaveScope() {
+    const v = id => (document.getElementById(id) || {}).value || '';
+    const payload = {
+      id: _scmScopeEdit || undefined,
+      class_name: v('scmScClass'), section: v('scmScSection'), student_group: v('scmScGroup'), session: v('scmScSession'),
+      display_name: v('scmScDisplay').trim(), copy_from: v('scmScCopy') || undefined,
+    };
+    if (!payload.class_name) { showToast('Pick a class', 'error'); return; }
+    const btn = document.getElementById('scmScSave');
+    if (btn) btn.disabled = true;
+    _adminFetch('save_class_scope', payload).then(res => {
+      if (btn) btn.disabled = false;
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Not saved', 'error'); return; }
+      const id = (res.pattern && res.pattern.id) || _scmScopeEdit;
+      if (id) { _scmOpen.add(id); _scmSaveOpen(); _scmScrollTo = id; }
+      showToast(_scmScopeEdit ? 'Subject list updated' : 'Subject list created');
+      const ov = document.getElementById('scmScopeOverlay');
+      if (ov) ov.remove();
+      scmLoad();
     });
   }
   // Global subject list — rename/delete a subject everywhere, see where it's used.
