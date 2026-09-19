@@ -13449,6 +13449,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <span class="text-[10px] font-bold text-slate-400 ml-1">${n} subject${n === 1 ? '' : 's'}${p.students != null && !p.orphan ? ` · ${p.students} students` : ''}</span>${status}
         ${p.orphan && p.students != null ? '<span class="text-[9px] font-black uppercase text-slate-500 bg-slate-200 rounded px-1.5 py-0.5 ml-1" title="No student matches this list right now">No students yet</span>' : ''}</p>
       <div class="flex items-center gap-2.5">
+        ${n ? `<i data-lucide="copy" class="h-3.5 w-3.5 text-slate-500 hover:text-blue-600 cursor-pointer" title="Copy this class's subjects to other classes" onclick="event.stopPropagation(); scmOpenClassCopy(${p.id})"></i>` : ''}
         ${_scm.needsMigration ? '' : `<i data-lucide="pencil" class="h-3.5 w-3.5 text-blue-500 cursor-pointer" title="Edit who this list covers, or the name it's shown as" onclick="event.stopPropagation(); scmOpenScope(${p.id})"></i>`}
         ${p.can_delete ? `<i data-lucide="trash-2" class="h-3.5 w-3.5 text-red-500 cursor-pointer" title="${p.is_default ? 'Delete — no students left in this class' : 'Delete this list — its students go back to the broader list'}" onclick="event.stopPropagation(); scmDeleteClass(${p.id})"></i>` : ''}
       </div>
@@ -14047,6 +14048,76 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
     </div>`;
     lucide.createIcons();
+  }
+  // Copy a whole class's subject list (with every part's setup) onto other
+  // classes — Add/update keeps subjects only the target has, Replace makes
+  // the target identical.
+  let _scmClassCopySrc = null;
+  function scmOpenClassCopy(pid) {
+    const src = _scm.patterns.find(p => p.id === pid);
+    const subs = _scmClassSubjects(pid);
+    if (!src || !subs.length) { showToast('This class has no subjects to copy', 'error'); return; }
+    _scmClassCopySrc = pid;
+    let ov = document.getElementById('scmClassCopyOverlay');
+    if (!ov) {
+      ov = document.createElement('div');
+      ov.id = 'scmClassCopyOverlay';
+      ov.className = 'fixed inset-0 z-[80] bg-slate-900/40 flex items-center justify-center p-4';
+      ov.onclick = e => { if (e.target === ov) ov.remove(); };
+      document.body.appendChild(ov);
+    }
+    const others = _scm.patterns.filter(p => p.id !== pid);
+    ov.innerHTML = `<div class="bg-white rounded-2xl shadow-xl w-full max-w-lg flex flex-col" style="max-height:88vh">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+        <p class="font-black text-slate-800 text-sm">Copy ${_escHtml(src.name)}'s subjects</p>
+        <i data-lucide="x" class="h-4 w-4 text-slate-500 cursor-pointer" onclick="document.getElementById('scmClassCopyOverlay').remove()"></i>
+      </div>
+      <div class="overflow-y-auto px-4 py-3 flex flex-col gap-4">
+        <div class="bg-blue-50 border border-blue-100 rounded-xl px-3 py-2">
+          <p class="text-xs font-black text-slate-800">${subs.length} subject${subs.length === 1 ? '' : 's'}, with every part's marks, weight and pass</p>
+          <p class="text-[11px] font-bold text-slate-500">${subs.map(s => _escHtml(s.name)).join(' · ')}</p>
+        </div>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-start gap-2 text-xs font-bold text-slate-700 cursor-pointer"><input type="radio" name="scmCcMode" value="merge" checked class="mt-0.5 accent-blue-600"><span>Add / update<span class="block text-[10px] text-slate-400">These subjects are added or overwritten to match; subjects only the target has are kept.</span></span></label>
+          <label class="flex items-start gap-2 text-xs font-bold text-slate-700 cursor-pointer"><input type="radio" name="scmCcMode" value="replace" class="mt-0.5 accent-blue-600"><span>Replace<span class="block text-[10px] text-slate-400">The target ends up with exactly this list; its other subjects are removed from it.</span></span></label>
+        </div>
+        <div>
+          <div class="flex items-center justify-between mb-1.5"><span class="text-[10px] font-black text-slate-500 uppercase">Copy to</span>
+            <span class="flex gap-3 text-[10px] font-black uppercase">
+              <button class="text-blue-600" onclick="document.querySelectorAll('.scm-cc-to').forEach(c => { c.checked = true; })">All</button>
+              <button class="text-slate-400" onclick="document.querySelectorAll('.scm-cc-to').forEach(c => { c.checked = false; })">None</button></span></div>
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-1.5">${others.map(p => {
+            const n = _scmClassSubjects(p.id).length;
+            return `<label class="flex items-center gap-2 px-2 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer text-xs font-bold text-slate-700">
+              <input type="checkbox" class="scm-cc-to h-4 w-4 accent-blue-600" value="${p.id}">${_escHtml(p.name)}${n ? ` <span class="text-[9px] text-slate-400">${n}</span>` : ''}</label>`;
+          }).join('')}</div>
+        </div>
+      </div>
+      <div class="flex items-center justify-end gap-2 px-4 py-3 border-t border-slate-200">
+        <button onclick="document.getElementById('scmClassCopyOverlay').remove()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Cancel</button>
+        <button id="scmCcGo" onclick="scmDoClassCopy()" class="px-4 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Copy</button>
+      </div>
+    </div>`;
+    lucide.createIcons();
+  }
+  function scmDoClassCopy() {
+    const to_ids = [...document.querySelectorAll('.scm-cc-to:checked')].map(c => Number(c.value));
+    if (!to_ids.length) { showToast('Tick at least one class to copy to', 'error'); return; }
+    const mode = (document.querySelector('input[name="scmCcMode"]:checked') || {}).value || 'merge';
+    const names = to_ids.map(id => (_scm.patterns.find(p => p.id === id) || {}).name).filter(Boolean);
+    if (mode === 'replace' && !confirm(`Replace the subject lists of ${names.join(', ')}? Subjects they have that aren't in this list will be removed from them.`)) return;
+    const btn = document.getElementById('scmCcGo');
+    if (btn) { btn.disabled = true; btn.textContent = 'Copying…'; }
+    _adminFetch('copy_class_subjects', { from_id: _scmClassCopySrc, to_ids, mode }).then(res => {
+      if (btn) { btn.disabled = false; btn.textContent = 'Copy'; }
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Copy failed', 'error'); return; }
+      showToast(`Copied ${res.subjects} subject(s) to ${res.classes} class(es)`);
+      to_ids.forEach(id => _scmOpen.add(id));
+      _scmSaveOpen();
+      const ov = document.getElementById('scmClassCopyOverlay');
+      if (ov) ov.remove();
+      scmLoad();
+    });
   }
   function scmDoCopy() {
     if (!_scmCopySrc) return;

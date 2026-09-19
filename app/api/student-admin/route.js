@@ -517,7 +517,7 @@ const ADMIN_TAB_ACTIONS = {
     'get_class_pattern_setup', 'get_class_patterns', 'save_class_pattern', 'save_class_pattern_map',
     'get_class_pattern_usage', 'delete_class_pattern',
     'get_subjects', 'save_subject', 'delete_subject', 'get_subject_pattern_map', 'save_subject_pattern_map',
-    'get_subject_class_matrix', 'toggle_subject_component', 'save_subject_part', 'save_class_scope', 'save_exam_part',
+    'get_subject_class_matrix', 'toggle_subject_component', 'save_subject_part', 'save_class_scope', 'save_exam_part', 'copy_class_subjects',
     'rename_exam_component_type', 'delete_exam_component_type',
     'get_exam_component_types', 'save_exam_component_type', 'get_subject_components_setup', 'save_subject_component', 'delete_subject_component',
     'get_exam_patterns', 'save_exam_pattern', 'duplicate_exam_pattern', 'delete_exam_pattern',
@@ -3080,6 +3080,40 @@ export async function POST(req) {
     }
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
     return NextResponse.json({ result: 'success', type: Array.isArray(r) ? r[0] : r, warning });
+  }
+  // Copy a whole class's subjects (and every part's marks setup) onto other
+  // classes. mode 'merge': each copied subject is made to match the source,
+  // subjects only the target has are kept. mode 'replace': the target ends
+  // up with exactly the source's list.
+  if (action === 'copy_class_subjects') {
+    const { from_id, to_ids, mode } = payload;
+    const targets = (Array.isArray(to_ids) ? to_ids : []).map(Number).filter(t => t && String(t) !== String(from_id));
+    if (!from_id || !targets.length) return NextResponse.json({ result: 'error', message: 'Pick the classes to copy to.' });
+    const [maps, comps] = await Promise.all([
+      sbExam(`subject_pattern_map?pattern_id=eq.${encodeURIComponent(from_id)}&select=subject_id`),
+      sbExam(`subject_components?pattern_id=eq.${encodeURIComponent(from_id)}&select=*`),
+    ]);
+    if (!Array.isArray(maps) || !Array.isArray(comps)) return NextResponse.json({ result: 'error', message: 'Could not read the source class.' });
+    if (!maps.length) return NextResponse.json({ result: 'error', message: 'The source class has no subjects to copy.' });
+    const subjectIds = [...new Set(maps.map(m => m.subject_id))];
+    const errors = [];
+    for (const to of targets) {
+      const q = `pattern_id=eq.${to}`;
+      const dels = mode === 'replace'
+        ? [sbExam(`subject_components?${q}`, 'DELETE'), sbExam(`subject_pattern_map?${q}`, 'DELETE')]
+        : [sbExam(`subject_components?${q}&subject_id=in.(${subjectIds.join(',')})`, 'DELETE')];
+      const delRes = await Promise.all(dels);
+      const delErr = delRes.find(r => r?.error);
+      if (delErr) { errors.push(delErr.error); continue; }
+      const have = mode === 'replace' ? [] : await sbExam(`subject_pattern_map?${q}&select=subject_id`);
+      const haveSet = new Set((Array.isArray(have) ? have : []).map(m => String(m.subject_id)));
+      const newMaps = subjectIds.filter(s => !haveSet.has(String(s))).map(s => ({ pattern_id: to, subject_id: s }));
+      if (newMaps.length) { const r = await sbExam('subject_pattern_map', 'POST', newMaps); if (r?.error) { errors.push(r.error); continue; } }
+      const newComps = comps.map(({ id: _i, created_at, pattern_id, ...c }) => ({ ...c, pattern_id: to }));
+      if (newComps.length) { const r = await sbExam('subject_components', 'POST', newComps); if (r?.error) errors.push(r.error); }
+    }
+    if (errors.length) return NextResponse.json({ result: 'error', message: `Copied with ${errors.length} error(s): ${errors[0]}` });
+    return NextResponse.json({ result: 'success', subjects: subjectIds.length, classes: targets.length });
   }
   if (action === 'rename_exam_component_type') {
     const { id, name } = payload;
