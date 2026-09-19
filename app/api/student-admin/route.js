@@ -517,7 +517,7 @@ const ADMIN_TAB_ACTIONS = {
     'get_class_pattern_setup', 'get_class_patterns', 'save_class_pattern', 'save_class_pattern_map',
     'get_class_pattern_usage', 'delete_class_pattern',
     'get_subjects', 'save_subject', 'delete_subject', 'get_subject_pattern_map', 'save_subject_pattern_map',
-    'get_subject_class_matrix', 'toggle_subject_component', 'save_subject_part', 'save_class_scope', 'save_exam_part', 'copy_class_subjects',
+    'get_subject_class_matrix', 'toggle_subject_component', 'save_subject_part', 'save_class_scope', 'save_exam_part', 'copy_class_subjects', 'set_subject_part_active',
     'rename_exam_component_type', 'delete_exam_component_type',
     'get_exam_component_types', 'save_exam_component_type', 'get_subject_components_setup', 'save_subject_component', 'delete_subject_component',
     'get_exam_patterns', 'save_exam_pattern', 'duplicate_exam_pattern', 'delete_exam_pattern',
@@ -2727,7 +2727,9 @@ export async function POST(req) {
 
   async function _componentsForSubject(patternId, subjectId) {
     const rows = await sbExam(`subject_components?pattern_id=eq.${encodeURIComponent(patternId)}&subject_id=eq.${encodeURIComponent(subjectId)}&select=*,exam_component_types(id,name)&order=sort_order.asc`);
-    return Array.isArray(rows) ? rows : [];
+    // Parts switched to "not applicable" keep their numbers but take no part
+    // in marks entry or results.
+    return Array.isArray(rows) ? rows.filter(r => r.is_active !== false) : [];
   }
 
   // ── Term Setup ────────────────────────────────────────────────────────
@@ -3032,7 +3034,9 @@ export async function POST(req) {
       r = await write(rowData);
     }
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
-    return NextResponse.json({ result: 'success', component: Array.isArray(r) ? r[0] : r });
+    const savedPart = Array.isArray(r) ? r[0] : r;
+    if (payload.activate && savedPart && savedPart.is_active === false) await sbExam(`subject_components?id=eq.${savedPart.id}`, 'PATCH', { is_active: true });
+    return NextResponse.json({ result: 'success', component: savedPart ? { ...savedPart, is_active: payload.activate ? true : savedPart.is_active } : savedPart });
   }
 
   // ── Class-Subject Marks Setup — the standing per-(pattern,subject)
@@ -3080,6 +3084,33 @@ export async function POST(req) {
     }
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
     return NextResponse.json({ result: 'success', type: Array.isArray(r) ? r[0] : r, warning });
+  }
+  // Switch one part of one subject in one class on or off. Off keeps the
+  // row (and its numbers) with is_active=false; on restores it, or creates
+  // it from the part's defaults if the subject never had it.
+  if (action === 'set_subject_part_active') {
+    const { pattern_id, subject_id, component_type_id, active } = payload;
+    if (!pattern_id || !subject_id || !component_type_id) return NextResponse.json({ result: 'error', message: 'Class, subject and part required.' });
+    const q = `pattern_id=eq.${encodeURIComponent(pattern_id)}&subject_id=eq.${encodeURIComponent(subject_id)}&component_type_id=eq.${encodeURIComponent(component_type_id)}`;
+    const existing = await sbExam(`subject_components?${q}&select=*`);
+    if (existing?.error) return NextResponse.json({ result: 'error', message: existing.error });
+    if (existing.length) {
+      const r = await sbExam(`subject_components?id=eq.${existing[0].id}`, 'PATCH', { is_active: !!active });
+      if (r?.error) return NextResponse.json({ result: 'error', message: /is_active/.test(String(r.error)) ? 'Run migration_exam_part_active.sql in Supabase first.' : r.error });
+      return NextResponse.json({ result: 'success', component: Array.isArray(r) ? r[0] : r });
+    }
+    if (!active) return NextResponse.json({ result: 'success', component: null });
+    const t = (await sbExam(`exam_component_types?id=eq.${encodeURIComponent(component_type_id)}&select=*`))?.[0] || { id: component_type_id };
+    const mapped = await sbExam(`subject_pattern_map?pattern_id=eq.${encodeURIComponent(pattern_id)}&subject_id=eq.${encodeURIComponent(subject_id)}&select=id`);
+    if (Array.isArray(mapped) && !mapped.length) await sbExam('subject_pattern_map', 'POST', { pattern_id, subject_id });
+    const row = _partDefaultRow(t, pattern_id, subject_id);
+    let r = await sbExam('subject_components', 'POST', row);
+    if (r?.error && /pass_type|pass_basis/.test(String(r.error))) {
+      const { pass_type, pass_basis, ...plain } = row;
+      r = await sbExam('subject_components', 'POST', { ...plain, pass_marks: _passMarksRaw(row) });
+    }
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success', component: Array.isArray(r) ? r[0] : r });
   }
   // Copy a whole class's subjects (and every part's marks setup) onto other
   // classes. mode 'merge': each copied subject is made to match the source,

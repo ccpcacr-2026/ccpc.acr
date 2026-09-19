@@ -13440,7 +13440,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _scmCardHead(p, n) {
     const open = _scmOpen.has(p.id);
     const subs = _scmClassSubjects(p.id);
-    const done = subs.filter(s => _scm.types.some(t => _scm.comps.has(`${p.id}|${s.id}|${t.id}`))).length;
+    const done = subs.filter(s => _scm.types.some(t => _scmActive(p.id, s.id, t.id))).length;
     const status = !n ? '' : done === n
       ? '<span class="text-[10px] font-bold text-emerald-600 ml-1">all marks set</span>'
       : `<span class="text-[10px] font-bold text-amber-500 ml-1">${n - done} without marks</span>`;
@@ -13468,24 +13468,62 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _scmNum(v) { return (v === null || v === undefined) ? '' : String(Number(v)); }
   // Marks / Weight % / Pass inputs for one part of one subject. An empty
   // Marks box means the subject doesn't have that part in this class.
+  // A part counts only while active; "not applicable" rows keep their numbers.
+  function _scmActive(pid, sid, tid) {
+    const c = _scm.comps.get(`${pid}|${sid}|${tid}`);
+    return !!c && c.is_active !== false;
+  }
   function _scmPartInputs(p, s, t, compact) {
     const c = _scm.comps.get(`${p.id}|${s.id}|${t.id}`);
     const idp = `scm-${p.id}-${s.id}-${t.id}`;
-    const box = (field, val, ph, title, w) => `<input type="number" inputmode="decimal" min="0" step="any" id="${idp}-${field}" value="${val}" placeholder="${ph}" title="${_escHtml(title)}" onchange="scmSetField(${p.id},${s.id},${t.id},'${field}',this.value)" class="${w} px-1 py-1 border rounded font-bold text-xs text-center ${c ? 'bg-white border-slate-300' : 'bg-slate-50 border-slate-200'}">`;
-    const marks = box('full_marks', c ? _scmNum(c.full_marks) : '', '—', `Marks (leave empty if this subject has no ${t.name})`, compact ? 'w-14' : 'w-12');
-    if (!c) return compact ? `<div class="flex items-center gap-1.5">${marks}</div>` : `<td class="py-1.5 pl-2 pr-1">${marks}</td><td></td><td class="border-r border-slate-100"></td>`;
+    const args = `${p.id},${s.id},${t.id}`;
+    const wrap = inner => compact ? `<div class="flex items-center gap-1.5 flex-wrap">${inner}</div>` : `<td colspan="3" class="py-1.5 px-2 border-r border-slate-100 whitespace-nowrap">${inner}</td>`;
+    const na = '<span class="text-[10px] font-black uppercase text-slate-300">N/A</span>';
+    if (!c) {
+      return wrap(`${na}<button class="ml-2 text-[10px] font-black uppercase text-blue-600 hover:underline" title="Give ${_escHtml(s.name)} a ${_escHtml(t.name)} part (starts from the part's defaults)" onclick="scmPartActive(${args},true)">+ Add</button>`);
+    }
+    if (c.is_active === false) {
+      return wrap(`<span class="text-[10px] font-black uppercase text-slate-400" title="Not applicable — kept as ${_scmNum(c.full_marks)} marks, ${_scmNum(c.weight_percent)}% weight, pass ${_scmNum(c.pass_marks)}">Not applicable</span>
+        <button class="ml-2 text-[10px] font-black uppercase text-blue-600 hover:underline" title="Make available again with the same numbers" onclick="scmPartActive(${args},true)">Restore</button>
+        <i data-lucide="trash-2" class="h-3 w-3 text-slate-300 hover:text-red-500 cursor-pointer inline ml-1.5" title="Delete this part's setup" onclick="scmPartDelete(${args})"></i>`);
+    }
+    const box = (field, val, ph, title, w) => `<input type="number" inputmode="decimal" min="0" step="any" id="${idp}-${field}" value="${val}" placeholder="${ph}" title="${_escHtml(title)}" onchange="scmSetField(${args},'${field}',this.value)" class="${w} px-1 py-1 border rounded font-bold text-xs text-center bg-white border-slate-300">`;
+    const marks = box('full_marks', _scmNum(c.full_marks), '—', 'Marks', compact ? 'w-14' : 'w-12');
     const weight = box('weight_percent', _scmNum(c.weight_percent), '%', 'Weight %', compact ? 'w-14' : 'w-12');
     const pass = box('pass_marks', _scmNum(c.pass_marks), 'pass', 'Pass', compact ? 'w-14' : 'w-12');
-    const rule = `<select id="${idp}-rule" title="How the pass value is read" onchange="scmSetField(${p.id},${s.id},${t.id},'pass_rule',this.value)" class="px-0.5 py-1 bg-white border border-slate-300 rounded font-bold text-[10px] text-slate-600">${_SCM_PASS_RULES.map(([v, l]) => `<option value="${v}" ${_scmPassRule(c) === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
-    if (compact) return `<div class="flex items-center gap-1.5 flex-wrap">${marks}<span class="text-[10px] text-slate-400">wt</span>${weight}<span class="text-[10px] text-slate-400">pass</span>${pass}${rule}</div>`;
-    return `<td class="py-1.5 pl-2 pr-1">${marks}</td><td class="py-1.5 px-1">${weight}</td><td class="py-1.5 pl-1 pr-2 border-r border-slate-100 whitespace-nowrap">${pass} ${rule}</td>`;
+    const rule = `<select id="${idp}-rule" title="How the pass value is read" onchange="scmSetField(${args},'pass_rule',this.value)" class="px-0.5 py-1 bg-white border border-slate-300 rounded font-bold text-[10px] text-slate-600">${_SCM_PASS_RULES.map(([v, l]) => `<option value="${v}" ${_scmPassRule(c) === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+    const off = `<i data-lucide="circle-slash" class="h-3.5 w-3.5 text-slate-300 hover:text-amber-600 cursor-pointer inline ml-1" title="Not applicable for ${_escHtml(s.name)} (keeps these numbers)" onclick="scmPartActive(${args},false)"></i>`;
+    if (compact) return `<div class="flex items-center gap-1.5 flex-wrap">${marks}<span class="text-[10px] text-slate-400">wt</span>${weight}<span class="text-[10px] text-slate-400">pass</span>${pass}${rule}${off}</div>`;
+    return `<td class="py-1.5 pl-2 pr-1">${marks}</td><td class="py-1.5 px-1">${weight}</td><td class="py-1.5 pl-1 pr-2 border-r border-slate-100 whitespace-nowrap">${pass} ${rule}${off}</td>`;
+  }
+  function scmPartActive(pid, sid, tid, active) {
+    const key = `${pid}|${sid}|${tid}`;
+    const prev = _scm.comps.get(key);
+    _adminFetch('set_subject_part_active', { pattern_id: pid, subject_id: sid, component_type_id: tid, active }).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Not saved', 'error'); return; }
+      if (res.component) _scm.comps.set(key, { ...(prev || {}), ...res.component, is_active: active });
+      else if (prev) _scm.comps.set(key, { ...prev, is_active: active });
+      _scm.map.add(`${pid}|${sid}`);
+      scmRender();
+      if (active && !prev) { const m = document.getElementById(`scm-${pid}-${sid}-${tid}-full_marks`); if (m) { m.focus(); m.select(); } }
+    });
+  }
+  function scmPartDelete(pid, sid, tid) {
+    const key = `${pid}|${sid}|${tid}`;
+    const part = (_scm.types.find(t => t.id === tid) || {}).name || 'this part';
+    if (!confirm(`Delete ${part}'s setup for ${_scmSubjectName(sid)}? Adding it again starts from the part's defaults.`)) return;
+    _adminFetch('toggle_subject_component', { pattern_id: pid, subject_id: sid, component_type_id: tid, checked: false }).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Not deleted', 'error'); return; }
+      _scm.comps.delete(key);
+      scmRender();
+    });
   }
   function _scmSubjectActions(p, s) {
     return `<i data-lucide="copy" class="h-3 w-3 text-slate-400 hover:text-blue-600 cursor-pointer inline mr-1.5" title="Copy this marks setup to other subjects or classes" onclick="scmOpenCopy(${p.id},${s.id})"></i><i data-lucide="pencil" class="h-3 w-3 text-slate-400 hover:text-blue-600 cursor-pointer inline" title="Rename subject (everywhere)" onclick="scmRenameSubject(${s.id})"></i>
       <i data-lucide="x" class="h-3.5 w-3.5 text-slate-400 hover:text-red-500 cursor-pointer inline ml-1.5" title="Remove from ${_escHtml(p.name)}" onclick="scmRemoveSubject(${p.id},${s.id})"></i>`;
   }
   function _scmNoParts(p, s) {
-    return _scm.types.some(t => _scm.comps.has(`${p.id}|${s.id}|${t.id}`)) ? '' : ' <span class="text-[9px] font-black text-amber-500 uppercase ml-1">no marks yet</span>';
+    return _scm.types.some(t => _scmActive(p.id, s.id, t.id)) ? '' : ' <span class="text-[9px] font-black text-amber-500 uppercase ml-1">no marks yet</span>';
   }
   function _scmCardDesktop(p) {
     const subs = _scmClassSubjects(p.id);
@@ -13997,7 +14035,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _scmPartsSummary(pid, sid) {
     return _scm.types.map(t => {
       const c = _scm.comps.get(`${pid}|${sid}|${t.id}`);
-      if (!c) return '';
+      if (!c || c.is_active === false) return '';
       const rule = (_SCM_PASS_RULES.find(([v]) => v === _scmPassRule(c)) || [, 'marks'])[1];
       return `${_escHtml(t.name)} ${_scmNum(c.full_marks)} · wt ${_scmNum(c.weight_percent)}% · pass ${_scmNum(c.pass_marks)}${c.pass_type === 'percent' ? '%' : ''} (${rule})`;
     }).filter(Boolean);
@@ -14040,7 +14078,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex items-center justify-between mb-1.5"><span class="text-[10px] font-black text-slate-500 uppercase">${_escHtml(_scmSubjectName(sid))} in other classes</span>${otherClasses.length ? allNone('scm-cp-cls') : ''}</div>
           <div class="grid grid-cols-2 sm:grid-cols-3 gap-1.5">${otherClasses.map(p => box('scm-cp-cls', p.id, p.name, _scm.map.has(`${p.id}|${sid}`) ? '' : 'adds it')).join('')}</div>
         </div>
-        <p class="text-[10px] text-slate-400 font-bold">Each ticked target gets exactly these parts: missing ones are added, existing ones overwritten, and parts not listed above are removed from it.</p>
+        <p class="text-[10px] text-slate-400 font-bold">Each ticked target gets exactly these parts: missing ones are added, existing ones overwritten, and parts not listed above are set to not applicable on it.</p>
       </div>
       <div class="flex items-center justify-end gap-2 px-4 py-3 border-t border-slate-200">
         <button onclick="document.getElementById('scmCopyOverlay').remove()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Cancel</button>
@@ -14130,14 +14168,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // Per target: the first write puts the subject on the class, so it runs
     // alone; that target's remaining parts then go in parallel.
     const jobsFor = tg => _scm.types.map(t => {
-      const src = _scm.comps.get(`${pid}|${sid}|${t.id}`);
-      const has = _scm.comps.has(`${tg.pid}|${tg.sid}|${t.id}`);
-      if (src) return () => _adminFetch('save_subject_part', {
+      const src0 = _scm.comps.get(`${pid}|${sid}|${t.id}`);
+      const src = src0 && src0.is_active !== false ? src0 : null;
+      const has = _scmActive(tg.pid, tg.sid, t.id);
+      if (src) return () => _adminFetch('save_subject_part', { activate: true,
         pattern_id: tg.pid, subject_id: tg.sid, component_type_id: t.id,
         full_marks: src.full_marks, weight_percent: src.weight_percent, pass_marks: src.pass_marks,
         pass_type: src.pass_type || 'number', pass_basis: src.pass_basis || 'marks',
       });
-      if (has) return () => _adminFetch('toggle_subject_component', { pattern_id: tg.pid, subject_id: tg.sid, component_type_id: t.id, checked: false });
+      if (has) return () => _adminFetch('set_subject_part_active', { pattern_id: tg.pid, subject_id: tg.sid, component_type_id: t.id, active: false });
       return null;
     }).filter(Boolean);
     const runTarget = tg => { const [first, ...rest] = jobsFor(tg); return first ? first().then(r1 => Promise.all(rest.map(j => j())).then(rs => [r1, ...rs])) : Promise.resolve([]); };
