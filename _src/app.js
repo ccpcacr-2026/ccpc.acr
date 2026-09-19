@@ -12966,8 +12966,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // ══════════════════════════════════════════════════════════════════════
 
   const EXAMS_SUBTABS = [
-    { id: 'ex-terms', label: 'Term Setup' },
     { id: 'ex-subjects', label: 'Subject Setup' },
+    { id: 'ex-terms', label: 'Term Setup' },
     { id: 'ex-pattern', label: 'Exam Pattern Setup' },
     { id: 'ex-exam-setup', label: 'Exam Setup' },
     { id: 'ex-entry-setup', label: 'Marks Entry Setup' },
@@ -13004,7 +13004,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     container.innerHTML = `
       <div class="mb-4">
         <h2 class="text-2xl font-black text-slate-800 tracking-tight">Exams</h2>
-        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Term → Class Pattern → Subject → Components → Exam Pattern → Exam → Marks Entry → Result</p>
+        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Subjects &amp; marks → Term → Exam Pattern → Exam → Marks Entry → Result</p>
       </div>
       <div class="flex flex-wrap gap-2 mb-5">${tabBar}</div>
 
@@ -13188,7 +13188,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     `;
     lucide.createIcons();
     _loadClassPatternsList();
-    loadExamTerms();
+    loadExamTerms(); // Exam Setup's term picker needs the list whichever tab opens
+    switchExamsTab(EXAMS_SUBTABS[0].id);
   }
 
   function switchExamsTab(tabId) {
