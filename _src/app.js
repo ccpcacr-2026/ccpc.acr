@@ -13104,12 +13104,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div class="flex items-baseline gap-3 mb-3 mt-2"><h3 class="text-sm font-black text-slate-800 uppercase tracking-widest">3 · Exams</h3><span class="text-[11px] font-bold text-slate-400">A term + class + exam pattern</span></div>
         <div class="grid md:grid-cols-2 gap-4">
           <div class="bg-white rounded-2xl border border-slate-200 p-4">
-            <p class="font-black text-slate-800 text-xs mb-3 flex items-center gap-2"><i data-lucide="file-plus" class="h-4 w-4 text-blue-600"></i>New Exam</p>
+            <p class="font-black text-slate-800 text-xs mb-3 flex items-center gap-2"><i data-lucide="file-plus" class="h-4 w-4 text-blue-600"></i><span id="exsFormTitle">New Exam</span></p>
             <div class="flex flex-col gap-2">
               <select id="exsTermSelect" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Select term…</option></select>
-              <select id="exsPatternSelect" class="exam-pattern-select px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Select class pattern…</option></select>
+              <div class="border border-slate-200 rounded-lg p-2">
+                <div class="flex items-center justify-between mb-1.5">
+                  <span class="text-[10px] font-black text-slate-500 uppercase">Classes</span>
+                  <span class="flex gap-3 text-[10px] font-black uppercase">
+                    <button class="text-blue-600" onclick="document.querySelectorAll('.exs-class-cb').forEach(c => { c.checked = true; })">All</button>
+                    <button class="text-slate-400" onclick="document.querySelectorAll('.exs-class-cb').forEach(c => { c.checked = false; })">None</button>
+                  </span>
+                </div>
+                <div id="exsClassChecks" class="grid grid-cols-2 gap-1 overflow-y-auto" style="max-height:200px"><span class="text-xs text-slate-400 italic">Loading…</span></div>
+              </div>
               <select id="exsExamPatternSelect" class="exam-pattern-template-select px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Select exam pattern…</option></select>
-              <button onclick="saveExamSetup()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Create Exam</button>
+              <div class="flex gap-2">
+                <button id="exsSaveBtn" onclick="saveExamSetup()" class="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Create Exam</button>
+                <button id="exsCancelBtn" onclick="cancelExamGroupEdit()" style="display:none" class="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50">Cancel</button>
+              </div>
+              <p id="exsEditNote" style="display:none" class="text-[10px] font-bold text-amber-600">Unticking a class deletes its exam — unless marks were entered for it, then it's kept.</p>
             </div>
           </div>
           <div>
@@ -13261,6 +13274,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _populateClassPatternSelects() {
     const opts = '<option value="">Select class…</option>' + _classPatterns.filter(p => !p.orphan || p.in_exam).map(p => `<option value="${p.id}">${_escHtml(p.name)}</option>`).join('');
     document.querySelectorAll('.exam-pattern-select').forEach(el => { const cur = el.value; el.innerHTML = opts; if (cur) el.value = cur; });
+    // Exam Setup's class ticks (keeps what's already ticked across reloads).
+    const box = document.getElementById('exsClassChecks');
+    if (box) {
+      const ticked = new Set([...box.querySelectorAll('.exs-class-cb:checked')].map(c => c.value));
+      box.innerHTML = _classPatterns.filter(p => !p.orphan || p.in_exam).map(p => `<label class="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 cursor-pointer px-1 py-0.5 rounded hover:bg-slate-50">
+        <input type="checkbox" class="exs-class-cb h-3.5 w-3.5 accent-blue-600" value="${p.id}" ${ticked.has(String(p.id)) ? 'checked' : ''}>${_escHtml(p.name)}</label>`).join('')
+        || '<span class="text-xs text-slate-400 italic">No classes yet.</span>';
+    }
+  }
+  // A class list's display label (display name, else class · group …).
+  function _examClassLabel(pid, fallback) {
+    const p = _classPatterns.find(x => String(x.id) === String(pid));
+    return p ? p.name : (fallback || '');
   }
   // ── Subject Setup — global catalog + per-pattern checklist ──────────────
   function loadSubjectSetup() {
@@ -14404,31 +14430,107 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _adminFetch('get_exams', { include_archived: includeArchived }).then(res => {
       _examList = (res && res.result === 'success' && res.exams) || [];
       const host = document.getElementById('examSetupList');
-      if (host) host.innerHTML = _examList.map(e => `
-        <div class="border rounded-xl px-3 py-2 ${e.is_archived ? 'opacity-50' : ''} border-slate-200">
-          <div class="flex justify-between items-center">
-            <div><span class="font-black text-slate-800 text-xs">${e.exam_terms?.name || ''}</span> <span class="text-slate-400 text-xs ml-1">${e.class_patterns?.name || ''}</span>${e.is_locked ? ' <span class="text-[10px] font-black text-white bg-red-500 rounded px-1.5 py-0.5">Locked</span>' : ''}${e.is_archived ? ' <span class="text-[10px] font-black text-white bg-slate-400 rounded px-1.5 py-0.5">Archived</span>' : ''}</div>
-          </div>
-          <div class="text-[10px] text-slate-400 font-bold mt-1">${e.exam_patterns?.name || 'No exam pattern set'}</div>
-          <div class="flex items-center gap-2 mt-2">
-            <button onclick="toggleExamSetupLock(${e.id}, ${!e.is_locked})" class="text-[10px] font-black uppercase text-red-500">${e.is_locked ? 'Unlock' : 'Lock'}</button>
-            <button onclick="toggleExamSetupArchive(${e.id}, ${!e.is_archived})" class="text-[10px] font-black uppercase text-slate-500">${e.is_archived ? 'Unarchive' : 'Archive'}</button>
-            <button onclick="openDuplicateExamModal(${e.id})" class="text-[10px] font-black uppercase text-blue-500">Duplicate</button>
-            <button onclick="deleteExamSetup(${e.id})" class="text-[10px] font-black uppercase text-red-500">Delete</button>
-          </div>
-        </div>`).join('') || '<span class="text-xs text-slate-400 font-bold italic">No exams yet.</span>';
-      const opts = '<option value="">Select exam…</option>' + _examList.filter(e => !e.is_archived).map(e => `<option value="${e.id}">${e.exam_terms?.name || ''} · ${e.class_patterns?.name || ''}${e.is_locked ? ' 🔒' : ''}</option>`).join('');
+      if (host) {
+        const groups = new Map();
+        _examList.forEach(e => {
+          const k = `${e.term_id}|${e.exam_pattern_id || ''}`;
+          if (!groups.has(k)) groups.set(k, []);
+          groups.get(k).push(e);
+        });
+        const act = (label, ids, action, cls) => `<button onclick="examGroupAction('${ids}','${action}')" class="text-[10px] font-black uppercase ${cls}">${label}</button>`;
+        host.innerHTML = [...groups.values()].map(list => {
+          const e0 = list[0];
+          const ids = list.map(e => e.id).join(',');
+          const allLocked = list.every(e => e.is_locked), allArchived = list.every(e => e.is_archived);
+          const sorted = list.slice().sort((a, b) => _scmRank(_examClassLabel(a.pattern_id, a.class_patterns?.name)) - _scmRank(_examClassLabel(b.pattern_id, b.class_patterns?.name)) || _examClassLabel(a.pattern_id).localeCompare(_examClassLabel(b.pattern_id)));
+          return `<div class="border rounded-xl border-slate-200 ${allArchived ? 'opacity-60' : ''}">
+            <div class="flex flex-wrap justify-between items-center gap-2 px-3 py-2 bg-slate-50 rounded-t-xl border-b border-slate-100">
+              <div><span class="font-black text-slate-800 text-xs">${_escHtml(e0.exam_terms?.name || '')}</span> <span class="text-slate-400 text-[11px] font-bold ml-1">${_escHtml(e0.exam_terms?.academic_year || '')} · ${_escHtml(e0.exam_patterns?.name || 'No exam pattern')} · ${list.length} class${list.length === 1 ? '' : 'es'}</span></div>
+              <div class="flex items-center gap-3"><button onclick="editExamGroup('${ids}')" class="text-[10px] font-black uppercase text-blue-600">Edit</button>${act(allLocked ? 'Unlock all' : 'Lock all', ids, allLocked ? 'unlock' : 'lock', 'text-red-500')}${act(allArchived ? 'Unarchive all' : 'Archive all', ids, allArchived ? 'unarchive' : 'archive', 'text-slate-500')}${act('Delete all', ids, 'delete', 'text-red-500')}</div>
+            </div>
+            <div class="divide-y divide-slate-50">${sorted.map(e => `<div class="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 ${e.is_archived ? 'opacity-50' : ''}">
+              <span class="text-xs font-bold text-slate-700">${_escHtml(_examClassLabel(e.pattern_id, e.class_patterns?.name))}${e.is_locked ? ' <span class="text-[9px] font-black text-white bg-red-500 rounded px-1.5 py-0.5 ml-1">Locked</span>' : ''}${e.is_archived ? ' <span class="text-[9px] font-black text-white bg-slate-400 rounded px-1.5 py-0.5 ml-1">Archived</span>' : ''}</span>
+              <span class="flex items-center gap-2">
+                <button onclick="toggleExamSetupLock(${e.id}, ${!e.is_locked})" class="text-[10px] font-black uppercase text-red-500">${e.is_locked ? 'Unlock' : 'Lock'}</button>
+                <button onclick="toggleExamSetupArchive(${e.id}, ${!e.is_archived})" class="text-[10px] font-black uppercase text-slate-500">${e.is_archived ? 'Unarchive' : 'Archive'}</button>
+                <button onclick="openDuplicateExamModal(${e.id})" class="text-[10px] font-black uppercase text-blue-500">Duplicate</button>
+                <button onclick="deleteExamSetup(${e.id})" class="text-[10px] font-black uppercase text-red-500">Delete</button>
+              </span></div>`).join('')}</div>
+          </div>`;
+        }).join('') || '<span class="text-xs text-slate-400 font-bold italic">No exams yet.</span>';
+      }
+      const opts = '<option value="">Select exam…</option>' + _examList.filter(e => !e.is_archived).map(e => `<option value="${e.id}">${_escHtml(e.exam_terms?.name || '')} · ${_escHtml(_examClassLabel(e.pattern_id, e.class_patterns?.name))}${e.is_locked ? ' 🔒' : ''}</option>`).join('');
       document.querySelectorAll('.exam-select').forEach(el => { const cur = el.value; el.innerHTML = opts; if (cur) el.value = cur; });
     });
   }
   function saveExamSetup() {
     const term_id = document.getElementById('exsTermSelect').value;
-    const pattern_id = document.getElementById('exsPatternSelect').value;
     const exam_pattern_id = document.getElementById('exsExamPatternSelect').value;
-    if (!term_id || !pattern_id) { showToast('Term and class pattern required', 'error'); return; }
-    _adminFetch('save_exam', { term_id, pattern_id, exam_pattern_id: exam_pattern_id || null }).then(res => {
-      if (res && res.result === 'success') { showToast('Exam created'); loadExamSetupList(); }
-      else showToast((res && res.message) || 'Failed', 'error');
+    const pattern_ids = [...document.querySelectorAll('.exs-class-cb:checked')].map(c => Number(c.value));
+    if (!term_id) { showToast('Pick a term', 'error'); return; }
+    if (!pattern_ids.length) { showToast('Tick at least one class', 'error'); return; }
+    if (_exsEditIds) {
+      _adminFetch('update_exam_group', { ids: _exsEditIds, term_id, exam_pattern_id: exam_pattern_id || null, pattern_ids }).then(res => {
+        if (!res || res.result !== 'success') { showToast((res && res.message) || 'Not saved', 'error'); return; }
+        const bits = [];
+        if (res.added) bits.push(`${res.added} class(es) added`);
+        if (res.removed) bits.push(`${res.removed} removed`);
+        if (res.kept_with_marks) bits.push(`${res.kept_with_marks} kept (marks entered)`);
+        if (res.skipped_existing) bits.push(`${res.skipped_existing} already had this exam`);
+        showToast('Exam updated' + (bits.length ? ' — ' + bits.join(', ') : ''), res.kept_with_marks ? 'error' : undefined);
+        cancelExamGroupEdit();
+        loadExamSetupList();
+      });
+      return;
+    }
+    _adminFetch('save_exams_bulk', { term_id, exam_pattern_id: exam_pattern_id || null, pattern_ids }).then(res => {
+      if (res && res.result === 'success') {
+        showToast(`Exam created for ${res.created} class(es)${res.skipped ? ` — ${res.skipped} already had it` : ''}`);
+        document.querySelectorAll('.exs-class-cb').forEach(c => { c.checked = false; });
+        loadExamSetupList();
+      } else showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+  // Edit an exam group in the form on the left: term, exam pattern, classes.
+  let _exsEditIds = null;
+  function editExamGroup(ids) {
+    const list = String(ids).split(',').map(Number).filter(Boolean);
+    const group = _examList.filter(e => list.includes(e.id));
+    if (!group.length) return;
+    if (group.some(e => e.is_locked)) { showToast('Unlock this exam for all classes before editing it', 'error'); return; }
+    _exsEditIds = list;
+    const e0 = group[0];
+    document.getElementById('exsTermSelect').value = String(e0.term_id);
+    document.getElementById('exsExamPatternSelect').value = e0.exam_pattern_id ? String(e0.exam_pattern_id) : '';
+    const inGroup = new Set(group.map(e => String(e.pattern_id)));
+    document.querySelectorAll('.exs-class-cb').forEach(c => { c.checked = inGroup.has(String(c.value)); });
+    document.getElementById('exsFormTitle').textContent = `Edit Exam — ${e0.exam_terms?.name || ''}`;
+    document.getElementById('exsSaveBtn').textContent = 'Save Changes';
+    document.getElementById('exsCancelBtn').style.display = '';
+    document.getElementById('exsEditNote').style.display = '';
+    document.getElementById('exsTermSelect').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  function cancelExamGroupEdit() {
+    _exsEditIds = null;
+    document.getElementById('exsFormTitle').textContent = 'New Exam';
+    document.getElementById('exsSaveBtn').textContent = 'Create Exam';
+    document.getElementById('exsCancelBtn').style.display = 'none';
+    document.getElementById('exsEditNote').style.display = 'none';
+    document.querySelectorAll('.exs-class-cb').forEach(c => { c.checked = false; });
+  }
+  // Group-level actions run the per-class action for every class in the group.
+  function examGroupAction(ids, action) {
+    const list = String(ids).split(',').map(Number).filter(Boolean);
+    if (action === 'delete' && !confirm(`Delete this exam for all ${list.length} class(es)? Classes with marks entered are skipped.`)) return;
+    const call = id => action === 'lock' ? _adminFetch('lock_exam', { id, locked: true })
+      : action === 'unlock' ? _adminFetch('lock_exam', { id, locked: false })
+      : action === 'archive' ? _adminFetch('archive_exam', { id, archived: true })
+      : action === 'unarchive' ? _adminFetch('archive_exam', { id, archived: false })
+      : _adminFetch('delete_exam', { id });
+    Promise.all(list.map(call)).then(results => {
+      const failed = results.filter(r => !r || r.result !== 'success');
+      showToast(failed.length ? `${list.length - failed.length} of ${list.length} done — ${(failed[0] && failed[0].message) || 'some failed'}` : 'Done', failed.length ? 'error' : undefined);
+      loadExamSetupList();
     });
   }
   function toggleExamSetupLock(id, locked) {

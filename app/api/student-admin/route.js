@@ -521,7 +521,7 @@ const ADMIN_TAB_ACTIONS = {
     'rename_exam_component_type', 'delete_exam_component_type',
     'get_exam_component_types', 'save_exam_component_type', 'get_subject_components_setup', 'save_subject_component', 'delete_subject_component',
     'get_exam_patterns', 'save_exam_pattern', 'duplicate_exam_pattern', 'delete_exam_pattern',
-    'get_exams', 'save_exam', 'lock_exam', 'archive_exam', 'duplicate_exam',
+    'get_exams', 'save_exam', 'save_exams_bulk', 'update_exam_group', 'lock_exam', 'archive_exam', 'duplicate_exam',
     'get_exam_usage', 'clear_exam_marks', 'delete_exam',
     'get_exam_entry_sheets', 'save_exam_entry_sheets_bulk',
     'get_exam_marks_for_entry', 'save_exam_marks_bulk',
@@ -3288,6 +3288,60 @@ export async function POST(req) {
     const rows = await sbExam(`exams?${include_archived ? '' : 'is_archived=eq.false&'}select=*,exam_terms(name,term_type,academic_year,is_archived),class_patterns(name),exam_patterns(name)&order=id.desc`);
     if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
     return NextResponse.json({ result: 'success', exams: rows });
+  }
+  // One exam per class for a term + exam pattern (e.g. Half Yearly for every
+  // class at once). Classes that already have an exam in that term with the
+  // same exam pattern are skipped, not duplicated.
+  if (action === 'save_exams_bulk') {
+    const { term_id, exam_pattern_id } = payload;
+    const ids = [...new Set((Array.isArray(payload.pattern_ids) ? payload.pattern_ids : []).map(Number).filter(Boolean))];
+    if (!term_id || !ids.length) return NextResponse.json({ result: 'error', message: 'Pick a term and at least one class.' });
+    const existing = await sbExam(`exams?term_id=eq.${encodeURIComponent(term_id)}&select=pattern_id,exam_pattern_id`);
+    if (existing?.error) return NextResponse.json({ result: 'error', message: existing.error });
+    const have = new Set(existing.filter(e => String(e.exam_pattern_id || '') === String(exam_pattern_id || '')).map(e => String(e.pattern_id)));
+    const rows = ids.filter(pid => !have.has(String(pid))).map(pid => ({ term_id, pattern_id: pid, exam_pattern_id: exam_pattern_id || null }));
+    if (rows.length) {
+      const r = await sbExam('exams', 'POST', rows);
+      if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    }
+    return NextResponse.json({ result: 'success', created: rows.length, skipped: ids.length - rows.length });
+  }
+  // Edit an exam group (one exam per class): new term / exam pattern for all
+  // of them, classes ticked in are added, classes ticked out are deleted —
+  // except ones with marks entered, which are kept and reported.
+  if (action === 'update_exam_group') {
+    const { term_id, exam_pattern_id } = payload;
+    const ids = (Array.isArray(payload.ids) ? payload.ids : []).map(Number).filter(Boolean);
+    const want = new Set((Array.isArray(payload.pattern_ids) ? payload.pattern_ids : []).map(String));
+    if (!ids.length || !term_id || !want.size) return NextResponse.json({ result: 'error', message: 'Pick a term and at least one class.' });
+    const group = await sbExam(`exams?id=in.(${ids.join(',')})&select=*`);
+    if (!Array.isArray(group) || !group.length) return NextResponse.json({ result: 'error', message: 'Exam not found.' });
+    if (group.some(e => e.is_locked)) return NextResponse.json({ result: 'error', message: 'Unlock this exam for all classes before editing it.' });
+    const marks = await sbExam(`exam_marks?exam_id=in.(${ids.join(',')})&select=exam_id`);
+    const withMarks = new Set((Array.isArray(marks) ? marks : []).map(m => String(m.exam_id)));
+    const keep = group.filter(e => want.has(String(e.pattern_id)));
+    const drop = group.filter(e => !want.has(String(e.pattern_id)));
+    const kept = drop.filter(e => withMarks.has(String(e.id)));
+    const dropIds = drop.filter(e => !withMarks.has(String(e.id))).map(e => e.id);
+    const have = new Set(group.map(e => String(e.pattern_id)));
+    const others = await sbExam(`exams?term_id=eq.${encodeURIComponent(term_id)}&select=id,pattern_id,exam_pattern_id`);
+    const clash = new Set((Array.isArray(others) ? others : []).filter(o => !ids.includes(o.id) && String(o.exam_pattern_id || '') === String(exam_pattern_id || '')).map(o => String(o.pattern_id)));
+    const add = [...want].filter(pid => !have.has(pid) && !clash.has(pid)).map(pid => ({ term_id, pattern_id: Number(pid), exam_pattern_id: exam_pattern_id || null }));
+    const moveIds = [...keep, ...kept].map(e => e.id);
+    if (moveIds.length) {
+      const r = await sbExam(`exams?id=in.(${moveIds.join(',')})`, 'PATCH', { term_id, exam_pattern_id: exam_pattern_id || null });
+      if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    }
+    if (dropIds.length) {
+      await sbExam(`exam_entry_sheets?exam_id=in.(${dropIds.join(',')})`, 'DELETE');
+      const r = await sbExam(`exams?id=in.(${dropIds.join(',')})`, 'DELETE');
+      if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    }
+    if (add.length) {
+      const r = await sbExam('exams', 'POST', add);
+      if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    }
+    return NextResponse.json({ result: 'success', added: add.length, removed: dropIds.length, kept_with_marks: kept.length, skipped_existing: [...want].filter(pid => !have.has(pid) && clash.has(pid)).length });
   }
   if (action === 'save_exam') {
     const { id, term_id, pattern_id, exam_pattern_id } = payload;
