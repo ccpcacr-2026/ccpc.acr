@@ -3145,12 +3145,24 @@ export async function POST(req) {
     const { scope, id, weights } = payload;
     if (!['class', 'subject'].includes(scope) || !id || !weights || typeof weights !== 'object') return NextResponse.json({ result: 'error', message: 'Scope, target and weights required.' });
     const col = scope === 'class' ? 'pattern_id' : 'subject_id';
+    // Each entry is either a plain weight (older callers) or an object with
+    // any of full_marks / weight_percent / pass_marks / pass_type / pass_basis.
     let changed = 0;
     for (const [tid, raw] of Object.entries(weights)) {
-      if (raw === '' || raw === null || raw === undefined) continue;
-      const w = Number(raw);
-      if (!isFinite(w) || w < 0) return NextResponse.json({ result: 'error', message: 'Weights must be numbers of 0 or more.' });
-      const r = await sbExam(`subject_components?${col}=eq.${encodeURIComponent(id)}&component_type_id=eq.${encodeURIComponent(tid)}`, 'PATCH', { weight_percent: w });
+      const vals = raw !== null && typeof raw === 'object' ? raw : { weight_percent: raw };
+      const patch = {};
+      for (const k of ['full_marks', 'weight_percent', 'pass_marks']) {
+        const v = vals[k];
+        if (v === '' || v === null || v === undefined) continue;
+        const x = Number(v);
+        if (!isFinite(x) || x < 0) return NextResponse.json({ result: 'error', message: 'Marks, weight and pass must be numbers of 0 or more.' });
+        patch[k] = x;
+      }
+      if (vals.pass_type === 'number' || vals.pass_type === 'percent') patch.pass_type = vals.pass_type;
+      if (vals.pass_basis === 'marks' || vals.pass_basis === 'weight') patch.pass_basis = vals.pass_basis;
+      if (patch.pass_type === 'percent' && patch.pass_marks > 100) return NextResponse.json({ result: 'error', message: "A percentage pass can't be over 100." });
+      if (!Object.keys(patch).length) continue;
+      const r = await sbExam(`subject_components?${col}=eq.${encodeURIComponent(id)}&component_type_id=eq.${encodeURIComponent(tid)}`, 'PATCH', patch);
       if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
       changed += Array.isArray(r) ? r.length : 0;
     }
