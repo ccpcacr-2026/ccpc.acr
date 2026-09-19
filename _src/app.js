@@ -13081,12 +13081,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div class="flex items-baseline gap-3 mb-3 mt-2"><h3 class="text-sm font-black text-slate-800 uppercase tracking-widest">2 · Exam Patterns</h3><span class="text-[11px] font-bold text-slate-400">Which parts (CT, CQ, MCQ…) an exam uses</span></div>
         <div class="grid md:grid-cols-2 gap-4">
           <div class="bg-white rounded-2xl border border-slate-200 p-4">
-            <p class="font-black text-slate-800 text-xs mb-3 flex items-center gap-2"><i data-lucide="filter" class="h-4 w-4 text-blue-600"></i>New Exam Pattern</p>
+            <p class="font-black text-slate-800 text-xs mb-3 flex items-center gap-2"><i data-lucide="filter" class="h-4 w-4 text-blue-600"></i><span id="epFormTitle">New Exam Pattern</span></p>
             <div class="flex flex-col gap-2">
               <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-pattern-name" id="epName" placeholder="Pattern name (e.g. Model Test Pattern)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
               <div id="epTypeChecklist" class="flex flex-wrap gap-2"></div>
               <label class="flex items-center gap-2 text-xs font-bold text-slate-600"><input type="checkbox" id="epEnforceGate" checked>Enforce per-component pass gate</label>
-              <button onclick="saveExamPattern()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Create Pattern</button>
+              <div class="flex gap-2">
+                <button id="epSaveBtn" onclick="saveExamPattern()" class="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Create Pattern</button>
+                <button id="epCancelBtn" onclick="cancelExamPatternEdit()" style="display:none" class="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50">Cancel</button>
+              </div>
+              <p id="epEditNote" style="display:none" class="text-[10px] font-bold text-amber-600"></p>
             </div>
           </div>
           <div>
@@ -14335,6 +14339,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex justify-between items-center">
             <span class="font-black text-slate-800 text-xs">${p.name}</span>
             <div class="flex items-center gap-2">
+              <button onclick="editExamPattern(${p.id})" class="text-[10px] font-black uppercase text-blue-600">Edit</button>
               <button onclick="duplicateExamPattern(${p.id})" class="text-[10px] font-black uppercase text-blue-500">Duplicate</button>
               <button onclick="deleteExamPatternTemplate(${p.id})" class="text-[10px] font-black uppercase text-red-500">Delete</button>
             </div>
@@ -14344,13 +14349,39 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       lucide.createIcons();
     });
   }
+  // The form on the left creates a pattern, or edits the one picked with
+  // Edit (_epEditId) until it's saved or cancelled.
+  let _epEditId = null;
+  function _epSetFormMode(p) {
+    _epEditId = p ? p.id : null;
+    document.getElementById('epFormTitle').textContent = p ? `Edit Exam Pattern — ${p.name}` : 'New Exam Pattern';
+    document.getElementById('epSaveBtn').textContent = p ? 'Save Changes' : 'Create Pattern';
+    document.getElementById('epCancelBtn').style.display = p ? '' : 'none';
+    document.getElementById('epName').value = p ? p.name : '';
+    const ids = new Set(((p && p.active_component_type_ids) || []).map(String));
+    document.querySelectorAll('.ep-type-cb').forEach(cb => { cb.checked = ids.has(String(cb.value)); });
+    document.getElementById('epEnforceGate').checked = p ? !!p.enforce_component_pass_gate : true;
+    const note = document.getElementById('epEditNote');
+    const used = p ? (_examList || []).filter(e => String(e.exam_pattern_id) === String(p.id)).length : 0;
+    note.style.display = used ? '' : 'none';
+    note.textContent = used ? `${used} exam(s) use this pattern — they'll follow the change when marks entry and results are next loaded.` : '';
+  }
+  function editExamPattern(id) {
+    const p = _examPatternTemplates.find(x => x.id === id);
+    if (!p) return;
+    _epSetFormMode(p);
+    const name = document.getElementById('epName');
+    if (name) { name.scrollIntoView({ behavior: 'smooth', block: 'center' }); name.focus(); }
+  }
+  function cancelExamPatternEdit() { _epSetFormMode(null); }
   function saveExamPattern() {
     const name = document.getElementById('epName').value.trim();
     const active_component_type_ids = Array.from(document.querySelectorAll('.ep-type-cb:checked')).map(cb => cb.value);
     const enforce_component_pass_gate = document.getElementById('epEnforceGate').checked;
     if (!name) { showToast('Name required', 'error'); return; }
-    _adminFetch('save_exam_pattern', { name, active_component_type_ids, enforce_component_pass_gate }).then(res => {
-      if (res && res.result === 'success') { showToast('Exam pattern created'); document.getElementById('epName').value = ''; loadExamPatternSetup(); }
+    const editing = _epEditId;
+    _adminFetch('save_exam_pattern', { id: editing || undefined, name, active_component_type_ids, enforce_component_pass_gate }).then(res => {
+      if (res && res.result === 'success') { showToast(editing ? 'Exam pattern updated' : 'Exam pattern created'); _epSetFormMode(null); loadExamPatternSetup(); }
       else showToast((res && res.message) || 'Failed', 'error');
     });
   }
