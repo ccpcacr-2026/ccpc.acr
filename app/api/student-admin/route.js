@@ -517,7 +517,7 @@ const ADMIN_TAB_ACTIONS = {
     'get_class_pattern_setup', 'get_class_patterns', 'save_class_pattern', 'save_class_pattern_map',
     'get_class_pattern_usage', 'delete_class_pattern',
     'get_subjects', 'save_subject', 'delete_subject', 'get_subject_pattern_map', 'save_subject_pattern_map',
-    'get_subject_class_matrix', 'toggle_subject_component', 'save_subject_part', 'save_class_scope', 'save_exam_part', 'copy_class_subjects', 'set_subject_part_active',
+    'get_subject_class_matrix', 'toggle_subject_component', 'save_subject_part', 'save_class_scope', 'save_exam_part', 'copy_class_subjects', 'set_subject_part_active', 'apply_part_to_all',
     'rename_exam_component_type', 'delete_exam_component_type',
     'get_exam_component_types', 'save_exam_component_type', 'get_subject_components_setup', 'save_subject_component', 'delete_subject_component',
     'get_exam_patterns', 'save_exam_pattern', 'duplicate_exam_pattern', 'delete_exam_pattern',
@@ -3111,6 +3111,32 @@ export async function POST(req) {
     }
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
     return NextResponse.json({ result: 'success', component: Array.isArray(r) ? r[0] : r });
+  }
+  // Give one part to every subject in every class: created from the part's
+  // defaults where a subject doesn't have it, switched back on where it was
+  // set to not applicable. Existing numbers are never overwritten.
+  if (action === 'apply_part_to_all') {
+    const { component_type_id } = payload;
+    if (!component_type_id) return NextResponse.json({ result: 'error', message: 'Part required.' });
+    const [t, maps, have] = await Promise.all([
+      sbExam(`exam_component_types?id=eq.${encodeURIComponent(component_type_id)}&select=*`),
+      sbExam('subject_pattern_map?select=pattern_id,subject_id'),
+      sbExam(`subject_components?component_type_id=eq.${encodeURIComponent(component_type_id)}&select=pattern_id,subject_id`),
+    ]);
+    if (!Array.isArray(t) || !t.length) return NextResponse.json({ result: 'error', message: 'Part not found.' });
+    if (!Array.isArray(maps) || !Array.isArray(have)) return NextResponse.json({ result: 'error', message: 'Could not read the subject setup.' });
+    const got = new Set(have.map(c => `${c.pattern_id}|${c.subject_id}`));
+    const add = [...new Map(maps.map(m => [`${m.pattern_id}|${m.subject_id}`, m])).values()]
+      .filter(m => !got.has(`${m.pattern_id}|${m.subject_id}`))
+      .map(m => _partDefaultRow(t[0], m.pattern_id, m.subject_id));
+    if (add.length) {
+      let r = await sbExam('subject_components', 'POST', add);
+      if (r?.error && /pass_type|pass_basis/.test(String(r.error))) r = await sbExam('subject_components', 'POST', add.map(({ pass_type, pass_basis, ...x }) => ({ ...x, pass_marks: _passMarksRaw({ ...x, pass_type, pass_basis }) })));
+      if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    }
+    const re = await sbExam(`subject_components?component_type_id=eq.${encodeURIComponent(component_type_id)}&is_active=eq.false`, 'PATCH', { is_active: true });
+    const reactivated = Array.isArray(re) ? re.length : 0; // 0 as well if the is_active column doesn't exist yet
+    return NextResponse.json({ result: 'success', added: add.length, reactivated });
   }
   // Copy a whole class's subjects (and every part's marks setup) onto other
   // classes. mode 'merge': each copied subject is made to match the source,

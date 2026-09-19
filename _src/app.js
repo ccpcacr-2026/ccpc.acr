@@ -13685,13 +13685,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <td class="py-1.5 px-2"><input type="search" autocomplete="off" spellcheck="false" id="scmPt-${t.id}-name" value="${_escHtml(t.name)}" onchange="scmSavePart(${t.id})" class="w-28 px-2 py-1 bg-white border border-slate-300 rounded font-bold text-xs"></td>
               ${_scmPartRowInputs(`scmPt-${t.id}`, t)}
               <td class="py-1.5 px-1 text-center text-[10px] font-bold text-slate-400">${uses(t.id)}×</td>
-              <td class="py-1.5 px-2 text-right"><i data-lucide="trash-2" class="h-3.5 w-3.5 text-red-500 cursor-pointer inline" title="Delete part" onclick="scmDeletePart(${t.id})"></i></td>
+              <td class="py-1.5 px-2 text-right whitespace-nowrap"><button class="text-[10px] font-black uppercase text-blue-600 hover:underline mr-2" title="Give every subject in every class this part (at these defaults), and switch it back on where it's not applicable" onclick="scmApplyPartToAll(${t.id})">Apply to all</button><i data-lucide="trash-2" class="h-3.5 w-3.5 text-red-500 cursor-pointer inline" title="Delete part" onclick="scmDeletePart(${t.id})"></i></td>
             </tr>`).join('')}
             <tr class="bg-slate-50">
               <td class="py-2 px-2"><input type="search" autocomplete="off" spellcheck="false" name="ccpc-exam-scm-newpart" id="scmPt-new-name" placeholder="New part (e.g. Viva)" class="w-28 px-2 py-1 bg-white border border-slate-300 rounded font-bold text-xs"></td>
               ${_scmPartRowInputs('scmPt-new', null)}
               <td></td>
               <td class="py-2 px-2 text-right"><button onclick="scmAddPart()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Add</button></td>
+            </tr>
+            <tr class="bg-slate-50">
+              <td colspan="6" class="px-2 pb-2"><label class="flex items-center gap-2 text-[11px] font-bold text-slate-600 cursor-pointer"><input type="checkbox" id="scmPt-new-all" class="h-4 w-4 accent-blue-600">Add this part to every subject in every class (at the defaults above)</label></td>
             </tr>
           </tbody>
         </table>
@@ -13729,8 +13732,30 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const payload = _scmPartPayload('scmPt-new');
     if (!payload.name) { showToast('Type a name for the new part', 'error'); return; }
     if (_scm.types.some(t => t.name.toLowerCase() === payload.name.toLowerCase())) { showToast(`"${payload.name}" already exists`, 'error'); return; }
+    const toAll = !!(document.getElementById('scmPt-new-all') || {}).checked;
     _adminFetch('save_exam_part', payload).then(res => {
-      if (res && res.result === 'success') { showToast(res.warning || 'Part added', res.warning ? 'error' : undefined); _scmAfterPartChange(); }
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed', 'error'); return; }
+      if (res.warning) showToast(res.warning, 'error');
+      if (!toAll || !res.type) { if (!res.warning) showToast('Part added'); _scmAfterPartChange(); return; }
+      _adminFetch('apply_part_to_all', { component_type_id: res.type.id }).then(r2 => {
+        if (r2 && r2.result === 'success') showToast(`Part added to ${r2.added} subject(s) across all classes`);
+        else showToast(`Part added, but not to the subjects: ${(r2 && r2.message) || 'failed'}`, 'error');
+        _scmAfterPartChange();
+      });
+    });
+  }
+  function scmApplyPartToAll(tid) {
+    const t = _scm.types.find(x => x.id === tid);
+    const pairs = new Set([..._scm.map]);
+    const missing = [...pairs].filter(k => !_scm.comps.has(`${k}|${tid}`)).length;
+    const off = [..._scm.comps.values()].filter(c => c.component_type_id === tid && c.is_active === false).length;
+    if (!missing && !off) { showToast(`Every subject already has ${t ? t.name : 'this part'}`); return; }
+    const parts = [];
+    if (missing) parts.push(`add it to ${missing} subject(s) that don't have it, at its defaults`);
+    if (off) parts.push(`switch it back on for ${off} subject(s) where it's not applicable`);
+    if (!confirm(`${t ? t.name : 'This part'} for every subject in every class:\n\n• ${parts.join('\n• ')}\n\nNumbers already set are not changed.`)) return;
+    _adminFetch('apply_part_to_all', { component_type_id: tid }).then(res => {
+      if (res && res.result === 'success') { showToast(`Added to ${res.added}, switched on for ${res.reactivated}`); _scmAfterPartChange(); }
       else showToast((res && res.message) || 'Failed', 'error');
     });
   }
