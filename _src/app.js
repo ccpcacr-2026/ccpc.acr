@@ -13447,7 +13447,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return `<div class="flex items-center justify-between gap-2 px-4 py-2.5 bg-slate-50 ${open ? 'border-b border-slate-200' : ''} cursor-pointer select-none hover:bg-slate-100" onclick="scmToggleClass(${p.id})" title="${open ? 'Collapse' : 'Expand'}">
       <p class="flex items-center flex-wrap gap-x-1.5 font-black text-slate-800 text-sm"><i data-lucide="${open ? 'chevron-down' : 'chevron-right'}" class="h-4 w-4 text-slate-400"></i>${_escHtml(p.name)}${p.display_name && p.default_label ? ` <span class="text-[10px] font-bold text-slate-400">(${_escHtml(p.default_label)})</span>` : ''}
         <span class="text-[10px] font-bold text-slate-400 ml-1">${n} subject${n === 1 ? '' : 's'}${p.students != null && !p.orphan ? ` · ${p.students} students` : ''}</span>${status}
-        ${p.orphan && p.students != null ? '<span class="text-[9px] font-black uppercase text-white bg-red-500 rounded px-1.5 py-0.5 ml-1">No students</span>' : ''}</p>
+        ${p.orphan && p.students != null ? '<span class="text-[9px] font-black uppercase text-slate-500 bg-slate-200 rounded px-1.5 py-0.5 ml-1" title="No student matches this list right now">No students yet</span>' : ''}</p>
       <div class="flex items-center gap-2.5">
         ${_scm.needsMigration ? '' : `<i data-lucide="pencil" class="h-3.5 w-3.5 text-blue-500 cursor-pointer" title="Edit who this list covers, or the name it's shown as" onclick="event.stopPropagation(); scmOpenScope(${p.id})"></i>`}
         ${p.can_delete ? `<i data-lucide="trash-2" class="h-3.5 w-3.5 text-red-500 cursor-pointer" title="${p.is_default ? 'Delete — no students left in this class' : 'Delete this list — its students go back to the broader list'}" onclick="event.stopPropagation(); scmDeleteClass(${p.id})"></i>` : ''}
@@ -13776,7 +13776,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (_scm.needsMigration) { showToast('Run migration_exam_classes_from_students.sql in Supabase first', 'error'); return; }
     _scmScopeEdit = pid || null;
     const p = pid ? _scm.patterns.find(x => x.id === pid) : null;
-    const classes = Object.keys(_scm.scopeOptions || {}).sort((a, b) => _scmRank(a) - _scmRank(b) || a.localeCompare(b));
+    const classes = Object.keys(_scm.scopeOptions || {}).filter(k => k !== '_all').sort((a, b) => _scmRank(a) - _scmRank(b) || a.localeCompare(b));
     let ov = document.getElementById('scmScopeOverlay');
     if (!ov) {
       ov = document.createElement('div');
@@ -13818,17 +13818,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // Refill section / group / session with the chosen class's real values.
   function _scmScopeClassChanged(p) {
     const cls = (document.getElementById('scmScClass') || {}).value || '';
-    const o = (_scm.scopeOptions || {})[cls] || { sections: [], groups: [], sessions: [] };
-    const fill = (id, values, current) => {
+    const empty = { sections: [], groups: [], sessions: [] };
+    const o = (_scm.scopeOptions || {})[cls] || empty;
+    const all = (_scm.scopeOptions || {})._all || empty;
+    // This class's own values first; values only other classes have go in a
+    // second group, for setting a list up before those students arrive.
+    const fill = (id, key, current) => {
       const el = document.getElementById(id);
       if (!el) return;
-      el.innerHTML = '<option value="">Any</option>' + values.map(v => `<option value="${_escHtml(v)}" ${current === v ? 'selected' : ''}>${_escHtml(v)}</option>`).join('');
+      const opt = v => `<option value="${_escHtml(v)}" ${current === v ? 'selected' : ''}>${_escHtml(v)}</option>`;
+      const others = all[key].filter(v => !o[key].includes(v));
+      el.innerHTML = '<option value="">Any</option>'
+        + (o[key].length ? `<optgroup label="In ${_escHtml(cls)}">${o[key].map(opt).join('')}</optgroup>` : '')
+        + (others.length ? `<optgroup label="Other classes">${others.map(opt).join('')}</optgroup>` : '');
       el.disabled = !cls;
     };
     const cur = p && p.class_name === cls ? p : null;
-    fill('scmScSection', o.sections, cur && cur.section);
-    fill('scmScGroup', o.groups, cur && cur.student_group);
-    fill('scmScSession', o.sessions, cur && cur.session);
+    fill('scmScSection', 'sections', cur && cur.section);
+    fill('scmScGroup', 'groups', cur && cur.student_group);
+    fill('scmScSession', 'sessions', cur && cur.session);
     _scmScopePreview();
   }
   function _scmScopePreview() {

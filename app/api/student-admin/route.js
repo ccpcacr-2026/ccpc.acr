@@ -2644,11 +2644,17 @@ export async function POST(req) {
         can_delete: !isDefault(p) || students === 0,
       });
     });
+    // Per class: the values its own students have. `_all` holds every value
+    // in the database, so a list can be set up ahead of students arriving
+    // (e.g. Twelve · Science before this year's Eleven moves up).
     const scope_options = {};
+    const sort = a => [...a].sort((x, y) => x.localeCompare(y, undefined, { numeric: true }));
+    const all = { sections: new Set(), groups: new Set(), sessions: new Set() };
     byClass.forEach((c, cls) => {
-      const sort = a => [...a].sort((x, y) => x.localeCompare(y, undefined, { numeric: true }));
       scope_options[cls] = { sections: sort(c.sections), groups: sort(c.groups), sessions: sort(c.sessions) };
+      c.sections.forEach(v => all.sections.add(v)); c.groups.forEach(v => all.groups.add(v)); c.sessions.forEach(v => all.sessions.add(v));
     });
+    scope_options._all = { sections: sort(all.sections), groups: sort(all.groups), sessions: sort(all.sessions) };
     return { patterns: out, scope_options };
   }
 
@@ -2789,11 +2795,13 @@ export async function POST(req) {
     const list = await _examClassList();
     if (list.error) return NextResponse.json({ result: 'error', message: list.error });
     if (list.needs_migration) return NextResponse.json({ result: 'error', message: 'Run migration_exam_classes_from_students.sql first.' });
-    const opts = list.scope_options[scope.class_name];
-    if (!opts) return NextResponse.json({ result: 'error', message: `No students are in class "${scope.class_name}".` });
-    if (scope.section && !opts.sections.includes(scope.section)) return NextResponse.json({ result: 'error', message: `Class ${scope.class_name} has no section "${scope.section}".` });
-    if (scope.student_group && !opts.groups.includes(scope.student_group)) return NextResponse.json({ result: 'error', message: `Class ${scope.class_name} has no group "${scope.student_group}".` });
-    if (scope.session && !opts.sessions.includes(scope.session)) return NextResponse.json({ result: 'error', message: `Class ${scope.class_name} has no session "${scope.session}".` });
+    if (!list.scope_options[scope.class_name]) return NextResponse.json({ result: 'error', message: `No students are in class "${scope.class_name}".` });
+    // Section / group / session may come from any class, so a list can be
+    // prepared before students with that value reach this class.
+    const any = list.scope_options._all;
+    if (scope.section && !any.sections.includes(scope.section)) return NextResponse.json({ result: 'error', message: `No student has section "${scope.section}".` });
+    if (scope.student_group && !any.groups.includes(scope.student_group)) return NextResponse.json({ result: 'error', message: `No student has group "${scope.student_group}".` });
+    if (scope.session && !any.sessions.includes(scope.session)) return NextResponse.json({ result: 'error', message: `No student has session "${scope.session}".` });
     const all = await _patterns(true);
     const clash = (Array.isArray(all) ? all : []).find(p => String(p.id) !== String(id || '') && p.class_name === scope.class_name
       && (p.section || null) === scope.section && (p.student_group || null) === scope.student_group && (p.session || null) === scope.session);
