@@ -525,7 +525,7 @@ const ADMIN_TAB_ACTIONS = {
     'get_exam_usage', 'clear_exam_marks', 'delete_exam',
     'get_exam_entry_sheets', 'save_exam_entry_sheets_bulk',
     'get_exam_marks_for_entry', 'save_exam_marks_bulk',
-    'process_exam_result',
+    'process_exam_result', 'prepare_result', 'get_result_templates', 'save_result_template', 'delete_result_template',
     'get_grade_scales', 'save_grade_scale', 'delete_grade_scale',
     'save_board_exam_record', 'get_board_exam_records',
   ]),
@@ -3516,6 +3516,171 @@ export async function POST(req) {
 
   // ── Result Process — weighted component blend per subject, then the
   // same total/percentage/grade/pass-fail/position aggregation as before ─
+  // ── One exam's per-subject results ─────────────────────────────────────
+  // For each student and subject: the weighted total (marks × weight%), its
+  // full marks, the pass mark it needed, and whether it passed. Parts come
+  // from the exam's Exam Pattern (all active parts if it has none).
+  async function _examSubjectResults(examRow, year) {
+    const ep = examRow.exam_patterns || null;
+    const activeTypeIds = ep ? new Set((ep.active_component_type_ids || []).map(String)) : null;
+    const [subjects, students, marksRows] = await Promise.all([
+      _subjectsForPattern(examRow.pattern_id),
+      _studentsForPattern(examRow.pattern_id, year),
+      sbExam(`exam_marks?exam_id=eq.${encodeURIComponent(examRow.id)}&select=subject_id,component_type_id,student_id,marks_obtained`),
+    ]);
+    if (marksRows?.error) return { error: marksRows.error };
+    const compsBySubject = {};
+    await Promise.all(subjects.map(async sub => {
+      const all = await _componentsForSubject(examRow.pattern_id, sub.id);
+      compsBySubject[sub.id] = activeTypeIds && activeTypeIds.size ? all.filter(c => activeTypeIds.has(String(c.component_type_id))) : all;
+    }));
+    const marksMap = {};
+    (Array.isArray(marksRows) ? marksRows : []).forEach(m => {
+      ((marksMap[m.subject_id] = marksMap[m.subject_id] || {})[m.component_type_id] = marksMap[m.subject_id][m.component_type_id] || {})[m.student_id] = m.marks_obtained;
+    });
+    const per = new Map();
+    students.forEach(stu => {
+      const bySubject = new Map();
+      subjects.forEach(sub => {
+        const comps = compsBySubject[sub.id] || [];
+        if (!comps.length) return;
+        let final = 0, full = 0, passNeeded = 0, gateFail = false;
+        const parts = comps.map(c => {
+          const marks = Number((marksMap[sub.id]?.[c.component_type_id]?.[stu.student_id]) ?? 0);
+          const f = Number(c.full_marks) || 0, w = Number(c.weight_percent) || 0, p = _passMarksRaw(c);
+          final += marks * w / 100; full += f * w / 100; passNeeded += p * w / 100;
+          if (marks < p) gateFail = true;
+          return { name: c.exam_component_types?.name || '', marks, full: f, weight: w, pass: p };
+        });
+        const pass = ep && ep.enforce_component_pass_gate ? !gateFail : final >= passNeeded;
+        bySubject.set(sub.id, { final, full, passNeeded, pass, parts });
+      });
+      per.set(stu.student_id, bySubject);
+    });
+    return { subjects, students, per };
+  }
+
+  // ── Result preparation (Result Process) ─────────────────────────────────
+  // config: {
+  //   sources: [{ term_id, exam_name, share }]   exams to combine, by term + name
+  //   method: 'weighted' | 'sum' | 'average' | 'best'
+  //   out_of: number | ''                        subject full marks shown (not for 'sum');
+  //                                              blank = the largest full marks among the exams
+  //   pass_rule: 'combined' | 'each'             combined result vs pass every exam
+  //   columns: { sources, grade, gp, total, percent, gpa, position }
+  // }
+  const _r2 = n => Math.round(n * 100) / 100;
+  async function _prepareResult(patternId, cfg) {
+    const sources = (Array.isArray(cfg.sources) ? cfg.sources : []).filter(s => s && s.term_id);
+    if (!sources.length) return { error: 'Add at least one exam to the result.' };
+    const method = ['weighted', 'sum', 'average', 'best'].includes(cfg.method) ? cfg.method : 'weighted';
+    const examRows = await sbExam(`exams?pattern_id=eq.${encodeURIComponent(patternId)}&select=*,exam_terms(name,academic_year),exam_patterns(id,name,active_component_type_ids,enforce_component_pass_gate)`);
+    if (!Array.isArray(examRows)) return { error: examRows?.error || 'Could not read exams.' };
+    const warnings = [];
+    const resolved = [];
+    for (const src of sources) {
+      const nm = String(src.exam_name || '').trim() || null;
+      const ex = examRows.find(e => String(e.term_id) === String(src.term_id) && (e.name || null) === nm);
+      const label = `${nm || ''}${nm ? ' · ' : ''}${ex?.exam_terms?.name || ''}`.trim() || 'Exam';
+      if (!ex) { warnings.push(`This class has no exam "${nm || '(unnamed)'}" in the chosen term — left out.`); continue; }
+      resolved.push({ ex, share: Number(src.share) || 0, label });
+    }
+    if (!resolved.length) return { error: 'None of the chosen exams exist for this class.' };
+    if (method === 'weighted' && !resolved.some(r => r.share > 0)) return { error: 'Give the exams a share % (e.g. 30 and 70).' };
+    const year = await _examYear(resolved[resolved.length - 1].ex);
+    const perExam = [];
+    for (const r of resolved) {
+      const res = await _examSubjectResults(r.ex, year);
+      if (res.error) return { error: res.error };
+      perExam.push(res);
+    }
+    // Subjects in order of first appearance; students = the class this year.
+    const subjects = [];
+    perExam.forEach(pe => pe.subjects.forEach(s => { if (!subjects.some(x => x.id === s.id)) subjects.push({ id: s.id, name: s.name }); }));
+    const students = await _studentsForPattern(patternId, year);
+    const scalesRows = await sbExam('grade_scales?category=eq.default&select=*');
+    const scales = Array.isArray(scalesRows) ? scalesRows : [];
+    const outOfCfg = Number(cfg.out_of) > 0 ? Number(cfg.out_of) : null;
+
+    const results = students.map(stu => {
+      let total = 0, fullTotal = 0, anyFail = false, gpSum = 0, gpCount = 0;
+      const subjOut = {};
+      subjects.forEach(sub => {
+        const entries = perExam.map((pe, i) => ({ r: resolved[i], v: pe.per.get(stu.student_id)?.get(sub.id) || null })).filter(e => e.v);
+        if (!entries.length) return;
+        let final, full, passMarks;
+        const pctOf = v => (v.full ? v.final / v.full : 0);
+        const passPctOf = v => (v.full ? v.passNeeded / v.full : 0);
+        const outFull = outOfCfg || Math.max(...entries.map(e => e.v.full));
+        if (method === 'sum') {
+          final = entries.reduce((a, e) => a + e.v.final, 0);
+          full = entries.reduce((a, e) => a + e.v.full, 0);
+          passMarks = entries.reduce((a, e) => a + e.v.passNeeded, 0);
+        } else if (method === 'best') {
+          const best = entries.reduce((b, e) => (pctOf(e.v) > pctOf(b.v) ? e : b));
+          full = outFull; final = pctOf(best.v) * full; passMarks = passPctOf(best.v) * full;
+        } else {
+          const shares = entries.map(e => (method === 'average' ? 1 : e.r.share));
+          const sumShare = shares.reduce((a, s) => a + s, 0) || 1;
+          const pct = entries.reduce((a, e, i) => a + pctOf(e.v) * shares[i], 0) / sumShare;
+          const ppct = entries.reduce((a, e, i) => a + passPctOf(e.v) * shares[i], 0) / sumShare;
+          full = outFull; final = pct * full; passMarks = ppct * full;
+        }
+        const pass = cfg.pass_rule === 'each' ? entries.every(e => e.v.pass) : final + 1e-9 >= passMarks;
+        const pctVal = full ? final / full * 100 : 0;
+        const g = _gradeFor(scales, pctVal);
+        if (!pass) anyFail = true;
+        total += final; fullTotal += full;
+        const gp = pass && g ? Number(g.gp) || 0 : 0;
+        gpSum += gp; gpCount++;
+        subjOut[sub.id] = {
+          final: _r2(final), full: _r2(full), percent: _r2(pctVal), pass,
+          grade: pass ? (g ? g.letter_grade : '') : 'F', gp,
+          by_source: perExam.map((pe, i) => { const v = pe.per.get(stu.student_id)?.get(sub.id); return v ? _r2(v.final) : null; }),
+        };
+      });
+      const pct = fullTotal ? total / fullTotal * 100 : 0;
+      const overall = _gradeFor(scales, pct);
+      return {
+        student_id: stu.student_id, student_name: stu.student_name, roll: stu.roll, section: stu.section,
+        subjects: subjOut, total: _r2(total), full: _r2(fullTotal), percentage: _r2(pct),
+        gpa: anyFail ? 0 : _r2(gpCount ? gpSum / gpCount : 0),
+        letter_grade: anyFail ? 'F' : (overall ? overall.letter_grade : ''), pass: !anyFail,
+      };
+    }).sort((a, b) => b.total - a.total).map((r, i) => ({ ...r, position: i + 1 }));
+    if (!scales.length) warnings.push('No grade scale is set up yet (Grade Setup) — grades and GP are blank.');
+    return { subjects, sources: resolved.map(r => ({ label: r.label, share: r.share })), results, warnings };
+  }
+
+  if (action === 'prepare_result') {
+    const { pattern_id, config } = payload;
+    if (!pattern_id) return NextResponse.json({ result: 'error', message: 'Pick a class.' });
+    const out = await _prepareResult(pattern_id, config || {});
+    if (out.error) return NextResponse.json({ result: 'error', message: out.error });
+    return NextResponse.json({ result: 'success', ...out });
+  }
+  if (action === 'get_result_templates') {
+    const rows = await sbExam('result_templates?select=*&order=name.asc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: /result_templates/.test(String(rows.error)) ? 'Run migration_exam_result_templates.sql in Supabase to save templates.' : rows.error });
+    return NextResponse.json({ result: 'success', templates: rows });
+  }
+  if (action === 'save_result_template') {
+    const { id, config } = payload;
+    const name = String(payload.name || '').trim();
+    if (!name) return NextResponse.json({ result: 'error', message: 'Template name required.' });
+    const clash = await sbExam(`result_templates?name=ilike.${encodeURIComponent(name)}${id ? `&id=neq.${encodeURIComponent(id)}` : ''}&select=id`);
+    if (Array.isArray(clash) && clash.length) return NextResponse.json({ result: 'error', message: `A template named "${name}" already exists.` });
+    const row = { name, config: config || {}, updated_at: new Date().toISOString(), created_by: user_id };
+    const r = id ? await sbExam(`result_templates?id=eq.${encodeURIComponent(id)}`, 'PATCH', row) : await sbExam('result_templates', 'POST', row);
+    if (r?.error) return NextResponse.json({ result: 'error', message: /result_templates/.test(String(r.error)) ? 'Run migration_exam_result_templates.sql in Supabase to save templates.' : r.error });
+    return NextResponse.json({ result: 'success', template: Array.isArray(r) ? r[0] : r });
+  }
+  if (action === 'delete_result_template') {
+    const r = await sbExam(`result_templates?id=eq.${encodeURIComponent(payload.id)}`, 'DELETE');
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
   if (action === 'process_exam_result') {
     const { exam_id } = payload;
     const examRows = await sbExam(`exams?id=eq.${encodeURIComponent(exam_id)}&select=*,exam_patterns(id,name,active_component_type_ids,enforce_component_pass_gate)`);

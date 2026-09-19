@@ -12987,8 +12987,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _bulkAssignSelectedPatterns = new Set();
   let _entrySheetRows = [];
   let _meOpenSheets = [];
-  let _examResults = [];
-  let _erExpanded = new Set();
 
   function loadAdminExamsView() {
     _setViewHash('student_portal');
@@ -13160,16 +13158,50 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
 
       <div id="ex-process" style="display:none">
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
-          <select id="prExamSelect" class="exam-select px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Select exam…</option></select>
-          <button onclick="processExamResult()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Process Result</button>
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-3">
+          <div class="flex flex-wrap items-end gap-2 mb-4 pb-4 border-b border-slate-100">
+            <label class="flex flex-col gap-1 flex-1 min-w-[200px]"><span class="text-[10px] font-black text-slate-400 uppercase">Result template</span>
+              <select id="rbTemplateSelect" onchange="rbApplyTemplate(this.value)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">— Current (unsaved) —</option></select></label>
+            <button onclick="rbSaveTemplate(false)" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Save</button>
+            <button onclick="rbSaveTemplate(true)" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Save As New</button>
+            <button onclick="rbDeleteTemplate()" class="px-3 py-2 border border-red-200 text-red-500 rounded-lg font-black text-[10px] uppercase hover:bg-red-50">Delete</button>
+          </div>
+          <div class="grid lg:grid-cols-2 gap-5">
+            <div class="flex flex-col gap-3">
+              <label class="flex flex-col gap-1"><span class="text-[10px] font-black text-slate-400 uppercase">Class</span>
+                <select id="rbClass" class="exam-pattern-select px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Select class…</option></select></label>
+              <div>
+                <div class="flex items-center justify-between mb-1.5"><span class="text-[10px] font-black text-slate-400 uppercase">Exams in this result</span>
+                  <button onclick="rbAddSource()" class="text-[10px] font-black uppercase text-blue-600">+ Add exam</button></div>
+                <div id="rbSources" class="flex flex-col gap-1.5"></div>
+                <p class="text-[10px] text-slate-400 font-bold mt-1">Exams are picked by term + exam name, so one template works for every class.</p>
+              </div>
+            </div>
+            <div class="flex flex-col gap-3">
+              <div class="grid grid-cols-2 gap-2">
+                <label class="flex flex-col gap-1"><span class="text-[10px] font-black text-slate-400 uppercase">Combine subjects by</span>
+                  <select id="rbMethod" onchange="_rbRenderSources()" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></select></label>
+                <label class="flex flex-col gap-1"><span class="text-[10px] font-black text-slate-400 uppercase">Subject out of</span>
+                  <input type="number" min="1" step="any" id="rbOutOf" placeholder="largest exam's marks" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></label>
+              </div>
+              <label class="flex flex-col gap-1"><span class="text-[10px] font-black text-slate-400 uppercase">A subject is passed when</span>
+                <select id="rbPassRule" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+                  <option value="combined">its combined result reaches the combined pass mark</option>
+                  <option value="each">it is passed in every included exam</option>
+                </select></label>
+              <div><span class="text-[10px] font-black text-slate-400 uppercase">Show in the result</span>
+                <div id="rbColumns" class="flex flex-wrap gap-x-4 gap-y-1.5 mt-1.5"></div></div>
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 mt-4 pt-4 border-t border-slate-100">
+            <button onclick="rbPrepare()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Prepare Result</button>
+            <button onclick="rbExport()" class="px-3 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase hover:bg-slate-50">Export Excel</button>
+            <button onclick="rbPrint()" class="px-3 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase hover:bg-slate-50">Print</button>
+            <span id="rbStatus" class="text-xs font-bold text-slate-400 ml-1"></span>
+          </div>
         </div>
-        <div class="overflow-auto border border-slate-200 rounded-xl">
-          <table class="w-full text-left border-collapse text-xs">
-            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3"></th><th class="py-2 px-3">Position</th><th class="py-2 px-3">Student</th><th class="py-2 px-3">Total</th><th class="py-2 px-3">%</th><th class="py-2 px-3">GPA</th><th class="py-2 px-3">Grade</th><th class="py-2 px-3">Pass/Fail</th></tr></thead>
-            <tbody id="examResultsBody"><tr><td colspan="8" class="p-3 text-slate-400 font-bold">Select an exam and process.</td></tr></tbody>
-          </table>
-        </div>
+        <div id="rbWarnings"></div>
+        <div id="rbOutput"><p class="text-xs text-slate-400 font-bold italic px-1">Pick a class and the exams, then Prepare Result.</p></div>
       </div>
 
       <div id="ex-grades" style="display:none">
@@ -13227,7 +13259,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       'ex-subjects': () => (_scmGrid ? loadSubjectSetup() : scmLoad()),
       'ex-entry-setup': loadExamSetupList,
       'ex-marks': loadExamSetupList,
-      'ex-process': loadExamSetupList,
+      'ex-process': () => { loadExamSetupList(); rbInit(); },
       'ex-grades': loadGradeScales,
       'ex-board': loadBoardExamRecords,
     };
@@ -14687,38 +14719,268 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   // ── Result Process — weighted/gated computation, expandable breakdown ──
-  function processExamResult() {
-    const exam_id = document.getElementById('prExamSelect').value;
-    if (!exam_id) return;
-    _adminFetch('process_exam_result', { exam_id }).then(res => {
-      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed', 'error'); return; }
-      _examResults = res.results;
-      _erExpanded = new Set();
-      _renderExamResults();
+  // ── Result Process — result templates (like Payroll's output templates) ──
+  // A result combines one or more exams of a class, picked by term + exam
+  // name. The settings (exams + shares, how subjects combine, out of, pass
+  // rule, output columns) can be saved as a named template and reused for
+  // any class.
+  const _RB_METHODS = [
+    ['weighted', 'Weighted % (a share per exam)'],
+    ['sum', 'Add marks together'],
+    ['average', 'Average of the exams'],
+    ['best', 'Best of the exams'],
+  ];
+  const _RB_COLS = [
+    ['sources', "Each exam's marks"], ['grade', 'Subject grade'], ['gp', 'Subject GP'],
+    ['total', 'Total'], ['percent', 'Percentage'], ['gpa', 'GPA'], ['position', 'Position'],
+  ];
+  const _RB_DEFAULT_COLS = { sources: true, grade: true, gp: false, total: true, percent: true, gpa: true, position: true };
+  let _rbTemplates = [], _rbTerms = [], _rbExams = [], _rbLast = null;
+  let _rbSourcesState = [{ term_id: '', exam_name: '', share: 100 }];
+  function rbInit() {
+    const m = document.getElementById('rbMethod');
+    if (m && !m.options.length) m.innerHTML = _RB_METHODS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+    const cols = document.getElementById('rbColumns');
+    if (cols && !cols.children.length) cols.innerHTML = _RB_COLS.map(([k, l]) => `<label class="flex items-center gap-1.5 text-[11px] font-bold text-slate-600 cursor-pointer"><input type="checkbox" class="rb-col h-3.5 w-3.5 accent-blue-600" value="${k}" ${_RB_DEFAULT_COLS[k] ? 'checked' : ''}>${l}</label>`).join('');
+    Promise.all([
+      _adminFetch('get_exam_terms', { include_archived: true }),
+      _adminFetch('get_exams', { include_archived: true }),
+      _adminFetch('get_result_templates', {}),
+    ]).then(([t, e, tp]) => {
+      _rbTerms = (t && t.result === 'success' && t.terms) || [];
+      _rbExams = (e && e.result === 'success' && e.exams) || [];
+      _rbTemplates = (tp && tp.result === 'success' && tp.templates) || [];
+      const sel = document.getElementById('rbTemplateSelect');
+      if (sel) {
+        const cur = sel.value;
+        sel.innerHTML = '<option value="">— Current (unsaved) —</option>' + _rbTemplates.map(x => `<option value="${x.id}">${_escHtml(x.name)}</option>`).join('');
+        if (cur) sel.value = cur;
+      }
+      if (tp && tp.result !== 'success' && tp.message) _rbWarn([tp.message]);
+      _rbRenderSources();
     });
   }
-  function _renderExamResults() {
-    document.getElementById('examResultsBody').innerHTML = _examResults.map(r => {
-      const expanded = _erExpanded.has(r.student_id);
-      let rowHtml = `<tr class="border-b border-slate-50">
-        <td class="py-1.5 px-3 cursor-pointer" onclick="toggleResultBreakdown('${r.student_id}')"><i data-lucide="${expanded ? 'chevron-up' : 'chevron-down'}" class="h-3 w-3 text-slate-400"></i></td>
-        <td class="py-1.5 px-3">${r.position}</td><td class="py-1.5 px-3">${r.student_name || r.student_id} <span class="text-slate-400">(${r.roll})</span></td><td class="py-1.5 px-3">${r.total}</td><td class="py-1.5 px-3">${r.percentage}%</td><td class="py-1.5 px-3">${r.gpa}</td><td class="py-1.5 px-3">${r.letter_grade}</td>
-        <td class="py-1.5 px-3"><span class="px-2 py-0.5 rounded-full text-[10px] font-black ${r.pass ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}">${r.pass ? 'Pass' : 'Fail'}</span></td>
-      </tr>`;
-      if (expanded) {
-        rowHtml += `<tr class="bg-slate-50"><td colspan="8" class="p-3">
-          ${r.breakdown.map(b => `<div class="mb-2"><span class="font-black text-slate-700 text-xs">${b.subject}</span> — weighted ${b.weighted_pct}% → ${b.subject_final}/${b.subject_full_marks} ${b.pass ? '<span class="text-emerald-600">Pass</span>' : '<span class="text-red-500">Fail</span>'}
-            <div class="text-[11px] text-slate-500 mt-0.5">${b.components.map(c => `${c.name} ${c.marks}/${c.full} (${c.weight}%)`).join(' + ')}</div>
-          </div>`).join('')}
-        </td></tr>`;
-      }
-      return rowHtml;
-    }).join('') || '<tr><td colspan="8" class="p-3 text-slate-400 font-bold text-xs">No results yet.</td></tr>';
-    lucide.createIcons();
+  function _rbExamNamesForTerm(termId) {
+    const names = [...new Set(_rbExams.filter(e => String(e.term_id) === String(termId)).map(e => e.name || ''))];
+    return names.sort((a, b) => a.localeCompare(b));
   }
-  function toggleResultBreakdown(student_id) {
-    if (_erExpanded.has(student_id)) _erExpanded.delete(student_id); else _erExpanded.add(student_id);
-    _renderExamResults();
+  function _rbRenderSources() {
+    const host = document.getElementById('rbSources');
+    if (!host) return;
+    const weighted = (document.getElementById('rbMethod') || {}).value === 'weighted';
+    host.innerHTML = _rbSourcesState.map((src, i) => {
+      const names = src.term_id ? _rbExamNamesForTerm(src.term_id) : [];
+      return `<div class="flex items-center gap-1.5">
+        <select onchange="rbSetSource(${i},'term_id',this.value)" class="flex-1 min-w-0 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <option value="">Term…</option>
+          ${_rbTerms.map(t => `<option value="${t.id}" ${String(t.id) === String(src.term_id) ? 'selected' : ''}>${_escHtml(t.name)} (${_escHtml(t.academic_year || '')})</option>`).join('')}
+        </select>
+        <select onchange="rbSetSource(${i},'exam_name',this.value)" ${src.term_id ? '' : 'disabled'} class="flex-1 min-w-0 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          ${src.term_id && !names.length ? '<option value="">No exams in this term</option>' : ''}
+          ${names.map(n => `<option value="${_escHtml(n)}" ${n === (src.exam_name || '') ? 'selected' : ''}>${n ? _escHtml(n) : '(exam without a name)'}</option>`).join('')}
+        </select>
+        ${weighted ? `<span class="flex items-center gap-0.5"><input type="number" min="0" step="any" value="${_escHtml(String(src.share ?? ''))}" onchange="rbSetSource(${i},'share',this.value)" title="Share of this exam in the result" class="w-14 px-1.5 py-1.5 bg-white border border-slate-300 rounded-lg font-bold text-xs text-center"><span class="text-[10px] font-bold text-slate-400">%</span></span>` : ''}
+        <button onclick="rbRemoveSource(${i})" title="Remove" class="text-slate-300 hover:text-red-500 px-1 text-sm font-black">×</button>
+      </div>`;
+    }).join('') || '<p class="text-xs text-slate-400 italic">No exams yet — + Add exam.</p>';
+    if (weighted) {
+      const sum = _rbSourcesState.reduce((a, s) => a + (Number(s.share) || 0), 0);
+      if (_rbSourcesState.length > 1 && Math.abs(sum - 100) > 0.001) host.insertAdjacentHTML('beforeend', `<p class="text-[10px] font-bold text-amber-600">Shares add up to ${sum}% — they're used in proportion, so that's fine, but 100% is easier to read.</p>`);
+    }
+  }
+  function rbAddSource() {
+    const last = _rbSourcesState[_rbSourcesState.length - 1];
+    _rbSourcesState.push({ term_id: last ? last.term_id : '', exam_name: '', share: '' });
+    _rbRenderSources();
+  }
+  function rbRemoveSource(i) { _rbSourcesState.splice(i, 1); _rbRenderSources(); }
+  function rbSetSource(i, field, value) {
+    const src = _rbSourcesState[i];
+    if (!src) return;
+    src[field] = value;
+    if (field === 'term_id') { const names = _rbExamNamesForTerm(value); src.exam_name = names.length ? names[0] : ''; }
+    _rbRenderSources();
+  }
+  function _rbConfig() {
+    const columns = {};
+    document.querySelectorAll('.rb-col').forEach(c => { columns[c.value] = c.checked; });
+    return {
+      sources: _rbSourcesState.filter(s => s.term_id).map(s => ({ term_id: Number(s.term_id), exam_name: s.exam_name || '', share: Number(s.share) || 0 })),
+      method: document.getElementById('rbMethod').value,
+      out_of: document.getElementById('rbOutOf').value,
+      pass_rule: document.getElementById('rbPassRule').value,
+      columns,
+    };
+  }
+  function _rbApplyConfig(cfg) {
+    cfg = cfg || {};
+    _rbSourcesState = (cfg.sources || []).map(s => ({ term_id: String(s.term_id || ''), exam_name: s.exam_name || '', share: s.share ?? '' }));
+    if (!_rbSourcesState.length) _rbSourcesState = [{ term_id: '', exam_name: '', share: 100 }];
+    document.getElementById('rbMethod').value = cfg.method || 'weighted';
+    document.getElementById('rbOutOf').value = cfg.out_of || '';
+    document.getElementById('rbPassRule').value = cfg.pass_rule || 'combined';
+    const cols = { ..._RB_DEFAULT_COLS, ...(cfg.columns || {}) };
+    document.querySelectorAll('.rb-col').forEach(c => { c.checked = !!cols[c.value]; });
+    _rbRenderSources();
+  }
+  function rbApplyTemplate(id) {
+    const t = _rbTemplates.find(x => String(x.id) === String(id));
+    if (t) _rbApplyConfig(t.config);
+  }
+  function rbSaveTemplate(asNew) {
+    const sel = document.getElementById('rbTemplateSelect');
+    const existing = !asNew && sel.value ? _rbTemplates.find(x => String(x.id) === String(sel.value)) : null;
+    let name = existing ? existing.name : '';
+    if (!existing) {
+      name = (prompt('Template name (e.g. Annual Result — HY 30% + Annual 70%):', '') || '').trim();
+      if (!name) return;
+    }
+    _adminFetch('save_result_template', { id: existing ? existing.id : undefined, name, config: _rbConfig() }).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Not saved', 'error'); return; }
+      showToast(existing ? 'Template saved' : `Saved as "${name}"`);
+      const keep = res.template && res.template.id;
+      rbInit();
+      setTimeout(() => { const s = document.getElementById('rbTemplateSelect'); if (s && keep) s.value = String(keep); }, 400);
+    });
+  }
+  function rbDeleteTemplate() {
+    const sel = document.getElementById('rbTemplateSelect');
+    const t = _rbTemplates.find(x => String(x.id) === String(sel.value));
+    if (!t) { showToast('Pick a saved template first', 'error'); return; }
+    if (!confirm(`Delete template "${t.name}"?`)) return;
+    _adminFetch('delete_result_template', { id: t.id }).then(res => {
+      if (res && res.result === 'success') { showToast('Template deleted'); sel.value = ''; rbInit(); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+  function _rbWarn(list) {
+    const box = document.getElementById('rbWarnings');
+    if (box) box.innerHTML = (list || []).length ? `<div class="mb-3 px-3 py-2 rounded-xl border border-amber-200 bg-amber-50 text-[11px] font-bold text-amber-700">${list.map(_escHtml).join('<br>')}</div>` : '';
+  }
+  function rbPrepare() {
+    const pattern_id = document.getElementById('rbClass').value;
+    if (!pattern_id) { showToast('Pick a class', 'error'); return; }
+    const config = _rbConfig();
+    if (!config.sources.length) { showToast('Add at least one exam', 'error'); return; }
+    const status = document.getElementById('rbStatus');
+    if (status) status.textContent = 'Preparing…';
+    _adminFetch('prepare_result', { pattern_id, config }).then(res => {
+      if (status) status.textContent = '';
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not prepare the result', 'error'); return; }
+      const cls = _classPatterns.find(p => String(p.id) === String(pattern_id));
+      _rbLast = { ...res, config, className: cls ? cls.name : '' };
+      _rbWarn(res.warnings);
+      _rbRender();
+    });
+  }
+  // Rows for the table, Excel and print: [header rows..., data rows...].
+  function _rbGrid() {
+    const d = _rbLast, c = { ..._RB_DEFAULT_COLS, ...(d.config.columns || {}) };
+    const subjCols = [
+      ...(c.sources && d.sources.length > 1 ? d.sources.map(s => s.label) : []),
+      d.sources.length > 1 ? 'Result' : 'Marks',
+      ...(c.grade ? ['Grade'] : []), ...(c.gp ? ['GP'] : []),
+    ];
+    const tail = [...(c.total ? ['Total'] : []), ...(c.percent ? ['%'] : []), ...(c.gpa ? ['GPA'] : []), 'Grade', 'Result'];
+    const head1 = [...(c.position ? ['Pos'] : []), 'Roll', 'Name'];
+    const rows = d.results.map(r => {
+      const cells = [...(c.position ? [r.position] : []), r.roll ?? '', r.student_name || r.student_id];
+      d.subjects.forEach(sub => {
+        const v = r.subjects[sub.id];
+        if (!v) { subjCols.forEach(() => cells.push('')); return; }
+        if (c.sources && d.sources.length > 1) v.by_source.forEach(x => cells.push(x == null ? '—' : x));
+        cells.push(v.final);
+        if (c.grade) cells.push(v.grade);
+        if (c.gp) cells.push(v.gp);
+      });
+      if (c.total) cells.push(`${r.total} / ${r.full}`);
+      if (c.percent) cells.push(r.percentage);
+      if (c.gpa) cells.push(r.gpa);
+      cells.push(r.letter_grade, r.pass ? 'Pass' : 'Fail');
+      return { cells, r };
+    });
+    return { head1, subjCols, tail, rows };
+  }
+  function _rbTableHtml(forPrint) {
+    const d = _rbLast, g = _rbGrid();
+    const full = sub => { const any = d.results.find(r => r.subjects[sub.id]); return any ? any.subjects[sub.id].full : ''; };
+    const th = forPrint ? '' : 'class="py-2 px-2 text-[10px] font-black text-slate-500 uppercase whitespace-nowrap border-b border-slate-200"';
+    const td = forPrint ? '' : 'class="py-1.5 px-2 whitespace-nowrap border-b border-slate-50"';
+    const failCell = forPrint ? 'style="color:#b91c1c;font-weight:700"' : 'class="py-1.5 px-2 whitespace-nowrap border-b border-slate-50 text-red-600 font-bold"';
+    return `<table ${forPrint ? '' : 'class="text-xs text-left border-collapse"'}>
+      <thead>
+        <tr>${g.head1.map(h => `<th rowspan="2" ${th}>${h}</th>`).join('')}${d.subjects.map(sub => `<th colspan="${g.subjCols.length}" ${th} style="text-align:center">${_escHtml(sub.name)}<br><span style="font-weight:600;opacity:.7">out of ${full(sub)}</span></th>`).join('')}${g.tail.map(h => `<th rowspan="2" ${th}>${h}</th>`).join('')}</tr>
+        <tr>${d.subjects.map(() => g.subjCols.map(h => `<th ${th}>${_escHtml(h)}</th>`).join('')).join('')}</tr>
+      </thead>
+      <tbody>${g.rows.map(({ cells, r }) => {
+        const lead = g.head1.length;
+        const per = g.subjCols.length;
+        return `<tr>${cells.map((v, idx) => {
+          let bad = false;
+          if (idx >= lead && idx < lead + per * d.subjects.length) {
+            const sub = d.subjects[Math.floor((idx - lead) / per)];
+            const sv = r.subjects[sub.id];
+            bad = sv && !sv.pass && (idx - lead) % per === (g.subjCols.indexOf(d.sources.length > 1 ? 'Result' : 'Marks'));
+          }
+          if (idx === cells.length - 1 && !r.pass) bad = true;
+          return `<td ${bad ? failCell : td}>${_escHtml(String(v))}</td>`;
+        }).join('')}</tr>`;
+      }).join('')}</tbody>
+    </table>`;
+  }
+  function _rbRender() {
+    const out = document.getElementById('rbOutput');
+    if (!out || !_rbLast) return;
+    const d = _rbLast;
+    const passed = d.results.filter(r => r.pass).length;
+    const summary = `<div class="flex flex-wrap items-center gap-3 mb-2 px-1 text-xs font-bold text-slate-500">
+      <span class="font-black text-slate-800">${_escHtml(d.className)}</span>
+      <span>${d.results.length} students</span>
+      <span class="text-emerald-600">${passed} passed</span>
+      <span class="text-red-600">${d.results.length - passed} failed</span>
+      <span>${d.sources.map(s => _escHtml(s.label) + (d.config.method === 'weighted' && d.sources.length > 1 ? ` ${s.share}%` : '')).join(' + ')}</span>
+    </div>`;
+    if (window.innerWidth < 768) {
+      out.innerHTML = summary + d.results.map(r => `<div class="bg-white border border-slate-200 rounded-2xl p-3 mb-2">
+        <div class="flex items-start justify-between gap-2">
+          <div><p class="font-black text-slate-800 text-sm">${_escHtml(r.student_name || r.student_id)}</p><p class="text-[10px] font-bold text-slate-400">Roll ${_escHtml(String(r.roll ?? ''))} · Position ${r.position}</p></div>
+          <span class="px-2 py-0.5 rounded-full text-[10px] font-black ${r.pass ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}">${r.pass ? 'Pass' : 'Fail'}</span>
+        </div>
+        <p class="text-xs font-bold text-slate-600 mt-1">Total ${r.total}/${r.full} · ${r.percentage}% · GPA ${r.gpa} · ${_escHtml(r.letter_grade)}</p>
+        <div class="mt-2 flex flex-col gap-0.5">${d.subjects.filter(s => r.subjects[s.id]).map(s => { const v = r.subjects[s.id]; return `<div class="flex justify-between text-[11px] ${v.pass ? 'text-slate-600' : 'text-red-600 font-bold'}"><span>${_escHtml(s.name)}</span><span>${v.final}/${v.full} · ${_escHtml(v.grade)}</span></div>`; }).join('')}</div>
+      </div>`).join('');
+      return;
+    }
+    out.innerHTML = summary + `<div id="rbTableWrap" class="overflow-auto border border-slate-200 rounded-xl bg-white" style="max-height:640px">${_rbTableHtml(false)}</div>`;
+  }
+  function rbExport() {
+    if (!_rbLast) { showToast('Prepare a result first', 'error'); return; }
+    const g = _rbGrid(), d = _rbLast;
+    const h1 = [...g.head1], h2 = g.head1.map(() => '');
+    d.subjects.forEach(sub => g.subjCols.forEach((c, i) => { h1.push(i === 0 ? sub.name : ''); h2.push(c); }));
+    g.tail.forEach(t => { h1.push(t); h2.push(''); });
+    ensureXLSX().then(() => {
+      const ws = XLSX.utils.aoa_to_sheet([h1, h2, ...g.rows.map(x => x.cells)]);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Result');
+      XLSX.writeFile(wb, `Result_${String(d.className).replace(/[^a-z0-9]+/gi, '_')}.xlsx`);
+    }).catch(err => showToast(err.message || 'Export failed', 'error'));
+  }
+  function rbPrint() {
+    if (!_rbLast) { showToast('Prepare a result first', 'error'); return; }
+    const d = _rbLast;
+    const win = window.open('', '_blank');
+    win.document.write(`<!doctype html><html><head><title>Result — ${_escHtml(d.className)}</title><style>
+      body{font-family:-apple-system,'Segoe UI',sans-serif;padding:16px;color:#0f172a}
+      h1{font-size:15px;margin:0 0 4px} p{font-size:11px;margin:0 0 10px;color:#475569}
+      table{border-collapse:collapse;font-size:10px;width:100%}
+      th,td{border:1px solid #cbd5e1;padding:3px 5px;text-align:center}
+      th{background:#f1f5f9}
+      @page{size:landscape;margin:10mm}
+    </style></head><body><h1>${_escHtml(MPO_INSTITUTION_NAME)} — ${_escHtml(d.className)}</h1><p>${d.sources.map(s => _escHtml(s.label) + (d.config.method === 'weighted' && d.sources.length > 1 ? ` (${s.share}%)` : '')).join(' + ')}</p>${_rbTableHtml(true)}</body></html>`);
+    win.document.close();
+    win.focus();
+    win.print();
   }
 
   function loadGradeScales() {
