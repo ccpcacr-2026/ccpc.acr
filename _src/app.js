@@ -13127,7 +13127,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div>
             <div class="flex items-center justify-between mb-2">
               <p class="font-black text-slate-800 text-xs flex items-center gap-2"><i data-lucide="list" class="h-4 w-4 text-blue-600"></i>Exams</p>
-              <label class="flex items-center gap-1.5 text-[10px] font-black text-slate-400 uppercase cursor-pointer"><input type="checkbox" id="exsShowArchived" onchange="loadExamSetupList()">Show Archived</label>
+              <span class="flex items-center gap-3"><button onclick="expandAllExamGroups(true)" class="text-[10px] font-black uppercase text-blue-600">Expand all</button><button onclick="expandAllExamGroups(false)" class="text-[10px] font-black uppercase text-slate-500">Collapse all</button><label class="flex items-center gap-1.5 text-[10px] font-black text-slate-400 uppercase cursor-pointer"><input type="checkbox" id="exsShowArchived" onchange="loadExamSetupList()">Show Archived</label></span>
             </div>
             <div id="examSetupList" class="flex flex-col gap-2"></div>
           </div>
@@ -14495,17 +14495,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           groups.get(k).push(e);
         });
         const act = (label, ids, action, cls) => `<button onclick="examGroupAction('${ids}','${action}')" class="text-[10px] font-black uppercase ${cls}">${label}</button>`;
-        host.innerHTML = [...groups.values()].map(list => {
+        _exGroupKeys = [...groups.keys()];
+        host.innerHTML = [...groups.entries()].map(([gk, list]) => {
           const e0 = list[0];
+          const open = _exOpen.has(gk);
           const ids = list.map(e => e.id).join(',');
           const allLocked = list.every(e => e.is_locked), allArchived = list.every(e => e.is_archived);
           const sorted = list.slice().sort((a, b) => _scmRank(_examClassLabel(a.pattern_id, a.class_patterns?.name)) - _scmRank(_examClassLabel(b.pattern_id, b.class_patterns?.name)) || _examClassLabel(a.pattern_id).localeCompare(_examClassLabel(b.pattern_id)));
           return `<div class="border rounded-xl border-slate-200 ${allArchived ? 'opacity-60' : ''}">
-            <div class="flex flex-wrap justify-between items-center gap-2 px-3 py-2 bg-slate-50 rounded-t-xl border-b border-slate-100">
-              <div><span class="font-black text-slate-800 text-xs">${_escHtml(e0.name || e0.exam_terms?.name || '')}</span> <span class="text-slate-400 text-[11px] font-bold ml-1">${e0.name ? _escHtml(e0.exam_terms?.name || '') + ' · ' : ''}${_escHtml(e0.exam_terms?.academic_year || '')} · ${_escHtml(e0.exam_patterns?.name || 'No exam pattern')} · ${list.length} class${list.length === 1 ? '' : 'es'}</span></div>
-              <div class="flex items-center gap-3"><button onclick="editExamGroup('${ids}')" class="text-[10px] font-black uppercase text-blue-600">Edit</button>${act(allLocked ? 'Unlock all' : 'Lock all', ids, allLocked ? 'unlock' : 'lock', 'text-red-500')}${act(allArchived ? 'Unarchive all' : 'Archive all', ids, allArchived ? 'unarchive' : 'archive', 'text-slate-500')}${act('Delete all', ids, 'delete', 'text-red-500')}</div>
+            <div onclick="toggleExamGroup('${_escHtml(_escJs(gk))}')" title="${open ? 'Collapse' : 'Expand'}" class="flex flex-wrap justify-between items-center gap-2 px-3 py-2 bg-slate-50 ${open ? 'rounded-t-xl border-b border-slate-100' : 'rounded-xl'} cursor-pointer select-none hover:bg-slate-100">
+              <div class="flex items-center gap-1.5"><i data-lucide="${open ? 'chevron-down' : 'chevron-right'}" class="h-4 w-4 text-slate-400 shrink-0"></i><span class="font-black text-slate-800 text-xs">${_escHtml(e0.name || e0.exam_terms?.name || '')}</span> <span class="text-slate-400 text-[11px] font-bold ml-1">${e0.name ? _escHtml(e0.exam_terms?.name || '') + ' · ' : ''}${_escHtml(e0.exam_terms?.academic_year || '')} · ${_escHtml(e0.exam_patterns?.name || 'No exam pattern')} · ${list.length} class${list.length === 1 ? '' : 'es'}</span></div>
+              <div class="flex items-center gap-3" onclick="event.stopPropagation()"><button onclick="editExamGroup('${ids}')" class="text-[10px] font-black uppercase text-blue-600">Edit</button>${act(allLocked ? 'Unlock all' : 'Lock all', ids, allLocked ? 'unlock' : 'lock', 'text-red-500')}${act(allArchived ? 'Unarchive all' : 'Archive all', ids, allArchived ? 'unarchive' : 'archive', 'text-slate-500')}${act('Delete all', ids, 'delete', 'text-red-500')}</div>
             </div>
-            <div class="divide-y divide-slate-50">${sorted.map(e => `<div class="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 ${e.is_archived ? 'opacity-50' : ''}">
+            <div class="divide-y divide-slate-50" style="${open ? '' : 'display:none'}">${sorted.map(e => `<div class="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 ${e.is_archived ? 'opacity-50' : ''}">
               <span class="text-xs font-bold text-slate-700">${_escHtml(_examClassLabel(e.pattern_id, e.class_patterns?.name))}${e.is_locked ? ' <span class="text-[9px] font-black text-white bg-red-500 rounded px-1.5 py-0.5 ml-1">Locked</span>' : ''}${e.is_archived ? ' <span class="text-[9px] font-black text-white bg-slate-400 rounded px-1.5 py-0.5 ml-1">Archived</span>' : ''}</span>
               <span class="flex items-center gap-2">
                 <button onclick="toggleExamSetupLock(${e.id}, ${!e.is_locked})" class="text-[10px] font-black uppercase text-red-500">${e.is_locked ? 'Unlock' : 'Lock'}</button>
@@ -14515,10 +14517,26 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               </span></div>`).join('')}</div>
           </div>`;
         }).join('') || '<span class="text-xs text-slate-400 font-bold italic">No exams yet.</span>';
+        lucide.createIcons();
       }
       const opts = '<option value="">Select exam…</option>' + _examList.filter(e => !e.is_archived).map(e => `<option value="${e.id}">${_escHtml(e.exam_terms?.name || '')}${e.name ? ' · ' + _escHtml(e.name) : ''} · ${_escHtml(_examClassLabel(e.pattern_id, e.class_patterns?.name))}${e.is_locked ? ' 🔒' : ''}</option>`).join('');
       document.querySelectorAll('.exam-select').forEach(el => { const cur = el.value; el.innerHTML = opts; if (cur) el.value = cur; });
     });
+  }
+  // Exam groups start collapsed; which ones are open is remembered per browser.
+  let _exGroupKeys = [];
+  let _exOpen = new Set();
+  try { _exOpen = new Set(JSON.parse(localStorage.getItem('ccpc.examOpen') || '[]')); } catch (e) {}
+  function _exSaveOpen() { try { localStorage.setItem('ccpc.examOpen', JSON.stringify([..._exOpen])); } catch (e) {} }
+  function toggleExamGroup(gk) {
+    if (_exOpen.has(gk)) _exOpen.delete(gk); else _exOpen.add(gk);
+    _exSaveOpen();
+    loadExamSetupList();
+  }
+  function expandAllExamGroups(open) {
+    _exGroupKeys.forEach(k => { if (open) _exOpen.add(k); else _exOpen.delete(k); });
+    _exSaveOpen();
+    loadExamSetupList();
   }
   function saveExamSetup() {
     const term_id = document.getElementById('exsTermSelect').value;
