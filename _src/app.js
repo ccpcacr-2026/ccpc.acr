@@ -12967,6 +12967,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   const EXAMS_SUBTABS = [
     { id: 'ex-subjects', label: 'Subject Setup' },
+    { id: 'ex-teachers', label: 'Marks Entry Teachers' },
     // One page, three steps: terms, exam patterns, then the exams themselves.
     { id: 'ex-setup', label: 'Term / Exam Setup', panels: ['ex-terms', 'ex-pattern', 'ex-exam-setup'] },
     { id: 'ex-entry-setup', label: 'Marks Entry Setup' },
@@ -13028,13 +13029,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
       </div>
 
+      <div id="ex-teachers" style="display:none"><div id="stHost"></div></div>
+
       <div id="ex-subjects" style="display:none">
         <div class="flex flex-wrap items-center gap-2 mb-3">
           <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-scm-filter" id="scmFilter" placeholder="Find class…" oninput="scmRender()" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:160px">
           <button onclick="scmOpenScope(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ Subject List</button>
           <button onclick="scmExpandAll(true)" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Expand All</button>
           <button onclick="scmExpandAll(false)" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Collapse All</button>
-          <button onclick="stOpen()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Teachers</button>
+          <button onclick="switchExamsTab('ex-teachers')" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Teachers</button>
           <button onclick="scmManageParts()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Exam Parts</button>
           <button onclick="scmManageSubjects(); scmEditSubject('new')" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ Add Subject</button>
           <button onclick="scmManageSubjects()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">All Subjects</button>
@@ -13282,6 +13285,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const loaders = {
       'ex-setup': () => { loadExamTerms(); loadExamPatternSetup(); loadExamSetupList(); },
       'ex-subjects': () => (_scmGrid ? loadSubjectSetup() : scmLoad()),
+      'ex-teachers': stPanel,
       'ex-entry-setup': loadExamSetupList,
       'ex-marks': loadExamSetupList,
       'ex-process': () => { loadExamSetupList(); rbInit(); },
@@ -14147,24 +14151,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _adminFetch('get_subject_teachers', {}).then(res => {
       _stData = res && res.result === 'success' ? res : { rows: [], teachers: [], teacher_map: [], subject_map: [], routine_url: '', error: res && res.message };
       if (then) then();
-      else if (document.getElementById('stOverlay')) stRender();
+      else if (document.getElementById('stHost')) stRender();
     });
   }
-  function stOpen() {
-    if (!_scm) return;
-    let ov = document.getElementById('stOverlay');
-    if (!ov) {
-      ov = document.createElement('div');
-      ov.id = 'stOverlay';
-      ov.className = 'fixed inset-0 z-[80] bg-slate-900/40 flex items-center justify-center p-4';
-      ov.onclick = e => { if (e.target === ov) ov.remove(); };
-      document.body.appendChild(ov);
-    }
-    ov.innerHTML = '<div class="bg-white rounded-2xl shadow-xl p-6 text-xs font-bold text-slate-500">Loading teachers…</div>';
+  // The tab needs the class/subject lists too — load them first if the
+  // Subject Setup tab hasn't been opened yet.
+  function stPanel() {
+    const host = document.getElementById('stHost');
+    if (host && !host.innerHTML) host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">Loading…</p>';
+    if (!_scm) { scmLoad().then(() => (_stData ? stRender() : scmLoadTeachers(stRender))); return; }
     if (_stData) stRender(); else scmLoadTeachers(stRender);
   }
   function stRender() {
-    const ov = document.getElementById('stOverlay');
+    const ov = document.getElementById('stHost');
     if (!ov || !_stData) return;
     const rep = _stReport;
     const unknown = (rep && rep.unknown_teachers) || [];
@@ -14188,10 +14187,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               </div></td></tr>`;
         }).join('')}</tbody></table></div>`;
     }).join('') || '<p class="text-xs text-slate-400 italic">No classes with subjects yet.</p>';
-    ov.innerHTML = `<div class="bg-white rounded-2xl shadow-xl w-full max-w-4xl flex flex-col" style="max-height:92vh">
+    ov.innerHTML = `<div class="bg-white rounded-2xl border border-slate-200 flex flex-col">
       <div class="flex items-center justify-between px-4 py-3 border-b border-slate-200">
         <p class="font-black text-slate-800 text-sm">Teachers who can enter marks</p>
-        <i data-lucide="x" class="h-4 w-4 text-slate-500 cursor-pointer" onclick="document.getElementById('stOverlay').remove()"></i>
+        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Applies to every exam and term</span>
       </div>
       <div class="px-4 py-3 border-b border-slate-100 flex flex-col gap-2">
         ${_stData.error ? `<p class="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">${_escHtml(_stData.error)}</p>` : ''}
@@ -14215,7 +14214,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <input type="search" id="stFilter" value="${_escHtml(q)}" oninput="stRender()" placeholder="Find a class…" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:200px">
         <span class="text-[10px] font-bold text-slate-400">${(_stData.rows || []).length} assignments</span>
       </div>
-      <div class="overflow-y-auto px-4 py-3">${body}</div>
+      <div class="overflow-y-auto px-4 py-3" style="max-height:60vh">${body}</div>
     </div>`;
     lucide.createIcons();
     const f = document.getElementById('stFilter');
