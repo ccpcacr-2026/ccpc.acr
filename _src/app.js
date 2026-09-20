@@ -13037,7 +13037,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button onclick="scmOpenScope(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ Subject List</button>
           <button onclick="scmExpandAll(true)" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Expand All</button>
           <button onclick="scmExpandAll(false)" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Collapse All</button>
-          <button onclick="switchExamsTab('ex-teachers')" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Teachers</button>
           <button onclick="srOpen()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Subject Codes</button>
           <button onclick="scmManageParts()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Exam Parts</button>
           <button onclick="scmManageSubjects(); scmEditSubject('new')" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ Add Subject</button>
