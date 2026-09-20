@@ -14178,7 +14178,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <span id="srStatus" class="text-[11px] font-bold text-slate-400"></span>
         </div>
         ${rep ? `<div class="text-[11px] font-bold text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5">
-          ${rep.codes} codes · ${rep.names} class-wise names · ${rep.matched} linked to a subject${rep.saved ? ` · <span class="text-emerald-700">saved</span>` : ' (nothing saved yet)'}
+          ${rep.codes} codes · ${rep.names} class-wise names · ${rep.matched} linked to a subject${rep.duplicates ? ` · ${rep.duplicates} repeated code(s) in the sheet ignored` : ''}${rep.saved ? ` · <span class="text-emerald-700">saved</span>` : ' (nothing saved yet)'}
           ${(rep.unmatched || []).length ? `<div class="mt-1 text-amber-700">Not linked: ${rep.unmatched.map(u => _escHtml(u.code)).join(', ')} — link them below.</div>` : ''}
         </div>` : '<p class="text-[10px] text-slate-400 font-bold">Reading the sheet links each code to a subject and keeps every class\'s own name. The class routine is read with these codes.</p>'}
       </div>

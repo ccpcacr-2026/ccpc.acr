@@ -3247,29 +3247,41 @@ export async function POST(req) {
     const nameIndex = new Map();
     subjects.forEach(su => { const k = _rtNorm(su.name); if (!nameIndex.has(k)) nameIndex.set(k, []); nameIndex.get(k).push(su.id); });
     const byName = { get: k => { const ids = nameIndex.get(k); return ids ? (ids.find(id => inUse.has(String(id))) ?? ids[0]) : undefined; } };
-    const entries = [], codes = [];
+    // A code may be listed on more than one row, each row filling different
+    // class columns — the rows are merged, the first name for a column wins.
+    const byCode = new Map();
+    let duplicates = 0;
     for (let i = 1; i < rows.length; i++) {
       const code = String((rows[i] || [])[_REF_FIRST_COL] || '').trim();
       if (!code) continue;
       const names = scopes.map(sc => ({ scope: sc.label, name: String((rows[i] || [])[sc.col] || '').trim() })).filter(x => x.name);
       if (!names.length) continue;
-      // The code belongs to whichever subject one of its names matches.
-      // The built-in code list first (the sheet itself has a couple of slips),
-      // then the code as a name, then the class-wise names.
-      const built = _ROUTINE_SUBJECT_NAMES[String(code).toUpperCase().trim()];
-      let sid = (built ? byName.get(_rtNorm(built)) : null) || byName.get(_rtNorm(code)) || null;
+      const key = _rtNorm(code);
+      if (!byCode.has(key)) byCode.set(key, { code, names: new Map() });
+      else duplicates++;
+      const entry = byCode.get(key);
+      names.forEach(n => { if (!entry.names.has(n.scope)) entry.names.set(n.scope, n.name); });
+    }
+    const entries = [], codes = [];
+    byCode.forEach(entry => {
+      const names = [...entry.names.entries()].map(([scope, name]) => ({ scope, name }));
+      // The code belongs to whichever subject one of its names matches: the
+      // built-in code list first (the sheet itself has a couple of slips),
+      // then the code as a name, then the class-wise names, then a close match.
+      const built = _ROUTINE_SUBJECT_NAMES[String(entry.code).toUpperCase().trim()];
+      let sid = (built ? byName.get(_rtNorm(built)) : null) || byName.get(_rtNorm(entry.code)) || null;
       if (!sid) for (const n of names) { const hit = byName.get(_rtNorm(n.name)); if (hit) { sid = hit; break; } }
       if (!sid) {
-        const candidates = [code, ...names.map(n => n.name)];
+        const candidates = [entry.code, ...names.map(n => n.name)];
         let best = null, bestScore = 0.86;
         subjects.forEach(su => candidates.forEach(c => { const sc = _nameSim(c, su.name) + (inUse.has(String(su.id)) ? 0.02 : 0); if (sc > bestScore) { bestScore = sc; best = su.id; } }));
         sid = best;
       }
-      codes.push({ code, subject_id: sid, names: names.map(n => n.name) });
-      names.forEach(n => entries.push({ code, scope: n.scope, name: n.name, subject_id: sid }));
-    }
+      codes.push({ code: entry.code, subject_id: sid, names: names.map(n => n.name) });
+      names.forEach(n => entries.push({ code: entry.code, scope: n.scope, name: n.name, subject_id: sid }));
+    });
     const matched = codes.filter(c => c.subject_id), unmatched = codes.filter(c => !c.subject_id);
-    const report = { codes: codes.length, names: entries.length, matched: matched.length, unmatched: unmatched.map(c => ({ code: c.code, names: c.names.slice(0, 3) })), scopes: scopes.map(s => s.label).filter(Boolean) };
+    const report = { codes: codes.length, names: entries.length, matched: matched.length, duplicates, unmatched: unmatched.map(c => ({ code: c.code, names: c.names.slice(0, 3) })), scopes: scopes.map(s => s.label).filter(Boolean) };
     if (!apply) return report;
     const wipe = await sbExam('subject_name_ref?id=gt.0', 'DELETE');
     if (wipe?.error) return { error: /subject_name_ref/.test(String(wipe.error)) ? 'Run migration_exam_subject_reference.sql in Supabase first.' : wipe.error };
