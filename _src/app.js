@@ -13137,13 +13137,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
 
       <div id="ex-marks" style="display:none">
-        <div class="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3">
-          <select id="meExamSelect" class="exam-select px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" onchange="loadMarksEntryOptions()"><option value="">Select exam…</option></select>
+        <div class="flex flex-wrap items-center gap-2 mb-3">
+          <select id="meExamSelect" class="exam-select px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="min-width:260px" onchange="loadMarksEntryOptions()"><option value="">Select exam…</option></select>
+          <button onclick="meToggleManual()" class="px-3 py-2 border border-slate-200 text-slate-500 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Pick manually</button>
+        </div>
+        <div id="meManual" class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3" style="display:none">
           <select id="meSubjectSelect" onchange="_populateMarksComponentSelect()" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Subject…</option></select>
           <select id="meComponentSelect" onchange="_populateMarksSectionSelect()" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Component…</option></select>
           <select id="meSectionSelect" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Section…</option></select>
           <button onclick="loadMarksEntry()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Load Students</button>
         </div>
+        <div id="meCards" class="mb-3"></div>
+        <p id="meNow" class="font-black text-slate-800 text-sm mb-2"></p>
         <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:420px">
           <table class="w-full text-left border-collapse text-xs">
             <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Roll</th><th class="py-2 px-3">Name</th><th class="py-2 px-3">Marks</th></tr></thead>
@@ -14926,7 +14931,60 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _meOpenSheets.forEach(r => subjMap.set(r.subject_id, r.subject_name));
       document.getElementById('meSubjectSelect').innerHTML = '<option value="">Subject…</option>' + [...subjMap.entries()].map(([id, name]) => `<option value="${id}">${name}</option>`).join('');
       _populateMarksComponentSelect();
+      _meLoadCards();
     });
+  }
+  // Cards: one per subject + part this user can fill in, a chip per section
+  // showing how many students already have marks.
+  function _meLoadCards() {
+    const host = document.getElementById('meCards');
+    const exam_id = document.getElementById('meExamSelect').value;
+    if (!host) return;
+    if (!exam_id) { host.innerHTML = ''; return; }
+    host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">Loading what you can fill in…</p>';
+    _adminFetch('get_marks_entry_cards', { exam_id }).then(res => {
+      if (!res || res.result !== 'success') { host.innerHTML = ''; return; }
+      const groups = new Map();
+      res.cards.forEach(c => {
+        if (!groups.has(c.subject_id)) groups.set(c.subject_id, { name: c.subject_name, parts: [] });
+        groups.get(c.subject_id).parts.push(c);
+      });
+      const chip = (c, s) => {
+        const full = s.total && s.entered >= s.total;
+        return `<button onclick="meOpenSheet(${c.subject_id},${c.component_type_id},'${_escJs(s.class)}','${_escJs(s.section)}')" class="px-2 py-1 rounded-lg text-[11px] font-bold border ${full ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : s.entered ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-white border-slate-200 text-slate-600 hover:border-blue-300 hover:text-blue-700'}">${_escHtml(s.section || '—')} <span class="opacity-70">${s.entered}/${s.total}</span></button>`;
+      };
+      host.innerHTML = `<div class="flex items-center justify-between mb-2">
+          <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">${res.filtered ? 'Your subjects for this exam' : 'Every subject in this exam'}${res.locked ? ' · exam locked' : ''}</p>
+          <span class="text-[10px] font-bold text-slate-400">${res.cards.length} sheet group(s) · green = complete</span>
+        </div>
+        ${res.cards.length ? `<div class="grid gap-2" style="grid-template-columns:repeat(auto-fill,minmax(260px,1fr))">${[...groups.values()].map(g => `<div class="bg-white border border-slate-200 rounded-2xl p-3">
+          <p class="font-black text-slate-800 text-xs mb-1.5">${_escHtml(g.name)}</p>
+          ${g.parts.map(c => `<div class="mb-1.5">
+            <p class="text-[10px] font-black text-slate-400 uppercase">${_escHtml(c.component_name)} · ${c.full_marks} marks · pass ${Math.round(c.pass_marks * 100) / 100}</p>
+            <div class="flex flex-wrap gap-1 mt-1">${c.sections.map(s => chip(c, s)).join('')}</div>
+          </div>`).join('')}
+        </div>`).join('')}</div>`
+        : `<p class="text-xs font-bold text-amber-600 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">${res.filtered ? 'You have no subjects assigned for this class — see Marks Entry Teachers.' : 'Nothing is open for entry in this exam — open the parts in Term / Exam Setup.'}</p>`}`;
+    });
+  }
+  // A chip fills the pickers and loads that sheet straight away.
+  function meToggleManual() {
+    const box = document.getElementById('meManual');
+    if (box) box.style.display = box.style.display === 'none' ? '' : 'none';
+  }
+  function meOpenSheet(subject_id, component_type_id, cls, section) {
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = String(v); };
+    set('meSubjectSelect', subject_id);
+    _populateMarksComponentSelect();
+    set('meComponentSelect', component_type_id);
+    _populateMarksSectionSelect();
+    set('meSectionSelect', `${cls}||${section}`);
+    const sec = document.getElementById('meSectionSelect');
+    if (sec && sec.value !== `${cls}||${section}`) {
+      const hit = [...sec.options].find(o => o.value.endsWith(`||${section}`) || o.textContent.trim() === section);
+      if (hit) sec.value = hit.value;
+    }
+    loadMarksEntry();
   }
   function _populateMarksComponentSelect() {
     const subject_id = document.getElementById('meSubjectSelect').value;
@@ -14941,6 +14999,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const secs = _meOpenSheets.filter(r => String(r.subject_id) === String(subject_id) && String(r.component_type_id) === String(component_type_id));
     document.getElementById('meSectionSelect').innerHTML = '<option value="">Section…</option>' + secs.map(s => `<option value="${s.class}||${s.section}">${s.class}-${s.section}</option>`).join('');
   }
+  function _meShowCurrent() {
+    const el = document.getElementById('meNow');
+    if (!el) return;
+    const text = id => { const s = document.getElementById(id); return s && s.selectedIndex > 0 ? s.options[s.selectedIndex].textContent.trim() : ''; };
+    const parts = [text('meSubjectSelect'), text('meComponentSelect'), text('meSectionSelect')].filter(Boolean);
+    el.textContent = parts.length === 3 ? parts.join(' · ') : '';
+  }
   function loadMarksEntry() {
     const exam_id = document.getElementById('meExamSelect').value;
     const subject_id = document.getElementById('meSubjectSelect').value;
@@ -14954,6 +15019,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <td class="py-1.5 px-3">${s.roll}</td><td class="py-1.5 px-3">${s.student_name}</td>
         <td class="py-1.5 px-3"><input type="number" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-marks-entry" class="marks-entry-input px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:100px" data-student="${s.student_id}" value="${s.marks_obtained}"></td>
       </tr>`).join('') || '<tr><td colspan="3" class="p-3 text-slate-400 font-bold text-xs">No students found.</td></tr>';
+      _meShowCurrent();
     });
   }
   function saveMarksEntry() {
@@ -14963,7 +15029,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const marks = Array.from(document.querySelectorAll('.marks-entry-input')).map(inp => ({ student_id: inp.dataset.student, marks_obtained: inp.value }));
     const status = document.getElementById('marksEntryStatus');
     _adminFetch('save_exam_marks_bulk', { exam_id, subject_id, component_type_id, marks }).then(res => {
-      if (res && res.result === 'success') { status.className = 'text-xs font-bold text-emerald-600 ml-2'; status.textContent = `Saved ${res.saved} of ${marks.length}.`; }
+      if (res && res.result === 'success') { status.className = 'text-xs font-bold text-emerald-600 ml-2'; status.textContent = `Saved ${res.saved} of ${marks.length}.`; _meLoadCards(); }
       else { status.className = 'text-xs font-bold text-red-500 ml-2'; status.textContent = (res && res.message) || 'Failed'; }
     });
   }
