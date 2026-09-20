@@ -13038,6 +13038,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button onclick="scmExpandAll(true)" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Expand All</button>
           <button onclick="scmExpandAll(false)" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Collapse All</button>
           <button onclick="switchExamsTab('ex-teachers')" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Teachers</button>
+          <button onclick="srOpen()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Subject Codes</button>
           <button onclick="scmManageParts()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Exam Parts</button>
           <button onclick="scmManageSubjects(); scmEditSubject('new')" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ Add Subject</button>
           <button onclick="scmManageSubjects()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">All Subjects</button>
@@ -14128,6 +14129,93 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const ov = document.getElementById('scmScopeOverlay');
       if (ov) ov.remove();
       scmLoad();
+    });
+  }
+  // ── Subject codes (the school's reference sheet) ────────────────────────
+  // Columns Q:AE: the code the routine uses and the subject's real name for
+  // each class / medium. Reading it is what lets the routine's codes be
+  // understood, and keeps each class's own name for the subject.
+  let _srData = null, _srReport = null;
+  function srOpen() {
+    let ov = document.getElementById('srOverlay');
+    if (!ov) {
+      ov = document.createElement('div');
+      ov.id = 'srOverlay';
+      ov.className = 'fixed inset-0 z-[80] bg-slate-900/40 flex items-center justify-center p-4';
+      ov.onclick = e => { if (e.target === ov) ov.remove(); };
+      document.body.appendChild(ov);
+    }
+    ov.innerHTML = '<div class="bg-white rounded-2xl shadow-xl p-6 text-xs font-bold text-slate-500">Loading…</div>';
+    _adminFetch('get_subject_reference', {}).then(res => {
+      _srData = res && res.result === 'success' ? res : { rows: [], subject_map: [], url: '' };
+      srRender();
+    });
+  }
+  function srRender() {
+    const ov = document.getElementById('srOverlay');
+    if (!ov || !_srData) return;
+    const rep = _srReport;
+    const subjOptions = sel => '<option value="">— not linked —</option>' + (_scm ? _scm.subjects : []).map(s => `<option value="${s.id}" ${String(sel) === String(s.id) ? 'selected' : ''}>${_escHtml(s.name)}</option>`).join('');
+    // One row per code, with every class-wise name it carries.
+    const byCode = new Map();
+    (_srData.rows || []).forEach(r => {
+      if (!byCode.has(r.code)) byCode.set(r.code, { code: r.code, subject_id: r.subject_id, names: [] });
+      byCode.get(r.code).names.push(`${r.scope}: ${r.name}`);
+    });
+    const overrides = new Map((_srData.subject_map || []).map(m => [m.code, m.subject_id]));
+    const q = (document.getElementById('srFilter') || {}).value || '';
+    const codes = [...byCode.values()].filter(c => !q || c.code.toLowerCase().includes(q.toLowerCase()) || c.names.join(' ').toLowerCase().includes(q.toLowerCase()));
+    ov.innerHTML = `<div class="bg-white rounded-2xl shadow-xl w-full max-w-3xl flex flex-col" style="max-height:90vh">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+        <p class="font-black text-slate-800 text-sm">Subject codes &amp; class-wise names</p>
+        <i data-lucide="x" class="h-4 w-4 text-slate-500 cursor-pointer" onclick="document.getElementById('srOverlay').remove()"></i>
+      </div>
+      <div class="px-4 py-3 border-b border-slate-100 flex flex-col gap-2">
+        <div class="flex flex-wrap items-end gap-2">
+          <label class="flex flex-col gap-1 flex-1 min-w-[260px]"><span class="text-[10px] font-black text-slate-400 uppercase">Subject reference sheet link (columns Q:AE)</span>
+            <input type="text" id="srUrl" value="${_escHtml(_srData.url || '')}" placeholder="https://docs.google.com/spreadsheets/d/…" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></label>
+          <button onclick="srSync(false)" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Check</button>
+          <button onclick="srSync(true)" class="px-4 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Read &amp; save</button>
+          <span id="srStatus" class="text-[11px] font-bold text-slate-400"></span>
+        </div>
+        ${rep ? `<div class="text-[11px] font-bold text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5">
+          ${rep.codes} codes · ${rep.names} class-wise names · ${rep.matched} linked to a subject${rep.saved ? ` · <span class="text-emerald-700">saved</span>` : ' (nothing saved yet)'}
+          ${(rep.unmatched || []).length ? `<div class="mt-1 text-amber-700">Not linked: ${rep.unmatched.map(u => _escHtml(u.code)).join(', ')} — link them below.</div>` : ''}
+        </div>` : '<p class="text-[10px] text-slate-400 font-bold">Reading the sheet links each code to a subject and keeps every class\'s own name. The class routine is read with these codes.</p>'}
+      </div>
+      <div class="px-4 py-2 border-b border-slate-100 flex items-center gap-2">
+        <input type="search" id="srFilter" value="${_escHtml(q)}" oninput="srRender()" placeholder="Find a code or name…" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:220px">
+        <span class="text-[10px] font-bold text-slate-400">${byCode.size} codes saved</span>
+      </div>
+      <div class="overflow-y-auto px-4 py-2">${codes.length ? `<table class="w-full text-left text-xs"><tbody>${codes.map(c => `<tr class="border-b border-slate-50">
+          <td class="py-1.5 pr-2 font-black text-slate-800 align-top whitespace-nowrap">${_escHtml(c.code)}</td>
+          <td class="py-1.5 pr-2 text-[11px] text-slate-500">${_escHtml(c.names.slice(0, 4).join(' · '))}${c.names.length > 4 ? ` <span class="text-slate-400">+${c.names.length - 4} more</span>` : ''}</td>
+          <td class="py-1.5 align-top"><select onchange="srMapCode('${_escJs(c.code)}',this.value)" class="px-1.5 py-1 bg-white border border-slate-200 rounded-lg text-[10px] font-bold" style="max-width:200px">${subjOptions(overrides.has(c.code) ? overrides.get(c.code) : c.subject_id)}</select></td>
+        </tr>`).join('')}</tbody></table>` : '<p class="text-xs text-slate-400 italic py-3">Nothing saved yet — paste the link and press "Read &amp; save".</p>'}</div>
+    </div>`;
+    lucide.createIcons();
+    const fl = document.getElementById('srFilter');
+    if (fl && q) { fl.focus(); fl.setSelectionRange(q.length, q.length); }
+  }
+  function srSync(apply) {
+    const url = (document.getElementById('srUrl') || {}).value || '';
+    if (!url.trim()) { showToast('Paste the reference sheet link', 'error'); return; }
+    const st = document.getElementById('srStatus');
+    if (st) st.textContent = apply ? 'Reading and saving…' : 'Reading…';
+    _adminFetch('sync_subject_reference', { url, apply }).then(res => {
+      if (st) st.textContent = '';
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not read the sheet', 'error'); return; }
+      _srReport = res;
+      showToast(apply ? `Saved ${res.names} names · ${res.matched} codes linked` : `${res.codes} codes found · ${res.matched} link to a subject`);
+      if (apply) _adminFetch('get_subject_reference', {}).then(r2 => { _srData = r2 && r2.result === 'success' ? r2 : _srData; srRender(); });
+      else srRender();
+    });
+  }
+  function srMapCode(code, subject_id) {
+    _adminFetch('save_routine_subject_map', { code, subject_id: subject_id ? Number(subject_id) : null }).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed', 'error'); return; }
+      showToast(`${code} → ${subject_id ? _scmSubjectName(Number(subject_id)) : 'not linked'}`);
+      _adminFetch('get_subject_reference', {}).then(r2 => { if (r2 && r2.result === 'success') { _srData = r2; srRender(); } });
     });
   }
   // ── Subject teachers (who may enter marks), read from the class routine ──

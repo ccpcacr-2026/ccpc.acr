@@ -519,7 +519,7 @@ const ADMIN_TAB_ACTIONS = {
     'get_subjects', 'save_subject', 'delete_subject', 'get_subject_pattern_map', 'save_subject_pattern_map',
     'get_subject_class_matrix', 'toggle_subject_component', 'save_subject_part', 'save_class_scope', 'save_exam_part', 'copy_class_subjects', 'set_subject_part_active', 'apply_part_to_all', 'set_part_weights',
     'rename_exam_component_type', 'delete_exam_component_type',
-    'get_subject_teachers', 'sync_routine_teachers', 'save_routine_teacher_map', 'save_routine_subject_map', 'save_subject_teacher',
+    'get_subject_reference', 'sync_subject_reference', 'get_subject_teachers', 'sync_routine_teachers', 'save_routine_teacher_map', 'save_routine_subject_map', 'save_subject_teacher',
     'get_exam_component_types', 'save_exam_component_type', 'get_subject_components_setup', 'save_subject_component', 'delete_subject_component',
     'get_exam_patterns', 'save_exam_pattern', 'duplicate_exam_pattern', 'delete_exam_pattern',
     'get_exams', 'save_exam', 'save_exams_bulk', 'update_exam_group', 'lock_exam', 'archive_exam', 'duplicate_exam',
@@ -3199,6 +3199,116 @@ export async function POST(req) {
     const r = await sbExam('subject_teachers', 'POST', { pattern_id, subject_id, teacher_id, source: 'manual' });
     if (r?.error) return NextResponse.json({ result: 'error', message: /subject_teachers/.test(String(r.error)) ? 'Run migration_exam_subject_teachers.sql in Supabase first.' : r.error });
     return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Subject reference sheet (codes ↔ real names, per class) ────────────
+  // Columns Q:AE of the school's reference tab: Q is the code the routine
+  // uses, R…AE are the subject's real names per class / medium. Reading it
+  // fills routine_subject_map (code → subject), which is what lets the
+  // routine be understood, and keeps every class-wise name for printing.
+  const _REF_FIRST_COL = 16, _REF_LAST_COL = 30; // Q … AE
+  // Close-enough name matching, so 'Bangla 1st' still finds 'Bangla 1st Paper'
+  // and a spelling slip like 'Enterpreneurship' still lands.
+  function _nameSim(a, b) {
+    const x = _rtNorm(a), y = _rtNorm(b);
+    if (!x || !y) return 0;
+    if (x === y) return 1;
+    if (x.startsWith(y) || y.startsWith(x)) return 0.95;
+    const m = x.length, n = y.length;
+    const d = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n).fill(0)]);
+    for (let j = 1; j <= n; j++) d[0][j] = j;
+    for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (x[i - 1] === y[j - 1] ? 0 : 1));
+    return 1 - d[m][n] / Math.max(m, n);
+  }
+  async function _subjectRefUrl() {
+    const rows = await sbTeacher('system_settings?key=eq.exam_subject_ref_url&select=value');
+    return (Array.isArray(rows) && rows[0] && rows[0].value && rows[0].value.url) || '';
+  }
+  async function _subjectRefSync(rawUrl, apply) {
+    const url = _sheetCsvUrl(rawUrl);
+    if (!url) return { error: 'That does not look like a Google Sheets link.' };
+    let text;
+    try {
+      const res = await fetch(url, { redirect: 'follow' });
+      if (!res.ok) return { error: `Could not read the sheet (${res.status}). Share it as "anyone with the link can view".` };
+      text = await res.text();
+    } catch (e) { return { error: `Could not read the sheet: ${e.message}` }; }
+    if (/<html/i.test(text.slice(0, 200))) return { error: 'The sheet is not readable — share it as "anyone with the link can view".' };
+    const rows = _csvRows(text);
+    const header = rows[0] || [];
+    const scopes = [];
+    for (let c = _REF_FIRST_COL + 1; c <= _REF_LAST_COL; c++) scopes.push({ col: c, label: String(header[c] || `Column ${c + 1}`).trim() });
+    const subjects = await sbExam('subjects?select=id,name');
+    if (!Array.isArray(subjects)) return { error: 'Could not read subjects.' };
+    // Two subjects can share a name (an old duplicate like MATH vs
+    // Mathematics) — the one actually used in a class setup wins.
+    const mapRows = await sbExam('subject_pattern_map?select=subject_id');
+    const inUse = new Set((Array.isArray(mapRows) ? mapRows : []).map(m => String(m.subject_id)));
+    const nameIndex = new Map();
+    subjects.forEach(su => { const k = _rtNorm(su.name); if (!nameIndex.has(k)) nameIndex.set(k, []); nameIndex.get(k).push(su.id); });
+    const byName = { get: k => { const ids = nameIndex.get(k); return ids ? (ids.find(id => inUse.has(String(id))) ?? ids[0]) : undefined; } };
+    const entries = [], codes = [];
+    for (let i = 1; i < rows.length; i++) {
+      const code = String((rows[i] || [])[_REF_FIRST_COL] || '').trim();
+      if (!code) continue;
+      const names = scopes.map(sc => ({ scope: sc.label, name: String((rows[i] || [])[sc.col] || '').trim() })).filter(x => x.name);
+      if (!names.length) continue;
+      // The code belongs to whichever subject one of its names matches.
+      // The built-in code list first (the sheet itself has a couple of slips),
+      // then the code as a name, then the class-wise names.
+      const built = _ROUTINE_SUBJECT_NAMES[String(code).toUpperCase().trim()];
+      let sid = (built ? byName.get(_rtNorm(built)) : null) || byName.get(_rtNorm(code)) || null;
+      if (!sid) for (const n of names) { const hit = byName.get(_rtNorm(n.name)); if (hit) { sid = hit; break; } }
+      if (!sid) {
+        const candidates = [code, ...names.map(n => n.name)];
+        let best = null, bestScore = 0.86;
+        subjects.forEach(su => candidates.forEach(c => { const sc = _nameSim(c, su.name) + (inUse.has(String(su.id)) ? 0.02 : 0); if (sc > bestScore) { bestScore = sc; best = su.id; } }));
+        sid = best;
+      }
+      codes.push({ code, subject_id: sid, names: names.map(n => n.name) });
+      names.forEach(n => entries.push({ code, scope: n.scope, name: n.name, subject_id: sid }));
+    }
+    const matched = codes.filter(c => c.subject_id), unmatched = codes.filter(c => !c.subject_id);
+    const report = { codes: codes.length, names: entries.length, matched: matched.length, unmatched: unmatched.map(c => ({ code: c.code, names: c.names.slice(0, 3) })), scopes: scopes.map(s => s.label).filter(Boolean) };
+    if (!apply) return report;
+    const wipe = await sbExam('subject_name_ref?id=gt.0', 'DELETE');
+    if (wipe?.error) return { error: /subject_name_ref/.test(String(wipe.error)) ? 'Run migration_exam_subject_reference.sql in Supabase first.' : wipe.error };
+    for (let i = 0; i < entries.length; i += 200) {
+      const r = await sbExam('subject_name_ref', 'POST', entries.slice(i, i + 200));
+      if (r?.error) return { error: r.error };
+    }
+    // Codes the routine can now recognise, without losing hand-made links.
+    const existing = await sbExam('routine_subject_map?select=code,subject_id');
+    const have = new Set((Array.isArray(existing) ? existing : []).map(m => _rtNorm(m.code)));
+    const add = matched.filter(c => !have.has(_rtNorm(c.code))).map(c => ({ code: c.code, subject_id: c.subject_id, updated_at: new Date().toISOString() }));
+    if (add.length) {
+      const r = await sbExam('routine_subject_map', 'POST', add);
+      if (r?.error) return { error: r.error };
+    }
+    return { ...report, saved: entries.length, linked: add.length };
+  }
+  if (action === 'get_subject_reference') {
+    const [rows, url, map] = await Promise.all([
+      sbExam('subject_name_ref?select=code,scope,name,subject_id&order=code.asc'),
+      _subjectRefUrl(), sbExam('routine_subject_map?select=*'),
+    ]);
+    return NextResponse.json({
+      result: 'success', url,
+      rows: Array.isArray(rows) ? rows : [], subject_map: Array.isArray(map) ? map : [],
+      needs_migration: !Array.isArray(rows),
+    });
+  }
+  if (action === 'sync_subject_reference') {
+    const url = String(payload.url || '').trim() || await _subjectRefUrl();
+    if (!url) return NextResponse.json({ result: 'error', message: 'Paste the subject reference sheet link first.' });
+    const out = await _subjectRefSync(url, !!payload.apply);
+    if (out.error) return NextResponse.json({ result: 'error', message: out.error });
+    if (payload.url) {
+      const existing = await sbTeacher('system_settings?key=eq.exam_subject_ref_url&select=key');
+      if (Array.isArray(existing) && existing.length) await sbTeacher('system_settings?key=eq.exam_subject_ref_url', 'PATCH', { value: { url } });
+      else await sbTeacher('system_settings', 'POST', { key: 'exam_subject_ref_url', value: { url } });
+    }
+    return NextResponse.json({ result: 'success', ...out });
   }
 
   if (action === 'get_subject_class_matrix') {
