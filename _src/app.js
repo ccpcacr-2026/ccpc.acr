@@ -13107,7 +13107,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <p class="font-black text-slate-800 text-xs mb-3 flex items-center gap-2"><i data-lucide="file-plus" class="h-4 w-4 text-blue-600"></i><span id="exsFormTitle">New Exam</span></p>
             <div class="flex flex-col gap-2">
               <select id="exsTermSelect" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Select term…</option></select>
-              <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-name" id="exsName" placeholder="Exam name (e.g. Class Test 1, Half Yearly)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <input type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-name" id="exsName" placeholder="Exam name (e.g. Class Test 1, Half Yearly)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
               <div class="border border-slate-200 rounded-lg p-2">
                 <div class="flex items-center justify-between mb-1.5">
                   <span class="text-[10px] font-black text-slate-500 uppercase">Classes</span>
@@ -13874,7 +13874,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <thead><tr class="border-b border-slate-100"><th class="${th} text-left px-2">Part</th><th class="${th}">Marks</th><th class="${th}">Wt %</th><th class="${th} text-left">Pass</th><th class="${th}">Used</th><th></th></tr></thead>
           <tbody>
             ${_scm.types.map(t => `<tr class="border-b border-slate-50">
-              <td class="py-1.5 px-2"><input type="search" autocomplete="off" spellcheck="false" id="scmPt-${t.id}-name" value="${_escHtml(t.name)}" onchange="scmSavePart(${t.id})" class="w-28 px-2 py-1 bg-white border border-slate-300 rounded font-bold text-xs"></td>
+              <td class="py-1.5 px-2"><input type="text" autocomplete="off" spellcheck="false" id="scmPt-${t.id}-name" value="${_escHtml(t.name)}" onchange="scmSavePart(${t.id})" class="w-28 px-2 py-1 bg-white border border-slate-300 rounded font-bold text-xs"></td>
               ${_scmPartRowInputs(`scmPt-${t.id}`, t)}
               <td class="py-1.5 px-1 text-center text-[10px] font-bold text-slate-400">${uses(t.id)}×</td>
               <td class="py-1.5 px-2 text-right whitespace-nowrap"><button class="text-[10px] font-black uppercase text-blue-600 hover:underline mr-2" title="Give every subject in every class this part (at these defaults), and switch it back on where it's not applicable" onclick="scmApplyPartToAll(${t.id})">Apply to all</button><i data-lucide="trash-2" class="h-3.5 w-3.5 text-red-500 cursor-pointer inline" title="Delete part" onclick="scmDeletePart(${t.id})"></i></td>
@@ -14058,7 +14058,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div class="grid grid-cols-3 gap-2">${sel('scmScSection', 'Section')}${sel('scmScGroup', 'Group')}${sel('scmScSession', 'Session')}</div>
         <p id="scmScPreview" class="text-[11px] font-bold text-slate-500"></p>
         <label class="flex flex-col gap-1"><span class="text-[10px] font-black text-slate-500 uppercase">Show as (optional)</span>
-          <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-scm-display" id="scmScDisplay" value="${_escHtml((p && p.display_name) || '')}" placeholder="e.g. Grade Six" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></label>
+          <input type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-scm-display" id="scmScDisplay" value="${_escHtml((p && p.display_name) || '')}" placeholder="e.g. Grade Six" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></label>
         ${p ? '' : `<label class="flex flex-col gap-1"><span class="text-[10px] font-black text-slate-500 uppercase">Start with subjects from (optional)</span>
           <select id="scmScCopy" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">— empty list —</option>
             ${_scm.patterns.filter(x => _scmClassSubjects(x.id).length).map(x => `<option value="${x.id}">${_escHtml(x.name)} (${_scmClassSubjects(x.id).length} subjects)</option>`).join('')}</select></label>`}
@@ -14177,7 +14177,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>` : '<p class="text-[10px] text-slate-400 font-bold">Reading the sheet links each code to a subject and keeps every class\'s own name. The class routine is read with these codes.</p>'}
       </div>
       <div class="px-4 py-2 border-b border-slate-100 flex items-center gap-2">
-        <input type="search" id="srFilter" value="${_escHtml(q)}" oninput="srRender()" placeholder="Find a code or name…" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:220px">
+        <input type="text" autocomplete="off" id="srFilter" value="${_escHtml(q)}" oninput="srRender()" placeholder="Find a code or name…" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:220px">
         <span class="text-[10px] font-bold text-slate-400">${byCode.size} codes saved</span>
       </div>
       <div class="overflow-y-auto px-4 py-2">${codes.length ? `<table class="w-full text-left text-xs"><tbody>${codes.map(c => `<tr class="border-b border-slate-50">
@@ -14313,7 +14313,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>` : ''}
       </div>
       <div class="px-4 py-2 border-b border-slate-100 flex items-center gap-2">
-        <input type="search" id="stFilter" value="${_escHtml(q)}" oninput="stRender()" placeholder="Find a class…" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:200px">
+        <input type="text" autocomplete="off" id="stFilter" value="${_escHtml(q)}" oninput="stRender()" placeholder="Find a class…" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:200px">
         <span class="flex gap-3 text-[10px] font-black uppercase"><button onclick="stExpandAll(true)" class="text-blue-600">Expand all</button><button onclick="stExpandAll(false)" class="text-slate-500">Collapse all</button></span>
         <span class="text-[10px] font-bold text-slate-400 ml-auto">${(_stData.rows || []).length} assignments</span>
       </div>
@@ -14389,7 +14389,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
         <div class="overflow-y-auto px-4 py-3 flex flex-col gap-3">
           <label class="flex flex-col gap-1"><span class="text-[10px] font-black text-slate-500 uppercase">Subject name (full English name)</span>
-            <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-scm-subjname" id="scmEdName" value="${_escHtml(s.name)}" placeholder="e.g. Agriculture Studies" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm"></label>
+            <input type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-scm-subjname" id="scmEdName" value="${_escHtml(s.name)}" placeholder="e.g. Agriculture Studies" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm"></label>
           <div>
             <div class="flex items-center justify-between mb-1.5">
               <span class="text-[10px] font-black text-slate-500 uppercase">Classes that have this subject</span>
@@ -30072,7 +30072,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _acRenderChart(host) {
     host.innerHTML = `
       <div class="ac-toolbar">
-        <input type="search" id="acChartFilter" class="tp-input" style="max-width:280px" placeholder="Find a ledger or group…" value="${_escHtml(_acChartFilter)}" oninput="_acChartSetFilter(this.value)" autocomplete="off" spellcheck="false">
+        <input type="text" autocomplete="off" id="acChartFilter" class="tp-input" style="max-width:280px" placeholder="Find a ledger or group…" value="${_escHtml(_acChartFilter)}" oninput="_acChartSetFilter(this.value)" autocomplete="off" spellcheck="false">
         <span class="ac-muted">${_acGroupsCache.length} groups · ${_acLedgersCache.length} ledgers · click a row to edit</span>
       </div>
       <div id="acChartTable"></div>`;
