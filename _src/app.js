@@ -13162,11 +13162,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="rbSaveTemplate(false)" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Save</button>
             <button onclick="rbSaveTemplate(true)" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Save As New</button>
             <button onclick="rbDeleteTemplate()" class="px-3 py-2 border border-red-200 text-red-500 rounded-lg font-black text-[10px] uppercase hover:bg-red-50">Delete</button>
+            <button onclick="rbEditTemplateClasses()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50" title="Limit this template to particular classes">Classes…</button>
+            <span id="rbTemplateClasses" class="text-[10px] font-bold text-slate-400"></span>
           </div>
           <div class="grid lg:grid-cols-2 gap-5">
             <div class="flex flex-col gap-3">
               <label class="flex flex-col gap-1"><span class="text-[10px] font-black text-slate-400 uppercase">Class</span>
-                <select id="rbClass" class="exam-pattern-select px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Select class…</option></select></label>
+                <select id="rbClass" onchange="_rbFillTemplateSelect()" class="exam-pattern-select px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">Select class…</option></select></label>
               <div>
                 <div class="flex items-center justify-between mb-1.5"><span class="text-[10px] font-black text-slate-400 uppercase">Exams in this result</span>
                   <button onclick="rbAddSource()" class="text-[10px] font-black uppercase text-blue-600">+ Add exam</button></div>
@@ -14996,7 +14998,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const sel = document.getElementById('rbTemplateSelect');
       if (sel) {
         const cur = sel.value;
-        sel.innerHTML = '<option value="">— Current (unsaved) —</option>' + _rbTemplates.map(x => `<option value="${x.id}">${_escHtml(x.name)}</option>`).join('');
+        _rbFillTemplateSelect();
         if (cur) sel.value = cur;
       }
       if (tp && tp.result !== 'success' && tp.message) _rbWarn([tp.message]);
@@ -15053,6 +15055,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       pass_rule: document.getElementById('rbPassRule').value,
       cols: _rcCols(),
       population: _rbPop,
+      classes: _rbTplClasses,
       attendance: { from: document.getElementById('rbAttFrom').value, to: document.getElementById('rbAttTo').value },
       layout: _rsLayout,
     };
@@ -15068,10 +15071,73 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('rbAttTo').value = (cfg.attendance && cfg.attendance.to) || '';
     _rsLayout = cfg.layout ? JSON.parse(JSON.stringify(cfg.layout)) : null;
     _rbPop = cfg.population ? JSON.parse(JSON.stringify(cfg.population)) : { filters: [], match: 'all', sort: [{ path: 'result.position', dir: 'asc' }], limit: '' };
+    _rbTplClasses = Array.isArray(cfg.classes) ? cfg.classes.slice() : [];
+    _rbShowTemplateClasses();
+    // A template for one class picks that class when there is only one.
+    const clsSel = document.getElementById('rbClass');
+    if (clsSel && _rbTplClasses.length === 1) clsSel.value = String(_rbTplClasses[0]);
     _rbRenderSources();
     // Templates saved before the column builder keep their old ticks as the starting columns.
     _rbCols = cfg.cols ? JSON.parse(JSON.stringify(cfg.cols)) : _rcDefaultCols(cfg.columns);
     _rcRefresh();
+  }
+  // Only templates made for the chosen class (or for every class) are offered.
+  function _rbTemplateClassesOf(t) {
+    const list = t && t.config && Array.isArray(t.config.classes) ? t.config.classes.map(String) : [];
+    return list;
+  }
+  function _rbFillTemplateSelect() {
+    const sel = document.getElementById('rbTemplateSelect');
+    if (!sel) return;
+    const cur = sel.value;
+    const cls = (document.getElementById('rbClass') || {}).value || '';
+    const fits = t => { const l = _rbTemplateClassesOf(t); return !l.length || (cls && l.includes(String(cls))); };
+    const usable = _rbTemplates.filter(fits), hidden = _rbTemplates.length - usable.length;
+    sel.innerHTML = '<option value="">— Current (unsaved) —</option>'
+      + usable.map(x => `<option value="${x.id}">${_escHtml(x.name)}${_rbTemplateClassesOf(x).length ? ' ·' : ''}</option>`).join('')
+      + (hidden ? `<optgroup label="For other classes">${_rbTemplates.filter(t => !fits(t)).map(x => `<option value="${x.id}">${_escHtml(x.name)} (${_rbTemplateClassesOf(x).map(id => (_classPatterns.find(p => String(p.id) === id) || {}).name || id).join(', ')})</option>`).join('')}</optgroup>` : '');
+    if (cur) sel.value = cur;
+    _rbShowTemplateClasses();
+  }
+  function _rbShowTemplateClasses() {
+    const host = document.getElementById('rbTemplateClasses');
+    if (!host) return;
+    const list = Array.isArray(_rbTplClasses) ? _rbTplClasses : [];
+    host.textContent = list.length ? `for ${list.map(id => (_classPatterns.find(p => String(p.id) === String(id)) || {}).name || id).join(', ')}` : 'for every class';
+  }
+  // Which classes the settings in front of you are meant for; saved with the template.
+  let _rbTplClasses = [];
+  function rbEditTemplateClasses() {
+    let ov = document.getElementById('rbClassesOverlay');
+    if (!ov) {
+      ov = document.createElement('div');
+      ov.id = 'rbClassesOverlay';
+      ov.className = 'fixed inset-0 z-[85] bg-slate-900/40 flex items-center justify-center p-4';
+      ov.onclick = e => { if (e.target === ov) ov.remove(); };
+      document.body.appendChild(ov);
+    }
+    const chosen = new Set((_rbTplClasses || []).map(String));
+    ov.innerHTML = `<div class="bg-white rounded-2xl shadow-xl w-full max-w-lg flex flex-col" style="max-height:85vh">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-slate-200"><p class="font-black text-slate-800 text-sm">Classes this template is for</p>
+        <i data-lucide="x" class="h-4 w-4 text-slate-500 cursor-pointer" onclick="document.getElementById('rbClassesOverlay').remove()"></i></div>
+      <div class="px-4 py-3 overflow-y-auto">
+        <div class="flex items-center justify-between mb-2"><span class="text-[10px] font-black text-slate-400 uppercase">Tick none to offer it for every class</span>
+          <span class="flex gap-3 text-[10px] font-black uppercase"><button class="text-blue-600" onclick="document.querySelectorAll('.rb-tcls').forEach(c => { c.checked = true; })">All</button><button class="text-slate-400" onclick="document.querySelectorAll('.rb-tcls').forEach(c => { c.checked = false; })">None</button></span></div>
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-1.5">${_classPatterns.map(p => `<label class="flex items-center gap-1.5 px-2 py-1.5 rounded-lg border border-slate-200 text-[11px] font-bold text-slate-700 cursor-pointer hover:bg-slate-50"><input type="checkbox" class="rb-tcls accent-blue-600" value="${p.id}" ${chosen.has(String(p.id)) ? 'checked' : ''}>${_escHtml(p.name)}</label>`).join('')}</div>
+      </div>
+      <div class="flex justify-end gap-2 px-4 py-3 border-t border-slate-200">
+        <button onclick="document.getElementById('rbClassesOverlay').remove()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase">Cancel</button>
+        <button onclick="rbSaveTemplateClasses()" class="px-4 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Apply</button></div>
+    </div>`;
+    lucide.createIcons();
+  }
+  function rbSaveTemplateClasses() {
+    _rbTplClasses = [...document.querySelectorAll('.rb-tcls:checked')].map(c => Number(c.value));
+    const ov = document.getElementById('rbClassesOverlay');
+    if (ov) ov.remove();
+    _rbShowTemplateClasses();
+    _rbFillTemplateSelect();
+    showToast(_rbTplClasses.length ? 'Save the template to keep this' : 'This template will be offered for every class');
   }
   function rbApplyTemplate(id) {
     const t = _rbTemplates.find(x => String(x.id) === String(id));
@@ -15112,6 +15178,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!pattern_id) { showToast('Pick a class', 'error'); return; }
     const config = _rbConfig();
     if (!config.sources.length) { showToast('Add at least one exam', 'error'); return; }
+    if (_rbTplClasses.length && !_rbTplClasses.map(String).includes(String(pattern_id))) {
+      const names = _rbTplClasses.map(id => (_classPatterns.find(p => String(p.id) === String(id)) || {}).name || id).join(', ');
+      if (!confirm(`This template is meant for ${names}. Prepare it for the chosen class anyway?`)) return;
+    }
     const status = document.getElementById('rbStatus');
     if (status) status.textContent = 'Preparing…';
     _adminFetch('prepare_result', { pattern_id, config }).then(res => {
@@ -15582,6 +15652,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (key === 'label') it.labelTouched = true;
     if (!quiet) _rcRenderEditor();
   }
+  // Every part from Subject Setup (CT, CQ, MCQ, HW, CW, Practical…) for each
+  // exam in the result, then the combined result and grade.
+  function rcAddAllParts() {
+    const col = _rcEditing.col;
+    const have = new Set((col.items || []).map(i => i.path));
+    const srcs = _rcSourceLabels();
+    const add = (path, label) => { if (!have.has(path)) { col.items.push({ id: _rcId(), kind: 'value', path, label, fmt: {} }); have.add(path); } };
+    srcs.forEach((srcLabel, i) => {
+      const short = String(srcLabel).split(' · ')[0];
+      _rbPartNames.forEach(part => add(`sub.@.src.${i}.part.${part}`, srcs.length > 1 ? `${short} ${part}` : part));
+      add(`sub.@.src.${i}.final`, srcs.length > 1 ? `${short} total` : 'Total');
+    });
+    add('sub.@.combined.final', srcs.length > 1 ? 'Result' : 'Marks');
+    add('sub.@.combined.grade', 'Grade');
+    _rcRenderEditor();
+  }
   function rcAddItem(kind) { _rcEditing.col.items.push(kind === 'virtual' ? { id: _rcId(), kind, label: 'Calc', vf: { mode: 'formula', formula: '', rules: [], else: '' }, fmt: {} } : { id: _rcId(), kind: 'value', path: 'sub.@.combined.grade', label: 'Grade', fmt: {} }); _rcRenderEditor(); }
   function rcMoveItem(i, dir) { const a = _rcEditing.col.items; const j = i + dir; if (j < 0 || j >= a.length) return; [a[i], a[j]] = [a[j], a[i]]; _rcRenderEditor(); }
   function rcRemoveItem(i) { _rcEditing.col.items.splice(i, 1); _rcRenderEditor(); }
@@ -15626,7 +15712,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <button onclick="rcRemoveItem(${i})" class="text-slate-300 hover:text-red-500 font-black px-1">×</button></div>
             ${it.kind === 'virtual' ? _rcVirtualEditorHtml(it.vf || {}, String(i), true) : ''}
           </div>`).join('')}</div>
-          <div class="flex gap-3 mt-2"><button onclick="rcAddItem('value')" class="text-[10px] font-black uppercase text-blue-600">+ Column</button><button onclick="rcAddItem('virtual')" class="text-[10px] font-black uppercase text-indigo-600">+ Virtual column</button></div>
+          <div class="flex flex-wrap gap-3 mt-2"><button onclick="rcAddItem('value')" class="text-[10px] font-black uppercase text-blue-600">+ Column</button><button onclick="rcAddItem('virtual')" class="text-[10px] font-black uppercase text-indigo-600">+ Virtual column</button><button onclick="rcAddAllParts()" class="text-[10px] font-black uppercase text-emerald-700">+ All parts from Subject Setup</button></div>
           <p class="text-[10px] text-slate-400 font-bold mt-1">"This subject" values are read for each subject in turn — e.g. "Half Yearly · CQ" becomes each subject's Half Yearly CQ.</p></div>`;
     }
     ov.innerHTML = `<div class="bg-white rounded-2xl shadow-xl w-full ${c.kind === 'value' ? 'max-w-md' : 'max-w-2xl'} flex flex-col" style="max-height:90vh">
