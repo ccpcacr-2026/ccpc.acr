@@ -2592,9 +2592,25 @@ export async function POST(req) {
     return out;
   }
   // Students of a scoped list, optionally one section / one academic year.
+  // Only the students of this list's own class are read — which list a
+  // student belongs to depends on their own class/section/group/session, so
+  // the rest of the school can't change the answer.
+  const _classRosterMemo = new Map();
+  async function _rosterForOneClass(className) {
+    if (!_classRosterMemo.has(className)) {
+      const rows = await sbAllRows(`students_data?class=eq.${encodeURIComponent(className)}&select=student_id,student_name,roll,class,section,group,session`);
+      _classRosterMemo.set(className, (Array.isArray(rows) ? rows : []).map(r => ({
+        ...r, class: String(r.class || '').trim(), section: String(r.section || '').trim(),
+        group: _normGroup(r.group), session: String(r.session || '').trim(),
+      })));
+    }
+    return _classRosterMemo.get(className);
+  }
   async function _rosterForClass(p, sectionFilter, year) {
-    const [roster, patterns] = await Promise.all([_roster(), _patterns()]);
-    if (roster.error || patterns.error) return [];
+    const patterns = await _patterns();
+    if (patterns.error) return [];
+    const roster = _rosterMemo || (p.class_name ? await _rosterForOneClass(p.class_name) : await _roster());
+    if (roster.error) return [];
     const assigned = _assignStudents(patterns, roster);
     return _sortByRoll(roster.filter(st => assigned.get(st.student_id) === p.id
       && (!sectionFilter || st.section === String(sectionFilter).trim())
@@ -2746,11 +2762,27 @@ export async function POST(req) {
     return v;
   }
 
+  // Every subject's parts for one class in a single read (cached per
+  // request) — subject by subject was a request each, which is what made
+  // Marks Entry slow to fill its dropdowns.
+  const _patternCompsMemo = new Map();
+  async function _componentsForPattern(patternId) {
+    const key = String(patternId);
+    if (!_patternCompsMemo.has(key)) {
+      const rows = await sbExam(`subject_components?pattern_id=eq.${encodeURIComponent(patternId)}&select=*,exam_component_types(id,name)&order=sort_order.asc`);
+      const map = new Map();
+      (Array.isArray(rows) ? rows : []).forEach(r => {
+        if (r.is_active === false) return; // "not applicable" parts take no part
+        const k = String(r.subject_id);
+        if (!map.has(k)) map.set(k, []);
+        map.get(k).push(r);
+      });
+      _patternCompsMemo.set(key, map);
+    }
+    return _patternCompsMemo.get(key);
+  }
   async function _componentsForSubject(patternId, subjectId) {
-    const rows = await sbExam(`subject_components?pattern_id=eq.${encodeURIComponent(patternId)}&subject_id=eq.${encodeURIComponent(subjectId)}&select=*,exam_component_types(id,name)&order=sort_order.asc`);
-    // Parts switched to "not applicable" keep their numbers but take no part
-    // in marks entry or results.
-    return Array.isArray(rows) ? rows.filter(r => r.is_active !== false) : [];
+    return (await _componentsForPattern(patternId)).get(String(subjectId)) || [];
   }
 
   // ── Term Setup ────────────────────────────────────────────────────────
