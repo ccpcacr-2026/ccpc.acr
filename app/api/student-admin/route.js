@@ -522,7 +522,7 @@ const ADMIN_TAB_ACTIONS = {
     'get_subject_reference', 'sync_subject_reference', 'get_subject_teachers', 'sync_routine_teachers', 'save_routine_teacher_map', 'save_routine_subject_map', 'save_subject_teacher',
     'get_exam_component_types', 'save_exam_component_type', 'get_subject_components_setup', 'save_subject_component', 'delete_subject_component',
     'get_exam_patterns', 'save_exam_pattern', 'duplicate_exam_pattern', 'delete_exam_pattern',
-    'get_exams', 'save_exam', 'save_exams_bulk', 'update_exam_group', 'lock_exam', 'archive_exam', 'duplicate_exam',
+    'get_exams', 'save_exam', 'save_exams_bulk', 'update_exam_group', 'save_exam_open_parts', 'lock_exam', 'archive_exam', 'duplicate_exam',
     'get_exam_usage', 'clear_exam_marks', 'delete_exam',
     'get_exam_entry_sheets', 'save_exam_entry_sheets_bulk',
     'get_exam_marks_for_entry', 'save_exam_marks_bulk',
@@ -2719,6 +2719,11 @@ export async function POST(req) {
   // A part's pass rule as the raw mark the student must reach on that part.
   // pass_type number|percent, pass_basis marks|weight (weighted mark =
   // marks × weight / 100). Rows from before the rule columns = number on marks.
+  function _partIsOpen(examRow, componentTypeId) {
+    const open = examRow && examRow.open_parts;
+    if (open === null || open === undefined) return true;
+    return (Array.isArray(open) ? open : []).map(String).includes(String(componentTypeId));
+  }
   function _passMarksRaw(c) {
     const full = Number(c.full_marks) || 0, weight = Number(c.weight_percent) || 0, v = Number(c.pass_marks) || 0;
     if (c.pass_type === 'percent') return v / 100 * full; // same threshold on marks or on weight
@@ -3725,6 +3730,15 @@ export async function POST(req) {
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
     return NextResponse.json({ result: 'success' });
   }
+  // Which parts of an exam accept marks. null = all open, [] = closed.
+  if (action === 'save_exam_open_parts') {
+    const ids = (Array.isArray(payload.ids) ? payload.ids : []).map(Number).filter(Boolean);
+    if (!ids.length) return NextResponse.json({ result: 'error', message: 'Exam required.' });
+    const open_parts = payload.open_parts === null ? null : (Array.isArray(payload.open_parts) ? payload.open_parts.map(Number).filter(Boolean) : []);
+    const r = await sbExam(`exams?id=in.(${ids.join(',')})`, 'PATCH', { open_parts });
+    if (r?.error) return NextResponse.json({ result: 'error', message: /open_parts/.test(String(r.error)) ? 'Run migration_exam_open_parts.sql in Supabase first.' : r.error });
+    return NextResponse.json({ result: 'success' });
+  }
   if (action === 'lock_exam') {
     const { id, locked } = payload;
     const r = await sbExam(`exams?id=eq.${encodeURIComponent(id)}`, 'PATCH', { is_locked: locked !== false });
@@ -3819,7 +3833,9 @@ export async function POST(req) {
       for (const c of comps) {
         for (const sec of uniqueSections) {
           const ex = existingMap.get(`${sub.id}||${c.component_type_id}||${sec.class}||${sec.section}`);
-          rows.push({ subject_id: sub.id, subject_name: sub.name, component_type_id: c.component_type_id, component_name: c.exam_component_types?.name || '', class: sec.class, section: sec.section, is_open: ex ? ex.is_open : false, assigned_user_id: ex ? ex.assigned_user_id : null });
+          // Open comes from the exam's own open parts (Term / Exam Setup).
+          const open = _partIsOpen(examRow, c.component_type_id);
+          rows.push({ subject_id: sub.id, subject_name: sub.name, component_type_id: c.component_type_id, component_name: c.exam_component_types?.name || '', class: sec.class, section: sec.section, is_open: open, assigned_user_id: ex ? ex.assigned_user_id : null });
         }
       }
     }
@@ -3845,7 +3861,8 @@ export async function POST(req) {
     const { exam_id, subject_id, component_type_id, class: cls, section } = payload;
     let roster = await sb(`students_data?class=eq.${encodeURIComponent(cls)}${section ? `&section=eq.${encodeURIComponent(section)}` : ''}&select=student_id,student_name,roll,group,session&order=roll.asc`);
     if (roster?.error) return NextResponse.json({ result: 'error', message: roster.error });
-    const examRow = (await sbExam(`exams?id=eq.${encodeURIComponent(exam_id)}&select=pattern_id,term_id`))?.[0];
+    const examRow = (await sbExam(`exams?id=eq.${encodeURIComponent(exam_id)}&select=*`))?.[0];
+    if (examRow && !_partIsOpen(examRow, component_type_id)) return NextResponse.json({ result: 'error', message: 'Marks entry for this part is closed — open it in Term / Exam Setup.' });
     const examClass = examRow ? await _patternById(examRow.pattern_id) : null;
     if (examClass && examClass.class_name) {
       const own = await _rosterForClass(examClass, section, await _examYear(examRow));
@@ -3861,6 +3878,9 @@ export async function POST(req) {
   if (action === 'save_exam_marks_bulk') {
     const { exam_id, subject_id, component_type_id, marks } = payload; // marks: [{student_id, marks_obtained}]
     if (!exam_id || !subject_id || !component_type_id || !Array.isArray(marks)) return NextResponse.json({ result: 'error', message: 'exam_id, subject_id, component_type_id and marks required.' });
+    const examForSave = (await sbExam(`exams?id=eq.${encodeURIComponent(exam_id)}&select=*`))?.[0];
+    if (examForSave && examForSave.is_locked) return NextResponse.json({ result: 'error', message: 'This exam is locked.' });
+    if (examForSave && !_partIsOpen(examForSave, component_type_id)) return NextResponse.json({ result: 'error', message: 'Marks entry for this part is closed — open it in Term / Exam Setup.' });
     const rows = marks.map(m => ({
       exam_id, subject_id, component_type_id, student_id: m.student_id,
       marks_obtained: m.marks_obtained === '' || m.marks_obtained === undefined ? null : Number(m.marks_obtained),

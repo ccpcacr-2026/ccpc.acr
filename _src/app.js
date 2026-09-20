@@ -12970,7 +12970,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { id: 'ex-teachers', label: 'Marks Entry Teachers' },
     // One page, three steps: terms, exam patterns, then the exams themselves.
     { id: 'ex-setup', label: 'Term / Exam Setup', panels: ['ex-terms', 'ex-pattern', 'ex-exam-setup'] },
-    { id: 'ex-entry-setup', label: 'Marks Entry Setup' },
     { id: 'ex-marks', label: 'Marks Entry' },
     { id: 'ex-process', label: 'Result Process' },
     { id: 'ex-grades', label: 'Grade Setup' },
@@ -12986,7 +12985,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _subjPatternTargetSelected = new Set();
   let _bulkAssignSelectedSubjects = new Set();
   let _bulkAssignSelectedPatterns = new Set();
-  let _entrySheetRows = [];
   let _meOpenSheets = [];
 
   function loadAdminExamsView() {
@@ -13138,11 +13136,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
       </div>
 
-      <div id="ex-entry-setup" style="display:none">
-        <select id="mesExamSelect" class="exam-select px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mb-3" onchange="loadEntrySheetsSetup()"><option value="">Select exam…</option></select>
-        <div id="entrySheetsSetupList" class="flex flex-col gap-2"></div>
-      </div>
-
       <div id="ex-marks" style="display:none">
         <div class="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3">
           <select id="meExamSelect" class="exam-select px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" onchange="loadMarksEntryOptions()"><option value="">Select exam…</option></select>
@@ -13286,7 +13279,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       'ex-setup': () => { loadExamTerms(); loadExamPatternSetup(); loadExamSetupList(); },
       'ex-subjects': () => (_scmGrid ? loadSubjectSetup() : scmLoad()),
       'ex-teachers': stPanel,
-      'ex-entry-setup': loadExamSetupList,
       'ex-marks': loadExamSetupList,
       'ex-process': () => { loadExamSetupList(); rbInit(); },
       'ex-grades': loadGradeScales,
@@ -14704,6 +14696,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.querySelectorAll('.exam-pattern-template-select').forEach(el => { const cur = el.value; el.innerHTML = opts; if (cur) el.value = cur; });
   }
   function loadExamSetupList() {
+    if (!_componentTypes.length) _adminFetch('get_exam_component_types', {}).then(r => { if (r && r.result === 'success') { _componentTypes = r.types || []; loadExamSetupList(); } });
     if (!_examPatternTemplates.length) _adminFetch('get_exam_patterns', {}).then(res => { _examPatternTemplates = (res && res.result === 'success' && res.patterns) || []; _populateExamPatternTemplateSelects(); });
     const includeArchived = document.getElementById('exsShowArchived')?.checked;
     _adminFetch('get_exams', { include_archived: includeArchived }).then(res => {
@@ -14727,7 +14720,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           return `<div class="border rounded-xl border-slate-200 ${allArchived ? 'opacity-60' : ''}">
             <div onclick="toggleExamGroup('${_escHtml(_escJs(gk))}')" title="${open ? 'Collapse' : 'Expand'}" class="flex flex-wrap justify-between items-center gap-2 px-3 py-2 bg-slate-50 ${open ? 'rounded-t-xl border-b border-slate-100' : 'rounded-xl'} cursor-pointer select-none hover:bg-slate-100">
               <div class="flex items-center gap-1.5"><i data-lucide="${open ? 'chevron-down' : 'chevron-right'}" class="h-4 w-4 text-slate-400 shrink-0"></i><span class="font-black text-slate-800 text-xs">${_escHtml(e0.name || e0.exam_terms?.name || '')}</span> <span class="text-slate-400 text-[11px] font-bold ml-1">${e0.name ? _escHtml(e0.exam_terms?.name || '') + ' · ' : ''}${_escHtml(e0.exam_terms?.academic_year || '')} · ${_escHtml(e0.exam_patterns?.name || 'No exam pattern')} · ${list.length} class${list.length === 1 ? '' : 'es'}</span></div>
-              <div class="flex items-center gap-3" onclick="event.stopPropagation()"><button onclick="editExamGroup('${ids}')" class="text-[10px] font-black uppercase text-blue-600">Edit</button>${act(allLocked ? 'Unlock all' : 'Lock all', ids, allLocked ? 'unlock' : 'lock', 'text-red-500')}${act(allArchived ? 'Unarchive all' : 'Archive all', ids, allArchived ? 'unarchive' : 'archive', 'text-slate-500')}${act('Delete all', ids, 'delete', 'text-red-500')}</div>
+              <div class="flex items-center gap-3" onclick="event.stopPropagation()">${_examOpenPartsHtml(ids, e0)}<button onclick="editExamGroup('${ids}')" class="text-[10px] font-black uppercase text-blue-600">Edit</button>${act(allLocked ? 'Unlock all' : 'Lock all', ids, allLocked ? 'unlock' : 'lock', 'text-red-500')}${act(allArchived ? 'Unarchive all' : 'Archive all', ids, allArchived ? 'unarchive' : 'archive', 'text-slate-500')}${act('Delete all', ids, 'delete', 'text-red-500')}</div>
             </div>
             <div class="divide-y divide-slate-50" style="${open ? '' : 'display:none'}">${sorted.map(e => `<div class="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 ${e.is_archived ? 'opacity-50' : ''}">
               <span class="text-xs font-bold text-slate-700">${_escHtml(_examClassLabel(e.pattern_id, e.class_patterns?.name))}${e.is_locked ? ' <span class="text-[9px] font-black text-white bg-red-500 rounded px-1.5 py-0.5 ml-1">Locked</span>' : ''}${e.is_archived ? ' <span class="text-[9px] font-black text-white bg-slate-400 rounded px-1.5 py-0.5 ml-1">Archived</span>' : ''}</span>
@@ -14786,6 +14779,32 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         document.querySelectorAll('.exs-class-cb').forEach(c => { c.checked = false; });
         loadExamSetupList();
       } else showToast((res && res.message) || 'Failed', 'error');
+    });
+  }
+  // Marks entry gate: which parts of this exam accept marks right now.
+  function _examOpenPartsHtml(ids, e0) {
+    if (!_componentTypes.length) return '';
+    const open = e0.open_parts;
+    const isOpen = t => open === null || open === undefined || (Array.isArray(open) ? open : []).map(String).includes(String(t.id));
+    return `<span class="flex items-center gap-1 mr-1" title="Marks entry — click a part to open or close it for this exam">
+      <span class="text-[9px] font-black uppercase text-slate-400">Entry</span>
+      ${_componentTypes.map(t => `<button onclick="toggleExamPartOpen('${ids}',${t.id})" class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase ${isOpen(t) ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400 line-through'}">${_escHtml(t.name)}</button>`).join('')}
+      <button onclick="setExamPartsOpen('${ids}', null)" class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase text-blue-600">All</button>
+      <button onclick="setExamPartsOpen('${ids}', [])" class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase text-slate-500">None</button></span>`;
+  }
+  function toggleExamPartOpen(ids, typeId) {
+    const list = String(ids).split(',').map(Number).filter(Boolean);
+    const e0 = _examList.find(e => e.id === list[0]);
+    const all = _componentTypes.map(t => t.id);
+    const open = e0 && e0.open_parts != null ? (Array.isArray(e0.open_parts) ? e0.open_parts.map(Number) : []) : all.slice();
+    const next = open.map(String).includes(String(typeId)) ? open.filter(x => String(x) !== String(typeId)) : [...open, Number(typeId)];
+    setExamPartsOpen(ids, next.length === all.length ? null : next);
+  }
+  function setExamPartsOpen(ids, open_parts) {
+    const list = String(ids).split(',').map(Number).filter(Boolean);
+    _adminFetch('save_exam_open_parts', { ids: list, open_parts }).then(res => {
+      if (res && res.result === 'success') loadExamSetupList();
+      else showToast((res && res.message) || 'Failed', 'error');
     });
   }
   // Edit an exam group in the form on the left: term, exam pattern, classes.
@@ -14871,63 +14890,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         else showToast((res2 && res2.message) || 'Failed', 'error');
       });
     });
-  }
-
-  // ── Marks Entry Setup — grouped by class+section, with each subject+
-  // component active for that section listed underneath (subjects against
-  // class, not the other way around) ─────────────────────────────────────
-  function loadEntrySheetsSetup() {
-    const exam_id = document.getElementById('mesExamSelect').value;
-    const host = document.getElementById('entrySheetsSetupList');
-    if (!exam_id) { host.innerHTML = ''; return; }
-    _adminFetch('get_exam_entry_sheets', { exam_id }).then(res => {
-      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed', 'error'); return; }
-      _entrySheetRows = res.rows || [];
-      const groups = new Map();
-      _entrySheetRows.forEach(r => {
-        const key = `${r.class}||${r.section}`;
-        if (!groups.has(key)) groups.set(key, { class: r.class, section: r.section, items: [] });
-        groups.get(key).items.push(r);
-      });
-      host.innerHTML = [...groups.values()].map(g => {
-        const openCount = g.items.filter(i => i.is_open).length;
-        return `<div class="border border-slate-200 rounded-xl px-3 py-2">
-          <div class="flex justify-between items-center">
-            <span class="font-black text-slate-800 text-xs">${g.class}-${g.section}</span>
-            <div class="flex items-center gap-2">
-              <span class="text-[10px] font-bold text-slate-400">${openCount}/${g.items.length} open</span>
-              <button onclick="bulkToggleEntrySheetsForClass(${exam_id},'${g.class}','${g.section}',true)" class="text-[10px] font-black uppercase text-emerald-600">Open All</button>
-              <button onclick="bulkToggleEntrySheetsForClass(${exam_id},'${g.class}','${g.section}',false)" class="text-[10px] font-black uppercase text-red-500">Close All</button>
-            </div>
-          </div>
-          <div class="overflow-auto mt-2">
-            <table class="w-full text-left border-collapse text-xs">
-              <thead><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-1 pr-2">Open</th><th class="py-1 pr-2">Subject</th><th class="py-1 pr-2">Component</th><th class="py-1 pr-2">Assigned to</th></tr></thead>
-              <tbody>
-                ${g.items.map(i => `<tr class="border-t border-slate-50">
-                  <td class="py-1 pr-2"><input type="checkbox" ${i.is_open ? 'checked' : ''} onchange="toggleOneEntrySheet(${exam_id},${i.subject_id},${i.component_type_id},'${g.class}','${g.section}',this.checked)"></td>
-                  <td class="py-1 pr-2 font-bold">${i.subject_name}</td>
-                  <td class="py-1 pr-2">${i.component_name}</td>
-                  <td class="py-1 pr-2"><input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-entrysheet-assign" placeholder="user_id" value="${i.assigned_user_id || ''}" class="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:140px" onchange="assignOneEntrySheet(${exam_id},${i.subject_id},${i.component_type_id},'${g.class}','${g.section}',this.value)"></td>
-                </tr>`).join('')}
-              </tbody>
-            </table>
-          </div>
-        </div>`;
-      }).join('') || '<span class="text-xs text-slate-400 font-bold italic">No subjects/components active for this exam yet — check Exam Pattern Setup and the marks in Subject Setup.</span>';
-    });
-  }
-  function bulkToggleEntrySheetsForClass(exam_id, cls, section, is_open) {
-    const items = _entrySheetRows.filter(r => r.class === cls && r.section === section);
-    Promise.all(items.map(r => _adminFetch('save_exam_entry_sheets_bulk', { exam_id, subject_id: r.subject_id, component_type_id: r.component_type_id, sections: [{ class: cls, section }], is_open, assigned_user_id: r.assigned_user_id }))).then(() => loadEntrySheetsSetup());
-  }
-  function toggleOneEntrySheet(exam_id, subject_id, component_type_id, cls, section, is_open) {
-    const row = _entrySheetRows.find(r => r.subject_id === subject_id && r.component_type_id === component_type_id && r.class === cls && r.section === section);
-    _adminFetch('save_exam_entry_sheets_bulk', { exam_id, subject_id, component_type_id, sections: [{ class: cls, section }], is_open, assigned_user_id: row?.assigned_user_id }).then(res => { if (res && res.result !== 'error') loadEntrySheetsSetup(); });
-  }
-  function assignOneEntrySheet(exam_id, subject_id, component_type_id, cls, section, assigned_user_id) {
-    const row = _entrySheetRows.find(r => r.subject_id === subject_id && r.component_type_id === component_type_id && r.class === cls && r.section === section);
-    _adminFetch('save_exam_entry_sheets_bulk', { exam_id, subject_id, component_type_id, sections: [{ class: cls, section }], is_open: row?.is_open, assigned_user_id }).then(res => { if (res && res.result !== 'error') { showToast('Assigned'); loadEntrySheetsSetup(); } });
   }
 
   // ── Marks Entry — component-scoped, restricted to open sheets ──────────
