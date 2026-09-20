@@ -13034,6 +13034,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button onclick="scmOpenScope(null)" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ Subject List</button>
           <button onclick="scmExpandAll(true)" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Expand All</button>
           <button onclick="scmExpandAll(false)" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Collapse All</button>
+          <button onclick="stOpen()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Teachers</button>
           <button onclick="scmManageParts()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Exam Parts</button>
           <button onclick="scmManageSubjects(); scmEditSubject('new')" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">+ Add Subject</button>
           <button onclick="scmManageSubjects()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">All Subjects</button>
@@ -13507,6 +13508,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _classPatterns = patterns;
       _populateClassPatternSelects();
       scmRender();
+      if (!_stData) scmLoadTeachers(() => scmRender()); // teacher badges on each subject
     });
   }
   function _scmSubjectName(id) { return ((_scm.subjects.find(s => s.id === id) || {}).name) || ''; }
@@ -13689,6 +13691,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       scmLoad();
     });
   }
+  // How many teachers may enter this subject's marks for this class.
+  function _scmTeacherBadge(pid, sid) {
+    if (!_stData) return '';
+    const list = _stTeachersFor(pid, sid);
+    if (!list.length) return ' <span class="text-[9px] font-black text-amber-600 bg-amber-50 rounded px-1.5 py-0.5 ml-1" title="Nobody can enter marks for this subject yet">no teacher</span>';
+    const names = list.map(r => _stShort(r.teacher_id)).join(', ');
+    return ` <span class="text-[9px] font-black text-slate-500 bg-slate-100 rounded px-1.5 py-0.5 ml-1 cursor-help" title="Marks entry: ${_escHtml(names)}">${list.length} teacher${list.length === 1 ? '' : 's'}</span>`;
+  }
   function _scmSubjectActions(p, s) {
     return `<i data-lucide="sliders-horizontal" class="h-3 w-3 text-slate-400 hover:text-blue-600 cursor-pointer inline mr-1.5" title="Marks, weight and pass for ${_escHtml(s.name)} in every class" onclick="scmOpenWeights('subject',${s.id})"></i><i data-lucide="copy" class="h-3 w-3 text-slate-400 hover:text-blue-600 cursor-pointer inline mr-1.5" title="Copy this marks setup to other subjects or classes" onclick="scmOpenCopy(${p.id},${s.id})"></i><i data-lucide="pencil" class="h-3 w-3 text-slate-400 hover:text-blue-600 cursor-pointer inline" title="Rename subject (everywhere)" onclick="scmRenameSubject(${s.id})"></i>
       <i data-lucide="x" class="h-3.5 w-3.5 text-slate-400 hover:text-red-500 cursor-pointer inline ml-1.5" title="Remove from ${_escHtml(p.name)}" onclick="scmRemoveSubject(${p.id},${s.id})"></i>`;
@@ -13712,7 +13722,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const subs = _scmClassSubjects(p.id);
     const types = _scm.types;
     const rows = subs.map(s => `<tr class="border-b border-slate-50 hover:bg-slate-50/60">
-        <td class="sticky left-0 z-10 bg-white py-1.5 px-3 font-bold text-slate-700 whitespace-nowrap border-r border-slate-100">${_escHtml(s.name)}${_scmNoParts(p, s)}</td>
+        <td class="sticky left-0 z-10 bg-white py-1.5 px-3 font-bold text-slate-700 whitespace-nowrap border-r border-slate-100">${_escHtml(s.name)}${_scmNoParts(p, s)}${_scmTeacherBadge(p.id, s.id)}</td>
         ${types.map(t => _scmPartInputs(p, s, t, false)).join('')}
         <td class="py-1.5 px-3 text-right whitespace-nowrap">${_scmSubjectActions(p, s)}</td>
       </tr>`).join('');
@@ -13738,7 +13748,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const subs = _scmClassSubjects(p.id);
     const rows = subs.map(s => `<div class="px-3 py-2.5 border-b border-slate-100">
       <div class="flex items-start justify-between gap-2 mb-2">
-        <p class="font-bold text-slate-800 text-[13px] leading-snug">${_escHtml(s.name)}${_scmNoParts(p, s)}</p>
+        <p class="font-bold text-slate-800 text-[13px] leading-snug">${_escHtml(s.name)}${_scmNoParts(p, s)}${_scmTeacherBadge(p.id, s.id)}</p>
         <div class="flex items-center gap-2 shrink-0 pt-0.5">${_scmSubjectActions(p, s)}</div>
       </div>
       <div class="flex flex-col gap-1.5">${_scm.types.map(t => `<div class="flex items-center gap-2">
@@ -14114,6 +14124,132 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const ov = document.getElementById('scmScopeOverlay');
       if (ov) ov.remove();
       scmLoad();
+    });
+  }
+  // ── Subject teachers (who may enter marks), read from the class routine ──
+  // Assignments are per class (all its sections together) and per subject,
+  // and are used by every exam and term.
+  let _stData = null, _stReport = null, _stBusy = false;
+  function _stKey(pid, sid) { return `${pid}|${sid}`; }
+  function _stTeachersFor(pid, sid) {
+    if (!_stData) return [];
+    return (_stData.rows || []).filter(r => String(r.pattern_id) === String(pid) && String(r.subject_id) === String(sid));
+  }
+  function _stName(tid) {
+    const t = (_stData && _stData.teachers || []).find(x => String(x.teacher_id) === String(tid));
+    return t ? (t.shortname ? `${t.full_name} (${t.shortname})` : t.full_name) : tid;
+  }
+  function _stShort(tid) {
+    const t = (_stData && _stData.teachers || []).find(x => String(x.teacher_id) === String(tid));
+    return t ? (t.shortname || t.full_name) : tid;
+  }
+  function scmLoadTeachers(then) {
+    _adminFetch('get_subject_teachers', {}).then(res => {
+      _stData = res && res.result === 'success' ? res : { rows: [], teachers: [], teacher_map: [], subject_map: [], routine_url: '', error: res && res.message };
+      if (then) then();
+      else if (document.getElementById('stOverlay')) stRender();
+    });
+  }
+  function stOpen() {
+    if (!_scm) return;
+    let ov = document.getElementById('stOverlay');
+    if (!ov) {
+      ov = document.createElement('div');
+      ov.id = 'stOverlay';
+      ov.className = 'fixed inset-0 z-[80] bg-slate-900/40 flex items-center justify-center p-4';
+      ov.onclick = e => { if (e.target === ov) ov.remove(); };
+      document.body.appendChild(ov);
+    }
+    ov.innerHTML = '<div class="bg-white rounded-2xl shadow-xl p-6 text-xs font-bold text-slate-500">Loading teachers…</div>';
+    if (_stData) stRender(); else scmLoadTeachers(stRender);
+  }
+  function stRender() {
+    const ov = document.getElementById('stOverlay');
+    if (!ov || !_stData) return;
+    const rep = _stReport;
+    const unknown = (rep && rep.unknown_teachers) || [];
+    const teacherOptions = sel => `<option value="">— pick a teacher —</option>` + (_stData.teachers || []).map(t => `<option value="${t.teacher_id}" ${String(sel) === String(t.teacher_id) ? 'selected' : ''}>${_escHtml(t.full_name)}${t.shortname ? ` (${_escHtml(t.shortname)})` : ''}${t.department ? ` · ${_escHtml(t.department)}` : ''}</option>`).join('');
+    // Class → subject → teachers, only for subjects the class actually has.
+    const q = (document.getElementById('stFilter') || {}).value || '';
+    const classes = _scm.patterns.filter(p => !q || p.name.toLowerCase().includes(q.toLowerCase()));
+    const body = classes.map(p => {
+      const subs = _scmClassSubjects(p.id);
+      if (!subs.length) return '';
+      return `<div class="border border-slate-200 rounded-xl mb-2">
+        <div class="px-3 py-1.5 bg-slate-50 rounded-t-xl border-b border-slate-100 font-black text-slate-800 text-xs">${_escHtml(p.name)}</div>
+        <table class="w-full text-left text-xs"><tbody>${subs.map(s => {
+          const list = _stTeachersFor(p.id, s.id);
+          return `<tr class="border-b border-slate-50">
+            <td class="py-1.5 px-3 font-bold text-slate-700 align-top" style="width:34%">${_escHtml(s.name)}</td>
+            <td class="py-1.5 px-2">
+              <div class="flex flex-wrap items-center gap-1">
+                ${list.map(r => `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold ${r.source === 'manual' ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-700'}" title="${_escHtml(_stName(r.teacher_id))}${r.source === 'manual' ? ' · added by hand' : ' · from the routine'}">${_escHtml(_stName(r.teacher_id))}<i data-lucide="x" class="h-3 w-3 cursor-pointer" onclick="stSetTeacher(${p.id},${s.id},'${_escJs(r.teacher_id)}',false)"></i></span>`).join('') || '<span class="text-[11px] font-bold text-amber-600">nobody assigned</span>'}
+                <select onchange="stSetTeacher(${p.id},${s.id},this.value,true);this.value=''" class="px-1.5 py-1 bg-white border border-slate-200 rounded-lg text-[10px] font-bold" style="max-width:180px">${teacherOptions('')}</select>
+              </div></td></tr>`;
+        }).join('')}</tbody></table></div>`;
+    }).join('') || '<p class="text-xs text-slate-400 italic">No classes with subjects yet.</p>';
+    ov.innerHTML = `<div class="bg-white rounded-2xl shadow-xl w-full max-w-4xl flex flex-col" style="max-height:92vh">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+        <p class="font-black text-slate-800 text-sm">Teachers who can enter marks</p>
+        <i data-lucide="x" class="h-4 w-4 text-slate-500 cursor-pointer" onclick="document.getElementById('stOverlay').remove()"></i>
+      </div>
+      <div class="px-4 py-3 border-b border-slate-100 flex flex-col gap-2">
+        ${_stData.error ? `<p class="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">${_escHtml(_stData.error)}</p>` : ''}
+        <div class="flex flex-wrap items-end gap-2">
+          <label class="flex flex-col gap-1 flex-1 min-w-[260px]"><span class="text-[10px] font-black text-slate-400 uppercase">Class routine sheet link</span>
+            <input type="text" id="stUrl" value="${_escHtml(_stData.routine_url || '')}" placeholder="https://docs.google.com/spreadsheets/d/…  (the routine tab)" class="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></label>
+          <button onclick="stSync(false)" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase hover:bg-slate-50">Check</button>
+          <button onclick="stSync(true)" class="px-4 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Read routine &amp; assign</button>
+          <span id="stStatus" class="text-[11px] font-bold text-slate-400"></span>
+        </div>
+        <p class="text-[10px] text-slate-400 font-bold">Teachers are matched by the short names in the routine (MBU, MRM/AMS/DB…). Assigning replaces everything that came from the routine before; teachers added by hand are kept.</p>
+        ${rep ? `<div class="text-[11px] font-bold text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5">
+          Read ${rep.periods} periods → ${rep.pairs} class-subject-teacher assignments${rep.applied != null ? ` · <span class="text-emerald-700">saved ${rep.applied}</span>` : ' (nothing saved yet — press "Read routine &amp; assign")'}
+          ${unknown.length ? `<div class="mt-1.5"><span class="text-amber-700">Short names not recognised:</span><div class="flex flex-col gap-1 mt-1">${unknown.map(u => `<div class="flex items-center gap-2"><span class="font-black">${_escHtml(u.short)}</span><span class="text-slate-400">${u.count} period(s)</span>
+            <select onchange="stMapShort('${_escJs(u.short)}',this.value)" class="px-1.5 py-1 bg-white border border-slate-200 rounded-lg text-[10px] font-bold" style="max-width:260px">${teacherOptions('')}</select></div>`).join('')}</div></div>` : ''}
+          ${(rep.unknown_subjects || []).length ? `<div class="mt-1 text-amber-700">Subjects not recognised: ${rep.unknown_subjects.map(x => `${_escHtml(x.code)} (${x.count})`).join(', ')}</div>` : ''}
+          ${(rep.unknown_classes || []).length ? `<div class="mt-1 text-slate-400">Rows skipped: ${rep.unknown_classes.map(x => `${_escHtml(x.label)}`).join(', ')}</div>` : ''}
+        </div>` : ''}
+      </div>
+      <div class="px-4 py-2 border-b border-slate-100 flex items-center gap-2">
+        <input type="search" id="stFilter" value="${_escHtml(q)}" oninput="stRender()" placeholder="Find a class…" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:200px">
+        <span class="text-[10px] font-bold text-slate-400">${(_stData.rows || []).length} assignments</span>
+      </div>
+      <div class="overflow-y-auto px-4 py-3">${body}</div>
+    </div>`;
+    lucide.createIcons();
+    const f = document.getElementById('stFilter');
+    if (f && q) { f.focus(); f.setSelectionRange(q.length, q.length); }
+  }
+  function stSync(apply) {
+    if (_stBusy) return;
+    const url = (document.getElementById('stUrl') || {}).value || '';
+    if (!url.trim()) { showToast('Paste the routine sheet link', 'error'); return; }
+    _stBusy = true;
+    const st = document.getElementById('stStatus');
+    if (st) st.textContent = apply ? 'Reading the routine and assigning…' : 'Reading the routine…';
+    _adminFetch('sync_routine_teachers', { url, apply }).then(res => {
+      _stBusy = false;
+      if (!res || res.result !== 'success') { if (st) st.textContent = ''; showToast((res && res.message) || 'Could not read the routine', 'error'); return; }
+      _stReport = res;
+      showToast(apply ? `Assigned ${res.applied} class-subject-teacher pair(s)` : `Read ${res.periods} periods — ${res.pairs} assignments found`);
+      scmLoadTeachers(() => { stRender(); scmRender(); });
+    });
+  }
+  function stMapShort(short, teacher_id) {
+    if (!teacher_id) return;
+    _adminFetch('save_routine_teacher_map', { short_name: short, teacher_id }).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed', 'error'); return; }
+      showToast(`${short} = ${_stName(teacher_id)} — press "Read routine & assign" again`);
+      _stReport.unknown_teachers = (_stReport.unknown_teachers || []).filter(u => u.short !== short);
+      stRender();
+    });
+  }
+  function stSetTeacher(pid, sid, teacher_id, add) {
+    if (!teacher_id) return;
+    _adminFetch('save_subject_teacher', { pattern_id: pid, subject_id: sid, teacher_id, add }).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed', 'error'); return; }
+      scmLoadTeachers(() => { stRender(); scmRender(); });
     });
   }
   // Global subject list — rename/delete a subject everywhere, see where it's used.

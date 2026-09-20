@@ -519,6 +519,7 @@ const ADMIN_TAB_ACTIONS = {
     'get_subjects', 'save_subject', 'delete_subject', 'get_subject_pattern_map', 'save_subject_pattern_map',
     'get_subject_class_matrix', 'toggle_subject_component', 'save_subject_part', 'save_class_scope', 'save_exam_part', 'copy_class_subjects', 'set_subject_part_active', 'apply_part_to_all', 'set_part_weights',
     'rename_exam_component_type', 'delete_exam_component_type',
+    'get_subject_teachers', 'sync_routine_teachers', 'save_routine_teacher_map', 'save_routine_subject_map', 'save_subject_teacher',
     'get_exam_component_types', 'save_exam_component_type', 'get_subject_components_setup', 'save_subject_component', 'delete_subject_component',
     'get_exam_patterns', 'save_exam_pattern', 'duplicate_exam_pattern', 'delete_exam_pattern',
     'get_exams', 'save_exam', 'save_exams_bulk', 'update_exam_group', 'lock_exam', 'archive_exam', 'duplicate_exam',
@@ -2962,6 +2963,244 @@ export async function POST(req) {
   // Everything the class-by-class Subject Setup view needs in one round trip:
   // each class pattern, the subjects ticked for it, and which parts
   // (CT/CQ/MCQ/Practical…) each of those subjects has there.
+  // ── Subject teachers, read from the class routine ──────────────────────
+  // The routine sheet writes each class as two rows: teacher short names on
+  // the first, subjects on the second, one column per period. Teachers are
+  // assigned per CLASS (all sections together), so all four Class Three
+  // teachers of a subject may enter its marks for Class Three.
+  const _ROUTINE_CLASS_ALIASES = {
+    Nursery: ['NURSERY', 'NUR'], KG: ['KG'], One: ['ONE', 'I', '1'], Two: ['TWO', 'II', '2'], Three: ['THREE', 'III', '3'],
+    Four: ['FOUR', 'IV', '4'], Five: ['FIVE', 'V', '5'], Six: ['SIX', 'VI', '6'], Seven: ['SEVEN', 'VII', '7'],
+    Eight: ['EIGHT', 'VIII', '8'], Nine: ['NINE', 'IX', '9'], Ten: ['TEN', 'X', '10'], Eleven: ['ELEVEN', 'XI', '11'], Twelve: ['TWELVE', 'XII', '12'],
+  };
+  // Subject codes as the routine writes them → the subject's real name.
+  const _ROUTINE_SUBJECT_NAMES = {
+    'BANGLA': 'Bangla', 'BANGLA 1ST': 'Bangla 1st Paper', 'BANGLA 2ND': 'Bangla 2nd Paper', 'ENGLISH': 'English',
+    'ENGLISH 1ST': 'English 1st Paper', 'ENGLISH 2ND': 'English 2nd Paper', 'MATH': 'Mathematics', 'G.MATH': 'General Mathematics',
+    'H.MATH': 'Higher Mathematics', 'H MATH': 'Higher Mathematics', 'SCIENCE': 'Science', 'BGS': 'Bangladesh and Global Studies',
+    'RELIGION': 'Religion and Moral Education', 'DT': 'Digital Technology', 'ICT': 'ICT', 'LIB/PS': 'Library / Public Speaking',
+    'LIB': 'Library / Public Speaking', 'PS': 'Library / Public Speaking', 'WLE': 'Work and Life Oriented Education', 'WLF': 'Work and Life Oriented Education',
+    'P. EDU.': 'Physical Education', 'P.EDU': 'Physical Education', 'PE': 'Physical Education', 'CE': 'CE',
+    'P. EDU./CE': 'Physical / Career Education', 'P.EDU/CE': 'Physical / Career Education',
+    'P.EDU/CE/BE': 'Physical Education / Career Education / Business Entrepreneurship', 'BE': 'Business Entrepreneurship',
+    'F&B': 'Finance and Banking', 'ACCOUNTING': 'Accounting', 'H SCIENCE': 'Home Science', 'PHYSICS': 'Physics',
+    'CHEMISTRY': 'Chemistry', 'BIOLOGY': 'Biology', 'DRAWING': 'Drawing', 'ARTS & CRAFTS': 'Arts & Crafts',
+    'M&D': 'Music and Dance', 'ICR': 'I Can Read', 'PMHS': 'Physical and Mental Health Studies', 'SES': 'Social and Elementary Science',
+    'E.HW': 'English Handwriting', 'B.HW': 'Bangla Handwriting', 'M.HW': 'Math Handwriting', 'ALS': 'Esho Likhte Shikhi',
+    'AMAR BOI': 'Amar Boi', 'AEIB': 'Active English Introductory Book', 'AEWB': 'Active English Work Book', 'SBP': 'Sonamonider Bangla Pora (Kha)',
+    'BCC(2)': 'Bichitra Charar Chhobi-2', 'B.RHYMES': 'Sonamonider Mojar Chhora (2)', 'E.RHYMES': "Samia's My Book of Rhymes",
+    'B.ABC(COUNTING)': 'Bichitra - My Book of ABC Counting', 'B.ABC(RHYMES)': 'Bichitra - My Book of ABC Rhymes',
+  };
+  function _csvRows(text) {
+    const rows = [];
+    let row = [], cell = '', q = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (q) {
+        if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += c;
+      } else if (c === '"') q = true;
+      else if (c === ',') { row.push(cell); cell = ''; }
+      else if (c === '\n') { row.push(cell); rows.push(row); row = []; cell = ''; }
+      else if (c !== '\r') cell += c;
+    }
+    if (cell.length || row.length) { row.push(cell); rows.push(row); }
+    return rows;
+  }
+  const _rtNorm = s => String(s || '').toUpperCase().replace(/[.\s]/g, '').trim();
+  // A Google Sheets link → its CSV export link (keeps the chosen tab).
+  function _sheetCsvUrl(url) {
+    const m = String(url || '').match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    if (!m) return null;
+    const gid = (String(url).match(/[#&?]gid=(\d+)/) || [])[1] || '0';
+    return `https://docs.google.com/spreadsheets/d/${m[1]}/export?format=csv&gid=${gid}`;
+  }
+  async function _routineUrl() {
+    const rows = await sbTeacher('system_settings?key=eq.exam_routine_url&select=value');
+    return (Array.isArray(rows) && rows[0] && rows[0].value && rows[0].value.url) || '';
+  }
+  // Initials of a name, skipping the usual honorifics — "Md. Mamunur Rashid" → MMR.
+  function _nameInitials(name) {
+    const skip = new Set(['MD', 'MST', 'MRS', 'MR', 'MS', 'MOHAMMAD', 'MOHAMMED', 'MUHAMMAD', 'SYED', 'SK']);
+    const parts = String(name || '').toUpperCase().replace(/[^A-Z\s]/g, ' ').split(/\s+/).filter(Boolean);
+    const kept = parts.filter(p => !skip.has(p));
+    return { full: parts.map(p => p[0]).join(''), kept: (kept.length ? kept : parts).map(p => p[0]).join('') };
+  }
+  // A row is a class only if its label reads like one (no times, no prose).
+  function _looksLikeClassLabel(label) {
+    const t = String(label || '').trim();
+    return t.length <= 14 && !/s/.test(t) && !/[:]/.test(t) && /[A-Za-z]/.test(t);
+  }
+  // Exact label first, then a near match, so the routine's IX-BS-EV still
+  // finds the roster's IX-BS-E section.
+  function _resolveClassLabel(map, label) {
+    const k = _rtNorm(label);
+    if (map.has(k)) return map.get(k);
+    if (!_looksLikeClassLabel(label)) return null;
+    let hit = null;
+    for (const [key, pid] of map) {
+      if (Math.abs(key.length - k.length) > 2) continue;
+      if (!key.startsWith(k) && !k.startsWith(key)) continue;
+      if (hit && hit !== pid) return null; // ambiguous — leave it for the report
+      hit = pid;
+    }
+    return hit;
+  }
+  async function _routineSync(rawUrl, apply) {
+    const url = _sheetCsvUrl(rawUrl);
+    if (!url) return { error: 'That does not look like a Google Sheets link.' };
+    let text;
+    try {
+      const res = await fetch(url, { redirect: 'follow' });
+      if (!res.ok) return { error: `Could not read the sheet (${res.status}). Make sure it is shared as "anyone with the link can view".` };
+      text = await res.text();
+    } catch (e) { return { error: `Could not read the sheet: ${e.message}` }; }
+    if (/<html/i.test(text.slice(0, 200))) return { error: 'The sheet is not readable — share it as "anyone with the link can view".' };
+    const rows = _csvRows(text);
+
+    // class+section → the subject list (pattern) those students use
+    const [roster, patterns, subjects, tMap, sMap, staff] = await Promise.all([
+      _roster(), _patterns(true), sbExam('subjects?select=id,name'),
+      sbExam('routine_teacher_map?select=*'), sbExam('routine_subject_map?select=*'),
+      sbTeacher('users_profile?select=teacher_id,full_name,shortname'),
+    ]);
+    if (roster.error) return { error: roster.error };
+    if (!Array.isArray(subjects)) return { error: 'Could not read subjects.' };
+    const assigned = _assignStudents(patterns, roster);
+    const labelToPattern = new Map();
+    roster.forEach(st => {
+      const pid = assigned.get(st.student_id);
+      if (!pid) return;
+      (_ROUTINE_CLASS_ALIASES[st.class] || [st.class.toUpperCase()]).forEach(al => {
+        labelToPattern.set(_rtNorm(`${al}-${st.section}`), pid);
+        labelToPattern.set(_rtNorm(`${al}${st.section}`), pid);
+      });
+    });
+    const subjByName = new Map(subjects.map(s => [_rtNorm(s.name), s.id]));
+    const subjOverride = new Map((Array.isArray(sMap) ? sMap : []).map(m => [_rtNorm(m.code), m.subject_id]));
+    const teacherOverride = new Map((Array.isArray(tMap) ? tMap : []).map(m => [_rtNorm(m.short_name), m.teacher_id]));
+    const staffRows = Array.isArray(staff) ? staff : [];
+    const byShort = new Map();
+    staffRows.forEach(t => { if (t.shortname) byShort.set(_rtNorm(t.shortname), t.teacher_id); });
+    const byInitials = new Map();
+    staffRows.forEach(t => {
+      const { full, kept } = _nameInitials(t.full_name);
+      [full, kept].forEach(k => { if (!k) return; if (byInitials.has(k) && byInitials.get(k) !== t.teacher_id) byInitials.set(k, null); else if (!byInitials.has(k)) byInitials.set(k, t.teacher_id); });
+    });
+    const resolveTeacher = short => {
+      const k = _rtNorm(short);
+      if (teacherOverride.has(k)) return teacherOverride.get(k) || null;
+      if (byShort.has(k)) return byShort.get(k);
+      return byInitials.get(k) || null;
+    };
+    const resolveSubject = code => {
+      const k = _rtNorm(code);
+      if (subjOverride.has(k)) return subjOverride.get(k) || null;
+      if (subjByName.has(k)) return subjByName.get(k);
+      const name = _ROUTINE_SUBJECT_NAMES[String(code).toUpperCase().trim()] || _ROUTINE_SUBJECT_NAMES[k];
+      return name ? (subjByName.get(_rtNorm(name)) || null) : null;
+    };
+
+    const want = new Map();   // "pattern|subject|teacher"
+    const unknownTeachers = new Map(), unknownSubjects = new Map(), unknownClasses = new Map();
+    let cells = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const label = String((rows[i] || [])[1] || '').trim();
+      if (!label) continue;
+      const pid = _resolveClassLabel(labelToPattern, label);
+      const teacherRow = rows[i] || [], subjectRow = rows[i + 1] || [];
+      let used = false;
+      for (let c = 2; c < Math.max(teacherRow.length, subjectRow.length); c++) {
+        const tShort = String(teacherRow[c] || '').trim(), sCode = String(subjectRow[c] || '').trim();
+        if (!tShort || !sCode) continue;
+        used = true; cells++;
+        if (!pid) { if (_looksLikeClassLabel(label)) unknownClasses.set(label, (unknownClasses.get(label) || 0) + 1); continue; }
+        const sid = resolveSubject(sCode);
+        if (!sid) { unknownSubjects.set(sCode, (unknownSubjects.get(sCode) || 0) + 1); continue; }
+        // One period can be shared: "MBU/MMG" or "MRM/AMS/DB" are all teachers of it.
+        String(tShort).split(/[/,&+]/).map(x => x.trim()).filter(Boolean).forEach(one => {
+          const tid = resolveTeacher(one);
+          if (!tid) { unknownTeachers.set(one, (unknownTeachers.get(one) || 0) + 1); return; }
+          want.set(`${pid}|${sid}|${tid}`, { pattern_id: pid, subject_id: sid, teacher_id: tid });
+        });
+      }
+      if (used) i++; // the subject row belongs to this class too
+    }
+    const report = {
+      periods: cells, pairs: want.size,
+      unknown_teachers: [...unknownTeachers.entries()].map(([short, count]) => ({ short, count })).sort((a, b) => b.count - a.count),
+      unknown_subjects: [...unknownSubjects.entries()].map(([code, count]) => ({ code, count })).sort((a, b) => b.count - a.count),
+      unknown_classes: [...unknownClasses.entries()].map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count),
+    };
+    if (!apply) return report;
+    const del = await sbExam(`subject_teachers?source=eq.routine`, 'DELETE');
+    if (del?.error) return { error: /subject_teachers/.test(String(del.error)) ? 'Run migration_exam_subject_teachers.sql in Supabase first.' : del.error };
+    const list = [...want.values()];
+    for (let i = 0; i < list.length; i += 200) {
+      const r = await sbExam('subject_teachers', 'POST', list.slice(i, i + 200).map(x => ({ ...x, source: 'routine' })));
+      if (r?.error) return { error: r.error };
+    }
+    return { ...report, applied: list.length };
+  }
+
+  if (action === 'get_subject_teachers') {
+    const [rows, staff, tMap, sMap, url] = await Promise.all([
+      sbExam('subject_teachers?select=*'),
+      sbTeacher('users_profile?select=teacher_id,full_name,shortname,designation,department,school_college&order=full_name.asc'),
+      sbExam('routine_teacher_map?select=*'), sbExam('routine_subject_map?select=*'), _routineUrl(),
+    ]);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: /subject_teachers/.test(String(rows.error)) ? 'Run migration_exam_subject_teachers.sql in Supabase first.' : rows.error, needs_migration: true });
+    return NextResponse.json({ result: 'success', rows, teachers: Array.isArray(staff) ? staff : [], teacher_map: Array.isArray(tMap) ? tMap : [], subject_map: Array.isArray(sMap) ? sMap : [], routine_url: url });
+  }
+  if (action === 'sync_routine_teachers') {
+    const url = String(payload.url || '').trim() || await _routineUrl();
+    if (!url) return NextResponse.json({ result: 'error', message: 'Paste the routine sheet link first.' });
+    const out = await _routineSync(url, !!payload.apply);
+    if (out.error) return NextResponse.json({ result: 'error', message: out.error });
+    if (payload.url) {
+      const existing = await sbTeacher('system_settings?key=eq.exam_routine_url&select=key');
+      if (Array.isArray(existing) && existing.length) await sbTeacher('system_settings?key=eq.exam_routine_url', 'PATCH', { value: { url } });
+      else await sbTeacher('system_settings', 'POST', { key: 'exam_routine_url', value: { url } });
+    }
+    return NextResponse.json({ result: 'success', ...out });
+  }
+  if (action === 'save_routine_teacher_map') {
+    const short_name = String(payload.short_name || '').trim();
+    if (!short_name) return NextResponse.json({ result: 'error', message: 'Short name required.' });
+    const row = { short_name, teacher_id: String(payload.teacher_id || '').trim() || null, updated_at: new Date().toISOString() };
+    const existing = await sbExam(`routine_teacher_map?short_name=eq.${encodeURIComponent(short_name)}&select=short_name`);
+    const r = Array.isArray(existing) && existing.length
+      ? await sbExam(`routine_teacher_map?short_name=eq.${encodeURIComponent(short_name)}`, 'PATCH', row)
+      : await sbExam('routine_teacher_map', 'POST', row);
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'save_routine_subject_map') {
+    const code = String(payload.code || '').trim();
+    if (!code) return NextResponse.json({ result: 'error', message: 'Subject code required.' });
+    const row = { code, subject_id: payload.subject_id || null, updated_at: new Date().toISOString() };
+    const existing = await sbExam(`routine_subject_map?code=eq.${encodeURIComponent(code)}&select=code`);
+    const r = Array.isArray(existing) && existing.length
+      ? await sbExam(`routine_subject_map?code=eq.${encodeURIComponent(code)}`, 'PATCH', row)
+      : await sbExam('routine_subject_map', 'POST', row);
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'save_subject_teacher') {
+    const { pattern_id, subject_id, teacher_id, add } = payload;
+    if (!pattern_id || !subject_id || !teacher_id) return NextResponse.json({ result: 'error', message: 'Class, subject and teacher required.' });
+    const q = `pattern_id=eq.${encodeURIComponent(pattern_id)}&subject_id=eq.${encodeURIComponent(subject_id)}&teacher_id=eq.${encodeURIComponent(teacher_id)}`;
+    if (!add) {
+      const r = await sbExam(`subject_teachers?${q}`, 'DELETE');
+      if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+      return NextResponse.json({ result: 'success' });
+    }
+    const existing = await sbExam(`subject_teachers?${q}&select=id`);
+    if (Array.isArray(existing) && existing.length) return NextResponse.json({ result: 'success' });
+    const r = await sbExam('subject_teachers', 'POST', { pattern_id, subject_id, teacher_id, source: 'manual' });
+    if (r?.error) return NextResponse.json({ result: 'error', message: /subject_teachers/.test(String(r.error)) ? 'Run migration_exam_subject_teachers.sql in Supabase first.' : r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
   if (action === 'get_subject_class_matrix') {
     const list = await _examClassList();
     if (list.error) return NextResponse.json({ result: 'error', message: list.error });
