@@ -14213,6 +14213,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // Assignments are per class (all its sections together) and per subject,
   // and are used by every exam and term.
   let _stData = null, _stReport = null, _stBusy = false;
+  // Class rows start collapsed; what you leave open is remembered per browser.
+  let _stOpen = new Set();
+  try { _stOpen = new Set(JSON.parse(localStorage.getItem('ccpc.stOpen') || '[]').map(Number)); } catch (e) {}
+  function _stSaveOpen() { try { localStorage.setItem('ccpc.stOpen', JSON.stringify([..._stOpen])); } catch (e) {} }
+  function stToggleClass(pid) {
+    if (_stOpen.has(pid)) _stOpen.delete(pid); else _stOpen.add(pid);
+    _stSaveOpen();
+    stRender();
+  }
+  function stExpandAll(open) {
+    const q = (document.getElementById('stFilter') || {}).value || '';
+    (_scm ? _scm.patterns : []).filter(p => !q || p.name.toLowerCase().includes(q.toLowerCase())).forEach(p => { if (open) _stOpen.add(p.id); else _stOpen.delete(p.id); });
+    _stSaveOpen();
+    stRender();
+  }
   function _stKey(pid, sid) { return `${pid}|${sid}`; }
   function _stTeachersFor(pid, sid) {
     if (!_stData) return [];
@@ -14253,9 +14268,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const body = classes.map(p => {
       const subs = _scmClassSubjects(p.id);
       if (!subs.length) return '';
+      const open = _stOpen.has(p.id);
+      const missing = subs.filter(s => !_stTeachersFor(p.id, s.id).length).length;
       return `<div class="border border-slate-200 rounded-xl mb-2">
-        <div class="px-3 py-1.5 bg-slate-50 rounded-t-xl border-b border-slate-100 font-black text-slate-800 text-xs">${_escHtml(p.name)}</div>
-        <table class="w-full text-left text-xs"><tbody>${subs.map(s => {
+        <div onclick="stToggleClass(${p.id})" title="${open ? 'Collapse' : 'Expand'}" class="flex items-center justify-between gap-2 px-3 py-1.5 bg-slate-50 ${open ? 'rounded-t-xl border-b border-slate-100' : 'rounded-xl'} cursor-pointer select-none hover:bg-slate-100">
+          <span class="flex items-center gap-1.5 font-black text-slate-800 text-xs"><i data-lucide="${open ? 'chevron-down' : 'chevron-right'}" class="h-4 w-4 text-slate-400"></i>${_escHtml(p.name)}
+            <span class="text-[10px] font-bold text-slate-400">${subs.length} subject${subs.length === 1 ? '' : 's'}</span>
+            ${missing ? `<span class="text-[10px] font-bold text-amber-600">${missing} without a teacher</span>` : '<span class="text-[10px] font-bold text-emerald-600">all covered</span>'}</span>
+        </div>
+        <table class="w-full text-left text-xs" style="${open ? '' : 'display:none'}"><tbody>${subs.map(s => {
           const list = _stTeachersFor(p.id, s.id);
           return `<tr class="border-b border-slate-50">
             <td class="py-1.5 px-3 font-bold text-slate-700 align-top" style="width:34%">${_escHtml(s.name)}</td>
@@ -14291,7 +14312,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
       <div class="px-4 py-2 border-b border-slate-100 flex items-center gap-2">
         <input type="search" id="stFilter" value="${_escHtml(q)}" oninput="stRender()" placeholder="Find a class…" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:200px">
-        <span class="text-[10px] font-bold text-slate-400">${(_stData.rows || []).length} assignments</span>
+        <span class="flex gap-3 text-[10px] font-black uppercase"><button onclick="stExpandAll(true)" class="text-blue-600">Expand all</button><button onclick="stExpandAll(false)" class="text-slate-500">Collapse all</button></span>
+        <span class="text-[10px] font-bold text-slate-400 ml-auto">${(_stData.rows || []).length} assignments</span>
       </div>
       <div class="overflow-y-auto px-4 py-3" style="max-height:60vh">${body}</div>
     </div>`;
