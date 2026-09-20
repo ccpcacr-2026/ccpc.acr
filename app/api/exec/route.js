@@ -1,6 +1,18 @@
 import { NextResponse } from 'next/server';
 import { supabaseRequest, castToArray, supabaseStorageUpload, supabaseStoragePublicUrl, supabaseStorageRemove, supabaseCreateSignedUploadUrl } from '@/lib/supabase';
 
+// Roll numbers live in a text column, so the database sorts them as text
+// ("10" before "2"). Every roster is re-sorted with this instead.
+function _rollCompare(a, b) {
+  const x = String((a && a.roll) ?? '').trim(), y = String((b && b.roll) ?? '').trim();
+  if (x === y) return String((a && a.student_name) || '').localeCompare(String((b && b.student_name) || ''));
+  if (x === '') return 1;
+  if (y === '') return -1;
+  return x.localeCompare(y, undefined, { numeric: true, sensitivity: 'base' });
+}
+function _sortByRoll(rows) { return Array.isArray(rows) ? rows.slice().sort(_rollCompare) : rows; }
+
+
 // A full-day routine reseed (runDailyRoutineSetup) can legitimately take a
 // few minutes on the external Apps Script side — this raises the platform's
 // own kill switch to accommodate that. 60s is the highest value that's
@@ -2824,7 +2836,7 @@ const handlers = {
       if (filters.length) {
         const orFilter = filters.join(',');
         const r = await _sbStudent(`students_data?or=(${orFilter})&select=student_id,student_name,roll,class,section,group,gender&order=roll.asc`);
-        comboStudents = Array.isArray(r) ? r : [];
+        comboStudents = _sortByRoll(Array.isArray(r) ? r : []);
       }
       let linkedStudents = [];
       const activeFilters = linkedRowFilters.filter(f => f && Object.keys(f).length);
@@ -2839,7 +2851,7 @@ const handlers = {
       allowedStudentIds = new Set(roster.map(s => String(s.student_id)));
     } else {
       const all = await _sbStudentAllRows(`students_data?select=student_id,student_name,roll,class,section,group,gender&order=class.asc,section.asc,roll.asc`);
-      roster = Array.isArray(all) ? all : [];
+      roster = (Array.isArray(all) ? all : []).sort((a, b) => String(a.class || '').localeCompare(String(b.class || '')) || String(a.section || '').localeCompare(String(b.section || '')) || _rollCompare(a, b));
     }
     const scopedCols = allowedStudentIds ? ['class', 'section', 'group'] : [];
     if (!roster.length) return { headers: ['student_id', ...scopedCols], rows: [], sort_meta: {}, filled: {} };
@@ -2911,7 +2923,7 @@ const handlers = {
         `students_data?class=eq.${encodeURIComponent(studentClass)}&section=eq.${encodeURIComponent(studentSection)}${_extraCriteriaQS(extraCriteria)}` +
         `&select=student_id,student_name,roll,gender,group,version,shift,phone_number,father_phone,mother_phone,photo&order=roll.asc`
       );
-      return { classKey, className, section, students: Array.isArray(students) ? students : [] };
+      return { classKey, className, section, students: _sortByRoll(Array.isArray(students) ? students : []) };
     }));
     return { classes };
   },
@@ -2954,7 +2966,7 @@ const handlers = {
         `students_data?class=eq.${encodeURIComponent(studentClass)}&section=eq.${encodeURIComponent(studentSection)}${_extraCriteriaQS(extraCriteria)}` +
         `&select=student_id,student_name,roll,phone_number,father_phone,mother_phone,photo&order=roll.asc`
       );
-      const roster = (Array.isArray(students) ? students : []).map(s => {
+      const roster = _sortByRoll(Array.isArray(students) ? students : []).map(s => {
         const override = overrideMap[s.student_id];
         const status = override || (presentSet.has(s.student_id) ? 'present' : 'absent');
         return { ...s, status, is_override: !!override };
@@ -3196,7 +3208,7 @@ const handlers = {
       const students = await _sbStudent(
         `students_data?class=eq.${encodeURIComponent(m.studentClass)}&section=eq.${encodeURIComponent(m.studentSection)}${_extraCriteriaQS(m.extraCriteria)}&select=student_id,student_name,roll,class,section,group,gender&order=roll.asc`
       );
-      return (Array.isArray(students) ? students : []).map(s => ({ ...s, classKey: m.classKey }));
+      return _sortByRoll(Array.isArray(students) ? students : []).map(s => ({ ...s, classKey: m.classKey }));
     }));
     const roster = rosterLists.flat();
     if (!roster.length) return { headers: [], rows: [], sort_meta: [], filled: [] };

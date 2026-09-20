@@ -117,6 +117,18 @@ async function _getCachedBusLocations(creds, imeiList) {
 // partially or fully missing from any admin view built this way. Fetches
 // in Range-paginated pages instead of trusting a single request to return
 // everything past that cap.
+// Roll numbers live in a text column, so the database sorts them as text
+// ("10" before "2"). Every roster is re-sorted with this instead.
+function _rollCompare(a, b) {
+  const x = String((a && a.roll) ?? '').trim(), y = String((b && b.roll) ?? '').trim();
+  if (x === y) return String((a && a.student_name) || '').localeCompare(String((b && b.student_name) || ''));
+  if (x === '') return 1;
+  if (y === '') return -1;
+  return x.localeCompare(y, undefined, { numeric: true, sensitivity: 'base' });
+}
+function _sortByRoll(rows) { return Array.isArray(rows) ? rows.slice().sort(_rollCompare) : rows; }
+function _sortByRollInPlace(rows) { if (Array.isArray(rows)) rows.sort(_rollCompare); return rows; }
+
 async function sbAllRows(path) {
   const PAGE = 3000;
   let all = [];
@@ -734,7 +746,9 @@ async function _searchStudents(filters, projectFields, extraFilter) {
     ? projectFields.map(encodeURIComponent).join(',')
     : '*';
   const query = `students_data?${clauses.length ? clauses.join('&') + '&' : ''}select=${select}&order=class.asc,section.asc,roll.asc&limit=500`;
-  return sb(query);
+  const rows = await sb(query);
+  // roll is text in the database, so 10 sorts before 2 there — fix the order here.
+  return Array.isArray(rows) ? rows.sort((a, b) => String(a.class || '').localeCompare(String(b.class || '')) || String(a.section || '').localeCompare(String(b.section || '')) || _rollCompare(a, b)) : rows;
 }
 
 // Looks up a category's field list, then runs _searchStudents projected to
@@ -2194,6 +2208,7 @@ export async function POST(req) {
     if (!date) return NextResponse.json({ result: 'error', message: 'date required.' });
     const roster = await sb(`students_data?class=eq.${encodeURIComponent(cls || '')}${section ? `&section=eq.${encodeURIComponent(section)}` : ''}&select=student_id,student_name,roll&order=roll.asc`);
     if (roster?.error) return NextResponse.json({ result: 'error', message: roster.error });
+    _sortByRollInPlace(roster);
     // School-wide, unfiltered by class — plain sb() silently caps at
     // PostgREST's 3000-row max_rows with no guaranteed order (see
     // get_today_attendance_overview above), so must paginate.
@@ -2581,9 +2596,9 @@ export async function POST(req) {
     const [roster, patterns] = await Promise.all([_roster(), _patterns()]);
     if (roster.error || patterns.error) return [];
     const assigned = _assignStudents(patterns, roster);
-    return roster.filter(st => assigned.get(st.student_id) === p.id
+    return _sortByRoll(roster.filter(st => assigned.get(st.student_id) === p.id
       && (!sectionFilter || st.section === String(sectionFilter).trim())
-      && _sessionMatches(st.session, year));
+      && _sessionMatches(st.session, year)));
   }
   // Everything Subject Setup and the exam class pickers need. Creates the
   // default list for any class (or class + group, where the class has
@@ -2694,7 +2709,7 @@ export async function POST(req) {
       const rows = Array.isArray(pages[i]) ? pages[i] : [];
       rows.forEach(s => { if (g.sessions.has(String(s.session || '').trim())) out.push(s); });
     });
-    return out;
+    return _sortByRoll(out);
   }
 
   async function _subjectsForPattern(patternId) {
@@ -3861,6 +3876,7 @@ export async function POST(req) {
     const { exam_id, subject_id, component_type_id, class: cls, section } = payload;
     let roster = await sb(`students_data?class=eq.${encodeURIComponent(cls)}${section ? `&section=eq.${encodeURIComponent(section)}` : ''}&select=student_id,student_name,roll,group,session&order=roll.asc`);
     if (roster?.error) return NextResponse.json({ result: 'error', message: roster.error });
+    _sortByRollInPlace(roster);
     const examRow = (await sbExam(`exams?id=eq.${encodeURIComponent(exam_id)}&select=*`))?.[0];
     if (examRow && !_partIsOpen(examRow, component_type_id)) return NextResponse.json({ result: 'error', message: 'Marks entry for this part is closed — open it in Term / Exam Setup.' });
     const examClass = examRow ? await _patternById(examRow.pattern_id) : null;

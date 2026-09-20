@@ -1,5 +1,17 @@
 import { NextResponse } from 'next/server';
 
+// Roll numbers live in a text column, so the database sorts them as text
+// ("10" before "2"). Every roster is re-sorted with this instead.
+function _rollCompare(a, b) {
+  const x = String((a && a.roll) ?? '').trim(), y = String((b && b.roll) ?? '').trim();
+  if (x === y) return String((a && a.student_name) || '').localeCompare(String((b && b.student_name) || ''));
+  if (x === '') return 1;
+  if (y === '') return -1;
+  return x.localeCompare(y, undefined, { numeric: true, sensitivity: 'base' });
+}
+function _sortByRoll(rows) { return Array.isArray(rows) ? rows.slice().sort(_rollCompare) : rows; }
+
+
 // ── Announcements Admin ─────────────────────────────────────────────────────
 // Lets Admin record/upload an MP3 and target it at ESP32 speaker units by
 // device_hash (or 'All'). Table lives in the DEFAULT `public` schema (unlike
@@ -328,7 +340,7 @@ export async function POST(req) {
     path += '&select=*&order=roll.asc';
     const rows = await _sbStudentAllRows(path);
     if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });
-    return NextResponse.json({ result: 'success', students: rows });
+    return NextResponse.json({ result: 'success', students: _sortByRoll(rows) });
   }
 
   if (action === 'save_announcement') {
