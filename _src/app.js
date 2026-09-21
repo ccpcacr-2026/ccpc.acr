@@ -15543,7 +15543,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       ? `<th colspan="${s.n}" ${thCls} style="text-align:center">${_escHtml(s.group)}</th>`
       : `<th rowspan="2" ${thCls} style="${_rcHeaderCss(s.col.fmt)}">${_escHtml(s.col.header)}</th>`).join('');
     const head2 = g.cols.filter(c => c.group).map(c => `<th ${thCls} style="${_rcHeaderCss(c.fmt)}">${_escHtml(c.header)}</th>`).join('');
-    return `<table ${forPrint ? '' : 'class="text-xs border-collapse"'}>
+    // Any column given a width fixes the table's layout, so the widths hold.
+    const cg = _rsColGroup(g.cols.map(c => (c.fmt || {}).width));
+    return `<table ${forPrint ? '' : 'class="text-xs border-collapse"'}${cg ? ' style="width:100%;border-collapse:collapse;table-layout:fixed"' : ''}>${cg}
       <thead><tr>${head1}</tr>${head2 ? `<tr>${head2}</tr>` : ''}</thead>
       <tbody>${g.rows.map(({ r, cells }) => `<tr>${cells.map((v, i) => {
         const c = g.cols[i];
@@ -15624,7 +15626,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <select onchange="rcSetFmt('${c.id}','align',this.value)" title="Alignment" class="px-1 py-0.5 border border-slate-200 rounded text-[10px] font-bold">${['center', 'left', 'right'].map(a => `<option ${(f.align || 'center') === a ? 'selected' : ''}>${a}</option>`).join('')}</select>
           <input type="number" min="0" max="4" value="${f.decimals ?? ''}" placeholder="dec" title="Decimal places (blank = as is)" onchange="rcSetFmt('${c.id}','decimals',this.value)" class="w-12 px-1 py-0.5 border border-slate-200 rounded text-[10px] font-bold">
           <input type="color" value="${f.headerBg || '#f8fafc'}" title="Header background" onchange="rcSetFmt('${c.id}','headerBg',this.value)" class="w-6 h-6 align-middle border border-slate-200 rounded">
-          <select onchange="rcSetFmt('${c.id}','rotate',this.value)" title="Header direction" class="px-1 py-0.5 border border-slate-200 rounded text-[10px] font-bold"><option value="0" ${!Number(f.rotate) ? 'selected' : ''}>↔</option><option value="90" ${Number(f.rotate) === 90 ? 'selected' : ''}>↕</option></select>`}</td>
+          <select onchange="rcSetFmt('${c.id}','rotate',this.value)" title="Header direction" class="px-1 py-0.5 border border-slate-200 rounded text-[10px] font-bold"><option value="0" ${!Number(f.rotate) ? 'selected' : ''}>↔</option><option value="90" ${Number(f.rotate) === 90 ? 'selected' : ''}>↕</option></select>
+          <input type="text" value="${_escHtml(String(f.width || ''))}" placeholder="width" title="Column width — a number is a % of the table, or write 18mm (blank = automatic)" onchange="rcSetFmt('${c.id}','width',this.value)" class="w-14 px-1 py-0.5 border border-slate-200 rounded text-[10px] font-bold">`}</td>
         <td class="py-1.5 px-2 text-right whitespace-nowrap">
           <button onclick="rcEdit('${c.id}')" class="text-[10px] font-black uppercase text-blue-600 mr-2">Edit</button>
           <button onclick="rcDuplicate('${c.id}')" class="text-[10px] font-black uppercase text-slate-500 mr-2">Copy</button>
@@ -15801,6 +15804,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               ${it.kind === 'virtual' ? '<span class="flex-1 text-[10px] font-black uppercase text-indigo-600">virtual</span>' : `<select onchange="rcSetItem(${i},'path',this.value)" class="flex-1 px-1.5 py-1 bg-white border border-slate-200 rounded text-[10px] font-bold">${_rcPathOptionsHtml(it.path, true)}</select>`}
               <button onclick="rcSetItemFmt(${i},'bold')" class="w-6 h-6 rounded border text-[10px] font-black ${it.fmt && it.fmt.bold ? 'bg-slate-800 text-white' : 'bg-white text-slate-500 border-slate-200'}">B</button>
               <input type="number" min="0" max="4" value="${(it.fmt || {}).decimals ?? ''}" placeholder="dec" onchange="rcSetItemFmtVal(${i},'decimals',this.value)" class="w-12 px-1 py-1 border border-slate-200 rounded text-[10px] font-bold">
+              <input type="text" value="${_escHtml(String((it.fmt || {}).width || ''))}" placeholder="width" title="Column width — a number is a % of the table, or write 18mm" onchange="rcSetItemFmtVal(${i},'width',this.value)" class="w-14 px-1 py-1 border border-slate-200 rounded text-[10px] font-bold">
               <button onclick="rcMoveItem(${i},-1)" class="text-slate-400 font-black px-1">↑</button><button onclick="rcMoveItem(${i},1)" class="text-slate-400 font-black px-1">↓</button>
               <button onclick="rcRemoveItem(${i})" class="text-slate-300 hover:text-red-500 font-black px-1">×</button></div>
             ${it.kind === 'virtual' ? _rcVirtualEditorHtml(it.vf || {}, String(i), true) : ''}
@@ -15967,6 +15971,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return { subjects, sources: [{ label: 'Half Yearly', share: 30 }, { label: 'Annual', share: 70 }], results: [r, { ...r, student_id: 'S-002', student_name: 'Second Student', roll: 2, position: 2 }], config: { method: 'weighted', columns: _RB_DEFAULT_COLS }, className: 'Six', sample: true };
   }
   function _rsBorder(st) { return st.border ? `${st.border}px solid ${st.borderColor || '#334155'}` : 'none'; }
+  // A column width as typed in the designer: a plain number is a percentage of
+  // the table, anything with a unit ("18mm", "40px") is that exact width, and
+  // blank leaves the column to size itself.
+  function _rsColWidth(w) {
+    const v = String(w == null ? '' : w).trim();
+    if (!v) return '';
+    return ` style="width:${isNaN(Number(v)) ? v : v + '%'}"`;
+  }
+  // Once any width is set the table switches to a fixed layout, so the widths
+  // are obeyed and the columns left blank share what remains.
+  function _rsColGroup(widths) {
+    if (!widths.some(w => String(w == null ? '' : w).trim())) return '';
+    return `<colgroup>${widths.map(w => `<col${_rsColWidth(w)}>`).join('')}</colgroup>`;
+  }
   function _rsMarksHtml(b, d, r, st) {
     const cols = b.cols || ['final', 'grade'];
     const multi = d.sources.length > 1;
@@ -15990,7 +16008,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _rsStaticTableHtml(b, vals, st) {
     const rows = String(b.rows || '').split('\n').filter(x => x.length);
     const cell = `border:${_rsBorder(st)};padding:1.2mm 1.5mm;`;
-    return `<table style="width:100%;border-collapse:collapse">${rows.map((row, ri) => `<tr>${row.split('|').map(c => ri === 0 && b.header !== false ? `<th style="${cell}background:#f1f5f9">${_rsFill(c.trim(), vals)}</th>` : `<td style="${cell}">${_rsFill(c.trim(), vals)}</td>`).join('')}</tr>`).join('')}</table>`;
+    const cg = _rsColGroup(String(b.widths || '').split('|'));
+    return `<table style="width:100%;border-collapse:collapse;${cg ? 'table-layout:fixed;' : ''}">${cg}${rows.map((row, ri) => `<tr>${row.split('|').map(c => ri === 0 && b.header !== false ? `<th style="${cell}background:#f1f5f9">${_rsFill(c.trim(), vals)}</th>` : `<td style="${cell}">${_rsFill(c.trim(), vals)}</td>`).join('')}</tr>`).join('')}</table>`;
   }
   // One block, positioned in mm; `px` is set in the designer (mm → px).
   function _rsBlockHtml(b, d, r, px, designer) {
@@ -16014,7 +16033,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     else if (b.type === 'table') inner = _rsStaticTableHtml(b, vals, st);
     else if (b.type === 'tabulation') {
       const keep = _rbLast; _rbLast = d;
-      try { inner = _rbTableHtml(true).replace('<table ', `<table style="width:100%;border-collapse:collapse" `).replace(/<td style="color:#b91c1c;font-weight:700">/g, `<td style="border:${_rsBorder(st)};padding:0.8mm;text-align:center;color:#b91c1c;font-weight:700">`).replace(/<th /g, `<th style="border:${_rsBorder(st)};background:#f1f5f9;padding:0.8mm" `).replace(/<td (?!style)/g, `<td style="border:${_rsBorder(st)};padding:0.8mm;text-align:center" `); }
+      // The table brings its own style when its columns carry widths.
+      try { inner = _rbTableHtml(true).replace(/<table (?! ?style)/, `<table style="width:100%;border-collapse:collapse" `).replace(/<td style="color:#b91c1c;font-weight:700">/g, `<td style="border:${_rsBorder(st)};padding:0.8mm;text-align:center;color:#b91c1c;font-weight:700">`).replace(/<th /g, `<th style="border:${_rsBorder(st)};background:#f1f5f9;padding:0.8mm" `).replace(/<td (?!style)/g, `<td style="border:${_rsBorder(st)};padding:0.8mm;text-align:center" `); }
       finally { _rbLast = keep; }
     } else if (b.type === 'marksx') {
       inner = r ? _rsMarksXHtml(b, d, r, st) : '';
@@ -16063,7 +16083,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       return _escHtml(v === '' || v == null ? (it.blank || '') : (isFinite(n) && it.decimals != null && it.decimals !== '' ? n.toFixed(Number(it.decimals)) : String(v)));
     };
     const subjects = (d.subjects || []).filter(sub => (b.subjects === undefined || b.subjects === 'all' || (b.subjects || []).map(String).includes(String(sub.id))) && r.subjects[sub.id]);
-    return `<table style="width:100%;border-collapse:collapse"><thead><tr>${head1}</tr>${head2}</thead>
+    const cg = _rsColGroup(items.map(it => it.width));
+    return `<table style="width:100%;border-collapse:collapse;${cg ? 'table-layout:fixed;' : ''}">${cg}<thead><tr>${head1}</tr>${head2}</thead>
       <tbody>${subjects.map(sub => `<tr>${items.map(it => `<td style="${cell}text-align:${it.align || 'center'}">${value(it, sub)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
   }
   // The grade key, straight from Grade Setup.
@@ -16096,14 +16117,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // The custom marks table's columns are edited as plain lines:
   //   Header | value | group | align | decimals
   function _rsMarksXText(b) {
-    return (b.items || []).map(it => [it.label, it.formula ? '=' + it.formula : it.path, it.group || '', it.align || '', it.decimals ?? ''].join(' | ').replace(/(\s*\|\s*)+$/, '')).join('\n');
+    return (b.items || []).map(it => [it.label, it.formula ? '=' + it.formula : it.path, it.group || '', it.align || '', it.decimals ?? '', it.width || ''].join(' | ').replace(/(\s*\|\s*)+$/, '')).join('\n');
   }
   function rsSetMarksXItems(text) {
     const b = _rsSel_();
     if (!b) return;
     b.items = String(text || '').split('\n').map(line => line.trim()).filter(Boolean).map((line, i) => {
-      const [label, value, group, align, decimals] = line.split('|').map(x => (x || '').trim());
-      const it = { id: 'x' + i, label: label || '', align: align || undefined, decimals: decimals === '' ? undefined : decimals, group: group || undefined };
+      const [label, value, group, align, decimals, width] = line.split('|').map(x => (x || '').trim());
+      const it = { id: 'x' + i, label: label || '', align: align || undefined, decimals: decimals === '' ? undefined : decimals, group: group || undefined, width: width || undefined };
       if ((value || '').startsWith('=')) it.formula = value.slice(1); else it.path = value || 'name';
       return it;
     });
@@ -16365,7 +16386,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       specific = `<label class="flex flex-col gap-1">${lab(b.type === 'text' ? 'Text' : 'Rows (one per line, cells split by |)')}
         <textarea id="rsText" data-key="${key}" rows="${b.type === 'text' ? 4 : 6}" oninput="rsSetProp('${key}',this.value)" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-mono text-[11px]">${_escHtml(b[key] || '')}</textarea></label>
         <select onchange="rsInsertField(this.value);this.value=''" class="w-full px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-xs"><option value="">+ Insert a field…</option>${_rsFieldOptions()}</select>
-        ${b.type === 'table' ? `<label class="flex items-center gap-2 text-xs font-bold text-slate-600"><input type="checkbox" ${b.header !== false ? 'checked' : ''} onchange="rsSetProp('header',this.checked)">First row is a heading</label>` : ''}`;
+        ${b.type === 'table' ? `<label class="flex items-center gap-2 text-xs font-bold text-slate-600"><input type="checkbox" ${b.header !== false ? 'checked' : ''} onchange="rsSetProp('header',this.checked)">First row is a heading</label>
+        <label class="flex flex-col gap-1">${lab('Column widths (split by |, blank = automatic)')}${inp('widths', b.widths, 'type="text" placeholder="40 | 60"')}
+        <span class="text-[10px] text-slate-400 font-bold">A number is a % of the table; write 18mm for an exact width.</span></label>` : ''}`;
     } else if (b.type === 'field') {
       specific = `<label class="flex flex-col gap-1">${lab('Field')}<select onchange="rsSetProp('field',this.value)" class="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">${_rsFieldOptions(b.field)}</select></label>
         <label class="flex flex-col gap-1">${lab('Label before it')}${inp('label', b.label, 'type="text"')}</label>`;
@@ -16376,9 +16399,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     } else if (b.type === 'summary') {
       specific = `<div>${lab('Rows')}<div class="flex flex-col gap-1 mt-1">${[['total', 'Total marks'], ['percentage', 'Percentage'], ['gpa', 'GPA'], ['letter_grade', 'Grade'], ['position', 'Position'], ['result', 'Result']].map(([k, l]) => `<label class="flex items-center gap-2 text-xs font-bold text-slate-600"><input type="checkbox" ${(b.items || []).includes(k) ? 'checked' : ''} onchange="rsToggleList('items','${k}',this.checked)">${l}</label>`).join('')}</div></div>`;
     } else if (b.type === 'marksx') {
-      specific = `<div>${lab('Columns (one per line: Header | value | group | align | decimals)')}
+      specific = `<div>${lab('Columns (one per line: Header | value | group | align | decimals | width)')}
         <textarea id="rsText" data-key="itemsText" rows="8" oninput="rsSetMarksXItems(this.value)" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-mono text-[10px]">${_escHtml(_rsMarksXText(b))}</textarea>
         <p class="text-[10px] text-slate-400 font-bold mt-1">Value is a path such as sub.@.combined.final, "name" for the subject, or =formula. Pick one below to copy its path.</p>
+        <p class="text-[10px] text-slate-400 font-bold">Width is a % of the table (or 18mm for an exact one); leave it blank and the column sizes itself.</p>
         <select onchange="rsInsertField('rsText', this.value); this.value=''" class="w-full mt-1 px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-xs"><option value="">+ Insert a value path…</option>${_rcPathOptionsHtml('', true)}</select></div>`;
     } else if (b.type === 'grades') {
       specific = '<p class="text-[10px] font-bold text-slate-400">Prints the grade table from Grade Setup: letter, marks interval and grade point.</p>';

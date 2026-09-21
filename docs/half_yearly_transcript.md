@@ -80,3 +80,20 @@ what is printed; positions are millimetres on the page.
 3. **Grade Setup** — the scale was seeded to match the sheet: A+ 80–100 (5.00),
    A 70–79 (4.00), A- 60–69 (3.50), B 50–59 (3.00), C 45–49 (2.00), F 0–44 (0).
 4. **Marks** must be entered in both exams; a subject with no marks prints blank.
+
+## Column widths
+
+Table columns size themselves unless you say otherwise. To set one:
+
+- **Marks table** (Design Sheet → the block → Columns): each line is
+  `Header | value | group | align | decimals | width`. A plain number is a
+  percentage of the table, `18mm` is an exact width, blank stays automatic.
+- **Static tables** (the result / attendance / merit boxes): the block's
+  **Column widths** box, e.g. `40 | 60`.
+- **Tabulation sheet**: the width box in each column's row in the column
+  builder (Result Process → Columns).
+
+In `scripts/build_transcript_template.js` the same thing is a `width` on a
+`marksItems` entry, e.g. `{ id: 'm1', label: 'Subjects', path: 'name', align: 'left', width: '16' }`.
+Once any column in a table has a width, the table uses a fixed layout and the
+columns left blank share whatever is left.
