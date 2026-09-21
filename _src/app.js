@@ -17477,6 +17477,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <div class="flex gap-1.5">
               <button id="prGradesSubtabBtn-grades" onclick="_prSwitchGradesSubtab('grades')" class="px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all bg-blue-600 text-white">Grades</button>
               <button id="prGradesSubtabBtn-steps" onclick="_prSwitchGradesSubtab('steps')" class="px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all bg-white text-slate-400 border border-slate-200 hover:bg-slate-50">Pay Scale Grid</button>
+              <button id="prGradesSubtabBtn-fixation" onclick="_prSwitchGradesSubtab('fixation')" class="px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all bg-white text-slate-400 border border-slate-200 hover:bg-slate-50">Pay Fixation</button>
             </div>
             <div class="flex gap-1.5 border-l border-slate-200 pl-3">
               <button id="prGradeSystemBtn-regular" onclick="_prSwitchGradeSystem('regular')" class="px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all bg-slate-800 text-white">Regular</button>
@@ -17506,6 +17507,30 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button id="prAddStepBtn" onclick="_prAddPayStep()" disabled class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Step</button>
           </div>
           <div id="prPayScaleGrid" class="overflow-auto"><p class="text-slate-400 font-bold text-xs p-4 text-center">Loading…</p></div>
+        </div>
+        <div id="prGradesSubtab-fixation" class="hidden">
+          <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-3">
+            <p class="font-black text-slate-800 text-xs">Pay Fixation — move everyone to a new National Pay Scale</p>
+            <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5 mb-3">Fixes each person on the new ladder (art. 5), adds the one increment (art. 9(2)) and pays the phased share for the month you pick (art. 1(3)). Grade and step are set automatically.</p>
+            <div class="flex flex-wrap items-end gap-2">
+              <label class="flex flex-col gap-1"><span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Month</span>
+                <select id="prFixMonth" onchange="_prPreviewConversion()" class="px-2 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+                  ${['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((n, i) => `<option value="${i + 1}">${n}</option>`).join('')}
+                </select></label>
+              <label class="flex flex-col gap-1"><span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Year</span>
+                <input type="number" id="prFixYear" onchange="_prPreviewConversion()" class="w-24 px-2 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></label>
+              <label class="flex flex-col gap-1"><span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">From scale</span>
+                <select id="prFixFrom" onchange="_prPreviewConversion()" class="px-2 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></select></label>
+              <label class="flex flex-col gap-1"><span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">To scale</span>
+                <select id="prFixTo" onchange="_prPreviewConversion()" class="px-2 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></select></label>
+              <label class="flex items-center gap-2 text-xs font-bold text-slate-600 pb-2"><input type="checkbox" id="prFixIncrement" checked onchange="_prPreviewConversion()" class="w-4 h-4 rounded accent-blue-600">One increment (art. 9(2))</label>
+              <label class="flex items-center gap-2 text-xs font-bold text-slate-600 pb-2" title="Only where the eighth year is already complete by the selected month. Still needs a permanent post and satisfactory service."><input type="checkbox" id="prFixHigher" onchange="_prPreviewConversion()" class="w-4 h-4 rounded accent-blue-600">Also give the 8-year higher grade (art. 6)</label>
+              <button onclick="_prPreviewConversion()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="refresh-cw" class="h-3.5 w-3.5"></i>Refresh</button>
+              <button id="prFixApplyBtn" onclick="_prApplyConversion()" disabled class="px-4 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"><i data-lucide="wand-2" class="h-3.5 w-3.5"></i>Convert All</button>
+            </div>
+            <p id="prFixSummary" class="text-[11px] font-bold text-slate-500 mt-3"></p>
+          </div>
+          <div id="prFixResult"><p class="text-slate-400 font-bold text-xs p-4">Pick a month and the scales — the preview loads by itself.</p></div>
         </div>
       </div>
       <div id="pr-people" style="display:none">
@@ -20360,7 +20385,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // of a long scroll to reach the grid — it's a full 20x19 table, easy to
   // miss below the Grades/Field Values panels.
   function _prSwitchGradesSubtab(tab) {
-    ['grades', 'steps'].forEach(t => {
+    if (tab === 'fixation') _prInitFixation();
+    ['grades', 'steps', 'fixation'].forEach(t => {
       const panel = document.getElementById(`prGradesSubtab-${t}`);
       const btn = document.getElementById(`prGradesSubtabBtn-${t}`);
       const active = t === tab;
@@ -20472,13 +20498,37 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // ── Pay Scale Grid (Grade x Step) ────────────────────────────────────────
   let _prPayStepsCache = [];
   let _prGradeStepValuesCache = []; // [{grade_id, step_id, basic_value}]
+  // Which National Pay Scale the grid is showing/editing (null until
+  // migration_nps2026.sql has been run, when there is only one matrix).
+  let _prScalesCache = [];
+  let _prScaleId = null;
 
   function _prLoadPayScaleGrid() {
-    Promise.all([_payrollFetch('get_pay_steps', {}), _payrollFetch('get_grade_step_matrix', {})]).then(([stepsRes, matrixRes]) => {
+    Promise.all([_payrollFetch('get_pay_steps', {}), _payrollFetch('get_grade_step_matrix', _prScaleId ? { scale_id: _prScaleId } : {})]).then(([stepsRes, matrixRes]) => {
       _prPayStepsCache = (stepsRes && stepsRes.result === 'success' && stepsRes.steps) || [];
       _prGradeStepValuesCache = (matrixRes && matrixRes.result === 'success' && matrixRes.cells) || [];
+      _prScalesCache = (matrixRes && matrixRes.scales) || [];
+      _prScaleId = (matrixRes && matrixRes.scale_id) || null;
+      _prRenderScalePicker();
       _prRenderPayScaleGrid();
     }).catch(err => showToast(err.message || 'Failed to load pay scale grid', 'error'));
+  }
+
+  // The grid holds one scale at a time — 2015 and 2026 are different ladders
+  // for the same grades, so they can't share a table.
+  function _prRenderScalePicker() {
+    const host = document.getElementById('prScalePicker');
+    if (!host) return;
+    if (_prScalesCache.length < 2) { host.innerHTML = ''; return; }
+    host.innerHTML = `<span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Scale</span>
+      <select onchange="_prSetScale(this.value)" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+        ${_prScalesCache.map(s => `<option value="${s.id}" ${String(s.id) === String(_prScaleId) ? 'selected' : ''}>${_escHtml(s.name)} — from ${_escHtml(String(s.effective_from))}</option>`).join('')}
+      </select>`;
+  }
+
+  function _prSetScale(id) {
+    _prScaleId = Number(id) || null;
+    _prLoadPayScaleGrid();
   }
 
   function _prRenderPayScaleGrid() {
@@ -20537,6 +20587,137 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!_prGradesEditMode) input.disabled = true;
   }
 
+  // ── Pay Fixation: one click moves everybody to the new scale ────────────
+  // The preview and the conversion run the same calculation on the server —
+  // what the table shows is exactly what "Convert All" writes.
+  let _prFixRows = [];
+  function _prInitFixation() {
+    const monthSel = document.getElementById('prFixMonth');
+    const yearBox = document.getElementById('prFixYear');
+    if (!monthSel || !yearBox) return;
+    if (!yearBox.value) {
+      const now = new Date();
+      monthSel.value = String(now.getMonth() + 1);
+      yearBox.value = String(now.getFullYear());
+    }
+    // The scale lists come from the matrix call, which the Grades tab has
+    // already made by the time anyone reaches this sub-tab.
+    const fill = (id, pick) => {
+      const sel = document.getElementById(id);
+      if (!sel) return;
+      sel.innerHTML = _prScalesCache.map(s => `<option value="${s.id}">${_escHtml(s.name)}</option>`).join('');
+      if (pick) sel.value = String(pick);
+    };
+    if (_prScalesCache.length) {
+      fill('prFixFrom', _prScalesCache[0].id);
+      fill('prFixTo', _prScalesCache[_prScalesCache.length - 1].id);
+    }
+    _prPreviewConversion();
+  }
+
+  function _prFixParams() {
+    const val = id => (document.getElementById(id) || {}).value;
+    return {
+      month: Number(val('prFixMonth')) || new Date().getMonth() + 1,
+      year: Number(val('prFixYear')) || new Date().getFullYear(),
+      from_scale_id: Number(val('prFixFrom')) || null,
+      to_scale_id: Number(val('prFixTo')) || null,
+      give_increment: !!(document.getElementById('prFixIncrement') || {}).checked,
+      apply_higher_grade: !!(document.getElementById('prFixHigher') || {}).checked,
+    };
+  }
+
+  function _prPreviewConversion() {
+    const host = document.getElementById('prFixResult');
+    if (!host) return;
+    host.innerHTML = '<p class="text-slate-400 font-bold text-xs p-4">Working it out…</p>';
+    _payrollFetch('preview_pay_conversion', _prFixParams()).then(res => {
+      const btn = document.getElementById('prFixApplyBtn');
+      if (!res || res.result !== 'success') {
+        _prFixRows = [];
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="wand-2" class="h-3.5 w-3.5"></i>Convert All'; }
+        host.innerHTML = `<div class="bg-amber-50 border border-amber-200 rounded-2xl p-4"><p class="font-black text-amber-800 text-xs">${_escHtml((res && res.message) || 'Could not work out the conversion')}</p></div>`;
+        lucide.createIcons();
+        return;
+      }
+      _prFixRows = res.rows || [];
+      const ok = _prFixRows.filter(r => !r.skipped);
+      const summary = document.getElementById('prFixSummary');
+      if (summary) {
+        const pct = ok.length ? ok[0].phase_percent : 0;
+        const rise = ok.reduce((a, r) => a + (Number(r.payable_basic) - Number(r.current_basic)), 0);
+        summary.textContent = `${ok.length} people convert, ${_prFixRows.length - ok.length} skipped · effective ${res.effective_date} · ${pct}% of the rise payable in this month · monthly Basic goes up by ৳${Math.round(rise).toLocaleString()} in total`;
+      }
+      if (btn) { btn.disabled = !ok.length; btn.innerHTML = `<i data-lucide="wand-2" class="h-3.5 w-3.5"></i>Convert All (${ok.length})`; }
+      host.innerHTML = window.innerWidth < 768 ? _prFixCardsHtml(_prFixRows) : _prFixTableHtml(_prFixRows);
+      lucide.createIcons();
+    }).catch(err => showToast(err.message || 'Failed to preview', 'error'));
+  }
+
+  function _prFixTableHtml(rows) {
+    const n = v => (v == null || v === '' ? '—' : Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 }));
+    return `<div class="bg-white rounded-2xl border border-slate-200 p-4 overflow-auto">
+      <table class="w-full text-left border-collapse text-xs">
+        <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
+          <th class="py-2 px-3">Name</th><th class="py-2 px-3">Grade</th><th class="py-2 px-3 text-right">Basic now</th>
+          <th class="py-2 px-3">New grade</th><th class="py-2 px-3 text-center">Step</th><th class="py-2 px-3 text-right">Fixed Basic</th>
+          <th class="py-2 px-3 text-center">Phase</th><th class="py-2 px-3 text-right">Payable this month</th>
+        </tr></thead>
+        <tbody>${rows.map(r => r.skipped ? `<tr class="border-b border-slate-50 opacity-60">
+            <td class="py-1.5 px-3 font-bold text-slate-500">${_escHtml(r.name)}</td>
+            <td class="py-1.5 px-3">${_escHtml(r.grade_name || '—')}</td>
+            <td colspan="6" class="py-1.5 px-3 italic text-slate-400 font-bold">${_escHtml(r.skipped)}</td></tr>`
+      : `<tr class="border-b border-slate-50">
+            <td class="py-1.5 px-3 font-black text-slate-700">${_escHtml(r.name)}${r.already_done ? ' <span class="text-[9px] font-black uppercase text-amber-600">already fixed</span>' : ''}</td>
+            <td class="py-1.5 px-3 font-bold text-slate-500">${_escHtml(r.grade_name)}</td>
+            <td class="py-1.5 px-3 text-right font-bold">${n(r.current_basic)}</td>
+            <td class="py-1.5 px-3 font-bold ${r.higher_grade ? 'text-emerald-600' : 'text-slate-500'}">${_escHtml(r.to_grade_name)}${r.higher_grade ? ' ↑' : ''}</td>
+            <td class="py-1.5 px-3 text-center font-bold">${r.to_step_number ?? '—'}${r.increment_applied ? ' <span class="text-[9px] text-blue-500">+1</span>' : ''}</td>
+            <td class="py-1.5 px-3 text-right font-black text-slate-800">${n(r.fixed_basic)}</td>
+            <td class="py-1.5 px-3 text-center font-bold text-slate-500">${r.phase_percent}%</td>
+            <td class="py-1.5 px-3 text-right font-black text-blue-600">${n(r.payable_basic)}</td></tr>`).join('')}</tbody>
+      </table></div>`;
+  }
+
+  // Phone rendering is its own card list, never the table squeezed sideways.
+  function _prFixCardsHtml(rows) {
+    const n = v => (v == null || v === '' ? '—' : Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 }));
+    return rows.map(r => r.skipped
+      ? `<div class="bg-white border border-slate-200 rounded-2xl p-3 mb-2 opacity-60">
+          <p class="font-black text-slate-700 text-sm">${_escHtml(r.name)}</p>
+          <p class="text-[11px] font-bold text-slate-400 italic mt-0.5">${_escHtml(r.skipped)}</p></div>`
+      : `<div class="bg-white border border-slate-200 rounded-2xl p-3 mb-2">
+          <div class="flex items-start justify-between gap-2">
+            <div><p class="font-black text-slate-800 text-sm">${_escHtml(r.name)}</p>
+              <p class="text-[10px] font-black uppercase tracking-widest text-slate-400">${_escHtml(r.grade_name)} → ${_escHtml(r.to_grade_name)}${r.higher_grade ? ' (higher grade)' : ''} · step ${r.to_step_number ?? '—'}</p></div>
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-100 text-blue-700">${r.phase_percent}%</span>
+          </div>
+          <div class="mt-2 grid grid-cols-3 gap-2 text-center">
+            <div><p class="text-[9px] font-black uppercase text-slate-400">Now</p><p class="font-bold text-slate-600 text-xs">${n(r.current_basic)}</p></div>
+            <div><p class="text-[9px] font-black uppercase text-slate-400">Fixed</p><p class="font-black text-slate-800 text-xs">${n(r.fixed_basic)}</p></div>
+            <div><p class="text-[9px] font-black uppercase text-slate-400">Payable</p><p class="font-black text-blue-600 text-xs">${n(r.payable_basic)}</p></div>
+          </div></div>`).join('');
+  }
+
+  function _prApplyConversion() {
+    const ok = _prFixRows.filter(r => !r.skipped);
+    if (!ok.length) return;
+    const p = _prFixParams();
+    const moved = ok.filter(r => r.higher_grade).length;
+    if (!confirm(`Convert ${ok.length} people to the new scale?\n\nEach one's grade, step and Basic are rewritten for ${p.month}/${p.year}${moved ? `, and ${moved} move up a grade` : ''}. Their old Basic is kept in the fixation record.`)) return;
+    const btn = document.getElementById('prFixApplyBtn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader" class="h-3.5 w-3.5 animate-spin"></i>Converting…'; }
+    _payrollFetch('apply_pay_conversion', p).then(res => {
+      if (res && res.result === 'success') {
+        showToast(`${res.saved} converted${res.errors && res.errors.length ? `, ${res.errors.length} failed` : ''}`);
+        if (res.errors && res.errors.length) console.warn('pay fixation errors', res.errors);
+        _prLoadPayScaleGrid();
+        _prPreviewConversion();
+      } else showToast((res && res.message) || 'Conversion failed', 'error');
+    }).catch(err => showToast(err.message || 'Conversion failed', 'error'))
+      .finally(() => { if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="wand-2" class="h-3.5 w-3.5"></i>Convert All'; lucide.createIcons(); } });
+  }
+
   function _prAddPayStep() {
     const used = new Set(_prPayStepsCache.map(s => s.step_number));
     let next = 0; while (used.has(next)) next++;
@@ -20555,7 +20736,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   function _prSaveGradeStepValue(gradeId, stepId, value) {
-    _payrollFetch('save_grade_step_value', { grade_id: gradeId, step_id: stepId, basic_value: value }).then(res => {
+    _payrollFetch('save_grade_step_value', { grade_id: gradeId, step_id: stepId, basic_value: value, scale_id: _prScaleId }).then(res => {
       if (res && res.result === 'success') {
         const existing = _prGradeStepValuesCache.find(c => c.grade_id === gradeId && c.step_id === stepId);
         if (existing) existing.basic_value = value === '' ? null : Number(value);

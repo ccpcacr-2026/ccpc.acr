@@ -112,6 +112,93 @@ function _prAudit(actorUserId, action, entity, entityId, details) {
   }).catch(() => {});
 }
 
+// ── Pay scales (National Pay Scale 2015 / 2026) ─────────────────────────────
+// The Grade x Step matrix carries a scale dimension so the 2015 and 2026
+// ladders sit side by side: a payslip for June 2026 still reproduces on the
+// old ladder while July 2026 onwards reads the new one. Until
+// migration_nps2026.sql has been run there are no scales at all, and every
+// read below falls back to the single undated matrix the system had before.
+let _scaleCache = null, _scaleCacheAt = 0;
+async function _payScales() {
+  if (_scaleCache && Date.now() - _scaleCacheAt < 30000) return _scaleCache;
+  const rows = await sbPayroll('pay_scales?select=*&is_active=eq.true&order=effective_from.asc');
+  _scaleCache = rows?.error ? [] : (rows || []);
+  _scaleCacheAt = Date.now();
+  return _scaleCache;
+}
+
+// A ready-made "scale_id=eq.N&" prefix for a one-cell lookup on the scale
+// in force today.
+async function _scaleQ() {
+  return _scaleFilter(await _currentScaleId());
+}
+
+// The scale in force today — what every "what is this person's Basic right
+// now" lookup should read.
+async function _currentScaleId() {
+  const now = new Date();
+  return _scaleIdFor(now.getMonth() + 1, now.getFullYear());
+}
+
+// The scale in force for a payroll period: the newest one that had already
+// taken effect by the last day of that month.
+async function _scaleIdFor(month, year, scales) {
+  const list = scales || (await _payScales());
+  if (!list.length) return null;
+  const m = Number(month) || new Date().getMonth() + 1;
+  const y = Number(year) || new Date().getFullYear();
+  const end = `${y}-${String(m).padStart(2, '0')}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`;
+  const live = list.filter(s => String(s.effective_from) <= end);
+  return (live.length ? live[live.length - 1] : list[0]).id;
+}
+
+function _scaleFilter(scaleId) {
+  return scaleId ? `scale_id=eq.${encodeURIComponent(scaleId)}&` : '';
+}
+
+// A grade's ladder on one scale, lowest step first.
+function _ladder(cells, gradeId, stepOrder) {
+  return (cells || [])
+    .filter(c => String(c.grade_id) === String(gradeId) && c.basic_value != null)
+    .sort((a, b) => (stepOrder[a.step_id] ?? 0) - (stepOrder[b.step_id] ?? 0));
+}
+
+// Article 5 of the order: a person on the first step of the old scale goes to
+// the first step of the new one; otherwise the distance from the old scale's
+// start is carried across and, if no step matches exactly, pay is fixed at the
+// next higher step (5(খ)(আ)). Article 9(2) then adds one annual increment on
+// 1 July 2026.
+function _fixOnLadder(currentBasic, oldLadder, newLadder, giveIncrement) {
+  if (!oldLadder.length || !newLadder.length) return null;
+  const diff = Number(currentBasic) - Number(oldLadder[0].basic_value);
+  const target = diff <= 0 ? Number(newLadder[0].basic_value) : Number(newLadder[0].basic_value) + diff;
+  let i = newLadder.findIndex(c => Number(c.basic_value) >= target);
+  const atTop = i < 0;
+  if (atTop) i = newLadder.length - 1;
+  const incremented = giveIncrement && i < newLadder.length - 1;
+  if (incremented) i++;
+  return { diff, computed: target, index: i, cell: newLadder[i], incremented, atTop };
+}
+
+// Article 1(3): the rise is paid in slices — 40% (grades 1-9) or 50% (grades
+// 10-20) from July 2026, 70/75% from January 2027, in full from July 2027.
+function _phasePercent(month, year, gradeNumber) {
+  const ym = Number(year) * 12 + Number(month);
+  const lower = Number(gradeNumber) >= 10;
+  if (ym < 2026 * 12 + 7) return 0;
+  if (ym <= 2026 * 12 + 12) return lower ? 50 : 40;
+  if (ym <= 2027 * 12 + 6) return lower ? 75 : 70;
+  return 100;
+}
+
+// "Grade 10" / "G-7" -> 10 / 7. The grades table carries no numeric column of
+// its own (sort_order is 0 for the G-n rows), and the phase percentage and the
+// higher-grade ladder both need the number.
+function _gradeNumber(grade) {
+  const m = String((grade && grade.name) || '').match(/(\d+)/);
+  return m ? Number(m[1]) : null;
+}
+
 // Reads from the `student` schema — used only for bus_stoppages, the fare
 // lookup table for staff-child bus fare entries (see Sections tab).
 async function _studentSchemaFetch(path) {
@@ -628,7 +715,7 @@ async function _loadPayrollRef(userIds, month, year) {
     sbPayroll('field_applicable_categories?select=*'),
     sbPayroll('bus_fare_entries?is_active=eq.true&select=*'),
     _studentSchemaFetch('bus_stoppages?select=*'),
-    sbPayroll('grade_step_values?select=*'),
+    sbPayroll(`grade_step_values?${_scaleFilter(await _scaleIdFor(month, year))}select=*`),
     sbPayroll('person_field_overrides?select=*'),
   ]);
   const gradeFieldsByGrade = {}; (gradeFields || []).forEach(g => { (gradeFieldsByGrade[g.grade_id] = gradeFieldsByGrade[g.grade_id] || []).push(g); });
@@ -1295,23 +1382,160 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success' });
   }
 
+  // The grid shows one scale at a time — the caller may name it, otherwise
+  // the one in force today. `scales` comes back with it so the screen can
+  // offer the 2015 ladder beside the 2026 one.
   if (action === 'get_grade_step_matrix') {
-    const cells = await sbPayroll('grade_step_values?select=*');
+    const scales = await _payScales();
+    const scaleId = payload.scale_id ? Number(payload.scale_id) : await _scaleIdFor(null, null, scales);
+    const cells = await sbPayroll(`grade_step_values?${_scaleFilter(scaleId)}select=*`);
     if (cells?.error) return NextResponse.json({ result: 'error', message: cells.error }, { status: 500 });
-    return NextResponse.json({ result: 'success', cells });
+    return NextResponse.json({ result: 'success', cells, scales, scale_id: scaleId });
   }
 
   if (action === 'save_grade_step_value') {
     const { grade_id, step_id, basic_value } = payload;
     if (!grade_id || !step_id) return NextResponse.json({ result: 'error', message: 'grade_id and step_id required' }, { status: 400 });
+    // Edits land on the scale the grid is showing, not blindly on the newest.
+    const scaleId = payload.scale_id ? Number(payload.scale_id) : await _currentScaleId();
+    const q = _scaleFilter(scaleId);
     const rowData = { grade_id, step_id, basic_value: basic_value === '' || basic_value == null ? null : Number(basic_value) };
-    const existing = await sbPayroll(`grade_step_values?grade_id=eq.${encodeURIComponent(grade_id)}&step_id=eq.${encodeURIComponent(step_id)}&select=grade_id`);
+    const existing = await sbPayroll(`grade_step_values?${q}grade_id=eq.${encodeURIComponent(grade_id)}&step_id=eq.${encodeURIComponent(step_id)}&select=grade_id`);
     const saved = (!existing?.error && existing.length)
-      ? await sbPayroll(`grade_step_values?grade_id=eq.${encodeURIComponent(grade_id)}&step_id=eq.${encodeURIComponent(step_id)}`, 'PATCH', rowData)
-      : await sbPayroll('grade_step_values', 'POST', rowData);
+      ? await sbPayroll(`grade_step_values?${q}grade_id=eq.${encodeURIComponent(grade_id)}&step_id=eq.${encodeURIComponent(step_id)}`, 'PATCH', rowData)
+      : await sbPayroll('grade_step_values', 'POST', scaleId ? { ...rowData, scale_id: scaleId } : rowData);
     if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
     _prAudit(user_id, 'save_grade_step_value', 'grade_step_values', `${grade_id}:${step_id}`, rowData);
     return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Pay fixation: moving everybody onto a new National Pay Scale ─────────
+  // One computation, two entry points: `preview_pay_conversion` shows what
+  // would happen, `apply_pay_conversion` writes it. Both work out, for the
+  // selected month, every person's fixed step under article 5, the one
+  // increment of article 9(2), the phased amount of article 1(3), and —
+  // where the eight-year rule falls due by that month — the higher grade of
+  // article 6.
+  async function _computeConversion(month, year, opts) {
+    const scales = await _payScales();
+    if (!scales.length) return { error: 'No pay scales yet — run migration_nps2026.sql in Supabase first.' };
+    const fromScaleId = opts.from_scale_id ? Number(opts.from_scale_id) : scales[0].id;
+    const toScaleId = opts.to_scale_id ? Number(opts.to_scale_id) : scales[scales.length - 1].id;
+    if (fromScaleId === toScaleId) return { error: 'Pick two different scales to convert between.' };
+    const [people, grades, steps, oldCells, newCells, values, profiles, done] = await Promise.all([
+      sbPayroll('person_setup?select=*'),
+      sbPayroll('grades?select=*&order=sort_order.asc,id.asc'),
+      sbPayroll('pay_steps?select=*&order=sort_order.asc,step_number.asc'),
+      sbPayroll(`grade_step_values?${_scaleFilter(fromScaleId)}select=*`),
+      sbPayroll(`grade_step_values?${_scaleFilter(toScaleId)}select=*`),
+      sbPayroll('person_field_values?select=user_id,basic'),
+      _teacherSchemaFetch('users_profile?select=teacher_id,full_name,designation'),
+      sbPayroll(`pay_fixations?to_scale_id=eq.${encodeURIComponent(toScaleId)}&select=user_id,fixed_basic`),
+    ]);
+    for (const r of [people, grades, steps, oldCells, newCells, values]) if (r?.error) return { error: r.error };
+    const stepOrder = {}; (steps || []).forEach(s => { stepOrder[s.id] = s.sort_order ?? s.step_number ?? 0; });
+    const gradesById = {}; (grades || []).forEach(g => { gradesById[g.id] = g; });
+    const basicByUser = {}; (values || []).forEach(v => { basicByUser[v.user_id] = v.basic; });
+    const nameByUser = {}; (Array.isArray(profiles) ? profiles : []).forEach(p => { nameByUser[p.teacher_id] = p; });
+    const alreadyDone = new Set((Array.isArray(done) ? done : []).map(d => String(d.user_id)));
+    const effective = (scales.find(s => s.id === toScaleId) || {}).effective_from || `${year}-07-01`;
+    const rows = [];
+    (people || []).forEach(p => {
+      const grade = gradesById[p.grade_id];
+      const person = nameByUser[p.user_id] || {};
+      const row = {
+        user_id: p.user_id, name: person.full_name || p.user_id, designation: person.designation || '',
+        grade_id: p.grade_id, grade_name: grade ? grade.name : '—', step_id: p.step_id,
+        joining_date: p.joining_date || null, already_done: alreadyDone.has(String(p.user_id)),
+      };
+      if (p.is_active === false) { rows.push({ ...row, skipped: 'Not active' }); return; }
+      if (p.pay_type === 'contractual' || (grade && grade.pay_system === 'contractual')) { rows.push({ ...row, skipped: 'Contractual — outside the order (art. 1(4))' }); return; }
+      if (!grade) { rows.push({ ...row, skipped: 'No grade set' }); return; }
+      const oldLadder = _ladder(oldCells, p.grade_id, stepOrder);
+      if (!oldLadder.length) { rows.push({ ...row, skipped: 'No ladder on the old scale' }); return; }
+      const currentBasic = Number(basicByUser[p.user_id] ?? (oldLadder.find(c => String(c.step_id) === String(p.step_id)) || {}).basic_value ?? 0);
+      if (!currentBasic) { rows.push({ ...row, skipped: 'No current Basic' }); return; }
+      row.current_basic = currentBasic;
+      const gradeNo = _gradeNumber(grade);
+      // Article 6: the next higher grade falls due in the ninth year, and a
+      // second one six years after that. Only offered, never assumed — it
+      // also needs a permanent post and satisfactory service.
+      let targetGrade = grade, higher = false, higherDue = null;
+      if (p.joining_date && gradeNo && gradeNo > 4) {
+        const j = new Date(p.joining_date);
+        const due = new Date(Date.UTC(j.getUTCFullYear() + 8, j.getUTCMonth(), j.getUTCDate()));
+        const periodEnd = new Date(Date.UTC(Number(year), Number(month), 0));
+        higherDue = due.toISOString().slice(0, 10);
+        if (opts.apply_higher_grade && due <= periodEnd) {
+          const up = (grades || []).find(g => _gradeNumber(g) === gradeNo - 1 && g.pay_system !== 'contractual');
+          if (up) { targetGrade = up; higher = true; }
+        }
+      }
+      row.higher_grade_due = higherDue;
+      const newLadder = _ladder(newCells, targetGrade.id, stepOrder);
+      if (!newLadder.length) { rows.push({ ...row, skipped: 'No ladder on the new scale' }); return; }
+      const fix = _fixOnLadder(currentBasic, oldLadder, newLadder, opts.give_increment !== false);
+      if (!fix) { rows.push({ ...row, skipped: 'Could not fix on the new scale' }); return; }
+      const pct = _phasePercent(month, year, _gradeNumber(targetGrade) || gradeNo);
+      const payable = Math.round((currentBasic + (Number(fix.cell.basic_value) - currentBasic) * pct / 100) * 100) / 100;
+      rows.push({
+        ...row,
+        to_grade_id: targetGrade.id, to_grade_name: targetGrade.name, higher_grade: higher,
+        diff: fix.diff, computed_basic: fix.computed, to_step_id: fix.cell.step_id,
+        to_step_number: (steps || []).find(s => s.id === fix.cell.step_id)?.step_number ?? null,
+        fixed_basic: Number(fix.cell.basic_value), increment_applied: fix.incremented, at_top: fix.atTop,
+        phase_percent: pct, payable_basic: payable, rise: Number(fix.cell.basic_value) - currentBasic,
+      });
+    });
+    rows.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    return { rows, scales, from_scale_id: fromScaleId, to_scale_id: toScaleId, effective_date: effective };
+  }
+
+  if (action === 'preview_pay_conversion' || action === 'apply_pay_conversion') {
+    const month = Number(payload.month) || new Date().getMonth() + 1;
+    const year = Number(payload.year) || new Date().getFullYear();
+    const res = await _computeConversion(month, year, payload);
+    if (res.error) return NextResponse.json({ result: 'error', message: res.error }, { status: 400 });
+    const convertible = res.rows.filter(r => !r.skipped);
+    if (action === 'preview_pay_conversion') {
+      return NextResponse.json({ result: 'success', ...res, month, year, count: convertible.length });
+    }
+    // Applying writes three things per person: the fixation record (which is
+    // the বেতন নির্ধারণী বিবরণী), the new grade+step on their setup, and the
+    // Basic the payroll run will read for the selected month — the phased
+    // amount, not the full fixed pay, until July 2027.
+    const errors = [];
+    let saved = 0;
+    for (const r of convertible) {
+      const fixation = {
+        user_id: r.user_id, effective_date: res.effective_date,
+        from_scale_id: res.from_scale_id, to_scale_id: res.to_scale_id,
+        grade_id: r.grade_id, to_grade_id: r.to_grade_id, from_step_id: r.step_id, to_step_id: r.to_step_id,
+        current_basic: r.current_basic, diff: r.diff, computed_basic: r.computed_basic,
+        increment_applied: !!r.increment_applied, fixed_basic: r.fixed_basic,
+        phase_percent: r.phase_percent, payable_basic: r.payable_basic,
+        month, year, higher_grade: !!r.higher_grade,
+        note: r.at_top ? 'Fixed at the top step of the scale' : null, created_by: user_id || null,
+      };
+      const existing = await sbPayroll(`pay_fixations?user_id=eq.${encodeURIComponent(r.user_id)}&effective_date=eq.${encodeURIComponent(res.effective_date)}&to_scale_id=eq.${encodeURIComponent(res.to_scale_id)}&select=id`);
+      const write = (!existing?.error && existing.length)
+        ? await sbPayroll(`pay_fixations?id=eq.${existing[0].id}`, 'PATCH', fixation)
+        : await sbPayroll('pay_fixations', 'POST', fixation);
+      if (write?.error) { errors.push({ user_id: r.user_id, name: r.name, message: write.error }); continue; }
+      const setup = await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(r.user_id)}`, 'PATCH', { grade_id: r.to_grade_id, step_id: r.to_step_id });
+      if (setup?.error) { errors.push({ user_id: r.user_id, name: r.name, message: setup.error }); continue; }
+      const basicWrite = await sbPayroll(`person_field_values?user_id=eq.${encodeURIComponent(r.user_id)}`, 'PATCH', { basic: r.payable_basic });
+      if (basicWrite?.error) { errors.push({ user_id: r.user_id, name: r.name, message: basicWrite.error }); continue; }
+      if (r.higher_grade) {
+        await sbPayroll('person_grade_history', 'POST', {
+          user_id: r.user_id, grade_id: r.to_grade_id, step_id: r.to_step_id, pay_type: 'regular',
+          effective_date: res.effective_date, note: 'Higher grade on eight years of service (art. 6)', created_by: user_id || null,
+        });
+      }
+      saved++;
+    }
+    _prAudit(user_id, 'apply_pay_conversion', 'pay_fixations', `${res.to_scale_id}`, { month, year, saved, errors: errors.length, higher_grade: !!payload.apply_higher_grade });
+    return NextResponse.json({ result: 'success', saved, skipped: res.rows.length - convertible.length, errors, month, year });
   }
 
   // ── MPO Bill (DSHE Monthly EFT Payment Sheet) ───────────────────────────
@@ -1386,7 +1610,7 @@ export async function POST(req) {
       sbPayroll(`mpo_roster?institution=eq.${encodeURIComponent(institution)}&select=*&order=id.asc`),
       sbPayroll('grades?select=*&order=sort_order.asc,id.asc'),
       sbPayroll('pay_steps?select=*&order=sort_order.asc,step_number.asc'),
-      sbPayroll('grade_step_values?select=*'),
+      sbPayroll(`grade_step_values?${_scaleFilter(await _currentScaleId())}select=*`),
       sbPayroll('person_setup?select=user_id,mpo_index,mpo_amount'),
     ]);
     if (rosterRows?.error) return NextResponse.json({ result: 'error', message: rosterRows.error }, { status: 500 });
@@ -1430,7 +1654,7 @@ export async function POST(req) {
     const row = rows[0];
     const [gradeRows, stepValueRows] = await Promise.all([
       row.grade_id ? sbPayroll(`grades?id=eq.${encodeURIComponent(row.grade_id)}&select=*`) : Promise.resolve([]),
-      row.grade_id && row.step_id ? sbPayroll(`grade_step_values?grade_id=eq.${encodeURIComponent(row.grade_id)}&step_id=eq.${encodeURIComponent(row.step_id)}&select=basic_value`) : Promise.resolve([]),
+      row.grade_id && row.step_id ? sbPayroll(`grade_step_values?${await _scaleQ()}grade_id=eq.${encodeURIComponent(row.grade_id)}&step_id=eq.${encodeURIComponent(row.step_id)}&select=basic_value`) : Promise.resolve([]),
     ]);
     const gradesById = {}; (gradeRows || []).forEach(g => { gradesById[g.id] = g; });
     const stepValueByKey = {}; (stepValueRows || []).forEach(c => { stepValueByKey[`${row.grade_id}:${row.step_id}`] = c.basic_value; });
@@ -1455,7 +1679,7 @@ export async function POST(req) {
       grade = (!g?.error && g[0]) || null;
     }
     if (rowData.grade_id && rowData.step_id) {
-      const c = await sbPayroll(`grade_step_values?grade_id=eq.${encodeURIComponent(rowData.grade_id)}&step_id=eq.${encodeURIComponent(rowData.step_id)}&select=basic_value`);
+      const c = await sbPayroll(`grade_step_values?${await _scaleQ()}grade_id=eq.${encodeURIComponent(rowData.grade_id)}&step_id=eq.${encodeURIComponent(rowData.step_id)}&select=basic_value`);
       stepValue = (!c?.error && c[0]) ? c[0].basic_value : null;
     }
     const gradesById = grade ? { [grade.id]: grade } : {};
@@ -1693,7 +1917,7 @@ export async function POST(req) {
     // whatever Basic value is already saved for this person is left alone;
     // clearing it is a separate, explicit action via the Values screen.
     if (grade_id && step_id) {
-      const cellRows = await sbPayroll(`grade_step_values?grade_id=eq.${encodeURIComponent(grade_id)}&step_id=eq.${encodeURIComponent(step_id)}&select=basic_value`);
+      const cellRows = await sbPayroll(`grade_step_values?${await _scaleQ()}grade_id=eq.${encodeURIComponent(grade_id)}&step_id=eq.${encodeURIComponent(step_id)}&select=basic_value`);
       const basicValue = Array.isArray(cellRows) && cellRows[0] && cellRows[0].basic_value != null ? Number(cellRows[0].basic_value) : null;
       if (basicValue != null) {
         const pfvExisting = await sbPayroll(`person_field_values?user_id=eq.${encodeURIComponent(personId)}&select=user_id`);
@@ -1777,7 +2001,7 @@ export async function POST(req) {
     }
 
     if (grade_id && step_id) {
-      const cellRows = await sbPayroll(`grade_step_values?grade_id=eq.${encodeURIComponent(grade_id)}&step_id=eq.${encodeURIComponent(step_id)}&select=basic_value`);
+      const cellRows = await sbPayroll(`grade_step_values?${await _scaleQ()}grade_id=eq.${encodeURIComponent(grade_id)}&step_id=eq.${encodeURIComponent(step_id)}&select=basic_value`);
       const basicValue = Array.isArray(cellRows) && cellRows[0] && cellRows[0].basic_value != null ? Number(cellRows[0].basic_value) : null;
       if (basicValue != null) {
         const pfvExisting = await sbPayroll(`person_field_values?user_id=eq.${encodeURIComponent(personId)}&select=user_id`);
@@ -1893,7 +2117,7 @@ export async function POST(req) {
     }
 
     if (grade_id && step_id) {
-      const cellRows = await sbPayroll(`grade_step_values?grade_id=eq.${encodeURIComponent(grade_id)}&step_id=eq.${encodeURIComponent(step_id)}&select=basic_value`);
+      const cellRows = await sbPayroll(`grade_step_values?${await _scaleQ()}grade_id=eq.${encodeURIComponent(grade_id)}&step_id=eq.${encodeURIComponent(step_id)}&select=basic_value`);
       const basicValue = Array.isArray(cellRows) && cellRows[0] && cellRows[0].basic_value != null ? Number(cellRows[0].basic_value) : null;
       if (basicValue != null) {
         const pfvRow = { user_id: teacherId, basic: basicValue };
@@ -3026,7 +3250,7 @@ export async function POST(req) {
     // preview's Basic — and anything computed as a percent of it —
     // actually reflects the hypothetical Grade+Step being tried.
     if ((gradeOverridden || stepOverridden) && personSetup.grade_id && personSetup.step_id) {
-      const cellRows = await sbPayroll(`grade_step_values?grade_id=eq.${encodeURIComponent(personSetup.grade_id)}&step_id=eq.${encodeURIComponent(personSetup.step_id)}&select=basic_value`);
+      const cellRows = await sbPayroll(`grade_step_values?${await _scaleQ()}grade_id=eq.${encodeURIComponent(personSetup.grade_id)}&step_id=eq.${encodeURIComponent(personSetup.step_id)}&select=basic_value`);
       const basicValue = Array.isArray(cellRows) && cellRows[0] && cellRows[0].basic_value != null ? Number(cellRows[0].basic_value) : null;
       if (basicValue != null) {
         ref.personFieldValuesByUser[personId] = { ...(ref.personFieldValuesByUser[personId] || { user_id: personId }), basic: basicValue };
