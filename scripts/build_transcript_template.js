@@ -43,59 +43,59 @@ const marksItems = [
 ];
 
 const student = {
-  page: 'A4', orient: 'portrait',
+  page: 'Legal', orient: 'landscape',
   blocks: [
     // ── heading ──
-    t('h1', 12, 8, 186, 5, "My Lord! Increase me in Knowledge", { size: 8, align: 'center', italic: true }),
-    t('h2', 12, 13, 186, 8, 'Chattogram Cantonment Public College', { size: 17, bold: true, align: 'center' }),
-    t('h3', 12, 21, 186, 5, 'Academic Transcript', { size: 11, bold: true, align: 'center' }),
-    t('h4', 12, 26, 186, 5, 'School Section (Secondary)', { size: 9, align: 'center' }),
-    // ── the student, and their photo ──
-    t('s1', 12, 34, 96, 4.5, 'Student Name : {student_name}'),
-    t('s2', 12, 38.5, 96, 4.5, 'Student ID : {student_id}'),
-    t('s3', 12, 43, 96, 4.5, 'Class Roll : {roll}'),
-    t('s4', 12, 47.5, 96, 4.5, 'Previous Result : 0.00'),
-    t('s5', 12, 52, 48, 4.5, 'Class : {class}'),
-    t('s6', 60, 52, 48, 4.5, 'Group : {group}'),
-    t('s7', 12, 56.5, 48, 4.5, 'Section : {section}'),
-    t('s8', 60, 56.5, 48, 4.5, 'Shift : {shift}'),
-    t('s9', 12, 61, 48, 4.5, 'Session : {session}'),
-    t('s10', 60, 61, 48, 4.5, 'Version : {version}'),
-    t('s11', 12, 65.5, 48, 4.5, 'Category : {student_category}'),
-    t('s12', 60, 65.5, 48, 4.5, 'House : {house}'),
-    { id: 'photo', type: 'photo', x: 112, y: 34, w: 26, h: 31, style: { border: 1 } },
-    // ── grade key, top right ──
-    { id: 'gkey', type: 'grades', x: 144, y: 34, w: 54, h: 34, style: { size: 7, border: 1 } },
-    // ── the marks ──
-    { id: 'marks', type: 'marksx', x: 12, y: 72, w: 186, h: 92, items: marksItems, subjects: 'all', style: { size: 7.2, border: 1 } },
+    t('h1', 10, 6, 336, 5, "My Lord! Increase me in Knowledge", { size: 8, align: 'center', italic: true }),
+    t('h2', 10, 11, 336, 8, 'Chattogram Cantonment Public College', { size: 18, bold: true, align: 'center' }),
+    t('h3', 10, 19.5, 336, 5, 'Academic Transcript', { size: 11, bold: true, align: 'center' }),
+    t('h4', 10, 25, 336, 5, 'School Section (Secondary)', { size: 9, align: 'center' }),
+    // ── the student, their photo, and the grade key ──
+    t('s1', 10, 33, 120, 4.5, 'Student Name : {student_name}'),
+    t('s2', 10, 37.5, 120, 4.5, 'Student ID : {student_id}'),
+    t('s3', 10, 42, 120, 4.5, 'Class Roll : {roll}'),
+    t('s4', 10, 46.5, 120, 4.5, 'Previous Result : 0.00'),
+    t('s5', 132, 33, 60, 4.5, 'Class : {class}'),
+    t('s6', 192, 33, 60, 4.5, 'Group : {group}'),
+    t('s7', 132, 37.5, 60, 4.5, 'Section : {section}'),
+    t('s8', 192, 37.5, 60, 4.5, 'Shift : {shift}'),
+    t('s9', 132, 42, 60, 4.5, 'Session : {session}'),
+    t('s10', 192, 42, 60, 4.5, 'Version : {version}'),
+    t('s11', 132, 46.5, 60, 4.5, 'Category : {student_category}'),
+    t('s12', 192, 46.5, 60, 4.5, 'House : {house}'),
+    { id: 'photo', type: 'photo', x: 256, y: 31, w: 24, h: 29, style: { border: 1 } },
+    { id: 'gkey', type: 'grades', x: 284, y: 31, w: 62, h: 32, style: { size: 7, border: 1 } },
+    // ── the marks, across the full width ──
+    { id: 'marks', type: 'marksx', x: 10, y: 64, w: 336, h: 84, items: marksItems, subjects: 'all', style: { size: 8, border: 1 } },
     // ── totals ──
-    t('tot1', 12, 166, 96, 5, 'Total Marks & Total GP', { bold: true }),
-    t('tot2', 108, 166, 45, 5, '{total}', { bold: true, align: 'center' }),
-    t('tot3', 153, 166, 45, 5, '{gp_total}', { bold: true, align: 'center' }),
-    // ── the summary boxes ──
-    { id: 'sum', type: 'table', x: 12, y: 174, w: 90, h: 24, header: false, style: { size: 8, border: 1 },
+    t('tot1', 10, 150, 160, 5, 'Total Marks & Total GP', { bold: true }),
+    t('tot2', 170, 150, 60, 5, '{total}', { bold: true, align: 'center' }),
+    t('tot3', 230, 150, 60, 5, '{gp_total}', { bold: true, align: 'center' }),
+    // ── the summary boxes, side by side ──
+    { id: 'sum', type: 'table', x: 10, y: 157, w: 110, h: 24, header: false, style: { size: 8, border: 1 },
       rows: ['Grade Point Average | {gpa}', 'Letter Grade | {letter_grade}', 'Total Marks with Fraction | {total}', 'Remarks | {col.k10}'].join('\n') },
-    { id: 'att', type: 'table', x: 104, y: 174, w: 94, h: 24, header: true, style: { size: 8, border: 1 },
+    { id: 'att', type: 'table', x: 124, y: 157, w: 110, h: 24, header: true, style: { size: 8, border: 1 },
       rows: ['Half Yearly Examination - 2026 | ', 'Present Days | {attendance_present}', 'Working Days | {attendance_days}', 'Present % | {attendance_percent}'].join('\n') },
-    t('merit', 12, 200, 186, 5, 'Merit Position (All Section) : {position} out of {students_count}', { bold: true }),
+    { id: 'merit', type: 'table', x: 238, y: 157, w: 108, h: 24, header: true, style: { size: 8, border: 1 },
+      rows: ['Merit Position (All Section) | ', 'In the class | {position} out of {students_count}', 'In the section | {section_position}', 'Attendance | {attendance_percent}%'].join('\n') },
     // ── remarks ──
-    t('rem1', 12, 207, 186, 5, 'Special Remarks from Class Teacher :', { size: 8 }),
-    { id: 'rembox', type: 'box', x: 12, y: 212, w: 186, h: 22, style: { border: 1 } },
-    // ── signatures ──
-    line('sg1l', 16, 252, 38), t('sg1', 16, 253, 38, 5, 'Class Teacher', { size: 8, align: 'center' }),
-    line('sg2l', 62, 252, 38), t('sg2', 62, 253, 38, 5, 'Parents/Guardian', { size: 8, align: 'center' }),
-    { id: 'sg3', type: 'signature', x: 108, y: 240, w: 38, h: 18, caption: 'Vice Principal', images: [], rules: [], def: '', style: { size: 8, align: 'center' } },
-    { id: 'sg4', type: 'signature', x: 154, y: 240, w: 38, h: 18, caption: 'Principal', images: [], rules: [], def: '', style: { size: 8, align: 'center' } },
+    t('rem1', 10, 184, 336, 4.5, 'Special Remarks from Class Teacher :', { size: 8 }),
+    { id: 'rembox', type: 'box', x: 10, y: 188.5, w: 336, h: 12, style: { border: 1 } },
+    // ── signatures, four across the foot ──
+    line('sg1l', 18, 208, 56), t('sg1', 18, 209, 56, 5, 'Class Teacher', { size: 8, align: 'center' }),
+    line('sg2l', 104, 208, 56), t('sg2', 104, 209, 56, 5, 'Parents/Guardian', { size: 8, align: 'center' }),
+    { id: 'sg3', type: 'signature', x: 190, y: 196, w: 56, h: 18, caption: 'Vice Principal', images: [], rules: [], def: '', style: { size: 8, align: 'center' } },
+    { id: 'sg4', type: 'signature', x: 276, y: 196, w: 56, h: 18, caption: 'Principal', images: [], rules: [], def: '', style: { size: 8, align: 'center' } },
   ],
 };
 
 // The class sheet: the same marks, one row per student.
 const klass = {
-  page: 'A4', orient: 'landscape',
+  page: 'Legal', orient: 'landscape',
   blocks: [
-    t('c1', 10, 8, 277, 7, 'Chattogram Cantonment Public College', { size: 14, bold: true, align: 'center' }),
-    t('c2', 10, 15, 277, 6, 'Half Yearly Examination 2026 — {class_name}', { size: 10, align: 'center' }),
-    { id: 'c3', type: 'tabulation', x: 10, y: 24, w: 277, h: 170, style: { size: 7, border: 1 } },
+    t('c1', 10, 8, 336, 7, 'Chattogram Cantonment Public College', { size: 15, bold: true, align: 'center' }),
+    t('c2', 10, 15.5, 336, 6, 'Half Yearly Examination 2026 — {class_name}', { size: 10, align: 'center' }),
+    { id: 'c3', type: 'tabulation', x: 10, y: 24, w: 336, h: 182, style: { size: 7, border: 1 } },
   ],
 };
 

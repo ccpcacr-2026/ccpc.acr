@@ -47,10 +47,11 @@ why the sheet shows 27.00 total grade points over 7 subjects = 3.86, even though
   (Science, Business Studies). The template only appears for those.
 - **Attendance**: 1 Jan 2026 – 30 Jun 2026, which fills Present Days, Working
   Days and Present %.
-- **Report card** (A4 portrait): heading, student details, photo, grade key,
-  the marks table, totals, the two summary boxes, merit position, a remarks box
-  and four signatures.
-- **Tabulation sheet** (A4 landscape): every student as a row, each subject's
+- **Report card** (Legal landscape, 356 × 216 mm): heading, student details,
+  photo, grade key, the 14-column marks table across the full width, totals,
+  three summary boxes (result, attendance, merit position), a remarks box and
+  four signatures along the foot.
+- **Tabulation sheet** (Legal landscape): every student as a row, each subject's
   marks and grade, then Total, Total GP, GPA, Grade and Result.
 
 ## Using it
