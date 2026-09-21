@@ -4150,9 +4150,17 @@ export async function POST(req) {
           sources: perExam.map(pe => {
             const v = pe.per.get(stu.student_id)?.get(sub.id);
             if (!v) return null;
-            const parts = {};
-            v.parts.forEach(p => { parts[p.name] = p.marks; });
-            return { final: _r2(v.final), full: _r2(v.full), pass: v.pass, percent: v.full ? _r2(v.final / v.full * 100) : 0, parts };
+            const parts = {}, part_full = {}, part_conv = {}, part_weight = {};
+            let raw = 0, raw_full = 0;
+            v.parts.forEach(p => {
+              parts[p.name] = p.marks;
+              part_full[p.name] = p.full;
+              part_weight[p.name] = p.weight;
+              part_conv[p.name] = _r2(p.marks * p.weight / 100);
+              raw += Number(p.marks) || 0;
+              raw_full += Number(p.full) || 0;
+            });
+            return { final: _r2(v.final), full: _r2(v.full), pass: v.pass, percent: v.full ? _r2(v.final / v.full * 100) : 0, raw: _r2(raw), raw_full: _r2(raw_full), parts, part_full, part_conv, part_weight };
           }),
         };
       });
@@ -4165,6 +4173,45 @@ export async function POST(req) {
         letter_grade: anyFail ? 'F' : (overall ? overall.letter_grade : ''), pass: !anyFail,
       };
     }).sort((a, b) => b.total - a.total).map((r, i) => ({ ...r, position: i + 1 }));
+    // Highest mark in the class for each subject (printed beside a student's own).
+    subjects.forEach(sub => {
+      let top = null;
+      results.forEach(r => { const v = r.subjects[sub.id]; if (v && (top === null || v.final > top)) top = v.final; });
+      results.forEach(r => { if (r.subjects[sub.id]) r.subjects[sub.id].highest = top === null ? '' : _r2(top); });
+    });
+    // GPA: 1st and 2nd papers of the same subject count as one subject
+    // (their marks add up), and a subject nobody sat is left out — the way a
+    // Bangladeshi transcript totals its grade points.
+    const pairPapers = cfg.gpa_pair_papers !== false;
+    const baseName = n => String(n || '').replace(/\s*\d+(st|nd|rd|th)\s*paper\s*$/i, '').trim().toLowerCase();
+    const groups = new Map();
+    subjects.forEach(sub => {
+      const key = pairPapers ? (baseName(sub.name) || String(sub.id)) : String(sub.id);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(sub.id);
+    });
+    const excluded = new Set((Array.isArray(cfg.gpa_exclude) ? cfg.gpa_exclude : []).map(String));
+    results.forEach(r => {
+      let gpSum = 0, counted = 0, anyFail = false;
+      groups.forEach(ids => {
+        const parts = ids.filter(id => !excluded.has(String(id))).map(id => r.subjects[id]).filter(Boolean);
+        if (!parts.length) return;
+        const final = parts.reduce((a, v) => a + Number(v.final || 0), 0);
+        const full = parts.reduce((a, v) => a + Number(v.full || 0), 0);
+        if (!full || (cfg.gpa_skip_empty !== false && final <= 0 && parts.every(v => !v.final))) return;
+        const pct = full ? final / full * 100 : 0;
+        const g = _gradeFor(scales, pct);
+        const pass = parts.every(v => v.pass);
+        const gp = pass && g ? Number(g.gp) || 0 : 0;
+        if (!pass) anyFail = true;
+        gpSum += gp; counted++;
+      });
+      r.gp_total = _r2(gpSum);
+      r.gpa = anyFail ? 0 : _r2(counted ? gpSum / counted : 0);
+      r.gpa_subjects = counted;
+      const overall = _gradeFor(scales, counted ? gpSum / counted / 5 * 100 : 0);
+      void overall; // the letter grade below stays based on the total percentage
+    });
     if (!scales.length) warnings.push('No grade scale is set up yet (Grade Setup) — grades and GP are blank.');
     // Personal details for the result sheet's fields and photo (no PIN, card
     // UID, balance or spending limits).
@@ -4197,7 +4244,7 @@ export async function POST(req) {
         r.attendance = { present, days: total, absent: Math.max(0, total - present), percent: total ? _r2(present / total * 100) : 0 };
       });
     }
-    return { subjects, sources: resolved.map(r => ({ label: r.label, share: r.share })), results, warnings };
+    return { subjects, sources: resolved.map(r => ({ label: r.label, share: r.share })), results, warnings, scales: scales.map(x => ({ letter_grade: x.letter_grade, min_mark: x.min_mark, max_mark: x.max_mark, gp: x.gp, label: x.label })) };
   }
 
   if (action === 'prepare_result') {

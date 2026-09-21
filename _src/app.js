@@ -15295,9 +15295,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _rbPop = { filters: [], match: 'all', sort: [{ path: 'result.position', dir: 'asc' }], limit: '' };
   let _rbPartNames = ['CT', 'CQ', 'MCQ', 'HW', 'CW', 'Practical'];
   const _RC_STUDENT = [['student_name', 'Name'], ['roll', 'Roll'], ['student_id', 'Student ID'], ['section', 'Section'], ['group', 'Group'], ['class', 'Class'], ['version', 'Version'], ['shift', 'Shift'], ['session', 'Session'], ['gender', 'Gender'], ['fathers_name', "Father's name"], ['mothers_name', "Mother's name"], ['blood', 'Blood group'], ['house', 'House'], ['phone_number', 'Phone'], ['student_category', 'Category']];
-  const _RC_RESULT = [['position', 'Position in class'], ['section_position', 'Position in section'], ['total', 'Total marks'], ['full', 'Out of'], ['percentage', 'Percentage'], ['gpa', 'GPA'], ['letter_grade', 'Grade'], ['pass', 'Pass / Fail'], ['attendance_days', 'Working days'], ['attendance_present', 'Days present'], ['attendance_absent', 'Days absent'], ['attendance_percent', 'Attendance %']];
-  const _RC_COMBINED = [['final', 'Result'], ['full', 'Out of'], ['percent', '%'], ['grade', 'Grade'], ['gp', 'GP'], ['pass', 'Pass / Fail']];
-  const _RC_SOURCE = [['final', 'Total'], ['full', 'Out of'], ['percent', '%'], ['pass', 'Pass / Fail']];
+  const _RC_RESULT = [['position', 'Position in class'], ['section_position', 'Position in section'], ['total', 'Total marks'], ['full', 'Out of'], ['percentage', 'Percentage'], ['gpa', 'GPA'], ['letter_grade', 'Grade'], ['pass', 'Pass / Fail'], ['attendance_days', 'Working days'], ['attendance_present', 'Days present'], ['attendance_absent', 'Days absent'], ['attendance_percent', 'Attendance %'], ['gp_total', 'Total grade points'], ['gpa_subjects', 'Subjects counted for GPA']];
+  const _RC_COMBINED = [['final', 'Result'], ['full', 'Out of'], ['percent', '%'], ['grade', 'Grade'], ['gp', 'GP'], ['pass', 'Pass / Fail'], ['highest', 'Highest in class']];
+  const _RC_SOURCE = [['final', 'Converted total'], ['raw', 'Marks total'], ['raw_full', 'Marks out of'], ['full', 'Converted out of'], ['percent', '%'], ['pass', 'Pass / Fail']];
   const _RC_OPS = [['==', '='], ['!=', '≠'], ['>', '>'], ['>=', '≥'], ['<', '<'], ['<=', '≤'], ['contains', 'contains'], ['in', 'is one of (a, b, c)'], ['empty', 'is empty'], ['notempty', 'is not empty']];
   function _rcId() { return 'c' + Math.random().toString(36).slice(2, 8); }
   function _rcSourceLabels() {
@@ -15324,7 +15324,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (p[2] === 'combined') return subj + (_RC_COMBINED.find(x => x[0] === p[3]) || [, p[3]])[1];
       if (p[2] === 'src') {
         const src = _rcSourceLabels()[Number(p[3])] || `Exam ${Number(p[3]) + 1}`;
-        const what = p[4] === 'part' ? p.slice(5).join('.') : (_RC_SOURCE.find(x => x[0] === p[4]) || [, p[4]])[1];
+        const suffix = { part: '', partfull: ' out of', partconv: ' converted' }[p[4]];
+        const what = suffix !== undefined ? p.slice(5).join('.') + suffix : (_RC_SOURCE.find(x => x[0] === p[4]) || [, p[4]])[1];
         return `${subj}${src} · ${what}`;
       }
     }
@@ -15336,7 +15337,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const srcs = _rcSourceLabels();
     const subjGroup = (sid, title) => `<optgroup label="${_escHtml(title)}">
       ${_RC_COMBINED.map(([k, l]) => opt(`sub.${sid}.combined.${k}`, `Combined · ${l}`)).join('')}
-      ${srcs.map((s, i) => [..._RC_SOURCE.map(([k, l]) => opt(`sub.${sid}.src.${i}.${k}`, `${s} · ${l}`)), ..._rbPartNames.map(n => opt(`sub.${sid}.src.${i}.part.${n}`, `${s} · ${n}`))].join('')).join('')}
+      ${srcs.map((s, i) => [..._RC_SOURCE.map(([k, l]) => opt(`sub.${sid}.src.${i}.${k}`, `${s} · ${l}`)),
+        ..._rbPartNames.flatMap(n => [opt(`sub.${sid}.src.${i}.part.${n}`, `${s} · ${n}`), opt(`sub.${sid}.src.${i}.partfull.${n}`, `${s} · ${n} out of`), opt(`sub.${sid}.src.${i}.partconv.${n}`, `${s} · ${n} converted`)])].join('')).join('')}
     </optgroup>`;
     let html = `<optgroup label="Student">${opt('sl', 'SL (serial number)')}${_RC_STUDENT.map(([k, l]) => opt(`student.${k}`, l)).join('')}</optgroup>
       <optgroup label="Overall result">${_RC_RESULT.map(([k, l]) => opt(`result.${k}`, l)).join('')}</optgroup>`;
@@ -15371,7 +15373,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (p[2] === 'src') {
         const one = (sv.sources || [])[Number(p[3])];
         if (!one) return sv.by_source && p[4] === 'final' ? (sv.by_source[Number(p[3])] ?? '') : '';
-        if (p[4] === 'part') return one.parts ? (one.parts[p.slice(5).join('.')] ?? '') : '';
+        const partName = p.slice(5).join('.');
+        if (p[4] === 'part') return one.parts ? (one.parts[partName] ?? '') : '';
+        if (p[4] === 'partfull') return one.part_full ? (one.part_full[partName] ?? '') : '';
+        if (p[4] === 'partconv') return one.part_conv ? (one.part_conv[partName] ?? '') : '';
         return p[4] === 'pass' ? (one.pass ? 'Pass' : 'Fail') : (one[p[4]] ?? '');
       }
     }
@@ -15887,7 +15892,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   const _RS_PAGES = { A4: [210, 297], Letter: [216, 279], Legal: [216, 356], A3: [297, 420] };
   const _RS_FIELDS = [
     ['Student', [['student_name', 'Name'], ['student_id', 'Student ID'], ['roll', 'Roll'], ['class', 'Class'], ['section', 'Section'], ['group', 'Group'], ['version', 'Version'], ['shift', 'Shift'], ['session', 'Session'], ['fathers_name', "Father's name"], ['mothers_name', "Mother's name"], ['gender', 'Gender'], ['blood', 'Blood group'], ['house', 'House'], ['phone_number', 'Phone']]],
-    ['Result', [['total', 'Total marks'], ['full', 'Out of'], ['percentage', 'Percentage'], ['gpa', 'GPA'], ['letter_grade', 'Grade'], ['position', 'Position in class'], ['section_position', 'Position in section'], ['result', 'Pass / Fail'], ['class_name', 'Class (as shown)'], ['exams', 'Exams in this result']]],
+    ['Result', [['total', 'Total marks'], ['gp_total', 'Total grade points'], ['full', 'Out of'], ['percentage', 'Percentage'], ['gpa', 'GPA'], ['letter_grade', 'Grade'], ['position', 'Position in class'], ['section_position', 'Position in section'], ['result', 'Pass / Fail'], ['class_name', 'Class (as shown)'], ['exams', 'Exams in this result']]],
     ['Attendance', [['attendance_days', 'Working days'], ['attendance_present', 'Days present'], ['attendance_absent', 'Days absent'], ['attendance_percent', 'Attendance %']]],
     ['School', [['school_name', 'School name'], ['date', "Today's date"], ['students_count', 'Students in class'], ['passed_count', 'Students passed']]],
   ];
@@ -15897,6 +15902,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     ['tabulation', 'Class tabulation', 'sheet'], ['line', 'Line', 'minus'], ['box', 'Box', 'square'],
     ['info', 'Info table', 'table-properties'], ['attendance', 'Attendance', 'calendar-check'], ['rank', 'Rank / position', 'trophy'],
     ['comment', 'Comment box', 'message-square'], ['signature', 'Signature', 'pen-line'],
+    ['marksx', 'Marks table (custom columns)', 'table-2'], ['grades', 'Grade key', 'award'],
   ];
   let _rsLayout = null, _rsWhich = 'student', _rsSel = null, _rsZoom = 0.9, _rsDrag = null;
   function _rsDefaultLayout() {
@@ -15939,7 +15945,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       class_name: d ? d.className : '', exams: d ? d.sources.map(s => s.label).join(' + ') : '',
       school_name: MPO_INSTITUTION_NAME, date: new Date().toLocaleDateString('en-GB'),
       students_count: d ? d.results.length : '', passed_count: passed,
-      section_position: r ? (r.section_position ?? '') : '',
+      section_position: r ? (r.section_position ?? '') : '', student_id: r ? (r.student_id ?? info.student_id ?? '') : '',
+      gp_total: r ? (r.gp_total ?? '') : '', gpa_subjects: r ? (r.gpa_subjects ?? '') : '',
       attendance_days: r && r.attendance ? r.attendance.days : '', attendance_present: r && r.attendance ? r.attendance.present : '',
       attendance_absent: r && r.attendance ? r.attendance.absent : '', attendance_percent: r && r.attendance ? r.attendance.percent : '',
       __r: r,
@@ -16009,6 +16016,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const keep = _rbLast; _rbLast = d;
       try { inner = _rbTableHtml(true).replace('<table ', `<table style="width:100%;border-collapse:collapse" `).replace(/<td style="color:#b91c1c;font-weight:700">/g, `<td style="border:${_rsBorder(st)};padding:0.8mm;text-align:center;color:#b91c1c;font-weight:700">`).replace(/<th /g, `<th style="border:${_rsBorder(st)};background:#f1f5f9;padding:0.8mm" `).replace(/<td (?!style)/g, `<td style="border:${_rsBorder(st)};padding:0.8mm;text-align:center" `); }
       finally { _rbLast = keep; }
+    } else if (b.type === 'marksx') {
+      inner = r ? _rsMarksXHtml(b, d, r, st) : '';
+    } else if (b.type === 'grades') {
+      inner = _rsGradesHtml(b, d, st);
     } else if (b.type === 'info') {
       inner = _rsInfoHtml(b, vals, st);
     } else if (b.type === 'signature') {
@@ -16027,6 +16038,43 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return `<div class="rs-page" style="position:relative;width:${u(w)};height:${u(h)};background:#fff;overflow:hidden;font-family:'Segoe UI',Arial,sans-serif">${pg.blocks.map(b => _rsBlockHtml(b, d, r, px, designer)).join('')}</div>`;
   }
 
+  // A marks table whose columns you choose: each column is a value read for
+  // every subject ("this subject" paths), a formula, or the subject's name.
+  // Columns sharing a `group` sit under one spanning heading.
+  function _rsMarksXHtml(b, d, r, st) {
+    const items = (b.items || []).filter(Boolean);
+    const cell = `border:${_rsBorder(st)};padding:0.8mm 1mm;`;
+    const groups = [];
+    items.forEach(it => {
+      const last = groups[groups.length - 1];
+      if (it.group && last && last.group === it.group) last.n++;
+      else groups.push({ group: it.group || '', n: 1, item: it });
+    });
+    const anyGroup = items.some(it => it.group);
+    const head1 = groups.map(g => g.group
+      ? `<th colspan="${g.n}" style="${cell}text-align:center;background:#f1f5f9">${_escHtml(g.group)}</th>`
+      : `<th ${anyGroup ? 'rowspan="2"' : ''} style="${cell}text-align:center;background:#f1f5f9">${_escHtml(g.item.label)}</th>`).join('');
+    const head2 = anyGroup ? `<tr>${items.filter(it => it.group).map(it => `<th style="${cell}text-align:center;background:#f8fafc">${_escHtml(it.label)}</th>`).join('')}</tr>` : '';
+    const value = (it, sub) => {
+      if (it.path === 'name') return _escHtml(sub.name);
+      if (it.formula) return _escHtml(String(_rcCalc(it.formula, r, sub.id) ?? ''));
+      const v = _rcGet(r, it.path, sub.id);
+      const n = Number(v);
+      return _escHtml(v === '' || v == null ? (it.blank || '') : (isFinite(n) && it.decimals != null && it.decimals !== '' ? n.toFixed(Number(it.decimals)) : String(v)));
+    };
+    const subjects = (d.subjects || []).filter(sub => (b.subjects === undefined || b.subjects === 'all' || (b.subjects || []).map(String).includes(String(sub.id))) && r.subjects[sub.id]);
+    return `<table style="width:100%;border-collapse:collapse"><thead><tr>${head1}</tr>${head2}</thead>
+      <tbody>${subjects.map(sub => `<tr>${items.map(it => `<td style="${cell}text-align:${it.align || 'center'}">${value(it, sub)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  }
+  // The grade key, straight from Grade Setup.
+  function _rsGradesHtml(b, d, st) {
+    const rows = (d && d.scales) || [];
+    const cell = `border:${_rsBorder(st)};padding:0.8mm 1mm;`;
+    if (!rows.length) return '<span style="color:#94a3b8">Grade key — set the grades up in Grade Setup</span>';
+    return `<table style="width:100%;border-collapse:collapse">
+      <thead><tr>${['Letter Grade', 'Marks Interval', 'Grade Point'].map(h => `<th style="${cell}background:#f1f5f9;text-align:center">${h}</th>`).join('')}</tr></thead>
+      <tbody>${rows.map(g => `<tr><td style="${cell}text-align:center">${_escHtml(g.letter_grade || '')}</td><td style="${cell}text-align:center">${_escHtml(`${g.min_mark} - ${g.max_mark}`)}</td><td style="${cell}text-align:center">${_escHtml(String(g.gp ?? ''))}</td></tr>`).join('')}</tbody></table>`;
+  }
   // Info table: label / value pairs from any fields, with an optional heading.
   function _rsInfoHtml(b, vals, st) {
     const per = Math.max(1, Number(b.perRow) || 2);
@@ -16045,6 +16093,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return imgs.find(x => x.id === b.def) || imgs[0] || null;
   }
   function _rsSel_() { return _rsPage(_rsWhich).blocks.find(x => x.id === _rsSel); }
+  // The custom marks table's columns are edited as plain lines:
+  //   Header | value | group | align | decimals
+  function _rsMarksXText(b) {
+    return (b.items || []).map(it => [it.label, it.formula ? '=' + it.formula : it.path, it.group || '', it.align || '', it.decimals ?? ''].join(' | ').replace(/(\s*\|\s*)+$/, '')).join('\n');
+  }
+  function rsSetMarksXItems(text) {
+    const b = _rsSel_();
+    if (!b) return;
+    b.items = String(text || '').split('\n').map(line => line.trim()).filter(Boolean).map((line, i) => {
+      const [label, value, group, align, decimals] = line.split('|').map(x => (x || '').trim());
+      const it = { id: 'x' + i, label: label || '', align: align || undefined, decimals: decimals === '' ? undefined : decimals, group: group || undefined };
+      if ((value || '').startsWith('=')) it.formula = value.slice(1); else it.path = value || 'name';
+      return it;
+    });
+    _rsRenderCanvas();
+  }
   function rsInfoAddField(k) { const b = _rsSel_(); if (!b || !k) return; (b.fields = b.fields || []).push(k); _rsRenderCanvas(); _rsRenderProps(); }
   function rsInfoMove(i, dir) { const b = _rsSel_(); const a = b.fields; const j = i + dir; if (j < 0 || j >= a.length) return; [a[i], a[j]] = [a[j], a[i]]; _rsRenderCanvas(); _rsRenderProps(); }
   function rsInfoRemove(i) { const b = _rsSel_(); b.fields.splice(i, 1); _rsRenderCanvas(); _rsRenderProps(); }
@@ -16197,7 +16261,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function rsAddBlock(type) {
     const pg = _rsPage(_rsWhich);
     const id = 'b' + Date.now().toString(36);
-    const size = { text: [60, 8], field: [60, 7], photo: [25, 30], image: [25, 25], marks: [180, 100], summary: [80, 40], table: [90, 25], tabulation: [270, 160], line: [50, 1], box: [60, 30], info: [180, 30], attendance: [90, 18], rank: [90, 12], comment: [180, 22], signature: [45, 22] }[type] || [50, 10];
+    const size = { text: [60, 8], field: [60, 7], photo: [25, 30], image: [25, 25], marks: [180, 100], summary: [80, 40], table: [90, 25], tabulation: [270, 160], line: [50, 1], box: [60, 30], info: [180, 30], attendance: [90, 18], rank: [90, 12], comment: [180, 22], signature: [45, 22], marksx: [185, 95], grades: [55, 40] }[type] || [50, 10];
     const b = { id, type, x: 15, y: 15, w: size[0], h: size[1], style: { size: type === 'tabulation' ? 8 : 10, border: ['marks', 'summary', 'table', 'tabulation', 'box', 'photo'].includes(type) ? 1 : 0 } };
     if (type === 'text') b.text = 'Text — use {student_name} style fields';
     if (type === 'field') { b.field = 'student_name'; b.label = 'Name:'; }
@@ -16210,6 +16274,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (type === 'rank') Object.assign(b, { type: 'info', title: 'Position', fields: ['position', 'section_position'], perRow: 2 });
     if (type === 'comment') Object.assign(b, { type: 'text', text: 'Comment:', style: { size: 10, border: 1 } });
     if (type === 'signature') Object.assign(b, { caption: 'Principal', images: [], rules: [], def: '', style: { size: 9, align: 'center' } });
+    if (type === 'marksx') Object.assign(b, { style: { size: 8, border: 1 }, items: [
+      { id: 'x1', label: 'Subjects', path: 'name', align: 'left' },
+      { id: 'x2', label: 'Full Marks', path: 'sub.@.combined.full' },
+      { id: 'x3', label: 'Total Marks', path: 'sub.@.combined.final' },
+      { id: 'x4', label: 'Letter Grade', path: 'sub.@.combined.grade' },
+      { id: 'x5', label: 'Grade Point', path: 'sub.@.combined.gp' },
+    ] });
+    if (type === 'grades') Object.assign(b, { style: { size: 8, border: 1 }, title: '' });
     pg.blocks.push(b);
     _rsSel = id;
     _rsRenderCanvas();
@@ -16303,6 +16375,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       specific = `<div>${lab('Columns')}<div class="flex flex-col gap-1 mt-1">${[['sources', "Each exam's marks"], ['final', 'Result / marks'], ['full', 'Out of'], ['percent', '%'], ['grade', 'Grade'], ['gp', 'GP']].map(([k, l]) => `<label class="flex items-center gap-2 text-xs font-bold text-slate-600"><input type="checkbox" ${(b.cols || []).includes(k) ? 'checked' : ''} onchange="rsToggleList('cols','${k}',this.checked)">${l}</label>`).join('')}</div></div>`;
     } else if (b.type === 'summary') {
       specific = `<div>${lab('Rows')}<div class="flex flex-col gap-1 mt-1">${[['total', 'Total marks'], ['percentage', 'Percentage'], ['gpa', 'GPA'], ['letter_grade', 'Grade'], ['position', 'Position'], ['result', 'Result']].map(([k, l]) => `<label class="flex items-center gap-2 text-xs font-bold text-slate-600"><input type="checkbox" ${(b.items || []).includes(k) ? 'checked' : ''} onchange="rsToggleList('items','${k}',this.checked)">${l}</label>`).join('')}</div></div>`;
+    } else if (b.type === 'marksx') {
+      specific = `<div>${lab('Columns (one per line: Header | value | group | align | decimals)')}
+        <textarea id="rsText" data-key="itemsText" rows="8" oninput="rsSetMarksXItems(this.value)" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-mono text-[10px]">${_escHtml(_rsMarksXText(b))}</textarea>
+        <p class="text-[10px] text-slate-400 font-bold mt-1">Value is a path such as sub.@.combined.final, "name" for the subject, or =formula. Pick one below to copy its path.</p>
+        <select onchange="rsInsertField('rsText', this.value); this.value=''" class="w-full mt-1 px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-xs"><option value="">+ Insert a value path…</option>${_rcPathOptionsHtml('', true)}</select></div>`;
+    } else if (b.type === 'grades') {
+      specific = '<p class="text-[10px] font-bold text-slate-400">Prints the grade table from Grade Setup: letter, marks interval and grade point.</p>';
     } else if (b.type === 'info') {
       specific = `<label class="flex flex-col gap-1">${lab('Heading (blank = none)')}${inp('title', b.title, 'type="text"')}</label>
         <label class="flex flex-col gap-1">${lab('Pairs per row')}<select onchange="rsSetProp('perRow',this.value)" class="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">${[1, 2, 3].map(n => `<option value="${n}" ${Number(b.perRow || 2) === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
