@@ -3892,61 +3892,80 @@ export async function POST(req) {
   // part, each listing its sections with how many students already have
   // marks. Teachers see only the subjects assigned to them (Marks Entry
   // Teachers); anyone with no assignment at all sees every subject.
+  // Everything the signed-in user can fill in right now: one group per
+  // exam (its class), holding a card per subject and part that is open,
+  // each with a chip per section showing how many marks are already in.
+  // Teachers see only the subjects assigned to them (Marks Entry Teachers);
+  // an account with no assignment anywhere sees every subject.
   if (action === 'get_marks_entry_cards') {
-    const { exam_id } = payload;
-    const examRows = await sbExam(`exams?id=eq.${encodeURIComponent(exam_id)}&select=*,exam_patterns(active_component_type_ids),exam_terms(name,academic_year)`);
-    if (examRows?.error || !examRows.length) return NextResponse.json({ result: 'error', message: 'Exam not found.' });
-    const examRow = examRows[0];
-    const activeTypeIds = new Set((examRow.exam_patterns?.active_component_type_ids || []).map(String));
-    const year = await _examYear(examRow);
-    const [subjects, students, marks, mine] = await Promise.all([
-      _subjectsForPattern(examRow.pattern_id),
-      _studentsForPattern(examRow.pattern_id, year),
-      sbExam(`exam_marks?exam_id=eq.${encodeURIComponent(exam_id)}&select=subject_id,component_type_id,student_id,marks_obtained`),
-      sbExam(`subject_teachers?pattern_id=eq.${encodeURIComponent(examRow.pattern_id)}&teacher_id=eq.${encodeURIComponent(user_id)}&select=subject_id`),
+    const [exams, mineRows, patterns] = await Promise.all([
+      sbExam('exams?is_archived=eq.false&select=*,exam_patterns(active_component_type_ids),exam_terms(name,academic_year)&order=id.desc'),
+      sbExam(`subject_teachers?teacher_id=eq.${encodeURIComponent(user_id)}&select=pattern_id,subject_id`),
+      _patterns(),
     ]);
-    const assignedSubjects = new Set((Array.isArray(mine) ? mine : []).map(m => String(m.subject_id)));
-    // No assignment anywhere = an admin account, so nothing is filtered out.
-    let filtered = assignedSubjects.size > 0;
-    if (!filtered) {
-      const any = await sbExam(`subject_teachers?teacher_id=eq.${encodeURIComponent(user_id)}&select=subject_id&limit=1`);
-      filtered = Array.isArray(any) && any.length > 0; // assigned elsewhere, but not in this class
-    }
-    const sections = [...new Map(students.map(s => [`${s.class}||${s.section}`, { class: s.class, section: s.section }])).values()]
-      .sort((a, b) => String(a.section).localeCompare(String(b.section), undefined, { numeric: true }));
-    const sectionOf = new Map(students.map(s => [s.student_id, `${s.class}||${s.section}`]));
-    const totals = new Map();
-    students.forEach(s => { const k = sectionOf.get(s.student_id); totals.set(k, (totals.get(k) || 0) + 1); });
-    const done = new Map();
-    (Array.isArray(marks) ? marks : []).forEach(m => {
+    if (!Array.isArray(exams)) return NextResponse.json({ result: 'error', message: exams?.error || 'Could not read exams.' });
+    const mine = Array.isArray(mineRows) ? mineRows : [];
+    const filtered = mine.length > 0;
+    const allowed = new Map();
+    mine.forEach(m => { const k = String(m.pattern_id); if (!allowed.has(k)) allowed.set(k, new Set()); allowed.get(k).add(String(m.subject_id)); });
+    const wanted = exams.filter(e => !filtered || allowed.has(String(e.pattern_id)));
+    if (!wanted.length) return NextResponse.json({ result: 'success', groups: [], filtered });
+    const marksRows = await sbExam(`exam_marks?exam_id=in.(${wanted.map(e => e.id).join(',')})&select=exam_id,subject_id,component_type_id,student_id,marks_obtained`);
+    const marksByExam = new Map();
+    (Array.isArray(marksRows) ? marksRows : []).forEach(m => {
       if (m.marks_obtained === null || m.marks_obtained === undefined) return;
-      const sec = sectionOf.get(m.student_id);
-      if (!sec) return;
-      const k = `${m.subject_id}||${m.component_type_id}||${sec}`;
-      done.set(k, (done.get(k) || 0) + 1);
+      if (!marksByExam.has(String(m.exam_id))) marksByExam.set(String(m.exam_id), []);
+      marksByExam.get(String(m.exam_id)).push(m);
     });
-    const cards = [];
-    for (const sub of subjects) {
-      if (filtered && !assignedSubjects.has(String(sub.id))) continue;
-      const comps = (await _componentsForSubject(examRow.pattern_id, sub.id)).filter(c => activeTypeIds.has(String(c.component_type_id)));
-      for (const c of comps) {
-        if (!_partIsOpen(examRow, c.component_type_id)) continue;
-        cards.push({
-          subject_id: sub.id, subject_name: sub.name,
-          component_type_id: c.component_type_id, component_name: c.exam_component_types?.name || '',
-          full_marks: c.full_marks, pass_marks: _passMarksRaw(c),
-          sections: sections.map(sec => {
-            const k = `${sec.class}||${sec.section}`;
-            return { class: sec.class, section: sec.section, total: totals.get(k) || 0, entered: done.get(`${sub.id}||${c.component_type_id}||${k}`) || 0 };
-          }),
-        });
+    const groups = [];
+    for (const examRow of wanted) {
+      const activeTypeIds = new Set((examRow.exam_patterns?.active_component_type_ids || []).map(String));
+      const [subjects, students] = await Promise.all([
+        _subjectsForPattern(examRow.pattern_id),
+        _studentsForPattern(examRow.pattern_id, await _examYear(examRow)),
+      ]);
+      if (!students.length) continue;
+      const sections = [...new Map(students.map(s => [`${s.class}||${s.section}`, { class: s.class, section: s.section }])).values()]
+        .sort((a, b) => String(a.section).localeCompare(String(b.section), undefined, { numeric: true }));
+      const sectionOf = new Map(students.map(s => [s.student_id, `${s.class}||${s.section}`]));
+      const totals = new Map();
+      students.forEach(s => { const k = sectionOf.get(s.student_id); totals.set(k, (totals.get(k) || 0) + 1); });
+      const done = new Map();
+      (marksByExam.get(String(examRow.id)) || []).forEach(m => {
+        const sec = sectionOf.get(m.student_id);
+        if (!sec) return;
+        const k = `${m.subject_id}||${m.component_type_id}||${sec}`;
+        done.set(k, (done.get(k) || 0) + 1);
+      });
+      const cards = [];
+      for (const sub of subjects) {
+        if (filtered && !(allowed.get(String(examRow.pattern_id)) || new Set()).has(String(sub.id))) continue;
+        const comps = (await _componentsForSubject(examRow.pattern_id, sub.id)).filter(c => activeTypeIds.has(String(c.component_type_id)));
+        for (const c of comps) {
+          if (!_partIsOpen(examRow, c.component_type_id)) continue;
+          cards.push({
+            subject_id: sub.id, subject_name: sub.name,
+            component_type_id: c.component_type_id, component_name: c.exam_component_types?.name || '',
+            full_marks: c.full_marks, pass_marks: _passMarksRaw(c),
+            sections: sections.map(sec => {
+              const k = `${sec.class}||${sec.section}`;
+              return { class: sec.class, section: sec.section, total: totals.get(k) || 0, entered: done.get(`${sub.id}||${c.component_type_id}||${k}`) || 0 };
+            }),
+          });
+        }
       }
+      if (!cards.length) continue;
+      const cls = (Array.isArray(patterns) ? patterns : []).find(p => String(p.id) === String(examRow.pattern_id));
+      groups.push({
+        exam_id: examRow.id, locked: !!examRow.is_locked,
+        exam_name: examRow.name || examRow.exam_terms?.name || 'Exam',
+        term: examRow.exam_terms?.name || '', year: examRow.exam_terms?.academic_year || '',
+        class_label: (cls && (cls.display_name || cls.name)) || '',
+        cards,
+      });
     }
-    const cls = await _patternById(examRow.pattern_id);
-    return NextResponse.json({
-      result: 'success', cards, filtered, locked: !!examRow.is_locked,
-      exam: { name: examRow.name || '', term: examRow.exam_terms?.name || '', class: (cls && (cls.display_name || cls.name)) || '' },
-    });
+    groups.sort((a, b) => String(a.class_label).localeCompare(String(b.class_label), undefined, { numeric: true }) || String(a.exam_name).localeCompare(String(b.exam_name)));
+    return NextResponse.json({ result: 'success', groups, filtered });
   }
   if (action === 'save_exam_entry_sheets_bulk') {
     const { exam_id, subject_id, component_type_id, sections, is_open, assigned_user_id } = payload; // sections: [{class,section}]
