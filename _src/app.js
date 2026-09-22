@@ -24489,7 +24489,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // Anything not listed (a future new field) sorts after everything here,
   // in whatever order it was discovered — never silently dropped.
   const PR_EXPORT_SHEET_COLUMN_ORDER = [
-    'sl_no', 'person', 'designation', 'grade', 'step', 'dob', 'joining_date',
+    'sl_no', 'person', 'designation', 'grade', 'step', 'dob', 'joining_date', 'all_dates',
     'basic', 'incentive', 'charge_allowance', 'coordinator_allowance', 'mt_incharge_allowance',
     'hr', 'tiffin', 'washing', 'conveyance', 'medical', 'pf_10_percent',
     'class_teacher_allowance', 'education', 'mobile_bill', 'entertainment_allowance', 'imam_allowance', 'muazzin_allowance',
@@ -24563,6 +24563,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         { key: 'step', label: 'Step', type: 'base' },
         { key: 'dob', label: 'Date of Birth', type: 'base' },
         { key: 'joining_date', label: 'Joining Date', type: 'base' },
+        { key: 'all_dates', label: 'Dates', type: 'base' },
         { key: 'gross', label: 'Gross', type: 'base' },
         { key: 'total_deductions', label: 'Total Deductions', type: 'base' },
         { key: 'net', label: 'Net', type: 'base' },
@@ -25538,6 +25539,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // dates in the first place. A newline is what both the PDF (autotable
   // breaks on it) and Excel want; the preview sets white-space:pre-line.
   const _PR_DATE_COLUMN_SKIP = new Set(['correction', 'fixation']);
+  // Joining date plus every career date after it, for one person — the
+  // joining date itself comes from payroll if they are set up there, from
+  // the staff profile otherwise.
+  function _prCareerDates(userId) {
+    const setup = (_prPeopleSetupCache || []).find(p => p.user_id === userId);
+    const profile = (_prPersonDatesCache || []).find(p => String(p.user_id) === String(userId));
+    return _prPersonDatesValue(userId, (setup && setup.joining_date) || (profile && profile.profile_joining_date));
+  }
+
   function _prPersonDatesValue(userId, joiningDate) {
     const dates = [];
     if (joiningDate) dates.push(normalizeDate(joiningDate));
@@ -25570,10 +25580,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       // ("1976-02-03" beside "7/10/1980 13:31"), so they go through the same
       // normalizer the profile screens already use.
       if (col.key === 'dob') { const d = (_prPersonDatesCache || []).find(p => String(p.user_id) === String(slip.user_id)); return d && d.date_of_birth ? normalizeDate(d.date_of_birth) : ''; }
-      if (col.key === 'joining_date') {
-        const setup = _prPeopleSetupCache.find(p => p.user_id === slip.user_id);
-        const fallback = (_prPersonDatesCache || []).find(p => String(p.user_id) === String(slip.user_id));
-        return _prPersonDatesValue(slip.user_id, (setup && setup.joining_date) || (fallback && fallback.profile_joining_date));
+      if (col.key === 'joining_date') return _prCareerDates(slip.user_id);
+      // One cell holding a person's whole date history the way the paper
+      // sheet does it: date of birth first, then joining, then every
+      // promotion or regrade date under it.
+      if (col.key === 'all_dates') {
+        const d = (_prPersonDatesCache || []).find(p => String(p.user_id) === String(slip.user_id));
+        const dob = d && d.date_of_birth ? normalizeDate(d.date_of_birth) : '';
+        return [dob, _prCareerDates(slip.user_id)].filter(Boolean).join('\n');
       }
       val = Number(slip[col.key]) || 0;
     } else if (col.type === 'field') {
@@ -25601,7 +25615,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // on which columns get a running total.
   function _prIsSummableColumn(c) {
     return c.type === 'field' || (c.type === 'virtual' && (c.vtype === 'sum' || c.vtype === 'diff')) ||
-      (c.type === 'base' && !['sl_no', 'person', 'user_id', 'designation', 'grade', 'step', 'dob', 'joining_date'].includes(c.key));
+      (c.type === 'base' && !['sl_no', 'person', 'user_id', 'designation', 'grade', 'step', 'dob', 'joining_date', 'all_dates'].includes(c.key));
   }
 
   // ── Fold: hide a column and add its value into another one, leaving a
