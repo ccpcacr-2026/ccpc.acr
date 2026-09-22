@@ -2207,9 +2207,11 @@ export async function POST(req) {
     const rowData = {
       user_id: personId, grade_id: grade_id || null, step_id: step_id || null,
       pay_type: pay_type === 'contractual' ? 'contractual' : 'regular',
-      effective_date, note: note || null, created_by: user_id || null,
+      effective_date, note: note || null,
+      change_kind: payload.change_kind || 'correction',
+      created_by: user_id || null,
     };
-    const saved = await sbPayroll('person_grade_history', 'POST', rowData);
+    const saved = await _historyWrite(rowData);
     if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
     _prAudit(user_id, 'add_grade_history_row', 'person_grade_history', personId, rowData);
     return NextResponse.json({ result: 'success', id: Array.isArray(saved) && saved[0] ? saved[0].id : null });

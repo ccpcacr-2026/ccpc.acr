@@ -17831,6 +17831,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div class="bg-white rounded-2xl p-5 w-full max-w-sm">
           <p class="font-black text-slate-800 text-sm mb-1">Record this in their history?</p>
           <p id="prHlpSummary" class="text-xs font-bold text-slate-600 bg-slate-50 border border-slate-200 rounded-xl p-3 mb-3"></p>
+          <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">What kind of change</label>
+          <select id="prHlpKind" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs mb-1">
+            <option value="promotion">Promotion — a real move to another post</option>
+            <option value="higher_grade">Higher grade (art. 6) — eight years of service</option>
+            <option value="time_scale">Time scale / selection grade under an older pay scale</option>
+            <option value="correction" selected>Correction — fixing a wrong grade, step or date</option>
+          </select>
+          <p class="text-[10px] font-bold text-slate-400 mb-3">A promotion, higher grade or time scale counts towards article 6 and prints in the salary sheet's date column. A correction does neither.</p>
           <label class="text-[10px] font-black text-slate-400 uppercase mb-1 block">Note <span class="font-normal normal-case text-slate-400">(optional)</span></label>
           <textarea id="prHlpNote" rows="3" placeholder="why this changed…" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></textarea>
           <div class="flex justify-end gap-2 mt-5">
@@ -21305,15 +21313,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _prConfirmHistoryLog(summaryHtml, onRespond) {
     document.getElementById('prHlpSummary').innerHTML = summaryHtml;
     document.getElementById('prHlpNote').value = '';
+    const kindSel = document.getElementById('prHlpKind');
+    if (kindSel) kindSel.value = 'correction';
     _prHistoryLogPendingCb = onRespond;
     document.getElementById('prHistoryLogPromptModal').classList.remove('hidden');
   }
   function _prHistoryLogRespond(shouldLog) {
     const note = document.getElementById('prHlpNote').value.trim();
+    const kind = (document.getElementById('prHlpKind') || {}).value || 'correction';
     document.getElementById('prHistoryLogPromptModal').classList.add('hidden');
     const cb = _prHistoryLogPendingCb;
     _prHistoryLogPendingCb = null;
-    if (cb) cb(shouldLog, note);
+    if (cb) cb(shouldLog, note, kind);
   }
 
   function loadPayrollPeopleTab() {
@@ -22541,23 +22552,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const sNum = fields.step_id ? (_prPayStepsCache.find(s => s.id === Number(fields.step_id)) || {}).step_number : null;
       changeLines.push(`Grade/Step: <b>${_escHtml(String(gName))}${sNum != null ? ' Step ' + sNum : ''}</b> effective ${_escHtml(fields.effective_date || '—')}`);
     }
-    _prConfirmHistoryLog(changeLines.join('<br>'), (shouldLog, note) => {
+    _prConfirmHistoryLog(changeLines.join('<br>'), (shouldLog, note, kind) => {
       const autoSummary = [
         designationChanged ? `Designation changed from "${originalDesignation || '—'}" to "${fields.designation}".` : '',
         gradeChanged ? 'Grade/Step updated.' : '',
       ].filter(Boolean).join(' ');
       const historyNote = shouldLog ? [autoSummary, note].filter(Boolean).join(' ') : null;
-      _prDoSavePersonSetup(userId, fields, { gradeChanged, designationChanged, shouldLog, historyNote });
+      _prDoSavePersonSetup(userId, fields, { gradeChanged, designationChanged, shouldLog, historyNote, changeKind: kind });
     });
   }
 
-  function _prDoSavePersonSetup(userId, fields, { gradeChanged, designationChanged, shouldLog, historyNote }) {
+  function _prDoSavePersonSetup(userId, fields, { gradeChanged, designationChanged, shouldLog, historyNote, changeKind }) {
     const { designation, ...setupFields } = fields;
     // skip_history: a grade/step change normally auto-logs itself in
     // save_person_setup unconditionally — when the admin explicitly declined
     // to log via the popup, that default has to be turned off here, or
     // "Just Save, Don't Log" would still leave a (note-less) row behind.
-    const calls = [_payrollFetch('save_person_setup', { user_id: userId, ...setupFields, history_note: historyNote, skip_history: gradeChanged && !shouldLog })];
+    const calls = [_payrollFetch('save_person_setup', { user_id: userId, ...setupFields, history_note: historyNote, change_kind: changeKind || 'correction', skip_history: gradeChanged && !shouldLog })];
     if (designationChanged) calls.push(_payrollFetch('update_person_designation', { user_id: userId, designation }));
     // A pure designation change (no grade change) has no auto-created
     // history row for the note to ride along on, unlike a grade change
@@ -22565,7 +22576,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // here instead. When both changed, the note already went on the
     // grade-history row above; adding a second one would just duplicate it.
     if (designationChanged && !gradeChanged && shouldLog) {
-      calls.push(_payrollFetch('add_grade_history_row', { user_id: userId, effective_date: fields.effective_date || new Date().toISOString().slice(0, 10), grade_id: null, step_id: null, note: historyNote }));
+      calls.push(_payrollFetch('add_grade_history_row', { user_id: userId, effective_date: fields.effective_date || new Date().toISOString().slice(0, 10), grade_id: null, step_id: null, note: historyNote, change_kind: changeKind || 'correction' }));
     }
     Promise.all(calls).then(results => {
       const failed = results.find(res => !res || res.result !== 'success');
@@ -24412,7 +24423,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _payrollFetch('get_section_entries', {}),
       _prSectionsCache.length ? Promise.resolve(null) : _payrollFetch('get_sections', {}),
       _prFieldsCache.length ? Promise.resolve(null) : _payrollFetch('get_fields', {}),
-    ]).then(([res, entriesRes, sectionsRes, fieldsRes]) => {
+      // The date column stacks joining + every promotion date, so the
+      // history has to be here too — People Setup may never have been
+      // opened in this session.
+      _prGradeHistoryCache.length ? Promise.resolve(null) : _payrollFetch('get_grade_history', {}),
+    ]).then(([res, entriesRes, sectionsRes, fieldsRes, historyRes]) => {
+      if (historyRes) _prGradeHistoryCache = (historyRes.result === 'success' && historyRes.history) || [];
       _prExportSlips = (res && res.result === 'success' && res.payslips) || [];
       _prAllSectionEntriesCache = (entriesRes && entriesRes.result === 'success' && entriesRes.entries) || [];
       if (sectionsRes) _prSectionsCache = (sectionsRes.result === 'success' && sectionsRes.sections) || [];
@@ -24709,7 +24725,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           // rich text) wraps normally, same as autotable's own default
           // 'linebreak' overflow already does in the real PDF — matches
           // the actual output instead of clipping/overflowing long names.
-          const wrapClass = (!isRichText && _prIsSummableColumn(c)) ? 'whitespace-nowrap' : '';
+          // A stacked-date cell carries real newlines (see
+          // _prPersonDatesValue); pre-line is what makes the preview show
+          // the same line breaks the PDF and Excel get.
+          const wrapClass = (!isRichText && _prIsSummableColumn(c)) ? 'whitespace-nowrap' : 'whitespace-pre-line';
           return `<td class="${wrapClass}" style="padding:${cellPaddingPx}px;${rowHeightCss}${_prColumnCellCss(c, false)}${zebraCss}${_prGridBorderCss(false, false, groupOutlineSide[c.key])}">${cellContent}</td>`;
         }).join('')}</tr>`).join('')}
         ${_prExportSummaryRowHtml(included, sampleSlips, 'C.F.', 'cf', false, groupOutlineSide, cellPaddingPx)}
@@ -25409,6 +25428,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return evalSegs(col.segments);
   }
 
+  // The paper salary sheet's date column stacks a person's whole career in
+  // one cell: the joining date, then every promotion or regrade date after
+  // it. The column used to print the joining date alone, so anyone with
+  // later events lost them. Corrections and pay-scale fixations are left
+  // out — they are bookkeeping, not career dates — while an unmarked
+  // legacy row counts, since those rows came from the sheet's own stacked
+  // dates in the first place. A newline is what both the PDF (autotable
+  // breaks on it) and Excel want; the preview sets white-space:pre-line.
+  const _PR_DATE_COLUMN_SKIP = new Set(['correction', 'fixation']);
+  function _prPersonDatesValue(userId, joiningDate) {
+    const dates = [];
+    if (joiningDate) dates.push(String(joiningDate).slice(0, 10));
+    (_prGradeHistoryCache || [])
+      .filter(h => h.user_id === userId && h.effective_date && !_PR_DATE_COLUMN_SKIP.has(h.change_kind))
+      .forEach(h => dates.push(String(h.effective_date).slice(0, 10)));
+    return [...new Set(dates)].sort().join('\n');
+  }
+
   function _prColumnValue(col, slip) {
     if (!col) return '';
     if (col.type === 'remark') return _prBuildRemarksText(slip);
@@ -25428,7 +25465,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         const step = setup && setup.step_id ? _prPayStepsCache.find(s => s.id === setup.step_id) : null;
         return step ? step.step_number : '';
       }
-      if (col.key === 'joining_date') { const setup = _prPeopleSetupCache.find(p => p.user_id === slip.user_id); return (setup && setup.joining_date) || ''; }
+      if (col.key === 'joining_date') { const setup = _prPeopleSetupCache.find(p => p.user_id === slip.user_id); return _prPersonDatesValue(slip.user_id, setup && setup.joining_date); }
       val = Number(slip[col.key]) || 0;
     } else if (col.type === 'field') {
       val = Number((slip.field_values || {})[col.key]) || 0;

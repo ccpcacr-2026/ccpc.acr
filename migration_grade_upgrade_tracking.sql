@@ -14,6 +14,7 @@
 --   senior_scale    — a senior scale under an earlier pay scale
 --   fixation        — moving onto a new National Pay Scale
 --   correction      — fixing a typo or a wrong step; must never count
+--   unknown         — a row from before this column existed
 --
 -- Article 6(4) puts the three older schemes on the same footing as the new
 -- higher grade: two of them in the same post and no further grade is due at
@@ -26,11 +27,15 @@
 alter table payroll.person_grade_history
   add column if not exists change_kind text;
 
--- Rows written before this migration are ordinary edits as far as article 6
--- is concerned; anything genuinely a higher grade can be marked by hand
--- afterwards (People Setup shows the kind on each history row).
+-- Rows written before this migration are marked 'unknown', not 'correction':
+-- we genuinely do not know what they were, and several of them are real
+-- promotion dates taken from the August 2026 salary sheets
+-- (migration_join_promotion_dates.sql). 'unknown' does not count towards
+-- article 6 — only an explicit higher_grade/time_scale/selection_grade/
+-- senior_scale row does — but it does still print in the payroll sheet's
+-- stacked date column, which 'correction' would have hidden.
 update payroll.person_grade_history
-   set change_kind = 'correction'
+   set change_kind = 'unknown'
  where change_kind is null;
 
 -- One person cannot be given the same higher grade twice on the same date,
