@@ -2240,6 +2240,21 @@ export async function POST(req) {
   // Unfiltered (every person's history, not just one) — the roster embeds
   // joining date + every later promotion date inline per row, so it needs
   // the whole table up front rather than one fetch per person.
+  // Dates the payroll sheet prints that live on the staff profile, not in
+  // payroll — date of birth above all, which the export had no way to reach.
+  if (action === 'get_person_dates') {
+    const rows = await _teacherSchemaFetch('users_profile?select=teacher_id,date_of_birth,dob,joining_date');
+    if (!Array.isArray(rows)) return NextResponse.json({ result: 'error', message: 'Could not read the staff profiles' }, { status: 500 });
+    return NextResponse.json({
+      result: 'success',
+      dates: rows.map(r => ({
+        user_id: r.teacher_id,
+        date_of_birth: r.date_of_birth || r.dob || null,
+        profile_joining_date: r.joining_date || null,
+      })),
+    });
+  }
+
   if (action === 'get_grade_history') {
     const rows = await sbPayroll('person_grade_history?select=*&order=effective_date.asc,created_at.asc');
     if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error }, { status: 500 });

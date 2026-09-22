@@ -21270,6 +21270,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // — one row per promotion, fetched in bulk once so the roster can embed
   // joining date + every later promotion date inline per person.
   let _prGradeHistoryCache = [];
+  // Dates that live on the staff profile rather than in payroll — date of
+  // birth, and the profile's own joining date as a fallback.
+  let _prPersonDatesCache = [];
 
   function _prGradesForPayType(payType) {
     return _prGradesCache.filter(g => (g.pay_system || 'regular') === (payType === 'contractual' ? 'contractual' : 'regular'));
@@ -24486,7 +24489,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // Anything not listed (a future new field) sorts after everything here,
   // in whatever order it was discovered — never silently dropped.
   const PR_EXPORT_SHEET_COLUMN_ORDER = [
-    'sl_no', 'person', 'designation', 'grade', 'step', 'joining_date',
+    'sl_no', 'person', 'designation', 'grade', 'step', 'dob', 'joining_date',
     'basic', 'incentive', 'charge_allowance', 'coordinator_allowance', 'mt_incharge_allowance',
     'hr', 'tiffin', 'washing', 'conveyance', 'medical', 'pf_10_percent',
     'class_teacher_allowance', 'education', 'mobile_bill', 'entertainment_allowance', 'imam_allowance', 'muazzin_allowance',
@@ -24514,12 +24517,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _payrollFetch('get_section_entries', {}),
       _prSectionsCache.length ? Promise.resolve(null) : _payrollFetch('get_sections', {}),
       _prFieldsCache.length ? Promise.resolve(null) : _payrollFetch('get_fields', {}),
-      // The date column stacks joining + every promotion date, so the
-      // history has to be here too — People Setup may never have been
-      // opened in this session.
+      // The date columns need three things People Setup happens to load but
+      // Export never did: the setup rows (joining date), the grade history
+      // (promotion dates) and the staff profiles (date of birth). Without
+      // them every date cell came out blank for anyone who opened Export
+      // without visiting People Setup first.
       _prGradeHistoryCache.length ? Promise.resolve(null) : _payrollFetch('get_grade_history', {}),
-    ]).then(([res, entriesRes, sectionsRes, fieldsRes, historyRes]) => {
+      _prPeopleSetupCache.length ? Promise.resolve(null) : _payrollFetch('get_people_setup', {}),
+      _prPersonDatesCache.length ? Promise.resolve(null) : _payrollFetch('get_person_dates', {}),
+    ]).then(([res, entriesRes, sectionsRes, fieldsRes, historyRes, peopleRes, datesRes]) => {
       if (historyRes) _prGradeHistoryCache = (historyRes.result === 'success' && historyRes.history) || [];
+      if (peopleRes) _prPeopleSetupCache = (peopleRes.result === 'success' && peopleRes.people) || [];
+      if (datesRes) _prPersonDatesCache = (datesRes.result === 'success' && datesRes.dates) || [];
       _prExportSlips = (res && res.result === 'success' && res.payslips) || [];
       _prAllSectionEntriesCache = (entriesRes && entriesRes.result === 'success' && entriesRes.entries) || [];
       if (sectionsRes) _prSectionsCache = (sectionsRes.result === 'success' && sectionsRes.sections) || [];
@@ -24552,6 +24561,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         { key: 'designation', label: 'Designation', type: 'base' },
         { key: 'grade', label: 'Grade', type: 'base' },
         { key: 'step', label: 'Step', type: 'base' },
+        { key: 'dob', label: 'Date of Birth', type: 'base' },
         { key: 'joining_date', label: 'Joining Date', type: 'base' },
         { key: 'gross', label: 'Gross', type: 'base' },
         { key: 'total_deductions', label: 'Total Deductions', type: 'base' },
@@ -25530,11 +25540,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   const _PR_DATE_COLUMN_SKIP = new Set(['correction', 'fixation']);
   function _prPersonDatesValue(userId, joiningDate) {
     const dates = [];
-    if (joiningDate) dates.push(String(joiningDate).slice(0, 10));
+    if (joiningDate) dates.push(normalizeDate(joiningDate));
     (_prGradeHistoryCache || [])
       .filter(h => h.user_id === userId && h.effective_date && !_PR_DATE_COLUMN_SKIP.has(h.change_kind))
-      .forEach(h => dates.push(String(h.effective_date).slice(0, 10)));
-    return [...new Set(dates)].sort().join('\n');
+      .forEach(h => dates.push(normalizeDate(h.effective_date)));
+    return [...new Set(dates.filter(Boolean))].sort().join('\n');
   }
 
   function _prColumnValue(col, slip) {
@@ -25556,7 +25566,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         const step = setup && setup.step_id ? _prPayStepsCache.find(s => s.id === setup.step_id) : null;
         return step ? step.step_number : '';
       }
-      if (col.key === 'joining_date') { const setup = _prPeopleSetupCache.find(p => p.user_id === slip.user_id); return _prPersonDatesValue(slip.user_id, setup && setup.joining_date); }
+      // The profile's dates arrive in whatever shape they were imported in
+      // ("1976-02-03" beside "7/10/1980 13:31"), so they go through the same
+      // normalizer the profile screens already use.
+      if (col.key === 'dob') { const d = (_prPersonDatesCache || []).find(p => String(p.user_id) === String(slip.user_id)); return d && d.date_of_birth ? normalizeDate(d.date_of_birth) : ''; }
+      if (col.key === 'joining_date') {
+        const setup = _prPeopleSetupCache.find(p => p.user_id === slip.user_id);
+        const fallback = (_prPersonDatesCache || []).find(p => String(p.user_id) === String(slip.user_id));
+        return _prPersonDatesValue(slip.user_id, (setup && setup.joining_date) || (fallback && fallback.profile_joining_date));
+      }
       val = Number(slip[col.key]) || 0;
     } else if (col.type === 'field') {
       val = Number((slip.field_values || {})[col.key]) || 0;
@@ -25583,7 +25601,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // on which columns get a running total.
   function _prIsSummableColumn(c) {
     return c.type === 'field' || (c.type === 'virtual' && (c.vtype === 'sum' || c.vtype === 'diff')) ||
-      (c.type === 'base' && !['sl_no', 'person', 'user_id', 'designation', 'grade', 'step', 'joining_date'].includes(c.key));
+      (c.type === 'base' && !['sl_no', 'person', 'user_id', 'designation', 'grade', 'step', 'dob', 'joining_date'].includes(c.key));
   }
 
   // ── Fold: hide a column and add its value into another one, leaving a
