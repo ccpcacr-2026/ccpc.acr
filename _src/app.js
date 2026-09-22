@@ -17535,21 +17535,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <p id="prFixSummary" class="text-[11px] font-bold text-slate-500 mt-3"></p>
           </div>
           <div id="prFixResult"><p class="text-slate-400 font-bold text-xs p-4">Pick a month and the scales — the preview loads by itself. Click a name to see every stage of that person's pay.</p></div>
-          <div id="prProjectionModal" class="hidden fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-2 md:p-6 overflow-auto">
-            <div class="bg-white rounded-2xl w-full max-w-6xl my-4">
-              <div class="flex items-center justify-between gap-2 p-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-2xl">
-                <div class="flex items-center gap-3 flex-wrap">
-                  <div>
-                    <p id="prProjectionTitle" class="font-black text-slate-800 text-sm">Pay by stage</p>
-                    <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Each stage can go on the payroll from a month before it starts, in order</p>
-                  </div>
-                  <select id="prCalcPerson" onchange="_prPickCalcPerson(this.value)" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs max-w-[16rem]"><option value="">— pick a person —</option></select>
-                </div>
-                <button onclick="_prCloseProjection()" class="p-2 text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-4 w-4"></i></button>
+        </div>
+      </div>
+      <div id="prProjectionModal" class="hidden fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-2 md:p-6 overflow-auto">
+        <div class="bg-white rounded-2xl w-full max-w-6xl my-4">
+          <div class="flex items-center justify-between gap-2 p-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-2xl">
+            <div class="flex items-center gap-3 flex-wrap">
+              <div>
+                <p id="prProjectionTitle" class="font-black text-slate-800 text-sm">Pay by stage</p>
+                <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Each stage can go on the payroll from a month before it starts, in order</p>
               </div>
-              <div id="prProjectionBody" class="p-4"></div>
+              <select id="prCalcPerson" onchange="_prPickCalcPerson(this.value)" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs max-w-[16rem]"><option value="">— pick a person —</option></select>
             </div>
+            <button onclick="_prCloseProjection()" class="p-2 text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-4 w-4"></i></button>
           </div>
+          <div id="prProjectionBody" class="p-4"></div>
         </div>
       </div>
       <div id="pr-people" style="display:none">
