@@ -6,11 +6,20 @@
 -- edit to someone's grade. So a grade-history row now says what kind of
 -- change it was, and only 'higher_grade' rows count towards the clock:
 --
---   joining      — the row that records where they started
---   promotion    — a real promotion to another post; restarts the 8-year clock
---   higher_grade — article 6; counts, and never happens twice on one date
---   fixation     — moving onto a new National Pay Scale
---   correction   — fixing a typo or a wrong step; must never count
+--   joining         — the row that records where they started
+--   promotion       — a real promotion to another post; restarts the 8-year clock
+--   higher_grade    — article 6; counts, and never happens twice on one date
+--   time_scale      — a higher scale (টাইম স্কেল) under an earlier pay scale
+--   selection_grade — a selection grade under an earlier pay scale
+--   senior_scale    — a senior scale under an earlier pay scale
+--   fixation        — moving onto a new National Pay Scale
+--   correction      — fixing a typo or a wrong step; must never count
+--
+-- Article 6(4) puts the three older schemes on the same footing as the new
+-- higher grade: two of them in the same post and no further grade is due at
+-- all; one, and only the second is left, six years after it was given
+-- (art. 6(5)). Record what was already given with the "Had one" button in
+-- Payroll Admin -> Grades -> Pay Fixation.
 --
 -- Run this in the Supabase SQL editor after migration_nps2026.sql.
 

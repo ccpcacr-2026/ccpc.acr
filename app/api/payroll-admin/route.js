@@ -180,6 +180,15 @@ function _fixOnLadder(currentBasic, oldLadder, newLadder, giveIncrement) {
   return { diff, computed: target, index: i, cell: newLadder[i], incremented, atTop };
 }
 
+// What counts as "a higher grade already given". Article 6(4) puts the older
+// schemes on the same footing as the new higher grade — "দুই বা ততোধিক
+// সিলেকশন গ্রেড বা টাইম স্কেল বা উচ্চতর গ্রেড (যে নামেই অভিহিত হউক না কেন)" —
+// and article 2(ঘ) names senior scale, selection grade scale and higher scale
+// (time scale) as the earlier scales' equivalents. So a time scale drawn
+// years ago fills one of the two slots, and two of them close the door
+// altogether; article 6(5) then dates the remaining one six years on.
+const _UPGRADE_KINDS = new Set(['higher_grade', 'time_scale', 'selection_grade', 'senior_scale']);
+
 // Article 6 in dates, read off what actually happened to this person rather
 // than guessed from their joining date alone:
 //   · the clock starts at their last real promotion, else at joining, since
@@ -192,7 +201,7 @@ function _fixOnLadder(currentBasic, oldLadder, newLadder, giveIncrement) {
 // rule can never grant the same one twice or shift the next one.
 function _upgradeDates(joiningDate, history) {
   const rows = (Array.isArray(history) ? history : []).filter(h => h.effective_date);
-  const granted = rows.filter(h => h.change_kind === 'higher_grade').map(h => String(h.effective_date).slice(0, 10)).sort();
+  const granted = rows.filter(h => _UPGRADE_KINDS.has(h.change_kind)).map(h => String(h.effective_date).slice(0, 10)).sort();
   const promotions = rows.filter(h => h.change_kind === 'promotion').map(h => String(h.effective_date).slice(0, 10)).sort();
   const start = promotions.length ? promotions[promotions.length - 1] : (joiningDate ? String(joiningDate).slice(0, 10) : null);
   // A promotion wipes the slate: only higher grades granted since it count.
@@ -1748,7 +1757,7 @@ export async function POST(req) {
     const nameByUser = {}; (Array.isArray(profiles) ? profiles : []).forEach(p => { nameByUser[p.teacher_id] = p; });
     const fixedUpgrade = {};
     (Array.isArray(fixations) ? fixations : []).forEach(f => { (fixedUpgrade[String(f.user_id)] = fixedUpgrade[String(f.user_id)] || []).push(String(f.effective_date)); });
-    const out = [];
+    const out = [], exhausted = [];
     (people || []).forEach(p => {
       if (p.is_active === false || p.pay_type === 'contractual') return;
       const grade = gradesById[p.grade_id];
@@ -1756,9 +1765,21 @@ export async function POST(req) {
       const n = _gradeNumber(grade);
       if (!n || n <= 4) return;                                   // art. 6(3)
       const hist = history[p.user_id] || [];
+      const priorRows = hist.filter(h => _UPGRADE_KINDS.has(h.change_kind));
+      const person0 = nameByUser[p.user_id] || {};
       const dues = _upgradeDates(p.joining_date, hist);
-      if (!dues.length) return;                                   // two already, or no dates to count from
-      const granted = new Set(hist.filter(h => h.change_kind === 'higher_grade').map(h => String(h.effective_date).slice(0, 10)));
+      if (!dues.length) {
+        // Two already given, under whatever name — article 6(4) closes it.
+        if (priorRows.length >= 2) {
+          exhausted.push({
+            user_id: p.user_id, name: person0.full_name || p.user_id, grade_name: grade.name,
+            prior_count: priorRows.length,
+            prior: priorRows.map(h => ({ date: String(h.effective_date).slice(0, 10), kind: h.change_kind })),
+          });
+        }
+        return;
+      }
+      const granted = new Set(priorRows.map(h => String(h.effective_date).slice(0, 10)));
       (fixedUpgrade[String(p.user_id)] || []).forEach(d => granted.add(d));
       const next = dues.find(d => !granted.has(d));
       if (!next || next > horizon) return;                        // not due yet
@@ -1781,12 +1802,55 @@ export async function POST(req) {
         to_grade_id: up.id, to_grade_name: up.name,
         to_step_id: cell ? cell.step_id : null, to_step_number: cell ? (stepNumber[cell.step_id] ?? null) : null,
         new_basic: cell ? Number(cell.basic_value) : null,
-        due_date: next, which: granted.size >= 1 ? 'second' : 'first',
+        due_date: next, which: priorRows.length >= 1 ? 'second' : 'first',
+        prior_count: priorRows.length,
+        prior: priorRows.map(h => ({ date: String(h.effective_date).slice(0, 10), kind: h.change_kind })),
         overdue_days: Math.max(0, Math.round((Date.parse(horizon) - Date.parse(next)) / 86400000)),
       });
     });
     out.sort((a, b) => String(a.due_date).localeCompare(String(b.due_date)) || String(a.name).localeCompare(String(b.name)));
-    return NextResponse.json({ result: 'success', suggestions: out, upto: horizon, tracking_ready: Object.values(history).some(rows => rows.some(r => 'change_kind' in r)) });
+    exhausted.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    return NextResponse.json({
+      result: 'success', suggestions: out, exhausted, upto: horizon,
+      tracking_ready: Object.values(history).some(rows => rows.some(r => 'change_kind' in r)),
+    });
+  }
+
+  // Records a higher scale the office gave under an earlier pay scale — a
+  // time scale, a selection grade, a senior scale — so article 6 counts it.
+  // One of them means only the second higher grade is left, six years on
+  // (art. 6(5)); two means none at all (art. 6(4)).
+  if (action === 'record_prior_upgrade') {
+    const personId = payload.user_id;
+    const kind = ['time_scale', 'selection_grade', 'senior_scale', 'higher_grade'].includes(payload.kind) ? payload.kind : 'time_scale';
+    const count = Number(payload.count) === 2 ? 2 : 1;
+    const date = String(payload.effective_date || '').slice(0, 10);
+    if (!personId || !date) return NextResponse.json({ result: 'error', message: 'user_id and effective_date required' }, { status: 400 });
+    const rows = await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(personId)}&select=grade_id,step_id`);
+    const setup = (!rows?.error && rows[0]) || {};
+    const dates = [date];
+    if (count === 2) {
+      // The earlier of the two is dated six years back — article 6 only ever
+      // asks how many and when the last one was, and the office can correct
+      // the date on the history row itself.
+      const [y, m, d] = date.split('-');
+      dates.unshift(`${Number(y) - 6}-${m}-${d}`);
+    }
+    const written = [];
+    for (const dt of dates) {
+      const existing = await sbPayroll(`person_grade_history?user_id=eq.${encodeURIComponent(personId)}&effective_date=eq.${encodeURIComponent(dt)}&select=id,change_kind`);
+      if (!existing?.error && (existing || []).some(r => _UPGRADE_KINDS.has(r.change_kind))) continue;
+      const saved = await _historyWrite({
+        user_id: personId, grade_id: setup.grade_id || null, step_id: setup.step_id || null, pay_type: 'regular',
+        effective_date: dt, change_kind: kind,
+        note: payload.note || 'Higher scale given under an earlier pay scale (art. 6(4))',
+        created_by: user_id || null,
+      });
+      if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+      written.push(dt);
+    }
+    _prAudit(user_id, 'record_prior_upgrade', 'person_grade_history', personId, { kind, count, dates: written });
+    return NextResponse.json({ result: 'success', recorded: written });
   }
 
   if (action === 'get_pay_projection') {

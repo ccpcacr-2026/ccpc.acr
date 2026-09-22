@@ -20744,11 +20744,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <td class="py-1.5 px-3 font-black text-slate-700"><button onclick="_prOpenProjection('${_escHtml(String(s.user_id))}')" class="hover:text-blue-600 hover:underline">${_escHtml(s.name)}</button>
         <span class="block text-[10px] font-bold text-slate-400">${_escHtml(s.designation || '')}${s.service_years != null ? ` · ${s.service_years} yrs` : ''}</span></td>
       <td class="py-1.5 px-3 font-bold text-slate-500">${_escHtml(s.grade_name)} → <span class="text-emerald-600 font-black">${_escHtml(s.to_grade_name)}</span>
-        <span class="block text-[10px] font-bold text-slate-400">${s.which === 'second' ? 'Second higher grade (art. 6(2))' : 'First higher grade (art. 6(1))'}</span></td>
+        <span class="block text-[10px] font-bold text-slate-400">${s.which === 'second' ? 'Second higher grade (art. 6(2))' : 'First higher grade (art. 6(1))'}</span>
+        <span class="block text-[10px] font-bold ${s.prior_count ? 'text-amber-700' : 'text-slate-300'}">${s.prior_count ? `${_escHtml(_prPriorLabel(s.prior))} already given` : 'No earlier higher scale on record'}</span></td>
       <td class="py-1.5 px-3 font-bold text-slate-600 whitespace-nowrap">${_escHtml(s.due_date)}${s.overdue_days > 31 ? `<span class="block text-[10px] font-black uppercase text-red-500">${s.overdue_days} days overdue</span>` : ''}</td>
       <td class="py-1.5 px-3 text-right font-bold">${n(s.current_basic)}</td>
       <td class="py-1.5 px-3 text-right font-black text-slate-800">${n(s.new_basic)}<span class="block text-[10px] font-bold text-slate-400">step ${s.to_step_number ?? '—'}</span></td>
-      <td class="py-1.5 px-3 text-right"><button onclick="_prStepUpGrade('${_escHtml(String(s.user_id))}','${_escHtml(s.due_date)}')" class="px-2.5 py-1.5 bg-emerald-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Step up</button></td>
+      <td class="py-1.5 px-3 text-right whitespace-nowrap">
+        <button onclick="_prRecordPriorUpgrade('${_escHtml(String(s.user_id))}')" title="They already had a time scale or selection grade under an older pay scale — record it so article 6 counts it" class="px-2 py-1.5 border border-amber-300 text-amber-700 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-amber-100 mr-1.5">Had one</button>
+        <button onclick="_prStepUpGrade('${_escHtml(String(s.user_id))}','${_escHtml(s.due_date)}')" class="px-2.5 py-1.5 bg-emerald-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Step up</button></td>
     </tr>`).join('');
     const cards = list.map(s => `<div class="bg-white border border-amber-200 rounded-2xl p-3 mb-2">
       <div class="flex items-start justify-between gap-2">
@@ -20757,6 +20760,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <button onclick="_prStepUpGrade('${_escHtml(String(s.user_id))}','${_escHtml(s.due_date)}')" class="px-2.5 py-1.5 bg-emerald-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest">Step up</button>
       </div>
       <div class="mt-1.5 flex justify-between text-[11px] font-bold"><span class="text-slate-400">${n(s.current_basic)} → ${n(s.new_basic)}</span><span class="text-slate-400">step ${s.to_step_number ?? '—'}</span></div>
+      <div class="mt-1 flex items-center justify-between gap-2">
+        <span class="text-[10px] font-bold ${s.prior_count ? 'text-amber-700' : 'text-slate-300'}">${s.prior_count ? `${_escHtml(_prPriorLabel(s.prior))} already given` : 'No earlier higher scale on record'}</span>
+        <button onclick="_prRecordPriorUpgrade('${_escHtml(String(s.user_id))}')" class="px-2 py-1 border border-amber-300 text-amber-700 rounded-lg font-black text-[9px] uppercase tracking-widest">Had one</button>
+      </div>
     </div>`).join('');
     return `<div class="bg-amber-50 border border-amber-200 rounded-2xl p-4">
       <div class="flex items-center justify-between gap-2 flex-wrap mb-2">
@@ -20773,8 +20780,40 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <th class="py-2 px-3">Name</th><th class="py-2 px-3">Grade</th><th class="py-2 px-3">Due</th>
             <th class="py-2 px-3 text-right">Basic now</th><th class="py-2 px-3 text-right">On the higher grade</th><th class="py-2 px-3"></th>
           </tr></thead><tbody>${rowsHtml}</tbody></table></div>`}
+      ${(res.exhausted || []).length ? `<p class="text-[10px] font-bold text-amber-700/80 mt-2">${res.exhausted.length} more already had two higher scales in this post, so article 6(4) gives them no further grade: ${res.exhausted.slice(0, 8).map(x => _escHtml(x.name)).join(', ')}${res.exhausted.length > 8 ? ` and ${res.exhausted.length - 8} others` : ''}.</p>` : ''}
       ${res.tracking_ready === false ? '<p class="text-[10px] font-black uppercase tracking-widest text-amber-700 mt-2">Run migration_grade_upgrade_tracking.sql so upgrades can be told apart from manual corrections.</p>' : ''}
     </div>`;
+  }
+
+  const _PR_PRIOR_LABEL = { time_scale: 'Time scale', selection_grade: 'Selection grade', senior_scale: 'Senior scale', higher_grade: 'Higher grade' };
+  function _prPriorLabel(prior) {
+    const list = prior || [];
+    if (!list.length) return '';
+    return list.map(x => `${_PR_PRIOR_LABEL[x.kind] || 'Higher scale'} ${x.date}`).join(', ');
+  }
+
+  // An older time scale or selection grade fills one of article 6's two
+  // slots, so the office records what was already given and the worklist
+  // re-reckons: one leaves only the second grade, six years on; two leave
+  // none at all.
+  function _prRecordPriorUpgrade(personId) {
+    const s = _prUpgrades.find(x => String(x.user_id) === String(personId));
+    const name = s ? s.name : personId;
+    const howMany = prompt(`How many higher scales has ${name} already had in this post — time scale, selection grade or higher grade?\n\nType 1 or 2.`, '1');
+    if (howMany === null) return;
+    const count = Number(String(howMany).trim());
+    if (count !== 1 && count !== 2) { showToast('Type 1 or 2', 'error'); return; }
+    const when = prompt(`Date of the most recent one (YYYY-MM-DD).\n\nIf the exact date is not at hand, leave 2026-06-30 — the second grade then falls due six years later and the date can be corrected on the history row.`, '2026-06-30');
+    if (when === null) return;
+    const date = String(when).trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { showToast('Use a date like 2019-07-01', 'error'); return; }
+    _payrollFetch('record_prior_upgrade', { user_id: personId, count, effective_date: date, kind: 'time_scale' }).then(res => {
+      if (res && res.result === 'success') {
+        showToast(count === 2 ? `${name}: two higher scales recorded — no further grade due` : `${name}: one higher scale recorded`);
+        _prLoadUpgradeSuggestions();
+        _prPreviewConversion();
+      } else showToast((res && res.message) || 'Could not record it', 'error');
+    }).catch(err => showToast(err.message || 'Could not record it', 'error'));
   }
 
   function _prStepUpGrade(personId, date) {

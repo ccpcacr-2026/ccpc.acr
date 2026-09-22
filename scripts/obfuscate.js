@@ -103,7 +103,7 @@ const RESERVED = [
   '_prToggleGradesEditMode','_prUnlockPayScaleCell','_prRelockPayScaleCell','_prSwitchGradesSubtab',
   '_prSetScale','_prPreviewConversion','_prApplyConversion',
   '_prOpenProjection','_prCloseProjection','_prApplyStage',
-  '_prLoadUpgradeSuggestions','_prStepUpGrade',
+  '_prLoadUpgradeSuggestions','_prStepUpGrade','_prRecordPriorUpgrade',
   '_prSwitchFieldsMainTab','_prOpenRoleDefaultsPanel','_prSaveRoleDefaultPercent',
   '_prSwitchGradeSystem','_prOnPersonPayTypeChange',
   '_prOpenAddPersonModal','_prApOnPayTypeChange','_prApRenderStepOptions','_prSaveNewPerson',
