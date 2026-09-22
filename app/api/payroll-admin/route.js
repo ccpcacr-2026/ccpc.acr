@@ -180,6 +180,54 @@ function _fixOnLadder(currentBasic, oldLadder, newLadder, giveIncrement) {
   return { diff, computed: target, index: i, cell: newLadder[i], incremented, atTop };
 }
 
+// Every pay event between the fixation and the end of the selected month, in
+// date order: an annual increment on each 1 July (art. 9(1)), and the next
+// higher grade on completion of eight years of unpromoted service, with a
+// second six years after that (art. 6(1),(2)) — capped at grade 4 (art. 6(3))
+// and at two in the same post (art. 6(4)). Order matters: a higher grade
+// fixed before a July increment lands on a different step than after it.
+function _walkForward(o) {
+  const periodEnd = `${o.year}-${String(o.month).padStart(2, '0')}-${String(new Date(o.year, o.month, 0).getDate()).padStart(2, '0')}`;
+  const events = [];
+  for (let y = 2027; y <= Number(o.year); y++) events.push({ date: `${y}-07-01`, type: 'increment' });
+  if (o.joiningDate) {
+    const j = String(o.joiningDate).slice(0, 10).split('-');
+    const plus = n => `${Number(j[0]) + n}-${j[1]}-${j[2]}`;
+    events.push({ date: plus(8), type: 'higher' });   // art. 6(1), the ninth year
+    events.push({ date: plus(14), type: 'higher' });  // art. 6(2), six years later
+  }
+  // Same-day ties: the increment is dated 1 July, the higher grade takes
+  // effect on the day the year completes, so run the increment first.
+  events.sort((a, b) => a.date.localeCompare(b.date) || (a.type === 'higher' ? 1 : -1));
+
+  let grade = o.grade, ladder = o.ladder, index = o.index, higherCount = 0;
+  const applied = [];
+  events.forEach(ev => {
+    if (ev.date < '2026-07-01' || ev.date > periodEnd) return;
+    if (ev.type === 'increment') {
+      if (index < ladder.length - 1) index++;
+      applied.push({ date: ev.date, type: 'increment', grade: grade.name, basic: Number(ladder[index].basic_value) });
+      return;
+    }
+    if (!o.allowHigher || higherCount >= 2) return;
+    const n = _gradeNumber(grade);
+    if (!n || n <= 4) return;
+    const up = (o.grades || []).find(g => _gradeNumber(g) === n - 1 && g.pay_system !== 'contractual');
+    if (!up) return;
+    const upLadder = _ladder(o.newCells, up.id, o.stepOrder);
+    if (!upLadder.length) return;
+    // Pay in the higher grade is fixed at the step equal to, or next above,
+    // what is being drawn.
+    const basic = Number(ladder[index].basic_value);
+    let i = upLadder.findIndex(c => Number(c.basic_value) >= basic);
+    if (i < 0) i = upLadder.length - 1;
+    grade = up; ladder = upLadder; index = i; higherCount++;
+    applied.push({ date: ev.date, type: 'higher_grade', grade: grade.name, basic: Number(ladder[index].basic_value) });
+  });
+  const dues = o.joiningDate ? events.filter(e => e.type === 'higher').map(e => e.date) : [];
+  return { grade, ladder, index, cell: ladder[index], events: applied, higherApplied: higherCount, dues };
+}
+
 // Article 1(3): the rise is paid in slices — 40% (grades 1-9) or 50% (grades
 // 10-20) from July 2026, 70/75% from January 2027, in full from July 2027.
 function _phasePercent(month, year, gradeNumber) {
@@ -1457,34 +1505,36 @@ export async function POST(req) {
       if (!currentBasic) { rows.push({ ...row, skipped: 'No current Basic' }); return; }
       row.current_basic = currentBasic;
       const gradeNo = _gradeNumber(grade);
-      // Article 6: the next higher grade falls due in the ninth year, and a
-      // second one six years after that. Only offered, never assumed — it
-      // also needs a permanent post and satisfactory service.
-      let targetGrade = grade, higher = false, higherDue = null;
-      if (p.joining_date && gradeNo && gradeNo > 4) {
-        const j = new Date(p.joining_date);
-        const due = new Date(Date.UTC(j.getUTCFullYear() + 8, j.getUTCMonth(), j.getUTCDate()));
-        const periodEnd = new Date(Date.UTC(Number(year), Number(month), 0));
-        higherDue = due.toISOString().slice(0, 10);
-        if (opts.apply_higher_grade && due <= periodEnd) {
-          const up = (grades || []).find(g => _gradeNumber(g) === gradeNo - 1 && g.pay_system !== 'contractual');
-          if (up) { targetGrade = up; higher = true; }
-        }
-      }
-      row.higher_grade_due = higherDue;
-      const newLadder = _ladder(newCells, targetGrade.id, stepOrder);
-      if (!newLadder.length) { rows.push({ ...row, skipped: 'No ladder on the new scale' }); return; }
-      const fix = _fixOnLadder(currentBasic, oldLadder, newLadder, opts.give_increment !== false);
+      // Article 5 puts them on their own grade's new ladder; article 9(2)
+      // adds the single increment of 1 July 2026. The grade only changes
+      // later, if article 6 falls due before the selected month.
+      const sameLadder = _ladder(newCells, grade.id, stepOrder);
+      if (!sameLadder.length) { rows.push({ ...row, skipped: 'No ladder on the new scale' }); return; }
+      const fix = _fixOnLadder(currentBasic, oldLadder, sameLadder, opts.give_increment !== false);
       if (!fix) { rows.push({ ...row, skipped: 'Could not fix on the new scale' }); return; }
-      const pct = _phasePercent(month, year, _gradeNumber(targetGrade) || gradeNo);
-      const payable = Math.round((currentBasic + (Number(fix.cell.basic_value) - currentBasic) * pct / 100) * 100) / 100;
+      const walk = _walkForward({
+        grade, ladder: sameLadder, index: fix.index, grades, newCells, stepOrder,
+        joiningDate: p.joining_date, month, year,
+        allowHigher: opts.apply_higher_grade !== false,
+      });
+      row.higher_grade_due = walk.dues[0] || null;
+      const finalBasic = Number(walk.cell.basic_value);
+      // Article 1(3) hangs its 40/50 and 70/75 split on the pay "fixed on 1
+      // July 2026 under articles 5 and 9", so the bucket follows the grade
+      // held at that fixation. A higher grade granted later moves the pay it
+      // applies to, never the percentage — otherwise crossing into grade 9
+      // would cut the share of the rise from 75% to 70% and a promotion
+      // would leave someone worse off than staying put.
+      const pct = _phasePercent(month, year, gradeNo);
+      const payable = Math.round((currentBasic + (finalBasic - currentBasic) * pct / 100) * 100) / 100;
       rows.push({
         ...row,
-        to_grade_id: targetGrade.id, to_grade_name: targetGrade.name, higher_grade: higher,
-        diff: fix.diff, computed_basic: fix.computed, to_step_id: fix.cell.step_id,
-        to_step_number: (steps || []).find(s => s.id === fix.cell.step_id)?.step_number ?? null,
-        fixed_basic: Number(fix.cell.basic_value), increment_applied: fix.incremented, at_top: fix.atTop,
-        phase_percent: pct, payable_basic: payable, rise: Number(fix.cell.basic_value) - currentBasic,
+        to_grade_id: walk.grade.id, to_grade_name: walk.grade.name, higher_grade: walk.higherApplied > 0,
+        diff: fix.diff, computed_basic: fix.computed, to_step_id: walk.cell.step_id,
+        to_step_number: (steps || []).find(s => s.id === walk.cell.step_id)?.step_number ?? null,
+        fixed_basic: finalBasic, fixed_on_1_july_2026: Number(fix.cell.basic_value),
+        increment_applied: fix.incremented, at_top: fix.atTop, timeline: walk.events,
+        phase_percent: pct, payable_basic: payable, rise: finalBasic - currentBasic,
       });
     });
     rows.sort((a, b) => String(a.name).localeCompare(String(b.name)));
@@ -1515,7 +1565,11 @@ export async function POST(req) {
         increment_applied: !!r.increment_applied, fixed_basic: r.fixed_basic,
         phase_percent: r.phase_percent, payable_basic: r.payable_basic,
         month, year, higher_grade: !!r.higher_grade,
-        note: r.at_top ? 'Fixed at the top step of the scale' : null, created_by: user_id || null,
+        note: [
+          r.at_top ? 'Fixed at the top step of the scale' : null,
+          (r.timeline || []).map(e => `${e.date}: ${e.type === 'increment' ? 'increment' : 'higher grade ' + e.grade} → ${e.basic}`).join('; ') || null,
+        ].filter(Boolean).join(' | ') || null,
+        created_by: user_id || null,
       };
       const existing = await sbPayroll(`pay_fixations?user_id=eq.${encodeURIComponent(r.user_id)}&effective_date=eq.${encodeURIComponent(res.effective_date)}&to_scale_id=eq.${encodeURIComponent(res.to_scale_id)}&select=id`);
       const write = (!existing?.error && existing.length)

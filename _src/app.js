@@ -17524,7 +17524,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <label class="flex flex-col gap-1"><span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">To scale</span>
                 <select id="prFixTo" onchange="_prPreviewConversion()" class="px-2 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"></select></label>
               <label class="flex items-center gap-2 text-xs font-bold text-slate-600 pb-2"><input type="checkbox" id="prFixIncrement" checked onchange="_prPreviewConversion()" class="w-4 h-4 rounded accent-blue-600">One increment (art. 9(2))</label>
-              <label class="flex items-center gap-2 text-xs font-bold text-slate-600 pb-2" title="Only where the eighth year is already complete by the selected month. Still needs a permanent post and satisfactory service."><input type="checkbox" id="prFixHigher" onchange="_prPreviewConversion()" class="w-4 h-4 rounded accent-blue-600">Also give the 8-year higher grade (art. 6)</label>
+              <label class="flex items-center gap-2 text-xs font-bold text-slate-600 pb-2" title="Automatic under article 6 once the eighth year of unpromoted service is complete, and again six years later. Untick only for someone whose post is not permanent or whose service is not certified satisfactory."><input type="checkbox" id="prFixHigher" checked onchange="_prPreviewConversion()" class="w-4 h-4 rounded accent-blue-600">Higher grade when due (art. 6)</label>
               <button onclick="_prPreviewConversion()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="refresh-cw" class="h-3.5 w-3.5"></i>Refresh</button>
               <button id="prFixApplyBtn" onclick="_prApplyConversion()" disabled class="px-4 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"><i data-lucide="wand-2" class="h-3.5 w-3.5"></i>Convert All</button>
             </div>
@@ -20671,9 +20671,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <td class="py-1.5 px-3 font-black text-slate-700">${_escHtml(r.name)}${r.already_done ? ' <span class="text-[9px] font-black uppercase text-amber-600">already fixed</span>' : ''}</td>
             <td class="py-1.5 px-3 font-bold text-slate-500">${_escHtml(r.grade_name)}</td>
             <td class="py-1.5 px-3 text-right font-bold">${n(r.current_basic)}</td>
-            <td class="py-1.5 px-3 font-bold ${r.higher_grade ? 'text-emerald-600' : 'text-slate-500'}">${_escHtml(r.to_grade_name)}${r.higher_grade ? ' ↑' : ''}</td>
+            <td class="py-1.5 px-3 font-bold ${r.higher_grade ? 'text-emerald-600' : 'text-slate-500'}" title="${_escHtml((r.timeline || []).map(e => `${e.date}: ${e.type === 'increment' ? 'increment' : 'higher grade ' + e.grade} → ${e.basic}`).join('\n') || 'No further event up to this month')}">${_escHtml(r.to_grade_name)}${r.higher_grade ? ' ↑' : ''}</td>
             <td class="py-1.5 px-3 text-center font-bold">${r.to_step_number ?? '—'}${r.increment_applied ? ' <span class="text-[9px] text-blue-500">+1</span>' : ''}</td>
-            <td class="py-1.5 px-3 text-right font-black text-slate-800">${n(r.fixed_basic)}</td>
+            <td class="py-1.5 px-3 text-right font-black text-slate-800" title="Fixed on 1 July 2026: ${n(r.fixed_on_1_july_2026)}">${n(r.fixed_basic)}</td>
             <td class="py-1.5 px-3 text-center font-bold text-slate-500">${r.phase_percent}%</td>
             <td class="py-1.5 px-3 text-right font-black text-blue-600">${n(r.payable_basic)}</td></tr>`).join('')}</tbody>
       </table></div>`;
