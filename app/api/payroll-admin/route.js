@@ -1760,7 +1760,24 @@ export async function POST(req) {
       s.blocked_by_previous = !s.applied && !previousDone;
       previousDone = previousDone && s.applied;
     });
-    return { person, grade, gradeNo, currentBasic, stages, history, upgradeDates, from_scale_id: fromScaleId, to_scale_id: toScaleId, scales };
+    // The article 5 arithmetic itself, so a screen can show the working
+    // rather than just the answer.
+    const calc = {
+      current_basic: currentBasic,
+      old_scale_start: Number(oldLadder[0].basic_value),
+      new_scale_start: Number(sameLadder[0].basic_value),
+      diff: fix.diff,
+      computed_basic: fix.computed,
+      landed_basic: Number(sameLadder[fix.incremented ? fix.index - 1 : fix.index].basic_value),
+      exact_match: Number(sameLadder[fix.incremented ? fix.index - 1 : fix.index].basic_value) === fix.computed,
+      increment_applied: fix.incremented,
+      fixed_basic: Number(fix.cell.basic_value),
+      at_top: fix.atTop,
+      grade_name: grade.name,
+      old_ladder: oldLadder.map(c => Number(c.basic_value)),
+      new_ladder: sameLadder.map(c => Number(c.basic_value)),
+    };
+    return { person, grade, gradeNo, currentBasic, stages, history, upgradeDates, calc, from_scale_id: fromScaleId, to_scale_id: toScaleId, scales };
   }
 
   // ── Who is due a higher grade ───────────────────────────────────────────
@@ -1913,7 +1930,8 @@ export async function POST(req) {
     return NextResponse.json({
       result: 'success', user_id: personId,
       full_name: profile.full_name || personId, designation: profile.designation || '',
-      grade_name: res.grade.name, current_basic: res.currentBasic,
+      grade_name: res.grade.name, current_basic: res.currentBasic, calc: res.calc,
+      joining_date: res.person.joining_date || null, upgrade_dates: res.upgradeDates,
       fields: (fields || []).filter(f => f.category === 'earning' || f.category === 'deduction' || f.category === 'special'),
       columns, from_scale_id: res.from_scale_id, to_scale_id: res.to_scale_id,
     });

@@ -17538,9 +17538,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div id="prProjectionModal" class="hidden fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-2 md:p-6 overflow-auto">
             <div class="bg-white rounded-2xl w-full max-w-6xl my-4">
               <div class="flex items-center justify-between gap-2 p-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-2xl">
-                <div>
-                  <p id="prProjectionTitle" class="font-black text-slate-800 text-sm">Pay by stage</p>
-                  <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Each stage can go on the payroll from a month before it starts, in order</p>
+                <div class="flex items-center gap-3 flex-wrap">
+                  <div>
+                    <p id="prProjectionTitle" class="font-black text-slate-800 text-sm">Pay by stage</p>
+                    <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Each stage can go on the payroll from a month before it starts, in order</p>
+                  </div>
+                  <select id="prCalcPerson" onchange="_prPickCalcPerson(this.value)" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs max-w-[16rem]"><option value="">— pick a person —</option></select>
                 </div>
                 <button onclick="_prCloseProjection()" class="p-2 text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-4 w-4"></i></button>
               </div>
@@ -20527,32 +20530,94 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _prScalesCache = [];
   let _prScaleId = null;
 
+  // Every scale's cells, keyed by scale id — the grid shows them stacked, so
+  // it needs all of them, not just the one in force.
+  let _prScaleGridCells = {};
   function _prLoadPayScaleGrid() {
-    Promise.all([_payrollFetch('get_pay_steps', {}), _payrollFetch('get_grade_step_matrix', _prScaleId ? { scale_id: _prScaleId } : {})]).then(([stepsRes, matrixRes]) => {
+    Promise.all([_payrollFetch('get_pay_steps', {}), _payrollFetch('get_grade_step_matrix', {})]).then(([stepsRes, matrixRes]) => {
       _prPayStepsCache = (stepsRes && stepsRes.result === 'success' && stepsRes.steps) || [];
       _prGradeStepValuesCache = (matrixRes && matrixRes.result === 'success' && matrixRes.cells) || [];
       _prScalesCache = (matrixRes && matrixRes.scales) || [];
       _prScaleId = (matrixRes && matrixRes.scale_id) || null;
-      _prRenderScalePicker();
-      _prRenderPayScaleGrid();
+      _prScaleGridCells = {};
+      if (!_prScalesCache.length) { _prRenderPayScaleGrid(); return; }
+      // One read per scale; two of them today, and they are small.
+      Promise.all(_prScalesCache.map(s => _payrollFetch('get_grade_step_matrix', { scale_id: s.id })))
+        .then(all => {
+          all.forEach((res, i) => { _prScaleGridCells[_prScalesCache[i].id] = (res && res.result === 'success' && res.cells) || []; });
+          _prRenderPayScaleGrid();
+        });
     }).catch(err => showToast(err.message || 'Failed to load pay scale grid', 'error'));
   }
 
-  // The grid holds one scale at a time — 2015 and 2026 are different ladders
-  // for the same grades, so they can't share a table.
+  // Every scale is on screen at once, so there is nothing to pick — what the
+  // header carries instead is the way into one person's own calculation.
   function _prRenderScalePicker() {
     const host = document.getElementById('prScalePicker');
     if (!host) return;
-    if (_prScalesCache.length < 2) { host.innerHTML = ''; return; }
-    host.innerHTML = `<span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Showing</span>
-      <select onchange="_prSetScale(this.value)" title="Which National Pay Scale's ladders this grid shows and edits" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-        ${_prScalesCache.map(s => `<option value="${s.id}" ${String(s.id) === String(_prScaleId) ? 'selected' : ''}>${_escHtml(s.name)} — from ${_escHtml(String(s.effective_from))}</option>`).join('')}
-      </select>`;
+    host.innerHTML = `${_prScalesCache.length > 1 ? `<span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">${_prScalesCache.length} scales, stacked per grade</span>` : ''}
+      <button onclick="_prOpenCalcPicker()" class="px-3 py-2 border border-blue-200 text-blue-700 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-blue-50 transition-all flex items-center gap-1.5"><i data-lucide="calculator" class="h-3.5 w-3.5"></i>Pay Calculation</button>`;
   }
 
-  function _prSetScale(id) {
-    _prScaleId = Number(id) || null;
-    _prLoadPayScaleGrid();
+  // Pick a person and see their own fixation worked out on the new ladder,
+  // then every dated stage that follows.
+  function _prOpenCalcPicker() {
+    const host = document.getElementById('prProjectionModal');
+    if (!host) return;
+    host.classList.remove('hidden');
+    const title = document.getElementById('prProjectionTitle');
+    if (title) title.textContent = 'Pay calculation';
+    const body = document.getElementById('prProjectionBody');
+    if (body) body.innerHTML = '<p class="text-slate-400 font-bold text-xs p-6 text-center">Pick a person above to see the calculation.</p>';
+    const fill = () => {
+      const sel = document.getElementById('prCalcPerson');
+      if (!sel) return;
+      const rows = (_prPeopleSetupCache || []).filter(p => p.is_active !== false).map(p => ({
+        id: p.user_id,
+        name: ((allStaffCache || []).find(s => s.teacher_id === p.user_id) || {}).full_name || p.user_id,
+      })).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+      sel.innerHTML = `<option value="">— pick a person —</option>${rows.map(r => `<option value="${_escHtml(String(r.id))}">${_escHtml(r.name)}</option>`).join('')}`;
+    };
+    if (!(_prPeopleSetupCache || []).length) {
+      _payrollFetch('get_people_setup', {}).then(res => {
+        _prPeopleSetupCache = (res && res.result === 'success' && res.people) || [];
+        _ensureStaffCache(fill);
+      });
+    } else _ensureStaffCache(fill);
+    lucide.createIcons();
+  }
+
+  function _prPickCalcPerson(personId) {
+    if (personId) _prOpenProjection(personId);
+  }
+
+  // The article 5 arithmetic, line by line, with the rule beside each step —
+  // the same working an office would write out by hand on a fixation sheet.
+  function _prCalcBreakdownHtml(d) {
+    const c = d.calc;
+    if (!c) return '';
+    const n = v => Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 });
+    const line = (label, value, why, strong) => `<tr class="border-b border-slate-50">
+      <td class="py-1.5 px-3 ${strong ? 'font-black text-slate-800' : 'font-bold text-slate-600'}">${_escHtml(label)}</td>
+      <td class="py-1.5 px-3 text-right ${strong ? 'font-black text-blue-700' : 'font-bold text-slate-700'}">${value === '' ? '' : n(value)}</td>
+      <td class="py-1.5 px-3 text-[10px] font-bold text-slate-400">${_escHtml(why)}</td></tr>`;
+    return `<div class="bg-white border border-slate-200 rounded-2xl p-4 mb-3">
+      <p class="font-black text-slate-800 text-xs mb-0.5">How the new Basic was worked out</p>
+      <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-2">${_escHtml(c.grade_name)} · joined ${_escHtml(String(d.joining_date || '—'))}</p>
+      <table class="w-full text-left border-collapse text-xs">
+        <tbody>
+          ${line('Basic on 30 June 2026', c.current_basic, 'art. 2(খ) — the pay everything is measured from')}
+          ${line('First step of the old ladder', c.old_scale_start, 'the scale they were on')}
+          ${line('Difference carried across', c.diff, 'art. 5(খ)')}
+          ${line('First step of the new ladder', c.new_scale_start, 'art. 3 — the corresponding scale')}
+          ${line(`${n(c.new_scale_start)} + ${n(c.diff)}`, c.computed_basic, c.exact_match ? 'lands exactly on a step' : 'no step is exactly this')}
+          ${line(c.exact_match ? 'Fixed at that step' : 'Fixed at the next higher step', c.landed_basic, c.exact_match ? 'art. 5(খ)(অ)' : 'art. 5(খ)(আ)')}
+          ${c.increment_applied ? line('One annual increment, 1 July 2026', c.fixed_basic, 'art. 9(2)', true) : line('Fixed Basic', c.fixed_basic, 'no increment applied', true)}
+        </tbody>
+      </table>
+      ${c.at_top ? '<p class="text-[10px] font-black uppercase tracking-widest text-amber-600 mt-2">Above the top of the new ladder — fixed at its last step.</p>' : ''}
+      ${(d.upgrade_dates || []).length ? `<p class="text-[10px] font-bold text-slate-400 mt-2">Higher grade due ${_escHtml(d.upgrade_dates.join(' and '))} (art. 6), included in the time table below.</p>` : ''}
+    </div>`;
   }
 
   function _prRenderPayScaleGrid() {
@@ -20568,6 +20633,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // its OWN tiny lock so a single correction doesn't require unlocking
     // the whole grade structure — click a cell's lock, edit just that cell,
     // it re-locks itself on blur.
+    _prRenderScalePicker();
     host.innerHTML = `
       <table class="w-full text-left border-collapse text-xs">
         <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase">
@@ -20575,24 +20641,40 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           ${_prPayStepsCache.map(s => `<th class="py-2 px-3 text-center">Step ${s.step_number} <button onclick="_prDeletePayStep(${s.id})" ${_prGradesEditMode ? '' : 'disabled title="Click Enable Editing above"'} class="text-red-400 hover:text-red-600 ml-1 ${_prGradesEditMode ? '' : 'opacity-30 cursor-not-allowed'}"><i data-lucide="x" class="h-2.5 w-2.5 inline"></i></button></th>`).join('')}
         </tr></thead>
         <tbody>
-          ${grades.map(g => `
-          <tr class="border-b border-slate-50">
-            <td class="py-1.5 px-3 font-black text-slate-700 sticky left-0 bg-white">${_escHtml(g.name)}</td>
-            ${_prPayStepsCache.map(s => {
-              const key = `${g.id}:${s.id}`;
-              const val = cellMap[key];
-              const cellId = `prPSG_${g.id}_${s.id}`;
-              return `<td class="py-1.5 px-3 text-center">
-                <div class="flex items-center gap-1 justify-center">
-                  <input type="number" id="${cellId}" value="${val != null ? val : ''}" placeholder="—" ${_prGradesEditMode ? '' : 'disabled'} onchange="_prSaveGradeStepValue(${g.id},${s.id},this.value)" onblur="_prRelockPayScaleCell(this)" class="w-20 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs text-center disabled:opacity-50 disabled:cursor-not-allowed">
-                  ${_prGradesEditMode ? '' : `<button onclick="_prUnlockPayScaleCell('${cellId}')" title="Unlock just this cell to edit" class="shrink-0 text-slate-300 hover:text-amber-600"><i data-lucide="lock" class="h-3 w-3"></i></button>`}
-                </div>
-              </td>`;
-            }).join('')}
-          </tr>`).join('')}
+          ${grades.map(g => _prScaleRowsHtml(g)).join('')}
         </tbody>
       </table>`;
     lucide.createIcons();
+  }
+
+  // Each grade gets one row per National Pay Scale, stacked, so the old and
+  // the new ladder read straight down against each other step by step — the
+  // comparison is the whole point of the screen while a fixation is being
+  // checked. Each row edits its own scale; with only one scale on record
+  // there is just the one row, exactly as before.
+  function _prScaleRowsHtml(g) {
+    const scales = _prScalesCache.length ? _prScalesCache : [null];
+    return scales.map((scale, i) => {
+      const cells = scale ? (_prScaleGridCells[scale.id] || []) : _prGradeStepValuesCache;
+      const map = {}; cells.forEach(c => { map[`${c.grade_id}:${c.step_id}`] = c.basic_value; });
+      const isNewest = scale && i === scales.length - 1;
+      const rowCls = isNewest && scales.length > 1 ? 'bg-blue-50/40' : '';
+      return `<tr class="${i === scales.length - 1 ? 'border-b border-slate-200' : ''} ${rowCls}">
+        <td class="py-1 px-3 sticky left-0 ${isNewest && scales.length > 1 ? 'bg-blue-50' : 'bg-white'}">
+          ${i === 0 ? `<span class="font-black text-slate-700">${_escHtml(g.name)}</span>` : ''}
+          ${scale ? `<span class="block text-[9px] font-black uppercase tracking-widest ${isNewest && scales.length > 1 ? 'text-blue-600' : 'text-slate-400'}">${_escHtml(scale.code || scale.name)}</span>` : ''}
+        </td>
+        ${_prPayStepsCache.map(s => {
+          const val = map[`${g.id}:${s.id}`];
+          const cellId = `prPSG_${scale ? scale.id : 0}_${g.id}_${s.id}`;
+          return `<td class="py-1 px-2 text-center">
+            <div class="flex items-center gap-1 justify-center">
+              <input type="number" id="${cellId}" value="${val != null ? val : ''}" placeholder="—" ${_prGradesEditMode ? '' : 'disabled'} onchange="_prSaveGradeStepValue(${g.id},${s.id},this.value,${scale ? scale.id : 'null'})" onblur="_prRelockPayScaleCell(this)" class="w-20 px-2 py-1 ${isNewest && scales.length > 1 ? 'bg-white border-blue-200 font-black' : 'bg-slate-50 border-slate-200 font-bold'} border rounded-lg text-xs text-center disabled:opacity-60 disabled:cursor-not-allowed">
+              ${_prGradesEditMode ? '' : `<button onclick="_prUnlockPayScaleCell('${cellId}')" title="Unlock just this cell to edit" class="shrink-0 text-slate-300 hover:text-amber-600"><i data-lucide="lock" class="h-3 w-3"></i></button>`}
+            </div></td>`;
+        }).join('')}
+      </tr>`;
+    }).join('');
   }
 
   // Momentary, single-cell unlock — used while the grid is otherwise
@@ -20877,7 +20959,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const d = _prProjection;
     if (!body || !d) return;
     if (title) title.textContent = `${d.full_name} — ${d.designation || ''} · ${d.grade_name}`;
-    body.innerHTML = window.innerWidth < 768 ? _prProjectionCardsHtml(d) : _prProjectionTableHtml(d);
+    const sel = document.getElementById('prCalcPerson');
+    if (sel && sel.value !== String(d.user_id)) sel.value = String(d.user_id);
+    body.innerHTML = _prCalcBreakdownHtml(d)
+      + '<p class="font-black text-slate-800 text-xs mb-2">Time table — what is paid from each date</p>'
+      + (window.innerWidth < 768 ? _prProjectionCardsHtml(d) : _prProjectionTableHtml(d));
     lucide.createIcons();
   }
 
@@ -20989,12 +21075,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }).catch(err => showToast(err.message || 'Failed to delete step', 'error'));
   }
 
-  function _prSaveGradeStepValue(gradeId, stepId, value) {
-    _payrollFetch('save_grade_step_value', { grade_id: gradeId, step_id: stepId, basic_value: value, scale_id: _prScaleId }).then(res => {
+  function _prSaveGradeStepValue(gradeId, stepId, value, scaleId) {
+    const scale = scaleId || _prScaleId;
+    _payrollFetch('save_grade_step_value', { grade_id: gradeId, step_id: stepId, basic_value: value, scale_id: scale }).then(res => {
       if (res && res.result === 'success') {
-        const existing = _prGradeStepValuesCache.find(c => c.grade_id === gradeId && c.step_id === stepId);
+        const bucket = scale && _prScaleGridCells[scale] ? _prScaleGridCells[scale] : _prGradeStepValuesCache;
+        const existing = bucket.find(c => c.grade_id === gradeId && c.step_id === stepId);
         if (existing) existing.basic_value = value === '' ? null : Number(value);
-        else _prGradeStepValuesCache.push({ grade_id: gradeId, step_id: stepId, basic_value: value === '' ? null : Number(value) });
+        else bucket.push({ grade_id: gradeId, step_id: stepId, basic_value: value === '' ? null : Number(value) });
         showToast('Saved');
       } else showToast((res && res.message) || 'Failed to save', 'error');
     }).catch(err => showToast(err.message || 'Failed to save', 'error'));
