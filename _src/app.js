@@ -17530,7 +17530,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </div>
             <p id="prFixSummary" class="text-[11px] font-bold text-slate-500 mt-3"></p>
           </div>
-          <div id="prFixResult"><p class="text-slate-400 font-bold text-xs p-4">Pick a month and the scales — the preview loads by itself.</p></div>
+          <div id="prFixResult"><p class="text-slate-400 font-bold text-xs p-4">Pick a month and the scales — the preview loads by itself. Click a name to see every stage of that person's pay.</p></div>
+          <div id="prProjectionModal" class="hidden fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-2 md:p-6 overflow-auto">
+            <div class="bg-white rounded-2xl w-full max-w-6xl my-4">
+              <div class="flex items-center justify-between gap-2 p-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-2xl">
+                <div>
+                  <p id="prProjectionTitle" class="font-black text-slate-800 text-sm">Pay by stage</p>
+                  <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Each stage can go on the payroll from a month before it starts, in order</p>
+                </div>
+                <button onclick="_prCloseProjection()" class="p-2 text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-4 w-4"></i></button>
+              </div>
+              <div id="prProjectionBody" class="p-4"></div>
+            </div>
+          </div>
         </div>
       </div>
       <div id="pr-people" style="display:none">
@@ -20668,7 +20680,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <td class="py-1.5 px-3">${_escHtml(r.grade_name || '—')}</td>
             <td colspan="6" class="py-1.5 px-3 italic text-slate-400 font-bold">${_escHtml(r.skipped)}</td></tr>`
       : `<tr class="border-b border-slate-50">
-            <td class="py-1.5 px-3 font-black text-slate-700">${_escHtml(r.name)}${r.already_done ? ' <span class="text-[9px] font-black uppercase text-amber-600">already fixed</span>' : ''}</td>
+            <td class="py-1.5 px-3 font-black text-slate-700"><button onclick="_prOpenProjection('${_escHtml(String(r.user_id))}')" title="See every stage of this person's pay" class="text-left hover:text-blue-600 hover:underline">${_escHtml(r.name)}</button>${r.already_done ? ' <span class="text-[9px] font-black uppercase text-amber-600">already fixed</span>' : ''}</td>
             <td class="py-1.5 px-3 font-bold text-slate-500">${_escHtml(r.grade_name)}</td>
             <td class="py-1.5 px-3 text-right font-bold">${n(r.current_basic)}</td>
             <td class="py-1.5 px-3 font-bold ${r.higher_grade ? 'text-emerald-600' : 'text-slate-500'}" title="${_escHtml((r.timeline || []).map(e => `${e.date}: ${e.type === 'increment' ? 'increment' : 'higher grade ' + e.grade} → ${e.basic}`).join('\n') || 'No further event up to this month')}">${_escHtml(r.to_grade_name)}${r.higher_grade ? ' ↑' : ''}</td>
@@ -20686,7 +20698,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       ? `<div class="bg-white border border-slate-200 rounded-2xl p-3 mb-2 opacity-60">
           <p class="font-black text-slate-700 text-sm">${_escHtml(r.name)}</p>
           <p class="text-[11px] font-bold text-slate-400 italic mt-0.5">${_escHtml(r.skipped)}</p></div>`
-      : `<div class="bg-white border border-slate-200 rounded-2xl p-3 mb-2">
+      : `<div class="bg-white border border-slate-200 rounded-2xl p-3 mb-2" onclick="_prOpenProjection('${_escHtml(String(r.user_id))}')">
           <div class="flex items-start justify-between gap-2">
             <div><p class="font-black text-slate-800 text-sm">${_escHtml(r.name)}</p>
               <p class="text-[10px] font-black uppercase tracking-widest text-slate-400">${_escHtml(r.grade_name)} → ${_escHtml(r.to_grade_name)}${r.higher_grade ? ' (higher grade)' : ''} · step ${r.to_step_number ?? '—'}</p></div>
@@ -20697,6 +20709,118 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <div><p class="text-[9px] font-black uppercase text-slate-400">Fixed</p><p class="font-black text-slate-800 text-xs">${n(r.fixed_basic)}</p></div>
             <div><p class="text-[9px] font-black uppercase text-slate-400">Payable</p><p class="font-black text-blue-600 text-xs">${n(r.payable_basic)}</p></div>
           </div></div>`).join('');
+  }
+
+  // ── One person's pay, stage by stage ───────────────────────────────────
+  // Clicking a name opens every dated stage side by side — the fixation, each
+  // phase boundary, every 1 July increment and the article 6 higher grade —
+  // with the whole payslip at each one. Each stage carries its own button
+  // that puts just that stage on the payroll; it unlocks a month before the
+  // stage starts, and only once the stage before it has been applied.
+  let _prProjection = null;
+  function _prOpenProjection(personId) {
+    const host = document.getElementById('prProjectionModal');
+    if (!host) return;
+    host.classList.remove('hidden');
+    const body = document.getElementById('prProjectionBody');
+    if (body) body.innerHTML = '<p class="text-slate-400 font-bold text-xs p-6 text-center">Working out every stage…</p>';
+    const p = _prFixParams();
+    _payrollFetch('get_pay_projection', { user_id: personId, from_scale_id: p.from_scale_id, to_scale_id: p.to_scale_id, give_increment: p.give_increment, apply_higher_grade: p.apply_higher_grade }).then(res => {
+      if (!res || res.result !== 'success') {
+        if (body) body.innerHTML = `<div class="p-6"><p class="font-black text-amber-700 text-xs">${_escHtml((res && res.message) || 'Could not work out the stages')}</p></div>`;
+        return;
+      }
+      _prProjection = res;
+      _prRenderProjection();
+    }).catch(err => showToast(err.message || 'Failed to load the stages', 'error'));
+  }
+
+  function _prCloseProjection() {
+    const host = document.getElementById('prProjectionModal');
+    if (host) host.classList.add('hidden');
+    _prProjection = null;
+  }
+
+  function _prRenderProjection() {
+    const body = document.getElementById('prProjectionBody');
+    const title = document.getElementById('prProjectionTitle');
+    const d = _prProjection;
+    if (!body || !d) return;
+    if (title) title.textContent = `${d.full_name} — ${d.designation || ''} · ${d.grade_name}`;
+    body.innerHTML = window.innerWidth < 768 ? _prProjectionCardsHtml(d) : _prProjectionTableHtml(d);
+    lucide.createIcons();
+  }
+
+  const _PR_STAGE_LABEL = { fixation: 'Fixation', phase: 'Phase', increment: 'Increment', higher_grade: 'Higher grade' };
+
+  function _prStageButtonHtml(st) {
+    if (st.applied) return `<span class="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-100 text-emerald-700 font-black text-[9px] uppercase tracking-widest"><i data-lucide="check" class="h-3 w-3"></i>On payroll</span>`;
+    if (st.can_apply) return `<button onclick="_prApplyStage('${st.date}')" class="px-2 py-1 bg-blue-600 text-white rounded-lg font-black text-[9px] uppercase tracking-widest hover:bg-black transition-all">Adjust payroll</button>`;
+    if (st.blocked_by_previous) return `<span class="text-[9px] font-black uppercase tracking-widest text-slate-300">After the previous stage</span>`;
+    return `<span class="text-[9px] font-black uppercase tracking-widest text-slate-300">Opens ${_escHtml(st.opens_on)}</span>`;
+  }
+
+  function _prProjectionTableHtml(d) {
+    const n = v => (v == null || v === '' || Number(v) === 0 ? '—' : Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 }));
+    const head = d.columns.map(st => `<th class="py-2 px-3 text-right align-bottom ${st.applied ? 'bg-emerald-50' : ''}">
+      <div class="font-black text-slate-700 text-[11px]">${_escHtml(st.date)}</div>
+      <div class="text-[9px] font-black uppercase tracking-widest text-slate-400">${_escHtml(_PR_STAGE_LABEL[st.event] || st.event)} · ${_escHtml(st.grade_name)} step ${st.step_number ?? '—'} · ${st.phase_percent}%</div>
+      <div class="mt-1.5">${_prStageButtonHtml(st)}</div></th>`).join('');
+    const row = (label, pick, cls) => `<tr class="border-b border-slate-50 ${cls || ''}">
+      <td class="py-1.5 px-3 font-bold text-slate-600 sticky left-0 bg-white">${_escHtml(label)}</td>
+      ${d.columns.map(st => `<td class="py-1.5 px-3 text-right ${st.applied ? 'bg-emerald-50/50' : ''}">${n(pick(st))}</td>`).join('')}</tr>`;
+    const group = cat => d.fields.filter(f => f.category === cat && d.columns.some(st => Number(st.field_values[f.key]) > 0));
+    return `<div class="overflow-auto">
+      <table class="w-full text-left border-collapse text-xs">
+        <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3 sticky left-0 bg-slate-50">Component</th>${head}</tr></thead>
+        <tbody>
+          ${row('Basic (in the 2026 scale)', st => st.fixed_basic, 'bg-slate-50/60')}
+          ${row('Basic drawn (after the phase)', st => st.drawn_basic, 'font-black')}
+          ${[...group('earning'), ...group('special')].filter(f => f.key !== 'basic').map(f => row(f.label, st => st.field_values[f.key])).join('')}
+          ${row('Gross', st => st.gross, 'bg-slate-50 font-black text-slate-800')}
+          ${group('deduction').map(f => row(f.label, st => st.field_values[f.key])).join('')}
+          ${row('Total deductions', st => st.total_deductions, 'bg-slate-50 font-black text-slate-800')}
+          ${row('Net salary', st => st.net, 'bg-blue-50 font-black text-blue-700')}
+        </tbody>
+      </table>
+      <p class="text-[10px] font-bold text-slate-400 mt-3">Basic on 30 June 2026: ${Number(d.current_basic).toLocaleString()} — every phase is measured from it. Month-specific items (bonus, leave deduction, new loan instalments) are not projected; they stay as they are today.</p>
+    </div>`;
+  }
+
+  // Phone: one card per stage instead of a table scrolled sideways.
+  function _prProjectionCardsHtml(d) {
+    const n = v => (v == null || v === '' || Number(v) === 0 ? '—' : Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 }));
+    const shown = cat => d.fields.filter(f => f.category === cat && f.key !== 'basic');
+    return d.columns.map(st => `<div class="bg-white border ${st.applied ? 'border-emerald-300' : 'border-slate-200'} rounded-2xl p-3 mb-2">
+      <div class="flex items-start justify-between gap-2">
+        <div><p class="font-black text-slate-800 text-sm">${_escHtml(st.date)}</p>
+          <p class="text-[10px] font-black uppercase tracking-widest text-slate-400">${_escHtml(_PR_STAGE_LABEL[st.event] || st.event)} · ${_escHtml(st.grade_name)} step ${st.step_number ?? '—'} · ${st.phase_percent}%</p></div>
+        ${_prStageButtonHtml(st)}
+      </div>
+      <div class="mt-2 flex flex-col gap-0.5">
+        <div class="flex justify-between text-[11px] font-black"><span class="text-slate-500">Basic drawn</span><span>${n(st.drawn_basic)}</span></div>
+        ${[...shown('earning'), ...shown('special')].filter(f => Number(st.field_values[f.key]) > 0).map(f => `<div class="flex justify-between text-[11px]"><span class="text-slate-400 font-bold">${_escHtml(f.label)}</span><span class="font-bold">${n(st.field_values[f.key])}</span></div>`).join('')}
+        <div class="flex justify-between text-[11px] font-black border-t border-slate-100 mt-1 pt-1"><span>Gross</span><span>${n(st.gross)}</span></div>
+        ${shown('deduction').filter(f => Number(st.field_values[f.key]) > 0).map(f => `<div class="flex justify-between text-[11px]"><span class="text-slate-400 font-bold">${_escHtml(f.label)}</span><span class="font-bold text-red-500">−${n(st.field_values[f.key])}</span></div>`).join('')}
+        <div class="flex justify-between text-[11px] font-black"><span>Total deductions</span><span class="text-red-600">−${n(st.total_deductions)}</span></div>
+        <div class="flex justify-between text-xs font-black border-t border-slate-100 mt-1 pt-1"><span class="text-blue-700">Net salary</span><span class="text-blue-700">${n(st.net)}</span></div>
+      </div></div>`).join('');
+  }
+
+  function _prApplyStage(date) {
+    const d = _prProjection;
+    if (!d) return;
+    const st = (d.columns || []).find(x => x.date === date);
+    if (!st) return;
+    if (!confirm(`Put the ${date} stage on ${d.full_name}'s payroll?\n\n${st.grade_name} step ${st.step_number ?? '—'}, Basic ${Number(st.drawn_basic).toLocaleString()} (${st.phase_percent}% of the rise), net ${Number(st.net).toLocaleString()}.`)) return;
+    const p = _prFixParams();
+    _payrollFetch('apply_pay_stage', { user_id: d.user_id, effective_date: date, from_scale_id: d.from_scale_id, to_scale_id: d.to_scale_id, give_increment: p.give_increment, apply_higher_grade: p.apply_higher_grade }).then(res => {
+      if (res && res.result === 'success') {
+        showToast(`${date} applied`);
+        _prOpenProjection(d.user_id);
+        _prPreviewConversion();
+      } else showToast((res && res.message) || 'Could not apply that stage', 'error');
+    }).catch(err => showToast(err.message || 'Could not apply that stage', 'error'));
   }
 
   function _prApplyConversion() {

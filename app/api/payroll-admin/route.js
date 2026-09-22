@@ -1541,6 +1541,176 @@ export async function POST(req) {
     return { rows, scales, from_scale_id: fromScaleId, to_scale_id: toScaleId, effective_date: effective };
   }
 
+  // ── One person's pay, stage by stage ────────────────────────────────────
+  // The order raises pay in steps, not in one go, so a person's pay has five
+  // or six dated stages: the fixation itself, each phase boundary, every
+  // 1 July increment and the article 6 higher grade. This returns a full
+  // payslip at each of them, plus which stages have already been put on the
+  // payroll and which one may be put on next.
+  const _PROJECTION_DATES = ['2026-07-01', '2027-01-01', '2027-07-01', '2028-01-01', '2028-07-01'];
+
+  async function _payStages(personId, opts) {
+    const scales = await _payScales();
+    if (!scales.length) return { error: 'No pay scales yet — run migration_nps2026.sql in Supabase first.' };
+    const fromScaleId = opts.from_scale_id ? Number(opts.from_scale_id) : scales[0].id;
+    const toScaleId = opts.to_scale_id ? Number(opts.to_scale_id) : scales[scales.length - 1].id;
+    const [personRows, grades, steps, oldCells, newCells, values, applied] = await Promise.all([
+      sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(personId)}&select=*`),
+      sbPayroll('grades?select=*&order=sort_order.asc,id.asc'),
+      sbPayroll('pay_steps?select=*&order=sort_order.asc,step_number.asc'),
+      sbPayroll(`grade_step_values?${_scaleFilter(fromScaleId)}select=*`),
+      sbPayroll(`grade_step_values?${_scaleFilter(toScaleId)}select=*`),
+      sbPayroll(`person_field_values?user_id=eq.${encodeURIComponent(personId)}&select=user_id,basic`),
+      sbPayroll(`pay_fixations?user_id=eq.${encodeURIComponent(personId)}&to_scale_id=eq.${encodeURIComponent(toScaleId)}&select=effective_date,payable_basic,created_at&order=effective_date.asc`),
+    ]);
+    const person = (!personRows?.error && personRows[0]) || null;
+    if (!person) return { error: 'No payroll setup for this person yet.' };
+    const grade = (grades || []).find(g => String(g.id) === String(person.grade_id));
+    if (!grade) return { error: 'No grade set for this person.' };
+    const stepOrder = {}; (steps || []).forEach(s => { stepOrder[s.id] = s.sort_order ?? s.step_number ?? 0; });
+    const stepNumber = {}; (steps || []).forEach(s => { stepNumber[s.id] = s.step_number; });
+    const oldLadder = _ladder(oldCells, person.grade_id, stepOrder);
+    const sameLadder = _ladder(newCells, person.grade_id, stepOrder);
+    if (!oldLadder.length || !sameLadder.length) return { error: 'This grade has no ladder on one of the two scales.' };
+    const appliedRows = Array.isArray(applied) ? applied : [];
+    // Basic on 30 June 2026 — the anchor the whole order measures from. Once
+    // a stage has been applied, person_field_values.basic holds a phased
+    // amount instead, so the first fixation record is the truth.
+    const stored = (!values?.error && values[0] && values[0].basic != null) ? Number(values[0].basic) : null;
+    const firstApplied = appliedRows.length ? appliedRows[0] : null;
+    const anchorRows = firstApplied ? await sbPayroll(`pay_fixations?user_id=eq.${encodeURIComponent(personId)}&to_scale_id=eq.${encodeURIComponent(toScaleId)}&select=current_basic&order=effective_date.asc&limit=1`) : null;
+    const currentBasic = (Array.isArray(anchorRows) && anchorRows[0] && anchorRows[0].current_basic != null)
+      ? Number(anchorRows[0].current_basic)
+      : (stored ?? Number((oldLadder.find(c => String(c.step_id) === String(person.step_id)) || {}).basic_value || 0));
+    if (!currentBasic) return { error: 'No Basic on record for this person.' };
+    const gradeNo = _gradeNumber(grade);
+    const fix = _fixOnLadder(currentBasic, oldLadder, sameLadder, opts.give_increment !== false);
+    if (!fix) return { error: 'Could not fix this person on the new scale.' };
+
+    // The five phase/increment dates, plus this person's own article 6 dates.
+    const dates = new Set(_PROJECTION_DATES);
+    if (person.joining_date) {
+      const j = String(person.joining_date).slice(0, 10).split('-');
+      [8, 14].forEach(n => {
+        const d = `${Number(j[0]) + n}-${j[1]}-${j[2]}`;
+        if (d >= '2026-07-01' && d <= _PROJECTION_DATES[_PROJECTION_DATES.length - 1] && opts.apply_higher_grade !== false) dates.add(d);
+      });
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    const appliedByDate = {}; appliedRows.forEach(a => { appliedByDate[String(a.effective_date)] = a; });
+    const stages = [...dates].sort().map(date => {
+      const [y, m] = date.split('-').map(Number);
+      const walk = _walkForward({
+        grade, ladder: sameLadder, index: fix.index, grades, newCells, stepOrder,
+        joiningDate: person.joining_date, month: m, year: y,
+        allowHigher: opts.apply_higher_grade !== false,
+      });
+      const basic = Number(walk.cell.basic_value);
+      const pct = _phasePercent(m, y, gradeNo);
+      const drawn = Math.round((currentBasic + (basic - currentBasic) * pct / 100) * 100) / 100;
+      const event = walk.events.filter(e => e.date === date).map(e => e.type);
+      // A stage can be put on the payroll a month before it starts, and only
+      // after the one before it has been.
+      const opensOn = (() => {
+        const d = new Date(Date.UTC(y, m - 1, 1));
+        d.setUTCMonth(d.getUTCMonth() - 1);
+        return d.toISOString().slice(0, 10);
+      })();
+      return {
+        date, month: m, year: y,
+        grade_id: walk.grade.id, grade_name: walk.grade.name,
+        step_id: walk.cell.step_id, step_number: stepNumber[walk.cell.step_id] ?? null,
+        fixed_basic: basic, phase_percent: pct, drawn_basic: drawn,
+        event: event.includes('higher_grade') ? 'higher_grade' : (event.includes('increment') ? 'increment' : (date === '2026-07-01' ? 'fixation' : 'phase')),
+        applied: !!appliedByDate[date], applied_at: appliedByDate[date] ? appliedByDate[date].created_at : null,
+        opens_on: opensOn, open: today >= opensOn,
+      };
+    });
+    let previousDone = true;
+    stages.forEach(s => {
+      s.can_apply = !s.applied && s.open && previousDone;
+      s.blocked_by_previous = !s.applied && !previousDone;
+      previousDone = previousDone && s.applied;
+    });
+    return { person, grade, gradeNo, currentBasic, stages, from_scale_id: fromScaleId, to_scale_id: toScaleId, scales };
+  }
+
+  if (action === 'get_pay_projection') {
+    const personId = payload.user_id;
+    if (!personId) return NextResponse.json({ result: 'error', message: 'user_id required' }, { status: 400 });
+    const res = await _payStages(personId, payload);
+    if (res.error) return NextResponse.json({ result: 'error', message: res.error }, { status: 400 });
+    // One reference load, reused for every stage: the projection is about
+    // pay, not about a particular month's bonuses, leave cuts or loan
+    // instalments, which stay as they are today.
+    const roles = await _rolesForUsers([personId]);
+    const categories = await _categoriesForUsers([personId]);
+    const [ref, profileRows, fields] = await Promise.all([
+      _loadPayrollRef([personId], res.stages[0].month, res.stages[0].year),
+      _teacherSchemaFetch(`users_profile?teacher_id=eq.${encodeURIComponent(personId)}&select=full_name,designation`),
+      sbPayroll('fields?is_active=eq.true&select=id,key,label,category,sort_order&order=sort_order.asc'),
+    ]);
+    const columns = res.stages.map(st => {
+      const hypothetical = { ...res.person, grade_id: st.grade_id, step_id: st.step_id };
+      const refForStage = { ...ref, personFieldValuesByUser: { ...ref.personFieldValuesByUser } };
+      refForStage.personFieldValuesByUser[personId] = { ...(ref.personFieldValuesByUser[personId] || { user_id: personId }), basic: st.drawn_basic };
+      const slip = _computePayslipForPerson(hypothetical, roles[personId] || [], categories[personId] || '', refForStage, st.month, st.year);
+      return { ...st, field_values: slip.field_values, gross: slip.gross, total_deductions: slip.total_deductions, net: slip.net };
+    });
+    const profile = (Array.isArray(profileRows) && profileRows[0]) || {};
+    return NextResponse.json({
+      result: 'success', user_id: personId,
+      full_name: profile.full_name || personId, designation: profile.designation || '',
+      grade_name: res.grade.name, current_basic: res.currentBasic,
+      fields: (fields || []).filter(f => f.category === 'earning' || f.category === 'deduction' || f.category === 'special'),
+      columns, from_scale_id: res.from_scale_id, to_scale_id: res.to_scale_id,
+    });
+  }
+
+  // Puts one stage on the payroll: the same write the bulk conversion does,
+  // for one person and one dated stage. Recomputed here, never taken from
+  // the browser.
+  if (action === 'apply_pay_stage') {
+    const personId = payload.user_id;
+    const date = String(payload.effective_date || '');
+    if (!personId || !date) return NextResponse.json({ result: 'error', message: 'user_id and effective_date required' }, { status: 400 });
+    const res = await _payStages(personId, payload);
+    if (res.error) return NextResponse.json({ result: 'error', message: res.error }, { status: 400 });
+    const stage = res.stages.find(s => s.date === date);
+    if (!stage) return NextResponse.json({ result: 'error', message: 'That stage is not one of this person\'s stages.' }, { status: 400 });
+    if (stage.applied) return NextResponse.json({ result: 'error', message: 'This stage is already on the payroll.' }, { status: 400 });
+    if (stage.blocked_by_previous) return NextResponse.json({ result: 'error', message: 'Put the earlier stage on the payroll first.' }, { status: 400 });
+    if (!stage.open) return NextResponse.json({ result: 'error', message: `This stage can be applied from ${stage.opens_on}.` }, { status: 400 });
+    const fixation = {
+      user_id: personId, effective_date: stage.date,
+      from_scale_id: res.from_scale_id, to_scale_id: res.to_scale_id,
+      grade_id: res.person.grade_id, to_grade_id: stage.grade_id,
+      from_step_id: res.person.step_id, to_step_id: stage.step_id,
+      current_basic: res.currentBasic, diff: stage.fixed_basic - res.currentBasic,
+      computed_basic: stage.fixed_basic, increment_applied: stage.event === 'increment',
+      fixed_basic: stage.fixed_basic, phase_percent: stage.phase_percent, payable_basic: stage.drawn_basic,
+      month: stage.month, year: stage.year, higher_grade: stage.event === 'higher_grade',
+      note: `Stage ${stage.date} (${stage.event})`, created_by: user_id || null,
+    };
+    const existing = await sbPayroll(`pay_fixations?user_id=eq.${encodeURIComponent(personId)}&effective_date=eq.${encodeURIComponent(stage.date)}&to_scale_id=eq.${encodeURIComponent(res.to_scale_id)}&select=id`);
+    const write = (!existing?.error && existing.length)
+      ? await sbPayroll(`pay_fixations?id=eq.${existing[0].id}`, 'PATCH', fixation)
+      : await sbPayroll('pay_fixations', 'POST', fixation);
+    if (write?.error) return NextResponse.json({ result: 'error', message: write.error }, { status: 500 });
+    const setup = await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(personId)}`, 'PATCH', { grade_id: stage.grade_id, step_id: stage.step_id });
+    if (setup?.error) return NextResponse.json({ result: 'error', message: setup.error }, { status: 500 });
+    const basicWrite = await sbPayroll(`person_field_values?user_id=eq.${encodeURIComponent(personId)}`, 'PATCH', { basic: stage.drawn_basic });
+    if (basicWrite?.error) return NextResponse.json({ result: 'error', message: basicWrite.error }, { status: 500 });
+    if (stage.event === 'higher_grade') {
+      await sbPayroll('person_grade_history', 'POST', {
+        user_id: personId, grade_id: stage.grade_id, step_id: stage.step_id, pay_type: 'regular',
+        effective_date: stage.date, note: 'Higher grade on eight years of service (art. 6)', created_by: user_id || null,
+      });
+    }
+    _prAudit(user_id, 'apply_pay_stage', 'pay_fixations', personId, { date: stage.date, drawn_basic: stage.drawn_basic, grade_id: stage.grade_id, step_id: stage.step_id });
+    return NextResponse.json({ result: 'success', stage });
+  }
+
   if (action === 'preview_pay_conversion' || action === 'apply_pay_conversion') {
     const month = Number(payload.month) || new Date().getMonth() + 1;
     const year = Number(payload.year) || new Date().getFullYear();

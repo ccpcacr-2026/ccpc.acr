@@ -102,6 +102,7 @@ const RESERVED = [
   '_prShowFieldSummary','_prHideFieldSummary',
   '_prToggleGradesEditMode','_prUnlockPayScaleCell','_prRelockPayScaleCell','_prSwitchGradesSubtab',
   '_prSetScale','_prPreviewConversion','_prApplyConversion',
+  '_prOpenProjection','_prCloseProjection','_prApplyStage',
   '_prSwitchFieldsMainTab','_prOpenRoleDefaultsPanel','_prSaveRoleDefaultPercent',
   '_prSwitchGradeSystem','_prOnPersonPayTypeChange',
   '_prOpenAddPersonModal','_prApOnPayTypeChange','_prApRenderStepOptions','_prSaveNewPerson',
