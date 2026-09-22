@@ -17509,6 +17509,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div id="prPayScaleGrid" class="overflow-auto"><p class="text-slate-400 font-bold text-xs p-4 text-center">Loading…</p></div>
         </div>
         <div id="prGradesSubtab-fixation" class="hidden">
+          <div id="prUpgradeSuggestions" class="mb-3"></div>
           <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-3">
             <p class="font-black text-slate-800 text-xs">Pay Fixation — move everyone to a new National Pay Scale</p>
             <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5 mb-3">Fixes each person on the new ladder (art. 5), adds the one increment (art. 9(2)) and pays the phased share for the month you pick (art. 1(3)). Grade and step are set automatically.</p>
@@ -20625,6 +20626,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       fill('prFixTo', _prScalesCache[_prScalesCache.length - 1].id);
     }
     _prPreviewConversion();
+    _prLoadUpgradeSuggestions();
   }
 
   function _prFixParams() {
@@ -20709,6 +20711,84 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <div><p class="text-[9px] font-black uppercase text-slate-400">Fixed</p><p class="font-black text-slate-800 text-xs">${n(r.fixed_basic)}</p></div>
             <div><p class="text-[9px] font-black uppercase text-slate-400">Payable</p><p class="font-black text-blue-600 text-xs">${n(r.payable_basic)}</p></div>
           </div></div>`).join('');
+  }
+
+  // ── Who is due a higher grade ──────────────────────────────────────────
+  // Article 6 as a worklist at the top of the screen: eight years of
+  // unpromoted service brings the next grade, six years after that the
+  // second. Anyone already stepped up is off the list, and stepping someone
+  // up goes through the same stage machinery as the stage buttons, so the
+  // two can never both hand out the same upgrade.
+  let _prUpgrades = [];
+  function _prLoadUpgradeSuggestions() {
+    const host = document.getElementById('prUpgradeSuggestions');
+    if (!host) return;
+    const p = _prFixParams();
+    _payrollFetch('get_higher_grade_suggestions', { to_scale_id: p.to_scale_id }).then(res => {
+      if (!res || res.result !== 'success') { host.innerHTML = ''; return; }
+      _prUpgrades = res.suggestions || [];
+      host.innerHTML = _prUpgradeSuggestionsHtml(res);
+      lucide.createIcons();
+    }).catch(() => { host.innerHTML = ''; });
+  }
+
+  function _prUpgradeSuggestionsHtml(res) {
+    const list = res.suggestions || [];
+    if (!list.length) {
+      return `<div class="bg-white border border-slate-200 rounded-2xl p-3 flex items-center gap-2">
+        <i data-lucide="check-circle-2" class="h-4 w-4 text-emerald-500"></i>
+        <p class="text-xs font-bold text-slate-500">Nobody is due a higher grade as of today.</p></div>`;
+    }
+    const n = v => (v == null ? '—' : Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 }));
+    const rowsHtml = list.map(s => `<tr class="border-b border-amber-100">
+      <td class="py-1.5 px-3 font-black text-slate-700"><button onclick="_prOpenProjection('${_escHtml(String(s.user_id))}')" class="hover:text-blue-600 hover:underline">${_escHtml(s.name)}</button>
+        <span class="block text-[10px] font-bold text-slate-400">${_escHtml(s.designation || '')}${s.service_years != null ? ` · ${s.service_years} yrs` : ''}</span></td>
+      <td class="py-1.5 px-3 font-bold text-slate-500">${_escHtml(s.grade_name)} → <span class="text-emerald-600 font-black">${_escHtml(s.to_grade_name)}</span>
+        <span class="block text-[10px] font-bold text-slate-400">${s.which === 'second' ? 'Second higher grade (art. 6(2))' : 'First higher grade (art. 6(1))'}</span></td>
+      <td class="py-1.5 px-3 font-bold text-slate-600 whitespace-nowrap">${_escHtml(s.due_date)}${s.overdue_days > 31 ? `<span class="block text-[10px] font-black uppercase text-red-500">${s.overdue_days} days overdue</span>` : ''}</td>
+      <td class="py-1.5 px-3 text-right font-bold">${n(s.current_basic)}</td>
+      <td class="py-1.5 px-3 text-right font-black text-slate-800">${n(s.new_basic)}<span class="block text-[10px] font-bold text-slate-400">step ${s.to_step_number ?? '—'}</span></td>
+      <td class="py-1.5 px-3 text-right"><button onclick="_prStepUpGrade('${_escHtml(String(s.user_id))}','${_escHtml(s.due_date)}')" class="px-2.5 py-1.5 bg-emerald-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Step up</button></td>
+    </tr>`).join('');
+    const cards = list.map(s => `<div class="bg-white border border-amber-200 rounded-2xl p-3 mb-2">
+      <div class="flex items-start justify-between gap-2">
+        <div><p class="font-black text-slate-800 text-sm">${_escHtml(s.name)}</p>
+          <p class="text-[10px] font-black uppercase tracking-widest text-slate-400">${_escHtml(s.grade_name)} → ${_escHtml(s.to_grade_name)} · due ${_escHtml(s.due_date)}</p></div>
+        <button onclick="_prStepUpGrade('${_escHtml(String(s.user_id))}','${_escHtml(s.due_date)}')" class="px-2.5 py-1.5 bg-emerald-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest">Step up</button>
+      </div>
+      <div class="mt-1.5 flex justify-between text-[11px] font-bold"><span class="text-slate-400">${n(s.current_basic)} → ${n(s.new_basic)}</span><span class="text-slate-400">step ${s.to_step_number ?? '—'}</span></div>
+    </div>`).join('');
+    return `<div class="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+      <div class="flex items-center justify-between gap-2 flex-wrap mb-2">
+        <div class="flex items-center gap-2">
+          <i data-lucide="trending-up" class="h-4 w-4 text-amber-600"></i>
+          <p class="font-black text-amber-900 text-xs">${list.length} ${list.length === 1 ? 'person is' : 'people are'} due a higher grade</p>
+        </div>
+        <button onclick="_prLoadUpgradeSuggestions()" class="px-2 py-1 border border-amber-300 text-amber-700 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-amber-100">Refresh</button>
+      </div>
+      <p class="text-[10px] font-bold text-amber-700/80 uppercase tracking-widest mb-2">Eight years in the same post without promotion, then six more for the second (art. 6). Stepping someone up records it in their grade history, so it is never offered or applied twice.</p>
+      ${window.innerWidth < 768 ? cards : `<div class="overflow-auto bg-white rounded-xl border border-amber-200">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead class="bg-amber-50/60"><tr class="text-[10px] font-black text-amber-800 uppercase">
+            <th class="py-2 px-3">Name</th><th class="py-2 px-3">Grade</th><th class="py-2 px-3">Due</th>
+            <th class="py-2 px-3 text-right">Basic now</th><th class="py-2 px-3 text-right">On the higher grade</th><th class="py-2 px-3"></th>
+          </tr></thead><tbody>${rowsHtml}</tbody></table></div>`}
+      ${res.tracking_ready === false ? '<p class="text-[10px] font-black uppercase tracking-widest text-amber-700 mt-2">Run migration_grade_upgrade_tracking.sql so upgrades can be told apart from manual corrections.</p>' : ''}
+    </div>`;
+  }
+
+  function _prStepUpGrade(personId, date) {
+    const s = _prUpgrades.find(x => String(x.user_id) === String(personId) && x.due_date === date);
+    if (!s) return;
+    if (!confirm(`Step ${s.name} up to ${s.to_grade_name} from ${date}?\n\nBasic ${Number(s.current_basic || 0).toLocaleString()} → ${Number(s.new_basic || 0).toLocaleString()} (step ${s.to_step_number ?? '—'}).\n\nIt is recorded in their grade history as a higher grade under article 6.`)) return;
+    const p = _prFixParams();
+    _payrollFetch('apply_pay_stage', { user_id: personId, effective_date: date, from_scale_id: p.from_scale_id, to_scale_id: p.to_scale_id, give_increment: p.give_increment, apply_higher_grade: true }).then(res => {
+      if (res && res.result === 'success') {
+        showToast(`${s.name} stepped up to ${s.to_grade_name}`);
+        _prLoadUpgradeSuggestions();
+        _prPreviewConversion();
+      } else showToast((res && res.message) || 'Could not step them up', 'error');
+    }).catch(err => showToast(err.message || 'Could not step them up', 'error'));
   }
 
   // ── One person's pay, stage by stage ───────────────────────────────────

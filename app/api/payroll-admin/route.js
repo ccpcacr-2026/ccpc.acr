@@ -180,22 +180,99 @@ function _fixOnLadder(currentBasic, oldLadder, newLadder, giveIncrement) {
   return { diff, computed: target, index: i, cell: newLadder[i], incremented, atTop };
 }
 
+// Article 6 in dates, read off what actually happened to this person rather
+// than guessed from their joining date alone:
+//   · the clock starts at their last real promotion, else at joining, since
+//     the article only counts service "in the same post without promotion";
+//   · the first higher grade falls due in the ninth year (art. 6(1));
+//   · the second six years after the first one was GRANTED (art. 6(2)) —
+//     which is also how art. 6(5) treats a single pre-2026 higher grade;
+//   · two in a post is the limit (art. 6(4)), so nothing after that.
+// A higher grade already on record keeps its real date, so replaying the
+// rule can never grant the same one twice or shift the next one.
+function _upgradeDates(joiningDate, history) {
+  const rows = (Array.isArray(history) ? history : []).filter(h => h.effective_date);
+  const granted = rows.filter(h => h.change_kind === 'higher_grade').map(h => String(h.effective_date).slice(0, 10)).sort();
+  const promotions = rows.filter(h => h.change_kind === 'promotion').map(h => String(h.effective_date).slice(0, 10)).sort();
+  const start = promotions.length ? promotions[promotions.length - 1] : (joiningDate ? String(joiningDate).slice(0, 10) : null);
+  // A promotion wipes the slate: only higher grades granted since it count.
+  const counted = start ? granted.filter(d => d > start) : granted;
+  const plus = (date, years) => {
+    const [y, m, d] = String(date).slice(0, 10).split('-');
+    return `${Number(y) + years}-${m}-${d}`;
+  };
+  const dates = [];
+  if (counted.length >= 2) return dates;                      // art. 6(4)
+  let first = counted.length ? counted[0] : (start ? plus(start, 8) : null);
+  if (!first) return dates;
+  // Article 6(1)'s proviso: whoever had completed eight years but not ten
+  // before the order takes effect gets the higher grade on 1 July 2026, not
+  // retrospectively. Anyone past ten years should already have one on record;
+  // if none is, this surfaces it on that date for the office to check rather
+  // than back-dating pay by years.
+  if (!counted.length && first < '2026-07-01') first = '2026-07-01';
+  dates.push(first);
+  dates.push(plus(first, 6));                                 // art. 6(2)
+  return dates.slice(0, 2);
+}
+
+// Writes a grade-history row, retrying without change_kind on a database
+// where migration_grade_upgrade_tracking.sql has not been run yet — losing
+// the marker is better than losing the row.
+async function _historyWrite(row) {
+  const saved = await sbPayroll('person_grade_history', 'POST', row);
+  if (!saved || !saved.error || row.change_kind === undefined) return saved;
+  const plain = { ...row };
+  delete plain.change_kind;
+  return sbPayroll('person_grade_history', 'POST', plain);
+}
+
+// Records a higher grade in the person's history, once. Both the stage
+// button and the step-up suggestion come through here, and
+// migration_grade_upgrade_tracking.sql also has a unique index behind it, so
+// the same upgrade cannot be logged twice however it is asked for.
+async function _logHigherGrade(personId, gradeId, stepId, date, actorUserId, note) {
+  const existing = await sbPayroll(`person_grade_history?user_id=eq.${encodeURIComponent(personId)}&effective_date=eq.${encodeURIComponent(date)}&select=id,change_kind`);
+  if (!existing?.error && (existing || []).some(r => r.change_kind === 'higher_grade')) return { skipped: 'already logged' };
+  const row = {
+    user_id: personId, grade_id: gradeId, step_id: stepId || null, pay_type: 'regular',
+    effective_date: date, change_kind: 'higher_grade',
+    note: note || 'Higher grade on completion of service (art. 6)', created_by: actorUserId || null,
+  };
+  let saved = await sbPayroll('person_grade_history', 'POST', row);
+  if (saved?.error) {
+    // change_kind only exists once the migration has run; without it there
+    // is nothing to mark and nothing to deduplicate on, so log it plainly.
+    const { change_kind, ...plain } = row;
+    void change_kind;
+    saved = await sbPayroll('person_grade_history', 'POST', plain);
+  }
+  return saved?.error ? { error: saved.error } : { saved: true };
+}
+
+// Grade history, keyed by person. Falls back to an unmarked read when
+// migration_grade_upgrade_tracking.sql has not been run yet, so nothing
+// breaks — every row then counts as an ordinary edit.
+async function _gradeHistoryByUser() {
+  let rows = await sbPayroll('person_grade_history?select=user_id,grade_id,step_id,effective_date,change_kind&order=effective_date.asc');
+  if (rows?.error) rows = await sbPayroll('person_grade_history?select=user_id,grade_id,step_id,effective_date&order=effective_date.asc');
+  const by = {};
+  (Array.isArray(rows) ? rows : []).forEach(r => { (by[r.user_id] = by[r.user_id] || []).push(r); });
+  return by;
+}
+
 // Every pay event between the fixation and the end of the selected month, in
-// date order: an annual increment on each 1 July (art. 9(1)), and the next
-// higher grade on completion of eight years of unpromoted service, with a
-// second six years after that (art. 6(1),(2)) — capped at grade 4 (art. 6(3))
-// and at two in the same post (art. 6(4)). Order matters: a higher grade
-// fixed before a July increment lands on a different step than after it.
+// date order: an annual increment on each 1 July (art. 9(1)) and each higher
+// grade from _upgradeDates. Order matters: a higher grade fixed before a July
+// increment lands on a different step than after it. The walk always starts
+// from the grade held at the 1 July 2026 fixation and replays everything, so
+// running it again after a stage has been applied gives the same answer
+// instead of stacking a second upgrade on top.
 function _walkForward(o) {
   const periodEnd = `${o.year}-${String(o.month).padStart(2, '0')}-${String(new Date(o.year, o.month, 0).getDate()).padStart(2, '0')}`;
   const events = [];
   for (let y = 2027; y <= Number(o.year); y++) events.push({ date: `${y}-07-01`, type: 'increment' });
-  if (o.joiningDate) {
-    const j = String(o.joiningDate).slice(0, 10).split('-');
-    const plus = n => `${Number(j[0]) + n}-${j[1]}-${j[2]}`;
-    events.push({ date: plus(8), type: 'higher' });   // art. 6(1), the ninth year
-    events.push({ date: plus(14), type: 'higher' });  // art. 6(2), six years later
-  }
+  (o.upgradeDates || []).forEach(d => events.push({ date: d, type: 'higher' }));
   // Same-day ties: the increment is dated 1 July, the higher grade takes
   // effect on the day the year completes, so run the increment first.
   events.sort((a, b) => a.date.localeCompare(b.date) || (a.type === 'higher' ? 1 : -1));
@@ -224,8 +301,7 @@ function _walkForward(o) {
     grade = up; ladder = upLadder; index = i; higherCount++;
     applied.push({ date: ev.date, type: 'higher_grade', grade: grade.name, basic: Number(ladder[index].basic_value) });
   });
-  const dues = o.joiningDate ? events.filter(e => e.type === 'higher').map(e => e.date) : [];
-  return { grade, ladder, index, cell: ladder[index], events: applied, higherApplied: higherCount, dues };
+  return { grade, ladder, index, cell: ladder[index], events: applied, higherApplied: higherCount, dues: (o.upgradeDates || []).slice() };
 }
 
 // Article 1(3): the rise is paid in slices — 40% (grades 1-9) or 50% (grades
@@ -1470,7 +1546,7 @@ export async function POST(req) {
     const fromScaleId = opts.from_scale_id ? Number(opts.from_scale_id) : scales[0].id;
     const toScaleId = opts.to_scale_id ? Number(opts.to_scale_id) : scales[scales.length - 1].id;
     if (fromScaleId === toScaleId) return { error: 'Pick two different scales to convert between.' };
-    const [people, grades, steps, oldCells, newCells, values, profiles, done] = await Promise.all([
+    const [people, grades, steps, oldCells, newCells, values, profiles, done, history] = await Promise.all([
       sbPayroll('person_setup?select=*'),
       sbPayroll('grades?select=*&order=sort_order.asc,id.asc'),
       sbPayroll('pay_steps?select=*&order=sort_order.asc,step_number.asc'),
@@ -1478,7 +1554,8 @@ export async function POST(req) {
       sbPayroll(`grade_step_values?${_scaleFilter(toScaleId)}select=*`),
       sbPayroll('person_field_values?select=user_id,basic'),
       _teacherSchemaFetch('users_profile?select=teacher_id,full_name,designation'),
-      sbPayroll(`pay_fixations?to_scale_id=eq.${encodeURIComponent(toScaleId)}&select=user_id,fixed_basic`),
+      sbPayroll(`pay_fixations?to_scale_id=eq.${encodeURIComponent(toScaleId)}&select=user_id,fixed_basic,grade_id,current_basic,effective_date&order=effective_date.asc`),
+      _gradeHistoryByUser(),
     ]);
     for (const r of [people, grades, steps, oldCells, newCells, values]) if (r?.error) return { error: r.error };
     const stepOrder = {}; (steps || []).forEach(s => { stepOrder[s.id] = s.sort_order ?? s.step_number ?? 0; });
@@ -1486,22 +1563,30 @@ export async function POST(req) {
     const basicByUser = {}; (values || []).forEach(v => { basicByUser[v.user_id] = v.basic; });
     const nameByUser = {}; (Array.isArray(profiles) ? profiles : []).forEach(p => { nameByUser[p.teacher_id] = p; });
     const alreadyDone = new Set((Array.isArray(done) ? done : []).map(d => String(d.user_id)));
+    // Earliest fixation row per person — the anchor state everything replays
+    // from (rows come back ordered by effective_date).
+    const anchorByUser = {};
+    (Array.isArray(done) ? done : []).forEach(d => { if (!anchorByUser[String(d.user_id)]) anchorByUser[String(d.user_id)] = d; });
     const effective = (scales.find(s => s.id === toScaleId) || {}).effective_from || `${year}-07-01`;
     const rows = [];
     (people || []).forEach(p => {
-      const grade = gradesById[p.grade_id];
+      // Replay from the grade held at the 1 July 2026 fixation, so a person
+      // whose stages have already moved them up a grade is not moved again.
+      const anchor = anchorByUser[String(p.user_id)] || null;
+      const anchorGradeId = (anchor && anchor.grade_id) || p.grade_id;
+      const grade = gradesById[anchorGradeId];
       const person = nameByUser[p.user_id] || {};
       const row = {
         user_id: p.user_id, name: person.full_name || p.user_id, designation: person.designation || '',
-        grade_id: p.grade_id, grade_name: grade ? grade.name : '—', step_id: p.step_id,
+        grade_id: anchorGradeId, grade_name: grade ? grade.name : '—', step_id: p.step_id,
         joining_date: p.joining_date || null, already_done: alreadyDone.has(String(p.user_id)),
       };
       if (p.is_active === false) { rows.push({ ...row, skipped: 'Not active' }); return; }
       if (p.pay_type === 'contractual' || (grade && grade.pay_system === 'contractual')) { rows.push({ ...row, skipped: 'Contractual — outside the order (art. 1(4))' }); return; }
       if (!grade) { rows.push({ ...row, skipped: 'No grade set' }); return; }
-      const oldLadder = _ladder(oldCells, p.grade_id, stepOrder);
+      const oldLadder = _ladder(oldCells, anchorGradeId, stepOrder);
       if (!oldLadder.length) { rows.push({ ...row, skipped: 'No ladder on the old scale' }); return; }
-      const currentBasic = Number(basicByUser[p.user_id] ?? (oldLadder.find(c => String(c.step_id) === String(p.step_id)) || {}).basic_value ?? 0);
+      const currentBasic = Number((anchor && anchor.current_basic != null ? anchor.current_basic : basicByUser[p.user_id]) ?? (oldLadder.find(c => String(c.step_id) === String(p.step_id)) || {}).basic_value ?? 0);
       if (!currentBasic) { rows.push({ ...row, skipped: 'No current Basic' }); return; }
       row.current_basic = currentBasic;
       const gradeNo = _gradeNumber(grade);
@@ -1512,10 +1597,10 @@ export async function POST(req) {
       if (!sameLadder.length) { rows.push({ ...row, skipped: 'No ladder on the new scale' }); return; }
       const fix = _fixOnLadder(currentBasic, oldLadder, sameLadder, opts.give_increment !== false);
       if (!fix) { rows.push({ ...row, skipped: 'Could not fix on the new scale' }); return; }
+      const upgradeDates = opts.apply_higher_grade === false ? [] : _upgradeDates(p.joining_date, history[p.user_id] || []);
       const walk = _walkForward({
         grade, ladder: sameLadder, index: fix.index, grades, newCells, stepOrder,
-        joiningDate: p.joining_date, month, year,
-        allowHigher: opts.apply_higher_grade !== false,
+        upgradeDates, month, year, allowHigher: upgradeDates.length > 0,
       });
       row.higher_grade_due = walk.dues[0] || null;
       const finalBasic = Number(walk.cell.basic_value);
@@ -1554,56 +1639,56 @@ export async function POST(req) {
     if (!scales.length) return { error: 'No pay scales yet — run migration_nps2026.sql in Supabase first.' };
     const fromScaleId = opts.from_scale_id ? Number(opts.from_scale_id) : scales[0].id;
     const toScaleId = opts.to_scale_id ? Number(opts.to_scale_id) : scales[scales.length - 1].id;
-    const [personRows, grades, steps, oldCells, newCells, values, applied] = await Promise.all([
+    const [personRows, grades, steps, oldCells, newCells, values, applied, historyRows] = await Promise.all([
       sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(personId)}&select=*`),
       sbPayroll('grades?select=*&order=sort_order.asc,id.asc'),
       sbPayroll('pay_steps?select=*&order=sort_order.asc,step_number.asc'),
       sbPayroll(`grade_step_values?${_scaleFilter(fromScaleId)}select=*`),
       sbPayroll(`grade_step_values?${_scaleFilter(toScaleId)}select=*`),
       sbPayroll(`person_field_values?user_id=eq.${encodeURIComponent(personId)}&select=user_id,basic`),
-      sbPayroll(`pay_fixations?user_id=eq.${encodeURIComponent(personId)}&to_scale_id=eq.${encodeURIComponent(toScaleId)}&select=effective_date,payable_basic,created_at&order=effective_date.asc`),
+      sbPayroll(`pay_fixations?user_id=eq.${encodeURIComponent(personId)}&to_scale_id=eq.${encodeURIComponent(toScaleId)}&select=effective_date,payable_basic,current_basic,grade_id,created_at&order=effective_date.asc`),
+      _gradeHistoryByUser(),
     ]);
     const person = (!personRows?.error && personRows[0]) || null;
     if (!person) return { error: 'No payroll setup for this person yet.' };
-    const grade = (grades || []).find(g => String(g.id) === String(person.grade_id));
+    const appliedRows = Array.isArray(applied) ? applied : [];
+    const history = historyRows[personId] || [];
+    // Everything is replayed from the 1 July 2026 fixation, so the anchor is
+    // the grade and the Basic held THEN — not what person_setup says now,
+    // which already carries whatever stages have been applied since. Without
+    // this the walk would hand out a second higher grade on top of the one
+    // it granted last time.
+    const anchor = appliedRows.length ? appliedRows[0] : null;
+    const anchorGradeId = (anchor && anchor.grade_id) || person.grade_id;
+    const grade = (grades || []).find(g => String(g.id) === String(anchorGradeId));
     if (!grade) return { error: 'No grade set for this person.' };
     const stepOrder = {}; (steps || []).forEach(s => { stepOrder[s.id] = s.sort_order ?? s.step_number ?? 0; });
     const stepNumber = {}; (steps || []).forEach(s => { stepNumber[s.id] = s.step_number; });
-    const oldLadder = _ladder(oldCells, person.grade_id, stepOrder);
-    const sameLadder = _ladder(newCells, person.grade_id, stepOrder);
+    const oldLadder = _ladder(oldCells, anchorGradeId, stepOrder);
+    const sameLadder = _ladder(newCells, anchorGradeId, stepOrder);
     if (!oldLadder.length || !sameLadder.length) return { error: 'This grade has no ladder on one of the two scales.' };
-    const appliedRows = Array.isArray(applied) ? applied : [];
-    // Basic on 30 June 2026 — the anchor the whole order measures from. Once
-    // a stage has been applied, person_field_values.basic holds a phased
-    // amount instead, so the first fixation record is the truth.
     const stored = (!values?.error && values[0] && values[0].basic != null) ? Number(values[0].basic) : null;
-    const firstApplied = appliedRows.length ? appliedRows[0] : null;
-    const anchorRows = firstApplied ? await sbPayroll(`pay_fixations?user_id=eq.${encodeURIComponent(personId)}&to_scale_id=eq.${encodeURIComponent(toScaleId)}&select=current_basic&order=effective_date.asc&limit=1`) : null;
-    const currentBasic = (Array.isArray(anchorRows) && anchorRows[0] && anchorRows[0].current_basic != null)
-      ? Number(anchorRows[0].current_basic)
+    const currentBasic = (anchor && anchor.current_basic != null)
+      ? Number(anchor.current_basic)
       : (stored ?? Number((oldLadder.find(c => String(c.step_id) === String(person.step_id)) || {}).basic_value || 0));
     if (!currentBasic) return { error: 'No Basic on record for this person.' };
     const gradeNo = _gradeNumber(grade);
     const fix = _fixOnLadder(currentBasic, oldLadder, sameLadder, opts.give_increment !== false);
     if (!fix) return { error: 'Could not fix this person on the new scale.' };
+    const upgradeDates = opts.apply_higher_grade === false ? [] : _upgradeDates(person.joining_date, history);
 
     // The five phase/increment dates, plus this person's own article 6 dates.
     const dates = new Set(_PROJECTION_DATES);
-    if (person.joining_date) {
-      const j = String(person.joining_date).slice(0, 10).split('-');
-      [8, 14].forEach(n => {
-        const d = `${Number(j[0]) + n}-${j[1]}-${j[2]}`;
-        if (d >= '2026-07-01' && d <= _PROJECTION_DATES[_PROJECTION_DATES.length - 1] && opts.apply_higher_grade !== false) dates.add(d);
-      });
-    }
+    upgradeDates.forEach(d => {
+      if (d >= '2026-07-01' && d <= _PROJECTION_DATES[_PROJECTION_DATES.length - 1]) dates.add(d);
+    });
     const today = new Date().toISOString().slice(0, 10);
     const appliedByDate = {}; appliedRows.forEach(a => { appliedByDate[String(a.effective_date)] = a; });
     const stages = [...dates].sort().map(date => {
       const [y, m] = date.split('-').map(Number);
       const walk = _walkForward({
         grade, ladder: sameLadder, index: fix.index, grades, newCells, stepOrder,
-        joiningDate: person.joining_date, month: m, year: y,
-        allowHigher: opts.apply_higher_grade !== false,
+        upgradeDates, month: m, year: y, allowHigher: upgradeDates.length > 0,
       });
       const basic = Number(walk.cell.basic_value);
       const pct = _phasePercent(m, y, gradeNo);
@@ -1632,7 +1717,76 @@ export async function POST(req) {
       s.blocked_by_previous = !s.applied && !previousDone;
       previousDone = previousDone && s.applied;
     });
-    return { person, grade, gradeNo, currentBasic, stages, from_scale_id: fromScaleId, to_scale_id: toScaleId, scales };
+    return { person, grade, gradeNo, currentBasic, stages, history, upgradeDates, from_scale_id: fromScaleId, to_scale_id: toScaleId, scales };
+  }
+
+  // ── Who is due a higher grade ───────────────────────────────────────────
+  // Article 6 as a worklist: everyone whose eighth year of unpromoted service
+  // is complete (or whose second is due six years after the first was
+  // granted), what grade they would move to, and what it does to their pay.
+  // Anyone whose upgrade is already in their history is off the list, so this
+  // and the stage buttons can never hand out the same upgrade twice.
+  if (action === 'get_higher_grade_suggestions') {
+    const scales = await _payScales();
+    const toScaleId = payload.to_scale_id ? Number(payload.to_scale_id) : (scales.length ? scales[scales.length - 1].id : null);
+    const horizon = String(payload.upto || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const [people, grades, steps, cells, values, profiles, history, fixations] = await Promise.all([
+      sbPayroll('person_setup?select=*'),
+      sbPayroll('grades?select=*&order=sort_order.asc,id.asc'),
+      sbPayroll('pay_steps?select=*&order=sort_order.asc,step_number.asc'),
+      toScaleId ? sbPayroll(`grade_step_values?${_scaleFilter(toScaleId)}select=*`) : sbPayroll('grade_step_values?select=*'),
+      sbPayroll('person_field_values?select=user_id,basic'),
+      _teacherSchemaFetch('users_profile?select=teacher_id,full_name,designation'),
+      _gradeHistoryByUser(),
+      toScaleId ? sbPayroll(`pay_fixations?to_scale_id=eq.${encodeURIComponent(toScaleId)}&higher_grade=is.true&select=user_id,effective_date`) : Promise.resolve([]),
+    ]);
+    for (const r of [people, grades, steps, cells, values]) if (r?.error) return NextResponse.json({ result: 'error', message: r.error }, { status: 500 });
+    const gradesById = {}; (grades || []).forEach(g => { gradesById[g.id] = g; });
+    const stepOrder = {}; (steps || []).forEach(s => { stepOrder[s.id] = s.sort_order ?? s.step_number ?? 0; });
+    const stepNumber = {}; (steps || []).forEach(s => { stepNumber[s.id] = s.step_number; });
+    const basicByUser = {}; (values || []).forEach(v => { basicByUser[v.user_id] = v.basic; });
+    const nameByUser = {}; (Array.isArray(profiles) ? profiles : []).forEach(p => { nameByUser[p.teacher_id] = p; });
+    const fixedUpgrade = {};
+    (Array.isArray(fixations) ? fixations : []).forEach(f => { (fixedUpgrade[String(f.user_id)] = fixedUpgrade[String(f.user_id)] || []).push(String(f.effective_date)); });
+    const out = [];
+    (people || []).forEach(p => {
+      if (p.is_active === false || p.pay_type === 'contractual') return;
+      const grade = gradesById[p.grade_id];
+      if (!grade || grade.pay_system === 'contractual') return;
+      const n = _gradeNumber(grade);
+      if (!n || n <= 4) return;                                   // art. 6(3)
+      const hist = history[p.user_id] || [];
+      const dues = _upgradeDates(p.joining_date, hist);
+      if (!dues.length) return;                                   // two already, or no dates to count from
+      const granted = new Set(hist.filter(h => h.change_kind === 'higher_grade').map(h => String(h.effective_date).slice(0, 10)));
+      (fixedUpgrade[String(p.user_id)] || []).forEach(d => granted.add(d));
+      const next = dues.find(d => !granted.has(d));
+      if (!next || next > horizon) return;                        // not due yet
+      const up = (grades || []).find(g => _gradeNumber(g) === n - 1 && g.pay_system !== 'contractual');
+      if (!up) return;
+      const ladder = _ladder(cells, up.id, stepOrder);
+      const basic = Number(basicByUser[p.user_id] || 0);
+      let cell = null;
+      if (ladder.length && basic) {
+        let i = ladder.findIndex(c => Number(c.basic_value) >= basic);
+        if (i < 0) i = ladder.length - 1;
+        cell = ladder[i];
+      }
+      const person = nameByUser[p.user_id] || {};
+      const years = p.joining_date ? Math.floor((Date.now() - new Date(p.joining_date).getTime()) / (365.25 * 24 * 3600 * 1000)) : null;
+      out.push({
+        user_id: p.user_id, name: person.full_name || p.user_id, designation: person.designation || '',
+        joining_date: p.joining_date || null, service_years: years,
+        grade_id: grade.id, grade_name: grade.name, step_id: p.step_id, current_basic: basic || null,
+        to_grade_id: up.id, to_grade_name: up.name,
+        to_step_id: cell ? cell.step_id : null, to_step_number: cell ? (stepNumber[cell.step_id] ?? null) : null,
+        new_basic: cell ? Number(cell.basic_value) : null,
+        due_date: next, which: granted.size >= 1 ? 'second' : 'first',
+        overdue_days: Math.max(0, Math.round((Date.parse(horizon) - Date.parse(next)) / 86400000)),
+      });
+    });
+    out.sort((a, b) => String(a.due_date).localeCompare(String(b.due_date)) || String(a.name).localeCompare(String(b.name)));
+    return NextResponse.json({ result: 'success', suggestions: out, upto: horizon, tracking_ready: Object.values(history).some(rows => rows.some(r => 'change_kind' in r)) });
   }
 
   if (action === 'get_pay_projection') {
@@ -1702,12 +1856,9 @@ export async function POST(req) {
     const basicWrite = await sbPayroll(`person_field_values?user_id=eq.${encodeURIComponent(personId)}`, 'PATCH', { basic: stage.drawn_basic });
     if (basicWrite?.error) return NextResponse.json({ result: 'error', message: basicWrite.error }, { status: 500 });
     if (stage.event === 'higher_grade') {
-      await sbPayroll('person_grade_history', 'POST', {
-        user_id: personId, grade_id: stage.grade_id, step_id: stage.step_id, pay_type: 'regular',
-        effective_date: stage.date, note: 'Higher grade on eight years of service (art. 6)', created_by: user_id || null,
-      });
+      await _logHigherGrade(personId, stage.grade_id, stage.step_id, stage.date, user_id, `Higher grade under art. 6 — ${stage.grade_name}`);
     }
-    _prAudit(user_id, 'apply_pay_stage', 'pay_fixations', personId, { date: stage.date, drawn_basic: stage.drawn_basic, grade_id: stage.grade_id, step_id: stage.step_id });
+    _prAudit(user_id, 'apply_pay_stage', 'pay_fixations', personId, { date: stage.date, drawn_basic: stage.drawn_basic, grade_id: stage.grade_id, step_id: stage.step_id, event: stage.event });
     return NextResponse.json({ result: 'success', stage });
   }
 
@@ -1751,10 +1902,10 @@ export async function POST(req) {
       const basicWrite = await sbPayroll(`person_field_values?user_id=eq.${encodeURIComponent(r.user_id)}`, 'PATCH', { basic: r.payable_basic });
       if (basicWrite?.error) { errors.push({ user_id: r.user_id, name: r.name, message: basicWrite.error }); continue; }
       if (r.higher_grade) {
-        await sbPayroll('person_grade_history', 'POST', {
-          user_id: r.user_id, grade_id: r.to_grade_id, step_id: r.to_step_id, pay_type: 'regular',
-          effective_date: res.effective_date, note: 'Higher grade on eight years of service (art. 6)', created_by: user_id || null,
-        });
+        // Logged on the day the higher grade actually falls due, not on the
+        // fixation date — article 6(2) counts its six years from this date.
+        const dueDate = (r.timeline || []).filter(e => e.type === 'higher_grade').map(e => e.date).pop() || r.higher_grade_due || res.effective_date;
+        await _logHigherGrade(r.user_id, r.to_grade_id, r.to_step_id, dueDate, user_id, `Higher grade under art. 6 — ${r.to_grade_name}`);
       }
       saved++;
     }
@@ -2126,9 +2277,12 @@ export async function POST(req) {
         user_id: personId, grade_id, step_id: step_id || null, pay_type: normPayType,
         effective_date: effective_date || new Date().toISOString().slice(0, 10),
         note: history_note || null,
+        // A hand edit is a correction unless the admin says otherwise: only
+        // rows marked 'higher_grade' count towards article 6's clock.
+        change_kind: payload.change_kind || 'correction',
         created_by: user_id || null,
       };
-      const histSaved = await sbPayroll('person_grade_history', 'POST', histRow);
+      const histSaved = await _historyWrite(histRow);
       if (!(histSaved && histSaved.error)) _prAudit(user_id, 'save_grade_history', 'person_grade_history', personId, histRow);
     }
 
@@ -2215,9 +2369,10 @@ export async function POST(req) {
         user_id: personId, grade_id, step_id: step_id || null,
         pay_type: rowData.pay_type || (prior && prior.pay_type) || 'regular',
         effective_date: effective_date || new Date().toISOString().slice(0, 10),
+        change_kind: payload.change_kind || 'correction',
         created_by: user_id || null,
       };
-      const histSaved = await sbPayroll('person_grade_history', 'POST', histRow);
+      const histSaved = await _historyWrite(histRow);
       if (!(histSaved && histSaved.error)) {
         historyId = Array.isArray(histSaved) && histSaved[0] ? histSaved[0].id : null;
         _prAudit(user_id, 'save_grade_history', 'person_grade_history', personId, histRow);
@@ -2335,8 +2490,8 @@ export async function POST(req) {
     }
 
     if (grade_id) {
-      const histRow = { user_id: teacherId, grade_id, step_id: step_id || null, pay_type: normPayType, effective_date: joining_date, created_by: user_id || null };
-      const histSaved = await sbPayroll('person_grade_history', 'POST', histRow);
+      const histRow = { user_id: teacherId, grade_id, step_id: step_id || null, pay_type: normPayType, effective_date: joining_date, change_kind: 'joining', created_by: user_id || null };
+      const histSaved = await _historyWrite(histRow);
       if (!(histSaved && histSaved.error)) _prAudit(user_id, 'save_grade_history', 'person_grade_history', teacherId, histRow);
     }
 
