@@ -133,11 +133,45 @@ async function _scaleQ() {
   return _scaleFilter(await _currentScaleId());
 }
 
-// The scale in force today — what every "what is this person's Basic right
-// now" lookup should read.
+// A new scale existing in the table is not the same as the institution
+// having moved onto it: the 2026 ladders are seeded the day the migration
+// runs, but nobody's pay changes until their fixation is applied. So the
+// scale that counts is the newest one somebody has actually been converted
+// to — otherwise seeding the table alone would jump every Basic lookup,
+// every MPO row and every grade/step save onto the new ladder overnight.
+async function _adoptedScaleId(month, year) {
+  const scales = await _payScales();
+  if (!scales.length) return null;
+  const live = month && year
+    ? scales.filter(s => String(s.effective_from) <= `${year}-${String(month).padStart(2, '0')}-${String(new Date(year, month, 0).getDate()).padStart(2, '0')}`)
+    : scales;
+  const list = live.length ? live : scales;
+  for (let i = list.length - 1; i >= 1; i--) {
+    const rows = await sbPayroll(`pay_fixations?to_scale_id=eq.${encodeURIComponent(list[i].id)}&select=user_id&limit=1`);
+    if (!rows?.error && Array.isArray(rows) && rows.length) return list[i].id;
+  }
+  return list[0].id;
+}
+
+// Which scale one person is on: whatever their latest fixation put them on,
+// and the oldest scale until they have been converted at all.
+async function _scaleIdForPerson(personId) {
+  const scales = await _payScales();
+  if (!scales.length) return null;
+  if (personId) {
+    const rows = await sbPayroll(`pay_fixations?user_id=eq.${encodeURIComponent(personId)}&select=to_scale_id&order=effective_date.desc&limit=1`);
+    if (!rows?.error && Array.isArray(rows) && rows[0] && rows[0].to_scale_id) return rows[0].to_scale_id;
+  }
+  return scales[0].id;
+}
+async function _scaleQP(personId) {
+  return _scaleFilter(await _scaleIdForPerson(personId));
+}
+
+// The scale in force today for a lookup with no person attached.
 async function _currentScaleId() {
   const now = new Date();
-  return _scaleIdFor(now.getMonth() + 1, now.getFullYear());
+  return _adoptedScaleId(now.getMonth() + 1, now.getFullYear());
 }
 
 // The scale in force for a payroll period: the newest one that had already
@@ -848,7 +882,7 @@ async function _loadPayrollRef(userIds, month, year) {
     sbPayroll('field_applicable_categories?select=*'),
     sbPayroll('bus_fare_entries?is_active=eq.true&select=*'),
     _studentSchemaFetch('bus_stoppages?select=*'),
-    sbPayroll(`grade_step_values?${_scaleFilter(await _scaleIdFor(month, year))}select=*`),
+    sbPayroll(`grade_step_values?${_scaleFilter(await _adoptedScaleId(month, year))}select=*`),
     sbPayroll('person_field_overrides?select=*'),
   ]);
   const gradeFieldsByGrade = {}; (gradeFields || []).forEach(g => { (gradeFieldsByGrade[g.grade_id] = gradeFieldsByGrade[g.grade_id] || []).push(g); });
@@ -2093,7 +2127,7 @@ export async function POST(req) {
     const row = rows[0];
     const [gradeRows, stepValueRows] = await Promise.all([
       row.grade_id ? sbPayroll(`grades?id=eq.${encodeURIComponent(row.grade_id)}&select=*`) : Promise.resolve([]),
-      row.grade_id && row.step_id ? sbPayroll(`grade_step_values?${await _scaleQ()}grade_id=eq.${encodeURIComponent(row.grade_id)}&step_id=eq.${encodeURIComponent(row.step_id)}&select=basic_value`) : Promise.resolve([]),
+      row.grade_id && row.step_id ? sbPayroll(`grade_step_values?${await _scaleQP(row.user_id)}grade_id=eq.${encodeURIComponent(row.grade_id)}&step_id=eq.${encodeURIComponent(row.step_id)}&select=basic_value`) : Promise.resolve([]),
     ]);
     const gradesById = {}; (gradeRows || []).forEach(g => { gradesById[g.id] = g; });
     const stepValueByKey = {}; (stepValueRows || []).forEach(c => { stepValueByKey[`${row.grade_id}:${row.step_id}`] = c.basic_value; });
@@ -2118,7 +2152,7 @@ export async function POST(req) {
       grade = (!g?.error && g[0]) || null;
     }
     if (rowData.grade_id && rowData.step_id) {
-      const c = await sbPayroll(`grade_step_values?${await _scaleQ()}grade_id=eq.${encodeURIComponent(rowData.grade_id)}&step_id=eq.${encodeURIComponent(rowData.step_id)}&select=basic_value`);
+      const c = await sbPayroll(`grade_step_values?${await _scaleQP(rowData.user_id)}grade_id=eq.${encodeURIComponent(rowData.grade_id)}&step_id=eq.${encodeURIComponent(rowData.step_id)}&select=basic_value`);
       stepValue = (!c?.error && c[0]) ? c[0].basic_value : null;
     }
     const gradesById = grade ? { [grade.id]: grade } : {};
@@ -2361,7 +2395,7 @@ export async function POST(req) {
     // whatever Basic value is already saved for this person is left alone;
     // clearing it is a separate, explicit action via the Values screen.
     if (grade_id && step_id) {
-      const cellRows = await sbPayroll(`grade_step_values?${await _scaleQ()}grade_id=eq.${encodeURIComponent(grade_id)}&step_id=eq.${encodeURIComponent(step_id)}&select=basic_value`);
+      const cellRows = await sbPayroll(`grade_step_values?${await _scaleQP(personId)}grade_id=eq.${encodeURIComponent(grade_id)}&step_id=eq.${encodeURIComponent(step_id)}&select=basic_value`);
       const basicValue = Array.isArray(cellRows) && cellRows[0] && cellRows[0].basic_value != null ? Number(cellRows[0].basic_value) : null;
       if (basicValue != null) {
         const pfvExisting = await sbPayroll(`person_field_values?user_id=eq.${encodeURIComponent(personId)}&select=user_id`);
@@ -2446,7 +2480,7 @@ export async function POST(req) {
     }
 
     if (grade_id && step_id) {
-      const cellRows = await sbPayroll(`grade_step_values?${await _scaleQ()}grade_id=eq.${encodeURIComponent(grade_id)}&step_id=eq.${encodeURIComponent(step_id)}&select=basic_value`);
+      const cellRows = await sbPayroll(`grade_step_values?${await _scaleQP(personId)}grade_id=eq.${encodeURIComponent(grade_id)}&step_id=eq.${encodeURIComponent(step_id)}&select=basic_value`);
       const basicValue = Array.isArray(cellRows) && cellRows[0] && cellRows[0].basic_value != null ? Number(cellRows[0].basic_value) : null;
       if (basicValue != null) {
         const pfvExisting = await sbPayroll(`person_field_values?user_id=eq.${encodeURIComponent(personId)}&select=user_id`);
@@ -2562,7 +2596,7 @@ export async function POST(req) {
     }
 
     if (grade_id && step_id) {
-      const cellRows = await sbPayroll(`grade_step_values?${await _scaleQ()}grade_id=eq.${encodeURIComponent(grade_id)}&step_id=eq.${encodeURIComponent(step_id)}&select=basic_value`);
+      const cellRows = await sbPayroll(`grade_step_values?${await _scaleQP(teacherId)}grade_id=eq.${encodeURIComponent(grade_id)}&step_id=eq.${encodeURIComponent(step_id)}&select=basic_value`);
       const basicValue = Array.isArray(cellRows) && cellRows[0] && cellRows[0].basic_value != null ? Number(cellRows[0].basic_value) : null;
       if (basicValue != null) {
         const pfvRow = { user_id: teacherId, basic: basicValue };
@@ -3695,7 +3729,7 @@ export async function POST(req) {
     // preview's Basic — and anything computed as a percent of it —
     // actually reflects the hypothetical Grade+Step being tried.
     if ((gradeOverridden || stepOverridden) && personSetup.grade_id && personSetup.step_id) {
-      const cellRows = await sbPayroll(`grade_step_values?${await _scaleQ()}grade_id=eq.${encodeURIComponent(personSetup.grade_id)}&step_id=eq.${encodeURIComponent(personSetup.step_id)}&select=basic_value`);
+      const cellRows = await sbPayroll(`grade_step_values?${await _scaleQP(personId)}grade_id=eq.${encodeURIComponent(personSetup.grade_id)}&step_id=eq.${encodeURIComponent(personSetup.step_id)}&select=basic_value`);
       const basicValue = Array.isArray(cellRows) && cellRows[0] && cellRows[0].basic_value != null ? Number(cellRows[0].basic_value) : null;
       if (basicValue != null) {
         ref.personFieldValuesByUser[personId] = { ...(ref.personFieldValuesByUser[personId] || { user_id: personId }), basic: basicValue };

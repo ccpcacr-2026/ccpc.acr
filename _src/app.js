@@ -17504,7 +17504,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <p class="font-black text-slate-800 text-xs">Pay Scale Grid</p>
               <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Grade (row) x Step (column) — each cell is that step's fixed Basic salary. Assign a person's Grade + Step in People Setup.</p>
             </div>
-            <button id="prAddStepBtn" onclick="_prAddPayStep()" disabled class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Step</button>
+            <div class="flex items-center gap-2 flex-wrap">
+              <div id="prScalePicker" class="flex items-center gap-2"></div>
+              <button id="prAddStepBtn" onclick="_prAddPayStep()" disabled class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Add Step</button>
+            </div>
           </div>
           <div id="prPayScaleGrid" class="overflow-auto"><p class="text-slate-400 font-bold text-xs p-4 text-center">Loading…</p></div>
         </div>
@@ -20541,8 +20544,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const host = document.getElementById('prScalePicker');
     if (!host) return;
     if (_prScalesCache.length < 2) { host.innerHTML = ''; return; }
-    host.innerHTML = `<span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Scale</span>
-      <select onchange="_prSetScale(this.value)" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+    host.innerHTML = `<span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Showing</span>
+      <select onchange="_prSetScale(this.value)" title="Which National Pay Scale's ladders this grid shows and edits" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
         ${_prScalesCache.map(s => `<option value="${s.id}" ${String(s.id) === String(_prScaleId) ? 'selected' : ''}>${_escHtml(s.name)} — from ${_escHtml(String(s.effective_from))}</option>`).join('')}
       </select>`;
   }
