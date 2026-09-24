@@ -105,6 +105,7 @@ const RESERVED = [
   '_prOpenProjection','_prCloseProjection','_prApplyStage',
   '_prLoadUpgradeSuggestions','_prStepUpGrade','_prRecordPriorUpgrade',
   '_prOpenCalcPicker','_prPickCalcPerson',
+  '_prOpenPriorBulk','_prClosePriorBulk','_prFilterPriorBulk','_prPriorBulkQuickFill','_prPriorBulkRowChanged','_prSavePriorBulk',
   '_prSwitchFieldsMainTab','_prOpenRoleDefaultsPanel','_prSaveRoleDefaultPercent',
   '_prSwitchGradeSystem','_prOnPersonPayTypeChange',
   '_prOpenAddPersonModal','_prApOnPayTypeChange','_prApRenderStepOptions','_prSaveNewPerson',

@@ -1867,41 +1867,136 @@ export async function POST(req) {
     });
   }
 
+  // Every long-serving person, for bulk data entry — not just today's "due"
+  // subset get_higher_grade_suggestions returns. A time scale or selection
+  // grade given years ago under the 2015 scale has nothing to do with
+  // today's date; the office needs to record it for someone whether or not
+  // article 6 currently marks them due, so this list is everyone grade 5
+  // and below the article 6(3) ceiling could ever apply to, sorted by
+  // service so the longest-serving — almost certainly already holding two —
+  // come first.
+  if (action === 'get_prior_upgrade_worklist') {
+    const [people, grades, profiles, history] = await Promise.all([
+      sbPayroll('person_setup?select=user_id,grade_id,joining_date,is_active,pay_type'),
+      sbPayroll('grades?select=id,name,pay_system,sort_order&order=sort_order.asc,id.asc'),
+      _teacherSchemaFetch('users_profile?select=teacher_id,full_name,designation'),
+      _gradeHistoryByUser(),
+    ]);
+    for (const r of [people, grades]) if (r?.error) return NextResponse.json({ result: 'error', message: r.error }, { status: 500 });
+    const gradesById = {}; (grades || []).forEach(g => { gradesById[g.id] = g; });
+    const nameByUser = {}; (Array.isArray(profiles) ? profiles : []).forEach(p => { nameByUser[p.teacher_id] = p; });
+    const now = Date.now();
+    const rows = (people || [])
+      .filter(p => p.is_active !== false && p.pay_type !== 'contractual')
+      .map(p => {
+        const grade = gradesById[p.grade_id];
+        if (!grade || grade.pay_system === 'contractual') return null;
+        const n = _gradeNumber(grade);
+        if (!n || n <= 4) return null;                            // art. 6(3) — never eligible
+        const person = nameByUser[p.user_id] || {};
+        const priorRows = (history[p.user_id] || []).filter(h => _UPGRADE_KINDS.has(h.change_kind));
+        const years = p.joining_date ? Math.floor((now - new Date(p.joining_date).getTime()) / (365.25 * 24 * 3600 * 1000)) : null;
+        return {
+          user_id: p.user_id, name: person.full_name || p.user_id, designation: person.designation || '',
+          joining_date: p.joining_date || null, service_years: years,
+          grade_id: grade.id, grade_name: grade.name,
+          prior_count: priorRows.length,
+          prior: priorRows.map(h => ({ date: String(h.effective_date).slice(0, 10), kind: h.change_kind })),
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => (b.service_years ?? -1) - (a.service_years ?? -1) || String(a.name).localeCompare(String(b.name)));
+    return NextResponse.json({ result: 'success', people: rows });
+  }
+
   // Records a higher scale the office gave under an earlier pay scale — a
   // time scale, a selection grade, a senior scale — so article 6 counts it.
   // One of them means only the second higher grade is left, six years on
-  // (art. 6(5)); two means none at all (art. 6(4)).
-  if (action === 'record_prior_upgrade') {
-    const personId = payload.user_id;
-    const kind = ['time_scale', 'selection_grade', 'senior_scale', 'higher_grade'].includes(payload.kind) ? payload.kind : 'time_scale';
-    const count = Number(payload.count) === 2 ? 2 : 1;
-    const date = String(payload.effective_date || '').slice(0, 10);
-    if (!personId || !date) return NextResponse.json({ result: 'error', message: 'user_id and effective_date required' }, { status: 400 });
-    const rows = await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(personId)}&select=grade_id,step_id`);
-    const setup = (!rows?.error && rows[0]) || {};
+  // (art. 6(5)); two means none at all (art. 6(4)). Shared by the
+  // single-person action below and the bulk table, since going through 190+
+  // long-serving staff one browser prompt at a time is not a workflow —
+  // that table exists precisely because the office knows most of them
+  // already have both, long before the app has any record of it.
+  //
+  // Delta-aware, not a blind overwrite: it reads how many are ALREADY on
+  // record (existingRows, preloaded for the whole bulk save so this never
+  // does a per-row query) and only adds the difference. This matters once
+  // someone already has one real dated row — asking for "2" must add ONE
+  // more record at the date given, never re-derive a second, synthetic
+  // "6 years earlier" date that could land on a different day than the
+  // real first record and silently create a third row instead of two.
+  // The 6-years-back guess is only ever used going from nothing (0) straight
+  // to two in one step, where no real date is known for either.
+  async function _recordPriorUpgrade(personId, kind0, targetCount0, date0, note, actorId, setupCache, existingRows) {
+    const kind = ['time_scale', 'selection_grade', 'senior_scale', 'higher_grade'].includes(kind0) ? kind0 : 'time_scale';
+    const target = Number(targetCount0) === 2 ? 2 : (Number(targetCount0) === 1 ? 1 : 0);
+    const date = String(date0 || '').slice(0, 10);
+    if (!personId) return { error: 'user_id required' };
+    let rows = existingRows;
+    if (!rows) {
+      const res = await sbPayroll(`person_grade_history?user_id=eq.${encodeURIComponent(personId)}&select=effective_date,change_kind`);
+      rows = Array.isArray(res) ? res : [];
+    }
+    const existing = rows.filter(h => _UPGRADE_KINDS.has(h.change_kind));
+    const existingDates = new Set(existing.map(h => String(h.effective_date).slice(0, 10)));
+    const delta = target - Math.min(existing.length, 2);
+    if (delta <= 0) return { recorded: [] };                       // nothing new to add, or a downgrade (not handled here)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: 'a valid date is required' };
+    let setup = setupCache && setupCache[personId];
+    if (!setup) {
+      const setupRows = await sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(personId)}&select=grade_id,step_id`);
+      setup = (!setupRows?.error && setupRows[0]) || {};
+      if (setupCache) setupCache[personId] = setup;
+    }
     const dates = [date];
-    if (count === 2) {
-      // The earlier of the two is dated six years back — article 6 only ever
-      // asks how many and when the last one was, and the office can correct
-      // the date on the history row itself.
+    if (delta === 2) {
+      // Only reachable from zero on record: nothing real to anchor a second
+      // date to, so the earlier of the two is a convenience guess, six years
+      // back — article 6 only ever asks how many and when the last one was,
+      // and the office can correct the date on the history row itself.
       const [y, m, d] = date.split('-');
       dates.unshift(`${Number(y) - 6}-${m}-${d}`);
     }
     const written = [];
     for (const dt of dates) {
-      const existing = await sbPayroll(`person_grade_history?user_id=eq.${encodeURIComponent(personId)}&effective_date=eq.${encodeURIComponent(dt)}&select=id,change_kind`);
-      if (!existing?.error && (existing || []).some(r => _UPGRADE_KINDS.has(r.change_kind))) continue;
+      if (existingDates.has(dt)) continue;
       const saved = await _historyWrite({
         user_id: personId, grade_id: setup.grade_id || null, step_id: setup.step_id || null, pay_type: 'regular',
         effective_date: dt, change_kind: kind,
-        note: payload.note || 'Higher scale given under an earlier pay scale (art. 6(4))',
-        created_by: user_id || null,
+        note: note || 'Higher scale given under an earlier pay scale (art. 6(4))',
+        created_by: actorId || null,
       });
-      if (saved?.error) return NextResponse.json({ result: 'error', message: saved.error }, { status: 500 });
+      if (saved?.error) return { error: saved.error };
       written.push(dt);
+      existingDates.add(dt);
     }
-    _prAudit(user_id, 'record_prior_upgrade', 'person_grade_history', personId, { kind, count, dates: written });
-    return NextResponse.json({ result: 'success', recorded: written });
+    if (written.length) _prAudit(actorId, 'record_prior_upgrade', 'person_grade_history', personId, { kind, target, added: written });
+    return { recorded: written };
+  }
+
+  if (action === 'record_prior_upgrade') {
+    const res = await _recordPriorUpgrade(payload.user_id, payload.kind, payload.count, payload.effective_date, payload.note, user_id, null, null);
+    if (res.error) return NextResponse.json({ result: 'error', message: res.error }, { status: 400 });
+    return NextResponse.json({ result: 'success', recorded: res.recorded });
+  }
+
+  // One save for the whole bulk table — the office reviews dozens of
+  // long-serving people in one screen and submits every row that changed at
+  // once, rather than round-tripping per person. History is loaded once for
+  // everyone in the batch, not once per row.
+  if (action === 'bulk_record_prior_upgrades') {
+    const rows = Array.isArray(payload.rows) ? payload.rows : [];
+    if (!rows.length) return NextResponse.json({ result: 'error', message: 'No rows to save' }, { status: 400 });
+    const history = await _gradeHistoryByUser();
+    const setupCache = {};
+    let saved = 0;
+    const errors = [];
+    for (const r of rows) {
+      const res = await _recordPriorUpgrade(r.user_id, r.kind, r.count, r.effective_date, r.note, user_id, setupCache, history[r.user_id] || []);
+      if (res.error) errors.push({ user_id: r.user_id, message: res.error });
+      else if (res.recorded.length) { saved++; (history[r.user_id] = history[r.user_id] || []).push(...res.recorded.map(d => ({ effective_date: d, change_kind: ['time_scale', 'selection_grade', 'senior_scale', 'higher_grade'].includes(r.kind) ? r.kind : 'time_scale' }))); }
+    }
+    return NextResponse.json({ result: 'success', saved, errors });
   }
 
   if (action === 'get_pay_projection') {

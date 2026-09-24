@@ -17552,6 +17552,33 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div id="prProjectionBody" class="p-4"></div>
         </div>
       </div>
+      <div id="prPriorBulkModal" class="hidden fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-2 md:p-6 overflow-auto">
+        <div class="bg-white rounded-2xl w-full max-w-5xl my-4 flex flex-col" style="max-height:94vh">
+          <div class="flex items-center justify-between gap-2 p-4 border-b border-slate-100">
+            <div>
+              <p class="font-black text-slate-800 text-sm">Record prior time scales / selection grades</p>
+              <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Everyone eligible for article 6, longest-serving first — most long-serving staff already hold both under the old scales</p>
+            </div>
+            <button onclick="_prClosePriorBulk()" class="p-2 text-slate-400 hover:text-slate-700"><i data-lucide="x" class="h-4 w-4"></i></button>
+          </div>
+          <div class="p-4 border-b border-slate-100 bg-slate-50 flex flex-wrap items-end gap-2">
+            <label class="flex flex-col gap-1"><span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Search</span>
+              <input type="text" id="prPriorBulkSearch" oninput="_prFilterPriorBulk(this.value)" placeholder="Name or designation…" class="px-2 py-2 bg-white border border-slate-200 rounded-lg font-bold text-xs w-48"></label>
+            <div class="h-9 w-px bg-slate-200 mx-1"></div>
+            <label class="flex flex-col gap-1"><span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Quick-fill</span>
+              <select id="prPriorBulkFillCount" class="px-2 py-2 bg-white border border-slate-200 rounded-lg font-bold text-xs"><option value="2">Had 2 already</option><option value="1">Had 1 already</option></select></label>
+            <label class="flex flex-col gap-1"><span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Most recent date</span>
+              <input type="date" id="prPriorBulkFillDate" value="2026-06-30" class="px-2 py-2 bg-white border border-slate-200 rounded-lg font-bold text-xs"></label>
+            <button onclick="_prPriorBulkQuickFill()" title="Fills every row currently showing in the table below that isn't already at this count or higher — review and clear the exceptions before saving" class="px-3 py-2 bg-slate-800 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Apply to all shown below</button>
+            <p class="text-[10px] font-bold text-slate-400 max-w-[14rem]">Fills only the rows currently visible in the search — narrow the search first to fill a subset, or clear it to fill everyone.</p>
+          </div>
+          <div id="prPriorBulkTableHost" class="overflow-auto flex-1"><p class="text-slate-400 font-bold text-xs p-6 text-center">Loading…</p></div>
+          <div class="p-4 border-t border-slate-100 flex items-center justify-between gap-2 sticky bottom-0 bg-white">
+            <p id="prPriorBulkSummary" class="text-[11px] font-bold text-slate-500"></p>
+            <button id="prPriorBulkSaveBtn" onclick="_prSavePriorBulk()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="save" class="h-3.5 w-3.5"></i>Save changes</button>
+          </div>
+        </div>
+      </div>
       <div id="pr-people" style="display:none">
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
           <div class="flex items-center justify-between flex-wrap gap-3 mb-3">
@@ -20864,9 +20891,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <i data-lucide="trending-up" class="h-4 w-4 text-amber-600"></i>
           <p class="font-black text-amber-900 text-xs">${list.length} ${list.length === 1 ? 'person is' : 'people are'} due a higher grade</p>
         </div>
-        <button onclick="_prLoadUpgradeSuggestions()" class="px-2 py-1 border border-amber-300 text-amber-700 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-amber-100">Refresh</button>
+        <div class="flex items-center gap-2">
+          <button onclick="_prOpenPriorBulk()" title="Review every long-serving person at once and mark who already has a time scale/selection grade from the old scales — much faster than 'Had one' person by person" class="px-2.5 py-1.5 bg-amber-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1"><i data-lucide="list-checks" class="h-3.5 w-3.5"></i>Review all long-serving staff</button>
+          <button onclick="_prLoadUpgradeSuggestions()" class="px-2 py-1 border border-amber-300 text-amber-700 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-amber-100">Refresh</button>
+        </div>
       </div>
-      <p class="text-[10px] font-bold text-amber-700/80 uppercase tracking-widest mb-2">Eight years in the same post without promotion, then six more for the second (art. 6). Stepping someone up records it in their grade history, so it is never offered or applied twice.</p>
+      <p class="text-[10px] font-bold text-amber-700/80 uppercase tracking-widest mb-2">Eight years in the same post without promotion, then six more for the second (art. 6). This list is only who is due <em>today</em> and assumes nobody had a time scale under the old scales yet — click "Review all long-serving staff" to mark who actually already has one or two, since most long-serving staff do.</p>
       ${window.innerWidth < 768 ? cards : `<div class="overflow-auto bg-white rounded-xl border border-amber-200">
         <table class="w-full text-left border-collapse text-xs">
           <thead class="bg-amber-50/60"><tr class="text-[10px] font-black text-amber-800 uppercase">
@@ -20907,6 +20937,160 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         _prPreviewConversion();
       } else showToast((res && res.message) || 'Could not record it', 'error');
     }).catch(err => showToast(err.message || 'Could not record it', 'error'));
+  }
+
+  // ── Record prior upgrades in bulk ──────────────────────────────────────
+  // The "Had one" popup above is fine for one person; the real job is
+  // dozens of long-serving staff at once. This loads everyone article 6
+  // could ever apply to, not just who's "due" today, and lets the office
+  // fill most of them in one pass with a quick-fill, then hand-correct the
+  // exceptions before saving — instead of clicking through 190+ browser
+  // prompts.
+  let _prPriorWorklist = [];
+  function _prOpenPriorBulk() {
+    const host = document.getElementById('prPriorBulkModal');
+    if (!host) return;
+    host.classList.remove('hidden');
+    const search = document.getElementById('prPriorBulkSearch');
+    if (search) search.value = '';
+    const tableHost = document.getElementById('prPriorBulkTableHost');
+    if (tableHost) tableHost.innerHTML = '<p class="text-slate-400 font-bold text-xs p-6 text-center">Loading…</p>';
+    _payrollFetch('get_prior_upgrade_worklist', {}).then(res => {
+      if (!res || res.result !== 'success') {
+        if (tableHost) tableHost.innerHTML = `<p class="text-amber-700 font-bold text-xs p-6 text-center">${_escHtml((res && res.message) || 'Could not load the list')}</p>`;
+        return;
+      }
+      _prPriorWorklist = res.people || [];
+      _prRenderPriorBulkTable();
+    }).catch(err => showToast(err.message || 'Could not load the list', 'error'));
+  }
+
+  function _prClosePriorBulk() {
+    const host = document.getElementById('prPriorBulkModal');
+    if (host) host.classList.add('hidden');
+  }
+
+  // Renders the full table once — filtering afterwards only toggles row
+  // visibility (see _prFilterPriorBulk), never rebuilds the DOM, so nothing
+  // typed into a row's count/date is lost by narrowing or clearing a search.
+  function _prRenderPriorBulkTable() {
+    const host = document.getElementById('prPriorBulkTableHost');
+    if (!host) return;
+    const list = _prPriorWorklist;
+    if (!list.length) { host.innerHTML = '<p class="text-slate-400 font-bold text-xs p-6 text-center">Nobody is eligible for article 6 (everyone is grade 4 or above, or contractual).</p>'; return; }
+    const rowHtml = p => {
+      const already = p.prior_count >= 2
+        ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-700">Already 2 — done</span>`
+        : p.prior_count === 1
+          ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-700" title="${_escHtml((p.prior[0] || {}).date || '')}">Has 1</span>`
+          : `<span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-slate-100 text-slate-500">None on record</span>`;
+      const options = [];
+      if (p.prior_count < 2) options.push(`<option value="2">2 (both)</option>`);
+      if (p.prior_count < 1) options.push(`<option value="1">1</option>`);
+      const picker = p.prior_count >= 2 ? '' : `
+        <select data-uid="${_escHtml(String(p.user_id))}" class="prPriorBulkCount px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-[11px]" onchange="_prPriorBulkRowChanged('${_escHtml(String(p.user_id))}')">
+          <option value="">— no change —</option>${options.join('')}
+        </select>
+        <input type="date" data-uid="${_escHtml(String(p.user_id))}" class="prPriorBulkDate px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-[11px] w-32" disabled>`;
+      return `<tr data-search="${_escHtml((p.name + ' ' + (p.designation || '')).toLowerCase())}" class="border-b border-slate-50">
+        <td class="py-1.5 px-3 font-black text-slate-700">${_escHtml(p.name)}<span class="block text-[10px] font-bold text-slate-400">${_escHtml(p.designation || '')}</span></td>
+        <td class="py-1.5 px-3 font-bold text-slate-500">${_escHtml(p.grade_name)}</td>
+        <td class="py-1.5 px-3 font-bold text-slate-500 text-center">${p.service_years != null ? p.service_years + 'y' : '—'}</td>
+        <td class="py-1.5 px-3">${already}</td>
+        <td class="py-1.5 px-3"><div class="flex items-center gap-1.5">${picker}</div></td>
+      </tr>`;
+    };
+    host.innerHTML = `<table class="w-full text-left border-collapse text-xs">
+      <thead class="bg-slate-50 sticky top-0"><tr class="text-[10px] font-black text-slate-500 uppercase">
+        <th class="py-2 px-3">Name</th><th class="py-2 px-3">Grade</th><th class="py-2 px-3 text-center">Years</th>
+        <th class="py-2 px-3">On record</th><th class="py-2 px-3">Mark as</th>
+      </tr></thead>
+      <tbody id="prPriorBulkBody">${list.map(rowHtml).join('')}</tbody>
+    </table>`;
+    _prUpdatePriorBulkSummary();
+  }
+
+  // A count picked with no date filled in is not saveable — enabling the
+  // date input only once a real target is chosen keeps that obvious instead
+  // of a validation error appearing only at Save.
+  function _prPriorBulkRowChanged(userId) {
+    const sel = document.querySelector(`.prPriorBulkCount[data-uid="${CSS.escape(String(userId))}"]`);
+    const dateInput = document.querySelector(`.prPriorBulkDate[data-uid="${CSS.escape(String(userId))}"]`);
+    if (!sel || !dateInput) return;
+    dateInput.disabled = !sel.value;
+    if (sel.value && !dateInput.value) dateInput.value = (document.getElementById('prPriorBulkFillDate') || {}).value || '2026-06-30';
+    _prUpdatePriorBulkSummary();
+  }
+
+  function _prUpdatePriorBulkSummary() {
+    const n = document.querySelectorAll('.prPriorBulkCount').length
+      ? [...document.querySelectorAll('.prPriorBulkCount')].filter(s => s.value).length
+      : 0;
+    const el = document.getElementById('prPriorBulkSummary');
+    if (el) el.textContent = n ? `${n} row${n === 1 ? '' : 's'} marked, ready to save` : 'Nothing marked yet — pick a count on any row, or use Quick-fill above.';
+  }
+
+  // Search narrows which rows are VISIBLE only — the table itself, and
+  // whatever an admin already typed into it, is never rebuilt.
+  function _prFilterPriorBulk(text) {
+    const q = String(text || '').trim().toLowerCase();
+    document.querySelectorAll('#prPriorBulkBody tr').forEach(tr => {
+      tr.style.display = !q || (tr.getAttribute('data-search') || '').includes(q) ? '' : 'none';
+    });
+  }
+
+  // Sets the count + date on every row currently visible that (a) isn't
+  // already at or above the chosen count and (b) hasn't already been
+  // hand-edited to something else — so running it twice, or after manually
+  // fixing a few exceptions, only fills in the gaps rather than clobbering
+  // what's already been reviewed.
+  function _prPriorBulkQuickFill() {
+    const count = Number((document.getElementById('prPriorBulkFillCount') || {}).value) || 2;
+    const date = (document.getElementById('prPriorBulkFillDate') || {}).value || '2026-06-30';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { showToast('Pick a valid date first', 'error'); return; }
+    let filled = 0;
+    document.querySelectorAll('#prPriorBulkBody tr').forEach(tr => {
+      if (tr.style.display === 'none') return;
+      const sel = tr.querySelector('.prPriorBulkCount');
+      const dateInput = tr.querySelector('.prPriorBulkDate');
+      if (!sel || !dateInput) return;                        // already at 2, nothing to fill
+      if (sel.value) return;                                  // already hand-edited — leave it
+      const hasOption = [...sel.options].some(o => o.value === String(count));
+      if (!hasOption) return;                                 // e.g. quick-filling "1" for someone already recorded at 1
+      sel.value = String(count);
+      dateInput.disabled = false;
+      dateInput.value = date;
+      filled++;
+    });
+    showToast(filled ? `Filled ${filled} row${filled === 1 ? '' : 's'} — review before saving` : 'Nothing left to fill in the current view');
+    _prUpdatePriorBulkSummary();
+  }
+
+  function _prSavePriorBulk() {
+    const rows = [];
+    const missingDate = [];
+    document.querySelectorAll('.prPriorBulkCount').forEach(sel => {
+      if (!sel.value) return;
+      const uid = sel.getAttribute('data-uid');
+      const dateInput = document.querySelector(`.prPriorBulkDate[data-uid="${CSS.escape(uid)}"]`);
+      const date = dateInput ? dateInput.value : '';
+      if (!date) { missingDate.push(uid); return; }
+      rows.push({ user_id: uid, kind: 'time_scale', count: Number(sel.value), effective_date: date });
+    });
+    if (missingDate.length) { showToast(`${missingDate.length} marked row${missingDate.length === 1 ? '' : 's'} still need a date`, 'error'); return; }
+    if (!rows.length) { showToast('Nothing marked to save', 'error'); return; }
+    const btn = document.getElementById('prPriorBulkSaveBtn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader" class="h-3.5 w-3.5 animate-spin"></i>Saving…'; lucide.createIcons(); }
+    _payrollFetch('bulk_record_prior_upgrades', { rows }).then(res => {
+      if (res && res.result === 'success') {
+        showToast(`${res.saved} of ${rows.length} people updated${res.errors && res.errors.length ? `, ${res.errors.length} failed` : ''}`);
+        if (res.errors && res.errors.length) console.warn('bulk prior upgrade errors', res.errors);
+        _prOpenPriorBulk();          // reload so "already 2" badges reflect what was just saved
+        _prLoadUpgradeSuggestions(); // the due list changes once these are on record
+        _prPreviewConversion();
+      } else showToast((res && res.message) || 'Save failed', 'error');
+    }).catch(err => showToast(err.message || 'Save failed', 'error'))
+      .finally(() => { if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="save" class="h-3.5 w-3.5"></i>Save changes'; lucide.createIcons(); } });
   }
 
   function _prStepUpGrade(personId, date) {
