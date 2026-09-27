@@ -310,6 +310,13 @@ const RESERVED = [
   'saveNewTab','addTabRow','addConditionRow','duplicateField','cutField',
   'copyField','pasteField','promoteTab','unpromoteTab','editTab',
   'deleteTabConfig','toggleStatus','adminResetPin',
+  // Group Forms (team sign-up, e.g. Science Fair) — admin CRUD, native port
+  // matching ccpc-students' own version. loadAdminGroupFormsView is also
+  // reached via the dynamic nav `fn` dispatch (see loadAdminAddCustomFormView
+  // above), so it needs the same protection.
+  'loadAdminGroupFormsView','toggleGroupFormFlag','gfOnClassModeChange','gfAddBand',
+  'cancelGroupFormEdit','editGroupForm','saveGroupForm','deleteGroupFormConfig',
+  'openGroupRoster','closeGroupRoster','setTeamLockAdmin','disbandTeamAdmin',
 
   // Data tab native port (Phase 6, part 1)
   'loadAdminDataView','loadSummaryData','filterSummaryTable','exportSummaryData',

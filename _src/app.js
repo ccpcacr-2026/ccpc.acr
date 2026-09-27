@@ -807,6 +807,7 @@
   const ADMIN_SUBNAV_ITEMS = [
     { key: 'setup', label: 'Setup', icon: 'sliders-horizontal', erp: false, action: { type: 'native', fn: 'loadAdminSetupView' } },
     { key: 'add_custom_form', label: '+ Add Custom Form', icon: 'plus-circle', erp: false, action: { type: 'native', fn: 'loadAdminAddCustomFormView' } },
+    { key: 'group_forms', label: 'Group Forms', icon: 'users-round', erp: false, action: { type: 'native', fn: 'loadAdminGroupFormsView' } },
     { key: 'data', label: 'Data', icon: 'table', erp: false, action: { type: 'native', fn: 'loadAdminDataView' } },
     { key: 'access', label: 'Access', icon: 'shield-check', erp: false, action: { type: 'native', fn: 'loadAdminAccessView' } },
     { key: 'attendance', label: 'Attendance', icon: 'fingerprint', erp: true, action: { type: 'native', fn: 'loadAdminAttendanceView' } },
@@ -28129,6 +28130,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _setupPromotedTabs = [];
   let _activeFieldRow = null;
   let _fieldClipboard = null;
+  // Which #…List container the row builder (addTabRow and everything below
+  // that acts on ".draggable-row") is currently working in — shared between
+  // the ordinary Tab editor (#fieldsList) and the Group Form editor
+  // (#gfFieldsList); only one is ever open at a time, so one pointer is
+  // enough instead of threading a container id through every function.
+  let _activeFieldsContainerId = 'fieldsList';
 
   function loadAdminSetupView() {
     if (!(window._adminTabAccess || []).includes('setup')) {
@@ -28413,6 +28420,325 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
   }
 
+  // ── Group Forms — team sign-up (e.g. Science Fair) ──────────────────────────
+  // Admin CRUD for the exact same student.group_forms/… tables ccpc-students
+  // owns — see the server-side comment above 'get_group_forms' in
+  // app/api/student-admin/route.js. Reuses THIS app's own field-row builder
+  // (addTabRow/showIfBlockHtml/serializeFieldsFromContainer, the same ones
+  // "+ Add Custom Form" uses) by pointing _activeFieldsContainerId at
+  // #gfFieldsList instead of #fieldsList.
+  let _allGroupForms = [];
+  let _gfClassOptions = [];
+  let _gfRosterFormId = null;
+
+  function loadAdminGroupFormsView() {
+    if (!(window._adminTabAccess || []).includes('group_forms')) {
+      showToast('Not available in current role', 'error');
+      return;
+    }
+    _setViewHash('student_portal');
+    setActiveNavLink('nav-erp-group_forms');
+    setContentHeader('Group Forms', 'users-round');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    container.innerHTML = `
+      <div class="mb-4">
+        <h2 class="text-2xl font-black text-slate-800 tracking-tight">Group Forms</h2>
+        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">A form several students submit ONE shared entry for, as a team — e.g. Science Fair sign-up</p>
+      </div>
+      <p class="text-xs text-slate-500 font-bold mb-5">A student becomes a team's leader by creating it, invites teammates by Student ID, and each teammate must log in and accept — on the student portal — before they count as a member.</p>
+
+      <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 mb-5">
+        <input type="hidden" id="gfEditingId" value="">
+        <div class="grid grid-cols-1 md:grid-cols-10 gap-3 items-end">
+          <div class="md:col-span-4"><label class="text-[10px] font-black text-slate-400 uppercase">Form Title</label><input type="text" id="gfTitle" placeholder="e.g. Science Fair 2026" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm mt-1"></div>
+          <div class="md:col-span-2"><label class="text-[10px] font-black text-slate-400 uppercase">Icon (Lucide)</label><input type="text" id="gfIcon" placeholder="users-round" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm mt-1"></div>
+          <div class="md:col-span-2"><label class="text-[10px] font-black text-slate-400 uppercase">Max Team Size</label><input type="number" id="gfMaxSize" min="1" value="4" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm mt-1"></div>
+          <div class="md:col-span-2 flex items-center gap-2 pb-2"><input type="checkbox" id="gfMembersRequired"><label class="text-xs font-bold text-slate-600">Must be full to count as complete</label></div>
+        </div>
+        <div class="mt-3"><label class="text-[10px] font-black text-slate-400 uppercase">Description (shown to students)</label><textarea id="gfDescription" rows="2" placeholder="What is this sign-up for?" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm mt-1"></textarea></div>
+        <div class="grid grid-cols-2 gap-3 mt-3">
+          <div class="flex items-center gap-2"><input type="checkbox" id="gfIsEnabled" checked><label class="text-xs font-bold text-slate-600">Visible to students</label></div>
+          <div class="flex items-center gap-2"><input type="checkbox" id="gfAcceptingNew" checked><label class="text-xs font-bold text-slate-600">Accepting new teams</label></div>
+        </div>
+
+        <div class="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
+          <span class="text-[10px] font-black text-slate-400 uppercase">Who can a leader invite?</span>
+          <p class="text-[11px] text-slate-400 font-bold mt-1 mb-3">Every rule is relative to the LEADER — "same class" means the same class as whoever leads that team, not one fixed class for everyone.</p>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <select id="gfClassMode" onchange="gfOnClassModeChange()" class="px-2.5 py-2 bg-white border border-slate-200 rounded-lg font-bold text-xs">
+              <option value="none">No class restriction</option>
+              <option value="exact">Must be the exact same class as the leader</option>
+              <option value="band">Must be in the same class group as the leader</option>
+            </select>
+            <div class="flex items-center gap-2"><input type="checkbox" id="gfSameSection"><label class="text-xs font-bold text-slate-600">Same section too</label></div>
+            <div class="flex items-center gap-2"><input type="checkbox" id="gfSameHouse"><label class="text-xs font-bold text-slate-600">Same house too</label></div>
+          </div>
+          <div id="gfBandsWrap" class="mt-3 hidden">
+            <p class="text-[11px] text-slate-400 font-bold mb-2">Group classes into bands — e.g. Six/Seven/Eight in one band, Nine/Ten in another. A leader in Seven may then invite anyone from Six, Seven or Eight, but not Nine.</p>
+            <div id="gfBandsList" class="flex flex-col gap-2"></div>
+            <button type="button" onclick="gfAddBand()" class="mt-2 px-3 py-1.5 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100">+ Add Class Group</button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2 mt-4">
+          <button onclick="addTabRow('field')" class="px-4 py-2.5 border border-blue-200 text-blue-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-blue-50 transition-all">+ New Input</button>
+          <button onclick="addTabRow('label')" class="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">+ New Header</button>
+        </div>
+        <p class="text-[11px] text-slate-400 font-bold mt-3">These fields are filled ONCE by the team leader, describing the team's entry (e.g. Project Title, Category) — not one field set per member. The roster itself is handled automatically.</p>
+        <div id="gfFieldsList" class="flex flex-col gap-3 mt-4"></div>
+        <div class="flex justify-end gap-2 mt-4">
+          <button onclick="cancelGroupFormEdit()" class="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50">Cancel</button>
+          <button onclick="saveGroupForm()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Group Form</button>
+        </div>
+      </div>
+
+      <div id="adminGroupFormsList" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5"></div>
+
+      <div id="adminGroupRoster" class="hidden bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+        <div class="flex items-center justify-between mb-3">
+          <h3 id="adminGroupRosterTitle" class="text-lg font-black text-slate-800">Teams</h3>
+          <button onclick="closeGroupRoster()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50">Close</button>
+        </div>
+        <div id="adminGroupRosterList" class="flex flex-col gap-3"></div>
+      </div>
+    `;
+    lucide.createIcons();
+    loadAdminGroupForms();
+    setTimeout(() => { document.getElementById('gfTitle')?.focus(); }, 50);
+  }
+
+  function loadAdminGroupForms() {
+    Promise.all([
+      _adminFetch('get_group_forms', {}),
+      _gfClassOptions.length ? Promise.resolve(null) : _adminFetch('get_class_house_options', {}),
+    ]).then(([forms, opts]) => {
+      _allGroupForms = Array.isArray(forms) ? forms : [];
+      if (opts && opts.result === 'success') _gfClassOptions = opts.classes || [];
+      renderAdminGroupFormsList();
+    }).catch(() => showToast('Network error loading Group Forms', 'error'));
+  }
+
+  // One-line summary of an eligibility_json for the form card — matches the
+  // same shape ccpc-students' checkGroupEligibility() reads.
+  function gfEligibilitySummary(json) {
+    let e = {}; try { e = JSON.parse(json || '{}') || {}; } catch (err) {}
+    const bits = [];
+    if (e.class_mode === 'exact') bits.push('same class as leader');
+    else if (e.class_mode === 'band') bits.push('same class group as leader');
+    if (e.same_section) bits.push('same section');
+    if (e.same_house) bits.push('same house');
+    return bits.length ? ' · members must share: ' + bits.join(', ') : '';
+  }
+
+  function renderAdminGroupFormsList() {
+    const list = document.getElementById('adminGroupFormsList');
+    if (!list) return;
+    if (!_allGroupForms.length) { list.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No Group Forms yet — fill in the form above and click Save.</p>'; return; }
+    list.innerHTML = _allGroupForms.map((f, i) => `
+      <div class="border border-slate-200 rounded-2xl p-4 ${f.is_enabled ? '' : 'opacity-60'}">
+        <div class="flex items-center gap-2 text-sm font-black text-slate-800 truncate">
+          <i data-lucide="${f.icon_class || 'users-round'}" class="h-4 w-4 text-blue-600 shrink-0"></i>${f.title}
+          ${f.is_enabled ? '' : ' <span class="text-[9px] font-black text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">Hidden</span>'}
+          ${f.accepting_new === false ? ' <span class="text-[9px] font-black text-amber-600 bg-amber-50 rounded-full px-2 py-0.5">Closed to new teams</span>' : ''}
+        </div>
+        <p class="text-[11px] text-slate-400 font-bold mt-1 mb-2">Up to ${f.max_team_size} per team${f.members_required ? ' · must be full to count as complete' : ''}${gfEligibilitySummary(f.eligibility_json)}</p>
+        <div class="flex items-center gap-2 flex-wrap">
+          <button onclick="editGroupForm(${i})" class="px-2.5 py-1 bg-blue-600 text-white rounded-full font-black text-[10px] uppercase">Edit</button>
+          <button onclick="openGroupRoster(${f.id})" class="px-2.5 py-1 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100">View Teams</button>
+          <button onclick="deleteGroupFormConfig(${f.id})" class="px-2.5 py-1 bg-red-500 text-white rounded-full font-black text-[10px] uppercase">Del</button>
+          <label class="flex items-center gap-1.5 text-[10px] font-black uppercase text-slate-500 ml-auto" title="Active forms are visible to students; inactive forms are hidden without deleting their setup or data">
+            <input type="checkbox" ${f.is_enabled ? 'checked' : ''} onchange="toggleGroupFormFlag(${f.id},'is_enabled',this.checked)">${f.is_enabled ? 'Active' : 'Inactive'}
+          </label>
+          <label class="flex items-center gap-1.5 text-[10px] font-black uppercase text-slate-500" title="Turn off to stop new teams from being created — teams already made keep working">
+            <input type="checkbox" ${f.accepting_new !== false ? 'checked' : ''} onchange="toggleGroupFormFlag(${f.id},'accepting_new',this.checked)">${f.accepting_new !== false ? 'Open' : 'Closed'}
+          </label>
+        </div>
+      </div>`).join('');
+    lucide.createIcons();
+  }
+
+  function toggleGroupFormFlag(id, key, value) {
+    _adminFetch('save_group_form', { id, [key]: value }).then(res => {
+      if (!(res && res.result === 'success')) showToast((res && res.message) || 'Could not update', 'error');
+      loadAdminGroupForms();
+    }).catch(() => { showToast('Network error', 'error'); loadAdminGroupForms(); });
+  }
+
+  function gfOnClassModeChange() {
+    document.getElementById('gfBandsWrap').classList.toggle('hidden', document.getElementById('gfClassMode').value !== 'band');
+  }
+  function gfAddBand(selected = []) {
+    const list = document.getElementById('gfBandsList');
+    if (!list) return;
+    const row = document.createElement('div');
+    row.className = 'flex items-center gap-2 gf-band-row';
+    row.innerHTML = `
+      <select multiple class="gf-band-classes flex-1 px-2 py-2 bg-white border border-slate-200 rounded-lg font-bold text-xs" style="min-height:90px">
+        ${_gfClassOptions.map(c => `<option value="${c}" ${selected.includes(c) ? 'selected' : ''}>${c}</option>`).join('')}
+      </select>
+      <button type="button" onclick="this.closest('.gf-band-row').remove()" class="w-7 h-7 flex items-center justify-center rounded-lg text-red-400 hover:bg-red-50 shrink-0"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>`;
+    list.appendChild(row);
+    lucide.createIcons();
+  }
+  // Empty rows (nothing selected) are dropped so an admin who added then
+  // emptied a row doesn't end up with a stray band nothing can match.
+  function gfReadBands() {
+    return Array.from(document.querySelectorAll('#gfBandsList .gf-band-classes')).map(sel => Array.from(sel.selectedOptions).map(o => o.value)).filter(b => b.length);
+  }
+  function gfResetEligibilityForm() {
+    document.getElementById('gfClassMode').value = 'none';
+    document.getElementById('gfSameSection').checked = false;
+    document.getElementById('gfSameHouse').checked = false;
+    document.getElementById('gfBandsList').innerHTML = '';
+    document.getElementById('gfBandsWrap').classList.add('hidden');
+  }
+  function gfLoadEligibilityForm(json) {
+    let e = {}; try { e = JSON.parse(json || '{}') || {}; } catch (err) {}
+    document.getElementById('gfClassMode').value = e.class_mode || 'none';
+    document.getElementById('gfSameSection').checked = !!e.same_section;
+    document.getElementById('gfSameHouse').checked = !!e.same_house;
+    document.getElementById('gfBandsList').innerHTML = '';
+    (Array.isArray(e.bands) ? e.bands : []).forEach(b => gfAddBand(b));
+    document.getElementById('gfBandsWrap').classList.toggle('hidden', e.class_mode !== 'band');
+  }
+  function gfSerializeEligibility() {
+    return JSON.stringify({
+      class_mode: document.getElementById('gfClassMode').value,
+      bands: gfReadBands(),
+      same_section: document.getElementById('gfSameSection').checked,
+      same_house: document.getElementById('gfSameHouse').checked,
+    });
+  }
+
+  function cancelGroupFormEdit() {
+    document.getElementById('gfEditingId').value = '';
+    document.getElementById('gfTitle').value = '';
+    document.getElementById('gfIcon').value = '';
+    document.getElementById('gfMaxSize').value = '4';
+    document.getElementById('gfMembersRequired').checked = false;
+    document.getElementById('gfDescription').value = '';
+    document.getElementById('gfIsEnabled').checked = true;
+    document.getElementById('gfAcceptingNew').checked = true;
+    gfResetEligibilityForm();
+    _activeFieldsContainerId = 'gfFieldsList';
+    document.getElementById('gfFieldsList').innerHTML = '';
+  }
+
+  function editGroupForm(i) {
+    const f = _allGroupForms[i];
+    _activeFieldsContainerId = 'gfFieldsList';
+    document.getElementById('gfEditingId').value = f.id;
+    document.getElementById('gfTitle').value = f.title || '';
+    document.getElementById('gfIcon').value = f.icon_class || '';
+    document.getElementById('gfMaxSize').value = f.max_team_size || 4;
+    document.getElementById('gfMembersRequired').checked = !!f.members_required;
+    document.getElementById('gfDescription').value = f.description || '';
+    document.getElementById('gfIsEnabled').checked = f.is_enabled !== false;
+    document.getElementById('gfAcceptingNew').checked = f.accepting_new !== false;
+    gfLoadEligibilityForm(f.eligibility_json);
+    document.getElementById('gfFieldsList').innerHTML = '';
+    let fields = [];
+    try { fields = JSON.parse(f.fields_json || '[]'); } catch (e) {}
+    fields.forEach(fld => addTabRow(fld.type === 'group_label' ? 'label' : 'field', fld));
+    refreshAllShowIfControllers();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function saveGroupForm() {
+    const id = document.getElementById('gfEditingId').value.trim();
+    const title = document.getElementById('gfTitle').value.trim();
+    if (!title) { showToast('Title required', 'error'); return; }
+    const { fields, optionless } = serializeFieldsFromContainer('gfFieldsList');
+    if (optionless.length && !confirm(`These dropdown/checkbox fields have no options and will show as empty:\n\n• ${optionless.join('\n• ')}\n\nAdd comma-separated options in the "Options" box. Save anyway?`)) return;
+    const cfg = {
+      id: id || undefined,
+      title,
+      description: document.getElementById('gfDescription').value.trim(),
+      icon_class: document.getElementById('gfIcon').value.trim() || 'users-round',
+      max_team_size: Number(document.getElementById('gfMaxSize').value) || 4,
+      members_required: document.getElementById('gfMembersRequired').checked,
+      fields_json: JSON.stringify(fields),
+      eligibility_json: gfSerializeEligibility(),
+      is_enabled: document.getElementById('gfIsEnabled').checked,
+      accepting_new: document.getElementById('gfAcceptingNew').checked,
+    };
+    _adminFetch('save_group_form', cfg).then(res => {
+      if (res && res.result === 'success') { showToast('Group Form saved'); cancelGroupFormEdit(); loadAdminGroupForms(); }
+      else showToast((res && res.message) || 'Save failed — please retry.', 'error');
+    }).catch(() => showToast('Network error while saving — please retry.', 'error'));
+  }
+
+  function deleteGroupFormConfig(id) {
+    if (!confirm('Delete this Group Form?\n\nEvery team, member and invite under it is deleted too. This cannot be undone.')) return;
+    _adminFetch('delete_group_form', { id }).then(res => {
+      if (res && res.result === 'success') loadAdminGroupForms();
+      else showToast((res && res.message) || 'Delete failed', 'error');
+    }).catch(() => showToast('Network error while deleting', 'error'));
+  }
+
+  function openGroupRoster(groupFormId) {
+    _gfRosterFormId = groupFormId;
+    const form = _allGroupForms.find(f => f.id === groupFormId);
+    document.getElementById('adminGroupRosterTitle').textContent = 'Teams — ' + (form ? form.title : '');
+    document.getElementById('adminGroupRoster').classList.remove('hidden');
+    document.getElementById('adminGroupRosterList').innerHTML = '<p class="text-xs text-slate-400 font-bold">Loading…</p>';
+    _adminFetch('get_group_form_roster', { group_form_id: groupFormId }).then(res => {
+      if (!res || res.result !== 'success') { document.getElementById('adminGroupRosterList').innerHTML = `<p class="text-xs text-red-500 font-bold">${(res && res.message) || 'Failed to load'}</p>`; return; }
+      renderAdminGroupRoster(res.teams || [], form);
+    }).catch(() => { document.getElementById('adminGroupRosterList').innerHTML = '<p class="text-xs text-red-500 font-bold">Network error</p>'; });
+    document.getElementById('adminGroupRoster').scrollIntoView({ behavior: 'smooth' });
+  }
+  function closeGroupRoster() {
+    document.getElementById('adminGroupRoster').classList.add('hidden');
+    _gfRosterFormId = null;
+  }
+  function renderAdminGroupRoster(teams, form) {
+    const host = document.getElementById('adminGroupRosterList');
+    if (!teams.length) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No teams have been created for this form yet.</p>'; return; }
+    const maxSize = form ? form.max_team_size : null;
+    const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''})` : 'Unknown';
+    host.innerHTML = teams.map(t => {
+      const complete = maxSize ? t.members.length >= maxSize : true;
+      const leader = t.members.find(m => m.role === 'leader');
+      return `
+      <div class="border border-slate-200 rounded-2xl p-4 ${t.status === 'disbanded' ? 'opacity-50' : ''}">
+        <div class="flex justify-between items-start flex-wrap gap-2">
+          <div>
+            <strong class="text-sm font-black text-slate-800">${nameOf(leader?.profile) || t.leader_student_id}'s team</strong>
+            ${t.status === 'disbanded' ? ' <span class="text-[9px] font-black text-white bg-slate-400 rounded-full px-2 py-0.5">Disbanded</span>' : ''}
+            ${t.is_locked ? ' <span class="text-[9px] font-black text-white bg-slate-800 rounded-full px-2 py-0.5">Locked</span>' : ''}
+            ${!complete && form && form.members_required ? ' <span class="text-[9px] font-black text-amber-700 bg-amber-50 rounded-full px-2 py-0.5">Incomplete</span>' : ''}
+            <div class="text-[11px] text-slate-400 font-bold mt-0.5">${t.members.length}${maxSize ? '/' + maxSize : ''} members${t.pending_invites.length ? ' · ' + t.pending_invites.length + ' pending invite(s)' : ''}</div>
+          </div>
+          ${t.status !== 'disbanded' ? `
+          <div class="flex gap-2">
+            <button onclick="setTeamLockAdmin(${t.id}, ${!t.is_locked})" class="px-2.5 py-1 ${t.is_locked ? 'border border-slate-300 text-slate-700 hover:bg-slate-100' : 'bg-slate-800 text-white'} rounded-full font-black text-[10px] uppercase">${t.is_locked ? 'Unlock' : 'Lock'}</button>
+            <button onclick="disbandTeamAdmin(${t.id})" class="px-2.5 py-1 border border-red-300 text-red-600 rounded-full font-black text-[10px] uppercase hover:bg-red-50">Disband</button>
+          </div>` : ''}
+        </div>
+        <div class="mt-2 flex flex-wrap gap-2">
+          ${t.members.map(m => `<span class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-700">${nameOf(m.profile) || m.student_id}${m.role === 'leader' ? ' 👑' : ''}</span>`).join('')}
+          ${t.pending_invites.map(inv => `<span class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-400 italic">${nameOf(inv.profile) || inv.invited_student_id} (pending)</span>`).join('')}
+        </div>
+        ${Object.keys(t.group_data || {}).length ? `<div class="mt-2 text-[11px]">${Object.entries(t.group_data).map(([k, v]) => `<div><span class="text-slate-400 font-bold">${k.replace(/_/g, ' ')}:</span> <strong>${v}</strong></div>`).join('')}</div>` : ''}
+      </div>`;
+    }).join('');
+  }
+  function setTeamLockAdmin(teamId, locked) {
+    _adminFetch('set_team_lock', { team_id: teamId, locked }).then(res => {
+      if (res && res.result === 'success') openGroupRoster(_gfRosterFormId);
+      else showToast((res && res.message) || 'Failed', 'error');
+    }).catch(() => showToast('Network error', 'error'));
+  }
+  function disbandTeamAdmin(teamId) {
+    if (!confirm('Disband this team?\n\nEvery member is removed (freed to join another team) but the team stays on record for history.')) return;
+    _adminFetch('admin_disband_team', { team_id: teamId }).then(res => {
+      if (res && res.result === 'success') openGroupRoster(_gfRosterFormId);
+      else showToast((res && res.message) || 'Failed', 'error');
+    }).catch(() => showToast('Network error', 'error'));
+  }
+
   function _showIfValStr(v) { return Array.isArray(v) ? v.join(', ') : (v == null ? '' : String(v)); }
   function parseShowIfForEditor(showIf) {
     const empty = [{ field: '', value: '' }, { field: '', value: '' }];
@@ -28450,7 +28776,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     <button type="button" onclick="this.closest('.draggable-row').remove()" class="w-7 h-7 flex items-center justify-center rounded-lg text-red-400 hover:bg-red-50" title="Delete"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>`;
 
   function addTabRow(type, data = null) {
-    const container = document.getElementById('fieldsList');
+    const container = document.getElementById(_activeFieldsContainerId);
     const row = document.createElement('div');
     row.className = 'draggable-row bg-white rounded-2xl border border-slate-200 shadow-sm p-4';
     row.id = `f-row-${container.children.length}`;
@@ -28479,6 +28805,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <option value="number" ${data?.type === 'number' ? 'selected' : ''}>Number</option>
           <option value="checkbox" ${data?.type === 'checkbox' ? 'selected' : ''}>Checkbox</option>
           <option value="choose" ${data?.type === 'choose' ? 'selected' : ''}>Dropdown</option>
+          <option value="profile_picture" ${data?.type === 'profile_picture' ? 'selected' : ''}>Profile Picture</option>
         </select>
         <input type="text" placeholder="Options (comma separated)" class="f-options px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs ${['checkbox', 'choose'].includes(data?.type) ? '' : 'hidden'}" style="flex:1;min-width:160px" value="${(data?.options || []).join(',')}">
         ${keyInput}
@@ -28494,7 +28821,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   function setActiveField(row) {
-    document.querySelectorAll('#fieldsList .draggable-row').forEach(r => { r.style.outline = ''; r.style.background = ''; });
+    document.querySelectorAll(`#${_activeFieldsContainerId} .draggable-row`).forEach(r => { r.style.outline = ''; r.style.background = ''; });
     row.style.outline = '2px solid #2563eb';
     row.style.background = '#eff6ff';
     _activeFieldRow = row;
@@ -28555,7 +28882,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (key !== 'x' && key !== 'c' && key !== 'v') return;
     const activeTag = (document.activeElement && document.activeElement.tagName || '').toLowerCase();
     if (['input', 'textarea', 'select'].includes(activeTag)) return;
-    if (!document.getElementById('fieldsList')) return;
+    if (!document.getElementById(_activeFieldsContainerId)) return;
     if (key === 'v') { e.preventDefault(); _pasteAfter(_activeFieldRow); return; }
     if (!_activeFieldRow) return;
     e.preventDefault();
@@ -28568,7 +28895,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const sz = (s) => s.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
     const out = [];
     let cl = '';
-    document.querySelectorAll('#fieldsList .draggable-row').forEach(row => {
+    document.querySelectorAll(`#${_activeFieldsContainerId} .draggable-row`).forEach(row => {
       const type = row.querySelector('.f-type')?.value;
       if (type === 'group_label') { const l = row.querySelector('input[type="text"]')?.value.trim(); if (l) cl = sz(l); return; }
       const label = row.querySelector('input[placeholder="Label"]')?.value.trim();
@@ -28590,7 +28917,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   function refreshAllShowIfControllers() {
     const keys = getBuilderFieldKeys();
-    document.querySelectorAll('#fieldsList .showif-field, #fieldsList .showif-field2').forEach(sel => populateShowIfSelect(sel, sel.value, keys));
+    document.querySelectorAll(`#${_activeFieldsContainerId} .showif-field, #${_activeFieldsContainerId} .showif-field2`).forEach(sel => populateShowIfSelect(sel, sel.value, keys));
   }
 
   function addConditionRow(rule = null) {
@@ -28613,15 +28940,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (rule) { row.querySelector('.rule-op').value = rule.operator; row.querySelector('.rule-val').value = rule.value; }
   }
 
-  function saveNewTab() {
-    const name = document.getElementById('newTabName').value.trim();
-    const icon = document.getElementById('newTabIcon').value.trim() || 'folder';
-    const edit = document.getElementById('newTabEditable').checked;
-    if (!name) { showToast('Title required', 'error'); return; }
+  // Reads every ".draggable-row" out of one field-builder container and
+  // turns it into a fields_json-shaped array — shared by the ordinary Tab
+  // builder (#fieldsList, via saveNewTab) and the Group Form builder
+  // (#gfFieldsList, via saveGroupForm), so a field row means exactly the
+  // same thing to both.
+  function serializeFieldsFromContainer(containerId) {
     const fields = []; let cl = '';
     const sz = (s) => s.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
     const optionless = [];
-    document.querySelectorAll('#fieldsList .draggable-row').forEach(row => {
+    document.querySelectorAll(`#${containerId} .draggable-row`).forEach(row => {
       const type = row.querySelector('.f-type').value;
       const showIf = _readRowShowIf(row);
       if (type === 'group_label') {
@@ -28640,6 +28968,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         }
       }
     });
+    return { fields, optionless };
+  }
+
+  function saveNewTab() {
+    const name = document.getElementById('newTabName').value.trim();
+    const icon = document.getElementById('newTabIcon').value.trim() || 'folder';
+    const edit = document.getElementById('newTabEditable').checked;
+    if (!name) { showToast('Title required', 'error'); return; }
+    const { fields, optionless } = serializeFieldsFromContainer('fieldsList');
     if (optionless.length && !confirm(`These dropdown/checkbox fields have no options and will show as empty:\n\n• ${optionless.join('\n• ')}\n\nAdd comma-separated options in the "Options" box. Save anyway?`)) return;
     const rs = [];
     document.querySelectorAll('#conditionsList > div').forEach(row => {
@@ -28657,6 +28994,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   function editTab(i) {
+    _activeFieldsContainerId = 'fieldsList'; // in case a Group Form edit left this pointed elsewhere
     const t = _setupAllTabs[i];
     let inclKeys = [];
     try { inclKeys = JSON.parse(t.include_fields_json || '[]'); } catch (e) {}

@@ -548,6 +548,13 @@ const ADMIN_TAB_ACTIONS = {
   transport: new Set(['get_transport_routes', 'save_transport_route', 'get_transport_vehicles', 'save_transport_vehicle', 'get_pickup_points', 'save_pickup_point', 'assign_route_pickup_point', 'get_route_pickup_points', 'assign_vehicle_to_route', 'get_vehicle_assignments', 'get_transport_fee_master', 'save_transport_fee_master', 'generate_student_transport_fee', 'get_student_transport_fees']),
   setup: new Set(['get_tabs', 'get_profile_sections', 'get_student_data_headers', 'get_editable_fields', 'save_editable_fields', 'get_permanent_tabs_config', 'set_permanent_tabs_config', 'get_login_password_columns', 'set_login_password_columns', 'promote_tab_to_profile', 'unpromote_tab_from_profile', 'delete_tab', 'save_tab', 'admin_reset_pin']),
   add_custom_form: new Set(['get_tabs', 'get_student_data_headers', 'save_tab', 'delete_tab']),
+  // Group Forms — team sign-up (e.g. Science Fair) in the student portal.
+  // Admin CRUD only: the actual invite/accept/leave workflow only exists in
+  // ccpc-students (where students log in); this app reads and writes the
+  // exact same student.group_forms/group_form_teams/… tables directly via
+  // sb(), same cross-app-shared-database pattern as get_tabs/save_tab above
+  // for portal_tabs.
+  group_forms: new Set(['get_group_forms', 'save_group_form', 'delete_group_form', 'get_group_form_roster', 'set_team_lock', 'admin_disband_team', 'get_class_house_options', 'get_student_data_headers']),
   data: new Set(['get_tabs', 'get_tab_data', 'get_tab_submission_status', 'get_staff_list', 'get_tab_data_access', 'set_tab_data_access', 'get_staff_directory', 'get_class_sections', 'get_tab_class_access', 'set_tab_class_access', 'get_field_categories', 'get_tab_category_link', 'set_tab_category_link']),
   // Class Teacher assignment (get_class_teacher_assignments/save_teacher_
   // class_assignment) lives here too, not its own tab key — it's part of
@@ -593,6 +600,7 @@ const ADMIN_TAB_DEFAULTS = {
   transport: ['Admin', 'Student Portal Admin'],
   setup: ['Admin', 'Student Portal Admin'],
   add_custom_form: ['Admin', 'Student Portal Admin'],
+  group_forms: ['Admin', 'Student Portal Admin'],
   data: ['Admin', 'Student Portal Admin'],
   access: ['Admin', 'Student Portal Admin'],
   history: ['Admin', 'Student Portal Admin'],
@@ -1136,6 +1144,148 @@ export async function POST(req) {
     const r = await sb(`portal_tabs?tab_name=eq.${encodeURIComponent(payload.tab_name)}`, 'DELETE');
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
     return NextResponse.json({ result: 'success' });
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // Group Forms — team sign-up (e.g. Science Fair) in the student portal.
+  // Admin CRUD only, reading/writing the exact same student.group_forms /
+  // group_form_teams / group_form_team_members / group_form_team_invites
+  // tables ccpc-students owns (migration_group_forms.sql, run once in
+  // Supabase) — the invite/accept/leave workflow itself only exists over
+  // there, where students actually log in. "Group Form" is the admin-built
+  // template; "Team" is the student-built roster inside one.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // ── Get Group Forms (admin — always the full list, enabled or not) ─────────
+  if (action === 'get_group_forms') {
+    const rows = await sb('group_forms?order=sort_order.asc,id.asc');
+    if (rows?.error) return NextResponse.json([]);
+    return NextResponse.json(Array.isArray(rows) ? rows : []);
+  }
+
+  // ── Save Group Form Config ───────────────────────────────────────────────
+  if (action === 'save_group_form') {
+    const { id, title, description, icon_class, max_team_size, members_required, fields_json, eligibility_json, is_enabled, accepting_new, sort_order } = payload;
+
+    if (id) {
+      // Partial update — only touches fields actually sent. The admin
+      // card's Active/Open switches call this with just {id, is_enabled}
+      // or {id, accepting_new}; building a full row with fallback defaults
+      // for everything else here would silently overwrite the title, icon
+      // and — worst of all — reset fields_json to '[]', wiping every field
+      // on a simple toggle click.
+      const rowData = { updated_at: new Date().toISOString() };
+      if (title !== undefined) {
+        if (!String(title).trim()) return NextResponse.json({ result: 'error', message: 'Title required.' });
+        rowData.title = String(title).trim();
+      }
+      if (description !== undefined) rowData.description = description || null;
+      if (icon_class !== undefined) rowData.icon_class = icon_class || 'bi-people-fill';
+      if (max_team_size !== undefined) rowData.max_team_size = Math.max(1, Number(max_team_size) || 4);
+      if (members_required !== undefined) rowData.members_required = !!members_required;
+      if (fields_json !== undefined) rowData.fields_json = fields_json || '[]';
+      if (eligibility_json !== undefined) rowData.eligibility_json = eligibility_json || '{}';
+      if (is_enabled !== undefined) rowData.is_enabled = !!is_enabled;
+      if (accepting_new !== undefined) rowData.accepting_new = !!accepting_new;
+      if (sort_order !== undefined) rowData.sort_order = sort_order;
+      const writeRes = await sb(`group_forms?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData);
+      if (writeRes?.error) return NextResponse.json({ result: 'error', message: 'Save failed: ' + writeRes.error });
+      return NextResponse.json({ result: 'success' });
+    }
+
+    // Create — every field gets a real default.
+    if (!title || !String(title).trim()) return NextResponse.json({ result: 'error', message: 'Title required.' });
+    const rowData = {
+      title: String(title).trim(),
+      description: description || null,
+      icon_class: icon_class || 'bi-people-fill',
+      max_team_size: Math.max(1, Number(max_team_size) || 4),
+      members_required: !!members_required,
+      fields_json: fields_json || '[]',
+      eligibility_json: eligibility_json || '{}',
+      is_enabled: is_enabled !== false,
+      accepting_new: accepting_new !== false,
+      sort_order: sort_order || 0,
+    };
+    const writeRes = await sb('group_forms', 'POST', rowData);
+    if (writeRes?.error) return NextResponse.json({ result: 'error', message: 'Save failed: ' + writeRes.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Delete Group Form ────────────────────────────────────────────────────
+  // Cascades to every team/member/invite under it, same as delete_tab
+  // cascading to portal_submissions above.
+  if (action === 'delete_group_form') {
+    const { id } = payload;
+    if (!id) return NextResponse.json({ result: 'error', message: 'id required.' });
+    await sb(`group_form_team_invites?group_form_id=eq.${encodeURIComponent(id)}`, 'DELETE');
+    await sb(`group_form_team_members?group_form_id=eq.${encodeURIComponent(id)}`, 'DELETE');
+    await sb(`group_form_teams?group_form_id=eq.${encodeURIComponent(id)}`, 'DELETE');
+    const r = await sb(`group_forms?id=eq.${encodeURIComponent(id)}`, 'DELETE');
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // ── View every team under one Group Form ─────────────────────────────────
+  if (action === 'get_group_form_roster') {
+    const { group_form_id } = payload;
+    if (!group_form_id) return NextResponse.json({ result: 'error', message: 'group_form_id required.' });
+    const [teams, members, invites] = await Promise.all([
+      sb(`group_form_teams?group_form_id=eq.${encodeURIComponent(group_form_id)}&order=created_at.asc`),
+      sb(`group_form_team_members?group_form_id=eq.${encodeURIComponent(group_form_id)}`),
+      sb(`group_form_team_invites?group_form_id=eq.${encodeURIComponent(group_form_id)}&status=eq.pending`),
+    ]);
+    if (teams?.error) return NextResponse.json({ result: 'error', message: teams.error });
+    const memberList = Array.isArray(members) ? members : [];
+    const inviteList = Array.isArray(invites) ? invites : [];
+    const ids = [...new Set([...memberList.map(m => m.student_id), ...inviteList.map(i => i.invited_student_id)])];
+    const nameById = {};
+    if (ids.length) {
+      const profRows = await sb(`students_data?student_id=in.(${ids.map(encodeURIComponent).join(',')})&select=student_id,student_name,class,section`);
+      (Array.isArray(profRows) ? profRows : []).forEach(p => { nameById[p.student_id] = p; });
+    }
+    const membersByTeam = {};
+    memberList.forEach(m => { (membersByTeam[m.team_id] = membersByTeam[m.team_id] || []).push({ ...m, profile: nameById[m.student_id] || null }); });
+    const invitesByTeam = {};
+    inviteList.forEach(i => { (invitesByTeam[i.team_id] = invitesByTeam[i.team_id] || []).push({ ...i, profile: nameById[i.invited_student_id] || null }); });
+    const teamRows = (Array.isArray(teams) ? teams : []).map(t => ({
+      ...t,
+      members: membersByTeam[t.id] || [],
+      pending_invites: invitesByTeam[t.id] || [],
+    }));
+    return NextResponse.json({ result: 'success', teams: teamRows });
+  }
+
+  // ── Lock / Unlock one team ────────────────────────────────────────────────
+  if (action === 'set_team_lock') {
+    const { team_id, locked } = payload;
+    if (!team_id) return NextResponse.json({ result: 'error', message: 'team_id required.' });
+    const r = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}`, 'PATCH', { is_locked: !!locked, updated_at: new Date().toISOString() });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Force-disband a team ──────────────────────────────────────────────────
+  if (action === 'admin_disband_team') {
+    const { team_id } = payload;
+    if (!team_id) return NextResponse.json({ result: 'error', message: 'team_id required.' });
+    await sb(`group_form_team_invites?team_id=eq.${encodeURIComponent(team_id)}&status=eq.pending`, 'PATCH', { status: 'cancelled', responded_at: new Date().toISOString() });
+    await sb(`group_form_team_members?team_id=eq.${encodeURIComponent(team_id)}`, 'DELETE');
+    const r = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}`, 'PATCH', { status: 'disbanded', updated_at: new Date().toISOString() });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Distinct class/house values (the eligibility band builder) ─────────────
+  // Full table scan via sbAllRows, not a single-page read — a class or house
+  // that happens to sort past the first page must never silently be
+  // unpickable when building a band.
+  if (action === 'get_class_house_options') {
+    const rows = await sbAllRows('students_data?select=class,house');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    const classes = [...new Set(rows.map(r => r.class).filter(Boolean))].sort();
+    const houses = [...new Set(rows.map(r => r.house).filter(Boolean))].sort();
+    return NextResponse.json({ result: 'success', classes, houses });
   }
 
   // ── Login Password Columns (which students_data phone-like columns are
