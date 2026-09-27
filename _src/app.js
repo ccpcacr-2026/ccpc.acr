@@ -28469,6 +28469,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
 
         <div class="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-[10px] font-black text-slate-400 uppercase">Logic Rules</span>
+            <button onclick="addConditionRow(null, 'gfConditionsList')" class="px-3 py-1.5 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase">+ Add Rule</button>
+          </div>
+          <p class="text-[11px] text-slate-400 font-bold mt-1 mb-3">Show this form's nav entry only to students matching every rule below — e.g. CLASS EQUALS Ten. Leave empty to show it to every student (still gated by "Visible to students" above). Separate from "Who can a leader invite?" below, which only affects an already-visible form's team roster.</p>
+          <div id="gfConditionsList" class="flex flex-col gap-3"></div>
+        </div>
+
+        <div class="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
           <span class="text-[10px] font-black text-slate-400 uppercase">Who can a leader invite?</span>
           <p class="text-[11px] text-slate-400 font-bold mt-1 mb-3">Every rule is relative to the LEADER — "same class" means the same class as whoever leads that team, not one fixed class for everyone.</p>
           <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -28627,6 +28636,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('gfDescription').value = '';
     document.getElementById('gfIsEnabled').checked = true;
     document.getElementById('gfAcceptingNew').checked = true;
+    document.getElementById('gfConditionsList').innerHTML = '';
     gfResetEligibilityForm();
     _activeFieldsContainerId = 'gfFieldsList';
     document.getElementById('gfFieldsList').innerHTML = '';
@@ -28644,6 +28654,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('gfDescription').value = f.description || '';
     document.getElementById('gfIsEnabled').checked = f.is_enabled !== false;
     document.getElementById('gfAcceptingNew').checked = f.accepting_new !== false;
+    document.getElementById('gfConditionsList').innerHTML = '';
+    try { const cl = JSON.parse(f.condition_json || '{}'); (cl.rules || []).forEach(r => addConditionRow(r, 'gfConditionsList')); } catch (e) {}
     gfLoadEligibilityForm(f.eligibility_json);
     document.getElementById('gfFieldsList').innerHTML = '';
     let fields = [];
@@ -28668,6 +28680,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       members_required: document.getElementById('gfMembersRequired').checked,
       fields_json: JSON.stringify(fields),
       eligibility_json: gfSerializeEligibility(),
+      condition_json: JSON.stringify({ logic: 'AND', rules: readConditionRules('gfConditionsList') }),
       is_enabled: document.getElementById('gfIsEnabled').checked,
       accepting_new: document.getElementById('gfAcceptingNew').checked,
     };
@@ -29012,8 +29025,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.querySelectorAll(`#${_activeFieldsContainerId} .showif-field, #${_activeFieldsContainerId} .showif-field2`).forEach(sel => populateShowIfSelect(sel, sel.value, keys));
   }
 
-  function addConditionRow(rule = null) {
-    const container = document.getElementById('conditionsList');
+  // Shared by the Tab builder's Logic Rules (#conditionsList) and the Group
+  // Form builder's own (#gfConditionsList) — containerId picks which one a
+  // given "+ Add Rule" button targets.
+  function addConditionRow(rule = null, containerId = 'conditionsList') {
+    const container = document.getElementById(containerId);
     const row = document.createElement('div');
     row.className = 'flex items-center gap-2 flex-wrap bg-white p-3 rounded-2xl border border-slate-200';
     row.innerHTML = `
@@ -29030,6 +29046,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       (headers || []).forEach(h => { const o = document.createElement('option'); o.value = h; o.textContent = h.toUpperCase().replace(/_/g, ' '); if (rule?.column === h) o.selected = true; s.appendChild(o); });
     });
     if (rule) { row.querySelector('.rule-op').value = rule.operator; row.querySelector('.rule-val').value = rule.value; }
+  }
+  // Reads every rule row out of one Logic Rules container into a save-ready
+  // array — shared by saveNewTab() and saveGroupForm().
+  function readConditionRules(containerId) {
+    const rs = [];
+    document.querySelectorAll(`#${containerId} > div`).forEach(row => {
+      const col = row.querySelector('.rule-col')?.value;
+      if (col) rs.push({ column: col, operator: row.querySelector('.rule-op').value, value: row.querySelector('.rule-val').value.trim() });
+    });
+    return rs;
   }
 
   // Reads every ".draggable-row" out of one field-builder container and
@@ -29070,11 +29096,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!name) { showToast('Title required', 'error'); return; }
     const { fields, optionless } = serializeFieldsFromContainer('fieldsList');
     if (optionless.length && !confirm(`These dropdown/checkbox fields have no options and will show as empty:\n\n• ${optionless.join('\n• ')}\n\nAdd comma-separated options in the "Options" box. Save anyway?`)) return;
-    const rs = [];
-    document.querySelectorAll('#conditionsList > div').forEach(row => {
-      const col = row.querySelector('.rule-col')?.value;
-      if (col) rs.push({ column: col, operator: row.querySelector('.rule-op').value, value: row.querySelector('.rule-val').value.trim() });
-    });
+    const rs = readConditionRules('conditionsList');
     const includeFields = Array.from(document.querySelectorAll('#includeFieldsList input[type="checkbox"]:checked')).map(c => c.value);
     const existingTab = (_setupAllTabs || []).find(t => t.tab_name === name);
     const keepEnabled = existingTab ? existingTab.is_enabled !== false : true;
