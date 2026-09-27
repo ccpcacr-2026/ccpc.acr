@@ -28219,10 +28219,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
       <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 mb-5">
         <div class="grid grid-cols-1 md:grid-cols-10 gap-3 items-end">
-          <div class="md:col-span-4"><label class="text-[10px] font-black text-slate-400 uppercase">Tab Name</label><input type="text" id="newTabName" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm mt-1"></div>
-          <div class="md:col-span-3"><label class="text-[10px] font-black text-slate-400 uppercase">Icon (Lucide name)</label><input type="text" id="newTabIcon" placeholder="folder" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm mt-1"></div>
-          <div class="md:col-span-2 flex items-center gap-2 pb-2"><input type="checkbox" id="newTabEditable" checked><label class="text-xs font-bold text-slate-600">Allows Edits</label></div>
+          <div class="md:col-span-6"><label class="text-[10px] font-black text-slate-400 uppercase">Tab Name</label><input type="text" id="newTabName" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm mt-1"></div>
+          <div class="md:col-span-3 flex items-center gap-2 pb-2"><input type="checkbox" id="newTabEditable" checked><label class="text-xs font-bold text-slate-600">Allows Edits</label></div>
           <div class="md:col-span-1"><button onclick="saveNewTab()" class="w-full px-3 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button></div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-10 gap-3 mt-3">
+          <div class="md:col-span-5">${_iconPickerFieldHtml('newTabIcon', 'folder')}</div>
         </div>
         <div class="grid grid-cols-2 gap-2 mt-4">
           <button onclick="addTabRow('field')" class="px-4 py-2.5 border border-blue-200 text-blue-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-blue-50 transition-all">+ New Input</button>
@@ -28451,10 +28453,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 mb-5">
         <input type="hidden" id="gfEditingId" value="">
         <div class="grid grid-cols-1 md:grid-cols-10 gap-3 items-end">
-          <div class="md:col-span-4"><label class="text-[10px] font-black text-slate-400 uppercase">Form Title</label><input type="text" id="gfTitle" placeholder="e.g. Science Fair 2026" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm mt-1"></div>
-          <div class="md:col-span-2"><label class="text-[10px] font-black text-slate-400 uppercase">Icon (Lucide)</label><input type="text" id="gfIcon" placeholder="users-round" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm mt-1"></div>
+          <div class="md:col-span-6"><label class="text-[10px] font-black text-slate-400 uppercase">Form Title</label><input type="text" id="gfTitle" placeholder="e.g. Science Fair 2026" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm mt-1"></div>
           <div class="md:col-span-2"><label class="text-[10px] font-black text-slate-400 uppercase">Max Team Size</label><input type="number" id="gfMaxSize" min="1" value="4" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm mt-1"></div>
           <div class="md:col-span-2 flex items-center gap-2 pb-2"><input type="checkbox" id="gfMembersRequired"><label class="text-xs font-bold text-slate-600">Must be full to count as complete</label></div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-10 gap-3 mt-3">
+          <div class="md:col-span-5">${_iconPickerFieldHtml('gfIcon', 'users-round')}</div>
         </div>
         <div class="mt-3"><label class="text-[10px] font-black text-slate-400 uppercase">Description (shown to students)</label><textarea id="gfDescription" rows="2" placeholder="What is this sign-up for?" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm mt-1"></textarea></div>
         <div class="grid grid-cols-2 gap-3 mt-3">
@@ -28614,7 +28618,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function cancelGroupFormEdit() {
     document.getElementById('gfEditingId').value = '';
     document.getElementById('gfTitle').value = '';
-    document.getElementById('gfIcon').value = '';
+    document.getElementById('gfIcon').value = 'users-round';
+    _syncIconPicker('gfIconGrid');
     document.getElementById('gfMaxSize').value = '4';
     document.getElementById('gfMembersRequired').checked = false;
     document.getElementById('gfDescription').value = '';
@@ -28630,7 +28635,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _activeFieldsContainerId = 'gfFieldsList';
     document.getElementById('gfEditingId').value = f.id;
     document.getElementById('gfTitle').value = f.title || '';
-    document.getElementById('gfIcon').value = f.icon_class || '';
+    document.getElementById('gfIcon').value = f.icon_class || 'users-round';
+    _syncIconPicker('gfIconGrid');
     document.getElementById('gfMaxSize').value = f.max_team_size || 4;
     document.getElementById('gfMembersRequired').checked = !!f.members_required;
     document.getElementById('gfDescription').value = f.description || '';
@@ -28774,6 +28780,72 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     <button type="button" onclick="copyField(this)" class="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100" title="Copy (Ctrl+C)"><i data-lucide="clipboard" class="h-3.5 w-3.5"></i></button>
     <button type="button" onclick="pasteField(this)" class="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100" title="Paste after this field (Ctrl+V)"><i data-lucide="clipboard-check" class="h-3.5 w-3.5"></i></button>
     <button type="button" onclick="this.closest('.draggable-row').remove()" class="w-7 h-7 flex items-center justify-center rounded-lg text-red-400 hover:bg-red-50" title="Delete"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>`;
+
+  // ── Icon picker — click a Lucide icon instead of typing its name ───────────
+  // Shared by the ordinary Tab builder's icon field and the Group Form
+  // builder's icon field. _iconPickerFieldHtml renders the whole widget
+  // (hidden input + preview + grid) inline wherever it's called, since both
+  // builders are JS-built template strings, not static markup — no separate
+  // "populate on load" step needed the way ccpc-students' static HTML required.
+  const ICON_CHOICES = [
+    'folder', 'bookmark', 'users-round', 'user-round', 'graduation-cap',
+    'book-open', 'clipboard-list', 'trophy', 'award', 'star',
+    'flask-conical', 'palette', 'music', 'gamepad-2', 'globe',
+    'camera', 'heart', 'flag', 'target', 'briefcase',
+    'megaphone', 'calendar-days', 'message-circle', 'mail', 'home',
+    'shield', 'gift', 'lightbulb', 'puzzle', 'rocket',
+    'pencil', 'sparkles',
+  ];
+  function _iconPickerFieldHtml(inputId, defaultIcon) {
+    const previewId = inputId + 'Preview', gridId = inputId + 'Grid';
+    return `<div>
+      <label class="text-[10px] font-black text-slate-400 uppercase">Icon</label>
+      <input type="hidden" id="${inputId}" value="${defaultIcon}">
+      <div class="flex items-center gap-2 mt-1">
+        <span id="${previewId}" class="w-9 h-9 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0"><i data-lucide="${defaultIcon}" class="h-4 w-4"></i></span>
+        <span class="text-xs text-slate-400 font-bold">Pick one below</span>
+      </div>
+      <div id="${gridId}" data-input-id="${inputId}" data-preview-id="${previewId}" class="flex flex-wrap gap-1 mt-2">
+        ${ICON_CHOICES.map(ic => `<button type="button" onclick="_pickIcon(this)" data-icon="${ic}" class="w-8 h-8 flex items-center justify-center rounded-lg border ${ic === defaultIcon ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-200 text-slate-500 hover:bg-slate-50'}" title="${ic}"><i data-lucide="${ic}" class="h-3.5 w-3.5"></i></button>`).join('')}
+      </div>
+    </div>`;
+  }
+  function _pickIcon(btn) {
+    const grid = btn.closest('[data-input-id]');
+    const icon = btn.dataset.icon;
+    const input = document.getElementById(grid.dataset.inputId);
+    if (input) input.value = icon;
+    const preview = document.getElementById(grid.dataset.previewId);
+    if (preview) preview.innerHTML = `<i data-lucide="${icon}" class="h-4 w-4"></i>`;
+    grid.querySelectorAll('button').forEach(b => {
+      const sel = b === btn;
+      b.classList.toggle('bg-blue-600', sel);
+      b.classList.toggle('border-blue-600', sel);
+      b.classList.toggle('text-white', sel);
+      b.classList.toggle('border-slate-200', !sel);
+      b.classList.toggle('text-slate-500', !sel);
+    });
+    lucide.createIcons();
+  }
+  // Re-syncs a picker's preview + highlighted button after the hidden input's
+  // value was set programmatically (editTab/editGroupForm loading an existing
+  // icon_class) rather than by a click.
+  function _syncIconPicker(gridId) {
+    const grid = document.getElementById(gridId);
+    if (!grid) return;
+    const current = document.getElementById(grid.dataset.inputId)?.value || ICON_CHOICES[0];
+    const preview = document.getElementById(grid.dataset.previewId);
+    if (preview) preview.innerHTML = `<i data-lucide="${current}" class="h-4 w-4"></i>`;
+    grid.querySelectorAll('button').forEach(b => {
+      const sel = b.dataset.icon === current;
+      b.classList.toggle('bg-blue-600', sel);
+      b.classList.toggle('border-blue-600', sel);
+      b.classList.toggle('text-white', sel);
+      b.classList.toggle('border-slate-200', !sel);
+      b.classList.toggle('text-slate-500', !sel);
+    });
+    lucide.createIcons();
+  }
 
   function addTabRow(type, data = null) {
     const container = document.getElementById(_activeFieldsContainerId);
@@ -29003,7 +29075,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // fill it in, exactly as this function always has.
     loadAdminAddCustomFormView(inclKeys);
     document.getElementById('newTabName').value = t.tab_name;
-    document.getElementById('newTabIcon').value = t.icon_class || '';
+    document.getElementById('newTabIcon').value = t.icon_class || 'folder';
+    _syncIconPicker('newTabIconGrid');
     document.getElementById('newTabEditable').checked = t.default_editable === 'YES';
     document.getElementById('fieldsList').innerHTML = '';
     JSON.parse(t.fields_json).forEach(f => addTabRow(f.type === 'group_label' ? 'label' : 'field', f));

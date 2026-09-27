@@ -317,6 +317,9 @@ const RESERVED = [
   'loadAdminGroupFormsView','toggleGroupFormFlag','gfOnClassModeChange','gfAddBand',
   'cancelGroupFormEdit','editGroupForm','saveGroupForm','deleteGroupFormConfig',
   'openGroupRoster','closeGroupRoster','setTeamLockAdmin','disbandTeamAdmin',
+  // Icon picker (Tab builder + Group Form builder) — called via inline
+  // onclick="_pickIcon(this)" in generated grid buttons.
+  '_pickIcon',
 
   // Data tab native port (Phase 6, part 1)
   'loadAdminDataView','loadSummaryData','filterSummaryTable','exportSummaryData',
