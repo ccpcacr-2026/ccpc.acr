@@ -28206,6 +28206,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       showToast('Not available in current role', 'error');
       return;
     }
+    _activeFieldsContainerId = 'fieldsList'; // in case a Group Form view left this pointed elsewhere
     _setViewHash('student_portal');
     setActiveNavLink('nav-erp-add_custom_form');
     setContentHeader('Add Custom Form', 'plus-circle');
@@ -28438,6 +28439,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       showToast('Not available in current role', 'error');
       return;
     }
+    _activeFieldsContainerId = 'gfFieldsList'; // in case the Add Custom Form view left this pointed elsewhere
     _setViewHash('student_portal');
     setActiveNavLink('nav-erp-group_forms');
     setContentHeader('Group Forms', 'users-round');
