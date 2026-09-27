@@ -28761,44 +28761,64 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   function _showIfValStr(v) { return Array.isArray(v) ? v.join(', ') : (v == null ? '' : String(v)); }
-  // Normalise any stored show_if into up to 2 editor condition slots, plus the
-  // mode ('show'/'hide', from `negate`) and logic ('all'/'any') — both stashed
-  // as extra properties on the returned array so existing c[0]/c[1] callers
-  // keep working unchanged.
+  // Normalise any stored show_if into { conds, mode, logic } for the editor —
+  // conds is now an UNBOUNDED array (the underlying {all:[...]}/{any:[...]}
+  // shape always supported any number of conditions; only the old 2-slot UI
+  // capped it at 2). mode is 'show'/'hide' (from `negate`), logic is 'all'/'any'.
   function parseShowIfForEditor(showIf) {
-    const empty = [{ field: '', value: '' }, { field: '', value: '' }];
-    empty.mode = 'show'; empty.logic = 'all';
-    if (!showIf) return empty;
+    if (!showIf) return { conds: [], mode: 'show', logic: 'all' };
     const list = Array.isArray(showIf.all) ? showIf.all : Array.isArray(showIf.any) ? showIf.any : [{ field: showIf.field, value: showIf.value }];
-    const result = [
-      { field: list[0]?.field || '', value: _showIfValStr(list[0]?.value) },
-      { field: list[1]?.field || '', value: _showIfValStr(list[1]?.value) },
-    ];
-    result.mode = showIf.negate ? 'hide' : 'show';
-    result.logic = Array.isArray(showIf.any) ? 'any' : 'all';
-    return result;
+    return {
+      conds: list.map(c => ({ field: c?.field || '', value: _showIfValStr(c?.value) })),
+      mode: showIf.negate ? 'hide' : 'show',
+      logic: Array.isArray(showIf.any) ? 'any' : 'all',
+    };
+  }
+  // One condition row (field select + value input + remove button) inside a
+  // showif-block. The field select is left with just a placeholder here —
+  // populateShowIfSelect() fills in the real option list once the row is in
+  // the DOM (see addTabRow and _addShowIfCondRow).
+  function _showIfCondRowHtml(value) {
+    return `<div class="showif-cond flex items-center gap-2 flex-wrap text-xs">
+      <select class="showif-field px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-xs" style="max-width:180px"><option value="">(choose a field)</option></select>
+      <span class="text-slate-400 font-bold">=</span>
+      <input type="text" class="showif-value px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-xs" placeholder="value" style="max-width:120px" value="${(value || '').replace(/"/g, '&quot;')}">
+      <button type="button" class="showif-remove-cond w-6 h-6 flex items-center justify-center rounded-lg text-red-400 hover:bg-red-50" onclick="this.closest('.showif-cond').remove()" title="Remove condition"><i data-lucide="x" class="h-3 w-3"></i></button>
+    </div>`;
+  }
+  // "+ Add condition" button handler — appends one more blank condition row to
+  // an already-rendered showif-block, for building 3+-condition rules.
+  function _addShowIfCondRow(block) {
+    const list = block.querySelector('.showif-conditions');
+    const wrap = document.createElement('div');
+    wrap.innerHTML = _showIfCondRowHtml('');
+    const row = wrap.firstElementChild;
+    list.appendChild(row);
+    populateShowIfSelect(row.querySelector('.showif-field'), '');
+    lucide.createIcons();
   }
   function showIfBlockHtml(data) {
     const c = parseShowIfForEditor(data?.show_if);
     const has = !!(data && data.show_if);
+    const conds = c.conds.length ? c.conds : [{ field: '', value: '' }];
+    const condsHtml = conds.map(cond => _showIfCondRowHtml(cond.value)).join('');
     return `
       <div class="mt-2">
-        <div class="showif-block ${has ? '' : 'hidden'} p-2.5 rounded-xl bg-slate-50 flex items-center gap-2 flex-wrap text-xs">
-          <i data-lucide="git-branch" class="h-3 w-3 text-slate-400"></i>
-          <select class="showif-mode px-2 py-1 bg-white border border-slate-200 rounded-lg font-black text-xs" style="max-width:95px">
-            <option value="show" ${c.mode === 'show' ? 'selected' : ''}>Show if</option>
-            <option value="hide" ${c.mode === 'hide' ? 'selected' : ''}>Hide if</option>
-          </select>
-          <select class="showif-field px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-xs" style="max-width:180px"><option value="">(always visible)</option></select>
-          <span class="text-slate-400 font-bold">=</span>
-          <input type="text" class="showif-value px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-xs" placeholder="value" style="max-width:120px" value="${(c[0].value || '').replace(/"/g, '&quot;')}">
-          <select class="showif-logic px-2 py-1 bg-slate-800 text-white rounded-lg font-black text-[10px]" style="max-width:70px">
-            <option value="all" ${c.logic === 'all' ? 'selected' : ''}>AND</option>
-            <option value="any" ${c.logic === 'any' ? 'selected' : ''}>OR</option>
-          </select>
-          <select class="showif-field2 px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-xs" style="max-width:180px"><option value="">(none)</option></select>
-          <span class="text-slate-400 font-bold">=</span>
-          <input type="text" class="showif-value2 px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-xs" placeholder="value" style="max-width:120px" value="${(c[1].value || '').replace(/"/g, '&quot;')}">
+        <div class="showif-block ${has ? '' : 'hidden'} p-2.5 rounded-xl bg-slate-50 text-xs">
+          <div class="flex items-center gap-2 flex-wrap mb-2">
+            <i data-lucide="git-branch" class="h-3 w-3 text-slate-400"></i>
+            <select class="showif-mode px-2 py-1 bg-white border border-slate-200 rounded-lg font-black text-xs" style="max-width:95px">
+              <option value="show" ${c.mode === 'show' ? 'selected' : ''}>Show if</option>
+              <option value="hide" ${c.mode === 'hide' ? 'selected' : ''}>Hide if</option>
+            </select>
+            <select class="showif-logic px-2 py-1 bg-slate-800 text-white rounded-lg font-black text-[10px]" style="max-width:65px">
+              <option value="all" ${c.logic === 'all' ? 'selected' : ''}>ALL</option>
+              <option value="any" ${c.logic === 'any' ? 'selected' : ''}>ANY</option>
+            </select>
+            <span class="text-slate-400 font-bold">of these match:</span>
+          </div>
+          <div class="showif-conditions flex flex-col gap-2">${condsHtml}</div>
+          <button type="button" class="mt-2 px-3 py-1 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100" onclick="_addShowIfCondRow(this.closest('.showif-block'))">+ Add condition</button>
         </div>
         <button type="button" class="showif-toggle text-[11px] font-bold text-blue-600 mt-1" onclick="const b=this.previousElementSibling; b.classList.toggle('hidden'); this.textContent = b.classList.contains('hidden') ? '+ Add condition (dependable)' : '− Hide condition';">${has ? '− Hide condition' : '+ Add condition (dependable)'}</button>
       </div>`;
@@ -28924,8 +28944,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     container.appendChild(row);
     lucide.createIcons();
     const cond = parseShowIfForEditor(data?.show_if);
-    populateShowIfSelect(row.querySelector('.showif-field'), cond[0].field);
-    populateShowIfSelect(row.querySelector('.showif-field2'), cond[1].field);
+    row.querySelectorAll('.showif-field').forEach((sel, i) => populateShowIfSelect(sel, cond.conds[i]?.field || ''));
     return row;
   }
 
@@ -28938,13 +28957,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _readRowShowIf(row) {
     const mode = row.querySelector('.showif-mode')?.value || 'show';
     const logic = row.querySelector('.showif-logic')?.value || 'all';
-    const f1 = row.querySelector('.showif-field')?.value.trim();
-    const v1 = row.querySelector('.showif-value')?.value.trim();
-    const f2 = row.querySelector('.showif-field2')?.value.trim();
-    const v2 = row.querySelector('.showif-value2')?.value.trim();
     const conds = [];
-    if (f1) conds.push({ field: f1, value: v1 });
-    if (f2) conds.push({ field: f2, value: v2 });
+    row.querySelectorAll('.showif-cond').forEach(condRow => {
+      const f = condRow.querySelector('.showif-field')?.value.trim();
+      const v = condRow.querySelector('.showif-value')?.value.trim();
+      if (f) conds.push({ field: f, value: v });
+    });
     if (!conds.length) return null;
     const result = conds.length === 1 ? { ...conds[0] } : { [logic]: conds };
     if (mode === 'hide') result.negate = true;
@@ -29020,16 +29038,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   function populateShowIfSelect(sel, selectedKey, keys) {
     if (!sel) return;
-    const isSecond = sel.classList.contains('showif-field2');
     keys = keys || getBuilderFieldKeys();
-    sel.innerHTML = `<option value="">${isSecond ? '(none)' : '(always visible)'}</option>` + keys.map(k => `<option value="${k.key}" ${k.key === selectedKey ? 'selected' : ''}>${k.label}</option>`).join('');
+    sel.innerHTML = `<option value="">(choose a field)</option>` + keys.map(k => `<option value="${k.key}" ${k.key === selectedKey ? 'selected' : ''}>${k.label}</option>`).join('');
     if (selectedKey && !keys.some(k => k.key === selectedKey)) {
       const o = document.createElement('option'); o.value = selectedKey; o.textContent = selectedKey; o.selected = true; sel.appendChild(o);
     }
   }
   function refreshAllShowIfControllers() {
     const keys = getBuilderFieldKeys();
-    document.querySelectorAll(`#${_activeFieldsContainerId} .showif-field, #${_activeFieldsContainerId} .showif-field2`).forEach(sel => populateShowIfSelect(sel, sel.value, keys));
+    document.querySelectorAll(`#${_activeFieldsContainerId} .showif-field`).forEach(sel => populateShowIfSelect(sel, sel.value, keys));
   }
 
   // Shared by the Tab builder's Logic Rules (#conditionsList) and the Group

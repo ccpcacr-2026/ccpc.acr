@@ -320,6 +320,9 @@ const RESERVED = [
   // Icon picker (Tab builder + Group Form builder) — called via inline
   // onclick="_pickIcon(this)" in generated grid buttons.
   '_pickIcon',
+  // Show-if condition builder's "+ Add condition" button — called via inline
+  // onclick="_addShowIfCondRow(this...)" in showIfBlockHtml's generated markup.
+  '_addShowIfCondRow',
 
   // Data tab native port (Phase 6, part 1)
   'loadAdminDataView','loadSummaryData','filterSummaryTable','exportSummaryData',
