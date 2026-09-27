@@ -28748,14 +28748,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   function _showIfValStr(v) { return Array.isArray(v) ? v.join(', ') : (v == null ? '' : String(v)); }
+  // Normalise any stored show_if into up to 2 editor condition slots, plus the
+  // mode ('show'/'hide', from `negate`) and logic ('all'/'any') — both stashed
+  // as extra properties on the returned array so existing c[0]/c[1] callers
+  // keep working unchanged.
   function parseShowIfForEditor(showIf) {
     const empty = [{ field: '', value: '' }, { field: '', value: '' }];
+    empty.mode = 'show'; empty.logic = 'all';
     if (!showIf) return empty;
     const list = Array.isArray(showIf.all) ? showIf.all : Array.isArray(showIf.any) ? showIf.any : [{ field: showIf.field, value: showIf.value }];
-    return [
+    const result = [
       { field: list[0]?.field || '', value: _showIfValStr(list[0]?.value) },
       { field: list[1]?.field || '', value: _showIfValStr(list[1]?.value) },
     ];
+    result.mode = showIf.negate ? 'hide' : 'show';
+    result.logic = Array.isArray(showIf.any) ? 'any' : 'all';
+    return result;
   }
   function showIfBlockHtml(data) {
     const c = parseShowIfForEditor(data?.show_if);
@@ -28763,14 +28771,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return `
       <div class="mt-2">
         <div class="showif-block ${has ? '' : 'hidden'} p-2.5 rounded-xl bg-slate-50 flex items-center gap-2 flex-wrap text-xs">
-          <span class="font-black text-slate-400 flex items-center gap-1"><i data-lucide="git-branch" class="h-3 w-3"></i>Show only if</span>
-          <select class="showif-field px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-xs" style="max-width:190px"><option value="">(always visible)</option></select>
+          <i data-lucide="git-branch" class="h-3 w-3 text-slate-400"></i>
+          <select class="showif-mode px-2 py-1 bg-white border border-slate-200 rounded-lg font-black text-xs" style="max-width:95px">
+            <option value="show" ${c.mode === 'show' ? 'selected' : ''}>Show if</option>
+            <option value="hide" ${c.mode === 'hide' ? 'selected' : ''}>Hide if</option>
+          </select>
+          <select class="showif-field px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-xs" style="max-width:180px"><option value="">(always visible)</option></select>
           <span class="text-slate-400 font-bold">=</span>
-          <input type="text" class="showif-value px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-xs" placeholder="value" style="max-width:130px" value="${(c[0].value || '').replace(/"/g, '&quot;')}">
-          <span class="px-2 py-0.5 bg-slate-800 text-white rounded-full text-[10px] font-black">AND</span>
-          <select class="showif-field2 px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-xs" style="max-width:190px"><option value="">(none)</option></select>
+          <input type="text" class="showif-value px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-xs" placeholder="value" style="max-width:120px" value="${(c[0].value || '').replace(/"/g, '&quot;')}">
+          <select class="showif-logic px-2 py-1 bg-slate-800 text-white rounded-lg font-black text-[10px]" style="max-width:70px">
+            <option value="all" ${c.logic === 'all' ? 'selected' : ''}>AND</option>
+            <option value="any" ${c.logic === 'any' ? 'selected' : ''}>OR</option>
+          </select>
+          <select class="showif-field2 px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-xs" style="max-width:180px"><option value="">(none)</option></select>
           <span class="text-slate-400 font-bold">=</span>
-          <input type="text" class="showif-value2 px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-xs" placeholder="value" style="max-width:130px" value="${(c[1].value || '').replace(/"/g, '&quot;')}">
+          <input type="text" class="showif-value2 px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-xs" placeholder="value" style="max-width:120px" value="${(c[1].value || '').replace(/"/g, '&quot;')}">
         </div>
         <button type="button" class="showif-toggle text-[11px] font-bold text-blue-600 mt-1" onclick="const b=this.previousElementSibling; b.classList.toggle('hidden'); this.textContent = b.classList.contains('hidden') ? '+ Add condition (dependable)' : '− Hide condition';">${has ? '− Hide condition' : '+ Add condition (dependable)'}</button>
       </div>`;
@@ -28901,6 +28916,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _activeFieldRow = row;
   }
   function _readRowShowIf(row) {
+    const mode = row.querySelector('.showif-mode')?.value || 'show';
+    const logic = row.querySelector('.showif-logic')?.value || 'all';
     const f1 = row.querySelector('.showif-field')?.value.trim();
     const v1 = row.querySelector('.showif-value')?.value.trim();
     const f2 = row.querySelector('.showif-field2')?.value.trim();
@@ -28909,8 +28926,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (f1) conds.push({ field: f1, value: v1 });
     if (f2) conds.push({ field: f2, value: v2 });
     if (!conds.length) return null;
-    if (conds.length === 1) return conds[0];
-    return { all: conds };
+    const result = conds.length === 1 ? { ...conds[0] } : { [logic]: conds };
+    if (mode === 'hide') result.negate = true;
+    return result;
   }
   function serializeFieldRow(row) {
     const type = row.querySelector('.f-type')?.value;
