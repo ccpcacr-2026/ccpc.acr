@@ -28225,7 +28225,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="md:col-span-1"><button onclick="saveNewTab()" class="w-full px-3 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save</button></div>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-10 gap-3 mt-3">
-          <div class="md:col-span-5">${_iconPickerFieldHtml('newTabIcon', 'folder')}</div>
+          <div class="md:col-span-5">${_iconPickerFieldHtml('newTabIcon', 'bi-folder-fill')}</div>
         </div>
         <div class="grid grid-cols-2 gap-2 mt-4">
           <button onclick="addTabRow('field')" class="px-4 py-2.5 border border-blue-200 text-blue-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-blue-50 transition-all">+ New Input</button>
@@ -28460,7 +28460,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="md:col-span-2 flex items-center gap-2 pb-2"><input type="checkbox" id="gfMembersRequired"><label class="text-xs font-bold text-slate-600">Must be full to count as complete</label></div>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-10 gap-3 mt-3">
-          <div class="md:col-span-5">${_iconPickerFieldHtml('gfIcon', 'users-round')}</div>
+          <div class="md:col-span-5">${_iconPickerFieldHtml('gfIcon', 'bi-people-fill')}</div>
         </div>
         <div class="mt-3"><label class="text-[10px] font-black text-slate-400 uppercase">Description (shown to students)</label><textarea id="gfDescription" rows="2" placeholder="What is this sign-up for?" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm mt-1"></textarea></div>
         <div class="grid grid-cols-2 gap-3 mt-3">
@@ -28553,7 +28553,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     list.innerHTML = _allGroupForms.map((f, i) => `
       <div class="border border-slate-200 rounded-2xl p-4 ${f.is_enabled ? '' : 'opacity-60'}">
         <div class="flex items-center gap-2 text-sm font-black text-slate-800 truncate">
-          <i data-lucide="${f.icon_class || 'users-round'}" class="h-4 w-4 text-blue-600 shrink-0"></i>${f.title}
+          <i class="bi ${f.icon_class || 'bi-people-fill'} text-blue-600 shrink-0"></i>${f.title}
           ${f.is_enabled ? '' : ' <span class="text-[9px] font-black text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">Hidden</span>'}
           ${f.accepting_new === false ? ' <span class="text-[9px] font-black text-amber-600 bg-amber-50 rounded-full px-2 py-0.5">Closed to new teams</span>' : ''}
         </div>
@@ -28629,7 +28629,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function cancelGroupFormEdit() {
     document.getElementById('gfEditingId').value = '';
     document.getElementById('gfTitle').value = '';
-    document.getElementById('gfIcon').value = 'users-round';
+    document.getElementById('gfIcon').value = 'bi-people-fill';
     _syncIconPicker('gfIconGrid');
     document.getElementById('gfMaxSize').value = '4';
     document.getElementById('gfMembersRequired').checked = false;
@@ -28647,7 +28647,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _activeFieldsContainerId = 'gfFieldsList';
     document.getElementById('gfEditingId').value = f.id;
     document.getElementById('gfTitle').value = f.title || '';
-    document.getElementById('gfIcon').value = f.icon_class || 'users-round';
+    document.getElementById('gfIcon').value = f.icon_class || 'bi-people-fill';
     _syncIconPicker('gfIconGrid');
     document.getElementById('gfMaxSize').value = f.max_team_size || 4;
     document.getElementById('gfMembersRequired').checked = !!f.members_required;
@@ -28675,7 +28675,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       id: id || undefined,
       title,
       description: document.getElementById('gfDescription').value.trim(),
-      icon_class: document.getElementById('gfIcon').value.trim() || 'users-round',
+      icon_class: document.getElementById('gfIcon').value.trim() || 'bi-people-fill',
       max_team_size: Number(document.getElementById('gfMaxSize').value) || 4,
       members_required: document.getElementById('gfMembersRequired').checked,
       fields_json: JSON.stringify(fields),
@@ -28811,20 +28811,29 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     <button type="button" onclick="pasteField(this)" class="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100" title="Paste after this field (Ctrl+V)"><i data-lucide="clipboard-check" class="h-3.5 w-3.5"></i></button>
     <button type="button" onclick="this.closest('.draggable-row').remove()" class="w-7 h-7 flex items-center justify-center rounded-lg text-red-400 hover:bg-red-50" title="Delete"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>`;
 
-  // ── Icon picker — click a Lucide icon instead of typing its name ───────────
+  // ── Icon picker — click a Bootstrap Icon instead of typing its class name ──
   // Shared by the ordinary Tab builder's icon field and the Group Form
   // builder's icon field. _iconPickerFieldHtml renders the whole widget
   // (hidden input + preview + grid) inline wherever it's called, since both
   // builders are JS-built template strings, not static markup — no separate
   // "populate on load" step needed the way ccpc-students' static HTML required.
+  //
+  // Deliberately Bootstrap Icons (bi-* classes, loaded via the CDN link in
+  // app.html), NOT this app's own Lucide set: icon_class picked here is
+  // consumed by ccpc-students, which renders every Tab/Group Form icon as
+  // `<i class="bi ${icon_class}">` and has no Lucide runtime at all — a
+  // Lucide name picked here used to render fine in THIS app's own preview
+  // but show up blank for the actual student. Same 32-icon list as
+  // ccpc-students' picker (public/index.html's ICON_CHOICES), so an admin
+  // sees the exact glyph a student will.
   const ICON_CHOICES = [
-    'folder', 'bookmark', 'users-round', 'user-round', 'graduation-cap',
-    'book-open', 'clipboard-list', 'trophy', 'award', 'star',
-    'flask-conical', 'palette', 'music', 'gamepad-2', 'globe',
-    'camera', 'heart', 'flag', 'target', 'briefcase',
-    'megaphone', 'calendar-days', 'message-circle', 'mail', 'home',
-    'shield', 'gift', 'lightbulb', 'puzzle', 'rocket',
-    'pencil', 'sparkles',
+    'bi-folder-fill', 'bi-journal-bookmark-fill', 'bi-people-fill', 'bi-person-fill', 'bi-mortarboard-fill',
+    'bi-book-fill', 'bi-clipboard-fill', 'bi-trophy-fill', 'bi-award-fill', 'bi-star-fill',
+    'bi-flask', 'bi-palette-fill', 'bi-music-note-beamed', 'bi-controller', 'bi-globe',
+    'bi-camera-fill', 'bi-heart-fill', 'bi-flag-fill', 'bi-bullseye', 'bi-briefcase-fill',
+    'bi-megaphone-fill', 'bi-calendar-event-fill', 'bi-chat-dots-fill', 'bi-envelope-fill', 'bi-house-fill',
+    'bi-shield-fill', 'bi-gift-fill', 'bi-lightbulb-fill', 'bi-puzzle-fill', 'bi-rocket-takeoff-fill',
+    'bi-pencil-fill', 'bi-easel-fill',
   ];
   function _iconPickerFieldHtml(inputId, defaultIcon) {
     const previewId = inputId + 'Preview', gridId = inputId + 'Grid';
@@ -28832,11 +28841,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <label class="text-[10px] font-black text-slate-400 uppercase">Icon</label>
       <input type="hidden" id="${inputId}" value="${defaultIcon}">
       <div class="flex items-center gap-2 mt-1">
-        <span id="${previewId}" class="w-9 h-9 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0"><i data-lucide="${defaultIcon}" class="h-4 w-4"></i></span>
+        <span id="${previewId}" class="w-9 h-9 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0"><i class="bi ${defaultIcon}"></i></span>
         <span class="text-xs text-slate-400 font-bold">Pick one below</span>
       </div>
       <div id="${gridId}" data-input-id="${inputId}" data-preview-id="${previewId}" class="flex flex-wrap gap-1 mt-2">
-        ${ICON_CHOICES.map(ic => `<button type="button" onclick="_pickIcon(this)" data-icon="${ic}" class="w-8 h-8 flex items-center justify-center rounded-lg border ${ic === defaultIcon ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-200 text-slate-500 hover:bg-slate-50'}" title="${ic}"><i data-lucide="${ic}" class="h-3.5 w-3.5"></i></button>`).join('')}
+        ${ICON_CHOICES.map(ic => `<button type="button" onclick="_pickIcon(this)" data-icon="${ic}" class="w-8 h-8 flex items-center justify-center rounded-lg border ${ic === defaultIcon ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-200 text-slate-500 hover:bg-slate-50'}" title="${ic}"><i class="bi ${ic}"></i></button>`).join('')}
       </div>
     </div>`;
   }
@@ -28846,7 +28855,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const input = document.getElementById(grid.dataset.inputId);
     if (input) input.value = icon;
     const preview = document.getElementById(grid.dataset.previewId);
-    if (preview) preview.innerHTML = `<i data-lucide="${icon}" class="h-4 w-4"></i>`;
+    if (preview) preview.innerHTML = `<i class="bi ${icon}"></i>`;
     grid.querySelectorAll('button').forEach(b => {
       const sel = b === btn;
       b.classList.toggle('bg-blue-600', sel);
@@ -28855,7 +28864,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       b.classList.toggle('border-slate-200', !sel);
       b.classList.toggle('text-slate-500', !sel);
     });
-    lucide.createIcons();
   }
   // Re-syncs a picker's preview + highlighted button after the hidden input's
   // value was set programmatically (editTab/editGroupForm loading an existing
@@ -28865,7 +28873,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!grid) return;
     const current = document.getElementById(grid.dataset.inputId)?.value || ICON_CHOICES[0];
     const preview = document.getElementById(grid.dataset.previewId);
-    if (preview) preview.innerHTML = `<i data-lucide="${current}" class="h-4 w-4"></i>`;
+    if (preview) preview.innerHTML = `<i class="bi ${current}"></i>`;
     grid.querySelectorAll('button').forEach(b => {
       const sel = b.dataset.icon === current;
       b.classList.toggle('bg-blue-600', sel);
@@ -28874,7 +28882,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       b.classList.toggle('border-slate-200', !sel);
       b.classList.toggle('text-slate-500', !sel);
     });
-    lucide.createIcons();
   }
 
   function addTabRow(type, data = null) {
@@ -29091,7 +29098,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function saveNewTab() {
     const name = document.getElementById('newTabName').value.trim();
-    const icon = document.getElementById('newTabIcon').value.trim() || 'folder';
+    const icon = document.getElementById('newTabIcon').value.trim() || 'bi-folder-fill';
     const edit = document.getElementById('newTabEditable').checked;
     if (!name) { showToast('Title required', 'error'); return; }
     const { fields, optionless } = serializeFieldsFromContainer('fieldsList');
@@ -29117,7 +29124,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // fill it in, exactly as this function always has.
     loadAdminAddCustomFormView(inclKeys);
     document.getElementById('newTabName').value = t.tab_name;
-    document.getElementById('newTabIcon').value = t.icon_class || 'folder';
+    document.getElementById('newTabIcon').value = t.icon_class || 'bi-folder-fill';
     _syncIconPicker('newTabIconGrid');
     document.getElementById('newTabEditable').checked = t.default_editable === 'YES';
     document.getElementById('fieldsList').innerHTML = '';
