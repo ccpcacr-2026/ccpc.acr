@@ -314,7 +314,7 @@ const RESERVED = [
   // matching ccpc-students' own version. loadAdminGroupFormsView is also
   // reached via the dynamic nav `fn` dispatch (see loadAdminAddCustomFormView
   // above), so it needs the same protection.
-  'loadAdminGroupFormsView','toggleGroupFormFlag','gfOnClassModeChange','gfAddBand',
+  'loadAdminGroupFormsView','toggleGroupFormFlag','gfOnClassModeChange','gfOnGroupFieldChange','gfAddBand',
   'cancelGroupFormEdit','editGroupForm','saveGroupForm','deleteGroupFormConfig',
   'openGroupRoster','closeGroupRoster','setTeamLockAdmin','disbandTeamAdmin',
   // Icon picker (Tab builder + Group Form builder) — called via inline

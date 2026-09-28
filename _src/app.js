@@ -28432,7 +28432,44 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // #gfFieldsList instead of #fieldsList.
   let _allGroupForms = [];
   let _gfClassOptions = [];
+  let _gfClassSections = {};
   let _gfRosterFormId = null;
+
+  // ── "Group by" (eligibility bands can now group by ANY students_data
+  // column, not just class) ────────────────────────────────────────────────
+  let _gfAllHeaders = [];
+  let _gfHeadersPromise = null;
+  let _gfGroupFieldValues = {}; // {fieldName: [distinct value, ...]}
+  let _gfFieldValuesPromises = {};
+  function _gfEnsureAllHeaders() {
+    if (_gfAllHeaders.length) return Promise.resolve();
+    if (_gfHeadersPromise) return _gfHeadersPromise;
+    _gfHeadersPromise = _adminFetch('get_student_data_headers', {}).then(headers => {
+      _gfAllHeaders = Array.isArray(headers) ? headers : [];
+      const sel = document.getElementById('gfGroupField');
+      if (sel) {
+        const current = sel.value || 'class';
+        sel.innerHTML = _gfAllHeaders.map(h => `<option value="${h}">${h.replace(/_/g, ' ')}</option>`).join('') || '<option value="class">class</option>';
+        sel.value = current;
+      }
+    }).catch(() => {}).finally(() => { _gfHeadersPromise = null; });
+    return _gfHeadersPromise;
+  }
+  // 'class' reuses the already-fetched _gfClassOptions instead of a fresh query.
+  function _gfEnsureGroupFieldValues(field) {
+    if (field === 'class') {
+      if (_gfClassOptions.length) return Promise.resolve();
+      return _adminFetch('get_class_house_options', {}).then(opts => {
+        if (opts && opts.result === 'success') { _gfClassOptions = opts.classes || []; _gfClassSections = opts.classSections || {}; _gfGroupFieldValues.class = _gfClassOptions; }
+      }).catch(() => {});
+    }
+    if (_gfGroupFieldValues[field]) return Promise.resolve();
+    if (_gfFieldValuesPromises[field]) return _gfFieldValuesPromises[field];
+    _gfFieldValuesPromises[field] = _adminFetch('get_field_values', { field }).then(res => {
+      if (res && res.result === 'success') _gfGroupFieldValues[field] = res.values || [];
+    }).catch(() => {}).finally(() => { delete _gfFieldValuesPromises[field]; });
+    return _gfFieldValuesPromises[field];
+  }
 
   function loadAdminGroupFormsView() {
     if (!(window._adminTabAccess || []).includes('group_forms')) {
@@ -28501,19 +28538,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div class="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
           <span class="text-[10px] font-black text-slate-400 uppercase">Who can a leader invite?</span>
           <p class="text-[11px] text-slate-400 font-bold mt-1 mb-3">Every rule is relative to the LEADER — "same class" means the same class as whoever leads that team, not one fixed class for everyone.</p>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
             <select id="gfClassMode" onchange="gfOnClassModeChange()" class="px-2.5 py-2 bg-white border border-slate-200 rounded-lg font-bold text-xs">
-              <option value="none">No class restriction</option>
-              <option value="exact">Must be the exact same class as the leader</option>
-              <option value="band">Must be in the same class group as the leader</option>
+              <option value="none">No restriction</option>
+              <option value="exact">Must have the exact same value as the leader</option>
+              <option value="band">Must be grouped with the leader (named bands)</option>
+            </select>
+            <select id="gfGroupField" onchange="gfOnGroupFieldChange()" class="hidden px-2.5 py-2 bg-white border border-slate-200 rounded-lg font-bold text-xs">
+              <option value="class">class</option>
             </select>
             <div class="flex items-center gap-2"><input type="checkbox" id="gfSameSection"><label class="text-xs font-bold text-slate-600">Same section too</label></div>
             <div class="flex items-center gap-2"><input type="checkbox" id="gfSameHouse"><label class="text-xs font-bold text-slate-600">Same house too</label></div>
           </div>
           <div id="gfBandsWrap" class="mt-3 hidden">
-            <p class="text-[11px] text-slate-400 font-bold mb-2">Group classes into named bands — e.g. "Group A" for Six/Seven/Eight, "Group B" for Nine/Ten. A leader in Seven may then invite anyone from Six, Seven or Eight, but not Nine. The name shows automatically as "Your Group" on the fill-up page — no separate dropdown field needed for it.</p>
+            <p class="text-[11px] text-slate-400 font-bold mb-2">Group values into named bands — e.g. "Group A" for Six/Seven/Eight, "Group B" for Nine/Ten (when grouping by Class). A leader in Seven may then invite anyone from Six, Seven or Eight, but not Nine. The name shows automatically as "Your Group" on the fill-up page — no separate dropdown field needed for it.</p>
             <div id="gfBandsList" class="flex flex-col gap-2"></div>
-            <button type="button" onclick="gfAddBand()" class="mt-2 px-3 py-1.5 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100">+ Add Class Group</button>
+            <button type="button" onclick="gfAddBand()" class="mt-2 px-3 py-1.5 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100">+ Add Group</button>
           </div>
         </div>
 
@@ -28547,10 +28587,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function loadAdminGroupForms() {
     Promise.all([
       _adminFetch('get_group_forms', {}),
-      _gfClassOptions.length ? Promise.resolve(null) : _adminFetch('get_class_house_options', {}),
-    ]).then(([forms, opts]) => {
+      _gfEnsureGroupFieldValues('class'),
+    ]).then(([forms]) => {
       _allGroupForms = Array.isArray(forms) ? forms : [];
-      if (opts && opts.result === 'success') _gfClassOptions = opts.classes || [];
       renderAdminGroupFormsList();
     }).catch(() => showToast('Network error loading Group Forms', 'error'));
   }
@@ -28560,8 +28599,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function gfEligibilitySummary(json) {
     let e = {}; try { e = JSON.parse(json || '{}') || {}; } catch (err) {}
     const bits = [];
-    if (e.class_mode === 'exact') bits.push('same class as leader');
-    else if (e.class_mode === 'band') bits.push('same class group as leader');
+    const fieldLabel = (e.group_field || 'class').replace(/_/g, ' ');
+    if (e.class_mode === 'exact') bits.push(`same ${fieldLabel} as leader`);
+    else if (e.class_mode === 'band') bits.push(`same ${fieldLabel} group as leader`);
     if (e.same_section) bits.push('same section');
     if (e.same_house) bits.push('same house');
     return bits.length ? ' · members must share: ' + bits.join(', ') : '';
@@ -28602,7 +28642,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   function gfOnClassModeChange() {
-    document.getElementById('gfBandsWrap').classList.toggle('hidden', document.getElementById('gfClassMode').value !== 'band');
+    const mode = document.getElementById('gfClassMode').value;
+    document.getElementById('gfGroupField').classList.toggle('hidden', mode === 'none');
+    document.getElementById('gfBandsWrap').classList.toggle('hidden', mode !== 'band');
+    if (mode !== 'none') _gfEnsureAllHeaders();
+  }
+  // "Group by" field changed — refetch that column's distinct values and
+  // refresh every existing band row to offer them (any prior value
+  // selections don't carry over across different fields, so they're
+  // cleared; the band's own name is left as-is).
+  function gfOnGroupFieldChange() {
+    const field = document.getElementById('gfGroupField').value || 'class';
+    _gfEnsureGroupFieldValues(field).then(() => {
+      const values = _gfGroupFieldValues[field] || [];
+      document.querySelectorAll('#gfBandsList .gf-band-classes').forEach(sel => {
+        sel.innerHTML = values.map(v => `<option value="${v}">${v}</option>`).join('');
+      });
+    });
   }
   // `band` accepts either the current {name, classes} shape or a legacy bare
   // array of class names (pre-naming eligibility_json saved before bands had
@@ -28612,12 +28668,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!list) return;
     const classes = Array.isArray(band) ? band : (band.classes || []);
     const name = Array.isArray(band) ? '' : (band.name || '');
+    const field = document.getElementById('gfGroupField')?.value || 'class';
+    const values = _gfGroupFieldValues[field] || [];
     const row = document.createElement('div');
     row.className = 'flex items-start gap-2 gf-band-row';
     row.innerHTML = `
       <input type="text" class="gf-band-name px-2 py-2 bg-white border border-slate-200 rounded-lg font-bold text-xs" style="max-width:150px" placeholder="Group name (e.g. Group A)" value="${name.replace(/"/g, '&quot;')}">
       <select multiple class="gf-band-classes flex-1 px-2 py-2 bg-white border border-slate-200 rounded-lg font-bold text-xs" style="min-height:90px">
-        ${_gfClassOptions.map(c => `<option value="${c}" ${classes.includes(c) ? 'selected' : ''}>${c}</option>`).join('')}
+        ${values.map(c => `<option value="${c}" ${classes.includes(c) ? 'selected' : ''}>${c}</option>`).join('')}
       </select>
       <button type="button" onclick="this.closest('.gf-band-row').remove()" class="w-7 h-7 flex items-center justify-center rounded-lg text-red-400 hover:bg-red-50 shrink-0"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>`;
     list.appendChild(row);
@@ -28636,23 +28694,36 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   function gfResetEligibilityForm() {
     document.getElementById('gfClassMode').value = 'none';
+    document.getElementById('gfGroupField').value = 'class';
+    document.getElementById('gfGroupField').classList.add('hidden');
     document.getElementById('gfSameSection').checked = false;
     document.getElementById('gfSameHouse').checked = false;
     document.getElementById('gfBandsList').innerHTML = '';
     document.getElementById('gfBandsWrap').classList.add('hidden');
   }
+  // Returns a promise — callers that build fields right after (editGroupForm)
+  // chain off it, since a show_if condition referencing a class_group field
+  // looks up its value options (band names) from the live band editor DOM
+  // (_syncShowIfValueControl), which only exists once this resolves.
   function gfLoadEligibilityForm(json) {
     let e = {}; try { e = JSON.parse(json || '{}') || {}; } catch (err) {}
-    document.getElementById('gfClassMode').value = e.class_mode || 'none';
+    const mode = e.class_mode || 'none';
+    const field = e.group_field || 'class';
+    document.getElementById('gfClassMode').value = mode;
+    document.getElementById('gfGroupField').classList.toggle('hidden', mode === 'none');
     document.getElementById('gfSameSection').checked = !!e.same_section;
     document.getElementById('gfSameHouse').checked = !!e.same_house;
     document.getElementById('gfBandsList').innerHTML = '';
-    (Array.isArray(e.bands) ? e.bands : []).forEach(b => gfAddBand(b));
-    document.getElementById('gfBandsWrap').classList.toggle('hidden', e.class_mode !== 'band');
+    return Promise.all([_gfEnsureAllHeaders(), _gfEnsureGroupFieldValues(field)]).then(() => {
+      document.getElementById('gfGroupField').value = field;
+      (Array.isArray(e.bands) ? e.bands : []).forEach(b => gfAddBand(b));
+      document.getElementById('gfBandsWrap').classList.toggle('hidden', mode !== 'band');
+    });
   }
   function gfSerializeEligibility() {
     return JSON.stringify({
       class_mode: document.getElementById('gfClassMode').value,
+      group_field: document.getElementById('gfGroupField').value || 'class',
       bands: gfReadBands(),
       same_section: document.getElementById('gfSameSection').checked,
       same_house: document.getElementById('gfSameHouse').checked,
@@ -28699,12 +28770,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('gfAcceptingNew').checked = f.accepting_new !== false;
     document.getElementById('gfConditionsList').innerHTML = '';
     try { const cl = JSON.parse(f.condition_json || '{}'); (cl.rules || []).forEach(r => addConditionRow(r, 'gfConditionsList')); } catch (e) {}
-    gfLoadEligibilityForm(f.eligibility_json);
     document.getElementById('gfFieldsList').innerHTML = '';
-    let fields = [];
-    try { fields = JSON.parse(f.fields_json || '[]'); } catch (e) {}
-    fields.forEach(fld => addTabRow(fld.type === 'group_label' ? 'label' : 'field', fld));
-    refreshAllShowIfControllers();
+    // Bands must be rendered before the fields loop — a show_if condition
+    // referencing a class_group field looks up its value options (band
+    // names) from the live band editor DOM right as each field row is built.
+    gfLoadEligibilityForm(f.eligibility_json).then(() => {
+      let fields = [];
+      try { fields = JSON.parse(f.fields_json || '[]'); } catch (e) {}
+      fields.forEach(fld => addTabRow(fld.type === 'group_label' ? 'label' : 'field', fld));
+      refreshAllShowIfControllers();
+    });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
