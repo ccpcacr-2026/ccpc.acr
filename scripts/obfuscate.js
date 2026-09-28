@@ -326,6 +326,10 @@ const RESERVED = [
   // Group Form cover photo widget — called via inline onchange/onclick in
   // loadAdminGroupFormsView's generated markup.
   '_gfHandleCoverSelect','_gfRemoveCoverPhoto',
+  // Show-if condition builder's dependable-value mechanism — called via
+  // inline onchange="_syncShowIfValueControl(this)" on each condition row's
+  // Field select in showIfBlockHtml's/_showIfCondRowHtml's generated markup.
+  '_syncShowIfValueControl',
 
   // Data tab native port (Phase 6, part 1)
   'loadAdminDataView','loadSummaryData','filterSummaryTable','exportSummaryData',

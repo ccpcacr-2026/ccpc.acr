@@ -28842,11 +28842,76 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // the DOM (see addTabRow and _addShowIfCondRow).
   function _showIfCondRowHtml(value) {
     return `<div class="showif-cond flex items-center gap-2 flex-wrap text-xs">
-      <select class="showif-field px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-xs" style="max-width:180px"><option value="">(choose a field)</option></select>
+      <select class="showif-field px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-xs" style="max-width:180px" onchange="_syncShowIfValueControl(this)"><option value="">(choose a field)</option></select>
       <span class="text-slate-400 font-bold">=</span>
       <input type="text" class="showif-value px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-xs" placeholder="value" style="max-width:120px" value="${(value || '').replace(/"/g, '&quot;')}">
       <button type="button" class="showif-remove-cond w-6 h-6 flex items-center justify-center rounded-lg text-red-400 hover:bg-red-50" onclick="this.closest('.showif-cond').remove()" title="Remove condition"><i data-lucide="x" class="h-3 w-3"></i></button>
     </div>`;
+  }
+  // Dependable-condition mechanism: when a show_if row's Field select points
+  // at a field with a KNOWN, fixed set of values — a Dropdown/Checkbox
+  // field's own options, or a Class Group field's eligibility band names —
+  // swap the free-text Value input for a <select> of those exact values.
+  // This is what would have caught the Science Fair form's
+  // "Group B (Six-Eight),Group C (Nine-Ten)" typo (a hand-typed value that
+  // never matched anything) before it ever got saved.
+  function _getBuilderFieldDefs() {
+    const sz = (s) => s.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+    const out = [];
+    let cl = '';
+    document.querySelectorAll(`#${_activeFieldsContainerId} .draggable-row`).forEach(row => {
+      const type = row.querySelector('.f-type')?.value;
+      if (type === 'group_label') { const l = row.querySelector('input[type="text"]')?.value.trim(); if (l) cl = sz(l); return; }
+      const label = row.querySelector('input[placeholder="Label"]')?.value.trim();
+      if (!label) return;
+      let key = row.querySelector('.f-key')?.value.trim();
+      if (!key) { key = sz(label); if (cl) key = `${cl}_${key}`; }
+      const options = (row.querySelector('.f-options')?.value || '').split(',').map(s => s.trim()).filter(Boolean);
+      out.push({ key, label, type, options });
+    });
+    return out;
+  }
+  // Returns the fixed value list for a referenced field, or null when it has
+  // none (text/number/paragraph — the value stays free text).
+  function _getShowIfValueOptions(dataKey) {
+    if (!dataKey) return null;
+    const def = _getBuilderFieldDefs().find(d => d.key === dataKey);
+    if (!def) return null;
+    if (def.type === 'choose' || def.type === 'checkbox') return def.options;
+    // Band names live in the eligibility editor, not on the field row itself
+    // — only resolvable inside the Group Form builder, where that editor is
+    // actually present.
+    if (def.type === 'class_group' && _activeFieldsContainerId === 'gfFieldsList' && typeof gfReadBands === 'function') {
+      return gfReadBands().map(b => b.name).filter(Boolean);
+    }
+    return null;
+  }
+  // Swaps a show_if condition row's Value control between a plain text input
+  // (unknown/free-form values) and a <select> of the referenced field's known
+  // values — called on the Field select's own onchange, and once on initial
+  // load for any row that already has a field chosen.
+  function _syncShowIfValueControl(fieldSelect) {
+    const cond = fieldSelect.closest('.showif-cond');
+    const oldEl = cond && cond.querySelector('.showif-value');
+    if (!oldEl) return;
+    const currentVal = oldEl.value;
+    const options = _getShowIfValueOptions(fieldSelect.value);
+    let newEl;
+    if (options && options.length) {
+      newEl = document.createElement('select');
+      newEl.className = 'showif-value px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-xs';
+      newEl.style.maxWidth = '120px';
+      newEl.innerHTML = `<option value="">(choose a value)</option>` +
+        options.map(o => `<option value="${o.replace(/"/g, '&quot;')}" ${o === currentVal ? 'selected' : ''}>${o}</option>`).join('');
+    } else {
+      newEl = document.createElement('input');
+      newEl.type = 'text';
+      newEl.className = 'showif-value px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-xs';
+      newEl.style.maxWidth = '120px';
+      newEl.placeholder = 'value';
+      newEl.value = currentVal;
+    }
+    oldEl.replaceWith(newEl);
   }
   // "+ Add condition" button handler — appends one more blank condition row to
   // an already-rendered showif-block, for building 3+-condition rules.
@@ -29083,7 +29148,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     container.appendChild(row);
     lucide.createIcons();
     const cond = parseShowIfForEditor(data?.show_if);
-    row.querySelectorAll('.showif-field').forEach((sel, i) => populateShowIfSelect(sel, cond.conds[i]?.field || ''));
+    row.querySelectorAll('.showif-field').forEach((sel, i) => {
+      const key = cond.conds[i]?.field || '';
+      populateShowIfSelect(sel, key);
+      if (key) _syncShowIfValueControl(sel);
+    });
     return row;
   }
 
