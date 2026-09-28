@@ -323,6 +323,9 @@ const RESERVED = [
   // Show-if condition builder's "+ Add condition" button — called via inline
   // onclick="_addShowIfCondRow(this...)" in showIfBlockHtml's generated markup.
   '_addShowIfCondRow',
+  // Group Form cover photo widget — called via inline onchange/onclick in
+  // loadAdminGroupFormsView's generated markup.
+  '_gfHandleCoverSelect','_gfRemoveCoverPhoto',
 
   // Data tab native port (Phase 6, part 1)
   'loadAdminDataView','loadSummaryData','filterSummaryTable','exportSummaryData',

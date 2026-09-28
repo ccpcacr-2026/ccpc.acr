@@ -28462,10 +28462,31 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div class="grid grid-cols-1 md:grid-cols-10 gap-3 mt-3">
           <div class="md:col-span-5">${_iconPickerFieldHtml('gfIcon', 'bi-people-fill')}</div>
         </div>
-        <div class="mt-3"><label class="text-[10px] font-black text-slate-400 uppercase">Description (shown to students)</label><textarea id="gfDescription" rows="2" placeholder="What is this sign-up for?" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm mt-1"></textarea></div>
         <div class="grid grid-cols-2 gap-3 mt-3">
           <div class="flex items-center gap-2"><input type="checkbox" id="gfIsEnabled" checked><label class="text-xs font-bold text-slate-600">Visible to students</label></div>
           <div class="flex items-center gap-2"><input type="checkbox" id="gfAcceptingNew" checked><label class="text-xs font-bold text-slate-600">Accepting new teams</label></div>
+        </div>
+
+        <div class="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
+          <span class="text-[10px] font-black text-slate-400 uppercase">Fill-up Page Content</span>
+          <p class="text-[11px] text-slate-400 font-bold mt-1 mb-3">Shown at the top of the page a student sees when filling this out. All optional — Header falls back to the Form Title above when left blank.</p>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div><label class="text-[10px] font-black text-slate-400 uppercase">Header</label><input type="text" id="gfHeader" placeholder="e.g. CCPC Science Fair 2026" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg font-bold text-sm mt-1"></div>
+            <div><label class="text-[10px] font-black text-slate-400 uppercase">Sub-header</label><input type="text" id="gfSubHeader" placeholder="e.g. Team Registration" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg font-bold text-sm mt-1"></div>
+            <div class="md:col-span-2"><label class="text-[10px] font-black text-slate-400 uppercase">Instructions / Details</label><textarea id="gfDescription" rows="3" placeholder="What is this sign-up for? Any rules, deadlines or notes for students." class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg font-bold text-sm mt-1"></textarea></div>
+            <div class="md:col-span-2">
+              <label class="text-[10px] font-black text-slate-400 uppercase">Cover Photo</label>
+              <div class="flex items-center gap-3 mt-1 flex-wrap">
+                <div id="gfCoverPreviewWrap" class="hidden"><img id="gfCoverPreview" src="" class="rounded-xl border border-slate-200" style="width:220px;aspect-ratio:16/6;object-fit:cover"></div>
+                <div>
+                  <input type="file" accept="image/*" id="gfCoverInput" onchange="_gfHandleCoverSelect(event)" class="text-xs">
+                  <div id="gfCoverStatus" class="text-[11px] text-slate-400 font-bold mt-1"></div>
+                </div>
+                <button type="button" id="gfCoverRemoveBtn" class="hidden px-3 py-1.5 border border-red-300 text-red-600 rounded-full font-black text-[10px] uppercase hover:bg-red-50" onclick="_gfRemoveCoverPhoto()">Remove photo</button>
+              </div>
+              <input type="hidden" id="gfCoverUrl" value="">
+            </div>
+          </div>
         </div>
 
         <div class="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
@@ -28633,7 +28654,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _syncIconPicker('gfIconGrid');
     document.getElementById('gfMaxSize').value = '4';
     document.getElementById('gfMembersRequired').checked = false;
+    document.getElementById('gfHeader').value = '';
+    document.getElementById('gfSubHeader').value = '';
     document.getElementById('gfDescription').value = '';
+    _gfSetCoverPreview('');
+    document.getElementById('gfCoverInput').value = '';
+    document.getElementById('gfCoverStatus').textContent = '';
     document.getElementById('gfIsEnabled').checked = true;
     document.getElementById('gfAcceptingNew').checked = true;
     document.getElementById('gfConditionsList').innerHTML = '';
@@ -28651,7 +28677,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _syncIconPicker('gfIconGrid');
     document.getElementById('gfMaxSize').value = f.max_team_size || 4;
     document.getElementById('gfMembersRequired').checked = !!f.members_required;
+    document.getElementById('gfHeader').value = f.header || '';
+    document.getElementById('gfSubHeader').value = f.sub_header || '';
     document.getElementById('gfDescription').value = f.description || '';
+    _gfSetCoverPreview(f.cover_photo_url || '');
+    document.getElementById('gfCoverInput').value = '';
+    document.getElementById('gfCoverStatus').textContent = '';
     document.getElementById('gfIsEnabled').checked = f.is_enabled !== false;
     document.getElementById('gfAcceptingNew').checked = f.accepting_new !== false;
     document.getElementById('gfConditionsList').innerHTML = '';
@@ -28674,8 +28705,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const cfg = {
       id: id || undefined,
       title,
+      header: document.getElementById('gfHeader').value.trim(),
+      sub_header: document.getElementById('gfSubHeader').value.trim(),
       description: document.getElementById('gfDescription').value.trim(),
       icon_class: document.getElementById('gfIcon').value.trim() || 'bi-people-fill',
+      cover_photo_url: document.getElementById('gfCoverUrl').value.trim(),
       max_team_size: Number(document.getElementById('gfMaxSize').value) || 4,
       members_required: document.getElementById('gfMembersRequired').checked,
       fields_json: JSON.stringify(fields),
@@ -28714,6 +28748,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('adminGroupRoster').classList.add('hidden');
     _gfRosterFormId = null;
   }
+  // Turns one team's raw group_data ({data_key: value}) into an ordered,
+  // properly-labeled list — a "preview of the filled-up form" using the
+  // field's actual name from fields_json instead of a raw data_key dump.
+  function _gfFormatGroupData(groupData, fieldsJsonStr) {
+    let fields = [];
+    try { fields = JSON.parse(fieldsJsonStr || '[]'); } catch (e) {}
+    const rows = [];
+    fields.forEach(f => {
+      if (f.type === 'group_label' || f.type === 'profile_picture') return;
+      const val = (groupData || {})[f.data_key];
+      if (val === undefined || val === null || val === '') return;
+      rows.push({ label: f.name || f.data_key, value: val });
+    });
+    return rows;
+  }
   function renderAdminGroupRoster(teams, form) {
     const host = document.getElementById('adminGroupRosterList');
     if (!teams.length) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No teams have been created for this form yet.</p>'; return; }
@@ -28722,6 +28771,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     host.innerHTML = teams.map(t => {
       const complete = maxSize ? t.members.length >= maxSize : true;
       const leader = t.members.find(m => m.role === 'leader');
+      const answerRows = _gfFormatGroupData(t.group_data, form && form.fields_json);
       return `
       <div class="border border-slate-200 rounded-2xl p-4 ${t.status === 'disbanded' ? 'opacity-50' : ''}">
         <div class="flex justify-between items-start flex-wrap gap-2">
@@ -28742,7 +28792,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           ${t.members.map(m => `<span class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-700">${nameOf(m.profile) || m.student_id}${m.role === 'leader' ? ' 👑' : ''}</span>`).join('')}
           ${t.pending_invites.map(inv => `<span class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-400 italic">${nameOf(inv.profile) || inv.invited_student_id} (pending)</span>`).join('')}
         </div>
-        ${Object.keys(t.group_data || {}).length ? `<div class="mt-2 text-[11px]">${Object.entries(t.group_data).map(([k, v]) => `<div><span class="text-slate-400 font-bold">${k.replace(/_/g, ' ')}:</span> <strong>${v}</strong></div>`).join('')}</div>` : ''}
+        ${answerRows.length ? `<div class="mt-2 p-2.5 bg-slate-50 rounded-xl text-[11px]"><div class="text-[10px] font-black text-slate-400 uppercase mb-1">Submitted Answers</div>${answerRows.map(r => `<div class="mb-0.5"><span class="text-slate-400 font-bold">${r.label}:</span> <strong>${r.value}</strong></div>`).join('')}</div>` : ''}
       </div>`;
     }).join('');
   }
@@ -28902,6 +28952,82 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       b.classList.toggle('border-slate-200', !sel);
       b.classList.toggle('text-slate-500', !sel);
     });
+  }
+
+  // ── Group Form cover photo ───────────────────────────────────────────────
+  // Resizes (no crop — full aspect ratio kept, capped at 1200px on the
+  // longer side) + compresses under the "students" bucket's 130KB limit
+  // (same ladder handleStudentPhotoSelect above uses for avatars), then
+  // uploads via upload_group_form_cover. Not tied to any one student, so —
+  // unlike that avatar flow — no square crop and no auto-save to a profile
+  // row; it just returns a URL for saveGroupForm() to send along.
+  function compressAndUploadCoverPhoto(file, { onStatus, onDone } = {}) {
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) { if (onStatus) onStatus('Photo must be under 8 MB.', true); return; }
+    if (onStatus) onStatus('Processing...');
+    const reader = new FileReader();
+    reader.onload = function (e) {
+      const img = new Image();
+      img.onload = function () {
+        const maxSide = 1200;
+        const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+        const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+
+        const TARGET = 130 * 1024;
+        let base64 = '';
+        for (const q of [0.85, 0.70, 0.55, 0.40, 0.28, 0.18]) {
+          base64 = canvas.toDataURL('image/jpeg', q);
+          const approxBytes = Math.ceil((base64.length - base64.indexOf(',') - 1) * 0.75);
+          if (approxBytes <= TARGET) break;
+        }
+        const finalBytes = Math.ceil((base64.length - base64.indexOf(',') - 1) * 0.75);
+        if (finalBytes > TARGET) { if (onStatus) onStatus('Could not compress under 130KB — try a smaller or simpler image.', true); return; }
+
+        if (onStatus) onStatus('Uploading...');
+        _adminFetch('upload_group_form_cover', { photo_base64: base64 }).then(res => {
+          if (res && res.result === 'success') { if (onStatus) onStatus('Photo uploaded!'); if (onDone) onDone(res.url); }
+          else if (onStatus) onStatus((res && res.message) || 'Upload failed.', true);
+        }).catch(() => { if (onStatus) onStatus('Network error.', true); });
+      };
+      img.onerror = function () { if (onStatus) onStatus('Could not read image file.', true); };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+  function _gfSetCoverPreview(url) {
+    const wrap = document.getElementById('gfCoverPreviewWrap');
+    const img = document.getElementById('gfCoverPreview');
+    const removeBtn = document.getElementById('gfCoverRemoveBtn');
+    const hidden = document.getElementById('gfCoverUrl');
+    if (hidden) hidden.value = url || '';
+    if (url) {
+      if (img) img.src = url;
+      if (wrap) wrap.classList.remove('hidden');
+      if (removeBtn) removeBtn.classList.remove('hidden');
+    } else {
+      if (img) img.src = '';
+      if (wrap) wrap.classList.add('hidden');
+      if (removeBtn) removeBtn.classList.add('hidden');
+    }
+  }
+  function _gfHandleCoverSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const status = document.getElementById('gfCoverStatus');
+    compressAndUploadCoverPhoto(file, {
+      onStatus: (msg, isError) => { if (status) { status.textContent = msg; status.className = 'text-[11px] font-bold mt-1 ' + (isError ? 'text-red-500' : 'text-slate-400'); } },
+      onDone: (url) => { _gfSetCoverPreview(url); if (status) status.textContent = ''; },
+    });
+  }
+  function _gfRemoveCoverPhoto() {
+    _gfSetCoverPreview('');
+    const input = document.getElementById('gfCoverInput');
+    if (input) input.value = '';
+    const status = document.getElementById('gfCoverStatus');
+    if (status) status.textContent = '';
   }
 
   function addTabRow(type, data = null) {
