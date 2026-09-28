@@ -28511,7 +28511,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <div class="flex items-center gap-2"><input type="checkbox" id="gfSameHouse"><label class="text-xs font-bold text-slate-600">Same house too</label></div>
           </div>
           <div id="gfBandsWrap" class="mt-3 hidden">
-            <p class="text-[11px] text-slate-400 font-bold mb-2">Group classes into bands — e.g. Six/Seven/Eight in one band, Nine/Ten in another. A leader in Seven may then invite anyone from Six, Seven or Eight, but not Nine.</p>
+            <p class="text-[11px] text-slate-400 font-bold mb-2">Group classes into named bands — e.g. "Group A" for Six/Seven/Eight, "Group B" for Nine/Ten. A leader in Seven may then invite anyone from Six, Seven or Eight, but not Nine. The name shows automatically as "Your Group" on the fill-up page — no separate dropdown field needed for it.</p>
             <div id="gfBandsList" class="flex flex-col gap-2"></div>
             <button type="button" onclick="gfAddBand()" class="mt-2 px-3 py-1.5 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100">+ Add Class Group</button>
           </div>
@@ -28604,23 +28604,35 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function gfOnClassModeChange() {
     document.getElementById('gfBandsWrap').classList.toggle('hidden', document.getElementById('gfClassMode').value !== 'band');
   }
-  function gfAddBand(selected = []) {
+  // `band` accepts either the current {name, classes} shape or a legacy bare
+  // array of class names (pre-naming eligibility_json saved before bands had
+  // names) — either way it renders the same editable row.
+  function gfAddBand(band = { name: '', classes: [] }) {
     const list = document.getElementById('gfBandsList');
     if (!list) return;
+    const classes = Array.isArray(band) ? band : (band.classes || []);
+    const name = Array.isArray(band) ? '' : (band.name || '');
     const row = document.createElement('div');
-    row.className = 'flex items-center gap-2 gf-band-row';
+    row.className = 'flex items-start gap-2 gf-band-row';
     row.innerHTML = `
+      <input type="text" class="gf-band-name px-2 py-2 bg-white border border-slate-200 rounded-lg font-bold text-xs" style="max-width:150px" placeholder="Group name (e.g. Group A)" value="${name.replace(/"/g, '&quot;')}">
       <select multiple class="gf-band-classes flex-1 px-2 py-2 bg-white border border-slate-200 rounded-lg font-bold text-xs" style="min-height:90px">
-        ${_gfClassOptions.map(c => `<option value="${c}" ${selected.includes(c) ? 'selected' : ''}>${c}</option>`).join('')}
+        ${_gfClassOptions.map(c => `<option value="${c}" ${classes.includes(c) ? 'selected' : ''}>${c}</option>`).join('')}
       </select>
       <button type="button" onclick="this.closest('.gf-band-row').remove()" class="w-7 h-7 flex items-center justify-center rounded-lg text-red-400 hover:bg-red-50 shrink-0"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>`;
     list.appendChild(row);
     lucide.createIcons();
   }
   // Empty rows (nothing selected) are dropped so an admin who added then
-  // emptied a row doesn't end up with a stray band nothing can match.
+  // emptied a row doesn't end up with a stray band nothing can match. Each
+  // band is now {name, classes} — name is what a student's own "Your Group"
+  // badge shows (ccpc-students' gfMyBandName), falling back to the class
+  // list itself when left blank.
   function gfReadBands() {
-    return Array.from(document.querySelectorAll('#gfBandsList .gf-band-classes')).map(sel => Array.from(sel.selectedOptions).map(o => o.value)).filter(b => b.length);
+    return Array.from(document.querySelectorAll('#gfBandsList .gf-band-row')).map(row => ({
+      name: row.querySelector('.gf-band-name')?.value.trim() || '',
+      classes: Array.from(row.querySelector('.gf-band-classes').selectedOptions).map(o => o.value),
+    })).filter(b => b.classes.length);
   }
   function gfResetEligibilityForm() {
     document.getElementById('gfClassMode').value = 'none';
@@ -29061,6 +29073,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <option value="checkbox" ${data?.type === 'checkbox' ? 'selected' : ''}>Checkbox</option>
           <option value="choose" ${data?.type === 'choose' ? 'selected' : ''}>Dropdown</option>
           <option value="profile_picture" ${data?.type === 'profile_picture' ? 'selected' : ''}>Profile Picture</option>
+          <option value="class_group" ${data?.type === 'class_group' ? 'selected' : ''}>Class Group (auto — Group Forms only)</option>
         </select>
         <input type="text" placeholder="Options (comma separated)" class="f-options px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs ${['checkbox', 'choose'].includes(data?.type) ? '' : 'hidden'}" style="flex:1;min-width:160px" value="${(data?.options || []).join(',')}">
         ${keyInput}
