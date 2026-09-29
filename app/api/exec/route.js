@@ -2952,10 +2952,11 @@ const handlers = {
     // count can exceed that, silently dropping whichever classes' rows
     // didn't make the cut and showing them as entirely absent).
     const [presentRows, overrideRows] = await Promise.all([
-      _sbStudentAllRows(`attendance_records?date=eq.${today}&select=student_id`),
+      _sbStudentAllRows(`attendance_records?date=eq.${today}&select=student_id,pass`),
       _sbStudentAllRows(`manual_attendance_overrides?date=eq.${today}&select=student_id,status`),
     ]);
-    const presentSet = new Set((Array.isArray(presentRows) ? presentRows : []).map(p => p.student_id));
+    const presentByStudent = {};
+    (Array.isArray(presentRows) ? presentRows : []).forEach(p => { presentByStudent[p.student_id] = p; });
     const overrideMap = {};
     (Array.isArray(overrideRows) ? overrideRows : []).forEach(o => { overrideMap[o.student_id] = o.status; });
 
@@ -2968,8 +2969,18 @@ const handlers = {
       );
       const roster = _sortByRoll(Array.isArray(students) ? students : []).map(s => {
         const override = overrideMap[s.student_id];
-        const status = override || (presentSet.has(s.student_id) ? 'present' : 'absent');
-        return { ...s, status, is_override: !!override };
+        const status = override || (presentByStudent[s.student_id] ? 'present' : 'absent');
+        // Mid-day "left campus" tap — student.attendance_records.pass is
+        // populated by the att_fill_pass trigger as
+        // {count, status, history:[{out,in,status}]}; status === 'out' means
+        // they tapped out and haven't tapped back in yet today. Same field
+        // get_today_attendance_overview reads for the VP/Cord "currently out"
+        // list — a Class Teacher wants the same signal for their own roster.
+        const pass = presentByStudent[s.student_id] && presentByStudent[s.student_id].pass;
+        const isOut = !!(pass && pass.status === 'out');
+        const history = pass && Array.isArray(pass.history) ? pass.history : [];
+        const outSince = isOut && history.length ? history[history.length - 1].out : null;
+        return { ...s, status, is_override: !!override, is_out: isOut, out_since: outSince };
       });
       return { classKey, className, section, students: roster };
     }));

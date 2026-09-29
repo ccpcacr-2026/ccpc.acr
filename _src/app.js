@@ -4523,6 +4523,7 @@
                 <p class="text-xs font-black text-slate-900 truncate">${_escHtml(s.student_name || '')}</p>
                 <p class="text-[10px] font-bold text-slate-500 truncate">Roll ${_escHtml(s.roll || '—')} · ${_escHtml(s.student_id)}${tel ? ` · <a href="tel:${_escHtml(tel)}" onclick="event.stopPropagation()" class="text-blue-600">${_escHtml(tel)}</a>` : ''}</p>
               </div>
+              ${s.is_out ? `<span title="Tapped out on a mid-day pass, not back yet" class="shrink-0 text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">Out${s.out_since ? ` ${_escHtml(s.out_since)}` : ''}</span>` : ''}
               ${isOther ? `<span class="shrink-0 text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full ${meta.cls}" style="background:${meta.bg}">${meta.short}</span>` : ''}
               <button onclick="_toggleMyStudentPresence('${_escHtml(s.student_id)}')" title="Toggle Present/Absent" class="shrink-0 relative w-12 h-7 rounded-full transition-colors" style="background:${isPresent ? MY_STUDENTS_STATUS_META.present.bg : MY_STUDENTS_STATUS_META.absent.bg}">
                 <span class="absolute top-0.5 ${isPresent ? 'right-0.5' : 'left-0.5'} w-6 h-6 bg-white rounded-full shadow transition-all"></span>
