@@ -454,6 +454,55 @@ async function evalRule(rule, profile, submissions) {
   }
 }
 
+// ── Group Form reviewer routing (server-side mirror of ccpc-students'
+// gfMyBandName) — resolves which named class-band a value falls into, for
+// the 'group' reviewer-rule dimension. Kept minimal: only the pieces the
+// reviewer-routing check below actually needs, not the full client editor.
+function gfMyBandNameServer(eligibilityJson, value) {
+  let elig = {};
+  try { elig = JSON.parse(eligibilityJson || '{}') || {}; } catch (e) {}
+  if (elig.class_mode !== 'band' || !Array.isArray(elig.bands) || !value) return null;
+  const bandValues = b => Array.isArray(b) ? b : (Array.isArray(b.classes) ? b.classes : []);
+  const band = elig.bands.find(b => bandValues(b).includes(value));
+  if (!band) return null;
+  const name = Array.isArray(band) ? '' : String(band.name || '').trim();
+  return name || bandValues(band).join('/');
+}
+// A reviewer-rule's `dimension` is 'all' | 'class' | 'house' | 'group' | an
+// 'answer:<data_key>' referencing one of the form's own fields_json answers.
+// The first three read the team LEADER's profile; 'group' additionally runs
+// it through the form's own eligibility bands; 'answer:*' reads the team's
+// own submitted group_data instead of any profile field.
+function groupFormTeamMatchesRule(team, form, rule, leaderProfile) {
+  if (rule.dimension === 'all') return true;
+  if (rule.dimension === 'class') return String(leaderProfile?.class || '') === rule.value;
+  if (rule.dimension === 'house') return String(leaderProfile?.house || '') === rule.value;
+  if (rule.dimension === 'group') {
+    let elig = {};
+    try { elig = JSON.parse(form?.eligibility_json || '{}') || {}; } catch (e) {}
+    const groupField = elig.group_field || 'class';
+    return gfMyBandNameServer(form?.eligibility_json, leaderProfile?.[groupField]) === rule.value;
+  }
+  if (rule.dimension.startsWith('answer:')) {
+    const key = rule.dimension.slice('answer:'.length);
+    return String((team.group_data || {})[key] ?? '') === rule.value;
+  }
+  return false;
+}
+// Whether a given teacher (by app_users.user_id) is the one this rule routes
+// to — either a direct hand-picked assignment, or (only meaningful for the
+// 'class' dimension) whoever is CURRENTLY the class teacher of that class,
+// resolved live against student.class_teacher_assignments so a later
+// reassignment there is reflected automatically.
+async function groupFormRuleAppliesToTeacher(rule, teacherUserId) {
+  if (rule.assign_mode === 'user') return rule.teacher_user_id === teacherUserId;
+  if (rule.assign_mode === 'class_teacher' && rule.dimension === 'class') {
+    const rows = await sb(`class_teacher_assignments?class=eq.${encodeURIComponent(rule.value)}&select=user_id`);
+    return Array.isArray(rows) && rows.some(r => r.user_id === teacherUserId);
+  }
+  return false;
+}
+
 // Fresh per-request check against teacher_staff.app_users — never trust a cached role.
 async function _getUserRoles(userId) {
   if (!userId) return [];
@@ -492,7 +541,7 @@ const SUPER_ADMIN_ONLY_ACTIONS = new Set(['set_gp_credentials', 'test_gp_connect
 // Bus GPS positions/registry are useful to every teacher/staff account, not
 // just admins — open to anyone with a recognized staff account (any role),
 // distinct from both the tab-visibility matrix and the plain Admin gate.
-const STAFF_OPEN_ACTIONS = new Set(['get_tracking_config', 'get_bus_data']);
+const STAFF_OPEN_ACTIONS = new Set(['get_tracking_config', 'get_bus_data', 'get_my_review_tabs', 'get_group_form_roster_for_rule']);
 
 // ── Per-tab module access (admin console nav pills) ──────────────────────
 // Which roles can use each tab is admin-configurable (see
@@ -554,7 +603,7 @@ const ADMIN_TAB_ACTIONS = {
   // exact same student.group_forms/group_form_teams/… tables directly via
   // sb(), same cross-app-shared-database pattern as get_tabs/save_tab above
   // for portal_tabs.
-  group_forms: new Set(['get_group_forms', 'save_group_form', 'delete_group_form', 'get_group_form_roster', 'set_team_lock', 'admin_disband_team', 'get_class_house_options', 'get_student_data_headers', 'upload_group_form_cover']),
+  group_forms: new Set(['get_group_forms', 'save_group_form', 'delete_group_form', 'get_group_form_roster', 'set_team_lock', 'admin_disband_team', 'get_class_house_options', 'get_student_data_headers', 'upload_group_form_cover', 'get_group_form_reviewer_rules', 'save_group_form_reviewer_rules', 'get_field_values']),
   data: new Set(['get_tabs', 'get_tab_data', 'get_tab_submission_status', 'get_staff_list', 'get_tab_data_access', 'set_tab_data_access', 'get_staff_directory', 'get_class_sections', 'get_tab_class_access', 'set_tab_class_access', 'get_field_categories', 'get_tab_category_link', 'set_tab_category_link']),
   // Class Teacher assignment (get_class_teacher_assignments/save_teacher_
   // class_assignment) lives here too, not its own tab key — it's part of
@@ -1292,6 +1341,119 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success', teams: teamRows });
   }
 
+  // ── Reviewer routing rules (admin-configured, group_forms tab) ───────────
+  if (action === 'get_group_form_reviewer_rules') {
+    const { group_form_id } = payload;
+    if (!group_form_id) return NextResponse.json({ result: 'error', message: 'group_form_id required.' });
+    const rows = await sb(`group_form_reviewer_rules?group_form_id=eq.${encodeURIComponent(group_form_id)}&order=created_at.asc`);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', rules: Array.isArray(rows) ? rows : [] });
+  }
+  // Full replace-all per form — same idiom set_class_access_grants/
+  // save_teacher_class_assignment already use elsewhere in this file.
+  if (action === 'save_group_form_reviewer_rules') {
+    const { group_form_id, rules } = payload;
+    if (!group_form_id) return NextResponse.json({ result: 'error', message: 'group_form_id required.' });
+    const del = await sb(`group_form_reviewer_rules?group_form_id=eq.${encodeURIComponent(group_form_id)}`, 'DELETE');
+    if (del?.error) return NextResponse.json({ result: 'error', message: del.error });
+    const clean = (Array.isArray(rules) ? rules : [])
+      .filter(r => r && r.dimension && (r.dimension === 'all' || String(r.value || '').trim()))
+      .map(r => ({
+        group_form_id,
+        dimension: r.dimension,
+        value: r.dimension === 'all' ? '' : String(r.value).trim(),
+        assign_mode: r.assign_mode === 'class_teacher' ? 'class_teacher' : 'user',
+        teacher_user_id: r.assign_mode === 'class_teacher' ? null : (r.teacher_user_id || null),
+      }))
+      .filter(r => r.assign_mode === 'class_teacher' ? r.dimension === 'class' : !!r.teacher_user_id);
+    if (clean.length) {
+      const ins = await sb('group_form_reviewer_rules', 'POST', clean);
+      if (ins?.error) return NextResponse.json({ result: 'error', message: ins.error });
+    }
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Reviewer-facing: which slices am I assigned, across every Group Form?
+  // Open to any recognized staff account (STAFF_OPEN_ACTIONS below) — a
+  // reviewer doesn't need the group_forms tab itself, just to be named (or
+  // resolved as a class teacher) on at least one rule. Each rule becomes one
+  // tab on the reviewer's own review page (see the front-end's "all +group"
+  // multi-slice request — one teacher can hold several rules at once).
+  if (action === 'get_my_review_tabs') {
+    const { teacher_user_id } = payload;
+    if (!teacher_user_id) return NextResponse.json({ result: 'error', message: 'teacher_user_id required.' });
+    const [rulesRows, formsRows] = await Promise.all([
+      sb('group_form_reviewer_rules?select=*'),
+      sb('group_forms?select=id,title'),
+    ]);
+    if (rulesRows?.error) return NextResponse.json({ result: 'error', message: rulesRows.error });
+    const titleById = {};
+    (Array.isArray(formsRows) ? formsRows : []).forEach(f => { titleById[f.id] = f.title; });
+    const mine = [];
+    for (const rule of (Array.isArray(rulesRows) ? rulesRows : [])) {
+      if (await groupFormRuleAppliesToTeacher(rule, teacher_user_id)) {
+        const dimLabel = rule.dimension.startsWith('answer:') ? rule.dimension.slice(7) : rule.dimension;
+        mine.push({
+          rule_id: rule.id,
+          group_form_id: rule.group_form_id,
+          form_title: titleById[rule.group_form_id] || 'Group Form',
+          dimension: rule.dimension,
+          value: rule.value,
+          label: rule.dimension === 'all' ? 'All Teams' : `${dimLabel}: ${rule.value}`,
+        });
+      }
+    }
+    return NextResponse.json({ result: 'success', tabs: mine });
+  }
+  // Roster filtered to exactly one rule's slice — re-validates the rule
+  // actually belongs to this teacher server-side (never trusts the client's
+  // own tab list), then reuses get_group_form_roster's own team-assembly
+  // logic before filtering it down.
+  if (action === 'get_group_form_roster_for_rule') {
+    const { rule_id, teacher_user_id } = payload;
+    if (!rule_id || !teacher_user_id) return NextResponse.json({ result: 'error', message: 'rule_id and teacher_user_id required.' });
+    const ruleRows = await sb(`group_form_reviewer_rules?id=eq.${encodeURIComponent(rule_id)}`);
+    const rule = (!ruleRows?.error && ruleRows[0]) ? ruleRows[0] : null;
+    if (!rule) return NextResponse.json({ result: 'error', message: 'Rule not found.' });
+    if (!(await groupFormRuleAppliesToTeacher(rule, teacher_user_id))) {
+      return NextResponse.json({ result: 'error', message: 'Not authorized for this review.' }, { status: 403 });
+    }
+
+    const formRows = await sb(`group_forms?id=eq.${encodeURIComponent(rule.group_form_id)}`);
+    const form = (!formRows?.error && formRows[0]) ? formRows[0] : null;
+    if (!form) return NextResponse.json({ result: 'error', message: 'Group form not found.' });
+
+    const [teams, members, invites] = await Promise.all([
+      sb(`group_form_teams?group_form_id=eq.${encodeURIComponent(rule.group_form_id)}&order=created_at.asc`),
+      sb(`group_form_team_members?group_form_id=eq.${encodeURIComponent(rule.group_form_id)}`),
+      sb(`group_form_team_invites?group_form_id=eq.${encodeURIComponent(rule.group_form_id)}&status=eq.pending`),
+    ]);
+    if (teams?.error) return NextResponse.json({ result: 'error', message: teams.error });
+    const memberList = Array.isArray(members) ? members : [];
+    const inviteList = Array.isArray(invites) ? invites : [];
+    const ids = [...new Set([...memberList.map(m => m.student_id), ...inviteList.map(i => i.invited_student_id)])];
+    const nameById = {};
+    if (ids.length) {
+      const profRows = await sb(`students_data?student_id=in.(${ids.map(encodeURIComponent).join(',')})&select=student_id,student_name,class,section,house,session`);
+      (Array.isArray(profRows) ? profRows : []).forEach(p => { nameById[p.student_id] = p; });
+    }
+    const membersByTeam = {};
+    memberList.forEach(m => { (membersByTeam[m.team_id] = membersByTeam[m.team_id] || []).push({ ...m, profile: nameById[m.student_id] || null }); });
+    const invitesByTeam = {};
+    inviteList.forEach(i => { (invitesByTeam[i.team_id] = invitesByTeam[i.team_id] || []).push({ ...i, profile: nameById[i.invited_student_id] || null }); });
+
+    const allTeams = (Array.isArray(teams) ? teams : []).map(t => ({
+      ...t,
+      members: membersByTeam[t.id] || [],
+      pending_invites: invitesByTeam[t.id] || [],
+    }));
+    const filtered = allTeams.filter(t => {
+      const leader = (t.members.find(m => m.role === 'leader') || {}).profile || {};
+      return groupFormTeamMatchesRule(t, form, rule, leader);
+    });
+    return NextResponse.json({ result: 'success', teams: filtered, form });
+  }
+
   // ── Lock / Unlock one team ────────────────────────────────────────────────
   if (action === 'set_team_lock') {
     const { team_id, locked } = payload;
@@ -1322,6 +1484,22 @@ export async function POST(req) {
     const classes = [...new Set(rows.map(r => r.class).filter(Boolean))].sort();
     const houses = [...new Set(rows.map(r => r.house).filter(Boolean))].sort();
     return NextResponse.json({ result: 'success', classes, houses });
+  }
+
+  // ── Distinct values of an arbitrary students_data column (Group Form
+  // eligibility builder's "Group by" field — any header, not just class) ────
+  // `field` becomes a raw column name in the PostgREST select — restricted to
+  // identifier-safe characters so it can only ever reference a real column
+  // (an unknown one just 400s from Postgres, not a security risk) rather than
+  // any kind of query injection. Mirrors ccpc-students' own copy exactly.
+  if (action === 'get_field_values') {
+    const field = String(payload?.field || '').trim();
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(field)) return NextResponse.json({ result: 'error', message: 'Invalid field name.' });
+    const rows = await sbAllRows(`students_data?select=${field}`);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: 'Could not read that column — ' + rows.error });
+    const values = [...new Set(rows.map(r => r[field]).filter(v => v !== null && v !== undefined && String(v).trim() !== ''))]
+      .map(String).sort();
+    return NextResponse.json({ result: 'success', values });
   }
 
   // ── Login Password Columns (which students_data phone-like columns are

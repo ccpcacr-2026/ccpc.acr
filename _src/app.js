@@ -808,6 +808,13 @@
     { key: 'setup', label: 'Setup', icon: 'sliders-horizontal', erp: false, action: { type: 'native', fn: 'loadAdminSetupView' } },
     { key: 'add_custom_form', label: '+ Add Custom Form', icon: 'plus-circle', erp: false, action: { type: 'native', fn: 'loadAdminAddCustomFormView' } },
     { key: 'group_forms', label: 'Group Forms', icon: 'users-round', erp: false, action: { type: 'native', fn: 'loadAdminGroupFormsView' } },
+    // Not gated by the group_forms tab itself — a reviewer might hold no
+    // other Group Forms permission at all, just one or more reviewer rules
+    // (see roleVisibleKeys filter below, which shows this alongside Forum/
+    // Message History to anyone with any Student Portal access; the view
+    // itself shows "nothing assigned" gracefully when get_my_review_tabs
+    // comes back empty).
+    { key: 'group_form_reviews', label: 'Review Submissions', icon: 'clipboard-check', erp: false, action: { type: 'native', fn: 'loadGroupFormReviewView' } },
     { key: 'data', label: 'Data', icon: 'table', erp: false, action: { type: 'native', fn: 'loadAdminDataView' } },
     { key: 'access', label: 'Access', icon: 'shield-check', erp: false, action: { type: 'native', fn: 'loadAdminAccessView' } },
     { key: 'attendance', label: 'Attendance', icon: 'fingerprint', erp: true, action: { type: 'native', fn: 'loadAdminAttendanceView' } },
@@ -925,7 +932,7 @@
       // erpTabs like the admin_tab_visibility-gated items above, since a
       // plain Teacher browsing Student Portal typically has none of those.
       const showPortalShortcuts = _hasModuleAccess('student_portal') || hasTabData;
-      const items = ADMIN_SUBNAV_ITEMS.filter(i => roleVisibleKeys.includes(i.key) || (i.key === 'my_data' && hasTabData) || (['student_forum', 'student_message_history', 'student_diary'].includes(i.key) && showPortalShortcuts));
+      const items = ADMIN_SUBNAV_ITEMS.filter(i => roleVisibleKeys.includes(i.key) || (i.key === 'my_data' && hasTabData) || (['student_forum', 'student_message_history', 'student_diary', 'group_form_reviews'].includes(i.key) && showPortalShortcuts));
       if (!items.length) { host.innerHTML = ''; host.classList.add('hidden'); return; }
       host.innerHTML = items.map(i =>
         `<a href="javascript:void(0)" onclick="${i.action.fn}(); closeMobileSidebar();" class="nav-link nav-sublink" id="nav-erp-${i.key}"><div class="nav-icon-box"><i data-lucide="${i.icon}" class="nav-icon"></i></div><span class="nav-text">${i.label}</span></a>`
@@ -28588,8 +28595,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </select>
             <button onclick="exportGroupFormRoster()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="download" class="h-3 w-3"></i>Download CSV</button>
             <button onclick="printGroupFormRoster()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="printer" class="h-3 w-3"></i>Print</button>
+            <button onclick="toggleGroupFormReviewerPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="users" class="h-3 w-3"></i>Reviewers</button>
             <button onclick="closeGroupRoster()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50">Close</button>
           </div>
+        </div>
+        <div id="gfReviewerPanel" class="hidden mb-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-[10px] font-black text-slate-400 uppercase">Reviewers</span>
+            <button onclick="gfAddReviewerRule()" class="px-3 py-1.5 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase">+ Add Rule</button>
+          </div>
+          <p class="text-[11px] text-slate-400 font-bold mb-3">Grant a teacher (or "whoever is class teacher of X") access to review one slice of this form's submissions — e.g. "All Teams" for one reviewer, "Group A" for another. A teacher with several rules sees each as its own tab on their own Review page.</p>
+          <div id="gfReviewerRulesList" class="flex flex-col gap-2"></div>
+          <button onclick="saveGroupFormReviewerRules()" class="mt-3 px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Reviewer Rules</button>
         </div>
         <div id="adminGroupRosterList" class="flex flex-col gap-3"></div>
       </div>
@@ -28888,6 +28905,273 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function closeGroupRoster() {
     document.getElementById('adminGroupRoster').classList.add('hidden');
     _gfRosterFormId = null;
+  }
+
+  // ── Reviewer routing rules (admin editor, attached to the roster screen) ──
+  let _gfStaffDirectory = [];
+  function _gfEnsureStaffDirectory() {
+    if (_gfStaffDirectory.length) return Promise.resolve();
+    return _adminFetch('get_staff_directory', {}).then(res => { _gfStaffDirectory = Array.isArray(res) ? res : []; }).catch(() => {});
+  }
+  // Value options for a rule's chosen dimension — reuses whatever's already
+  // cached for the "Group by" band editor (class/house), the current form's
+  // own eligibility band names ('group'), or a choose/checkbox field's own
+  // options ('answer:<data_key>').
+  function _gfRuleValueOptions(dimension) {
+    if (dimension === 'class') return _gfClassOptions;
+    if (dimension === 'house') {
+      // Houses aren't cached anywhere yet at this point in the flow — reuse
+      // the same distinct-values endpoint the "Group by" selector uses.
+      return _gfGroupFieldValues.house || [];
+    }
+    if (dimension === 'group') {
+      let elig = {};
+      try { elig = JSON.parse(_gfRosterForm?.eligibility_json || '{}') || {}; } catch (e) {}
+      return (Array.isArray(elig.bands) ? elig.bands : []).map(b => Array.isArray(b) ? '' : (b.name || '')).filter(Boolean);
+    }
+    if (dimension.startsWith('answer:')) {
+      const key = dimension.slice(7);
+      let fields = [];
+      try { fields = JSON.parse(_gfRosterForm?.fields_json || '[]') || []; } catch (e) {}
+      const f = fields.find(fd => fd.data_key === key);
+      return (f && f.options) || [];
+    }
+    return [];
+  }
+  function _gfRuleAnswerFieldOptions() {
+    let fields = [];
+    try { fields = JSON.parse(_gfRosterForm?.fields_json || '[]') || []; } catch (e) {}
+    return fields.filter(f => (f.type === 'choose' || f.type === 'checkbox') && f.data_key);
+  }
+  function _gfRuleRowHtml(rule) {
+    rule = rule || { dimension: 'all', value: '', assign_mode: 'user', teacher_user_id: '' };
+    const answerFields = _gfRuleAnswerFieldOptions();
+    return `<div class="gf-reviewer-rule-row flex items-center gap-2 flex-wrap bg-white p-2.5 rounded-xl border border-slate-200">
+      <select class="gf-rule-dimension px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" onchange="_gfOnRuleDimensionChange(this)">
+        <option value="all" ${rule.dimension === 'all' ? 'selected' : ''}>All Teams</option>
+        <option value="class" ${rule.dimension === 'class' ? 'selected' : ''}>Class</option>
+        <option value="house" ${rule.dimension === 'house' ? 'selected' : ''}>House</option>
+        <option value="group" ${rule.dimension === 'group' ? 'selected' : ''}>Group (band)</option>
+        ${answerFields.map(f => `<option value="answer:${f.data_key}" ${rule.dimension === `answer:${f.data_key}` ? 'selected' : ''}>Answer: ${f.name || f.data_key}</option>`).join('')}
+      </select>
+      <select class="gf-rule-value px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs ${rule.dimension === 'all' ? 'hidden' : ''}"></select>
+      <select class="gf-rule-mode px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" onchange="_gfOnRuleModeChange(this)">
+        <option value="user" ${rule.assign_mode !== 'class_teacher' ? 'selected' : ''}>Specific Teacher</option>
+        <option value="class_teacher" ${rule.assign_mode === 'class_teacher' ? 'selected' : ''} ${rule.dimension !== 'class' ? 'disabled' : ''}>Class Teacher</option>
+      </select>
+      <select class="gf-rule-teacher px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs ${rule.assign_mode === 'class_teacher' ? 'hidden' : ''}"><option value="">Teacher…</option></select>
+      <button type="button" onclick="this.closest('.gf-reviewer-rule-row').remove()" class="w-7 h-7 flex items-center justify-center rounded-lg text-red-400 hover:bg-red-50 shrink-0"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+    </div>`;
+  }
+  function _gfPopulateRuleValueSelect(row, selectedValue) {
+    const dim = row.querySelector('.gf-rule-dimension').value;
+    const valueSel = row.querySelector('.gf-rule-value');
+    valueSel.classList.toggle('hidden', dim === 'all');
+    if (dim === 'all') { valueSel.innerHTML = ''; return; }
+    const options = _gfRuleValueOptions(dim);
+    valueSel.innerHTML = `<option value="">Value…</option>` + options.map(v => `<option value="${v}" ${v === selectedValue ? 'selected' : ''}>${v}</option>`).join('');
+  }
+  function _gfPopulateRuleTeacherSelect(row, selectedId) {
+    const teacherSel = row.querySelector('.gf-rule-teacher');
+    teacherSel.innerHTML = `<option value="">Teacher…</option>` + _gfStaffDirectory.map(s => `<option value="${s.user_id}" ${s.user_id === selectedId ? 'selected' : ''}>${s.full_name || s.user_id}${s.designation ? ' — ' + s.designation : ''}</option>`).join('');
+  }
+  function _gfOnRuleDimensionChange(sel) {
+    const row = sel.closest('.gf-reviewer-rule-row');
+    const modeSel = row.querySelector('.gf-rule-mode');
+    const classTeacherOpt = modeSel.querySelector('option[value="class_teacher"]');
+    const isClass = sel.value === 'class';
+    classTeacherOpt.disabled = !isClass;
+    if (!isClass && modeSel.value === 'class_teacher') modeSel.value = 'user';
+    const dim = sel.value;
+    // class/house values are fetched lazily (via the same generic
+    // get_field_values the "Group by" band editor uses) — everything else
+    // (group band names, a choose field's own options) is already in hand.
+    const ensureValues = (dim === 'class' || dim === 'house') ? _gfEnsureGroupFieldValues(dim) : Promise.resolve();
+    ensureValues.then(() => _gfPopulateRuleValueSelect(row, ''));
+    _gfOnRuleModeChange(modeSel);
+  }
+  function _gfOnRuleModeChange(sel) {
+    const row = sel.closest('.gf-reviewer-rule-row');
+    const teacherSel = row.querySelector('.gf-rule-teacher');
+    const useTeacher = sel.value !== 'class_teacher';
+    teacherSel.classList.toggle('hidden', !useTeacher);
+    if (useTeacher && !teacherSel.options.length) _gfPopulateRuleTeacherSelect(row, '');
+  }
+  function gfAddReviewerRule(rule) {
+    const list = document.getElementById('gfReviewerRulesList');
+    if (!list) return;
+    const wrap = document.createElement('div');
+    wrap.innerHTML = _gfRuleRowHtml(rule);
+    const row = wrap.firstElementChild;
+    list.appendChild(row);
+    const dim = rule ? rule.dimension : 'all';
+    const ensureValues = (dim === 'class' || dim === 'house') ? _gfEnsureGroupFieldValues(dim) : Promise.resolve();
+    ensureValues.then(() => _gfPopulateRuleValueSelect(row, rule ? rule.value : ''));
+    _gfPopulateRuleTeacherSelect(row, rule ? rule.teacher_user_id : '');
+    if (rule && rule.assign_mode === 'class_teacher') row.querySelector('.gf-rule-teacher').classList.add('hidden');
+    lucide.createIcons();
+  }
+  function gfReadReviewerRules() {
+    return Array.from(document.querySelectorAll('#gfReviewerRulesList .gf-reviewer-rule-row')).map(row => ({
+      dimension: row.querySelector('.gf-rule-dimension').value,
+      value: row.querySelector('.gf-rule-value').value,
+      assign_mode: row.querySelector('.gf-rule-mode').value,
+      teacher_user_id: row.querySelector('.gf-rule-teacher').value,
+    }));
+  }
+  function toggleGroupFormReviewerPanel() {
+    const panel = document.getElementById('gfReviewerPanel');
+    if (!panel) return;
+    const opening = panel.classList.contains('hidden');
+    panel.classList.toggle('hidden');
+    if (!opening || !_gfRosterFormId) return;
+    document.getElementById('gfReviewerRulesList').innerHTML = '<p class="text-xs text-slate-400 font-bold">Loading…</p>';
+    Promise.all([
+      _adminFetch('get_group_form_reviewer_rules', { group_form_id: _gfRosterFormId }),
+      _gfEnsureStaffDirectory(),
+    ]).then(([res]) => {
+      document.getElementById('gfReviewerRulesList').innerHTML = '';
+      const rules = (res && res.result === 'success') ? res.rules : [];
+      if (!rules.length) gfAddReviewerRule();
+      else rules.forEach(r => gfAddReviewerRule(r));
+    }).catch(() => { document.getElementById('gfReviewerRulesList').innerHTML = '<p class="text-xs text-red-500 font-bold">Network error</p>'; });
+  }
+  function saveGroupFormReviewerRules() {
+    if (!_gfRosterFormId) return;
+    const rules = gfReadReviewerRules();
+    _adminFetch('save_group_form_reviewer_rules', { group_form_id: _gfRosterFormId, rules }).then(res => {
+      if (res && res.result === 'success') showToast('Reviewer rules saved');
+      else showToast((res && res.message) || 'Save failed', 'error');
+    }).catch(() => showToast('Network error', 'error'));
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Reviewer-facing "Review Submissions" — read-only. Each reviewer rule the
+  // current teacher is assigned (directly, or as a class's current class
+  // teacher) is its own tab; a teacher holding several rules (e.g. "All
+  // Teams" on one form plus "Group A" on another) sees every one of them as
+  // a separate tab, per the explicit "all +group" multi-slice request.
+  // ══════════════════════════════════════════════════════════════════════
+  let _gfReviewTabs = [];
+  let _gfReviewActiveIdx = 0;
+  function loadGroupFormReviewView() {
+    _setViewHash('student_portal');
+    setActiveNavLink('nav-erp-group_form_reviews');
+    setContentHeader('Review Submissions', 'clipboard-check');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    container.innerHTML = `
+      <div class="mb-4">
+        <h2 class="text-2xl font-black text-slate-800 tracking-tight">Review Submissions</h2>
+        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Group Form submissions an admin has assigned you to review</p>
+      </div>
+      <div id="gfReviewTabBar" class="flex items-center gap-2 flex-wrap mb-4"></div>
+      <div id="gfReviewToolbar" class="hidden flex items-center gap-2 mb-3"></div>
+      <div id="gfReviewList" class="flex flex-col gap-3"></div>
+    `;
+    if (!myId) { document.getElementById('gfReviewList').innerHTML = '<p class="text-xs text-red-500 font-bold">Not signed in.</p>'; return; }
+    document.getElementById('gfReviewList').innerHTML = '<p class="text-xs text-slate-400 font-bold">Loading…</p>';
+    _adminFetch('get_my_review_tabs', { teacher_user_id: myId }).then(res => {
+      _gfReviewTabs = (res && res.result === 'success') ? res.tabs : [];
+      if (!_gfReviewTabs.length) {
+        document.getElementById('gfReviewList').innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No submissions have been assigned to you for review yet.</p>';
+        return;
+      }
+      _gfReviewActiveIdx = 0;
+      _renderGfReviewTabBar();
+      _loadGfReviewTab(0);
+    }).catch(() => { document.getElementById('gfReviewList').innerHTML = '<p class="text-xs text-red-500 font-bold">Network error</p>'; });
+  }
+  function _renderGfReviewTabBar() {
+    const bar = document.getElementById('gfReviewTabBar');
+    if (!bar) return;
+    bar.innerHTML = _gfReviewTabs.map((t, i) => `
+      <button onclick="_loadGfReviewTab(${i})" class="px-3 py-1.5 rounded-full font-black text-[10px] uppercase tracking-widest ${i === _gfReviewActiveIdx ? 'bg-blue-600 text-white' : 'border border-slate-200 text-slate-500 hover:bg-slate-50'}">${t.form_title} — ${t.label}</button>
+    `).join('');
+  }
+  function _loadGfReviewTab(idx) {
+    _gfReviewActiveIdx = idx;
+    _renderGfReviewTabBar();
+    const tab = _gfReviewTabs[idx];
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const list = document.getElementById('gfReviewList');
+    const toolbar = document.getElementById('gfReviewToolbar');
+    toolbar.classList.add('hidden');
+    list.innerHTML = '<p class="text-xs text-slate-400 font-bold">Loading…</p>';
+    _adminFetch('get_group_form_roster_for_rule', { rule_id: tab.rule_id, teacher_user_id: myId }).then(res => {
+      if (!res || res.result !== 'success') { list.innerHTML = `<p class="text-xs text-red-500 font-bold">${(res && res.message) || 'Failed to load'}</p>`; return; }
+      _gfReviewTeams = res.teams || [];
+      _gfReviewForm = res.form || null;
+      toolbar.classList.remove('hidden');
+      toolbar.innerHTML = `
+        <button onclick="_exportGfReviewRoster()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="download" class="h-3 w-3"></i>Download CSV</button>
+        <button onclick="_printGfReviewRoster()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="printer" class="h-3 w-3"></i>Print</button>
+      `;
+      _renderGfReviewRoster(_gfReviewTeams, _gfReviewForm);
+      lucide.createIcons();
+    }).catch(() => { list.innerHTML = '<p class="text-xs text-red-500 font-bold">Network error</p>'; });
+  }
+  let _gfReviewTeams = [];
+  let _gfReviewForm = null;
+  // Read-only card list — same card shape/labeling as the admin roster
+  // (renderAdminGroupRoster) minus the Lock/Disband controls, since a
+  // reviewer isn't a Group Forms admin for this form.
+  function _renderGfReviewRoster(teams, form) {
+    const host = document.getElementById('gfReviewList');
+    if (!teams.length) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No teams in this slice yet.</p>'; return; }
+    const maxSize = form ? form.max_team_size : null;
+    const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''})` : 'Unknown';
+    host.innerHTML = teams.map(t => {
+      const complete = maxSize ? t.members.length >= maxSize : true;
+      const leader = t.members.find(m => m.role === 'leader');
+      const answerRows = _gfFormatGroupData(t.group_data, form && form.fields_json);
+      return `
+      <div class="border border-slate-200 rounded-2xl p-4 ${t.status === 'disbanded' ? 'opacity-50' : ''}">
+        <div class="flex justify-between items-start flex-wrap gap-2">
+          <div>
+            <strong class="text-sm font-black text-slate-800">${nameOf(leader?.profile) || t.leader_student_id}'s team</strong>
+            ${t.status === 'disbanded' ? ' <span class="text-[9px] font-black text-white bg-slate-400 rounded-full px-2 py-0.5">Disbanded</span>' : ''}
+            ${t.is_submitted ? ' <span class="text-[9px] font-black text-white bg-emerald-600 rounded-full px-2 py-0.5">Submitted</span>' : ' <span class="text-[9px] font-black text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">Saved</span>'}
+            ${t.is_locked ? ' <span class="text-[9px] font-black text-white bg-slate-800 rounded-full px-2 py-0.5">Locked</span>' : ''}
+            ${!complete && form && form.members_required ? ' <span class="text-[9px] font-black text-amber-700 bg-amber-50 rounded-full px-2 py-0.5">Incomplete</span>' : ''}
+            <div class="text-[11px] text-slate-400 font-bold mt-0.5">${t.members.length}${maxSize ? '/' + maxSize : ''} members${t.pending_invites.length ? ' · ' + t.pending_invites.length + ' pending invite(s)' : ''}${t.submitted_at ? ' · submitted ' + new Date(t.submitted_at).toLocaleString() : ''}</div>
+          </div>
+        </div>
+        <div class="mt-2 flex flex-wrap gap-2">
+          ${t.members.map(m => `<span class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-700">${nameOf(m.profile) || m.student_id}${m.role === 'leader' ? ' 👑' : ''}</span>`).join('')}
+          ${t.pending_invites.map(inv => `<span class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-400 italic">${nameOf(inv.profile) || inv.invited_student_id} (pending)</span>`).join('')}
+        </div>
+        ${answerRows.length ? `<div class="mt-2 p-2.5 bg-slate-50 rounded-xl text-[11px]"><div class="text-[10px] font-black text-slate-400 uppercase mb-1">Answers</div>${answerRows.map(r => `<div class="mb-0.5"><span class="text-slate-400 font-bold">${r.label}:</span> <strong>${r.value}</strong></div>`).join('')}</div>` : ''}
+      </div>`;
+    }).join('');
+  }
+  function _exportGfReviewRoster() {
+    if (!_gfReviewTeams.length) { showToast('No teams to export', 'error'); return; }
+    let fields = [];
+    try { fields = JSON.parse(_gfReviewForm?.fields_json || '[]'); } catch (e) {}
+    const answerFields = fields.filter(f => f.type !== 'group_label' && f.type !== 'profile_picture');
+    const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''})` : 'Unknown';
+    const headers = ['Team ID', 'Leader', 'Leader Student ID', 'Status', 'Submitted', 'Submitted At', 'Members (excl. leader)', 'Pending Invites', ...answerFields.map(f => f.name || f.data_key)];
+    const rows = _gfReviewTeams.map(t => {
+      const leader = t.members.find(m => m.role === 'leader');
+      const others = t.members.filter(m => m.role !== 'leader').map(m => `${nameOf(m.profile)} [${m.student_id}]`).join('; ');
+      const pending = t.pending_invites.map(inv => `${nameOf(inv.profile)} [${inv.invited_student_id}]`).join('; ');
+      const answers = answerFields.map(f => (t.group_data || {})[f.data_key] ?? '');
+      return [t.id, leader ? nameOf(leader.profile) : t.leader_student_id, t.leader_student_id, t.status, t.is_submitted ? 'Yes' : 'No', t.submitted_at ? new Date(t.submitted_at).toLocaleString() : '', others, pending, ...answers];
+    });
+    const csv = [headers, ...rows].map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = `${(_gfReviewForm?.title || 'group_form').replace(/[^a-z0-9]+/gi, '_')}_review.csv`;
+    a.click();
+  }
+  function _printGfReviewRoster() {
+    if (!_gfReviewTeams.length) { showToast('No teams to print', 'error'); return; }
+    const list = document.getElementById('gfReviewList');
+    if (list) list.classList.add('gf-print-area');
+    window.print();
+    if (list) setTimeout(() => list.classList.remove('gf-print-area'), 0);
   }
   // Turns one team's raw group_data ({data_key: value}) into an ordered,
   // properly-labeled list — a "preview of the filled-up form" using the

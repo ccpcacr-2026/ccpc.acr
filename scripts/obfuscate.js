@@ -318,6 +318,14 @@ const RESERVED = [
   'cancelGroupFormEdit','editGroupForm','saveGroupForm','deleteGroupFormConfig',
   'openGroupRoster','closeGroupRoster','setTeamLockAdmin','disbandTeamAdmin',
   'exportGroupFormRoster','printGroupFormRoster',
+  // Reviewer routing rules editor (admin, attached to the roster screen) and
+  // the reviewer-facing Review Submissions view — all reached via inline
+  // onclick/onchange in generated markup, plus loadGroupFormReviewView via
+  // the dynamic nav `fn` dispatch (same reason loadAdminGroupFormsView is
+  // reserved above).
+  'toggleGroupFormReviewerPanel','gfAddReviewerRule','saveGroupFormReviewerRules',
+  '_gfOnRuleDimensionChange','_gfOnRuleModeChange',
+  'loadGroupFormReviewView','_loadGfReviewTab','_exportGfReviewRoster','_printGfReviewRoster',
   // Icon picker (Tab builder + Group Form builder) — called via inline
   // onclick="_pickIcon(this)" in generated grid buttons.
   '_pickIcon',
