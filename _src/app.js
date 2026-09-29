@@ -4429,33 +4429,42 @@
   // present=emerald, absent=red, late=amber, missing=purple,
   // late_absent=orange, leave=sky.
   const MY_STUDENTS_STATUS_META = {
-    present:     { label: 'Present',     short: 'P',  cls: 'text-white', bg: 'linear-gradient(135deg,#059669,#22c55e)', tint: 'rgba(5,150,105,0.06)', border: 'rgba(5,150,105,0.18)' },
-    absent:      { label: 'Absent',      short: 'A',  cls: 'text-white', bg: 'linear-gradient(135deg,#dc2626,#f43f5e)', tint: 'rgba(220,38,38,0.06)', border: 'rgba(220,38,38,0.18)' },
-    late:        { label: 'Late',        short: 'La', cls: 'text-white', bg: 'linear-gradient(135deg,#d97706,#fbbf24)', tint: 'rgba(217,119,6,0.06)', border: 'rgba(217,119,6,0.18)' },
-    missing:     { label: 'Missing',     short: 'Mi', cls: 'text-white', bg: 'linear-gradient(135deg,#7c3aed,#d946ef)', tint: 'rgba(124,58,237,0.06)', border: 'rgba(124,58,237,0.18)' },
-    late_absent: { label: 'Late Absent', short: 'LA', cls: 'text-white', bg: 'linear-gradient(135deg,#c2410c,#fb923c)', tint: 'rgba(194,65,12,0.06)', border: 'rgba(194,65,12,0.18)' },
-    leave:       { label: 'Leave',       short: 'Lv', cls: 'text-white', bg: 'linear-gradient(135deg,#0284c7,#38bdf8)', tint: 'rgba(2,132,199,0.06)', border: 'rgba(2,132,199,0.18)' },
+    present:     { label: 'Present',     short: 'P',  icon: 'check-circle',   cls: 'text-white', bg: 'linear-gradient(135deg,#059669,#22c55e)', solid: '#059669', tint: 'rgba(5,150,105,0.08)',  border: 'rgba(5,150,105,0.25)' },
+    absent:      { label: 'Absent',      short: 'A',  icon: 'x-circle',       cls: 'text-white', bg: 'linear-gradient(135deg,#dc2626,#f43f5e)', solid: '#dc2626', tint: 'rgba(220,38,38,0.08)',  border: 'rgba(220,38,38,0.25)' },
+    late:        { label: 'Late',        short: 'La', icon: 'clock',          cls: 'text-white', bg: 'linear-gradient(135deg,#d97706,#fbbf24)', solid: '#d97706', tint: 'rgba(217,119,6,0.08)',  border: 'rgba(217,119,6,0.25)' },
+    missing:     { label: 'Missing',     short: 'Mi', icon: 'help-circle',    cls: 'text-white', bg: 'linear-gradient(135deg,#7c3aed,#d946ef)', solid: '#7c3aed', tint: 'rgba(124,58,237,0.08)', border: 'rgba(124,58,237,0.25)' },
+    late_absent: { label: 'Late Absent', short: 'LA', icon: 'alert-triangle', cls: 'text-white', bg: 'linear-gradient(135deg,#c2410c,#fb923c)', solid: '#c2410c', tint: 'rgba(194,65,12,0.08)',  border: 'rgba(194,65,12,0.25)' },
+    leave:       { label: 'Leave',       short: 'Lv', icon: 'palmtree',       cls: 'text-white', bg: 'linear-gradient(135deg,#0284c7,#38bdf8)', solid: '#0284c7', tint: 'rgba(2,132,199,0.08)',  border: 'rgba(2,132,199,0.25)' },
   };
   let _myStudentsData = null; // last fetched {classes, date}
+  let _myStudentsFilter = 'all'; // 'all' | 'present' | 'absent' | 'others'
+  let _myStudentsSearch = '';
 
   function openMyStudentsAttendance() {
     document.getElementById('myStudentsOverlay')?.remove();
+    _myStudentsFilter = 'all';
+    _myStudentsSearch = '';
     const overlay = document.createElement('div');
     overlay.id = 'myStudentsOverlay';
     // Bottom sheet on mobile (items-end), centered modal from sm: up —
     // same treatment as its sibling _openMyStudentStatusPicker, which this
     // one lacked before (always a small centered box regardless of width).
-    overlay.className = 'fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4';
+    overlay.className = 'fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4';
     overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+    const todayLabel = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
     overlay.innerHTML = `
-      <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-2xl max-h-[92vh] sm:max-h-[90vh] flex flex-col">
+      <div class="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-2xl max-h-[94vh] sm:max-h-[88vh] flex flex-col shadow-2xl overflow-hidden">
         <div class="w-10 h-1.5 bg-slate-200 rounded-full mx-auto mt-2.5 sm:hidden"></div>
-        <div class="p-4 border-b border-slate-100 flex items-center justify-between shrink-0">
-          <p class="font-black text-slate-800 text-sm">My Students — Today's Attendance</p>
-          <button onclick="document.getElementById('myStudentsOverlay').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="h-4 w-4"></i></button>
+        <div class="px-5 pt-4 pb-3 flex items-center gap-3 shrink-0" style="background:linear-gradient(135deg,#eef2ff,#f0f9ff)">
+          <div class="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 text-white shadow-sm" style="background:linear-gradient(135deg,#4f46e5,#0ea5e9)"><i data-lucide="calendar-check" class="h-5 w-5"></i></div>
+          <div class="flex-1 min-w-0">
+            <p class="font-black text-slate-800 text-sm leading-tight">Today's Attendance</p>
+            <p class="text-[11px] font-bold text-slate-500">${_escHtml(todayLabel)}</p>
+          </div>
+          <button onclick="document.getElementById('myStudentsOverlay').remove()" class="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-white/70 transition-all shrink-0"><i data-lucide="x" class="h-4 w-4"></i></button>
         </div>
-        <div id="myStudentsCounts" class="p-4 border-b border-slate-100 shrink-0"></div>
-        <div id="myStudentsBody" class="p-4 overflow-y-auto flex-1">
+        <div id="myStudentsCounts" class="px-4 pt-3 pb-2 border-b border-slate-100 shrink-0"></div>
+        <div id="myStudentsBody" class="p-4 overflow-y-auto flex-1 bg-slate-50/60">
           <div class="text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>
         </div>
       </div>`;
@@ -4479,14 +4488,40 @@
       .getMyClassTodayAttendance(myId);
   }
 
-  function _renderMyStudentsAttendance() {
+  function _setMyStudentsFilter(key) {
+    _myStudentsFilter = key;
+    _renderMyStudentsAttendance();
+  }
+
+  function _filterMyStudentsSearch(val) {
+    _myStudentsSearch = val;
+    _renderMyStudentsAttendance(true);
+  }
+
+  function _myStudentMatchesFilter(s) {
+    if (_myStudentsFilter === 'present' && s.status !== 'present') return false;
+    if (_myStudentsFilter === 'absent' && s.status !== 'absent') return false;
+    if (_myStudentsFilter === 'others' && (s.status === 'present' || s.status === 'absent')) return false;
+    if (_myStudentsSearch.trim()) {
+      const q = _myStudentsSearch.trim().toLowerCase();
+      const hay = `${s.student_name || ''} ${s.roll || ''} ${s.student_id || ''}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  }
+
+  // preserveSearchFocus: re-typed into the search box triggers a full
+  // re-render (simplest way to keep the list and the search box's own
+  // result-dependent state in sync) — without this, that rebuild recreates
+  // the <input> node on every keystroke and the caret/focus is lost.
+  function _renderMyStudentsAttendance(preserveSearchFocus) {
     const body = document.getElementById('myStudentsBody');
     const countsHost = document.getElementById('myStudentsCounts');
     if (!body) return;
     const res = _myStudentsData;
     const classes = (res && res.classes) || [];
     if (!classes.length) {
-      body.innerHTML = `<div class="text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">You are not currently assigned as a class teacher</div>`;
+      body.innerHTML = `<div class="text-center py-10 text-slate-400 text-xs font-black uppercase tracking-widest">You are not currently assigned as a class teacher</div>`;
       if (countsHost) countsHost.innerHTML = '';
       return;
     }
@@ -4494,45 +4529,74 @@
     const present = all.filter(s => s.status === 'present').length;
     const absent = all.filter(s => s.status === 'absent').length;
     const others = all.length - present - absent;
+    const outCount = all.filter(s => s.is_out).length;
     const allPresent = all.length > 0 && present === all.length;
-    if (countsHost) countsHost.innerHTML = `
-      <div class="grid grid-cols-4 gap-2 text-center mb-3">
-        <div class="rounded-xl py-2 text-white" style="background:linear-gradient(135deg,#334155,#64748b)"><div class="text-lg font-black">${all.length}</div><div class="text-[9px] font-black uppercase opacity-90">Total</div></div>
-        <div class="rounded-xl py-2 text-white" style="background:${MY_STUDENTS_STATUS_META.present.bg}"><div class="text-lg font-black">${present}</div><div class="text-[9px] font-black uppercase opacity-90">Present</div></div>
-        <div class="rounded-xl py-2 text-white" style="background:${MY_STUDENTS_STATUS_META.absent.bg}"><div class="text-lg font-black">${absent}</div><div class="text-[9px] font-black uppercase opacity-90">Absent</div></div>
-        <div class="rounded-xl py-2 text-white" style="background:linear-gradient(135deg,#b45309,#f59e0b)"><div class="text-lg font-black">${others}</div><div class="text-[9px] font-black uppercase opacity-90">Others</div></div>
-      </div>
-      <label class="flex items-center gap-2 cursor-pointer select-none">
-        <input type="checkbox" id="myStudentsSelectAll" ${allPresent ? 'checked' : ''} onchange="_markAllMyStudentsPresent(this.checked)" class="w-4 h-4 accent-emerald-600">
-        <span class="text-[10px] font-black text-slate-600 uppercase tracking-widest">Mark All Present</span>
-      </label>`;
 
-    body.innerHTML = classes.map(c => `
+    const filterChips = [
+      { key: 'all',     label: 'All',     count: all.length, dot: '#64748b' },
+      { key: 'present', label: 'Present', count: present,    dot: '#059669' },
+      { key: 'absent',  label: 'Absent',  count: absent,     dot: '#dc2626' },
+      { key: 'others',  label: 'Others',  count: others,     dot: '#d97706' },
+    ];
+
+    if (countsHost) countsHost.innerHTML = `
+      <div class="flex items-center gap-1.5 overflow-x-auto pb-2">
+        ${filterChips.map(f => `
+          <button onclick="_setMyStudentsFilter('${f.key}')" class="shrink-0 flex items-center gap-1.5 pl-2.5 pr-3 py-1.5 rounded-full border text-[11px] font-black uppercase tracking-wide transition-all ${_myStudentsFilter === f.key ? 'border-transparent text-white shadow-sm' : 'border-slate-200 text-slate-500 bg-white hover:border-slate-300'}" style="${_myStudentsFilter === f.key ? `background:${f.dot}` : ''}">
+            <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:${_myStudentsFilter === f.key ? 'rgba(255,255,255,0.85)' : f.dot}"></span>${f.label}<span class="opacity-70">${f.count}</span>
+          </button>`).join('')}
+        ${outCount ? `<span class="shrink-0 flex items-center gap-1.5 pl-2.5 pr-3 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-[11px] font-black uppercase tracking-wide"><i data-lucide="log-out" class="h-3 w-3"></i>${outCount} Out</span>` : ''}
+      </div>
+      <div class="flex items-center gap-2">
+        <div class="relative flex-1">
+          <i data-lucide="search" class="h-3.5 w-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+          <input type="text" id="myStudentsSearchInput" value="${_escHtml(_myStudentsSearch)}" oninput="_filterMyStudentsSearch(this.value)" placeholder="Search name or roll…" class="w-full pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 transition-all">
+        </div>
+        <label class="shrink-0 flex items-center gap-1.5 pl-2.5 pr-2.5 py-2 rounded-xl border border-slate-200 bg-white cursor-pointer select-none hover:border-emerald-300 transition-all">
+          <input type="checkbox" id="myStudentsSelectAll" ${allPresent ? 'checked' : ''} onchange="_markAllMyStudentsPresent(this.checked)" class="w-3.5 h-3.5 accent-emerald-600">
+          <span class="text-[10px] font-black text-slate-600 uppercase tracking-widest whitespace-nowrap">All Present</span>
+        </label>
+      </div>`;
+    if (preserveSearchFocus) {
+      const input = document.getElementById('myStudentsSearchInput');
+      if (input) { input.focus(); const pos = input.value.length; try { input.setSelectionRange(pos, pos); } catch (e) {} }
+    }
+
+    body.innerHTML = classes.map(c => {
+      const filtered = c.students.filter(_myStudentMatchesFilter);
+      if (!filtered.length) return '';
+      return `
       <div class="mb-4">
-        ${classes.length > 1 ? `<p class="font-black text-slate-800 text-xs uppercase tracking-widest mb-2">${_escHtml(c.classKey)}</p>` : ''}
+        ${classes.length > 1 ? `<p class="font-black text-slate-500 text-[11px] uppercase tracking-widest mb-2 px-1">${_escHtml(c.classKey)}</p>` : ''}
         <div class="flex flex-col gap-2">
-          ${c.students.map(s => {
+          ${filtered.map(s => {
             const meta = MY_STUDENTS_STATUS_META[s.status] || MY_STUDENTS_STATUS_META.absent;
             const isPresent = s.status === 'present';
             const isOther = s.status !== 'present' && s.status !== 'absent';
             const tel = String(s.phone_number || s.father_phone || s.mother_phone || '').replace(/[\s\-()]/g, '');
+            const dotCls = isPresent ? 'bg-emerald-500' : (s.status === 'absent' ? 'bg-red-500' : 'bg-amber-500');
             return `
-            <div class="flex items-center gap-2.5 sm:gap-3 rounded-2xl px-3 py-2.5 transition-colors" style="background:${meta.tint};border:1px solid ${meta.border}">
-              ${_avatar(s.student_name, s.photo, 'w-10 h-10 shrink-0')}
+            <div class="flex items-center gap-2.5 sm:gap-3 bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-md hover:border-slate-200 transition-all px-3 py-2.5">
+              ${_avatar(s.student_name, s.photo, 'w-10 h-10 sm:w-11 sm:h-11 shrink-0', dotCls)}
               <div class="flex-1 min-w-0">
                 <p class="text-xs font-black text-slate-900 truncate">${_escHtml(s.student_name || '')}</p>
-                <p class="text-[10px] font-bold text-slate-500 truncate">Roll ${_escHtml(s.roll || '—')} · ${_escHtml(s.student_id)}${tel ? ` · <a href="tel:${_escHtml(tel)}" onclick="event.stopPropagation()" class="text-blue-600">${_escHtml(tel)}</a>` : ''}</p>
+                <p class="text-[10px] font-bold text-slate-400 truncate">Roll ${_escHtml(s.roll || '—')} · ${_escHtml(s.student_id)}${tel ? ` · <a href="tel:${_escHtml(tel)}" onclick="event.stopPropagation()" class="text-blue-600">${_escHtml(tel)}</a>` : ''}</p>
+                ${(isOther || s.is_out) ? `<div class="flex items-center gap-1 mt-1 flex-wrap">
+                  ${isOther ? `<span class="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wide px-1.5 py-0.5 rounded-full" style="background:${meta.tint};color:${meta.solid};border:1px solid ${meta.border}"><i data-lucide="${meta.icon}" class="h-2.5 w-2.5"></i>${meta.label}</span>` : ''}
+                  ${s.is_out ? `<span title="Tapped out on a mid-day pass, not back yet" class="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200"><i data-lucide="log-out" class="h-2.5 w-2.5"></i>Out${s.out_since ? ` ${_escHtml(s.out_since)}` : ''}</span>` : ''}
+                </div>` : ''}
               </div>
-              ${s.is_out ? `<span title="Tapped out on a mid-day pass, not back yet" class="shrink-0 text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">Out${s.out_since ? ` ${_escHtml(s.out_since)}` : ''}</span>` : ''}
-              ${isOther ? `<span class="shrink-0 text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full ${meta.cls}" style="background:${meta.bg}">${meta.short}</span>` : ''}
-              <button onclick="_toggleMyStudentPresence('${_escHtml(s.student_id)}')" title="Toggle Present/Absent" class="shrink-0 relative w-12 h-7 rounded-full transition-colors" style="background:${isPresent ? MY_STUDENTS_STATUS_META.present.bg : MY_STUDENTS_STATUS_META.absent.bg}">
-                <span class="absolute top-0.5 ${isPresent ? 'right-0.5' : 'left-0.5'} w-6 h-6 bg-white rounded-full shadow transition-all"></span>
+              <button onclick="_toggleMyStudentPresence('${_escHtml(s.student_id)}')" title="Toggle Present/Absent" class="shrink-0 relative w-11 h-6 sm:w-12 sm:h-7 rounded-full transition-colors" style="background:${isPresent ? MY_STUDENTS_STATUS_META.present.bg : MY_STUDENTS_STATUS_META.absent.bg}">
+                <span class="absolute top-0.5 ${isPresent ? 'right-0.5' : 'left-0.5'} w-5 h-5 sm:w-6 sm:h-6 bg-white rounded-full shadow flex items-center justify-center transition-all">
+                  <i data-lucide="${isPresent ? 'check' : 'x'}" class="h-3 w-3" style="color:${isPresent ? '#059669' : '#dc2626'}"></i>
+                </span>
               </button>
-              <button onclick="_openMyStudentStatusPicker('${_escHtml(s.student_id)}')" title="More statuses" class="shrink-0 w-8 h-8 rounded-full text-white flex items-center justify-center" style="background:linear-gradient(135deg,#4f46e5,#0ea5e9)"><i data-lucide="plus" class="h-4 w-4"></i></button>
+              <button onclick="_openMyStudentStatusPicker('${_escHtml(s.student_id)}')" title="More statuses" class="shrink-0 w-8 h-8 rounded-full border border-slate-200 text-slate-400 hover:text-indigo-600 hover:border-indigo-200 hover:bg-indigo-50 flex items-center justify-center transition-all"><i data-lucide="more-horizontal" class="h-4 w-4"></i></button>
             </div>`;
           }).join('')}
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('') || `<div class="text-center py-10 text-slate-400 text-xs font-black uppercase tracking-widest">No students match</div>`;
     lucide.createIcons();
   }
 
@@ -4570,20 +4634,29 @@
     document.getElementById('myStudentStatusOverlay')?.remove();
     const overlay = document.createElement('div');
     overlay.id = 'myStudentStatusOverlay';
-    overlay.className = 'fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40 p-4';
+    overlay.className = 'fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4';
     overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
     overlay.innerHTML = `
-      <div class="bg-white rounded-2xl w-full max-w-sm p-4">
-        <p class="font-black text-slate-800 text-sm mb-1">${_escHtml(student.student_name || '')}</p>
-        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Select Attendance Status</p>
+      <div class="bg-white rounded-3xl w-full max-w-sm p-4 shadow-2xl">
+        <div class="flex items-center gap-3 mb-4">
+          ${_avatar(student.student_name, student.photo, 'w-10 h-10')}
+          <div class="min-w-0">
+            <p class="font-black text-slate-800 text-sm truncate">${_escHtml(student.student_name || '')}</p>
+            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Set Attendance Status</p>
+          </div>
+        </div>
         <div class="grid grid-cols-2 gap-2">
           ${Object.entries(MY_STUDENTS_STATUS_META).map(([key, meta]) => `
-            <button onclick="_setMyStudentStatus('${_escHtml(studentId)}','${key}')" class="py-3 rounded-xl font-black text-xs uppercase tracking-widest ${meta.cls}">${meta.label}</button>`).join('')}
+            <button onclick="_setMyStudentStatus('${_escHtml(studentId)}','${key}')" class="relative flex flex-col items-center justify-center gap-1 py-3 rounded-2xl font-black text-[11px] uppercase tracking-widest text-white shadow-sm hover:shadow-md active:scale-95 transition-all" style="background:${meta.bg}">
+              ${key === student.status ? `<span class="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-white/25 flex items-center justify-center"><i data-lucide="check" class="h-2.5 w-2.5"></i></span>` : ''}
+              <i data-lucide="${meta.icon}" class="h-4 w-4"></i>${meta.label}
+            </button>`).join('')}
         </div>
-        ${student.is_override ? `<button onclick="_revertMyStudentStatus('${_escHtml(studentId)}')" class="w-full mt-2 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-500 hover:bg-slate-50">Revert to Device Status</button>` : ''}
-        <button onclick="document.getElementById('myStudentStatusOverlay').remove()" class="w-full mt-2 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-slate-100 text-slate-500 hover:bg-slate-200">Cancel</button>
+        ${student.is_override ? `<button onclick="_revertMyStudentStatus('${_escHtml(studentId)}')" class="w-full mt-3 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-500 hover:bg-slate-50 transition-all flex items-center justify-center gap-1.5"><i data-lucide="rotate-ccw" class="h-3 w-3"></i>Revert to Device Status</button>` : ''}
+        <button onclick="document.getElementById('myStudentStatusOverlay').remove()" class="w-full mt-2 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-slate-100 text-slate-500 hover:bg-slate-200 transition-all">Cancel</button>
       </div>`;
     document.body.appendChild(overlay);
+    lucide.createIcons();
   }
 
   // Optimistic: the row updates the instant you tap, before the server has
