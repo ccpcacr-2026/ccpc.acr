@@ -28572,9 +28572,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div id="adminGroupFormsList" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5"></div>
 
       <div id="adminGroupRoster" class="hidden bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
-        <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center justify-between mb-3 gf-roster-toolbar">
           <h3 id="adminGroupRosterTitle" class="text-lg font-black text-slate-800">Teams</h3>
-          <button onclick="closeGroupRoster()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50">Close</button>
+          <div class="flex items-center gap-2">
+            <button onclick="exportGroupFormRoster()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="download" class="h-3 w-3"></i>Download CSV</button>
+            <button onclick="printGroupFormRoster()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="printer" class="h-3 w-3"></i>Print</button>
+            <button onclick="closeGroupRoster()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50">Close</button>
+          </div>
         </div>
         <div id="adminGroupRosterList" class="flex flex-col gap-3"></div>
       </div>
@@ -28819,17 +28823,56 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }).catch(() => showToast('Network error while deleting', 'error'));
   }
 
+  // Cached by openGroupRoster so Download CSV/Print can reuse the already-
+  // fetched roster instead of a second round trip.
+  let _gfRosterTeams = [];
+  let _gfRosterForm = null;
   function openGroupRoster(groupFormId) {
     _gfRosterFormId = groupFormId;
     const form = _allGroupForms.find(f => f.id === groupFormId);
+    _gfRosterForm = form || null;
     document.getElementById('adminGroupRosterTitle').textContent = 'Teams — ' + (form ? form.title : '');
     document.getElementById('adminGroupRoster').classList.remove('hidden');
     document.getElementById('adminGroupRosterList').innerHTML = '<p class="text-xs text-slate-400 font-bold">Loading…</p>';
     _adminFetch('get_group_form_roster', { group_form_id: groupFormId }).then(res => {
       if (!res || res.result !== 'success') { document.getElementById('adminGroupRosterList').innerHTML = `<p class="text-xs text-red-500 font-bold">${(res && res.message) || 'Failed to load'}</p>`; return; }
-      renderAdminGroupRoster(res.teams || [], form);
+      _gfRosterTeams = res.teams || [];
+      renderAdminGroupRoster(_gfRosterTeams, form);
     }).catch(() => { document.getElementById('adminGroupRosterList').innerHTML = '<p class="text-xs text-red-500 font-bold">Network error</p>'; });
     document.getElementById('adminGroupRoster').scrollIntoView({ behavior: 'smooth' });
+  }
+  // One row per team: leader, members, pending invites, and every group-level
+  // answer labeled with its real field name (same field set _gfFormatGroupData
+  // already uses for the on-screen "Submitted Answers" preview).
+  function exportGroupFormRoster() {
+    if (!_gfRosterTeams.length) { showToast('No teams to export yet', 'error'); return; }
+    let fields = [];
+    try { fields = JSON.parse(_gfRosterForm?.fields_json || '[]'); } catch (e) {}
+    const answerFields = fields.filter(f => f.type !== 'group_label' && f.type !== 'profile_picture');
+    const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''})` : 'Unknown';
+    const headers = ['Team ID', 'Leader', 'Leader Student ID', 'Status', 'Locked', 'Members (excl. leader)', 'Pending Invites', ...answerFields.map(f => f.name || f.data_key)];
+    const rows = _gfRosterTeams.map(t => {
+      const leader = t.members.find(m => m.role === 'leader');
+      const others = t.members.filter(m => m.role !== 'leader').map(m => `${nameOf(m.profile)} [${m.student_id}]`).join('; ');
+      const pending = t.pending_invites.map(inv => `${nameOf(inv.profile)} [${inv.invited_student_id}]`).join('; ');
+      const answers = answerFields.map(f => (t.group_data || {})[f.data_key] ?? '');
+      return [t.id, leader ? nameOf(leader.profile) : t.leader_student_id, t.leader_student_id, t.status, t.is_locked ? 'Yes' : 'No', others, pending, ...answers];
+    });
+    const csv = [headers, ...rows].map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = `${(_gfRosterForm?.title || 'group_form').replace(/[^a-z0-9]+/gi, '_')}_teams.csv`;
+    a.click();
+  }
+  // Prints just the roster list (everything else — sidebar, buttons, the rest
+  // of the page — is hidden by the .gf-print-area/@media print rule in
+  // app.html) so the admin gets a clean handout without a screenshot.
+  function printGroupFormRoster() {
+    if (!_gfRosterTeams.length) { showToast('No teams to print yet', 'error'); return; }
+    const list = document.getElementById('adminGroupRosterList');
+    if (list) list.classList.add('gf-print-area');
+    window.print();
+    if (list) setTimeout(() => list.classList.remove('gf-print-area'), 0);
   }
   function closeGroupRoster() {
     document.getElementById('adminGroupRoster').classList.add('hidden');
