@@ -28572,9 +28572,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div id="adminGroupFormsList" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5"></div>
 
       <div id="adminGroupRoster" class="hidden bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
-        <div class="flex items-center justify-between mb-3 gf-roster-toolbar">
+        <div class="flex items-center justify-between mb-3 gf-roster-toolbar flex-wrap gap-2">
           <h3 id="adminGroupRosterTitle" class="text-lg font-black text-slate-800">Teams</h3>
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 flex-wrap">
+            <select id="gfRosterFilter" onchange="renderAdminGroupRoster(_gfRosterTeams, _gfRosterForm)" class="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs">
+              <option value="all">All teams</option>
+              <option value="submitted">Submitted only</option>
+              <option value="saved">Saved (not submitted)</option>
+            </select>
+            <select id="gfRosterSort" onchange="renderAdminGroupRoster(_gfRosterTeams, _gfRosterForm)" class="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs">
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="leader">Leader name (A–Z)</option>
+              <option value="submitted_at">Submission time</option>
+            </select>
             <button onclick="exportGroupFormRoster()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="download" class="h-3 w-3"></i>Download CSV</button>
             <button onclick="printGroupFormRoster()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="printer" class="h-3 w-3"></i>Print</button>
             <button onclick="closeGroupRoster()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50">Close</button>
@@ -28850,13 +28861,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     try { fields = JSON.parse(_gfRosterForm?.fields_json || '[]'); } catch (e) {}
     const answerFields = fields.filter(f => f.type !== 'group_label' && f.type !== 'profile_picture');
     const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''})` : 'Unknown';
-    const headers = ['Team ID', 'Leader', 'Leader Student ID', 'Status', 'Locked', 'Members (excl. leader)', 'Pending Invites', ...answerFields.map(f => f.name || f.data_key)];
+    const headers = ['Team ID', 'Leader', 'Leader Student ID', 'Status', 'Submitted', 'Submitted At', 'Locked', 'Members (excl. leader)', 'Pending Invites', ...answerFields.map(f => f.name || f.data_key)];
     const rows = _gfRosterTeams.map(t => {
       const leader = t.members.find(m => m.role === 'leader');
       const others = t.members.filter(m => m.role !== 'leader').map(m => `${nameOf(m.profile)} [${m.student_id}]`).join('; ');
       const pending = t.pending_invites.map(inv => `${nameOf(inv.profile)} [${inv.invited_student_id}]`).join('; ');
       const answers = answerFields.map(f => (t.group_data || {})[f.data_key] ?? '');
-      return [t.id, leader ? nameOf(leader.profile) : t.leader_student_id, t.leader_student_id, t.status, t.is_locked ? 'Yes' : 'No', others, pending, ...answers];
+      return [t.id, leader ? nameOf(leader.profile) : t.leader_student_id, t.leader_student_id, t.status, t.is_submitted ? 'Yes' : 'No', t.submitted_at ? new Date(t.submitted_at).toLocaleString() : '', t.is_locked ? 'Yes' : 'No', others, pending, ...answers];
     });
     const csv = [headers, ...rows].map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
     const a = document.createElement('a');
@@ -28898,19 +28909,32 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!teams.length) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No teams have been created for this form yet.</p>'; return; }
     const maxSize = form ? form.max_team_size : null;
     const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''})` : 'Unknown';
-    host.innerHTML = teams.map(t => {
+    const leaderNameOf = t => nameOf(t.members.find(m => m.role === 'leader')?.profile) || t.leader_student_id;
+    const filter = document.getElementById('gfRosterFilter')?.value || 'all';
+    const sort = document.getElementById('gfRosterSort')?.value || 'newest';
+
+    let shown = teams.filter(t => filter === 'submitted' ? t.is_submitted : filter === 'saved' ? !t.is_submitted : true);
+    shown = shown.slice().sort((a, b) => {
+      if (sort === 'leader') return leaderNameOf(a).localeCompare(leaderNameOf(b));
+      if (sort === 'submitted_at') return new Date(b.submitted_at || 0) - new Date(a.submitted_at || 0);
+      const cmp = new Date(a.created_at || 0) - new Date(b.created_at || 0);
+      return sort === 'oldest' ? cmp : -cmp;
+    });
+    if (!shown.length) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No teams match this filter.</p>'; return; }
+
+    host.innerHTML = shown.map(t => {
       const complete = maxSize ? t.members.length >= maxSize : true;
-      const leader = t.members.find(m => m.role === 'leader');
       const answerRows = _gfFormatGroupData(t.group_data, form && form.fields_json);
       return `
       <div class="border border-slate-200 rounded-2xl p-4 ${t.status === 'disbanded' ? 'opacity-50' : ''}">
         <div class="flex justify-between items-start flex-wrap gap-2">
           <div>
-            <strong class="text-sm font-black text-slate-800">${nameOf(leader?.profile) || t.leader_student_id}'s team</strong>
+            <strong class="text-sm font-black text-slate-800">${leaderNameOf(t)}'s team</strong>
             ${t.status === 'disbanded' ? ' <span class="text-[9px] font-black text-white bg-slate-400 rounded-full px-2 py-0.5">Disbanded</span>' : ''}
+            ${t.is_submitted ? ' <span class="text-[9px] font-black text-white bg-emerald-600 rounded-full px-2 py-0.5">Submitted</span>' : ' <span class="text-[9px] font-black text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">Saved</span>'}
             ${t.is_locked ? ' <span class="text-[9px] font-black text-white bg-slate-800 rounded-full px-2 py-0.5">Locked</span>' : ''}
             ${!complete && form && form.members_required ? ' <span class="text-[9px] font-black text-amber-700 bg-amber-50 rounded-full px-2 py-0.5">Incomplete</span>' : ''}
-            <div class="text-[11px] text-slate-400 font-bold mt-0.5">${t.members.length}${maxSize ? '/' + maxSize : ''} members${t.pending_invites.length ? ' · ' + t.pending_invites.length + ' pending invite(s)' : ''}</div>
+            <div class="text-[11px] text-slate-400 font-bold mt-0.5">${t.members.length}${maxSize ? '/' + maxSize : ''} members${t.pending_invites.length ? ' · ' + t.pending_invites.length + ' pending invite(s)' : ''}${t.submitted_at ? ' · submitted ' + new Date(t.submitted_at).toLocaleString() : ''}</div>
           </div>
           ${t.status !== 'disbanded' ? `
           <div class="flex gap-2">
@@ -28922,7 +28946,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           ${t.members.map(m => `<span class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-700">${nameOf(m.profile) || m.student_id}${m.role === 'leader' ? ' 👑' : ''}</span>`).join('')}
           ${t.pending_invites.map(inv => `<span class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-400 italic">${nameOf(inv.profile) || inv.invited_student_id} (pending)</span>`).join('')}
         </div>
-        ${answerRows.length ? `<div class="mt-2 p-2.5 bg-slate-50 rounded-xl text-[11px]"><div class="text-[10px] font-black text-slate-400 uppercase mb-1">Submitted Answers</div>${answerRows.map(r => `<div class="mb-0.5"><span class="text-slate-400 font-bold">${r.label}:</span> <strong>${r.value}</strong></div>`).join('')}</div>` : ''}
+        ${answerRows.length ? `<div class="mt-2 p-2.5 bg-slate-50 rounded-xl text-[11px]"><div class="text-[10px] font-black text-slate-400 uppercase mb-1">Answers</div>${answerRows.map(r => `<div class="mb-0.5"><span class="text-slate-400 font-bold">${r.label}:</span> <strong>${r.value}</strong></div>`).join('')}</div>` : ''}
       </div>`;
     }).join('');
   }
