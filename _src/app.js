@@ -28476,6 +28476,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <div class="flex items-center gap-2 text-sm font-black text-slate-800 truncate"><i data-lucide="folder" class="h-4 w-4 text-blue-600 shrink-0"></i>${t.tab_name}${t.is_enabled ? '' : ' <span class="text-[9px] font-black text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">Hidden</span>'}</div>
               <div class="flex items-center gap-2 shrink-0">
                 <button onclick="editTab(${i})" class="px-2.5 py-1 bg-blue-600 text-white rounded-full font-black text-[10px] uppercase">Edit</button>
+                <button onclick='tabShowLinkQr(${JSON.stringify(t.tab_name)})' class="px-2.5 py-1 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100 flex items-center gap-1"><i data-lucide="qr-code" class="h-3 w-3"></i>Link</button>
                 <button onclick="deleteTabConfig(${i})" class="px-2.5 py-1 bg-red-500 text-white rounded-full font-black text-[10px] uppercase">Del</button>
                 <input type="checkbox" ${t.is_enabled ? 'checked' : ''} onchange="toggleStatus(${i}, this.checked)" title="Active tabs are visible to students; inactive tabs are hidden without deleting their setup or data">
               </div>
@@ -28713,6 +28714,80 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return bits.length ? ' · members must share: ' + bits.join(', ') : '';
   }
 
+  // The student portal's own production URL — ?gf=<id> is read by its
+  // DEEP_LINK_TAB logic (public/index.html in ccpc-students) to land a
+  // fresh or already-logged-in visitor straight on this one Group Form's
+  // pane, skipping the nav hunt. Same mechanism/base URL a dynamic Tab's
+  // own "Link" button (Setup screen) uses with ?tab=<tab_name> instead.
+  const STUDENT_PORTAL_URL = 'https://ccpc-portal.vercel.app';
+
+  function gfShowLinkQr(id, title) {
+    document.getElementById('gfLinkQrOverlay')?.remove();
+    const url = `${STUDENT_PORTAL_URL}/?gf=${id}`;
+    const overlay = document.createElement('div');
+    overlay.id = 'gfLinkQrOverlay';
+    overlay.className = 'fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4';
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+    overlay.innerHTML = `
+      <div class="bg-white rounded-3xl w-full max-w-sm p-5 shadow-2xl text-center">
+        <p class="font-black text-slate-800 text-sm mb-1 truncate">${_escHtml(title || 'Group Form')}</p>
+        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Direct Registration Link</p>
+        <div class="bg-white p-3 rounded-2xl border border-slate-200 inline-block mb-4"><canvas id="gfLinkQrCanvas"></canvas></div>
+        <div class="flex items-center gap-2 mb-3">
+          <input type="text" readonly id="gfLinkQrUrl" value="${_escHtml(url)}" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-bold text-slate-600" onclick="this.select()">
+          <button onclick="navigator.clipboard.writeText(${JSON.stringify(url)}).then(() => showToast('Link copied')).catch(() => showToast('Could not copy', 'error'))" class="shrink-0 px-3 py-2 bg-slate-800 text-white rounded-xl font-black text-[10px] uppercase">Copy</button>
+        </div>
+        <p class="text-[10px] text-slate-400 font-bold mb-4">Opens the login screen (or goes straight in, if already logged in on that device) and lands directly on this form — no need to hunt through the nav.</p>
+        <div class="flex items-center gap-2">
+          <button onclick="_gfDownloadLinkQr(${JSON.stringify(title || 'group-form')})" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-600 hover:bg-slate-50">Download QR</button>
+          <button onclick="document.getElementById('gfLinkQrOverlay').remove()" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-slate-100 text-slate-500 hover:bg-slate-200">Close</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    if (window.QRCode) QRCode.toCanvas(document.getElementById('gfLinkQrCanvas'), url, { width: 220, margin: 1 }, () => {});
+  }
+
+  // Same deep-link mechanism as gfShowLinkQr, but for an ordinary dynamic
+  // Tab — ?tab=<tab_name> instead of ?gf=<id>, since a Tab has no stable
+  // numeric id a QR code could target (see the matchName note on addNav
+  // in ccpc-students/public/index.html).
+  function tabShowLinkQr(tabName) {
+    document.getElementById('gfLinkQrOverlay')?.remove();
+    const url = `${STUDENT_PORTAL_URL}/?tab=${encodeURIComponent(tabName)}`;
+    const overlay = document.createElement('div');
+    overlay.id = 'gfLinkQrOverlay';
+    overlay.className = 'fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4';
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+    overlay.innerHTML = `
+      <div class="bg-white rounded-3xl w-full max-w-sm p-5 shadow-2xl text-center">
+        <p class="font-black text-slate-800 text-sm mb-1 truncate">${_escHtml(tabName)}</p>
+        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Direct Registration Link</p>
+        <div class="bg-white p-3 rounded-2xl border border-slate-200 inline-block mb-4"><canvas id="gfLinkQrCanvas"></canvas></div>
+        <div class="flex items-center gap-2 mb-3">
+          <input type="text" readonly id="gfLinkQrUrl" value="${_escHtml(url)}" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-bold text-slate-600" onclick="this.select()">
+          <button onclick="navigator.clipboard.writeText(${JSON.stringify(url)}).then(() => showToast('Link copied')).catch(() => showToast('Could not copy', 'error'))" class="shrink-0 px-3 py-2 bg-slate-800 text-white rounded-xl font-black text-[10px] uppercase">Copy</button>
+        </div>
+        <p class="text-[10px] text-slate-400 font-bold mb-4">Opens the login screen (or goes straight in, if already logged in on that device) and lands directly on this tab — no need to hunt through the nav.</p>
+        <div class="flex items-center gap-2">
+          <button onclick="_gfDownloadLinkQr(${JSON.stringify(tabName)})" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-600 hover:bg-slate-50">Download QR</button>
+          <button onclick="document.getElementById('gfLinkQrOverlay').remove()" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-slate-100 text-slate-500 hover:bg-slate-200">Close</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    if (window.QRCode) QRCode.toCanvas(document.getElementById('gfLinkQrCanvas'), url, { width: 220, margin: 1 }, () => {});
+  }
+
+  function _gfDownloadLinkQr(title) {
+    const canvas = document.getElementById('gfLinkQrCanvas');
+    if (!canvas) return;
+    const a = document.createElement('a');
+    a.href = canvas.toDataURL('image/png');
+    a.download = `${String(title).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'group-form'}-qr.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
   function renderAdminGroupFormsList() {
     const list = document.getElementById('adminGroupFormsList');
     if (!list) return;
@@ -28728,6 +28803,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div class="flex items-center gap-2 flex-wrap">
           <button onclick="editGroupForm(${i})" class="px-2.5 py-1 bg-blue-600 text-white rounded-full font-black text-[10px] uppercase">Edit</button>
           <button onclick="openGroupRoster(${f.id})" class="px-2.5 py-1 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100">View Teams</button>
+          <button onclick='gfShowLinkQr(${f.id}, ${JSON.stringify(f.title)})' class="px-2.5 py-1 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100 flex items-center gap-1"><i data-lucide="qr-code" class="h-3 w-3"></i>Link</button>
           <button onclick="deleteGroupFormConfig(${f.id})" class="px-2.5 py-1 bg-red-500 text-white rounded-full font-black text-[10px] uppercase">Del</button>
           <label class="flex items-center gap-1.5 text-[10px] font-black uppercase text-slate-500 ml-auto" title="Active forms are visible to students; inactive forms are hidden without deleting their setup or data">
             <input type="checkbox" ${f.is_enabled ? 'checked' : ''} onchange="toggleGroupFormFlag(${f.id},'is_enabled',this.checked)">${f.is_enabled ? 'Active' : 'Inactive'}
