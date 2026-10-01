@@ -29192,6 +29192,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _adminFetch('get_group_form_roster', { group_form_id: groupFormId }).then(res => {
       if (!res || res.result !== 'success') { document.getElementById('adminGroupRosterList').innerHTML = `<p class="text-xs text-red-500 font-bold">${(res && res.message) || 'Failed to load'}</p>`; return; }
       _gfRosterTeams = res.teams || [];
+      _gfRegisterProfiles(_gfRosterTeams);
       renderAdminGroupRoster(_gfRosterTeams, form);
     }).catch(() => { document.getElementById('adminGroupRosterList').innerHTML = '<p class="text-xs text-red-500 font-bold">Network error</p>'; });
     document.getElementById('adminGroupRoster').scrollIntoView({ behavior: 'smooth' });
@@ -29436,6 +29437,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (!res || res.result !== 'success') { list.innerHTML = `<p class="text-xs text-red-500 font-bold">${(res && res.message) || 'Failed to load'}</p>`; return; }
       _gfReviewTeams = res.teams || [];
       _gfReviewForm = res.form || null;
+      _gfRegisterProfiles(_gfReviewTeams);
       toolbar.classList.remove('hidden');
       toolbar.innerHTML = `
         <select id="gfReviewStatusFilter" onchange="_renderGfReviewRoster(_gfReviewFilteredTeams(), _gfReviewForm)" class="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs">
@@ -29498,8 +29500,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>` : ''}
         </div>
         <div class="mt-2 flex flex-wrap gap-2">
-          ${t.members.map(m => `<span class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-700">${nameOf(m.profile) || m.student_id}${m.role === 'leader' ? ' 👑' : ''}</span>`).join('')}
-          ${t.pending_invites.map(inv => `<span class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-400 italic">${nameOf(inv.profile) || inv.invited_student_id} (pending)</span>`).join('')}
+          ${t.members.map(m => `<button type="button" onclick='gfShowStudentInfo(${JSON.stringify(m.student_id)})' class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-700 hover:bg-slate-100 hover:border-slate-300 transition-all">${nameOf(m.profile) || m.student_id}${m.role === 'leader' ? ' 👑' : ''}</button>`).join('')}
+          ${t.pending_invites.map(inv => `<button type="button" onclick='gfShowStudentInfo(${JSON.stringify(inv.invited_student_id)})' class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-400 italic hover:bg-slate-100 hover:border-slate-300 transition-all">${nameOf(inv.profile) || inv.invited_student_id} (pending)</button>`).join('')}
         </div>
         ${!t.is_submitted && t.revision_comment ? `<div class="mt-2 p-2.5 bg-amber-50 rounded-xl text-[11px]"><div class="text-[10px] font-black text-amber-700 uppercase mb-1">Changes Requested${t.revision_requested_at ? ' · ' + new Date(t.revision_requested_at).toLocaleString() : ''}</div><div class="whitespace-pre-wrap">${_escHtml(t.revision_comment)}</div></div>` : ''}
         ${answerRows.length ? `<div class="mt-2 p-2.5 bg-slate-50 rounded-xl text-[11px]"><div class="text-[10px] font-black text-slate-400 uppercase mb-1">Answers</div>${answerRows.map(r => `<div class="mb-0.5"><span class="text-slate-400 font-bold">${r.label}:</span> <strong>${r.value}</strong></div>`).join('')}</div>` : ''}
@@ -29567,6 +29569,58 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
     return rows;
   }
+  // Populated from the full (unfiltered) team list every time a roster is
+  // fetched — admin and reviewer share one cache since a student_id means
+  // the same person in both contexts. Only used to power the "tap a name,
+  // see everything + call" popup below; never sent anywhere itself.
+  let _gfProfileLookup = {};
+  function _gfRegisterProfiles(teams) {
+    (teams || []).forEach(t => {
+      (t.members || []).forEach(m => { if (m.profile) _gfProfileLookup[m.student_id] = m.profile; });
+      (t.pending_invites || []).forEach(inv => { if (inv.profile) _gfProfileLookup[inv.invited_student_id] = inv.profile; });
+    });
+  }
+  function gfShowStudentInfo(studentId) {
+    const p = _gfProfileLookup[studentId];
+    document.getElementById('gfStudentInfoOverlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'gfStudentInfoOverlay';
+    overlay.className = 'fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4';
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+    if (!p) {
+      overlay.innerHTML = `<div class="bg-white rounded-3xl w-full max-w-sm p-5 shadow-2xl text-center"><p class="text-xs text-slate-400 font-bold">No profile info available for ${_escHtml(studentId)}.</p><button onclick="document.getElementById('gfStudentInfoOverlay').remove()" class="w-full mt-3 py-2.5 rounded-xl font-black text-[10px] uppercase bg-slate-100 text-slate-500">Close</button></div>`;
+      document.body.appendChild(overlay);
+      return;
+    }
+    const infoRows = [
+      ['Student ID', p.student_id],
+      ['Class', `${p.class || ''}${p.section ? '-' + p.section : ''}`.replace(/^-|-$/, '') || null],
+      ['Roll', p.roll],
+      ['House', p.house && p.house !== '--' ? p.house : null],
+      ['Session', p.session],
+      ["Father's Name", p.fathers_name],
+      ["Mother's Name", p.mothers_name],
+    ].filter(([, v]) => v);
+    const phoneRow = (label, tel) => {
+      if (!tel) return '';
+      const clean = String(tel).replace(/[\s\-()]/g, '');
+      return `<div class="flex items-center justify-between py-1.5 border-b border-slate-50"><span class="text-slate-400 font-bold text-xs">${label}</span><a href="tel:${encodeURIComponent(clean)}" onclick="event.stopPropagation()" class="flex items-center gap-1.5 text-blue-600 font-black text-xs"><i data-lucide="phone" class="h-3.5 w-3.5"></i>${_escHtml(tel)}</a></div>`;
+    };
+    const phones = phoneRow('Phone', p.phone_number) + phoneRow("Father's Phone", p.father_phone) + phoneRow("Mother's Phone", p.mother_phone);
+    overlay.innerHTML = `
+      <div class="bg-white rounded-3xl w-full max-w-sm p-5 shadow-2xl">
+        <div class="flex items-center justify-between mb-3">
+          <p class="font-black text-slate-800 text-sm">${_escHtml(p.student_name || studentId)}</p>
+          <button onclick="document.getElementById('gfStudentInfoOverlay').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="h-4 w-4"></i></button>
+        </div>
+        <div class="space-y-0.5">
+          ${infoRows.map(([label, v]) => `<div class="flex items-center justify-between py-1.5 border-b border-slate-50"><span class="text-slate-400 font-bold text-xs">${label}</span><span class="font-bold text-xs text-slate-700">${_escHtml(v)}</span></div>`).join('')}
+        </div>
+        ${phones ? `<div class="mt-1">${phones}</div>` : '<p class="text-[11px] text-slate-400 font-bold italic mt-2">No phone numbers on file.</p>'}
+      </div>`;
+    document.body.appendChild(overlay);
+    lucide.createIcons();
+  }
   // Shared by the on-screen render AND Download CSV/Print, so "separated
   // before download or print" means what it says — exporting/printing while
   // a filter is active only ever includes the teams currently shown.
@@ -29627,8 +29681,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>` : ''}
         </div>
         <div class="mt-2 flex flex-wrap gap-2">
-          ${t.members.map(m => `<span class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-700">${nameOf(m.profile) || m.student_id}${m.role === 'leader' ? ' 👑' : ''}</span>`).join('')}
-          ${t.pending_invites.map(inv => `<span class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-400 italic">${nameOf(inv.profile) || inv.invited_student_id} (pending)</span>`).join('')}
+          ${t.members.map(m => `<button type="button" onclick='gfShowStudentInfo(${JSON.stringify(m.student_id)})' class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-700 hover:bg-slate-100 hover:border-slate-300 transition-all">${nameOf(m.profile) || m.student_id}${m.role === 'leader' ? ' 👑' : ''}</button>`).join('')}
+          ${t.pending_invites.map(inv => `<button type="button" onclick='gfShowStudentInfo(${JSON.stringify(inv.invited_student_id)})' class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-400 italic hover:bg-slate-100 hover:border-slate-300 transition-all">${nameOf(inv.profile) || inv.invited_student_id} (pending)</button>`).join('')}
         </div>
         ${!t.is_submitted && t.revision_comment ? `<div class="mt-2 p-2.5 bg-amber-50 rounded-xl text-[11px]"><div class="text-[10px] font-black text-amber-700 uppercase mb-1">Changes Requested${t.revision_requested_at ? ' · ' + new Date(t.revision_requested_at).toLocaleString() : ''}</div><div class="whitespace-pre-wrap">${_escHtml(t.revision_comment)}</div></div>` : ''}
         ${answerRows.length ? `<div class="mt-2 p-2.5 bg-slate-50 rounded-xl text-[11px]"><div class="text-[10px] font-black text-slate-400 uppercase mb-1">Answers</div>${answerRows.map(r => `<div class="mb-0.5"><span class="text-slate-400 font-bold">${r.label}:</span> <strong>${r.value}</strong></div>`).join('')}</div>` : ''}

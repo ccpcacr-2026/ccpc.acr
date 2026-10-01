@@ -330,7 +330,7 @@ const RESERVED = [
   'gfShowLinkQr','_gfDownloadLinkQr','tabShowLinkQr','_gfCopyLinkQrUrl',
   'requestTeamChangesAdmin','requestTeamChangesReviewer',
   'gfOnRefNumberToggle','_gfOnRefNumberSourceChange','gfAddRefNumberPart',
-  'setReviewStatusAdmin','setReviewStatusReviewer',
+  'setReviewStatusAdmin','setReviewStatusReviewer','gfShowStudentInfo',
   // Icon picker (Tab builder + Group Form builder) — called via inline
   // onclick="_pickIcon(this)" in generated grid buttons.
   '_pickIcon',
