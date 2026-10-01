@@ -319,6 +319,7 @@ const RESERVED = [
   'cancelGroupFormEdit','editGroupForm','saveGroupForm','deleteGroupFormConfig',
   'openGroupRoster','closeGroupRoster','setTeamLockAdmin','disbandTeamAdmin',
   'exportGroupFormRoster','printGroupFormRoster',
+  'printGroupFormProjectList','printGroupFormTokenList','printGroupFormTableStickers',
   // Reviewer routing rules editor (admin, attached to the roster screen) and
   // the reviewer-facing Review Submissions view — all reached via inline
   // onclick/onchange in generated markup, plus loadGroupFormReviewView via
