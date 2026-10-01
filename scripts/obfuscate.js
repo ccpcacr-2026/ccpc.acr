@@ -327,7 +327,7 @@ const RESERVED = [
   'toggleGroupFormReviewerPanel','gfAddReviewerRule','saveGroupFormReviewerRules',
   '_gfOnRuleDimensionChange','_gfOnRuleModeChange',
   'loadGroupFormReviewView','_loadGfReviewTab','_exportGfReviewRoster','_printGfReviewRoster',
-  'gfShowLinkQr','_gfDownloadLinkQr','tabShowLinkQr',
+  'gfShowLinkQr','_gfDownloadLinkQr','tabShowLinkQr','_gfCopyLinkQrUrl',
   'requestTeamChangesAdmin','requestTeamChangesReviewer',
   'gfOnRefNumberToggle','_gfOnRefNumberSourceChange','gfAddRefNumberPart',
   'setReviewStatusAdmin','setReviewStatusReviewer',

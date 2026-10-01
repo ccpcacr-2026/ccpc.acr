@@ -28767,6 +28767,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // own "Link" button (Setup screen) uses with ?tab=<tab_name> instead.
   const STUDENT_PORTAL_URL = 'https://ccpc-portal.vercel.app';
 
+  // Copy/Download buttons deliberately take no inline-interpolated string
+  // (previously onclick="...writeText(${JSON.stringify(url)})..." — url is
+  // attacker/content-controlled-ish (a form title) and JSON.stringify's
+  // double-quoted output breaks out of the onclick="..." attribute's own
+  // double quotes the moment the string isn't trivially alphanumeric,
+  // corrupting the rest of the modal's HTML). Both now read from DOM
+  // elements by id instead, which can't ever break the attribute.
   function gfShowLinkQr(id, title) {
     document.getElementById('gfLinkQrOverlay')?.remove();
     const url = `${STUDENT_PORTAL_URL}/?gf=${id}`;
@@ -28779,13 +28786,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <p class="font-black text-slate-800 text-sm mb-1 truncate">${_escHtml(title || 'Group Form')}</p>
         <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Direct Registration Link</p>
         <div class="bg-white p-3 rounded-2xl border border-slate-200 inline-block mb-4"><canvas id="gfLinkQrCanvas"></canvas></div>
+        <input type="hidden" id="gfLinkQrFilename" value="${_escHtml(title || 'group-form')}">
         <div class="flex items-center gap-2 mb-3">
           <input type="text" readonly id="gfLinkQrUrl" value="${_escHtml(url)}" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-bold text-slate-600" onclick="this.select()">
-          <button onclick="navigator.clipboard.writeText(${JSON.stringify(url)}).then(() => showToast('Link copied')).catch(() => showToast('Could not copy', 'error'))" class="shrink-0 px-3 py-2 bg-slate-800 text-white rounded-xl font-black text-[10px] uppercase">Copy</button>
+          <button onclick="_gfCopyLinkQrUrl()" class="shrink-0 px-3 py-2 bg-slate-800 text-white rounded-xl font-black text-[10px] uppercase">Copy</button>
         </div>
         <p class="text-[10px] text-slate-400 font-bold mb-4">Opens the login screen (or goes straight in, if already logged in on that device) and lands directly on this form — no need to hunt through the nav.</p>
         <div class="flex items-center gap-2">
-          <button onclick="_gfDownloadLinkQr(${JSON.stringify(title || 'group-form')})" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-600 hover:bg-slate-50">Download QR</button>
+          <button onclick="_gfDownloadLinkQr()" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-600 hover:bg-slate-50">Download QR</button>
           <button onclick="document.getElementById('gfLinkQrOverlay').remove()" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-slate-100 text-slate-500 hover:bg-slate-200">Close</button>
         </div>
       </div>`;
@@ -28809,26 +28817,33 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <p class="font-black text-slate-800 text-sm mb-1 truncate">${_escHtml(tabName)}</p>
         <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Direct Registration Link</p>
         <div class="bg-white p-3 rounded-2xl border border-slate-200 inline-block mb-4"><canvas id="gfLinkQrCanvas"></canvas></div>
+        <input type="hidden" id="gfLinkQrFilename" value="${_escHtml(tabName)}">
         <div class="flex items-center gap-2 mb-3">
           <input type="text" readonly id="gfLinkQrUrl" value="${_escHtml(url)}" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-bold text-slate-600" onclick="this.select()">
-          <button onclick="navigator.clipboard.writeText(${JSON.stringify(url)}).then(() => showToast('Link copied')).catch(() => showToast('Could not copy', 'error'))" class="shrink-0 px-3 py-2 bg-slate-800 text-white rounded-xl font-black text-[10px] uppercase">Copy</button>
+          <button onclick="_gfCopyLinkQrUrl()" class="shrink-0 px-3 py-2 bg-slate-800 text-white rounded-xl font-black text-[10px] uppercase">Copy</button>
         </div>
         <p class="text-[10px] text-slate-400 font-bold mb-4">Opens the login screen (or goes straight in, if already logged in on that device) and lands directly on this tab — no need to hunt through the nav.</p>
         <div class="flex items-center gap-2">
-          <button onclick="_gfDownloadLinkQr(${JSON.stringify(tabName)})" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-600 hover:bg-slate-50">Download QR</button>
+          <button onclick="_gfDownloadLinkQr()" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-600 hover:bg-slate-50">Download QR</button>
           <button onclick="document.getElementById('gfLinkQrOverlay').remove()" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-slate-100 text-slate-500 hover:bg-slate-200">Close</button>
         </div>
       </div>`;
     document.body.appendChild(overlay);
     if (window.QRCode) QRCode.toCanvas(document.getElementById('gfLinkQrCanvas'), url, { width: 220, margin: 1 }, () => {});
   }
+  function _gfCopyLinkQrUrl() {
+    const input = document.getElementById('gfLinkQrUrl');
+    if (!input) return;
+    navigator.clipboard.writeText(input.value).then(() => showToast('Link copied')).catch(() => showToast('Could not copy', 'error'));
+  }
 
-  function _gfDownloadLinkQr(title) {
+  function _gfDownloadLinkQr() {
     const canvas = document.getElementById('gfLinkQrCanvas');
+    const title = document.getElementById('gfLinkQrFilename')?.value || '';
     if (!canvas) return;
     const a = document.createElement('a');
     a.href = canvas.toDataURL('image/png');
-    a.download = `${String(title).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'group-form'}-qr.png`;
+    a.download = `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'group-form'}-qr.png`;
     document.body.appendChild(a);
     a.click();
     a.remove();
