@@ -28988,16 +28988,36 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _gfEnsureGroupFieldValues('house').then(() => gfAddRefNumberPart());
     }
   }
+  // One entry per distinct field NAME, not per data_key — a field can exist
+  // as several same-named variants gated by mutually exclusive show_if
+  // conditions (e.g. Science Fair's two "Category" fields, one per
+  // eligibility Group). They're really one logical question to the admin
+  // picking a Reference Number part; only whichever variant show_if
+  // actually displayed to a given leader ends up with a real answer, which
+  // buildReferenceNumber (server-side) already falls back across siblings
+  // to find. The representative kept here (first match) just supplies the
+  // data_key the part is stored against — _gfRefNumberValueOptions below
+  // still merges every sibling's options into one list either way.
   function _gfRefNumberAnswerFieldOptions() {
-    return serializeFieldsFromContainer('gfFieldsList').fields.filter(f => (f.type === 'choose' || f.type === 'checkbox') && f.data_key);
+    const fields = serializeFieldsFromContainer('gfFieldsList').fields.filter(f => (f.type === 'choose' || f.type === 'checkbox') && f.data_key);
+    const seen = new Set();
+    return fields.filter(f => { if (seen.has(f.name)) return false; seen.add(f.name); return true; });
   }
   function _gfRefNumberValueOptions(source) {
     if (source === 'house') return _gfGroupFieldValues.house || [];
     if (source === 'group') return gfReadBands().map(b => b.name).filter(Boolean);
     if (source && source.startsWith('answer:')) {
       const key = source.slice(7);
-      const f = serializeFieldsFromContainer('gfFieldsList').fields.find(fd => fd.data_key === key);
-      return (f && f.options) || [];
+      const allFields = serializeFieldsFromContainer('gfFieldsList').fields;
+      const f = allFields.find(fd => fd.data_key === key);
+      if (!f) return [];
+      // Merge every same-named sibling's options too (see the comment on
+      // _gfRefNumberAnswerFieldOptions) — the admin needs to assign a code
+      // to every value any variant of this question could show, since which
+      // one actually applies depends on the leader's own eligibility Group.
+      const opts = [];
+      allFields.filter(fd => fd.name === f.name).forEach(fd => (fd.options || []).forEach(o => { if (!opts.includes(o)) opts.push(o); }));
+      return opts;
     }
     return [];
   }
