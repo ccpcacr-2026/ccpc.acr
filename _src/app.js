@@ -29500,8 +29500,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>` : ''}
         </div>
         <div class="mt-2 flex flex-wrap gap-2">
-          ${t.members.map(m => `<button type="button" onclick='gfShowStudentInfo(${JSON.stringify(m.student_id)})' class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-700 hover:bg-slate-100 hover:border-slate-300 transition-all">${nameOf(m.profile) || m.student_id}${m.role === 'leader' ? ' 👑' : ''}</button>`).join('')}
-          ${t.pending_invites.map(inv => `<button type="button" onclick='gfShowStudentInfo(${JSON.stringify(inv.invited_student_id)})' class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-400 italic hover:bg-slate-100 hover:border-slate-300 transition-all">${nameOf(inv.profile) || inv.invited_student_id} (pending)</button>`).join('')}
+          ${t.members.map(m => `<button type="button" onclick='gfShowStudentInfo(${JSON.stringify(m.student_id)})' class="flex items-center gap-1.5 pl-1 pr-3 py-1 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-700 hover:bg-slate-100 hover:border-slate-300 transition-all">${_avatar(m.profile?.student_name, m.profile?.photo, 'w-6 h-6')}${nameOf(m.profile) || m.student_id}${m.role === 'leader' ? ' 👑' : ''}</button>`).join('')}
+          ${t.pending_invites.map(inv => `<button type="button" onclick='gfShowStudentInfo(${JSON.stringify(inv.invited_student_id)})' class="flex items-center gap-1.5 pl-1 pr-3 py-1 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-400 italic hover:bg-slate-100 hover:border-slate-300 transition-all">${_avatar(inv.profile?.student_name, inv.profile?.photo, 'w-6 h-6')}${nameOf(inv.profile) || inv.invited_student_id} (pending)</button>`).join('')}
         </div>
         ${!t.is_submitted && t.revision_comment ? `<div class="mt-2 p-2.5 bg-amber-50 rounded-xl text-[11px]"><div class="text-[10px] font-black text-amber-700 uppercase mb-1">Changes Requested${t.revision_requested_at ? ' · ' + new Date(t.revision_requested_at).toLocaleString() : ''}</div><div class="whitespace-pre-wrap">${_escHtml(t.revision_comment)}</div></div>` : ''}
         ${answerRows.length ? `<div class="mt-2 p-2.5 bg-slate-50 rounded-xl text-[11px]"><div class="text-[10px] font-black text-slate-400 uppercase mb-1">Answers</div>${answerRows.map(r => `<div class="mb-0.5"><span class="text-slate-400 font-bold">${r.label}:</span> <strong>${r.value}</strong></div>`).join('')}</div>` : ''}
@@ -29585,15 +29585,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('gfStudentInfoOverlay')?.remove();
     const overlay = document.createElement('div');
     overlay.id = 'gfStudentInfoOverlay';
-    overlay.className = 'fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4';
+    // z-[9999]: this can be opened from on top of the roster, which can
+    // itself be on top of other overlays (reviewer panel, etc.) — high
+    // enough that it's never caught behind something else's stacking
+    // context instead of appearing on top where it's actually readable.
+    overlay.className = 'fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4';
     overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
     if (!p) {
       overlay.innerHTML = `<div class="bg-white rounded-3xl w-full max-w-sm p-5 shadow-2xl text-center"><p class="text-xs text-slate-400 font-bold">No profile info available for ${_escHtml(studentId)}.</p><button onclick="document.getElementById('gfStudentInfoOverlay').remove()" class="w-full mt-3 py-2.5 rounded-xl font-black text-[10px] uppercase bg-slate-100 text-slate-500">Close</button></div>`;
       document.body.appendChild(overlay);
       return;
     }
-    const infoRows = [
-      ['Student ID', p.student_id],
+    const infoTiles = [
       ['Class', `${p.class || ''}${p.section ? '-' + p.section : ''}`.replace(/^-|-$/, '') || null],
       ['Roll', p.roll],
       ['House', p.house && p.house !== '--' ? p.house : null],
@@ -29601,22 +29604,34 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       ["Father's Name", p.fathers_name],
       ["Mother's Name", p.mothers_name],
     ].filter(([, v]) => v);
-    const phoneRow = (label, tel) => {
+    const callBtn = (label, tel) => {
       if (!tel) return '';
       const clean = String(tel).replace(/[\s\-()]/g, '');
-      return `<div class="flex items-center justify-between py-1.5 border-b border-slate-50"><span class="text-slate-400 font-bold text-xs">${label}</span><a href="tel:${encodeURIComponent(clean)}" onclick="event.stopPropagation()" class="flex items-center gap-1.5 text-blue-600 font-black text-xs"><i data-lucide="phone" class="h-3.5 w-3.5"></i>${_escHtml(tel)}</a></div>`;
+      return `<a href="tel:${encodeURIComponent(clean)}" onclick="event.stopPropagation()" class="flex items-center gap-3 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-2xl px-4 py-3 transition-all">
+        <div class="w-9 h-9 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0"><i data-lucide="phone" class="h-4 w-4"></i></div>
+        <div class="min-w-0 text-left">
+          <div class="text-[10px] font-black text-emerald-700 uppercase tracking-widest">${label}</div>
+          <div class="text-sm font-black text-slate-800 truncate">${_escHtml(tel)}</div>
+        </div>
+      </a>`;
     };
-    const phones = phoneRow('Phone', p.phone_number) + phoneRow("Father's Phone", p.father_phone) + phoneRow("Mother's Phone", p.mother_phone);
+    const calls = callBtn('Call Student', p.phone_number) + callBtn("Call Father", p.father_phone) + callBtn("Call Mother", p.mother_phone);
     overlay.innerHTML = `
-      <div class="bg-white rounded-3xl w-full max-w-sm p-5 shadow-2xl">
-        <div class="flex items-center justify-between mb-3">
-          <p class="font-black text-slate-800 text-sm">${_escHtml(p.student_name || studentId)}</p>
-          <button onclick="document.getElementById('gfStudentInfoOverlay').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="h-4 w-4"></i></button>
+      <div class="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden">
+        <div class="flex items-center gap-3 p-5 pb-4" style="background:linear-gradient(135deg,#eef2ff,#f0f9ff)">
+          ${_avatar(p.student_name, p.photo, 'w-16 h-16')}
+          <div class="min-w-0 flex-1">
+            <p class="font-black text-slate-800 text-base leading-tight truncate">${_escHtml(p.student_name || studentId)}</p>
+            <p class="text-[11px] text-slate-500 font-bold mt-0.5">${_escHtml(p.student_id)}</p>
+          </div>
+          <button onclick="document.getElementById('gfStudentInfoOverlay').remove()" class="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-white/70 transition-all shrink-0"><i data-lucide="x" class="h-4 w-4"></i></button>
         </div>
-        <div class="space-y-0.5">
-          ${infoRows.map(([label, v]) => `<div class="flex items-center justify-between py-1.5 border-b border-slate-50"><span class="text-slate-400 font-bold text-xs">${label}</span><span class="font-bold text-xs text-slate-700">${_escHtml(v)}</span></div>`).join('')}
+        <div class="p-5 pt-4">
+          ${infoTiles.length ? `<div class="grid grid-cols-2 gap-2 mb-4">
+            ${infoTiles.map(([label, v]) => `<div class="bg-slate-50 rounded-xl px-3 py-2"><div class="text-[9px] font-black text-slate-400 uppercase tracking-widest">${label}</div><div class="text-xs font-black text-slate-700 truncate mt-0.5">${_escHtml(v)}</div></div>`).join('')}
+          </div>` : ''}
+          ${calls ? `<div class="flex flex-col gap-2">${calls}</div>` : '<p class="text-[11px] text-slate-400 font-bold italic text-center">No phone numbers on file.</p>'}
         </div>
-        ${phones ? `<div class="mt-1">${phones}</div>` : '<p class="text-[11px] text-slate-400 font-bold italic mt-2">No phone numbers on file.</p>'}
       </div>`;
     document.body.appendChild(overlay);
     lucide.createIcons();
@@ -29681,8 +29696,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>` : ''}
         </div>
         <div class="mt-2 flex flex-wrap gap-2">
-          ${t.members.map(m => `<button type="button" onclick='gfShowStudentInfo(${JSON.stringify(m.student_id)})' class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-700 hover:bg-slate-100 hover:border-slate-300 transition-all">${nameOf(m.profile) || m.student_id}${m.role === 'leader' ? ' 👑' : ''}</button>`).join('')}
-          ${t.pending_invites.map(inv => `<button type="button" onclick='gfShowStudentInfo(${JSON.stringify(inv.invited_student_id)})' class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-400 italic hover:bg-slate-100 hover:border-slate-300 transition-all">${nameOf(inv.profile) || inv.invited_student_id} (pending)</button>`).join('')}
+          ${t.members.map(m => `<button type="button" onclick='gfShowStudentInfo(${JSON.stringify(m.student_id)})' class="flex items-center gap-1.5 pl-1 pr-3 py-1 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-700 hover:bg-slate-100 hover:border-slate-300 transition-all">${_avatar(m.profile?.student_name, m.profile?.photo, 'w-6 h-6')}${nameOf(m.profile) || m.student_id}${m.role === 'leader' ? ' 👑' : ''}</button>`).join('')}
+          ${t.pending_invites.map(inv => `<button type="button" onclick='gfShowStudentInfo(${JSON.stringify(inv.invited_student_id)})' class="flex items-center gap-1.5 pl-1 pr-3 py-1 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-400 italic hover:bg-slate-100 hover:border-slate-300 transition-all">${_avatar(inv.profile?.student_name, inv.profile?.photo, 'w-6 h-6')}${nameOf(inv.profile) || inv.invited_student_id} (pending)</button>`).join('')}
         </div>
         ${!t.is_submitted && t.revision_comment ? `<div class="mt-2 p-2.5 bg-amber-50 rounded-xl text-[11px]"><div class="text-[10px] font-black text-amber-700 uppercase mb-1">Changes Requested${t.revision_requested_at ? ' · ' + new Date(t.revision_requested_at).toLocaleString() : ''}</div><div class="whitespace-pre-wrap">${_escHtml(t.revision_comment)}</div></div>` : ''}
         ${answerRows.length ? `<div class="mt-2 p-2.5 bg-slate-50 rounded-xl text-[11px]"><div class="text-[10px] font-black text-slate-400 uppercase mb-1">Answers</div>${answerRows.map(r => `<div class="mb-0.5"><span class="text-slate-400 font-bold">${r.label}:</span> <strong>${r.value}</strong></div>`).join('')}</div>` : ''}

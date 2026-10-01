@@ -1367,7 +1367,7 @@ export async function POST(req) {
     if (ids.length) {
       // Broader select than just enough to label a chip — powers the
       // roster card's clickable "full student info + call" popup.
-      const profRows = await sb(`students_data?student_id=in.(${ids.map(encodeURIComponent).join(',')})&select=student_id,student_name,class,section,roll,house,session,phone_number,father_phone,mother_phone,fathers_name,mothers_name`);
+      const profRows = await sb(`students_data?student_id=in.(${ids.map(encodeURIComponent).join(',')})&select=student_id,student_name,class,section,roll,house,session,phone_number,father_phone,mother_phone,fathers_name,mothers_name,photo`);
       (Array.isArray(profRows) ? profRows : []).forEach(p => { nameById[p.student_id] = p; });
     }
     const membersByTeam = {};
@@ -1483,7 +1483,7 @@ export async function POST(req) {
     if (ids.length) {
       // Broader select than just enough to label a chip — powers the
       // roster card's clickable "full student info + call" popup.
-      const profRows = await sb(`students_data?student_id=in.(${ids.map(encodeURIComponent).join(',')})&select=student_id,student_name,class,section,roll,house,session,phone_number,father_phone,mother_phone,fathers_name,mothers_name`);
+      const profRows = await sb(`students_data?student_id=in.(${ids.map(encodeURIComponent).join(',')})&select=student_id,student_name,class,section,roll,house,session,phone_number,father_phone,mother_phone,fathers_name,mothers_name,photo`);
       (Array.isArray(profRows) ? profRows : []).forEach(p => { nameById[p.student_id] = p; });
     }
     const membersByTeam = {};
