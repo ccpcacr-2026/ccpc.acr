@@ -28704,6 +28704,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <option value="all">All teams</option>
               <option value="submitted">Submitted only</option>
               <option value="saved">Saved (not submitted)</option>
+              <option value="approved">Approved only</option>
+              <option value="rejected">Rejected only</option>
+              <option value="unreviewed">Not yet reviewed</option>
             </select>
             <select id="gfRosterSort" onchange="renderAdminGroupRoster(_gfRosterTeams, _gfRosterForm)" class="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs">
               <option value="newest">Newest first</option>
@@ -29162,18 +29165,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // answer labeled with its real field name (same field set _gfFormatGroupData
   // already uses for the on-screen "Submitted Answers" preview).
   function exportGroupFormRoster() {
-    if (!_gfRosterTeams.length) { showToast('No teams to export yet', 'error'); return; }
+    const teams = _gfRosterFilteredSorted();
+    if (!teams.length) { showToast('No teams to export yet', 'error'); return; }
     let fields = [];
     try { fields = JSON.parse(_gfRosterForm?.fields_json || '[]'); } catch (e) {}
     const answerFields = fields.filter(f => f.type !== 'group_label' && f.type !== 'profile_picture');
     const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''})` : 'Unknown';
-    const headers = ['Reference No.', 'Team ID', 'Leader', 'Leader Student ID', 'Status', 'Submitted', 'Submitted At', 'Locked', 'Members (excl. leader)', 'Pending Invites', ...answerFields.map(f => f.name || f.data_key)];
-    const rows = _gfRosterTeams.map(t => {
+    const headers = ['Reference No.', 'Team ID', 'Leader', 'Leader Student ID', 'Status', 'Review Status', 'Submitted', 'Submitted At', 'Locked', 'Members (excl. leader)', 'Pending Invites', ...answerFields.map(f => f.name || f.data_key)];
+    const rows = teams.map(t => {
       const leader = t.members.find(m => m.role === 'leader');
       const others = t.members.filter(m => m.role !== 'leader').map(m => `${nameOf(m.profile)} [${m.student_id}]`).join('; ');
       const pending = t.pending_invites.map(inv => `${nameOf(inv.profile)} [${inv.invited_student_id}]`).join('; ');
       const answers = answerFields.map(f => (t.group_data || {})[f.data_key] ?? '');
-      return [t.reference_number || '', t.id, leader ? nameOf(leader.profile) : t.leader_student_id, t.leader_student_id, t.status, t.is_submitted ? 'Yes' : 'No', t.submitted_at ? new Date(t.submitted_at).toLocaleString() : '', t.is_locked ? 'Yes' : 'No', others, pending, ...answers];
+      return [t.reference_number || '', t.id, leader ? nameOf(leader.profile) : t.leader_student_id, t.leader_student_id, t.status, t.review_status || 'Pending', t.is_submitted ? 'Yes' : 'No', t.submitted_at ? new Date(t.submitted_at).toLocaleString() : '', t.is_locked ? 'Yes' : 'No', others, pending, ...answers];
     });
     const csv = [headers, ...rows].map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
     const a = document.createElement('a');
@@ -29185,7 +29189,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // of the page — is hidden by the .gf-print-area/@media print rule in
   // app.html) so the admin gets a clean handout without a screenshot.
   function printGroupFormRoster() {
-    if (!_gfRosterTeams.length) { showToast('No teams to print yet', 'error'); return; }
+    if (!_gfRosterFilteredSorted().length) { showToast('No teams to print yet', 'error'); return; }
     const list = document.getElementById('adminGroupRosterList');
     if (list) list.classList.add('gf-print-area');
     window.print();
@@ -29233,7 +29237,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return fields.filter(f => (f.type === 'choose' || f.type === 'checkbox') && f.data_key);
   }
   function _gfRuleRowHtml(rule) {
-    rule = rule || { dimension: 'all', value: '', assign_mode: 'user', teacher_user_id: '' };
+    rule = rule || { dimension: 'all', value: '', assign_mode: 'user', teacher_user_id: '', permission: 'admin' };
     const answerFields = _gfRuleAnswerFieldOptions();
     return `<div class="gf-reviewer-rule-row flex items-center gap-2 flex-wrap bg-white p-2.5 rounded-xl border border-slate-200">
       <select class="gf-rule-dimension px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" onchange="_gfOnRuleDimensionChange(this)">
@@ -29249,6 +29253,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <option value="class_teacher" ${rule.assign_mode === 'class_teacher' ? 'selected' : ''} ${rule.dimension !== 'class' ? 'disabled' : ''}>Class Teacher</option>
       </select>
       <select class="gf-rule-teacher px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs ${rule.assign_mode === 'class_teacher' ? 'hidden' : ''}"><option value="">Teacher…</option></select>
+      <select class="gf-rule-permission px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" title="Admin can approve/reject and request changes; Viewer can only look">
+        <option value="admin" ${rule.permission !== 'viewer' ? 'selected' : ''}>Admin</option>
+        <option value="viewer" ${rule.permission === 'viewer' ? 'selected' : ''}>Viewer</option>
+      </select>
       <button type="button" onclick="this.closest('.gf-reviewer-rule-row').remove()" class="w-7 h-7 flex items-center justify-center rounded-lg text-red-400 hover:bg-red-50 shrink-0"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
     </div>`;
   }
@@ -29306,6 +29314,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       value: row.querySelector('.gf-rule-value').value,
       assign_mode: row.querySelector('.gf-rule-mode').value,
       teacher_user_id: row.querySelector('.gf-rule-teacher').value,
+      permission: row.querySelector('.gf-rule-permission').value,
     }));
   }
   function toggleGroupFormReviewerPanel() {
@@ -29394,21 +29403,37 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _gfReviewForm = res.form || null;
       toolbar.classList.remove('hidden');
       toolbar.innerHTML = `
+        <select id="gfReviewStatusFilter" onchange="_renderGfReviewRoster(_gfReviewFilteredTeams(), _gfReviewForm)" class="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs">
+          <option value="all">All teams</option>
+          <option value="approved">Approved only</option>
+          <option value="rejected">Rejected only</option>
+          <option value="pending">Not yet reviewed</option>
+        </select>
         <button onclick="_exportGfReviewRoster()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="download" class="h-3 w-3"></i>Download CSV</button>
         <button onclick="_printGfReviewRoster()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="printer" class="h-3 w-3"></i>Print</button>
       `;
-      _renderGfReviewRoster(_gfReviewTeams, _gfReviewForm);
+      _renderGfReviewRoster(_gfReviewFilteredTeams(), _gfReviewForm);
       lucide.createIcons();
     }).catch(() => { list.innerHTML = '<p class="text-xs text-red-500 font-bold">Network error</p>'; });
   }
   let _gfReviewTeams = [];
   let _gfReviewForm = null;
-  // Read-only card list — same card shape/labeling as the admin roster
-  // (renderAdminGroupRoster) minus the Lock/Disband controls, since a
-  // reviewer isn't a Group Forms admin for this form.
+  // Applied before BOTH rendering and CSV/Print, so "separate before
+  // download/print" means what it says — exporting or printing while a
+  // filter is active only ever includes the teams currently shown.
+  function _gfReviewFilteredTeams() {
+    const f = document.getElementById('gfReviewStatusFilter')?.value || 'all';
+    if (f === 'pending') return _gfReviewTeams.filter(t => !t.review_status);
+    if (f === 'approved' || f === 'rejected') return _gfReviewTeams.filter(t => t.review_status === f);
+    return _gfReviewTeams;
+  }
+  // Read-only card list EXCEPT for Approve/Reject, which only an 'admin'-
+  // tier reviewer sees at all (viewer tier gets the exact same card shape as
+  // the admin roster below, minus Lock/Disband — those stay admin-tab-only).
   function _renderGfReviewRoster(teams, form) {
     const host = document.getElementById('gfReviewList');
-    if (!teams.length) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No teams in this slice yet.</p>'; return; }
+    const canAct = (_gfReviewTabs[_gfReviewActiveIdx] || {}).permission !== 'viewer';
+    if (!teams.length) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No teams match this filter.</p>'; return; }
     const maxSize = form ? form.max_team_size : null;
     const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''})` : 'Unknown';
     host.innerHTML = teams.map(t => {
@@ -29425,10 +29450,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             ${t.is_submitted ? ' <span class="text-[9px] font-black text-white bg-emerald-600 rounded-full px-2 py-0.5">Submitted</span>' : ' <span class="text-[9px] font-black text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">Saved</span>'}
             ${t.is_locked ? ' <span class="text-[9px] font-black text-white bg-slate-800 rounded-full px-2 py-0.5">Locked</span>' : ''}
             ${!t.is_submitted && t.revision_comment ? ' <span class="text-[9px] font-black text-amber-700 bg-amber-50 rounded-full px-2 py-0.5">Changes Requested</span>' : ''}
+            ${t.review_status === 'approved' ? ' <span class="text-[9px] font-black text-white bg-green-600 rounded-full px-2 py-0.5">Approved</span>' : ''}
+            ${t.review_status === 'rejected' ? ' <span class="text-[9px] font-black text-white bg-red-600 rounded-full px-2 py-0.5">Rejected</span>' : ''}
             ${!complete && form && form.members_required ? ' <span class="text-[9px] font-black text-amber-700 bg-amber-50 rounded-full px-2 py-0.5">Incomplete</span>' : ''}
             <div class="text-[11px] text-slate-400 font-bold mt-0.5">${t.members.length}${maxSize ? '/' + maxSize : ''} members${t.pending_invites.length ? ' · ' + t.pending_invites.length + ' pending invite(s)' : ''}${t.submitted_at ? ' · submitted ' + new Date(t.submitted_at).toLocaleString() : ''}</div>
           </div>
-          ${t.status !== 'disbanded' && t.is_submitted ? `<button onclick="requestTeamChangesReviewer(${t.id})" class="px-2.5 py-1 border border-amber-300 text-amber-700 rounded-full font-black text-[10px] uppercase hover:bg-amber-50 shrink-0">Request Changes</button>` : ''}
+          ${t.status !== 'disbanded' && canAct ? `
+          <div class="flex gap-2 shrink-0">
+            ${t.review_status !== 'approved' ? `<button onclick="setReviewStatusReviewer(${t.id}, 'approved')" class="px-2.5 py-1 border border-green-300 text-green-700 rounded-full font-black text-[10px] uppercase hover:bg-green-50">Approve</button>` : `<button onclick="setReviewStatusReviewer(${t.id}, null)" class="px-2.5 py-1 border border-slate-200 text-slate-500 rounded-full font-black text-[10px] uppercase hover:bg-slate-50">Unapprove</button>`}
+            ${t.review_status !== 'rejected' ? `<button onclick="setReviewStatusReviewer(${t.id}, 'rejected')" class="px-2.5 py-1 border border-red-300 text-red-600 rounded-full font-black text-[10px] uppercase hover:bg-red-50">Reject</button>` : `<button onclick="setReviewStatusReviewer(${t.id}, null)" class="px-2.5 py-1 border border-slate-200 text-slate-500 rounded-full font-black text-[10px] uppercase hover:bg-slate-50">Unreject</button>`}
+            ${t.is_submitted ? `<button onclick="requestTeamChangesReviewer(${t.id})" class="px-2.5 py-1 border border-amber-300 text-amber-700 rounded-full font-black text-[10px] uppercase hover:bg-amber-50">Request Changes</button>` : ''}
+          </div>` : ''}
         </div>
         <div class="mt-2 flex flex-wrap gap-2">
           ${t.members.map(m => `<span class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-700">${nameOf(m.profile) || m.student_id}${m.role === 'leader' ? ' 👑' : ''}</span>`).join('')}
@@ -29447,19 +29479,30 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       else showToast((res && res.message) || 'Failed', 'error');
     }).catch(() => showToast('Network error', 'error'));
   }
+  // status: 'approved' | 'rejected' | null (null clears back to "not yet
+  // reviewed"). Server re-checks this reviewer actually holds an 'admin'
+  // (not 'viewer') rule matching this exact team — the button only being
+  // shown for canAct rows is a convenience, not the real gate.
+  function setReviewStatusReviewer(teamId, status) {
+    _adminFetch('set_team_review_status', { team_id: teamId, status, user_id: window.APP_USER && window.APP_USER.user_id }).then(res => {
+      if (res && res.result === 'success') _loadGfReviewTab(_gfReviewActiveIdx);
+      else showToast((res && res.message) || 'Failed', 'error');
+    }).catch(() => showToast('Network error', 'error'));
+  }
   function _exportGfReviewRoster() {
-    if (!_gfReviewTeams.length) { showToast('No teams to export', 'error'); return; }
+    const teams = _gfReviewFilteredTeams();
+    if (!teams.length) { showToast('No teams to export', 'error'); return; }
     let fields = [];
     try { fields = JSON.parse(_gfReviewForm?.fields_json || '[]'); } catch (e) {}
     const answerFields = fields.filter(f => f.type !== 'group_label' && f.type !== 'profile_picture');
     const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''})` : 'Unknown';
-    const headers = ['Reference No.', 'Team ID', 'Leader', 'Leader Student ID', 'Status', 'Submitted', 'Submitted At', 'Members (excl. leader)', 'Pending Invites', ...answerFields.map(f => f.name || f.data_key)];
-    const rows = _gfReviewTeams.map(t => {
+    const headers = ['Reference No.', 'Team ID', 'Leader', 'Leader Student ID', 'Status', 'Review Status', 'Submitted', 'Submitted At', 'Members (excl. leader)', 'Pending Invites', ...answerFields.map(f => f.name || f.data_key)];
+    const rows = teams.map(t => {
       const leader = t.members.find(m => m.role === 'leader');
       const others = t.members.filter(m => m.role !== 'leader').map(m => `${nameOf(m.profile)} [${m.student_id}]`).join('; ');
       const pending = t.pending_invites.map(inv => `${nameOf(inv.profile)} [${inv.invited_student_id}]`).join('; ');
       const answers = answerFields.map(f => (t.group_data || {})[f.data_key] ?? '');
-      return [t.reference_number || '', t.id, leader ? nameOf(leader.profile) : t.leader_student_id, t.leader_student_id, t.status, t.is_submitted ? 'Yes' : 'No', t.submitted_at ? new Date(t.submitted_at).toLocaleString() : '', others, pending, ...answers];
+      return [t.reference_number || '', t.id, leader ? nameOf(leader.profile) : t.leader_student_id, t.leader_student_id, t.status, t.review_status || 'Pending', t.is_submitted ? 'Yes' : 'No', t.submitted_at ? new Date(t.submitted_at).toLocaleString() : '', others, pending, ...answers];
     });
     const csv = [headers, ...rows].map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
     const a = document.createElement('a');
@@ -29468,7 +29511,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     a.click();
   }
   function _printGfReviewRoster() {
-    if (!_gfReviewTeams.length) { showToast('No teams to print', 'error'); return; }
+    if (!_gfReviewFilteredTeams().length) { showToast('No teams to print', 'error'); return; }
     const list = document.getElementById('gfReviewList');
     if (list) list.classList.add('gf-print-area');
     window.print();
@@ -29489,22 +29532,36 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
     return rows;
   }
+  // Shared by the on-screen render AND Download CSV/Print, so "separated
+  // before download or print" means what it says — exporting/printing while
+  // a filter is active only ever includes the teams currently shown.
+  function _gfRosterFilteredSorted() {
+    const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''})` : 'Unknown';
+    const leaderNameOf = t => nameOf(t.members.find(m => m.role === 'leader')?.profile) || t.leader_student_id;
+    const filter = document.getElementById('gfRosterFilter')?.value || 'all';
+    const sort = document.getElementById('gfRosterSort')?.value || 'newest';
+    let shown = _gfRosterTeams.filter(t => {
+      if (filter === 'submitted') return t.is_submitted;
+      if (filter === 'saved') return !t.is_submitted;
+      if (filter === 'approved') return t.review_status === 'approved';
+      if (filter === 'rejected') return t.review_status === 'rejected';
+      if (filter === 'unreviewed') return !t.review_status;
+      return true;
+    });
+    return shown.slice().sort((a, b) => {
+      if (sort === 'leader') return leaderNameOf(a).localeCompare(leaderNameOf(b));
+      if (sort === 'submitted_at') return new Date(b.submitted_at || 0) - new Date(a.submitted_at || 0);
+      const cmp = new Date(a.created_at || 0) - new Date(b.created_at || 0);
+      return sort === 'oldest' ? cmp : -cmp;
+    });
+  }
   function renderAdminGroupRoster(teams, form) {
     const host = document.getElementById('adminGroupRosterList');
     if (!teams.length) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No teams have been created for this form yet.</p>'; return; }
     const maxSize = form ? form.max_team_size : null;
     const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''})` : 'Unknown';
     const leaderNameOf = t => nameOf(t.members.find(m => m.role === 'leader')?.profile) || t.leader_student_id;
-    const filter = document.getElementById('gfRosterFilter')?.value || 'all';
-    const sort = document.getElementById('gfRosterSort')?.value || 'newest';
-
-    let shown = teams.filter(t => filter === 'submitted' ? t.is_submitted : filter === 'saved' ? !t.is_submitted : true);
-    shown = shown.slice().sort((a, b) => {
-      if (sort === 'leader') return leaderNameOf(a).localeCompare(leaderNameOf(b));
-      if (sort === 'submitted_at') return new Date(b.submitted_at || 0) - new Date(a.submitted_at || 0);
-      const cmp = new Date(a.created_at || 0) - new Date(b.created_at || 0);
-      return sort === 'oldest' ? cmp : -cmp;
-    });
+    const shown = _gfRosterFilteredSorted();
     if (!shown.length) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No teams match this filter.</p>'; return; }
 
     host.innerHTML = shown.map(t => {
@@ -29520,11 +29577,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             ${t.is_submitted ? ' <span class="text-[9px] font-black text-white bg-emerald-600 rounded-full px-2 py-0.5">Submitted</span>' : ' <span class="text-[9px] font-black text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">Saved</span>'}
             ${t.is_locked ? ' <span class="text-[9px] font-black text-white bg-slate-800 rounded-full px-2 py-0.5">Locked</span>' : ''}
             ${!t.is_submitted && t.revision_comment ? ' <span class="text-[9px] font-black text-amber-700 bg-amber-50 rounded-full px-2 py-0.5">Changes Requested</span>' : ''}
+            ${t.review_status === 'approved' ? ' <span class="text-[9px] font-black text-white bg-green-600 rounded-full px-2 py-0.5">Approved</span>' : ''}
+            ${t.review_status === 'rejected' ? ' <span class="text-[9px] font-black text-white bg-red-600 rounded-full px-2 py-0.5">Rejected</span>' : ''}
             ${!complete && form && form.members_required ? ' <span class="text-[9px] font-black text-amber-700 bg-amber-50 rounded-full px-2 py-0.5">Incomplete</span>' : ''}
             <div class="text-[11px] text-slate-400 font-bold mt-0.5">${t.members.length}${maxSize ? '/' + maxSize : ''} members${t.pending_invites.length ? ' · ' + t.pending_invites.length + ' pending invite(s)' : ''}${t.submitted_at ? ' · submitted ' + new Date(t.submitted_at).toLocaleString() : ''}</div>
           </div>
           ${t.status !== 'disbanded' ? `
-          <div class="flex gap-2">
+          <div class="flex gap-2 flex-wrap">
+            ${t.review_status !== 'approved' ? `<button onclick="setReviewStatusAdmin(${t.id}, 'approved')" class="px-2.5 py-1 border border-green-300 text-green-700 rounded-full font-black text-[10px] uppercase hover:bg-green-50">Approve</button>` : `<button onclick="setReviewStatusAdmin(${t.id}, null)" class="px-2.5 py-1 border border-slate-200 text-slate-500 rounded-full font-black text-[10px] uppercase hover:bg-slate-50">Unapprove</button>`}
+            ${t.review_status !== 'rejected' ? `<button onclick="setReviewStatusAdmin(${t.id}, 'rejected')" class="px-2.5 py-1 border border-red-300 text-red-600 rounded-full font-black text-[10px] uppercase hover:bg-red-50">Reject</button>` : `<button onclick="setReviewStatusAdmin(${t.id}, null)" class="px-2.5 py-1 border border-slate-200 text-slate-500 rounded-full font-black text-[10px] uppercase hover:bg-slate-50">Unreject</button>`}
             ${t.is_submitted ? `<button onclick="requestTeamChangesAdmin(${t.id})" class="px-2.5 py-1 border border-amber-300 text-amber-700 rounded-full font-black text-[10px] uppercase hover:bg-amber-50">Request Changes</button>` : ''}
             <button onclick="setTeamLockAdmin(${t.id}, ${!t.is_locked})" class="px-2.5 py-1 ${t.is_locked ? 'border border-slate-300 text-slate-700 hover:bg-slate-100' : 'bg-slate-800 text-white'} rounded-full font-black text-[10px] uppercase">${t.is_locked ? 'Unlock' : 'Lock'}</button>
             <button onclick="disbandTeamAdmin(${t.id})" class="px-2.5 py-1 border border-red-300 text-red-600 rounded-full font-black text-[10px] uppercase hover:bg-red-50">Disband</button>
@@ -29544,6 +29605,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!comment || !comment.trim()) return;
     _adminFetch('request_team_changes', { team_id: teamId, comment: comment.trim(), user_id: window.APP_USER && window.APP_USER.user_id }).then(res => {
       if (res && res.result === 'success') { openGroupRoster(_gfRosterFormId); showToast('Sent back for changes'); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    }).catch(() => showToast('Network error', 'error'));
+  }
+  function setReviewStatusAdmin(teamId, status) {
+    _adminFetch('set_team_review_status', { team_id: teamId, status, user_id: window.APP_USER && window.APP_USER.user_id }).then(res => {
+      if (res && res.result === 'success') openGroupRoster(_gfRosterFormId);
       else showToast((res && res.message) || 'Failed', 'error');
     }).catch(() => showToast('Network error', 'error'));
   }

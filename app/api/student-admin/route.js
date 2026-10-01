@@ -503,6 +503,35 @@ async function groupFormRuleAppliesToTeacher(rule, teacherUserId) {
   return false;
 }
 
+// Shared authorization for Group Forms team actions reachable by both a
+// tab-based Group Forms admin AND a reviewer-rule holder (request_team_
+// changes, set_team_review_status) — a Group Forms admin always passes;
+// a reviewer only passes if one of their matching rules applies to this
+// exact team, AND (when requireReviewerAdmin) that rule's permission is
+// 'admin' rather than 'viewer'. Never trusts the client's own role claim —
+// re-derives everything server-side, same as get_group_form_roster_for_rule.
+async function _isAuthorizedForGroupFormTeam(team, actorId, requireReviewerAdmin) {
+  const roles = await _getUserRoles(actorId);
+  const matrix = await _getAdminTabVisibility();
+  if (_isSuperAdmin(actorId) || _isTabAllowed('group_forms', roles, matrix)) return true;
+
+  const formRows = await sb(`group_forms?id=eq.${encodeURIComponent(team.group_form_id)}`);
+  const form = (!formRows?.error && formRows[0]) ? formRows[0] : null;
+  if (!form) return false;
+  const leaderRows = await sb(`group_form_team_members?team_id=eq.${encodeURIComponent(team.id)}&role=eq.leader&select=student_id`);
+  const leaderId = (!leaderRows?.error && leaderRows[0]) ? leaderRows[0].student_id : null;
+  const leaderProfRows = leaderId ? await sb(`students_data?student_id=eq.${encodeURIComponent(leaderId)}&select=*`) : [];
+  const leaderProfile = (!leaderProfRows?.error && leaderProfRows[0]) ? leaderProfRows[0] : {};
+  const rulesRows = await sb(`group_form_reviewer_rules?group_form_id=eq.${encodeURIComponent(team.group_form_id)}`);
+  const rules = Array.isArray(rulesRows) ? rulesRows : [];
+  for (const rule of rules) {
+    if (!groupFormTeamMatchesRule(team, form, rule, leaderProfile)) continue;
+    if (requireReviewerAdmin && rule.permission === 'viewer') continue;
+    if (await groupFormRuleAppliesToTeacher(rule, actorId)) return true;
+  }
+  return false;
+}
+
 // Fresh per-request check against teacher_staff.app_users — never trust a cached role.
 async function _getUserRoles(userId) {
   if (!userId) return [];
@@ -541,7 +570,7 @@ const SUPER_ADMIN_ONLY_ACTIONS = new Set(['set_gp_credentials', 'test_gp_connect
 // Bus GPS positions/registry are useful to every teacher/staff account, not
 // just admins — open to anyone with a recognized staff account (any role),
 // distinct from both the tab-visibility matrix and the plain Admin gate.
-const STAFF_OPEN_ACTIONS = new Set(['get_tracking_config', 'get_bus_data', 'get_my_review_tabs', 'get_group_form_roster_for_rule', 'request_team_changes']);
+const STAFF_OPEN_ACTIONS = new Set(['get_tracking_config', 'get_bus_data', 'get_my_review_tabs', 'get_group_form_roster_for_rule', 'request_team_changes', 'set_team_review_status']);
 
 // ── Per-tab module access (admin console nav pills) ──────────────────────
 // Which roles can use each tab is admin-configurable (see
@@ -1374,6 +1403,11 @@ export async function POST(req) {
         value: r.dimension === 'all' ? '' : String(r.value).trim(),
         assign_mode: r.assign_mode === 'class_teacher' ? 'class_teacher' : 'user',
         teacher_user_id: r.assign_mode === 'class_teacher' ? null : (r.teacher_user_id || null),
+        // 'admin' can approve/reject and request changes; 'viewer' can only
+        // look at their slice (read-only — no action buttons rendered for
+        // them at all, server-side enforced in set_team_review_status and
+        // request_team_changes, never just hidden client-side).
+        permission: r.permission === 'viewer' ? 'viewer' : 'admin',
       }))
       .filter(r => r.assign_mode === 'class_teacher' ? r.dimension === 'class' : !!r.teacher_user_id);
     if (clean.length) {
@@ -1409,6 +1443,7 @@ export async function POST(req) {
           form_title: titleById[rule.group_form_id] || 'Group Form',
           dimension: rule.dimension,
           value: rule.value,
+          permission: rule.permission === 'viewer' ? 'viewer' : 'admin',
           label: rule.dimension === 'all' ? 'All Teams' : `${dimLabel}: ${rule.value}`,
         });
       }
@@ -1504,25 +1539,9 @@ export async function POST(req) {
     const team = (!teamRows?.error && teamRows[0]) ? teamRows[0] : null;
     if (!team) return NextResponse.json({ result: 'error', message: 'Team not found.' });
 
-    const roles = await _getUserRoles(actorId);
-    const matrix = await _getAdminTabVisibility();
-    let authorized = _isSuperAdmin(actorId) || _isTabAllowed('group_forms', roles, matrix);
-    if (!authorized) {
-      const formRows = await sb(`group_forms?id=eq.${encodeURIComponent(team.group_form_id)}`);
-      const form = (!formRows?.error && formRows[0]) ? formRows[0] : null;
-      if (form) {
-        const leaderRows = await sb(`group_form_team_members?team_id=eq.${encodeURIComponent(team_id)}&role=eq.leader&select=student_id`);
-        const leaderId = (!leaderRows?.error && leaderRows[0]) ? leaderRows[0].student_id : null;
-        const leaderProfRows = leaderId ? await sb(`students_data?student_id=eq.${encodeURIComponent(leaderId)}&select=*`) : [];
-        const leaderProfile = (!leaderProfRows?.error && leaderProfRows[0]) ? leaderProfRows[0] : {};
-        const rulesRows = await sb(`group_form_reviewer_rules?group_form_id=eq.${encodeURIComponent(team.group_form_id)}`);
-        const rules = Array.isArray(rulesRows) ? rulesRows : [];
-        for (const rule of rules) {
-          if (groupFormTeamMatchesRule(team, form, rule, leaderProfile) && await groupFormRuleAppliesToTeacher(rule, actorId)) { authorized = true; break; }
-        }
-      }
+    if (!(await _isAuthorizedForGroupFormTeam(team, actorId, true))) {
+      return NextResponse.json({ result: 'error', message: 'Not authorized for this team.' }, { status: 403 });
     }
-    if (!authorized) return NextResponse.json({ result: 'error', message: 'Not authorized for this team.' }, { status: 403 });
 
     const r = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}`, 'PATCH', {
       is_submitted: false,
@@ -1532,6 +1551,38 @@ export async function POST(req) {
       revision_requested_at: new Date().toISOString(),
       revision_requested_by: actorId,
       updated_at: new Date().toISOString(),
+    });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Approve / Reject a submission (reviewer 'admin' tier, or any Group
+  // Forms admin) ──────────────────────────────────────────────────────────
+  // Deliberately independent of is_submitted/is_locked/revision_comment —
+  // this is the reviewer's own verdict, not a change to the team's editing
+  // state. A team can be approved/rejected and later re-reviewed any number
+  // of times; nothing here freezes or reopens it. status is 'approved' |
+  // 'rejected' | null (null clears back to "not yet reviewed").
+  if (action === 'set_team_review_status') {
+    const { team_id, status, user_id: actorId } = payload;
+    if (!team_id) return NextResponse.json({ result: 'error', message: 'team_id required.' });
+    if (status !== 'approved' && status !== 'rejected' && status !== null) {
+      return NextResponse.json({ result: 'error', message: "status must be 'approved', 'rejected', or null." });
+    }
+    if (!actorId) return NextResponse.json({ result: 'error', message: 'user_id required.' });
+
+    const teamRows = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}`);
+    const team = (!teamRows?.error && teamRows[0]) ? teamRows[0] : null;
+    if (!team) return NextResponse.json({ result: 'error', message: 'Team not found.' });
+
+    if (!(await _isAuthorizedForGroupFormTeam(team, actorId, true))) {
+      return NextResponse.json({ result: 'error', message: 'Not authorized for this team.' }, { status: 403 });
+    }
+
+    const r = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}`, 'PATCH', {
+      review_status: status,
+      review_status_by: status ? actorId : null,
+      review_status_at: status ? new Date().toISOString() : null,
     });
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
     return NextResponse.json({ result: 'success' });
