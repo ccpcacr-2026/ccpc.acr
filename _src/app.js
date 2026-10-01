@@ -816,6 +816,7 @@
     // comes back empty).
     { key: 'group_form_reviews', label: 'Review Submissions', icon: 'clipboard-check', erp: false, action: { type: 'native', fn: 'loadGroupFormReviewView' } },
     { key: 'data', label: 'Data', icon: 'table', erp: false, action: { type: 'native', fn: 'loadAdminDataView' } },
+    { key: 'students', label: 'Students', icon: 'user-round', erp: false, action: { type: 'native', fn: 'loadAdminStudentsView' } },
     { key: 'access', label: 'Access', icon: 'shield-check', erp: false, action: { type: 'native', fn: 'loadAdminAccessView' } },
     { key: 'attendance', label: 'Attendance', icon: 'fingerprint', erp: true, action: { type: 'native', fn: 'loadAdminAttendanceView' } },
     { key: 'exams', label: 'Exams', icon: 'clipboard-list', erp: true, action: { type: 'native', fn: 'loadAdminExamsView' } },
@@ -10243,7 +10244,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // standalone sidebar item, same reasoning as 'fees' above.
   const TAB_ACCESS_LABELS = {
     attendance: 'Attendance', exams: 'Exams', payroll: 'Payroll (incl. Leave)',
-    setup: 'Setup', add_custom_form: '+ Add Custom Form', data: 'Data', access: 'Access',
+    setup: 'Setup', add_custom_form: '+ Add Custom Form', data: 'Data', students: 'Students', access: 'Access',
     history: 'History', photo: 'Photo', notices: 'Notices', import: 'Import',
   };
   const TAB_ACCESS_ROLES = ['Student Portal Admin', 'HR', 'Principal', 'VP', 'Teacher', 'Staff', 'Class Teacher'];
@@ -10271,7 +10272,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div class="space-y-5 pb-10">
         <div>
           <h2 class="text-2xl font-black text-slate-800 tracking-tight">Access</h2>
-          <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Module access, field categories, viewer grants, student search</p>
+          <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Module access, field categories, viewer grants</p>
         </div>
 
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6" id="tabAccessCard">
@@ -10344,36 +10345,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
 
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
-          <p class="font-black text-slate-800 text-sm flex items-center gap-2 mb-3"><i data-lucide="search" class="h-4 w-4 text-blue-600"></i>Search &amp; Update Students</p>
-          <div class="grid grid-cols-2 md:grid-cols-6 gap-2 mb-3">
-            <input type="search" id="stuSearchId" placeholder="Student ID" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-stu-search-id">
-            <input type="search" id="stuSearchClass" placeholder="Class" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-stu-search-class">
-            <input type="search" id="stuSearchSection" placeholder="Section" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-stu-search-section">
-            <input type="search" id="stuSearchRoll" placeholder="Roll" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-stu-search-roll">
-            <input type="search" id="stuSearchGroup" placeholder="Group" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-stu-search-group">
-            <button onclick="searchStudentsAdmin()" class="px-3 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center justify-center gap-1"><i data-lucide="search" class="h-3.5 w-3.5"></i>Search</button>
-          </div>
-          <div class="flex items-center justify-between mb-2">
-            <label class="flex items-center gap-2 text-xs font-bold text-slate-500 cursor-pointer">
-              <input type="checkbox" id="stuSearchSelectAll" onchange="toggleAllStudentRows(this.checked)">Select all
-            </label>
-            <div class="flex items-center gap-2">
-              <button onclick="openStudentFormModal(null)" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="user-plus" class="h-3.5 w-3.5"></i>Add Student</button>
-              <button id="stuBulkEditBtn" onclick="openBulkEditModal()" disabled
-                class="px-4 py-2 border border-slate-200 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 disabled:opacity-40 transition-all">
-                Bulk Edit Selected (<span id="stuSelectedCount">0</span>)
-              </button>
-            </div>
-          </div>
-          <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:360px">
-            <table class="w-full text-left border-collapse text-xs">
-              <thead class="bg-slate-50"><tr id="stuSearchHeaders"></tr></thead>
-              <tbody id="stuSearchBody"><tr><td class="p-3 text-slate-400 font-bold">Search above to see results.</td></tr></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
           <p class="font-black text-slate-800 text-sm flex items-center gap-2 mb-1"><i data-lucide="download" class="h-4 w-4 text-blue-600"></i>Category Download</p>
           <p class="text-xs text-slate-400 font-bold mt-1 mb-4">The downloaded CSV always includes the selected category's own columns — add more below, and optionally narrow it with the same search filters above or by specific column values.</p>
           <div class="grid md:grid-cols-2 gap-2 mb-3">
@@ -10407,6 +10378,65 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
         </div>
       </div>
+    `;
+    lucide.createIcons();
+
+    loadAdminTabVisibility();
+    loadFieldCategories();
+    loadStaffAccessPanel();
+  }
+
+  // ── Students (split out from Access so it can be granted/restricted
+  // independently — search, add, edit, bulk-edit). Category Download stays
+  // in Access since it's really a Field-Categories feature (permission-
+  // scoped CSV export), not a student-editing one.
+  function loadAdminStudentsView() {
+    if (!(window._adminTabAccess || []).includes('students')) {
+      showToast('Not available in current role', 'error');
+      return;
+    }
+    _setViewHash('student_portal');
+    setActiveNavLink('nav-erp-students');
+    setContentHeader('Students', 'user-round');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    container.innerHTML = `
+      <div class="space-y-5 pb-10">
+        <div>
+          <h2 class="text-2xl font-black text-slate-800 tracking-tight">Students</h2>
+          <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Search, add, edit and bulk-edit student records</p>
+        </div>
+
+        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+          <p class="font-black text-slate-800 text-sm flex items-center gap-2 mb-3"><i data-lucide="search" class="h-4 w-4 text-blue-600"></i>Search &amp; Update Students</p>
+          <div class="grid grid-cols-2 md:grid-cols-6 gap-2 mb-3">
+            <input type="search" id="stuSearchId" placeholder="Student ID" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-stu-search-id">
+            <input type="search" id="stuSearchClass" placeholder="Class" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-stu-search-class">
+            <input type="search" id="stuSearchSection" placeholder="Section" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-stu-search-section">
+            <input type="search" id="stuSearchRoll" placeholder="Roll" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-stu-search-roll">
+            <input type="search" id="stuSearchGroup" placeholder="Group" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-stu-search-group">
+            <button onclick="searchStudentsAdmin()" class="px-3 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center justify-center gap-1"><i data-lucide="search" class="h-3.5 w-3.5"></i>Search</button>
+          </div>
+          <div class="flex items-center justify-between mb-2">
+            <label class="flex items-center gap-2 text-xs font-bold text-slate-500 cursor-pointer">
+              <input type="checkbox" id="stuSearchSelectAll" onchange="toggleAllStudentRows(this.checked)">Select all
+            </label>
+            <div class="flex items-center gap-2">
+              <button onclick="openStudentFormModal(null)" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="user-plus" class="h-3.5 w-3.5"></i>Add Student</button>
+              <button id="stuBulkEditBtn" onclick="openBulkEditModal()" disabled
+                class="px-4 py-2 border border-slate-200 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 disabled:opacity-40 transition-all">
+                Bulk Edit Selected (<span id="stuSelectedCount">0</span>)
+              </button>
+            </div>
+          </div>
+          <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:360px">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead class="bg-slate-50"><tr id="stuSearchHeaders"></tr></thead>
+              <tbody id="stuSearchBody"><tr><td class="p-3 text-slate-400 font-bold">Search above to see results.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
 
       <div id="bulkEditModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
         <div class="bg-white rounded-2xl w-full max-w-md" style="max-height:85vh;display:flex;flex-direction:column">
@@ -10423,10 +10453,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
     `;
     lucide.createIcons();
-
-    loadAdminTabVisibility();
-    loadFieldCategories();
-    loadStaffAccessPanel();
   }
 
   // ── Class Teacher data (student.class_teacher_assignments) ──────────────────

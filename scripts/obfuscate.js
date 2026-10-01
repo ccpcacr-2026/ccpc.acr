@@ -211,7 +211,7 @@ const RESERVED = [
   // class-wide tab data table (My Class)
   'openClassTabTable','closeClassTabTable',
   // native admin-console port (retiring the student-admin.html iframe)
-  'toggleAdminSubnav','loadStudentPortalView','loadAdminAccessView',
+  'toggleAdminSubnav','loadStudentPortalView','loadAdminAccessView','loadAdminStudentsView',
   'saveAdminTabVisibility','openFieldCategoryEditor','saveFieldCategoryFromEditor',
   'deleteFieldCategoryConfirm',
   // Unified Staff Access & Roles panel (Field Category + Class-Wide + Class

@@ -609,7 +609,14 @@ const ADMIN_TAB_ACTIONS = {
   // class_assignment) lives here too, not its own tab key — it's part of
   // the same "Staff Access & Roles" unified panel as the field-category and
   // class-wide grants, sharing one staff picker in the frontend.
-  access: new Set(['get_field_categories', 'get_student_data_headers', 'save_field_category', 'delete_field_category', 'get_staff_directory', 'get_field_access_grants', 'get_scope_column_values', 'set_field_access_grants', 'get_class_sections', 'get_class_access_grants', 'set_class_access_grants', 'search_students', 'bulk_update_students', 'create_student', 'preview_rename_student_id_impact', 'download_students_by_category', 'get_class_teacher_assignments', 'save_teacher_class_assignment']),
+  access: new Set(['get_field_categories', 'get_student_data_headers', 'save_field_category', 'delete_field_category', 'get_staff_directory', 'get_field_access_grants', 'get_scope_column_values', 'set_field_access_grants', 'get_class_sections', 'get_class_access_grants', 'set_class_access_grants', 'download_students_by_category', 'get_class_teacher_assignments', 'save_teacher_class_assignment']),
+  // Split out of Access so it can be granted/restricted independently —
+  // e.g. a role that should be able to search/add/edit students but not
+  // touch field-category grants, class-wide access, or class-teacher
+  // assignments. get_student_data_headers stays listed under Access too
+  // (shared utility read, same precedent as get_staff_directory elsewhere
+  // in this file — only needs ONE of its tabs to clear).
+  students: new Set(['get_student_data_headers', 'search_students', 'bulk_update_students', 'create_student', 'preview_rename_student_id_impact']),
   history: new Set(['search_edit_history']),
   photo: new Set(['get_student_basic', 'upload_photo']),
   notices: new Set(['get_notices_admin', 'save_notice', 'delete_notice', 'reorder_notices']),
@@ -651,6 +658,7 @@ const ADMIN_TAB_DEFAULTS = {
   add_custom_form: ['Admin', 'Student Portal Admin'],
   group_forms: ['Admin', 'Student Portal Admin'],
   data: ['Admin', 'Student Portal Admin'],
+  students: ['Admin', 'Student Portal Admin'],
   access: ['Admin', 'Student Portal Admin'],
   history: ['Admin', 'Student Portal Admin'],
   photo: ['Admin', 'Student Portal Admin'],
