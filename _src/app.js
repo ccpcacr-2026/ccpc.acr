@@ -29252,6 +29252,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     win.document.close();
     setTimeout(() => { try { win.focus(); win.print(); } catch (e) {} }, 300);
   }
+  // No onerror fallback here on purpose — a failed image load in a one-off
+  // print document isn't worth the attribute-quoting gymnastics; we just
+  // decide image-vs-initials up front from whether a photo URL resolves.
+  function _gfPrintAvatarHtml(profile, px) {
+    const src = _photoUrl(profile && profile.photo);
+    if (src) return `<img src="${src}" style="width:${px}px;height:${px}px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1px solid #e2e8f0">`;
+    const initials = _escHtml(((profile && profile.student_name) || '?').trim().charAt(0).toUpperCase());
+    return `<div style="width:${px}px;height:${px}px;border-radius:50%;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:${Math.round(px * 0.42)}px;flex-shrink:0">${initials}</div>`;
+  }
+  function _gfStatusBadgeHtml(status) {
+    const label = status === 'approved' ? 'Approved' : status === 'rejected' ? 'Rejected' : 'Pending';
+    const bg = status === 'approved' ? '#dcfce7' : status === 'rejected' ? '#fee2e2' : '#f1f5f9';
+    const fg = status === 'approved' ? '#15803d' : status === 'rejected' ? '#b91c1c' : '#64748b';
+    return `<span style="display:inline-block;padding:2px 9px;border-radius:10px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:0.03em;background:${bg};color:${fg}">${label}</span>`;
+  }
+  function _gfPillHtml(text) {
+    return text ? `<span style="display:inline-block;background:#eff6ff;color:#1d4ed8;padding:2px 8px;border-radius:9px;font-size:9.5px;font-weight:700">${_escHtml(text)}</span>` : '—';
+  }
   // Finds a field (incl. show_if siblings sharing the same display name)
   // whose label matches `pattern` and has a non-empty answer — same
   // sibling-merge idea the reference-number builder already relies on,
@@ -29277,27 +29295,38 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!pairs.length) return '';
     return `<div class="sumgroup"><h4>${_escHtml(title)}</h4>${pairs.map(([k, v]) => `<div class="sumrow"><span>${_escHtml(k)}</span><b>${v}</b></div>`).join('')}</div>`;
   }
-  function _gfPrintableTeams() {
-    const teams = _gfRosterFilteredSorted();
+  // Shared by both the tab-admin roster (_gfRosterTeams/_gfRosterForm) and
+  // the reviewer tab (_gfReviewTeams/_gfReviewForm) — each passes its own
+  // already-filtered teams + form, so one set of layout builders serves both
+  // screens instead of duplicating the table/token/sticker markup twice.
+  function _gfWarnIfNoTeams(teams) {
     if (!teams.length) showToast('No teams to print yet', 'error');
     return teams;
   }
-  function printGroupFormProjectList() {
-    const teams = _gfPrintableTeams();
+  function printGroupFormProjectList() { _gfBuildProjectList(_gfWarnIfNoTeams(_gfRosterFilteredSorted()), _gfRosterForm); }
+  function _printGfReviewProjectList() { _gfBuildProjectList(_gfWarnIfNoTeams(_gfReviewFilteredTeams()), _gfReviewForm); }
+  function printGroupFormTokenList() { _gfBuildTokenList(_gfWarnIfNoTeams(_gfRosterFilteredSorted()), _gfRosterForm); }
+  function _printGfReviewTokenList() { _gfBuildTokenList(_gfWarnIfNoTeams(_gfReviewFilteredTeams()), _gfReviewForm); }
+  function printGroupFormTableStickers() { _gfBuildTableStickers(_gfWarnIfNoTeams(_gfRosterFilteredSorted()), _gfRosterForm); }
+  function _printGfReviewTableStickers() { _gfBuildTableStickers(_gfWarnIfNoTeams(_gfReviewFilteredTeams()), _gfReviewForm); }
+  function _gfBuildProjectList(teams, form) {
     if (!teams.length) return;
-    const form = _gfRosterForm;
     const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''})` : 'Unknown';
     const rows = teams.map(t => {
       const leader = t.members.find(m => m.role === 'leader');
-      const others = t.members.filter(m => m.role !== 'leader').map(m => nameOf(m.profile)).join(', ');
+      const others = t.members.filter(m => m.role !== 'leader');
+      const leaderCell = `<div style="display:flex;align-items:center;gap:6px">${_gfPrintAvatarHtml(leader?.profile, 22)}<span>${_escHtml(leader ? nameOf(leader.profile) : t.leader_student_id)}</span></div>`;
+      const othersCell = others.length
+        ? others.map(m => `<div style="display:flex;align-items:center;gap:5px;margin-bottom:2px"><span style="transform:scale(0.8);transform-origin:left center;display:inline-flex">${_gfPrintAvatarHtml(m.profile, 16)}</span><span>${_escHtml(nameOf(m.profile))}</span></div>`).join('')
+        : '—';
       return `<tr>
         <td>${_escHtml(t.reference_number || '—')}</td>
         <td>${_escHtml(_gfProjectTitle(t, form))}</td>
-        <td>${_escHtml(_gfAnswerByName(t, form, /^category$/i) || '—')}</td>
+        <td>${_gfPillHtml(_gfAnswerByName(t, form, /^category$/i))}</td>
         <td>${_escHtml((t.group_data || {}).group || '—')}</td>
-        <td>${_escHtml(leader ? nameOf(leader.profile) : t.leader_student_id)}</td>
-        <td>${_escHtml(others || '—')}</td>
-        <td>${t.review_status ? _escHtml(t.review_status[0].toUpperCase() + t.review_status.slice(1)) : 'Pending'}</td>
+        <td>${leaderCell}</td>
+        <td>${othersCell}</td>
+        <td>${_gfStatusBadgeHtml(t.review_status)}</td>
       </tr>`;
     }).join('');
     const byCategory = _gfCountBy(teams, t => _gfAnswerByName(t, form, /^category$/i));
@@ -29323,9 +29352,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const css = `
       @page { size: A4 landscape; margin: 12mm; }
       table { width: 100%; border-collapse: collapse; font-size: 11px; }
-      th, td { border: 1px solid #d1d5db; padding: 5px 7px; text-align: left; vertical-align: top; }
+      th, td { border: 1px solid #e2e8f0; padding: 6px 8px; text-align: left; vertical-align: middle; }
       thead { display: table-header-group; }
-      th { background: #f3f4f6; text-transform: uppercase; font-size: 9px; letter-spacing: 0.04em; color: #374151; }
+      th { background: #1e293b; color: #fff; text-transform: uppercase; font-size: 9px; letter-spacing: 0.04em; }
+      tbody tr:nth-child(even) { background: #f8fafc; }
       tr { page-break-inside: avoid; }
       .summary { display: flex; gap: 10px; align-items: stretch; border: 1px solid #d1d5db; border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; page-break-inside: avoid; }
       .sumtotal { display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 30px; font-weight: 800; border-right: 1px solid #e5e7eb; padding-right: 14px; min-width: 90px; }
@@ -29336,43 +29366,44 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       .sumrow span { color: #374151; }`;
     _gfOpenPrintWindow(`${form?.title || 'Project List'} — Project List`, body, css);
   }
-  function printGroupFormTokenList() {
-    const teams = _gfPrintableTeams();
+  function _gfBuildTokenList(teams, form) {
     if (!teams.length) return;
-    const form = _gfRosterForm;
     const nameOf = p => p ? p.student_name : '';
+    const accent = t => t.review_status === 'approved' ? '#22c55e' : t.review_status === 'rejected' ? '#ef4444' : '#94a3b8';
     const tokens = teams.map(t => {
       const leader = t.members.find(m => m.role === 'leader');
-      return `<div class="token">
-        <div class="ref">${_escHtml(t.reference_number || '#' + t.id)}</div>
-        <div class="proj">${_escHtml(_gfProjectTitle(t, form))}</div>
-        <div class="leader">${_escHtml(leader ? nameOf(leader.profile) : t.leader_student_id)}</div>
+      return `<div class="token" style="border-left-color:${accent(t)}">
+        ${_gfPrintAvatarHtml(leader?.profile, 36)}
+        <div class="info">
+          <div class="ref">${_escHtml(t.reference_number || '#' + t.id)}</div>
+          <div class="proj">${_escHtml(_gfProjectTitle(t, form))}</div>
+          <div class="leader">${_escHtml(leader ? nameOf(leader.profile) : t.leader_student_id)}</div>
+        </div>
       </div>`;
     }).join('');
     const css = `
       @page { size: A4 portrait; margin: 10mm; }
       .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4mm; }
-      .token { border: 1.5px dashed #9ca3af; border-radius: 6px; padding: 8px 10px; text-align: center; break-inside: avoid; min-height: 28mm; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
-      .token .ref { font-size: 20px; font-weight: 800; letter-spacing: 0.03em; }
-      .token .proj { font-size: 10px; color: #374151; line-height: 1.25; max-height: 2.5em; overflow: hidden; }
-      .token .leader { font-size: 9px; color: #6b7280; font-weight: 700; }`;
+      .token { display: flex; align-items: center; gap: 8px; border: 1.5px dashed #cbd5e1; border-left: 4px solid #94a3b8; border-radius: 8px; padding: 7px 9px; break-inside: avoid; min-height: 23mm; background: #fff; }
+      .token .info { flex: 1; min-width: 0; }
+      .token .ref { font-size: 16px; font-weight: 800; letter-spacing: 0.03em; }
+      .token .proj { font-size: 9px; color: #374151; line-height: 1.2; max-height: 2.2em; overflow: hidden; margin-top: 1px; }
+      .token .leader { font-size: 8px; color: #6b7280; font-weight: 700; margin-top: 2px; }`;
     _gfOpenPrintWindow(`${form?.title || 'Tokens'} — Token List`, `<div class="grid">${tokens}</div>`, css);
   }
-  function printGroupFormTableStickers() {
-    const teams = _gfPrintableTeams();
+  function _gfBuildTableStickers(teams, form) {
     if (!teams.length) return;
-    const form = _gfRosterForm;
     const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''})` : 'Unknown';
     const stickerHtml = t => {
-      const leader = t.members.find(m => m.role === 'leader');
-      const others = t.members.filter(m => m.role !== 'leader').map(m => nameOf(m.profile)).join(', ');
       const category = _gfAnswerByName(t, form, /^category$/i);
       const group = (t.group_data || {}).group;
+      const team = t.members.map(m => `<div class="member">${_gfPrintAvatarHtml(m.profile, 22)}<span>${_escHtml(nameOf(m.profile))}</span></div>`).join('');
       return `<div class="sticker">
+        <div class="avatars">${t.members.slice(0, 2).map(m => _gfPrintAvatarHtml(m.profile, 76)).join('')}</div>
         <div class="ref">${_escHtml(t.reference_number || '#' + t.id)}</div>
         <div class="proj">${_escHtml(_gfProjectTitle(t, form))}</div>
-        <div class="meta">${[category, group].filter(Boolean).map(_escHtml).join(' · ')}</div>
-        <div class="members"><strong>${_escHtml(leader ? nameOf(leader.profile) : t.leader_student_id)}</strong>${others ? ' &amp; ' + _escHtml(others) : ''}</div>
+        <div class="badges">${[category, group].filter(Boolean).map(v => `<span class="badge">${_escHtml(v)}</span>`).join('')}</div>
+        <div class="team">${team}</div>
       </div>`;
     };
     const pages = [];
@@ -29385,11 +29416,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const css = `
       @page { size: A4 portrait; margin: 10mm; }
       .page { height: 277mm; display: flex; flex-direction: column; }
-      .sticker { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 10px; padding: 10px; }
-      .sticker .ref { font-size: 56px; font-weight: 800; letter-spacing: 0.04em; }
-      .sticker .proj { font-size: 22px; font-weight: 700; max-width: 85%; }
-      .sticker .meta { font-size: 14px; color: #4b5563; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; }
-      .sticker .members { font-size: 13px; color: #374151; }
+      .sticker { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 8px; padding: 10px; }
+      .avatars { display: flex; gap: -10px; }
+      .avatars img, .avatars div { margin-left: -10px; border: 2px solid #fff; }
+      .avatars :first-child { margin-left: 0; }
+      .sticker .ref { font-size: 50px; font-weight: 800; letter-spacing: 0.04em; margin-top: 2px; }
+      .sticker .proj { font-size: 20px; font-weight: 700; max-width: 85%; }
+      .badges { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+      .badge { background: #eff6ff; color: #1d4ed8; padding: 3px 11px; border-radius: 12px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; }
+      .team { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-top: 2px; max-width: 90%; }
+      .member { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: #374151; }
       .cut { border-top: 2px dashed #9ca3af; margin: 0 6mm; }`;
     _gfOpenPrintWindow(`${form?.title || 'Table Stickers'} — Table Stickers`, body, css);
   }
@@ -29620,7 +29656,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <option value="pending">Not yet reviewed</option>
         </select>
         <button onclick="_exportGfReviewRoster()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="download" class="h-3 w-3"></i>Download CSV</button>
-        <button onclick="_printGfReviewRoster()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="printer" class="h-3 w-3"></i>Print</button>
+        <button onclick="_printGfReviewRoster()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="printer" class="h-3 w-3"></i>Print Roster</button>
+        <button onclick="_printGfReviewProjectList()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="list-ordered" class="h-3 w-3"></i>Project List</button>
+        <button onclick="_printGfReviewTokenList()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="ticket" class="h-3 w-3"></i>Token List</button>
+        <button onclick="_printGfReviewTableStickers()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="tag" class="h-3 w-3"></i>Table Sticker</button>
       `;
       _renderGfReviewRoster(_gfReviewFilteredTeams(), _gfReviewForm);
       lucide.createIcons();
