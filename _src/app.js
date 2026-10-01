@@ -28639,6 +28639,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
         </div>
 
+        <div class="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-[10px] font-black text-slate-400 uppercase">Reference Number</span>
+            <label class="flex items-center gap-1.5 text-[10px] font-black uppercase text-slate-500 cursor-pointer"><input type="checkbox" id="gfRefNumberEnabled" onchange="gfOnRefNumberToggle()">Enabled</label>
+          </div>
+          <p class="text-[11px] text-slate-400 font-bold mt-1 mb-3">Give every team a short code, assigned automatically the moment it's created — e.g. a Category + House + Group code followed by a running number. Each part below becomes one segment, in the order listed.</p>
+          <div id="gfRefNumberWrap" class="hidden">
+            <div id="gfRefNumberPartsList" class="flex flex-col gap-2"></div>
+            <button type="button" onclick="gfAddRefNumberPart()" class="mt-2 px-3 py-1.5 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100">+ Add Part</button>
+            <div class="flex items-center gap-2 mt-3">
+              <span class="text-[10px] font-black text-slate-500 uppercase">Running number digits</span>
+              <input type="number" id="gfRefNumberDigits" min="1" max="6" value="3" class="w-16 px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs">
+              <span class="text-[11px] text-slate-400 font-bold">e.g. 3 → 007</span>
+            </div>
+          </div>
+        </div>
+
         <div class="grid grid-cols-2 gap-2 mt-4">
           <button onclick="addTabRow('field')" class="px-4 py-2.5 border border-blue-200 text-blue-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-blue-50 transition-all">+ New Input</button>
           <button onclick="addTabRow('label')" class="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">+ New Header</button>
@@ -28912,6 +28929,100 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
   }
 
+  // ── Reference Number builder ─────────────────────────────────────────────
+  // Same "source" vocabulary as the reviewer-rule dimension picker ('house' |
+  // 'group' | 'answer:<data_key>'), but reading live from THIS editor's own
+  // in-progress state (the band list/field rows on screen right now) rather
+  // than a saved form, since an admin should be able to configure this before
+  // ever saving. Each part maps one source's possible values to a short code;
+  // the codes concatenate in order, then a running number is appended —
+  // actually assigned server-side at team creation (create_group), never here.
+  function gfOnRefNumberToggle() {
+    const on = document.getElementById('gfRefNumberEnabled').checked;
+    document.getElementById('gfRefNumberWrap').classList.toggle('hidden', !on);
+    if (on && !document.getElementById('gfRefNumberPartsList').children.length) {
+      _gfEnsureGroupFieldValues('house').then(() => gfAddRefNumberPart());
+    }
+  }
+  function _gfRefNumberAnswerFieldOptions() {
+    return serializeFieldsFromContainer('gfFieldsList').fields.filter(f => (f.type === 'choose' || f.type === 'checkbox') && f.data_key);
+  }
+  function _gfRefNumberValueOptions(source) {
+    if (source === 'house') return _gfGroupFieldValues.house || [];
+    if (source === 'group') return gfReadBands().map(b => b.name).filter(Boolean);
+    if (source && source.startsWith('answer:')) {
+      const key = source.slice(7);
+      const f = serializeFieldsFromContainer('gfFieldsList').fields.find(fd => fd.data_key === key);
+      return (f && f.options) || [];
+    }
+    return [];
+  }
+  function _gfRefNumberPartHtml() {
+    const answerFields = _gfRefNumberAnswerFieldOptions();
+    return `<div class="gf-refnum-part flex items-start gap-2 bg-white p-2.5 rounded-xl border border-slate-200">
+      <select class="gf-refnum-source px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs shrink-0" onchange="_gfOnRefNumberSourceChange(this)">
+        <option value="house">House</option>
+        <option value="group">Group (band)</option>
+        ${answerFields.map(f => `<option value="answer:${f.data_key}">Answer: ${f.name || f.data_key}</option>`).join('')}
+      </select>
+      <div class="gf-refnum-map flex-1 flex flex-wrap gap-1.5"></div>
+      <button type="button" onclick="this.closest('.gf-refnum-part').remove()" class="w-7 h-7 flex items-center justify-center rounded-lg text-red-400 hover:bg-red-50 shrink-0"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+    </div>`;
+  }
+  function _gfPopulateRefNumberMap(row, savedMap) {
+    const source = row.querySelector('.gf-refnum-source').value;
+    const mapWrap = row.querySelector('.gf-refnum-map');
+    const values = _gfRefNumberValueOptions(source);
+    const m = savedMap || {};
+    mapWrap.innerHTML = values.length
+      ? values.map(v => `<div class="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1"><span class="text-[11px] font-bold text-slate-600">${v}</span><input type="text" class="gf-refnum-code w-10 px-1 py-0.5 border border-slate-200 rounded text-[11px] font-black text-center uppercase" data-value="${v}" maxlength="4" value="${m[v] || ''}" placeholder="code"></div>`).join('')
+      : `<span class="text-[11px] text-slate-400 font-bold italic">No values yet — add one first (e.g. a band, or options on that field).</span>`;
+    lucide.createIcons();
+  }
+  function _gfOnRefNumberSourceChange(sel) {
+    const row = sel.closest('.gf-refnum-part');
+    const source = sel.value;
+    const ensureValues = source === 'house' ? _gfEnsureGroupFieldValues('house') : Promise.resolve();
+    ensureValues.then(() => _gfPopulateRefNumberMap(row, null));
+  }
+  function gfAddRefNumberPart(part) {
+    const list = document.getElementById('gfRefNumberPartsList');
+    if (!list) return;
+    const wrap = document.createElement('div');
+    wrap.innerHTML = _gfRefNumberPartHtml();
+    const row = wrap.firstElementChild;
+    list.appendChild(row);
+    const source = (part && part.source) || 'house';
+    row.querySelector('.gf-refnum-source').value = source;
+    const ensureValues = source === 'house' ? _gfEnsureGroupFieldValues('house') : Promise.resolve();
+    ensureValues.then(() => _gfPopulateRefNumberMap(row, part && part.map));
+    lucide.createIcons();
+  }
+  function gfReadRefNumberConfig() {
+    const enabled = document.getElementById('gfRefNumberEnabled').checked;
+    const parts = Array.from(document.querySelectorAll('#gfRefNumberPartsList .gf-refnum-part')).map(row => {
+      const map = {};
+      row.querySelectorAll('.gf-refnum-code').forEach(inp => { if (inp.value.trim()) map[inp.dataset.value] = inp.value.trim(); });
+      return { source: row.querySelector('.gf-refnum-source').value, map };
+    });
+    const digits = Math.max(1, Math.min(6, Number(document.getElementById('gfRefNumberDigits').value) || 3));
+    return JSON.stringify({ enabled, parts, seq_digits: digits });
+  }
+  // Called from editGroupForm, chained after both bands (gfLoadEligibilityForm)
+  // and fields (the addTabRow loop) are in the DOM — a saved part's source
+  // being 'group' or 'answer:<key>' needs both already populated to resolve
+  // its value list and show the saved codes next to the right values.
+  function gfLoadRefNumberConfig(json) {
+    let cfg = {}; try { cfg = JSON.parse(json || '{}') || {}; } catch (e) {}
+    document.getElementById('gfRefNumberEnabled').checked = !!cfg.enabled;
+    document.getElementById('gfRefNumberWrap').classList.toggle('hidden', !cfg.enabled);
+    document.getElementById('gfRefNumberDigits').value = cfg.seq_digits || 3;
+    document.getElementById('gfRefNumberPartsList').innerHTML = '';
+    return _gfEnsureGroupFieldValues('house').then(() => {
+      (Array.isArray(cfg.parts) ? cfg.parts : []).forEach(p => gfAddRefNumberPart(p));
+    });
+  }
+
   function cancelGroupFormEdit() {
     document.getElementById('gfEditingId').value = '';
     document.getElementById('gfTitle').value = '';
@@ -28961,6 +29072,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       try { fields = JSON.parse(f.fields_json || '[]'); } catch (e) {}
       fields.forEach(fld => addTabRow(fld.type === 'group_label' ? 'label' : 'field', fld));
       refreshAllShowIfControllers();
+      gfLoadRefNumberConfig(f.reference_number_json);
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -28984,6 +29096,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       fields_json: JSON.stringify(fields),
       eligibility_json: gfSerializeEligibility(),
       condition_json: JSON.stringify({ logic: 'AND', rules: readConditionRules('gfConditionsList') }),
+      reference_number_json: gfReadRefNumberConfig(),
       is_enabled: document.getElementById('gfIsEnabled').checked,
       accepting_new: document.getElementById('gfAcceptingNew').checked,
     };
@@ -29028,13 +29141,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     try { fields = JSON.parse(_gfRosterForm?.fields_json || '[]'); } catch (e) {}
     const answerFields = fields.filter(f => f.type !== 'group_label' && f.type !== 'profile_picture');
     const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''})` : 'Unknown';
-    const headers = ['Team ID', 'Leader', 'Leader Student ID', 'Status', 'Submitted', 'Submitted At', 'Locked', 'Members (excl. leader)', 'Pending Invites', ...answerFields.map(f => f.name || f.data_key)];
+    const headers = ['Reference No.', 'Team ID', 'Leader', 'Leader Student ID', 'Status', 'Submitted', 'Submitted At', 'Locked', 'Members (excl. leader)', 'Pending Invites', ...answerFields.map(f => f.name || f.data_key)];
     const rows = _gfRosterTeams.map(t => {
       const leader = t.members.find(m => m.role === 'leader');
       const others = t.members.filter(m => m.role !== 'leader').map(m => `${nameOf(m.profile)} [${m.student_id}]`).join('; ');
       const pending = t.pending_invites.map(inv => `${nameOf(inv.profile)} [${inv.invited_student_id}]`).join('; ');
       const answers = answerFields.map(f => (t.group_data || {})[f.data_key] ?? '');
-      return [t.id, leader ? nameOf(leader.profile) : t.leader_student_id, t.leader_student_id, t.status, t.is_submitted ? 'Yes' : 'No', t.submitted_at ? new Date(t.submitted_at).toLocaleString() : '', t.is_locked ? 'Yes' : 'No', others, pending, ...answers];
+      return [t.reference_number || '', t.id, leader ? nameOf(leader.profile) : t.leader_student_id, t.leader_student_id, t.status, t.is_submitted ? 'Yes' : 'No', t.submitted_at ? new Date(t.submitted_at).toLocaleString() : '', t.is_locked ? 'Yes' : 'No', others, pending, ...answers];
     });
     const csv = [headers, ...rows].map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
     const a = document.createElement('a');
@@ -29281,6 +29394,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div class="flex justify-between items-start flex-wrap gap-2">
           <div>
             <strong class="text-sm font-black text-slate-800">${nameOf(leader?.profile) || t.leader_student_id}'s team</strong>
+            ${t.reference_number ? ` <span class="text-[9px] font-black text-white bg-slate-800 rounded-full px-2 py-0.5 tracking-wide">${_escHtml(t.reference_number)}</span>` : ''}
             ${t.status === 'disbanded' ? ' <span class="text-[9px] font-black text-white bg-slate-400 rounded-full px-2 py-0.5">Disbanded</span>' : ''}
             ${t.is_submitted ? ' <span class="text-[9px] font-black text-white bg-emerald-600 rounded-full px-2 py-0.5">Submitted</span>' : ' <span class="text-[9px] font-black text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">Saved</span>'}
             ${t.is_locked ? ' <span class="text-[9px] font-black text-white bg-slate-800 rounded-full px-2 py-0.5">Locked</span>' : ''}
@@ -29313,13 +29427,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     try { fields = JSON.parse(_gfReviewForm?.fields_json || '[]'); } catch (e) {}
     const answerFields = fields.filter(f => f.type !== 'group_label' && f.type !== 'profile_picture');
     const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''})` : 'Unknown';
-    const headers = ['Team ID', 'Leader', 'Leader Student ID', 'Status', 'Submitted', 'Submitted At', 'Members (excl. leader)', 'Pending Invites', ...answerFields.map(f => f.name || f.data_key)];
+    const headers = ['Reference No.', 'Team ID', 'Leader', 'Leader Student ID', 'Status', 'Submitted', 'Submitted At', 'Members (excl. leader)', 'Pending Invites', ...answerFields.map(f => f.name || f.data_key)];
     const rows = _gfReviewTeams.map(t => {
       const leader = t.members.find(m => m.role === 'leader');
       const others = t.members.filter(m => m.role !== 'leader').map(m => `${nameOf(m.profile)} [${m.student_id}]`).join('; ');
       const pending = t.pending_invites.map(inv => `${nameOf(inv.profile)} [${inv.invited_student_id}]`).join('; ');
       const answers = answerFields.map(f => (t.group_data || {})[f.data_key] ?? '');
-      return [t.id, leader ? nameOf(leader.profile) : t.leader_student_id, t.leader_student_id, t.status, t.is_submitted ? 'Yes' : 'No', t.submitted_at ? new Date(t.submitted_at).toLocaleString() : '', others, pending, ...answers];
+      return [t.reference_number || '', t.id, leader ? nameOf(leader.profile) : t.leader_student_id, t.leader_student_id, t.status, t.is_submitted ? 'Yes' : 'No', t.submitted_at ? new Date(t.submitted_at).toLocaleString() : '', others, pending, ...answers];
     });
     const csv = [headers, ...rows].map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
     const a = document.createElement('a');
@@ -29375,6 +29489,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div class="flex justify-between items-start flex-wrap gap-2">
           <div>
             <strong class="text-sm font-black text-slate-800">${leaderNameOf(t)}'s team</strong>
+            ${t.reference_number ? ` <span class="text-[9px] font-black text-white bg-slate-800 rounded-full px-2 py-0.5 tracking-wide">${_escHtml(t.reference_number)}</span>` : ''}
             ${t.status === 'disbanded' ? ' <span class="text-[9px] font-black text-white bg-slate-400 rounded-full px-2 py-0.5">Disbanded</span>' : ''}
             ${t.is_submitted ? ' <span class="text-[9px] font-black text-white bg-emerald-600 rounded-full px-2 py-0.5">Submitted</span>' : ' <span class="text-[9px] font-black text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">Saved</span>'}
             ${t.is_locked ? ' <span class="text-[9px] font-black text-white bg-slate-800 rounded-full px-2 py-0.5">Locked</span>' : ''}
