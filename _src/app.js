@@ -29186,6 +29186,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _gfRosterFormId = groupFormId;
     const form = _allGroupForms.find(f => f.id === groupFormId);
     _gfRosterForm = form || null;
+    _gfEnsureStaffDirectory();
     document.getElementById('adminGroupRosterTitle').textContent = 'Teams — ' + (form ? form.title : '');
     document.getElementById('adminGroupRoster').classList.remove('hidden');
     document.getElementById('adminGroupRosterList').innerHTML = '<p class="text-xs text-slate-400 font-bold">Loading…</p>';
@@ -29241,6 +29242,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _gfEnsureStaffDirectory() {
     if (_gfStaffDirectory.length) return Promise.resolve();
     return _adminFetch('get_staff_directory', {}).then(res => { _gfStaffDirectory = Array.isArray(res) ? res : []; }).catch(() => {});
+  }
+  // revision_requested_by_name is written directly at request time (the
+  // backend resolves it then, since it has the teacher's identity right
+  // there) — this is only a fallback for rows requested before that column
+  // existed, resolving the raw teacher_id against whatever's already cached.
+  function _gfRequesterLabel(t) {
+    if (t.revision_requested_by_name) return t.revision_requested_by_name;
+    const staff = _gfStaffDirectory.find(s => s.user_id === t.revision_requested_by || s.teacher_id === t.revision_requested_by);
+    return (staff && staff.full_name) || t.revision_requested_by || '';
   }
   // Value options for a rule's chosen dimension — reuses whatever's already
   // cached for the "Group by" band editor (class/house), the current form's
@@ -29426,6 +29436,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   function _loadGfReviewTab(idx) {
     _gfReviewActiveIdx = idx;
+    _gfEnsureStaffDirectory();
     _renderGfReviewTabBar();
     const tab = _gfReviewTabs[idx];
     const myId = window.APP_USER && window.APP_USER.user_id;
@@ -29503,7 +29514,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           ${t.members.map(m => `<button type="button" onclick='gfShowStudentInfo(${JSON.stringify(m.student_id)})' class="flex items-center gap-1.5 pl-1 pr-3 py-1 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-700 hover:bg-slate-100 hover:border-slate-300 transition-all">${_avatar(m.profile?.student_name, m.profile?.photo, 'w-6 h-6')}${nameOf(m.profile) || m.student_id}${m.role === 'leader' ? ' 👑' : ''}</button>`).join('')}
           ${t.pending_invites.map(inv => `<button type="button" onclick='gfShowStudentInfo(${JSON.stringify(inv.invited_student_id)})' class="flex items-center gap-1.5 pl-1 pr-3 py-1 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-400 italic hover:bg-slate-100 hover:border-slate-300 transition-all">${_avatar(inv.profile?.student_name, inv.profile?.photo, 'w-6 h-6')}${nameOf(inv.profile) || inv.invited_student_id} (pending)</button>`).join('')}
         </div>
-        ${!t.is_submitted && t.revision_comment ? `<div class="mt-2 p-2.5 bg-amber-50 rounded-xl text-[11px]"><div class="text-[10px] font-black text-amber-700 uppercase mb-1">Changes Requested${t.revision_requested_at ? ' · ' + new Date(t.revision_requested_at).toLocaleString() : ''}</div><div class="whitespace-pre-wrap">${_escHtml(t.revision_comment)}</div></div>` : ''}
+        ${!t.is_submitted && t.revision_comment ? `<div class="mt-2 p-2.5 bg-amber-50 rounded-xl text-[11px]"><div class="text-[10px] font-black text-amber-700 uppercase mb-1">Changes Requested${_gfRequesterLabel(t) ? ' by ' + _escHtml(_gfRequesterLabel(t)) : ''}${t.revision_requested_at ? ' · ' + new Date(t.revision_requested_at).toLocaleString() : ''}</div><div class="whitespace-pre-wrap">${_escHtml(t.revision_comment)}</div></div>` : ''}
         ${answerRows.length ? `<div class="mt-2 p-2.5 bg-slate-50 rounded-xl text-[11px]"><div class="text-[10px] font-black text-slate-400 uppercase mb-1">Answers</div>${answerRows.map(r => `<div class="mb-0.5"><span class="text-slate-400 font-bold">${r.label}:</span> <strong>${r.value}</strong></div>`).join('')}</div>` : ''}
       </div>`;
     }).join('');
@@ -29699,7 +29710,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           ${t.members.map(m => `<button type="button" onclick='gfShowStudentInfo(${JSON.stringify(m.student_id)})' class="flex items-center gap-1.5 pl-1 pr-3 py-1 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-700 hover:bg-slate-100 hover:border-slate-300 transition-all">${_avatar(m.profile?.student_name, m.profile?.photo, 'w-6 h-6')}${nameOf(m.profile) || m.student_id}${m.role === 'leader' ? ' 👑' : ''}</button>`).join('')}
           ${t.pending_invites.map(inv => `<button type="button" onclick='gfShowStudentInfo(${JSON.stringify(inv.invited_student_id)})' class="flex items-center gap-1.5 pl-1 pr-3 py-1 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-400 italic hover:bg-slate-100 hover:border-slate-300 transition-all">${_avatar(inv.profile?.student_name, inv.profile?.photo, 'w-6 h-6')}${nameOf(inv.profile) || inv.invited_student_id} (pending)</button>`).join('')}
         </div>
-        ${!t.is_submitted && t.revision_comment ? `<div class="mt-2 p-2.5 bg-amber-50 rounded-xl text-[11px]"><div class="text-[10px] font-black text-amber-700 uppercase mb-1">Changes Requested${t.revision_requested_at ? ' · ' + new Date(t.revision_requested_at).toLocaleString() : ''}</div><div class="whitespace-pre-wrap">${_escHtml(t.revision_comment)}</div></div>` : ''}
+        ${!t.is_submitted && t.revision_comment ? `<div class="mt-2 p-2.5 bg-amber-50 rounded-xl text-[11px]"><div class="text-[10px] font-black text-amber-700 uppercase mb-1">Changes Requested${_gfRequesterLabel(t) ? ' by ' + _escHtml(_gfRequesterLabel(t)) : ''}${t.revision_requested_at ? ' · ' + new Date(t.revision_requested_at).toLocaleString() : ''}</div><div class="whitespace-pre-wrap">${_escHtml(t.revision_comment)}</div></div>` : ''}
         ${answerRows.length ? `<div class="mt-2 p-2.5 bg-slate-50 rounded-xl text-[11px]"><div class="text-[10px] font-black text-slate-400 uppercase mb-1">Answers</div>${answerRows.map(r => `<div class="mb-0.5"><span class="text-slate-400 font-bold">${r.label}:</span> <strong>${r.value}</strong></div>`).join('')}</div>` : ''}
       </div>`;
     }).join('');

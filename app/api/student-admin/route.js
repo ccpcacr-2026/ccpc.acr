@@ -1547,6 +1547,9 @@ export async function POST(req) {
       return NextResponse.json({ result: 'error', message: 'Not authorized for this team.' }, { status: 403 });
     }
 
+    const actorProfRows = await sbTeacher(`users_profile?teacher_id=eq.${encodeURIComponent(actorId)}&select=full_name`);
+    const actorName = (!actorProfRows?.error && actorProfRows[0]?.full_name) || actorId;
+
     const r = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}`, 'PATCH', {
       is_submitted: false,
       submitted_at: null,
@@ -1554,9 +1557,39 @@ export async function POST(req) {
       revision_comment: String(comment).trim(),
       revision_requested_at: new Date().toISOString(),
       revision_requested_by: actorId,
+      revision_requested_by_name: actorName,
       updated_at: new Date().toISOString(),
     });
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+
+    // Notify every member of the team (not just the leader) — a comment's
+    // not much use to teammates if only the leader ever finds out changes
+    // were requested. Best-effort: a notification hiccup must never roll
+    // back or mask the revision request that already succeeded above.
+    try {
+      const [memberRows, formRows] = await Promise.all([
+        sb(`group_form_team_members?team_id=eq.${encodeURIComponent(team_id)}&select=student_id`),
+        sb(`group_forms?id=eq.${encodeURIComponent(team.group_form_id)}&select=title`),
+      ]);
+      const members = Array.isArray(memberRows) ? memberRows : [];
+      const formTitle = (!formRows?.error && formRows[0]?.title) || 'your team registration';
+      if (members.length) {
+        const now = new Date().toISOString();
+        const rows = members.map(m => ({
+          user_id: 'student:' + m.student_id,
+          type: 'group_form_revision',
+          title: `Changes requested — ${formTitle}`,
+          message: `${actorName} asked for changes to your team's submission: ${String(comment).trim()}`,
+          data: { team_id: Number(team_id), group_form_id: team.group_form_id },
+          is_read: false,
+          created_at: now,
+        }));
+        await sbTeacher('notifications', 'POST', rows);
+      }
+    } catch (e) {
+      console.error('request_team_changes notification failed:', e);
+    }
+
     return NextResponse.json({ result: 'success' });
   }
 
