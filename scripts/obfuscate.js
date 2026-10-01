@@ -328,6 +328,7 @@ const RESERVED = [
   '_gfOnRuleDimensionChange','_gfOnRuleModeChange',
   'loadGroupFormReviewView','_loadGfReviewTab','_exportGfReviewRoster','_printGfReviewRoster',
   'gfShowLinkQr','_gfDownloadLinkQr','tabShowLinkQr',
+  'requestTeamChangesAdmin','requestTeamChangesReviewer',
   // Icon picker (Tab builder + Group Form builder) — called via inline
   // onclick="_pickIcon(this)" in generated grid buttons.
   '_pickIcon',

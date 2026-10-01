@@ -29284,17 +29284,28 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             ${t.status === 'disbanded' ? ' <span class="text-[9px] font-black text-white bg-slate-400 rounded-full px-2 py-0.5">Disbanded</span>' : ''}
             ${t.is_submitted ? ' <span class="text-[9px] font-black text-white bg-emerald-600 rounded-full px-2 py-0.5">Submitted</span>' : ' <span class="text-[9px] font-black text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">Saved</span>'}
             ${t.is_locked ? ' <span class="text-[9px] font-black text-white bg-slate-800 rounded-full px-2 py-0.5">Locked</span>' : ''}
+            ${!t.is_submitted && t.revision_comment ? ' <span class="text-[9px] font-black text-amber-700 bg-amber-50 rounded-full px-2 py-0.5">Changes Requested</span>' : ''}
             ${!complete && form && form.members_required ? ' <span class="text-[9px] font-black text-amber-700 bg-amber-50 rounded-full px-2 py-0.5">Incomplete</span>' : ''}
             <div class="text-[11px] text-slate-400 font-bold mt-0.5">${t.members.length}${maxSize ? '/' + maxSize : ''} members${t.pending_invites.length ? ' · ' + t.pending_invites.length + ' pending invite(s)' : ''}${t.submitted_at ? ' · submitted ' + new Date(t.submitted_at).toLocaleString() : ''}</div>
           </div>
+          ${t.status !== 'disbanded' && t.is_submitted ? `<button onclick="requestTeamChangesReviewer(${t.id})" class="px-2.5 py-1 border border-amber-300 text-amber-700 rounded-full font-black text-[10px] uppercase hover:bg-amber-50 shrink-0">Request Changes</button>` : ''}
         </div>
         <div class="mt-2 flex flex-wrap gap-2">
           ${t.members.map(m => `<span class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-700">${nameOf(m.profile) || m.student_id}${m.role === 'leader' ? ' 👑' : ''}</span>`).join('')}
           ${t.pending_invites.map(inv => `<span class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-400 italic">${nameOf(inv.profile) || inv.invited_student_id} (pending)</span>`).join('')}
         </div>
+        ${!t.is_submitted && t.revision_comment ? `<div class="mt-2 p-2.5 bg-amber-50 rounded-xl text-[11px]"><div class="text-[10px] font-black text-amber-700 uppercase mb-1">Changes Requested${t.revision_requested_at ? ' · ' + new Date(t.revision_requested_at).toLocaleString() : ''}</div><div class="whitespace-pre-wrap">${_escHtml(t.revision_comment)}</div></div>` : ''}
         ${answerRows.length ? `<div class="mt-2 p-2.5 bg-slate-50 rounded-xl text-[11px]"><div class="text-[10px] font-black text-slate-400 uppercase mb-1">Answers</div>${answerRows.map(r => `<div class="mb-0.5"><span class="text-slate-400 font-bold">${r.label}:</span> <strong>${r.value}</strong></div>`).join('')}</div>` : ''}
       </div>`;
     }).join('');
+  }
+  function requestTeamChangesReviewer(teamId) {
+    const comment = prompt('What needs to change? This note will be shown to the team leader.');
+    if (!comment || !comment.trim()) return;
+    _adminFetch('request_team_changes', { team_id: teamId, comment: comment.trim(), user_id: window.APP_USER && window.APP_USER.user_id }).then(res => {
+      if (res && res.result === 'success') { _loadGfReviewTab(_gfReviewActiveIdx); showToast('Sent back for changes'); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    }).catch(() => showToast('Network error', 'error'));
   }
   function _exportGfReviewRoster() {
     if (!_gfReviewTeams.length) { showToast('No teams to export', 'error'); return; }
@@ -29367,11 +29378,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             ${t.status === 'disbanded' ? ' <span class="text-[9px] font-black text-white bg-slate-400 rounded-full px-2 py-0.5">Disbanded</span>' : ''}
             ${t.is_submitted ? ' <span class="text-[9px] font-black text-white bg-emerald-600 rounded-full px-2 py-0.5">Submitted</span>' : ' <span class="text-[9px] font-black text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">Saved</span>'}
             ${t.is_locked ? ' <span class="text-[9px] font-black text-white bg-slate-800 rounded-full px-2 py-0.5">Locked</span>' : ''}
+            ${!t.is_submitted && t.revision_comment ? ' <span class="text-[9px] font-black text-amber-700 bg-amber-50 rounded-full px-2 py-0.5">Changes Requested</span>' : ''}
             ${!complete && form && form.members_required ? ' <span class="text-[9px] font-black text-amber-700 bg-amber-50 rounded-full px-2 py-0.5">Incomplete</span>' : ''}
             <div class="text-[11px] text-slate-400 font-bold mt-0.5">${t.members.length}${maxSize ? '/' + maxSize : ''} members${t.pending_invites.length ? ' · ' + t.pending_invites.length + ' pending invite(s)' : ''}${t.submitted_at ? ' · submitted ' + new Date(t.submitted_at).toLocaleString() : ''}</div>
           </div>
           ${t.status !== 'disbanded' ? `
           <div class="flex gap-2">
+            ${t.is_submitted ? `<button onclick="requestTeamChangesAdmin(${t.id})" class="px-2.5 py-1 border border-amber-300 text-amber-700 rounded-full font-black text-[10px] uppercase hover:bg-amber-50">Request Changes</button>` : ''}
             <button onclick="setTeamLockAdmin(${t.id}, ${!t.is_locked})" class="px-2.5 py-1 ${t.is_locked ? 'border border-slate-300 text-slate-700 hover:bg-slate-100' : 'bg-slate-800 text-white'} rounded-full font-black text-[10px] uppercase">${t.is_locked ? 'Unlock' : 'Lock'}</button>
             <button onclick="disbandTeamAdmin(${t.id})" class="px-2.5 py-1 border border-red-300 text-red-600 rounded-full font-black text-[10px] uppercase hover:bg-red-50">Disband</button>
           </div>` : ''}
@@ -29380,9 +29393,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           ${t.members.map(m => `<span class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-700">${nameOf(m.profile) || m.student_id}${m.role === 'leader' ? ' 👑' : ''}</span>`).join('')}
           ${t.pending_invites.map(inv => `<span class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-400 italic">${nameOf(inv.profile) || inv.invited_student_id} (pending)</span>`).join('')}
         </div>
+        ${!t.is_submitted && t.revision_comment ? `<div class="mt-2 p-2.5 bg-amber-50 rounded-xl text-[11px]"><div class="text-[10px] font-black text-amber-700 uppercase mb-1">Changes Requested${t.revision_requested_at ? ' · ' + new Date(t.revision_requested_at).toLocaleString() : ''}</div><div class="whitespace-pre-wrap">${_escHtml(t.revision_comment)}</div></div>` : ''}
         ${answerRows.length ? `<div class="mt-2 p-2.5 bg-slate-50 rounded-xl text-[11px]"><div class="text-[10px] font-black text-slate-400 uppercase mb-1">Answers</div>${answerRows.map(r => `<div class="mb-0.5"><span class="text-slate-400 font-bold">${r.label}:</span> <strong>${r.value}</strong></div>`).join('')}</div>` : ''}
       </div>`;
     }).join('');
+  }
+  function requestTeamChangesAdmin(teamId) {
+    const comment = prompt('What needs to change? This note will be shown to the team leader.');
+    if (!comment || !comment.trim()) return;
+    _adminFetch('request_team_changes', { team_id: teamId, comment: comment.trim(), user_id: window.APP_USER && window.APP_USER.user_id }).then(res => {
+      if (res && res.result === 'success') { openGroupRoster(_gfRosterFormId); showToast('Sent back for changes'); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    }).catch(() => showToast('Network error', 'error'));
   }
   function setTeamLockAdmin(teamId, locked) {
     _adminFetch('set_team_lock', { team_id: teamId, locked }).then(res => {

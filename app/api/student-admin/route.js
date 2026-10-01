@@ -541,7 +541,7 @@ const SUPER_ADMIN_ONLY_ACTIONS = new Set(['set_gp_credentials', 'test_gp_connect
 // Bus GPS positions/registry are useful to every teacher/staff account, not
 // just admins — open to anyone with a recognized staff account (any role),
 // distinct from both the tab-visibility matrix and the plain Admin gate.
-const STAFF_OPEN_ACTIONS = new Set(['get_tracking_config', 'get_bus_data', 'get_my_review_tabs', 'get_group_form_roster_for_rule']);
+const STAFF_OPEN_ACTIONS = new Set(['get_tracking_config', 'get_bus_data', 'get_my_review_tabs', 'get_group_form_roster_for_rule', 'request_team_changes']);
 
 // ── Per-tab module access (admin console nav pills) ──────────────────────
 // Which roles can use each tab is admin-configurable (see
@@ -1470,6 +1470,59 @@ export async function POST(req) {
     await sb(`group_form_team_invites?team_id=eq.${encodeURIComponent(team_id)}&status=eq.pending`, 'PATCH', { status: 'cancelled', responded_at: new Date().toISOString() });
     await sb(`group_form_team_members?team_id=eq.${encodeURIComponent(team_id)}`, 'DELETE');
     const r = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}`, 'PATCH', { status: 'disbanded', updated_at: new Date().toISOString() });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Send a submitted team back to the leader for edits, with a comment ──
+  // STAFF_OPEN_ACTIONS (any recognized staff account can call this — the
+  // dispatcher's blanket isAdmin=true for that set means THIS handler is
+  // responsible for its own authorization, same as get_group_form_roster_
+  // for_rule): allowed if the caller is a Group Forms admin OR a reviewer
+  // whose rule actually matches this specific team — never trusts the
+  // client's own role claim. Clears is_submitted/is_locked exactly like the
+  // pre-submission state, so the leader's own view re-opens invites/editing/
+  // member changes automatically (every one of those checks already just
+  // reads !is_submitted && !is_locked) — nothing special needed to "reopen
+  // member selection" since it was never a separate switch.
+  if (action === 'request_team_changes') {
+    const { team_id, comment, user_id: actorId } = payload;
+    if (!team_id || !comment || !String(comment).trim()) return NextResponse.json({ result: 'error', message: 'team_id and a comment are required.' });
+    if (!actorId) return NextResponse.json({ result: 'error', message: 'user_id required.' });
+
+    const teamRows = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}`);
+    const team = (!teamRows?.error && teamRows[0]) ? teamRows[0] : null;
+    if (!team) return NextResponse.json({ result: 'error', message: 'Team not found.' });
+
+    const roles = await _getUserRoles(actorId);
+    const matrix = await _getAdminTabVisibility();
+    let authorized = _isSuperAdmin(actorId) || _isTabAllowed('group_forms', roles, matrix);
+    if (!authorized) {
+      const formRows = await sb(`group_forms?id=eq.${encodeURIComponent(team.group_form_id)}`);
+      const form = (!formRows?.error && formRows[0]) ? formRows[0] : null;
+      if (form) {
+        const leaderRows = await sb(`group_form_team_members?team_id=eq.${encodeURIComponent(team_id)}&role=eq.leader&select=student_id`);
+        const leaderId = (!leaderRows?.error && leaderRows[0]) ? leaderRows[0].student_id : null;
+        const leaderProfRows = leaderId ? await sb(`students_data?student_id=eq.${encodeURIComponent(leaderId)}&select=*`) : [];
+        const leaderProfile = (!leaderProfRows?.error && leaderProfRows[0]) ? leaderProfRows[0] : {};
+        const rulesRows = await sb(`group_form_reviewer_rules?group_form_id=eq.${encodeURIComponent(team.group_form_id)}`);
+        const rules = Array.isArray(rulesRows) ? rulesRows : [];
+        for (const rule of rules) {
+          if (groupFormTeamMatchesRule(team, form, rule, leaderProfile) && await groupFormRuleAppliesToTeacher(rule, actorId)) { authorized = true; break; }
+        }
+      }
+    }
+    if (!authorized) return NextResponse.json({ result: 'error', message: 'Not authorized for this team.' }, { status: 403 });
+
+    const r = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}`, 'PATCH', {
+      is_submitted: false,
+      submitted_at: null,
+      is_locked: false,
+      revision_comment: String(comment).trim(),
+      revision_requested_at: new Date().toISOString(),
+      revision_requested_by: actorId,
+      updated_at: new Date().toISOString(),
+    });
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
     return NextResponse.json({ result: 'success' });
   }
