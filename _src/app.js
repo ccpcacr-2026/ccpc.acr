@@ -29210,7 +29210,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     let fields = [];
     try { fields = JSON.parse(_gfRosterForm?.fields_json || '[]'); } catch (e) {}
     const answerFields = fields.filter(f => f.type !== 'group_label' && f.type !== 'profile_picture');
-    const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''})` : 'Unknown';
+    const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''}${p.roll ? ', Roll ' + p.roll : ''})` : 'Unknown';
     const headers = ['Reference No.', 'Team ID', 'Leader', 'Leader Student ID', 'Status', 'Review Status', 'Submitted', 'Submitted At', 'Locked', 'Members (excl. leader)', 'Pending Invites', ...answerFields.map(f => f.name || f.data_key)];
     const rows = teams.map(t => {
       const leader = t.members.find(m => m.role === 'leader');
@@ -29311,7 +29311,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _printGfReviewTableStickers() { _gfBuildTableStickers(_gfWarnIfNoTeams(_gfReviewFilteredTeams()), _gfReviewForm); }
   function _gfBuildProjectList(teams, form) {
     if (!teams.length) return;
-    const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''})` : 'Unknown';
+    const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''}${p.roll ? ', Roll ' + p.roll : ''})` : 'Unknown';
     const rows = teams.map(t => {
       const leader = t.members.find(m => m.role === 'leader');
       const others = t.members.filter(m => m.role !== 'leader');
@@ -29368,7 +29368,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   function _gfBuildTokenList(teams, form) {
     if (!teams.length) return;
-    const nameOf = p => p ? p.student_name : '';
+    const nameOf = p => p ? `${p.student_name}${p.roll ? ' (Roll ' + p.roll + ')' : ''}` : '';
     const accent = t => t.review_status === 'approved' ? '#22c55e' : t.review_status === 'rejected' ? '#ef4444' : '#94a3b8';
     const tokens = teams.map(t => {
       const leader = t.members.find(m => m.role === 'leader');
@@ -29393,7 +29393,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   function _gfBuildTableStickers(teams, form) {
     if (!teams.length) return;
-    const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''})` : 'Unknown';
+    const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''}${p.roll ? ', Roll ' + p.roll : ''})` : 'Unknown';
     const stickerHtml = t => {
       const category = _gfAnswerByName(t, form, /^category$/i);
       const group = (t.group_data || {}).group;
@@ -29684,7 +29684,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const canAct = (_gfReviewTabs[_gfReviewActiveIdx] || {}).permission !== 'viewer';
     if (!teams.length) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No teams match this filter.</p>'; return; }
     const maxSize = form ? form.max_team_size : null;
-    const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''})` : 'Unknown';
+    const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''}${p.roll ? ', Roll ' + p.roll : ''})` : 'Unknown';
     host.innerHTML = teams.map(t => {
       const complete = maxSize ? t.members.length >= maxSize : true;
       const leader = t.members.find(m => m.role === 'leader');
@@ -29744,7 +29744,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     let fields = [];
     try { fields = JSON.parse(_gfReviewForm?.fields_json || '[]'); } catch (e) {}
     const answerFields = fields.filter(f => f.type !== 'group_label' && f.type !== 'profile_picture');
-    const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''})` : 'Unknown';
+    const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''}${p.roll ? ', Roll ' + p.roll : ''})` : 'Unknown';
     const headers = ['Reference No.', 'Team ID', 'Leader', 'Leader Student ID', 'Status', 'Review Status', 'Submitted', 'Submitted At', 'Members (excl. leader)', 'Pending Invites', ...answerFields.map(f => f.name || f.data_key)];
     const rows = teams.map(t => {
       const leader = t.members.find(m => m.role === 'leader');
@@ -29852,7 +29852,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // before download or print" means what it says — exporting/printing while
   // a filter is active only ever includes the teams currently shown.
   function _gfRosterFilteredSorted() {
-    const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''})` : 'Unknown';
+    const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''}${p.roll ? ', Roll ' + p.roll : ''})` : 'Unknown';
     const leaderNameOf = t => nameOf(t.members.find(m => m.role === 'leader')?.profile) || t.leader_student_id;
     const filter = document.getElementById('gfRosterFilter')?.value || 'all';
     const sort = document.getElementById('gfRosterSort')?.value || 'newest';
@@ -29875,7 +29875,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const host = document.getElementById('adminGroupRosterList');
     if (!teams.length) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No teams have been created for this form yet.</p>'; return; }
     const maxSize = form ? form.max_team_size : null;
-    const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''})` : 'Unknown';
+    const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''}${p.roll ? ', Roll ' + p.roll : ''})` : 'Unknown';
     const leaderNameOf = t => nameOf(t.members.find(m => m.role === 'leader')?.profile) || t.leader_student_id;
     const shown = _gfRosterFilteredSorted();
     if (!shown.length) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No teams match this filter.</p>'; return; }
