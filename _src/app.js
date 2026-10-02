@@ -779,13 +779,26 @@
       new Promise(resolve => {
         google.script.run.withSuccessHandler(resolve).withFailureHandler(() => resolve([])).getMyTabDataAccess(myId);
       }),
-    ]).then(([res, tabAccess]) => {
+      // A fifth, equally independent path: holding one or more Group Forms
+      // reviewer rules. A reviewer might have NONE of the other three grants
+      // — just a rule assigning them a slice of one form's submissions —
+      // and without this check the nav link (and the Review Submissions
+      // item nested under it) would stay invisible forever, no matter how
+      // many rules an admin assigns them.
+      fetch('/api/student-admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'get_my_review_tabs', payload: { teacher_user_id: myId }, user_id: myId })
+      }).then(r => r.ok ? r.json() : null).catch(() => null),
+    ]).then(([res, tabAccess, reviewRes]) => {
       const hasCategories = res && res.result === 'success' && Array.isArray(res.categories) && res.categories.length;
       const hasClassAccess = res && res.result === 'success' && Array.isArray(res.classAccess) && res.classAccess.length;
       const hasTabData = Array.isArray(tabAccess) && tabAccess.length > 0;
+      const hasReviewerRules = reviewRes && reviewRes.result === 'success' && Array.isArray(reviewRes.tabs) && reviewRes.tabs.length > 0;
       if (hasCategories || hasClassAccess) window._hasFieldCategoryAccess = true; // loadStudentPortalView's own role gate checks this too
       if (hasTabData) window._hasTabDataAccess = true; // ditto — _studentPortalNavClick/loadStudentPortalView check this
-      if (hasCategories || hasClassAccess || hasTabData) {
+      if (hasReviewerRules) window._hasReviewerAccess = true; // informational only — _loadAdminSubnav does its own independent check, not a read of this flag, to avoid racing this function's own fetch
+      if (hasCategories || hasClassAccess || hasTabData || hasReviewerRules) {
         navEl.style.display = '';
         const container = document.getElementById('admin-links');
         if (container) container.classList.remove('hidden');
@@ -902,9 +915,20 @@
       new Promise(resolve => {
         google.script.run.withSuccessHandler(resolve).withFailureHandler(() => resolve([])).getMyTabDataAccess(myId);
       }),
-    ]).then(([res, tabAccess]) => {
+      // Independent of role/module access — see the matching fetch in
+      // _maybeRevealStudentPortalForGrantee for why a reviewer-rule holder
+      // needs this checked here too, not just assumed from window._has
+      // ReviewerAccess (that function may not have resolved yet by the time
+      // this one runs, so each checks for itself rather than racing).
+      fetch('/api/student-admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'get_my_review_tabs', payload: { teacher_user_id: myId }, user_id: myId })
+      }).then(r => r.ok ? r.json() : null).catch(() => null),
+    ]).then(([res, tabAccess, reviewRes]) => {
       const erpTabs = (res && res.result === 'success' && Array.isArray(res.tabs)) ? res.tabs : [];
       const hasTabData = Array.isArray(tabAccess) && tabAccess.length > 0;
+      const hasReviewerRules = reviewRes && reviewRes.result === 'success' && Array.isArray(reviewRes.tabs) && reviewRes.tabs.length > 0;
       // get_my_tab_access now returns every admin-console tab the caller's
       // role clears (not just the original 5 ERP ones) — Admin/Student
       // Portal Admin still get every key via the matrix's own defaults, so
@@ -933,7 +957,7 @@
       // erpTabs like the admin_tab_visibility-gated items above, since a
       // plain Teacher browsing Student Portal typically has none of those.
       const showPortalShortcuts = _hasModuleAccess('student_portal') || hasTabData;
-      const items = ADMIN_SUBNAV_ITEMS.filter(i => roleVisibleKeys.includes(i.key) || (i.key === 'my_data' && hasTabData) || (['student_forum', 'student_message_history', 'student_diary', 'group_form_reviews'].includes(i.key) && showPortalShortcuts));
+      const items = ADMIN_SUBNAV_ITEMS.filter(i => roleVisibleKeys.includes(i.key) || (i.key === 'my_data' && hasTabData) || (['student_forum', 'student_message_history', 'student_diary'].includes(i.key) && showPortalShortcuts) || (i.key === 'group_form_reviews' && (showPortalShortcuts || hasReviewerRules)));
       if (!items.length) { host.innerHTML = ''; host.classList.add('hidden'); return; }
       host.innerHTML = items.map(i =>
         `<a href="javascript:void(0)" onclick="${i.action.fn}(); closeMobileSidebar();" class="nav-link nav-sublink" id="nav-erp-${i.key}"><div class="nav-icon-box"><i data-lucide="${i.icon}" class="nav-icon"></i></div><span class="nav-text">${i.label}</span></a>`
