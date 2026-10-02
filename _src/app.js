@@ -29312,7 +29312,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _gfBuildProjectList(teams, form) {
     if (!teams.length) return;
     const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''}${p.roll ? ', Roll ' + p.roll : ''})` : 'Unknown';
-    const rows = teams.map(t => {
+    const rows = teams.map((t, idx) => {
       const leader = t.members.find(m => m.role === 'leader');
       const others = t.members.filter(m => m.role !== 'leader');
       const leaderCell = `<div style="display:flex;align-items:center;gap:6px">${_gfPrintAvatarHtml(leader?.profile, 22)}<span>${_escHtml(leader ? nameOf(leader.profile) : t.leader_student_id)}</span></div>`;
@@ -29320,6 +29320,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         ? others.map(m => `<div style="display:flex;align-items:center;gap:5px;margin-bottom:2px"><span style="transform:scale(0.8);transform-origin:left center;display:inline-flex">${_gfPrintAvatarHtml(m.profile, 16)}</span><span>${_escHtml(nameOf(m.profile))}</span></div>`).join('')
         : '—';
       return `<tr>
+        <td>${idx + 1}</td>
         <td>${_escHtml(t.reference_number || '—')}</td>
         <td>${_escHtml(_gfProjectTitle(t, form))}</td>
         <td>${_gfPillHtml(_gfAnswerByName(t, form, /^category$/i))}</td>
@@ -29346,17 +29347,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <p style="font-size:10px;color:#6b7280;margin:0 0 10px">Printed ${new Date().toLocaleString()}</p>
       ${summary}
       <table>
-        <thead><tr><th>Ref No.</th><th>Project</th><th>Category</th><th>Group</th><th>Leader</th><th>Other Members</th><th>Status</th></tr></thead>
+        <thead><tr><th>SL</th><th>Ref No.</th><th>Project</th><th>Category</th><th>Group</th><th>Leader</th><th>Other Members</th><th>Status</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`;
     const css = `
       @page { size: A4 landscape; margin: 12mm; }
-      table { width: 100%; border-collapse: collapse; font-size: 11px; }
+      body, table { font-family: "Times New Roman", Times, serif; font-size: 12pt; }
+      table { width: 100%; border-collapse: collapse; }
       th, td { border: 1px solid #e2e8f0; padding: 6px 8px; text-align: left; vertical-align: middle; }
       thead { display: table-header-group; }
-      th { background: #1e293b; color: #fff; text-transform: uppercase; font-size: 9px; letter-spacing: 0.04em; }
+      th { background: #1e293b; color: #fff; text-transform: uppercase; font-size: 10pt; letter-spacing: 0.04em; }
+      th:first-child, td:first-child { width: 30px; text-align: center; }
       tbody tr:nth-child(even) { background: #f8fafc; }
-      tr { page-break-inside: avoid; }
+      tr, td { page-break-inside: avoid; break-inside: avoid; }
       .summary { display: flex; gap: 10px; align-items: stretch; border: 1px solid #d1d5db; border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; page-break-inside: avoid; }
       .sumtotal { display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 30px; font-weight: 800; border-right: 1px solid #e5e7eb; padding-right: 14px; min-width: 90px; }
       .sumtotal span { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7280; }
@@ -29905,6 +29908,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="requestTeamChangesAdmin(${t.id})" class="px-2.5 py-1 border border-amber-300 text-amber-700 rounded-full font-black text-[10px] uppercase hover:bg-amber-50">Request Changes</button>
             <button onclick="setTeamLockAdmin(${t.id}, ${!t.is_locked})" class="px-2.5 py-1 ${t.is_locked ? 'border border-slate-300 text-slate-700 hover:bg-slate-100' : 'bg-slate-800 text-white'} rounded-full font-black text-[10px] uppercase">${t.is_locked ? 'Unlock' : 'Lock'}</button>
             <button onclick="disbandTeamAdmin(${t.id})" class="px-2.5 py-1 border border-red-300 text-red-600 rounded-full font-black text-[10px] uppercase hover:bg-red-50">Disband</button>
+            <button onclick="deleteTeamAdmin(${t.id})" class="px-2.5 py-1 bg-red-600 text-white rounded-full font-black text-[10px] uppercase hover:bg-red-700">Delete</button>
           </div>` : ''}
         </div>
         <div class="mt-2 flex flex-wrap gap-2">
@@ -29940,6 +29944,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!confirm('Disband this team?\n\nEvery member is removed (freed to join another team) but the team stays on record for history.')) return;
     _adminFetch('admin_disband_team', { team_id: teamId }).then(res => {
       if (res && res.result === 'success') openGroupRoster(_gfRosterFormId);
+      else showToast((res && res.message) || 'Failed', 'error');
+    }).catch(() => showToast('Network error', 'error'));
+  }
+
+  // Hard delete — unlike Disband, nothing is kept on record. Double
+  // confirmation (the second one requires typing the word) since there's
+  // no undo for this one.
+  function deleteTeamAdmin(teamId) {
+    if (!confirm('Permanently DELETE this entry?\n\nThis removes the team, its members and its invites completely — there is no undo. Use Disband instead if you just want to free up the members.')) return;
+    if (prompt('Type DELETE to confirm permanent deletion:') !== 'DELETE') return;
+    _adminFetch('admin_delete_team', { team_id: teamId }).then(res => {
+      if (res && res.result === 'success') { openGroupRoster(_gfRosterFormId); showToast('Entry deleted'); }
       else showToast((res && res.message) || 'Failed', 'error');
     }).catch(() => showToast('Network error', 'error'));
   }

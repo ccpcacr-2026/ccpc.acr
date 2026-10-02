@@ -317,7 +317,7 @@ const RESERVED = [
   // above), so it needs the same protection.
   'loadAdminGroupFormsView','toggleGroupFormFlag','gfOnClassModeChange','gfOnGroupFieldChange','gfAddBand',
   'cancelGroupFormEdit','editGroupForm','saveGroupForm','deleteGroupFormConfig',
-  'openGroupRoster','closeGroupRoster','setTeamLockAdmin','disbandTeamAdmin',
+  'openGroupRoster','closeGroupRoster','setTeamLockAdmin','disbandTeamAdmin','deleteTeamAdmin',
   'exportGroupFormRoster','printGroupFormRoster',
   'printGroupFormProjectList','printGroupFormTokenList','printGroupFormTableStickers',
   '_printGfReviewProjectList','_printGfReviewTokenList','_printGfReviewTableStickers',
