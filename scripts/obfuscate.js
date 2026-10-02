@@ -319,6 +319,8 @@ const RESERVED = [
   'cancelGroupFormEdit','editGroupForm','saveGroupForm','deleteGroupFormConfig',
   'openGroupRoster','closeGroupRoster','setTeamLockAdmin','disbandTeamAdmin','deleteTeamAdmin',
   'exportGroupFormRoster','printGroupFormRoster',
+  '_gfToggleRosterFilterPanel','toggleGfRosterFilter','clearGfRosterFilters',
+  '_gfToggleReviewFilterPanel','toggleGfReviewFilter','clearGfReviewFilters',
   'printGroupFormProjectList','printGroupFormTokenList','printGroupFormTableStickers',
   '_printGfReviewProjectList','_printGfReviewTokenList','_printGfReviewTableStickers',
   // Reviewer routing rules editor (admin, attached to the roster screen) and

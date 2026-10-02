@@ -28724,14 +28724,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div class="flex items-center justify-between mb-3 gf-roster-toolbar flex-wrap gap-2">
           <h3 id="adminGroupRosterTitle" class="text-lg font-black text-slate-800">Teams</h3>
           <div class="flex items-center gap-2 flex-wrap">
-            <select id="gfRosterFilter" onchange="renderAdminGroupRoster(_gfRosterTeams, _gfRosterForm)" class="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs">
-              <option value="all">All teams</option>
-              <option value="submitted">Submitted only</option>
-              <option value="saved">Saved (not submitted)</option>
-              <option value="approved">Approved only</option>
-              <option value="rejected">Rejected only</option>
-              <option value="unreviewed">Not yet reviewed</option>
-            </select>
+            <button type="button" onclick="_gfToggleRosterFilterPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="filter" class="h-3 w-3"></i>Filters<span id="gfRosterFilterCount" class="hidden ml-1 px-1.5 py-0.5 bg-slate-800 text-white rounded-full text-[9px]"></span></button>
             <select id="gfRosterSort" onchange="renderAdminGroupRoster(_gfRosterTeams, _gfRosterForm)" class="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs">
               <option value="newest">Newest first</option>
               <option value="oldest">Oldest first</option>
@@ -28747,6 +28740,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="closeGroupRoster()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50">Close</button>
           </div>
         </div>
+        <div id="gfRosterFilterPanel" class="hidden mb-4 p-4 bg-slate-50 rounded-2xl border border-slate-200"></div>
         <div id="gfReviewerPanel" class="hidden mb-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
           <div class="flex items-center justify-between mb-2">
             <span class="text-[10px] font-black text-slate-400 uppercase">Reviewers</span>
@@ -29209,10 +29203,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // fetched roster instead of a second round trip.
   let _gfRosterTeams = [];
   let _gfRosterForm = null;
+  // Fully-customizable multi-dimension filter — each key holds a Set of
+  // selected option labels for that dimension; an empty Set means "no
+  // constraint on this dimension". Dimensions AND together, options within
+  // one dimension OR together (House∈{J,N} AND Group∈{A} AND Status∈
+  // {Rejected}, etc.) — covers every combination without a dedicated option
+  // per combination.
+  let _gfRosterFilterState = { submission: new Set(), review: new Set(), house: new Set(), group: new Set(), category: new Set() };
   function openGroupRoster(groupFormId) {
     _gfRosterFormId = groupFormId;
     const form = _allGroupForms.find(f => f.id === groupFormId);
     _gfRosterForm = form || null;
+    _gfRosterFilterState = { submission: new Set(), review: new Set(), house: new Set(), group: new Set(), category: new Set() };
+    document.getElementById('gfRosterFilterPanel').classList.add('hidden');
     _gfEnsureStaffDirectory();
     document.getElementById('adminGroupRosterTitle').textContent = 'Teams — ' + (form ? form.title : '');
     document.getElementById('adminGroupRoster').classList.remove('hidden');
@@ -29222,8 +29225,65 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _gfRosterTeams = res.teams || [];
       _gfRegisterProfiles(_gfRosterTeams);
       renderAdminGroupRoster(_gfRosterTeams, form);
+      _gfRenderRosterFilterPanel();
     }).catch(() => { document.getElementById('adminGroupRosterList').innerHTML = '<p class="text-xs text-red-500 font-bold">Network error</p>'; });
     document.getElementById('adminGroupRoster').scrollIntoView({ behavior: 'smooth' });
+  }
+  function _gfTeamHouse(t) { return (t.members.find(m => m.role === 'leader')?.profile || {}).house || ''; }
+  function _gfTeamGroup(t) { return (t.group_data || {}).group || ''; }
+  function _gfTeamCategory(t) { return _gfAnswerByName(t, _gfRosterForm, /^category$/i) || ''; }
+  function _gfTeamSubmission(t) { return t.is_submitted ? 'Submitted' : 'Saved'; }
+  function _gfTeamReview(t) { return t.review_status === 'approved' ? 'Approved' : t.review_status === 'rejected' ? 'Rejected' : 'Unreviewed'; }
+  // Option lists always come from the FULL roster (not the currently-
+  // filtered subset) — standard faceted-filter convention so picking one
+  // dimension never hides options you'd need for another.
+  function _gfRosterFilterDims() {
+    const distinct = fn => [...new Set(_gfRosterTeams.map(fn).filter(Boolean))].sort();
+    return [
+      { key: 'submission', label: 'Submission', values: ['Submitted', 'Saved'] },
+      { key: 'review', label: 'Review Status', values: ['Approved', 'Rejected', 'Unreviewed'] },
+      { key: 'house', label: 'House', values: distinct(_gfTeamHouse) },
+      { key: 'group', label: 'Group', values: distinct(_gfTeamGroup) },
+      { key: 'category', label: 'Category', values: distinct(_gfTeamCategory) },
+    ];
+  }
+  function _gfToggleRosterFilterPanel() {
+    const panel = document.getElementById('gfRosterFilterPanel');
+    const show = panel.classList.contains('hidden');
+    panel.classList.toggle('hidden', !show);
+    if (show) _gfRenderRosterFilterPanel();
+  }
+  function _gfRosterFilterActiveCount() { return Object.values(_gfRosterFilterState).reduce((n, s) => n + s.size, 0); }
+  function _gfUpdateRosterFilterBadge() {
+    const n = _gfRosterFilterActiveCount();
+    const badge = document.getElementById('gfRosterFilterCount');
+    if (badge) { badge.textContent = n; badge.classList.toggle('hidden', !n); }
+  }
+  function toggleGfRosterFilter(dimKey, value) {
+    const set = _gfRosterFilterState[dimKey];
+    if (set.has(value)) set.delete(value); else set.add(value);
+    _gfRenderRosterFilterPanel();
+    renderAdminGroupRoster(_gfRosterTeams, _gfRosterForm);
+  }
+  function clearGfRosterFilters() {
+    Object.values(_gfRosterFilterState).forEach(s => s.clear());
+    _gfRenderRosterFilterPanel();
+    renderAdminGroupRoster(_gfRosterTeams, _gfRosterForm);
+  }
+  function _gfRenderRosterFilterPanel() {
+    const host = document.getElementById('gfRosterFilterPanel');
+    if (!host || host.classList.contains('hidden')) { _gfUpdateRosterFilterBadge(); return; }
+    const dims = _gfRosterFilterDims().filter(d => d.values.length);
+    host.innerHTML = dims.map(d => {
+      const sel = _gfRosterFilterState[d.key];
+      return `<div class="mb-2">
+        <div class="text-[10px] font-black text-slate-400 uppercase mb-1" style="letter-spacing:0.04em">${_escHtml(d.label)}</div>
+        <div class="flex flex-wrap gap-2">
+          ${d.values.map(v => `<button type="button" onclick='toggleGfRosterFilter(${JSON.stringify(d.key)}, ${JSON.stringify(v)})' class="px-2.5 py-1 rounded-full font-black text-[10px] uppercase ${sel.has(v) ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'}">${_escHtml(v)}</button>`).join('')}
+        </div>
+      </div>`;
+    }).join('') + (_gfRosterFilterActiveCount() ? `<button type="button" onclick="clearGfRosterFilters()" class="text-[10px] font-black text-red-600 uppercase hover:underline">Clear all filters</button>` : '');
+    _gfUpdateRosterFilterBadge();
   }
   // One row per team: leader, members, pending invites, and every group-level
   // answer labeled with its real field name (same field set _gfFormatGroupData
@@ -29636,7 +29696,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Group Form submissions an admin has assigned you to review</p>
       </div>
       <div id="gfReviewTabBar" class="flex items-center gap-2 flex-wrap mb-4"></div>
-      <div id="gfReviewToolbar" class="hidden flex items-center gap-2 mb-3"></div>
+      <div id="gfReviewToolbar" class="hidden flex items-center gap-2 flex-wrap mb-3"></div>
+      <div id="gfReviewFilterPanel" class="hidden mb-4 p-4 bg-slate-50 rounded-2xl border border-slate-200"></div>
       <div id="gfReviewList" class="flex flex-col gap-3"></div>
     `;
     if (!myId) { document.getElementById('gfReviewList').innerHTML = '<p class="text-xs text-red-500 font-bold">Not signed in.</p>'; return; }
@@ -29668,6 +29729,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const list = document.getElementById('gfReviewList');
     const toolbar = document.getElementById('gfReviewToolbar');
     toolbar.classList.add('hidden');
+    document.getElementById('gfReviewFilterPanel').classList.add('hidden');
+    _gfReviewFilterState = { submission: new Set(), review: new Set(), house: new Set(), group: new Set(), category: new Set() };
     list.innerHTML = '<p class="text-xs text-slate-400 font-bold">Loading…</p>';
     _adminFetch('get_group_form_roster_for_rule', { rule_id: tab.rule_id, teacher_user_id: myId }).then(res => {
       if (!res || res.result !== 'success') { list.innerHTML = `<p class="text-xs text-red-500 font-bold">${(res && res.message) || 'Failed to load'}</p>`; return; }
@@ -29676,12 +29739,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _gfRegisterProfiles(_gfReviewTeams);
       toolbar.classList.remove('hidden');
       toolbar.innerHTML = `
-        <select id="gfReviewStatusFilter" onchange="_renderGfReviewRoster(_gfReviewFilteredTeams(), _gfReviewForm)" class="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs">
-          <option value="all">All teams</option>
-          <option value="approved">Approved only</option>
-          <option value="rejected">Rejected only</option>
-          <option value="pending">Not yet reviewed</option>
-        </select>
+        <button type="button" onclick="_gfToggleReviewFilterPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="filter" class="h-3 w-3"></i>Filters<span id="gfReviewFilterCount" class="hidden ml-1 px-1.5 py-0.5 bg-slate-800 text-white rounded-full text-[9px]"></span></button>
         <button onclick="_exportGfReviewRoster()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="download" class="h-3 w-3"></i>Download CSV</button>
         <button onclick="_printGfReviewRoster()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="printer" class="h-3 w-3"></i>Print Roster</button>
         <button onclick="_printGfReviewProjectList()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="list-ordered" class="h-3 w-3"></i>Project List</button>
@@ -29689,19 +29747,82 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <button onclick="_printGfReviewTableStickers()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="tag" class="h-3 w-3"></i>Table Sticker</button>
       `;
       _renderGfReviewRoster(_gfReviewFilteredTeams(), _gfReviewForm);
+      _gfRenderReviewFilterPanel();
       lucide.createIcons();
     }).catch(() => { list.innerHTML = '<p class="text-xs text-red-500 font-bold">Network error</p>'; });
   }
   let _gfReviewTeams = [];
   let _gfReviewForm = null;
+  // Same fully-customizable multi-dimension filter as the admin roster
+  // (_gfRosterFilterState) — separate state since this is a different slice
+  // of teams (one reviewer rule's worth, not every team in the form).
+  let _gfReviewFilterState = { submission: new Set(), review: new Set(), house: new Set(), group: new Set(), category: new Set() };
+  function _gfReviewTeamHouse(t) { return (t.members.find(m => m.role === 'leader')?.profile || {}).house || ''; }
+  function _gfReviewTeamGroup(t) { return (t.group_data || {}).group || ''; }
+  function _gfReviewTeamCategory(t) { return _gfAnswerByName(t, _gfReviewForm, /^category$/i) || ''; }
+  function _gfReviewTeamSubmission(t) { return t.is_submitted ? 'Submitted' : 'Saved'; }
+  function _gfReviewTeamReview(t) { return t.review_status === 'approved' ? 'Approved' : t.review_status === 'rejected' ? 'Rejected' : 'Unreviewed'; }
+  function _gfReviewFilterDims() {
+    const distinct = fn => [...new Set(_gfReviewTeams.map(fn).filter(Boolean))].sort();
+    return [
+      { key: 'submission', label: 'Submission', values: ['Submitted', 'Saved'] },
+      { key: 'review', label: 'Review Status', values: ['Approved', 'Rejected', 'Unreviewed'] },
+      { key: 'house', label: 'House', values: distinct(_gfReviewTeamHouse) },
+      { key: 'group', label: 'Group', values: distinct(_gfReviewTeamGroup) },
+      { key: 'category', label: 'Category', values: distinct(_gfReviewTeamCategory) },
+    ];
+  }
+  function _gfToggleReviewFilterPanel() {
+    const panel = document.getElementById('gfReviewFilterPanel');
+    const show = panel.classList.contains('hidden');
+    panel.classList.toggle('hidden', !show);
+    if (show) _gfRenderReviewFilterPanel();
+  }
+  function _gfReviewFilterActiveCount() { return Object.values(_gfReviewFilterState).reduce((n, s) => n + s.size, 0); }
+  function _gfUpdateReviewFilterBadge() {
+    const n = _gfReviewFilterActiveCount();
+    const badge = document.getElementById('gfReviewFilterCount');
+    if (badge) { badge.textContent = n; badge.classList.toggle('hidden', !n); }
+  }
+  function toggleGfReviewFilter(dimKey, value) {
+    const set = _gfReviewFilterState[dimKey];
+    if (set.has(value)) set.delete(value); else set.add(value);
+    _gfRenderReviewFilterPanel();
+    _renderGfReviewRoster(_gfReviewFilteredTeams(), _gfReviewForm);
+  }
+  function clearGfReviewFilters() {
+    Object.values(_gfReviewFilterState).forEach(s => s.clear());
+    _gfRenderReviewFilterPanel();
+    _renderGfReviewRoster(_gfReviewFilteredTeams(), _gfReviewForm);
+  }
+  function _gfRenderReviewFilterPanel() {
+    const host = document.getElementById('gfReviewFilterPanel');
+    if (!host || host.classList.contains('hidden')) { _gfUpdateReviewFilterBadge(); return; }
+    const dims = _gfReviewFilterDims().filter(d => d.values.length);
+    host.innerHTML = dims.map(d => {
+      const sel = _gfReviewFilterState[d.key];
+      return `<div class="mb-2">
+        <div class="text-[10px] font-black text-slate-400 uppercase mb-1" style="letter-spacing:0.04em">${_escHtml(d.label)}</div>
+        <div class="flex flex-wrap gap-2">
+          ${d.values.map(v => `<button type="button" onclick='toggleGfReviewFilter(${JSON.stringify(d.key)}, ${JSON.stringify(v)})' class="px-2.5 py-1 rounded-full font-black text-[10px] uppercase ${sel.has(v) ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'}">${_escHtml(v)}</button>`).join('')}
+        </div>
+      </div>`;
+    }).join('') + (_gfReviewFilterActiveCount() ? `<button type="button" onclick="clearGfReviewFilters()" class="text-[10px] font-black text-red-600 uppercase hover:underline">Clear all filters</button>` : '');
+    _gfUpdateReviewFilterBadge();
+  }
   // Applied before BOTH rendering and CSV/Print, so "separate before
   // download/print" means what it says — exporting or printing while a
   // filter is active only ever includes the teams currently shown.
   function _gfReviewFilteredTeams() {
-    const f = document.getElementById('gfReviewStatusFilter')?.value || 'all';
-    if (f === 'pending') return _gfReviewTeams.filter(t => !t.review_status);
-    if (f === 'approved' || f === 'rejected') return _gfReviewTeams.filter(t => t.review_status === f);
-    return _gfReviewTeams;
+    const st = _gfReviewFilterState;
+    return _gfReviewTeams.filter(t => {
+      if (st.submission.size && !st.submission.has(_gfReviewTeamSubmission(t))) return false;
+      if (st.review.size && !st.review.has(_gfReviewTeamReview(t))) return false;
+      if (st.house.size && !st.house.has(_gfReviewTeamHouse(t))) return false;
+      if (st.group.size && !st.group.has(_gfReviewTeamGroup(t))) return false;
+      if (st.category.size && !st.category.has(_gfReviewTeamCategory(t))) return false;
+      return true;
+    });
   }
   // Read-only card list EXCEPT for Approve/Reject, which only an 'admin'-
   // tier reviewer sees at all (viewer tier gets the exact same card shape as
@@ -29878,19 +29999,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // Shared by the on-screen render AND Download CSV/Print, so "separated
   // before download or print" means what it says — exporting/printing while
   // a filter is active only ever includes the teams currently shown.
+  function _gfTeamMatchesRosterFilters(t) {
+    const st = _gfRosterFilterState;
+    if (st.submission.size && !st.submission.has(_gfTeamSubmission(t))) return false;
+    if (st.review.size && !st.review.has(_gfTeamReview(t))) return false;
+    if (st.house.size && !st.house.has(_gfTeamHouse(t))) return false;
+    if (st.group.size && !st.group.has(_gfTeamGroup(t))) return false;
+    if (st.category.size && !st.category.has(_gfTeamCategory(t))) return false;
+    return true;
+  }
   function _gfRosterFilteredSorted() {
     const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''}${p.roll ? ', Roll ' + p.roll : ''})` : 'Unknown';
     const leaderNameOf = t => nameOf(t.members.find(m => m.role === 'leader')?.profile) || t.leader_student_id;
-    const filter = document.getElementById('gfRosterFilter')?.value || 'all';
     const sort = document.getElementById('gfRosterSort')?.value || 'newest';
-    let shown = _gfRosterTeams.filter(t => {
-      if (filter === 'submitted') return t.is_submitted;
-      if (filter === 'saved') return !t.is_submitted;
-      if (filter === 'approved') return t.review_status === 'approved';
-      if (filter === 'rejected') return t.review_status === 'rejected';
-      if (filter === 'unreviewed') return !t.review_status;
-      return true;
-    });
+    let shown = _gfRosterTeams.filter(_gfTeamMatchesRosterFilters);
     return shown.slice().sort((a, b) => {
       if (sort === 'leader') return leaderNameOf(a).localeCompare(leaderNameOf(b));
       if (sort === 'submitted_at') return new Date(b.submitted_at || 0) - new Date(a.submitted_at || 0);
