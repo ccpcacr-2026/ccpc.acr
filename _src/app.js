@@ -28750,6 +28750,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div id="gfReviewerRulesList" class="flex flex-col gap-2"></div>
           <button onclick="saveGroupFormReviewerRules()" class="mt-3 px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Reviewer Rules</button>
         </div>
+        <div id="gfRosterSummary" class="mb-4"></div>
         <div id="adminGroupRosterList" class="flex flex-col gap-3"></div>
       </div>
     `;
@@ -29698,6 +29699,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div id="gfReviewTabBar" class="flex items-center gap-2 flex-wrap mb-4"></div>
       <div id="gfReviewToolbar" class="hidden flex items-center gap-2 flex-wrap mb-3"></div>
       <div id="gfReviewFilterPanel" class="hidden mb-4 p-4 bg-slate-50 rounded-2xl border border-slate-200"></div>
+      <div id="gfReviewSummary" class="mb-4"></div>
       <div id="gfReviewList" class="flex flex-col gap-3"></div>
     `;
     if (!myId) { document.getElementById('gfReviewList').innerHTML = '<p class="text-xs text-red-500 font-bold">Not signed in.</p>'; return; }
@@ -29827,9 +29829,36 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // Read-only card list EXCEPT for Approve/Reject, which only an 'admin'-
   // tier reviewer sees at all (viewer tier gets the exact same card shape as
   // the admin roster below, minus Lock/Disband — those stay admin-tab-only).
+  // Same counting-summary idea as the Project List print's header — total
+  // plus a breakdown by Category/Group/House/Status — but live on-screen,
+  // over whatever's currently shown (so it updates as filters change).
+  function _gfRenderReviewSummary(teams, form) {
+    const host = document.getElementById('gfReviewSummary');
+    if (!host) return;
+    if (!teams.length) { host.innerHTML = ''; return; }
+    const byCategory = _gfCountBy(teams, t => _gfAnswerByName(t, form, /^category$/i));
+    const byGroup = _gfCountBy(teams, _gfReviewTeamGroup);
+    const byHouse = _gfCountBy(teams, _gfReviewTeamHouse);
+    const byStatus = _gfCountBy(teams, t => t.review_status ? t.review_status[0].toUpperCase() + t.review_status.slice(1) : 'Pending');
+    const group = (title, pairs) => pairs.length ? `<div class="flex-1" style="min-width:140px">
+      <div class="text-[9px] font-black text-slate-400 uppercase tracking-wide mb-1.5">${_escHtml(title)}</div>
+      <div class="flex flex-col gap-1">${pairs.map(([k, v]) => `<div class="flex justify-between gap-3 text-[11px]"><span class="text-slate-600 font-bold">${_escHtml(k)}</span><span class="font-black text-slate-800">${v}</span></div>`).join('')}</div>
+    </div>` : '';
+    host.innerHTML = `<div class="bg-white border border-slate-200 rounded-2xl p-4 flex flex-wrap gap-6">
+      <div class="flex flex-col items-center justify-center pr-6 border-r border-slate-100" style="min-width:90px">
+        <span class="text-3xl font-black text-slate-800">${teams.length}</span>
+        <span class="text-[9px] font-black text-slate-400 uppercase tracking-wide">Total Projects</span>
+      </div>
+      ${group('By Category', byCategory)}
+      ${group('By Group', byGroup)}
+      ${group('By House', byHouse)}
+      ${group('By Status', byStatus)}
+    </div>`;
+  }
   function _renderGfReviewRoster(teams, form) {
     const host = document.getElementById('gfReviewList');
     const canAct = (_gfReviewTabs[_gfReviewActiveIdx] || {}).permission !== 'viewer';
+    _gfRenderReviewSummary(teams, form);
     if (!teams.length) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No teams match this filter.</p>'; return; }
     const maxSize = form ? form.max_team_size : null;
     const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''}${p.roll ? ', Roll ' + p.roll : ''})` : 'Unknown';
@@ -30020,13 +30049,40 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       return sort === 'oldest' ? cmp : -cmp;
     });
   }
+  // Same counting-summary idea as the Project List print's header and the
+  // reviewer tab's own on-screen summary — total plus a breakdown by
+  // Category/Group/House/Status, live over whatever's currently shown.
+  function _gfRenderRosterSummary(teams, form) {
+    const host = document.getElementById('gfRosterSummary');
+    if (!host) return;
+    if (!teams.length) { host.innerHTML = ''; return; }
+    const byCategory = _gfCountBy(teams, t => _gfAnswerByName(t, form, /^category$/i));
+    const byGroup = _gfCountBy(teams, _gfTeamGroup);
+    const byHouse = _gfCountBy(teams, _gfTeamHouse);
+    const byStatus = _gfCountBy(teams, t => t.review_status ? t.review_status[0].toUpperCase() + t.review_status.slice(1) : 'Pending');
+    const group = (title, pairs) => pairs.length ? `<div class="flex-1" style="min-width:140px">
+      <div class="text-[9px] font-black text-slate-400 uppercase tracking-wide mb-1.5">${_escHtml(title)}</div>
+      <div class="flex flex-col gap-1">${pairs.map(([k, v]) => `<div class="flex justify-between gap-3 text-[11px]"><span class="text-slate-600 font-bold">${_escHtml(k)}</span><span class="font-black text-slate-800">${v}</span></div>`).join('')}</div>
+    </div>` : '';
+    host.innerHTML = `<div class="bg-white border border-slate-200 rounded-2xl p-4 flex flex-wrap gap-6">
+      <div class="flex flex-col items-center justify-center pr-6 border-r border-slate-100" style="min-width:90px">
+        <span class="text-3xl font-black text-slate-800">${teams.length}</span>
+        <span class="text-[9px] font-black text-slate-400 uppercase tracking-wide">Total Projects</span>
+      </div>
+      ${group('By Category', byCategory)}
+      ${group('By Group', byGroup)}
+      ${group('By House', byHouse)}
+      ${group('By Status', byStatus)}
+    </div>`;
+  }
   function renderAdminGroupRoster(teams, form) {
     const host = document.getElementById('adminGroupRosterList');
-    if (!teams.length) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No teams have been created for this form yet.</p>'; return; }
+    if (!teams.length) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No teams have been created for this form yet.</p>'; _gfRenderRosterSummary([], form); return; }
     const maxSize = form ? form.max_team_size : null;
     const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''}${p.roll ? ', Roll ' + p.roll : ''})` : 'Unknown';
     const leaderNameOf = t => nameOf(t.members.find(m => m.role === 'leader')?.profile) || t.leader_student_id;
     const shown = _gfRosterFilteredSorted();
+    _gfRenderRosterSummary(shown, form);
     if (!shown.length) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No teams match this filter.</p>'; return; }
 
     host.innerHTML = shown.map(t => {
