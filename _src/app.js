@@ -28724,6 +28724,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div class="flex items-center justify-between mb-3 gf-roster-toolbar flex-wrap gap-2">
           <h3 id="adminGroupRosterTitle" class="text-lg font-black text-slate-800">Teams</h3>
           <div class="flex items-center gap-2 flex-wrap">
+            <div class="relative">
+              <i data-lucide="search" class="h-3 w-3 absolute text-slate-400" style="left:10px;top:50%;transform:translateY(-50%)"></i>
+              <input type="search" id="gfRosterSearch" oninput="renderAdminGroupRoster(_gfRosterTeams, _gfRosterForm)" placeholder="Search name, ID, roll, ref no…" class="pl-7 pr-2.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs" style="width:200px">
+            </div>
             <button type="button" onclick="_gfToggleRosterFilterPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="filter" class="h-3 w-3"></i>Filters<span id="gfRosterFilterCount" class="hidden ml-1 px-1.5 py-0.5 bg-slate-800 text-white rounded-full text-[9px]"></span></button>
             <select id="gfRosterSort" onchange="renderAdminGroupRoster(_gfRosterTeams, _gfRosterForm)" class="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs">
               <option value="newest">Newest first</option>
@@ -29217,6 +29221,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _gfRosterForm = form || null;
     _gfRosterFilterState = { submission: new Set(), review: new Set(), house: new Set(), group: new Set(), category: new Set() };
     document.getElementById('gfRosterFilterPanel').classList.add('hidden');
+    const searchEl = document.getElementById('gfRosterSearch');
+    if (searchEl) searchEl.value = '';
     _gfEnsureStaffDirectory();
     document.getElementById('adminGroupRosterTitle').textContent = 'Teams — ' + (form ? form.title : '');
     document.getElementById('adminGroupRoster').classList.remove('hidden');
@@ -29741,6 +29747,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _gfRegisterProfiles(_gfReviewTeams);
       toolbar.classList.remove('hidden');
       toolbar.innerHTML = `
+        <div class="relative">
+          <i data-lucide="search" class="h-3 w-3 absolute text-slate-400" style="left:10px;top:50%;transform:translateY(-50%)"></i>
+          <input type="search" id="gfReviewSearch" oninput="_renderGfReviewRoster(_gfReviewFilteredTeams(), _gfReviewForm)" placeholder="Search name, ID, roll, ref no…" class="pl-7 pr-2.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs" style="width:200px">
+        </div>
         <button type="button" onclick="_gfToggleReviewFilterPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="filter" class="h-3 w-3"></i>Filters<span id="gfReviewFilterCount" class="hidden ml-1 px-1.5 py-0.5 bg-slate-800 text-white rounded-full text-[9px]"></span></button>
         <button onclick="_exportGfReviewRoster()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="download" class="h-3 w-3"></i>Download CSV</button>
         <button onclick="_printGfReviewRoster()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="printer" class="h-3 w-3"></i>Print Roster</button>
@@ -29817,12 +29827,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // filter is active only ever includes the teams currently shown.
   function _gfReviewFilteredTeams() {
     const st = _gfReviewFilterState;
+    const searchTerm = document.getElementById('gfReviewSearch')?.value || '';
     return _gfReviewTeams.filter(t => {
       if (st.submission.size && !st.submission.has(_gfReviewTeamSubmission(t))) return false;
       if (st.review.size && !st.review.has(_gfReviewTeamReview(t))) return false;
       if (st.house.size && !st.house.has(_gfReviewTeamHouse(t))) return false;
       if (st.group.size && !st.group.has(_gfReviewTeamGroup(t))) return false;
       if (st.category.size && !st.category.has(_gfReviewTeamCategory(t))) return false;
+      if (!_gfTeamMatchesSearch(t, _gfReviewForm, searchTerm)) return false;
       return true;
     });
   }
@@ -30037,11 +30049,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (st.category.size && !st.category.has(_gfTeamCategory(t))) return false;
     return true;
   }
+  // Free-text search — matches against reference number, project title, and
+  // every member's (not just the leader's) name/student ID/roll. Combines
+  // with the chip filters (AND), not a replacement for them.
+  function _gfTeamMatchesSearch(t, form, term) {
+    if (!term) return true;
+    const q = term.trim().toLowerCase();
+    if (!q) return true;
+    const parts = [t.reference_number, _gfProjectTitle(t, form), t.leader_student_id];
+    t.members.forEach(m => { parts.push(m.student_id, m.profile?.student_name, m.profile?.roll); });
+    return parts.filter(Boolean).some(v => String(v).toLowerCase().includes(q));
+  }
   function _gfRosterFilteredSorted() {
     const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''}${p.roll ? ', Roll ' + p.roll : ''})` : 'Unknown';
     const leaderNameOf = t => nameOf(t.members.find(m => m.role === 'leader')?.profile) || t.leader_student_id;
     const sort = document.getElementById('gfRosterSort')?.value || 'newest';
-    let shown = _gfRosterTeams.filter(_gfTeamMatchesRosterFilters);
+    const searchTerm = document.getElementById('gfRosterSearch')?.value || '';
+    let shown = _gfRosterTeams.filter(t => _gfTeamMatchesRosterFilters(t) && _gfTeamMatchesSearch(t, _gfRosterForm, searchTerm));
     return shown.slice().sort((a, b) => {
       if (sort === 'leader') return leaderNameOf(a).localeCompare(leaderNameOf(b));
       if (sort === 'submitted_at') return new Date(b.submitted_at || 0) - new Date(a.submitted_at || 0);
