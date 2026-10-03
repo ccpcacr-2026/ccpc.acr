@@ -10433,8 +10433,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
           <p class="font-black text-slate-800 text-sm flex items-center gap-2 mb-3"><i data-lucide="search" class="h-4 w-4 text-blue-600"></i>Search &amp; Update Students</p>
-          <div class="grid grid-cols-2 md:grid-cols-6 gap-2 mb-3">
+          <div class="grid grid-cols-2 md:grid-cols-7 gap-2 mb-3">
             <input type="search" id="stuSearchId" placeholder="Student ID" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-stu-search-id">
+            <input type="search" id="stuSearchName" placeholder="Name" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-stu-search-name">
             <input type="search" id="stuSearchClass" placeholder="Class" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-stu-search-class">
             <input type="search" id="stuSearchSection" placeholder="Section" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-stu-search-section">
             <input type="search" id="stuSearchRoll" placeholder="Roll" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-stu-search-roll">
@@ -11197,6 +11198,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function searchStudentsAdmin() {
     const payload = {
       student_id: document.getElementById('stuSearchId').value.trim(),
+      student_name: document.getElementById('stuSearchName').value.trim(),
       class: document.getElementById('stuSearchClass').value.trim(),
       section: document.getElementById('stuSearchSection').value.trim(),
       roll: document.getElementById('stuSearchRoll').value.trim(),

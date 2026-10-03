@@ -827,6 +827,10 @@ async function _searchStudents(filters, projectFields, extraFilter) {
   const f = filters || {};
   const clauses = [];
   if (f.student_id) clauses.push(`student_id=eq.${encodeURIComponent(f.student_id)}`);
+  // Name is the one text field searched by partial, case-insensitive match
+  // (ilike) rather than an exact eq. — an admin typing a name almost never
+  // has the full, exactly-cased value on hand the way they would for an ID.
+  if (f.student_name) clauses.push(`student_name=ilike.*${encodeURIComponent(f.student_name)}*`);
   if (f.class) clauses.push(`class=eq.${encodeURIComponent(f.class)}`);
   if (f.section) clauses.push(`section=eq.${encodeURIComponent(f.section)}`);
   if (f.roll) clauses.push(`roll=eq.${encodeURIComponent(f.roll)}`);
@@ -5176,13 +5180,13 @@ export async function POST(req) {
   // download_students_by_category live earlier, right after the access
   // gate, and return before execution ever reaches here. ──────────────────
   if (action === 'search_students') {
-    const { student_id, class: cls, section, roll, group, student_category } = payload || {};
+    const { student_id, student_name, class: cls, section, roll, group, student_category } = payload || {};
     // student_category rides in through extraFilter rather than becoming
     // another named clause — _searchStudents already handles arbitrary
     // column IN-filters, and this keeps its signature from growing a
     // parameter per students_data column.
     const extra = student_category ? { student_category: [student_category] } : null;
-    const rows = await _searchStudents({ student_id, class: cls, section, roll, group }, null, extra);
+    const rows = await _searchStudents({ student_id, student_name, class: cls, section, roll, group }, null, extra);
     if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
     return NextResponse.json({ result: 'success', rows });
   }
