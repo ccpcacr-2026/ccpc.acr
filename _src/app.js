@@ -30127,15 +30127,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             ${!complete && form && form.members_required ? ' <span class="text-[9px] font-black text-amber-700 bg-amber-50 rounded-full px-2 py-0.5">Incomplete</span>' : ''}
             <div class="text-[11px] text-slate-400 font-bold mt-0.5">${t.members.length}${maxSize ? '/' + maxSize : ''} members${t.pending_invites.length ? ' · ' + t.pending_invites.length + ' pending invite(s)' : ''}${t.submitted_at ? ' · submitted ' + new Date(t.submitted_at).toLocaleString() : ''}</div>
           </div>
-          ${t.status !== 'disbanded' ? `
           <div class="flex gap-2 flex-wrap gf-no-print">
+            ${t.status !== 'disbanded' ? `
             ${t.review_status !== 'approved' ? `<button onclick="setReviewStatusAdmin(${t.id}, 'approved')" class="px-2.5 py-1 border border-green-300 text-green-700 rounded-full font-black text-[10px] uppercase hover:bg-green-50">Approve</button>` : `<button onclick="setReviewStatusAdmin(${t.id}, null)" class="px-2.5 py-1 border border-slate-200 text-slate-500 rounded-full font-black text-[10px] uppercase hover:bg-slate-50">Unapprove</button>`}
             ${t.review_status !== 'rejected' ? `<button onclick="setReviewStatusAdmin(${t.id}, 'rejected')" class="px-2.5 py-1 border border-red-300 text-red-600 rounded-full font-black text-[10px] uppercase hover:bg-red-50">Reject</button>` : `<button onclick="setReviewStatusAdmin(${t.id}, null)" class="px-2.5 py-1 border border-slate-200 text-slate-500 rounded-full font-black text-[10px] uppercase hover:bg-slate-50">Unreject</button>`}
             <button onclick="requestTeamChangesAdmin(${t.id})" class="px-2.5 py-1 border border-amber-300 text-amber-700 rounded-full font-black text-[10px] uppercase hover:bg-amber-50">Request Changes</button>
             <button onclick="setTeamLockAdmin(${t.id}, ${!t.is_locked})" class="px-2.5 py-1 ${t.is_locked ? 'border border-slate-300 text-slate-700 hover:bg-slate-100' : 'bg-slate-800 text-white'} rounded-full font-black text-[10px] uppercase">${t.is_locked ? 'Unlock' : 'Lock'}</button>
             <button onclick="disbandTeamAdmin(${t.id})" class="px-2.5 py-1 border border-red-300 text-red-600 rounded-full font-black text-[10px] uppercase hover:bg-red-50">Disband</button>
+            ` : ''}
             <button onclick="deleteTeamAdmin(${t.id})" class="px-2.5 py-1 bg-red-600 text-white rounded-full font-black text-[10px] uppercase hover:bg-red-700">Delete</button>
-          </div>` : ''}
+          </div>
         </div>
         <div class="mt-2 flex flex-wrap gap-2">
           ${t.members.map(m => `<button type="button" onclick='gfShowStudentInfo(${JSON.stringify(m.student_id)})' class="flex items-center gap-1.5 pl-1 pr-3 py-1 bg-slate-50 border border-slate-200 rounded-full text-[11px] font-bold text-slate-700 hover:bg-slate-100 hover:border-slate-300 transition-all">${_avatar(m.profile?.student_name, m.profile?.photo, 'w-6 h-6')}${nameOf(m.profile) || m.student_id}${m.role === 'leader' ? ' 👑' : ''}</button>`).join('')}
