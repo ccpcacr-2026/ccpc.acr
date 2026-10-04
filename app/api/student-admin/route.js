@@ -625,6 +625,7 @@ const ADMIN_TAB_ACTIONS = {
   payroll: new Set(['get_leave_types', 'save_leave_type', 'get_leave_requests', 'approve_leave_request']),
   transport: new Set(['get_transport_routes', 'save_transport_route', 'get_transport_vehicles', 'save_transport_vehicle', 'get_pickup_points', 'save_pickup_point', 'assign_route_pickup_point', 'get_route_pickup_points', 'assign_vehicle_to_route', 'get_vehicle_assignments', 'get_transport_fee_master', 'save_transport_fee_master', 'generate_student_transport_fee', 'get_student_transport_fees']),
   registration_admin: new Set(['get_students_for_photo_download']),
+  omr_results: new Set(['save_omr_batch', 'get_omr_batches', 'set_omr_batch_published', 'delete_omr_batch']),
   setup: new Set(['get_tabs', 'get_profile_sections', 'get_student_data_headers', 'get_editable_fields', 'save_editable_fields', 'get_permanent_tabs_config', 'set_permanent_tabs_config', 'get_login_password_columns', 'set_login_password_columns', 'promote_tab_to_profile', 'unpromote_tab_from_profile', 'delete_tab', 'save_tab', 'admin_reset_pin']),
   add_custom_form: new Set(['get_tabs', 'get_student_data_headers', 'save_tab', 'delete_tab']),
   // Group Forms — team sign-up (e.g. Science Fair) in the student portal.
@@ -698,6 +699,7 @@ const ADMIN_TAB_DEFAULTS = {
   // passes regardless (see _isSuperAdmin/_isTabAllowed below), so this is
   // really just naming the one other role that should reach it.
   registration_admin: ['Registration Admin'],
+  omr_results: ['Admin', 'Student Portal Admin'],
 };
 
 // An action can legitimately belong to more than one tab's Set (shared
@@ -1675,6 +1677,82 @@ export async function POST(req) {
     const rows = await sbAllRows('students_data?select=student_id,student_name,class,section,roll,house,session,group,photo');
     if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
     return NextResponse.json({ result: 'success', rows });
+  }
+
+  // ── OMR exam results: upload a scored batch (Class + Subject + exam) ────
+  // Scoring itself already happened client-side (the same algorithm
+  // OptiMark Pro's own Answer Review export uses — match each student's Set
+  // against that Set's answer key, per-question Correct/Wrong/Unanswered/No
+  // Key, sum to a total) — this just persists the already-computed result.
+  // Students never see it until a separate set_omr_batch_published call.
+  if (action === 'save_omr_batch') {
+    const { class: klass, subject, exam_title, exam_date, answer_keys_json, results } = payload;
+    const actorId = user_id;
+    if (!klass || !subject || !exam_title) return NextResponse.json({ result: 'error', message: 'Class, Subject and Exam Title are required.' });
+    if (!Array.isArray(results) || !results.length) return NextResponse.json({ result: 'error', message: 'No scored results to save.' });
+
+    let createdByName = actorId || null;
+    if (actorId) {
+      const profRows = await sbTeacher(`users_profile?teacher_id=eq.${encodeURIComponent(actorId)}&select=full_name`);
+      createdByName = (!profRows?.error && profRows[0]?.full_name) || actorId;
+    }
+
+    const totalQuestions = results[0] && results[0].answers_json ? Object.keys(JSON.parse(results[0].answers_json)).length : 0;
+    const batchRows = await sb('omr_exam_batches', 'POST', [{
+      class: klass, subject, exam_title,
+      exam_date: exam_date || null,
+      answer_keys_json: answer_keys_json || '{}',
+      total_questions: totalQuestions,
+      total_students: results.length,
+      warnings_json: JSON.stringify(payload.warnings || []),
+      created_by: actorId || null,
+      created_by_name: createdByName,
+    }]);
+    if (batchRows?.error) return NextResponse.json({ result: 'error', message: batchRows.error });
+    const batchId = batchRows[0].id;
+
+    const resultRows = results.map(r => ({
+      batch_id: batchId,
+      student_id: String(r.student_id),
+      set_code: r.set_code || null,
+      marks: r.marks || 0,
+      total_questions: totalQuestions,
+      answers_json: r.answers_json || '{}',
+    }));
+    const inserted = await sb('omr_exam_results', 'POST', resultRows);
+    if (inserted?.error) {
+      // Roll back the batch header rather than leave an empty, orphaned one.
+      await sb(`omr_exam_batches?id=eq.${encodeURIComponent(batchId)}`, 'DELETE');
+      return NextResponse.json({ result: 'error', message: inserted.error });
+    }
+    return NextResponse.json({ result: 'success', batch_id: batchId });
+  }
+
+  if (action === 'get_omr_batches') {
+    const rows = await sb('omr_exam_batches?order=created_at.desc');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', batches: Array.isArray(rows) ? rows : [] });
+  }
+
+  if (action === 'set_omr_batch_published') {
+    const { batch_id, published } = payload;
+    if (!batch_id) return NextResponse.json({ result: 'error', message: 'batch_id required.' });
+    const r = await sb(`omr_exam_batches?id=eq.${encodeURIComponent(batch_id)}`, 'PATCH', {
+      is_published: !!published,
+      published_at: published ? new Date().toISOString() : null,
+      updated_at: new Date().toISOString(),
+    });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  if (action === 'delete_omr_batch') {
+    const { batch_id } = payload;
+    if (!batch_id) return NextResponse.json({ result: 'error', message: 'batch_id required.' });
+    // omr_exam_results cascades via its own FK (ON DELETE CASCADE).
+    const r = await sb(`omr_exam_batches?id=eq.${encodeURIComponent(batch_id)}`, 'DELETE');
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
   }
 
   // ── Distinct values of an arbitrary students_data column (Group Form

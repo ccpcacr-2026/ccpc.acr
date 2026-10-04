@@ -555,7 +555,8 @@
     home:          () => renderMobileHomeGrid(),
     analytics:     () => loadAnalytics(),
     permissions:   () => loadPermissionsPanel(),
-    registration_admin: () => loadRegistrationAdminView()
+    registration_admin: () => loadRegistrationAdminView(),
+    omr_results:   () => loadOmrResultsView()
   };
 
   function _setViewHash(key) {
@@ -28013,6 +28014,368 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }
   }
 
+  // ══════════════════════════════════════════════════════════════════════
+  // OMR Results — upload a scored batch (Class + Subject + exam) from the
+  // OptiMark Pro scanner's own output files (answer_key.json per Set +
+  // result.csv with per-question Q1..Qn columns), preview it, then publish
+  // for students to see their own result + answer key.
+  //
+  // The scoring algorithm below (_omrParseCsv/_omrLoadAnswerKey/
+  // _omrBuildScoredTable) is a direct JS port of OptiMark Pro's own
+  // ui_result_pdf_export.py (_build_scored_table) — same validation rules,
+  // same set-equality comparison (a multi-letter answer must match the key
+  // EXACTLY, not just overlap), same error messages where practical. Ported
+  // deliberately rather than invented fresh, so a web-uploaded result always
+  // scores identically to the desktop tool's own PDF/CSV export of the same
+  // files. Verified against synthetic test data (including pandas' quoted-
+  // comma CSV encoding for multi-letter answers) before being wired in here.
+  // ══════════════════════════════════════════════════════════════════════
+
+  // RFC4180-ish CSV parser (quote-aware) -- pandas.to_csv quotes any field
+  // containing a comma, which includes a multi-letter answer like "B,C";
+  // a naive split(',') would corrupt column alignment on exactly that case.
+  function _omrParseCsv(text) {
+    const rowsOut = [];
+    let row = [], field = '', inQuotes = false;
+    const s = String(text).replace(/\r\n/g, '\n');
+    for (let i = 0; i < s.length; i++) {
+      const c = s[i];
+      if (inQuotes) {
+        if (c === '"') { if (s[i + 1] === '"') { field += '"'; i++; } else inQuotes = false; }
+        else field += c;
+      } else {
+        if (c === '"') inQuotes = true;
+        else if (c === ',') { row.push(field); field = ''; }
+        else if (c === '\n') { row.push(field); rowsOut.push(row); row = []; field = ''; }
+        else field += c;
+      }
+    }
+    if (field.length || row.length) { row.push(field); rowsOut.push(row); }
+    if (rowsOut.length && rowsOut[rowsOut.length - 1].length === 1 && rowsOut[rowsOut.length - 1][0] === '') rowsOut.pop();
+    if (!rowsOut.length) return [];
+    const headers = rowsOut[0].map(h => h.trim());
+    return rowsOut.slice(1).map(r => {
+      const obj = {};
+      headers.forEach((h, idx) => { obj[h] = r[idx] !== undefined ? r[idx] : ''; });
+      return obj;
+    });
+  }
+  function _omrLoadAnswerKey(jsonText, fallbackName) {
+    const data = JSON.parse(jsonText);
+    const identifiers = data.identifiers || {};
+    let setCode = null;
+    for (const [key, val] of Object.entries(identifiers)) {
+      if (['set', 'set_code', 'setcode'].includes(String(key).trim().toLowerCase())) { setCode = String(val).trim(); break; }
+    }
+    if (!setCode) setCode = fallbackName;
+    const answers = {};
+    for (const [qnumStr, letters] of Object.entries(data.answers || {})) {
+      const qnum = parseInt(qnumStr, 10);
+      if (Number.isNaN(qnum)) continue;
+      if (letters && letters.length) answers[qnum] = new Set(letters.map(l => String(l).trim().toUpperCase()));
+    }
+    return { setCode, answers };
+  }
+  const _OMR_QCOL_RE = /^Q(\d+)$/i;
+  function _omrDetectQuestionColumns(columns) {
+    const found = [];
+    for (const c of columns) { const m = _OMR_QCOL_RE.exec(String(c).trim()); if (m) found.push([parseInt(m[1], 10), c]); }
+    found.sort((a, b) => a[0] - b[0]);
+    return found;
+  }
+  function _omrSetsEqual(a, b) {
+    if (a.size !== b.size) return false;
+    for (const x of a) if (!b.has(x)) return false;
+    return true;
+  }
+  // resultFiles: [{name, columns, rows}, ...]   keyEntries: [{setCode, answers}, ...]
+  function _omrBuildScoredTable(resultFiles, keyEntries, setColumn) {
+    if (!keyEntries.length) throw new Error('Add at least one Answer Key first.');
+    if (!resultFiles.length) throw new Error('Add at least one Result CSV first.');
+
+    let refColumns = null, combined = [];
+    for (const { name, columns, rows } of resultFiles) {
+      const colSet = new Set(columns);
+      if (refColumns === null) refColumns = colSet;
+      else if (colSet.size !== refColumns.size || [...colSet].some(c => !refColumns.has(c))) {
+        throw new Error(`'${name}' has different columns than the first result CSV -- all selected result CSVs must have identical columns.`);
+      }
+      combined = combined.concat(rows);
+    }
+
+    const allQuestionCols = _omrDetectQuestionColumns([...refColumns]);
+    if (!allQuestionCols.length) {
+      throw new Error('None of the selected result CSVs have per-question columns (Q1, Q2, ...). Re-export from the Checker with "Student Answers (per question)" included in the output pattern.');
+    }
+    if (!setColumn || !refColumns.has(setColumn)) throw new Error("Select which column holds each student's Set Code.");
+
+    const answerKeys = {};
+    const keyQuestionCounts = [];
+    for (const { setCode, answers } of keyEntries) {
+      answerKeys[setCode.trim().toLowerCase()] = answers;
+      keyQuestionCounts.push([setCode, new Set(Object.keys(answers).map(Number))]);
+    }
+    const counts = new Set(keyQuestionCounts.map(([, qs]) => qs.size));
+    if (counts.size > 1) {
+      const detail = keyQuestionCounts.map(([name, qs]) => `${name}: ${qs.size} question(s)`).join(', ');
+      throw new Error(`Answer keys don't all have the same number of questions -- ${detail}. All selected answer keys must define the same number of questions.`);
+    }
+    const canonicalQnums = keyQuestionCounts.length ? [...keyQuestionCounts[0][1]].sort((a, b) => a - b) : [];
+    const questionCols = allQuestionCols.filter(([qn]) => canonicalQnums.includes(qn));
+    const presentQnums = new Set(allQuestionCols.map(([qn]) => qn));
+    const missing = canonicalQnums.filter(qn => !presentQnums.has(qn));
+    if (missing.length) throw new Error(`The answer key(s) define question(s) ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? '...' : ''} that aren't present as Q-columns in the selected result CSV(s).`);
+    if (!questionCols.length) throw new Error("The selected answer key(s) don't define any questions.");
+
+    const unmatchedSets = new Set();
+    const scoredRows = combined.map(row => {
+      const setVal = String(row[setColumn] || '').trim().toLowerCase();
+      const key = Object.prototype.hasOwnProperty.call(answerKeys, setVal) ? answerKeys[setVal] : null;
+      if (key === null) unmatchedSets.add(setVal || '(blank)');
+      let correctCount = 0;
+      const answersOut = {};
+      for (const [qnum, colname] of questionCols) {
+        const markedRaw = String(row[colname] || '').trim();
+        const markedLetters = (markedRaw === '' || markedRaw.toLowerCase() === 'unanswered')
+          ? new Set() : new Set(markedRaw.split(',').map(x => x.trim().toUpperCase()).filter(Boolean));
+        let verdict;
+        if (key === null) verdict = 'no_key';
+        else if (markedLetters.size === 0) verdict = 'unanswered';
+        else if (_omrSetsEqual(markedLetters, key[qnum] || new Set())) { verdict = 'correct'; correctCount++; }
+        else verdict = 'wrong';
+        answersOut[qnum] = { marked: [...markedLetters].sort(), verdict };
+      }
+      return { row, set_code: row[setColumn], marks: correctCount, answers: answersOut };
+    });
+
+    const warnings = [];
+    if (unmatchedSets.size) warnings.push('No matching answer key for set code(s): ' + [...unmatchedSets].sort().join(', '));
+    return { scored: scoredRows, questionCols, warnings, totalQuestions: questionCols.length };
+  }
+
+  // --- UI state ---
+  let _omrAnswerKeyFiles = [];  // [{name, setCode, answers}]
+  let _omrResultFiles = [];     // [{name, columns, rows}]
+  let _omrScoreResult = null;   // last successful _omrBuildScoredTable() output
+  let _omrBatches = [];
+
+  function loadOmrResultsView() {
+    if (!_hasModuleAccess('omr_results')) { showToast('Not available in current role', 'error'); return; }
+    _setViewHash('omr_results');
+    setActiveNavLink('nav-omr-results');
+    setContentHeader('OMR Results', 'file-check-2');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    _omrAnswerKeyFiles = []; _omrResultFiles = []; _omrScoreResult = null;
+    container.innerHTML = `
+      <div class="space-y-5 pb-10">
+        <div>
+          <h2 class="text-2xl font-black text-slate-800 tracking-tight">OMR Results</h2>
+          <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Upload a scored batch, preview it, then publish for students</p>
+        </div>
+
+        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+          <p class="font-black text-slate-800 text-sm flex items-center gap-2 mb-3"><i data-lucide="upload" class="h-4 w-4 text-blue-600"></i>Upload New Batch</p>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+            <input type="text" id="omrClass" placeholder="Class" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            <input type="text" id="omrSubject" placeholder="Subject" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            <input type="text" id="omrExamTitle" placeholder="Exam Title (e.g. Yearly Exam 2026)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            <input type="date" id="omrExamDate" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+            <div class="border border-slate-200 rounded-xl p-3">
+              <p class="text-[10px] font-black text-slate-400 uppercase mb-2">Answer Key(s) (.json, one per Set)</p>
+              <input type="file" id="omrKeyFileInput" accept=".json" multiple class="text-xs mb-2" onchange="_omrOnKeyFiles(this.files)">
+              <div id="omrKeysList" class="flex flex-col gap-1"></div>
+            </div>
+            <div class="border border-slate-200 rounded-xl p-3">
+              <p class="text-[10px] font-black text-slate-400 uppercase mb-2">Result File(s) (.csv)</p>
+              <input type="file" id="omrCsvFileInput" accept=".csv" multiple class="text-xs mb-2" onchange="_omrOnCsvFiles(this.files)">
+              <div id="omrCsvsList" class="flex flex-col gap-1"></div>
+            </div>
+          </div>
+          <div class="mb-3" style="max-width:280px">
+            <p class="text-[10px] font-black text-slate-400 uppercase mb-1">Set Code Column</p>
+            <select id="omrSetColumn" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></select>
+          </div>
+          <div class="flex items-center gap-2 mb-3 flex-wrap">
+            <button onclick="_omrPreview()" class="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50">Preview</button>
+            <button onclick="_omrUpload()" id="omrUploadBtn" disabled class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black disabled:opacity-40">Upload</button>
+            <span id="omrStatus" class="text-xs font-bold text-slate-500"></span>
+          </div>
+          <div id="omrPreviewWrap"></div>
+        </div>
+
+        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+          <p class="font-black text-slate-800 text-sm flex items-center gap-2 mb-3"><i data-lucide="list" class="h-4 w-4 text-blue-600"></i>Uploaded Batches</p>
+          <div id="omrBatchesList"><p class="text-xs text-slate-400 font-bold">Loading…</p></div>
+        </div>
+      </div>
+    `;
+    lucide.createIcons();
+    _omrLoadBatches();
+  }
+
+  function _omrRefreshFileLists() {
+    const keysHost = document.getElementById('omrKeysList');
+    if (keysHost) keysHost.innerHTML = _omrAnswerKeyFiles.map((f, i) =>
+      `<div class="flex items-center justify-between text-[11px] font-bold text-slate-600 bg-slate-50 rounded-lg px-2 py-1"><span>${_escHtml(f.name)} (Set: ${_escHtml(f.setCode)}, ${Object.keys(f.answers).length} q)</span><button onclick="_omrRemoveKeyFile(${i})" class="text-red-500">&times;</button></div>`
+    ).join('') || '<p class="text-[11px] text-slate-400 italic">None added yet.</p>';
+
+    const csvsHost = document.getElementById('omrCsvsList');
+    if (csvsHost) csvsHost.innerHTML = _omrResultFiles.map((f, i) =>
+      `<div class="flex items-center justify-between text-[11px] font-bold text-slate-600 bg-slate-50 rounded-lg px-2 py-1"><span>${_escHtml(f.name)} (${f.rows.length} row(s))</span><button onclick="_omrRemoveCsvFile(${i})" class="text-red-500">&times;</button></div>`
+    ).join('') || '<p class="text-[11px] text-slate-400 italic">None added yet.</p>';
+
+    const setSel = document.getElementById('omrSetColumn');
+    if (setSel) {
+      const cols = _omrResultFiles.length ? _omrResultFiles[0].columns.filter(c => !_OMR_QCOL_RE.test(c)) : [];
+      const prev = setSel.value;
+      setSel.innerHTML = cols.map(c => `<option value="${_escHtml(c)}">${_escHtml(c)}</option>`).join('');
+      const setGuess = cols.find(c => ['set', 'set_code', 'setcode'].includes(c.trim().toLowerCase()));
+      setSel.value = cols.includes(prev) ? prev : (setGuess || cols[0] || '');
+    }
+  }
+
+  function _omrOnKeyFiles(fileList) {
+    const files = Array.from(fileList || []);
+    Promise.all(files.map(f => f.text().then(text => {
+      try {
+        const { setCode, answers } = _omrLoadAnswerKey(text, f.name.replace(/\.json$/i, ''));
+        _omrAnswerKeyFiles.push({ name: f.name, setCode, answers });
+      } catch (e) { showToast(`Could not read ${f.name}: ${e.message}`, 'error'); }
+    }))).then(() => { _omrRefreshFileLists(); document.getElementById('omrKeyFileInput').value = ''; });
+  }
+  function _omrOnCsvFiles(fileList) {
+    const files = Array.from(fileList || []);
+    Promise.all(files.map(f => f.text().then(text => {
+      const rows = _omrParseCsv(text);
+      if (!rows.length) { showToast(`${f.name} has no data rows`, 'error'); return; }
+      _omrResultFiles.push({ name: f.name, columns: Object.keys(rows[0]), rows });
+    }))).then(() => { _omrRefreshFileLists(); document.getElementById('omrCsvFileInput').value = ''; });
+  }
+  function _omrRemoveKeyFile(i) { _omrAnswerKeyFiles.splice(i, 1); _omrRefreshFileLists(); }
+  function _omrRemoveCsvFile(i) { _omrResultFiles.splice(i, 1); _omrRefreshFileLists(); }
+
+  function _omrPreview() {
+    const setColumn = document.getElementById('omrSetColumn')?.value;
+    const statusEl = document.getElementById('omrStatus');
+    const wrap = document.getElementById('omrPreviewWrap');
+    const uploadBtn = document.getElementById('omrUploadBtn');
+    uploadBtn.disabled = true;
+    _omrScoreResult = null;
+    try {
+      const result = _omrBuildScoredTable(_omrResultFiles, _omrAnswerKeyFiles, setColumn);
+      _omrScoreResult = result;
+      const marksArr = result.scored.map(s => s.marks);
+      const avg = marksArr.length ? (marksArr.reduce((a, b) => a + b, 0) / marksArr.length).toFixed(1) : 0;
+      statusEl.innerHTML = `<span class="text-emerald-600">${result.scored.length} student(s) scored, ${result.totalQuestions} question(s), avg ${avg}/${result.totalQuestions}</span>` +
+        (result.warnings.length ? `<br><span class="text-amber-600">${result.warnings.map(_escHtml).join('; ')}</span>` : '');
+      const idCols = ['Student_ID', 'ID', 'Name', 'Roll', 'Class', 'SectionName', 'Section'].filter(c => _omrResultFiles[0] && _omrResultFiles[0].columns.includes(c));
+      const shown = result.scored.slice(0, 50);
+      wrap.innerHTML = `
+        <div class="overflow-auto border border-slate-200 rounded-xl mt-2" style="max-height:400px">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead class="bg-slate-50"><tr>
+              ${idCols.map(c => `<th class="py-2 px-2 font-black text-[10px] text-slate-500 uppercase">${_escHtml(c)}</th>`).join('')}
+              <th class="py-2 px-2 font-black text-[10px] text-slate-500 uppercase">Set</th>
+              <th class="py-2 px-2 font-black text-[10px] text-slate-500 uppercase">Marks</th>
+            </tr></thead>
+            <tbody>${shown.map(s => `<tr class="border-b border-slate-50">
+              ${idCols.map(c => `<td class="py-1.5 px-2 text-slate-600">${_escHtml(s.row[c] || '')}</td>`).join('')}
+              <td class="py-1.5 px-2 text-slate-600">${_escHtml(s.set_code || '')}</td>
+              <td class="py-1.5 px-2 font-black text-slate-800">${s.marks}/${result.totalQuestions}</td>
+            </tr>`).join('')}</tbody>
+          </table>
+          ${result.scored.length > 50 ? `<p class="text-[11px] text-slate-400 font-bold p-2">Showing first 50 of ${result.scored.length} -- the upload includes all of them.</p>` : ''}
+        </div>`;
+      uploadBtn.disabled = false;
+    } catch (e) {
+      statusEl.innerHTML = `<span class="text-red-600">${_escHtml(e.message)}</span>`;
+      wrap.innerHTML = '';
+    }
+  }
+
+  function _omrUpload() {
+    if (!_omrScoreResult) { showToast('Run Preview first.', 'error'); return; }
+    const klass = document.getElementById('omrClass').value.trim();
+    const subject = document.getElementById('omrSubject').value.trim();
+    const examTitle = document.getElementById('omrExamTitle').value.trim();
+    const examDate = document.getElementById('omrExamDate').value;
+    if (!klass || !subject || !examTitle) { showToast('Class, Subject and Exam Title are required.', 'error'); return; }
+
+    const idCols = ['Student_ID', 'ID'].filter(c => _omrResultFiles[0] && _omrResultFiles[0].columns.includes(c));
+    const studentIdCol = idCols[0];
+    if (!studentIdCol) { showToast('Result CSV has no Student_ID/ID column -- cannot upload.', 'error'); return; }
+
+    const answerKeysOut = {};
+    _omrAnswerKeyFiles.forEach(f => {
+      const obj = {};
+      Object.entries(f.answers).forEach(([q, set]) => { obj[q] = [...set]; });
+      answerKeysOut[f.setCode] = obj;
+    });
+
+    const results = _omrScoreResult.scored.map(s => ({
+      student_id: s.row[studentIdCol],
+      set_code: s.set_code,
+      marks: s.marks,
+      answers_json: JSON.stringify(s.answers),
+    }));
+
+    const btn = document.getElementById('omrUploadBtn');
+    btn.disabled = true;
+    _adminFetch('save_omr_batch', {
+      class: klass, subject, exam_title: examTitle, exam_date: examDate || null,
+      answer_keys_json: JSON.stringify(answerKeysOut),
+      results, warnings: _omrScoreResult.warnings,
+    }).then(res => {
+      if (res && res.result === 'success') {
+        showToast(`Uploaded ${results.length} result(s)`);
+        loadOmrResultsView();
+      } else {
+        showToast((res && res.message) || 'Upload failed', 'error');
+        btn.disabled = false;
+      }
+    }).catch(() => { showToast('Network error', 'error'); btn.disabled = false; });
+  }
+
+  function _omrLoadBatches() {
+    _adminFetch('get_omr_batches', {}).then(res => {
+      _omrBatches = (res && res.result === 'success') ? res.batches : [];
+      _omrRenderBatches();
+    }).catch(() => { document.getElementById('omrBatchesList').innerHTML = '<p class="text-xs text-red-500 font-bold">Network error</p>'; });
+  }
+  function _omrRenderBatches() {
+    const host = document.getElementById('omrBatchesList');
+    if (!host) return;
+    if (!_omrBatches.length) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No batches uploaded yet.</p>'; return; }
+    host.innerHTML = _omrBatches.map(b => `
+      <div class="border border-slate-200 rounded-2xl p-3 mb-2 flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <strong class="text-sm font-black text-slate-800">${_escHtml(b.exam_title)}</strong>
+          <span class="text-[9px] font-black text-white ${b.is_published ? 'bg-emerald-600' : 'bg-slate-400'} rounded-full px-2 py-0.5 ml-1">${b.is_published ? 'Published' : 'Not Published'}</span>
+          <div class="text-[11px] text-slate-400 font-bold mt-0.5">${_escHtml(b.class)} &middot; ${_escHtml(b.subject)} &middot; ${b.total_students} student(s) &middot; ${b.total_questions} question(s)${b.created_by_name ? ' &middot; by ' + _escHtml(b.created_by_name) : ''}</div>
+        </div>
+        <div class="flex gap-2">
+          <button onclick="_omrTogglePublish(${b.id}, ${!b.is_published})" class="px-2.5 py-1 ${b.is_published ? 'border border-slate-300 text-slate-700 hover:bg-slate-100' : 'bg-emerald-600 text-white'} rounded-full font-black text-[10px] uppercase">${b.is_published ? 'Unpublish' : 'Publish'}</button>
+          <button onclick="_omrDeleteBatch(${b.id})" class="px-2.5 py-1 bg-red-600 text-white rounded-full font-black text-[10px] uppercase hover:bg-red-700">Delete</button>
+        </div>
+      </div>`).join('');
+  }
+  function _omrTogglePublish(batchId, published) {
+    _adminFetch('set_omr_batch_published', { batch_id: batchId, published }).then(res => {
+      if (res && res.result === 'success') _omrLoadBatches();
+      else showToast((res && res.message) || 'Failed', 'error');
+    }).catch(() => showToast('Network error', 'error'));
+  }
+  function _omrDeleteBatch(batchId) {
+    if (!confirm('Permanently delete this batch and every student\'s result in it? This cannot be undone.')) return;
+    _adminFetch('delete_omr_batch', { batch_id: batchId }).then(res => {
+      if (res && res.result === 'success') _omrLoadBatches();
+      else showToast((res && res.message) || 'Failed', 'error');
+    }).catch(() => showToast('Network error', 'error'));
+  }
+
   function loadAdminTransportView() {
     if (!_hasModuleAccess('transport')) { showToast('Not available in current role', 'error'); return; }
     _setViewHash('transport');
@@ -37557,6 +37920,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { key: 'analytics',        label: 'Analytics',          navId: 'nav-analytics' },
     { key: 'permissions',      label: 'Permission Control', navId: 'nav-permissions' },
     { key: 'registration_admin', label: 'Registration Admin', navId: 'nav-registration-admin' },
+    { key: 'omr_results',      label: 'OMR Results',        navId: 'nav-omr-results' },
   ];
 
   // Mirrors the hardcoded behavior this feature replaces — used until an
@@ -37598,6 +37962,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // Admin always has access regardless (see _isModuleVisibleForRole);
     // adjust from System > Module Access if other roles need it too.
     registration_admin: ['Registration Admin'],
+    omr_results: ['Admin', 'Student Portal Admin'],
   };
 
   let _moduleVisibility = null; // { moduleKey: [roles...] } once loaded from system_settings
