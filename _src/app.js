@@ -30844,6 +30844,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // eligibility_json.bands (the exact named values students get auto-
   // assigned), never freehand, so a fix here can't reintroduce the same
   // kind of mistake.
+  // Direct port of ccpc-students' own matchSingle/matchShowIfData (the exact
+  // logic the real fill-up form uses for "dependable" fields) — a condition's
+  // value may itself be an array (OR), {all:[...]}/{any:[...]} combine several
+  // conditions, and `negate` inverts the whole result ("Hide if" mode).
+  function _gfMatchShowIfSingle(cond, currentVal) {
+    const cur = String(currentVal == null ? '' : currentVal).toLowerCase().trim();
+    const targets = Array.isArray(cond.value) ? cond.value : Array.isArray(cond.values) ? cond.values : [cond.value];
+    return targets.some(t => String(t == null ? '' : t).toLowerCase().trim() === cur);
+  }
+  function _gfMatchShowIf(showIf, lookup) {
+    if (!showIf) return true;
+    let result;
+    if (Array.isArray(showIf.all)) result = showIf.all.every(c => _gfMatchShowIfSingle(c, lookup(c.field)));
+    else if (Array.isArray(showIf.any)) result = showIf.any.some(c => _gfMatchShowIfSingle(c, lookup(c.field)));
+    else result = _gfMatchShowIfSingle(showIf, lookup(showIf.field));
+    return showIf.negate ? !result : result;
+  }
   function _gfOpenEditTeamModal(team, form, onSaved) {
     if (!team || !form) { showToast('Could not load this team', 'error'); return; }
     let fields = [];
@@ -30854,6 +30871,34 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const bandLabel = b => Array.isArray(b) ? b.join('/') : (String(b.name || '').trim() || (Array.isArray(b.classes) ? b.classes : []).join('/'));
     const data = team.group_data || {};
     const editable = fields.filter(f => f.type !== 'group_label' && f.type !== 'profile_picture');
+
+    // Live value of any field currently in the modal, by data_key — used both
+    // to evaluate other fields' show_if as the admin edits, and to collect
+    // the final answers on Save.
+    const fieldValue = key => {
+      const el = document.getElementById(`gfEditField-${key}`);
+      if (!el) return '';
+      if (el.tagName === 'DIV') { const c = el.querySelector('.gfEditCheckboxOpt:checked'); return c ? c.value : ''; }
+      return el.value;
+    };
+    // Re-runs every show_if-gated field's visibility against the modal's
+    // OWN current values — e.g. switching "Group" here immediately swaps
+    // which of the two "Category" fields is shown, exactly like the
+    // leader's own fill-up form, instead of showing both at once.
+    const reevaluate = () => {
+      editable.forEach(f => {
+        if (!f.show_if) return;
+        const row = document.getElementById(`gfEditRow-${f.data_key}`);
+        const ctrl = document.getElementById(`gfEditField-${f.data_key}`);
+        if (!row) return;
+        const show = _gfMatchShowIf(f.show_if, fieldValue);
+        row.style.display = show ? '' : 'none';
+        if (ctrl) {
+          if (ctrl.tagName === 'DIV') ctrl.querySelectorAll('input').forEach(c => { c.disabled = !show; });
+          else ctrl.disabled = !show;
+        }
+      });
+    };
 
     const rowHtml = f => {
       const val = data[f.data_key];
@@ -30879,7 +30924,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       } else {
         input = `<input type="text" id="${id}" value="${_escHtml(val ?? '')}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">`;
       }
-      return `<div class="mb-3">
+      return `<div class="mb-3" id="gfEditRow-${f.data_key}">
         <label class="block text-[10px] font-black text-slate-400 uppercase mb-1">${_escHtml(f.name || f.data_key)}</label>
         ${input}
       </div>`;
@@ -30902,11 +30947,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>`;
     document.body.appendChild(overlay);
 
+    editable.forEach(f => {
+      const ctrl = document.getElementById(`gfEditField-${f.data_key}`);
+      if (!ctrl) return;
+      if (ctrl.tagName === 'DIV') ctrl.querySelectorAll('input').forEach(c => c.addEventListener('change', reevaluate));
+      else ctrl.addEventListener('input', reevaluate);
+    });
+    reevaluate();
+
     document.getElementById('gfEditTeamSaveBtn').onclick = () => {
       const newData = { ...data };
       editable.forEach(f => {
         const el = document.getElementById(`gfEditField-${f.data_key}`);
         if (!el) return;
+        // A field hidden by its own show_if (same rule the leader's form
+        // itself enforces) never gets an answer saved for it — otherwise
+        // flipping "Group" here could leave a stale Category answer on
+        // record for a bracket it no longer belongs to.
+        if (f.show_if && !_gfMatchShowIf(f.show_if, fieldValue)) { newData[f.data_key] = ''; return; }
         if (f.type === 'checkbox') newData[f.data_key] = Array.from(el.querySelectorAll('.gfEditCheckboxOpt:checked')).map(x => x.value);
         else newData[f.data_key] = el.value;
       });
