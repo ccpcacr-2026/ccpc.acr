@@ -625,7 +625,7 @@ const ADMIN_TAB_ACTIONS = {
   payroll: new Set(['get_leave_types', 'save_leave_type', 'get_leave_requests', 'approve_leave_request']),
   transport: new Set(['get_transport_routes', 'save_transport_route', 'get_transport_vehicles', 'save_transport_vehicle', 'get_pickup_points', 'save_pickup_point', 'assign_route_pickup_point', 'get_route_pickup_points', 'assign_vehicle_to_route', 'get_vehicle_assignments', 'get_transport_fee_master', 'save_transport_fee_master', 'generate_student_transport_fee', 'get_student_transport_fees']),
   registration_admin: new Set(['get_students_for_photo_download']),
-  omr_results: new Set(['save_omr_batch', 'get_omr_batches', 'set_omr_batch_published', 'delete_omr_batch']),
+  omr_results: new Set(['save_omr_batch', 'get_omr_batches', 'set_omr_batch_published', 'delete_omr_batch', 'get_subject_class_matrix', 'get_omr_batch_detail']),
   setup: new Set(['get_tabs', 'get_profile_sections', 'get_student_data_headers', 'get_editable_fields', 'save_editable_fields', 'get_permanent_tabs_config', 'set_permanent_tabs_config', 'get_login_password_columns', 'set_login_password_columns', 'promote_tab_to_profile', 'unpromote_tab_from_profile', 'delete_tab', 'save_tab', 'admin_reset_pin']),
   add_custom_form: new Set(['get_tabs', 'get_student_data_headers', 'save_tab', 'delete_tab']),
   // Group Forms — team sign-up (e.g. Science Fair) in the student portal.
@@ -1734,12 +1734,29 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success', batches: Array.isArray(rows) ? rows : [] });
   }
 
+  // Appends to publish_history_json rather than just flipping is_published —
+  // "who published/unpublished/published again, and when" is a repeatable
+  // history the single current-state flag + published_at can't represent.
   if (action === 'set_omr_batch_published') {
     const { batch_id, published } = payload;
     if (!batch_id) return NextResponse.json({ result: 'error', message: 'batch_id required.' });
+    const actorId = user_id;
+    let actorName = actorId || null;
+    if (actorId) {
+      const profRows = await sbTeacher(`users_profile?teacher_id=eq.${encodeURIComponent(actorId)}&select=full_name`);
+      actorName = (!profRows?.error && profRows[0]?.full_name) || actorId;
+    }
+    const batchRows = await sb(`omr_exam_batches?id=eq.${encodeURIComponent(batch_id)}`);
+    const batch = (!batchRows?.error && batchRows[0]) ? batchRows[0] : null;
+    if (!batch) return NextResponse.json({ result: 'error', message: 'Batch not found.' });
+    let history = [];
+    try { history = JSON.parse(batch.publish_history_json || '[]'); } catch (e) {}
+    history.push({ action: published ? 'published' : 'unpublished', by: actorId, by_name: actorName, at: new Date().toISOString() });
+
     const r = await sb(`omr_exam_batches?id=eq.${encodeURIComponent(batch_id)}`, 'PATCH', {
       is_published: !!published,
       published_at: published ? new Date().toISOString() : null,
+      publish_history_json: JSON.stringify(history),
       updated_at: new Date().toISOString(),
     });
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
@@ -1753,6 +1770,27 @@ export async function POST(req) {
     const r = await sb(`omr_exam_batches?id=eq.${encodeURIComponent(batch_id)}`, 'DELETE');
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
     return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Full per-student, per-question detail for one batch (the admin's
+  // "whole preview at a glance" grid, same data the PDF export shows) ─────
+  if (action === 'get_omr_batch_detail') {
+    const { batch_id } = payload;
+    if (!batch_id) return NextResponse.json({ result: 'error', message: 'batch_id required.' });
+    const batchRows = await sb(`omr_exam_batches?id=eq.${encodeURIComponent(batch_id)}`);
+    const batch = (!batchRows?.error && batchRows[0]) ? batchRows[0] : null;
+    if (!batch) return NextResponse.json({ result: 'error', message: 'Batch not found.' });
+    const resultRows = await sb(`omr_exam_results?batch_id=eq.${encodeURIComponent(batch_id)}`);
+    if (resultRows?.error) return NextResponse.json({ result: 'error', message: resultRows.error });
+    const results = Array.isArray(resultRows) ? resultRows : [];
+    const studentIds = [...new Set(results.map(r => r.student_id))];
+    let profileById = {};
+    if (studentIds.length) {
+      const profRows = await sb(`students_data?student_id=in.(${studentIds.map(id => encodeURIComponent(id)).join(',')})&select=student_id,student_name,roll,class,section`);
+      (Array.isArray(profRows) ? profRows : []).forEach(p => { profileById[p.student_id] = p; });
+    }
+    const withProfile = results.map(r => ({ ...r, profile: profileById[r.student_id] || null }));
+    return NextResponse.json({ result: 'success', batch, results: withProfile });
   }
 
   // ── Distinct values of an arbitrary students_data column (Group Form

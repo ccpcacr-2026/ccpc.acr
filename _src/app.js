@@ -28158,6 +28158,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _omrResultFiles = [];     // [{name, columns, rows}]
   let _omrScoreResult = null;   // last successful _omrBuildScoredTable() output
   let _omrBatches = [];
+  let _omrPatterns = [];        // class_patterns rows, from the existing Exams setup
+  let _omrSubjects = [];        // [{id, name}], global subject catalog
+  let _omrPatternSubjectMap = new Set(); // "patternId|subjectId" pairs, same shape _scmClassSubjects filters with
 
   function loadOmrResultsView() {
     if (!_hasModuleAccess('omr_results')) { showToast('Not available in current role', 'error'); return; }
@@ -28177,8 +28180,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
           <p class="font-black text-slate-800 text-sm flex items-center gap-2 mb-3"><i data-lucide="upload" class="h-4 w-4 text-blue-600"></i>Upload New Batch</p>
           <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
-            <input type="text" id="omrClass" placeholder="Class" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
-            <input type="text" id="omrSubject" placeholder="Subject" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+            <select id="omrClass" onchange="_omrOnClassChange()" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"><option value="">Class…</option></select>
+            <select id="omrSubject" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"><option value="">Subject…</option></select>
             <input type="text" id="omrExamTitle" placeholder="Exam Title (e.g. Yearly Exam 2026)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
             <input type="date" id="omrExamDate" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
           </div>
@@ -28214,6 +28217,41 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     `;
     lucide.createIcons();
     _omrLoadBatches();
+    _omrLoadClassSubjectSetup();
+  }
+
+  // Reuses the exact same matrix call the Exams module's own Class/Subject
+  // matrix editor uses (get_subject_class_matrix) — Class options come from
+  // class_patterns.class_name (plain strings, matching students_data.class
+  // exactly), de-duplicated since several patterns can share one class_name
+  // (different sections/groups/sessions); Subject options are filtered to
+  // whichever subjects are actually linked to THAT class's pattern(s), the
+  // same way the matrix editor's own _scmClassSubjects does it.
+  function _omrLoadClassSubjectSetup() {
+    _adminFetch('get_subject_class_matrix', {}).then(res => {
+      if (!res || res.result !== 'success') return;
+      _omrPatterns = res.patterns || [];
+      _omrSubjects = res.subjects || [];
+      _omrPatternSubjectMap = new Set((res.map || []).map(m => `${m.pattern_id}|${m.subject_id}`));
+
+      const classSel = document.getElementById('omrClass');
+      if (!classSel) return;
+      const classNames = [...new Set(_omrPatterns.map(p => p.class_name).filter(Boolean))];
+      classSel.innerHTML = '<option value="">Class…</option>' + classNames.map(c => `<option value="${_escHtml(c)}">${_escHtml(c)}</option>`).join('');
+      _omrOnClassChange();
+    }).catch(() => {});
+  }
+  function _omrOnClassChange() {
+    const classSel = document.getElementById('omrClass');
+    const subjectSel = document.getElementById('omrSubject');
+    if (!classSel || !subjectSel) return;
+    const className = classSel.value;
+    const prevSubject = subjectSel.value;
+    if (!className) { subjectSel.innerHTML = '<option value="">Subject…</option>'; return; }
+    const patternIds = _omrPatterns.filter(p => p.class_name === className).map(p => p.id);
+    const subjects = _omrSubjects.filter(s => patternIds.some(pid => _omrPatternSubjectMap.has(`${pid}|${s.id}`)));
+    subjectSel.innerHTML = '<option value="">Subject…</option>' + subjects.map(s => `<option value="${_escHtml(s.name)}">${_escHtml(s.name)}</option>`).join('');
+    if (subjects.some(s => s.name === prevSubject)) subjectSel.value = prevSubject;
   }
 
   function _omrRefreshFileLists() {
@@ -28345,22 +28383,143 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _omrRenderBatches();
     }).catch(() => { document.getElementById('omrBatchesList').innerHTML = '<p class="text-xs text-red-500 font-bold">Network error</p>'; });
   }
+  function _omrFmtDateTime(iso) {
+    if (!iso) return '';
+    try { return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch (e) { return iso; }
+  }
   function _omrRenderBatches() {
     const host = document.getElementById('omrBatchesList');
     if (!host) return;
     if (!_omrBatches.length) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No batches uploaded yet.</p>'; return; }
     host.innerHTML = _omrBatches.map(b => `
-      <div class="border border-slate-200 rounded-2xl p-3 mb-2 flex items-center justify-between flex-wrap gap-2">
-        <div>
-          <strong class="text-sm font-black text-slate-800">${_escHtml(b.exam_title)}</strong>
-          <span class="text-[9px] font-black text-white ${b.is_published ? 'bg-emerald-600' : 'bg-slate-400'} rounded-full px-2 py-0.5 ml-1">${b.is_published ? 'Published' : 'Not Published'}</span>
-          <div class="text-[11px] text-slate-400 font-bold mt-0.5">${_escHtml(b.class)} &middot; ${_escHtml(b.subject)} &middot; ${b.total_students} student(s) &middot; ${b.total_questions} question(s)${b.created_by_name ? ' &middot; by ' + _escHtml(b.created_by_name) : ''}</div>
+      <div class="border border-slate-200 rounded-2xl p-3 mb-2">
+        <div class="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <strong class="text-sm font-black text-slate-800">${_escHtml(b.exam_title)}</strong>
+            <span class="text-[9px] font-black text-white ${b.is_published ? 'bg-emerald-600' : 'bg-slate-400'} rounded-full px-2 py-0.5 ml-1">${b.is_published ? 'Published' : 'Not Published'}</span>
+            <div class="text-[11px] text-slate-400 font-bold mt-0.5">${_escHtml(b.class)} &middot; ${_escHtml(b.subject)} &middot; ${b.total_students} student(s) &middot; ${b.total_questions} question(s)</div>
+            <div class="text-[10px] text-slate-400 font-bold mt-0.5">Uploaded by ${_escHtml(b.created_by_name || 'unknown')} &middot; ${_omrFmtDateTime(b.created_at)}</div>
+          </div>
+          <div class="flex gap-2 flex-wrap">
+            <button onclick="_omrShowFullPreview(${b.id})" class="px-2.5 py-1 border border-blue-300 text-blue-700 rounded-full font-black text-[10px] uppercase hover:bg-blue-50">Full Preview</button>
+            <button onclick="_omrToggleHistory(${b.id})" class="px-2.5 py-1 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100">History</button>
+            <button onclick="_omrTogglePublish(${b.id}, ${!b.is_published})" class="px-2.5 py-1 ${b.is_published ? 'border border-slate-300 text-slate-700 hover:bg-slate-100' : 'bg-emerald-600 text-white'} rounded-full font-black text-[10px] uppercase">${b.is_published ? 'Unpublish' : 'Publish'}</button>
+            <button onclick="_omrDeleteBatch(${b.id})" class="px-2.5 py-1 bg-red-600 text-white rounded-full font-black text-[10px] uppercase hover:bg-red-700">Delete</button>
+          </div>
         </div>
-        <div class="flex gap-2">
-          <button onclick="_omrTogglePublish(${b.id}, ${!b.is_published})" class="px-2.5 py-1 ${b.is_published ? 'border border-slate-300 text-slate-700 hover:bg-slate-100' : 'bg-emerald-600 text-white'} rounded-full font-black text-[10px] uppercase">${b.is_published ? 'Unpublish' : 'Publish'}</button>
-          <button onclick="_omrDeleteBatch(${b.id})" class="px-2.5 py-1 bg-red-600 text-white rounded-full font-black text-[10px] uppercase hover:bg-red-700">Delete</button>
-        </div>
+        <div id="omrHistory-${b.id}" class="hidden mt-2 pt-2 border-t border-slate-100"></div>
       </div>`).join('');
+  }
+  // Built on first toggle and cached in the DOM — "uploaded" is synthesized
+  // from created_by_name/created_at (not itself part of publish_history_json,
+  // since it isn't a publish/unpublish event) and shown as the earliest entry
+  // of the same timeline.
+  function _omrToggleHistory(batchId) {
+    const host = document.getElementById(`omrHistory-${batchId}`);
+    if (!host) return;
+    if (!host.classList.contains('hidden')) { host.classList.add('hidden'); return; }
+    const b = _omrBatches.find(x => x.id === batchId);
+    if (!b) return;
+    let history = [];
+    try { history = JSON.parse(b.publish_history_json || '[]'); } catch (e) {}
+    const entries = [
+      { action: 'uploaded', by_name: b.created_by_name, at: b.created_at },
+      ...history,
+    ].sort((x, y) => new Date(y.at) - new Date(x.at));
+    const actionLabel = a => a === 'uploaded' ? 'Uploaded' : a === 'published' ? 'Published' : 'Unpublished';
+    const actionColor = a => a === 'uploaded' ? 'text-slate-500' : a === 'published' ? 'text-emerald-600' : 'text-amber-600';
+    host.innerHTML = `<div class="flex flex-col gap-1.5">` + entries.map(e => `
+      <div class="text-[11px] font-bold flex items-center gap-2">
+        <span class="${actionColor(e.action)} uppercase tracking-wide" style="min-width:76px">${actionLabel(e.action)}</span>
+        <span class="text-slate-600">by ${_escHtml(e.by_name || 'unknown')}</span>
+        <span class="text-slate-400">&middot; ${_omrFmtDateTime(e.at)}</span>
+      </div>`).join('') + `</div>`;
+    host.classList.remove('hidden');
+  }
+  // Admin's "whole batch at a glance" grid — the web equivalent of OptiMark
+  // Pro's own Answer Review PDF: a shaded answer-key row per Set, then every
+  // student with a color-coded cell per question (green=correct, red=wrong,
+  // showing their marked letter(s) either way).
+  function _omrShowFullPreview(batchId) {
+    _adminFetch('get_omr_batch_detail', { batch_id: batchId }).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed to load', 'error'); return; }
+      _omrRenderFullPreviewModal(res.batch, res.results);
+    }).catch(() => showToast('Network error', 'error'));
+  }
+  function _omrRenderFullPreviewModal(batch, results) {
+    let answerKeys = {};
+    try { answerKeys = JSON.parse(batch.answer_keys_json || '{}'); } catch (e) {}
+    const setCodes = Object.keys(answerKeys);
+    const qnums = setCodes.length ? Object.keys(answerKeys[setCodes[0]]).map(Number).sort((a, b) => a - b) : [];
+
+    const sorted = results.slice().sort((a, b) => {
+      const ra = Number((a.profile && a.profile.roll) || 0), rb = Number((b.profile && b.profile.roll) || 0);
+      if (ra && rb && ra !== rb) return ra - rb;
+      return String(a.student_id).localeCompare(String(b.student_id));
+    });
+
+    const headerCells = `<th style="position:sticky;left:0;background:#1e293b;z-index:3;min-width:50px">Roll</th>` +
+      `<th style="position:sticky;left:50px;background:#1e293b;z-index:3;min-width:140px;text-align:left">Name</th>` +
+      `<th style="min-width:50px">Set</th><th style="min-width:60px">Marks</th>` +
+      qnums.map(q => `<th style="min-width:34px">${q}</th>`).join('');
+
+    const keyRows = setCodes.map(sc => `<tr style="background:#f1f5f9;font-weight:800">
+      <td style="position:sticky;left:0;background:#f1f5f9" colspan="2">Set ${_escHtml(sc)} — Answer Key</td>
+      <td></td><td></td>
+      ${qnums.map(q => `<td style="text-align:center">${((answerKeys[sc] || {})[q] || []).join(',') || '-'}</td>`).join('')}
+    </tr>`).join('');
+
+    const studentRows = sorted.map(r => {
+      let answers = {};
+      try { answers = JSON.parse(r.answers_json || '{}'); } catch (e) {}
+      const p = r.profile || {};
+      return `<tr>
+        <td style="position:sticky;left:0;background:#fff">${_escHtml(p.roll || '')}</td>
+        <td style="position:sticky;left:50px;background:#fff;text-align:left">${_escHtml(p.student_name || r.student_id)}</td>
+        <td>${_escHtml(r.set_code || '')}</td>
+        <td style="font-weight:800">${r.marks}</td>
+        ${qnums.map(q => {
+          const a = answers[q] || {};
+          const marked = (a.marked || []).join(',') || '-';
+          const v = a.verdict;
+          const bg = v === 'correct' ? '#dcfce7' : v === 'wrong' ? '#fee2e2' : '#f1f5f9';
+          const fg = v === 'correct' ? '#15803d' : v === 'wrong' ? '#b91c1c' : '#64748b';
+          return `<td style="background:${bg};color:${fg};font-weight:800">${_escHtml(marked)}</td>`;
+        }).join('')}
+      </tr>`;
+    }).join('');
+
+    document.getElementById('omrFullPreviewOverlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'omrFullPreviewOverlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(15,23,42,0.7);display:flex;align-items:center;justify-content:center;padding:16px';
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+    overlay.innerHTML = `
+      <div style="background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,0.3);width:96vw;height:92vh;display:flex;flex-direction:column;overflow:hidden">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:16px;border-bottom:1px solid #f1f5f9">
+          <div>
+            <p style="font-weight:800;color:#1e293b">${_escHtml(batch.exam_title)}</p>
+            <p style="font-size:11px;color:#94a3b8;font-weight:700">${_escHtml(batch.class)} &middot; ${_escHtml(batch.subject)} &middot; ${sorted.length} student(s) &middot; ${qnums.length} question(s)</p>
+          </div>
+          <button onclick="document.getElementById('omrFullPreviewOverlay').remove()" style="padding:6px 14px;border:1px solid #e2e8f0;border-radius:999px;font-size:11px;font-weight:800;background:#fff;cursor:pointer">Close</button>
+        </div>
+        <div style="flex:1;overflow:auto">
+          <table style="border-collapse:collapse;font-size:11px;width:100%">
+            <thead style="position:sticky;top:0;z-index:4">
+              <tr style="background:#1e293b;color:#fff">${headerCells}</tr>
+            </thead>
+            <tbody>${keyRows}${studentRows}</tbody>
+          </table>
+        </div>
+      </div>`;
+    // th/td base styling (border/padding) isn't expressible inline per-cell
+    // without repeating it hundreds of times across a large grid -- one
+    // scoped <style> tag for the structural rule, color/weight stay inline
+    // per-cell above since those genuinely vary row to row.
+    const styleTag = document.createElement('style');
+    styleTag.textContent = '#omrFullPreviewOverlay th, #omrFullPreviewOverlay td { border: 1px solid #e2e8f0; padding: 4px 6px; text-align: center; white-space: nowrap; }';
+    overlay.prepend(styleTag);
+    document.body.appendChild(overlay);
   }
   function _omrTogglePublish(batchId, published) {
     _adminFetch('set_omr_batch_published', { batch_id: batchId, published }).then(res => {
