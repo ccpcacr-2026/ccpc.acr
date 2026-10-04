@@ -28088,8 +28088,37 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     for (const x of a) if (!b.has(x)) return false;
     return true;
   }
+  // Direct port of OptiMark Pro's own ui_checker.py:_evaluate_answer — the
+  // function the live scanner itself uses to grade a question, driven by
+  // the SAME "Scoring Rule" setting (Settings > Scan Policy) this web
+  // upload now also exposes. A multi-letter key entry (e.g. a question
+  // where all of A/B/C/D are listed "correct") means something different
+  // under each rule:
+  //   subset  (OptiMark Pro's own default) — full credit if every letter
+  //           the student marked is IN the key, even just one of several.
+  //   exact   — full credit only if the student's marks equal the key
+  //           exactly (no missing, no extra).
+  //   partial — proportional credit if a strict subset of the key; any
+  //           mark OUTSIDE the key zeroes the whole question.
+  // Returns {verdict: 'correct'|'partial'|'wrong', credit: 0..1}. Callers
+  // handle 'unanswered'/'no_key' themselves before ever reaching this —
+  // an empty marked set has no meaningful subset/exact/partial comparison.
+  function _omrEvaluateAnswer(markedSet, keySet, rule) {
+    if (rule === 'exact') {
+      return _omrSetsEqual(markedSet, keySet) ? { verdict: 'correct', credit: 1 } : { verdict: 'wrong', credit: 0 };
+    }
+    if (rule === 'partial') {
+      const isSubset = [...markedSet].every(x => keySet.has(x));
+      if (!isSubset) return { verdict: 'wrong', credit: 0 };
+      if (_omrSetsEqual(markedSet, keySet)) return { verdict: 'correct', credit: 1 };
+      return { verdict: 'partial', credit: keySet.size ? markedSet.size / keySet.size : 0 };
+    }
+    // subset (default)
+    const isSubset = [...markedSet].every(x => keySet.has(x));
+    return isSubset ? { verdict: 'correct', credit: 1 } : { verdict: 'wrong', credit: 0 };
+  }
   // resultFiles: [{name, columns, rows}, ...]   keyEntries: [{setCode, answers}, ...]
-  function _omrBuildScoredTable(resultFiles, keyEntries, setColumn) {
+  function _omrBuildScoredTable(resultFiles, keyEntries, setColumn, scoringRule) {
     if (!keyEntries.length) throw new Error('Add at least one Answer Key first.');
     if (!resultFiles.length) throw new Error('Add at least one Result CSV first.');
 
@@ -28127,25 +28156,26 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (missing.length) throw new Error(`The answer key(s) define question(s) ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? '...' : ''} that aren't present as Q-columns in the selected result CSV(s).`);
     if (!questionCols.length) throw new Error("The selected answer key(s) don't define any questions.");
 
+    const rule = ['subset', 'exact', 'partial'].includes(scoringRule) ? scoringRule : 'subset';
     const unmatchedSets = new Set();
     const scoredRows = combined.map(row => {
       const setVal = String(row[setColumn] || '').trim().toLowerCase();
       const key = Object.prototype.hasOwnProperty.call(answerKeys, setVal) ? answerKeys[setVal] : null;
       if (key === null) unmatchedSets.add(setVal || '(blank)');
-      let correctCount = 0;
+      let totalCredit = 0;
       const answersOut = {};
       for (const [qnum, colname] of questionCols) {
         const markedRaw = String(row[colname] || '').trim();
         const markedLetters = (markedRaw === '' || markedRaw.toLowerCase() === 'unanswered')
           ? new Set() : new Set(markedRaw.split(',').map(x => x.trim().toUpperCase()).filter(Boolean));
-        let verdict;
+        let verdict, credit = 0;
         if (key === null) verdict = 'no_key';
         else if (markedLetters.size === 0) verdict = 'unanswered';
-        else if (_omrSetsEqual(markedLetters, key[qnum] || new Set())) { verdict = 'correct'; correctCount++; }
-        else verdict = 'wrong';
+        else ({ verdict, credit } = _omrEvaluateAnswer(markedLetters, key[qnum] || new Set(), rule));
+        totalCredit += credit;
         answersOut[qnum] = { marked: [...markedLetters].sort(), verdict };
       }
-      return { row, set_code: row[setColumn], marks: correctCount, answers: answersOut };
+      return { row, set_code: row[setColumn], marks: Math.round(totalCredit * 100) / 100, answers: answersOut };
     });
 
     const warnings = [];
@@ -28197,9 +28227,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <div id="omrCsvsList" class="flex flex-col gap-1"></div>
             </div>
           </div>
-          <div class="mb-3" style="max-width:280px">
-            <p class="text-[10px] font-black text-slate-400 uppercase mb-1">Set Code Column</p>
-            <select id="omrSetColumn" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></select>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3" style="max-width:580px">
+            <div>
+              <p class="text-[10px] font-black text-slate-400 uppercase mb-1">Set Code Column</p>
+              <select id="omrSetColumn" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"></select>
+            </div>
+            <div>
+              <p class="text-[10px] font-black text-slate-400 uppercase mb-1">Scoring Rule <span class="normal-case font-bold text-slate-300">(same as OptiMark Pro &gt; Settings &gt; Scan Policy)</span></p>
+              <select id="omrScoringRule" onchange="_omrSaveScoringRuleDefault(this.value)" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+                <option value="subset">Subset — full credit if every marked letter is in the key</option>
+                <option value="exact">Exact — full credit only if marks match the key exactly</option>
+                <option value="partial">Partial — proportional credit; any wrong mark = 0</option>
+              </select>
+            </div>
           </div>
           <div class="flex items-center gap-2 mb-3 flex-wrap">
             <button onclick="_omrPreview()" class="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50">Preview</button>
@@ -28216,8 +28256,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
     `;
     lucide.createIcons();
+    const omrScoringRuleEl = document.getElementById('omrScoringRule');
+    if (omrScoringRuleEl) {
+      let savedRule = 'subset';
+      try { savedRule = localStorage.getItem('ccpc_omr_scoring_rule') || 'subset'; } catch (e) {}
+      omrScoringRuleEl.value = savedRule;
+    }
     _omrLoadBatches();
     _omrLoadClassSubjectSetup();
+  }
+
+  function _omrSaveScoringRuleDefault(value) {
+    try { localStorage.setItem('ccpc_omr_scoring_rule', value); } catch (e) {}
   }
 
   // Reuses the exact same matrix call the Exams module's own Class/Subject
@@ -28297,13 +28347,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function _omrPreview() {
     const setColumn = document.getElementById('omrSetColumn')?.value;
+    const scoringRule = document.getElementById('omrScoringRule')?.value || 'subset';
     const statusEl = document.getElementById('omrStatus');
     const wrap = document.getElementById('omrPreviewWrap');
     const uploadBtn = document.getElementById('omrUploadBtn');
     uploadBtn.disabled = true;
     _omrScoreResult = null;
     try {
-      const result = _omrBuildScoredTable(_omrResultFiles, _omrAnswerKeyFiles, setColumn);
+      const result = _omrBuildScoredTable(_omrResultFiles, _omrAnswerKeyFiles, setColumn, scoringRule);
       _omrScoreResult = result;
       const marksArr = result.scored.map(s => s.marks);
       const avg = marksArr.length ? (marksArr.reduce((a, b) => a + b, 0) / marksArr.length).toFixed(1) : 0;
@@ -28365,6 +28416,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _adminFetch('save_omr_batch', {
       class: klass, subject, exam_title: examTitle, exam_date: examDate || null,
       answer_keys_json: JSON.stringify(answerKeysOut),
+      scoring_rule: document.getElementById('omrScoringRule')?.value || 'subset',
       results, warnings: _omrScoreResult.warnings,
     }).then(res => {
       if (res && res.result === 'success') {
@@ -28383,6 +28435,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _omrRenderBatches();
     }).catch(() => { document.getElementById('omrBatchesList').innerHTML = '<p class="text-xs text-red-500 font-bold">Network error</p>'; });
   }
+  function _omrFmtMarks(n) {
+    const r = Math.round(n * 100) / 100;
+    return Number.isInteger(r) ? String(r) : r.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+  }
   function _omrFmtDateTime(iso) {
     if (!iso) return '';
     try { return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch (e) { return iso; }
@@ -28397,7 +28453,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div>
             <strong class="text-sm font-black text-slate-800">${_escHtml(b.exam_title)}</strong>
             <span class="text-[9px] font-black text-white ${b.is_published ? 'bg-emerald-600' : 'bg-slate-400'} rounded-full px-2 py-0.5 ml-1">${b.is_published ? 'Published' : 'Not Published'}</span>
-            <div class="text-[11px] text-slate-400 font-bold mt-0.5">${_escHtml(b.class)} &middot; ${_escHtml(b.subject)} &middot; ${b.total_students} student(s) &middot; ${b.total_questions} question(s)</div>
+            <div class="text-[11px] text-slate-400 font-bold mt-0.5">${_escHtml(b.class)} &middot; ${_escHtml(b.subject)} &middot; ${b.total_students} student(s) &middot; ${b.total_questions} question(s) &middot; ${_escHtml(b.scoring_rule || 'subset')} scoring</div>
             <div class="text-[10px] text-slate-400 font-bold mt-0.5">Uploaded by ${_escHtml(b.created_by_name || 'unknown')} &middot; ${_omrFmtDateTime(b.created_at)}</div>
           </div>
           <div class="flex gap-2 flex-wrap">
@@ -28478,13 +28534,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <td style="position:sticky;left:50px;background:#fff;text-align:left">${_escHtml(p.student_name || '')}</td>
         <td>${_escHtml(r.student_id)}</td>
         <td>${_escHtml(r.set_code || '')}</td>
-        <td style="font-weight:800">${r.marks}</td>
+        <td style="font-weight:800">${_omrFmtMarks(r.marks)}</td>
         ${qnums.map(q => {
           const a = answers[q] || {};
           const marked = (a.marked || []).join(',') || '-';
           const v = a.verdict;
-          const bg = v === 'correct' ? '#dcfce7' : v === 'wrong' ? '#fee2e2' : '#f1f5f9';
-          const fg = v === 'correct' ? '#15803d' : v === 'wrong' ? '#b91c1c' : '#64748b';
+          const bg = v === 'correct' ? '#dcfce7' : v === 'wrong' ? '#fee2e2' : v === 'partial' ? '#fef3c7' : '#f1f5f9';
+          const fg = v === 'correct' ? '#15803d' : v === 'wrong' ? '#b91c1c' : v === 'partial' ? '#b45309' : '#64748b';
           return `<td style="background:${bg};color:${fg};font-weight:800">${_escHtml(marked)}</td>`;
         }).join('')}
       </tr>`;

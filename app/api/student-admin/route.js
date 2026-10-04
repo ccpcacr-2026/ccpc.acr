@@ -1686,7 +1686,7 @@ export async function POST(req) {
   // Key, sum to a total) — this just persists the already-computed result.
   // Students never see it until a separate set_omr_batch_published call.
   if (action === 'save_omr_batch') {
-    const { class: klass, subject, exam_title, exam_date, answer_keys_json, results } = payload;
+    const { class: klass, subject, exam_title, exam_date, answer_keys_json, results, scoring_rule } = payload;
     const actorId = user_id;
     if (!klass || !subject || !exam_title) return NextResponse.json({ result: 'error', message: 'Class, Subject and Exam Title are required.' });
     if (!Array.isArray(results) || !results.length) return NextResponse.json({ result: 'error', message: 'No scored results to save.' });
@@ -1702,6 +1702,7 @@ export async function POST(req) {
       class: klass, subject, exam_title,
       exam_date: exam_date || null,
       answer_keys_json: answer_keys_json || '{}',
+      scoring_rule: ['subset', 'exact', 'partial'].includes(scoring_rule) ? scoring_rule : 'subset',
       total_questions: totalQuestions,
       total_students: results.length,
       warnings_json: JSON.stringify(payload.warnings || []),

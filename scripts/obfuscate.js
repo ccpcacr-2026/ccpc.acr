@@ -299,7 +299,7 @@ const RESERVED = [
   'loadRegistrationAdminView','toggleRegAdminFilter','clearRegAdminFilters','_regAdminDownloadZip','_regAdminRender',
   'loadOmrResultsView','_omrOnKeyFiles','_omrOnCsvFiles','_omrRemoveKeyFile','_omrRemoveCsvFile',
   '_omrPreview','_omrUpload','_omrTogglePublish','_omrDeleteBatch','_omrOnClassChange',
-  '_omrShowFullPreview','_omrToggleHistory',
+  '_omrShowFullPreview','_omrToggleHistory','_omrSaveScoringRuleDefault',
   'saveTransportVehicle','saveTransportPickupPoint','saveTransportFeeMaster',
   'toggleGPPassword','saveGPConfig','verifyGPConnection','addBusRow',
   'checkBusStatus','saveBusConfig','addPlaceRow','savePlaceConfig',
