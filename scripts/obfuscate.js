@@ -296,6 +296,7 @@ const RESERVED = [
   '_acCbAddRange','_acCbDeleteRange','_acCbMarkWasted','_acCbUnmarkWasted','_acCbToggleBills',
   // Transport tab native port (incl. Bus/GPS Config)
   'loadAdminTransportView','switchTransportTab','saveTransportRoute',
+  'loadRegistrationAdminView','toggleRegAdminFilter','clearRegAdminFilters','_regAdminDownloadZip','_regAdminRender',
   'saveTransportVehicle','saveTransportPickupPoint','saveTransportFeeMaster',
   'toggleGPPassword','saveGPConfig','verifyGPConnection','addBusRow',
   'checkBusStatus','saveBusConfig','addPlaceRow','savePlaceConfig',

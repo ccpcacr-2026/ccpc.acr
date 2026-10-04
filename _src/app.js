@@ -554,7 +554,8 @@
     ssc_result_analysis: () => loadSscResultAnalysisView(),
     home:          () => renderMobileHomeGrid(),
     analytics:     () => loadAnalytics(),
-    permissions:   () => loadPermissionsPanel()
+    permissions:   () => loadPermissionsPanel(),
+    registration_admin: () => loadRegistrationAdminView()
   };
 
   function _setViewHash(key) {
@@ -27805,6 +27806,213 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { id: 'transport-bus-fare', label: 'Staff-Child Bus Fare' },
   ];
 
+  // ══════════════════════════════════════════════════════════════════════
+  // Registration Admin — dynamic student filter + bulk photo ZIP download.
+  // Standalone top-level module (MODULE_REGISTRY/MODULE_DEFAULTS, same
+  // tier as Transport/Bus Tracker), gated to the 'Registration Admin' role.
+  // Loads every student once (get_students_for_photo_download — a full
+  // table scan via sbAllRows server-side, not the capped 500-row
+  // _searchStudents used elsewhere), then filters entirely client-side
+  // with the same multi-dimension chip pattern as the Group Forms roster
+  // (_gfRosterFilterState's AND-across-dimensions/OR-within-dimension
+  // idea) — Class/Section/House/Group/Session chips plus free-text search.
+  // ══════════════════════════════════════════════════════════════════════
+  let _regAdminStudents = [];
+  let _regAdminFilterState = { class: new Set(), section: new Set(), house: new Set(), group: new Set(), session: new Set() };
+  function loadRegistrationAdminView() {
+    if (!_hasModuleAccess('registration_admin')) { showToast('Not available in current role', 'error'); return; }
+    _setViewHash('registration_admin');
+    setActiveNavLink('nav-registration-admin');
+    setContentHeader('Registration Admin', 'id-card');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    container.innerHTML = `
+      <div class="space-y-5 pb-10">
+        <div>
+          <h2 class="text-2xl font-black text-slate-800 tracking-tight">Student Photo Download</h2>
+          <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Filter students, then download their photos as one ZIP named by Student ID</p>
+        </div>
+        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+          <div class="relative mb-4" style="max-width:320px">
+            <i data-lucide="search" class="h-3.5 w-3.5 absolute text-slate-400" style="left:12px;top:50%;transform:translateY(-50%)"></i>
+            <input type="search" id="regAdminSearch" oninput="_regAdminRender()" placeholder="Search name, ID, roll…" class="w-full pl-8 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs focus:ring-2 focus:ring-blue-600 outline-none" autocomplete="off">
+          </div>
+          <div id="regAdminFilters" class="mb-4"></div>
+          <div id="regAdminSummary" class="mb-4"></div>
+          <div class="flex items-center gap-3 mb-4 flex-wrap">
+            <button onclick="_regAdminDownloadZip()" id="regAdminDownloadBtn" class="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5 disabled:opacity-40"><i data-lucide="download" class="h-3.5 w-3.5"></i>Download Photos as ZIP</button>
+            <span id="regAdminProgress" class="text-xs font-bold text-slate-400"></span>
+          </div>
+          <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:420px">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead class="bg-slate-50"><tr>
+                <th class="py-2 px-2 font-black text-[10px] text-slate-500 uppercase">Photo</th>
+                <th class="py-2 px-2 font-black text-[10px] text-slate-500 uppercase">Student ID</th>
+                <th class="py-2 px-2 font-black text-[10px] text-slate-500 uppercase">Name</th>
+                <th class="py-2 px-2 font-black text-[10px] text-slate-500 uppercase">Class</th>
+                <th class="py-2 px-2 font-black text-[10px] text-slate-500 uppercase">Section</th>
+                <th class="py-2 px-2 font-black text-[10px] text-slate-500 uppercase">Roll</th>
+                <th class="py-2 px-2 font-black text-[10px] text-slate-500 uppercase">House</th>
+              </tr></thead>
+              <tbody id="regAdminBody"><tr><td colspan="7" class="p-4 text-slate-400 font-bold">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    `;
+    lucide.createIcons();
+    _adminFetch('get_students_for_photo_download', {}).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed to load students', 'error'); return; }
+      _regAdminStudents = res.rows || [];
+      _regAdminFilterState = { class: new Set(), section: new Set(), house: new Set(), group: new Set(), session: new Set() };
+      _regAdminRenderFilters();
+      _regAdminRender();
+    }).catch(() => showToast('Network error', 'error'));
+  }
+  function _regAdminFilterDims() {
+    const distinct = fn => [...new Set(_regAdminStudents.map(fn).filter(Boolean))].sort();
+    return [
+      { key: 'class', label: 'Class', values: distinct(s => s.class) },
+      { key: 'section', label: 'Section', values: distinct(s => s.section) },
+      { key: 'house', label: 'House', values: distinct(s => s.house) },
+      { key: 'group', label: 'Group', values: distinct(s => s.group) },
+      { key: 'session', label: 'Session', values: distinct(s => s.session) },
+    ];
+  }
+  function _regAdminMatchesFilters(s) {
+    const st = _regAdminFilterState;
+    if (st.class.size && !st.class.has(s.class)) return false;
+    if (st.section.size && !st.section.has(s.section)) return false;
+    if (st.house.size && !st.house.has(s.house)) return false;
+    if (st.group.size && !st.group.has(s.group)) return false;
+    if (st.session.size && !st.session.has(s.session)) return false;
+    return true;
+  }
+  function _regAdminMatchesSearch(s, term) {
+    if (!term) return true;
+    const q = term.trim().toLowerCase();
+    if (!q) return true;
+    return [s.student_id, s.student_name, s.roll].filter(Boolean).some(v => String(v).toLowerCase().includes(q));
+  }
+  function _regAdminFiltered() {
+    const term = document.getElementById('regAdminSearch')?.value || '';
+    return _regAdminStudents.filter(s => _regAdminMatchesFilters(s) && _regAdminMatchesSearch(s, term));
+  }
+  function toggleRegAdminFilter(dimKey, value) {
+    const set = _regAdminFilterState[dimKey];
+    if (set.has(value)) set.delete(value); else set.add(value);
+    _regAdminRenderFilters();
+    _regAdminRender();
+  }
+  function clearRegAdminFilters() {
+    Object.values(_regAdminFilterState).forEach(s => s.clear());
+    _regAdminRenderFilters();
+    _regAdminRender();
+  }
+  function _regAdminRenderFilters() {
+    const host = document.getElementById('regAdminFilters');
+    if (!host) return;
+    const dims = _regAdminFilterDims().filter(d => d.values.length);
+    const activeCount = Object.values(_regAdminFilterState).reduce((n, s) => n + s.size, 0);
+    host.innerHTML = dims.map(d => {
+      const sel = _regAdminFilterState[d.key];
+      return `<div class="mb-2">
+        <div class="text-[9px] font-black text-slate-400 uppercase tracking-wide mb-1">${_escHtml(d.label)}</div>
+        <div class="flex flex-wrap gap-2">
+          ${d.values.map(v => `<button type="button" onclick='toggleRegAdminFilter(${JSON.stringify(d.key)}, ${JSON.stringify(v)})' class="px-2.5 py-1 rounded-full font-black text-[10px] uppercase ${sel.has(v) ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'}">${_escHtml(v)}</button>`).join('')}
+        </div>
+      </div>`;
+    }).join('') + (activeCount ? `<button type="button" onclick="clearRegAdminFilters()" class="text-[10px] font-black text-red-600 uppercase hover:underline">Clear all filters</button>` : '');
+  }
+  function _regAdminRender() {
+    const filtered = _regAdminFiltered();
+    const withPhoto = filtered.filter(s => s.photo);
+    const summary = document.getElementById('regAdminSummary');
+    if (summary) summary.innerHTML = `<div class="flex items-center gap-4 text-xs font-bold text-slate-600 flex-wrap">
+      <span><b class="text-slate-800">${filtered.length}</b> student${filtered.length === 1 ? '' : 's'} match</span>
+      <span><b class="text-emerald-600">${withPhoto.length}</b> have a photo</span>
+      ${filtered.length - withPhoto.length ? `<span><b class="text-amber-600">${filtered.length - withPhoto.length}</b> have no photo (skipped)</span>` : ''}
+    </div>`;
+    const btn = document.getElementById('regAdminDownloadBtn');
+    if (btn) btn.disabled = !withPhoto.length;
+    const body = document.getElementById('regAdminBody');
+    if (!body) return;
+    if (!filtered.length) { body.innerHTML = '<tr><td colspan="7" class="p-4 text-slate-400 font-bold">No students match.</td></tr>'; return; }
+    // Capped on-screen preview so a wide-open (unfiltered, 3000+ row) match
+    // never bogs the DOM down — the ZIP itself always covers every matched
+    // student with a photo, not just what's rendered here.
+    const PREVIEW_CAP = 200;
+    const shown = filtered.slice(0, PREVIEW_CAP);
+    body.innerHTML = shown.map(s => `<tr class="border-b border-slate-50">
+      <td class="px-2 py-1">${s.photo ? `<img src="${_photoUrl(s.photo)}" class="w-7 h-7 rounded-full object-cover" loading="lazy">` : `<div class="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center text-slate-300"><i data-lucide="user" class="h-3.5 w-3.5"></i></div>`}</td>
+      <td class="py-1.5 px-2 text-slate-600 font-bold">${_escHtml(s.student_id)}</td>
+      <td class="py-1.5 px-2 text-slate-700 font-bold">${_escHtml(s.student_name)}</td>
+      <td class="py-1.5 px-2 text-slate-500">${_escHtml(s.class || '')}</td>
+      <td class="py-1.5 px-2 text-slate-500">${_escHtml(s.section || '')}</td>
+      <td class="py-1.5 px-2 text-slate-500">${_escHtml(s.roll || '')}</td>
+      <td class="py-1.5 px-2 text-slate-500">${_escHtml(s.house || '')}</td>
+    </tr>`).join('') + (filtered.length > PREVIEW_CAP ? `<tr><td colspan="7" class="p-3 text-center text-slate-400 font-bold text-[11px]">Showing first ${PREVIEW_CAP} of ${filtered.length} — narrow the filter to see more. The ZIP always includes all ${withPhoto.length} photo(s) in the current match.</td></tr>` : '');
+    lucide.createIcons();
+  }
+  function _regAdminEnsureJSZip() {
+    if (window.JSZip) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const sc = document.createElement('script');
+      sc.src = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';
+      sc.onload = resolve;
+      sc.onerror = () => reject(new Error('Could not load the ZIP library — check your connection and retry.'));
+      document.head.appendChild(sc);
+    });
+  }
+  // Legacy pre-Supabase photos (a bare Google Drive file ID, resolved by
+  // _photoUrl to an lh3.googleusercontent.com URL) may not send permissive
+  // CORS headers for a real fetch()+blob() read, unlike an <img> tag which
+  // can display them regardless — those will land in the failed count
+  // below rather than silently breaking the whole batch, since every
+  // fetch is wrapped per-student.
+  async function _regAdminDownloadZip() {
+    const withPhoto = _regAdminFiltered().filter(s => s.photo);
+    if (!withPhoto.length) { showToast('No photos to download in the current filter', 'error'); return; }
+    const btn = document.getElementById('regAdminDownloadBtn');
+    const progress = document.getElementById('regAdminProgress');
+    if (btn) btn.disabled = true;
+    try {
+      if (progress) progress.textContent = 'Loading ZIP library…';
+      await _regAdminEnsureJSZip();
+      const zip = new JSZip();
+      let done = 0, failed = 0;
+      const BATCH = 8;
+      for (let i = 0; i < withPhoto.length; i += BATCH) {
+        const batch = withPhoto.slice(i, i + BATCH);
+        await Promise.all(batch.map(async s => {
+          try {
+            const resp = await fetch(_photoUrl(s.photo));
+            if (!resp.ok) throw new Error('bad response');
+            zip.file(`${s.student_id}.jpg`, await resp.blob());
+          } catch (e) { failed++; }
+          done++;
+          if (progress) progress.textContent = `Downloading… ${done}/${withPhoto.length}${failed ? ` (${failed} failed)` : ''}`;
+        }));
+      }
+      if (progress) progress.textContent = 'Building ZIP…';
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `student_photos_${new Date().toISOString().slice(0, 10)}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      const ok = done - failed;
+      if (progress) progress.textContent = `Done — ${ok} photo(s) zipped${failed ? `, ${failed} failed` : ''}.`;
+      showToast(`Zipped ${ok} photo(s)${failed ? `, ${failed} failed to download` : ''}`, failed ? 'error' : 'success');
+    } catch (e) {
+      showToast(e.message || 'Failed to build ZIP', 'error');
+      if (progress) progress.textContent = '';
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
   function loadAdminTransportView() {
     if (!_hasModuleAccess('transport')) { showToast('Not available in current role', 'error'); return; }
     _setViewHash('transport');
@@ -37298,9 +37506,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // blanket 'Admin' role. Inside this portal itself they behave like any
   // unmapped role (TeacherView fallback) — their only purpose is granting
   // access elsewhere.
-  const ALL_ROLES = ['Teacher','Staff','HR','Principal','VP','Admin','Cord','Admission Admin','Student Portal Admin','Canteen Admin','Inventory Admin','Accounts Admin','Class Teacher'];
+  const ALL_ROLES = ['Teacher','Staff','HR','Principal','VP','Admin','Cord','Admission Admin','Student Portal Admin','Canteen Admin','Inventory Admin','Accounts Admin','Class Teacher','Registration Admin'];
   // Two-letter chips would collide with Admin ('AD') / each other — explicit abbreviations
-  const ROLE_ABBR = { 'Admission Admin':'AA', 'Student Portal Admin':'SP', 'Canteen Admin':'CA', 'Inventory Admin':'IA', 'Accounts Admin':'AC' };
+  const ROLE_ABBR = { 'Admission Admin':'AA', 'Student Portal Admin':'SP', 'Canteen Admin':'CA', 'Inventory Admin':'IA', 'Accounts Admin':'AC', 'Registration Admin':'RA' };
   function roleAbbr(r){ return ROLE_ABBR[r] || r.slice(0,2).toUpperCase(); }
 
   // ── SUPER ADMIN (single hardcoded account, not a role) ───────────────────────
@@ -37348,6 +37556,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { key: 'users',            label: 'Users Directory',    navId: 'nav-users-directory' },
     { key: 'analytics',        label: 'Analytics',          navId: 'nav-analytics' },
     { key: 'permissions',      label: 'Permission Control', navId: 'nav-permissions' },
+    { key: 'registration_admin', label: 'Registration Admin', navId: 'nav-registration-admin' },
   ];
 
   // Mirrors the hardcoded behavior this feature replaces — used until an
@@ -37386,6 +37595,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     users:         ALL_ROLES,
     analytics:     ['HR','VP','Admin'],
     permissions:   ['Admin'],
+    // Admin always has access regardless (see _isModuleVisibleForRole);
+    // adjust from System > Module Access if other roles need it too.
+    registration_admin: ['Registration Admin'],
   };
 
   let _moduleVisibility = null; // { moduleKey: [roles...] } once loaded from system_settings

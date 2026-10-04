@@ -624,6 +624,7 @@ const ADMIN_TAB_ACTIONS = {
   // one toggle controls both, matching what the tab actually shows.
   payroll: new Set(['get_leave_types', 'save_leave_type', 'get_leave_requests', 'approve_leave_request']),
   transport: new Set(['get_transport_routes', 'save_transport_route', 'get_transport_vehicles', 'save_transport_vehicle', 'get_pickup_points', 'save_pickup_point', 'assign_route_pickup_point', 'get_route_pickup_points', 'assign_vehicle_to_route', 'get_vehicle_assignments', 'get_transport_fee_master', 'save_transport_fee_master', 'generate_student_transport_fee', 'get_student_transport_fees']),
+  registration_admin: new Set(['get_students_for_photo_download']),
   setup: new Set(['get_tabs', 'get_profile_sections', 'get_student_data_headers', 'get_editable_fields', 'save_editable_fields', 'get_permanent_tabs_config', 'set_permanent_tabs_config', 'get_login_password_columns', 'set_login_password_columns', 'promote_tab_to_profile', 'unpromote_tab_from_profile', 'delete_tab', 'save_tab', 'admin_reset_pin']),
   add_custom_form: new Set(['get_tabs', 'get_student_data_headers', 'save_tab', 'delete_tab']),
   // Group Forms — team sign-up (e.g. Science Fair) in the student portal.
@@ -693,6 +694,10 @@ const ADMIN_TAB_DEFAULTS = {
   photo: ['Admin', 'Student Portal Admin'],
   notices: ['Admin', 'Student Portal Admin'],
   import: ['Admin', 'Student Portal Admin'],
+  // Matches the client's MODULE_DEFAULTS.registration_admin — Admin always
+  // passes regardless (see _isSuperAdmin/_isTabAllowed below), so this is
+  // really just naming the one other role that should reach it.
+  registration_admin: ['Registration Admin'],
 };
 
 // An action can legitimately belong to more than one tab's Set (shared
@@ -1657,6 +1662,19 @@ export async function POST(req) {
     const classes = [...new Set(rows.map(r => r.class).filter(Boolean))].sort();
     const houses = [...new Set(rows.map(r => r.house).filter(Boolean))].sort();
     return NextResponse.json({ result: 'success', classes, houses });
+  }
+
+  // ── Registration Admin: every student's photo + the fields its dynamic
+  // filter chips are built from ─────────────────────────────────────────────
+  // Full table scan (sbAllRows), not a single capped page — _searchStudents
+  // deliberately caps at 500 for the Students module's own search results,
+  // but this feature needs literally everyone up front so the filter chips
+  // and "how many photos will this download" count are never silently
+  // short a few thousand rows.
+  if (action === 'get_students_for_photo_download') {
+    const rows = await sbAllRows('students_data?select=student_id,student_name,class,section,roll,house,session,group,photo');
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', rows });
   }
 
   // ── Distinct values of an arbitrary students_data column (Group Form
