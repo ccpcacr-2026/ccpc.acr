@@ -570,7 +570,7 @@ const SUPER_ADMIN_ONLY_ACTIONS = new Set(['set_gp_credentials', 'test_gp_connect
 // Bus GPS positions/registry are useful to every teacher/staff account, not
 // just admins — open to anyone with a recognized staff account (any role),
 // distinct from both the tab-visibility matrix and the plain Admin gate.
-const STAFF_OPEN_ACTIONS = new Set(['get_tracking_config', 'get_bus_data', 'get_my_review_tabs', 'get_group_form_roster_for_rule', 'request_team_changes', 'set_team_review_status']);
+const STAFF_OPEN_ACTIONS = new Set(['get_tracking_config', 'get_bus_data', 'get_my_review_tabs', 'get_group_form_roster_for_rule', 'request_team_changes', 'set_team_review_status', 'admin_update_team_data']);
 
 // ── Per-tab module access (admin console nav pills) ──────────────────────
 // Which roles can use each tab is admin-configurable (see
@@ -634,7 +634,7 @@ const ADMIN_TAB_ACTIONS = {
   // exact same student.group_forms/group_form_teams/… tables directly via
   // sb(), same cross-app-shared-database pattern as get_tabs/save_tab above
   // for portal_tabs.
-  group_forms: new Set(['get_group_forms', 'save_group_form', 'delete_group_form', 'get_group_form_roster', 'set_team_lock', 'admin_disband_team', 'admin_delete_team', 'get_class_house_options', 'get_student_data_headers', 'upload_group_form_cover', 'get_group_form_reviewer_rules', 'save_group_form_reviewer_rules', 'get_field_values']),
+  group_forms: new Set(['get_group_forms', 'save_group_form', 'delete_group_form', 'get_group_form_roster', 'set_team_lock', 'admin_disband_team', 'admin_delete_team', 'get_class_house_options', 'get_student_data_headers', 'upload_group_form_cover', 'get_group_form_reviewer_rules', 'save_group_form_reviewer_rules', 'get_field_values', 'admin_update_team_data']),
   data: new Set(['get_tabs', 'get_tab_data', 'get_tab_submission_status', 'get_staff_list', 'get_tab_data_access', 'set_tab_data_access', 'get_staff_directory', 'get_class_sections', 'get_tab_class_access', 'set_tab_class_access', 'get_field_categories', 'get_tab_category_link', 'set_tab_category_link']),
   // Class Teacher assignment (get_class_teacher_assignments/save_teacher_
   // class_assignment) lives here too, not its own tab key — it's part of
@@ -1649,6 +1649,37 @@ export async function POST(req) {
       review_status: status,
       review_status_by: status ? actorId : null,
       review_status_at: status ? new Date().toISOString() : null,
+    });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Admin/Reviewer: correct a team's already-submitted answers directly
+  // (e.g. a "Group" value a leader typed before that field was fixed to a
+  // controlled dropdown/class_group) without a raw DB edit. Same
+  // authorization tier as request_team_changes/set_team_review_status: a
+  // Group Forms admin always passes; a reviewer only if their own rule
+  // actually matches this team AND isn't 'viewer' tier. Replaces group_data
+  // wholesale with whatever the editor sent — the client always sends back
+  // every field it rendered, pre-filled from the current value.
+  if (action === 'admin_update_team_data') {
+    const { team_id, group_data, user_id: actorId } = payload;
+    if (!team_id) return NextResponse.json({ result: 'error', message: 'team_id required.' });
+    if (!actorId) return NextResponse.json({ result: 'error', message: 'user_id required.' });
+    if (!group_data || typeof group_data !== 'object' || Array.isArray(group_data)) {
+      return NextResponse.json({ result: 'error', message: 'group_data must be an object.' });
+    }
+
+    const teamRows = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}`);
+    const team = (!teamRows?.error && teamRows[0]) ? teamRows[0] : null;
+    if (!team) return NextResponse.json({ result: 'error', message: 'Team not found.' });
+
+    if (!(await _isAuthorizedForGroupFormTeam(team, actorId, true))) {
+      return NextResponse.json({ result: 'error', message: 'Not authorized for this team.' }, { status: 403 });
+    }
+
+    const r = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}`, 'PATCH', {
+      group_data, updated_at: new Date().toISOString(),
     });
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
     return NextResponse.json({ result: 'success' });

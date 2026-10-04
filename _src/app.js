@@ -30762,6 +30762,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             ${t.review_status !== 'approved' ? `<button onclick="setReviewStatusReviewer(${t.id}, 'approved')" class="px-2.5 py-1 border border-green-300 text-green-700 rounded-full font-black text-[10px] uppercase hover:bg-green-50">Approve</button>` : `<button onclick="setReviewStatusReviewer(${t.id}, null)" class="px-2.5 py-1 border border-slate-200 text-slate-500 rounded-full font-black text-[10px] uppercase hover:bg-slate-50">Unapprove</button>`}
             ${t.review_status !== 'rejected' ? `<button onclick="setReviewStatusReviewer(${t.id}, 'rejected')" class="px-2.5 py-1 border border-red-300 text-red-600 rounded-full font-black text-[10px] uppercase hover:bg-red-50">Reject</button>` : `<button onclick="setReviewStatusReviewer(${t.id}, null)" class="px-2.5 py-1 border border-slate-200 text-slate-500 rounded-full font-black text-[10px] uppercase hover:bg-slate-50">Unreject</button>`}
             <button onclick="requestTeamChangesReviewer(${t.id})" class="px-2.5 py-1 border border-amber-300 text-amber-700 rounded-full font-black text-[10px] uppercase hover:bg-amber-50">Request Changes</button>
+            <button onclick="editTeamDataReviewer(${t.id})" class="px-2.5 py-1 border border-blue-300 text-blue-700 rounded-full font-black text-[10px] uppercase hover:bg-blue-50">Edit</button>
           </div>` : ''}
         </div>
         <div class="mt-2 flex flex-wrap gap-2">
@@ -30833,6 +30834,103 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       rows.push({ label: f.name || f.data_key, value: val });
     });
     return rows;
+  }
+  // ── Admin/Reviewer: edit a team's already-submitted answers in place —
+  // e.g. correcting a "Group" value typed as free text before that field
+  // was fixed to a controlled dropdown/class_group, without a raw DB edit.
+  // Shared by both the admin roster and reviewer panel; the server
+  // re-authorizes independently (admin_update_team_data) — this only
+  // builds the editor UI. class_group options come from the form's own
+  // eligibility_json.bands (the exact named values students get auto-
+  // assigned), never freehand, so a fix here can't reintroduce the same
+  // kind of mistake.
+  function _gfOpenEditTeamModal(team, form, onSaved) {
+    if (!team || !form) { showToast('Could not load this team', 'error'); return; }
+    let fields = [];
+    try { fields = JSON.parse(form.fields_json || '[]'); } catch (e) {}
+    let elig = {};
+    try { elig = JSON.parse(form.eligibility_json || '{}'); } catch (e) {}
+    const bands = Array.isArray(elig.bands) ? elig.bands : [];
+    const bandLabel = b => Array.isArray(b) ? b.join('/') : (String(b.name || '').trim() || (Array.isArray(b.classes) ? b.classes : []).join('/'));
+    const data = team.group_data || {};
+    const editable = fields.filter(f => f.type !== 'group_label' && f.type !== 'profile_picture');
+
+    const rowHtml = f => {
+      const val = data[f.data_key];
+      const id = `gfEditField-${f.data_key}`;
+      let input;
+      if (f.type === 'choose') {
+        input = `<select id="${id}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+          <option value=""></option>
+          ${(f.options || []).map(o => `<option value="${_escHtml(o)}" ${String(val) === String(o) ? 'selected' : ''}>${_escHtml(o)}</option>`).join('')}
+        </select>`;
+      } else if (f.type === 'class_group') {
+        input = `<select id="${id}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
+          <option value=""></option>
+          ${bands.map(b => { const label = bandLabel(b); return `<option value="${_escHtml(label)}" ${String(val) === String(label) ? 'selected' : ''}>${_escHtml(label)}</option>`; }).join('')}
+        </select>`;
+      } else if (f.type === 'checkbox') {
+        const selected = Array.isArray(val) ? val.map(String) : (val ? [String(val)] : []);
+        input = `<div id="${id}" class="flex flex-wrap gap-3">${(f.options || []).map(o => `<label class="flex items-center gap-1.5 text-xs font-bold text-slate-600"><input type="checkbox" class="gfEditCheckboxOpt" value="${_escHtml(o)}" ${selected.includes(String(o)) ? 'checked' : ''}> ${_escHtml(o)}</label>`).join('')}</div>`;
+      } else if (f.type === 'paragraph') {
+        input = `<textarea id="${id}" rows="3" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">${_escHtml(val ?? '')}</textarea>`;
+      } else if (f.type === 'number') {
+        input = `<input type="number" id="${id}" value="${_escHtml(val ?? '')}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">`;
+      } else {
+        input = `<input type="text" id="${id}" value="${_escHtml(val ?? '')}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">`;
+      }
+      return `<div class="mb-3">
+        <label class="block text-[10px] font-black text-slate-400 uppercase mb-1">${_escHtml(f.name || f.data_key)}</label>
+        ${input}
+      </div>`;
+    };
+
+    document.getElementById('gfEditTeamOverlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'gfEditTeamOverlay';
+    overlay.className = 'fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4';
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+    overlay.innerHTML = `
+      <div class="bg-white rounded-3xl w-full max-w-lg p-5 shadow-2xl max-h-[85vh] overflow-y-auto">
+        <p class="font-black text-slate-800 text-sm mb-1">Edit Submitted Answers</p>
+        <p class="text-[11px] text-slate-400 font-bold mb-4">Corrects what's on record for this team — the leader won't be notified.</p>
+        ${editable.length ? editable.map(rowHtml).join('') : '<p class="text-xs text-slate-400 font-bold italic">This form has no editable fields.</p>'}
+        <div class="flex gap-2 mt-2">
+          <button onclick="document.getElementById('gfEditTeamOverlay').remove()" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase bg-slate-100 text-slate-500">Cancel</button>
+          <button id="gfEditTeamSaveBtn" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase bg-blue-600 text-white hover:bg-black">Save Changes</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    document.getElementById('gfEditTeamSaveBtn').onclick = () => {
+      const newData = { ...data };
+      editable.forEach(f => {
+        const el = document.getElementById(`gfEditField-${f.data_key}`);
+        if (!el) return;
+        if (f.type === 'checkbox') newData[f.data_key] = Array.from(el.querySelectorAll('.gfEditCheckboxOpt:checked')).map(x => x.value);
+        else newData[f.data_key] = el.value;
+      });
+      const btn = document.getElementById('gfEditTeamSaveBtn');
+      btn.disabled = true;
+      _adminFetch('admin_update_team_data', { team_id: team.id, group_data: newData, user_id: window.APP_USER && window.APP_USER.user_id }).then(res => {
+        if (res && res.result === 'success') {
+          overlay.remove();
+          showToast('Team updated');
+          onSaved();
+        } else {
+          showToast((res && res.message) || 'Failed', 'error');
+          btn.disabled = false;
+        }
+      }).catch(() => { showToast('Network error', 'error'); btn.disabled = false; });
+    };
+  }
+  function editTeamDataAdmin(teamId) {
+    const team = _gfRosterTeams.find(t => t.id === teamId);
+    _gfOpenEditTeamModal(team, _gfRosterForm, () => openGroupRoster(_gfRosterFormId));
+  }
+  function editTeamDataReviewer(teamId) {
+    const team = _gfReviewTeams.find(t => t.id === teamId);
+    _gfOpenEditTeamModal(team, _gfReviewForm, () => _loadGfReviewTab(_gfReviewActiveIdx));
   }
   // Populated from the full (unfiltered) team list every time a roster is
   // fetched — admin and reviewer share one cache since a student_id means
@@ -30996,6 +31094,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             ${t.review_status !== 'approved' ? `<button onclick="setReviewStatusAdmin(${t.id}, 'approved')" class="px-2.5 py-1 border border-green-300 text-green-700 rounded-full font-black text-[10px] uppercase hover:bg-green-50">Approve</button>` : `<button onclick="setReviewStatusAdmin(${t.id}, null)" class="px-2.5 py-1 border border-slate-200 text-slate-500 rounded-full font-black text-[10px] uppercase hover:bg-slate-50">Unapprove</button>`}
             ${t.review_status !== 'rejected' ? `<button onclick="setReviewStatusAdmin(${t.id}, 'rejected')" class="px-2.5 py-1 border border-red-300 text-red-600 rounded-full font-black text-[10px] uppercase hover:bg-red-50">Reject</button>` : `<button onclick="setReviewStatusAdmin(${t.id}, null)" class="px-2.5 py-1 border border-slate-200 text-slate-500 rounded-full font-black text-[10px] uppercase hover:bg-slate-50">Unreject</button>`}
             <button onclick="requestTeamChangesAdmin(${t.id})" class="px-2.5 py-1 border border-amber-300 text-amber-700 rounded-full font-black text-[10px] uppercase hover:bg-amber-50">Request Changes</button>
+            <button onclick="editTeamDataAdmin(${t.id})" class="px-2.5 py-1 border border-blue-300 text-blue-700 rounded-full font-black text-[10px] uppercase hover:bg-blue-50">Edit</button>
             <button onclick="setTeamLockAdmin(${t.id}, ${!t.is_locked})" class="px-2.5 py-1 ${t.is_locked ? 'border border-slate-300 text-slate-700 hover:bg-slate-100' : 'bg-slate-800 text-white'} rounded-full font-black text-[10px] uppercase">${t.is_locked ? 'Unlock' : 'Lock'}</button>
             <button onclick="disbandTeamAdmin(${t.id})" class="px-2.5 py-1 border border-red-300 text-red-600 rounded-full font-black text-[10px] uppercase hover:bg-red-50">Disband</button>
             ` : ''}
