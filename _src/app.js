@@ -28459,11 +28459,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex gap-2 flex-wrap">
             <button onclick="_omrShowFullPreview(${b.id})" class="px-2.5 py-1 border border-blue-300 text-blue-700 rounded-full font-black text-[10px] uppercase hover:bg-blue-50">Full Preview</button>
             <button onclick="_omrToggleHistory(${b.id})" class="px-2.5 py-1 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100">History</button>
+            <button onclick="_omrToggleRescorePanel(${b.id})" class="px-2.5 py-1 border border-amber-300 text-amber-700 rounded-full font-black text-[10px] uppercase hover:bg-amber-50">Change Scoring Rule</button>
             <button onclick="_omrTogglePublish(${b.id}, ${!b.is_published})" class="px-2.5 py-1 ${b.is_published ? 'border border-slate-300 text-slate-700 hover:bg-slate-100' : 'bg-emerald-600 text-white'} rounded-full font-black text-[10px] uppercase">${b.is_published ? 'Unpublish' : 'Publish'}</button>
             <button onclick="_omrDeleteBatch(${b.id})" class="px-2.5 py-1 bg-red-600 text-white rounded-full font-black text-[10px] uppercase hover:bg-red-700">Delete</button>
           </div>
         </div>
         <div id="omrHistory-${b.id}" class="hidden mt-2 pt-2 border-t border-slate-100"></div>
+        <div id="omrRescore-${b.id}" class="hidden mt-2 pt-2 border-t border-slate-100"></div>
       </div>`).join('');
   }
   // Built on first toggle and cached in the DOM — "uploaded" is synthesized
@@ -28491,6 +28493,79 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <span class="text-slate-400">&middot; ${_omrFmtDateTime(e.at)}</span>
       </div>`).join('') + `</div>`;
     host.classList.remove('hidden');
+  }
+  // Re-grades an already-uploaded batch under a different Scoring Rule
+  // without needing the original CSV/key files again — every result row
+  // already stored each question's marked letter(s) (answers_json), and the
+  // batch already stored the answer key (answer_keys_json), so this just
+  // re-runs _omrEvaluateAnswer over that same stored data with the new rule
+  // and persists the recomputed marks/verdicts in place.
+  function _omrToggleRescorePanel(batchId) {
+    const host = document.getElementById(`omrRescore-${batchId}`);
+    if (!host) return;
+    if (!host.classList.contains('hidden')) { host.classList.add('hidden'); host.innerHTML = ''; return; }
+    const b = _omrBatches.find(x => x.id === batchId);
+    if (!b) return;
+    const current = b.scoring_rule || 'subset';
+    host.innerHTML = `
+      <div class="flex items-center gap-2 flex-wrap">
+        <select id="omrRescoreRule-${batchId}" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[11px]">
+          <option value="subset" ${current === 'subset' ? 'selected' : ''}>Subset</option>
+          <option value="exact" ${current === 'exact' ? 'selected' : ''}>Exact</option>
+          <option value="partial" ${current === 'partial' ? 'selected' : ''}>Partial</option>
+        </select>
+        <button onclick="_omrApplyRescore(${batchId})" id="omrRescoreApplyBtn-${batchId}" class="px-3 py-1.5 bg-amber-600 text-white rounded-lg font-black text-[10px] uppercase hover:bg-amber-700">Apply</button>
+        <span class="text-[10px] text-slate-400 font-bold">Recalculates marks for all ${b.total_students} student(s) from their already-scanned answers -- no re-upload needed.</span>
+      </div>`;
+    host.classList.remove('hidden');
+  }
+  function _omrApplyRescore(batchId) {
+    const sel = document.getElementById(`omrRescoreRule-${batchId}`);
+    const rule = sel ? sel.value : 'subset';
+    if (!confirm(`Recalculate every student's marks using the "${rule}" rule? This replaces their current marks.`)) return;
+    const btn = document.getElementById(`omrRescoreApplyBtn-${batchId}`);
+    if (btn) btn.disabled = true;
+    _adminFetch('get_omr_batch_detail', { batch_id: batchId }).then(detail => {
+      if (!detail || detail.result !== 'success') throw new Error((detail && detail.message) || 'Failed to load batch');
+      let answerKeys = {};
+      try { answerKeys = JSON.parse(detail.batch.answer_keys_json || '{}'); } catch (e) {}
+      const keyBySet = {};
+      Object.entries(answerKeys).forEach(([setCode, qmap]) => {
+        const qSets = {};
+        Object.entries(qmap).forEach(([qnum, letters]) => { qSets[qnum] = new Set((letters || []).map(l => String(l).trim().toUpperCase())); });
+        keyBySet[setCode.trim().toLowerCase()] = qSets;
+      });
+      const results = detail.results.map(r => {
+        let answers = {};
+        try { answers = JSON.parse(r.answers_json || '{}'); } catch (e) {}
+        const keySets = keyBySet[String(r.set_code || '').trim().toLowerCase()] || null;
+        let totalCredit = 0;
+        const answersOut = {};
+        Object.entries(answers).forEach(([qnum, a]) => {
+          const markedSet = new Set((a.marked || []).map(l => String(l).trim().toUpperCase()));
+          const keySet = keySets ? (keySets[qnum] || new Set()) : null;
+          let verdict, credit = 0;
+          if (!keySets) verdict = 'no_key';
+          else if (markedSet.size === 0) verdict = 'unanswered';
+          else ({ verdict, credit } = _omrEvaluateAnswer(markedSet, keySet, rule));
+          totalCredit += credit;
+          answersOut[qnum] = { marked: [...markedSet].sort(), verdict };
+        });
+        return { student_id: r.student_id, marks: Math.round(totalCredit * 100) / 100, answers_json: JSON.stringify(answersOut) };
+      });
+      return _adminFetch('rescore_omr_batch', { batch_id: batchId, scoring_rule: rule, results });
+    }).then(res => {
+      if (res && res.result === 'success') {
+        showToast(`Recalculated ${res.updated || ''} result(s) under "${rule}" rule`);
+        _omrLoadBatches();
+      } else {
+        showToast((res && res.message) || 'Rescore failed', 'error');
+        if (btn) btn.disabled = false;
+      }
+    }).catch(err => {
+      showToast(err.message || 'Network error', 'error');
+      if (btn) btn.disabled = false;
+    });
   }
   // Admin's "whole batch at a glance" grid — the web equivalent of OptiMark
   // Pro's own Answer Review PDF: a shaded answer-key row per Set, then every

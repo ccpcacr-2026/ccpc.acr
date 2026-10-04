@@ -625,7 +625,7 @@ const ADMIN_TAB_ACTIONS = {
   payroll: new Set(['get_leave_types', 'save_leave_type', 'get_leave_requests', 'approve_leave_request']),
   transport: new Set(['get_transport_routes', 'save_transport_route', 'get_transport_vehicles', 'save_transport_vehicle', 'get_pickup_points', 'save_pickup_point', 'assign_route_pickup_point', 'get_route_pickup_points', 'assign_vehicle_to_route', 'get_vehicle_assignments', 'get_transport_fee_master', 'save_transport_fee_master', 'generate_student_transport_fee', 'get_student_transport_fees']),
   registration_admin: new Set(['get_students_for_photo_download']),
-  omr_results: new Set(['save_omr_batch', 'get_omr_batches', 'set_omr_batch_published', 'delete_omr_batch', 'get_subject_class_matrix', 'get_omr_batch_detail']),
+  omr_results: new Set(['save_omr_batch', 'get_omr_batches', 'set_omr_batch_published', 'delete_omr_batch', 'get_subject_class_matrix', 'get_omr_batch_detail', 'rescore_omr_batch']),
   setup: new Set(['get_tabs', 'get_profile_sections', 'get_student_data_headers', 'get_editable_fields', 'save_editable_fields', 'get_permanent_tabs_config', 'set_permanent_tabs_config', 'get_login_password_columns', 'set_login_password_columns', 'promote_tab_to_profile', 'unpromote_tab_from_profile', 'delete_tab', 'save_tab', 'admin_reset_pin']),
   add_custom_form: new Set(['get_tabs', 'get_student_data_headers', 'save_tab', 'delete_tab']),
   // Group Forms — team sign-up (e.g. Science Fair) in the student portal.
@@ -1762,6 +1762,34 @@ export async function POST(req) {
     });
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
     return NextResponse.json({ result: 'success' });
+  }
+
+  // Re-grades an already-uploaded batch under a different Scoring Rule —
+  // the client already recomputed each result's marks/answers_json from
+  // the stored marked-letters + the batch's own stored answer key (no CSV
+  // re-upload needed), this just persists it and updates the batch's own
+  // scoring_rule so the card/history reflect the rule actually in effect.
+  if (action === 'rescore_omr_batch') {
+    const { batch_id, scoring_rule, results } = payload;
+    if (!batch_id) return NextResponse.json({ result: 'error', message: 'batch_id required.' });
+    if (!['subset', 'exact', 'partial'].includes(scoring_rule)) return NextResponse.json({ result: 'error', message: 'Invalid scoring_rule.' });
+    if (!Array.isArray(results) || !results.length) return NextResponse.json({ result: 'error', message: 'No results to rescore.' });
+
+    const rows = results.map(r => ({
+      batch_id,
+      student_id: String(r.student_id),
+      marks: r.marks || 0,
+      answers_json: r.answers_json || '{}',
+    }));
+    const upserted = await sb('omr_exam_results?on_conflict=batch_id,student_id', 'POST', rows,
+      { Prefer: 'resolution=merge-duplicates,return=minimal' });
+    if (upserted?.error) return NextResponse.json({ result: 'error', message: upserted.error });
+
+    const batchUpdate = await sb(`omr_exam_batches?id=eq.${encodeURIComponent(batch_id)}`, 'PATCH', {
+      scoring_rule, updated_at: new Date().toISOString(),
+    });
+    if (batchUpdate?.error) return NextResponse.json({ result: 'error', message: batchUpdate.error });
+    return NextResponse.json({ result: 'success', updated: rows.length });
   }
 
   if (action === 'delete_omr_batch') {
