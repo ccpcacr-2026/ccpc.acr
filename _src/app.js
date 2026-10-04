@@ -28460,12 +28460,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
     const headerCells = `<th style="position:sticky;left:0;background:#1e293b;z-index:3;min-width:50px">Roll</th>` +
       `<th style="position:sticky;left:50px;background:#1e293b;z-index:3;min-width:140px;text-align:left">Name</th>` +
-      `<th style="min-width:50px">Set</th><th style="min-width:60px">Marks</th>` +
+      `<th style="min-width:100px">Student ID</th><th style="min-width:50px">Set</th><th style="min-width:60px">Marks</th>` +
       qnums.map(q => `<th style="min-width:34px">${q}</th>`).join('');
 
     const keyRows = setCodes.map(sc => `<tr style="background:#f1f5f9;font-weight:800">
       <td style="position:sticky;left:0;background:#f1f5f9" colspan="2">Set ${_escHtml(sc)} — Answer Key</td>
-      <td></td><td></td>
+      <td></td><td></td><td></td>
       ${qnums.map(q => `<td style="text-align:center">${((answerKeys[sc] || {})[q] || []).join(',') || '-'}</td>`).join('')}
     </tr>`).join('');
 
@@ -28475,7 +28475,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const p = r.profile || {};
       return `<tr>
         <td style="position:sticky;left:0;background:#fff">${_escHtml(p.roll || '')}</td>
-        <td style="position:sticky;left:50px;background:#fff;text-align:left">${_escHtml(p.student_name || r.student_id)}</td>
+        <td style="position:sticky;left:50px;background:#fff;text-align:left">${_escHtml(p.student_name || '')}</td>
+        <td>${_escHtml(r.student_id)}</td>
         <td>${_escHtml(r.set_code || '')}</td>
         <td style="font-weight:800">${r.marks}</td>
         ${qnums.map(q => {
