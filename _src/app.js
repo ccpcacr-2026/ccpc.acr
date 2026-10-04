@@ -29161,6 +29161,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
 
       <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 mb-5">
+        <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+          <p class="font-black text-slate-800 text-sm flex items-center gap-2"><i data-lucide="palette" class="h-4 w-4 text-blue-600"></i>House Colors</p>
+          <button onclick="saveHouseColorsAdmin()" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save House Colors</button>
+        </div>
+        <p class="text-xs text-slate-400 font-bold mb-3">Pick a color for each house — it themes that student's own Personal Hub (avatar ring + sidebar/bottom-nav + accent color) when they log in.</p>
+        <div id="houseColorsList" class="flex flex-wrap gap-3"><span class="text-xs text-slate-400 font-bold italic">Loading houses…</span></div>
+      </div>
+
+      <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 mb-5">
         <p class="font-black text-slate-800 text-sm flex items-center gap-2 mb-1"><i data-lucide="pin" class="h-4 w-4 text-blue-600"></i>Permanent Tabs</p>
         <p class="text-xs text-slate-400 font-bold mb-3">These built-in tabs aren't made in the builder above — turn any of them off to hide it from every student without deleting anything. Personal Hub is always on.</p>
         <div id="permanentTabsList" class="grid md:grid-cols-2 gap-3"></div>
@@ -29186,8 +29195,43 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     lucide.createIcons();
     loadAdminTabs();
     loadEditableProfileFields();
+    loadHouseColorsAdmin();
     loadPermanentTabsAdmin();
     loadLoginPasswordColumnsAdmin();
+  }
+
+  // House Colors — mirrors ccpc-students' own Setup page exactly (same
+  // get_house_values/get_house_colors/save_house_colors actions, same
+  // student.portal_settings row); houses come from whatever's actually in
+  // students_data, not a hardcoded enum, same reasoning as the Group field.
+  function _hcSafeId(h) { return String(h).replace(/[^a-zA-Z0-9]/g, '_'); }
+  function loadHouseColorsAdmin() {
+    Promise.all([_adminFetch('get_house_values', {}), _adminFetch('get_house_colors', {})]).then(([hv, hc]) => {
+      const list = document.getElementById('houseColorsList');
+      if (!list) return;
+      const houses = (hv && Array.isArray(hv.values)) ? hv.values : [];
+      const colors = (hc && hc.colors) ? hc.colors : {};
+      if (!houses.length) { list.innerHTML = '<span class="text-xs text-slate-400 font-bold italic">No house values found in students_data yet.</span>'; return; }
+      list.innerHTML = houses.map(h => `
+        <div class="flex items-center gap-2 px-3 py-2 border border-slate-200 rounded-xl" style="min-width:180px">
+          <input type="color" id="houseColor-${_hcSafeId(h)}" value="${colors[h] || '#6366f1'}" class="rounded" style="width:40px;height:32px;padding:2px;border:1px solid #e2e8f0" title="${h}">
+          <span class="text-xs font-bold text-slate-700">${h}</span>
+        </div>`).join('');
+    }).catch(() => {});
+  }
+  function saveHouseColorsAdmin() {
+    _adminFetch('get_house_values', {}).then(hv => {
+      const houses = (hv && Array.isArray(hv.values)) ? hv.values : [];
+      const colors = {};
+      houses.forEach(h => {
+        const el = document.getElementById(`houseColor-${_hcSafeId(h)}`);
+        if (el) colors[h] = el.value;
+      });
+      return _adminFetch('save_house_colors', { colors });
+    }).then(res => {
+      if (res && res.result === 'success') showToast('House colors saved');
+      else showToast((res && res.message) || 'Could not save', 'error');
+    }).catch(() => showToast('Network error', 'error'));
   }
 
   // The tab BUILDER — create a new custom form, or (via editTab) edit an

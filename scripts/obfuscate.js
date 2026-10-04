@@ -312,7 +312,7 @@ const RESERVED = [
   'downloadImportDemoTemplate',
   'onDownloadCategoryChange','openColleagueProfile','closeColleagueProfileModal','saveProfileFieldVisibility',
   'saveColleagueCareerFields','toggleCareerHistory',
-  'saveEditableProfileFields','togglePermanentTab','toggleLoginPasswordColumn',
+  'saveEditableProfileFields','togglePermanentTab','toggleLoginPasswordColumn','saveHouseColorsAdmin',
   'saveNewTab','addTabRow','addConditionRow','duplicateField','cutField',
   'copyField','pasteField','promoteTab','unpromoteTab','editTab',
   'deleteTabConfig','toggleStatus','adminResetPin',

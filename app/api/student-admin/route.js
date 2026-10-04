@@ -626,7 +626,7 @@ const ADMIN_TAB_ACTIONS = {
   transport: new Set(['get_transport_routes', 'save_transport_route', 'get_transport_vehicles', 'save_transport_vehicle', 'get_pickup_points', 'save_pickup_point', 'assign_route_pickup_point', 'get_route_pickup_points', 'assign_vehicle_to_route', 'get_vehicle_assignments', 'get_transport_fee_master', 'save_transport_fee_master', 'generate_student_transport_fee', 'get_student_transport_fees']),
   registration_admin: new Set(['get_students_for_photo_download']),
   omr_results: new Set(['save_omr_batch', 'get_omr_batches', 'set_omr_batch_published', 'delete_omr_batch', 'get_subject_class_matrix', 'get_omr_batch_detail', 'rescore_omr_batch']),
-  setup: new Set(['get_tabs', 'get_profile_sections', 'get_student_data_headers', 'get_editable_fields', 'save_editable_fields', 'get_permanent_tabs_config', 'set_permanent_tabs_config', 'get_login_password_columns', 'set_login_password_columns', 'promote_tab_to_profile', 'unpromote_tab_from_profile', 'delete_tab', 'save_tab', 'admin_reset_pin']),
+  setup: new Set(['get_tabs', 'get_profile_sections', 'get_student_data_headers', 'get_editable_fields', 'save_editable_fields', 'get_permanent_tabs_config', 'set_permanent_tabs_config', 'get_login_password_columns', 'set_login_password_columns', 'promote_tab_to_profile', 'unpromote_tab_from_profile', 'delete_tab', 'save_tab', 'admin_reset_pin', 'get_house_values', 'get_house_colors', 'save_house_colors']),
   add_custom_form: new Set(['get_tabs', 'get_student_data_headers', 'save_tab', 'delete_tab']),
   // Group Forms — team sign-up (e.g. Science Fair) in the student portal.
   // Admin CRUD only: the actual invite/accept/leave workflow only exists in
@@ -5459,6 +5459,38 @@ export async function POST(req) {
   if (action === 'save_editable_fields') {
     const fields = Array.isArray(payload.fields) ? payload.fields : [];
     const r = await psSave('editable_profile_fields', JSON.stringify(fields));
+    if (!r.ok) return NextResponse.json({ result: 'error', message: r.message });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // ── House colors — same student.portal_settings row ccpc-students' own
+  // Setup page reads/writes (house_colors key); this app's Setup is a
+  // second front end over the identical cross-app-shared tables, same
+  // pattern as get_editable_fields/save_editable_fields right above.
+  if (action === 'get_house_values') {
+    const rows = await sb('students_data?select=house&limit=10000');
+    const values = new Set();
+    (Array.isArray(rows) ? rows : []).forEach(r => { const h = String(r.house || '').trim(); if (h) values.add(h); });
+    return NextResponse.json({ values: Array.from(values).sort() });
+  }
+  if (action === 'get_house_colors') {
+    const rows = await sb('portal_settings?key=eq.house_colors');
+    let colors = {};
+    try { colors = JSON.parse((rows && !rows.error && rows[0]?.value) || '{}'); } catch (_) {}
+    return NextResponse.json({ result: 'success', colors: (colors && typeof colors === 'object' && !Array.isArray(colors)) ? colors : {} });
+  }
+  if (action === 'save_house_colors') {
+    const colors = payload.colors;
+    if (!colors || typeof colors !== 'object' || Array.isArray(colors)) {
+      return NextResponse.json({ result: 'error', message: 'colors must be an object.' });
+    }
+    const clean = {};
+    Object.entries(colors).forEach(([house, color]) => {
+      const h = String(house || '').trim();
+      const c = String(color || '').trim();
+      if (h && /^#[0-9a-fA-F]{6}$/.test(c)) clean[h] = c;
+    });
+    const r = await psSave('house_colors', JSON.stringify(clean));
     if (!r.ok) return NextResponse.json({ result: 'error', message: r.message });
     return NextResponse.json({ result: 'success' });
   }
