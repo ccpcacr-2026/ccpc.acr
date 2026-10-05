@@ -890,14 +890,52 @@ async function _bulkPatchStudents(ids, updates) {
 // extraFilter: { column: [values] } — an admin-configured row_filter from a
 // Field Category grant (see _getViewerGrants) — AND-combined with the
 // caller's own filters, IN-combined within each column's own value list.
+// Trims and loosens a name search into a SUBSEQUENCE match — each typed
+// character has to appear in order somewhere in the name, not necessarily
+// consecutively — so searching "Nur" also surfaces "Nusrat" (n...u...r in
+// order), not just names literally containing "nur" as consecutive
+// letters. Built as PostgREST's own '*'-wildcard ilike pattern (one '*'
+// between every character) rather than fetched client-side, so it's still
+// a single indexed-ish DB query, not a full-table scan.
+function _subsequenceIlikePattern(term) {
+  const chars = String(term || '').trim().split('').filter(c => c.trim() !== '');
+  if (!chars.length) return null;
+  return '*' + chars.map(c => encodeURIComponent(c)).join('*') + '*';
+}
+// Ranks a candidate name against the search term so the DB's own ILIKE
+// match order (arbitrary) can be replaced with something that actually
+// reads as "best match first": exact > starts-with > starts a later word
+// (catches a surname) > plain substring (earlier position wins) >
+// subsequence match (tighter spread between the matched letters wins).
+// -1 means not even a subsequence match — shouldn't happen for a row the
+// DB's own pattern already matched, kept only as a safe floor.
+function _nameMatchScore(name, term) {
+  const n = String(name || '').toLowerCase();
+  const t = String(term || '').trim().toLowerCase();
+  if (!t) return 0;
+  if (n === t) return 10000;
+  if (n.startsWith(t)) return 9000;
+  const wordIdx = n.indexOf(' ' + t);
+  if (wordIdx >= 0) return 8000 - wordIdx;
+  const subIdx = n.indexOf(t);
+  if (subIdx >= 0) return 7000 - subIdx;
+  let ni = 0, first = -1, last = -1;
+  for (let ti = 0; ti < t.length; ti++) {
+    const found = n.indexOf(t[ti], ni);
+    if (found === -1) return -1;
+    if (first === -1) first = found;
+    last = found;
+    ni = found + 1;
+  }
+  return 1000 - (last - first);
+}
 async function _searchStudents(filters, projectFields, extraFilter) {
   const f = filters || {};
   const clauses = [];
   if (f.student_id) clauses.push(`student_id=eq.${encodeURIComponent(f.student_id)}`);
-  // Name is the one text field searched by partial, case-insensitive match
-  // (ilike) rather than an exact eq. — an admin typing a name almost never
-  // has the full, exactly-cased value on hand the way they would for an ID.
-  if (f.student_name) clauses.push(`student_name=ilike.*${encodeURIComponent(f.student_name)}*`);
+  const nameTerm = f.student_name ? String(f.student_name).trim() : '';
+  const namePattern = nameTerm ? _subsequenceIlikePattern(nameTerm) : null;
+  if (namePattern) clauses.push(`student_name=ilike.${namePattern}`);
   if (f.class) clauses.push(`class=eq.${encodeURIComponent(f.class)}`);
   if (f.section) clauses.push(`section=eq.${encodeURIComponent(f.section)}`);
   if (f.roll) clauses.push(`roll=eq.${encodeURIComponent(f.roll)}`);
@@ -912,8 +950,13 @@ async function _searchStudents(filters, projectFields, extraFilter) {
     : '*';
   const query = `students_data?${clauses.length ? clauses.join('&') + '&' : ''}select=${select}&order=class.asc,section.asc,roll.asc&limit=500`;
   const rows = await sb(query);
+  if (!Array.isArray(rows)) return rows;
+  // A name search ranks by match quality (best match first) instead of
+  // the usual roster order — relevance is what actually matters once
+  // you're searching by name rather than browsing a class/section.
+  if (nameTerm) return rows.map(r => ({ r, s: _nameMatchScore(r.student_name, nameTerm) })).sort((a, b) => b.s - a.s).map(x => x.r);
   // roll is text in the database, so 10 sorts before 2 there — fix the order here.
-  return Array.isArray(rows) ? rows.sort((a, b) => String(a.class || '').localeCompare(String(b.class || '')) || String(a.section || '').localeCompare(String(b.section || '')) || _rollCompare(a, b)) : rows;
+  return rows.sort((a, b) => String(a.class || '').localeCompare(String(b.class || '')) || String(a.section || '').localeCompare(String(b.section || '')) || _rollCompare(a, b));
 }
 
 // Looks up a category's field list, then runs _searchStudents projected to
