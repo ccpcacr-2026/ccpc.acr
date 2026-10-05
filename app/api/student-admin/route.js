@@ -570,7 +570,7 @@ const SUPER_ADMIN_ONLY_ACTIONS = new Set(['set_gp_credentials', 'test_gp_connect
 // Bus GPS positions/registry are useful to every teacher/staff account, not
 // just admins — open to anyone with a recognized staff account (any role),
 // distinct from both the tab-visibility matrix and the plain Admin gate.
-const STAFF_OPEN_ACTIONS = new Set(['get_tracking_config', 'get_bus_data', 'get_my_review_tabs', 'get_group_form_roster_for_rule', 'request_team_changes', 'set_team_review_status', 'admin_update_team_data']);
+const STAFF_OPEN_ACTIONS = new Set(['get_tracking_config', 'get_bus_data', 'get_my_review_tabs', 'get_group_form_roster_for_rule', 'request_team_changes', 'set_team_review_status', 'admin_update_team_data', 'get_house_colors']);
 
 // ── Per-tab module access (admin console nav pills) ──────────────────────
 // Which roles can use each tab is admin-configurable (see

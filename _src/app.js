@@ -30135,7 +30135,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('adminGroupRosterTitle').textContent = 'Teams — ' + (form ? form.title : '');
     document.getElementById('adminGroupRoster').classList.remove('hidden');
     document.getElementById('adminGroupRosterList').innerHTML = '<p class="text-xs text-slate-400 font-bold">Loading…</p>';
-    _adminFetch('get_group_form_roster', { group_form_id: groupFormId }).then(res => {
+    Promise.all([_adminFetch('get_group_form_roster', { group_form_id: groupFormId }), _gfEnsureHouseColors()]).then(([res]) => {
       if (!res || res.result !== 'success') { document.getElementById('adminGroupRosterList').innerHTML = `<p class="text-xs text-red-500 font-bold">${(res && res.message) || 'Failed to load'}</p>`; return; }
       _gfRosterTeams = res.teams || [];
       _gfRegisterProfiles(_gfRosterTeams);
@@ -30146,6 +30146,52 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   function _gfTeamHouse(t) { return (t.members.find(m => m.role === 'leader')?.profile || {}).house || ''; }
   function _gfTeamGroup(t) { return (t.group_data || {}).group || ''; }
+  // ── House-tinted team cards (admin roster + reviewer panel) — when a
+  // Group Form's eligibility is itself bound by House (group_field ===
+  // 'house', set in the eligibility editor's "Group by" selector), each
+  // team's card gets a light tint of its own house's color (Setup > House
+  // Colors) so an admin/reviewer can tell houses apart at a glance, the
+  // same color students themselves see their own portal themed with.
+  let _gfHouseColors = null; // null = not fetched yet; {} = fetched, empty/none set
+  function _gfEnsureHouseColors() {
+    if (_gfHouseColors) return Promise.resolve(_gfHouseColors);
+    return _adminFetch('get_house_colors', {}).then(res => {
+      _gfHouseColors = (res && res.colors && typeof res.colors === 'object') ? res.colors : {};
+      return _gfHouseColors;
+    }).catch(() => { _gfHouseColors = {}; return _gfHouseColors; });
+  }
+  function _gfFormGroupedByHouse(form) {
+    let e = {};
+    try { e = JSON.parse(form?.eligibility_json || '{}') || {}; } catch (err) {}
+    return (e.group_field || 'class') === 'house';
+  }
+  function _gfHexToHsl(hex) {
+    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(String(hex || '').trim());
+    if (!m) return null;
+    const r = parseInt(m[1], 16) / 255, g = parseInt(m[2], 16) / 255, b = parseInt(m[3], 16) / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    let h = 0, s = 0; const l = (max + min) / 2;
+    if (max !== min) {
+      const d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+      else if (max === g) h = (b - r) / d + 2;
+      else h = (r - g) / d + 4;
+      h /= 6;
+    }
+    return [h * 360, s * 100, l * 100];
+  }
+  // Fixed-lightness HSL tint (not a linear hex interpolation) so a bright
+  // OR dark admin-picked color both land as a subtle card tint instead of
+  // a loud block of color or no contrast at all.
+  function _gfHouseCardStyle(hex) {
+    const hsl = hex && _gfHexToHsl(hex);
+    if (!hsl) return '';
+    const [h, s] = hsl;
+    const bg = `hsl(${h.toFixed(1)}, ${Math.min(s, 55).toFixed(1)}%, 95%)`;
+    const border = `hsl(${h.toFixed(1)}, ${Math.min(s, 60).toFixed(1)}%, 78%)`;
+    return `background:${bg};border-color:${border}`;
+  }
   function _gfTeamCategory(t) { return _gfAnswerByName(t, _gfRosterForm, /^category$/i) || ''; }
   function _gfTeamSubmission(t) { return t.is_submitted ? 'Submitted' : 'Saved'; }
   function _gfTeamReview(t) { return t.review_status === 'approved' ? 'Approved' : t.review_status === 'rejected' ? 'Rejected' : 'Unreviewed'; }
@@ -30648,7 +30694,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('gfReviewFilterPanel').classList.add('hidden');
     _gfReviewFilterState = { submission: new Set(), review: new Set(), house: new Set(), group: new Set(), category: new Set() };
     list.innerHTML = '<p class="text-xs text-slate-400 font-bold">Loading…</p>';
-    _adminFetch('get_group_form_roster_for_rule', { rule_id: tab.rule_id, teacher_user_id: myId }).then(res => {
+    Promise.all([_adminFetch('get_group_form_roster_for_rule', { rule_id: tab.rule_id, teacher_user_id: myId }), _gfEnsureHouseColors()]).then(([res]) => {
       if (!res || res.result !== 'success') { list.innerHTML = `<p class="text-xs text-red-500 font-bold">${(res && res.message) || 'Failed to load'}</p>`; return; }
       _gfReviewTeams = res.teams || [];
       _gfReviewForm = res.form || null;
@@ -30782,12 +30828,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!teams.length) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No teams match this filter.</p>'; return; }
     const maxSize = form ? form.max_team_size : null;
     const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''}${p.roll ? ', Roll ' + p.roll : ''})` : 'Unknown';
+    const boundByHouse = _gfFormGroupedByHouse(form);
     host.innerHTML = teams.map(t => {
       const complete = maxSize ? t.members.length >= maxSize : true;
       const leader = t.members.find(m => m.role === 'leader');
       const answerRows = _gfFormatGroupData(t.group_data, form && form.fields_json);
+      const houseStyle = boundByHouse ? _gfHouseCardStyle(_gfHouseColors && _gfHouseColors[_gfReviewTeamHouse(t)]) : '';
       return `
-      <div class="border border-slate-200 rounded-2xl p-4 ${t.status === 'disbanded' ? 'opacity-50' : ''}">
+      <div class="border border-slate-200 rounded-2xl p-4 ${t.status === 'disbanded' ? 'opacity-50' : ''}"${houseStyle ? ` style="${houseStyle}"` : ''}>
         <div class="flex justify-between items-start flex-wrap gap-2">
           <div>
             <strong class="text-sm font-black text-slate-800">${nameOf(leader?.profile) || t.leader_student_id}'s team</strong>
@@ -31173,11 +31221,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _gfRenderRosterSummary(shown, form);
     if (!shown.length) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No teams match this filter.</p>'; return; }
 
+    const boundByHouse = _gfFormGroupedByHouse(form);
     host.innerHTML = shown.map(t => {
       const complete = maxSize ? t.members.length >= maxSize : true;
       const answerRows = _gfFormatGroupData(t.group_data, form && form.fields_json);
+      const houseStyle = boundByHouse ? _gfHouseCardStyle(_gfHouseColors && _gfHouseColors[_gfTeamHouse(t)]) : '';
       return `
-      <div class="border border-slate-200 rounded-2xl p-4 ${t.status === 'disbanded' ? 'opacity-50' : ''}">
+      <div class="border border-slate-200 rounded-2xl p-4 ${t.status === 'disbanded' ? 'opacity-50' : ''}"${houseStyle ? ` style="${houseStyle}"` : ''}>
         <div class="flex justify-between items-start flex-wrap gap-2">
           <div>
             <strong class="text-sm font-black text-slate-800">${leaderNameOf(t)}'s team</strong>
