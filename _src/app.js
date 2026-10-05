@@ -29649,6 +29649,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="printGroupFormTokenList()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="ticket" class="h-3 w-3"></i>Token List</button>
             <button onclick="printGroupFormTableStickers()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="tag" class="h-3 w-3"></i>Table Sticker</button>
             <button onclick="toggleGroupFormReviewerPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="users" class="h-3 w-3"></i>Reviewers</button>
+            <button onclick="deleteAllDisbandedTeams()" class="px-3 py-1.5 border border-red-200 text-red-600 rounded-full font-black text-[10px] uppercase hover:bg-red-50 flex items-center gap-1"><i data-lucide="trash-2" class="h-3 w-3"></i>Delete Disbanded</button>
             <button onclick="closeGroupRoster()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50">Close</button>
           </div>
         </div>
@@ -31417,6 +31418,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (prompt('Type DELETE to confirm permanent deletion:') !== 'DELETE') return;
     _adminFetch('admin_delete_team', { team_id: teamId }).then(res => {
       if (res && res.result === 'success') { openGroupRoster(_gfRosterFormId); showToast('Entry deleted'); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    }).catch(() => showToast('Network error', 'error'));
+  }
+  // One-click purge of every disbanded team under the open Group Form — a
+  // disbanded team already has no members left (that's what disbanding
+  // does), so there's nothing to free; it's pure clutter on the roster and
+  // was inflating the summary's "Unspecified" count. Single confirm (not
+  // deleteTeamAdmin's type-DELETE prompt) since this only ever touches
+  // already-disbanded entries, never an active team.
+  function deleteAllDisbandedTeams() {
+    const count = (_gfRosterTeams || []).filter(t => t.status === 'disbanded').length;
+    if (!count) { showToast('No disbanded teams to delete', 'error'); return; }
+    if (!confirm(`Permanently delete all ${count} disbanded team${count === 1 ? '' : 's'} under this form?\n\nThis removes them completely — there is no undo.`)) return;
+    _adminFetch('admin_delete_all_disbanded', { group_form_id: _gfRosterFormId }).then(res => {
+      if (res && res.result === 'success') { openGroupRoster(_gfRosterFormId); showToast(`Deleted ${res.deleted} disbanded team${res.deleted === 1 ? '' : 's'}`); }
       else showToast((res && res.message) || 'Failed', 'error');
     }).catch(() => showToast('Network error', 'error'));
   }

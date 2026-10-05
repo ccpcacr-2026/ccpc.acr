@@ -726,7 +726,7 @@ const ADMIN_TAB_ACTIONS = {
   // exact same student.group_forms/group_form_teams/… tables directly via
   // sb(), same cross-app-shared-database pattern as get_tabs/save_tab above
   // for portal_tabs.
-  group_forms: new Set(['get_group_forms', 'save_group_form', 'delete_group_form', 'get_group_form_roster', 'set_team_lock', 'admin_disband_team', 'admin_delete_team', 'get_class_house_options', 'get_student_data_headers', 'upload_group_form_cover', 'get_group_form_reviewer_rules', 'save_group_form_reviewer_rules', 'get_field_values', 'admin_update_team_data', 'admin_add_member_direct', 'admin_force_accept_invite', 'admin_cancel_invite', 'admin_remove_member']),
+  group_forms: new Set(['get_group_forms', 'save_group_form', 'delete_group_form', 'get_group_form_roster', 'set_team_lock', 'admin_disband_team', 'admin_delete_team', 'admin_delete_all_disbanded', 'get_class_house_options', 'get_student_data_headers', 'upload_group_form_cover', 'get_group_form_reviewer_rules', 'save_group_form_reviewer_rules', 'get_field_values', 'admin_update_team_data', 'admin_add_member_direct', 'admin_force_accept_invite', 'admin_cancel_invite', 'admin_remove_member']),
   data: new Set(['get_tabs', 'get_tab_data', 'get_tab_submission_status', 'get_staff_list', 'get_tab_data_access', 'set_tab_data_access', 'get_staff_directory', 'get_class_sections', 'get_tab_class_access', 'set_tab_class_access', 'get_field_categories', 'get_tab_category_link', 'set_tab_category_link']),
   // Class Teacher assignment (get_class_teacher_assignments/save_teacher_
   // class_assignment) lives here too, not its own tab key — it's part of
@@ -1685,6 +1685,27 @@ export async function POST(req) {
     const r = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}`, 'DELETE');
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
     return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Permanently delete EVERY disbanded team under one Group Form, in one
+  // go — same hard delete as admin_delete_team (invites + members + the
+  // team row itself), just scoped to status=disbanded instead of one
+  // team_id at a time. A disbanded team already has no members left (that's
+  // what disbanding does), so there's nothing left to free — it's pure
+  // clutter on the roster/summary once the admin's done reviewing it.
+  if (action === 'admin_delete_all_disbanded') {
+    const { group_form_id } = payload;
+    if (!group_form_id) return NextResponse.json({ result: 'error', message: 'group_form_id required.' });
+    const rows = await sb(`group_form_teams?group_form_id=eq.${encodeURIComponent(group_form_id)}&status=eq.disbanded&select=id`);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    const ids = (Array.isArray(rows) ? rows : []).map(r => r.id);
+    if (!ids.length) return NextResponse.json({ result: 'success', deleted: 0 });
+    const idList = ids.map(encodeURIComponent).join(',');
+    await sb(`group_form_team_invites?team_id=in.(${idList})`, 'DELETE');
+    await sb(`group_form_team_members?team_id=in.(${idList})`, 'DELETE');
+    const r = await sb(`group_form_teams?id=in.(${idList})`, 'DELETE');
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success', deleted: ids.length });
   }
 
   // ── Send a submitted team back to the leader for edits, with a comment ──
