@@ -27842,8 +27842,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div id="regAdminSummary" class="mb-4"></div>
           <div class="flex items-center gap-3 mb-4 flex-wrap">
             <button onclick="_regAdminDownloadZip()" id="regAdminDownloadBtn" class="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5 disabled:opacity-40"><i data-lucide="download" class="h-3.5 w-3.5"></i>Download Photos as ZIP</button>
+            <input type="file" id="regAdminUploadInput" multiple accept="image/*" class="hidden" onchange="_regAdminBulkUpload(this.files); this.value='';">
+            <button onclick="document.getElementById('regAdminUploadInput').click()" class="px-5 py-2.5 border border-slate-200 text-slate-700 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-1.5"><i data-lucide="upload" class="h-3.5 w-3.5"></i>Upload Photos (Bulk)</button>
             <span id="regAdminProgress" class="text-xs font-bold text-slate-400"></span>
           </div>
+          <p class="text-[11px] text-slate-400 font-bold -mt-2 mb-4">Select any number of image files, each named exactly like a Student ID (e.g. "2028111198.jpg") — same naming the ZIP download above uses, so a re-uploaded ZIP works as-is. Unmatched filenames are skipped and reported, nothing else is touched.</p>
           <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:420px">
             <table class="w-full text-left border-collapse text-xs">
               <thead class="bg-slate-50"><tr>
@@ -27954,6 +27957,81 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <td class="py-1.5 px-2 text-slate-500">${_escHtml(s.house || '')}</td>
     </tr>`).join('') + (filtered.length > PREVIEW_CAP ? `<tr><td colspan="7" class="p-3 text-center text-slate-400 font-bold text-[11px]">Showing first ${PREVIEW_CAP} of ${filtered.length} — narrow the filter to see more. The ZIP always includes all ${withPhoto.length} photo(s) in the current match.</td></tr>` : '');
     lucide.createIcons();
+  }
+  function _regAdminCompressImage(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = e => {
+        const img = new Image();
+        img.onload = () => {
+          const MAX = 600;
+          let w = img.width, h = img.height;
+          if (w > h && w > MAX) { h = Math.round(h * MAX / w); w = MAX; }
+          else if (h > MAX) { w = Math.round(w * MAX / h); h = MAX; }
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL('image/jpeg', 0.82));
+        };
+        img.onerror = () => reject(new Error('Could not read image'));
+        img.src = e.target.result;
+      };
+      reader.onerror = () => reject(new Error('Could not read file'));
+      reader.readAsDataURL(file);
+    });
+  }
+  // Mirror of the ZIP download's own <student_id>.ext naming — reuses the
+  // single-student upload_photo action per file rather than a new bulk
+  // endpoint, so it's exactly the same storage path (students/photo_<id>.jpg)
+  // and students_data.photo update every other photo upload already goes
+  // through. Resizes/compresses client-side first (bulk can mean dozens of
+  // full-resolution phone photos) and runs a small fixed concurrency rather
+  // than one-at-a-time or all-at-once, so a large batch neither crawls nor
+  // floods the API.
+  function _regAdminBulkUpload(fileList) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    const idSet = new Set(_regAdminStudents.map(s => s.student_id));
+    const jobs = [];
+    const skipped = [];
+    files.forEach(f => {
+      const id = f.name.replace(/\.[^.]+$/, '').trim();
+      if (!idSet.has(id)) { skipped.push(f.name); return; }
+      jobs.push({ id, file: f });
+    });
+    if (!jobs.length) { showToast('No filenames matched a Student ID -- name each file exactly like "<student_id>.jpg"', 'error'); return; }
+
+    const progress = document.getElementById('regAdminProgress');
+    let done = 0, failed = 0;
+    const total = jobs.length;
+    const setProgress = () => { if (progress) progress.textContent = `Uploading ${done}/${total}...`; };
+    setProgress();
+
+    const CONCURRENCY = 4;
+    let idx = 0;
+    function next() {
+      if (idx >= jobs.length) return Promise.resolve();
+      const job = jobs[idx++];
+      return _regAdminCompressImage(job.file)
+        .then(base64 => _adminFetch('upload_photo', { student_id: job.id, photo_base64: base64 }))
+        .then(res => {
+          if (res && res.result === 'success') {
+            const s = _regAdminStudents.find(x => x.student_id === job.id);
+            if (s) s.photo = res.photo;
+          } else failed++;
+        })
+        .catch(() => { failed++; })
+        .finally(() => { done++; setProgress(); return next(); });
+    }
+    Promise.all(Array.from({ length: Math.min(CONCURRENCY, jobs.length) }, next)).then(() => {
+      if (progress) progress.textContent = '';
+      _regAdminRender();
+      const parts = [`${total - failed} uploaded`];
+      if (failed) parts.push(`${failed} failed`);
+      if (skipped.length) parts.push(`${skipped.length} skipped (filename didn't match a Student ID)`);
+      showToast(parts.join(', '), (failed || skipped.length) ? 'error' : 'success');
+      if (skipped.length) console.warn('Bulk photo upload -- unmatched filenames:', skipped);
+    });
   }
   function _regAdminEnsureJSZip() {
     if (window.JSZip) return Promise.resolve();

@@ -296,7 +296,7 @@ const RESERVED = [
   '_acCbAddRange','_acCbDeleteRange','_acCbMarkWasted','_acCbUnmarkWasted','_acCbToggleBills',
   // Transport tab native port (incl. Bus/GPS Config)
   'loadAdminTransportView','switchTransportTab','saveTransportRoute',
-  'loadRegistrationAdminView','toggleRegAdminFilter','clearRegAdminFilters','_regAdminDownloadZip','_regAdminRender',
+  'loadRegistrationAdminView','toggleRegAdminFilter','clearRegAdminFilters','_regAdminDownloadZip','_regAdminRender','_regAdminBulkUpload',
   'loadOmrResultsView','_omrOnKeyFiles','_omrOnCsvFiles','_omrRemoveKeyFile','_omrRemoveCsvFile',
   '_omrPreview','_omrUpload','_omrTogglePublish','_omrDeleteBatch','_omrOnClassChange',
   '_omrShowFullPreview','_omrToggleHistory','_omrSaveScoringRuleDefault',
