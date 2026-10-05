@@ -30192,6 +30192,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const border = `hsl(${h.toFixed(1)}, ${Math.min(s, 60).toFixed(1)}%, 78%)`;
     return `background:${bg};border-color:${border}`;
   }
+  // The leader's house, shown as its own badge — unconditionally (not just
+  // when the form's own eligibility happens to be grouped by House), since
+  // House is a real, always-available student attribute the roster filter
+  // panel already tracks as a dimension but never actually displayed as
+  // text on the card itself. Solid-colored using the house's own Setup >
+  // House Colors pick when one exists, else a neutral slate badge.
+  function _gfHouseBadgeHtml(house) {
+    if (!house) return '';
+    const hex = _gfHouseColors && _gfHouseColors[house];
+    const hsl = hex && _gfHexToHsl(hex);
+    const style = hsl ? `background:hsl(${hsl[0].toFixed(1)},${Math.min(hsl[1], 70).toFixed(1)}%,38%);color:#fff` : 'background:#64748b;color:#fff';
+    return ` <span class="text-[9px] font-black rounded-full px-2 py-0.5" style="${style}">${_escHtml(house)}</span>`;
+  }
   function _gfTeamCategory(t) { return _gfAnswerByName(t, _gfRosterForm, /^category$/i) || ''; }
   function _gfTeamSubmission(t) { return t.is_submitted ? 'Submitted' : 'Saved'; }
   function _gfTeamReview(t) { return t.review_status === 'approved' ? 'Approved' : t.review_status === 'rejected' ? 'Rejected' : 'Unreviewed'; }
@@ -30840,6 +30853,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div>
             <strong class="text-sm font-black text-slate-800">${nameOf(leader?.profile) || t.leader_student_id}'s team</strong>
             ${t.reference_number ? ` <span class="text-[9px] font-black text-white bg-slate-800 rounded-full px-2 py-0.5 tracking-wide">${_escHtml(t.reference_number)}</span>` : ''}
+            ${_gfHouseBadgeHtml(_gfReviewTeamHouse(t))}
             ${t.status === 'disbanded' ? ' <span class="text-[9px] font-black text-white bg-slate-400 rounded-full px-2 py-0.5">Disbanded</span>' : ''}
             ${t.is_submitted ? ' <span class="text-[9px] font-black text-white bg-emerald-600 rounded-full px-2 py-0.5">Submitted</span>' : ' <span class="text-[9px] font-black text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">Saved</span>'}
             ${t.is_locked ? ' <span class="text-[9px] font-black text-white bg-slate-800 rounded-full px-2 py-0.5">Locked</span>' : ''}
@@ -31320,6 +31334,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div>
             <strong class="text-sm font-black text-slate-800">${leaderNameOf(t)}'s team</strong>
             ${t.reference_number ? ` <span class="text-[9px] font-black text-white bg-slate-800 rounded-full px-2 py-0.5 tracking-wide">${_escHtml(t.reference_number)}</span>` : ''}
+            ${_gfHouseBadgeHtml(_gfTeamHouse(t))}
             ${t.status === 'disbanded' ? ' <span class="text-[9px] font-black text-white bg-slate-400 rounded-full px-2 py-0.5">Disbanded</span>' : ''}
             ${t.is_submitted ? ' <span class="text-[9px] font-black text-white bg-emerald-600 rounded-full px-2 py-0.5">Submitted</span>' : ' <span class="text-[9px] font-black text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">Saved</span>'}
             ${t.is_locked ? ' <span class="text-[9px] font-black text-white bg-slate-800 rounded-full px-2 py-0.5">Locked</span>' : ''}
