@@ -30815,17 +30815,26 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const host = document.getElementById('gfReviewSummary');
     if (!host) return;
     if (!teams.length) { host.innerHTML = ''; return; }
-    const byCategory = _gfCountBy(teams, t => _gfAnswerByName(t, form, /^category$/i));
-    const byGroup = _gfCountBy(teams, _gfReviewTeamGroup);
-    const byHouse = _gfCountBy(teams, _gfReviewTeamHouse);
-    const byStatus = _gfCountBy(teams, t => t.review_status ? t.review_status[0].toUpperCase() + t.review_status.slice(1) : 'Pending');
+    // A disbanded team has its membership rows deleted by design (freeing
+    // those students to join elsewhere) — meaning it has no leader profile
+    // left to read a House/Group from, which _gfCountBy's fallback then
+    // mislabels "Unspecified" right alongside students who are genuinely
+    // missing that info. Dropping disbanded teams from every "By ..."
+    // breakdown (and the total) avoids that false signal — they're dead
+    // history, not current entries this summary should be counting.
+    const live = teams.filter(t => t.status !== 'disbanded');
+    if (!live.length) { host.innerHTML = ''; return; }
+    const byCategory = _gfCountBy(live, t => _gfAnswerByName(t, form, /^category$/i));
+    const byGroup = _gfCountBy(live, _gfReviewTeamGroup);
+    const byHouse = _gfCountBy(live, _gfReviewTeamHouse);
+    const byStatus = _gfCountBy(live, t => t.review_status ? t.review_status[0].toUpperCase() + t.review_status.slice(1) : 'Pending');
     const group = (title, pairs) => pairs.length ? `<div class="flex-1" style="min-width:140px">
       <div class="text-[9px] font-black text-slate-400 uppercase tracking-wide mb-1.5">${_escHtml(title)}</div>
       <div class="flex flex-col gap-1">${pairs.map(([k, v]) => `<div class="flex justify-between gap-3 text-[11px]"><span class="text-slate-600 font-bold">${_escHtml(k)}</span><span class="font-black text-slate-800">${v}</span></div>`).join('')}</div>
     </div>` : '';
     host.innerHTML = `<div class="bg-white border border-slate-200 rounded-2xl p-4 flex flex-wrap gap-6">
       <div class="flex flex-col items-center justify-center pr-6 border-r border-slate-100" style="min-width:90px">
-        <span class="text-3xl font-black text-slate-800">${teams.length}</span>
+        <span class="text-3xl font-black text-slate-800">${live.length}</span>
         <span class="text-[9px] font-black text-slate-400 uppercase tracking-wide">Total Projects</span>
       </div>
       ${group('By Category', byCategory)}
@@ -31294,17 +31303,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const host = document.getElementById('gfRosterSummary');
     if (!host) return;
     if (!teams.length) { host.innerHTML = ''; return; }
-    const byCategory = _gfCountBy(teams, t => _gfAnswerByName(t, form, /^category$/i));
-    const byGroup = _gfCountBy(teams, _gfTeamGroup);
-    const byHouse = _gfCountBy(teams, _gfTeamHouse);
-    const byStatus = _gfCountBy(teams, t => t.review_status ? t.review_status[0].toUpperCase() + t.review_status.slice(1) : 'Pending');
+    // See _gfRenderReviewSummary's identical note: a disbanded team has no
+    // membership rows left (deleted by design), so it has no leader profile
+    // to read House/Group from — excluded here so it doesn't inflate an
+    // "Unspecified" bucket that's really just "these teams were disbanded,"
+    // not "these students are missing data."
+    const live = teams.filter(t => t.status !== 'disbanded');
+    if (!live.length) { host.innerHTML = ''; return; }
+    const byCategory = _gfCountBy(live, t => _gfAnswerByName(t, form, /^category$/i));
+    const byGroup = _gfCountBy(live, _gfTeamGroup);
+    const byHouse = _gfCountBy(live, _gfTeamHouse);
+    const byStatus = _gfCountBy(live, t => t.review_status ? t.review_status[0].toUpperCase() + t.review_status.slice(1) : 'Pending');
     const group = (title, pairs) => pairs.length ? `<div class="flex-1" style="min-width:140px">
       <div class="text-[9px] font-black text-slate-400 uppercase tracking-wide mb-1.5">${_escHtml(title)}</div>
       <div class="flex flex-col gap-1">${pairs.map(([k, v]) => `<div class="flex justify-between gap-3 text-[11px]"><span class="text-slate-600 font-bold">${_escHtml(k)}</span><span class="font-black text-slate-800">${v}</span></div>`).join('')}</div>
     </div>` : '';
     host.innerHTML = `<div class="bg-white border border-slate-200 rounded-2xl p-4 flex flex-wrap gap-6">
       <div class="flex flex-col items-center justify-center pr-6 border-r border-slate-100" style="min-width:90px">
-        <span class="text-3xl font-black text-slate-800">${teams.length}</span>
+        <span class="text-3xl font-black text-slate-800">${live.length}</span>
         <span class="text-[9px] font-black text-slate-400 uppercase tracking-wide">Total Projects</span>
       </div>
       ${group('By Category', byCategory)}
