@@ -27988,6 +27988,33 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // full-resolution phone photos) and runs a small fixed concurrency rather
   // than one-at-a-time or all-at-once, so a large batch neither crawls nor
   // floods the API.
+  // Generic bulk-photo-upload core — shared by Registration Admin (where
+  // filenames are pre-validated against an already-loaded roster) and the
+  // Student Portal > Photo view's own bulk option (which has no roster
+  // loaded, so relies on upload_photo's own "no student found" check
+  // instead). jobs: [{id, file, onSuccess?}]. Fixed small concurrency so a
+  // large batch neither crawls one-at-a-time nor floods the API at once.
+  function _bulkUploadPhotoJobs(jobs, onProgress) {
+    const total = jobs.length;
+    let done = 0;
+    const failedNames = [];
+    const CONCURRENCY = 4;
+    let idx = 0;
+    function next() {
+      if (idx >= jobs.length) return Promise.resolve();
+      const job = jobs[idx++];
+      return _regAdminCompressImage(job.file)
+        .then(base64 => _adminFetch('upload_photo', { student_id: job.id, photo_base64: base64 }))
+        .then(res => {
+          if (res && res.result === 'success') { if (job.onSuccess) job.onSuccess(res); }
+          else failedNames.push(`${job.file.name}${res && res.message ? ' (' + res.message + ')' : ''}`);
+        })
+        .catch(() => failedNames.push(`${job.file.name} (network error)`))
+        .finally(() => { done++; if (onProgress) onProgress(done, total); return next(); });
+    }
+    return Promise.all(Array.from({ length: Math.min(CONCURRENCY, jobs.length) }, next))
+      .then(() => ({ succeeded: total - failedNames.length, failedNames, total }));
+  }
   function _regAdminBulkUpload(fileList) {
     const files = Array.from(fileList || []);
     if (!files.length) return;
@@ -27997,39 +28024,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     files.forEach(f => {
       const id = f.name.replace(/\.[^.]+$/, '').trim();
       if (!idSet.has(id)) { skipped.push(f.name); return; }
-      jobs.push({ id, file: f });
+      jobs.push({ id, file: f, onSuccess: res => { const s = _regAdminStudents.find(x => x.student_id === id); if (s) s.photo = res.photo; } });
     });
     if (!jobs.length) { showToast('No filenames matched a Student ID -- name each file exactly like "<student_id>.jpg"', 'error'); return; }
 
     const progress = document.getElementById('regAdminProgress');
-    let done = 0, failed = 0;
-    const total = jobs.length;
-    const setProgress = () => { if (progress) progress.textContent = `Uploading ${done}/${total}...`; };
-    setProgress();
-
-    const CONCURRENCY = 4;
-    let idx = 0;
-    function next() {
-      if (idx >= jobs.length) return Promise.resolve();
-      const job = jobs[idx++];
-      return _regAdminCompressImage(job.file)
-        .then(base64 => _adminFetch('upload_photo', { student_id: job.id, photo_base64: base64 }))
-        .then(res => {
-          if (res && res.result === 'success') {
-            const s = _regAdminStudents.find(x => x.student_id === job.id);
-            if (s) s.photo = res.photo;
-          } else failed++;
-        })
-        .catch(() => { failed++; })
-        .finally(() => { done++; setProgress(); return next(); });
-    }
-    Promise.all(Array.from({ length: Math.min(CONCURRENCY, jobs.length) }, next)).then(() => {
+    if (progress) progress.textContent = `Uploading 0/${jobs.length}...`;
+    _bulkUploadPhotoJobs(jobs, (done, total) => { if (progress) progress.textContent = `Uploading ${done}/${total}...`; }).then(({ succeeded, failedNames }) => {
       if (progress) progress.textContent = '';
       _regAdminRender();
-      const parts = [`${total - failed} uploaded`];
-      if (failed) parts.push(`${failed} failed`);
+      const parts = [`${succeeded} uploaded`];
+      if (failedNames.length) parts.push(`${failedNames.length} failed`);
       if (skipped.length) parts.push(`${skipped.length} skipped (filename didn't match a Student ID)`);
-      showToast(parts.join(', '), (failed || skipped.length) ? 'error' : 'success');
+      showToast(parts.join(', '), (failedNames.length || skipped.length) ? 'error' : 'success');
+      if (failedNames.length) console.warn('Bulk photo upload -- failures:', failedNames);
       if (skipped.length) console.warn('Bulk photo upload -- unmatched filenames:', skipped);
     });
   }
@@ -32675,8 +32683,33 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <button onclick="document.getElementById('photoFileInput').click()" class="w-full py-3 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Upload / Change Photo</button>
         <div id="photoStatus" class="text-center text-xs font-bold mt-2"></div>
       </div>
+      <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 mt-5" style="max-width:560px">
+        <p class="font-black text-slate-800 text-sm flex items-center gap-2 mb-1"><i data-lucide="images" class="h-4 w-4 text-blue-600"></i>Bulk Upload</p>
+        <p class="text-xs text-slate-400 font-bold mb-3">Select any number of image files, each named exactly like a Student ID (e.g. "2028111198.jpg") — one upload per file, no need to look each student up individually.</p>
+        <input type="file" id="photoBulkInput" multiple accept="image/*" class="hidden" onchange="_photoBulkUpload(this.files); this.value='';">
+        <button onclick="document.getElementById('photoBulkInput').click()" class="w-full py-3 border border-slate-200 text-slate-700 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">Upload Photos (Bulk)</button>
+        <div id="photoBulkStatus" class="text-center text-xs font-bold mt-2"></div>
+      </div>
     `;
     lucide.createIcons();
+  }
+  function _photoBulkUpload(fileList) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    const jobs = files.map(f => ({ id: f.name.replace(/\.[^.]+$/, '').trim(), file: f }));
+    const status = document.getElementById('photoBulkStatus');
+    if (status) { status.className = 'text-center text-xs font-bold mt-2 text-slate-400'; status.textContent = `Uploading 0/${jobs.length}...`; }
+    _bulkUploadPhotoJobs(jobs, (done, total) => { if (status) status.textContent = `Uploading ${done}/${total}...`; }).then(({ succeeded, failedNames, total }) => {
+      if (status) {
+        status.className = `text-center text-xs font-bold mt-2 ${failedNames.length ? 'text-amber-600' : 'text-emerald-600'}`;
+        status.textContent = `${succeeded} of ${total} uploaded` + (failedNames.length ? ` — ${failedNames.length} failed` : '');
+      }
+      showToast(`${succeeded} uploaded${failedNames.length ? `, ${failedNames.length} failed` : ''}`, failedNames.length ? 'error' : 'success');
+      if (failedNames.length) console.warn('Bulk photo upload -- failures:', failedNames);
+      // If the currently-loaded single-lookup student is among the ones
+      // just uploaded, refresh their avatar too instead of leaving it stale.
+      if (_photoStudentId && jobs.some(j => j.id === _photoStudentId)) loadStudentForPhoto();
+    });
   }
   function _renderPhotoAvatar(student) {
     const el = document.getElementById('photoAvatar');

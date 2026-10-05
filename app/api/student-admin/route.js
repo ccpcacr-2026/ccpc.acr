@@ -2198,6 +2198,14 @@ export async function POST(req) {
   if (action === 'upload_photo') {
     const { student_id, photo_base64 } = payload;
     if (!student_id || !photo_base64) return NextResponse.json({ result: 'error', message: 'Student ID and photo required.' });
+    // Checked up front (not just left to the PATCH below) so a typo'd/
+    // unmatched ID comes back as a clear error instead of silently
+    // uploading an orphaned file to storage and "succeeding" with nothing
+    // actually linked to a student — matters most for bulk upload, where
+    // nothing else would ever catch a bad filename.
+    const exists = await sb(`students_data?student_id=eq.${encodeURIComponent(student_id)}&select=student_id`);
+    if (exists?.error) return NextResponse.json({ result: 'error', message: exists.error });
+    if (!Array.isArray(exists) || !exists.length) return NextResponse.json({ result: 'error', message: 'No student found with that ID.' });
     const raw = String(photo_base64).replace(/^data:[^;]+;base64,/, '');
     const binary = atob(raw);
     const buf = new Uint8Array(binary.length);
