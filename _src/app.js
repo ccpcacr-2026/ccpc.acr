@@ -31064,7 +31064,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         input = `<input type="text" id="${id}" value="${_escHtml(val ?? '')}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">`;
       }
       return `<div class="mb-3" id="gfEditRow-${f.data_key}">
-        <label class="block text-[10px] font-black text-slate-400 uppercase mb-1">${_escHtml(f.name || f.data_key)}</label>
+        <label class="block text-[10px] font-black text-slate-400 uppercase mb-1">${_escHtml(f.name || f.data_key)}${f.required ? ' <span class="text-red-500 normal-case">*</span>' : ''}</label>
         ${input}
       </div>`;
     };
@@ -31724,6 +31724,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <option value="class_group" ${data?.type === 'class_group' ? 'selected' : ''}>Class Group (auto — Group Forms only)</option>
         </select>
         <input type="text" placeholder="Options (comma separated)" class="f-options px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs ${['checkbox', 'choose'].includes(data?.type) ? '' : 'hidden'}" style="flex:1;min-width:160px" value="${(data?.options || []).join(',')}">
+        <label class="flex items-center gap-1.5 text-xs font-bold text-slate-500 cursor-pointer"><input type="checkbox" class="f-required" ${data?.required ? 'checked' : ''}>Required</label>
         ${keyInput}
         <div class="flex gap-0.5">${SETUP_FIELD_ROW_ACTIONS}</div>
       </div>${showIfBlockHtml(data)}`;
@@ -31765,7 +31766,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (type === 'group_label') return { kind: 'label', data: { label: row.querySelector('input[type="text"]')?.value || '', show_if } };
     const name = row.querySelector('input[placeholder="Label"]')?.value || '';
     const options = (row.querySelector('.f-options')?.value || '').split(',').map(s => s.trim()).filter(Boolean);
-    return { kind: 'field', data: { name, type, options, show_if } };
+    const required = row.querySelector('.f-required')?.checked || false;
+    return { kind: 'field', data: { name, type, options, show_if, required } };
   }
   function duplicateField(btn) {
     const row = btn.closest('.draggable-row');
@@ -31897,6 +31899,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           if (!f) { let k = sz(fn); if (cl) k = `${cl}_${k}`; f = k; let c = 1; while (fields.some(fd => fd.data_key === f)) { f = `${k}_${c++}`; } }
           const obj = { name: fn, type, options: fo, data_key: f };
           if (showIf) obj.show_if = showIf;
+          if (row.querySelector('.f-required')?.checked) obj.required = true;
           fields.push(obj);
         }
       }

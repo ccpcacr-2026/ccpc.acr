@@ -582,6 +582,7 @@ async function _maybeAutoSubmitTeam(team_id) {
   const pending = Array.isArray(pendingRows) ? pendingRows : [];
   if (pending.length) return;
   if (form.members_required && members.length < form.max_team_size) return;
+  if (missingRequiredFields(form.fields_json, team.group_data).length) return;
 
   const photoChecks = await Promise.all(members.map(m => hasProfilePhoto(m.student_id)));
   if (photoChecks.some(ok => !ok)) return;
@@ -590,6 +591,37 @@ async function _maybeAutoSubmitTeam(team_id) {
     is_submitted: true, submitted_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     revision_comment: null, revision_requested_at: null, revision_requested_by: null, revision_requested_by_name: null,
   });
+}
+// Ports ccpc-students' own missingRequiredFields verbatim — a field the
+// admin marked Mandatory (fields_json[].required) but that's hidden by its
+// own show_if is never actually required, matching what the leader sees.
+function missingRequiredFields(fieldsJsonStr, data) {
+  let fields = [];
+  try { fields = JSON.parse(fieldsJsonStr || '[]'); } catch (_) {}
+  const d = data || {};
+  const lookup = key => d[key];
+  const matchSingle = (cond, val) => {
+    const cur = String(val == null ? '' : val).toLowerCase().trim();
+    const targets = Array.isArray(cond.value) ? cond.value : Array.isArray(cond.values) ? cond.values : [cond.value];
+    return targets.some(t => String(t == null ? '' : t).toLowerCase().trim() === cur);
+  };
+  const matchShowIf = showIf => {
+    if (!showIf) return true;
+    let result;
+    if (Array.isArray(showIf.all)) result = showIf.all.every(c => matchSingle(c, lookup(c.field)));
+    else if (Array.isArray(showIf.any)) result = showIf.any.some(c => matchSingle(c, lookup(c.field)));
+    else result = matchSingle(showIf, lookup(showIf.field));
+    return showIf.negate ? !result : result;
+  };
+  const missing = [];
+  fields.forEach(f => {
+    if (!f.required) return;
+    if (f.type === 'group_label' || f.type === 'profile_picture' || f.type === 'class_group') return;
+    if (f.show_if && !matchShowIf(f.show_if)) return;
+    const val = d[f.data_key];
+    if (val === undefined || val === null || String(val).trim() === '') missing.push(f.name || f.data_key);
+  });
+  return missing;
 }
 
 // Fresh per-request check against teacher_staff.app_users — never trust a cached role.
