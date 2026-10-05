@@ -301,6 +301,7 @@ const RESERVED = [
   '_omrPreview','_omrUpload','_omrTogglePublish','_omrDeleteBatch','_omrOnClassChange',
   '_omrShowFullPreview','_omrToggleHistory','_omrSaveScoringRuleDefault',
   '_omrToggleRescorePanel','_omrApplyRescore',
+  '_gfAddMemberDirect','_gfRemoveMemberDirect','_gfForceAcceptInvite','_gfCancelInviteDirect',
   'saveTransportVehicle','saveTransportPickupPoint','saveTransportFeeMaster',
   'toggleGPPassword','saveGPConfig','verifyGPConnection','addBusRow',
   'checkBusStatus','saveBusConfig','addPlaceRow','savePlaceConfig',

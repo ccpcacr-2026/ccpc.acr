@@ -30953,8 +30953,41 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     else result = _gfMatchShowIfSingle(showIf, lookup(showIf.field));
     return showIf.negate ? !result : result;
   }
+  // Refresh callback for the membership action buttons below — set each
+  // time the modal opens, read by _gfAddMemberDirect/_gfRemoveMemberDirect/
+  // _gfForceAcceptInvite/_gfCancelInviteDirect (top-level functions, since
+  // onclick="" strings can't reach a closure directly).
+  let _gfEditModalOnSaved = null;
   function _gfOpenEditTeamModal(team, form, onSaved) {
     if (!team || !form) { showToast('Could not load this team', 'error'); return; }
+    _gfEditModalOnSaved = onSaved;
+    const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''}${p.roll ? ', Roll ' + p.roll : ''})` : 'Unknown';
+    const memberRowHtml = m => `
+      <div class="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg">
+        <span class="text-xs font-bold text-slate-700">${_escHtml(nameOf(m.profile) || m.student_id)}${m.role === 'leader' ? ' 👑' : ''}</span>
+        ${m.role !== 'leader' ? `<button onclick="_gfRemoveMemberDirect(${team.id}, ${JSON.stringify(m.student_id)})" class="text-[10px] font-black text-red-600 uppercase hover:underline">Remove</button>` : ''}
+      </div>`;
+    const pendingRowHtml = inv => `
+      <div class="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-amber-50 border border-amber-200 rounded-lg">
+        <span class="text-xs font-bold text-amber-800">${_escHtml(nameOf(inv.profile) || inv.invited_student_id)} <span class="italic text-amber-500 normal-case">(pending)</span></span>
+        <div class="flex gap-3">
+          <button onclick="_gfForceAcceptInvite(${inv.id})" class="text-[10px] font-black text-emerald-700 uppercase hover:underline">Force Accept</button>
+          <button onclick="_gfCancelInviteDirect(${inv.id})" class="text-[10px] font-black text-red-600 uppercase hover:underline">Cancel</button>
+        </div>
+      </div>`;
+    const membersSectionHtml = `
+      <div class="mb-4 p-3 bg-slate-50 rounded-xl border border-slate-200">
+        <p class="text-[10px] font-black text-slate-400 uppercase mb-2">Team Members</p>
+        <div class="flex flex-col gap-1.5 mb-2">
+          ${(team.members || []).map(memberRowHtml).join('')}
+          ${(team.pending_invites || []).map(pendingRowHtml).join('')}
+        </div>
+        <div class="flex gap-2">
+          <input type="text" id="gfEditAddMemberId" placeholder="Student ID" class="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-lg font-bold text-xs">
+          <button onclick="_gfAddMemberDirect(${team.id})" class="px-3 py-2 bg-emerald-600 text-white rounded-lg font-black text-[10px] uppercase hover:bg-emerald-700">Add Member</button>
+        </div>
+        <p class="text-[10px] text-slate-400 font-bold mt-2">"Force Accept" and "Add Member" skip the student's own invite response — if this completes the team, it's submitted automatically.</p>
+      </div>`;
     let fields = [];
     try { fields = JSON.parse(form.fields_json || '[]'); } catch (e) {}
     let elig = {};
@@ -31029,8 +31062,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
     overlay.innerHTML = `
       <div class="bg-white rounded-3xl w-full max-w-lg p-5 shadow-2xl max-h-[85vh] overflow-y-auto">
-        <p class="font-black text-slate-800 text-sm mb-1">Edit Submitted Answers</p>
+        <p class="font-black text-slate-800 text-sm mb-1">Edit Team</p>
         <p class="text-[11px] text-slate-400 font-bold mb-4">Corrects what's on record for this team — the leader won't be notified.</p>
+        ${membersSectionHtml}
         ${editable.length ? editable.map(rowHtml).join('') : '<p class="text-xs text-slate-400 font-bold italic">This form has no editable fields.</p>'}
         <div class="flex gap-2 mt-2">
           <button onclick="document.getElementById('gfEditTeamOverlay').remove()" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase bg-slate-100 text-slate-500">Cancel</button>
@@ -31081,6 +31115,60 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function editTeamDataReviewer(teamId) {
     const team = _gfReviewTeams.find(t => t.id === teamId);
     _gfOpenEditTeamModal(team, _gfReviewForm, () => _loadGfReviewTab(_gfReviewActiveIdx));
+  }
+  // Membership actions from inside the Edit modal — each closes the modal
+  // and re-runs whichever roster/review refresh was active (_gfEditModalOnSaved,
+  // set by _gfOpenEditTeamModal) rather than trying to live-patch the
+  // modal's own member list in place.
+  function _gfAddMemberDirect(teamId) {
+    const input = document.getElementById('gfEditAddMemberId');
+    const studentId = input ? input.value.trim() : '';
+    if (!studentId) { showToast('Enter a Student ID', 'error'); return; }
+    _adminFetch('admin_add_member_direct', { team_id: teamId, student_id: studentId, user_id: window.APP_USER && window.APP_USER.user_id }).then(res => {
+      if (res && res.result === 'success') {
+        showToast('Member added');
+        document.getElementById('gfEditTeamOverlay')?.remove();
+        if (_gfEditModalOnSaved) _gfEditModalOnSaved();
+      } else {
+        showToast((res && res.message) || 'Failed', 'error');
+      }
+    }).catch(() => showToast('Network error', 'error'));
+  }
+  function _gfRemoveMemberDirect(teamId, studentId) {
+    if (!confirm('Remove this member from the team?')) return;
+    _adminFetch('admin_remove_member', { team_id: teamId, student_id: studentId, user_id: window.APP_USER && window.APP_USER.user_id }).then(res => {
+      if (res && res.result === 'success') {
+        showToast('Member removed');
+        document.getElementById('gfEditTeamOverlay')?.remove();
+        if (_gfEditModalOnSaved) _gfEditModalOnSaved();
+      } else {
+        showToast((res && res.message) || 'Failed', 'error');
+      }
+    }).catch(() => showToast('Network error', 'error'));
+  }
+  function _gfForceAcceptInvite(inviteId) {
+    if (!confirm("Accept this invite on the student's behalf, skipping their own response?")) return;
+    _adminFetch('admin_force_accept_invite', { invite_id: inviteId, user_id: window.APP_USER && window.APP_USER.user_id }).then(res => {
+      if (res && res.result === 'success') {
+        showToast('Invite accepted');
+        document.getElementById('gfEditTeamOverlay')?.remove();
+        if (_gfEditModalOnSaved) _gfEditModalOnSaved();
+      } else {
+        showToast((res && res.message) || 'Failed', 'error');
+      }
+    }).catch(() => showToast('Network error', 'error'));
+  }
+  function _gfCancelInviteDirect(inviteId) {
+    if (!confirm('Cancel this pending invite?')) return;
+    _adminFetch('admin_cancel_invite', { invite_id: inviteId, user_id: window.APP_USER && window.APP_USER.user_id }).then(res => {
+      if (res && res.result === 'success') {
+        showToast('Invite cancelled');
+        document.getElementById('gfEditTeamOverlay')?.remove();
+        if (_gfEditModalOnSaved) _gfEditModalOnSaved();
+      } else {
+        showToast((res && res.message) || 'Failed', 'error');
+      }
+    }).catch(() => showToast('Network error', 'error'));
   }
   // Populated from the full (unfiltered) team list every time a roster is
   // fetched — admin and reviewer share one cache since a student_id means

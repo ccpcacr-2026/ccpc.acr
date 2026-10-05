@@ -532,6 +532,66 @@ async function _isAuthorizedForGroupFormTeam(team, actorId, requireReviewerAdmin
   return false;
 }
 
+// Ports ccpc-students' own GROUP_RPC_ERRORS/rpcErrorMessage verbatim —
+// group_team_accept_invite raises a plain-text code (ALREADY_IN_TEAM,
+// TEAM_FULL, …) wrapped in Postgres's own error JSON; translates it into
+// something worth showing an admin, same as the student-facing side.
+const GROUP_RPC_ERRORS = {
+  ALREADY_IN_TEAM: 'That student is already in a team for this form — remove them from it first.',
+  TEAM_FULL: 'This team is already full.',
+  TEAM_LOCKED: 'This team has been locked by the admin.',
+  TEAM_NOT_ACTIVE: 'This team no longer exists.',
+  INVITE_NOT_PENDING: 'This invite has already been answered.',
+  INVITE_NOT_FOUND: 'Invite not found.',
+  NOT_YOUR_INVITE: 'This is not your invite.',
+};
+function rpcErrorMessage(rawError) {
+  let msg = rawError;
+  try { msg = JSON.parse(rawError)?.message || rawError; } catch (_) {}
+  return GROUP_RPC_ERRORS[msg] || msg || 'Something went wrong.';
+}
+// Same hard rule ccpc-students enforces before create_group/respond_to_invite
+// — a team is never made up of unidentifiable students — re-checked here so
+// the admin's "skip the pending request" shortcuts can't become a loophole
+// around it.
+async function hasProfilePhoto(studentId) {
+  const rows = await sb(`students_data?student_id=eq.${encodeURIComponent(studentId)}&select=photo`);
+  const photo = (!rows?.error && rows[0]) ? rows[0].photo : null;
+  return !!(photo && String(photo).trim());
+}
+// Ports ccpc-students' own _maybeAutoSubmitTeam verbatim — after the admin
+// accepts/adds a member on a student's behalf, the team may already meet
+// every requirement the leader's own Submit button checks (no pending
+// invites, full if the form requires it, every member has a photo);
+// rather than leave the leader a manual step they may not even know is
+// needed, finish it right here. Silently no-ops if anything isn't ready —
+// a convenience, never a requirement.
+async function _maybeAutoSubmitTeam(team_id) {
+  const teamRows = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}`);
+  const team = (!teamRows?.error && teamRows[0]) ? teamRows[0] : null;
+  if (!team || team.status !== 'active' || team.is_locked || team.is_submitted) return;
+
+  const [formRows, memberRows, pendingRows] = await Promise.all([
+    sb(`group_forms?id=eq.${encodeURIComponent(team.group_form_id)}`),
+    sb(`group_form_team_members?team_id=eq.${encodeURIComponent(team_id)}`),
+    sb(`group_form_team_invites?team_id=eq.${encodeURIComponent(team_id)}&status=eq.pending`),
+  ]);
+  const form = (!formRows?.error && formRows[0]) ? formRows[0] : null;
+  if (!form) return;
+  const members = Array.isArray(memberRows) ? memberRows : [];
+  const pending = Array.isArray(pendingRows) ? pendingRows : [];
+  if (pending.length) return;
+  if (form.members_required && members.length < form.max_team_size) return;
+
+  const photoChecks = await Promise.all(members.map(m => hasProfilePhoto(m.student_id)));
+  if (photoChecks.some(ok => !ok)) return;
+
+  await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}`, 'PATCH', {
+    is_submitted: true, submitted_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    revision_comment: null, revision_requested_at: null, revision_requested_by: null, revision_requested_by_name: null,
+  });
+}
+
 // Fresh per-request check against teacher_staff.app_users — never trust a cached role.
 async function _getUserRoles(userId) {
   if (!userId) return [];
@@ -570,7 +630,7 @@ const SUPER_ADMIN_ONLY_ACTIONS = new Set(['set_gp_credentials', 'test_gp_connect
 // Bus GPS positions/registry are useful to every teacher/staff account, not
 // just admins — open to anyone with a recognized staff account (any role),
 // distinct from both the tab-visibility matrix and the plain Admin gate.
-const STAFF_OPEN_ACTIONS = new Set(['get_tracking_config', 'get_bus_data', 'get_my_review_tabs', 'get_group_form_roster_for_rule', 'request_team_changes', 'set_team_review_status', 'admin_update_team_data', 'get_house_colors']);
+const STAFF_OPEN_ACTIONS = new Set(['get_tracking_config', 'get_bus_data', 'get_my_review_tabs', 'get_group_form_roster_for_rule', 'request_team_changes', 'set_team_review_status', 'admin_update_team_data', 'get_house_colors', 'admin_add_member_direct', 'admin_force_accept_invite', 'admin_cancel_invite', 'admin_remove_member']);
 
 // ── Per-tab module access (admin console nav pills) ──────────────────────
 // Which roles can use each tab is admin-configurable (see
@@ -634,7 +694,7 @@ const ADMIN_TAB_ACTIONS = {
   // exact same student.group_forms/group_form_teams/… tables directly via
   // sb(), same cross-app-shared-database pattern as get_tabs/save_tab above
   // for portal_tabs.
-  group_forms: new Set(['get_group_forms', 'save_group_form', 'delete_group_form', 'get_group_form_roster', 'set_team_lock', 'admin_disband_team', 'admin_delete_team', 'get_class_house_options', 'get_student_data_headers', 'upload_group_form_cover', 'get_group_form_reviewer_rules', 'save_group_form_reviewer_rules', 'get_field_values', 'admin_update_team_data']),
+  group_forms: new Set(['get_group_forms', 'save_group_form', 'delete_group_form', 'get_group_form_roster', 'set_team_lock', 'admin_disband_team', 'admin_delete_team', 'get_class_house_options', 'get_student_data_headers', 'upload_group_form_cover', 'get_group_form_reviewer_rules', 'save_group_form_reviewer_rules', 'get_field_values', 'admin_update_team_data', 'admin_add_member_direct', 'admin_force_accept_invite', 'admin_cancel_invite', 'admin_remove_member']),
   data: new Set(['get_tabs', 'get_tab_data', 'get_tab_submission_status', 'get_staff_list', 'get_tab_data_access', 'set_tab_data_access', 'get_staff_directory', 'get_class_sections', 'get_tab_class_access', 'set_tab_class_access', 'get_field_categories', 'get_tab_category_link', 'set_tab_category_link']),
   // Class Teacher assignment (get_class_teacher_assignments/save_teacher_
   // class_assignment) lives here too, not its own tab key — it's part of
@@ -1681,6 +1741,129 @@ export async function POST(req) {
     const r = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}`, 'PATCH', {
       group_data, updated_at: new Date().toISOString(),
     });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Admin/Reviewer: membership management for the Edit modal — lets an
+  // admin fix a team's roster directly instead of waiting on students to
+  // act, same authorization tier as admin_update_team_data throughout.
+
+  // Adds a student straight to a team as a full member, skipping the
+  // normal invite-then-wait-for-accept flow entirely: upserts a pending
+  // invite row (reusing the exact on_conflict idiom invite_to_group uses
+  // so re-adding after a prior decline just flips it back to pending) and
+  // immediately accepts it via the same RPC a student's own acceptance
+  // uses — so capacity/lock/already-in-a-team-for-this-form checks and the
+  // "cancel every other pending invite for this student+form" cleanup all
+  // run exactly as they would for a real acceptance.
+  if (action === 'admin_add_member_direct') {
+    const { team_id, student_id, user_id: actorId } = payload;
+    if (!team_id || !student_id) return NextResponse.json({ result: 'error', message: 'team_id and student_id required.' });
+    if (!actorId) return NextResponse.json({ result: 'error', message: 'user_id required.' });
+
+    const teamRows = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}`);
+    const team = (!teamRows?.error && teamRows[0]) ? teamRows[0] : null;
+    if (!team) return NextResponse.json({ result: 'error', message: 'Team not found.' });
+    if (!(await _isAuthorizedForGroupFormTeam(team, actorId, true))) {
+      return NextResponse.json({ result: 'error', message: 'Not authorized for this team.' }, { status: 403 });
+    }
+    if (String(student_id) === String(team.leader_student_id)) {
+      return NextResponse.json({ result: 'error', message: 'This student is already the team leader.' });
+    }
+
+    const lookup = await sb(`students_data?student_id=eq.${encodeURIComponent(student_id)}&select=student_id`);
+    if (lookup?.error || !lookup.length) return NextResponse.json({ result: 'error', message: 'No student found with that ID.' });
+    if (!(await hasProfilePhoto(student_id))) {
+      return NextResponse.json({ result: 'error', message: 'This student has no profile picture on file yet — required before joining a team.' });
+    }
+
+    const upsertInvite = await sb(
+      'group_form_team_invites?on_conflict=team_id,invited_student_id', 'POST',
+      { group_form_id: team.group_form_id, team_id, invited_by: actorId, invited_student_id: student_id, status: 'pending', responded_at: null },
+      { Prefer: 'resolution=merge-duplicates,return=representation' }
+    );
+    if (upsertInvite?.error) return NextResponse.json({ result: 'error', message: 'Could not add: ' + upsertInvite.error });
+    const inviteId = Array.isArray(upsertInvite) && upsertInvite[0] ? upsertInvite[0].id : null;
+    if (!inviteId) return NextResponse.json({ result: 'error', message: 'Could not create the membership record.' });
+
+    const res = await sb('rpc/group_team_accept_invite', 'POST', { p_invite_id: inviteId, p_student_id: student_id });
+    if (res?.error) return NextResponse.json({ result: 'error', message: rpcErrorMessage(res.error) });
+    await _maybeAutoSubmitTeam(team_id);
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // Converts an already-pending invite into membership on the admin's say-
+  // so, without the invited student ever logging in to accept it.
+  if (action === 'admin_force_accept_invite') {
+    const { invite_id, user_id: actorId } = payload;
+    if (!invite_id) return NextResponse.json({ result: 'error', message: 'invite_id required.' });
+    if (!actorId) return NextResponse.json({ result: 'error', message: 'user_id required.' });
+
+    const inviteRows = await sb(`group_form_team_invites?id=eq.${encodeURIComponent(invite_id)}`);
+    const invite = (!inviteRows?.error && inviteRows[0]) ? inviteRows[0] : null;
+    if (!invite) return NextResponse.json({ result: 'error', message: 'Invite not found.' });
+    if (invite.status !== 'pending') return NextResponse.json({ result: 'error', message: 'This invite has already been answered.' });
+
+    const teamRows = await sb(`group_form_teams?id=eq.${encodeURIComponent(invite.team_id)}`);
+    const team = (!teamRows?.error && teamRows[0]) ? teamRows[0] : null;
+    if (!team) return NextResponse.json({ result: 'error', message: 'Team not found.' });
+    if (!(await _isAuthorizedForGroupFormTeam(team, actorId, true))) {
+      return NextResponse.json({ result: 'error', message: 'Not authorized for this team.' }, { status: 403 });
+    }
+    if (!(await hasProfilePhoto(invite.invited_student_id))) {
+      return NextResponse.json({ result: 'error', message: 'This student has no profile picture on file yet — required before joining a team.' });
+    }
+
+    const res = await sb('rpc/group_team_accept_invite', 'POST', { p_invite_id: invite_id, p_student_id: invite.invited_student_id });
+    if (res?.error) return NextResponse.json({ result: 'error', message: rpcErrorMessage(res.error) });
+    await _maybeAutoSubmitTeam(invite.team_id);
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // Cancels a single pending invite (the leader's own cancel_invite, for
+  // when the leader themselves can't/won't).
+  if (action === 'admin_cancel_invite') {
+    const { invite_id, user_id: actorId } = payload;
+    if (!invite_id) return NextResponse.json({ result: 'error', message: 'invite_id required.' });
+    if (!actorId) return NextResponse.json({ result: 'error', message: 'user_id required.' });
+
+    const inviteRows = await sb(`group_form_team_invites?id=eq.${encodeURIComponent(invite_id)}`);
+    const invite = (!inviteRows?.error && inviteRows[0]) ? inviteRows[0] : null;
+    if (!invite) return NextResponse.json({ result: 'error', message: 'Invite not found.' });
+
+    const teamRows = await sb(`group_form_teams?id=eq.${encodeURIComponent(invite.team_id)}`);
+    const team = (!teamRows?.error && teamRows[0]) ? teamRows[0] : null;
+    if (!team) return NextResponse.json({ result: 'error', message: 'Team not found.' });
+    if (!(await _isAuthorizedForGroupFormTeam(team, actorId, true))) {
+      return NextResponse.json({ result: 'error', message: 'Not authorized for this team.' }, { status: 403 });
+    }
+    if (invite.status !== 'pending') return NextResponse.json({ result: 'error', message: 'This invite has already been answered.' });
+
+    const r = await sb(`group_form_team_invites?id=eq.${encodeURIComponent(invite_id)}`, 'PATCH', { status: 'cancelled', responded_at: new Date().toISOString() });
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+
+  // Removes one member (not the leader — that's Disband, same as the
+  // student-facing leave_group's own restriction) regardless of lock/
+  // submitted state, since this is an explicit admin override.
+  if (action === 'admin_remove_member') {
+    const { team_id, student_id, user_id: actorId } = payload;
+    if (!team_id || !student_id) return NextResponse.json({ result: 'error', message: 'team_id and student_id required.' });
+    if (!actorId) return NextResponse.json({ result: 'error', message: 'user_id required.' });
+
+    const teamRows = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}`);
+    const team = (!teamRows?.error && teamRows[0]) ? teamRows[0] : null;
+    if (!team) return NextResponse.json({ result: 'error', message: 'Team not found.' });
+    if (!(await _isAuthorizedForGroupFormTeam(team, actorId, true))) {
+      return NextResponse.json({ result: 'error', message: 'Not authorized for this team.' }, { status: 403 });
+    }
+    if (String(student_id) === String(team.leader_student_id)) {
+      return NextResponse.json({ result: 'error', message: 'The leader cannot be removed this way — use Disband instead.' });
+    }
+
+    const r = await sb(`group_form_team_members?team_id=eq.${encodeURIComponent(team_id)}&student_id=eq.${encodeURIComponent(student_id)}`, 'DELETE');
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
     return NextResponse.json({ result: 'success' });
   }
