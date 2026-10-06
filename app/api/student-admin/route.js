@@ -1397,7 +1397,7 @@ export async function POST(req) {
 
   // ── Save Group Form Config ───────────────────────────────────────────────
   if (action === 'save_group_form') {
-    const { id, title, header, sub_header, description, icon_class, cover_photo_url, max_team_size, members_required, fields_json, eligibility_json, condition_json, reference_number_json, is_enabled, accepting_new, sort_order } = payload;
+    const { id, title, header, sub_header, description, icon_class, cover_photo_url, max_team_size, members_required, fields_json, eligibility_json, condition_json, accepting_condition_json, reference_number_json, is_enabled, accepting_new, sort_order } = payload;
 
     if (id) {
       // Partial update — only touches fields actually sent. The admin
@@ -1421,6 +1421,7 @@ export async function POST(req) {
       if (fields_json !== undefined) rowData.fields_json = fields_json || '[]';
       if (eligibility_json !== undefined) rowData.eligibility_json = eligibility_json || '{}';
       if (condition_json !== undefined) rowData.condition_json = condition_json || '{}';
+      if (accepting_condition_json !== undefined) rowData.accepting_condition_json = accepting_condition_json || '{}';
       if (reference_number_json !== undefined) rowData.reference_number_json = reference_number_json || '{"enabled":false,"parts":[],"seq_digits":3}';
       if (is_enabled !== undefined) rowData.is_enabled = !!is_enabled;
       if (accepting_new !== undefined) rowData.accepting_new = !!accepting_new;
@@ -1444,6 +1445,7 @@ export async function POST(req) {
       fields_json: fields_json || '[]',
       eligibility_json: eligibility_json || '{}',
       condition_json: condition_json || '{}',
+      accepting_condition_json: accepting_condition_json || '{}',
       reference_number_json: reference_number_json || '{"enabled":false,"parts":[],"seq_digits":3}',
       is_enabled: is_enabled !== false,
       accepting_new: accepting_new !== false,

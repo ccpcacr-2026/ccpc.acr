@@ -29656,7 +29656,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
         <div class="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
           <div class="flex items-center justify-between mb-1 gap-2 flex-wrap">
-            <span class="text-[10px] font-black text-slate-400 uppercase">Logic Rules</span>
+            <span class="text-[10px] font-black text-slate-400 uppercase">Logic Rules — Who can see this form? (Active)</span>
             <div class="flex items-center gap-2">
               <select id="gfConditionLogic" class="px-2 py-1.5 bg-white border border-slate-200 rounded-full font-black text-[10px] uppercase" title="ALL = a student must match every rule. ANY = matching just one rule is enough — use this for 'class X OR section Y OR this specific student'.">
                 <option value="AND">Match ALL rules</option>
@@ -29665,8 +29665,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <button onclick="addConditionRow(null, 'gfConditionsList')" class="px-3 py-1.5 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase">+ Add Rule</button>
             </div>
           </div>
-          <p class="text-[11px] text-slate-400 font-bold mt-1 mb-3">Show this form's nav entry only to matching students — e.g. CLASS EQUALS Ten. Each rule's Target also accepts a comma-separated list (e.g. CLASS EQUALS Nine,Ten or STUDENT ID EQUALS 2028111198,2028111199). Use "Match ANY rule" to combine different kinds of criteria as alternatives (e.g. SECTION EQUALS A, OR STUDENT ID EQUALS 2028111198). Leave empty to show it to every student (still gated by "Visible to students" above). Separate from "Who can a leader invite?" below, which only affects an already-visible form's team roster.</p>
+          <p class="text-[11px] text-slate-400 font-bold mt-1 mb-3">Show this form's nav entry only to matching students — e.g. CLASS EQUALS Ten. Each rule's Target also accepts a comma-separated list (e.g. CLASS EQUALS Nine,Ten or STUDENT ID EQUALS 2028111198,2028111199). Use "Match ANY rule" to combine different kinds of criteria as alternatives (e.g. SECTION EQUALS A, OR STUDENT ID EQUALS 2028111198). Leave empty to show it to every student (still gated by "Active" above). Separate from "Who can a leader invite?" below, which only affects an already-visible form's team roster.</p>
           <div id="gfConditionsList" class="flex flex-col gap-3"></div>
+        </div>
+
+        <div class="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
+          <div class="flex items-center justify-between mb-1 gap-2 flex-wrap">
+            <span class="text-[10px] font-black text-slate-400 uppercase">Logic Rules — Who can start a NEW team? (Open)</span>
+            <div class="flex items-center gap-2">
+              <select id="gfAcceptingConditionLogic" class="px-2 py-1.5 bg-white border border-slate-200 rounded-full font-black text-[10px] uppercase" title="ALL = a student must match every rule. ANY = matching just one rule is enough.">
+                <option value="AND">Match ALL rules</option>
+                <option value="OR">Match ANY rule</option>
+              </select>
+              <button onclick="addConditionRow(null, 'gfAcceptingConditionsList')" class="px-3 py-1.5 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase">+ Add Rule</button>
+            </div>
+          </div>
+          <p class="text-[11px] text-slate-400 font-bold mt-1 mb-3">Optional extra gate — only matching students can create a NEW team (everyone who passes the "Who can see this form?" rules above still SEES the form either way). Use this to show a form to everyone but only open registration to some classes/sections/students, independent of the "Open" switch above (which is all-or-nothing). Leave empty to let anyone who can see the form also register — same as before this box existed. Doesn't affect teams that already exist.</p>
+          <div id="gfAcceptingConditionsList" class="flex flex-col gap-3"></div>
         </div>
 
         <div class="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
@@ -30144,6 +30159,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('gfAcceptingNew').checked = true;
     document.getElementById('gfConditionLogic').value = 'AND';
     document.getElementById('gfConditionsList').innerHTML = '';
+    document.getElementById('gfAcceptingConditionLogic').value = 'AND';
+    document.getElementById('gfAcceptingConditionsList').innerHTML = '';
     gfResetEligibilityForm();
     _activeFieldsContainerId = 'gfFieldsList';
     document.getElementById('gfFieldsList').innerHTML = '';
@@ -30170,6 +30187,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('gfConditionsList').innerHTML = '';
     document.getElementById('gfConditionLogic').value = 'AND';
     try { const cl = JSON.parse(f.condition_json || '{}'); document.getElementById('gfConditionLogic').value = cl.logic === 'OR' ? 'OR' : 'AND'; (cl.rules || []).forEach(r => addConditionRow(r, 'gfConditionsList')); } catch (e) {}
+    document.getElementById('gfAcceptingConditionsList').innerHTML = '';
+    document.getElementById('gfAcceptingConditionLogic').value = 'AND';
+    try { const acl = JSON.parse(f.accepting_condition_json || '{}'); document.getElementById('gfAcceptingConditionLogic').value = acl.logic === 'OR' ? 'OR' : 'AND'; (acl.rules || []).forEach(r => addConditionRow(r, 'gfAcceptingConditionsList')); } catch (e) {}
     document.getElementById('gfFieldsList').innerHTML = '';
     // Bands must be rendered before the fields loop — a show_if condition
     // referencing a class_group field looks up its value options (band
@@ -30203,6 +30223,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       fields_json: JSON.stringify(fields),
       eligibility_json: gfSerializeEligibility(),
       condition_json: JSON.stringify({ logic: document.getElementById('gfConditionLogic').value === 'OR' ? 'OR' : 'AND', rules: readConditionRules('gfConditionsList') }),
+      accepting_condition_json: JSON.stringify({ logic: document.getElementById('gfAcceptingConditionLogic').value === 'OR' ? 'OR' : 'AND', rules: readConditionRules('gfAcceptingConditionsList') }),
       reference_number_json: gfReadRefNumberConfig(),
       is_enabled: document.getElementById('gfIsEnabled').checked,
       accepting_new: document.getElementById('gfAcceptingNew').checked,
