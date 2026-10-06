@@ -662,7 +662,7 @@ const SUPER_ADMIN_ONLY_ACTIONS = new Set(['set_gp_credentials', 'test_gp_connect
 // Bus GPS positions/registry are useful to every teacher/staff account, not
 // just admins — open to anyone with a recognized staff account (any role),
 // distinct from both the tab-visibility matrix and the plain Admin gate.
-const STAFF_OPEN_ACTIONS = new Set(['get_tracking_config', 'get_bus_data', 'get_my_review_tabs', 'get_group_form_roster_for_rule', 'request_team_changes', 'set_team_review_status', 'admin_update_team_data', 'get_house_colors', 'admin_add_member_direct', 'admin_force_accept_invite', 'admin_cancel_invite', 'admin_remove_member']);
+const STAFF_OPEN_ACTIONS = new Set(['get_tracking_config', 'get_bus_data', 'get_my_review_tabs', 'get_group_form_roster_for_rule', 'request_team_changes', 'set_team_review_status', 'admin_update_team_data', 'get_house_colors', 'admin_add_member_direct', 'admin_force_accept_invite', 'admin_cancel_invite', 'admin_remove_member', 'get_team_edit_history']);
 
 // ── Per-tab module access (admin console nav pills) ──────────────────────
 // Which roles can use each tab is admin-configurable (see
@@ -726,7 +726,7 @@ const ADMIN_TAB_ACTIONS = {
   // exact same student.group_forms/group_form_teams/… tables directly via
   // sb(), same cross-app-shared-database pattern as get_tabs/save_tab above
   // for portal_tabs.
-  group_forms: new Set(['get_group_forms', 'save_group_form', 'delete_group_form', 'get_group_form_roster', 'set_team_lock', 'admin_disband_team', 'admin_delete_team', 'admin_delete_all_disbanded', 'get_class_house_options', 'get_student_data_headers', 'upload_group_form_cover', 'get_group_form_reviewer_rules', 'save_group_form_reviewer_rules', 'get_field_values', 'admin_update_team_data', 'admin_add_member_direct', 'admin_force_accept_invite', 'admin_cancel_invite', 'admin_remove_member']),
+  group_forms: new Set(['get_group_forms', 'save_group_form', 'delete_group_form', 'get_group_form_roster', 'set_team_lock', 'admin_disband_team', 'admin_delete_team', 'admin_delete_all_disbanded', 'get_class_house_options', 'get_student_data_headers', 'upload_group_form_cover', 'get_group_form_reviewer_rules', 'save_group_form_reviewer_rules', 'get_field_values', 'admin_update_team_data', 'admin_add_member_direct', 'admin_force_accept_invite', 'admin_cancel_invite', 'admin_remove_member', 'get_team_edit_history']),
   data: new Set(['get_tabs', 'get_tab_data', 'get_tab_submission_status', 'get_staff_list', 'get_tab_data_access', 'set_tab_data_access', 'get_staff_directory', 'get_class_sections', 'get_tab_class_access', 'set_tab_class_access', 'get_field_categories', 'get_tab_category_link', 'set_tab_category_link']),
   // Class Teacher assignment (get_class_teacher_assignments/save_teacher_
   // class_assignment) lives here too, not its own tab key — it's part of
@@ -1839,6 +1839,26 @@ export async function POST(req) {
     });
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
     return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Admin/Reviewer: a team's group_data edit history — populated by a DB
+  // trigger on student.group_form_teams (migration_group_forms.sql), not
+  // written here. Viewer-tier reviewers can see this too (requireReviewerAdmin
+  // = false) since it's read-only diagnostic info, same tier as the roster
+  // itself. Does not say WHO made each edit — the trigger has no reliable way
+  // to know the acting user; see the migration's own comment for why.
+  if (action === 'get_team_edit_history') {
+    const { team_id } = payload;
+    if (!team_id) return NextResponse.json({ result: 'error', message: 'team_id required.' });
+    const teamRows = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}`);
+    const team = (!teamRows?.error && teamRows[0]) ? teamRows[0] : null;
+    if (!team) return NextResponse.json({ result: 'error', message: 'Team not found.' });
+    if (!(await _isAuthorizedForGroupFormTeam(team, user_id, false))) {
+      return NextResponse.json({ result: 'error', message: 'Not authorized for this team.' }, { status: 403 });
+    }
+    const rows = await sb(`group_form_team_edit_history?team_id=eq.${encodeURIComponent(team_id)}&order=created_at.desc`);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', history: Array.isArray(rows) ? rows : [] });
   }
 
   // ── Admin/Reviewer: membership management for the Edit modal — lets an

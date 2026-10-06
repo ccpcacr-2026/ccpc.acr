@@ -30973,12 +30973,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             ${!complete && form && form.members_required ? ' <span class="text-[9px] font-black text-amber-700 bg-amber-50 rounded-full px-2 py-0.5">Incomplete</span>' : ''}
             <div class="text-[11px] text-slate-400 font-bold mt-0.5">${t.members.length}${maxSize ? '/' + maxSize : ''} members${t.pending_invites.length ? ' · ' + t.pending_invites.length + ' pending invite(s)' : ''}${t.submitted_at ? ' · submitted ' + new Date(t.submitted_at).toLocaleString() : ''}</div>
           </div>
-          ${t.status !== 'disbanded' && canAct ? `
-          <div class="flex gap-2 shrink-0 gf-no-print">
+          ${t.status !== 'disbanded' ? `
+          <div class="flex gap-2 shrink-0 gf-no-print flex-wrap">
+            ${canAct ? `
             ${t.review_status !== 'approved' ? `<button onclick="setReviewStatusReviewer(${t.id}, 'approved')" class="px-2.5 py-1 border border-green-300 text-green-700 rounded-full font-black text-[10px] uppercase hover:bg-green-50">Approve</button>` : `<button onclick="setReviewStatusReviewer(${t.id}, null)" class="px-2.5 py-1 border border-slate-200 text-slate-500 rounded-full font-black text-[10px] uppercase hover:bg-slate-50">Unapprove</button>`}
             ${t.review_status !== 'rejected' ? `<button onclick="setReviewStatusReviewer(${t.id}, 'rejected')" class="px-2.5 py-1 border border-red-300 text-red-600 rounded-full font-black text-[10px] uppercase hover:bg-red-50">Reject</button>` : `<button onclick="setReviewStatusReviewer(${t.id}, null)" class="px-2.5 py-1 border border-slate-200 text-slate-500 rounded-full font-black text-[10px] uppercase hover:bg-slate-50">Unreject</button>`}
             <button onclick="requestTeamChangesReviewer(${t.id})" class="px-2.5 py-1 border border-amber-300 text-amber-700 rounded-full font-black text-[10px] uppercase hover:bg-amber-50">Request Changes</button>
             <button onclick="editTeamDataReviewer(${t.id})" class="px-2.5 py-1 border border-blue-300 text-blue-700 rounded-full font-black text-[10px] uppercase hover:bg-blue-50">Edit</button>
+            ` : ''}
+            <button type="button" onclick="_gfToggleEditHistory(${t.id})" class="px-2.5 py-1 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100">Edit History</button>
           </div>` : ''}
         </div>
         <div class="mt-2 flex flex-wrap gap-2">
@@ -30987,6 +30990,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
         ${!t.is_submitted && t.revision_comment ? `<div class="mt-2 p-2.5 bg-amber-50 rounded-xl text-[11px]"><div class="text-[10px] font-black text-amber-700 uppercase mb-1">Changes Requested${_gfRequesterLabel(t) ? ' by ' + _escHtml(_gfRequesterLabel(t)) : ''}${t.revision_requested_at ? ' · ' + new Date(t.revision_requested_at).toLocaleString() : ''}</div><div class="whitespace-pre-wrap">${_escHtml(t.revision_comment)}</div></div>` : ''}
         ${answerRows.length ? `<div class="mt-2 p-2.5 bg-slate-50 rounded-xl text-[11px]"><div class="text-[10px] font-black text-slate-400 uppercase mb-1">Answers</div>${answerRows.map(r => `<div class="mb-0.5"><span class="text-slate-400 font-bold">${r.label}:</span> <strong>${r.value}</strong></div>`).join('')}</div>` : ''}
+        <div id="gfEditHistory-${t.id}" class="hidden mt-2 pt-2 border-t border-slate-100"></div>
       </div>`;
     }).join('');
   }
@@ -31050,6 +31054,45 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       rows.push({ label: f.name || f.data_key, value: val });
     });
     return rows;
+  }
+  // ── Admin/Reviewer: a team's group_data edit history — populated by a DB
+  // trigger (migration_group_forms.sql), not by this app; get_team_edit_
+  // history just reads it back. Resolves which form's fields_json to label
+  // the diff with purely from already-loaded module state (_gfRosterTeams/
+  // _gfReviewTeams) rather than threading it through the onclick string —
+  // fields_json is admin-authored free text (field labels) that could
+  // contain an apostrophe, which would break out of an inline onclick
+  // attribute if passed through JSON.stringify there instead.
+  function _gfFieldLabel(fieldsJsonStr, dataKey) {
+    let fields = [];
+    try { fields = JSON.parse(fieldsJsonStr || '[]'); } catch (e) {}
+    const f = fields.find(x => x.data_key === dataKey);
+    return (f && f.name) || dataKey;
+  }
+  function _gfToggleEditHistory(teamId) {
+    const host = document.getElementById(`gfEditHistory-${teamId}`);
+    if (!host) return;
+    if (!host.classList.contains('hidden')) { host.classList.add('hidden'); return; }
+    host.classList.remove('hidden');
+    host.innerHTML = '<p class="text-[11px] text-slate-400 font-bold">Loading…</p>';
+    const inRoster = (_gfRosterTeams || []).some(t => t.id === teamId);
+    const fieldsJsonStr = (inRoster ? _gfRosterForm : _gfReviewForm)?.fields_json || '[]';
+    _adminFetch('get_team_edit_history', { team_id: teamId }).then(res => {
+      if (!res || res.result !== 'success') { host.innerHTML = `<p class="text-[11px] text-red-500 font-bold">${_escHtml((res && res.message) || 'Failed to load')}</p>`; return; }
+      const rows = res.history || [];
+      if (!rows.length) { host.innerHTML = '<p class="text-[11px] text-slate-400 font-bold italic">No edits recorded yet.</p>'; return; }
+      host.innerHTML = rows.map(r => {
+        let diff = {};
+        try { diff = typeof r.edited_history === 'string' ? JSON.parse(r.edited_history) : (r.edited_history || {}); } catch (e) {}
+        const lines = Object.entries(diff).map(([key, chg]) => {
+          const label = _gfFieldLabel(fieldsJsonStr, key);
+          const oldV = (chg && chg.old != null && chg.old !== '') ? String(chg.old) : '(empty)';
+          const newV = (chg && chg.new != null && chg.new !== '') ? String(chg.new) : '(empty)';
+          return `<div class="text-[11px] mb-1"><span class="font-black text-slate-700">${_escHtml(label)}</span>: <span class="text-red-500 line-through">${_escHtml(oldV)}</span> → <span class="text-emerald-600 font-bold">${_escHtml(newV)}</span></div>`;
+        }).join('');
+        return `<div class="mb-2 pb-2 border-b border-slate-100 last:border-0"><div class="text-[10px] text-slate-400 font-bold mb-1">${_omrFmtDateTime(r.created_at)}</div>${lines}</div>`;
+      }).join('');
+    }).catch(() => { host.innerHTML = '<p class="text-[11px] text-red-500 font-bold">Network error</p>'; });
   }
   // ── Admin/Reviewer: edit a team's already-submitted answers in place —
   // e.g. correcting a "Group" value typed as free text before that field
@@ -31467,6 +31510,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             ${t.review_status !== 'rejected' ? `<button onclick="setReviewStatusAdmin(${t.id}, 'rejected')" class="px-2.5 py-1 border border-red-300 text-red-600 rounded-full font-black text-[10px] uppercase hover:bg-red-50">Reject</button>` : `<button onclick="setReviewStatusAdmin(${t.id}, null)" class="px-2.5 py-1 border border-slate-200 text-slate-500 rounded-full font-black text-[10px] uppercase hover:bg-slate-50">Unreject</button>`}
             <button onclick="requestTeamChangesAdmin(${t.id})" class="px-2.5 py-1 border border-amber-300 text-amber-700 rounded-full font-black text-[10px] uppercase hover:bg-amber-50">Request Changes</button>
             <button onclick="editTeamDataAdmin(${t.id})" class="px-2.5 py-1 border border-blue-300 text-blue-700 rounded-full font-black text-[10px] uppercase hover:bg-blue-50">Edit</button>
+            <button type="button" onclick="_gfToggleEditHistory(${t.id})" class="px-2.5 py-1 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100">Edit History</button>
             <button onclick="setTeamLockAdmin(${t.id}, ${!t.is_locked})" class="px-2.5 py-1 ${t.is_locked ? 'border border-slate-300 text-slate-700 hover:bg-slate-100' : 'bg-slate-800 text-white'} rounded-full font-black text-[10px] uppercase">${t.is_locked ? 'Unlock' : 'Lock'}</button>
             <button onclick="disbandTeamAdmin(${t.id})" class="px-2.5 py-1 border border-red-300 text-red-600 rounded-full font-black text-[10px] uppercase hover:bg-red-50">Disband</button>
             ` : ''}
@@ -31479,6 +31523,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
         ${!t.is_submitted && t.revision_comment ? `<div class="mt-2 p-2.5 bg-amber-50 rounded-xl text-[11px]"><div class="text-[10px] font-black text-amber-700 uppercase mb-1">Changes Requested${_gfRequesterLabel(t) ? ' by ' + _escHtml(_gfRequesterLabel(t)) : ''}${t.revision_requested_at ? ' · ' + new Date(t.revision_requested_at).toLocaleString() : ''}</div><div class="whitespace-pre-wrap">${_escHtml(t.revision_comment)}</div></div>` : ''}
         ${answerRows.length ? `<div class="mt-2 p-2.5 bg-slate-50 rounded-xl text-[11px]"><div class="text-[10px] font-black text-slate-400 uppercase mb-1">Answers</div>${answerRows.map(r => `<div class="mb-0.5"><span class="text-slate-400 font-bold">${r.label}:</span> <strong>${r.value}</strong></div>`).join('')}</div>` : ''}
+        <div id="gfEditHistory-${t.id}" class="hidden mt-2 pt-2 border-t border-slate-100"></div>
       </div>`;
     }).join('');
   }

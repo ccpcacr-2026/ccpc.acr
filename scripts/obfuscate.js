@@ -338,7 +338,7 @@ const RESERVED = [
   '_gfOnRuleDimensionChange','_gfOnRuleModeChange',
   'loadGroupFormReviewView','_loadGfReviewTab','_exportGfReviewRoster','_printGfReviewRoster',
   'gfShowLinkQr','_gfDownloadLinkQr','tabShowLinkQr','_gfCopyLinkQrUrl',
-  'requestTeamChangesAdmin','requestTeamChangesReviewer','editTeamDataAdmin','editTeamDataReviewer',
+  'requestTeamChangesAdmin','requestTeamChangesReviewer','editTeamDataAdmin','editTeamDataReviewer','_gfToggleEditHistory',
   'gfOnRefNumberToggle','_gfOnRefNumberSourceChange','gfAddRefNumberPart',
   'setReviewStatusAdmin','setReviewStatusReviewer','gfShowStudentInfo',
   // Icon picker (Tab builder + Group Form builder) — called via inline
