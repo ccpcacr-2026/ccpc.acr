@@ -322,7 +322,7 @@ const RESERVED = [
   // reached via the dynamic nav `fn` dispatch (see loadAdminAddCustomFormView
   // above), so it needs the same protection.
   'loadAdminGroupFormsView','toggleGroupFormFlag','gfOnClassModeChange','gfOnGroupFieldChange','gfAddBand',
-  'cancelGroupFormEdit','editGroupForm','saveGroupForm','deleteGroupFormConfig',
+  'cancelGroupFormEdit','editGroupForm','saveGroupForm','deleteGroupFormConfig','gfShowCreateForm',
   'openGroupRoster','closeGroupRoster','setTeamLockAdmin','disbandTeamAdmin','deleteTeamAdmin','deleteAllDisbandedTeams',
   'exportGroupFormRoster','printGroupFormRoster',
   '_gfToggleRosterFilterPanel','toggleGfRosterFilter','clearGfRosterFilters',

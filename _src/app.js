@@ -29615,6 +29615,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
       <p class="text-xs text-slate-500 font-bold mb-5">A student becomes a team's leader by creating it, invites teammates by Student ID, and each teammate must log in and accept — on the student portal — before they count as a member.</p>
 
+      <button type="button" onclick="gfShowCreateForm()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5 mb-5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>New Group Form</button>
+      <div id="gfBuilderSection" class="hidden">
       <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 mb-5">
         <input type="hidden" id="gfEditingId" value="">
         <div class="grid grid-cols-1 md:grid-cols-10 gap-3 items-end">
@@ -29710,6 +29712,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button onclick="cancelGroupFormEdit()" class="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50">Cancel</button>
           <button onclick="saveGroupForm()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Group Form</button>
         </div>
+      </div>
       </div>
 
       <div id="adminGroupFormsList" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5"></div>
@@ -30108,7 +30111,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
   }
 
+  // Opens the (collapsed-by-default) builder for a brand-new Group Form —
+  // the "+ New Group Form" button's own handler. Reuses cancelGroupFormEdit
+  // to actually blank every field (same reset Cancel/a successful Save
+  // already do), then just reveals the section.
+  function gfShowCreateForm() {
+    cancelGroupFormEdit();
+    document.getElementById('gfBuilderSection')?.classList.remove('hidden');
+    document.getElementById('gfBuilderSection')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
   function cancelGroupFormEdit() {
+    document.getElementById('gfBuilderSection')?.classList.add('hidden');
     document.getElementById('gfEditingId').value = '';
     document.getElementById('gfTitle').value = '';
     document.getElementById('gfIcon').value = 'bi-people-fill';
@@ -30131,6 +30144,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function editGroupForm(i) {
     const f = _allGroupForms[i];
+    document.getElementById('gfBuilderSection')?.classList.remove('hidden');
     _activeFieldsContainerId = 'gfFieldsList';
     document.getElementById('gfEditingId').value = f.id;
     document.getElementById('gfTitle').value = f.title || '';
