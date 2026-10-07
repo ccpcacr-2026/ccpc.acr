@@ -29730,6 +29730,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="printGroupFormTokenList()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="ticket" class="h-3 w-3"></i>Token List</button>
             <button onclick="printGroupFormTableStickers()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="tag" class="h-3 w-3"></i>Table Sticker</button>
             <button onclick="toggleGroupFormReviewerPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="users" class="h-3 w-3"></i>Reviewers</button>
+            <button onclick="gfOpenAdminCreateTeamModal()" class="px-3 py-1.5 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase flex items-center gap-1" title="Create a team for a student directly, bypassing Active/Open/Filter rules"><i data-lucide="plus" class="h-3 w-3"></i>Add Team</button>
             <button onclick="deleteAllDisbandedTeams()" class="px-3 py-1.5 border border-red-200 text-red-600 rounded-full font-black text-[10px] uppercase hover:bg-red-50 flex items-center gap-1"><i data-lucide="trash-2" class="h-3 w-3"></i>Delete Disbanded</button>
             <button onclick="closeGroupRoster()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50">Close</button>
           </div>
@@ -29995,6 +29996,54 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (res && res.result === 'success') { showToast('Filters saved'); document.getElementById('gfRulesModalOverlay')?.remove(); loadAdminGroupForms(); }
       else showToast((res && res.message) || 'Save failed — please retry.', 'error');
     }).catch(() => showToast('Network error', 'error'));
+  }
+
+  // "+ Add Team" on the roster toolbar — creates a team directly for a
+  // student, bypassing Active/Open/Filter rules entirely (admin override,
+  // see admin_create_team's own comment in route.js). Only asks for the
+  // leader's Student ID; the group-level fields (Project Name, etc.) are
+  // left empty — use the existing per-team Edit button on the new card to
+  // fill those in, reusing editTeamDataAdmin rather than duplicating its
+  // whole dynamic field-rendering here.
+  function gfOpenAdminCreateTeamModal() {
+    document.getElementById('gfCreateTeamModalOverlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'gfCreateTeamModalOverlay';
+    overlay.className = 'fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4';
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+    overlay.innerHTML = `
+      <div class="bg-white rounded-3xl w-full max-w-sm p-5 shadow-2xl">
+        <p class="font-black text-slate-800 text-sm mb-1">Add Team</p>
+        <p class="text-[11px] text-slate-400 font-bold mb-4">Creates a team for this student as its leader, regardless of the form's Active/Open switches or Filter rules. Fill in Project Name/Details afterward via the new team's own Edit button.</p>
+        <label class="text-[10px] font-black text-slate-400 uppercase">Leader's Student ID</label>
+        <input type="text" id="gfCreateTeamLeaderId" class="w-full mt-1 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm" placeholder="e.g. 2028111198">
+        <div class="flex items-center gap-2 mt-4">
+          <button id="gfCreateTeamSubmitBtn" onclick="_gfSubmitAdminCreateTeam()" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white">Create Team</button>
+          <button onclick="document.getElementById('gfCreateTeamModalOverlay').remove()" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-slate-100 text-slate-500 hover:bg-slate-200">Cancel</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    setTimeout(() => document.getElementById('gfCreateTeamLeaderId')?.focus(), 50);
+  }
+
+  function _gfSubmitAdminCreateTeam() {
+    const leaderId = document.getElementById('gfCreateTeamLeaderId').value.trim();
+    if (!leaderId) { showToast('Student ID required', 'error'); return; }
+    const btn = document.getElementById('gfCreateTeamSubmitBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Creating…'; }
+    _adminFetch('admin_create_team', { group_form_id: _gfRosterFormId, leader_student_id: leaderId }).then(res => {
+      if (res && res.result === 'success') {
+        showToast('Team created');
+        document.getElementById('gfCreateTeamModalOverlay')?.remove();
+        openGroupRoster(_gfRosterFormId);
+      } else {
+        showToast((res && res.message) || 'Could not create team', 'error');
+        if (btn) { btn.disabled = false; btn.textContent = 'Create Team'; }
+      }
+    }).catch(() => {
+      showToast('Network error', 'error');
+      if (btn) { btn.disabled = false; btn.textContent = 'Create Team'; }
+    });
   }
 
   function gfOnClassModeChange() {

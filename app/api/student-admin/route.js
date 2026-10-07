@@ -726,7 +726,7 @@ const ADMIN_TAB_ACTIONS = {
   // exact same student.group_forms/group_form_teams/… tables directly via
   // sb(), same cross-app-shared-database pattern as get_tabs/save_tab above
   // for portal_tabs.
-  group_forms: new Set(['get_group_forms', 'save_group_form', 'delete_group_form', 'get_group_form_roster', 'set_team_lock', 'admin_disband_team', 'admin_delete_team', 'admin_delete_all_disbanded', 'get_class_house_options', 'get_student_data_headers', 'upload_group_form_cover', 'get_group_form_reviewer_rules', 'save_group_form_reviewer_rules', 'get_field_values', 'admin_update_team_data', 'admin_add_member_direct', 'admin_force_accept_invite', 'admin_cancel_invite', 'admin_remove_member', 'get_team_edit_history']),
+  group_forms: new Set(['get_group_forms', 'save_group_form', 'delete_group_form', 'get_group_form_roster', 'admin_create_team', 'set_team_lock', 'admin_disband_team', 'admin_delete_team', 'admin_delete_all_disbanded', 'get_class_house_options', 'get_student_data_headers', 'upload_group_form_cover', 'get_group_form_reviewer_rules', 'save_group_form_reviewer_rules', 'get_field_values', 'admin_update_team_data', 'admin_add_member_direct', 'admin_force_accept_invite', 'admin_cancel_invite', 'admin_remove_member', 'get_team_edit_history']),
   data: new Set(['get_tabs', 'get_tab_data', 'get_tab_submission_status', 'get_staff_list', 'get_tab_data_access', 'set_tab_data_access', 'get_staff_directory', 'get_class_sections', 'get_tab_class_access', 'set_tab_class_access', 'get_field_categories', 'get_tab_category_link', 'set_tab_category_link']),
   // Class Teacher assignment (get_class_teacher_assignments/save_teacher_
   // class_assignment) lives here too, not its own tab key — it's part of
@@ -1530,6 +1530,33 @@ export async function POST(req) {
       pending_invites: invitesByTeam[t.id] || [],
     }));
     return NextResponse.json({ result: 'success', teams: teamRows });
+  }
+
+  // ── Create a team directly (admin override) ──────────────────────────────
+  // ccpc-students' own create_group checks is_enabled/accepting_new/
+  // condition_json/accepting_condition_json/hasProfilePhoto before letting a
+  // student start a team -- all of those are student-self-service gates, not
+  // data-integrity rules, so an admin creating a team on someone's behalf
+  // (e.g. a late registrant, or seeding teams before the form goes public)
+  // deliberately skips every one of them. Still goes through the same
+  // rpc/group_team_create RPC as the student flow, so the one rule that IS a
+  // real integrity constraint -- a student can't be leader/member of two
+  // active teams for the same form -- still applies via its own UNIQUE
+  // constraint, same as it always has.
+  //
+  // Unlike create_group, this does NOT auto-assign a reference number --
+  // that logic (buildReferenceNumber) only lives in ccpc-students' route.js.
+  // If the form uses reference numbers, use ccpc-students' admin roster's
+  // "Backfill Ref#" button afterward to fill it in.
+  if (action === 'admin_create_team') {
+    const { group_form_id, leader_student_id } = payload;
+    if (!group_form_id || !leader_student_id) return NextResponse.json({ result: 'error', message: 'group_form_id and leader_student_id required.' });
+    const studentRows = await sb(`students_data?student_id=eq.${encodeURIComponent(leader_student_id)}&select=student_id`);
+    if (studentRows?.error) return NextResponse.json({ result: 'error', message: studentRows.error });
+    if (!Array.isArray(studentRows) || !studentRows.length) return NextResponse.json({ result: 'error', message: 'No student found with that ID.' });
+    const res = await sb('rpc/group_team_create', 'POST', { p_group_form_id: group_form_id, p_leader_id: leader_student_id, p_group_data: {} });
+    if (res?.error) return NextResponse.json({ result: 'error', message: rpcErrorMessage(res.error) });
+    return NextResponse.json({ result: 'success', team_id: res });
   }
 
   // ── Reviewer routing rules (admin-configured, group_forms tab) ───────────
