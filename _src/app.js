@@ -29632,6 +29632,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex items-center gap-2"><input type="checkbox" id="gfAcceptingNew" checked><label class="text-xs font-bold text-slate-600">Accepting new teams</label></div>
         </div>
         <p class="text-[11px] text-slate-400 font-bold mt-2">To restrict either of these to specific classes, sections or students: save this form first, then use the "Filter" button on its card in the list below.</p>
+        <div class="flex items-center gap-2 mt-3">
+          <input type="checkbox" id="gfLockWhenClosed">
+          <label class="text-xs font-bold text-slate-600">Freeze team details once closed</label>
+        </div>
+        <p class="text-[11px] text-slate-400 font-bold mt-1">Only matters once a team is Active but NOT Open for that student (either switch off above, or a non-matching "Open" Filter rule). Unchecked (default): a team already started can keep being edited normally even while closed. Checked: fields become read-only (just a summary) and inviting/leaving/disbanding freeze — the team can still be Submitted as-is, just not changed further.</p>
 
         <div class="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
           <span class="text-[10px] font-black text-slate-400 uppercase">Fill-up Page Content</span>
@@ -30222,6 +30227,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('gfCoverStatus').textContent = '';
     document.getElementById('gfIsEnabled').checked = true;
     document.getElementById('gfAcceptingNew').checked = true;
+    document.getElementById('gfLockWhenClosed').checked = false;
     gfResetEligibilityForm();
     _activeFieldsContainerId = 'gfFieldsList';
     document.getElementById('gfFieldsList').innerHTML = '';
@@ -30245,6 +30251,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('gfCoverStatus').textContent = '';
     document.getElementById('gfIsEnabled').checked = f.is_enabled !== false;
     document.getElementById('gfAcceptingNew').checked = f.accepting_new !== false;
+    document.getElementById('gfLockWhenClosed').checked = !!f.lock_when_closed;
     document.getElementById('gfFieldsList').innerHTML = '';
     // Bands must be rendered before the fields loop — a show_if condition
     // referencing a class_group field looks up its value options (band
@@ -30284,6 +30291,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       reference_number_json: gfReadRefNumberConfig(),
       is_enabled: document.getElementById('gfIsEnabled').checked,
       accepting_new: document.getElementById('gfAcceptingNew').checked,
+      lock_when_closed: document.getElementById('gfLockWhenClosed').checked,
     };
     _adminFetch('save_group_form', cfg).then(res => {
       if (res && res.result === 'success') { showToast('Group Form saved'); cancelGroupFormEdit(); loadAdminGroupForms(); }
