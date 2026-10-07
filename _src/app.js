@@ -29631,6 +29631,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex items-center gap-2"><input type="checkbox" id="gfIsEnabled" checked><label class="text-xs font-bold text-slate-600">Visible to students</label></div>
           <div class="flex items-center gap-2"><input type="checkbox" id="gfAcceptingNew" checked><label class="text-xs font-bold text-slate-600">Accepting new teams</label></div>
         </div>
+        <p class="text-[11px] text-slate-400 font-bold mt-2">To restrict either of these to specific classes, sections or students: save this form first, then use the "Filter" button on its card in the list below.</p>
 
         <div class="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
           <span class="text-[10px] font-black text-slate-400 uppercase">Fill-up Page Content</span>
@@ -29652,36 +29653,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <input type="hidden" id="gfCoverUrl" value="">
             </div>
           </div>
-        </div>
-
-        <div class="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
-          <div class="flex items-center justify-between mb-1 gap-2 flex-wrap">
-            <span class="text-[10px] font-black text-slate-400 uppercase">Logic Rules — Who can see this form? (Active)</span>
-            <div class="flex items-center gap-2">
-              <select id="gfConditionLogic" class="px-2 py-1.5 bg-white border border-slate-200 rounded-full font-black text-[10px] uppercase" title="ALL = a student must match every rule. ANY = matching just one rule is enough — use this for 'class X OR section Y OR this specific student'.">
-                <option value="AND">Match ALL rules</option>
-                <option value="OR">Match ANY rule</option>
-              </select>
-              <button onclick="addConditionRow(null, 'gfConditionsList')" class="px-3 py-1.5 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase">+ Add Rule</button>
-            </div>
-          </div>
-          <p class="text-[11px] text-slate-400 font-bold mt-1 mb-3">Show this form's nav entry only to matching students — e.g. CLASS EQUALS Ten. Each rule's Target also accepts a comma-separated list (e.g. CLASS EQUALS Nine,Ten or STUDENT ID EQUALS 2028111198,2028111199). Use "Match ANY rule" to combine different kinds of criteria as alternatives (e.g. SECTION EQUALS A, OR STUDENT ID EQUALS 2028111198). Leave empty to show it to every student (still gated by "Active" above). Separate from "Who can a leader invite?" below, which only affects an already-visible form's team roster.</p>
-          <div id="gfConditionsList" class="flex flex-col gap-3"></div>
-        </div>
-
-        <div class="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
-          <div class="flex items-center justify-between mb-1 gap-2 flex-wrap">
-            <span class="text-[10px] font-black text-slate-400 uppercase">Logic Rules — Who can start a NEW team? (Open)</span>
-            <div class="flex items-center gap-2">
-              <select id="gfAcceptingConditionLogic" class="px-2 py-1.5 bg-white border border-slate-200 rounded-full font-black text-[10px] uppercase" title="ALL = a student must match every rule. ANY = matching just one rule is enough.">
-                <option value="AND">Match ALL rules</option>
-                <option value="OR">Match ANY rule</option>
-              </select>
-              <button onclick="addConditionRow(null, 'gfAcceptingConditionsList')" class="px-3 py-1.5 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase">+ Add Rule</button>
-            </div>
-          </div>
-          <p class="text-[11px] text-slate-400 font-bold mt-1 mb-3">Optional extra gate — only matching students can create a NEW team (everyone who passes the "Who can see this form?" rules above still SEES the form either way). Use this to show a form to everyone but only open registration to some classes/sections/students, independent of the "Open" switch above (which is all-or-nothing). Leave empty to let anyone who can see the form also register — same as before this box existed. Doesn't affect teams that already exist.</p>
-          <div id="gfAcceptingConditionsList" class="flex flex-col gap-3"></div>
         </div>
 
         <div class="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
@@ -29917,6 +29888,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <label class="flex items-center gap-1.5 text-[10px] font-black uppercase text-slate-500" title="Turn off to stop new teams from being created — teams already made keep working">
             <input type="checkbox" ${f.accepting_new !== false ? 'checked' : ''} onchange="toggleGroupFormFlag(${f.id},'accepting_new',this.checked)">${f.accepting_new !== false ? 'Open' : 'Closed'}
           </label>
+          <button type="button" onclick="gfOpenRulesModal(${i})" class="px-2.5 py-1 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100 flex items-center gap-1" title="Restrict Active/Open to specific classes, sections or students">${_gfRulesSummaryBadge(f)}Filter</button>
         </div>
       </div>`).join('');
     lucide.createIcons();
@@ -29927,6 +29899,99 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (!(res && res.result === 'success')) showToast((res && res.message) || 'Could not update', 'error');
       loadAdminGroupForms();
     }).catch(() => { showToast('Network error', 'error'); loadAdminGroupForms(); });
+  }
+
+  // Small dot shown on the card's "Filter" button when either rule set
+  // actually has rules in it, so an admin can tell at a glance which forms
+  // are already restricted without opening the modal.
+  function _gfRulesSummaryBadge(f) {
+    let hasAny = false;
+    try { hasAny = hasAny || !!(JSON.parse(f.condition_json || '{}').rules || []).length; } catch (e) {}
+    try { hasAny = hasAny || !!(JSON.parse(f.accepting_condition_json || '{}').rules || []).length; } catch (e) {}
+    return hasAny ? '<span class="w-1.5 h-1.5 rounded-full bg-blue-600 inline-block"></span> ' : '';
+  }
+
+  // Quick-access editor for a saved form's Active/Open Logic Rules, reached
+  // straight from the card list instead of opening the full builder — the
+  // builder keeps its own copy of these two boxes too (needed when creating
+  // a brand-new form, which has no id yet for this modal's partial-update
+  // save to target), so this is purely a shortcut for an already-saved form.
+  function gfOpenRulesModal(i) {
+    const f = _allGroupForms[i];
+    if (!f) return;
+    document.getElementById('gfRulesModalOverlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'gfRulesModalOverlay';
+    overlay.className = 'fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4';
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+    overlay.innerHTML = `
+      <div class="bg-white rounded-3xl w-full max-w-xl p-5 shadow-2xl max-h-[85vh] overflow-y-auto">
+        <p class="font-black text-slate-800 text-sm mb-1 truncate">${_escHtml(f.title || 'Group Form')}</p>
+        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Active / Open Filters</p>
+        <input type="hidden" id="gfRulesModalId" value="${f.id}">
+
+        <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200 mb-3">
+          <div class="flex items-center justify-between mb-1 gap-2 flex-wrap">
+            <span class="text-[10px] font-black text-slate-400 uppercase">Who can see this form? (Active)</span>
+            <div class="flex items-center gap-2">
+              <select id="gfRulesModalConditionLogic" class="px-2 py-1.5 bg-white border border-slate-200 rounded-full font-black text-[10px] uppercase">
+                <option value="AND">Match ALL rules</option>
+                <option value="OR">Match ANY rule</option>
+              </select>
+              <button type="button" onclick="addConditionRow(null, 'gfRulesModalConditionsList')" class="px-3 py-1.5 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase">+ Add Rule</button>
+            </div>
+          </div>
+          <p class="text-[11px] text-slate-400 font-bold mt-1 mb-3">Leave empty to show it to every student (still gated by "Active" on the card).</p>
+          <div id="gfRulesModalConditionsList" class="flex flex-col gap-3"></div>
+        </div>
+
+        <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200 mb-4">
+          <div class="flex items-center justify-between mb-1 gap-2 flex-wrap">
+            <span class="text-[10px] font-black text-slate-400 uppercase">Who can start a NEW team? (Open)</span>
+            <div class="flex items-center gap-2">
+              <select id="gfRulesModalAcceptingConditionLogic" class="px-2 py-1.5 bg-white border border-slate-200 rounded-full font-black text-[10px] uppercase">
+                <option value="AND">Match ALL rules</option>
+                <option value="OR">Match ANY rule</option>
+              </select>
+              <button type="button" onclick="addConditionRow(null, 'gfRulesModalAcceptingConditionsList')" class="px-3 py-1.5 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase">+ Add Rule</button>
+            </div>
+          </div>
+          <p class="text-[11px] text-slate-400 font-bold mt-1 mb-3">Optional extra gate — only matching students can create a NEW team. Leave empty to let anyone who can see the form also register.</p>
+          <div id="gfRulesModalAcceptingConditionsList" class="flex flex-col gap-3"></div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button onclick="_gfSaveRulesModal()" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white">Save</button>
+          <button onclick="document.getElementById('gfRulesModalOverlay').remove()" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-slate-100 text-slate-500 hover:bg-slate-200">Cancel</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    document.getElementById('gfRulesModalConditionLogic').value = 'AND';
+    try {
+      const cl = JSON.parse(f.condition_json || '{}');
+      document.getElementById('gfRulesModalConditionLogic').value = cl.logic === 'OR' ? 'OR' : 'AND';
+      (cl.rules || []).forEach(r => addConditionRow(r, 'gfRulesModalConditionsList'));
+    } catch (e) {}
+    document.getElementById('gfRulesModalAcceptingConditionLogic').value = 'AND';
+    try {
+      const acl = JSON.parse(f.accepting_condition_json || '{}');
+      document.getElementById('gfRulesModalAcceptingConditionLogic').value = acl.logic === 'OR' ? 'OR' : 'AND';
+      (acl.rules || []).forEach(r => addConditionRow(r, 'gfRulesModalAcceptingConditionsList'));
+    } catch (e) {}
+  }
+
+  function _gfSaveRulesModal() {
+    const id = document.getElementById('gfRulesModalId').value;
+    const cfg = {
+      id,
+      condition_json: JSON.stringify({ logic: document.getElementById('gfRulesModalConditionLogic').value === 'OR' ? 'OR' : 'AND', rules: readConditionRules('gfRulesModalConditionsList') }),
+      accepting_condition_json: JSON.stringify({ logic: document.getElementById('gfRulesModalAcceptingConditionLogic').value === 'OR' ? 'OR' : 'AND', rules: readConditionRules('gfRulesModalAcceptingConditionsList') }),
+    };
+    _adminFetch('save_group_form', cfg).then(res => {
+      if (res && res.result === 'success') { showToast('Filters saved'); document.getElementById('gfRulesModalOverlay')?.remove(); loadAdminGroupForms(); }
+      else showToast((res && res.message) || 'Save failed — please retry.', 'error');
+    }).catch(() => showToast('Network error', 'error'));
   }
 
   function gfOnClassModeChange() {
@@ -30157,10 +30222,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('gfCoverStatus').textContent = '';
     document.getElementById('gfIsEnabled').checked = true;
     document.getElementById('gfAcceptingNew').checked = true;
-    document.getElementById('gfConditionLogic').value = 'AND';
-    document.getElementById('gfConditionsList').innerHTML = '';
-    document.getElementById('gfAcceptingConditionLogic').value = 'AND';
-    document.getElementById('gfAcceptingConditionsList').innerHTML = '';
     gfResetEligibilityForm();
     _activeFieldsContainerId = 'gfFieldsList';
     document.getElementById('gfFieldsList').innerHTML = '';
@@ -30184,12 +30245,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('gfCoverStatus').textContent = '';
     document.getElementById('gfIsEnabled').checked = f.is_enabled !== false;
     document.getElementById('gfAcceptingNew').checked = f.accepting_new !== false;
-    document.getElementById('gfConditionsList').innerHTML = '';
-    document.getElementById('gfConditionLogic').value = 'AND';
-    try { const cl = JSON.parse(f.condition_json || '{}'); document.getElementById('gfConditionLogic').value = cl.logic === 'OR' ? 'OR' : 'AND'; (cl.rules || []).forEach(r => addConditionRow(r, 'gfConditionsList')); } catch (e) {}
-    document.getElementById('gfAcceptingConditionsList').innerHTML = '';
-    document.getElementById('gfAcceptingConditionLogic').value = 'AND';
-    try { const acl = JSON.parse(f.accepting_condition_json || '{}'); document.getElementById('gfAcceptingConditionLogic').value = acl.logic === 'OR' ? 'OR' : 'AND'; (acl.rules || []).forEach(r => addConditionRow(r, 'gfAcceptingConditionsList')); } catch (e) {}
     document.getElementById('gfFieldsList').innerHTML = '';
     // Bands must be rendered before the fields loop — a show_if condition
     // referencing a class_group field looks up its value options (band
@@ -30222,8 +30277,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       members_required: document.getElementById('gfMembersRequired').checked,
       fields_json: JSON.stringify(fields),
       eligibility_json: gfSerializeEligibility(),
-      condition_json: JSON.stringify({ logic: document.getElementById('gfConditionLogic').value === 'OR' ? 'OR' : 'AND', rules: readConditionRules('gfConditionsList') }),
-      accepting_condition_json: JSON.stringify({ logic: document.getElementById('gfAcceptingConditionLogic').value === 'OR' ? 'OR' : 'AND', rules: readConditionRules('gfAcceptingConditionsList') }),
+      // condition_json/accepting_condition_json deliberately NOT sent here —
+      // they're edited only through the card's "Filter" modal
+      // (gfOpenRulesModal/_gfSaveRulesModal) now, via a partial update, so
+      // this full-form Save never clobbers whatever Filter already set.
       reference_number_json: gfReadRefNumberConfig(),
       is_enabled: document.getElementById('gfIsEnabled').checked,
       accepting_new: document.getElementById('gfAcceptingNew').checked,
@@ -32049,7 +32106,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   // Shared by the Tab builder's Logic Rules (#conditionsList) and the Group
-  // Form builder's own (#gfConditionsList) — containerId picks which one a
+  // Form's Active/Open Filter modal (#gfRulesModalConditionsList /
+  // #gfRulesModalAcceptingConditionsList) — containerId picks which one a
   // given "+ Add Rule" button targets.
   function addConditionRow(rule = null, containerId = 'conditionsList') {
     const container = document.getElementById(containerId);
