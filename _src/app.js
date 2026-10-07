@@ -29631,12 +29631,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex items-center gap-2"><input type="checkbox" id="gfIsEnabled" checked><label class="text-xs font-bold text-slate-600">Visible to students</label></div>
           <div class="flex items-center gap-2"><input type="checkbox" id="gfAcceptingNew" checked><label class="text-xs font-bold text-slate-600">Accepting new teams</label></div>
         </div>
-        <p class="text-[11px] text-slate-400 font-bold mt-2">To restrict either of these to specific classes, sections or students: save this form first, then use the "Filter" button on its card in the list below.</p>
-        <div class="flex items-center gap-2 mt-3">
-          <input type="checkbox" id="gfLockWhenClosed">
-          <label class="text-xs font-bold text-slate-600">Freeze team details once closed</label>
-        </div>
-        <p class="text-[11px] text-slate-400 font-bold mt-1">Only matters once a team is Active but NOT Open for that student (either switch off above, or a non-matching "Open" Filter rule). Unchecked (default): a team already started can keep being edited normally even while closed. Checked: fields become read-only (just a summary) and inviting/leaving/disbanding freeze — the team can still be Submitted as-is, just not changed further.</p>
+        <p class="text-[11px] text-slate-400 font-bold mt-2">To restrict either of these to specific classes, sections or students, or to freeze team details once closed: save this form first, then use its card in the list below.</p>
 
         <div class="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
           <span class="text-[10px] font-black text-slate-400 uppercase">Fill-up Page Content</span>
@@ -29894,6 +29889,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <input type="checkbox" ${f.accepting_new !== false ? 'checked' : ''} onchange="toggleGroupFormFlag(${f.id},'accepting_new',this.checked)">${f.accepting_new !== false ? 'Open' : 'Closed'}
           </label>
           <button type="button" onclick="gfOpenRulesModal(${i})" class="px-2.5 py-1 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100 flex items-center gap-1" title="Restrict Active/Open to specific classes, sections or students">${_gfRulesSummaryBadge(f)}Filter</button>
+          <label class="flex items-center gap-1.5 text-[10px] font-black uppercase text-slate-500" title="Unchecked (default): a team already started keeps being editable even once Active-but-not-Open. Checked: fields freeze to a read-only summary once closed — Submit still works, just no further edits.">
+            <input type="checkbox" ${f.lock_when_closed ? 'checked' : ''} onchange="toggleGroupFormFlag(${f.id},'lock_when_closed',this.checked)">Freeze on close
+          </label>
         </div>
       </div>`).join('');
     lucide.createIcons();
@@ -30227,7 +30225,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('gfCoverStatus').textContent = '';
     document.getElementById('gfIsEnabled').checked = true;
     document.getElementById('gfAcceptingNew').checked = true;
-    document.getElementById('gfLockWhenClosed').checked = false;
     gfResetEligibilityForm();
     _activeFieldsContainerId = 'gfFieldsList';
     document.getElementById('gfFieldsList').innerHTML = '';
@@ -30251,7 +30248,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('gfCoverStatus').textContent = '';
     document.getElementById('gfIsEnabled').checked = f.is_enabled !== false;
     document.getElementById('gfAcceptingNew').checked = f.accepting_new !== false;
-    document.getElementById('gfLockWhenClosed').checked = !!f.lock_when_closed;
     document.getElementById('gfFieldsList').innerHTML = '';
     // Bands must be rendered before the fields loop — a show_if condition
     // referencing a class_group field looks up its value options (band
@@ -30288,10 +30284,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       // they're edited only through the card's "Filter" modal
       // (gfOpenRulesModal/_gfSaveRulesModal) now, via a partial update, so
       // this full-form Save never clobbers whatever Filter already set.
+      // lock_when_closed deliberately NOT sent here either — edited only
+      // from the card checkbox (toggleGroupFormFlag) now, same reasoning as
+      // condition_json/accepting_condition_json above.
       reference_number_json: gfReadRefNumberConfig(),
       is_enabled: document.getElementById('gfIsEnabled').checked,
       accepting_new: document.getElementById('gfAcceptingNew').checked,
-      lock_when_closed: document.getElementById('gfLockWhenClosed').checked,
     };
     _adminFetch('save_group_form', cfg).then(res => {
       if (res && res.result === 'success') { showToast('Group Form saved'); cancelGroupFormEdit(); loadAdminGroupForms(); }
