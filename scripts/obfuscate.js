@@ -298,6 +298,7 @@ const RESERVED = [
   // Transport tab native port (incl. Bus/GPS Config)
   'loadAdminTransportView','switchTransportTab','saveTransportRoute',
   'loadRegistrationAdminView','toggleRegAdminFilter','clearRegAdminFilters','_regAdminDownloadZip','_regAdminRender','_regAdminBulkUpload',
+  '_regAdminSetNameTemplate','_regAdminUpdateNamePreview',
   'loadOmrResultsView','_omrOnKeyFiles','_omrOnCsvFiles','_omrRemoveKeyFile','_omrRemoveCsvFile',
   '_omrPreview','_omrUpload','_omrTogglePublish','_omrDeleteBatch','_omrOnClassChange',
   '_omrShowFullPreview','_omrToggleHistory','_omrSaveScoringRuleDefault',

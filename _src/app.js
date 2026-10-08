@@ -27876,7 +27876,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div class="space-y-5 pb-10">
         <div>
           <h2 class="text-2xl font-black text-slate-800 tracking-tight">Student Photo Download</h2>
-          <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Filter students, then download their photos as one ZIP named by Student ID</p>
+          <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Filter students, then download their photos as one ZIP — choose how each file is named below</p>
         </div>
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
           <div class="relative mb-4" style="max-width:320px">
@@ -27885,6 +27885,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
           <div id="regAdminFilters" class="mb-4"></div>
           <div id="regAdminSummary" class="mb-4"></div>
+          <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200 mb-4">
+            <div class="flex items-center justify-between gap-2 flex-wrap mb-2">
+              <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Name each photo file…</span>
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <button type="button" onclick="_regAdminSetNameTemplate('{id}')" class="px-2 py-1 border border-slate-200 bg-white text-slate-600 rounded-full font-black text-[9px] uppercase hover:bg-slate-100">ID only</button>
+                <button type="button" onclick="_regAdminSetNameTemplate('{id} - {name}')" class="px-2 py-1 border border-slate-200 bg-white text-slate-600 rounded-full font-black text-[9px] uppercase hover:bg-slate-100">ID - Name</button>
+                <button type="button" onclick="_regAdminSetNameTemplate('{name}')" class="px-2 py-1 border border-slate-200 bg-white text-slate-600 rounded-full font-black text-[9px] uppercase hover:bg-slate-100">Name</button>
+                <button type="button" onclick="_regAdminSetNameTemplate('{class}-{section}-{roll}')" class="px-2 py-1 border border-slate-200 bg-white text-slate-600 rounded-full font-black text-[9px] uppercase hover:bg-slate-100">Class-Section-Roll</button>
+                <button type="button" onclick="_regAdminSetNameTemplate('{class}-{section}-{roll} - {name}')" class="px-2 py-1 border border-slate-200 bg-white text-slate-600 rounded-full font-black text-[9px] uppercase hover:bg-slate-100">Class-Section-Roll - Name</button>
+              </div>
+            </div>
+            <input type="text" id="regAdminNameTemplate" value="{id}" oninput="_regAdminUpdateNamePreview()" placeholder="e.g. {id} - {name}" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg font-bold text-xs mb-1.5">
+            <p class="text-[10px] text-slate-400 font-bold">Tokens: <code>{id}</code> <code>{name}</code> <code>{class}</code> <code>{section}</code> <code>{roll}</code> <code>{house}</code> <code>{session}</code> <code>{group}</code> — mix any of these with your own text. Preview: <span id="regAdminNamePreview" class="text-slate-600"></span>.jpg</p>
+            <p class="text-[10px] text-amber-700 font-bold mt-1"><i data-lucide="info" class="h-3 w-3 inline"></i> Only the <code>{id}</code>-only naming can be re-matched by "Upload Photos (Bulk)" below — any other pattern is for export/viewing, not for round-tripping back in.</p>
+          </div>
           <div class="flex items-center gap-3 mb-4 flex-wrap">
             <button onclick="_regAdminDownloadZip()" id="regAdminDownloadBtn" class="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5 disabled:opacity-40"><i data-lucide="download" class="h-3.5 w-3.5"></i>Download Photos as ZIP</button>
             <input type="file" id="regAdminUploadInput" multiple accept="image/*" class="hidden" onchange="_regAdminBulkUpload(this.files); this.value='';">
@@ -27984,6 +27999,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     </div>`;
     const btn = document.getElementById('regAdminDownloadBtn');
     if (btn) btn.disabled = !withPhoto.length;
+    _regAdminUpdateNamePreview();
     const body = document.getElementById('regAdminBody');
     if (!body) return;
     if (!filtered.length) { body.innerHTML = '<tr><td colspan="7" class="p-4 text-slate-400 font-bold">No students match.</td></tr>'; return; }
@@ -28096,6 +28112,38 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       document.head.appendChild(sc);
     });
   }
+  function _regAdminSetNameTemplate(tpl) {
+    const el = document.getElementById('regAdminNameTemplate');
+    if (!el) return;
+    el.value = tpl;
+    _regAdminUpdateNamePreview();
+  }
+  // Fills a naming template's {token}s from one student row. Anything a
+  // filesystem can't take in a filename (/ \ : * ? " < > |) is stripped
+  // rather than left to silently corrupt the ZIP entry's path; an entirely
+  // empty result (every token blank, no literal text in the template)
+  // falls back to the Student ID so a photo never goes in unnamed.
+  function _regAdminFormatFilename(template, s) {
+    const safe = v => String(v == null ? '' : v).trim().replace(/[\\/:*?"<>|]+/g, '_');
+    const name = String(template || '{id}')
+      .replace(/\{id\}/g, safe(s.student_id))
+      .replace(/\{name\}/g, safe(s.student_name))
+      .replace(/\{class\}/g, safe(s.class))
+      .replace(/\{section\}/g, safe(s.section))
+      .replace(/\{roll\}/g, safe(s.roll))
+      .replace(/\{house\}/g, safe(s.house))
+      .replace(/\{session\}/g, safe(s.session))
+      .replace(/\{group\}/g, safe(s.group))
+      .trim();
+    return name || safe(s.student_id) || 'photo';
+  }
+  function _regAdminUpdateNamePreview() {
+    const tplEl = document.getElementById('regAdminNameTemplate');
+    const previewEl = document.getElementById('regAdminNamePreview');
+    if (!tplEl || !previewEl) return;
+    const sample = _regAdminFiltered().find(s => s.photo) || _regAdminStudents[0];
+    previewEl.textContent = sample ? _regAdminFormatFilename(tplEl.value, sample) : '(no student to preview)';
+  }
   // Legacy pre-Supabase photos (a bare Google Drive file ID, resolved by
   // _photoUrl to an lh3.googleusercontent.com URL) may not send permissive
   // CORS headers for a real fetch()+blob() read, unlike an <img> tag which
@@ -28105,6 +28153,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   async function _regAdminDownloadZip() {
     const withPhoto = _regAdminFiltered().filter(s => s.photo);
     if (!withPhoto.length) { showToast('No photos to download in the current filter', 'error'); return; }
+    const nameTemplate = document.getElementById('regAdminNameTemplate')?.value || '{id}';
+    const usedNames = new Set();
     const btn = document.getElementById('regAdminDownloadBtn');
     const progress = document.getElementById('regAdminProgress');
     if (btn) btn.disabled = true;
@@ -28117,10 +28167,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       for (let i = 0; i < withPhoto.length; i += BATCH) {
         const batch = withPhoto.slice(i, i + BATCH);
         await Promise.all(batch.map(async s => {
+          // Reserved synchronously, before the fetch's await, so two items
+          // in the same concurrent batch that would format to the same name
+          // (e.g. naming by Name alone, two students who share one) can
+          // never both claim it — the second gets a " (2)" suffix instead of
+          // silently overwriting the first inside the ZIP.
+          let filename = _regAdminFormatFilename(nameTemplate, s) + '.jpg';
+          if (usedNames.has(filename)) {
+            const base = filename.slice(0, -4);
+            let n = 2;
+            while (usedNames.has(`${base} (${n}).jpg`)) n++;
+            filename = `${base} (${n}).jpg`;
+          }
+          usedNames.add(filename);
           try {
             const resp = await fetch(_photoUrl(s.photo));
             if (!resp.ok) throw new Error('bad response');
-            zip.file(`${s.student_id}.jpg`, await resp.blob());
+            zip.file(filename, await resp.blob());
           } catch (e) { failed++; }
           done++;
           if (progress) progress.textContent = `Downloading… ${done}/${withPhoto.length}${failed ? ` (${failed} failed)` : ''}`;
