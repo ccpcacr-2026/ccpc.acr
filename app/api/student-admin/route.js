@@ -1838,6 +1838,40 @@ export async function POST(req) {
       review_status_at: status ? new Date().toISOString() : null,
     });
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+
+    // Notify every member of the team when a real verdict is set — not when
+    // it's cleared back to null (Unapprove/Unreject is an administrative
+    // correction, not news the student needs pushed to them). Same
+    // best-effort pattern as request_team_changes just above.
+    if (status === 'approved' || status === 'rejected') {
+      try {
+        const actorProfRows = await sbTeacher(`users_profile?teacher_id=eq.${encodeURIComponent(actorId)}&select=full_name`);
+        const actorName = (!actorProfRows?.error && actorProfRows[0]?.full_name) || actorId;
+        const [memberRows, formRows] = await Promise.all([
+          sb(`group_form_team_members?team_id=eq.${encodeURIComponent(team_id)}&select=student_id`),
+          sb(`group_forms?id=eq.${encodeURIComponent(team.group_form_id)}&select=title`),
+        ]);
+        const members = Array.isArray(memberRows) ? memberRows : [];
+        const formTitle = (!formRows?.error && formRows[0]?.title) || 'your team registration';
+        if (members.length) {
+          const now = new Date().toISOString();
+          const verb = status === 'approved' ? 'approved' : 'rejected';
+          const rows = members.map(m => ({
+            user_id: 'student:' + m.student_id,
+            type: 'group_form_review_' + status,
+            title: `${status === 'approved' ? 'Approved' : 'Rejected'} — ${formTitle}`,
+            message: `${actorName} ${verb} your team's submission for "${formTitle}".`,
+            data: { team_id: Number(team_id), group_form_id: team.group_form_id },
+            is_read: false,
+            created_at: now,
+          }));
+          await sbTeacher('notifications', 'POST', rows);
+        }
+      } catch (e) {
+        console.error('set_team_review_status notification failed:', e);
+      }
+    }
+
     return NextResponse.json({ result: 'success' });
   }
 
