@@ -30659,8 +30659,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!_gfRosterFilteredSorted().length) { showToast('No teams to print yet', 'error'); return; }
     const list = document.getElementById('adminGroupRosterList');
     if (list) list.classList.add('gf-print-area');
+    document.body.classList.add('gf-printing');
     window.print();
     if (list) setTimeout(() => list.classList.remove('gf-print-area'), 0);
+    setTimeout(() => document.body.classList.remove('gf-printing'), 0);
   }
 
   // ── Event-day print layouts (Project List / Token List / Table Sticker) ──
@@ -31238,7 +31240,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const maxSize = form ? form.max_team_size : null;
     const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''}${p.roll ? ', Roll ' + p.roll : ''})` : 'Unknown';
     const boundByHouse = _gfFormGroupedByHouse(form);
-    host.innerHTML = teams.map(t => {
+    host.innerHTML = teams.map((t, idx) => {
       const complete = maxSize ? t.members.length >= maxSize : true;
       const leader = t.members.find(m => m.role === 'leader');
       const answerRows = _gfFormatGroupData(t.group_data, form && form.fields_json);
@@ -31247,8 +31249,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div class="border border-slate-200 rounded-2xl p-4 ${t.status === 'disbanded' ? 'opacity-50' : ''}"${houseStyle ? ` style="${houseStyle}"` : ''}>
         <div class="flex justify-between items-start flex-wrap gap-2">
           <div>
+            <span class="gf-roster-serial text-[11px] font-black text-slate-400 mr-1">${idx + 1}.</span>
             <strong class="text-sm font-black text-slate-800">${nameOf(leader?.profile) || t.leader_student_id}'s team</strong>
-            ${t.reference_number ? ` <span class="text-[9px] font-black text-white bg-slate-800 rounded-full px-2 py-0.5 tracking-wide">${_escHtml(t.reference_number)}</span>` : ''}
+            ${t.reference_number ? ` <span class="gf-refno text-[9px] font-black text-white bg-slate-800 rounded-full px-2 py-0.5 tracking-wide">${_escHtml(t.reference_number)}</span>` : ''}
             ${_gfHouseBadgeHtml(_gfReviewTeamHouse(t))}
             ${t.status === 'disbanded' ? ' <span class="text-[9px] font-black text-white bg-slate-400 rounded-full px-2 py-0.5">Disbanded</span>' : ''}
             ${t.is_submitted ? ' <span class="text-[9px] font-black text-white bg-emerald-600 rounded-full px-2 py-0.5">Submitted</span>' : ' <span class="text-[9px] font-black text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">Saved</span>'}
@@ -31323,8 +31326,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!_gfReviewFilteredTeams().length) { showToast('No teams to print', 'error'); return; }
     const list = document.getElementById('gfReviewList');
     if (list) list.classList.add('gf-print-area');
+    document.body.classList.add('gf-printing');
     window.print();
     if (list) setTimeout(() => list.classList.remove('gf-print-area'), 0);
+    setTimeout(() => document.body.classList.remove('gf-printing'), 0);
   }
   // Turns one team's raw group_data ({data_key: value}) into an ordered,
   // properly-labeled list — a "preview of the filled-up form" using the
@@ -31770,7 +31775,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!shown.length) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No teams match this filter.</p>'; return; }
 
     const boundByHouse = _gfFormGroupedByHouse(form);
-    host.innerHTML = shown.map(t => {
+    host.innerHTML = shown.map((t, idx) => {
       const complete = maxSize ? t.members.length >= maxSize : true;
       const answerRows = _gfFormatGroupData(t.group_data, form && form.fields_json);
       const houseStyle = boundByHouse ? _gfHouseCardStyle(_gfHouseColors && _gfHouseColors[_gfTeamHouse(t)]) : '';
@@ -31778,8 +31783,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div class="border border-slate-200 rounded-2xl p-4 ${t.status === 'disbanded' ? 'opacity-50' : ''}"${houseStyle ? ` style="${houseStyle}"` : ''}>
         <div class="flex justify-between items-start flex-wrap gap-2">
           <div>
+            <span class="gf-roster-serial text-[11px] font-black text-slate-400 mr-1">${idx + 1}.</span>
             <strong class="text-sm font-black text-slate-800">${leaderNameOf(t)}'s team</strong>
-            ${t.reference_number ? ` <span class="text-[9px] font-black text-white bg-slate-800 rounded-full px-2 py-0.5 tracking-wide">${_escHtml(t.reference_number)}</span>` : ''}
+            ${t.reference_number ? ` <span class="gf-refno text-[9px] font-black text-white bg-slate-800 rounded-full px-2 py-0.5 tracking-wide">${_escHtml(t.reference_number)}</span>` : ''}
             ${_gfHouseBadgeHtml(_gfTeamHouse(t))}
             ${t.status === 'disbanded' ? ' <span class="text-[9px] font-black text-white bg-slate-400 rounded-full px-2 py-0.5">Disbanded</span>' : ''}
             ${t.is_submitted ? ' <span class="text-[9px] font-black text-white bg-emerald-600 rounded-full px-2 py-0.5">Submitted</span>' : ' <span class="text-[9px] font-black text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">Saved</span>'}

@@ -336,6 +336,34 @@ textarea.pf-input { resize: vertical; line-height: 1.55; }
   }
 }
 
+/* ── Group Forms roster print (admin + reviewer tabs) ─────────────────────
+   printGroupFormRoster()/_printGfReviewRoster() toggle body.gf-printing and
+   .gf-print-area on the live on-screen list, then call window.print() —
+   same dashboard markup, not a separate print layout. Classic visibility
+   isolation (not display:none on ancestors) so hiding everything else can't
+   also hide what's genuinely nested inside the roster list itself. */
+body.gf-printing * { visibility: hidden !important; }
+body.gf-printing .gf-print-area,
+body.gf-printing .gf-print-area * { visibility: visible !important; }
+body.gf-printing .gf-print-area {
+  position: absolute; left: 0; top: 0; width: 100%;
+  display: flex !important; flex-direction: column; gap: 10px;
+}
+body.gf-printing .gf-print-area > div {
+  break-inside: avoid; border-color: #94a3b8 !important; background: #fff !important;
+}
+body.gf-printing .gf-no-print { display: none !important; }
+/* Reference number: the dark-filled pill (fine on screen) risks printing as
+   a smudge or illegible white-on-dark on a low-ink/grayscale printer — a
+   bold bordered badge on plain white reads clearly either way, and larger
+   so it's legible at a glance, not just up close. */
+body.gf-printing .gf-refno {
+  background: #fff !important; color: #000 !important;
+  border: 1.5px solid #000 !important; font-size: 12px !important;
+  padding: 2px 10px !important;
+}
+body.gf-printing .gf-roster-serial { font-size: 13px !important; color: #000 !important; }
+
 .animate-spin { animation: spin 1s linear infinite; }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
