@@ -259,6 +259,21 @@ function _upgradeDates(joiningDate, history) {
   return dates.slice(0, 2);
 }
 
+// How many of article 6's two higher-grade/time-scale slots this person has
+// already used — the same "since their last real promotion" window
+// _upgradeDates walks above, just returning the count instead of the future
+// due dates. Powers the Pay Fixation screen's editable "Time Scales Taken"
+// field and is the baseline _setTimeScaleCount below adds to or removes
+// from when the office corrects it by hand.
+function _upgradeCountedSoFar(joiningDate, history) {
+  const rows = (Array.isArray(history) ? history : []).filter(h => h.effective_date);
+  const granted = rows.filter(h => _UPGRADE_KINDS.has(h.change_kind)).map(h => String(h.effective_date).slice(0, 10)).sort();
+  const promotions = rows.filter(h => h.change_kind === 'promotion').map(h => String(h.effective_date).slice(0, 10)).sort();
+  const start = promotions.length ? promotions[promotions.length - 1] : (joiningDate ? String(joiningDate).slice(0, 10) : null);
+  const counted = start ? granted.filter(d => d > start) : granted;
+  return Math.min(counted.length, 2);
+}
+
 // Writes a grade-history row, retrying without change_kind on a database
 // where migration_grade_upgrade_tracking.sql has not been run yet — losing
 // the marker is better than losing the row.
@@ -1980,6 +1995,43 @@ export async function POST(req) {
     return NextResponse.json({ result: 'success', recorded: res.recorded });
   }
 
+  // Directly sets how many of article 6's two slots are used (0, 1 or 2) —
+  // the Pay Fixation screen's editable "Time Scales Taken" field, as
+  // opposed to record_prior_upgrade above, which only ever adds. Raising the
+  // count reuses _recordPriorUpgrade's own additive logic (needs an
+  // effective date for whatever's newly added); lowering it deletes the
+  // most recently dated counted row(s) — a plain correction, since this
+  // field exists specifically so the office can fix a wrong count by hand.
+  if (action === 'set_time_scale_count') {
+    const personId = payload.user_id;
+    const target = Math.max(0, Math.min(2, Number(payload.count) || 0));
+    if (!personId) return NextResponse.json({ result: 'error', message: 'user_id required' }, { status: 400 });
+    const [historyRes, personRows] = await Promise.all([
+      sbPayroll(`person_grade_history?user_id=eq.${encodeURIComponent(personId)}&select=id,effective_date,change_kind`),
+      sbPayroll(`person_setup?user_id=eq.${encodeURIComponent(personId)}&select=joining_date`),
+    ]);
+    const history = Array.isArray(historyRes) ? historyRes : [];
+    const joiningDate = (!personRows?.error && personRows[0] && personRows[0].joining_date) || null;
+    const promotions = history.filter(h => h.effective_date && h.change_kind === 'promotion').map(h => String(h.effective_date).slice(0, 10)).sort();
+    const start = promotions.length ? promotions[promotions.length - 1] : (joiningDate ? String(joiningDate).slice(0, 10) : null);
+    const counted = history.filter(h => h.effective_date && _UPGRADE_KINDS.has(h.change_kind) && (!start || String(h.effective_date).slice(0, 10) > start));
+    const current = Math.min(counted.length, 2);
+    if (target === current) return NextResponse.json({ result: 'success', count: current });
+    if (target > current) {
+      if (!payload.effective_date) return NextResponse.json({ result: 'error', message: 'An effective date is required to add one.' }, { status: 400 });
+      const res = await _recordPriorUpgrade(personId, 'time_scale', target, payload.effective_date, payload.note, user_id, null, history);
+      if (res.error) return NextResponse.json({ result: 'error', message: res.error }, { status: 400 });
+      return NextResponse.json({ result: 'success', count: target, recorded: res.recorded });
+    }
+    const toRemove = counted.slice().sort((a, b) => String(b.effective_date).localeCompare(String(a.effective_date))).slice(0, current - target);
+    for (const row of toRemove) {
+      const del = await sbPayroll(`person_grade_history?id=eq.${encodeURIComponent(row.id)}`, 'DELETE');
+      if (del?.error) return NextResponse.json({ result: 'error', message: del.error }, { status: 500 });
+    }
+    _prAudit(user_id, 'set_time_scale_count', 'person_grade_history', personId, { from: current, to: target, removed: toRemove.map(r => r.id) });
+    return NextResponse.json({ result: 'success', count: target, removed: toRemove.map(r => r.id) });
+  }
+
   // One save for the whole bulk table — the office reviews dozens of
   // long-serving people in one screen and submits every row that changed at
   // once, rather than round-tripping per person. History is loaded once for
@@ -2027,6 +2079,7 @@ export async function POST(req) {
       full_name: profile.full_name || personId, designation: profile.designation || '',
       grade_name: res.grade.name, current_basic: res.currentBasic, calc: res.calc,
       joining_date: res.person.joining_date || null, upgrade_dates: res.upgradeDates,
+      time_scale_count: _upgradeCountedSoFar(res.person.joining_date, res.history),
       fields: (fields || []).filter(f => f.category === 'earning' || f.category === 'deduction' || f.category === 'special'),
       columns, from_scale_id: res.from_scale_id, to_scale_id: res.to_scale_id,
     });

@@ -21281,10 +21281,55 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (title) title.textContent = `${d.full_name} — ${d.designation || ''} · ${d.grade_name}`;
     const sel = document.getElementById('prCalcPerson');
     if (sel && sel.value !== String(d.user_id)) sel.value = String(d.user_id);
-    body.innerHTML = _prCalcBreakdownHtml(d)
+    body.innerHTML = _prTimeScaleFieldHtml(d)
+      + _prCalcBreakdownHtml(d)
       + '<p class="font-black text-slate-800 text-xs mb-2">Time table — what is paid from each date</p>'
       + (window.innerWidth < 768 ? _prProjectionCardsHtml(d) : _prProjectionTableHtml(d));
     lucide.createIcons();
+  }
+
+  // "Time Scales Taken" — a plain-language view of article 6's internal
+  // "how many of the two slots are used, since the last promotion" count
+  // (_upgradeCountedSoFar, server-side), with its own edit control so the
+  // office can correct it directly instead of only ever reaching it through
+  // the "Had one" / bulk-review flow built for long-serving staff generally.
+  // Shown read-only behind a pencil icon — a plain number sitting in the
+  // middle of a payroll screen invites an accidental click-and-type, so
+  // editing is a deliberate second step, not the default state.
+  function _prTimeScaleFieldHtml(d) {
+    const n = d.time_scale_count ?? 0;
+    return `<div id="prTimeScaleField" class="flex items-center gap-2 mb-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
+      <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Time Scales Taken</span>
+      <span id="prTimeScaleReadout" class="font-black text-slate-800 text-sm">${n}</span>
+      <button type="button" onclick="_prEditTimeScaleCount(${JSON.stringify(d.user_id)})" title="Correct this count" class="p-1 text-slate-400 hover:text-blue-600"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button>
+      <span class="text-[10px] font-bold text-slate-400 ml-auto">Resets to 0 automatically once a real promotion is on record</span>
+    </div>`;
+  }
+  function _prEditTimeScaleCount(personId) {
+    const host = document.getElementById('prTimeScaleField');
+    if (!host) return;
+    const current = _prProjection ? (_prProjection.time_scale_count ?? 0) : 0;
+    const today = new Date().toISOString().slice(0, 10);
+    host.innerHTML = `
+      <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Time Scales Taken</span>
+      <select id="prTimeScaleCountInput" class="px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-xs">
+        <option value="0" ${current === 0 ? 'selected' : ''}>0</option>
+        <option value="1" ${current === 1 ? 'selected' : ''}>1</option>
+        <option value="2" ${current === 2 ? 'selected' : ''}>2</option>
+      </select>
+      <input type="date" id="prTimeScaleDateInput" value="${today}" title="Effective date — only used if raising the count" class="px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-xs">
+      <button type="button" onclick="_prSaveTimeScaleCount(${JSON.stringify(personId)})" class="px-2.5 py-1 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest">Save</button>
+      <button type="button" onclick="_prOpenProjection(${JSON.stringify(personId)})" class="px-2.5 py-1 border border-slate-200 text-slate-500 rounded-lg font-black text-[10px] uppercase tracking-widest">Cancel</button>`;
+    lucide.createIcons();
+  }
+  function _prSaveTimeScaleCount(personId) {
+    const countEl = document.getElementById('prTimeScaleCountInput');
+    const dateEl = document.getElementById('prTimeScaleDateInput');
+    const count = Number(countEl ? countEl.value : 0);
+    _payrollFetch('set_time_scale_count', { user_id: personId, count, effective_date: dateEl ? dateEl.value : null }).then(res => {
+      if (res && res.result === 'success') { showToast('Time scale count updated'); _prOpenProjection(personId); }
+      else showToast((res && res.message) || 'Could not update', 'error');
+    }).catch(() => showToast('Network error', 'error'));
   }
 
   const _PR_STAGE_LABEL = { fixation: 'Fixation', phase: 'Phase', increment: 'Increment', higher_grade: 'Higher grade' };

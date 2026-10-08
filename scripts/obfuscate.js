@@ -105,6 +105,7 @@ const RESERVED = [
   '_prPreviewConversion','_prApplyConversion',
   '_prOpenProjection','_prCloseProjection','_prApplyStage',
   '_prLoadUpgradeSuggestions','_prStepUpGrade','_prRecordPriorUpgrade',
+  '_prEditTimeScaleCount','_prSaveTimeScaleCount',
   '_prOpenCalcPicker','_prPickCalcPerson',
   '_prOpenPriorBulk','_prClosePriorBulk','_prFilterPriorBulk','_prPriorBulkQuickFill','_prPriorBulkRowChanged','_prSavePriorBulk',
   '_prSwitchFieldsMainTab','_prOpenRoleDefaultsPanel','_prSaveRoleDefaultPercent',
