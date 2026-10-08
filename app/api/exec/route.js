@@ -2334,6 +2334,28 @@ const handlers = {
     const res = await supabaseRequest('direct_messages', 'post', row);
     // Push a real-time ping to the recipient so their browser updates instantly
     _rtBroadcast(recipientId, 'new_message', { from: senderId });
+    // Staff-to-staff DMs rely on the real-time ping above (ccpc-teachers has
+    // its own in-app presence) and don't need a row here. A student recipient
+    // has no such channel — their side only ever polls the shared
+    // notifications bell — so a teacher messaging a student also drops one
+    // there, with enough in `data` for the student app's click-through to
+    // jump straight to that conversation (see _notifNavigate's
+    // 'direct_message' case in ccpc-students/public/index.html).
+    if (String(recipientId || '').startsWith('student:')) {
+      try {
+        const senderProfRows = await supabaseRequest(`users_profile?teacher_id=eq.${encodeURIComponent(senderId)}&select=full_name`);
+        const senderName = (Array.isArray(senderProfRows) && senderProfRows[0]?.full_name) || senderId;
+        const text = String(message || '');
+        const preview = text.length > 100 ? text.slice(0, 100) + '…' : text;
+        await supabaseRequest('notifications', 'post', [{
+          user_id: recipientId, type: 'direct_message', title: `New message from ${senderName}`,
+          message: preview, data: { teacher_id: senderId, teacher_name: senderName },
+          is_read: false, created_at: new Date().toISOString(),
+        }]);
+      } catch (e) {
+        console.error('sendDirectMessage notification failed:', e);
+      }
+    }
     return res;
   },
 
