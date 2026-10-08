@@ -30035,7 +30035,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (res && res.result === 'success') {
         showToast('Team created');
         document.getElementById('gfCreateTeamModalOverlay')?.remove();
-        openGroupRoster(_gfRosterFormId);
+        _gfRefreshRosterInPlace();
       } else {
         showToast((res && res.message) || 'Could not create team', 'error');
         if (btn) { btn.disabled = false; btn.textContent = 'Create Team'; }
@@ -30385,6 +30385,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _gfRenderRosterFilterPanel();
     }).catch(() => { document.getElementById('adminGroupRosterList').innerHTML = '<p class="text-xs text-red-500 font-bold">Network error</p>'; });
     document.getElementById('adminGroupRoster').scrollIntoView({ behavior: 'smooth' });
+  }
+  // Re-fetches and re-renders the roster list WITHOUT openGroupRoster's
+  // "fresh open" side effects — clearing _gfRosterFilterState, blanking the
+  // search box, flashing "Loading…", and scrollIntoView. Every single-team
+  // action (Approve/Reject/Lock/Disband/Delete/Edit) used to call
+  // openGroupRoster(_gfRosterFormId) to pick up its own change, which felt
+  // like the whole page reloading — filters reset, search cleared, scroll
+  // position lost. renderAdminGroupRoster/_gfRosterFilteredSorted already
+  // read live filter/search state on every call regardless of what's passed
+  // in, so just refreshing _gfRosterTeams and re-rendering in place is
+  // enough to show the change while leaving everything else untouched.
+  function _gfRefreshRosterInPlace() {
+    if (!_gfRosterFormId) return;
+    _adminFetch('get_group_form_roster', { group_form_id: _gfRosterFormId }).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not refresh', 'error'); return; }
+      _gfRosterTeams = res.teams || [];
+      _gfRegisterProfiles(_gfRosterTeams);
+      renderAdminGroupRoster(_gfRosterTeams, _gfRosterForm);
+    }).catch(() => showToast('Network error while refreshing', 'error'));
   }
   function _gfTeamHouse(t) { return (t.members.find(m => m.role === 'leader')?.profile || {}).house || ''; }
   function _gfTeamGroup(t) { return (t.group_data || {}).group || ''; }
@@ -30972,6 +30991,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       lucide.createIcons();
     }).catch(() => { list.innerHTML = '<p class="text-xs text-red-500 font-bold">Network error</p>'; });
   }
+  // Same reasoning as _gfRefreshRosterInPlace on the admin roster — refresh
+  // the active reviewer tab's data WITHOUT _loadGfReviewTab's "fresh open"
+  // side effects (resetting _gfReviewFilterState, blanking the search box,
+  // rebuilding the whole toolbar, flashing "Loading…"). Approve/Reject/
+  // Request Changes/Edit used to call _loadGfReviewTab(_gfReviewActiveIdx)
+  // just to pick up their own change, which felt like the page reloading.
+  function _gfRefreshReviewInPlace() {
+    const tab = _gfReviewTabs[_gfReviewActiveIdx];
+    if (!tab) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    _adminFetch('get_group_form_roster_for_rule', { rule_id: tab.rule_id, teacher_user_id: myId }).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not refresh', 'error'); return; }
+      _gfReviewTeams = res.teams || [];
+      _gfReviewForm = res.form || null;
+      _gfRegisterProfiles(_gfReviewTeams);
+      _renderGfReviewRoster(_gfReviewFilteredTeams(), _gfReviewForm);
+    }).catch(() => showToast('Network error while refreshing', 'error'));
+  }
   let _gfReviewTeams = [];
   let _gfReviewForm = null;
   // Same fully-customizable multi-dimension filter as the admin roster
@@ -31139,7 +31176,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const comment = prompt('What needs to change? This note will be shown to the team leader.');
     if (!comment || !comment.trim()) return;
     _adminFetch('request_team_changes', { team_id: teamId, comment: comment.trim(), user_id: window.APP_USER && window.APP_USER.user_id }).then(res => {
-      if (res && res.result === 'success') { _loadGfReviewTab(_gfReviewActiveIdx); showToast('Sent back for changes'); }
+      if (res && res.result === 'success') { _gfRefreshReviewInPlace(); showToast('Sent back for changes'); }
       else showToast((res && res.message) || 'Failed', 'error');
     }).catch(() => showToast('Network error', 'error'));
   }
@@ -31149,7 +31186,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // shown for canAct rows is a convenience, not the real gate.
   function setReviewStatusReviewer(teamId, status) {
     _adminFetch('set_team_review_status', { team_id: teamId, status, user_id: window.APP_USER && window.APP_USER.user_id }).then(res => {
-      if (res && res.result === 'success') _loadGfReviewTab(_gfReviewActiveIdx);
+      if (res && res.result === 'success') _gfRefreshReviewInPlace();
       else showToast((res && res.message) || 'Failed', 'error');
     }).catch(() => showToast('Network error', 'error'));
   }
@@ -31418,11 +31455,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   function editTeamDataAdmin(teamId) {
     const team = _gfRosterTeams.find(t => t.id === teamId);
-    _gfOpenEditTeamModal(team, _gfRosterForm, () => openGroupRoster(_gfRosterFormId));
+    _gfOpenEditTeamModal(team, _gfRosterForm, () => _gfRefreshRosterInPlace());
   }
   function editTeamDataReviewer(teamId) {
     const team = _gfReviewTeams.find(t => t.id === teamId);
-    _gfOpenEditTeamModal(team, _gfReviewForm, () => _loadGfReviewTab(_gfReviewActiveIdx));
+    _gfOpenEditTeamModal(team, _gfReviewForm, () => _gfRefreshReviewInPlace());
   }
   // Membership actions from inside the Edit modal — each closes the modal
   // and re-runs whichever roster/review refresh was active (_gfEditModalOnSaved,
@@ -31672,26 +31709,26 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const comment = prompt('What needs to change? This note will be shown to the team leader.');
     if (!comment || !comment.trim()) return;
     _adminFetch('request_team_changes', { team_id: teamId, comment: comment.trim(), user_id: window.APP_USER && window.APP_USER.user_id }).then(res => {
-      if (res && res.result === 'success') { openGroupRoster(_gfRosterFormId); showToast('Sent back for changes'); }
+      if (res && res.result === 'success') { _gfRefreshRosterInPlace(); showToast('Sent back for changes'); }
       else showToast((res && res.message) || 'Failed', 'error');
     }).catch(() => showToast('Network error', 'error'));
   }
   function setReviewStatusAdmin(teamId, status) {
     _adminFetch('set_team_review_status', { team_id: teamId, status, user_id: window.APP_USER && window.APP_USER.user_id }).then(res => {
-      if (res && res.result === 'success') openGroupRoster(_gfRosterFormId);
+      if (res && res.result === 'success') _gfRefreshRosterInPlace();
       else showToast((res && res.message) || 'Failed', 'error');
     }).catch(() => showToast('Network error', 'error'));
   }
   function setTeamLockAdmin(teamId, locked) {
     _adminFetch('set_team_lock', { team_id: teamId, locked }).then(res => {
-      if (res && res.result === 'success') openGroupRoster(_gfRosterFormId);
+      if (res && res.result === 'success') _gfRefreshRosterInPlace();
       else showToast((res && res.message) || 'Failed', 'error');
     }).catch(() => showToast('Network error', 'error'));
   }
   function disbandTeamAdmin(teamId) {
     if (!confirm('Disband this team?\n\nEvery member is removed (freed to join another team) but the team stays on record for history.')) return;
     _adminFetch('admin_disband_team', { team_id: teamId }).then(res => {
-      if (res && res.result === 'success') openGroupRoster(_gfRosterFormId);
+      if (res && res.result === 'success') _gfRefreshRosterInPlace();
       else showToast((res && res.message) || 'Failed', 'error');
     }).catch(() => showToast('Network error', 'error'));
   }
@@ -31703,7 +31740,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!confirm('Permanently DELETE this entry?\n\nThis removes the team, its members and its invites completely — there is no undo. Use Disband instead if you just want to free up the members.')) return;
     if (prompt('Type DELETE to confirm permanent deletion:') !== 'DELETE') return;
     _adminFetch('admin_delete_team', { team_id: teamId }).then(res => {
-      if (res && res.result === 'success') { openGroupRoster(_gfRosterFormId); showToast('Entry deleted'); }
+      if (res && res.result === 'success') { _gfRefreshRosterInPlace(); showToast('Entry deleted'); }
       else showToast((res && res.message) || 'Failed', 'error');
     }).catch(() => showToast('Network error', 'error'));
   }
@@ -31718,7 +31755,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!count) { showToast('No disbanded teams to delete', 'error'); return; }
     if (!confirm(`Permanently delete all ${count} disbanded team${count === 1 ? '' : 's'} under this form?\n\nThis removes them completely — there is no undo.`)) return;
     _adminFetch('admin_delete_all_disbanded', { group_form_id: _gfRosterFormId }).then(res => {
-      if (res && res.result === 'success') { openGroupRoster(_gfRosterFormId); showToast(`Deleted ${res.deleted} disbanded team${res.deleted === 1 ? '' : 's'}`); }
+      if (res && res.result === 'success') { _gfRefreshRosterInPlace(); showToast(`Deleted ${res.deleted} disbanded team${res.deleted === 1 ? '' : 's'}`); }
       else showToast((res && res.message) || 'Failed', 'error');
     }).catch(() => showToast('Network error', 'error'));
   }
