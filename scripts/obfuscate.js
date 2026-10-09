@@ -338,6 +338,7 @@ const RESERVED = [
   // directly (not just called) from inline onchange attributes, so it needs
   // reserving the same as a function name or renaming would break those.
   '_gfJudgesSheetConfigByForm','_gfJudgesSheetToggleCol','_gfJudgesSheetAddBlankCol','_gfJudgesSheetRemoveBlankCol','_gfPrintJudgesSheetNow',
+  '_gfJudgesSheetAddCustomCol','_gfJudgesSheetRemoveCustomCol',
   // Reviewer routing rules editor (admin, attached to the roster screen) and
   // the reviewer-facing Review Submissions view — all reached via inline
   // onclick/onchange in generated markup, plus loadGroupFormReviewView via

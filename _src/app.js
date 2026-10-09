@@ -30998,10 +30998,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       { key: 'class', label: 'Class', get: t => { const p = _gfLeaderProfile(t); return (p && p.class) || ''; } },
       { key: 'section', label: 'Section', get: t => { const p = _gfLeaderProfile(t); return (p && p.section) || ''; } },
       { key: 'leader_name', label: 'Leader Name', get: t => { const p = _gfLeaderProfile(t); return (p && p.student_name) || t.leader_student_id; } },
+      { key: 'members', label: 'All Participants', get: t => t.members.map(m => (m.profile && m.profile.student_name) || m.student_id).join(', ') },
     ];
     const formFields = fields.filter(f => f && f.data_key && f.type !== 'group_label' && f.type !== 'profile_picture')
       .map(f => ({ key: 'field:' + f.data_key, label: f.name || f.data_key, get: t => (t.group_data || {})[f.data_key] ?? '' }));
     return [...builtin, ...formFields];
+  }
+  // Fills a "combined column" template's {token}s from one team — same
+  // token-substitution idea as the bulk photo ZIP's naming template, just
+  // sourced from this sheet's own column registry so "{leader_name} &
+  // {members} — {project_title} ({house})" can pack several values into one
+  // printed column instead of needing a separate column per value.
+  function _gfJudgesSheetFillTemplate(template, t, allCols) {
+    let out = String(template || '');
+    allCols.forEach(c => { out = out.split('{' + c.key + '}').join(String(c.get(t) ?? '')); });
+    return out;
   }
   // Remembered per form (keyed by id) for the rest of the session — printing
   // twice for the same event shouldn't mean rebuilding the column picks
@@ -31013,7 +31024,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!_gfJudgesSheetConfigByForm[id]) {
       const cols = _gfJudgesSheetColumns(form);
       const defaults = ['reference_number', 'project_title', 'category', 'group'].filter(k => cols.some(c => c.key === k));
-      _gfJudgesSheetConfigByForm[id] = { dataCols: defaults, blankCols: ['Score', 'Remarks'], judgeNameLine: true };
+      _gfJudgesSheetConfigByForm[id] = { dataCols: defaults, customCols: [], blankCols: ['Score', 'Remarks'], judgeNameLine: true };
     }
     return _gfJudgesSheetConfigByForm[id];
   }
@@ -31033,6 +31044,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Data columns</span>
         <div id="gfJudgesSheetDataCols" class="flex flex-wrap gap-2 mt-2 mb-4"></div>
         <div class="flex items-center justify-between mb-2">
+          <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Combined columns (pack several values into one)</span>
+          <button type="button" onclick="_gfJudgesSheetAddCustomCol()" class="px-2.5 py-1 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase">+ Add Column</button>
+        </div>
+        <p class="text-[10px] text-slate-400 font-bold mb-2">e.g. a "Team" column as <code>{leader_name} &amp; {members}</code>, or <code>{project_title} ({house})</code>. Tokens: <span id="gfJudgesSheetTokenHint"></span></p>
+        <div id="gfJudgesSheetCustomCols" class="flex flex-col gap-2 mb-4"></div>
+        <div class="flex items-center justify-between mb-2">
           <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Blank columns (for the judge to fill in)</span>
           <button type="button" onclick="_gfJudgesSheetAddBlankCol()" class="px-2.5 py-1 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase">+ Add Column</button>
         </div>
@@ -31049,7 +31066,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.body.appendChild(overlay);
     overlay._gfTeams = teams;
     overlay._gfForm = form;
+    const hint = document.getElementById('gfJudgesSheetTokenHint');
+    if (hint) hint.textContent = cols.map(c => `{${c.key}}`).join(' ');
     _gfRenderJudgesSheetDataCols(form, cols, cfg);
+    _gfRenderJudgesSheetCustomCols(form, cfg);
     _gfRenderJudgesSheetBlankCols(form, cfg);
   }
   function _gfRenderJudgesSheetDataCols(form, cols, cfg) {
@@ -31067,6 +31087,31 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (i >= 0) cfg.dataCols.splice(i, 1); else cfg.dataCols.push(key);
     const overlay = document.getElementById('gfJudgesSheetOverlay');
     _gfRenderJudgesSheetDataCols(overlay?._gfForm, _gfJudgesSheetColumns(overlay?._gfForm), cfg);
+  }
+  function _gfRenderJudgesSheetCustomCols(form, cfg) {
+    const host = document.getElementById('gfJudgesSheetCustomCols');
+    if (!host) return;
+    host.innerHTML = cfg.customCols.map((col, i) => `
+      <div class="flex items-center gap-2">
+        <input type="text" value="${_escHtml(col.label)}" oninput="_gfJudgesSheetConfigByForm[${form?.id || 0}].customCols[${i}].label = this.value" placeholder="Column label, e.g. Team" class="w-32 shrink-0 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+        <input type="text" value="${_escHtml(col.template)}" oninput="_gfJudgesSheetConfigByForm[${form?.id || 0}].customCols[${i}].template = this.value" placeholder="e.g. {leader_name} &amp; {members} — {project_title}" class="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+        <button type="button" onclick="_gfJudgesSheetRemoveCustomCol(${form?.id || 0}, ${i})" class="p-1 text-red-400 hover:text-red-600"><i data-lucide="x" class="h-3.5 w-3.5"></i></button>
+      </div>`).join('');
+    lucide.createIcons();
+  }
+  function _gfJudgesSheetAddCustomCol() {
+    const overlay = document.getElementById('gfJudgesSheetOverlay');
+    const form = overlay?._gfForm;
+    const cfg = _gfJudgesSheetConfig(form);
+    cfg.customCols.push({ label: '', template: '' });
+    _gfRenderJudgesSheetCustomCols(form, cfg);
+  }
+  function _gfJudgesSheetRemoveCustomCol(formId, i) {
+    const cfg = _gfJudgesSheetConfigByForm[formId];
+    if (!cfg) return;
+    cfg.customCols.splice(i, 1);
+    const overlay = document.getElementById('gfJudgesSheetOverlay');
+    _gfRenderJudgesSheetCustomCols(overlay?._gfForm, cfg);
   }
   function _gfRenderJudgesSheetBlankCols(form, cfg) {
     const host = document.getElementById('gfJudgesSheetBlankCols');
@@ -31105,11 +31150,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const allCols = _gfJudgesSheetColumns(form);
     const dataCols = (cfg.dataCols.length ? cfg.dataCols : ['reference_number']).map(k => allCols.find(c => c.key === k)).filter(Boolean);
     const blankCols = cfg.blankCols.filter(l => l.trim());
-    const headCells = ['SL', ...dataCols.map(c => c.label), ...blankCols].map(h => `<th>${_escHtml(h)}</th>`).join('');
+    const customCols = (cfg.customCols || []).filter(c => c.label.trim() && c.template.trim());
+    const headCells = ['SL', ...dataCols.map(c => c.label), ...customCols.map(c => c.label), ...blankCols].map(h => `<th>${_escHtml(h)}</th>`).join('');
     const rows = teams.map((t, idx) => {
       const dataCells = dataCols.map(c => `<td${c.key === 'reference_number' ? ' class="ref"' : ''}>${_escHtml(c.get(t) || '—')}</td>`).join('');
+      const customCells = customCols.map(c => `<td>${_escHtml(_gfJudgesSheetFillTemplate(c.template, t, allCols) || '—')}</td>`).join('');
       const blankCells = blankCols.map(() => '<td class="blank"></td>').join('');
-      return `<tr><td>${idx + 1}</td>${dataCells}${blankCells}</tr>`;
+      return `<tr><td>${idx + 1}</td>${dataCells}${customCells}${blankCells}</tr>`;
     }).join('');
     const nameLine = cfg.judgeNameLine ? `<p style="font-size:11px;color:#374151;margin:0 0 12px">Judge's Name: <span style="display:inline-block;width:220px;border-bottom:1px solid #9ca3af">&nbsp;</span>&nbsp;&nbsp;&nbsp;Printed ${new Date().toLocaleString()}</p>` : `<p style="font-size:10px;color:#6b7280;margin:0 0 12px">Printed ${new Date().toLocaleString()}</p>`;
     const body = `
