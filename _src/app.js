@@ -31006,8 +31006,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       { key: 'house', label: 'House', get: t => _gfTeamHouse(t) },
       { key: 'class', label: 'Class', get: t => { const p = _gfLeaderProfile(t); return (p && p.class) || ''; } },
       { key: 'section', label: 'Section', get: t => { const p = _gfLeaderProfile(t); return (p && p.section) || ''; } },
+      { key: 'roll', label: 'Roll', get: t => { const p = _gfLeaderProfile(t); return (p && p.roll) || ''; } },
       { key: 'leader_name', label: 'Leader Name', get: t => { const p = _gfLeaderProfile(t); return (p && p.student_name) || t.leader_student_id; } },
-      { key: 'members', label: 'All Participants', get: t => t.members.map(m => (m.profile && m.profile.student_name) || m.student_id).join(', ') },
+      { key: 'members', label: 'All Participants', get: t => t.members.map(m => (m.profile && m.profile.student_name) || m.student_id).join('; ') },
     ];
     const formFields = fields.filter(f => f && f.data_key && f.type !== 'group_label' && f.type !== 'profile_picture')
       .map(f => ({ key: 'field:' + f.data_key, label: f.name || f.data_key, get: t => (t.group_data || {})[f.data_key] ?? '' }));
@@ -31017,10 +31018,29 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // token-substitution idea as the bulk photo ZIP's naming template, just
   // sourced from this sheet's own column registry so "{leader_name} &
   // {members} — {project_title} ({house})" can pack several values into one
-  // printed column instead of needing a separate column per value.
+  // printed column instead of needing a separate column per value. A token
+  // may end in ":N" (e.g. "{field:description:20}") to cap that one value to
+  // its first N words — long free-text answers (a project description) would
+  // otherwise blow out the row height; nothing else needs capping, so this
+  // is opt-in per token rather than a sheet-wide truncation setting. Plain
+  // "\n" in the template itself (not inside a token) becomes a line break in
+  // the printed cell, the same convention as the column header text, so one
+  // combined column can stack several values vertically instead of running
+  // them together on one line.
   function _gfJudgesSheetFillTemplate(template, t, allCols) {
-    let out = String(template || '');
-    allCols.forEach(c => { out = out.split('{' + c.key + '}').join(String(c.get(t) ?? '')); });
+    const out = String(template || '').replace(/\{([^}]+)\}/g, (whole, inner) => {
+      const m = inner.match(/^(.*):(\d+)$/);
+      const key = m ? m[1] : inner;
+      const wordCap = m ? parseInt(m[2], 10) : null;
+      const col = allCols.find(c => c.key === key);
+      if (!col) return whole;
+      let val = String(col.get(t) ?? '');
+      if (wordCap != null) {
+        const words = val.trim().split(/\s+/).filter(Boolean);
+        if (words.length > wordCap) val = words.slice(0, wordCap).join(' ') + '…';
+      }
+      return val;
+    });
     return out;
   }
   // Remembered per form (keyed by id) for the rest of the session — printing
@@ -31056,7 +31076,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Combined columns (pack several values into one)</span>
           <button type="button" onclick="_gfJudgesSheetAddCustomCol()" class="px-2.5 py-1 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase">+ Add Column</button>
         </div>
-        <p class="text-[10px] text-slate-400 font-bold mb-2">e.g. a "Team" column as <code>{leader_name} &amp; {members}</code>, or <code>{project_title} ({house})</code>. Tokens: <span id="gfJudgesSheetTokenHint"></span></p>
+        <p class="text-[10px] text-slate-400 font-bold mb-2">e.g. a "Team" column as <code>{leader_name} &amp; {members}</code>, or stack several values with <code>\n</code>: <code>{members}\n{class}-{section}-{roll}\n{project_title}</code>. Add <code>:20</code> to any token to cap it to its first 20 words, e.g. <code>{field:...:20}</code>. Tokens: <span id="gfJudgesSheetTokenHint"></span></p>
         <div id="gfJudgesSheetCustomCols" class="flex flex-col gap-2 mb-4"></div>
         <div class="flex items-center justify-between mb-2">
           <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Blank columns (for the judge to fill in)</span>
@@ -31102,8 +31122,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!host) return;
     host.innerHTML = cfg.customCols.map((col, i) => `
       <div class="flex items-center gap-2">
-        <input type="text" value="${_escHtml(col.label)}" oninput="_gfJudgesSheetConfigByForm[${form?.id || 0}].customCols[${i}].label = this.value" placeholder="Column label, e.g. Team" class="w-32 shrink-0 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-        <input type="text" value="${_escHtml(col.template)}" oninput="_gfJudgesSheetConfigByForm[${form?.id || 0}].customCols[${i}].template = this.value" placeholder="e.g. {leader_name} &amp; {members} — {project_title}" class="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+        <input type="text" value="${_escHtml(col.label)}" oninput="_gfJudgesSheetConfigByForm[${form?.id || 0}].customCols[${i}].label = this.value" placeholder="Column label, e.g. Team (use \n for a line break)" title="Type \n where you want the printed header to break onto a new line, e.g. Innovation\n/10" class="w-32 shrink-0 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+        <input type="text" value="${_escHtml(col.template)}" oninput="_gfJudgesSheetConfigByForm[${form?.id || 0}].customCols[${i}].template = this.value" placeholder="e.g. {members}\n{class}-{section}-{roll}\n{project_title}\n{field:...:20}" title="Pack several tokens into one cell. \n starts a new line within the cell. Add :N to a token (e.g. {field:project_details_projectposter_details:20}) to cap it to its first N words." class="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
         <button type="button" onclick="_gfJudgesSheetRemoveCustomCol(${form?.id || 0}, ${i})" class="p-1 text-red-400 hover:text-red-600"><i data-lucide="x" class="h-3.5 w-3.5"></i></button>
       </div>`).join('');
     lucide.createIcons();
@@ -31127,7 +31147,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!host) return;
     host.innerHTML = cfg.blankCols.map((label, i) => `
       <div class="flex items-center gap-2">
-        <input type="text" value="${_escHtml(label)}" oninput="_gfJudgesSheetConfigByForm[${form?.id || 0}].blankCols[${i}] = this.value" placeholder="e.g. Score, Innovation /10, Remarks" class="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+        <input type="text" value="${_escHtml(label)}" oninput="_gfJudgesSheetConfigByForm[${form?.id || 0}].blankCols[${i}] = this.value" placeholder="e.g. Score, Innovation\n/10, Remarks" title="Type \n where you want the printed header to break onto a new line, e.g. Innovation\n/10" class="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
         <button type="button" onclick="_gfJudgesSheetRemoveBlankCol(${form?.id || 0}, ${i})" class="p-1 text-red-400 hover:text-red-600" ${cfg.blankCols.length <= 1 ? 'disabled' : ''}><i data-lucide="x" class="h-3.5 w-3.5"></i></button>
       </div>`).join('');
     lucide.createIcons();
@@ -31160,10 +31180,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const dataCols = (cfg.dataCols.length ? cfg.dataCols : ['reference_number']).map(k => allCols.find(c => c.key === k)).filter(Boolean);
     const blankCols = cfg.blankCols.filter(l => l.trim());
     const customCols = (cfg.customCols || []).filter(c => c.label.trim() && c.template.trim());
-    const headCells = ['SL', ...dataCols.map(c => c.label), ...customCols.map(c => c.label), ...blankCols].map(h => `<th>${_escHtml(h)}</th>`).join('');
+    const headCells = ['SL', ...dataCols.map(c => c.label), ...customCols.map(c => c.label), ...blankCols].map(h => `<th>${_escHtml(h).replace(/\\n/g, '<br>')}</th>`).join('');
     const rows = teams.map((t, idx) => {
       const dataCells = dataCols.map(c => `<td${c.key === 'reference_number' ? ' class="ref"' : ''}>${_escHtml(c.get(t) || '—')}</td>`).join('');
-      const customCells = customCols.map(c => `<td>${_escHtml(_gfJudgesSheetFillTemplate(c.template, t, allCols) || '—')}</td>`).join('');
+      const customCells = customCols.map(c => `<td>${_escHtml(_gfJudgesSheetFillTemplate(c.template, t, allCols) || '—').replace(/\\n/g, '<br>')}</td>`).join('');
       const blankCells = blankCols.map(() => '<td class="blank"></td>').join('');
       return `<tr><td>${idx + 1}</td>${dataCells}${customCells}${blankCells}</tr>`;
     }).join('');
