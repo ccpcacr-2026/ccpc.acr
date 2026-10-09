@@ -351,6 +351,20 @@ const RESERVED = [
   'requestTeamChangesAdmin','requestTeamChangesReviewer','editTeamDataAdmin','editTeamDataReviewer','_gfToggleEditHistory',
   'gfOnRefNumberToggle','_gfOnRefNumberSourceChange','gfAddRefNumberPart',
   'setReviewStatusAdmin','setReviewStatusReviewer','gfShowStudentInfo',
+  // Judging rubric builder (Group Form editor) — "+ Add Criterion" button
+  // and each row's own remove button are inline onclick in generated markup.
+  'gfAddCriterionRow',
+  // Judges (digital scoring) manager panel — toolbar button plus every
+  // row's inline onclick/onchange in generated markup.
+  'toggleGroupFormJudgesPanel','gfCreateJudge','gfRenameJudge','gfToggleJudgeEnabled',
+  'gfShowJudgeLinkQr','gfRegenerateJudgeCode','gfDeleteJudge',
+  // Judges Sheet's new "Judge" live-fill dropdown, plus the whole separate
+  // Judges' Combined Result sheet (its own modal/column-picker/judge-picker,
+  // mirroring the Judges Sheet's own _gfJudgesSheet* set above) — all
+  // reached via inline onclick/onchange in generated markup.
+  '_gfRenderJudgesSheetJudgeSelect',
+  'printGroupFormJudgesCombined','_printGfReviewJudgesCombined',
+  '_gfOpenJudgesCombinedModal','_gfJudgesCombinedToggleCol','_gfJudgesCombinedToggleJudge','_gfPrintJudgesCombinedNow',
   // Icon picker (Tab builder + Group Form builder) — called via inline
   // onclick="_pickIcon(this)" in generated grid buttons.
   '_pickIcon',

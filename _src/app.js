@@ -29802,6 +29802,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
         </div>
 
+        <div class="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
+          <span class="text-[10px] font-black text-slate-400 uppercase">Judging Rubric</span>
+          <p class="text-[11px] text-slate-400 font-bold mt-1 mb-3">Each criterion becomes one scoring field on a judge's own link (set up judges from this form's card, below), and one column on the printable Judges Sheet. Leave empty if this form isn't judged.</p>
+          <div id="gfCriteriaList" class="flex flex-col gap-2"></div>
+          <button type="button" onclick="gfAddCriterionRow()" class="mt-2 px-3 py-1.5 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100">+ Add Criterion</button>
+        </div>
+
         <div class="grid grid-cols-2 gap-2 mt-4">
           <button onclick="addTabRow('field')" class="px-4 py-2.5 border border-blue-200 text-blue-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-blue-50 transition-all">+ New Input</button>
           <button onclick="addTabRow('label')" class="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">+ New Header</button>
@@ -29832,7 +29839,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="printGroupFormProjectList()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="list-ordered" class="h-3 w-3"></i>Project List</button>
             <button onclick="printGroupFormTokenList()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="ticket" class="h-3 w-3"></i>Token List</button>
             <button onclick="printGroupFormTableStickers()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="tag" class="h-3 w-3"></i>Table Sticker</button>
-            <button onclick="printGroupFormJudgesSheet()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1" title="Configurable score sheet for judges — pick which columns show and add blank hand-fill columns for your rubric"><i data-lucide="clipboard-list" class="h-3 w-3"></i>Judges Sheet</button>
+            <button onclick="printGroupFormJudgesSheet()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1" title="Configurable score sheet for judges — pick which columns show, pull in a judge's live scores, or leave blank for hand-fill"><i data-lucide="clipboard-list" class="h-3 w-3"></i>Judges Sheet</button>
+            <button onclick="printGroupFormJudgesCombined()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1" title="Every judge's score side by side, with an average and a position"><i data-lucide="bar-chart-3" class="h-3 w-3"></i>Judges' Combined Result</button>
+            <button onclick="toggleGroupFormJudgesPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="gavel" class="h-3 w-3"></i>Judges</button>
             <button onclick="toggleGroupFormReviewerPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="users" class="h-3 w-3"></i>Reviewers</button>
             <button id="gfAddTeamBtn" onclick="gfOpenAdminCreateTeamModal()" class="px-3 py-1.5 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase flex items-center gap-1" title="Create a team for a student directly, bypassing Active/Open/Filter rules"><i data-lucide="plus" class="h-3 w-3"></i>Add Team</button>
             <button id="gfDelDisbandedBtn" onclick="deleteAllDisbandedTeams()" class="px-3 py-1.5 border border-red-200 text-red-600 rounded-full font-black text-[10px] uppercase hover:bg-red-50 flex items-center gap-1"><i data-lucide="trash-2" class="h-3 w-3"></i>Delete Disbanded</button>
@@ -29849,6 +29858,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <p class="text-[11px] text-slate-400 font-bold mb-3">Grant a teacher (or "whoever is class teacher of X") access to review one slice of this form's submissions — e.g. "All Teams" for one reviewer, "Group A" for another. A teacher with several rules sees each as its own tab on their own Review page.</p>
           <div id="gfReviewerRulesList" class="flex flex-col gap-2"></div>
           <button onclick="saveGroupFormReviewerRules()" class="mt-3 px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Reviewer Rules</button>
+        </div>
+        <div id="gfJudgesPanel" class="hidden mb-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-[10px] font-black text-slate-400 uppercase">Judges</span>
+            <button onclick="gfCreateJudge()" class="px-3 py-1.5 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase">+ Add Judge</button>
+          </div>
+          <p class="text-[11px] text-slate-400 font-bold mb-3">Each judge gets their own private link — no login needed. They open it on their own phone, see the roster, and type scores straight in. Share the link via the QR/Copy button; nothing here needs a Save button, every change here takes effect immediately.</p>
+          <div id="gfJudgesList" class="flex flex-col gap-2"></div>
         </div>
         <div id="gfRosterSummary" class="mb-4"></div>
         <div id="adminGroupRosterList" class="flex flex-col gap-3"></div>
@@ -30358,6 +30375,47 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
   }
 
+  // One row per judging criterion — label + max points, same bare-bones
+  // list-builder shape as the Judges Sheet's own blank-column list
+  // (_gfRenderJudgesSheetBlankCols), just persisted server-side instead of
+  // being print-session-only. `key` is assigned ONCE, here, and never
+  // changes — group_form_judge_scores rows are keyed by it, so renaming a
+  // criterion or reordering the list later can't orphan scores already
+  // saved against it.
+  function _gfCriterionRowHtml(crit) {
+    return `<div class="gf-criterion-row flex items-center gap-2 bg-white p-2.5 rounded-xl border border-slate-200">
+      <input type="hidden" class="gf-criterion-key" value="${_escHtml(crit.key)}">
+      <input type="text" value="${_escHtml(crit.label || '')}" placeholder="e.g. Innovation" class="gf-criterion-label flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+      <span class="text-[10px] font-black text-slate-400 uppercase shrink-0">out of</span>
+      <input type="number" min="1" value="${crit.max || 10}" class="gf-criterion-max w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+      <button type="button" onclick="this.closest('.gf-criterion-row').remove()" class="w-7 h-7 flex items-center justify-center rounded-lg text-red-400 hover:bg-red-50 shrink-0"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+    </div>`;
+  }
+  function gfAddCriterionRow(crit) {
+    const list = document.getElementById('gfCriteriaList');
+    if (!list) return;
+    const wrap = document.createElement('div');
+    wrap.innerHTML = _gfCriterionRowHtml(crit || { key: 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5) });
+    list.appendChild(wrap.firstElementChild);
+    lucide.createIcons();
+  }
+  function gfReadCriteriaConfig() {
+    const rows = Array.from(document.querySelectorAll('#gfCriteriaList .gf-criterion-row'));
+    const criteria = rows
+      .map(row => ({
+        key: row.querySelector('.gf-criterion-key').value,
+        label: row.querySelector('.gf-criterion-label').value.trim(),
+        max: Math.max(1, Number(row.querySelector('.gf-criterion-max').value) || 10),
+      }))
+      .filter(c => c.label);
+    return JSON.stringify(criteria);
+  }
+  function gfLoadCriteriaConfig(json) {
+    let criteria = []; try { criteria = JSON.parse(json || '[]') || []; } catch (e) {}
+    document.getElementById('gfCriteriaList').innerHTML = '';
+    criteria.forEach(c => gfAddCriterionRow(c));
+  }
+
   // Opens the (collapsed-by-default) builder for a brand-new Group Form —
   // the "+ New Group Form" button's own handler. Reuses cancelGroupFormEdit
   // to actually blank every field (same reset Cancel/a successful Save
@@ -30384,6 +30442,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('gfIsEnabled').checked = true;
     document.getElementById('gfAcceptingNew').checked = true;
     gfResetEligibilityForm();
+    document.getElementById('gfCriteriaList').innerHTML = '';
     _activeFieldsContainerId = 'gfFieldsList';
     document.getElementById('gfFieldsList').innerHTML = '';
   }
@@ -30416,6 +30475,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       fields.forEach(fld => addTabRow(fld.type === 'group_label' ? 'label' : 'field', fld));
       refreshAllShowIfControllers();
       gfLoadRefNumberConfig(f.reference_number_json);
+      gfLoadCriteriaConfig(f.judging_criteria_json);
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -30446,6 +30506,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       // from the card checkbox (toggleGroupFormFlag) now, same reasoning as
       // condition_json/accepting_condition_json above.
       reference_number_json: gfReadRefNumberConfig(),
+      judging_criteria_json: gfReadCriteriaConfig(),
       is_enabled: document.getElementById('gfIsEnabled').checked,
       accepting_new: document.getElementById('gfAcceptingNew').checked,
     };
@@ -31009,6 +31070,31 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       { key: 'roll', label: 'Roll', get: t => { const p = _gfLeaderProfile(t); return (p && p.roll) || ''; } },
       { key: 'leader_name', label: 'Leader Name', get: t => { const p = _gfLeaderProfile(t); return (p && p.student_name) || t.leader_student_id; } },
       { key: 'members', label: 'All Participants', get: t => t.members.map(m => (m.profile && m.profile.student_name) || m.student_id).join('; ') },
+      // One ready-made multi-line cell: house + ref no, then EACH member on
+      // their own line with their OWN class-section-roll (not just the
+      // leader's — the plain {members} token above can only ever fill one
+      // flat line per team), then the project title in bold, then its
+      // description capped to 20 words. Built as real HTML directly here
+      // (html:true tells the sheet/combined-result builders below to skip
+      // their usual _escHtml on this one column) rather than through the
+      // {token} template system, since that system fills one value per
+      // token and can't repeat itself once per member.
+      {
+        key: 'team_info', label: 'Team Info', html: true, get: t => {
+          const lines = [];
+          const refLine = [_gfTeamHouse(t), t.reference_number || ('#' + t.id)].filter(Boolean).map(_escHtml).join(' ');
+          if (refLine) lines.push(refLine);
+          t.members.forEach(m => {
+            const p = m.profile;
+            const csr = p ? [p.class, p.section].filter(Boolean).join('-') + (p.roll ? '-' + p.roll : '') : '';
+            lines.push(_escHtml((p && p.student_name) || m.student_id) + (csr ? ' (' + _escHtml(csr) + ')' : ''));
+          });
+          lines.push('<b>' + _escHtml(_gfProjectTitle(t, form)) + '</b>');
+          const desc = _gfAnswerByName(t, form, /detail|description/i);
+          if (desc) lines.push(_escHtml(_gfCapWords(desc, 20)));
+          return lines.join('<br>');
+        },
+      },
     ];
     const formFields = fields.filter(f => f && f.data_key && f.type !== 'group_label' && f.type !== 'profile_picture')
       .map(f => ({ key: 'field:' + f.data_key, label: f.name || f.data_key, get: t => (t.group_data || {})[f.data_key] ?? '' }));
@@ -31027,6 +31113,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // the printed cell, the same convention as the column header text, so one
   // combined column can stack several values vertically instead of running
   // them together on one line.
+  function _gfCapWords(s, n) {
+    const words = String(s || '').trim().split(/\s+/).filter(Boolean);
+    return words.length > n ? words.slice(0, n).join(' ') + '…' : words.join(' ');
+  }
   function _gfJudgesSheetFillTemplate(template, t, allCols) {
     const out = String(template || '').replace(/\{([^}]+)\}/g, (whole, inner) => {
       const m = inner.match(/^(.*):(\d+)$/);
@@ -31035,10 +31125,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const col = allCols.find(c => c.key === key);
       if (!col) return whole;
       let val = String(col.get(t) ?? '');
-      if (wordCap != null) {
-        const words = val.trim().split(/\s+/).filter(Boolean);
-        if (words.length > wordCap) val = words.slice(0, wordCap).join(' ') + '…';
-      }
+      if (wordCap != null) val = _gfCapWords(val, wordCap);
       return val;
     });
     return out;
@@ -31053,11 +31140,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!_gfJudgesSheetConfigByForm[id]) {
       const cols = _gfJudgesSheetColumns(form);
       const defaults = ['reference_number', 'project_title', 'category', 'group'].filter(k => cols.some(c => c.key === k));
-      _gfJudgesSheetConfigByForm[id] = { dataCols: defaults, customCols: [], blankCols: ['Score', 'Remarks'], judgeNameLine: true };
+      _gfJudgesSheetConfigByForm[id] = { dataCols: defaults, customCols: [], blankCols: ['Score', 'Remarks'], judgeNameLine: true, judgeId: null, customTitle: '', showFilterSubheader: false };
     }
     return _gfJudgesSheetConfigByForm[id];
   }
-  function _gfOpenJudgesSheetModal(teams, form) {
+  function _gfOpenJudgesSheetModal(teams, form, filterSummary) {
     if (!teams.length) { showToast('No teams to print yet', 'error'); return; }
     const cols = _gfJudgesSheetColumns(form);
     const cfg = _gfJudgesSheetConfig(form);
@@ -31070,6 +31157,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div class="bg-white rounded-3xl w-full max-w-lg p-5 shadow-2xl max-h-[85vh] overflow-y-auto">
         <p class="font-black text-slate-800 text-sm mb-1">Judges Sheet</p>
         <p class="text-[11px] text-slate-400 font-bold mb-4">Pick which columns appear, and add as many blank hand-fill columns as the judging rubric needs — this is remembered for next time you print this form's sheet.</p>
+        <div class="mb-4">
+          <label class="text-[10px] font-black text-slate-400 uppercase">Judge</label>
+          <select id="gfJudgesSheetJudgeSelect" disabled onchange="_gfJudgesSheetConfigByForm[${form?.id || 0}].judgeId = this.value || null" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mt-1">
+            <option value="">(blank — hand-fill)</option>
+          </select>
+          <p class="text-[10px] text-slate-400 font-bold mt-1">Pick a real judge to fill the score columns from their actual saved input instead of printing them blank — adds Total and Position too, ranked within whatever's currently filtered/sorted on the roster.</p>
+        </div>
         <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Data columns</span>
         <div id="gfJudgesSheetDataCols" class="flex flex-wrap gap-2 mt-2 mb-4"></div>
         <div class="flex items-center justify-between mb-2">
@@ -31079,13 +31173,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <p class="text-[10px] text-slate-400 font-bold mb-2">e.g. a "Team" column as <code>{leader_name} &amp; {members}</code>, or stack several values with <code>\n</code>: <code>{members}\n{class}-{section}-{roll}\n{project_title}</code>. Add <code>:20</code> to any token to cap it to its first 20 words, e.g. <code>{field:...:20}</code>. Tokens: <span id="gfJudgesSheetTokenHint"></span></p>
         <div id="gfJudgesSheetCustomCols" class="flex flex-col gap-2 mb-4"></div>
         <div class="flex items-center justify-between mb-2">
-          <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Blank columns (for the judge to fill in)</span>
+          <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Blank columns (for the judge to fill in — ignored when a real Judge above has scores)</span>
           <button type="button" onclick="_gfJudgesSheetAddBlankCol()" class="px-2.5 py-1 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase">+ Add Column</button>
         </div>
         <div id="gfJudgesSheetBlankCols" class="flex flex-col gap-2 mb-4"></div>
-        <label class="flex items-center gap-2 mb-4">
+        <label class="flex items-center gap-2 mb-3">
           <input type="checkbox" id="gfJudgesSheetNameLine" ${cfg.judgeNameLine ? 'checked' : ''} onchange="_gfJudgesSheetConfigByForm[${form?.id || 0}].judgeNameLine = this.checked">
           <span class="text-xs font-bold text-slate-600">Include a "Judge's Name: ____" line at the top</span>
+        </label>
+        <div class="mb-3">
+          <label class="text-[10px] font-black text-slate-400 uppercase">Title</label>
+          <input type="text" value="${_escHtml(cfg.customTitle || '')}" placeholder="${_escHtml((form?.title || 'Judging') + ' — Judges Score Sheet')}" oninput="_gfJudgesSheetConfigByForm[${form?.id || 0}].customTitle = this.value" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mt-1">
+        </div>
+        <label class="flex items-center gap-2 mb-4">
+          <input type="checkbox" ${cfg.showFilterSubheader ? 'checked' : ''} ${filterSummary ? '' : 'disabled'} onchange="_gfJudgesSheetConfigByForm[${form?.id || 0}].showFilterSubheader = this.checked">
+          <span class="text-xs font-bold text-slate-600">Show active filter as a subheader${filterSummary ? ' (' + _escHtml(filterSummary) + ')' : ' (no filter is active right now)'}</span>
         </label>
         <div class="flex items-center gap-2">
           <button type="button" onclick="_gfPrintJudgesSheetNow()" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white">Print</button>
@@ -31095,11 +31197,27 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.body.appendChild(overlay);
     overlay._gfTeams = teams;
     overlay._gfForm = form;
+    overlay._gfFilterSummary = filterSummary;
     const hint = document.getElementById('gfJudgesSheetTokenHint');
     if (hint) hint.textContent = cols.map(c => `{${c.key}}`).join(' ');
     _gfRenderJudgesSheetDataCols(form, cols, cfg);
     _gfRenderJudgesSheetCustomCols(form, cfg);
     _gfRenderJudgesSheetBlankCols(form, cfg);
+    overlay._gfJudgeDataReady = form ? Promise.all([
+      _adminFetch('admin_list_judges', { group_form_id: form.id }),
+      _adminFetch('admin_get_judge_scores', { group_form_id: form.id }),
+    ]).then(([jr, sr]) => {
+      cfg._judges = (jr && jr.result === 'success') ? jr.judges : [];
+      cfg._judgeScores = (sr && sr.result === 'success') ? sr.scores : [];
+      _gfRenderJudgesSheetJudgeSelect(cfg);
+    }) : Promise.resolve();
+  }
+  function _gfRenderJudgesSheetJudgeSelect(cfg) {
+    const sel = document.getElementById('gfJudgesSheetJudgeSelect');
+    if (!sel) return;
+    const judges = cfg._judges || [];
+    sel.innerHTML = '<option value="">(blank — hand-fill)</option>' + judges.map(j => `<option value="${j.id}" ${String(cfg.judgeId) === String(j.id) ? 'selected' : ''}>${_escHtml(j.name)}</option>`).join('');
+    sel.disabled = !judges.length;
   }
   function _gfRenderJudgesSheetDataCols(form, cols, cfg) {
     const host = document.getElementById('gfJudgesSheetDataCols');
@@ -31169,27 +31287,83 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _gfPrintJudgesSheetNow() {
     const overlay = document.getElementById('gfJudgesSheetOverlay');
     if (!overlay) return;
-    const form = overlay._gfForm, teams = overlay._gfTeams;
+    const form = overlay._gfForm, teams = overlay._gfTeams, filterSummary = overlay._gfFilterSummary;
     const cfg = _gfJudgesSheetConfig(form);
+    const ready = overlay._gfJudgeDataReady || Promise.resolve();
     overlay.remove();
-    _gfBuildJudgesSheet(teams, form, cfg);
+    ready.then(() => _gfBuildJudgesSheet(teams, form, cfg, filterSummary));
   }
-  function _gfBuildJudgesSheet(teams, form, cfg) {
+  // Standard competition ranking (ties share a rank; the next distinct
+  // value resumes at "count of items strictly above it, plus one" — e.g.
+  // 1,2,2,4) over a {id, value} list, descending by value. Shared by the
+  // per-judge sheet (ranks Total) and the Combined Result sheet (ranks
+  // Average) — both rank only among the teams actually passed in, i.e.
+  // whatever's currently filtered/sorted on screen, same scope the sheet's
+  // own SL column already prints in.
+  function _gfRankByValueDesc(items) {
+    const positions = {};
+    const sorted = items.filter(x => x.value != null).sort((a, b) => b.value - a.value);
+    let rank = 0, last = null;
+    sorted.forEach((x, i) => { if (x.value !== last) { rank = i + 1; last = x.value; } positions[x.id] = rank; });
+    return positions;
+  }
+  // Which of the roster's own filter dimensions are currently narrowed, as
+  // one human-readable line — "Category: Physics · House: Jupiter" — for
+  // the optional printed subheader. Admin and reviewer keep separate filter
+  // states (_gfRosterFilterState/_gfReviewFilterState) but the same shape.
+  function _gfActiveFilterSummary(filterState) {
+    if (!filterState) return '';
+    const labels = { submission: 'Submission', review: 'Review Status', house: 'House', group: 'Group', category: 'Category' };
+    return Object.keys(labels)
+      .filter(k => filterState[k] && filterState[k].size)
+      .map(k => labels[k] + ': ' + Array.from(filterState[k]).join('/'))
+      .join(' · ');
+  }
+  function _gfBuildJudgesSheet(teams, form, cfg, filterSummary) {
     if (!teams.length) return;
     const allCols = _gfJudgesSheetColumns(form);
     const dataCols = (cfg.dataCols.length ? cfg.dataCols : ['reference_number']).map(k => allCols.find(c => c.key === k)).filter(Boolean);
-    const blankCols = cfg.blankCols.filter(l => l.trim());
     const customCols = (cfg.customCols || []).filter(c => c.label.trim() && c.template.trim());
-    const headCells = ['SL', ...dataCols.map(c => c.label), ...customCols.map(c => c.label), ...blankCols].map(h => `<th>${_escHtml(h).replace(/\\n/g, '<br>')}</th>`).join('');
+    let criteria = []; try { criteria = JSON.parse(form?.judging_criteria_json || '[]') || []; } catch (e) {}
+    const judge = cfg.judgeId ? (cfg._judges || []).find(j => String(j.id) === String(cfg.judgeId)) : null;
+    const scoresByTeam = {};
+    if (judge) {
+      (cfg._judgeScores || []).filter(r => String(r.judge_id) === String(judge.id)).forEach(r => {
+        try { scoresByTeam[r.team_id] = JSON.parse(r.scores_json || '{}') || {}; } catch (e) { scoresByTeam[r.team_id] = {}; }
+      });
+    }
+    const totalFor = t => {
+      const s = scoresByTeam[t.id];
+      if (!s) return null;
+      let sum = 0, any = false;
+      criteria.forEach(c => { const v = Number(s[c.key]); if (!isNaN(v)) { sum += v; any = true; } });
+      return any ? sum : null;
+    };
+    const positions = judge ? _gfRankByValueDesc(teams.map(t => ({ id: t.id, value: totalFor(t) }))) : {};
+    const blankCols = judge ? [] : cfg.blankCols.filter(l => l.trim());
+    const headCells = ['SL', ...dataCols.map(c => c.label), ...customCols.map(c => c.label),
+      ...(judge ? [...criteria.map(c => c.label + ' /' + c.max), 'Total', 'Position'] : blankCols)]
+      .map(h => `<th>${_escHtml(h).replace(/\\n/g, '<br>')}</th>`).join('');
     const rows = teams.map((t, idx) => {
-      const dataCells = dataCols.map(c => `<td${c.key === 'reference_number' ? ' class="ref"' : ''}>${_escHtml(c.get(t) || '—')}</td>`).join('');
+      const dataCells = dataCols.map(c => `<td${c.key === 'reference_number' ? ' class="ref"' : ''}>${c.html ? (c.get(t) || '—') : _escHtml(c.get(t) || '—')}</td>`).join('');
       const customCells = customCols.map(c => `<td>${_escHtml(_gfJudgesSheetFillTemplate(c.template, t, allCols) || '—').replace(/\\n/g, '<br>')}</td>`).join('');
-      const blankCells = blankCols.map(() => '<td class="blank"></td>').join('');
-      return `<tr><td>${idx + 1}</td>${dataCells}${customCells}${blankCells}</tr>`;
+      let tailCells;
+      if (judge) {
+        const s = scoresByTeam[t.id] || {};
+        const critCells = criteria.map(c => `<td>${s[c.key] != null ? _escHtml(s[c.key]) : '—'}</td>`).join('');
+        const total = totalFor(t);
+        tailCells = critCells + `<td><b>${total != null ? total : '—'}</b></td><td>${positions[t.id] != null ? positions[t.id] : '—'}</td>`;
+      } else {
+        tailCells = blankCols.map(() => '<td class="blank"></td>').join('');
+      }
+      return `<tr><td>${idx + 1}</td>${dataCells}${customCells}${tailCells}</tr>`;
     }).join('');
-    const nameLine = cfg.judgeNameLine ? `<p style="font-size:11px;color:#374151;margin:0 0 12px">Judge's Name: <span style="display:inline-block;width:220px;border-bottom:1px solid #9ca3af">&nbsp;</span>&nbsp;&nbsp;&nbsp;Printed ${new Date().toLocaleString()}</p>` : `<p style="font-size:10px;color:#6b7280;margin:0 0 12px">Printed ${new Date().toLocaleString()}</p>`;
+    const nameLine = cfg.judgeNameLine ? `<p style="font-size:11px;color:#374151;margin:0 0 12px">Judge's Name: <span style="display:inline-block;width:220px;border-bottom:1px solid #9ca3af">${judge ? _escHtml(judge.name) : '&nbsp;'}</span>&nbsp;&nbsp;&nbsp;Printed ${new Date().toLocaleString()}</p>` : `<p style="font-size:10px;color:#6b7280;margin:0 0 12px">Printed ${new Date().toLocaleString()}</p>`;
+    const titleText = (cfg.customTitle && cfg.customTitle.trim()) || `${form?.title || 'Judging'} — Judges Score Sheet`;
+    const subheaderHtml = (cfg.showFilterSubheader && filterSummary) ? `<p style="font-size:11px;color:#6b7280;margin:0 0 6px">${_escHtml(filterSummary)}</p>` : '';
     const body = `
-      <h1 style="font-size:16px;margin:0 0 2px">${_escHtml(form?.title || 'Judging')} — Judges Score Sheet</h1>
+      <h1 style="font-size:16px;margin:0 0 2px">${_escHtml(titleText)}</h1>
+      ${subheaderHtml}
       ${nameLine}
       <table>
         <thead><tr>${headCells}</tr></thead>
@@ -31208,8 +31382,180 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       tr, td { page-break-inside: avoid; break-inside: avoid; }`;
     _gfOpenPrintWindow(`${form?.title || 'Judges'} — Score Sheet`, body, css);
   }
-  function printGroupFormJudgesSheet() { _gfOpenJudgesSheetModal(_gfRosterFilteredSorted(), _gfRosterForm); }
-  function _printGfReviewJudgesSheet() { _gfOpenJudgesSheetModal(_gfReviewFilteredTeams(), _gfReviewForm); }
+  function printGroupFormJudgesSheet() { _gfOpenJudgesSheetModal(_gfRosterFilteredSorted(), _gfRosterForm, _gfActiveFilterSummary(_gfRosterFilterState)); }
+  function _printGfReviewJudgesSheet() { _gfOpenJudgesSheetModal(_gfReviewFilteredTeams(), _gfReviewForm, _gfActiveFilterSummary(_gfReviewFilterState)); }
+
+  // ── Judges' Combined Result — every (selected) judge's own total for a
+  // team, side by side, plus an Average and a Position. A sibling of the
+  // per-judge Judges Sheet above, sharing its column registry
+  // (_gfJudgesSheetColumns, including the team_info built-in) and its
+  // ranking helper, but its own remembered config — picking which judges to
+  // include is this sheet's own job, not the per-judge sheet's "Judge"
+  // dropdown.
+  let _gfJudgesCombinedConfigByForm = {};
+  function _gfJudgesCombinedConfig(form) {
+    const id = form?.id || 0;
+    if (!_gfJudgesCombinedConfigByForm[id]) {
+      const cols = _gfJudgesSheetColumns(form);
+      const defaults = ['reference_number', 'team_info'].filter(k => cols.some(c => c.key === k));
+      _gfJudgesCombinedConfigByForm[id] = { dataCols: defaults, judgeIds: null, customTitle: '', showFilterSubheader: false };
+    }
+    return _gfJudgesCombinedConfigByForm[id];
+  }
+  function _gfOpenJudgesCombinedModal(teams, form, filterSummary) {
+    if (!teams.length) { showToast('No teams to print yet', 'error'); return; }
+    const cols = _gfJudgesSheetColumns(form);
+    const cfg = _gfJudgesCombinedConfig(form);
+    document.getElementById('gfJudgesCombinedOverlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'gfJudgesCombinedOverlay';
+    overlay.className = 'fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4';
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+    overlay.innerHTML = `
+      <div class="bg-white rounded-3xl w-full max-w-lg p-5 shadow-2xl max-h-[85vh] overflow-y-auto">
+        <p class="font-black text-slate-800 text-sm mb-1">Judges' Combined Result</p>
+        <p class="text-[11px] text-slate-400 font-bold mb-4">Every selected judge's total, side by side, computed live from their saved scores — plus an average and a position.</p>
+        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Data columns</span>
+        <div id="gfJudgesCombinedDataCols" class="flex flex-wrap gap-2 mt-2 mb-4"></div>
+        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Judges to include</span>
+        <div id="gfJudgesCombinedJudgeList" class="flex flex-wrap gap-2 mt-2 mb-4"><p class="text-xs text-slate-400 font-bold">Loading…</p></div>
+        <div class="mb-3">
+          <label class="text-[10px] font-black text-slate-400 uppercase">Title</label>
+          <input type="text" value="${_escHtml(cfg.customTitle || '')}" placeholder="${_escHtml((form?.title || 'Judging') + ' — Combined Result')}" oninput="_gfJudgesCombinedConfigByForm[${form?.id || 0}].customTitle = this.value" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mt-1">
+        </div>
+        <label class="flex items-center gap-2 mb-4">
+          <input type="checkbox" ${cfg.showFilterSubheader ? 'checked' : ''} ${filterSummary ? '' : 'disabled'} onchange="_gfJudgesCombinedConfigByForm[${form?.id || 0}].showFilterSubheader = this.checked">
+          <span class="text-xs font-bold text-slate-600">Show active filter as a subheader${filterSummary ? ' (' + _escHtml(filterSummary) + ')' : ' (no filter is active right now)'}</span>
+        </label>
+        <div class="flex items-center gap-2">
+          <button type="button" onclick="_gfPrintJudgesCombinedNow()" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white">Print</button>
+          <button type="button" onclick="document.getElementById('gfJudgesCombinedOverlay').remove()" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-slate-100 text-slate-500 hover:bg-slate-200">Cancel</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    overlay._gfTeams = teams;
+    overlay._gfForm = form;
+    overlay._gfFilterSummary = filterSummary;
+    _gfRenderJudgesCombinedDataCols(form, cols, cfg);
+    overlay._gfReady = form ? Promise.all([
+      _adminFetch('admin_list_judges', { group_form_id: form.id }),
+      _adminFetch('admin_get_judge_scores', { group_form_id: form.id }),
+    ]).then(([jr, sr]) => {
+      cfg._judges = (jr && jr.result === 'success') ? jr.judges.filter(j => j.is_enabled) : [];
+      if (cfg.judgeIds == null) cfg.judgeIds = cfg._judges.map(j => j.id);
+      cfg._judgeScores = (sr && sr.result === 'success') ? sr.scores : [];
+      _gfRenderJudgesCombinedJudgeList(form, cfg);
+    }) : Promise.resolve();
+  }
+  function _gfRenderJudgesCombinedDataCols(form, cols, cfg) {
+    const host = document.getElementById('gfJudgesCombinedDataCols');
+    if (!host) return;
+    host.innerHTML = cols.map(c => `
+      <label class="px-2.5 py-1 rounded-full font-black text-[10px] uppercase cursor-pointer ${cfg.dataCols.includes(c.key) ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'}">
+        <input type="checkbox" class="hidden" ${cfg.dataCols.includes(c.key) ? 'checked' : ''} onchange='_gfJudgesCombinedToggleCol(${JSON.stringify(form?.id || 0)}, ${JSON.stringify(c.key)})'>${_escHtml(c.label)}
+      </label>`).join('');
+  }
+  function _gfJudgesCombinedToggleCol(formId, key) {
+    const cfg = _gfJudgesCombinedConfigByForm[formId];
+    if (!cfg) return;
+    const i = cfg.dataCols.indexOf(key);
+    if (i >= 0) cfg.dataCols.splice(i, 1); else cfg.dataCols.push(key);
+    const overlay = document.getElementById('gfJudgesCombinedOverlay');
+    _gfRenderJudgesCombinedDataCols(overlay?._gfForm, _gfJudgesSheetColumns(overlay?._gfForm), cfg);
+  }
+  function _gfRenderJudgesCombinedJudgeList(form, cfg) {
+    const host = document.getElementById('gfJudgesCombinedJudgeList');
+    if (!host) return;
+    const judges = cfg._judges || [];
+    if (!judges.length) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No judges set up for this form yet — use the "Judges" button on the toolbar.</p>'; return; }
+    host.innerHTML = judges.map(j => `
+      <label class="px-2.5 py-1 rounded-full font-black text-[10px] uppercase cursor-pointer ${(cfg.judgeIds || []).includes(j.id) ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'}">
+        <input type="checkbox" class="hidden" ${(cfg.judgeIds || []).includes(j.id) ? 'checked' : ''} onchange='_gfJudgesCombinedToggleJudge(${JSON.stringify(form?.id || 0)}, ${j.id})'>${_escHtml(j.name)}
+      </label>`).join('');
+  }
+  function _gfJudgesCombinedToggleJudge(formId, judgeId) {
+    const cfg = _gfJudgesCombinedConfigByForm[formId];
+    if (!cfg) return;
+    const i = (cfg.judgeIds || []).indexOf(judgeId);
+    if (i >= 0) cfg.judgeIds.splice(i, 1); else cfg.judgeIds.push(judgeId);
+    const overlay = document.getElementById('gfJudgesCombinedOverlay');
+    _gfRenderJudgesCombinedJudgeList(overlay?._gfForm, cfg);
+  }
+  function _gfPrintJudgesCombinedNow() {
+    const overlay = document.getElementById('gfJudgesCombinedOverlay');
+    if (!overlay) return;
+    const form = overlay._gfForm, teams = overlay._gfTeams, filterSummary = overlay._gfFilterSummary;
+    const cfg = _gfJudgesCombinedConfig(form);
+    const ready = overlay._gfReady || Promise.resolve();
+    overlay.remove();
+    ready.then(() => _gfBuildJudgesCombined(teams, form, cfg, filterSummary));
+  }
+  function _gfBuildJudgesCombined(teams, form, cfg, filterSummary) {
+    if (!teams.length) return;
+    const allCols = _gfJudgesSheetColumns(form);
+    const dataCols = (cfg.dataCols.length ? cfg.dataCols : ['reference_number']).map(k => allCols.find(c => c.key === k)).filter(Boolean);
+    let criteria = []; try { criteria = JSON.parse(form?.judging_criteria_json || '[]') || []; } catch (e) {}
+    const judges = (cfg._judges || []).filter(j => (cfg.judgeIds || []).includes(j.id));
+    const scoresByJudgeTeam = {};
+    (cfg._judgeScores || []).forEach(r => {
+      scoresByJudgeTeam[r.judge_id] = scoresByJudgeTeam[r.judge_id] || {};
+      try { scoresByJudgeTeam[r.judge_id][r.team_id] = JSON.parse(r.scores_json || '{}') || {}; } catch (e) {}
+    });
+    const totalFor = (judgeId, team) => {
+      const s = (scoresByJudgeTeam[judgeId] || {})[team.id];
+      if (!s) return null;
+      let sum = 0, any = false;
+      criteria.forEach(c => { const v = Number(s[c.key]); if (!isNaN(v)) { sum += v; any = true; } });
+      return any ? sum : null;
+    };
+    // Average only of judges who have ACTUALLY scored this team — a judge
+    // who hasn't gotten to a team yet must never silently count as a zero
+    // and drag its average down; `graded < of` just flags it with a
+    // footnote instead.
+    const avgByTeam = {};
+    teams.forEach(t => {
+      const vals = judges.map(j => totalFor(j.id, t)).filter(v => v != null);
+      avgByTeam[t.id] = vals.length ? { avg: vals.reduce((a, b) => a + b, 0) / vals.length, graded: vals.length, of: judges.length } : null;
+    });
+    const positions = _gfRankByValueDesc(teams.map(t => ({ id: t.id, value: avgByTeam[t.id] ? avgByTeam[t.id].avg : null })));
+    const headCells = ['SL', ...dataCols.map(c => c.label), ...judges.map(j => j.name), 'Average', 'Position']
+      .map(h => `<th>${_escHtml(h).replace(/\\n/g, '<br>')}</th>`).join('');
+    const rows = teams.map((t, idx) => {
+      const dataCells = dataCols.map(c => `<td${c.key === 'reference_number' ? ' class="ref"' : ''}>${c.html ? (c.get(t) || '—') : _escHtml(c.get(t) || '—')}</td>`).join('');
+      const judgeCells = judges.map(j => { const tot = totalFor(j.id, t); return `<td>${tot != null ? tot : '—'}</td>`; }).join('');
+      const a = avgByTeam[t.id];
+      const avgCell = `<td><b>${a ? a.avg.toFixed(1) : '—'}</b>${a && a.graded < a.of ? '<span class="note">*</span>' : ''}</td>`;
+      const posCell = `<td>${positions[t.id] != null ? positions[t.id] : '—'}</td>`;
+      return `<tr><td>${idx + 1}</td>${dataCells}${judgeCells}${avgCell}${posCell}</tr>`;
+    }).join('');
+    const titleText = (cfg.customTitle && cfg.customTitle.trim()) || `${form?.title || 'Judging'} — Combined Result`;
+    const subheaderHtml = (cfg.showFilterSubheader && filterSummary) ? `<p style="font-size:11px;color:#6b7280;margin:0 0 6px">${_escHtml(filterSummary)}</p>` : '';
+    const footnote = teams.some(t => avgByTeam[t.id] && avgByTeam[t.id].graded < avgByTeam[t.id].of)
+      ? `<p style="font-size:9px;color:#6b7280;margin:6px 0 0">* not every selected judge has scored this team yet — the average shown is of those who have.</p>` : '';
+    const body = `
+      <h1 style="font-size:16px;margin:0 0 2px">${_escHtml(titleText)}</h1>
+      ${subheaderHtml}
+      <p style="font-size:10px;color:#6b7280;margin:0 0 12px">Printed ${new Date().toLocaleString()}</p>
+      <table>
+        <thead><tr>${headCells}</tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      ${footnote}`;
+    const css = `
+      @page { size: A4 landscape; margin: 14mm; }
+      body, table { font-family: "Times New Roman", Times, serif; font-size: 11pt; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { border: 1px solid #94a3b8; padding: 7px 9px; text-align: left; vertical-align: middle; }
+      thead { display: table-header-group; }
+      th { background: #1e293b; color: #fff; text-transform: uppercase; font-size: 9pt; letter-spacing: 0.04em; }
+      th:first-child, td:first-child { width: 26px; text-align: center; }
+      td.ref { font-size: 14px; font-weight: 800; letter-spacing: 0.02em; }
+      .note { color: #b45309; font-weight: 900; margin-left: 2px; }
+      tr, td { page-break-inside: avoid; break-inside: avoid; }`;
+    _gfOpenPrintWindow(`${form?.title || 'Judges'} — Combined Result`, body, css);
+  }
+  function printGroupFormJudgesCombined() { _gfOpenJudgesCombinedModal(_gfRosterFilteredSorted(), _gfRosterForm, _gfActiveFilterSummary(_gfRosterFilterState)); }
+  function _printGfReviewJudgesCombined() { _gfOpenJudgesCombinedModal(_gfReviewFilteredTeams(), _gfReviewForm, _gfActiveFilterSummary(_gfReviewFilterState)); }
 
   function closeGroupRoster() {
     document.getElementById('adminGroupRoster').classList.add('hidden');
@@ -31368,6 +31714,111 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }).catch(() => showToast('Network error', 'error'));
   }
 
+  // ── Judges (digital scoring) manager — mirrors the Reviewers panel's own
+  // open/load shape, but every row writes immediately (no "Save Rules"
+  // button) since each action here (add/rename/enable/regenerate/delete) is
+  // already a single, independent server call, same as the roster card's
+  // own Active/Open toggles.
+  const STUDENT_PORTAL_ORIGIN_FOR_JUDGE = 'https://ccpc-acr.vercel.app';
+  let _gfJudges = [];
+  function toggleGroupFormJudgesPanel() {
+    const panel = document.getElementById('gfJudgesPanel');
+    if (!panel) return;
+    const opening = panel.classList.contains('hidden');
+    panel.classList.toggle('hidden');
+    if (!opening || !_gfRosterFormId) return;
+    _gfLoadJudges();
+  }
+  function _gfLoadJudges() {
+    document.getElementById('gfJudgesList').innerHTML = '<p class="text-xs text-slate-400 font-bold">Loading…</p>';
+    _adminFetch('admin_list_judges', { group_form_id: _gfRosterFormId }).then(res => {
+      _gfJudges = (res && res.result === 'success') ? res.judges : [];
+      _gfRenderJudgesList();
+    }).catch(() => { document.getElementById('gfJudgesList').innerHTML = '<p class="text-xs text-red-500 font-bold">Network error</p>'; });
+  }
+  function _gfRenderJudgesList() {
+    const host = document.getElementById('gfJudgesList');
+    if (!host) return;
+    if (!_gfJudges.length) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No judges yet — add one above.</p>'; return; }
+    host.innerHTML = _gfJudges.map(j => `
+      <div class="flex items-center gap-2 bg-white p-2.5 rounded-xl border border-slate-200 flex-wrap">
+        <input type="text" value="${_escHtml(j.name)}" onchange="gfRenameJudge(${j.id}, this.value)" class="flex-1 min-w-[120px] px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+        <label class="flex items-center gap-1.5 text-[10px] font-black uppercase text-slate-500">
+          <input type="checkbox" ${j.is_enabled ? 'checked' : ''} onchange="gfToggleJudgeEnabled(${j.id}, this.checked)">${j.is_enabled ? 'Active' : 'Disabled'}
+        </label>
+        <button type="button" onclick="gfShowJudgeLinkQr(${j.id})" class="px-2.5 py-1 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100 flex items-center gap-1"><i data-lucide="qr-code" class="h-3 w-3"></i>Link</button>
+        <button type="button" onclick="gfRegenerateJudgeCode(${j.id})" class="px-2.5 py-1 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100" title="Invalidates the old link and makes a new one — use if a link leaked or was sent to the wrong person">New Code</button>
+        <button type="button" onclick="gfDeleteJudge(${j.id})" class="px-2.5 py-1 bg-red-500 text-white rounded-full font-black text-[10px] uppercase">Del</button>
+      </div>`).join('');
+    lucide.createIcons();
+  }
+  function gfCreateJudge() {
+    const name = prompt("Judge's name (shown on their own scoring page):");
+    if (!name || !name.trim()) return;
+    _adminFetch('admin_create_judge', { group_form_id: _gfRosterFormId, name: name.trim() }).then(res => {
+      if (res && res.result === 'success') _gfLoadJudges();
+      else showToast((res && res.message) || 'Could not add judge', 'error');
+    }).catch(() => showToast('Network error', 'error'));
+  }
+  function gfRenameJudge(id, name) {
+    if (!name || !name.trim()) { showToast('Name required', 'error'); _gfLoadJudges(); return; }
+    _adminFetch('admin_update_judge', { id, name: name.trim() }).then(res => {
+      if (!(res && res.result === 'success')) { showToast((res && res.message) || 'Rename failed', 'error'); _gfLoadJudges(); }
+    }).catch(() => { showToast('Network error', 'error'); _gfLoadJudges(); });
+  }
+  function gfToggleJudgeEnabled(id, enabled) {
+    _adminFetch('admin_update_judge', { id, is_enabled: enabled }).then(res => {
+      if (res && res.result === 'success') _gfLoadJudges();
+      else { showToast((res && res.message) || 'Failed', 'error'); _gfLoadJudges(); }
+    }).catch(() => { showToast('Network error', 'error'); _gfLoadJudges(); });
+  }
+  function gfRegenerateJudgeCode(id) {
+    if (!confirm("Generate a new link for this judge?\n\nTheir old link stops working immediately.")) return;
+    _adminFetch('admin_regenerate_judge_code', { id }).then(res => {
+      if (res && res.result === 'success') { _gfLoadJudges(); showToast('New link generated'); }
+      else showToast((res && res.message) || 'Failed', 'error');
+    }).catch(() => showToast('Network error', 'error'));
+  }
+  function gfDeleteJudge(id) {
+    if (!confirm('Delete this judge?\n\nTheir link stops working and every score they entered is deleted. This cannot be undone.')) return;
+    _adminFetch('admin_delete_judge', { id }).then(res => {
+      if (res && res.result === 'success') _gfLoadJudges();
+      else showToast((res && res.message) || 'Delete failed', 'error');
+    }).catch(() => showToast('Network error', 'error'));
+  }
+  // Same QR+copy modal shape as gfShowLinkQr (the student registration
+  // link) — a sibling rather than a reuse, since that one is hardcoded to
+  // the student portal's own `?gf=` URL shape; this one points at a judge's
+  // access_code link on THIS app instead.
+  function gfShowJudgeLinkQr(judgeId) {
+    const j = _gfJudges.find(x => x.id === judgeId);
+    if (!j) return;
+    document.getElementById('gfLinkQrOverlay')?.remove();
+    const url = `${STUDENT_PORTAL_ORIGIN_FOR_JUDGE}/judge/${j.access_code}`;
+    const overlay = document.createElement('div');
+    overlay.id = 'gfLinkQrOverlay';
+    overlay.className = 'fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4';
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+    overlay.innerHTML = `
+      <div class="bg-white rounded-3xl w-full max-w-sm p-5 shadow-2xl text-center">
+        <p class="font-black text-slate-800 text-sm mb-1 truncate">${_escHtml(j.name)}</p>
+        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Judge Scoring Link</p>
+        <div class="bg-white p-3 rounded-2xl border border-slate-200 inline-block mb-4"><canvas id="gfLinkQrCanvas"></canvas></div>
+        <input type="hidden" id="gfLinkQrFilename" value="${_escHtml(j.name)}-judge-link">
+        <div class="flex items-center gap-2 mb-3">
+          <input type="text" readonly id="gfLinkQrUrl" value="${_escHtml(url)}" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-bold text-slate-600" onclick="this.select()">
+          <button onclick="_gfCopyLinkQrUrl()" class="shrink-0 px-3 py-2 bg-slate-800 text-white rounded-xl font-black text-[10px] uppercase">Copy</button>
+        </div>
+        <p class="text-[10px] text-slate-400 font-bold mb-4">No login needed — this link alone identifies this judge. Share it only with them; anyone with the link can enter scores as them until the code is regenerated.</p>
+        <div class="flex items-center gap-2">
+          <button onclick="_gfDownloadLinkQr()" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-600 hover:bg-slate-50">Download QR</button>
+          <button onclick="document.getElementById('gfLinkQrOverlay').remove()" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-slate-100 text-slate-500 hover:bg-slate-200">Close</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    if (window.QRCode) QRCode.toCanvas(document.getElementById('gfLinkQrCanvas'), url, { width: 220, margin: 1 }, () => {});
+  }
+
   // ══════════════════════════════════════════════════════════════════════
   // Reviewer-facing "Review Submissions" — read-only. Each reviewer rule the
   // current teacher is assigned (directly, or as a class's current class
@@ -31448,7 +31899,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <button onclick="_printGfReviewProjectList()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="list-ordered" class="h-3 w-3"></i>Project List</button>
         <button onclick="_printGfReviewTokenList()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="ticket" class="h-3 w-3"></i>Token List</button>
         <button onclick="_printGfReviewTableStickers()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="tag" class="h-3 w-3"></i>Table Sticker</button>
-        <button onclick="_printGfReviewJudgesSheet()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1" title="Configurable score sheet for judges — pick which columns show and add blank hand-fill columns for your rubric"><i data-lucide="clipboard-list" class="h-3 w-3"></i>Judges Sheet</button>
+        <button onclick="_printGfReviewJudgesSheet()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1" title="Configurable score sheet for judges — pick which columns show, pull in a judge's live scores, or leave blank for hand-fill"><i data-lucide="clipboard-list" class="h-3 w-3"></i>Judges Sheet</button>
+        <button onclick="_printGfReviewJudgesCombined()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1" title="Every judge's score side by side, with an average and a position"><i data-lucide="bar-chart-3" class="h-3 w-3"></i>Judges' Combined Result</button>
       `;
       _renderGfReviewRoster(_gfReviewFilteredTeams(), _gfReviewForm);
       _gfRenderReviewFilterPanel();

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { randomBytes } from 'crypto';
 
 // ── Student Portal Admin (relocated from ccpc-students' own admin panel) ────
 // This route re-implements, verbatim in logic, the admin-only actions that
@@ -739,7 +740,7 @@ const ADMIN_TAB_ACTIONS = {
   // exact same student.group_forms/group_form_teams/… tables directly via
   // sb(), same cross-app-shared-database pattern as get_tabs/save_tab above
   // for portal_tabs.
-  group_forms: new Set(['get_group_forms', 'save_group_form', 'delete_group_form', 'get_group_form_roster', 'admin_create_team', 'set_team_lock', 'admin_disband_team', 'admin_delete_team', 'admin_delete_all_disbanded', 'get_class_house_options', 'get_student_data_headers', 'upload_group_form_cover', 'get_group_form_reviewer_rules', 'save_group_form_reviewer_rules', 'get_field_values', 'admin_update_team_data', 'admin_add_member_direct', 'admin_force_accept_invite', 'admin_cancel_invite', 'admin_remove_member', 'get_team_edit_history']),
+  group_forms: new Set(['get_group_forms', 'save_group_form', 'delete_group_form', 'get_group_form_roster', 'admin_create_team', 'set_team_lock', 'admin_disband_team', 'admin_delete_team', 'admin_delete_all_disbanded', 'get_class_house_options', 'get_student_data_headers', 'upload_group_form_cover', 'get_group_form_reviewer_rules', 'save_group_form_reviewer_rules', 'get_field_values', 'admin_update_team_data', 'admin_add_member_direct', 'admin_force_accept_invite', 'admin_cancel_invite', 'admin_remove_member', 'get_team_edit_history', 'admin_list_judges', 'admin_create_judge', 'admin_update_judge', 'admin_regenerate_judge_code', 'admin_delete_judge', 'admin_get_judge_scores']),
   data: new Set(['get_tabs', 'get_tab_data', 'get_tab_submission_status', 'get_staff_list', 'get_tab_data_access', 'set_tab_data_access', 'get_staff_directory', 'get_class_sections', 'get_tab_class_access', 'set_tab_class_access', 'get_field_categories', 'get_tab_category_link', 'set_tab_category_link']),
   // Class Teacher assignment (get_class_teacher_assignments/save_teacher_
   // class_assignment) lives here too, not its own tab key — it's part of
@@ -1410,7 +1411,7 @@ export async function POST(req) {
 
   // ── Save Group Form Config ───────────────────────────────────────────────
   if (action === 'save_group_form') {
-    const { id, title, header, sub_header, description, icon_class, cover_photo_url, max_team_size, members_required, fields_json, eligibility_json, condition_json, accepting_condition_json, reference_number_json, is_enabled, accepting_new, lock_when_closed, archived, sort_order } = payload;
+    const { id, title, header, sub_header, description, icon_class, cover_photo_url, max_team_size, members_required, fields_json, eligibility_json, condition_json, accepting_condition_json, reference_number_json, judging_criteria_json, is_enabled, accepting_new, lock_when_closed, archived, sort_order } = payload;
 
     if (id) {
       // Archived is the one thing an archived form can still change — every
@@ -1445,6 +1446,7 @@ export async function POST(req) {
       if (condition_json !== undefined) rowData.condition_json = condition_json || '{}';
       if (accepting_condition_json !== undefined) rowData.accepting_condition_json = accepting_condition_json || '{}';
       if (reference_number_json !== undefined) rowData.reference_number_json = reference_number_json || '{"enabled":false,"parts":[],"seq_digits":3}';
+      if (judging_criteria_json !== undefined) rowData.judging_criteria_json = judging_criteria_json || '[]';
       if (is_enabled !== undefined) rowData.is_enabled = !!is_enabled;
       if (accepting_new !== undefined) rowData.accepting_new = !!accepting_new;
       if (lock_when_closed !== undefined) rowData.lock_when_closed = !!lock_when_closed;
@@ -1470,6 +1472,7 @@ export async function POST(req) {
       condition_json: condition_json || '{}',
       accepting_condition_json: accepting_condition_json || '{}',
       reference_number_json: reference_number_json || '{"enabled":false,"parts":[],"seq_digits":3}',
+      judging_criteria_json: judging_criteria_json || '[]',
       is_enabled: is_enabled !== false,
       accepting_new: accepting_new !== false,
       lock_when_closed: !!lock_when_closed,
@@ -1580,6 +1583,79 @@ export async function POST(req) {
     const res = await sb('rpc/group_team_create', 'POST', { p_group_form_id: group_form_id, p_leader_id: leader_student_id, p_group_data: {} });
     if (res?.error) return NextResponse.json({ result: 'error', message: rpcErrorMessage(res.error) });
     return NextResponse.json({ result: 'success', team_id: res });
+  }
+
+  // ── Judges (digital scoring) ─────────────────────────────────────────────
+  // A judge is NOT a staff account — access_code is their whole identity,
+  // checked by the separate, unauthenticated app/api/judge-scoring/route.js
+  // (never this file — that route can't reach any other action here). These
+  // five actions are the admin-only management side: create/list/enable-
+  // disable/regenerate-code/delete, plus a read of every score so the print
+  // engine can pivot them client-side. Archiving only blocks a judge's own
+  // write (judge-scoring/route.js checks that); every read here stays open
+  // regardless, same as every other admin read on an archived form.
+  if (action === 'admin_list_judges') {
+    const { group_form_id } = payload;
+    if (!group_form_id) return NextResponse.json({ result: 'error', message: 'group_form_id required.' });
+    const rows = await sb(`group_form_judges?group_form_id=eq.${encodeURIComponent(group_form_id)}&order=sort_order.asc,created_at.asc`);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', judges: Array.isArray(rows) ? rows : [] });
+  }
+  if (action === 'admin_create_judge') {
+    const { group_form_id, name } = payload;
+    if (!group_form_id || !String(name || '').trim()) return NextResponse.json({ result: 'error', message: 'group_form_id and name required.' });
+    // Collision odds on a 12-hex-char code are astronomically small, but the
+    // UNIQUE constraint is the real guarantee — retry once on the rare miss
+    // rather than trusting randomness alone.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const access_code = randomBytes(6).toString('hex');
+      const ins = await sb('group_form_judges', 'POST', { group_form_id, name: String(name).trim(), access_code });
+      if (!ins?.error) return NextResponse.json({ result: 'success', judge: Array.isArray(ins) ? ins[0] : ins });
+      if (!/duplicate key|23505/i.test(ins.error)) return NextResponse.json({ result: 'error', message: ins.error });
+    }
+    return NextResponse.json({ result: 'error', message: 'Could not generate a unique access code — try again.' });
+  }
+  if (action === 'admin_update_judge') {
+    const { id, name, is_enabled } = payload;
+    if (!id) return NextResponse.json({ result: 'error', message: 'id required.' });
+    const rowData = {};
+    if (name !== undefined) {
+      if (!String(name).trim()) return NextResponse.json({ result: 'error', message: 'Name required.' });
+      rowData.name = String(name).trim();
+    }
+    if (is_enabled !== undefined) rowData.is_enabled = !!is_enabled;
+    const r = await sb(`group_form_judges?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData);
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  if (action === 'admin_regenerate_judge_code') {
+    const { id } = payload;
+    if (!id) return NextResponse.json({ result: 'error', message: 'id required.' });
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const access_code = randomBytes(6).toString('hex');
+      const r = await sb(`group_form_judges?id=eq.${encodeURIComponent(id)}`, 'PATCH', { access_code });
+      if (!r?.error) return NextResponse.json({ result: 'success', access_code });
+      if (!/duplicate key|23505/i.test(r.error)) return NextResponse.json({ result: 'error', message: r.error });
+    }
+    return NextResponse.json({ result: 'error', message: 'Could not generate a unique access code — try again.' });
+  }
+  if (action === 'admin_delete_judge') {
+    const { id } = payload;
+    if (!id) return NextResponse.json({ result: 'error', message: 'id required.' });
+    await sb(`group_form_judge_scores?judge_id=eq.${encodeURIComponent(id)}`, 'DELETE');
+    const r = await sb(`group_form_judges?id=eq.${encodeURIComponent(id)}`, 'DELETE');
+    if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  // Every score row for the form, every judge — the print engine (per-judge
+  // live mode and the Combined Result sheet) pivots this client-side rather
+  // than needing a second, judge-scoped action.
+  if (action === 'admin_get_judge_scores') {
+    const { group_form_id } = payload;
+    if (!group_form_id) return NextResponse.json({ result: 'error', message: 'group_form_id required.' });
+    const rows = await sb(`group_form_judge_scores?group_form_id=eq.${encodeURIComponent(group_form_id)}`);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    return NextResponse.json({ result: 'success', scores: Array.isArray(rows) ? rows : [] });
   }
 
   // ── Reviewer routing rules (admin-configured, group_forms tab) ───────────
