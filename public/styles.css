@@ -342,7 +342,15 @@ textarea.pf-input { resize: vertical; line-height: 1.55; }
    same dashboard markup, not a separate print layout. Classic visibility
    isolation (not display:none on ancestors) so hiding everything else can't
    also hide what's genuinely nested inside the roster list itself. */
-body.gf-printing * { visibility: hidden !important; }
+/* <body> itself carries h-screen + overflow-hidden (the SPA shell's own
+   scroll-locking, see .ac-main and friends) — that caps the page's layout
+   height to one screen's worth REGARDLESS of what's absolutely positioned
+   inside it, so the print engine paginates against that one-screen height
+   and silently truncates everything past page 1. Stripping height/overflow
+   from every ancestor (safe: all of them are invisible anyway under
+   gf-printing) lets the true, full content height drive pagination instead. */
+body.gf-printing * { visibility: hidden !important; overflow: visible !important; max-height: none !important; }
+body.gf-printing { height: auto !important; overflow: visible !important; }
 body.gf-printing .gf-print-area,
 body.gf-printing .gf-print-area * { visibility: visible !important; }
 body.gf-printing .gf-print-area {

@@ -31151,6 +31151,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div id="gfReviewTabBar" class="flex items-center gap-2 flex-wrap mb-4"></div>
       <div id="gfReviewToolbar" class="hidden flex items-center gap-2 flex-wrap mb-3"></div>
       <div id="gfReviewFilterPanel" class="hidden mb-4 p-4 bg-slate-50 rounded-2xl border border-slate-200"></div>
+      <div id="gfReviewSortPanel" class="hidden mb-4 p-4 bg-slate-50 rounded-2xl border border-slate-200"></div>
       <div id="gfReviewSummary" class="mb-4"></div>
       <div id="gfReviewList" class="flex flex-col gap-3"></div>
     `;
@@ -31184,7 +31185,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const toolbar = document.getElementById('gfReviewToolbar');
     toolbar.classList.add('hidden');
     document.getElementById('gfReviewFilterPanel').classList.add('hidden');
+    document.getElementById('gfReviewSortPanel')?.classList.add('hidden');
     _gfReviewFilterState = { submission: new Set(), review: new Set(), house: new Set(), group: new Set(), category: new Set() };
+    _gfReviewSortLevels = [{ field: 'created_at', dir: 'desc' }];
     list.innerHTML = '<p class="text-xs text-slate-400 font-bold">Loading…</p>';
     Promise.all([_adminFetch('get_group_form_roster_for_rule', { rule_id: tab.rule_id, teacher_user_id: myId }), _gfEnsureHouseColors()]).then(([res]) => {
       if (!res || res.result !== 'success') { list.innerHTML = `<p class="text-xs text-red-500 font-bold">${(res && res.message) || 'Failed to load'}</p>`; return; }
@@ -31198,6 +31201,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <input type="search" id="gfReviewSearch" oninput="_renderGfReviewRoster(_gfReviewFilteredTeams(), _gfReviewForm)" placeholder="Search name, ID, roll, ref no…" class="pl-7 pr-2.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs" style="width:200px">
         </div>
         <button type="button" onclick="_gfToggleReviewFilterPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="filter" class="h-3 w-3"></i>Filters<span id="gfReviewFilterCount" class="hidden ml-1 px-1.5 py-0.5 bg-slate-800 text-white rounded-full text-[9px]"></span></button>
+        <button type="button" onclick="_gfToggleReviewSortPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="arrow-down-up" class="h-3 w-3"></i>Sort<span id="gfReviewSortCount" class="ml-1 px-1.5 py-0.5 bg-slate-800 text-white rounded-full text-[9px]">${_gfReviewSortLevels.length}</span></button>
         <button onclick="_exportGfReviewRoster()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="download" class="h-3 w-3"></i>Download CSV</button>
         <button onclick="_printGfReviewRoster()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="printer" class="h-3 w-3"></i>Print Roster</button>
         <button onclick="_printGfReviewProjectList()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="list-ordered" class="h-3 w-3"></i>Project List</button>
@@ -31233,6 +31237,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // (_gfRosterFilterState) — separate state since this is a different slice
   // of teams (one reviewer rule's worth, not every team in the form).
   let _gfReviewFilterState = { submission: new Set(), review: new Set(), house: new Set(), group: new Set(), category: new Set() };
+  let _gfReviewSortLevels = [{ field: 'created_at', dir: 'desc' }];
   function _gfReviewTeamHouse(t) { return (t.members.find(m => m.role === 'leader')?.profile || {}).house || ''; }
   function _gfReviewTeamGroup(t) { return (t.group_data || {}).group || ''; }
   function _gfReviewTeamCategory(t) { return _gfAnswerByName(t, _gfReviewForm, /^category$/i) || ''; }
@@ -31286,6 +31291,52 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }).join('') + (_gfReviewFilterActiveCount() ? `<button type="button" onclick="clearGfReviewFilters()" class="text-[10px] font-black text-red-600 uppercase hover:underline">Clear all filters</button>` : '');
     _gfUpdateReviewFilterBadge();
   }
+  function _gfReviewSortFieldDefs() { return _gfSortFieldDefs(_gfReviewTeamHouse, _gfReviewTeamGroup, _gfReviewTeamCategory); }
+  function _gfToggleReviewSortPanel() {
+    const panel = document.getElementById('gfReviewSortPanel');
+    const show = panel.classList.contains('hidden');
+    panel.classList.toggle('hidden', !show);
+    if (show) _gfRenderReviewSortPanel();
+  }
+  function _gfRenderReviewSortPanel() {
+    const countBadge = document.getElementById('gfReviewSortCount');
+    if (countBadge) countBadge.textContent = _gfReviewSortLevels.length;
+    const host = document.getElementById('gfReviewSortPanel');
+    if (!host || host.classList.contains('hidden')) return;
+    host.innerHTML = _gfSortPanelHtml(_gfReviewSortLevels, _gfReviewSortFieldDefs(), '_gfReviewSort');
+    lucide.createIcons();
+  }
+  function _gfReviewSortAdd() {
+    const defs = _gfReviewSortFieldDefs();
+    const used = new Set(_gfReviewSortLevels.map(l => l.field));
+    const next = Object.keys(defs).find(k => !used.has(k));
+    if (!next) return;
+    _gfReviewSortLevels.push({ field: next, dir: 'asc' });
+    _gfRenderReviewSortPanel();
+    _renderGfReviewRoster(_gfReviewFilteredTeams(), _gfReviewForm);
+  }
+  function _gfReviewSortRemove(i) {
+    if (_gfReviewSortLevels.length <= 1) return;
+    _gfReviewSortLevels.splice(i, 1);
+    _gfRenderReviewSortPanel();
+    _renderGfReviewRoster(_gfReviewFilteredTeams(), _gfReviewForm);
+  }
+  function _gfReviewSortMove(i, dir) {
+    const j = i + dir;
+    if (j < 0 || j >= _gfReviewSortLevels.length) return;
+    [_gfReviewSortLevels[i], _gfReviewSortLevels[j]] = [_gfReviewSortLevels[j], _gfReviewSortLevels[i]];
+    _gfRenderReviewSortPanel();
+    _renderGfReviewRoster(_gfReviewFilteredTeams(), _gfReviewForm);
+  }
+  function _gfReviewSortSetField(i, field) {
+    if (_gfReviewSortLevels[i]) _gfReviewSortLevels[i].field = field;
+    _gfRenderReviewSortPanel();
+    _renderGfReviewRoster(_gfReviewFilteredTeams(), _gfReviewForm);
+  }
+  function _gfReviewSortSetDir(i, dir) {
+    if (_gfReviewSortLevels[i]) _gfReviewSortLevels[i].dir = dir;
+    _renderGfReviewRoster(_gfReviewFilteredTeams(), _gfReviewForm);
+  }
   // Applied before BOTH rendering and CSV/Print, so "separate before
   // download/print" means what it says — exporting or printing while a
   // filter is active only ever includes the teams currently shown.
@@ -31300,7 +31351,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (st.category.size && !st.category.has(_gfReviewTeamCategory(t))) return false;
       if (!_gfTeamMatchesSearch(t, _gfReviewForm, searchTerm)) return false;
       return true;
-    });
+    }).sort((a, b) => _gfCompareByLevels(_gfReviewSortFieldDefs(), _gfReviewSortLevels, a, b));
   }
   // Read-only card list EXCEPT for Approve/Reject, which only an 'admin'-
   // tier reviewer sees at all (viewer tier gets the exact same card shape as

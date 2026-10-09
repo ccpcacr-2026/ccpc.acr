@@ -331,6 +331,7 @@ const RESERVED = [
   '_gfToggleRosterFilterPanel','toggleGfRosterFilter','clearGfRosterFilters',
   '_gfToggleRosterSortPanel','_gfRosterSortAdd','_gfRosterSortRemove','_gfRosterSortMove','_gfRosterSortSetField','_gfRosterSortSetDir',
   '_gfToggleReviewFilterPanel','toggleGfReviewFilter','clearGfReviewFilters',
+  '_gfToggleReviewSortPanel','_gfReviewSortAdd','_gfReviewSortRemove','_gfReviewSortMove','_gfReviewSortSetField','_gfReviewSortSetDir',
   'printGroupFormProjectList','printGroupFormTokenList','printGroupFormTableStickers',
   '_printGfReviewProjectList','_printGfReviewTokenList','_printGfReviewTableStickers',
   // Reviewer routing rules editor (admin, attached to the roster screen) and
