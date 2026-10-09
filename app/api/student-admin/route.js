@@ -559,6 +559,19 @@ async function hasProfilePhoto(studentId) {
   const photo = (!rows?.error && rows[0]) ? rows[0].photo : null;
   return !!(photo && String(photo).trim());
 }
+
+// ── Archiving a Group Form ───────────────────────────────────────────────
+// Mirrors ccpc-students' own groupFormArchived/ARCHIVED_READONLY_MESSAGE —
+// a form an admin has retired stays fully readable/printable/exportable,
+// but every mutation here (admin AND reviewer) is refused until it's
+// unarchived first. See migration_group_forms.sql for the column and the
+// full reasoning.
+const ARCHIVED_READONLY_MESSAGE = 'This form is archived — it is read-only until an admin unarchives it.';
+async function groupFormArchived(groupFormId) {
+  if (!groupFormId) return false;
+  const rows = await sb(`group_forms?id=eq.${encodeURIComponent(groupFormId)}&select=archived`);
+  return !!(!rows?.error && rows[0] && rows[0].archived);
+}
 // Ports ccpc-students' own _maybeAutoSubmitTeam verbatim — after the admin
 // accepts/adds a member on a student's behalf, the team may already meet
 // every requirement the leader's own Submit button checks (no pending
@@ -1397,9 +1410,17 @@ export async function POST(req) {
 
   // ── Save Group Form Config ───────────────────────────────────────────────
   if (action === 'save_group_form') {
-    const { id, title, header, sub_header, description, icon_class, cover_photo_url, max_team_size, members_required, fields_json, eligibility_json, condition_json, accepting_condition_json, reference_number_json, is_enabled, accepting_new, lock_when_closed, sort_order } = payload;
+    const { id, title, header, sub_header, description, icon_class, cover_photo_url, max_team_size, members_required, fields_json, eligibility_json, condition_json, accepting_condition_json, reference_number_json, is_enabled, accepting_new, lock_when_closed, archived, sort_order } = payload;
 
     if (id) {
+      // Archived is the one thing an archived form can still change — every
+      // other edit is refused until it's unarchived first, same reasoning as
+      // every team-level action below (ARCHIVED_READONLY_MESSAGE).
+      const existingRow = await sb(`group_forms?id=eq.${encodeURIComponent(id)}&select=archived`);
+      const wasArchived = !existingRow?.error && existingRow[0] && existingRow[0].archived;
+      if (wasArchived && archived !== false) {
+        return NextResponse.json({ result: 'error', message: ARCHIVED_READONLY_MESSAGE });
+      }
       // Partial update — only touches fields actually sent. The admin
       // card's Active/Open switches call this with just {id, is_enabled}
       // or {id, accepting_new}; building a full row with fallback defaults
@@ -1407,6 +1428,7 @@ export async function POST(req) {
       // and — worst of all — reset fields_json to '[]', wiping every field
       // on a simple toggle click.
       const rowData = { updated_at: new Date().toISOString() };
+      if (archived !== undefined) { rowData.archived = !!archived; rowData.archived_at = archived ? new Date().toISOString() : null; }
       if (title !== undefined) {
         if (!String(title).trim()) return NextResponse.json({ result: 'error', message: 'Title required.' });
         rowData.title = String(title).trim();
@@ -1551,6 +1573,7 @@ export async function POST(req) {
   if (action === 'admin_create_team') {
     const { group_form_id, leader_student_id } = payload;
     if (!group_form_id || !leader_student_id) return NextResponse.json({ result: 'error', message: 'group_form_id and leader_student_id required.' });
+    if (await groupFormArchived(group_form_id)) return NextResponse.json({ result: 'error', message: ARCHIVED_READONLY_MESSAGE });
     const studentRows = await sb(`students_data?student_id=eq.${encodeURIComponent(leader_student_id)}&select=student_id`);
     if (studentRows?.error) return NextResponse.json({ result: 'error', message: studentRows.error });
     if (!Array.isArray(studentRows) || !studentRows.length) return NextResponse.json({ result: 'error', message: 'No student found with that ID.' });
@@ -1684,6 +1707,8 @@ export async function POST(req) {
   if (action === 'set_team_lock') {
     const { team_id, locked } = payload;
     if (!team_id) return NextResponse.json({ result: 'error', message: 'team_id required.' });
+    const teamRowsLk = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}&select=group_form_id`);
+    if (await groupFormArchived(teamRowsLk?.[0]?.group_form_id)) return NextResponse.json({ result: 'error', message: ARCHIVED_READONLY_MESSAGE });
     const r = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}`, 'PATCH', { is_locked: !!locked, updated_at: new Date().toISOString() });
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
     return NextResponse.json({ result: 'success' });
@@ -1693,6 +1718,8 @@ export async function POST(req) {
   if (action === 'admin_disband_team') {
     const { team_id } = payload;
     if (!team_id) return NextResponse.json({ result: 'error', message: 'team_id required.' });
+    const teamRowsDb = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}&select=group_form_id`);
+    if (await groupFormArchived(teamRowsDb?.[0]?.group_form_id)) return NextResponse.json({ result: 'error', message: ARCHIVED_READONLY_MESSAGE });
     await sb(`group_form_team_invites?team_id=eq.${encodeURIComponent(team_id)}&status=eq.pending`, 'PATCH', { status: 'cancelled', responded_at: new Date().toISOString() });
     await sb(`group_form_team_members?team_id=eq.${encodeURIComponent(team_id)}`, 'DELETE');
     const r = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}`, 'PATCH', { status: 'disbanded', updated_at: new Date().toISOString() });
@@ -1711,6 +1738,8 @@ export async function POST(req) {
   if (action === 'admin_delete_team') {
     const { team_id } = payload;
     if (!team_id) return NextResponse.json({ result: 'error', message: 'team_id required.' });
+    const teamRowsDt = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}&select=group_form_id`);
+    if (await groupFormArchived(teamRowsDt?.[0]?.group_form_id)) return NextResponse.json({ result: 'error', message: ARCHIVED_READONLY_MESSAGE });
     await sb(`group_form_team_invites?team_id=eq.${encodeURIComponent(team_id)}`, 'DELETE');
     await sb(`group_form_team_members?team_id=eq.${encodeURIComponent(team_id)}`, 'DELETE');
     const r = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}`, 'DELETE');
@@ -1727,6 +1756,7 @@ export async function POST(req) {
   if (action === 'admin_delete_all_disbanded') {
     const { group_form_id } = payload;
     if (!group_form_id) return NextResponse.json({ result: 'error', message: 'group_form_id required.' });
+    if (await groupFormArchived(group_form_id)) return NextResponse.json({ result: 'error', message: ARCHIVED_READONLY_MESSAGE });
     const rows = await sb(`group_form_teams?group_form_id=eq.${encodeURIComponent(group_form_id)}&status=eq.disbanded&select=id`);
     if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
     const ids = (Array.isArray(rows) ? rows : []).map(r => r.id);
@@ -1758,6 +1788,7 @@ export async function POST(req) {
     const teamRows = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}`);
     const team = (!teamRows?.error && teamRows[0]) ? teamRows[0] : null;
     if (!team) return NextResponse.json({ result: 'error', message: 'Team not found.' });
+    if (await groupFormArchived(team.group_form_id)) return NextResponse.json({ result: 'error', message: ARCHIVED_READONLY_MESSAGE });
 
     if (!(await _isAuthorizedForGroupFormTeam(team, actorId, true))) {
       return NextResponse.json({ result: 'error', message: 'Not authorized for this team.' }, { status: 403 });
@@ -1827,6 +1858,7 @@ export async function POST(req) {
     const teamRows = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}`);
     const team = (!teamRows?.error && teamRows[0]) ? teamRows[0] : null;
     if (!team) return NextResponse.json({ result: 'error', message: 'Team not found.' });
+    if (await groupFormArchived(team.group_form_id)) return NextResponse.json({ result: 'error', message: ARCHIVED_READONLY_MESSAGE });
 
     if (!(await _isAuthorizedForGroupFormTeam(team, actorId, true))) {
       return NextResponse.json({ result: 'error', message: 'Not authorized for this team.' }, { status: 403 });
@@ -1896,6 +1928,7 @@ export async function POST(req) {
     const teamRows = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}`);
     const team = (!teamRows?.error && teamRows[0]) ? teamRows[0] : null;
     if (!team) return NextResponse.json({ result: 'error', message: 'Team not found.' });
+    if (await groupFormArchived(team.group_form_id)) return NextResponse.json({ result: 'error', message: ARCHIVED_READONLY_MESSAGE });
 
     if (!(await _isAuthorizedForGroupFormTeam(team, actorId, true))) {
       return NextResponse.json({ result: 'error', message: 'Not authorized for this team.' }, { status: 403 });
@@ -1948,6 +1981,7 @@ export async function POST(req) {
     const teamRows = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}`);
     const team = (!teamRows?.error && teamRows[0]) ? teamRows[0] : null;
     if (!team) return NextResponse.json({ result: 'error', message: 'Team not found.' });
+    if (await groupFormArchived(team.group_form_id)) return NextResponse.json({ result: 'error', message: ARCHIVED_READONLY_MESSAGE });
     if (!(await _isAuthorizedForGroupFormTeam(team, actorId, true))) {
       return NextResponse.json({ result: 'error', message: 'Not authorized for this team.' }, { status: 403 });
     }
@@ -1991,6 +2025,7 @@ export async function POST(req) {
     const teamRows = await sb(`group_form_teams?id=eq.${encodeURIComponent(invite.team_id)}`);
     const team = (!teamRows?.error && teamRows[0]) ? teamRows[0] : null;
     if (!team) return NextResponse.json({ result: 'error', message: 'Team not found.' });
+    if (await groupFormArchived(team.group_form_id)) return NextResponse.json({ result: 'error', message: ARCHIVED_READONLY_MESSAGE });
     if (!(await _isAuthorizedForGroupFormTeam(team, actorId, true))) {
       return NextResponse.json({ result: 'error', message: 'Not authorized for this team.' }, { status: 403 });
     }
@@ -2018,6 +2053,7 @@ export async function POST(req) {
     const teamRows = await sb(`group_form_teams?id=eq.${encodeURIComponent(invite.team_id)}`);
     const team = (!teamRows?.error && teamRows[0]) ? teamRows[0] : null;
     if (!team) return NextResponse.json({ result: 'error', message: 'Team not found.' });
+    if (await groupFormArchived(team.group_form_id)) return NextResponse.json({ result: 'error', message: ARCHIVED_READONLY_MESSAGE });
     if (!(await _isAuthorizedForGroupFormTeam(team, actorId, true))) {
       return NextResponse.json({ result: 'error', message: 'Not authorized for this team.' }, { status: 403 });
     }
@@ -2039,6 +2075,7 @@ export async function POST(req) {
     const teamRows = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}`);
     const team = (!teamRows?.error && teamRows[0]) ? teamRows[0] : null;
     if (!team) return NextResponse.json({ result: 'error', message: 'Team not found.' });
+    if (await groupFormArchived(team.group_form_id)) return NextResponse.json({ result: 'error', message: ARCHIVED_READONLY_MESSAGE });
     if (!(await _isAuthorizedForGroupFormTeam(team, actorId, true))) {
       return NextResponse.json({ result: 'error', message: 'Not authorized for this team.' }, { status: 403 });
     }

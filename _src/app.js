@@ -29834,8 +29834,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="printGroupFormTableStickers()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="tag" class="h-3 w-3"></i>Table Sticker</button>
             <button onclick="printGroupFormJudgesSheet()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1" title="Configurable score sheet for judges — pick which columns show and add blank hand-fill columns for your rubric"><i data-lucide="clipboard-list" class="h-3 w-3"></i>Judges Sheet</button>
             <button onclick="toggleGroupFormReviewerPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="users" class="h-3 w-3"></i>Reviewers</button>
-            <button onclick="gfOpenAdminCreateTeamModal()" class="px-3 py-1.5 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase flex items-center gap-1" title="Create a team for a student directly, bypassing Active/Open/Filter rules"><i data-lucide="plus" class="h-3 w-3"></i>Add Team</button>
-            <button onclick="deleteAllDisbandedTeams()" class="px-3 py-1.5 border border-red-200 text-red-600 rounded-full font-black text-[10px] uppercase hover:bg-red-50 flex items-center gap-1"><i data-lucide="trash-2" class="h-3 w-3"></i>Delete Disbanded</button>
+            <button id="gfAddTeamBtn" onclick="gfOpenAdminCreateTeamModal()" class="px-3 py-1.5 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase flex items-center gap-1" title="Create a team for a student directly, bypassing Active/Open/Filter rules"><i data-lucide="plus" class="h-3 w-3"></i>Add Team</button>
+            <button id="gfDelDisbandedBtn" onclick="deleteAllDisbandedTeams()" class="px-3 py-1.5 border border-red-200 text-red-600 rounded-full font-black text-[10px] uppercase hover:bg-red-50 flex items-center gap-1"><i data-lucide="trash-2" class="h-3 w-3"></i>Delete Disbanded</button>
             <button onclick="closeGroupRoster()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50">Close</button>
           </div>
         </div>
@@ -29976,27 +29976,31 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!list) return;
     if (!_allGroupForms.length) { list.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No Group Forms yet — fill in the form above and click Save.</p>'; return; }
     list.innerHTML = _allGroupForms.map((f, i) => `
-      <div class="border border-slate-200 rounded-2xl p-4 ${f.is_enabled ? '' : 'opacity-60'}">
+      <div class="border ${f.archived ? 'border-amber-300 bg-amber-50/40' : 'border-slate-200'} rounded-2xl p-4 ${f.is_enabled ? '' : 'opacity-60'}">
         <div class="flex items-center gap-2 text-sm font-black text-slate-800 truncate">
           <i class="bi ${f.icon_class || 'bi-people-fill'} text-blue-600 shrink-0"></i>${f.title}
+          ${f.archived ? ' <span class="text-[9px] font-black text-amber-700 bg-amber-100 rounded-full px-2 py-0.5 flex items-center gap-1"><i class="bi bi-archive-fill"></i>Archived — read-only</span>' : ''}
           ${f.is_enabled ? '' : ' <span class="text-[9px] font-black text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">Hidden</span>'}
           ${f.accepting_new === false ? ' <span class="text-[9px] font-black text-amber-600 bg-amber-50 rounded-full px-2 py-0.5">Closed to new teams</span>' : ''}
         </div>
         <p class="text-[11px] text-slate-400 font-bold mt-1 mb-2">Up to ${f.max_team_size} per team${f.members_required ? ' · must be full to count as complete' : ''}${gfEligibilitySummary(f.eligibility_json)}</p>
         <div class="flex items-center gap-2 flex-wrap">
-          <button onclick="editGroupForm(${i})" class="px-2.5 py-1 bg-blue-600 text-white rounded-full font-black text-[10px] uppercase">Edit</button>
+          <button onclick="editGroupForm(${i})" ${f.archived ? 'disabled title="Archived — unarchive first to edit"' : ''} class="px-2.5 py-1 ${f.archived ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-blue-600 text-white'} rounded-full font-black text-[10px] uppercase">Edit</button>
           <button onclick="openGroupRoster(${f.id})" class="px-2.5 py-1 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100">View Teams</button>
           <button onclick='gfShowLinkQr(${f.id}, ${JSON.stringify(f.title)})' class="px-2.5 py-1 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100 flex items-center gap-1"><i data-lucide="qr-code" class="h-3 w-3"></i>Link</button>
           <button onclick="deleteGroupFormConfig(${f.id})" class="px-2.5 py-1 bg-red-500 text-white rounded-full font-black text-[10px] uppercase">Del</button>
-          <label class="flex items-center gap-1.5 text-[10px] font-black uppercase text-slate-500 ml-auto" title="Active forms are visible to students; inactive forms are hidden without deleting their setup or data">
-            <input type="checkbox" ${f.is_enabled ? 'checked' : ''} onchange="toggleGroupFormFlag(${f.id},'is_enabled',this.checked)">${f.is_enabled ? 'Active' : 'Inactive'}
+          <label class="flex items-center gap-1.5 text-[10px] font-black uppercase text-amber-700 ml-auto" title="Freeze this form permanently: no edits, approvals, locks, disbands or new teams/invites by anyone — still fully viewable, printable and exportable. Unarchive any time to resume normal use.">
+            <input type="checkbox" ${f.archived ? 'checked' : ''} onchange="toggleGroupFormFlag(${f.id},'archived',this.checked)">${f.archived ? 'Archived' : 'Archive'}
           </label>
-          <label class="flex items-center gap-1.5 text-[10px] font-black uppercase text-slate-500" title="Turn off to stop new teams from being created — teams already made keep working">
-            <input type="checkbox" ${f.accepting_new !== false ? 'checked' : ''} onchange="toggleGroupFormFlag(${f.id},'accepting_new',this.checked)">${f.accepting_new !== false ? 'Open' : 'Closed'}
+          <label class="flex items-center gap-1.5 text-[10px] font-black uppercase text-slate-500 ${f.archived ? 'opacity-50' : ''}" title="Active forms are visible to students; inactive forms are hidden without deleting their setup or data">
+            <input type="checkbox" ${f.is_enabled ? 'checked' : ''} ${f.archived ? 'disabled' : ''} onchange="toggleGroupFormFlag(${f.id},'is_enabled',this.checked)">${f.is_enabled ? 'Active' : 'Inactive'}
           </label>
-          <button type="button" onclick="gfOpenRulesModal(${i})" class="px-2.5 py-1 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100 flex items-center gap-1" title="Restrict Active/Open to specific classes, sections or students">${_gfRulesSummaryBadge(f)}Filter</button>
-          <label class="flex items-center gap-1.5 text-[10px] font-black uppercase text-slate-500" title="Unchecked (default): a team already started keeps being editable even once Active-but-not-Open. Checked: fields freeze to a read-only summary once closed — Submit still works, just no further edits.">
-            <input type="checkbox" ${f.lock_when_closed ? 'checked' : ''} onchange="toggleGroupFormFlag(${f.id},'lock_when_closed',this.checked)">Freeze on close
+          <label class="flex items-center gap-1.5 text-[10px] font-black uppercase text-slate-500 ${f.archived ? 'opacity-50' : ''}" title="Turn off to stop new teams from being created — teams already made keep working">
+            <input type="checkbox" ${f.accepting_new !== false ? 'checked' : ''} ${f.archived ? 'disabled' : ''} onchange="toggleGroupFormFlag(${f.id},'accepting_new',this.checked)">${f.accepting_new !== false ? 'Open' : 'Closed'}
+          </label>
+          <button type="button" onclick="gfOpenRulesModal(${i})" ${f.archived ? 'disabled title="Archived — unarchive first to edit filters"' : ''} class="px-2.5 py-1 border border-slate-300 ${f.archived ? 'text-slate-300 cursor-not-allowed' : 'text-slate-700 hover:bg-slate-100'} rounded-full font-black text-[10px] uppercase flex items-center gap-1">${_gfRulesSummaryBadge(f)}Filter</button>
+          <label class="flex items-center gap-1.5 text-[10px] font-black uppercase text-slate-500 ${f.archived ? 'opacity-50' : ''}" title="Unchecked (default): a team already started keeps being editable even once Active-but-not-Open. Checked: fields freeze to a read-only summary once closed — Submit still works, just no further edits.">
+            <input type="checkbox" ${f.lock_when_closed ? 'checked' : ''} ${f.archived ? 'disabled' : ''} onchange="toggleGroupFormFlag(${f.id},'lock_when_closed',this.checked)">Freeze on close
           </label>
         </div>
       </div>`).join('');
@@ -30482,7 +30486,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const searchEl = document.getElementById('gfRosterSearch');
     if (searchEl) searchEl.value = '';
     _gfEnsureStaffDirectory();
-    document.getElementById('adminGroupRosterTitle').textContent = 'Teams — ' + (form ? form.title : '');
+    document.getElementById('adminGroupRosterTitle').innerHTML = _escHtml('Teams — ' + (form ? form.title : '')) + (form && form.archived ? ' <span class="text-[9px] font-black text-amber-700 bg-amber-100 rounded-full px-2 py-0.5 align-middle"><i class="bi bi-archive-fill"></i> Archived — read-only</span>' : '');
+    const gfAddTeamBtn = document.getElementById('gfAddTeamBtn'), gfDelDisbandedBtn = document.getElementById('gfDelDisbandedBtn');
+    if (gfAddTeamBtn) gfAddTeamBtn.disabled = !!(form && form.archived);
+    if (gfAddTeamBtn) gfAddTeamBtn.classList.toggle('opacity-40', !!(form && form.archived));
+    if (gfDelDisbandedBtn) gfDelDisbandedBtn.disabled = !!(form && form.archived);
+    if (gfDelDisbandedBtn) gfDelDisbandedBtn.classList.toggle('opacity-40', !!(form && form.archived));
     document.getElementById('adminGroupRoster').classList.remove('hidden');
     document.getElementById('adminGroupRosterList').innerHTML = '<p class="text-xs text-slate-400 font-bold">Loading…</p>';
     Promise.all([_adminFetch('get_group_form_roster', { group_form_id: groupFormId }), _gfEnsureHouseColors()]).then(([res]) => {
@@ -31636,6 +31645,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
           ${t.status !== 'disbanded' ? `
           <div class="flex gap-2 shrink-0 gf-no-print flex-wrap">
+            ${form && form.archived ? `<span class="px-2.5 py-1 bg-amber-100 text-amber-700 rounded-full font-black text-[10px] uppercase flex items-center gap-1"><i class="bi bi-archive-fill"></i>Archived — read-only</span>` : `
             ${canAct ? `
             ${t.review_status !== 'approved' ? `<button onclick="setReviewStatusReviewer(${t.id}, 'approved')" class="px-2.5 py-1 border border-green-300 text-green-700 rounded-full font-black text-[10px] uppercase hover:bg-green-50">Approve</button>` : `<button onclick="setReviewStatusReviewer(${t.id}, null)" class="px-2.5 py-1 border border-slate-200 text-slate-500 rounded-full font-black text-[10px] uppercase hover:bg-slate-50">Unapprove</button>`}
             ${t.review_status !== 'rejected' ? `<button onclick="setReviewStatusReviewer(${t.id}, 'rejected')" class="px-2.5 py-1 border border-red-300 text-red-600 rounded-full font-black text-[10px] uppercase hover:bg-red-50">Reject</button>` : `<button onclick="setReviewStatusReviewer(${t.id}, null)" class="px-2.5 py-1 border border-slate-200 text-slate-500 rounded-full font-black text-[10px] uppercase hover:bg-slate-50">Unreject</button>`}
@@ -31643,6 +31653,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="editTeamDataReviewer(${t.id})" class="px-2.5 py-1 border border-blue-300 text-blue-700 rounded-full font-black text-[10px] uppercase hover:bg-blue-50">Edit</button>
             ` : ''}
             <button type="button" onclick="_gfToggleEditHistory(${t.id})" class="px-2.5 py-1 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100">Edit History</button>
+            `}
           </div>` : ''}
         </div>
         <div class="mt-2 flex flex-wrap gap-2">
@@ -32162,6 +32173,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <div class="text-[11px] text-slate-400 font-bold mt-0.5">${t.members.length}${maxSize ? '/' + maxSize : ''} members${t.pending_invites.length ? ' · ' + t.pending_invites.length + ' pending invite(s)' : ''}${t.submitted_at ? ' · submitted ' + new Date(t.submitted_at).toLocaleString() : ''}</div>
           </div>
           <div class="flex gap-2 flex-wrap gf-no-print">
+            ${form && form.archived ? `<span class="px-2.5 py-1 bg-amber-100 text-amber-700 rounded-full font-black text-[10px] uppercase flex items-center gap-1"><i class="bi bi-archive-fill"></i>Archived — read-only</span>` : `
             ${t.status !== 'disbanded' ? `
             ${t.review_status !== 'approved' ? `<button onclick="setReviewStatusAdmin(${t.id}, 'approved')" class="px-2.5 py-1 border border-green-300 text-green-700 rounded-full font-black text-[10px] uppercase hover:bg-green-50">Approve</button>` : `<button onclick="setReviewStatusAdmin(${t.id}, null)" class="px-2.5 py-1 border border-slate-200 text-slate-500 rounded-full font-black text-[10px] uppercase hover:bg-slate-50">Unapprove</button>`}
             ${t.review_status !== 'rejected' ? `<button onclick="setReviewStatusAdmin(${t.id}, 'rejected')" class="px-2.5 py-1 border border-red-300 text-red-600 rounded-full font-black text-[10px] uppercase hover:bg-red-50">Reject</button>` : `<button onclick="setReviewStatusAdmin(${t.id}, null)" class="px-2.5 py-1 border border-slate-200 text-slate-500 rounded-full font-black text-[10px] uppercase hover:bg-slate-50">Unreject</button>`}
@@ -32172,6 +32184,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="disbandTeamAdmin(${t.id})" class="px-2.5 py-1 border border-red-300 text-red-600 rounded-full font-black text-[10px] uppercase hover:bg-red-50">Disband</button>
             ` : ''}
             <button onclick="deleteTeamAdmin(${t.id})" class="px-2.5 py-1 bg-red-600 text-white rounded-full font-black text-[10px] uppercase hover:bg-red-700">Delete</button>
+            `}
           </div>
         </div>
         <div class="mt-2 flex flex-wrap gap-2">
