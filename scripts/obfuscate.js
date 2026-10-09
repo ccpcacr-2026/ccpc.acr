@@ -332,8 +332,8 @@ const RESERVED = [
   '_gfToggleRosterSortPanel','_gfRosterSortAdd','_gfRosterSortRemove','_gfRosterSortMove','_gfRosterSortSetField','_gfRosterSortSetDir',
   '_gfToggleReviewFilterPanel','toggleGfReviewFilter','clearGfReviewFilters',
   '_gfToggleReviewSortPanel','_gfReviewSortAdd','_gfReviewSortRemove','_gfReviewSortMove','_gfReviewSortSetField','_gfReviewSortSetDir',
-  'printGroupFormProjectList','printGroupFormTokenList','printGroupFormTableStickers',
-  '_printGfReviewProjectList','_printGfReviewTokenList','_printGfReviewTableStickers',
+  'printGroupFormProjectList','printGroupFormTokenList','printGroupFormTableStickers','printGroupFormJudgesSheet',
+  '_printGfReviewProjectList','_printGfReviewTokenList','_printGfReviewTableStickers','_printGfReviewJudgesSheet',
   // Reviewer routing rules editor (admin, attached to the roster screen) and
   // the reviewer-facing Review Submissions view — all reached via inline
   // onclick/onchange in generated markup, plus loadGroupFormReviewView via

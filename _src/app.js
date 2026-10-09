@@ -29832,6 +29832,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="printGroupFormProjectList()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="list-ordered" class="h-3 w-3"></i>Project List</button>
             <button onclick="printGroupFormTokenList()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="ticket" class="h-3 w-3"></i>Token List</button>
             <button onclick="printGroupFormTableStickers()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="tag" class="h-3 w-3"></i>Table Sticker</button>
+            <button onclick="printGroupFormJudgesSheet()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1" title="A number + project + blank Score/Remarks sheet for judges — nothing admin-only like review status or member lists"><i data-lucide="clipboard-list" class="h-3 w-3"></i>Judges Sheet</button>
             <button onclick="toggleGroupFormReviewerPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="users" class="h-3 w-3"></i>Reviewers</button>
             <button onclick="gfOpenAdminCreateTeamModal()" class="px-3 py-1.5 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase flex items-center gap-1" title="Create a team for a student directly, bypassing Active/Open/Filter rules"><i data-lucide="plus" class="h-3 w-3"></i>Add Team</button>
             <button onclick="deleteAllDisbandedTeams()" class="px-3 py-1.5 border border-red-200 text-red-600 rounded-full font-black text-[10px] uppercase hover:bg-red-50 flex items-center gap-1"><i data-lucide="trash-2" class="h-3 w-3"></i>Delete Disbanded</button>
@@ -30970,6 +30971,45 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _gfOpenPrintWindow(`${form?.title || 'Table Stickers'} — Table Stickers`, body, css);
   }
 
+  // What a judge actually needs while walking the floor: the number to find
+  // a project by (large — Project List's 12pt admin table is too small to
+  // read at a glance) and nothing that's an admin's business (no review
+  // status, no member list/photos). Score + Remarks are left blank for the
+  // judge to fill in by hand, generously sized rather than one cramped line.
+  function _gfBuildJudgesSheet(teams, form) {
+    if (!teams.length) return;
+    const rows = teams.map((t, idx) => `<tr>
+      <td>${idx + 1}</td>
+      <td class="ref">${_escHtml(t.reference_number || '#' + t.id)}</td>
+      <td>${_escHtml(_gfProjectTitle(t, form))}</td>
+      <td>${_gfPillHtml(_gfAnswerByName(t, form, /^category$/i))}</td>
+      <td>${_escHtml((t.group_data || {}).group || '—')}</td>
+      <td class="blank"></td>
+      <td class="blank"></td>
+    </tr>`).join('');
+    const body = `
+      <h1 style="font-size:16px;margin:0 0 2px">${_escHtml(form?.title || 'Judging')} — Judges Score Sheet</h1>
+      <p style="font-size:11px;color:#374151;margin:0 0 12px">Judge's Name: <span style="display:inline-block;width:220px;border-bottom:1px solid #9ca3af">&nbsp;</span>&nbsp;&nbsp;&nbsp;Printed ${new Date().toLocaleString()}</p>
+      <table>
+        <thead><tr><th>SL</th><th>No.</th><th>Project</th><th>Category</th><th>Group</th><th>Score</th><th>Remarks</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+    const css = `
+      @page { size: A4 portrait; margin: 14mm; }
+      body, table { font-family: "Times New Roman", Times, serif; font-size: 12pt; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { border: 1px solid #94a3b8; padding: 8px 10px; text-align: left; vertical-align: middle; }
+      thead { display: table-header-group; }
+      th { background: #1e293b; color: #fff; text-transform: uppercase; font-size: 10pt; letter-spacing: 0.04em; }
+      th:first-child, td:first-child { width: 28px; text-align: center; }
+      td.ref { font-size: 15px; font-weight: 800; letter-spacing: 0.02em; }
+      td.blank { min-width: 65px; height: 34px; }
+      tr, td { page-break-inside: avoid; break-inside: avoid; }`;
+    _gfOpenPrintWindow(`${form?.title || 'Judges'} — Score Sheet`, body, css);
+  }
+  function printGroupFormJudgesSheet() { _gfBuildJudgesSheet(_gfWarnIfNoTeams(_gfRosterFilteredSorted()), _gfRosterForm); }
+  function _printGfReviewJudgesSheet() { _gfBuildJudgesSheet(_gfWarnIfNoTeams(_gfReviewFilteredTeams()), _gfReviewForm); }
+
   function closeGroupRoster() {
     document.getElementById('adminGroupRoster').classList.add('hidden');
     _gfRosterFormId = null;
@@ -31207,6 +31247,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <button onclick="_printGfReviewProjectList()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="list-ordered" class="h-3 w-3"></i>Project List</button>
         <button onclick="_printGfReviewTokenList()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="ticket" class="h-3 w-3"></i>Token List</button>
         <button onclick="_printGfReviewTableStickers()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="tag" class="h-3 w-3"></i>Table Sticker</button>
+        <button onclick="_printGfReviewJudgesSheet()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1" title="A number + project + blank Score/Remarks sheet for judges — nothing admin-only like review status or member lists"><i data-lucide="clipboard-list" class="h-3 w-3"></i>Judges Sheet</button>
       `;
       _renderGfReviewRoster(_gfReviewFilteredTeams(), _gfReviewForm);
       _gfRenderReviewFilterPanel();
