@@ -29832,7 +29832,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="printGroupFormProjectList()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="list-ordered" class="h-3 w-3"></i>Project List</button>
             <button onclick="printGroupFormTokenList()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="ticket" class="h-3 w-3"></i>Token List</button>
             <button onclick="printGroupFormTableStickers()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="tag" class="h-3 w-3"></i>Table Sticker</button>
-            <button onclick="printGroupFormJudgesSheet()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1" title="A number + project + blank Score/Remarks sheet for judges — nothing admin-only like review status or member lists"><i data-lucide="clipboard-list" class="h-3 w-3"></i>Judges Sheet</button>
+            <button onclick="printGroupFormJudgesSheet()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1" title="Configurable score sheet for judges — pick which columns show and add blank hand-fill columns for your rubric"><i data-lucide="clipboard-list" class="h-3 w-3"></i>Judges Sheet</button>
             <button onclick="toggleGroupFormReviewerPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="users" class="h-3 w-3"></i>Reviewers</button>
             <button onclick="gfOpenAdminCreateTeamModal()" class="px-3 py-1.5 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase flex items-center gap-1" title="Create a team for a student directly, bypassing Active/Open/Filter rules"><i data-lucide="plus" class="h-3 w-3"></i>Add Team</button>
             <button onclick="deleteAllDisbandedTeams()" class="px-3 py-1.5 border border-red-200 text-red-600 rounded-full font-black text-[10px] uppercase hover:bg-red-50 flex items-center gap-1"><i data-lucide="trash-2" class="h-3 w-3"></i>Delete Disbanded</button>
@@ -30973,25 +30973,150 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   // What a judge actually needs while walking the floor: the number to find
   // a project by (large — Project List's 12pt admin table is too small to
-  // read at a glance) and nothing that's an admin's business (no review
-  // status, no member list/photos). Score + Remarks are left blank for the
-  // judge to fill in by hand, generously sized rather than one cramped line.
-  function _gfBuildJudgesSheet(teams, form) {
+  // read at a glance) and nothing that's an admin's business by default (no
+  // review status, no member list/photos) — but which data columns appear,
+  // and how many blank hand-fill columns (Score, Remarks, per-criterion
+  // scores, whatever a judging rubric needs) are both fully configurable
+  // via _gfOpenJudgesSheetModal below, not fixed.
+
+  // Every column a judges sheet could show: a fixed built-in set (identity/
+  // classification info every form has) plus one entry per actual field on
+  // THIS form's own fields_json (project name, details, whatever the admin
+  // built) — group_label/profile_picture excluded since neither is a
+  // printable value. Keyed 'field:<data_key>' so it can't collide with a
+  // built-in key, and so a saved selection naturally scopes itself to
+  // whichever form it was configured for.
+  function _gfJudgesSheetColumns(form) {
+    let fields = [];
+    try { fields = JSON.parse(form?.fields_json || '[]') || []; } catch (e) {}
+    const builtin = [
+      { key: 'reference_number', label: 'Reference No.', get: t => t.reference_number || ('#' + t.id) },
+      { key: 'project_title', label: 'Project Title', get: t => _gfProjectTitle(t, form) },
+      { key: 'category', label: 'Category', get: t => _gfAnswerByName(t, form, /^category$/i) },
+      { key: 'group', label: 'Group', get: t => (t.group_data || {}).group || '' },
+      { key: 'house', label: 'House', get: t => _gfTeamHouse(t) },
+      { key: 'class', label: 'Class', get: t => { const p = _gfLeaderProfile(t); return (p && p.class) || ''; } },
+      { key: 'section', label: 'Section', get: t => { const p = _gfLeaderProfile(t); return (p && p.section) || ''; } },
+      { key: 'leader_name', label: 'Leader Name', get: t => { const p = _gfLeaderProfile(t); return (p && p.student_name) || t.leader_student_id; } },
+    ];
+    const formFields = fields.filter(f => f && f.data_key && f.type !== 'group_label' && f.type !== 'profile_picture')
+      .map(f => ({ key: 'field:' + f.data_key, label: f.name || f.data_key, get: t => (t.group_data || {})[f.data_key] ?? '' }));
+    return [...builtin, ...formFields];
+  }
+  // Remembered per form (keyed by id) for the rest of the session — printing
+  // twice for the same event shouldn't mean rebuilding the column picks
+  // from scratch. Not persisted to the server; a plain in-memory default is
+  // enough for "set it up once per print run."
+  let _gfJudgesSheetConfigByForm = {};
+  function _gfJudgesSheetConfig(form) {
+    const id = form?.id || 0;
+    if (!_gfJudgesSheetConfigByForm[id]) {
+      const cols = _gfJudgesSheetColumns(form);
+      const defaults = ['reference_number', 'project_title', 'category', 'group'].filter(k => cols.some(c => c.key === k));
+      _gfJudgesSheetConfigByForm[id] = { dataCols: defaults, blankCols: ['Score', 'Remarks'], judgeNameLine: true };
+    }
+    return _gfJudgesSheetConfigByForm[id];
+  }
+  function _gfOpenJudgesSheetModal(teams, form) {
+    if (!teams.length) { showToast('No teams to print yet', 'error'); return; }
+    const cols = _gfJudgesSheetColumns(form);
+    const cfg = _gfJudgesSheetConfig(form);
+    document.getElementById('gfJudgesSheetOverlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'gfJudgesSheetOverlay';
+    overlay.className = 'fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4';
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+    overlay.innerHTML = `
+      <div class="bg-white rounded-3xl w-full max-w-lg p-5 shadow-2xl max-h-[85vh] overflow-y-auto">
+        <p class="font-black text-slate-800 text-sm mb-1">Judges Sheet</p>
+        <p class="text-[11px] text-slate-400 font-bold mb-4">Pick which columns appear, and add as many blank hand-fill columns as the judging rubric needs — this is remembered for next time you print this form's sheet.</p>
+        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Data columns</span>
+        <div id="gfJudgesSheetDataCols" class="flex flex-wrap gap-2 mt-2 mb-4"></div>
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Blank columns (for the judge to fill in)</span>
+          <button type="button" onclick="_gfJudgesSheetAddBlankCol()" class="px-2.5 py-1 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase">+ Add Column</button>
+        </div>
+        <div id="gfJudgesSheetBlankCols" class="flex flex-col gap-2 mb-4"></div>
+        <label class="flex items-center gap-2 mb-4">
+          <input type="checkbox" id="gfJudgesSheetNameLine" ${cfg.judgeNameLine ? 'checked' : ''} onchange="_gfJudgesSheetConfigByForm[${form?.id || 0}].judgeNameLine = this.checked">
+          <span class="text-xs font-bold text-slate-600">Include a "Judge's Name: ____" line at the top</span>
+        </label>
+        <div class="flex items-center gap-2">
+          <button type="button" onclick="_gfPrintJudgesSheetNow()" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white">Print</button>
+          <button type="button" onclick="document.getElementById('gfJudgesSheetOverlay').remove()" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-slate-100 text-slate-500 hover:bg-slate-200">Cancel</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    overlay._gfTeams = teams;
+    overlay._gfForm = form;
+    _gfRenderJudgesSheetDataCols(form, cols, cfg);
+    _gfRenderJudgesSheetBlankCols(form, cfg);
+  }
+  function _gfRenderJudgesSheetDataCols(form, cols, cfg) {
+    const host = document.getElementById('gfJudgesSheetDataCols');
+    if (!host) return;
+    host.innerHTML = cols.map(c => `
+      <label class="px-2.5 py-1 rounded-full font-black text-[10px] uppercase cursor-pointer ${cfg.dataCols.includes(c.key) ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'}">
+        <input type="checkbox" class="hidden" ${cfg.dataCols.includes(c.key) ? 'checked' : ''} onchange='_gfJudgesSheetToggleCol(${JSON.stringify(form?.id || 0)}, ${JSON.stringify(c.key)})'>${_escHtml(c.label)}
+      </label>`).join('');
+  }
+  function _gfJudgesSheetToggleCol(formId, key) {
+    const cfg = _gfJudgesSheetConfigByForm[formId];
+    if (!cfg) return;
+    const i = cfg.dataCols.indexOf(key);
+    if (i >= 0) cfg.dataCols.splice(i, 1); else cfg.dataCols.push(key);
+    const overlay = document.getElementById('gfJudgesSheetOverlay');
+    _gfRenderJudgesSheetDataCols(overlay?._gfForm, _gfJudgesSheetColumns(overlay?._gfForm), cfg);
+  }
+  function _gfRenderJudgesSheetBlankCols(form, cfg) {
+    const host = document.getElementById('gfJudgesSheetBlankCols');
+    if (!host) return;
+    host.innerHTML = cfg.blankCols.map((label, i) => `
+      <div class="flex items-center gap-2">
+        <input type="text" value="${_escHtml(label)}" oninput="_gfJudgesSheetConfigByForm[${form?.id || 0}].blankCols[${i}] = this.value" placeholder="e.g. Score, Innovation /10, Remarks" class="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+        <button type="button" onclick="_gfJudgesSheetRemoveBlankCol(${form?.id || 0}, ${i})" class="p-1 text-red-400 hover:text-red-600" ${cfg.blankCols.length <= 1 ? 'disabled' : ''}><i data-lucide="x" class="h-3.5 w-3.5"></i></button>
+      </div>`).join('');
+    lucide.createIcons();
+  }
+  function _gfJudgesSheetAddBlankCol() {
+    const overlay = document.getElementById('gfJudgesSheetOverlay');
+    const form = overlay?._gfForm;
+    const cfg = _gfJudgesSheetConfig(form);
+    cfg.blankCols.push('');
+    _gfRenderJudgesSheetBlankCols(form, cfg);
+  }
+  function _gfJudgesSheetRemoveBlankCol(formId, i) {
+    const cfg = _gfJudgesSheetConfigByForm[formId];
+    if (!cfg || cfg.blankCols.length <= 1) return;
+    cfg.blankCols.splice(i, 1);
+    const overlay = document.getElementById('gfJudgesSheetOverlay');
+    _gfRenderJudgesSheetBlankCols(overlay?._gfForm, cfg);
+  }
+  function _gfPrintJudgesSheetNow() {
+    const overlay = document.getElementById('gfJudgesSheetOverlay');
+    if (!overlay) return;
+    const form = overlay._gfForm, teams = overlay._gfTeams;
+    const cfg = _gfJudgesSheetConfig(form);
+    overlay.remove();
+    _gfBuildJudgesSheet(teams, form, cfg);
+  }
+  function _gfBuildJudgesSheet(teams, form, cfg) {
     if (!teams.length) return;
-    const rows = teams.map((t, idx) => `<tr>
-      <td>${idx + 1}</td>
-      <td class="ref">${_escHtml(t.reference_number || '#' + t.id)}</td>
-      <td>${_escHtml(_gfProjectTitle(t, form))}</td>
-      <td>${_gfPillHtml(_gfAnswerByName(t, form, /^category$/i))}</td>
-      <td>${_escHtml((t.group_data || {}).group || '—')}</td>
-      <td class="blank"></td>
-      <td class="blank"></td>
-    </tr>`).join('');
+    const allCols = _gfJudgesSheetColumns(form);
+    const dataCols = (cfg.dataCols.length ? cfg.dataCols : ['reference_number']).map(k => allCols.find(c => c.key === k)).filter(Boolean);
+    const blankCols = cfg.blankCols.filter(l => l.trim());
+    const headCells = ['SL', ...dataCols.map(c => c.label), ...blankCols].map(h => `<th>${_escHtml(h)}</th>`).join('');
+    const rows = teams.map((t, idx) => {
+      const dataCells = dataCols.map(c => `<td${c.key === 'reference_number' ? ' class="ref"' : ''}>${_escHtml(c.get(t) || '—')}</td>`).join('');
+      const blankCells = blankCols.map(() => '<td class="blank"></td>').join('');
+      return `<tr><td>${idx + 1}</td>${dataCells}${blankCells}</tr>`;
+    }).join('');
+    const nameLine = cfg.judgeNameLine ? `<p style="font-size:11px;color:#374151;margin:0 0 12px">Judge's Name: <span style="display:inline-block;width:220px;border-bottom:1px solid #9ca3af">&nbsp;</span>&nbsp;&nbsp;&nbsp;Printed ${new Date().toLocaleString()}</p>` : `<p style="font-size:10px;color:#6b7280;margin:0 0 12px">Printed ${new Date().toLocaleString()}</p>`;
     const body = `
       <h1 style="font-size:16px;margin:0 0 2px">${_escHtml(form?.title || 'Judging')} — Judges Score Sheet</h1>
-      <p style="font-size:11px;color:#374151;margin:0 0 12px">Judge's Name: <span style="display:inline-block;width:220px;border-bottom:1px solid #9ca3af">&nbsp;</span>&nbsp;&nbsp;&nbsp;Printed ${new Date().toLocaleString()}</p>
+      ${nameLine}
       <table>
-        <thead><tr><th>SL</th><th>No.</th><th>Project</th><th>Category</th><th>Group</th><th>Score</th><th>Remarks</th></tr></thead>
+        <thead><tr>${headCells}</tr></thead>
         <tbody>${rows}</tbody>
       </table>`;
     const css = `
@@ -31007,8 +31132,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       tr, td { page-break-inside: avoid; break-inside: avoid; }`;
     _gfOpenPrintWindow(`${form?.title || 'Judges'} — Score Sheet`, body, css);
   }
-  function printGroupFormJudgesSheet() { _gfBuildJudgesSheet(_gfWarnIfNoTeams(_gfRosterFilteredSorted()), _gfRosterForm); }
-  function _printGfReviewJudgesSheet() { _gfBuildJudgesSheet(_gfWarnIfNoTeams(_gfReviewFilteredTeams()), _gfReviewForm); }
+  function printGroupFormJudgesSheet() { _gfOpenJudgesSheetModal(_gfRosterFilteredSorted(), _gfRosterForm); }
+  function _printGfReviewJudgesSheet() { _gfOpenJudgesSheetModal(_gfReviewFilteredTeams(), _gfReviewForm); }
 
   function closeGroupRoster() {
     document.getElementById('adminGroupRoster').classList.add('hidden');
@@ -31247,7 +31372,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <button onclick="_printGfReviewProjectList()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="list-ordered" class="h-3 w-3"></i>Project List</button>
         <button onclick="_printGfReviewTokenList()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="ticket" class="h-3 w-3"></i>Token List</button>
         <button onclick="_printGfReviewTableStickers()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="tag" class="h-3 w-3"></i>Table Sticker</button>
-        <button onclick="_printGfReviewJudgesSheet()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1" title="A number + project + blank Score/Remarks sheet for judges — nothing admin-only like review status or member lists"><i data-lucide="clipboard-list" class="h-3 w-3"></i>Judges Sheet</button>
+        <button onclick="_printGfReviewJudgesSheet()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1" title="Configurable score sheet for judges — pick which columns show and add blank hand-fill columns for your rubric"><i data-lucide="clipboard-list" class="h-3 w-3"></i>Judges Sheet</button>
       `;
       _renderGfReviewRoster(_gfReviewFilteredTeams(), _gfReviewForm);
       _gfRenderReviewFilterPanel();
