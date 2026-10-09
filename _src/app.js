@@ -29826,12 +29826,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <input type="search" id="gfRosterSearch" oninput="renderAdminGroupRoster(_gfRosterTeams, _gfRosterForm)" placeholder="Search name, ID, roll, ref no…" class="pl-7 pr-2.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs" style="width:200px">
             </div>
             <button type="button" onclick="_gfToggleRosterFilterPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="filter" class="h-3 w-3"></i>Filters<span id="gfRosterFilterCount" class="hidden ml-1 px-1.5 py-0.5 bg-slate-800 text-white rounded-full text-[9px]"></span></button>
-            <select id="gfRosterSort" onchange="renderAdminGroupRoster(_gfRosterTeams, _gfRosterForm)" class="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs">
-              <option value="newest">Newest first</option>
-              <option value="oldest">Oldest first</option>
-              <option value="leader">Leader name (A–Z)</option>
-              <option value="submitted_at">Submission time</option>
-            </select>
+            <button type="button" onclick="_gfToggleRosterSortPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="arrow-down-up" class="h-3 w-3"></i>Sort<span id="gfRosterSortCount" class="ml-1 px-1.5 py-0.5 bg-slate-800 text-white rounded-full text-[9px]">${_gfRosterSortLevels.length}</span></button>
             <button onclick="exportGroupFormRoster()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="download" class="h-3 w-3"></i>Download CSV</button>
             <button onclick="printGroupFormRoster()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="printer" class="h-3 w-3"></i>Print Roster</button>
             <button onclick="printGroupFormProjectList()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="list-ordered" class="h-3 w-3"></i>Project List</button>
@@ -29844,6 +29839,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
         </div>
         <div id="gfRosterFilterPanel" class="hidden mb-4 p-4 bg-slate-50 rounded-2xl border border-slate-200"></div>
+        <div id="gfRosterSortPanel" class="hidden mb-4 p-4 bg-slate-50 rounded-2xl border border-slate-200"></div>
         <div id="gfReviewerPanel" class="hidden mb-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
           <div class="flex items-center justify-between mb-2">
             <span class="text-[10px] font-black text-slate-400 uppercase">Reviewers</span>
@@ -30473,12 +30469,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // {Rejected}, etc.) — covers every combination without a dedicated option
   // per combination.
   let _gfRosterFilterState = { submission: new Set(), review: new Set(), house: new Set(), group: new Set(), category: new Set() };
+  let _gfRosterSortLevels = [{ field: 'created_at', dir: 'desc' }];
   function openGroupRoster(groupFormId) {
     _gfRosterFormId = groupFormId;
     const form = _allGroupForms.find(f => f.id === groupFormId);
     _gfRosterForm = form || null;
     _gfRosterFilterState = { submission: new Set(), review: new Set(), house: new Set(), group: new Set(), category: new Set() };
     document.getElementById('gfRosterFilterPanel').classList.add('hidden');
+    _gfRosterSortLevels = [{ field: 'created_at', dir: 'desc' }];
+    document.getElementById('gfRosterSortPanel')?.classList.add('hidden');
     const searchEl = document.getElementById('gfRosterSearch');
     if (searchEl) searchEl.value = '';
     _gfEnsureStaffDirectory();
@@ -30515,6 +30514,69 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   function _gfTeamHouse(t) { return (t.members.find(m => m.role === 'leader')?.profile || {}).house || ''; }
   function _gfTeamGroup(t) { return (t.group_data || {}).group || ''; }
+  function _gfLeaderProfile(t) { return (t.members.find(m => m.role === 'leader') || {}).profile || null; }
+
+  // ── Multi-level sort ("sort by X, then by Y, then by Z") ─────────────────
+  // Shared by the admin roster and the reviewer tab's own roster — each
+  // keeps its own ordered list of {field, dir} levels (_gfRosterSortLevels /
+  // _gfReviewSortLevels) since they're independent views over possibly
+  // different team subsets, but the field registry/comparator/panel markup
+  // is identical, so it lives here once. This replaces the old single
+  // newest/oldest/leader/submitted_at dropdown — ties on the first level are
+  // broken by the second, and so on. Print Roster prints in exactly this
+  // same order, since it prints the on-screen list as-is.
+  function _gfSortFieldDefs(houseOf, groupOf, categoryOf) {
+    return {
+      leader_name: { label: 'Leader Name', type: 'text', get: t => { const p = _gfLeaderProfile(t); return (p && p.student_name) || t.leader_student_id; } },
+      class: { label: 'Class', type: 'text', get: t => { const p = _gfLeaderProfile(t); return (p && p.class) || ''; } },
+      section: { label: 'Section', type: 'text', get: t => { const p = _gfLeaderProfile(t); return (p && p.section) || ''; } },
+      roll: { label: 'Roll', type: 'number', get: t => { const p = _gfLeaderProfile(t); return (p && p.roll) || 0; } },
+      house: { label: 'House', type: 'text', get: houseOf },
+      group: { label: 'Group', type: 'text', get: groupOf },
+      category: { label: 'Category', type: 'text', get: categoryOf },
+      reference_number: { label: 'Reference No.', type: 'text', get: t => t.reference_number || '' },
+      review_status: { label: 'Review Status', type: 'text', get: t => t.review_status === 'approved' ? 'Approved' : t.review_status === 'rejected' ? 'Rejected' : 'Unreviewed' },
+      submission: { label: 'Submission', type: 'text', get: t => t.is_submitted ? 'Submitted' : 'Saved' },
+      submitted_at: { label: 'Submitted At', type: 'date', get: t => t.submitted_at || '' },
+      created_at: { label: 'Created At', type: 'date', get: t => t.created_at || '' },
+    };
+  }
+  function _gfCompareByLevels(defs, levels, a, b) {
+    for (const lvl of (levels && levels.length ? levels : [{ field: 'created_at', dir: 'desc' }])) {
+      const def = defs[lvl.field];
+      if (!def) continue;
+      const va = def.get(a), vb = def.get(b);
+      let cmp;
+      if (def.type === 'number') cmp = (Number(va) || 0) - (Number(vb) || 0);
+      else if (def.type === 'date') cmp = new Date(va || 0) - new Date(vb || 0);
+      else cmp = String(va || '').localeCompare(String(vb || ''));
+      if (cmp !== 0) return lvl.dir === 'desc' ? -cmp : cmp;
+    }
+    return 0;
+  }
+  function _gfSortPanelHtml(levels, defs, prefix) {
+    const used = new Set(levels.map(l => l.field));
+    const rows = levels.map((lvl, i) => `
+      <div class="flex items-center gap-2 bg-white p-2 rounded-xl border border-slate-200">
+        <span class="text-[10px] font-black text-slate-400 w-4">${i + 1}.</span>
+        <select onchange="${prefix}SetField(${i}, this.value)" class="flex-1 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          ${Object.entries(defs).map(([k, d]) => `<option value="${k}" ${k === lvl.field ? 'selected' : ''} ${used.has(k) && k !== lvl.field ? 'disabled' : ''}>${_escHtml(d.label)}</option>`).join('')}
+        </select>
+        <select onchange="${prefix}SetDir(${i}, this.value)" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <option value="asc" ${lvl.dir !== 'desc' ? 'selected' : ''}>A→Z / Oldest first</option>
+          <option value="desc" ${lvl.dir === 'desc' ? 'selected' : ''}>Z→A / Newest first</option>
+        </select>
+        <button type="button" onclick="${prefix}Move(${i},-1)" ${i === 0 ? 'disabled' : ''} class="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30"><i data-lucide="chevron-up" class="h-3.5 w-3.5"></i></button>
+        <button type="button" onclick="${prefix}Move(${i},1)" ${i === levels.length - 1 ? 'disabled' : ''} class="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30"><i data-lucide="chevron-down" class="h-3.5 w-3.5"></i></button>
+        <button type="button" onclick="${prefix}Remove(${i})" class="p-1 text-red-400 hover:text-red-600" ${levels.length <= 1 ? 'disabled' : ''}><i data-lucide="x" class="h-3.5 w-3.5"></i></button>
+      </div>`).join('');
+    const hasMore = Object.keys(defs).some(k => !used.has(k));
+    return `
+      <p class="text-[10px] font-bold text-slate-400 mb-2">Sorted by each level in order — ties on the first are broken by the second, and so on. This is also the order "Print Roster" prints in.</p>
+      <div class="flex flex-col gap-2 mb-2">${rows}</div>
+      ${hasMore ? `<button type="button" onclick="${prefix}Add()" class="px-3 py-1.5 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase">+ Add Sort Level</button>` : ''}
+    `;
+  }
   // ── House-tinted team cards (admin roster + reviewer panel) — when a
   // Group Form's eligibility is itself bound by House (group_field ===
   // 'house', set in the eligibility editor's "Group by" selector), each
@@ -30627,6 +30689,52 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>`;
     }).join('') + (_gfRosterFilterActiveCount() ? `<button type="button" onclick="clearGfRosterFilters()" class="text-[10px] font-black text-red-600 uppercase hover:underline">Clear all filters</button>` : '');
     _gfUpdateRosterFilterBadge();
+  }
+  function _gfRosterSortFieldDefs() { return _gfSortFieldDefs(_gfTeamHouse, _gfTeamGroup, _gfTeamCategory); }
+  function _gfToggleRosterSortPanel() {
+    const panel = document.getElementById('gfRosterSortPanel');
+    const show = panel.classList.contains('hidden');
+    panel.classList.toggle('hidden', !show);
+    if (show) _gfRenderRosterSortPanel();
+  }
+  function _gfRenderRosterSortPanel() {
+    const countBadge = document.getElementById('gfRosterSortCount');
+    if (countBadge) countBadge.textContent = _gfRosterSortLevels.length;
+    const host = document.getElementById('gfRosterSortPanel');
+    if (!host || host.classList.contains('hidden')) return;
+    host.innerHTML = _gfSortPanelHtml(_gfRosterSortLevels, _gfRosterSortFieldDefs(), '_gfRosterSort');
+    lucide.createIcons();
+  }
+  function _gfRosterSortAdd() {
+    const defs = _gfRosterSortFieldDefs();
+    const used = new Set(_gfRosterSortLevels.map(l => l.field));
+    const next = Object.keys(defs).find(k => !used.has(k));
+    if (!next) return;
+    _gfRosterSortLevels.push({ field: next, dir: 'asc' });
+    _gfRenderRosterSortPanel();
+    renderAdminGroupRoster(_gfRosterTeams, _gfRosterForm);
+  }
+  function _gfRosterSortRemove(i) {
+    if (_gfRosterSortLevels.length <= 1) return;
+    _gfRosterSortLevels.splice(i, 1);
+    _gfRenderRosterSortPanel();
+    renderAdminGroupRoster(_gfRosterTeams, _gfRosterForm);
+  }
+  function _gfRosterSortMove(i, dir) {
+    const j = i + dir;
+    if (j < 0 || j >= _gfRosterSortLevels.length) return;
+    [_gfRosterSortLevels[i], _gfRosterSortLevels[j]] = [_gfRosterSortLevels[j], _gfRosterSortLevels[i]];
+    _gfRenderRosterSortPanel();
+    renderAdminGroupRoster(_gfRosterTeams, _gfRosterForm);
+  }
+  function _gfRosterSortSetField(i, field) {
+    if (_gfRosterSortLevels[i]) _gfRosterSortLevels[i].field = field;
+    _gfRenderRosterSortPanel();
+    renderAdminGroupRoster(_gfRosterTeams, _gfRosterForm);
+  }
+  function _gfRosterSortSetDir(i, dir) {
+    if (_gfRosterSortLevels[i]) _gfRosterSortLevels[i].dir = dir;
+    renderAdminGroupRoster(_gfRosterTeams, _gfRosterForm);
   }
   // One row per team: leader, members, pending invites, and every group-level
   // answer labeled with its real field name (same field set _gfFormatGroupData
@@ -31719,17 +31827,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return parts.filter(Boolean).some(v => String(v).toLowerCase().includes(q));
   }
   function _gfRosterFilteredSorted() {
-    const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''}${p.roll ? ', Roll ' + p.roll : ''})` : 'Unknown';
-    const leaderNameOf = t => nameOf(t.members.find(m => m.role === 'leader')?.profile) || t.leader_student_id;
-    const sort = document.getElementById('gfRosterSort')?.value || 'newest';
     const searchTerm = document.getElementById('gfRosterSearch')?.value || '';
+    const defs = _gfRosterSortFieldDefs();
     let shown = _gfRosterTeams.filter(t => _gfTeamMatchesRosterFilters(t) && _gfTeamMatchesSearch(t, _gfRosterForm, searchTerm));
-    return shown.slice().sort((a, b) => {
-      if (sort === 'leader') return leaderNameOf(a).localeCompare(leaderNameOf(b));
-      if (sort === 'submitted_at') return new Date(b.submitted_at || 0) - new Date(a.submitted_at || 0);
-      const cmp = new Date(a.created_at || 0) - new Date(b.created_at || 0);
-      return sort === 'oldest' ? cmp : -cmp;
-    });
+    return shown.slice().sort((a, b) => _gfCompareByLevels(defs, _gfRosterSortLevels, a, b));
   }
   // Same counting-summary idea as the Project List print's header and the
   // reviewer tab's own on-screen summary — total plus a breakdown by

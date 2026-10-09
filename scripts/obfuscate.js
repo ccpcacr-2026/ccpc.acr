@@ -329,6 +329,7 @@ const RESERVED = [
   'openGroupRoster','closeGroupRoster','setTeamLockAdmin','disbandTeamAdmin','deleteTeamAdmin','deleteAllDisbandedTeams',
   'exportGroupFormRoster','printGroupFormRoster',
   '_gfToggleRosterFilterPanel','toggleGfRosterFilter','clearGfRosterFilters',
+  '_gfToggleRosterSortPanel','_gfRosterSortAdd','_gfRosterSortRemove','_gfRosterSortMove','_gfRosterSortSetField','_gfRosterSortSetDir',
   '_gfToggleReviewFilterPanel','toggleGfReviewFilter','clearGfReviewFilters',
   'printGroupFormProjectList','printGroupFormTokenList','printGroupFormTableStickers',
   '_printGfReviewProjectList','_printGfReviewTokenList','_printGfReviewTableStickers',
