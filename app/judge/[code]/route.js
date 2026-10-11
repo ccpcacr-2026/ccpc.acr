@@ -255,6 +255,32 @@ function renderPage(judge, data) {
   .save-status.err{color:#d8453a;}
 
   .empty{text-align:center; padding:2.5rem 1rem; color:var(--ink-muted); font-size:.9rem;}
+
+  .view-toggle{display:flex; align-items:center; gap:.5rem; margin-top:1rem; flex-wrap:wrap;}
+  .view-btn{border:1px solid var(--border); background:var(--surface); color:var(--ink-muted); font-weight:700; font-size:.78rem; padding:.4rem .85rem; border-radius:999px; cursor:pointer;}
+  .view-btn.active{background:var(--accent); color:#fff; border-color:var(--accent);}
+  .save-all-btn{border:none; background:var(--good); color:#fff; font-weight:700; font-size:.78rem; padding:.45rem 1rem; border-radius:999px; cursor:pointer; margin-left:auto;}
+  .save-all-btn:disabled{opacity:.5; cursor:default;}
+  .save-all-btn.hidden{display:none;}
+  .save-all-status{font-size:.76rem; font-weight:700; color:var(--ink-muted); white-space:nowrap;}
+
+  #sheet-host.hidden, #teams-host.hidden{display:none;}
+  .sheet-wrap{overflow-x:auto; margin-top:.9rem; border:1px solid var(--border); border-radius:14px; background:var(--surface); box-shadow:var(--shadow);}
+  table.sheet{border-collapse:collapse; width:100%; font-size:.82rem;}
+  table.sheet th, table.sheet td{border-bottom:1px solid var(--border); border-right:1px solid var(--border); padding:.5rem .6rem; text-align:left; white-space:nowrap;}
+  table.sheet th:last-child, table.sheet td:last-child{border-right:none;}
+  table.sheet thead th{position:sticky; top:0; background:var(--bg); color:var(--ink-muted); font-size:.68rem; font-weight:800; text-transform:uppercase; letter-spacing:.04em; z-index:1;}
+  table.sheet td.sheet-team{min-width:220px; white-space:normal;}
+  table.sheet td.sheet-team .sheet-ref{font-weight:800; color:var(--accent-ink); margin-right:.4rem;}
+  table.sheet td.sheet-team .sheet-members{color:var(--ink-muted); font-size:.76rem; margin-top:.15rem;}
+  table.sheet td.sheet-sl{text-align:center; color:var(--ink-muted); font-weight:700;}
+  table.sheet input.sheet-input{width:4.2rem; padding:.3rem .4rem; border-radius:8px; border:1.5px solid var(--border); background:var(--bg); color:var(--ink); font-weight:700; font-size:.85rem; text-align:center;}
+  table.sheet input.sheet-input:focus{border-color:var(--accent); outline:none;}
+  table.sheet td.sheet-total{font-weight:800; text-align:center;}
+  table.sheet td.sheet-status{text-align:center; font-size:.75rem; font-weight:800; width:1.6rem;}
+  table.sheet td.sheet-status.ok{color:var(--good);}
+  table.sheet td.sheet-status.err{color:#d8453a;}
+  table.sheet tbody tr.dirty td.sheet-status{color:var(--warn);}
 </style>
 </head>
 <body>
@@ -265,8 +291,15 @@ function renderPage(judge, data) {
     <div class="judge-line">Signed in as <strong>${esc(judge.name)}</strong>${data.scopeLabel ? ` · Scope: <strong>${esc(data.scopeLabel)}</strong>` : ''}</div>
     <div class="crit-strip">${criteriaHtml}</div>
     ${data.archived ? `<div class="archived-banner">${esc(ARCHIVED_MESSAGE)}</div>` : ''}
+    ${data.teams.length ? `<div class="view-toggle">
+      <button type="button" id="view-cards-btn" class="view-btn active">Cards</button>
+      <button type="button" id="view-sheet-btn" class="view-btn">Sheet (Excel-style)</button>
+      <button type="button" id="save-all-btn" class="save-all-btn hidden"${data.archived ? ' disabled' : ''}>Save All</button>
+      <span id="save-all-status" class="save-all-status"></span>
+    </div>` : ''}
   </div>
   <div id="teams-host">${data.teams.length ? '' : '<div class="empty">No teams to judge yet.</div>'}</div>
+  <div id="sheet-host" class="hidden"></div>
 </div>
 
 <script>
@@ -286,6 +319,36 @@ function renderPage(judge, data) {
       if (!isNaN(v)) { sum += v; any = true; }
     });
     return any ? sum : null;
+  }
+
+  // Shared by the card view's own Save button and the Sheet view's Save
+  // All loop — one team's worth of scores, one POST, same contract either
+  // way (the server only ever sees "save this team's scores", never a
+  // bulk shape) so nothing on the backend needed to change for Sheet view
+  // to exist.
+  async function saveTeamScores(teamId, scores){
+    try {
+      var res = await fetch(location.pathname, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ team_id: teamId, scores: scores }),
+      });
+      var data = await res.json();
+      if (data && data.result === 'success') return { ok: true };
+      return { ok: false, message: (data && data.message) || 'Could not save.' };
+    } catch(e){
+      return { ok: false, message: 'Network error — try again.' };
+    }
+  }
+  function readScoresFromInputs(inputs){
+    var scores = {}, bad = false;
+    inputs.forEach(function(inp){
+      if (inp.value === '') return;
+      var v = Number(inp.value);
+      if (isNaN(v) || v < 0 || v > Number(inp.max)) bad = true;
+      scores[inp.getAttribute('data-crit')] = v;
+    });
+    return { scores: scores, bad: bad };
   }
 
   function renderTeam(team, idx){
@@ -326,39 +389,113 @@ function renderPage(judge, data) {
     inputs.forEach(function(inp){ inp.addEventListener('input', recompute); });
 
     saveBtn.addEventListener('click', async function(){
-      var scores = {};
-      var bad = false;
-      inputs.forEach(function(inp){
-        if (inp.value === '') return;
-        var v = Number(inp.value);
-        if (isNaN(v) || v < 0 || v > Number(inp.max)) bad = true;
-        scores[inp.getAttribute('data-crit')] = v;
-      });
-      if (bad) { statusEl.textContent = 'One or more scores are out of range.'; statusEl.className = 'save-status err'; return; }
+      var r = readScoresFromInputs(inputs);
+      if (r.bad) { statusEl.textContent = 'One or more scores are out of range.'; statusEl.className = 'save-status err'; return; }
       saveBtn.disabled = true;
       statusEl.textContent = 'Saving…'; statusEl.className = 'save-status';
-      try {
-        var res = await fetch(location.pathname, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ team_id: team.team_id, scores: scores }),
-        });
-        var data = await res.json();
-        if (data && data.result === 'success'){
-          statusEl.textContent = 'Saved ✓'; statusEl.className = 'save-status ok';
-        } else {
-          statusEl.textContent = (data && data.message) || 'Could not save.'; statusEl.className = 'save-status err';
-        }
-      } catch(e){
-        statusEl.textContent = 'Network error — try again.'; statusEl.className = 'save-status err';
-      }
-      saveBtn.disabled = !!ARCHIVED ? true : false;
+      var res = await saveTeamScores(team.team_id, r.scores);
+      statusEl.textContent = res.ok ? 'Saved ✓' : res.message;
+      statusEl.className = res.ok ? 'save-status ok' : 'save-status err';
+      saveBtn.disabled = !!ARCHIVED;
     });
 
     return card;
   }
 
   TEAMS.forEach(function(team, idx){ host.appendChild(renderTeam(team, idx)); });
+
+  // ── Sheet (Excel-style) view ─────────────────────────────────────────────
+  // Same data, laid out as one row per team / one column per criterion so
+  // a judge typing scores for many teams can tab straight across instead
+  // of scrolling and tapping Save on a card at a time. Nothing saves until
+  // "Save All" is clicked — same reasoning a real spreadsheet doesn't save
+  // itself after every keystroke — then every row with a value actually
+  // typed into it gets its own POST (same saveTeamScores as the card view),
+  // one at a time so the status line can report real progress.
+  var sheetHost = document.getElementById('sheet-host');
+  var cardsBtn = document.getElementById('view-cards-btn');
+  var sheetBtn = document.getElementById('view-sheet-btn');
+  var saveAllBtn = document.getElementById('save-all-btn');
+  var saveAllStatus = document.getElementById('save-all-status');
+
+  function buildSheet(){
+    if (!sheetHost || sheetHost.childNodes.length) return; // built once, lazily
+    var wrap = document.createElement('div');
+    wrap.className = 'sheet-wrap';
+    var theadCells = '<th>SL</th><th>Team</th>' + CRITERIA.map(function(c){ return '<th>' + esc(c.label) + '<br>/' + esc(c.max) + '</th>'; }).join('') + '<th>Total</th><th></th>';
+    var rows = TEAMS.map(function(team, idx){
+      var membersLine = team.members.map(function(m){ return m.name; }).join(', ');
+      var cells = CRITERIA.map(function(c){
+        var existing = team.scores[c.key];
+        return '<td><input type="number" class="sheet-input" min="0" max="' + esc(c.max) + '" step="1" data-team="' + team.team_id + '" data-crit="' + esc(c.key) + '" value="' + (existing != null ? esc(existing) : '') + '"' + (ARCHIVED ? ' disabled' : '') + '></td>';
+      }).join('');
+      return '<tr data-team-row="' + team.team_id + '">' +
+        '<td class="sheet-sl">' + (idx + 1) + '</td>' +
+        '<td class="sheet-team"><span class="sheet-ref">' + esc(team.reference_number) + '</span>' + esc(team.title) + '<div class="sheet-members">' + esc(membersLine) + '</div></td>' +
+        cells +
+        '<td class="sheet-total">—</td>' +
+        '<td class="sheet-status"></td>' +
+      '</tr>';
+    }).join('');
+    wrap.innerHTML = '<table class="sheet"><thead><tr>' + theadCells + '</tr></thead><tbody>' + rows + '</tbody></table>';
+    sheetHost.appendChild(wrap);
+
+    function recomputeRow(tr){
+      var inputs = tr.querySelectorAll('input[data-crit]');
+      var sum = 0, any = false;
+      inputs.forEach(function(inp){
+        var v = Number(inp.value);
+        if (inp.value !== '' && !isNaN(v)) { sum += v; any = true; }
+      });
+      tr.querySelector('.sheet-total').textContent = any ? sum : '—';
+      tr.classList.add('dirty');
+    }
+    sheetHost.querySelectorAll('input.sheet-input').forEach(function(inp){
+      inp.addEventListener('input', function(){ recomputeRow(inp.closest('tr')); });
+    });
+    // Pre-filled rows (already-saved scores) should show their real total
+    // immediately, not just once the judge touches an input — but doing
+    // this must not mark a row "dirty" (recomputeRow does, for the input
+    // listener's case), since nothing here actually changed yet.
+    sheetHost.querySelectorAll('tr[data-team-row]').forEach(function(tr){
+      recomputeRow(tr);
+      tr.classList.remove('dirty');
+    });
+  }
+
+  function setView(view){
+    var showSheet = view === 'sheet';
+    if (showSheet) buildSheet();
+    sheetHost.classList.toggle('hidden', !showSheet);
+    host.classList.toggle('hidden', showSheet);
+    sheetBtn.classList.toggle('active', showSheet);
+    cardsBtn.classList.toggle('active', !showSheet);
+    if (saveAllBtn) saveAllBtn.classList.toggle('hidden', !showSheet);
+    if (saveAllStatus) saveAllStatus.textContent = '';
+  }
+  if (cardsBtn) cardsBtn.addEventListener('click', function(){ setView('cards'); });
+  if (sheetBtn) sheetBtn.addEventListener('click', function(){ setView('sheet'); });
+
+  if (saveAllBtn) saveAllBtn.addEventListener('click', async function(){
+    var rows = Array.prototype.filter.call(sheetHost.querySelectorAll('tr[data-team-row]'), function(tr){ return tr.classList.contains('dirty'); });
+    if (!rows.length) { saveAllStatus.textContent = 'Nothing changed to save.'; return; }
+    saveAllBtn.disabled = true;
+    var okCount = 0, errCount = 0;
+    for (var i = 0; i < rows.length; i++){
+      var tr = rows[i];
+      saveAllStatus.textContent = 'Saving ' + (i + 1) + ' of ' + rows.length + '…';
+      var teamId = Number(tr.getAttribute('data-team-row'));
+      var inputs = tr.querySelectorAll('input[data-crit]');
+      var r = readScoresFromInputs(inputs);
+      var statusCell = tr.querySelector('.sheet-status');
+      if (r.bad) { statusCell.textContent = '!'; statusCell.className = 'sheet-status err'; errCount++; continue; }
+      var res = await saveTeamScores(teamId, r.scores);
+      if (res.ok) { statusCell.textContent = '✓'; statusCell.className = 'sheet-status ok'; tr.classList.remove('dirty'); okCount++; }
+      else { statusCell.textContent = '!'; statusCell.className = 'sheet-status err'; statusCell.title = res.message; errCount++; }
+    }
+    saveAllStatus.textContent = 'Saved ' + okCount + (errCount ? ', ' + errCount + ' failed' : '') + '.';
+    saveAllBtn.disabled = !!ARCHIVED;
+  });
 })();
 </script>
 </body>
