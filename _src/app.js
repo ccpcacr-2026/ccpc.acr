@@ -31609,6 +31609,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       try { elig = JSON.parse(_gfRosterForm?.eligibility_json || '{}') || {}; } catch (e) {}
       return (Array.isArray(elig.bands) ? elig.bands : []).map(b => Array.isArray(b) ? '' : (b.name || '')).filter(Boolean);
     }
+    // 'category' is first-class (not just another 'answer:' field) because
+    // this form's own "Category" question commonly exists as TWO sibling
+    // fields with the SAME name but different data_keys — one per
+    // eligibility Group, each shown/hidden by its own show_if — same
+    // pattern the Reference Number builder already has to handle
+    // (_gfRefNumberAnswerFieldOptions). Picking "Answer: category_..." would
+    // only ever match teams routed to THAT ONE variant; merging every
+    // field actually named "Category" catches every team regardless of
+    // which variant they answered.
+    if (dimension === 'category') {
+      let fields = [];
+      try { fields = JSON.parse(_gfRosterForm?.fields_json || '[]') || []; } catch (e) {}
+      const opts = [];
+      fields.filter(fd => /^category$/i.test(fd.name || '')).forEach(fd => (fd.options || []).forEach(o => { if (!opts.includes(o)) opts.push(o); }));
+      return opts;
+    }
     if (dimension.startsWith('answer:')) {
       const key = dimension.slice(7);
       let fields = [];
@@ -31771,7 +31787,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <option value="class" ${dim === 'class' ? 'selected' : ''}>Class</option>
         <option value="house" ${dim === 'house' ? 'selected' : ''}>House</option>
         <option value="group" ${dim === 'group' ? 'selected' : ''}>Group (band)</option>
-        ${answerFields.map(f => `<option value="answer:${f.data_key}" ${dim === `answer:${f.data_key}` ? 'selected' : ''}>Answer: ${f.name || f.data_key}</option>`).join('')}
+        <option value="category" ${dim === 'category' ? 'selected' : ''}>Category</option>
+        ${answerFields.filter(f => !/^category$/i.test(f.name || '')).map(f => `<option value="answer:${f.data_key}" ${dim === `answer:${f.data_key}` ? 'selected' : ''}>Answer: ${f.name || f.data_key}</option>`).join('')}
       </select>
       <select class="gf-rule-value px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs ${dim === 'all' ? 'hidden' : ''}" onchange="_gfSaveJudgeScope(this)"></select>
     </div>`;

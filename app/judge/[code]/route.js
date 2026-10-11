@@ -107,6 +107,16 @@ function judgeScopeMatches(team, form, judge, leaderProfile) {
     const groupField = elig.group_field || 'class';
     return bandNameServer(form?.eligibility_json, leaderProfile?.[groupField]) === judge.scope_value;
   }
+  // 'category' merges every field actually NAMED "Category" (this form has
+  // two — one per eligibility Group, each shown by its own show_if), same
+  // first-match-wins fallback as answerByName already applies everywhere
+  // else a project's category is read — a plain 'answer:<data_key>' scope
+  // would only ever match teams routed to ONE specific variant.
+  if (dim === 'category') {
+    let fields = [];
+    try { fields = JSON.parse(form?.fields_json || '[]') || []; } catch (e) {}
+    return answerByName(fields, team.group_data, /^category$/i) === judge.scope_value;
+  }
   if (dim.startsWith('answer:')) {
     const key = dim.slice('answer:'.length);
     return String((team.group_data || {})[key] ?? '') === judge.scope_value;
@@ -116,7 +126,7 @@ function judgeScopeMatches(team, form, judge, leaderProfile) {
 function scopeLabel(judge) {
   const dim = judge.scope_dimension || 'all';
   if (dim === 'all') return '';
-  const dimLabel = dim === 'class' ? 'Class' : dim === 'house' ? 'House' : dim === 'group' ? 'Group' : dim.startsWith('answer:') ? dim.slice(7) : dim;
+  const dimLabel = dim === 'class' ? 'Class' : dim === 'house' ? 'House' : dim === 'group' ? 'Group' : dim === 'category' ? 'Category' : dim.startsWith('answer:') ? dim.slice(7) : dim;
   return `${dimLabel}: ${judge.scope_value || ''}`;
 }
 
@@ -377,7 +387,7 @@ export async function POST(request, { params }) {
   const scores = body.scores && typeof body.scores === 'object' && !Array.isArray(body.scores) ? body.scores : null;
   if (!team_id || !scores) return NextResponse.json({ result: 'error', message: 'team_id and scores required.' }, { status: 400 });
 
-  const formRows = await sb(`group_forms?id=eq.${encodeURIComponent(judge.group_form_id)}&select=archived,judging_criteria_json,eligibility_json`);
+  const formRows = await sb(`group_forms?id=eq.${encodeURIComponent(judge.group_form_id)}&select=archived,judging_criteria_json,eligibility_json,fields_json`);
   const form = Array.isArray(formRows) && formRows[0];
   if (!form) return NextResponse.json({ result: 'error', message: 'Judge link not found.' }, { status: 404 });
   if (form.archived) return NextResponse.json({ result: 'error', message: ARCHIVED_MESSAGE });
