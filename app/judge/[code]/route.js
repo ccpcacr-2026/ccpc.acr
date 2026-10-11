@@ -123,7 +123,7 @@ function scopeLabel(judge) {
 async function loadRosterAndScores(judge) {
   const [formRows, teamRows, judgeScoreRows] = await Promise.all([
     sb(`group_forms?id=eq.${encodeURIComponent(judge.group_form_id)}&select=id,title,fields_json,eligibility_json,judging_criteria_json,archived`),
-    sb(`group_form_teams?group_form_id=eq.${encodeURIComponent(judge.group_form_id)}&status=neq.disbanded&select=id,leader_student_id,group_data,reference_number&order=created_at.asc`),
+    sb(`group_form_teams?group_form_id=eq.${encodeURIComponent(judge.group_form_id)}&status=neq.disbanded&select=id,leader_student_id,group_data,reference_number&order=created_at.asc,id.asc`),
     sb(`group_form_judge_scores?judge_id=eq.${encodeURIComponent(judge.id)}&select=team_id,scores_json`),
   ]);
   const form = Array.isArray(formRows) && formRows[0];

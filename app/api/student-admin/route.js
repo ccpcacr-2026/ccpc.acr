@@ -1530,7 +1530,7 @@ export async function POST(req) {
     const { group_form_id } = payload;
     if (!group_form_id) return NextResponse.json({ result: 'error', message: 'group_form_id required.' });
     const [teams, members, invites] = await Promise.all([
-      sb(`group_form_teams?group_form_id=eq.${encodeURIComponent(group_form_id)}&order=created_at.asc`),
+      sb(`group_form_teams?group_form_id=eq.${encodeURIComponent(group_form_id)}&order=created_at.asc,id.asc`),
       sb(`group_form_team_members?group_form_id=eq.${encodeURIComponent(group_form_id)}`),
       sb(`group_form_team_invites?group_form_id=eq.${encodeURIComponent(group_form_id)}&status=eq.pending`),
     ]);
@@ -1755,7 +1755,7 @@ export async function POST(req) {
     if (!form) return NextResponse.json({ result: 'error', message: 'Group form not found.' });
 
     const [teams, members, invites] = await Promise.all([
-      sb(`group_form_teams?group_form_id=eq.${encodeURIComponent(rule.group_form_id)}&order=created_at.asc`),
+      sb(`group_form_teams?group_form_id=eq.${encodeURIComponent(rule.group_form_id)}&order=created_at.asc,id.asc`),
       sb(`group_form_team_members?group_form_id=eq.${encodeURIComponent(rule.group_form_id)}`),
       sb(`group_form_team_invites?group_form_id=eq.${encodeURIComponent(rule.group_form_id)}&status=eq.pending`),
     ]);
