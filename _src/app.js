@@ -31002,15 +31002,29 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       .token .leader { font-size: 8px; color: #6b7280; font-weight: 700; margin-top: 2px; }`;
     _gfOpenPrintWindow(`${form?.title || 'Tokens'} — Token List`, `<div class="grid">${tokens}</div>`, css);
   }
+  // A table sticker gets a full A4 half-page to itself (~190×134mm) — the
+  // previous version only ever grew its content to a small centered
+  // cluster (76px avatars, 50px ref number) and left most of that area
+  // blank white space around it, which read as a mistake rather than a
+  // design choice once actually printed and cut. Fixed two ways: a visible
+  // bordered card with a colored header band (house color if the form is
+  // grouped by house, else a neutral dark band) so the sticker's OWN edge
+  // fills the area even where content doesn't, and every element scaled up
+  // substantially so the content itself uses the room a half A4 page
+  // actually gives it.
   function _gfBuildTableStickers(teams, form) {
     if (!teams.length) return;
     const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''}${p.roll ? ', Roll ' + p.roll : ''})` : 'Unknown';
     const stickerHtml = t => {
       const category = _gfAnswerByName(t, form, /^category$/i);
       const group = (t.group_data || {}).group;
-      const team = t.members.map(m => `<div class="member">${_gfPrintAvatarHtml(m.profile, 22)}<span>${_escHtml(nameOf(m.profile))}</span></div>`).join('');
-      return `<div class="sticker">
-        <div class="avatars">${t.members.slice(0, 2).map(m => _gfPrintAvatarHtml(m.profile, 76)).join('')}</div>
+      const house = _gfTeamHouse(t);
+      const bandColor = (house && _gfHouseColors && _gfHouseColors[house]) || '#1e293b';
+      const bandText = [house, form?.title].filter(Boolean).join(' · ') || 'Team';
+      const team = t.members.map(m => `<div class="member">${_gfPrintAvatarHtml(m.profile, 32)}<span>${_escHtml(nameOf(m.profile))}</span></div>`).join('');
+      return `<div class="sticker" style="--band:${bandColor}">
+        <div class="band">${_escHtml(bandText)}</div>
+        <div class="avatars">${t.members.slice(0, 2).map(m => _gfPrintAvatarHtml(m.profile, 130)).join('')}</div>
         <div class="ref">${_escHtml(t.reference_number || '#' + t.id)}</div>
         <div class="proj">${_escHtml(_gfProjectTitle(t, form))}</div>
         <div class="badges">${[category, group].filter(Boolean).map(v => `<span class="badge">${_escHtml(v)}</span>`).join('')}</div>
@@ -31022,21 +31036,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const body = pages.map((pair, i) => `<div class="page"${i === pages.length - 1 ? '' : ' style="page-break-after:always"'}>
       ${stickerHtml(pair[0])}
       <div class="cut"></div>
-      ${pair[1] ? stickerHtml(pair[1]) : '<div class="sticker"></div>'}
+      ${pair[1] ? stickerHtml(pair[1]) : '<div class="sticker empty"></div>'}
     </div>`).join('');
     const css = `
       @page { size: A4 portrait; margin: 10mm; }
       .page { height: 277mm; display: flex; flex-direction: column; }
-      .sticker { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 8px; padding: 10px; }
-      .avatars { display: flex; gap: -10px; }
-      .avatars img, .avatars div { margin-left: -10px; border: 2px solid #fff; }
+      .sticker { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 16px; padding: 18mm 12mm 14mm; margin: 3mm; border: 3px solid #1e293b; border-radius: 26px; position: relative; overflow: hidden; }
+      .sticker.empty { border-style: dashed; border-color: #cbd5e1; }
+      .sticker .band { position: absolute; top: 0; left: 0; right: 0; padding: 8px 10px; background: var(--band); color: #fff; font-size: 14px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.1em; }
+      .avatars { display: flex; }
+      .avatars img, .avatars div { margin-left: -20px; border: 3px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,.18); }
       .avatars :first-child { margin-left: 0; }
-      .sticker .ref { font-size: 50px; font-weight: 800; letter-spacing: 0.04em; margin-top: 2px; }
-      .sticker .proj { font-size: 20px; font-weight: 700; max-width: 85%; }
-      .badges { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
-      .badge { background: #eff6ff; color: #1d4ed8; padding: 3px 11px; border-radius: 12px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; }
-      .team { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-top: 2px; max-width: 90%; }
-      .member { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: #374151; }
+      .sticker .ref { font-size: 78px; font-weight: 900; letter-spacing: 0.03em; line-height: 1; color: #0f172a; }
+      .sticker .proj { font-size: 27px; font-weight: 800; max-width: 88%; line-height: 1.25; color: #1e293b; }
+      .badges { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+      .badge { background: #eff6ff; color: #1d4ed8; padding: 6px 18px; border-radius: 18px; font-size: 15px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; }
+      .team { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; margin-top: 2px; max-width: 92%; }
+      .member { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 700; color: #374151; }
       .cut { border-top: 2px dashed #9ca3af; margin: 0 6mm; }`;
     _gfOpenPrintWindow(`${form?.title || 'Table Stickers'} — Table Stickers`, body, css);
   }
