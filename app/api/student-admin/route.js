@@ -1616,7 +1616,7 @@ export async function POST(req) {
     return NextResponse.json({ result: 'error', message: 'Could not generate a unique access code — try again.' });
   }
   if (action === 'admin_update_judge') {
-    const { id, name, is_enabled } = payload;
+    const { id, name, is_enabled, scope_dimension, scope_value } = payload;
     if (!id) return NextResponse.json({ result: 'error', message: 'id required.' });
     const rowData = {};
     if (name !== undefined) {
@@ -1624,6 +1624,14 @@ export async function POST(req) {
       rowData.name = String(name).trim();
     }
     if (is_enabled !== undefined) rowData.is_enabled = !!is_enabled;
+    // Same dimension/value vocabulary as a reviewer rule — 'all' (the
+    // default) sees every team on the form; anything else scopes this
+    // judge to one slice (a class, a house, an eligibility band, or one
+    // answer value), enforced both here (what get_roster returns) and in
+    // the judge-scoring route's save_score (a judge can't score a team
+    // outside their own scope even by guessing its team_id).
+    if (scope_dimension !== undefined) rowData.scope_dimension = scope_dimension || 'all';
+    if (scope_value !== undefined) rowData.scope_value = scope_value || null;
     const r = await sb(`group_form_judges?id=eq.${encodeURIComponent(id)}`, 'PATCH', rowData);
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
     return NextResponse.json({ result: 'success' });

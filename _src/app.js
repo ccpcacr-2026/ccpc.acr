@@ -31752,21 +31752,76 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _gfRenderJudgesList();
     }).catch(() => { document.getElementById('gfJudgesList').innerHTML = '<p class="text-xs text-red-500 font-bold">Network error</p>'; });
   }
+  // One judge's scope picker — "sees All Teams" by default, or one slice
+  // via the exact same dimension vocabulary as a reviewer rule ('class' |
+  // 'house' | 'group' (band) | 'answer:<data_key>'). Deliberately reuses
+  // the reviewer rule row's own value-population plumbing
+  // (_gfPopulateRuleValueSelect/_gfRuleValueOptions/_gfRuleAnswerFieldOptions,
+  // all keyed off `_gfRosterForm` already) by giving these selects the same
+  // `.gf-rule-dimension`/`.gf-rule-value` classes — only the onchange
+  // wiring differs, since a judge has no mode/teacher/permission to go
+  // with it, just this one slice persisted straight onto the judge row.
+  function _gfJudgeScopeRowHtml(j) {
+    const answerFields = _gfRuleAnswerFieldOptions();
+    const dim = j.scope_dimension || 'all';
+    return `<div class="flex items-center gap-2 mt-1.5 flex-wrap">
+      <span class="text-[10px] font-black text-slate-400 uppercase shrink-0">Sees</span>
+      <select class="gf-rule-dimension px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" onchange="_gfOnJudgeScopeDimensionChange(this)">
+        <option value="all" ${dim === 'all' ? 'selected' : ''}>All Teams</option>
+        <option value="class" ${dim === 'class' ? 'selected' : ''}>Class</option>
+        <option value="house" ${dim === 'house' ? 'selected' : ''}>House</option>
+        <option value="group" ${dim === 'group' ? 'selected' : ''}>Group (band)</option>
+        ${answerFields.map(f => `<option value="answer:${f.data_key}" ${dim === `answer:${f.data_key}` ? 'selected' : ''}>Answer: ${f.name || f.data_key}</option>`).join('')}
+      </select>
+      <select class="gf-rule-value px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs ${dim === 'all' ? 'hidden' : ''}" onchange="_gfSaveJudgeScope(this)"></select>
+    </div>`;
+  }
+  function _gfOnJudgeScopeDimensionChange(sel) {
+    const row = sel.closest('.gf-judge-row');
+    const dim = sel.value;
+    const ensureValues = (dim === 'class' || dim === 'house') ? _gfEnsureGroupFieldValues(dim) : Promise.resolve();
+    ensureValues.then(() => {
+      _gfPopulateRuleValueSelect(row, '');
+      if (dim === 'all') _gfSaveJudgeScope(row.querySelector('.gf-rule-value'));
+    });
+  }
+  function _gfSaveJudgeScope(sel) {
+    const row = sel.closest('.gf-judge-row');
+    const judgeId = Number(row.dataset.judgeId);
+    const dim = row.querySelector('.gf-rule-dimension').value;
+    const value = dim === 'all' ? '' : row.querySelector('.gf-rule-value').value;
+    if (dim !== 'all' && !value) return; // wait until a real value is actually picked
+    _adminFetch('admin_update_judge', { id: judgeId, scope_dimension: dim, scope_value: value || null }).then(res => {
+      if (!(res && res.result === 'success')) showToast((res && res.message) || 'Failed', 'error');
+    }).catch(() => showToast('Network error', 'error'));
+  }
   function _gfRenderJudgesList() {
     const host = document.getElementById('gfJudgesList');
     if (!host) return;
     if (!_gfJudges.length) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No judges yet — add one above.</p>'; return; }
     host.innerHTML = _gfJudges.map(j => `
-      <div class="flex items-center gap-2 bg-white p-2.5 rounded-xl border border-slate-200 flex-wrap">
-        <input type="text" value="${_escHtml(j.name)}" onchange="gfRenameJudge(${j.id}, this.value)" class="flex-1 min-w-[120px] px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-        <label class="flex items-center gap-1.5 text-[10px] font-black uppercase text-slate-500">
-          <input type="checkbox" ${j.is_enabled ? 'checked' : ''} onchange="gfToggleJudgeEnabled(${j.id}, this.checked)">${j.is_enabled ? 'Active' : 'Disabled'}
-        </label>
-        <button type="button" onclick="gfShowJudgeLinkQr(${j.id})" class="px-2.5 py-1 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100 flex items-center gap-1"><i data-lucide="qr-code" class="h-3 w-3"></i>Link</button>
-        <button type="button" onclick="gfRegenerateJudgeCode(${j.id})" class="px-2.5 py-1 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100" title="Invalidates the old link and makes a new one — use if a link leaked or was sent to the wrong person">New Code</button>
-        <button type="button" onclick="gfDeleteJudge(${j.id})" class="px-2.5 py-1 bg-red-500 text-white rounded-full font-black text-[10px] uppercase">Del</button>
+      <div class="gf-judge-row bg-white p-2.5 rounded-xl border border-slate-200" data-judge-id="${j.id}">
+        <div class="flex items-center gap-2 flex-wrap">
+          <input type="text" value="${_escHtml(j.name)}" onchange="gfRenameJudge(${j.id}, this.value)" class="flex-1 min-w-[120px] px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <label class="flex items-center gap-1.5 text-[10px] font-black uppercase text-slate-500">
+            <input type="checkbox" ${j.is_enabled ? 'checked' : ''} onchange="gfToggleJudgeEnabled(${j.id}, this.checked)">${j.is_enabled ? 'Active' : 'Disabled'}
+          </label>
+          <button type="button" onclick="gfShowJudgeLinkQr(${j.id})" class="px-2.5 py-1 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100 flex items-center gap-1"><i data-lucide="qr-code" class="h-3 w-3"></i>Link</button>
+          <button type="button" onclick="gfRegenerateJudgeCode(${j.id})" class="px-2.5 py-1 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100" title="Invalidates the old link and makes a new one — use if a link leaked or was sent to the wrong person">New Code</button>
+          <button type="button" onclick="gfDeleteJudge(${j.id})" class="px-2.5 py-1 bg-red-500 text-white rounded-full font-black text-[10px] uppercase">Del</button>
+        </div>
+        ${_gfJudgeScopeRowHtml(j)}
       </div>`).join('');
     lucide.createIcons();
+    // Value selects need their options built from live data (class/house
+    // distinct values, band names, a field's own options) — same async
+    // population step gfAddReviewerRule already does for its own row.
+    Array.from(host.querySelectorAll('.gf-judge-row')).forEach(row => {
+      const j = _gfJudges.find(x => String(x.id) === row.dataset.judgeId);
+      const dim = (j && j.scope_dimension) || 'all';
+      const ensureValues = (dim === 'class' || dim === 'house') ? _gfEnsureGroupFieldValues(dim) : Promise.resolve();
+      ensureValues.then(() => _gfPopulateRuleValueSelect(row, j && j.scope_value));
+    });
   }
   function gfCreateJudge() {
     const name = prompt("Judge's name (shown on their own scoring page):");

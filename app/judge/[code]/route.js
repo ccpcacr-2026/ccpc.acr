@@ -76,17 +76,61 @@ function capWords(s, n) {
   return words.slice(0, n).join(' ') + '…';
 }
 
+// Same band-name resolution as the admin bundle's gfMyBandNameServer
+// (student-admin/route.js) — ported here since this file deliberately
+// shares no code with that one (separate trust boundary).
+function bandNameServer(eligibilityJson, value) {
+  let elig = {};
+  try { elig = JSON.parse(eligibilityJson || '{}') || {}; } catch (e) {}
+  if (elig.class_mode !== 'band' || !Array.isArray(elig.bands) || !value) return null;
+  const bandValues = b => Array.isArray(b) ? b : (Array.isArray(b.classes) ? b.classes : []);
+  const band = elig.bands.find(b => bandValues(b).includes(value));
+  if (!band) return null;
+  const name = Array.isArray(band) ? '' : String(band.name || '').trim();
+  return name || bandValues(band).join('/');
+}
+// Whether a team falls within this judge's own assigned slice — same
+// dimension vocabulary and matching semantics as a reviewer rule's own
+// groupFormTeamMatchesRule (student-admin/route.js), just reading the
+// judge's single scope_dimension/scope_value instead of a rules table.
+// Enforced here (what the roster shows) AND again in POST save_score
+// below (a judge can't score a team outside their scope even by
+// guessing its team_id).
+function judgeScopeMatches(team, form, judge, leaderProfile) {
+  const dim = judge.scope_dimension || 'all';
+  if (dim === 'all') return true;
+  if (dim === 'class') return String(leaderProfile?.class || '') === judge.scope_value;
+  if (dim === 'house') return String(leaderProfile?.house || '') === judge.scope_value;
+  if (dim === 'group') {
+    let elig = {};
+    try { elig = JSON.parse(form?.eligibility_json || '{}') || {}; } catch (e) {}
+    const groupField = elig.group_field || 'class';
+    return bandNameServer(form?.eligibility_json, leaderProfile?.[groupField]) === judge.scope_value;
+  }
+  if (dim.startsWith('answer:')) {
+    const key = dim.slice('answer:'.length);
+    return String((team.group_data || {})[key] ?? '') === judge.scope_value;
+  }
+  return false;
+}
+function scopeLabel(judge) {
+  const dim = judge.scope_dimension || 'all';
+  if (dim === 'all') return '';
+  const dimLabel = dim === 'class' ? 'Class' : dim === 'house' ? 'House' : dim === 'group' ? 'Group' : dim.startsWith('answer:') ? dim.slice(7) : dim;
+  return `${dimLabel}: ${judge.scope_value || ''}`;
+}
+
 async function loadRosterAndScores(judge) {
   const [formRows, teamRows, judgeScoreRows] = await Promise.all([
-    sb(`group_forms?id=eq.${encodeURIComponent(judge.group_form_id)}&select=id,title,fields_json,judging_criteria_json,archived`),
+    sb(`group_forms?id=eq.${encodeURIComponent(judge.group_form_id)}&select=id,title,fields_json,eligibility_json,judging_criteria_json,archived`),
     sb(`group_form_teams?group_form_id=eq.${encodeURIComponent(judge.group_form_id)}&status=neq.disbanded&select=id,leader_student_id,group_data,reference_number&order=created_at.asc`),
     sb(`group_form_judge_scores?judge_id=eq.${encodeURIComponent(judge.id)}&select=team_id,scores_json`),
   ]);
   const form = Array.isArray(formRows) && formRows[0];
   if (!form) return null;
 
-  const teams = Array.isArray(teamRows) ? teamRows : [];
-  const memberRows = teams.length
+  const allTeams = Array.isArray(teamRows) ? teamRows : [];
+  const memberRows = allTeams.length
     ? await sb(`group_form_team_members?group_form_id=eq.${encodeURIComponent(judge.group_form_id)}&select=team_id,student_id,role&order=role.asc`)
     : [];
   const members = Array.isArray(memberRows) ? memberRows : [];
@@ -98,6 +142,12 @@ async function loadRosterAndScores(judge) {
   }
   const membersByTeam = {};
   members.forEach(m => { (membersByTeam[m.team_id] = membersByTeam[m.team_id] || []).push({ ...m, profile: profileById[m.student_id] || null }); });
+
+  const teams = allTeams.filter(t => {
+    const teamMembers = membersByTeam[t.id] || [];
+    const leader = teamMembers.find(m => m.role === 'leader') || teamMembers[0] || null;
+    return judgeScopeMatches(t, form, judge, leader && leader.profile);
+  });
 
   let fields = [];
   try { fields = JSON.parse(form.fields_json || '[]') || []; } catch (e) {}
@@ -129,7 +179,7 @@ async function loadRosterAndScores(judge) {
     };
   });
 
-  return { formTitle: form.title, archived: !!form.archived, criteria, teams: teamInfos };
+  return { formTitle: form.title, archived: !!form.archived, criteria, teams: teamInfos, scopeLabel: scopeLabel(judge) };
 }
 
 function renderPage(judge, data) {
@@ -202,7 +252,7 @@ function renderPage(judge, data) {
   <div class="hdr">
     <span class="eyebrow">Judging</span>
     <h1>${esc(data.formTitle)}</h1>
-    <div class="judge-line">Signed in as <strong>${esc(judge.name)}</strong></div>
+    <div class="judge-line">Signed in as <strong>${esc(judge.name)}</strong>${data.scopeLabel ? ` · Scope: <strong>${esc(data.scopeLabel)}</strong>` : ''}</div>
     <div class="crit-strip">${criteriaHtml}</div>
     ${data.archived ? `<div class="archived-banner">${esc(ARCHIVED_MESSAGE)}</div>` : ''}
   </div>
@@ -327,7 +377,7 @@ export async function POST(request, { params }) {
   const scores = body.scores && typeof body.scores === 'object' && !Array.isArray(body.scores) ? body.scores : null;
   if (!team_id || !scores) return NextResponse.json({ result: 'error', message: 'team_id and scores required.' }, { status: 400 });
 
-  const formRows = await sb(`group_forms?id=eq.${encodeURIComponent(judge.group_form_id)}&select=archived,judging_criteria_json`);
+  const formRows = await sb(`group_forms?id=eq.${encodeURIComponent(judge.group_form_id)}&select=archived,judging_criteria_json,eligibility_json`);
   const form = Array.isArray(formRows) && formRows[0];
   if (!form) return NextResponse.json({ result: 'error', message: 'Judge link not found.' }, { status: 404 });
   if (form.archived) return NextResponse.json({ result: 'error', message: ARCHIVED_MESSAGE });
@@ -335,8 +385,24 @@ export async function POST(request, { params }) {
   // The team must actually belong to THIS judge's own form — closes off a
   // judge guessing another form's team_id even though access_code itself
   // only ever resolves one group_form_id.
-  const teamRows = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}&group_form_id=eq.${encodeURIComponent(judge.group_form_id)}&select=id`);
+  const teamRows = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}&group_form_id=eq.${encodeURIComponent(judge.group_form_id)}&select=id,group_data`);
   if (!Array.isArray(teamRows) || !teamRows.length) return NextResponse.json({ result: 'error', message: 'Invalid team.' }, { status: 400 });
+  const team = teamRows[0];
+
+  // And the team must fall within THIS judge's own assigned slice, not
+  // just anywhere on the right form — a judge scoped to e.g. House Jupiter
+  // never gets to score a team outside it, even by posting its team_id
+  // directly (the page itself never renders it, but the API must refuse it
+  // too, since the page is just a convenience, not the real gate).
+  if ((judge.scope_dimension || 'all') !== 'all') {
+    const leaderRows = await sb(`group_form_team_members?team_id=eq.${encodeURIComponent(team_id)}&role=eq.leader&select=student_id`);
+    const leaderId = Array.isArray(leaderRows) && leaderRows[0] ? leaderRows[0].student_id : null;
+    const leaderProfRows = leaderId ? await sb(`students_data?student_id=eq.${encodeURIComponent(leaderId)}&select=class,house`) : [];
+    const leaderProfile = (Array.isArray(leaderProfRows) && leaderProfRows[0]) || null;
+    if (!judgeScopeMatches(team, form, judge, leaderProfile)) {
+      return NextResponse.json({ result: 'error', message: 'This team is outside your assigned scope.' }, { status: 403 });
+    }
+  }
 
   let criteria = [];
   try { criteria = JSON.parse(form.judging_criteria_json || '[]') || []; } catch (e) {}
