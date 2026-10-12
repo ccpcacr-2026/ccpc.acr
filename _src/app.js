@@ -31499,18 +31499,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // assigned directly to this judge always wins; otherwise a rubric whose
   // filter matches this TEAM's own house/category/group/answer value
   // applies; otherwise the form's plain default rubric.
+  // Compound — House AND Category AND Group together (any dimension left
+  // empty is unconstrained), same shape and logic as the Judges Sheet
+  // print's own "Filter teams in this print" panel (_gfApplyJudgesFilter).
   function _gfTeamMatchesRubricFilter(t, form, rubric) {
-    const dim = rubric.filter_dimension;
-    const values = Array.isArray(rubric.filter_values) ? rubric.filter_values : [];
-    if (!dim || !values.length) return false;
-    if (dim === 'house') return values.includes(_gfTeamHouse(t));
-    if (dim === 'category') return values.includes(_gfAnswerByName(t, form, /^category$/i));
-    if (dim === 'group') return values.includes(_gfTeamGroup(t));
-    if (dim.startsWith('answer:')) {
-      const key = dim.slice('answer:'.length);
-      return values.includes(String((t.group_data || {})[key] ?? ''));
-    }
-    return false;
+    const f = rubric.filters || {};
+    const house = Array.isArray(f.house) ? f.house : [];
+    const category = Array.isArray(f.category) ? f.category : [];
+    const group = Array.isArray(f.group) ? f.group : [];
+    if (!house.length && !category.length && !group.length) return false;
+    if (house.length && !house.includes(_gfTeamHouse(t))) return false;
+    if (category.length && !category.includes(_gfAnswerByName(t, form, /^category$/i))) return false;
+    if (group.length && !group.includes(_gfTeamGroup(t))) return false;
+    return true;
   }
   function _gfResolveRubricForTeam(judgeId, t, form, rubricSets, defaultCriteria) {
     if (judgeId != null) {
@@ -32072,7 +32073,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   function gfAddRubricSet() {
     if (!_gfRosterFormId) return;
-    _gfRubricSets.push({ id: 'rs' + Date.now().toString(36), name: '', criteria: [{ key: 'c' + Date.now().toString(36), label: '', max: 10 }], assign_type: 'judges', judge_ids: [], filter_dimension: '', filter_values: [] });
+    _gfRubricSets.push({ id: 'rs' + Date.now().toString(36), name: '', criteria: [{ key: 'c' + Date.now().toString(36), label: '', max: 10 }], assign_type: 'judges', judge_ids: [], filters: { house: [], category: [], group: [] } });
     _gfRenderRubricSetsList();
   }
   function gfRemoveRubricSet(i) {
@@ -32099,28 +32100,41 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       host.innerHTML = `<div class="flex flex-wrap gap-1.5">${_gfJudges.map(j => `
         <button type="button" onclick='_gfToggleRubricJudge(${i}, ${j.id})' class="px-2.5 py-1 rounded-full font-black text-[10px] uppercase ${selected.includes(j.id) ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'}">${_escHtml(j.name)}</button>`).join('')}</div>`;
     } else {
-      const answerFields = _gfRuleAnswerFieldOptions();
-      const dim = rs.filter_dimension || 'house';
-      host.innerHTML = `<select id="gfRubricFilterDim-${i}" onchange="_gfOnRubricFilterDimChange(${i}, this)" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mb-2">
-          <option value="house" ${dim === 'house' ? 'selected' : ''}>House</option>
-          <option value="group" ${dim === 'group' ? 'selected' : ''}>Group (band)</option>
-          <option value="category" ${dim === 'category' ? 'selected' : ''}>Category</option>
-          ${answerFields.filter(f => !/^category$/i.test(f.name || '')).map(f => `<option value="answer:${f.data_key}" ${dim === `answer:${f.data_key}` ? 'selected' : ''}>Answer: ${f.name || f.data_key}</option>`).join('')}
-        </select>
-        <div id="gfRubricFilterValues-${i}" class="flex flex-wrap gap-1.5"></div>`;
-      const ensureValues = dim === 'house' ? _gfEnsureGroupFieldValues('house') : Promise.resolve();
-      ensureValues.then(() => _gfRenderRubricFilterValues(i));
+      host.innerHTML = `<div id="gfRubricFilterDims-${i}" class="flex flex-col gap-2"></div>`;
+      _gfRenderRubricFilterDims(i);
     }
   }
-  function _gfRenderRubricFilterValues(i) {
-    const host = document.getElementById('gfRubricFilterValues-' + i);
+  // A rubric's filter is compound — House AND Category AND Group together,
+  // not just one dimension at a time — same shape/behavior as the Judges
+  // Sheet print's own "Filter teams in this print" panel, so "Category 1
+  // AND Group A" is one rubric's real condition. Values come straight from
+  // the already-loaded roster (_gfRosterTeams), no extra fetch needed.
+  function _gfRenderRubricFilterDims(i) {
+    const host = document.getElementById('gfRubricFilterDims-' + i);
     if (!host) return;
     const rs = _gfRubricSets[i];
-    const options = _gfRuleValueOptions(rs.filter_dimension || 'house');
-    const selected = rs.filter_values || [];
-    host.innerHTML = options.length
-      ? options.map(v => `<button type="button" onclick='_gfToggleRubricFilterValue(${i}, ${JSON.stringify(v)})' class="px-2.5 py-1 rounded-full font-black text-[10px] uppercase ${selected.includes(v) ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'}">${_escHtml(v)}</button>`).join('')
-      : '<p class="text-[11px] text-slate-400 font-bold italic">No values yet.</p>';
+    if (!rs.filters) rs.filters = { house: [], category: [], group: [] };
+    const distinct = fn => [...new Set((_gfRosterTeams || []).map(fn).filter(Boolean))].sort();
+    const dims = [
+      { key: 'house', label: 'House', values: distinct(_gfTeamHouse) },
+      { key: 'group', label: 'Group', values: distinct(_gfTeamGroup) },
+      { key: 'category', label: 'Category', values: distinct(t => _gfAnswerByName(t, _gfRosterForm, /^category$/i)) },
+    ].filter(d => d.values.length);
+    host.innerHTML = dims.length ? dims.map(d => `
+      <div>
+        <div class="text-[10px] font-black text-slate-400 uppercase mb-1">${_escHtml(d.label)}</div>
+        <div class="flex flex-wrap gap-1.5">
+          ${d.values.map(v => `<button type="button" onclick='_gfToggleRubricFilterDimValue(${i}, ${JSON.stringify(d.key)}, ${JSON.stringify(v)})' class="px-2.5 py-1 rounded-full font-black text-[10px] uppercase ${(rs.filters[d.key] || []).includes(v) ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'}">${_escHtml(v)}</button>`).join('')}
+        </div>
+      </div>`).join('') : '<p class="text-[11px] text-slate-400 font-bold italic">No House/Group/Category values found among this form’s teams.</p>';
+  }
+  function _gfToggleRubricFilterDimValue(i, dim, value) {
+    const rs = _gfRubricSets[i];
+    if (!rs.filters) rs.filters = { house: [], category: [], group: [] };
+    const list = rs.filters[dim] || (rs.filters[dim] = []);
+    const idx = list.indexOf(value);
+    if (idx >= 0) list.splice(idx, 1); else list.push(value);
+    _gfRenderRubricFilterDims(i);
   }
   function _gfToggleRubricJudge(i, judgeId) {
     const rs = _gfRubricSets[i];
@@ -32129,23 +32143,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (idx >= 0) list.splice(idx, 1); else list.push(judgeId);
     _gfRenderRubricAssignUI(i);
   }
-  function _gfToggleRubricFilterValue(i, value) {
-    const rs = _gfRubricSets[i];
-    const list = rs.filter_values || (rs.filter_values = []);
-    const idx = list.indexOf(value);
-    if (idx >= 0) list.splice(idx, 1); else list.push(value);
-    _gfRenderRubricFilterValues(i);
-  }
   function _gfOnRubricAssignTypeChange(i, radio) {
     _gfRubricSets[i].assign_type = radio.value;
     _gfRenderRubricAssignUI(i);
-  }
-  function _gfOnRubricFilterDimChange(i, sel) {
-    const rs = _gfRubricSets[i];
-    rs.filter_dimension = sel.value;
-    rs.filter_values = [];
-    const ensureValues = sel.value === 'house' ? _gfEnsureGroupFieldValues('house') : Promise.resolve();
-    ensureValues.then(() => _gfRenderRubricFilterValues(i));
   }
   // Criteria rows are read straight back from their own DOM container at
   // save time (same technique the default rubric's gfReadCriteriaConfig
@@ -32166,15 +32166,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   function gfSaveRubricSets() {
     if (!_gfRosterFormId) return;
+    const emptyFilters = { house: [], category: [], group: [] };
     const cleaned = _gfRubricSets.map((rs, i) => ({
       id: rs.id || ('rs' + Date.now().toString(36) + i),
       name: (rs.name || '').trim() || ('Rubric ' + (i + 1)),
       criteria: _gfReadRubricCriteria(i),
       assign_type: rs.assign_type === 'filter' ? 'filter' : 'judges',
       judge_ids: rs.assign_type === 'filter' ? [] : (rs.judge_ids || []),
-      filter_dimension: rs.assign_type === 'filter' ? (rs.filter_dimension || '') : '',
-      filter_values: rs.assign_type === 'filter' ? (rs.filter_values || []) : [],
-    })).filter(rs => rs.criteria.length && (rs.judge_ids.length || rs.filter_values.length));
+      filters: rs.assign_type === 'filter' ? (rs.filters || emptyFilters) : emptyFilters,
+    })).filter(rs => rs.criteria.length && (rs.judge_ids.length || rs.filters.house.length || rs.filters.category.length || rs.filters.group.length));
     _adminFetch('save_group_form', { id: _gfRosterFormId, judging_rubric_sets_json: JSON.stringify(cleaned) }).then(res => {
       if (res && res.result === 'success') {
         showToast('Rubrics saved');

@@ -138,18 +138,23 @@ function judgeScopeMatches(team, form, judge, leaderProfile) {
   }
   return false;
 }
+// A rubric's filter is compound — House AND Category AND Group together
+// (any dimension left empty is unconstrained), same shape and logic as the
+// Judges Sheet print's own "Filter teams in this print" panel — not just
+// one dimension at a time, so "Category 1 AND Group A" is one rubric's
+// actual condition, not something achievable only by picking one or the
+// other. At least one dimension must have a value, or this rubric matches
+// nothing (an empty filter was never finished being set up).
 function teamMatchesRubricFilter(teamFacts, rubric) {
-  const dim = rubric.filter_dimension;
-  const values = Array.isArray(rubric.filter_values) ? rubric.filter_values : [];
-  if (!dim || !values.length) return false;
-  if (dim === 'house') return values.includes(teamFacts.house);
-  if (dim === 'category') return values.includes(teamFacts.category);
-  if (dim === 'group') return values.includes(teamFacts.group);
-  if (dim.startsWith('answer:')) {
-    const key = dim.slice('answer:'.length);
-    return values.includes(String((teamFacts.group_data || {})[key] ?? ''));
-  }
-  return false;
+  const f = rubric.filters || {};
+  const house = Array.isArray(f.house) ? f.house : [];
+  const category = Array.isArray(f.category) ? f.category : [];
+  const group = Array.isArray(f.group) ? f.group : [];
+  if (!house.length && !category.length && !group.length) return false;
+  if (house.length && !house.includes(teamFacts.house)) return false;
+  if (category.length && !category.includes(teamFacts.category)) return false;
+  if (group.length && !group.includes(teamFacts.group)) return false;
+  return true;
 }
 // Which rubric (named score-column set) applies for this judge scoring
 // this team. A rubric assigned directly to this judge always wins — an
