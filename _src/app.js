@@ -30968,7 +30968,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
       <p class="text-[11px] text-slate-400 font-bold mb-3">Choose which non-score info shows on every judge's own scoring page (Cards and Sheet view, plus their own Print button). Score columns always come from the rubric and aren't affected here.</p>
       <div class="flex flex-wrap gap-2 mb-3">
-        ${GF_JUDGE_LINK_FIELDS.map(f => `<button type="button" onclick="_gfToggleJudgeLinkField(${JSON.stringify(f.key)})" class="px-2.5 py-1.5 rounded-full font-black text-[10px] uppercase ${_gfJudgeLinkFields.includes(f.key) ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'}">${_escHtml(f.label)}</button>`).join('')}
+        ${GF_JUDGE_LINK_FIELDS.map(f => `<button type="button" onclick='_gfToggleJudgeLinkField(${JSON.stringify(f.key)})' class="px-2.5 py-1.5 rounded-full font-black text-[10px] uppercase ${_gfJudgeLinkFields.includes(f.key) ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'}">${_escHtml(f.label)}</button>`).join('')}
       </div>
       <button onclick="_gfSaveJudgeLinkFields()" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Judge Link Columns</button>
     `;
