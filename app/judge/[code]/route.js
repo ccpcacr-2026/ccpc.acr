@@ -308,14 +308,14 @@ function renderPage(judge, data) {
     <div class="crit-strip">${criteriaHtml}</div>
     ${data.archived ? `<div class="archived-banner">${esc(ARCHIVED_MESSAGE)}</div>` : ''}
     ${data.teams.length ? `<div class="view-toggle">
-      <button type="button" id="view-cards-btn" class="view-btn active">Cards</button>
-      <button type="button" id="view-sheet-btn" class="view-btn">Sheet (Excel-style)</button>
+      <button type="button" id="view-cards-btn" class="view-btn">Cards</button>
+      <button type="button" id="view-sheet-btn" class="view-btn active">Sheet (Excel-style)</button>
       <button type="button" id="save-all-btn" class="save-all-btn hidden"${data.archived ? ' disabled' : ''}>Save All</button>
       <span id="save-all-status" class="save-all-status"></span>
     </div>` : ''}
   </div>
-  <div id="teams-host">${data.teams.length ? '' : '<div class="empty">No teams to judge yet.</div>'}</div>
-  <div id="sheet-host" class="hidden"></div>
+  <div id="teams-host" class="hidden">${data.teams.length ? '' : '<div class="empty">No teams to judge yet.</div>'}</div>
+  <div id="sheet-host"></div>
 </div>
 
 <script>
@@ -537,6 +537,13 @@ function renderPage(judge, data) {
     saveAllStatus.textContent = 'Saved ' + okCount + (errCount ? ', ' + errCount + ' failed' : '') + '.';
     saveAllBtn.disabled = !!ARCHIVED;
   });
+
+  // Sheet (Excel-style) is the default a judge lands on — faster for
+  // scoring many teams in one sitting than tapping through cards one at a
+  // time. Cards stays one click away for whoever still wants it on a
+  // phone. Guarded: the toggle/view elements only exist when there's at
+  // least one team to show.
+  if (TEAMS.length && sheetBtn) setView('sheet');
 })();
 </script>
 </body>
