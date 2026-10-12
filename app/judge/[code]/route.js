@@ -394,6 +394,8 @@ function renderPage(judge, data) {
   table.sheet th, table.sheet td{border-bottom:1px solid var(--border); border-right:1px solid var(--border); padding:.32rem .4rem; text-align:left; white-space:nowrap;}
   table.sheet th:last-child, table.sheet td:last-child{border-right:none;}
   table.sheet thead th{position:sticky; top:0; background:var(--bg); color:var(--ink-muted); font-size:.64rem; font-weight:800; text-transform:uppercase; letter-spacing:.03em; z-index:1;}
+  table.sheet th.crit-th{max-width:4.4rem;}
+  table.sheet th.crit-th .crit-th-label{display:inline-block; max-width:4.4rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom;}
   table.sheet td.sheet-team{min-width:170px; max-width:220px; white-space:normal;}
   table.sheet td.sheet-team .sheet-ref{font-weight:800; color:var(--accent-ink); margin-right:.4rem;}
   table.sheet td.sheet-team .sheet-tags{color:var(--ink-muted); font-size:.74rem; margin-right:.4rem;}
@@ -720,7 +722,7 @@ function renderPage(judge, data) {
     groups.forEach(function(grp){
       var wrap = document.createElement('div');
       wrap.className = 'sheet-wrap';
-      var theadCells = '<th>SL</th><th>Team</th>' + grp.criteria.map(function(c){ return '<th title="' + esc(c.label) + '">' + esc(c.short || c.label) + '<br>/' + esc(c.max) + '</th>'; }).join('') + '<th>Total</th><th></th>';
+      var theadCells = '<th>SL</th><th>Team</th>' + grp.criteria.map(function(c){ return '<th class="crit-th" title="' + esc(c.label) + '"><span class="crit-th-label">' + esc(c.short || c.label) + '</span><br>/' + esc(c.max) + '</th>'; }).join('') + '<th>Total</th><th></th>';
       var rows = grp.teams.map(function(team, idx){
         var cells = grp.criteria.map(function(c, colIdx){
           var existing = team.scores[c.key];
