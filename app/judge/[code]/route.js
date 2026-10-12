@@ -388,18 +388,18 @@ function renderPage(judge, data) {
 
   #sheet-host.hidden, #teams-host.hidden{display:none;}
   .sheet-wrap{overflow-x:auto; margin-top:.9rem; border:1px solid var(--border); border-radius:14px; background:var(--surface); box-shadow:var(--shadow);}
-  .sheet-rubric-heading{margin-top:1.2rem; font-size:.8rem; font-weight:800; color:var(--accent-ink);}
-  .sheet-rubric-heading:first-child{margin-top:.9rem;}
-  table.sheet{border-collapse:collapse; width:100%; font-size:.82rem;}
-  table.sheet th, table.sheet td{border-bottom:1px solid var(--border); border-right:1px solid var(--border); padding:.5rem .6rem; text-align:left; white-space:nowrap;}
+  .rubric-list{margin-top:.5rem; font-size:.78rem; font-weight:700; color:var(--ink-muted);}
+  .rubric-list b{color:var(--ink);}
+  table.sheet{border-collapse:collapse; width:100%; font-size:.78rem;}
+  table.sheet th, table.sheet td{border-bottom:1px solid var(--border); border-right:1px solid var(--border); padding:.32rem .4rem; text-align:left; white-space:nowrap;}
   table.sheet th:last-child, table.sheet td:last-child{border-right:none;}
-  table.sheet thead th{position:sticky; top:0; background:var(--bg); color:var(--ink-muted); font-size:.68rem; font-weight:800; text-transform:uppercase; letter-spacing:.04em; z-index:1;}
-  table.sheet td.sheet-team{min-width:220px; white-space:normal;}
+  table.sheet thead th{position:sticky; top:0; background:var(--bg); color:var(--ink-muted); font-size:.64rem; font-weight:800; text-transform:uppercase; letter-spacing:.03em; z-index:1;}
+  table.sheet td.sheet-team{min-width:170px; max-width:220px; white-space:normal;}
   table.sheet td.sheet-team .sheet-ref{font-weight:800; color:var(--accent-ink); margin-right:.4rem;}
-  table.sheet td.sheet-team .sheet-tags{color:var(--ink-muted); font-size:.76rem; margin-right:.4rem;}
-  table.sheet td.sheet-team .sheet-members{color:var(--ink-muted); font-size:.76rem; margin-top:.15rem;}
+  table.sheet td.sheet-team .sheet-tags{color:var(--ink-muted); font-size:.74rem; margin-right:.4rem;}
+  table.sheet td.sheet-team .sheet-members{color:var(--ink-muted); font-size:.74rem; margin-top:.15rem;}
   table.sheet td.sheet-sl{text-align:center; color:var(--ink-muted); font-weight:700;}
-  table.sheet input.sheet-input{width:4.2rem; padding:.3rem .4rem; border-radius:8px; border:1.5px solid var(--border); background:var(--bg); color:var(--ink); font-weight:700; font-size:.85rem; text-align:center;}
+  table.sheet input.sheet-input{width:3rem; padding:.25rem .3rem; border-radius:7px; border:1.5px solid var(--border); background:var(--bg); color:var(--ink); font-weight:700; font-size:.8rem; text-align:center;}
   table.sheet input.sheet-input:focus{border-color:var(--accent); outline:none;}
   table.sheet td.sheet-total{font-weight:800; text-align:center;}
   table.sheet td.sheet-status{text-align:center; font-size:.75rem; font-weight:800; width:1.6rem;}
@@ -414,7 +414,9 @@ function renderPage(judge, data) {
     <span class="eyebrow">Judging</span>
     <h1>${esc(data.formTitle)}</h1>
     <div class="judge-line">Signed in as <strong>${esc(judge.name)}</strong>${data.scopeLabel ? ` · Scope: <strong>${esc(data.scopeLabel)}</strong>` : ''}</div>
-    <div class="crit-strip">${criteriaHtml}</div>
+    ${data.rubrics.length > 1
+      ? `<div class="rubric-list"><b>Rubrics:</b> ${data.rubrics.map(r => esc(r.name)).join(', ')}</div>`
+      : `<div class="crit-strip">${criteriaHtml}</div>`}
     ${data.archived ? `<div class="archived-banner">${esc(ARCHIVED_MESSAGE)}</div>` : ''}
     ${data.teams.length ? `<div class="view-toggle">
       <button type="button" id="edit-lock-btn" class="edit-lock-btn locked"${data.archived ? ' disabled' : ''}>🔒 Enable Edit</button>
@@ -716,10 +718,6 @@ function renderPage(judge, data) {
     if (!list.length) { sheetHost.innerHTML = '<div class="empty">No teams match this filter.</div>'; return; }
     var groups = groupByRubric(list);
     groups.forEach(function(grp){
-      var heading = document.createElement('div');
-      heading.className = 'sheet-rubric-heading';
-      heading.textContent = rubricNameById[grp.id] || 'Default';
-      sheetHost.appendChild(heading);
       var wrap = document.createElement('div');
       wrap.className = 'sheet-wrap';
       var theadCells = '<th>SL</th><th>Team</th>' + grp.criteria.map(function(c){ return '<th title="' + esc(c.label) + '">' + esc(c.short || c.label) + '<br>/' + esc(c.max) + '</th>'; }).join('') + '<th>Total</th><th></th>';
@@ -980,7 +978,9 @@ function renderPage(judge, data) {
     if (!list.length) { alert('No teams match the current filter.'); return; }
     var win = window.open('', '_blank');
     if (!win) { alert('Please allow popups to print.'); return; }
-    var tablesHtml = groupByRubric(list).map(function(grp){
+    var printGroups = groupByRubric(list);
+    var rubricNames = printGroups.map(function(grp){ return rubricNameById[grp.id] || 'Default'; });
+    var tablesHtml = printGroups.map(function(grp){
       var headCells = '<th>SL</th><th>Team</th>' +
         grp.criteria.map(function(c){ return '<th title="' + esc(c.label) + '">' + esc(c.short || c.label) + '<br>/' + esc(c.max) + '</th>'; }).join('') + '<th>Total</th>';
       var rows = grp.teams.map(function(team, idx){
@@ -991,8 +991,7 @@ function renderPage(judge, data) {
         var total = teamTotal(team);
         return '<tr><td>' + (idx + 1) + '</td><td>' + teamInfoCellHtml(team) + '</td>' + cells + '<td><b>' + (total == null ? '—' : total) + '</b></td></tr>';
       }).join('');
-      var heading = '<h2 class="rubric-h">' + esc(rubricNameById[grp.id] || 'Default') + '</h2>';
-      return heading + '<table><thead><tr>' + headCells + '</tr></thead><tbody>' + rows + '</tbody></table>';
+      return '<table><thead><tr>' + headCells + '</tr></thead><tbody>' + rows + '</tbody></table>';
     }).join('');
     var filterLine = activeFilterSummary();
     var logoUrl = location.origin + '/logo.jpg';
@@ -1006,12 +1005,13 @@ function renderPage(judge, data) {
       '.judge-row{font-size:12px;margin:6px 0 0;} .meta{font-size:10px;color:#6b7280;margin:3px 0 10px;}' +
       'table{width:100%;border-collapse:collapse;font-size:11pt;margin-bottom:14px;} th,td{border:1px solid #94a3b8;padding:6px 8px;text-align:left;vertical-align:middle;}' +
       'th{background:#1e293b;color:#fff;text-transform:uppercase;font-size:9pt;letter-spacing:.03em;} th:first-child,td:first-child{width:28px;text-align:center;}' +
-      '.rubric-h{font-size:13px;margin:10px 0 4px;} tr,td{page-break-inside:avoid;}' +
+      'tr,td{page-break-inside:avoid;}' +
       '.sheet-ref{font-weight:800;color:#1e3a8a;margin-right:6px;} .sheet-tags{color:#6b7280;margin-right:6px;} .sheet-members{color:#6b7280;font-size:9pt;margin-top:3px;}</style></head><body>' +
       '<div class="letterhead"><img src="' + logoUrl + '" alt=""><div><div class="inst-name">Chattogram Cantonment Public College</div><div class="inst-addr">Bayezid, Chattogram</div></div></div>' +
       '<h1>' + esc(FORM_HEADER) + '</h1>' +
       (FORM_SUBHEADER ? '<p class="sub">' + esc(FORM_SUBHEADER) + '</p>' : '') +
       '<p class="judge-row">Judge: <b>' + esc(JUDGE_NAME) + '</b></p>' +
+      (rubricNames.length > 1 ? '<p class="meta"><b>Rubrics:</b> ' + rubricNames.map(esc).join(', ') + '</p>' : '') +
       '<p class="meta">Printed ' + new Date().toLocaleString() + (filterLine ? ' · Filter: ' + esc(filterLine) : '') + ' · Sort: ' + esc(activeSortSummary()) + '</p>' +
       tablesHtml +
       '</body></html>';
