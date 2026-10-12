@@ -425,9 +425,9 @@ function renderPage(judge, data) {
     var theadCells = '<th>SL</th><th>Team</th>' + CRITERIA.map(function(c){ return '<th>' + esc(c.label) + '<br>/' + esc(c.max) + '</th>'; }).join('') + '<th>Total</th><th></th>';
     var rows = TEAMS.map(function(team, idx){
       var membersLine = team.members.map(function(m){ return m.name; }).join(', ');
-      var cells = CRITERIA.map(function(c){
+      var cells = CRITERIA.map(function(c, colIdx){
         var existing = team.scores[c.key];
-        return '<td><input type="number" class="sheet-input" min="0" max="' + esc(c.max) + '" step="1" data-team="' + team.team_id + '" data-crit="' + esc(c.key) + '" value="' + (existing != null ? esc(existing) : '') + '"' + (ARCHIVED ? ' disabled' : '') + '></td>';
+        return '<td><input type="number" class="sheet-input" min="0" max="' + esc(c.max) + '" step="1" data-team="' + team.team_id + '" data-crit="' + esc(c.key) + '" data-row="' + idx + '" data-col="' + colIdx + '" value="' + (existing != null ? esc(existing) : '') + '"' + (ARCHIVED ? ' disabled' : '') + '></td>';
       }).join('');
       return '<tr data-team-row="' + team.team_id + '">' +
         '<td class="sheet-sl">' + (idx + 1) + '</td>' +
@@ -452,6 +452,31 @@ function renderPage(judge, data) {
     }
     sheetHost.querySelectorAll('input.sheet-input').forEach(function(inp){
       inp.addEventListener('input', function(){ recomputeRow(inp.closest('tr')); });
+    });
+
+    // Excel-style arrow-key navigation: Left/Right/Up/Down move to the
+    // adjacent cell instead of their native effect (a number input's own
+    // cursor move, or the browser's spin-button value nudge on Up/Down) —
+    // same as how a real spreadsheet treats arrow keys as cell-to-cell
+    // movement, not in-cell text editing. Moving the cursor within a
+    // cell's digits isn't supported this way (small 0-25 scores, not
+    // worth the extra mode a real spreadsheet has) — arrives, selects the
+    // whole value, ready to type over.
+    function focusCell(row, col){
+      var target = sheetHost.querySelector('input[data-row="' + row + '"][data-col="' + col + '"]');
+      if (!target) return false;
+      target.focus();
+      target.select();
+      return true;
+    }
+    sheetHost.querySelectorAll('input.sheet-input').forEach(function(inp){
+      inp.addEventListener('keydown', function(e){
+        var row = Number(inp.getAttribute('data-row')), col = Number(inp.getAttribute('data-col'));
+        if (e.key === 'ArrowLeft') { if (focusCell(row, col - 1)) e.preventDefault(); }
+        else if (e.key === 'ArrowRight') { if (focusCell(row, col + 1)) e.preventDefault(); }
+        else if (e.key === 'ArrowUp') { if (focusCell(row - 1, col)) e.preventDefault(); }
+        else if (e.key === 'ArrowDown') { if (focusCell(row + 1, col)) e.preventDefault(); }
+      });
     });
     // Pre-filled rows (already-saved scores) should show their real total
     // immediately, not just once the judge touches an input — but doing
