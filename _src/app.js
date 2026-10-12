@@ -31356,7 +31356,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       return any ? sum : null;
     };
     const positions = judge ? _gfRankByValueDesc(teams.map(t => ({ id: t.id, value: totalFor(t) }))) : {};
-    const blankCols = judge ? [] : cfg.blankCols.filter(l => l.trim());
+    const blankColsRaw = judge ? [] : cfg.blankCols.filter(l => l.trim());
+    // Blank (hand-fill) mode has no digital scores to add up, so this
+    // "Total" is itself just one more blank cell — but it's one the admin
+    // no longer has to remember to type into the Blank Columns list
+    // themselves every time they set up a sheet with several score
+    // columns on it. Skipped if they've already added their own column
+    // named "Total" (don't double up).
+    const blankCols = blankColsRaw.length && !blankColsRaw.some(l => l.trim().toLowerCase() === 'total')
+      ? [...blankColsRaw, 'Total'] : blankColsRaw;
     const headCells = ['SL', ...dataCols.map(c => c.label), ...customCols.map(c => c.label),
       ...(judge ? [...criteria.map(c => c.label + ' /' + c.max), 'Total', 'Position'] : blankCols)]
       .map(h => `<th>${_escHtml(h).replace(/\\n/g, '<br>')}</th>`).join('');
@@ -31527,22 +31535,26 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // Average only of judges who have ACTUALLY scored this team — a judge
     // who hasn't gotten to a team yet must never silently count as a zero
     // and drag its average down; `graded < of` just flags it with a
-    // footnote instead.
+    // footnote instead. Total is the plain sum of those same judges' own
+    // totals — same "only count who's actually scored" rule, just added
+    // instead of averaged, for anyone who wants the raw combined figure
+    // alongside the per-judge average.
     const avgByTeam = {};
     teams.forEach(t => {
       const vals = judges.map(j => totalFor(j.id, t)).filter(v => v != null);
-      avgByTeam[t.id] = vals.length ? { avg: vals.reduce((a, b) => a + b, 0) / vals.length, graded: vals.length, of: judges.length } : null;
+      avgByTeam[t.id] = vals.length ? { sum: vals.reduce((a, b) => a + b, 0), avg: vals.reduce((a, b) => a + b, 0) / vals.length, graded: vals.length, of: judges.length } : null;
     });
     const positions = _gfRankByValueDesc(teams.map(t => ({ id: t.id, value: avgByTeam[t.id] ? avgByTeam[t.id].avg : null })));
-    const headCells = ['SL', ...dataCols.map(c => c.label), ...judges.map(j => j.name), 'Average', 'Position']
+    const headCells = ['SL', ...dataCols.map(c => c.label), ...judges.map(j => j.name), 'Total', 'Average', 'Position']
       .map(h => `<th>${_escHtml(h).replace(/\\n/g, '<br>')}</th>`).join('');
     const rows = teams.map((t, idx) => {
       const dataCells = dataCols.map(c => `<td${c.key === 'reference_number' ? ' class="ref"' : ''}>${c.html ? (c.get(t) || '—') : _escHtml(c.get(t) || '—')}</td>`).join('');
       const judgeCells = judges.map(j => { const tot = totalFor(j.id, t); return `<td>${tot != null ? tot : '—'}</td>`; }).join('');
       const a = avgByTeam[t.id];
-      const avgCell = `<td><b>${a ? a.avg.toFixed(1) : '—'}</b>${a && a.graded < a.of ? '<span class="note">*</span>' : ''}</td>`;
+      const totalCell = `<td><b>${a ? a.sum : '—'}</b>${a && a.graded < a.of ? '<span class="note">*</span>' : ''}</td>`;
+      const avgCell = `<td>${a ? a.avg.toFixed(1) : '—'}</td>`;
       const posCell = `<td>${positions[t.id] != null ? positions[t.id] : '—'}</td>`;
-      return `<tr><td>${idx + 1}</td>${dataCells}${judgeCells}${avgCell}${posCell}</tr>`;
+      return `<tr><td>${idx + 1}</td>${dataCells}${judgeCells}${totalCell}${avgCell}${posCell}</tr>`;
     }).join('');
     const titleText = (cfg.customTitle && cfg.customTitle.trim()) || `${form?.title || 'Judging'} — Combined Result`;
     const subheaderHtml = (cfg.showFilterSubheader && filterSummary) ? `<p style="font-size:11px;color:#6b7280;margin:0 0 6px">${_escHtml(filterSummary)}</p>` : '';
