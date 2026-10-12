@@ -353,6 +353,7 @@ function renderPage(judge, data) {
   .toolbar{display:flex; align-items:center; gap:.5rem; margin-top:.9rem; flex-wrap:wrap;}
   .toolbar-btn{display:flex; align-items:center; gap:.4rem; border:1.5px solid var(--border); background:var(--surface); color:var(--ink); font-weight:800; font-size:.8rem; padding:.45rem .9rem; border-radius:999px; cursor:pointer;}
   .toolbar-btn.open{border-color:var(--accent); color:var(--accent-ink);}
+  .toolbar-btn:disabled{opacity:.5; cursor:default;}
   .toolbar-badge{display:inline-flex; align-items:center; justify-content:center; min-width:1.15rem; height:1.15rem; padding:0 .3rem; border-radius:999px; background:var(--accent); color:#fff; font-size:.68rem; font-weight:800;}
   .toolbar-badge.hidden{display:none;}
   .print-btn{border:1.5px solid var(--accent); background:transparent; color:var(--accent-ink); font-weight:800; font-size:.8rem; padding:.42rem .9rem; border-radius:999px; cursor:pointer; margin-left:auto;}
@@ -430,6 +431,9 @@ function renderPage(judge, data) {
     <div class="toolbar">
       <button type="button" id="filter-toggle-btn" class="toolbar-btn">Filter <span id="filter-badge" class="toolbar-badge hidden">0</span></button>
       <button type="button" id="sort-toggle-btn" class="toolbar-btn">Sort <span id="sort-badge" class="toolbar-badge hidden">0</span></button>
+      <button type="button" id="download-excel-btn" class="toolbar-btn" title="Download the currently filtered teams as an Excel file to fill offline">⬇ Excel</button>
+      <button type="button" id="upload-excel-btn" class="toolbar-btn"${data.archived ? ' disabled' : ''} title="Upload a filled Excel file — values land in the Sheet view for you to review, then Save All">⬆ Excel</button>
+      <input type="file" id="upload-excel-input" accept=".xlsx,.xls" style="display:none">
       <button type="button" id="print-sheet-btn" class="print-btn">🖨 Print</button>
     </div>
     <div id="filter-panel" class="filter-panel hidden">
@@ -441,7 +445,8 @@ function renderPage(judge, data) {
       <div id="sort-add-row" class="sort-add-row"></div>
       <p id="sort-locked-note" class="sort-locked-note hidden">🔒 Sort order is set by admin and can't be changed here.</p>
     </div>
-    <div id="result-count" class="result-count"></div>` : ''}
+    <div id="result-count" class="result-count"></div>
+    <div id="excel-status" class="result-count"></div>` : ''}
   </div>
   <div id="teams-host" class="hidden">${data.teams.length ? '' : '<div class="empty">No teams to judge yet.</div>'}</div>
   <div id="sheet-host"></div>
@@ -1021,6 +1026,109 @@ function renderPage(judge, data) {
     setTimeout(function(){ try { win.focus(); win.print(); } catch(e){} }, 300);
   }
   if (printBtn) printBtn.addEventListener('click', printSheet);
+
+  // ── Excel download/upload — work offline, bring scores back in ──────────
+  // SheetJS is loaded from a CDN only when actually needed (same lazy-load
+  // idiom the admin bundle already uses for its own Excel import/export),
+  // so a judge who never touches this keeps the page's small initial
+  // payload. Column header is "<label> (out of <max>)" — the same text the
+  // Cards view already shows next to each input — so it round-trips without
+  // needing a separate hidden key column per criterion; "Team ID" is the
+  // one column that MUST survive the round trip since it's how an uploaded
+  // row is matched back to a team.
+  function ensureXLSX(){
+    if (window.XLSX) return Promise.resolve();
+    return new Promise(function(resolve, reject){
+      var sc = document.createElement('script');
+      sc.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+      sc.onload = function(){ resolve(); };
+      sc.onerror = function(){ reject(new Error('Could not load the Excel reader — check your connection and retry.')); };
+      document.head.appendChild(sc);
+    });
+  }
+  function critColumnLabel(c){ return c.label + ' (out of ' + c.max + ')'; }
+  var downloadExcelBtn = document.getElementById('download-excel-btn');
+  var uploadExcelBtn = document.getElementById('upload-excel-btn');
+  var uploadExcelInput = document.getElementById('upload-excel-input');
+  var excelStatusEl = document.getElementById('excel-status');
+  if (downloadExcelBtn) downloadExcelBtn.addEventListener('click', function(){
+    syncScoresFromDOM();
+    var list = visibleTeams();
+    if (!list.length) { alert('No teams match the current filter.'); return; }
+    downloadExcelBtn.disabled = true;
+    var origText = downloadExcelBtn.textContent;
+    downloadExcelBtn.textContent = 'Preparing…';
+    ensureXLSX().then(function(){
+      var rows = list.map(function(team, idx){
+        var row = { 'SL': idx + 1, 'Team ID': team.team_id, 'Reference No.': team.reference_number, 'Project Title': team.title };
+        (team.criteria || CRITERIA).forEach(function(c){
+          row[critColumnLabel(c)] = team.scores[c.key] != null ? team.scores[c.key] : '';
+        });
+        row['Total'] = teamTotal(team) == null ? '' : teamTotal(team);
+        return row;
+      });
+      var ws = XLSX.utils.json_to_sheet(rows);
+      var wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Scores');
+      XLSX.writeFile(wb, (JUDGE_NAME || 'judge').replace(/[^a-z0-9]+/gi, '_') + '_scores.xlsx');
+    }).catch(function(err){
+      alert(err.message || 'Could not prepare the download.');
+    }).then(function(){
+      downloadExcelBtn.disabled = false;
+      downloadExcelBtn.textContent = origText;
+    });
+  });
+  if (uploadExcelBtn && uploadExcelInput) uploadExcelBtn.addEventListener('click', function(){ uploadExcelInput.click(); });
+  if (uploadExcelInput) uploadExcelInput.addEventListener('change', function(e){
+    var file = e.target.files[0];
+    uploadExcelInput.value = ''; // allow re-selecting the same file again later
+    if (!file) return;
+    if (excelStatusEl) excelStatusEl.textContent = 'Reading ' + file.name + '…';
+    var reader = new FileReader();
+    reader.onload = function(evt){
+      ensureXLSX().then(function(){
+        var wb = XLSX.read(evt.target.result, { type: 'array' });
+        var allRows = [];
+        wb.SheetNames.forEach(function(name){
+          allRows = allRows.concat(XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: '' }));
+        });
+        var matchedTeams = 0, unknownRows = 0, updatedScores = 0, badValues = 0;
+        var touchedIds = {};
+        allRows.forEach(function(row){
+          var teamId = Number(row['Team ID']);
+          var team = TEAMS_BY_ID[teamId];
+          if (!team) { unknownRows++; return; }
+          matchedTeams++;
+          (team.criteria || CRITERIA).forEach(function(c){
+            var colKey = critColumnLabel(c);
+            if (!(colKey in row)) return;
+            var raw = row[colKey];
+            if (raw === '' || raw == null) return;
+            var v = Number(raw);
+            if (isNaN(v) || v < 0 || v > c.max) { badValues++; return; }
+            team.scores[c.key] = v;
+            updatedScores++;
+            touchedIds[team.team_id] = true;
+          });
+        });
+        rerender();
+        setView('sheet');
+        Object.keys(touchedIds).forEach(function(id){
+          var tr = sheetHost.querySelector('tr[data-team-row="' + id + '"]');
+          if (tr) tr.classList.add('dirty');
+        });
+        if (excelStatusEl) {
+          excelStatusEl.innerHTML = '<b>' + updatedScores + '</b> score' + (updatedScores === 1 ? '' : 's') + ' updated across <b>' + matchedTeams + '</b> team' + (matchedTeams === 1 ? '' : 's') +
+            (unknownRows ? ', ' + unknownRows + ' row(s) skipped (unknown Team ID)' : '') +
+            (badValues ? ', ' + badValues + ' value(s) out of range ignored' : '') +
+            '. Review the highlighted rows, then tap Save All.';
+        }
+      }).catch(function(err){
+        if (excelStatusEl) excelStatusEl.textContent = err.message || 'Could not read this file.';
+      });
+    };
+    reader.readAsArrayBuffer(file);
+  });
 
   // Sheet (Excel-style) is the default a judge lands on — faster for
   // scoring many teams in one sitting than tapping through cards one at a
