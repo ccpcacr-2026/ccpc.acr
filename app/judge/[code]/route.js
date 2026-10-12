@@ -183,7 +183,7 @@ function scopeLabel(judge) {
 async function loadRosterAndScores(judge) {
   const [formRows, teamRows, judgeScoreRows] = await Promise.all([
     sb(`group_forms?id=eq.${encodeURIComponent(judge.group_form_id)}&select=id,title,header,sub_header,fields_json,eligibility_json,judging_criteria_json,judging_rubric_sets_json,archived`),
-    sb(`group_form_teams?group_form_id=eq.${encodeURIComponent(judge.group_form_id)}&status=neq.disbanded&select=id,leader_student_id,group_data,reference_number&order=created_at.asc,id.asc`),
+    sb(`group_form_teams?group_form_id=eq.${encodeURIComponent(judge.group_form_id)}&status=neq.disbanded&review_status=eq.approved&select=id,leader_student_id,group_data,reference_number&order=created_at.asc,id.asc`),
     sb(`group_form_judge_scores?judge_id=eq.${encodeURIComponent(judge.id)}&select=team_id,scores_json`),
   ]);
   const form = Array.isArray(formRows) && formRows[0];
@@ -934,9 +934,16 @@ export async function POST(request, { params }) {
   // The team must actually belong to THIS judge's own form — closes off a
   // judge guessing another form's team_id even though access_code itself
   // only ever resolves one group_form_id.
-  const teamRows = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}&group_form_id=eq.${encodeURIComponent(judge.group_form_id)}&select=id,group_data`);
+  const teamRows = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}&group_form_id=eq.${encodeURIComponent(judge.group_form_id)}&select=id,group_data,review_status`);
   if (!Array.isArray(teamRows) || !teamRows.length) return NextResponse.json({ result: 'error', message: 'Invalid team.' }, { status: 400 });
   const team = teamRows[0];
+
+  // Judges only ever see/score approved teams — the page's own roster
+  // already excludes anything not approved, but a judge could otherwise
+  // still post a team_id for one that's pending/rejected directly.
+  if (team.review_status !== 'approved') {
+    return NextResponse.json({ result: 'error', message: 'This team has not been approved yet.' }, { status: 403 });
+  }
 
   // Leader profile is needed either way now (scope check below, and rubric
   // resolution — a filter-assigned rubric can key off house, same as scope
