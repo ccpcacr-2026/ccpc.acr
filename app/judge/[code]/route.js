@@ -275,6 +275,9 @@ function renderPage(judge, data) {
   .view-toggle{display:flex; align-items:center; gap:.5rem; margin-top:1rem; flex-wrap:wrap;}
   .view-btn{border:1px solid var(--border); background:var(--surface); color:var(--ink-muted); font-weight:700; font-size:.78rem; padding:.4rem .85rem; border-radius:999px; cursor:pointer;}
   .view-btn.active{background:var(--accent); color:#fff; border-color:var(--accent);}
+  .edit-lock-btn{border:1.5px solid var(--warn); background:transparent; color:var(--warn); font-weight:800; font-size:.78rem; padding:.4rem .85rem; border-radius:999px; cursor:pointer;}
+  .edit-lock-btn.unlocked{border-color:var(--good); background:var(--good); color:#fff;}
+  .edit-lock-btn:disabled{opacity:.5; cursor:default;}
   .save-all-btn{border:none; background:var(--good); color:#fff; font-weight:700; font-size:.78rem; padding:.45rem 1rem; border-radius:999px; cursor:pointer; margin-left:auto;}
   .save-all-btn:disabled{opacity:.5; cursor:default;}
   .save-all-btn.hidden{display:none;}
@@ -308,6 +311,7 @@ function renderPage(judge, data) {
     <div class="crit-strip">${criteriaHtml}</div>
     ${data.archived ? `<div class="archived-banner">${esc(ARCHIVED_MESSAGE)}</div>` : ''}
     ${data.teams.length ? `<div class="view-toggle">
+      <button type="button" id="edit-lock-btn" class="edit-lock-btn locked"${data.archived ? ' disabled' : ''}>🔒 Enable Edit</button>
       <button type="button" id="view-cards-btn" class="view-btn">Cards</button>
       <button type="button" id="view-sheet-btn" class="view-btn active">Sheet (Excel-style)</button>
       <button type="button" id="save-all-btn" class="save-all-btn hidden"${data.archived ? ' disabled' : ''}>Save All</button>
@@ -376,7 +380,7 @@ function renderPage(judge, data) {
     var fieldsHtml = CRITERIA.map(function(c){
       var existing = team.scores[c.key];
       return '<div class="score-field"><label>' + esc(c.label) + ' (out of ' + esc(c.max) + ')</label>' +
-        '<input type="number" min="0" max="' + esc(c.max) + '" step="1" data-crit="' + esc(c.key) + '" value="' + (existing != null ? esc(existing) : '') + '"></div>';
+        '<input type="number" class="score-input" min="0" max="' + esc(c.max) + '" step="1" data-crit="' + esc(c.key) + '" value="' + (existing != null ? esc(existing) : '') + '" readonly' + (ARCHIVED ? ' disabled' : '') + '></div>';
     }).join('');
     card.innerHTML =
       '<div class="team-top"><span class="team-sl">#' + (idx + 1) + '</span><span class="team-ref">' + esc(team.reference_number) + '</span>' +
@@ -434,6 +438,22 @@ function renderPage(judge, data) {
   var saveAllBtn = document.getElementById('save-all-btn');
   var saveAllStatus = document.getElementById('save-all-status');
 
+  // Every score input starts read-only (set directly in the markup above,
+  // for both Cards and Sheet) so scrolling, tapping around, or arrow-
+  // keying across the Sheet view can't accidentally overwrite a value —
+  // typing requires deliberately unlocking first. Toggling re-scans
+  // live (not a fixed list captured once) so it still works correctly
+  // after the Sheet view's own lazy build runs.
+  var editLockBtn = document.getElementById('edit-lock-btn');
+  var editEnabled = false;
+  function applyEditLock(){
+    document.querySelectorAll('input.score-input, input.sheet-input').forEach(function(inp){ inp.readOnly = !editEnabled; });
+    if (!editLockBtn) return;
+    editLockBtn.textContent = editEnabled ? '🔓 Lock Editing' : '🔒 Enable Edit';
+    editLockBtn.classList.toggle('unlocked', editEnabled);
+  }
+  if (editLockBtn) editLockBtn.addEventListener('click', function(){ editEnabled = !editEnabled; applyEditLock(); });
+
   function buildSheet(){
     if (!sheetHost || sheetHost.childNodes.length) return; // built once, lazily
     var wrap = document.createElement('div');
@@ -443,7 +463,7 @@ function renderPage(judge, data) {
       var membersLine = team.members.map(function(m){ return m.name; }).join(', ');
       var cells = CRITERIA.map(function(c, colIdx){
         var existing = team.scores[c.key];
-        return '<td><input type="number" class="sheet-input" min="0" max="' + esc(c.max) + '" step="1" data-team="' + team.team_id + '" data-crit="' + esc(c.key) + '" data-row="' + idx + '" data-col="' + colIdx + '" value="' + (existing != null ? esc(existing) : '') + '"' + (ARCHIVED ? ' disabled' : '') + '></td>';
+        return '<td><input type="number" class="sheet-input" min="0" max="' + esc(c.max) + '" step="1" data-team="' + team.team_id + '" data-crit="' + esc(c.key) + '" data-row="' + idx + '" data-col="' + colIdx + '" value="' + (existing != null ? esc(existing) : '') + '" readonly' + (ARCHIVED ? ' disabled' : '') + '></td>';
       }).join('');
       return '<tr data-team-row="' + team.team_id + '">' +
         '<td class="sheet-sl">' + (idx + 1) + '</td>' +
