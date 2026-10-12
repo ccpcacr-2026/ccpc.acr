@@ -353,7 +353,7 @@ const RESERVED = [
   'setReviewStatusAdmin','setReviewStatusReviewer','gfShowStudentInfo',
   // Judging rubric builder (Group Form editor) — "+ Add Criterion" button
   // and each row's own remove button are inline onclick in generated markup.
-  'gfAddCriterionRow','_gfOnCriterionMaxChange',
+  'gfAddCriterionRow','_gfOnCriterionMaxChange','_gfOnBlankColMaxChange',
   // Judges (digital scoring) manager panel — toolbar button plus every
   // row's inline onclick/onchange in generated markup.
   'toggleGroupFormJudgesPanel','gfCreateJudge','gfRenameJudge','gfToggleJudgeEnabled',

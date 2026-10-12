@@ -31179,7 +31179,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!_gfJudgesSheetConfigByForm[id]) {
       const cols = _gfJudgesSheetColumns(form);
       const defaults = ['reference_number', 'project_title', 'category', 'group'].filter(k => cols.some(c => c.key === k));
-      _gfJudgesSheetConfigByForm[id] = { dataCols: defaults, customCols: [], blankCols: ['Score', 'Remarks'], judgeNameLine: true, judgeId: null, customTitle: '', showFilterSubheader: false };
+      _gfJudgesSheetConfigByForm[id] = { dataCols: defaults, customCols: [], blankCols: [{ label: 'Score', max: null }, { label: 'Remarks', max: null }], judgeNameLine: true, judgeId: null, customTitle: '', showFilterSubheader: false };
     }
     return _gfJudgesSheetConfigByForm[id];
   }
@@ -31299,21 +31299,47 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const overlay = document.getElementById('gfJudgesSheetOverlay');
     _gfRenderJudgesSheetCustomCols(overlay?._gfForm, cfg);
   }
+  // Each blank (hand-fill) column is now a {label, max} pair, not a plain
+  // string — "out of" is set with the exact same preset dropdown as a
+  // Judging Rubric criterion (GF_CRITERION_MAX_PRESETS), so the admin never
+  // has to fake it by typing "Score\n/10" into the label text. "No max"
+  // (the default) keeps a column as free-form hand-fill, for things like
+  // Remarks that aren't a score at all.
   function _gfRenderJudgesSheetBlankCols(form, cfg) {
     const host = document.getElementById('gfJudgesSheetBlankCols');
     if (!host) return;
-    host.innerHTML = cfg.blankCols.map((label, i) => `
+    const formId = form?.id || 0;
+    host.innerHTML = cfg.blankCols.map((col, i) => {
+      const isNone = col.max == null || col.max === '';
+      const isPreset = !isNone && GF_CRITERION_MAX_PRESETS.includes(Number(col.max));
+      const isCustom = !isNone && !isPreset;
+      return `
       <div class="flex items-center gap-2">
-        <input type="text" value="${_escHtml(label)}" oninput="_gfJudgesSheetConfigByForm[${form?.id || 0}].blankCols[${i}] = this.value" placeholder="e.g. Score, Innovation\n/10, Remarks" title="Type \n where you want the printed header to break onto a new line, e.g. Innovation\n/10" class="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
-        <button type="button" onclick="_gfJudgesSheetRemoveBlankCol(${form?.id || 0}, ${i})" class="p-1 text-red-400 hover:text-red-600" ${cfg.blankCols.length <= 1 ? 'disabled' : ''}><i data-lucide="x" class="h-3.5 w-3.5"></i></button>
-      </div>`).join('');
+        <input type="text" value="${_escHtml(col.label)}" oninput="_gfJudgesSheetConfigByForm[${formId}].blankCols[${i}].label = this.value" placeholder="e.g. Score, Remarks" class="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+        <select onchange="_gfOnBlankColMaxChange(this, ${formId}, ${i})" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+          <option value="none" ${isNone ? 'selected' : ''}>No max</option>
+          ${GF_CRITERION_MAX_PRESETS.map(p => `<option value="${p}" ${isPreset && Number(col.max) === p ? 'selected' : ''}>out of ${p}</option>`).join('')}
+          <option value="custom" ${isCustom ? 'selected' : ''}>Custom…</option>
+        </select>
+        <input type="number" min="1" value="${isCustom ? _escHtml(col.max) : ''}" oninput="_gfJudgesSheetConfigByForm[${formId}].blankCols[${i}].max = Number(this.value) || null" placeholder="Max" class="blank-max-custom w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs ${isCustom ? '' : 'hidden'}">
+        <button type="button" onclick="_gfJudgesSheetRemoveBlankCol(${formId}, ${i})" class="p-1 text-red-400 hover:text-red-600" ${cfg.blankCols.length <= 1 ? 'disabled' : ''}><i data-lucide="x" class="h-3.5 w-3.5"></i></button>
+      </div>`;
+    }).join('');
     lucide.createIcons();
+  }
+  function _gfOnBlankColMaxChange(sel, formId, i) {
+    const cfg = _gfJudgesSheetConfigByForm[formId];
+    if (!cfg) return;
+    const customInput = sel.parentElement.querySelector('.blank-max-custom');
+    if (sel.value === 'none') { cfg.blankCols[i].max = null; customInput.classList.add('hidden'); }
+    else if (sel.value === 'custom') { customInput.classList.remove('hidden'); customInput.focus(); }
+    else { cfg.blankCols[i].max = Number(sel.value); customInput.classList.add('hidden'); }
   }
   function _gfJudgesSheetAddBlankCol() {
     const overlay = document.getElementById('gfJudgesSheetOverlay');
     const form = overlay?._gfForm;
     const cfg = _gfJudgesSheetConfig(form);
-    cfg.blankCols.push('');
+    cfg.blankCols.push({ label: '', max: null });
     _gfRenderJudgesSheetBlankCols(form, cfg);
   }
   function _gfJudgesSheetRemoveBlankCol(formId, i) {
@@ -31379,17 +31405,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       return any ? sum : null;
     };
     const positions = judge ? _gfRankByValueDesc(teams.map(t => ({ id: t.id, value: totalFor(t) }))) : {};
-    const blankColsRaw = judge ? [] : cfg.blankCols.filter(l => l.trim());
+    const blankColsRaw = judge ? [] : cfg.blankCols.filter(c => c.label && c.label.trim());
     // Blank (hand-fill) mode has no digital scores to add up, so this
     // "Total" is itself just one more blank cell — but it's one the admin
     // no longer has to remember to type into the Blank Columns list
     // themselves every time they set up a sheet with several score
     // columns on it. Skipped if they've already added their own column
     // named "Total" (don't double up).
-    const blankCols = blankColsRaw.length && !blankColsRaw.some(l => l.trim().toLowerCase() === 'total')
-      ? [...blankColsRaw, 'Total'] : blankColsRaw;
+    const blankCols = blankColsRaw.length && !blankColsRaw.some(c => c.label.trim().toLowerCase() === 'total')
+      ? [...blankColsRaw, { label: 'Total', max: null }] : blankColsRaw;
+    const blankColLabels = blankCols.map(c => c.max ? `${c.label}\n/${c.max}` : c.label);
     const headCells = ['SL', ...dataCols.map(c => c.label), ...customCols.map(c => c.label),
-      ...(judge ? [...criteria.map(c => c.label + ' /' + c.max), 'Total', 'Position'] : blankCols)]
+      ...(judge ? [...criteria.map(c => c.label + ' /' + c.max), 'Total', 'Position'] : blankColLabels)]
       .map(h => `<th>${_escHtml(h).replace(/\\n/g, '<br>')}</th>`).join('');
     const rows = teams.map((t, idx) => {
       const dataCells = dataCols.map(c => `<td${c.key === 'reference_number' ? ' class="ref"' : ''}>${c.html ? (c.get(t) || '—') : _escHtml(c.get(t) || '—')}</td>`).join('');
