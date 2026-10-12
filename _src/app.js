@@ -31830,21 +31830,33 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _gfRenderJudgesList();
     }).catch(() => { document.getElementById('gfJudgesList').innerHTML = '<p class="text-xs text-red-500 font-bold">Network error</p>'; });
   }
-  // One judge's scope picker — "sees All Teams" by default, or one slice
-  // via the exact same dimension vocabulary as a reviewer rule ('class' |
-  // 'house' | 'group' (band) | 'answer:<data_key>'). Deliberately reuses
-  // the reviewer rule row's own value-population plumbing
-  // (_gfPopulateRuleValueSelect/_gfRuleValueOptions/_gfRuleAnswerFieldOptions,
-  // all keyed off `_gfRosterForm` already) by giving these selects the same
-  // `.gf-rule-dimension`/`.gf-rule-value` classes — only the onchange
-  // wiring differs, since a judge has no mode/teacher/permission to go
-  // with it, just this one slice persisted straight onto the judge row.
+  // One judge's scope picker — "sees All Teams" by default, or a slice of
+  // ONE OR MORE values within a single dimension (e.g. Group A + Group B +
+  // Group C at once) — same dimension vocabulary as a reviewer rule
+  // ('class' | 'house' | 'group' (band) | 'category' | 'answer:<data_key>'),
+  // but a multi-select chip picker instead of the reviewer rule's own
+  // single-value <select>, since a judge covering several slices at once is
+  // normal (unlike a reviewer rule, which is one routing rule per row — an
+  // admin wanting several slices for one reviewer just adds several rules).
+  // scope_value is persisted as a JSON array in the same text column.
+  // _gfJudgeScopeDraft holds each judge's current in-progress selection
+  // (judgeId -> array), separate from the reviewer rule system entirely —
+  // still reuses _gfRuleValueOptions/_gfRuleAnswerFieldOptions (pure
+  // functions, no DOM coupling) for the actual list of possible values.
+  let _gfJudgeScopeDraft = {};
+  function _gfJudgeScopeValuesFromJudge(j) {
+    if (!j || !j.scope_value) return [];
+    try {
+      const parsed = JSON.parse(j.scope_value);
+      return Array.isArray(parsed) ? parsed : [j.scope_value];
+    } catch (e) { return [j.scope_value]; } // a judge saved before this change: one plain string
+  }
   function _gfJudgeScopeRowHtml(j) {
     const answerFields = _gfRuleAnswerFieldOptions();
     const dim = j.scope_dimension || 'all';
-    return `<div class="flex items-center gap-2 mt-1.5 flex-wrap">
-      <span class="text-[10px] font-black text-slate-400 uppercase shrink-0">Sees</span>
-      <select class="gf-rule-dimension px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" onchange="_gfOnJudgeScopeDimensionChange(this)">
+    return `<div class="flex items-start gap-2 mt-1.5 flex-wrap">
+      <span class="text-[10px] font-black text-slate-400 uppercase shrink-0 pt-1.5">Sees</span>
+      <select class="gf-judge-dim px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" onchange="_gfOnJudgeScopeDimensionChange(this)">
         <option value="all" ${dim === 'all' ? 'selected' : ''}>All Teams</option>
         <option value="class" ${dim === 'class' ? 'selected' : ''}>Class</option>
         <option value="house" ${dim === 'house' ? 'selected' : ''}>House</option>
@@ -31852,25 +31864,43 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <option value="category" ${dim === 'category' ? 'selected' : ''}>Category</option>
         ${answerFields.filter(f => !/^category$/i.test(f.name || '')).map(f => `<option value="answer:${f.data_key}" ${dim === `answer:${f.data_key}` ? 'selected' : ''}>Answer: ${f.name || f.data_key}</option>`).join('')}
       </select>
-      <select class="gf-rule-value px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs ${dim === 'all' ? 'hidden' : ''}" onchange="_gfSaveJudgeScope(this)"></select>
+      <div class="gf-judge-scope-values flex flex-wrap gap-1.5 ${dim === 'all' ? 'hidden' : ''}"></div>
     </div>`;
+  }
+  function _gfRenderJudgeScopeValues(row, dim, judgeId) {
+    const host = row.querySelector('.gf-judge-scope-values');
+    if (!host) return;
+    host.classList.toggle('hidden', dim === 'all');
+    if (dim === 'all') { host.innerHTML = ''; return; }
+    const options = _gfRuleValueOptions(dim);
+    if (!options.length) { host.innerHTML = '<span class="text-[11px] text-slate-400 font-bold italic">No values yet.</span>'; return; }
+    const selected = _gfJudgeScopeDraft[judgeId] || [];
+    host.innerHTML = options.map(v => `
+      <button type="button" onclick='_gfToggleJudgeScopeValue(${judgeId}, ${JSON.stringify(v)})' class="px-2 py-0.5 rounded-full font-black text-[10px] uppercase ${selected.includes(v) ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'}">${_escHtml(v)}</button>`).join('');
+  }
+  function _gfToggleJudgeScopeValue(judgeId, value) {
+    const list = _gfJudgeScopeDraft[judgeId] || (_gfJudgeScopeDraft[judgeId] = []);
+    const i = list.indexOf(value);
+    if (i >= 0) list.splice(i, 1); else list.push(value);
+    const row = document.querySelector(`.gf-judge-row[data-judge-id="${judgeId}"]`);
+    if (!row) return;
+    const dim = row.querySelector('.gf-judge-dim').value;
+    _gfRenderJudgeScopeValues(row, dim, judgeId);
+    _gfSaveJudgeScope(judgeId, dim, list);
   }
   function _gfOnJudgeScopeDimensionChange(sel) {
     const row = sel.closest('.gf-judge-row');
+    const judgeId = Number(row.dataset.judgeId);
     const dim = sel.value;
     const ensureValues = (dim === 'class' || dim === 'house') ? _gfEnsureGroupFieldValues(dim) : Promise.resolve();
     ensureValues.then(() => {
-      _gfPopulateRuleValueSelect(row, '');
-      if (dim === 'all') _gfSaveJudgeScope(row.querySelector('.gf-rule-value'));
+      _gfJudgeScopeDraft[judgeId] = []; // changing dimension clears whatever was picked under the old one
+      _gfRenderJudgeScopeValues(row, dim, judgeId);
+      if (dim === 'all') _gfSaveJudgeScope(judgeId, 'all', []);
     });
   }
-  function _gfSaveJudgeScope(sel) {
-    const row = sel.closest('.gf-judge-row');
-    const judgeId = Number(row.dataset.judgeId);
-    const dim = row.querySelector('.gf-rule-dimension').value;
-    const value = dim === 'all' ? '' : row.querySelector('.gf-rule-value').value;
-    if (dim !== 'all' && !value) return; // wait until a real value is actually picked
-    _adminFetch('admin_update_judge', { id: judgeId, scope_dimension: dim, scope_value: value || null }).then(res => {
+  function _gfSaveJudgeScope(judgeId, dim, values) {
+    _adminFetch('admin_update_judge', { id: judgeId, scope_dimension: dim, scope_value: values && values.length ? JSON.stringify(values) : null }).then(res => {
       if (!(res && res.result === 'success')) showToast((res && res.message) || 'Failed', 'error');
     }).catch(() => showToast('Network error', 'error'));
   }
@@ -31892,14 +31922,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         ${_gfJudgeScopeRowHtml(j)}
       </div>`).join('');
     lucide.createIcons();
-    // Value selects need their options built from live data (class/house
-    // distinct values, band names, a field's own options) — same async
-    // population step gfAddReviewerRule already does for its own row.
+    // Chip options need live data (class/house distinct values, band
+    // names, a field's own options) — same async population step
+    // gfAddReviewerRule's row already does for itself.
     Array.from(host.querySelectorAll('.gf-judge-row')).forEach(row => {
       const j = _gfJudges.find(x => String(x.id) === row.dataset.judgeId);
       const dim = (j && j.scope_dimension) || 'all';
+      _gfJudgeScopeDraft[j.id] = _gfJudgeScopeValuesFromJudge(j);
       const ensureValues = (dim === 'class' || dim === 'house') ? _gfEnsureGroupFieldValues(dim) : Promise.resolve();
-      ensureValues.then(() => _gfPopulateRuleValueSelect(row, j && j.scope_value));
+      ensureValues.then(() => _gfRenderJudgeScopeValues(row, dim, j.id));
     });
   }
   function gfCreateJudge() {

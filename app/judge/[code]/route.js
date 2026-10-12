@@ -89,23 +89,38 @@ function bandNameServer(eligibilityJson, value) {
   const name = Array.isArray(band) ? '' : String(band.name || '').trim();
   return name || bandValues(band).join('/');
 }
+// A judge's scope_value now holds a JSON array ("Group A"+"Group B"+
+// "Group C" all at once, e.g.) rather than one single string — stored in
+// the same text column either way. Falls back to treating a bare, non-JSON
+// string as a one-item list, so a judge saved before this change (a plain
+// value, not yet JSON) still matches exactly as it did before.
+function scopeValuesOf(judge) {
+  if (!judge.scope_value) return [];
+  try {
+    const parsed = JSON.parse(judge.scope_value);
+    return Array.isArray(parsed) ? parsed : [judge.scope_value];
+  } catch (e) { return [judge.scope_value]; }
+}
 // Whether a team falls within this judge's own assigned slice — same
 // dimension vocabulary and matching semantics as a reviewer rule's own
 // groupFormTeamMatchesRule (student-admin/route.js), just reading the
-// judge's single scope_dimension/scope_value instead of a rules table.
+// judge's own scope_dimension/scope_value instead of a rules table, and
+// matching against ANY of the judge's selected values rather than one.
 // Enforced here (what the roster shows) AND again in POST save_score
 // below (a judge can't score a team outside their scope even by
 // guessing its team_id).
 function judgeScopeMatches(team, form, judge, leaderProfile) {
   const dim = judge.scope_dimension || 'all';
   if (dim === 'all') return true;
-  if (dim === 'class') return String(leaderProfile?.class || '') === judge.scope_value;
-  if (dim === 'house') return String(leaderProfile?.house || '') === judge.scope_value;
+  const values = scopeValuesOf(judge);
+  if (!values.length) return false;
+  if (dim === 'class') return values.includes(String(leaderProfile?.class || ''));
+  if (dim === 'house') return values.includes(String(leaderProfile?.house || ''));
   if (dim === 'group') {
     let elig = {};
     try { elig = JSON.parse(form?.eligibility_json || '{}') || {}; } catch (e) {}
     const groupField = elig.group_field || 'class';
-    return bandNameServer(form?.eligibility_json, leaderProfile?.[groupField]) === judge.scope_value;
+    return values.includes(bandNameServer(form?.eligibility_json, leaderProfile?.[groupField]));
   }
   // 'category' merges every field actually NAMED "Category" (this form has
   // two — one per eligibility Group, each shown by its own show_if), same
@@ -115,19 +130,20 @@ function judgeScopeMatches(team, form, judge, leaderProfile) {
   if (dim === 'category') {
     let fields = [];
     try { fields = JSON.parse(form?.fields_json || '[]') || []; } catch (e) {}
-    return answerByName(fields, team.group_data, /^category$/i) === judge.scope_value;
+    return values.includes(answerByName(fields, team.group_data, /^category$/i));
   }
   if (dim.startsWith('answer:')) {
     const key = dim.slice('answer:'.length);
-    return String((team.group_data || {})[key] ?? '') === judge.scope_value;
+    return values.includes(String((team.group_data || {})[key] ?? ''));
   }
   return false;
 }
 function scopeLabel(judge) {
   const dim = judge.scope_dimension || 'all';
   if (dim === 'all') return '';
+  const values = scopeValuesOf(judge);
   const dimLabel = dim === 'class' ? 'Class' : dim === 'house' ? 'House' : dim === 'group' ? 'Group' : dim === 'category' ? 'Category' : dim.startsWith('answer:') ? dim.slice(7) : dim;
-  return `${dimLabel}: ${judge.scope_value || ''}`;
+  return `${dimLabel}: ${values.join(', ')}`;
 }
 
 async function loadRosterAndScores(judge) {
