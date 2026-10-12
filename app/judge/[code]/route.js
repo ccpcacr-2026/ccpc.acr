@@ -182,7 +182,7 @@ function scopeLabel(judge) {
 
 async function loadRosterAndScores(judge) {
   const [formRows, teamRows, judgeScoreRows] = await Promise.all([
-    sb(`group_forms?id=eq.${encodeURIComponent(judge.group_form_id)}&select=id,title,header,sub_header,fields_json,eligibility_json,judging_criteria_json,judging_rubric_sets_json,judges_sort_json,archived`),
+    sb(`group_forms?id=eq.${encodeURIComponent(judge.group_form_id)}&select=id,title,header,sub_header,fields_json,eligibility_json,judging_criteria_json,judging_rubric_sets_json,judges_sort_json,judges_link_fields_json,archived`),
     sb(`group_form_teams?group_form_id=eq.${encodeURIComponent(judge.group_form_id)}&status=neq.disbanded&review_status=eq.approved&select=id,leader_student_id,group_data,reference_number&order=created_at.asc,id.asc`),
     sb(`group_form_judge_scores?judge_id=eq.${encodeURIComponent(judge.id)}&select=team_id,scores_json`),
   ]);
@@ -256,6 +256,14 @@ async function loadRosterAndScores(judge) {
     sortConfig = { levels: Array.isArray(parsed.levels) ? parsed.levels : [], locked: !!parsed.locked };
   } catch (e) {}
 
+  // Which non-score info fields show on this page — an empty/unset list
+  // (the common case, and every pre-existing form) means "show everything",
+  // same backward-compat shape as sortConfig above.
+  const LINK_FIELD_KEYS = ['reference_number', 'house', 'category', 'group', 'members', 'title', 'description'];
+  let linkFields = []; try { linkFields = JSON.parse(form.judges_link_fields_json || '[]') || []; } catch (e) {}
+  const visibleFields = {};
+  LINK_FIELD_KEYS.forEach(k => { visibleFields[k] = !linkFields.length || linkFields.includes(k); });
+
   return {
     formTitle: form.title,
     formHeader: form.header || form.title,
@@ -266,6 +274,7 @@ async function loadRosterAndScores(judge) {
     teams: teamInfos,
     scopeLabel: scopeLabel(judge),
     sortConfig,
+    visibleFields,
   };
 }
 
@@ -310,7 +319,7 @@ function renderPage(judge, data) {
   .team-top{display:flex; align-items:baseline; justify-content:space-between; gap:.6rem; margin-bottom:.35rem;}
   .team-sl{font-size:.72rem; font-weight:700; color:var(--ink-muted);}
   .team-ref{font-size:.7rem; font-weight:800; letter-spacing:.03em; background:var(--accent); color:#fff; border-radius:999px; padding:.15rem .55rem;}
-  .team-house{font-size:.7rem; font-weight:700; color:var(--ink-muted);}
+  .team-tags{font-size:.7rem; font-weight:700; color:var(--ink-muted);}
   .team-rubric{font-size:.68rem; font-weight:800; color:var(--accent-ink); background:rgba(36,84,232,.12); padding:.15rem .5rem; border-radius:999px;}
   .team-members{margin:.5rem 0; display:flex; flex-direction:column; gap:.15rem;}
   .team-member{font-size:.86rem; font-weight:600;}
@@ -387,6 +396,7 @@ function renderPage(judge, data) {
   table.sheet thead th{position:sticky; top:0; background:var(--bg); color:var(--ink-muted); font-size:.68rem; font-weight:800; text-transform:uppercase; letter-spacing:.04em; z-index:1;}
   table.sheet td.sheet-team{min-width:220px; white-space:normal;}
   table.sheet td.sheet-team .sheet-ref{font-weight:800; color:var(--accent-ink); margin-right:.4rem;}
+  table.sheet td.sheet-team .sheet-tags{color:var(--ink-muted); font-size:.76rem; margin-right:.4rem;}
   table.sheet td.sheet-team .sheet-members{color:var(--ink-muted); font-size:.76rem; margin-top:.15rem;}
   table.sheet td.sheet-sl{text-align:center; color:var(--ink-muted); font-weight:700;}
   table.sheet input.sheet-input{width:4.2rem; padding:.3rem .4rem; border-radius:8px; border:1.5px solid var(--border); background:var(--bg); color:var(--ink); font-weight:700; font-size:.85rem; text-align:center;}
@@ -446,6 +456,7 @@ function renderPage(judge, data) {
   var RUBRICS = ${JSON.stringify(data.rubrics)};
   var MULTI_RUBRIC = RUBRICS.length > 1;
   var SORT_CONFIG = ${JSON.stringify(data.sortConfig)};
+  var VISIBLE_FIELDS = ${JSON.stringify(data.visibleFields)};
   var rubricNameById = {};
   RUBRICS.forEach(function(r){ rubricNameById[r.id] = r.name; });
   var host = document.getElementById('teams-host');
@@ -581,13 +592,19 @@ function renderPage(judge, data) {
       return '<div class="score-field"><label>' + esc(c.label) + ' (out of ' + esc(c.max) + ')</label>' +
         '<input type="number" class="score-input" min="0" max="' + esc(c.max) + '" step="1" data-team="' + team.team_id + '" data-crit="' + esc(c.key) + '" value="' + (existing != null ? esc(existing) : '') + '" readonly' + (ARCHIVED ? ' disabled' : '') + '></div>';
     }).join('');
+    var tagParts = [];
+    if (VISIBLE_FIELDS.house && team.house) tagParts.push(team.house);
+    if (VISIBLE_FIELDS.category && team.category) tagParts.push(team.category);
+    if (VISIBLE_FIELDS.group && team.group) tagParts.push(team.group);
+    var tagsHtml = tagParts.length ? '<span class="team-tags">' + esc(tagParts.join(' · ')) + '</span>' : '';
     card.innerHTML =
-      '<div class="team-top"><span class="team-sl">#' + (idx + 1) + '</span><span class="team-ref">' + esc(team.reference_number) + '</span>' +
-        (team.house ? '<span class="team-house">' + esc(team.house) + '</span>' : '') +
+      '<div class="team-top"><span class="team-sl">#' + (idx + 1) + '</span>' +
+        (VISIBLE_FIELDS.reference_number ? '<span class="team-ref">' + esc(team.reference_number) + '</span>' : '') +
+        tagsHtml +
         (MULTI_RUBRIC ? '<span class="team-rubric">' + esc(rubricNameById[team.rubric_id] || 'Default') + '</span>' : '') + '</div>' +
-      '<div class="team-members">' + membersHtml + '</div>' +
-      '<div class="team-title">' + esc(team.title) + '</div>' +
-      (team.description ? '<div class="team-desc">' + esc(team.description) + '</div>' : '') +
+      (VISIBLE_FIELDS.members ? '<div class="team-members">' + membersHtml + '</div>' : '') +
+      (VISIBLE_FIELDS.title ? '<div class="team-title">' + esc(team.title) + '</div>' : '') +
+      (VISIBLE_FIELDS.description && team.description ? '<div class="team-desc">' + esc(team.description) + '</div>' : '') +
       '<div class="score-grid">' + fieldsHtml + '</div>' +
       '<div class="team-foot"><span class="team-total">Total: <b class="total-val">' + (teamTotal(team) == null ? '—' : teamTotal(team)) + '</b></span>' +
         '<button type="button" class="save-btn"' + (ARCHIVED ? ' disabled' : '') + '>Save</button></div>' +
@@ -658,6 +675,26 @@ function renderPage(judge, data) {
   }
   if (editLockBtn) editLockBtn.addEventListener('click', function(){ editEnabled = !editEnabled; applyEditLock(); });
 
+  // One team's info cell, built from whichever non-score fields the admin
+  // left on (VISIBLE_FIELDS) — shared between the live Sheet view and the
+  // judge's own Print button so both stay in sync automatically.
+  function teamInfoCellHtml(team){
+    var tagParts = [];
+    if (VISIBLE_FIELDS.house && team.house) tagParts.push(team.house);
+    if (VISIBLE_FIELDS.category && team.category) tagParts.push(team.category);
+    if (VISIBLE_FIELDS.group && team.group) tagParts.push(team.group);
+    var html = '';
+    if (VISIBLE_FIELDS.reference_number) html += '<span class="sheet-ref">' + esc(team.reference_number) + '</span>';
+    if (tagParts.length) html += '<span class="sheet-tags">' + esc(tagParts.join(' · ')) + '</span>';
+    if (VISIBLE_FIELDS.title) html += esc(team.title);
+    if (VISIBLE_FIELDS.members) {
+      var membersLine = team.members.map(function(m){ return m.name; }).join(', ');
+      if (membersLine) html += '<div class="sheet-members">' + esc(membersLine) + '</div>';
+    }
+    if (VISIBLE_FIELDS.description && team.description) html += '<div class="sheet-members">' + esc(team.description) + '</div>';
+    return html;
+  }
+
   // Grouped by resolved rubric, one table per distinct rubric among the
   // currently visible teams — a single uniform table can't work once
   // different teams can have different score columns (filter-assigned
@@ -679,24 +716,21 @@ function renderPage(judge, data) {
     if (!list.length) { sheetHost.innerHTML = '<div class="empty">No teams match this filter.</div>'; return; }
     var groups = groupByRubric(list);
     groups.forEach(function(grp){
-      if (MULTI_RUBRIC) {
-        var heading = document.createElement('div');
-        heading.className = 'sheet-rubric-heading';
-        heading.textContent = rubricNameById[grp.id] || 'Default';
-        sheetHost.appendChild(heading);
-      }
+      var heading = document.createElement('div');
+      heading.className = 'sheet-rubric-heading';
+      heading.textContent = rubricNameById[grp.id] || 'Default';
+      sheetHost.appendChild(heading);
       var wrap = document.createElement('div');
       wrap.className = 'sheet-wrap';
-      var theadCells = '<th>SL</th><th>Team</th>' + grp.criteria.map(function(c){ return '<th>' + esc(c.label) + '<br>/' + esc(c.max) + '</th>'; }).join('') + '<th>Total</th><th></th>';
+      var theadCells = '<th>SL</th><th>Team</th>' + grp.criteria.map(function(c){ return '<th title="' + esc(c.label) + '">' + esc(c.short || c.label) + '<br>/' + esc(c.max) + '</th>'; }).join('') + '<th>Total</th><th></th>';
       var rows = grp.teams.map(function(team, idx){
-        var membersLine = team.members.map(function(m){ return m.name; }).join(', ');
         var cells = grp.criteria.map(function(c, colIdx){
           var existing = team.scores[c.key];
           return '<td><input type="number" class="sheet-input" min="0" max="' + esc(c.max) + '" step="1" data-team="' + team.team_id + '" data-crit="' + esc(c.key) + '" data-row="' + idx + '" data-col="' + colIdx + '" value="' + (existing != null ? esc(existing) : '') + '" readonly' + (ARCHIVED ? ' disabled' : '') + '></td>';
         }).join('');
         return '<tr data-team-row="' + team.team_id + '">' +
           '<td class="sheet-sl">' + (idx + 1) + '</td>' +
-          '<td class="sheet-team"><span class="sheet-ref">' + esc(team.reference_number) + '</span>' + esc(team.title) + '<div class="sheet-members">' + esc(membersLine) + '</div></td>' +
+          '<td class="sheet-team">' + teamInfoCellHtml(team) + '</td>' +
           cells +
           '<td class="sheet-total">—</td>' +
           '<td class="sheet-status"></td>' +
@@ -947,17 +981,17 @@ function renderPage(judge, data) {
     var win = window.open('', '_blank');
     if (!win) { alert('Please allow popups to print.'); return; }
     var tablesHtml = groupByRubric(list).map(function(grp){
-      var headCells = '<th>SL</th><th>Ref</th><th>Project</th>' +
-        grp.criteria.map(function(c){ return '<th>' + esc(c.label) + '<br>/' + esc(c.max) + '</th>'; }).join('') + '<th>Total</th>';
+      var headCells = '<th>SL</th><th>Team</th>' +
+        grp.criteria.map(function(c){ return '<th title="' + esc(c.label) + '">' + esc(c.short || c.label) + '<br>/' + esc(c.max) + '</th>'; }).join('') + '<th>Total</th>';
       var rows = grp.teams.map(function(team, idx){
         var cells = grp.criteria.map(function(c){
           var v = team.scores[c.key];
           return '<td>' + (v != null ? esc(v) : '—') + '</td>';
         }).join('');
         var total = teamTotal(team);
-        return '<tr><td>' + (idx + 1) + '</td><td>' + esc(team.reference_number) + '</td><td>' + esc(team.title) + '</td>' + cells + '<td><b>' + (total == null ? '—' : total) + '</b></td></tr>';
+        return '<tr><td>' + (idx + 1) + '</td><td>' + teamInfoCellHtml(team) + '</td>' + cells + '<td><b>' + (total == null ? '—' : total) + '</b></td></tr>';
       }).join('');
-      var heading = MULTI_RUBRIC ? '<h2 class="rubric-h">' + esc(rubricNameById[grp.id] || 'Default') + '</h2>' : '';
+      var heading = '<h2 class="rubric-h">' + esc(rubricNameById[grp.id] || 'Default') + '</h2>';
       return heading + '<table><thead><tr>' + headCells + '</tr></thead><tbody>' + rows + '</tbody></table>';
     }).join('');
     var filterLine = activeFilterSummary();
@@ -972,7 +1006,8 @@ function renderPage(judge, data) {
       '.judge-row{font-size:12px;margin:6px 0 0;} .meta{font-size:10px;color:#6b7280;margin:3px 0 10px;}' +
       'table{width:100%;border-collapse:collapse;font-size:11pt;margin-bottom:14px;} th,td{border:1px solid #94a3b8;padding:6px 8px;text-align:left;vertical-align:middle;}' +
       'th{background:#1e293b;color:#fff;text-transform:uppercase;font-size:9pt;letter-spacing:.03em;} th:first-child,td:first-child{width:28px;text-align:center;}' +
-      '.rubric-h{font-size:13px;margin:10px 0 4px;} tr,td{page-break-inside:avoid;}</style></head><body>' +
+      '.rubric-h{font-size:13px;margin:10px 0 4px;} tr,td{page-break-inside:avoid;}' +
+      '.sheet-ref{font-weight:800;color:#1e3a8a;margin-right:6px;} .sheet-tags{color:#6b7280;margin-right:6px;} .sheet-members{color:#6b7280;font-size:9pt;margin-top:3px;}</style></head><body>' +
       '<div class="letterhead"><img src="' + logoUrl + '" alt=""><div><div class="inst-name">Chattogram Cantonment Public College</div><div class="inst-addr">Bayezid, Chattogram</div></div></div>' +
       '<h1>' + esc(FORM_HEADER) + '</h1>' +
       (FORM_SUBHEADER ? '<p class="sub">' + esc(FORM_SUBHEADER) + '</p>' : '') +

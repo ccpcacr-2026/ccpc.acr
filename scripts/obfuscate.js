@@ -368,6 +368,9 @@ const RESERVED = [
   // _gfJudgesSortLocked is assigned directly (not called) from the Lock
   // checkbox's inline onchange, same reason as _gfJudgesSheetConfigByForm above.
   '_gfJudgesSortLocked',
+  // Judge Link Columns panel (roster toolbar) — which non-score info shows
+  // on every judge's own scoring page.
+  'toggleGroupFormJudgeColumnsPanel','_gfToggleJudgeLinkField','_gfSaveJudgeLinkFields',
   '_gfOnJudgeScopeDimensionChange','_gfSaveJudgeScope','_gfToggleJudgeScopeValue',
   '_gfToggleJudgesFilterValue','_gfSaveJudgesLayoutNow',
   // Judges Sheet's new "Judge" live-fill dropdown, plus the whole separate

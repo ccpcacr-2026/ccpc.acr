@@ -29844,6 +29844,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="toggleGroupFormJudgesPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="gavel" class="h-3 w-3"></i>Judges</button>
             <button onclick="toggleGroupFormRubricsPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1" title="Give specific judges, or a filtered slice of teams, their own different score columns"><i data-lucide="list-checks" class="h-3 w-3"></i>Rubrics</button>
             <button onclick="toggleGroupFormJudgesSortPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1" title="Set the default team order on every judge's own scoring page, and optionally lock it so judges can't change it"><i data-lucide="arrow-down-up" class="h-3 w-3"></i>Judges Sort</button>
+            <button onclick="toggleGroupFormJudgeColumnsPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1" title="Choose which non-score info (reference no, house, members, etc.) shows on every judge's own page"><i data-lucide="columns-3" class="h-3 w-3"></i>Judge Link Columns</button>
             <button onclick="toggleGroupFormReviewerPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="users" class="h-3 w-3"></i>Reviewers</button>
             <button id="gfAddTeamBtn" onclick="gfOpenAdminCreateTeamModal()" class="px-3 py-1.5 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase flex items-center gap-1" title="Create a team for a student directly, bypassing Active/Open/Filter rules"><i data-lucide="plus" class="h-3 w-3"></i>Add Team</button>
             <button id="gfDelDisbandedBtn" onclick="deleteAllDisbandedTeams()" class="px-3 py-1.5 border border-red-200 text-red-600 rounded-full font-black text-[10px] uppercase hover:bg-red-50 flex items-center gap-1"><i data-lucide="trash-2" class="h-3 w-3"></i>Delete Disbanded</button>
@@ -29882,6 +29883,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button onclick="gfSaveRubricSets()" class="mt-3 px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Rubrics</button>
         </div>
         <div id="gfJudgesSortPanel" class="hidden mb-4 p-4 bg-slate-50 rounded-2xl border border-slate-200"></div>
+        <div id="gfJudgeColumnsPanel" class="hidden mb-4 p-4 bg-slate-50 rounded-2xl border border-slate-200"></div>
         <div id="gfRosterSummary" class="mb-4"></div>
         <div id="adminGroupRosterList" class="flex flex-col gap-3"></div>
       </div>
@@ -30409,6 +30411,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return `<div class="gf-criterion-row flex items-center gap-2 bg-white p-2.5 rounded-xl border border-slate-200">
       <input type="hidden" class="gf-criterion-key" value="${_escHtml(crit.key)}">
       <input type="text" value="${_escHtml(crit.label || '')}" placeholder="e.g. Innovation" class="gf-criterion-label flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+      <input type="text" value="${_escHtml(crit.short || '')}" placeholder="Short e.g. INV" title="Short form shown in the judge's Sheet column header instead of the full label" class="gf-criterion-short w-24 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
       <span class="text-[10px] font-black text-slate-400 uppercase shrink-0">out of</span>
       <select class="gf-criterion-max px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" onchange="_gfOnCriterionMaxChange(this)">
         ${GF_CRITERION_MAX_PRESETS.map(p => `<option value="${p}" ${isPreset && Number(max) === p ? 'selected' : ''}>${p}</option>`).join('')}
@@ -30442,6 +30445,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         return {
           key: row.querySelector('.gf-criterion-key').value,
           label: row.querySelector('.gf-criterion-label').value.trim(),
+          short: row.querySelector('.gf-criterion-short').value.trim(),
           max: Math.max(1, Number(maxRaw) || 10),
         };
       })
@@ -30929,6 +30933,65 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       } else showToast((res && res.message) || 'Save failed', 'error');
     }).catch(() => showToast('Network error', 'error'));
   }
+
+  // ── Judge Link Columns — which non-score info shows on a judge's own page ──
+  // An empty array means "show everything" (the default, and every form that
+  // predates this feature) -- the panel only ever writes an explicit list
+  // once the admin actually hits Save, never a half-finished selection.
+  const GF_JUDGE_LINK_FIELDS = [
+    { key: 'reference_number', label: 'Reference No.' },
+    { key: 'house', label: 'House' },
+    { key: 'category', label: 'Category' },
+    { key: 'group', label: 'Group' },
+    { key: 'members', label: 'Members' },
+    { key: 'title', label: 'Project Title' },
+    { key: 'description', label: 'Description' },
+  ];
+  let _gfJudgeLinkFields = GF_JUDGE_LINK_FIELDS.map(f => f.key);
+  function toggleGroupFormJudgeColumnsPanel() {
+    const host = document.getElementById('gfJudgeColumnsPanel');
+    if (!host) return;
+    const opening = host.classList.contains('hidden');
+    host.classList.toggle('hidden');
+    if (!opening) return;
+    let saved = [];
+    try { saved = JSON.parse((_gfRosterForm && _gfRosterForm.judges_link_fields_json) || '[]') || []; } catch (e) {}
+    _gfJudgeLinkFields = saved.length ? saved : GF_JUDGE_LINK_FIELDS.map(f => f.key);
+    _gfRenderJudgeColumnsPanel();
+  }
+  function _gfRenderJudgeColumnsPanel() {
+    const host = document.getElementById('gfJudgeColumnsPanel');
+    if (!host || host.classList.contains('hidden')) return;
+    host.innerHTML = `
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-[10px] font-black text-slate-400 uppercase">Judge Link Columns</span>
+      </div>
+      <p class="text-[11px] text-slate-400 font-bold mb-3">Choose which non-score info shows on every judge's own scoring page (Cards and Sheet view, plus their own Print button). Score columns always come from the rubric and aren't affected here.</p>
+      <div class="flex flex-wrap gap-2 mb-3">
+        ${GF_JUDGE_LINK_FIELDS.map(f => `<button type="button" onclick="_gfToggleJudgeLinkField(${JSON.stringify(f.key)})" class="px-2.5 py-1.5 rounded-full font-black text-[10px] uppercase ${_gfJudgeLinkFields.includes(f.key) ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'}">${_escHtml(f.label)}</button>`).join('')}
+      </div>
+      <button onclick="_gfSaveJudgeLinkFields()" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Judge Link Columns</button>
+    `;
+  }
+  function _gfToggleJudgeLinkField(key) {
+    const i = _gfJudgeLinkFields.indexOf(key);
+    // Never down to zero -- an empty array means "show everything" (the
+    // unset default), so letting the last field get unchecked would save a
+    // selection that's indistinguishable from "no restriction at all".
+    if (i >= 0) { if (_gfJudgeLinkFields.length > 1) _gfJudgeLinkFields.splice(i, 1); }
+    else _gfJudgeLinkFields.push(key);
+    _gfRenderJudgeColumnsPanel();
+  }
+  function _gfSaveJudgeLinkFields() {
+    if (!_gfRosterFormId) return;
+    _adminFetch('save_group_form', { id: _gfRosterFormId, judges_link_fields_json: JSON.stringify(_gfJudgeLinkFields) }).then(res => {
+      if (res && res.result === 'success') {
+        showToast('Judge link columns saved');
+        if (_gfRosterForm) _gfRosterForm.judges_link_fields_json = JSON.stringify(_gfJudgeLinkFields);
+      } else showToast((res && res.message) || 'Save failed', 'error');
+    }).catch(() => showToast('Network error', 'error'));
+  }
+
   // One row per team: leader, members, pending invites, and every group-level
   // answer labeled with its real field name (same field set _gfFormatGroupData
   // already uses for the on-screen "Submitted Answers" preview).
@@ -32246,6 +32309,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       return {
         key: row.querySelector('.gf-criterion-key').value,
         label: row.querySelector('.gf-criterion-label').value.trim(),
+        short: row.querySelector('.gf-criterion-short').value.trim(),
         max: Math.max(1, Number(maxRaw) || 10),
       };
     }).filter(c => c.label);

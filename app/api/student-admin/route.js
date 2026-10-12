@@ -1452,7 +1452,7 @@ export async function POST(req) {
 
   // ── Save Group Form Config ───────────────────────────────────────────────
   if (action === 'save_group_form') {
-    const { id, title, header, sub_header, description, icon_class, cover_photo_url, max_team_size, members_required, fields_json, eligibility_json, condition_json, accepting_condition_json, reference_number_json, judging_criteria_json, judging_rubric_sets_json, judges_sheet_layout_json, judges_combined_layout_json, judges_sort_json, is_enabled, accepting_new, lock_when_closed, archived, sort_order } = payload;
+    const { id, title, header, sub_header, description, icon_class, cover_photo_url, max_team_size, members_required, fields_json, eligibility_json, condition_json, accepting_condition_json, reference_number_json, judging_criteria_json, judging_rubric_sets_json, judges_sheet_layout_json, judges_combined_layout_json, judges_sort_json, judges_link_fields_json, is_enabled, accepting_new, lock_when_closed, archived, sort_order } = payload;
 
     if (id) {
       // Archived is the one thing an archived form can still change — every
@@ -1462,7 +1462,7 @@ export async function POST(req) {
       // layout isn't really editing the form, it's a print preference —
       // archived forms stay fully printable by design, so a call that only
       // ever touches these two fields skips the block too.
-      const onlyLayoutChange = (judges_sheet_layout_json !== undefined || judges_combined_layout_json !== undefined || judges_sort_json !== undefined)
+      const onlyLayoutChange = (judges_sheet_layout_json !== undefined || judges_combined_layout_json !== undefined || judges_sort_json !== undefined || judges_link_fields_json !== undefined)
         && title === undefined && header === undefined && sub_header === undefined && description === undefined
         && icon_class === undefined && cover_photo_url === undefined && max_team_size === undefined
         && members_required === undefined && fields_json === undefined && eligibility_json === undefined
@@ -1509,6 +1509,9 @@ export async function POST(req) {
       // Judges' default sort order (and whether it's locked) — set from the
       // roster's "Judges Sort" panel, consumed by the judge's own page.
       if (judges_sort_json !== undefined) rowData.judges_sort_json = judges_sort_json || '{}';
+      // Which non-score info fields show on the judge's own page — set from
+      // the roster's "Judge Link Columns" panel.
+      if (judges_link_fields_json !== undefined) rowData.judges_link_fields_json = judges_link_fields_json || '[]';
       if (is_enabled !== undefined) rowData.is_enabled = !!is_enabled;
       if (accepting_new !== undefined) rowData.accepting_new = !!accepting_new;
       if (lock_when_closed !== undefined) rowData.lock_when_closed = !!lock_when_closed;
