@@ -30382,14 +30382,33 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // changes — group_form_judge_scores rows are keyed by it, so renaming a
   // criterion or reordering the list later can't orphan scores already
   // saved against it.
+  // Max points per criterion is a dropdown of the point scales actually
+  // used in judging rubrics (5/10/15/20/25), not a free-typed number — a
+  // "Custom…" option reveals a plain number input for anything else, so a
+  // non-standard max (or whatever an already-saved criterion was set to
+  // before this dropdown existed) is never silently clamped or lost.
+  const GF_CRITERION_MAX_PRESETS = [5, 10, 15, 20, 25];
   function _gfCriterionRowHtml(crit) {
+    const max = crit.max || 10;
+    const isPreset = GF_CRITERION_MAX_PRESETS.includes(Number(max));
     return `<div class="gf-criterion-row flex items-center gap-2 bg-white p-2.5 rounded-xl border border-slate-200">
       <input type="hidden" class="gf-criterion-key" value="${_escHtml(crit.key)}">
       <input type="text" value="${_escHtml(crit.label || '')}" placeholder="e.g. Innovation" class="gf-criterion-label flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
       <span class="text-[10px] font-black text-slate-400 uppercase shrink-0">out of</span>
-      <input type="number" min="1" value="${crit.max || 10}" class="gf-criterion-max w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+      <select class="gf-criterion-max px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" onchange="_gfOnCriterionMaxChange(this)">
+        ${GF_CRITERION_MAX_PRESETS.map(p => `<option value="${p}" ${isPreset && Number(max) === p ? 'selected' : ''}>${p}</option>`).join('')}
+        <option value="custom" ${isPreset ? '' : 'selected'}>Custom…</option>
+      </select>
+      <input type="number" min="1" value="${isPreset ? '' : _escHtml(max)}" placeholder="Max" class="gf-criterion-max-custom w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs ${isPreset ? 'hidden' : ''}">
       <button type="button" onclick="this.closest('.gf-criterion-row').remove()" class="w-7 h-7 flex items-center justify-center rounded-lg text-red-400 hover:bg-red-50 shrink-0"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
     </div>`;
+  }
+  function _gfOnCriterionMaxChange(sel) {
+    const row = sel.closest('.gf-criterion-row');
+    const customInput = row.querySelector('.gf-criterion-max-custom');
+    const isCustom = sel.value === 'custom';
+    customInput.classList.toggle('hidden', !isCustom);
+    if (isCustom) customInput.focus();
   }
   function gfAddCriterionRow(crit) {
     const list = document.getElementById('gfCriteriaList');
@@ -30402,11 +30421,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function gfReadCriteriaConfig() {
     const rows = Array.from(document.querySelectorAll('#gfCriteriaList .gf-criterion-row'));
     const criteria = rows
-      .map(row => ({
-        key: row.querySelector('.gf-criterion-key').value,
-        label: row.querySelector('.gf-criterion-label').value.trim(),
-        max: Math.max(1, Number(row.querySelector('.gf-criterion-max').value) || 10),
-      }))
+      .map(row => {
+        const sel = row.querySelector('.gf-criterion-max');
+        const maxRaw = sel.value === 'custom' ? row.querySelector('.gf-criterion-max-custom').value : sel.value;
+        return {
+          key: row.querySelector('.gf-criterion-key').value,
+          label: row.querySelector('.gf-criterion-label').value.trim(),
+          max: Math.max(1, Number(maxRaw) || 10),
+        };
+      })
       .filter(c => c.label);
     return JSON.stringify(criteria);
   }
