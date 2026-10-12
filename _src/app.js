@@ -31182,9 +31182,61 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!_gfJudgesSheetConfigByForm[id]) {
       const cols = _gfJudgesSheetColumns(form);
       const defaults = ['reference_number', 'project_title', 'category', 'group'].filter(k => cols.some(c => c.key === k));
-      _gfJudgesSheetConfigByForm[id] = { dataCols: defaults, customCols: [], blankCols: [{ label: 'Score', max: null }, { label: 'Remarks', max: null }], judgeNameLine: true, judgeId: null, customTitle: '', showFilterSubheader: false };
+      _gfJudgesSheetConfigByForm[id] = { dataCols: defaults, customCols: [], blankCols: [{ label: 'Score', max: null }, { label: 'Remarks', max: null }], judgeNameLine: true, judgeId: null, customTitle: '', showFilterSubheader: false, filter: { house: [], group: [], category: [] } };
     }
     return _gfJudgesSheetConfigByForm[id];
+  }
+  // A compound "Judge + Category + Group + House" filter, shared by both
+  // the Judges Sheet and the Combined Result modal (`storeName` picks
+  // which config store a toggle writes back to) — stacks ON TOP of
+  // whatever the roster's own Filters panel already narrowed `teams` to,
+  // so printing "Judge Karim, Category 1, Group A" means exactly that
+  // combination, not a replacement for the roster filter. Chip options are
+  // the DISTINCT values actually present in the teams passed into the
+  // modal, same convention as the roster's own Filters panel
+  // (_gfRosterFilterDims).
+  function _gfJudgesFilterStore(storeName) { return storeName === 'combined' ? _gfJudgesCombinedConfigByForm : _gfJudgesSheetConfigByForm; }
+  function _gfJudgesFilterHostId(storeName) { return storeName === 'combined' ? 'gfJudgesCombinedFilterDims' : 'gfJudgesSheetFilterDims'; }
+  function _gfJudgesFilterOverlayId(storeName) { return storeName === 'combined' ? 'gfJudgesCombinedOverlay' : 'gfJudgesSheetOverlay'; }
+  function _gfRenderJudgesFilterDims(storeName, form, teams, cfg) {
+    const host = document.getElementById(_gfJudgesFilterHostId(storeName));
+    if (!host) return;
+    if (!cfg.filter) cfg.filter = { house: [], group: [], category: [] };
+    const formId = form?.id || 0;
+    const distinct = fn => [...new Set((teams || []).map(fn).filter(Boolean))].sort();
+    const dims = [
+      { key: 'house', label: 'House', values: distinct(_gfTeamHouse) },
+      { key: 'group', label: 'Group', values: distinct(_gfTeamGroup) },
+      { key: 'category', label: 'Category', values: distinct(t => _gfAnswerByName(t, form, /^category$/i)) },
+    ].filter(d => d.values.length);
+    if (!dims.length) { host.innerHTML = '<p class="text-[11px] text-slate-400 font-bold italic">No House/Group/Category values found among these teams.</p>'; return; }
+    host.innerHTML = dims.map(d => `
+      <div>
+        <div class="text-[10px] font-black text-slate-400 uppercase mb-1">${_escHtml(d.label)}</div>
+        <div class="flex flex-wrap gap-1.5">
+          ${d.values.map(v => `<button type="button" onclick='_gfToggleJudgesFilterValue(${JSON.stringify(storeName)}, ${formId}, ${JSON.stringify(d.key)}, ${JSON.stringify(v)})' class="px-2 py-0.5 rounded-full font-black text-[10px] uppercase ${(cfg.filter[d.key] || []).includes(v) ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'}">${_escHtml(v)}</button>`).join('')}
+        </div>
+      </div>`).join('');
+  }
+  function _gfToggleJudgesFilterValue(storeName, formId, dim, value) {
+    const cfg = _gfJudgesFilterStore(storeName)[formId];
+    if (!cfg) return;
+    if (!cfg.filter) cfg.filter = { house: [], group: [], category: [] };
+    const list = cfg.filter[dim] || (cfg.filter[dim] = []);
+    const i = list.indexOf(value);
+    if (i >= 0) list.splice(i, 1); else list.push(value);
+    const overlay = document.getElementById(_gfJudgesFilterOverlayId(storeName));
+    _gfRenderJudgesFilterDims(storeName, overlay?._gfForm, overlay?._gfTeams, cfg);
+  }
+  function _gfApplyJudgesFilter(teams, cfg, form) {
+    const f = cfg.filter;
+    if (!f) return teams;
+    return teams.filter(t => {
+      if (f.house && f.house.length && !f.house.includes(_gfTeamHouse(t))) return false;
+      if (f.group && f.group.length && !f.group.includes(_gfTeamGroup(t))) return false;
+      if (f.category && f.category.length && !f.category.includes(_gfAnswerByName(t, form, /^category$/i))) return false;
+      return true;
+    });
   }
   function _gfOpenJudgesSheetModal(teams, form, filterSummary) {
     if (!teams.length) { showToast('No teams to print yet', 'error'); return; }
@@ -31205,6 +31257,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <option value="">(blank — hand-fill)</option>
           </select>
           <p class="text-[10px] text-slate-400 font-bold mt-1">Pick a real judge to fill the score columns from their actual saved input instead of printing them blank — adds Total and Position too, ranked within whatever's currently filtered/sorted on the roster.</p>
+        </div>
+        <div class="mb-4">
+          <label class="text-[10px] font-black text-slate-400 uppercase">Filter teams in this print</label>
+          <p class="text-[10px] text-slate-400 font-bold mt-0.5 mb-2">Combines with the Judge above — e.g. Judge Karim + Category 1 + Group A prints only Karim's scores for Group A's Category 1 teams. On top of whatever's already filtered on the roster, never instead of it.</p>
+          <div id="gfJudgesSheetFilterDims" class="flex flex-col gap-2"></div>
         </div>
         <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Data columns</span>
         <div id="gfJudgesSheetDataCols" class="flex flex-wrap gap-2 mt-2 mb-4"></div>
@@ -31242,6 +31299,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     overlay._gfFilterSummary = filterSummary;
     const hint = document.getElementById('gfJudgesSheetTokenHint');
     if (hint) hint.textContent = cols.map(c => `{${c.key}}`).join(' ');
+    _gfRenderJudgesFilterDims('sheet', form, teams, cfg);
     _gfRenderJudgesSheetDataCols(form, cols, cfg);
     _gfRenderJudgesSheetCustomCols(form, cfg);
     _gfRenderJudgesSheetBlankCols(form, cfg);
@@ -31355,10 +31413,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _gfPrintJudgesSheetNow() {
     const overlay = document.getElementById('gfJudgesSheetOverlay');
     if (!overlay) return;
-    const form = overlay._gfForm, teams = overlay._gfTeams, filterSummary = overlay._gfFilterSummary;
+    const form = overlay._gfForm, filterSummary = overlay._gfFilterSummary;
     const cfg = _gfJudgesSheetConfig(form);
+    const teams = _gfApplyJudgesFilter(overlay._gfTeams, cfg, form);
     const ready = overlay._gfJudgeDataReady || Promise.resolve();
     overlay.remove();
+    if (!teams.length) { showToast('No teams match this filter', 'error'); return; }
     ready.then(() => _gfBuildJudgesSheet(teams, form, cfg, filterSummary));
   }
   // Standard competition ranking (ties share a rank; the next distinct
@@ -31475,7 +31535,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!_gfJudgesCombinedConfigByForm[id]) {
       const cols = _gfJudgesSheetColumns(form);
       const defaults = ['reference_number', 'team_info'].filter(k => cols.some(c => c.key === k));
-      _gfJudgesCombinedConfigByForm[id] = { dataCols: defaults, judgeIds: null, customTitle: '', showFilterSubheader: false };
+      _gfJudgesCombinedConfigByForm[id] = { dataCols: defaults, judgeIds: null, customTitle: '', showFilterSubheader: false, filter: { house: [], group: [], category: [] } };
     }
     return _gfJudgesCombinedConfigByForm[id];
   }
@@ -31492,6 +31552,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div class="bg-white rounded-3xl w-full max-w-lg p-5 shadow-2xl max-h-[85vh] overflow-y-auto">
         <p class="font-black text-slate-800 text-sm mb-1">Judges' Combined Result</p>
         <p class="text-[11px] text-slate-400 font-bold mb-4">Every selected judge's total, side by side, computed live from their saved scores — plus an average and a position.</p>
+        <div class="mb-4">
+          <label class="text-[10px] font-black text-slate-400 uppercase">Filter teams in this print</label>
+          <p class="text-[10px] text-slate-400 font-bold mt-0.5 mb-2">On top of whatever's already filtered on the roster, never instead of it.</p>
+          <div id="gfJudgesCombinedFilterDims" class="flex flex-col gap-2"></div>
+        </div>
         <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Data columns</span>
         <div id="gfJudgesCombinedDataCols" class="flex flex-wrap gap-2 mt-2 mb-4"></div>
         <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Judges to include</span>
@@ -31513,6 +31578,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     overlay._gfTeams = teams;
     overlay._gfForm = form;
     overlay._gfFilterSummary = filterSummary;
+    _gfRenderJudgesFilterDims('combined', form, teams, cfg);
     _gfRenderJudgesCombinedDataCols(form, cols, cfg);
     overlay._gfReady = form ? Promise.all([
       _adminFetch('admin_list_judges', { group_form_id: form.id }),
@@ -31561,10 +31627,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _gfPrintJudgesCombinedNow() {
     const overlay = document.getElementById('gfJudgesCombinedOverlay');
     if (!overlay) return;
-    const form = overlay._gfForm, teams = overlay._gfTeams, filterSummary = overlay._gfFilterSummary;
+    const form = overlay._gfForm, filterSummary = overlay._gfFilterSummary;
     const cfg = _gfJudgesCombinedConfig(form);
+    const teams = _gfApplyJudgesFilter(overlay._gfTeams, cfg, form);
     const ready = overlay._gfReady || Promise.resolve();
     overlay.remove();
+    if (!teams.length) { showToast('No teams match this filter', 'error'); return; }
     ready.then(() => _gfBuildJudgesCombined(teams, form, cfg, filterSummary));
   }
   function _gfBuildJudgesCombined(teams, form, cfg, filterSummary) {
