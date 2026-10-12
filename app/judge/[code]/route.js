@@ -191,10 +191,14 @@ async function loadRosterAndScores(judge) {
     const house = (leader && leader.profile && leader.profile.house) || '';
     const title = answerByName(fields, t.group_data, /project|poster|title/i) || 'Untitled Project';
     const description = capWords(answerByName(fields, t.group_data, /detail|description/i), 20);
+    const category = answerByName(fields, t.group_data, /^category$/i) || '';
+    const group = (t.group_data || {}).group || '';
     return {
       team_id: t.id,
       reference_number: t.reference_number || ('#' + t.id),
       house,
+      category,
+      group,
       title,
       description,
       members: teamMembers.map(m => ({
@@ -278,6 +282,17 @@ function renderPage(judge, data) {
   .edit-lock-btn{border:1.5px solid var(--warn); background:transparent; color:var(--warn); font-weight:800; font-size:.78rem; padding:.4rem .85rem; border-radius:999px; cursor:pointer;}
   .edit-lock-btn.unlocked{border-color:var(--good); background:var(--good); color:#fff;}
   .edit-lock-btn:disabled{opacity:.5; cursor:default;}
+
+  .filter-sort-row{display:flex; align-items:center; gap:.75rem; margin-top:.75rem; flex-wrap:wrap;}
+  .filter-chips{display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; flex:1;}
+  .filter-dim{display:flex; align-items:center; gap:.3rem; flex-wrap:wrap;}
+  .filter-dim-label{font-size:.68rem; font-weight:800; color:var(--ink-muted); text-transform:uppercase; letter-spacing:.04em; margin-right:.1rem;}
+  .filter-chip{border:1px solid var(--border); background:var(--surface); color:var(--ink-muted); font-weight:700; font-size:.72rem; padding:.25rem .65rem; border-radius:999px; cursor:pointer;}
+  .filter-chip.active{background:var(--ink); color:var(--bg); border-color:var(--ink);}
+  .sort-row{display:flex; align-items:center; gap:.4rem;}
+  .sort-select{border:1px solid var(--border); background:var(--surface); color:var(--ink); font-weight:700; font-size:.76rem; padding:.35rem .6rem; border-radius:10px;}
+  .sort-dir-btn{border:1px solid var(--border); background:var(--surface); color:var(--ink-muted); font-weight:700; font-size:.76rem; padding:.35rem .7rem; border-radius:10px; cursor:pointer;}
+  .print-btn{border:1.5px solid var(--accent); background:transparent; color:var(--accent-ink); font-weight:800; font-size:.78rem; padding:.4rem .85rem; border-radius:999px; cursor:pointer; margin-left:auto;}
   .save-all-btn{border:none; background:var(--good); color:#fff; font-weight:700; font-size:.78rem; padding:.45rem 1rem; border-radius:999px; cursor:pointer; margin-left:auto;}
   .save-all-btn:disabled{opacity:.5; cursor:default;}
   .save-all-btn.hidden{display:none;}
@@ -316,6 +331,14 @@ function renderPage(judge, data) {
       <button type="button" id="view-sheet-btn" class="view-btn active">Sheet (Excel-style)</button>
       <button type="button" id="save-all-btn" class="save-all-btn hidden"${data.archived ? ' disabled' : ''}>Save All</button>
       <span id="save-all-status" class="save-all-status"></span>
+    </div>
+    <div class="filter-sort-row">
+      <div id="filter-chips" class="filter-chips"></div>
+      <div class="sort-row">
+        <select id="sort-field-select" class="sort-select"></select>
+        <button type="button" id="sort-dir-btn" class="sort-dir-btn" title="Toggle ascending/descending">↑ Asc</button>
+      </div>
+      <button type="button" id="print-sheet-btn" class="print-btn">🖨 Print</button>
     </div>` : ''}
   </div>
   <div id="teams-host" class="hidden">${data.teams.length ? '' : '<div class="empty">No teams to judge yet.</div>'}</div>
@@ -328,9 +351,71 @@ function renderPage(judge, data) {
   var TEAMS = ${teamsForClient};
   var CRITERIA = ${criteriaForClient};
   var ARCHIVED = ${data.archived ? 'true' : 'false'};
+  var JUDGE_NAME = ${JSON.stringify(judge.name)};
+  var FORM_TITLE = ${JSON.stringify(data.formTitle)};
   var host = document.getElementById('teams-host');
 
   function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];}); }
+
+  var TEAMS_BY_ID = {};
+  TEAMS.forEach(function(t){ TEAMS_BY_ID[t.team_id] = t; });
+
+  // ── Filter + sort over the already-loaded TEAMS (client-side only — no
+  // refetch) ───────────────────────────────────────────────────────────────
+  var filterState = { house: [], category: [], group: [] };
+  var sortField = 'reference_number', sortDir = 'asc';
+  var SORT_FIELDS = {
+    reference_number: { label: 'Reference No.', get: function(t){ return t.reference_number || ''; }, type: 'text' },
+    title: { label: 'Project Title', get: function(t){ return t.title || ''; }, type: 'text' },
+    house: { label: 'House', get: function(t){ return t.house || ''; }, type: 'text' },
+    category: { label: 'Category', get: function(t){ return t.category || ''; }, type: 'text' },
+    group: { label: 'Group', get: function(t){ return t.group || ''; }, type: 'text' },
+    total: { label: 'My Total', get: function(t){ var v = teamTotal(t); return v == null ? -Infinity : v; }, type: 'number' },
+  };
+  function distinctValues(key){
+    var seen = {}, out = [];
+    TEAMS.forEach(function(t){ var v = t[key]; if (v && !seen[v]) { seen[v] = true; out.push(v); } });
+    return out.sort();
+  }
+  function teamMatchesFilter(t){
+    if (filterState.house.length && filterState.house.indexOf(t.house) === -1) return false;
+    if (filterState.category.length && filterState.category.indexOf(t.category) === -1) return false;
+    if (filterState.group.length && filterState.group.indexOf(t.group) === -1) return false;
+    return true;
+  }
+  function activeFilterSummary(){
+    var parts = [];
+    [['house','House'],['category','Category'],['group','Group']].forEach(function(p){
+      if (filterState[p[0]].length) parts.push(p[1] + ': ' + filterState[p[0]].join('/'));
+    });
+    return parts.join(' · ');
+  }
+  function visibleTeams(){
+    var list = TEAMS.filter(teamMatchesFilter);
+    var def = SORT_FIELDS[sortField] || SORT_FIELDS.reference_number;
+    list.sort(function(a, b){
+      var va = def.get(a), vb = def.get(b), cmp;
+      if (def.type === 'number') cmp = (Number(va) || 0) - (Number(vb) || 0);
+      else cmp = String(va).localeCompare(String(vb));
+      return sortDir === 'desc' ? -cmp : cmp;
+    });
+    return list;
+  }
+  // Reads whatever's currently typed into EVERY score input on the page
+  // (both views, since both can exist in the DOM at once) back into
+  // TEAMS[].scores — called before any filter/sort/rebuild so a judge's
+  // not-yet-saved typing is never lost just because the view re-rendered
+  // around it.
+  function syncScoresFromDOM(){
+    document.querySelectorAll('input.score-input, input.sheet-input').forEach(function(inp){
+      var team = TEAMS_BY_ID[Number(inp.getAttribute('data-team'))];
+      if (!team) return;
+      var key = inp.getAttribute('data-crit');
+      if (inp.value === '') { delete team.scores[key]; return; }
+      var v = Number(inp.value);
+      if (!isNaN(v)) team.scores[key] = v;
+    });
+  }
 
   function teamTotal(team){
     var sum = 0, any = false;
@@ -380,7 +465,7 @@ function renderPage(judge, data) {
     var fieldsHtml = CRITERIA.map(function(c){
       var existing = team.scores[c.key];
       return '<div class="score-field"><label>' + esc(c.label) + ' (out of ' + esc(c.max) + ')</label>' +
-        '<input type="number" class="score-input" min="0" max="' + esc(c.max) + '" step="1" data-crit="' + esc(c.key) + '" value="' + (existing != null ? esc(existing) : '') + '" readonly' + (ARCHIVED ? ' disabled' : '') + '></div>';
+        '<input type="number" class="score-input" min="0" max="' + esc(c.max) + '" step="1" data-team="' + team.team_id + '" data-crit="' + esc(c.key) + '" value="' + (existing != null ? esc(existing) : '') + '" readonly' + (ARCHIVED ? ' disabled' : '') + '></div>';
     }).join('');
     card.innerHTML =
       '<div class="team-top"><span class="team-sl">#' + (idx + 1) + '</span><span class="team-ref">' + esc(team.reference_number) + '</span>' +
@@ -422,7 +507,11 @@ function renderPage(judge, data) {
     return card;
   }
 
-  TEAMS.forEach(function(team, idx){ host.appendChild(renderTeam(team, idx)); });
+  function rebuildCards(list){
+    host.innerHTML = '';
+    if (!list.length) { host.innerHTML = '<div class="empty">No teams match this filter.</div>'; return; }
+    list.forEach(function(team, idx){ host.appendChild(renderTeam(team, idx)); });
+  }
 
   // ── Sheet (Excel-style) view ─────────────────────────────────────────────
   // Same data, laid out as one row per team / one column per criterion so
@@ -454,12 +543,14 @@ function renderPage(judge, data) {
   }
   if (editLockBtn) editLockBtn.addEventListener('click', function(){ editEnabled = !editEnabled; applyEditLock(); });
 
-  function buildSheet(){
-    if (!sheetHost || sheetHost.childNodes.length) return; // built once, lazily
+  function rebuildSheet(list){
+    if (!sheetHost) return;
+    sheetHost.innerHTML = '';
+    if (!list.length) { sheetHost.innerHTML = '<div class="empty">No teams match this filter.</div>'; return; }
     var wrap = document.createElement('div');
     wrap.className = 'sheet-wrap';
     var theadCells = '<th>SL</th><th>Team</th>' + CRITERIA.map(function(c){ return '<th>' + esc(c.label) + '<br>/' + esc(c.max) + '</th>'; }).join('') + '<th>Total</th><th></th>';
-    var rows = TEAMS.map(function(team, idx){
+    var rows = list.map(function(team, idx){
       var membersLine = team.members.map(function(m){ return m.name; }).join(', ');
       var cells = CRITERIA.map(function(c, colIdx){
         var existing = team.scores[c.key];
@@ -526,7 +617,6 @@ function renderPage(judge, data) {
 
   function setView(view){
     var showSheet = view === 'sheet';
-    if (showSheet) buildSheet();
     sheetHost.classList.toggle('hidden', !showSheet);
     host.classList.toggle('hidden', showSheet);
     sheetBtn.classList.toggle('active', showSheet);
@@ -558,12 +648,108 @@ function renderPage(judge, data) {
     saveAllBtn.disabled = !!ARCHIVED;
   });
 
+  // ── Filter chips, sort controls, rerender, print ────────────────────────
+  var filterChipsHost = document.getElementById('filter-chips');
+  var sortFieldSelect = document.getElementById('sort-field-select');
+  var sortDirBtn = document.getElementById('sort-dir-btn');
+  var printBtn = document.getElementById('print-sheet-btn');
+
+  function renderFilterChips(){
+    if (!filterChipsHost) return;
+    var dims = [
+      { key: 'house', label: 'House', values: distinctValues('house') },
+      { key: 'category', label: 'Category', values: distinctValues('category') },
+      { key: 'group', label: 'Group', values: distinctValues('group') },
+    ].filter(function(d){ return d.values.length; });
+    if (!dims.length) { filterChipsHost.innerHTML = ''; return; }
+    filterChipsHost.innerHTML = dims.map(function(d){
+      return '<div class="filter-dim"><span class="filter-dim-label">' + esc(d.label) + '</span>' +
+        d.values.map(function(v){
+          var active = filterState[d.key].indexOf(v) !== -1;
+          return '<button type="button" class="filter-chip' + (active ? ' active' : '') + '" data-dim="' + d.key + '" data-val="' + esc(v) + '">' + esc(v) + '</button>';
+        }).join('') + '</div>';
+    }).join('');
+    filterChipsHost.querySelectorAll('.filter-chip').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var dim = btn.getAttribute('data-dim'), val = btn.getAttribute('data-val');
+        var list = filterState[dim], i = list.indexOf(val);
+        if (i >= 0) list.splice(i, 1); else list.push(val);
+        syncScoresFromDOM();
+        rerender();
+      });
+    });
+  }
+  if (sortFieldSelect) {
+    sortFieldSelect.innerHTML = Object.keys(SORT_FIELDS).map(function(k){
+      return '<option value="' + k + '"' + (k === sortField ? ' selected' : '') + '>Sort: ' + esc(SORT_FIELDS[k].label) + '</option>';
+    }).join('');
+    sortFieldSelect.addEventListener('change', function(){
+      sortField = sortFieldSelect.value;
+      syncScoresFromDOM();
+      rerender();
+    });
+  }
+  if (sortDirBtn) sortDirBtn.addEventListener('click', function(){
+    sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+    sortDirBtn.textContent = sortDir === 'asc' ? '↑ Asc' : '↓ Desc';
+    syncScoresFromDOM();
+    rerender();
+  });
+
+  function rerender(){
+    var list = visibleTeams();
+    renderFilterChips();
+    rebuildCards(list);
+    rebuildSheet(list);
+    applyEditLock();
+  }
+
+  // Prints exactly the currently filtered + sorted set, in that same
+  // order, with THIS judge's own scores and a Total column — the judge's
+  // name goes at the very top of the printed page, not just in the page
+  // header, since this is the one copy that leaves the screen.
+  function printSheet(){
+    syncScoresFromDOM();
+    var list = visibleTeams();
+    if (!list.length) { alert('No teams match the current filter.'); return; }
+    var win = window.open('', '_blank');
+    if (!win) { alert('Please allow popups to print.'); return; }
+    var headCells = '<th>SL</th><th>Ref</th><th>Project</th>' +
+      CRITERIA.map(function(c){ return '<th>' + esc(c.label) + '<br>/' + esc(c.max) + '</th>'; }).join('') + '<th>Total</th>';
+    var rows = list.map(function(team, idx){
+      var cells = CRITERIA.map(function(c){
+        var v = team.scores[c.key];
+        return '<td>' + (v != null ? esc(v) : '—') + '</td>';
+      }).join('');
+      var total = teamTotal(team);
+      return '<tr><td>' + (idx + 1) + '</td><td>' + esc(team.reference_number) + '</td><td>' + esc(team.title) + '</td>' + cells + '<td><b>' + (total == null ? '—' : total) + '</b></td></tr>';
+    }).join('');
+    var filterLine = activeFilterSummary();
+    var html = '<!doctype html><html><head><meta charset="utf-8"><title>' + esc(JUDGE_NAME) + ' — Score Sheet</title><style>' +
+      '@page{size:A4 landscape;margin:12mm;} body{font-family:Arial,Helvetica,sans-serif;margin:0;color:#111827;}' +
+      'h1{font-size:20px;margin:0 0 2px;} .sub{font-size:11px;color:#4b5563;margin:0 0 2px;} .meta{font-size:10px;color:#6b7280;margin:0 0 12px;}' +
+      'table{width:100%;border-collapse:collapse;font-size:11pt;} th,td{border:1px solid #94a3b8;padding:6px 8px;text-align:left;vertical-align:middle;}' +
+      'th{background:#1e293b;color:#fff;text-transform:uppercase;font-size:9pt;letter-spacing:.03em;} th:first-child,td:first-child{width:28px;text-align:center;}' +
+      'tr,td{page-break-inside:avoid;}</style></head><body>' +
+      '<h1>' + esc(JUDGE_NAME) + '</h1>' +
+      '<p class="sub">' + esc(FORM_TITLE) + ' — Judging Score Sheet</p>' +
+      '<p class="meta">Printed ' + new Date().toLocaleString() + (filterLine ? ' · Filter: ' + esc(filterLine) : '') + ' · Sort: ' + esc(SORT_FIELDS[sortField].label) + ' (' + (sortDir === 'asc' ? 'A→Z' : 'Z→A') + ')</p>' +
+      '<table><thead><tr>' + headCells + '</tr></thead><tbody>' + rows + '</tbody></table>' +
+      '</body></html>';
+    win.document.open(); win.document.write(html); win.document.close();
+    setTimeout(function(){ try { win.focus(); win.print(); } catch(e){} }, 300);
+  }
+  if (printBtn) printBtn.addEventListener('click', printSheet);
+
   // Sheet (Excel-style) is the default a judge lands on — faster for
   // scoring many teams in one sitting than tapping through cards one at a
   // time. Cards stays one click away for whoever still wants it on a
   // phone. Guarded: the toggle/view elements only exist when there's at
   // least one team to show.
-  if (TEAMS.length && sheetBtn) setView('sheet');
+  if (TEAMS.length) {
+    rerender();
+    if (sheetBtn) setView('sheet');
+  }
 })();
 </script>
 </body>
