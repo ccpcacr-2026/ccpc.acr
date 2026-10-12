@@ -357,7 +357,7 @@ const RESERVED = [
   // Judges (digital scoring) manager panel — toolbar button plus every
   // row's inline onclick/onchange in generated markup.
   'toggleGroupFormJudgesPanel','gfCreateJudge','gfRenameJudge','gfToggleJudgeEnabled',
-  'gfShowJudgeLinkQr','gfRegenerateJudgeCode','gfDeleteJudge',
+  'gfShowJudgeLinkQr','gfRegenerateJudgeCode','gfDeleteJudge','gfCopyAllJudgeLinks',
   '_gfOnJudgeScopeDimensionChange','_gfSaveJudgeScope','_gfToggleJudgeScopeValue',
   // Judges Sheet's new "Judge" live-fill dropdown, plus the whole separate
   // Judges' Combined Result sheet (its own modal/column-picker/judge-picker,

@@ -29860,9 +29860,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button onclick="saveGroupFormReviewerRules()" class="mt-3 px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Reviewer Rules</button>
         </div>
         <div id="gfJudgesPanel" class="hidden mb-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
-          <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center justify-between mb-2 gap-2 flex-wrap">
             <span class="text-[10px] font-black text-slate-400 uppercase">Judges</span>
-            <button onclick="gfCreateJudge()" class="px-3 py-1.5 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase">+ Add Judge</button>
+            <div class="flex items-center gap-2">
+              <button onclick="gfCopyAllJudgeLinks()" class="px-3 py-1.5 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100 flex items-center gap-1" title="Copies every judge's name and link, one per line, ready to paste into a message"><i data-lucide="copy" class="h-3 w-3"></i>Copy All Links</button>
+              <button onclick="gfCreateJudge()" class="px-3 py-1.5 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase">+ Add Judge</button>
+            </div>
           </div>
           <p class="text-[11px] text-slate-400 font-bold mb-3">Each judge gets their own private link — no login needed. They open it on their own phone, see the roster, and type scores straight in. Share the link via the QR/Copy button; nothing here needs a Save button, every change here takes effect immediately.</p>
           <div id="gfJudgesList" class="flex flex-col gap-2"></div>
@@ -31971,6 +31974,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // link) — a sibling rather than a reuse, since that one is hardcoded to
   // the student portal's own `?gf=` URL shape; this one points at a judge's
   // access_code link on THIS app instead.
+  // One click, every judge's name + link, ready to paste into a WhatsApp
+  // message or email rather than opening each judge's own QR modal one at
+  // a time just to grab the "Copy" button inside it.
+  function gfCopyAllJudgeLinks() {
+    if (!_gfJudges.length) { showToast('No judges yet', 'error'); return; }
+    const text = _gfJudges.map(j => `${j.name}: ${STUDENT_PORTAL_ORIGIN_FOR_JUDGE}/judge/${j.access_code}`).join('\n');
+    navigator.clipboard.writeText(text).then(() => {
+      showToast(`Copied ${_gfJudges.length} judge link${_gfJudges.length === 1 ? '' : 's'}`);
+    }).catch(() => showToast('Could not copy — try again', 'error'));
+  }
   function gfShowJudgeLinkQr(judgeId) {
     const j = _gfJudges.find(x => x.id === judgeId);
     if (!j) return;
