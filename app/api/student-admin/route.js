@@ -740,7 +740,7 @@ const ADMIN_TAB_ACTIONS = {
   // exact same student.group_forms/group_form_teams/… tables directly via
   // sb(), same cross-app-shared-database pattern as get_tabs/save_tab above
   // for portal_tabs.
-  group_forms: new Set(['get_group_forms', 'save_group_form', 'delete_group_form', 'get_group_form_roster', 'admin_create_team', 'set_team_lock', 'admin_disband_team', 'admin_delete_team', 'admin_delete_all_disbanded', 'get_class_house_options', 'get_student_data_headers', 'upload_group_form_cover', 'get_group_form_reviewer_rules', 'save_group_form_reviewer_rules', 'get_field_values', 'admin_update_team_data', 'admin_add_member_direct', 'admin_force_accept_invite', 'admin_cancel_invite', 'admin_remove_member', 'get_team_edit_history', 'admin_list_judges', 'admin_create_judge', 'admin_update_judge', 'admin_regenerate_judge_code', 'admin_delete_judge', 'admin_get_judge_scores']),
+  group_forms: new Set(['get_group_forms', 'save_group_form', 'delete_group_form', 'get_group_form_roster', 'admin_create_team', 'set_team_lock', 'admin_disband_team', 'admin_delete_team', 'admin_delete_all_disbanded', 'get_class_house_options', 'get_student_data_headers', 'upload_group_form_cover', 'get_group_form_reviewer_rules', 'save_group_form_reviewer_rules', 'get_field_values', 'admin_update_team_data', 'admin_add_member_direct', 'admin_force_accept_invite', 'admin_cancel_invite', 'admin_remove_member', 'get_team_edit_history', 'admin_list_judges', 'admin_create_judge', 'admin_update_judge', 'admin_regenerate_judge_code', 'admin_delete_judge', 'admin_get_judge_scores', 'admin_save_judge_score']),
   data: new Set(['get_tabs', 'get_tab_data', 'get_tab_submission_status', 'get_staff_list', 'get_tab_data_access', 'set_tab_data_access', 'get_staff_directory', 'get_class_sections', 'get_tab_class_access', 'set_tab_class_access', 'get_field_categories', 'get_tab_category_link', 'set_tab_category_link']),
   // Class Teacher assignment (get_class_teacher_assignments/save_teacher_
   // class_assignment) lives here too, not its own tab key — it's part of
@@ -1681,6 +1681,46 @@ export async function POST(req) {
     const rows = await sb(`group_form_judge_scores?group_form_id=eq.${encodeURIComponent(group_form_id)}`);
     if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
     return NextResponse.json({ result: 'success', scores: Array.isArray(rows) ? rows : [] });
+  }
+  // ── Admin correcting a judge's own score for one team ───────────────────
+  // Same validation as the judge's own save_score in app/judge/[code]/
+  // route.js (every score within [0, that criterion's max]), just callable
+  // by an admin directly instead of needing the judge to reopen their own
+  // link — e.g. fixing a typo a judge reported, or entering a score for a
+  // judge who scored on paper. Deliberately does NOT check the judge's own
+  // scope_dimension/scope_value — an admin correcting a number isn't the
+  // same thing as a judge browsing their own assigned slice, and the admin
+  // already passed the tab-gate above to reach this action at all.
+  if (action === 'admin_save_judge_score') {
+    const { judge_id, team_id, scores } = payload;
+    if (!judge_id || !team_id || !scores || typeof scores !== 'object' || Array.isArray(scores)) {
+      return NextResponse.json({ result: 'error', message: 'judge_id, team_id and scores required.' });
+    }
+    const judgeRows = await sb(`group_form_judges?id=eq.${encodeURIComponent(judge_id)}&select=group_form_id`);
+    const judge = Array.isArray(judgeRows) && judgeRows[0];
+    if (!judge) return NextResponse.json({ result: 'error', message: 'Judge not found.' });
+    if (await groupFormArchived(judge.group_form_id)) return NextResponse.json({ result: 'error', message: ARCHIVED_READONLY_MESSAGE });
+    const teamRows = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}&group_form_id=eq.${encodeURIComponent(judge.group_form_id)}&select=id`);
+    if (!Array.isArray(teamRows) || !teamRows.length) return NextResponse.json({ result: 'error', message: 'Invalid team.' });
+    const formRows = await sb(`group_forms?id=eq.${encodeURIComponent(judge.group_form_id)}&select=judging_criteria_json`);
+    const form = Array.isArray(formRows) && formRows[0];
+    let criteria = []; try { criteria = JSON.parse(form?.judging_criteria_json || '[]') || []; } catch (e) {}
+    const byKey = {}; criteria.forEach(c => { byKey[c.key] = c; });
+    const sanitized = {};
+    for (const key of Object.keys(scores)) {
+      const c = byKey[key];
+      if (!c) return NextResponse.json({ result: 'error', message: 'Unknown criterion.' });
+      const v = Number(scores[key]);
+      if (!Number.isFinite(v) || v < 0 || v > Number(c.max)) {
+        return NextResponse.json({ result: 'error', message: `"${c.label}" must be between 0 and ${c.max}.` });
+      }
+      sanitized[key] = v;
+    }
+    const r = await sb('group_form_judge_scores?on_conflict=judge_id,team_id', 'POST', {
+      group_form_id: judge.group_form_id, judge_id, team_id, scores_json: JSON.stringify(sanitized), updated_at: new Date().toISOString(),
+    }, { Prefer: 'resolution=merge-duplicates,return=minimal' });
+    if (r?.error) return NextResponse.json({ result: 'error', message: 'Could not save: ' + r.error });
+    return NextResponse.json({ result: 'success' });
   }
 
   // ── Reviewer routing rules (admin-configured, group_forms tab) ───────────

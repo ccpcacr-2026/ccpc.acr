@@ -32029,6 +32029,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <input type="checkbox" ${j.is_enabled ? 'checked' : ''} onchange="gfToggleJudgeEnabled(${j.id}, this.checked)">${j.is_enabled ? 'Active' : 'Disabled'}
           </label>
           <button type="button" onclick="gfShowJudgeLinkQr(${j.id})" class="px-2.5 py-1 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100 flex items-center gap-1"><i data-lucide="qr-code" class="h-3 w-3"></i>Link</button>
+          <button type="button" onclick="gfOpenEditJudgeScoresModal(${j.id})" class="px-2.5 py-1 border border-blue-300 text-blue-700 rounded-full font-black text-[10px] uppercase hover:bg-blue-50" title="Correct this judge's own scores directly — e.g. fixing a typo, or entering scores for a judge who scored on paper">Edit Scores</button>
           <button type="button" onclick="gfRegenerateJudgeCode(${j.id})" class="px-2.5 py-1 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100" title="Invalidates the old link and makes a new one — use if a link leaked or was sent to the wrong person">New Code</button>
           <button type="button" onclick="gfDeleteJudge(${j.id})" class="px-2.5 py-1 bg-red-500 text-white rounded-full font-black text-[10px] uppercase">Del</button>
         </div>
@@ -32079,6 +32080,103 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (res && res.result === 'success') _gfLoadJudges();
       else showToast((res && res.message) || 'Delete failed', 'error');
     }).catch(() => showToast('Network error', 'error'));
+  }
+  // Lets an admin correct a judge's own saved scores directly from the
+  // admin panel — e.g. fixing a typo the judge reported over the phone, or
+  // entering scores for a judge who filled a paper sheet instead of using
+  // their own link. Pulls the judge's current scores (admin_get_judge_
+  // scores, filtered client-side to this one judge) over the roster's
+  // already-loaded teams and this form's judging_criteria_json — same data
+  // the per-judge live Judges Sheet print already reads, just editable
+  // here instead of print-only, and saved via admin_save_judge_score
+  // (same validation as the judge's own save_score, just reachable by an
+  // admin without needing the judge's access_code at all).
+  function gfOpenEditJudgeScoresModal(judgeId) {
+    const j = _gfJudges.find(x => x.id === judgeId);
+    if (!j || !_gfRosterFormId) return;
+    document.getElementById('gfEditJudgeScoresOverlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'gfEditJudgeScoresOverlay';
+    overlay.className = 'fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4';
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+    overlay.innerHTML = `
+      <div class="bg-white rounded-3xl w-full max-w-4xl p-5 shadow-2xl max-h-[85vh] overflow-y-auto">
+        <div class="flex items-center justify-between mb-1">
+          <p class="font-black text-slate-800 text-sm">Edit Scores — ${_escHtml(j.name)}</p>
+          <button type="button" onclick="document.getElementById('gfEditJudgeScoresOverlay').remove()" class="p-1 text-slate-400 hover:text-slate-600"><i data-lucide="x" class="h-4 w-4"></i></button>
+        </div>
+        <p class="text-[11px] text-slate-400 font-bold mb-4">Corrects this judge's own saved scores directly. Each row saves on its own — no separate "Save All" needed here.</p>
+        <div id="gfEditJudgeScoresBody" class="overflow-x-auto"><p class="text-xs text-slate-400 font-bold">Loading…</p></div>
+      </div>`;
+    document.body.appendChild(overlay);
+    _adminFetch('admin_get_judge_scores', { group_form_id: _gfRosterFormId }).then(sr => {
+      const allScores = (sr && sr.result === 'success') ? sr.scores : [];
+      const scoresByTeam = {};
+      allScores.filter(r => String(r.judge_id) === String(judgeId)).forEach(r => {
+        try { scoresByTeam[r.team_id] = JSON.parse(r.scores_json || '{}') || {}; } catch (e) { scoresByTeam[r.team_id] = {}; }
+      });
+      let criteria = [];
+      try { criteria = JSON.parse(_gfRosterForm?.judging_criteria_json || '[]') || []; } catch (e) {}
+      const teams = (_gfRosterTeams || []).filter(t => t.status !== 'disbanded');
+      _gfRenderEditJudgeScoresTable(judgeId, teams, criteria, scoresByTeam);
+    }).catch(() => {
+      const body = document.getElementById('gfEditJudgeScoresBody');
+      if (body) body.innerHTML = '<p class="text-xs text-red-500 font-bold">Network error</p>';
+    });
+  }
+  function _gfRenderEditJudgeScoresTable(judgeId, teams, criteria, scoresByTeam) {
+    const host = document.getElementById('gfEditJudgeScoresBody');
+    if (!host) return;
+    if (!teams.length) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No teams on this form yet.</p>'; return; }
+    if (!criteria.length) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">This form has no judging criteria set up yet — add some in the Judging Rubric first.</p>'; return; }
+    const rows = teams.map((t, idx) => {
+      const s = scoresByTeam[t.id] || {};
+      const cells = criteria.map(c => `<td class="px-1 py-1"><input type="number" min="0" max="${c.max}" step="1" data-crit="${_escHtml(c.key)}" value="${s[c.key] != null ? _escHtml(s[c.key]) : ''}" class="w-16 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs text-center"></td>`).join('');
+      return `<tr data-team-id="${t.id}">
+        <td class="text-[11px] font-black text-slate-400 text-center px-2 py-1">${idx + 1}</td>
+        <td class="text-xs font-bold text-slate-700 whitespace-nowrap px-2 py-1">${_escHtml(t.reference_number || '#' + t.id)}</td>
+        <td class="text-xs font-bold text-slate-700 px-2 py-1">${_escHtml(_gfProjectTitle(t, _gfRosterForm))}</td>
+        ${cells}
+        <td class="gf-edit-judge-total text-xs font-black text-slate-800 text-center px-2 py-1">—</td>
+        <td class="px-1"><button type="button" onclick="_gfSaveOneJudgeScoreRow(${judgeId}, this)" class="px-2.5 py-1 bg-blue-600 text-white rounded-full font-black text-[10px] uppercase">Save</button></td>
+      </tr>`;
+    }).join('');
+    host.innerHTML = `<table class="w-full text-xs border-collapse">
+      <thead><tr class="text-[10px] text-slate-400 uppercase font-black">
+        <th class="text-center px-2 py-1">SL</th><th class="text-left px-2 py-1">Ref</th><th class="text-left px-2 py-1">Project</th>
+        ${criteria.map(c => `<th class="text-center px-2 py-1">${_escHtml(c.label)}<br>/${c.max}</th>`).join('')}
+        <th class="text-center px-2 py-1">Total</th><th></th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+    host.querySelectorAll('tbody tr').forEach(tr => {
+      const recompute = () => {
+        let sum = 0, any = false;
+        tr.querySelectorAll('input[data-crit]').forEach(inp => { const v = Number(inp.value); if (inp.value !== '' && !isNaN(v)) { sum += v; any = true; } });
+        tr.querySelector('.gf-edit-judge-total').textContent = any ? sum : '—';
+      };
+      tr.querySelectorAll('input[data-crit]').forEach(inp => inp.addEventListener('input', recompute));
+      recompute();
+    });
+  }
+  function _gfSaveOneJudgeScoreRow(judgeId, btn) {
+    const tr = btn.closest('tr');
+    const teamId = Number(tr.dataset.teamId);
+    const scores = {};
+    let bad = false;
+    tr.querySelectorAll('input[data-crit]').forEach(inp => {
+      if (inp.value === '') return;
+      const v = Number(inp.value);
+      if (isNaN(v) || v < 0 || v > Number(inp.max)) bad = true;
+      scores[inp.dataset.crit] = v;
+    });
+    if (bad) { showToast('One or more scores are out of range', 'error'); return; }
+    btn.disabled = true;
+    _adminFetch('admin_save_judge_score', { judge_id: judgeId, team_id: teamId, scores }).then(res => {
+      btn.disabled = false;
+      if (res && res.result === 'success') showToast('Score saved');
+      else showToast((res && res.message) || 'Failed', 'error');
+    }).catch(() => { btn.disabled = false; showToast('Network error', 'error'); });
   }
   // Same QR+copy modal shape as gfShowLinkQr (the student registration
   // link) — a sibling rather than a reuse, since that one is hardcoded to
