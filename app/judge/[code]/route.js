@@ -148,7 +148,7 @@ function scopeLabel(judge) {
 
 async function loadRosterAndScores(judge) {
   const [formRows, teamRows, judgeScoreRows] = await Promise.all([
-    sb(`group_forms?id=eq.${encodeURIComponent(judge.group_form_id)}&select=id,title,fields_json,eligibility_json,judging_criteria_json,archived`),
+    sb(`group_forms?id=eq.${encodeURIComponent(judge.group_form_id)}&select=id,title,header,sub_header,fields_json,eligibility_json,judging_criteria_json,archived`),
     sb(`group_form_teams?group_form_id=eq.${encodeURIComponent(judge.group_form_id)}&status=neq.disbanded&select=id,leader_student_id,group_data,reference_number&order=created_at.asc,id.asc`),
     sb(`group_form_judge_scores?judge_id=eq.${encodeURIComponent(judge.id)}&select=team_id,scores_json`),
   ]);
@@ -209,7 +209,15 @@ async function loadRosterAndScores(judge) {
     };
   });
 
-  return { formTitle: form.title, archived: !!form.archived, criteria, teams: teamInfos, scopeLabel: scopeLabel(judge) };
+  return {
+    formTitle: form.title,
+    formHeader: form.header || form.title,
+    formSubHeader: form.sub_header || '',
+    archived: !!form.archived,
+    criteria,
+    teams: teamInfos,
+    scopeLabel: scopeLabel(judge),
+  };
 }
 
 function renderPage(judge, data) {
@@ -369,6 +377,8 @@ function renderPage(judge, data) {
   var ARCHIVED = ${data.archived ? 'true' : 'false'};
   var JUDGE_NAME = ${JSON.stringify(judge.name)};
   var FORM_TITLE = ${JSON.stringify(data.formTitle)};
+  var FORM_HEADER = ${JSON.stringify(data.formHeader)};
+  var FORM_SUBHEADER = ${JSON.stringify(data.formSubHeader)};
   var host = document.getElementById('teams-host');
 
   function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];}); }
@@ -772,14 +782,22 @@ function renderPage(judge, data) {
       return '<tr><td>' + (idx + 1) + '</td><td>' + esc(team.reference_number) + '</td><td>' + esc(team.title) + '</td>' + cells + '<td><b>' + (total == null ? '—' : total) + '</b></td></tr>';
     }).join('');
     var filterLine = activeFilterSummary();
+    var logoUrl = location.origin + '/logo.jpg';
     var html = '<!doctype html><html><head><meta charset="utf-8"><title>' + esc(JUDGE_NAME) + ' — Score Sheet</title><style>' +
       '@page{size:A4 landscape;margin:12mm;} body{font-family:Arial,Helvetica,sans-serif;margin:0;color:#111827;}' +
-      'h1{font-size:20px;margin:0 0 2px;} .sub{font-size:11px;color:#4b5563;margin:0 0 2px;} .meta{font-size:10px;color:#6b7280;margin:0 0 12px;}' +
+      '.letterhead{display:flex;align-items:center;gap:10px;border-bottom:2px solid #1e293b;padding-bottom:8px;margin-bottom:10px;}' +
+      '.letterhead img{height:42px;width:42px;object-fit:contain;flex-shrink:0;}' +
+      '.inst-name{font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.02em;}' +
+      '.inst-addr{font-size:10px;color:#4b5563;}' +
+      'h1{font-size:17px;margin:4px 0 0;} .sub{font-size:11px;color:#4b5563;margin:2px 0 0;}' +
+      '.judge-row{font-size:12px;margin:6px 0 0;} .meta{font-size:10px;color:#6b7280;margin:3px 0 10px;}' +
       'table{width:100%;border-collapse:collapse;font-size:11pt;} th,td{border:1px solid #94a3b8;padding:6px 8px;text-align:left;vertical-align:middle;}' +
       'th{background:#1e293b;color:#fff;text-transform:uppercase;font-size:9pt;letter-spacing:.03em;} th:first-child,td:first-child{width:28px;text-align:center;}' +
       'tr,td{page-break-inside:avoid;}</style></head><body>' +
-      '<h1>' + esc(JUDGE_NAME) + '</h1>' +
-      '<p class="sub">' + esc(FORM_TITLE) + ' — Judging Score Sheet</p>' +
+      '<div class="letterhead"><img src="' + logoUrl + '" alt=""><div><div class="inst-name">Chattogram Cantonment Public College</div><div class="inst-addr">Bayezid, Chattogram</div></div></div>' +
+      '<h1>' + esc(FORM_HEADER) + '</h1>' +
+      (FORM_SUBHEADER ? '<p class="sub">' + esc(FORM_SUBHEADER) + '</p>' : '') +
+      '<p class="judge-row">Judge: <b>' + esc(JUDGE_NAME) + '</b></p>' +
       '<p class="meta">Printed ' + new Date().toLocaleString() + (filterLine ? ' · Filter: ' + esc(filterLine) : '') + ' · Sort: ' + esc(SORT_FIELDS[sortField].label) + ' (' + (sortDir === 'asc' ? 'A→Z' : 'Z→A') + ')</p>' +
       '<table><thead><tr>' + headCells + '</tr></thead><tbody>' + rows + '</tbody></table>' +
       '</body></html>';
