@@ -283,16 +283,28 @@ function renderPage(judge, data) {
   .edit-lock-btn.unlocked{border-color:var(--good); background:var(--good); color:#fff;}
   .edit-lock-btn:disabled{opacity:.5; cursor:default;}
 
-  .filter-sort-row{display:flex; align-items:center; gap:.75rem; margin-top:.75rem; flex-wrap:wrap;}
-  .filter-chips{display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; flex:1;}
-  .filter-dim{display:flex; align-items:center; gap:.3rem; flex-wrap:wrap;}
-  .filter-dim-label{font-size:.68rem; font-weight:800; color:var(--ink-muted); text-transform:uppercase; letter-spacing:.04em; margin-right:.1rem;}
-  .filter-chip{border:1px solid var(--border); background:var(--surface); color:var(--ink-muted); font-weight:700; font-size:.72rem; padding:.25rem .65rem; border-radius:999px; cursor:pointer;}
-  .filter-chip.active{background:var(--ink); color:var(--bg); border-color:var(--ink);}
-  .sort-row{display:flex; align-items:center; gap:.4rem;}
-  .sort-select{border:1px solid var(--border); background:var(--surface); color:var(--ink); font-weight:700; font-size:.76rem; padding:.35rem .6rem; border-radius:10px;}
-  .sort-dir-btn{border:1px solid var(--border); background:var(--surface); color:var(--ink-muted); font-weight:700; font-size:.76rem; padding:.35rem .7rem; border-radius:10px; cursor:pointer;}
-  .print-btn{border:1.5px solid var(--accent); background:transparent; color:var(--accent-ink); font-weight:800; font-size:.78rem; padding:.4rem .85rem; border-radius:999px; cursor:pointer; margin-left:auto;}
+  .toolbar{display:flex; align-items:center; gap:.5rem; margin-top:.9rem; flex-wrap:wrap;}
+  .toolbar-btn{display:flex; align-items:center; gap:.4rem; border:1.5px solid var(--border); background:var(--surface); color:var(--ink); font-weight:800; font-size:.8rem; padding:.45rem .9rem; border-radius:999px; cursor:pointer;}
+  .toolbar-btn.open{border-color:var(--accent); color:var(--accent-ink);}
+  .toolbar-badge{display:inline-flex; align-items:center; justify-content:center; min-width:1.15rem; height:1.15rem; padding:0 .3rem; border-radius:999px; background:var(--accent); color:#fff; font-size:.68rem; font-weight:800;}
+  .toolbar-badge.hidden{display:none;}
+  .sort-label{font-size:.72rem; font-weight:800; color:var(--ink-muted); text-transform:uppercase; letter-spacing:.03em; margin-left:.3rem;}
+  .sort-select{border:1.5px solid var(--border); background:var(--surface); color:var(--ink); font-weight:700; font-size:.8rem; padding:.42rem .6rem; border-radius:10px;}
+  .sort-dir-btn{border:1.5px solid var(--border); background:var(--surface); color:var(--ink-muted); font-weight:700; font-size:.8rem; padding:.42rem .7rem; border-radius:10px; cursor:pointer;}
+  .print-btn{border:1.5px solid var(--accent); background:transparent; color:var(--accent-ink); font-weight:800; font-size:.8rem; padding:.42rem .9rem; border-radius:999px; cursor:pointer; margin-left:auto;}
+
+  .filter-panel{margin-top:.6rem; padding:.9rem 1rem; border:1.5px solid var(--border); border-radius:14px; background:var(--surface);}
+  .filter-panel.hidden{display:none;}
+  .filter-dim{margin-bottom:.8rem;}
+  .filter-dim:last-of-type{margin-bottom:0;}
+  .filter-dim-label{display:block; font-size:.7rem; font-weight:800; color:var(--ink-muted); text-transform:uppercase; letter-spacing:.05em; margin-bottom:.4rem;}
+  .filter-chip-group{display:flex; flex-wrap:wrap; gap:.45rem;}
+  .filter-chip{border:1.5px solid var(--border); background:var(--bg); color:var(--ink-muted); font-weight:700; font-size:.78rem; padding:.4rem .8rem; border-radius:999px; cursor:pointer;}
+  .filter-chip.active{background:var(--accent); color:#fff; border-color:var(--accent); font-weight:800;}
+  .clear-filters-btn{display:block; border:none; background:none; color:#d8453a; font-weight:800; font-size:.76rem; padding:.6rem 0 0; cursor:pointer;}
+  .clear-filters-btn.hidden{display:none;}
+  .result-count{margin-top:.6rem; font-size:.78rem; font-weight:700; color:var(--ink-muted);}
+  .result-count b{color:var(--ink);}
   .save-all-btn{border:none; background:var(--good); color:#fff; font-weight:700; font-size:.78rem; padding:.45rem 1rem; border-radius:999px; cursor:pointer; margin-left:auto;}
   .save-all-btn:disabled{opacity:.5; cursor:default;}
   .save-all-btn.hidden{display:none;}
@@ -332,14 +344,18 @@ function renderPage(judge, data) {
       <button type="button" id="save-all-btn" class="save-all-btn hidden"${data.archived ? ' disabled' : ''}>Save All</button>
       <span id="save-all-status" class="save-all-status"></span>
     </div>
-    <div class="filter-sort-row">
-      <div id="filter-chips" class="filter-chips"></div>
-      <div class="sort-row">
-        <select id="sort-field-select" class="sort-select"></select>
-        <button type="button" id="sort-dir-btn" class="sort-dir-btn" title="Toggle ascending/descending">↑ Asc</button>
-      </div>
+    <div class="toolbar">
+      <button type="button" id="filter-toggle-btn" class="toolbar-btn">Filter <span id="filter-badge" class="toolbar-badge hidden">0</span></button>
+      <label class="sort-label">Sort</label>
+      <select id="sort-field-select" class="sort-select"></select>
+      <button type="button" id="sort-dir-btn" class="sort-dir-btn" title="Toggle ascending/descending">↑ Asc</button>
       <button type="button" id="print-sheet-btn" class="print-btn">🖨 Print</button>
-    </div>` : ''}
+    </div>
+    <div id="filter-panel" class="filter-panel hidden">
+      <div id="filter-chips" class="filter-chips"></div>
+      <button type="button" id="clear-filters-btn" class="clear-filters-btn hidden">✕ Clear all filters</button>
+    </div>
+    <div id="result-count" class="result-count"></div>` : ''}
   </div>
   <div id="teams-host" class="hidden">${data.teams.length ? '' : '<div class="empty">No teams to judge yet.</div>'}</div>
   <div id="sheet-host"></div>
@@ -649,11 +665,35 @@ function renderPage(judge, data) {
   });
 
   // ── Filter chips, sort controls, rerender, print ────────────────────────
+  var filterToggleBtn = document.getElementById('filter-toggle-btn');
+  var filterBadge = document.getElementById('filter-badge');
+  var filterPanel = document.getElementById('filter-panel');
   var filterChipsHost = document.getElementById('filter-chips');
+  var clearFiltersBtn = document.getElementById('clear-filters-btn');
+  var resultCountEl = document.getElementById('result-count');
   var sortFieldSelect = document.getElementById('sort-field-select');
   var sortDirBtn = document.getElementById('sort-dir-btn');
   var printBtn = document.getElementById('print-sheet-btn');
 
+  function activeFilterCount(){
+    return filterState.house.length + filterState.category.length + filterState.group.length;
+  }
+  if (filterToggleBtn) filterToggleBtn.addEventListener('click', function(){
+    var opening = filterPanel.classList.contains('hidden');
+    filterPanel.classList.toggle('hidden', !opening);
+    filterToggleBtn.classList.toggle('open', opening);
+  });
+  if (clearFiltersBtn) clearFiltersBtn.addEventListener('click', function(){
+    filterState.house = []; filterState.category = []; filterState.group = [];
+    syncScoresFromDOM();
+    rerender();
+  });
+
+  // Each dimension gets its own clearly labeled row of chips (House,
+  // Category, Group), so it's obvious which group a chip belongs to
+  // rather than one undifferentiated row of buttons — same structure as
+  // the admin panel's own Filters section, just scoped to this one
+  // judge's own assigned teams.
   function renderFilterChips(){
     if (!filterChipsHost) return;
     var dims = [
@@ -661,14 +701,13 @@ function renderPage(judge, data) {
       { key: 'category', label: 'Category', values: distinctValues('category') },
       { key: 'group', label: 'Group', values: distinctValues('group') },
     ].filter(function(d){ return d.values.length; });
-    if (!dims.length) { filterChipsHost.innerHTML = ''; return; }
-    filterChipsHost.innerHTML = dims.map(function(d){
-      return '<div class="filter-dim"><span class="filter-dim-label">' + esc(d.label) + '</span>' +
+    filterChipsHost.innerHTML = dims.length ? dims.map(function(d){
+      return '<div class="filter-dim"><span class="filter-dim-label">' + esc(d.label) + '</span><div class="filter-chip-group">' +
         d.values.map(function(v){
           var active = filterState[d.key].indexOf(v) !== -1;
           return '<button type="button" class="filter-chip' + (active ? ' active' : '') + '" data-dim="' + d.key + '" data-val="' + esc(v) + '">' + esc(v) + '</button>';
-        }).join('') + '</div>';
-    }).join('');
+        }).join('') + '</div></div>';
+    }).join('') : '<p style="font-size:.8rem;color:var(--ink-muted);margin:0">No House/Category/Group values found among your teams.</p>';
     filterChipsHost.querySelectorAll('.filter-chip').forEach(function(btn){
       btn.addEventListener('click', function(){
         var dim = btn.getAttribute('data-dim'), val = btn.getAttribute('data-val');
@@ -678,10 +717,13 @@ function renderPage(judge, data) {
         rerender();
       });
     });
+    var count = activeFilterCount();
+    if (filterBadge) { filterBadge.textContent = count; filterBadge.classList.toggle('hidden', !count); }
+    if (clearFiltersBtn) clearFiltersBtn.classList.toggle('hidden', !count);
   }
   if (sortFieldSelect) {
     sortFieldSelect.innerHTML = Object.keys(SORT_FIELDS).map(function(k){
-      return '<option value="' + k + '"' + (k === sortField ? ' selected' : '') + '>Sort: ' + esc(SORT_FIELDS[k].label) + '</option>';
+      return '<option value="' + k + '"' + (k === sortField ? ' selected' : '') + '>' + esc(SORT_FIELDS[k].label) + '</option>';
     }).join('');
     sortFieldSelect.addEventListener('change', function(){
       sortField = sortFieldSelect.value;
@@ -702,6 +744,11 @@ function renderPage(judge, data) {
     rebuildCards(list);
     rebuildSheet(list);
     applyEditLock();
+    if (resultCountEl) {
+      resultCountEl.innerHTML = activeFilterCount()
+        ? 'Showing <b>' + list.length + '</b> of ' + TEAMS.length + ' teams'
+        : '<b>' + TEAMS.length + '</b> team' + (TEAMS.length === 1 ? '' : 's') + ' total';
+    }
   }
 
   // Prints exactly the currently filtered + sorted set, in that same
