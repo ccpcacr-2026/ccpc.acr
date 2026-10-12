@@ -31181,10 +31181,45 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const id = form?.id || 0;
     if (!_gfJudgesSheetConfigByForm[id]) {
       const cols = _gfJudgesSheetColumns(form);
-      const defaults = ['reference_number', 'project_title', 'category', 'group'].filter(k => cols.some(c => c.key === k));
-      _gfJudgesSheetConfigByForm[id] = { dataCols: defaults, customCols: [], blankCols: [{ label: 'Score', max: null }, { label: 'Remarks', max: null }], judgeNameLine: true, judgeId: null, customTitle: '', showFilterSubheader: false, filter: { house: [], group: [], category: [] } };
+      const dataColDefaults = ['reference_number', 'project_title', 'category', 'group'].filter(k => cols.some(c => c.key === k));
+      const defaults = { dataCols: dataColDefaults, customCols: [], blankCols: [{ label: 'Score', max: null }, { label: 'Remarks', max: null }], judgeNameLine: true, judgeId: null, customTitle: '', showFilterSubheader: false, filter: { house: [], group: [], category: [] } };
+      // Seeded from whatever was last saved to this form (judges_sheet_
+      // layout_json) — falls back to the plain defaults above for a form
+      // that's never had a layout saved, or for any field a saved layout
+      // predates (filter is merged separately since it's itself a nested
+      // object, not just one flat key).
+      let saved = {};
+      try { saved = JSON.parse(form?.judges_sheet_layout_json || '{}') || {}; } catch (e) {}
+      _gfJudgesSheetConfigByForm[id] = { ...defaults, ...saved, filter: { ...defaults.filter, ...(saved.filter || {}) } };
     }
     return _gfJudgesSheetConfigByForm[id];
+  }
+  // Strips the transient per-open fetched data (_judges/_judgeScores —
+  // always refetched fresh, never part of the admin's actual layout
+  // choices) and persists the rest via save_group_form's own partial-
+  // update path, same as every other per-form setting on this table.
+  function _gfSaveJudgesLayout(storeName, form) {
+    if (!form?.id) return Promise.resolve();
+    const store = storeName === 'combined' ? _gfJudgesCombinedConfigByForm : _gfJudgesSheetConfigByForm;
+    const cfg = store[form.id];
+    if (!cfg) return Promise.resolve();
+    const clean = {};
+    Object.keys(cfg).forEach(k => { if (!k.startsWith('_')) clean[k] = cfg[k]; });
+    const field = storeName === 'combined' ? 'judges_combined_layout_json' : 'judges_sheet_layout_json';
+    return _adminFetch('save_group_form', { id: form.id, [field]: JSON.stringify(clean) }).then(res => {
+      const ok = !!(res && res.result === 'success');
+      if (!ok) showToast((res && res.message) || 'Could not save print layout', 'error');
+      return ok;
+    }).catch(() => { showToast('Network error saving print layout', 'error'); return false; });
+  }
+  // The explicit "Save Layout" button in either modal — same save, but
+  // confirms with a toast since this is a deliberate action rather than
+  // Print's own fire-and-forget save-in-passing.
+  function _gfSaveJudgesLayoutNow(storeName) {
+    const overlayId = storeName === 'combined' ? 'gfJudgesCombinedOverlay' : 'gfJudgesSheetOverlay';
+    const overlay = document.getElementById(overlayId);
+    if (!overlay) return;
+    _gfSaveJudgesLayout(storeName, overlay._gfForm).then(ok => { if (ok) showToast('Print layout saved'); });
   }
   // A compound "Judge + Category + Group + House" filter, shared by both
   // the Judges Sheet and the Combined Result modal (`storeName` picks
@@ -31290,6 +31325,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </label>
         <div class="flex items-center gap-2">
           <button type="button" onclick="_gfPrintJudgesSheetNow()" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white">Print</button>
+          <button type="button" onclick="_gfSaveJudgesLayoutNow('sheet')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-600 hover:bg-slate-50" title="Remembers this exact setup for next time, without printing now">Save Layout</button>
           <button type="button" onclick="document.getElementById('gfJudgesSheetOverlay').remove()" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-slate-100 text-slate-500 hover:bg-slate-200">Cancel</button>
         </div>
       </div>`;
@@ -31417,6 +31453,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const cfg = _gfJudgesSheetConfig(form);
     const teams = _gfApplyJudgesFilter(overlay._gfTeams, cfg, form);
     const ready = overlay._gfJudgeDataReady || Promise.resolve();
+    _gfSaveJudgesLayout('sheet', form); // fire-and-forget — printing shouldn't wait on it
     overlay.remove();
     if (!teams.length) { showToast('No teams match this filter', 'error'); return; }
     ready.then(() => _gfBuildJudgesSheet(teams, form, cfg, filterSummary));
@@ -31534,8 +31571,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const id = form?.id || 0;
     if (!_gfJudgesCombinedConfigByForm[id]) {
       const cols = _gfJudgesSheetColumns(form);
-      const defaults = ['reference_number', 'team_info'].filter(k => cols.some(c => c.key === k));
-      _gfJudgesCombinedConfigByForm[id] = { dataCols: defaults, judgeIds: null, customTitle: '', showFilterSubheader: false, filter: { house: [], group: [], category: [] } };
+      const dataColDefaults = ['reference_number', 'team_info'].filter(k => cols.some(c => c.key === k));
+      const defaults = { dataCols: dataColDefaults, judgeIds: null, customTitle: '', showFilterSubheader: false, filter: { house: [], group: [], category: [] } };
+      let saved = {};
+      try { saved = JSON.parse(form?.judges_combined_layout_json || '{}') || {}; } catch (e) {}
+      _gfJudgesCombinedConfigByForm[id] = { ...defaults, ...saved, filter: { ...defaults.filter, ...(saved.filter || {}) } };
     }
     return _gfJudgesCombinedConfigByForm[id];
   }
@@ -31571,6 +31611,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </label>
         <div class="flex items-center gap-2">
           <button type="button" onclick="_gfPrintJudgesCombinedNow()" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white">Print</button>
+          <button type="button" onclick="_gfSaveJudgesLayoutNow('combined')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-600 hover:bg-slate-50" title="Remembers this exact setup for next time, without printing now">Save Layout</button>
           <button type="button" onclick="document.getElementById('gfJudgesCombinedOverlay').remove()" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-slate-100 text-slate-500 hover:bg-slate-200">Cancel</button>
         </div>
       </div>`;
@@ -31631,6 +31672,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const cfg = _gfJudgesCombinedConfig(form);
     const teams = _gfApplyJudgesFilter(overlay._gfTeams, cfg, form);
     const ready = overlay._gfReady || Promise.resolve();
+    _gfSaveJudgesLayout('combined', form); // fire-and-forget — printing shouldn't wait on it
     overlay.remove();
     if (!teams.length) { showToast('No teams match this filter', 'error'); return; }
     ready.then(() => _gfBuildJudgesCombined(teams, form, cfg, filterSummary));

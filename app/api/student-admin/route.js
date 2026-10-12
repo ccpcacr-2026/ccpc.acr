@@ -1411,15 +1411,26 @@ export async function POST(req) {
 
   // ── Save Group Form Config ───────────────────────────────────────────────
   if (action === 'save_group_form') {
-    const { id, title, header, sub_header, description, icon_class, cover_photo_url, max_team_size, members_required, fields_json, eligibility_json, condition_json, accepting_condition_json, reference_number_json, judging_criteria_json, is_enabled, accepting_new, lock_when_closed, archived, sort_order } = payload;
+    const { id, title, header, sub_header, description, icon_class, cover_photo_url, max_team_size, members_required, fields_json, eligibility_json, condition_json, accepting_condition_json, reference_number_json, judging_criteria_json, judges_sheet_layout_json, judges_combined_layout_json, is_enabled, accepting_new, lock_when_closed, archived, sort_order } = payload;
 
     if (id) {
       // Archived is the one thing an archived form can still change — every
       // other edit is refused until it's unarchived first, same reasoning as
-      // every team-level action below (ARCHIVED_READONLY_MESSAGE).
+      // every team-level action below (ARCHIVED_READONLY_MESSAGE). The one
+      // other exception: remembering a Judges Sheet/Combined Result print
+      // layout isn't really editing the form, it's a print preference —
+      // archived forms stay fully printable by design, so a call that only
+      // ever touches these two fields skips the block too.
+      const onlyLayoutChange = (judges_sheet_layout_json !== undefined || judges_combined_layout_json !== undefined)
+        && title === undefined && header === undefined && sub_header === undefined && description === undefined
+        && icon_class === undefined && cover_photo_url === undefined && max_team_size === undefined
+        && members_required === undefined && fields_json === undefined && eligibility_json === undefined
+        && condition_json === undefined && accepting_condition_json === undefined && reference_number_json === undefined
+        && judging_criteria_json === undefined && is_enabled === undefined && accepting_new === undefined
+        && lock_when_closed === undefined && sort_order === undefined;
       const existingRow = await sb(`group_forms?id=eq.${encodeURIComponent(id)}&select=archived`);
       const wasArchived = !existingRow?.error && existingRow[0] && existingRow[0].archived;
-      if (wasArchived && archived !== false) {
+      if (wasArchived && archived !== false && !onlyLayoutChange) {
         return NextResponse.json({ result: 'error', message: ARCHIVED_READONLY_MESSAGE });
       }
       // Partial update — only touches fields actually sent. The admin
@@ -1447,6 +1458,12 @@ export async function POST(req) {
       if (accepting_condition_json !== undefined) rowData.accepting_condition_json = accepting_condition_json || '{}';
       if (reference_number_json !== undefined) rowData.reference_number_json = reference_number_json || '{"enabled":false,"parts":[],"seq_digits":3}';
       if (judging_criteria_json !== undefined) rowData.judging_criteria_json = judging_criteria_json || '[]';
+      // Written by the Judges Sheet / Combined Result modals themselves
+      // (on Print, and from their own Save Layout button) — not part of
+      // the admin's own form-editor fields above, just piggybacking on
+      // this same partial-update action.
+      if (judges_sheet_layout_json !== undefined) rowData.judges_sheet_layout_json = judges_sheet_layout_json || '{}';
+      if (judges_combined_layout_json !== undefined) rowData.judges_combined_layout_json = judges_combined_layout_json || '{}';
       if (is_enabled !== undefined) rowData.is_enabled = !!is_enabled;
       if (accepting_new !== undefined) rowData.accepting_new = !!accepting_new;
       if (lock_when_closed !== undefined) rowData.lock_when_closed = !!lock_when_closed;

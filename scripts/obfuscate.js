@@ -359,7 +359,7 @@ const RESERVED = [
   'toggleGroupFormJudgesPanel','gfCreateJudge','gfRenameJudge','gfToggleJudgeEnabled',
   'gfShowJudgeLinkQr','gfRegenerateJudgeCode','gfDeleteJudge','gfCopyAllJudgeLinks',
   '_gfOnJudgeScopeDimensionChange','_gfSaveJudgeScope','_gfToggleJudgeScopeValue',
-  '_gfToggleJudgesFilterValue',
+  '_gfToggleJudgesFilterValue','_gfSaveJudgesLayoutNow',
   // Judges Sheet's new "Judge" live-fill dropdown, plus the whole separate
   // Judges' Combined Result sheet (its own modal/column-picker/judge-picker,
   // mirroring the Judges Sheet's own _gfJudgesSheet* set above) — all
