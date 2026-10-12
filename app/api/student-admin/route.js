@@ -490,6 +490,45 @@ function groupFormTeamMatchesRule(team, form, rule, leaderProfile) {
   }
   return false;
 }
+// First field (in fields_json order) whose NAME matches `pattern` and whose
+// answer in group_data is non-empty — ports judge/[code]/route.js's own
+// answerByName verbatim (that file deliberately shares no code with this
+// one). Used to resolve a team's Category for rubric filter-matching below.
+function answerByNameServer(fields, groupData, pattern) {
+  for (const f of fields) {
+    if (!f || !f.data_key || !pattern.test(f.name || '')) continue;
+    const v = (groupData || {})[f.data_key];
+    if (v !== undefined && v !== null && v !== '') return String(v);
+  }
+  return '';
+}
+function teamMatchesRubricFilter(teamFacts, rubric) {
+  const dim = rubric.filter_dimension;
+  const values = Array.isArray(rubric.filter_values) ? rubric.filter_values : [];
+  if (!dim || !values.length) return false;
+  if (dim === 'house') return values.includes(teamFacts.house);
+  if (dim === 'category') return values.includes(teamFacts.category);
+  if (dim === 'group') return values.includes(teamFacts.group);
+  if (dim.startsWith('answer:')) {
+    const key = dim.slice('answer:'.length);
+    return values.includes(String((teamFacts.group_data || {})[key] ?? ''));
+  }
+  return false;
+}
+// Which rubric (named score-column set) applies for a judge scoring a
+// team — a rubric assigned directly to that judge always wins; otherwise
+// a rubric whose filter matches the team's own house/category/group/
+// answer value applies; otherwise the form's plain default rubric
+// (judging_criteria_json). Mirrors judge/[code]/route.js's own
+// resolveRubric exactly, duplicated here for the same reason as
+// answerByNameServer above.
+function resolveRubric(judgeId, teamFacts, rubricSets, defaultCriteria) {
+  const judgeRubric = rubricSets.find(r => r.assign_type === 'judges' && Array.isArray(r.judge_ids) && r.judge_ids.map(String).includes(String(judgeId)));
+  if (judgeRubric) return judgeRubric;
+  const filterRubric = rubricSets.find(r => r.assign_type === 'filter' && teamMatchesRubricFilter(teamFacts, r));
+  if (filterRubric) return filterRubric;
+  return { id: 'default', name: 'Default', criteria: defaultCriteria };
+}
 // Whether a given teacher (by app_users.user_id) is the one this rule routes
 // to — either a direct hand-picked assignment, or (only meaningful for the
 // 'class' dimension) whoever is CURRENTLY the class teacher of that class,
@@ -1411,7 +1450,7 @@ export async function POST(req) {
 
   // ── Save Group Form Config ───────────────────────────────────────────────
   if (action === 'save_group_form') {
-    const { id, title, header, sub_header, description, icon_class, cover_photo_url, max_team_size, members_required, fields_json, eligibility_json, condition_json, accepting_condition_json, reference_number_json, judging_criteria_json, judges_sheet_layout_json, judges_combined_layout_json, is_enabled, accepting_new, lock_when_closed, archived, sort_order } = payload;
+    const { id, title, header, sub_header, description, icon_class, cover_photo_url, max_team_size, members_required, fields_json, eligibility_json, condition_json, accepting_condition_json, reference_number_json, judging_criteria_json, judging_rubric_sets_json, judges_sheet_layout_json, judges_combined_layout_json, is_enabled, accepting_new, lock_when_closed, archived, sort_order } = payload;
 
     if (id) {
       // Archived is the one thing an archived form can still change — every
@@ -1458,6 +1497,7 @@ export async function POST(req) {
       if (accepting_condition_json !== undefined) rowData.accepting_condition_json = accepting_condition_json || '{}';
       if (reference_number_json !== undefined) rowData.reference_number_json = reference_number_json || '{"enabled":false,"parts":[],"seq_digits":3}';
       if (judging_criteria_json !== undefined) rowData.judging_criteria_json = judging_criteria_json || '[]';
+      if (judging_rubric_sets_json !== undefined) rowData.judging_rubric_sets_json = judging_rubric_sets_json || '[]';
       // Written by the Judges Sheet / Combined Result modals themselves
       // (on Print, and from their own Save Layout button) — not part of
       // the admin's own form-editor fields above, just piggybacking on
@@ -1700,11 +1740,26 @@ export async function POST(req) {
     const judge = Array.isArray(judgeRows) && judgeRows[0];
     if (!judge) return NextResponse.json({ result: 'error', message: 'Judge not found.' });
     if (await groupFormArchived(judge.group_form_id)) return NextResponse.json({ result: 'error', message: ARCHIVED_READONLY_MESSAGE });
-    const teamRows = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}&group_form_id=eq.${encodeURIComponent(judge.group_form_id)}&select=id`);
+    const teamRows = await sb(`group_form_teams?id=eq.${encodeURIComponent(team_id)}&group_form_id=eq.${encodeURIComponent(judge.group_form_id)}&select=id,group_data`);
     if (!Array.isArray(teamRows) || !teamRows.length) return NextResponse.json({ result: 'error', message: 'Invalid team.' });
-    const formRows = await sb(`group_forms?id=eq.${encodeURIComponent(judge.group_form_id)}&select=judging_criteria_json`);
+    const team = teamRows[0];
+    const formRows = await sb(`group_forms?id=eq.${encodeURIComponent(judge.group_form_id)}&select=judging_criteria_json,judging_rubric_sets_json,fields_json`);
     const form = Array.isArray(formRows) && formRows[0];
-    let criteria = []; try { criteria = JSON.parse(form?.judging_criteria_json || '[]') || []; } catch (e) {}
+    let defaultCriteria = []; try { defaultCriteria = JSON.parse(form?.judging_criteria_json || '[]') || []; } catch (e) {}
+    let rubricSets = []; try { rubricSets = JSON.parse(form?.judging_rubric_sets_json || '[]') || []; } catch (e) {}
+    let fields = []; try { fields = JSON.parse(form?.fields_json || '[]') || []; } catch (e) {}
+    const leaderRows = await sb(`group_form_team_members?team_id=eq.${encodeURIComponent(team_id)}&role=eq.leader&select=student_id`);
+    const leaderId = Array.isArray(leaderRows) && leaderRows[0] ? leaderRows[0].student_id : null;
+    const leaderProfRows = leaderId ? await sb(`students_data?student_id=eq.${encodeURIComponent(leaderId)}&select=house`) : [];
+    const leaderProfile = (Array.isArray(leaderProfRows) && leaderProfRows[0]) || null;
+    const teamFacts = {
+      house: (leaderProfile && leaderProfile.house) || '',
+      category: answerByNameServer(fields, team.group_data, /^category$/i) || '',
+      group: (team.group_data || {}).group || '',
+      group_data: team.group_data,
+    };
+    const rubric = resolveRubric(judge_id, teamFacts, rubricSets, defaultCriteria);
+    const criteria = rubric.criteria || [];
     const byKey = {}; criteria.forEach(c => { byKey[c.key] = c; });
     const sanitized = {};
     for (const key of Object.keys(scores)) {

@@ -359,6 +359,8 @@ const RESERVED = [
   'toggleGroupFormJudgesPanel','gfCreateJudge','gfRenameJudge','gfToggleJudgeEnabled',
   'gfShowJudgeLinkQr','gfRegenerateJudgeCode','gfDeleteJudge','gfCopyAllJudgeLinks',
   'gfOpenEditJudgeScoresModal','_gfSaveOneJudgeScoreRow',
+  'toggleGroupFormRubricsPanel','gfAddRubricSet','gfRemoveRubricSet','gfAddRubricCriterion',
+  '_gfToggleRubricJudge','_gfToggleRubricFilterValue','_gfOnRubricAssignTypeChange','_gfOnRubricFilterDimChange','gfSaveRubricSets',
   '_gfOnJudgeScopeDimensionChange','_gfSaveJudgeScope','_gfToggleJudgeScopeValue',
   '_gfToggleJudgesFilterValue','_gfSaveJudgesLayoutNow',
   // Judges Sheet's new "Judge" live-fill dropdown, plus the whole separate

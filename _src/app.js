@@ -29842,6 +29842,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="printGroupFormJudgesSheet()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1" title="Configurable score sheet for judges — pick which columns show, pull in a judge's live scores, or leave blank for hand-fill"><i data-lucide="clipboard-list" class="h-3 w-3"></i>Judges Sheet</button>
             <button onclick="printGroupFormJudgesCombined()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1" title="Every judge's score side by side, with an average and a position"><i data-lucide="bar-chart-3" class="h-3 w-3"></i>Judges' Combined Result</button>
             <button onclick="toggleGroupFormJudgesPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="gavel" class="h-3 w-3"></i>Judges</button>
+            <button onclick="toggleGroupFormRubricsPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1" title="Give specific judges, or a filtered slice of teams, their own different score columns"><i data-lucide="list-checks" class="h-3 w-3"></i>Rubrics</button>
             <button onclick="toggleGroupFormReviewerPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="users" class="h-3 w-3"></i>Reviewers</button>
             <button id="gfAddTeamBtn" onclick="gfOpenAdminCreateTeamModal()" class="px-3 py-1.5 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase flex items-center gap-1" title="Create a team for a student directly, bypassing Active/Open/Filter rules"><i data-lucide="plus" class="h-3 w-3"></i>Add Team</button>
             <button id="gfDelDisbandedBtn" onclick="deleteAllDisbandedTeams()" class="px-3 py-1.5 border border-red-200 text-red-600 rounded-full font-black text-[10px] uppercase hover:bg-red-50 flex items-center gap-1"><i data-lucide="trash-2" class="h-3 w-3"></i>Delete Disbanded</button>
@@ -29869,6 +29870,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
           <p class="text-[11px] text-slate-400 font-bold mb-3">Each judge gets their own private link — no login needed. They open it on their own phone, see the roster, and type scores straight in. Share the link via the QR/Copy button; nothing here needs a Save button, every change here takes effect immediately.</p>
           <div id="gfJudgesList" class="flex flex-col gap-2"></div>
+        </div>
+        <div id="gfRubricsPanel" class="hidden mb-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
+          <div class="flex items-center justify-between mb-2 gap-2 flex-wrap">
+            <span class="text-[10px] font-black text-slate-400 uppercase">Additional Rubrics</span>
+            <button onclick="gfAddRubricSet()" class="px-3 py-1.5 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase">+ Add Rubric</button>
+          </div>
+          <p class="text-[11px] text-slate-400 font-bold mb-3">Every judge uses this form's own default rubric (set from "+ New Group Form" / Edit) unless one of these applies instead. Assign a rubric to specific judges, or to a filter (e.g. Category 1) that applies no matter which judge is scoring — a judge-specific assignment always wins over a filter match. Click "Save Rubrics" once you're done.</p>
+          <div id="gfRubricSetsList" class="flex flex-col gap-3"></div>
+          <button onclick="gfSaveRubricSets()" class="mt-3 px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Rubrics</button>
         </div>
         <div id="gfRosterSummary" class="mb-4"></div>
         <div id="adminGroupRosterList" class="flex flex-col gap-3"></div>
@@ -31484,12 +31494,44 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       .map(k => labels[k] + ': ' + Array.from(filterState[k]).join('/'))
       .join(' · ');
   }
+  // Client-side mirror of judge/[code]/route.js's own resolveRubric (and
+  // student-admin/route.js's duplicate of it) — same precedence: a rubric
+  // assigned directly to this judge always wins; otherwise a rubric whose
+  // filter matches this TEAM's own house/category/group/answer value
+  // applies; otherwise the form's plain default rubric.
+  function _gfTeamMatchesRubricFilter(t, form, rubric) {
+    const dim = rubric.filter_dimension;
+    const values = Array.isArray(rubric.filter_values) ? rubric.filter_values : [];
+    if (!dim || !values.length) return false;
+    if (dim === 'house') return values.includes(_gfTeamHouse(t));
+    if (dim === 'category') return values.includes(_gfAnswerByName(t, form, /^category$/i));
+    if (dim === 'group') return values.includes(_gfTeamGroup(t));
+    if (dim.startsWith('answer:')) {
+      const key = dim.slice('answer:'.length);
+      return values.includes(String((t.group_data || {})[key] ?? ''));
+    }
+    return false;
+  }
+  function _gfResolveRubricForTeam(judgeId, t, form, rubricSets, defaultCriteria) {
+    if (judgeId != null) {
+      const judgeRubric = rubricSets.find(r => r.assign_type === 'judges' && Array.isArray(r.judge_ids) && r.judge_ids.map(String).includes(String(judgeId)));
+      if (judgeRubric) return judgeRubric;
+    }
+    const filterRubric = rubricSets.find(r => r.assign_type === 'filter' && _gfTeamMatchesRubricFilter(t, form, r));
+    if (filterRubric) return filterRubric;
+    return { id: 'default', name: 'Default', criteria: defaultCriteria };
+  }
+  function _gfParseRubricSets(form) {
+    let sets = []; try { sets = JSON.parse(form?.judging_rubric_sets_json || '[]') || []; } catch (e) {}
+    return sets;
+  }
   function _gfBuildJudgesSheet(teams, form, cfg, filterSummary) {
     if (!teams.length) return;
     const allCols = _gfJudgesSheetColumns(form);
     const dataCols = (cfg.dataCols.length ? cfg.dataCols : ['reference_number']).map(k => allCols.find(c => c.key === k)).filter(Boolean);
     const customCols = (cfg.customCols || []).filter(c => c.label.trim() && c.template.trim());
-    let criteria = []; try { criteria = JSON.parse(form?.judging_criteria_json || '[]') || []; } catch (e) {}
+    let defaultCriteria = []; try { defaultCriteria = JSON.parse(form?.judging_criteria_json || '[]') || []; } catch (e) {}
+    const rubricSets = _gfParseRubricSets(form);
     const judge = cfg.judgeId ? (cfg._judges || []).find(j => String(j.id) === String(cfg.judgeId)) : null;
     const scoresByTeam = {};
     if (judge) {
@@ -31497,11 +31539,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         try { scoresByTeam[r.team_id] = JSON.parse(r.scores_json || '{}') || {}; } catch (e) { scoresByTeam[r.team_id] = {}; }
       });
     }
+    // Each team's own resolved rubric — a specific judge with no judge-
+    // specific assignment of their own can still have different teams
+    // fall under different filter-based rubrics.
+    const rubricByTeam = {};
+    if (judge) teams.forEach(t => { rubricByTeam[t.id] = _gfResolveRubricForTeam(judge.id, t, form, rubricSets, defaultCriteria); });
     const totalFor = t => {
       const s = scoresByTeam[t.id];
-      if (!s) return null;
+      const rub = rubricByTeam[t.id];
+      if (!s || !rub) return null;
       let sum = 0, any = false;
-      criteria.forEach(c => { const v = Number(s[c.key]); if (!isNaN(v)) { sum += v; any = true; } });
+      rub.criteria.forEach(c => { const v = Number(s[c.key]); if (!isNaN(v)) { sum += v; any = true; } });
       return any ? sum : null;
     };
     const positions = judge ? _gfRankByValueDesc(teams.map(t => ({ id: t.id, value: totalFor(t) }))) : {};
@@ -31515,23 +31563,41 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const blankCols = blankColsRaw.length && !blankColsRaw.some(c => c.label.trim().toLowerCase() === 'total')
       ? [...blankColsRaw, { label: 'Total', max: null }] : blankColsRaw;
     const blankColLabels = blankCols.map(c => c.max ? `${c.label}\n/${c.max}` : c.label);
-    const headCells = ['SL', ...dataCols.map(c => c.label), ...customCols.map(c => c.label),
-      ...(judge ? [...criteria.map(c => c.label + ' /' + c.max), 'Total', 'Position'] : blankColLabels)]
-      .map(h => `<th>${_escHtml(h).replace(/\\n/g, '<br>')}</th>`).join('');
-    const rows = teams.map((t, idx) => {
-      const dataCells = dataCols.map(c => `<td${c.key === 'reference_number' ? ' class="ref"' : ''}>${c.html ? (c.get(t) || '—') : _escHtml(c.get(t) || '—')}</td>`).join('');
-      const customCells = customCols.map(c => `<td>${_escHtml(_gfJudgesSheetFillTemplate(c.template, t, allCols) || '—').replace(/\\n/g, '<br>')}</td>`).join('');
-      let tailCells;
-      if (judge) {
-        const s = scoresByTeam[t.id] || {};
-        const critCells = criteria.map(c => `<td>${s[c.key] != null ? _escHtml(s[c.key]) : '—'}</td>`).join('');
-        const total = totalFor(t);
-        tailCells = critCells + `<td><b>${total != null ? total : '—'}</b></td><td>${positions[t.id] != null ? positions[t.id] : '—'}</td>`;
-      } else {
-        tailCells = blankCols.map(() => '<td class="blank"></td>').join('');
-      }
-      return `<tr><td>${idx + 1}</td>${dataCells}${customCells}${tailCells}</tr>`;
-    }).join('');
+    const dataColsHtml = t => dataCols.map(c => `<td${c.key === 'reference_number' ? ' class="ref"' : ''}>${c.html ? (c.get(t) || '—') : _escHtml(c.get(t) || '—')}</td>`).join('');
+    const customColsHtml = t => customCols.map(c => `<td>${_escHtml(_gfJudgesSheetFillTemplate(c.template, t, allCols) || '—').replace(/\\n/g, '<br>')}</td>`).join('');
+    const globalIdx = {}; teams.forEach((t, i) => { globalIdx[t.id] = i; });
+
+    let bodyTables;
+    if (!judge) {
+      const headCells = ['SL', ...dataCols.map(c => c.label), ...customCols.map(c => c.label), ...blankColLabels]
+        .map(h => `<th>${_escHtml(h).replace(/\\n/g, '<br>')}</th>`).join('');
+      const rows = teams.map(t => `<tr><td>${globalIdx[t.id] + 1}</td>${dataColsHtml(t)}${customColsHtml(t)}${blankCols.map(() => '<td class="blank"></td>').join('')}</tr>`).join('');
+      bodyTables = `<table><thead><tr>${headCells}</tr></thead><tbody>${rows}</tbody></table>`;
+    } else {
+      // Grouped by resolved rubric, same SL numbering as the whole
+      // filtered+sorted list (not restarted per group) — only Rank is
+      // deliberately computed across the FULL set above either way.
+      const order = [], byId = {};
+      teams.forEach(t => {
+        const rub = rubricByTeam[t.id];
+        if (!byId[rub.id]) { byId[rub.id] = { name: rub.name, criteria: rub.criteria, teams: [] }; order.push(rub.id); }
+        byId[rub.id].teams.push(t);
+      });
+      const multi = order.length > 1;
+      bodyTables = order.map(id => {
+        const grp = byId[id];
+        const headCells = ['SL', ...dataCols.map(c => c.label), ...customCols.map(c => c.label), ...grp.criteria.map(c => c.label + ' /' + c.max), 'Total', 'Position']
+          .map(h => `<th>${_escHtml(h).replace(/\\n/g, '<br>')}</th>`).join('');
+        const rows = grp.teams.map(t => {
+          const s = scoresByTeam[t.id] || {};
+          const critCells = grp.criteria.map(c => `<td>${s[c.key] != null ? _escHtml(s[c.key]) : '—'}</td>`).join('');
+          const total = totalFor(t);
+          return `<tr><td>${globalIdx[t.id] + 1}</td>${dataColsHtml(t)}${customColsHtml(t)}${critCells}<td><b>${total != null ? total : '—'}</b></td><td>${positions[t.id] != null ? positions[t.id] : '—'}</td></tr>`;
+        }).join('');
+        const heading = multi ? `<h2 style="font-size:13px;margin:14px 0 4px">${_escHtml(grp.name || 'Default')}</h2>` : '';
+        return heading + `<table><thead><tr>${headCells}</tr></thead><tbody>${rows}</tbody></table>`;
+      }).join('');
+    }
     const nameLine = cfg.judgeNameLine ? `<p style="font-size:11px;color:#374151;margin:0 0 12px">Judge's Name: <span style="display:inline-block;width:220px;border-bottom:1px solid #9ca3af">${judge ? _escHtml(judge.name) : '&nbsp;'}</span>&nbsp;&nbsp;&nbsp;Printed ${new Date().toLocaleString()}</p>` : `<p style="font-size:10px;color:#6b7280;margin:0 0 12px">Printed ${new Date().toLocaleString()}</p>`;
     const titleText = (cfg.customTitle && cfg.customTitle.trim()) || `${form?.title || 'Judging'} — Judges Score Sheet`;
     const subheaderHtml = (cfg.showFilterSubheader && filterSummary) ? `<p style="font-size:11px;color:#6b7280;margin:0 0 6px">${_escHtml(filterSummary)}</p>` : '';
@@ -31539,10 +31605,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <h1 style="font-size:16px;margin:0 0 2px">${_escHtml(titleText)}</h1>
       ${subheaderHtml}
       ${nameLine}
-      <table>
-        <thead><tr>${headCells}</tr></thead>
-        <tbody>${rows}</tbody>
-      </table>`;
+      ${bodyTables}`;
     const css = `
       @page { size: A4 portrait; margin: 14mm; }
       body, table { font-family: "Times New Roman", Times, serif; font-size: 12pt; }
@@ -31681,18 +31744,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!teams.length) return;
     const allCols = _gfJudgesSheetColumns(form);
     const dataCols = (cfg.dataCols.length ? cfg.dataCols : ['reference_number']).map(k => allCols.find(c => c.key === k)).filter(Boolean);
-    let criteria = []; try { criteria = JSON.parse(form?.judging_criteria_json || '[]') || []; } catch (e) {}
+    let defaultCriteria = []; try { defaultCriteria = JSON.parse(form?.judging_criteria_json || '[]') || []; } catch (e) {}
+    const rubricSets = _gfParseRubricSets(form);
     const judges = (cfg._judges || []).filter(j => (cfg.judgeIds || []).includes(j.id));
     const scoresByJudgeTeam = {};
     (cfg._judgeScores || []).forEach(r => {
       scoresByJudgeTeam[r.judge_id] = scoresByJudgeTeam[r.judge_id] || {};
       try { scoresByJudgeTeam[r.judge_id][r.team_id] = JSON.parse(r.scores_json || '{}') || {}; } catch (e) {}
     });
+    // Each judge can have their OWN resolved rubric for a given team (a
+    // judge-specific assignment follows that judge everywhere; a filter-
+    // based one is the same for every judge scoring that team) — summing
+    // against the wrong criteria set would silently miscount, so this is
+    // resolved per (judge, team) pair, not once globally.
     const totalFor = (judgeId, team) => {
       const s = (scoresByJudgeTeam[judgeId] || {})[team.id];
       if (!s) return null;
+      const rub = _gfResolveRubricForTeam(judgeId, team, form, rubricSets, defaultCriteria);
       let sum = 0, any = false;
-      criteria.forEach(c => { const v = Number(s[c.key]); if (!isNaN(v)) { sum += v; any = true; } });
+      rub.criteria.forEach(c => { const v = Number(s[c.key]); if (!isNaN(v)) { sum += v; any = true; } });
       return any ? sum : null;
     };
     // Average only of judges who have ACTUALLY scored this team — a judge
@@ -31943,6 +32013,177 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _gfRenderJudgesList();
     }).catch(() => { document.getElementById('gfJudgesList').innerHTML = '<p class="text-xs text-red-500 font-bold">Network error</p>'; });
   }
+
+  // ── Additional Rubrics — named score-column sets assigned to specific
+  // judges OR to a filter (e.g. Category 1), instead of every judge
+  // sharing this form's one default rubric (judging_criteria_json). Each
+  // set's own criteria rows reuse _gfCriterionRowHtml verbatim (it's a pure
+  // function, no DOM coupling) — only how they're added/read back differs,
+  // since these live inside a per-rubric container rather than the single
+  // #gfCriteriaList the form editor's own default-rubric builder owns.
+  let _gfRubricSets = [];
+  function toggleGroupFormRubricsPanel() {
+    const panel = document.getElementById('gfRubricsPanel');
+    if (!panel) return;
+    const opening = panel.classList.contains('hidden');
+    panel.classList.toggle('hidden');
+    if (!opening || !_gfRosterFormId) return;
+    let saved = [];
+    try { saved = JSON.parse(_gfRosterForm?.judging_rubric_sets_json || '[]') || []; } catch (e) {}
+    _gfRubricSets = saved;
+    document.getElementById('gfRubricSetsList').innerHTML = '<p class="text-xs text-slate-400 font-bold">Loading…</p>';
+    _adminFetch('admin_list_judges', { group_form_id: _gfRosterFormId }).then(res => {
+      _gfJudges = (res && res.result === 'success') ? res.judges : [];
+      _gfRenderRubricSetsList();
+    }).catch(() => { document.getElementById('gfRubricSetsList').innerHTML = '<p class="text-xs text-red-500 font-bold">Network error</p>'; });
+  }
+  function _gfRubricSetCardHtml(rs, i) {
+    return `<div class="gf-rubric-set bg-white p-3 rounded-xl border border-slate-200" data-idx="${i}">
+      <div class="flex items-center gap-2 mb-2">
+        <input type="text" value="${_escHtml(rs.name || '')}" placeholder="Rubric name, e.g. Group A Rubric" oninput="_gfRubricSets[${i}].name = this.value" class="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+        <button type="button" onclick="gfRemoveRubricSet(${i})" class="px-2.5 py-1 bg-red-500 text-white rounded-full font-black text-[10px] uppercase">Del</button>
+      </div>
+      <div class="mb-2">
+        <span class="text-[10px] font-black text-slate-400 uppercase">Score Columns</span>
+        <div id="gfRubricCriteria-${i}" class="flex flex-col gap-2 mt-1"></div>
+        <button type="button" onclick="gfAddRubricCriterion(${i})" class="mt-2 px-2.5 py-1 border border-slate-300 text-slate-700 rounded-full font-black text-[10px] uppercase hover:bg-slate-100">+ Add Criterion</button>
+      </div>
+      <div>
+        <span class="text-[10px] font-black text-slate-400 uppercase">Assign to</span>
+        <div class="flex items-center gap-3 mt-1 mb-2">
+          <label class="flex items-center gap-1.5 text-[11px] font-bold text-slate-600"><input type="radio" name="gfRubricAssign${i}" value="judges" ${rs.assign_type !== 'filter' ? 'checked' : ''} onchange="_gfOnRubricAssignTypeChange(${i}, this)">Specific Judges</label>
+          <label class="flex items-center gap-1.5 text-[11px] font-bold text-slate-600"><input type="radio" name="gfRubricAssign${i}" value="filter" ${rs.assign_type === 'filter' ? 'checked' : ''} onchange="_gfOnRubricAssignTypeChange(${i}, this)">Filter (applies to any judge)</label>
+        </div>
+        <div id="gfRubricAssign-${i}"></div>
+      </div>
+    </div>`;
+  }
+  function _gfRenderRubricSetsList() {
+    const host = document.getElementById('gfRubricSetsList');
+    if (!host) return;
+    if (!_gfRubricSets.length) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No additional rubrics — every judge uses the default.</p>'; return; }
+    host.innerHTML = _gfRubricSets.map((rs, i) => _gfRubricSetCardHtml(rs, i)).join('');
+    lucide.createIcons();
+    _gfRubricSets.forEach((rs, i) => {
+      const criteriaHost = document.getElementById('gfRubricCriteria-' + i);
+      if (criteriaHost) { criteriaHost.innerHTML = (rs.criteria || []).map(c => _gfCriterionRowHtml(c)).join(''); lucide.createIcons(); }
+      _gfRenderRubricAssignUI(i);
+    });
+  }
+  function gfAddRubricSet() {
+    if (!_gfRosterFormId) return;
+    _gfRubricSets.push({ id: 'rs' + Date.now().toString(36), name: '', criteria: [{ key: 'c' + Date.now().toString(36), label: '', max: 10 }], assign_type: 'judges', judge_ids: [], filter_dimension: '', filter_values: [] });
+    _gfRenderRubricSetsList();
+  }
+  function gfRemoveRubricSet(i) {
+    if (!confirm('Remove this rubric?\n\nJudges or teams currently matched to it will fall back to the default rubric once you click Save Rubrics.')) return;
+    _gfRubricSets.splice(i, 1);
+    _gfRenderRubricSetsList();
+  }
+  function gfAddRubricCriterion(i) {
+    const rs = _gfRubricSets[i];
+    if (!rs.criteria) rs.criteria = [];
+    rs.criteria.push({ key: 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), label: '', max: 10 });
+    const host = document.getElementById('gfRubricCriteria-' + i);
+    if (!host) return;
+    host.innerHTML = rs.criteria.map(c => _gfCriterionRowHtml(c)).join('');
+    lucide.createIcons();
+  }
+  function _gfRenderRubricAssignUI(i) {
+    const host = document.getElementById('gfRubricAssign-' + i);
+    if (!host) return;
+    const rs = _gfRubricSets[i];
+    if ((rs.assign_type || 'judges') !== 'filter') {
+      if (!_gfJudges.length) { host.innerHTML = '<p class="text-[11px] text-slate-400 font-bold italic">No judges set up yet — add one in the Judges panel first.</p>'; return; }
+      const selected = rs.judge_ids || [];
+      host.innerHTML = `<div class="flex flex-wrap gap-1.5">${_gfJudges.map(j => `
+        <button type="button" onclick='_gfToggleRubricJudge(${i}, ${j.id})' class="px-2.5 py-1 rounded-full font-black text-[10px] uppercase ${selected.includes(j.id) ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'}">${_escHtml(j.name)}</button>`).join('')}</div>`;
+    } else {
+      const answerFields = _gfRuleAnswerFieldOptions();
+      const dim = rs.filter_dimension || 'house';
+      host.innerHTML = `<select id="gfRubricFilterDim-${i}" onchange="_gfOnRubricFilterDimChange(${i}, this)" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mb-2">
+          <option value="house" ${dim === 'house' ? 'selected' : ''}>House</option>
+          <option value="group" ${dim === 'group' ? 'selected' : ''}>Group (band)</option>
+          <option value="category" ${dim === 'category' ? 'selected' : ''}>Category</option>
+          ${answerFields.filter(f => !/^category$/i.test(f.name || '')).map(f => `<option value="answer:${f.data_key}" ${dim === `answer:${f.data_key}` ? 'selected' : ''}>Answer: ${f.name || f.data_key}</option>`).join('')}
+        </select>
+        <div id="gfRubricFilterValues-${i}" class="flex flex-wrap gap-1.5"></div>`;
+      const ensureValues = dim === 'house' ? _gfEnsureGroupFieldValues('house') : Promise.resolve();
+      ensureValues.then(() => _gfRenderRubricFilterValues(i));
+    }
+  }
+  function _gfRenderRubricFilterValues(i) {
+    const host = document.getElementById('gfRubricFilterValues-' + i);
+    if (!host) return;
+    const rs = _gfRubricSets[i];
+    const options = _gfRuleValueOptions(rs.filter_dimension || 'house');
+    const selected = rs.filter_values || [];
+    host.innerHTML = options.length
+      ? options.map(v => `<button type="button" onclick='_gfToggleRubricFilterValue(${i}, ${JSON.stringify(v)})' class="px-2.5 py-1 rounded-full font-black text-[10px] uppercase ${selected.includes(v) ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'}">${_escHtml(v)}</button>`).join('')
+      : '<p class="text-[11px] text-slate-400 font-bold italic">No values yet.</p>';
+  }
+  function _gfToggleRubricJudge(i, judgeId) {
+    const rs = _gfRubricSets[i];
+    const list = rs.judge_ids || (rs.judge_ids = []);
+    const idx = list.indexOf(judgeId);
+    if (idx >= 0) list.splice(idx, 1); else list.push(judgeId);
+    _gfRenderRubricAssignUI(i);
+  }
+  function _gfToggleRubricFilterValue(i, value) {
+    const rs = _gfRubricSets[i];
+    const list = rs.filter_values || (rs.filter_values = []);
+    const idx = list.indexOf(value);
+    if (idx >= 0) list.splice(idx, 1); else list.push(value);
+    _gfRenderRubricFilterValues(i);
+  }
+  function _gfOnRubricAssignTypeChange(i, radio) {
+    _gfRubricSets[i].assign_type = radio.value;
+    _gfRenderRubricAssignUI(i);
+  }
+  function _gfOnRubricFilterDimChange(i, sel) {
+    const rs = _gfRubricSets[i];
+    rs.filter_dimension = sel.value;
+    rs.filter_values = [];
+    const ensureValues = sel.value === 'house' ? _gfEnsureGroupFieldValues('house') : Promise.resolve();
+    ensureValues.then(() => _gfRenderRubricFilterValues(i));
+  }
+  // Criteria rows are read straight back from their own DOM container at
+  // save time (same technique the default rubric's gfReadCriteriaConfig
+  // uses) rather than kept perfectly in sync in _gfRubricSets live — the
+  // row's own remove button is a plain DOM removal, so the DOM is the real
+  // source of truth for "what's in this rubric right now."
+  function _gfReadRubricCriteria(i) {
+    const rows = Array.from(document.querySelectorAll('#gfRubricCriteria-' + i + ' .gf-criterion-row'));
+    return rows.map(row => {
+      const sel = row.querySelector('.gf-criterion-max');
+      const maxRaw = sel.value === 'custom' ? row.querySelector('.gf-criterion-max-custom').value : sel.value;
+      return {
+        key: row.querySelector('.gf-criterion-key').value,
+        label: row.querySelector('.gf-criterion-label').value.trim(),
+        max: Math.max(1, Number(maxRaw) || 10),
+      };
+    }).filter(c => c.label);
+  }
+  function gfSaveRubricSets() {
+    if (!_gfRosterFormId) return;
+    const cleaned = _gfRubricSets.map((rs, i) => ({
+      id: rs.id || ('rs' + Date.now().toString(36) + i),
+      name: (rs.name || '').trim() || ('Rubric ' + (i + 1)),
+      criteria: _gfReadRubricCriteria(i),
+      assign_type: rs.assign_type === 'filter' ? 'filter' : 'judges',
+      judge_ids: rs.assign_type === 'filter' ? [] : (rs.judge_ids || []),
+      filter_dimension: rs.assign_type === 'filter' ? (rs.filter_dimension || '') : '',
+      filter_values: rs.assign_type === 'filter' ? (rs.filter_values || []) : [],
+    })).filter(rs => rs.criteria.length && (rs.judge_ids.length || rs.filter_values.length));
+    _adminFetch('save_group_form', { id: _gfRosterFormId, judging_rubric_sets_json: JSON.stringify(cleaned) }).then(res => {
+      if (res && res.result === 'success') {
+        showToast('Rubrics saved');
+        if (_gfRosterForm) _gfRosterForm.judging_rubric_sets_json = JSON.stringify(cleaned);
+        _gfRubricSets = cleaned;
+        _gfRenderRubricSetsList();
+      } else showToast((res && res.message) || 'Save failed', 'error');
+    }).catch(() => showToast('Network error', 'error'));
+  }
   // One judge's scope picker — "sees All Teams" by default, or a slice of
   // ONE OR MORE values within a single dimension (e.g. Group A + Group B +
   // Group C at once) — same dimension vocabulary as a reviewer rule
@@ -32115,40 +32356,60 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       allScores.filter(r => String(r.judge_id) === String(judgeId)).forEach(r => {
         try { scoresByTeam[r.team_id] = JSON.parse(r.scores_json || '{}') || {}; } catch (e) { scoresByTeam[r.team_id] = {}; }
       });
-      let criteria = [];
-      try { criteria = JSON.parse(_gfRosterForm?.judging_criteria_json || '[]') || []; } catch (e) {}
       const teams = (_gfRosterTeams || []).filter(t => t.status !== 'disbanded');
-      _gfRenderEditJudgeScoresTable(judgeId, teams, criteria, scoresByTeam);
+      _gfRenderEditJudgeScoresTable(judgeId, teams, scoresByTeam);
     }).catch(() => {
       const body = document.getElementById('gfEditJudgeScoresBody');
       if (body) body.innerHTML = '<p class="text-xs text-red-500 font-bold">Network error</p>';
     });
   }
-  function _gfRenderEditJudgeScoresTable(judgeId, teams, criteria, scoresByTeam) {
+  // Grouped by this judge's own resolved rubric per team (same precedence
+  // as everywhere else: a judge-specific assignment wins, then a filter
+  // match, then the default) — almost always just one group, but a judge
+  // with no specific assignment of their own could have teams split
+  // across more than one filter-based rubric.
+  function _gfRenderEditJudgeScoresTable(judgeId, teams, scoresByTeam) {
     const host = document.getElementById('gfEditJudgeScoresBody');
     if (!host) return;
     if (!teams.length) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No teams on this form yet.</p>'; return; }
-    if (!criteria.length) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">This form has no judging criteria set up yet — add some in the Judging Rubric first.</p>'; return; }
-    const rows = teams.map((t, idx) => {
-      const s = scoresByTeam[t.id] || {};
-      const cells = criteria.map(c => `<td class="px-1 py-1"><input type="number" min="0" max="${c.max}" step="1" data-crit="${_escHtml(c.key)}" value="${s[c.key] != null ? _escHtml(s[c.key]) : ''}" class="w-16 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs text-center"></td>`).join('');
-      return `<tr data-team-id="${t.id}">
-        <td class="text-[11px] font-black text-slate-400 text-center px-2 py-1">${idx + 1}</td>
-        <td class="text-xs font-bold text-slate-700 whitespace-nowrap px-2 py-1">${_escHtml(t.reference_number || '#' + t.id)}</td>
-        <td class="text-xs font-bold text-slate-700 px-2 py-1">${_escHtml(_gfProjectTitle(t, _gfRosterForm))}</td>
-        ${cells}
-        <td class="gf-edit-judge-total text-xs font-black text-slate-800 text-center px-2 py-1">—</td>
-        <td class="px-1"><button type="button" onclick="_gfSaveOneJudgeScoreRow(${judgeId}, this)" class="px-2.5 py-1 bg-blue-600 text-white rounded-full font-black text-[10px] uppercase">Save</button></td>
-      </tr>`;
+    let defaultCriteria = []; try { defaultCriteria = JSON.parse(_gfRosterForm?.judging_criteria_json || '[]') || []; } catch (e) {}
+    const rubricSets = _gfParseRubricSets(_gfRosterForm);
+    const order = [], byId = {};
+    teams.forEach((t, globalIdx) => {
+      const rub = _gfResolveRubricForTeam(judgeId, t, _gfRosterForm, rubricSets, defaultCriteria);
+      if (!byId[rub.id]) { byId[rub.id] = { name: rub.name, criteria: rub.criteria, teams: [] }; order.push(rub.id); }
+      byId[rub.id].teams.push({ team: t, globalIdx });
+    });
+    if (order.every(id => !byId[id].criteria.length)) {
+      host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">This form has no judging criteria set up yet — add some in the Judging Rubric first.</p>';
+      return;
+    }
+    const multi = order.length > 1;
+    host.innerHTML = order.map(id => {
+      const grp = byId[id];
+      if (!grp.criteria.length) return '';
+      const rows = grp.teams.map(({ team: t, globalIdx }) => {
+        const s = scoresByTeam[t.id] || {};
+        const cells = grp.criteria.map(c => `<td class="px-1 py-1"><input type="number" min="0" max="${c.max}" step="1" data-crit="${_escHtml(c.key)}" value="${s[c.key] != null ? _escHtml(s[c.key]) : ''}" class="w-16 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs text-center"></td>`).join('');
+        return `<tr data-team-id="${t.id}">
+          <td class="text-[11px] font-black text-slate-400 text-center px-2 py-1">${globalIdx + 1}</td>
+          <td class="text-xs font-bold text-slate-700 whitespace-nowrap px-2 py-1">${_escHtml(t.reference_number || '#' + t.id)}</td>
+          <td class="text-xs font-bold text-slate-700 px-2 py-1">${_escHtml(_gfProjectTitle(t, _gfRosterForm))}</td>
+          ${cells}
+          <td class="gf-edit-judge-total text-xs font-black text-slate-800 text-center px-2 py-1">—</td>
+          <td class="px-1"><button type="button" onclick="_gfSaveOneJudgeScoreRow(${judgeId}, this)" class="px-2.5 py-1 bg-blue-600 text-white rounded-full font-black text-[10px] uppercase">Save</button></td>
+        </tr>`;
+      }).join('');
+      const heading = multi ? `<p class="text-[11px] font-black text-blue-700 uppercase mt-3 mb-1">${_escHtml(grp.name || 'Default')}</p>` : '';
+      return heading + `<table class="w-full text-xs border-collapse">
+        <thead><tr class="text-[10px] text-slate-400 uppercase font-black">
+          <th class="text-center px-2 py-1">SL</th><th class="text-left px-2 py-1">Ref</th><th class="text-left px-2 py-1">Project</th>
+          ${grp.criteria.map(c => `<th class="text-center px-2 py-1">${_escHtml(c.label)}<br>/${c.max}</th>`).join('')}
+          <th class="text-center px-2 py-1">Total</th><th></th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
     }).join('');
-    host.innerHTML = `<table class="w-full text-xs border-collapse">
-      <thead><tr class="text-[10px] text-slate-400 uppercase font-black">
-        <th class="text-center px-2 py-1">SL</th><th class="text-left px-2 py-1">Ref</th><th class="text-left px-2 py-1">Project</th>
-        ${criteria.map(c => `<th class="text-center px-2 py-1">${_escHtml(c.label)}<br>/${c.max}</th>`).join('')}
-        <th class="text-center px-2 py-1">Total</th><th></th>
-      </tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`;
     host.querySelectorAll('tbody tr').forEach(tr => {
       const recompute = () => {
         let sum = 0, any = false;

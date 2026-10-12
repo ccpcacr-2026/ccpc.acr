@@ -138,6 +138,35 @@ function judgeScopeMatches(team, form, judge, leaderProfile) {
   }
   return false;
 }
+function teamMatchesRubricFilter(teamFacts, rubric) {
+  const dim = rubric.filter_dimension;
+  const values = Array.isArray(rubric.filter_values) ? rubric.filter_values : [];
+  if (!dim || !values.length) return false;
+  if (dim === 'house') return values.includes(teamFacts.house);
+  if (dim === 'category') return values.includes(teamFacts.category);
+  if (dim === 'group') return values.includes(teamFacts.group);
+  if (dim.startsWith('answer:')) {
+    const key = dim.slice('answer:'.length);
+    return values.includes(String((teamFacts.group_data || {})[key] ?? ''));
+  }
+  return false;
+}
+// Which rubric (named score-column set) applies for this judge scoring
+// this team. A rubric assigned directly to this judge always wins — an
+// admin who hand-picked a judge for a rubric meant that to stick, not be
+// overridden by whichever teams that judge happens to be scoped to see.
+// Otherwise a rubric whose filter matches this team's own house/category/
+// group/answer value applies — the SAME rubric then, regardless of which
+// judge is scoring, since it's tied to the team's own attributes. Falls
+// back to the form's plain default rubric (judging_criteria_json) when
+// neither matches.
+function resolveRubric(judgeId, teamFacts, rubricSets, defaultCriteria) {
+  const judgeRubric = rubricSets.find(r => r.assign_type === 'judges' && Array.isArray(r.judge_ids) && r.judge_ids.map(String).includes(String(judgeId)));
+  if (judgeRubric) return judgeRubric;
+  const filterRubric = rubricSets.find(r => r.assign_type === 'filter' && teamMatchesRubricFilter(teamFacts, r));
+  if (filterRubric) return filterRubric;
+  return { id: 'default', name: 'Default', criteria: defaultCriteria };
+}
 function scopeLabel(judge) {
   const dim = judge.scope_dimension || 'all';
   if (dim === 'all') return '';
@@ -148,7 +177,7 @@ function scopeLabel(judge) {
 
 async function loadRosterAndScores(judge) {
   const [formRows, teamRows, judgeScoreRows] = await Promise.all([
-    sb(`group_forms?id=eq.${encodeURIComponent(judge.group_form_id)}&select=id,title,header,sub_header,fields_json,eligibility_json,judging_criteria_json,archived`),
+    sb(`group_forms?id=eq.${encodeURIComponent(judge.group_form_id)}&select=id,title,header,sub_header,fields_json,eligibility_json,judging_criteria_json,judging_rubric_sets_json,archived`),
     sb(`group_form_teams?group_form_id=eq.${encodeURIComponent(judge.group_form_id)}&status=neq.disbanded&select=id,leader_student_id,group_data,reference_number&order=created_at.asc,id.asc`),
     sb(`group_form_judge_scores?judge_id=eq.${encodeURIComponent(judge.id)}&select=team_id,scores_json`),
   ]);
@@ -177,14 +206,17 @@ async function loadRosterAndScores(judge) {
 
   let fields = [];
   try { fields = JSON.parse(form.fields_json || '[]') || []; } catch (e) {}
-  let criteria = [];
-  try { criteria = JSON.parse(form.judging_criteria_json || '[]') || []; } catch (e) {}
+  let defaultCriteria = [];
+  try { defaultCriteria = JSON.parse(form.judging_criteria_json || '[]') || []; } catch (e) {}
+  let rubricSets = [];
+  try { rubricSets = JSON.parse(form.judging_rubric_sets_json || '[]') || []; } catch (e) {}
 
   const scoresByTeam = {};
   (Array.isArray(judgeScoreRows) ? judgeScoreRows : []).forEach(r => {
     try { scoresByTeam[r.team_id] = JSON.parse(r.scores_json || '{}') || {}; } catch (e) { scoresByTeam[r.team_id] = {}; }
   });
 
+  const rubricsUsed = {}; // rubric_id -> {id, name, criteria} actually seen among this judge's teams
   const teamInfos = teams.map(t => {
     const teamMembers = membersByTeam[t.id] || [];
     const leader = teamMembers.find(m => m.role === 'leader') || teamMembers[0] || null;
@@ -193,6 +225,8 @@ async function loadRosterAndScores(judge) {
     const description = capWords(answerByName(fields, t.group_data, /detail|description/i), 20);
     const category = answerByName(fields, t.group_data, /^category$/i) || '';
     const group = (t.group_data || {}).group || '';
+    const rubric = resolveRubric(judge.id, { house, category, group, group_data: t.group_data }, rubricSets, defaultCriteria);
+    rubricsUsed[rubric.id] = { id: rubric.id, name: rubric.name, criteria: rubric.criteria };
     return {
       team_id: t.id,
       reference_number: t.reference_number || ('#' + t.id),
@@ -201,6 +235,8 @@ async function loadRosterAndScores(judge) {
       group,
       title,
       description,
+      rubric_id: rubric.id,
+      criteria: rubric.criteria,
       members: teamMembers.map(m => ({
         name: (m.profile && m.profile.student_name) || m.student_id,
         class_section_roll: m.profile ? [m.profile.class, m.profile.section].filter(Boolean).join('-') + (m.profile.roll ? '-' + m.profile.roll : '') : '',
@@ -214,7 +250,8 @@ async function loadRosterAndScores(judge) {
     formHeader: form.header || form.title,
     formSubHeader: form.sub_header || '',
     archived: !!form.archived,
-    criteria,
+    criteria: defaultCriteria,
+    rubrics: Object.values(rubricsUsed),
     teams: teamInfos,
     scopeLabel: scopeLabel(judge),
   };
@@ -262,6 +299,7 @@ function renderPage(judge, data) {
   .team-sl{font-size:.72rem; font-weight:700; color:var(--ink-muted);}
   .team-ref{font-size:.7rem; font-weight:800; letter-spacing:.03em; background:var(--accent); color:#fff; border-radius:999px; padding:.15rem .55rem;}
   .team-house{font-size:.7rem; font-weight:700; color:var(--ink-muted);}
+  .team-rubric{font-size:.68rem; font-weight:800; color:var(--accent-ink); background:rgba(36,84,232,.12); padding:.15rem .5rem; border-radius:999px;}
   .team-members{margin:.5rem 0; display:flex; flex-direction:column; gap:.15rem;}
   .team-member{font-size:.86rem; font-weight:600;}
   .team-member .csr{color:var(--ink-muted); font-weight:500; font-size:.8rem;}
@@ -320,6 +358,8 @@ function renderPage(judge, data) {
 
   #sheet-host.hidden, #teams-host.hidden{display:none;}
   .sheet-wrap{overflow-x:auto; margin-top:.9rem; border:1px solid var(--border); border-radius:14px; background:var(--surface); box-shadow:var(--shadow);}
+  .sheet-rubric-heading{margin-top:1.2rem; font-size:.8rem; font-weight:800; color:var(--accent-ink);}
+  .sheet-rubric-heading:first-child{margin-top:.9rem;}
   table.sheet{border-collapse:collapse; width:100%; font-size:.82rem;}
   table.sheet th, table.sheet td{border-bottom:1px solid var(--border); border-right:1px solid var(--border); padding:.5rem .6rem; text-align:left; white-space:nowrap;}
   table.sheet th:last-child, table.sheet td:last-child{border-right:none;}
@@ -379,6 +419,10 @@ function renderPage(judge, data) {
   var FORM_TITLE = ${JSON.stringify(data.formTitle)};
   var FORM_HEADER = ${JSON.stringify(data.formHeader)};
   var FORM_SUBHEADER = ${JSON.stringify(data.formSubHeader)};
+  var RUBRICS = ${JSON.stringify(data.rubrics)};
+  var MULTI_RUBRIC = RUBRICS.length > 1;
+  var rubricNameById = {};
+  RUBRICS.forEach(function(r){ rubricNameById[r.id] = r.name; });
   var host = document.getElementById('teams-host');
 
   function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];}); }
@@ -445,7 +489,7 @@ function renderPage(judge, data) {
 
   function teamTotal(team){
     var sum = 0, any = false;
-    CRITERIA.forEach(function(c){
+    (team.criteria || CRITERIA).forEach(function(c){
       var v = Number(team.scores[c.key]);
       if (!isNaN(v)) { sum += v; any = true; }
     });
@@ -488,14 +532,16 @@ function renderPage(judge, data) {
     var membersHtml = team.members.map(function(m){
       return '<div class="team-member">' + esc(m.name) + (m.class_section_roll ? ' <span class="csr">(' + esc(m.class_section_roll) + ')</span>' : '') + '</div>';
     }).join('');
-    var fieldsHtml = CRITERIA.map(function(c){
+    var teamCriteria = team.criteria || CRITERIA;
+    var fieldsHtml = teamCriteria.map(function(c){
       var existing = team.scores[c.key];
       return '<div class="score-field"><label>' + esc(c.label) + ' (out of ' + esc(c.max) + ')</label>' +
         '<input type="number" class="score-input" min="0" max="' + esc(c.max) + '" step="1" data-team="' + team.team_id + '" data-crit="' + esc(c.key) + '" value="' + (existing != null ? esc(existing) : '') + '" readonly' + (ARCHIVED ? ' disabled' : '') + '></div>';
     }).join('');
     card.innerHTML =
       '<div class="team-top"><span class="team-sl">#' + (idx + 1) + '</span><span class="team-ref">' + esc(team.reference_number) + '</span>' +
-        (team.house ? '<span class="team-house">' + esc(team.house) + '</span>' : '') + '</div>' +
+        (team.house ? '<span class="team-house">' + esc(team.house) + '</span>' : '') +
+        (MULTI_RUBRIC ? '<span class="team-rubric">' + esc(rubricNameById[team.rubric_id] || 'Default') + '</span>' : '') + '</div>' +
       '<div class="team-members">' + membersHtml + '</div>' +
       '<div class="team-title">' + esc(team.title) + '</div>' +
       (team.description ? '<div class="team-desc">' + esc(team.description) + '</div>' : '') +
@@ -569,29 +615,53 @@ function renderPage(judge, data) {
   }
   if (editLockBtn) editLockBtn.addEventListener('click', function(){ editEnabled = !editEnabled; applyEditLock(); });
 
+  // Grouped by resolved rubric, one table per distinct rubric among the
+  // currently visible teams — a single uniform table can't work once
+  // different teams can have different score columns (filter-assigned
+  // rubrics vary by the TEAM, not the judge, so the same judge can see
+  // more than one). The overwhelmingly common case (one rubric for this
+  // whole judge) still renders as exactly one table, unchanged.
+  function groupByRubric(list){
+    var order = [], byId = {};
+    list.forEach(function(team){
+      var id = team.rubric_id || 'default';
+      if (!byId[id]) { byId[id] = { id: id, criteria: team.criteria || CRITERIA, teams: [] }; order.push(id); }
+      byId[id].teams.push(team);
+    });
+    return order.map(function(id){ return byId[id]; });
+  }
   function rebuildSheet(list){
     if (!sheetHost) return;
     sheetHost.innerHTML = '';
     if (!list.length) { sheetHost.innerHTML = '<div class="empty">No teams match this filter.</div>'; return; }
-    var wrap = document.createElement('div');
-    wrap.className = 'sheet-wrap';
-    var theadCells = '<th>SL</th><th>Team</th>' + CRITERIA.map(function(c){ return '<th>' + esc(c.label) + '<br>/' + esc(c.max) + '</th>'; }).join('') + '<th>Total</th><th></th>';
-    var rows = list.map(function(team, idx){
-      var membersLine = team.members.map(function(m){ return m.name; }).join(', ');
-      var cells = CRITERIA.map(function(c, colIdx){
-        var existing = team.scores[c.key];
-        return '<td><input type="number" class="sheet-input" min="0" max="' + esc(c.max) + '" step="1" data-team="' + team.team_id + '" data-crit="' + esc(c.key) + '" data-row="' + idx + '" data-col="' + colIdx + '" value="' + (existing != null ? esc(existing) : '') + '" readonly' + (ARCHIVED ? ' disabled' : '') + '></td>';
+    var groups = groupByRubric(list);
+    groups.forEach(function(grp){
+      if (MULTI_RUBRIC) {
+        var heading = document.createElement('div');
+        heading.className = 'sheet-rubric-heading';
+        heading.textContent = rubricNameById[grp.id] || 'Default';
+        sheetHost.appendChild(heading);
+      }
+      var wrap = document.createElement('div');
+      wrap.className = 'sheet-wrap';
+      var theadCells = '<th>SL</th><th>Team</th>' + grp.criteria.map(function(c){ return '<th>' + esc(c.label) + '<br>/' + esc(c.max) + '</th>'; }).join('') + '<th>Total</th><th></th>';
+      var rows = grp.teams.map(function(team, idx){
+        var membersLine = team.members.map(function(m){ return m.name; }).join(', ');
+        var cells = grp.criteria.map(function(c, colIdx){
+          var existing = team.scores[c.key];
+          return '<td><input type="number" class="sheet-input" min="0" max="' + esc(c.max) + '" step="1" data-team="' + team.team_id + '" data-crit="' + esc(c.key) + '" data-row="' + idx + '" data-col="' + colIdx + '" value="' + (existing != null ? esc(existing) : '') + '" readonly' + (ARCHIVED ? ' disabled' : '') + '></td>';
+        }).join('');
+        return '<tr data-team-row="' + team.team_id + '">' +
+          '<td class="sheet-sl">' + (idx + 1) + '</td>' +
+          '<td class="sheet-team"><span class="sheet-ref">' + esc(team.reference_number) + '</span>' + esc(team.title) + '<div class="sheet-members">' + esc(membersLine) + '</div></td>' +
+          cells +
+          '<td class="sheet-total">—</td>' +
+          '<td class="sheet-status"></td>' +
+        '</tr>';
       }).join('');
-      return '<tr data-team-row="' + team.team_id + '">' +
-        '<td class="sheet-sl">' + (idx + 1) + '</td>' +
-        '<td class="sheet-team"><span class="sheet-ref">' + esc(team.reference_number) + '</span>' + esc(team.title) + '<div class="sheet-members">' + esc(membersLine) + '</div></td>' +
-        cells +
-        '<td class="sheet-total">—</td>' +
-        '<td class="sheet-status"></td>' +
-      '</tr>';
-    }).join('');
-    wrap.innerHTML = '<table class="sheet"><thead><tr>' + theadCells + '</tr></thead><tbody>' + rows + '</tbody></table>';
-    sheetHost.appendChild(wrap);
+      wrap.innerHTML = '<table class="sheet"><thead><tr>' + theadCells + '</tr></thead><tbody>' + rows + '</tbody></table>';
+      sheetHost.appendChild(wrap);
+    });
 
     function recomputeRow(tr){
       var inputs = tr.querySelectorAll('input[data-crit]');
@@ -614,9 +684,12 @@ function renderPage(judge, data) {
     // movement, not in-cell text editing. Moving the cursor within a
     // cell's digits isn't supported this way (small 0-25 scores, not
     // worth the extra mode a real spreadsheet has) — arrives, selects the
-    // whole value, ready to type over.
-    function focusCell(row, col){
-      var target = sheetHost.querySelector('input[data-row="' + row + '"][data-col="' + col + '"]');
+    // whole value, ready to type over. Scoped to the input's OWN table
+    // (.sheet-wrap), not the whole sheet — with more than one rubric group
+    // now possible, row/col numbering restarts at 0 in each group's own
+    // table, so a sheet-wide lookup could jump into the wrong group.
+    function focusCell(scope, row, col){
+      var target = scope.querySelector('input[data-row="' + row + '"][data-col="' + col + '"]');
       if (!target) return false;
       target.focus();
       target.select();
@@ -624,11 +697,12 @@ function renderPage(judge, data) {
     }
     sheetHost.querySelectorAll('input.sheet-input').forEach(function(inp){
       inp.addEventListener('keydown', function(e){
+        var scope = inp.closest('.sheet-wrap');
         var row = Number(inp.getAttribute('data-row')), col = Number(inp.getAttribute('data-col'));
-        if (e.key === 'ArrowLeft') { if (focusCell(row, col - 1)) e.preventDefault(); }
-        else if (e.key === 'ArrowRight') { if (focusCell(row, col + 1)) e.preventDefault(); }
-        else if (e.key === 'ArrowUp') { if (focusCell(row - 1, col)) e.preventDefault(); }
-        else if (e.key === 'ArrowDown') { if (focusCell(row + 1, col)) e.preventDefault(); }
+        if (e.key === 'ArrowLeft') { if (focusCell(scope, row, col - 1)) e.preventDefault(); }
+        else if (e.key === 'ArrowRight') { if (focusCell(scope, row, col + 1)) e.preventDefault(); }
+        else if (e.key === 'ArrowUp') { if (focusCell(scope, row - 1, col)) e.preventDefault(); }
+        else if (e.key === 'ArrowDown') { if (focusCell(scope, row + 1, col)) e.preventDefault(); }
       });
     });
     // Pre-filled rows (already-saved scores) should show their real total
@@ -771,15 +845,19 @@ function renderPage(judge, data) {
     if (!list.length) { alert('No teams match the current filter.'); return; }
     var win = window.open('', '_blank');
     if (!win) { alert('Please allow popups to print.'); return; }
-    var headCells = '<th>SL</th><th>Ref</th><th>Project</th>' +
-      CRITERIA.map(function(c){ return '<th>' + esc(c.label) + '<br>/' + esc(c.max) + '</th>'; }).join('') + '<th>Total</th>';
-    var rows = list.map(function(team, idx){
-      var cells = CRITERIA.map(function(c){
-        var v = team.scores[c.key];
-        return '<td>' + (v != null ? esc(v) : '—') + '</td>';
+    var tablesHtml = groupByRubric(list).map(function(grp){
+      var headCells = '<th>SL</th><th>Ref</th><th>Project</th>' +
+        grp.criteria.map(function(c){ return '<th>' + esc(c.label) + '<br>/' + esc(c.max) + '</th>'; }).join('') + '<th>Total</th>';
+      var rows = grp.teams.map(function(team, idx){
+        var cells = grp.criteria.map(function(c){
+          var v = team.scores[c.key];
+          return '<td>' + (v != null ? esc(v) : '—') + '</td>';
+        }).join('');
+        var total = teamTotal(team);
+        return '<tr><td>' + (idx + 1) + '</td><td>' + esc(team.reference_number) + '</td><td>' + esc(team.title) + '</td>' + cells + '<td><b>' + (total == null ? '—' : total) + '</b></td></tr>';
       }).join('');
-      var total = teamTotal(team);
-      return '<tr><td>' + (idx + 1) + '</td><td>' + esc(team.reference_number) + '</td><td>' + esc(team.title) + '</td>' + cells + '<td><b>' + (total == null ? '—' : total) + '</b></td></tr>';
+      var heading = MULTI_RUBRIC ? '<h2 class="rubric-h">' + esc(rubricNameById[grp.id] || 'Default') + '</h2>' : '';
+      return heading + '<table><thead><tr>' + headCells + '</tr></thead><tbody>' + rows + '</tbody></table>';
     }).join('');
     var filterLine = activeFilterSummary();
     var logoUrl = location.origin + '/logo.jpg';
@@ -791,15 +869,15 @@ function renderPage(judge, data) {
       '.inst-addr{font-size:10px;color:#4b5563;}' +
       'h1{font-size:17px;margin:4px 0 0;} .sub{font-size:11px;color:#4b5563;margin:2px 0 0;}' +
       '.judge-row{font-size:12px;margin:6px 0 0;} .meta{font-size:10px;color:#6b7280;margin:3px 0 10px;}' +
-      'table{width:100%;border-collapse:collapse;font-size:11pt;} th,td{border:1px solid #94a3b8;padding:6px 8px;text-align:left;vertical-align:middle;}' +
+      'table{width:100%;border-collapse:collapse;font-size:11pt;margin-bottom:14px;} th,td{border:1px solid #94a3b8;padding:6px 8px;text-align:left;vertical-align:middle;}' +
       'th{background:#1e293b;color:#fff;text-transform:uppercase;font-size:9pt;letter-spacing:.03em;} th:first-child,td:first-child{width:28px;text-align:center;}' +
-      'tr,td{page-break-inside:avoid;}</style></head><body>' +
+      '.rubric-h{font-size:13px;margin:10px 0 4px;} tr,td{page-break-inside:avoid;}</style></head><body>' +
       '<div class="letterhead"><img src="' + logoUrl + '" alt=""><div><div class="inst-name">Chattogram Cantonment Public College</div><div class="inst-addr">Bayezid, Chattogram</div></div></div>' +
       '<h1>' + esc(FORM_HEADER) + '</h1>' +
       (FORM_SUBHEADER ? '<p class="sub">' + esc(FORM_SUBHEADER) + '</p>' : '') +
       '<p class="judge-row">Judge: <b>' + esc(JUDGE_NAME) + '</b></p>' +
       '<p class="meta">Printed ' + new Date().toLocaleString() + (filterLine ? ' · Filter: ' + esc(filterLine) : '') + ' · Sort: ' + esc(SORT_FIELDS[sortField].label) + ' (' + (sortDir === 'asc' ? 'A→Z' : 'Z→A') + ')</p>' +
-      '<table><thead><tr>' + headCells + '</tr></thead><tbody>' + rows + '</tbody></table>' +
+      tablesHtml +
       '</body></html>';
     win.document.open(); win.document.write(html); win.document.close();
     setTimeout(function(){ try { win.focus(); win.print(); } catch(e){} }, 300);
@@ -843,7 +921,7 @@ export async function POST(request, { params }) {
   const scores = body.scores && typeof body.scores === 'object' && !Array.isArray(body.scores) ? body.scores : null;
   if (!team_id || !scores) return NextResponse.json({ result: 'error', message: 'team_id and scores required.' }, { status: 400 });
 
-  const formRows = await sb(`group_forms?id=eq.${encodeURIComponent(judge.group_form_id)}&select=archived,judging_criteria_json,eligibility_json,fields_json`);
+  const formRows = await sb(`group_forms?id=eq.${encodeURIComponent(judge.group_form_id)}&select=archived,judging_criteria_json,judging_rubric_sets_json,eligibility_json,fields_json`);
   const form = Array.isArray(formRows) && formRows[0];
   if (!form) return NextResponse.json({ result: 'error', message: 'Judge link not found.' }, { status: 404 });
   if (form.archived) return NextResponse.json({ result: 'error', message: ARCHIVED_MESSAGE });
@@ -855,23 +933,37 @@ export async function POST(request, { params }) {
   if (!Array.isArray(teamRows) || !teamRows.length) return NextResponse.json({ result: 'error', message: 'Invalid team.' }, { status: 400 });
   const team = teamRows[0];
 
+  // Leader profile is needed either way now (scope check below, and rubric
+  // resolution — a filter-assigned rubric can key off house, same as scope
+  // can) — fetched once up front rather than only conditionally.
+  const leaderRows = await sb(`group_form_team_members?team_id=eq.${encodeURIComponent(team_id)}&role=eq.leader&select=student_id`);
+  const leaderId = Array.isArray(leaderRows) && leaderRows[0] ? leaderRows[0].student_id : null;
+  const leaderProfRows = leaderId ? await sb(`students_data?student_id=eq.${encodeURIComponent(leaderId)}&select=class,house`) : [];
+  const leaderProfile = (Array.isArray(leaderProfRows) && leaderProfRows[0]) || null;
+
   // And the team must fall within THIS judge's own assigned slice, not
   // just anywhere on the right form — a judge scoped to e.g. House Jupiter
   // never gets to score a team outside it, even by posting its team_id
   // directly (the page itself never renders it, but the API must refuse it
   // too, since the page is just a convenience, not the real gate).
-  if ((judge.scope_dimension || 'all') !== 'all') {
-    const leaderRows = await sb(`group_form_team_members?team_id=eq.${encodeURIComponent(team_id)}&role=eq.leader&select=student_id`);
-    const leaderId = Array.isArray(leaderRows) && leaderRows[0] ? leaderRows[0].student_id : null;
-    const leaderProfRows = leaderId ? await sb(`students_data?student_id=eq.${encodeURIComponent(leaderId)}&select=class,house`) : [];
-    const leaderProfile = (Array.isArray(leaderProfRows) && leaderProfRows[0]) || null;
-    if (!judgeScopeMatches(team, form, judge, leaderProfile)) {
-      return NextResponse.json({ result: 'error', message: 'This team is outside your assigned scope.' }, { status: 403 });
-    }
+  if ((judge.scope_dimension || 'all') !== 'all' && !judgeScopeMatches(team, form, judge, leaderProfile)) {
+    return NextResponse.json({ result: 'error', message: 'This team is outside your assigned scope.' }, { status: 403 });
   }
 
-  let criteria = [];
-  try { criteria = JSON.parse(form.judging_criteria_json || '[]') || []; } catch (e) {}
+  let defaultCriteria = [];
+  try { defaultCriteria = JSON.parse(form.judging_criteria_json || '[]') || []; } catch (e) {}
+  let rubricSets = [];
+  try { rubricSets = JSON.parse(form.judging_rubric_sets_json || '[]') || []; } catch (e) {}
+  let fields = [];
+  try { fields = JSON.parse(form.fields_json || '[]') || []; } catch (e) {}
+  const teamFacts = {
+    house: (leaderProfile && leaderProfile.house) || '',
+    category: answerByName(fields, team.group_data, /^category$/i) || '',
+    group: (team.group_data || {}).group || '',
+    group_data: team.group_data,
+  };
+  const rubric = resolveRubric(judge.id, teamFacts, rubricSets, defaultCriteria);
+  const criteria = rubric.criteria || [];
   const byKey = {};
   criteria.forEach(c => { byKey[c.key] = c; });
 
