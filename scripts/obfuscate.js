@@ -361,6 +361,13 @@ const RESERVED = [
   'gfOpenEditJudgeScoresModal','_gfSaveOneJudgeScoreRow',
   'toggleGroupFormRubricsPanel','gfAddRubricSet','gfRemoveRubricSet','gfAddRubricCriterion',
   '_gfToggleRubricJudge','_gfToggleRubricFilterDimValue','_gfOnRubricAssignTypeChange','gfSaveRubricSets',
+  // Judges' default sort panel (roster toolbar) — admin-set default team
+  // order for every judge's own scoring page, optionally locked there.
+  'toggleGroupFormJudgesSortPanel','_gfJudgesSortAdd','_gfJudgesSortRemove','_gfJudgesSortMove',
+  '_gfJudgesSortSetField','_gfJudgesSortSetDir','_gfSaveJudgesSort',
+  // _gfJudgesSortLocked is assigned directly (not called) from the Lock
+  // checkbox's inline onchange, same reason as _gfJudgesSheetConfigByForm above.
+  '_gfJudgesSortLocked',
   '_gfOnJudgeScopeDimensionChange','_gfSaveJudgeScope','_gfToggleJudgeScopeValue',
   '_gfToggleJudgesFilterValue','_gfSaveJudgesLayoutNow',
   // Judges Sheet's new "Judge" live-fill dropdown, plus the whole separate

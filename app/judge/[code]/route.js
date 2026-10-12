@@ -182,7 +182,7 @@ function scopeLabel(judge) {
 
 async function loadRosterAndScores(judge) {
   const [formRows, teamRows, judgeScoreRows] = await Promise.all([
-    sb(`group_forms?id=eq.${encodeURIComponent(judge.group_form_id)}&select=id,title,header,sub_header,fields_json,eligibility_json,judging_criteria_json,judging_rubric_sets_json,archived`),
+    sb(`group_forms?id=eq.${encodeURIComponent(judge.group_form_id)}&select=id,title,header,sub_header,fields_json,eligibility_json,judging_criteria_json,judging_rubric_sets_json,judges_sort_json,archived`),
     sb(`group_form_teams?group_form_id=eq.${encodeURIComponent(judge.group_form_id)}&status=neq.disbanded&review_status=eq.approved&select=id,leader_student_id,group_data,reference_number&order=created_at.asc,id.asc`),
     sb(`group_form_judge_scores?judge_id=eq.${encodeURIComponent(judge.id)}&select=team_id,scores_json`),
   ]);
@@ -250,6 +250,12 @@ async function loadRosterAndScores(judge) {
     };
   });
 
+  let sortConfig = { levels: [], locked: false };
+  try {
+    const parsed = JSON.parse(form.judges_sort_json || '{}') || {};
+    sortConfig = { levels: Array.isArray(parsed.levels) ? parsed.levels : [], locked: !!parsed.locked };
+  } catch (e) {}
+
   return {
     formTitle: form.title,
     formHeader: form.header || form.title,
@@ -259,6 +265,7 @@ async function loadRosterAndScores(judge) {
     rubrics: Object.values(rubricsUsed),
     teams: teamInfos,
     scopeLabel: scopeLabel(judge),
+    sortConfig,
   };
 }
 
@@ -339,10 +346,19 @@ function renderPage(judge, data) {
   .toolbar-btn.open{border-color:var(--accent); color:var(--accent-ink);}
   .toolbar-badge{display:inline-flex; align-items:center; justify-content:center; min-width:1.15rem; height:1.15rem; padding:0 .3rem; border-radius:999px; background:var(--accent); color:#fff; font-size:.68rem; font-weight:800;}
   .toolbar-badge.hidden{display:none;}
-  .sort-label{font-size:.72rem; font-weight:800; color:var(--ink-muted); text-transform:uppercase; letter-spacing:.03em; margin-left:.3rem;}
+  .print-btn{border:1.5px solid var(--accent); background:transparent; color:var(--accent-ink); font-weight:800; font-size:.8rem; padding:.42rem .9rem; border-radius:999px; cursor:pointer; margin-left:auto;}
+
+  .sort-levels{display:flex; flex-direction:column; gap:.5rem;}
+  .sort-level-row{display:flex; align-items:center; gap:.4rem; flex-wrap:wrap;}
+  .sort-level-row .sort-level-n{font-size:.72rem; font-weight:800; color:var(--ink-muted); width:1.1rem;}
   .sort-select{border:1.5px solid var(--border); background:var(--surface); color:var(--ink); font-weight:700; font-size:.8rem; padding:.42rem .6rem; border-radius:10px;}
   .sort-dir-btn{border:1.5px solid var(--border); background:var(--surface); color:var(--ink-muted); font-weight:700; font-size:.8rem; padding:.42rem .7rem; border-radius:10px; cursor:pointer;}
-  .print-btn{border:1.5px solid var(--accent); background:transparent; color:var(--accent-ink); font-weight:800; font-size:.8rem; padding:.42rem .9rem; border-radius:999px; cursor:pointer; margin-left:auto;}
+  .sort-remove-btn{border:none; background:none; color:#d8453a; font-weight:800; font-size:.9rem; padding:.2rem .4rem; cursor:pointer;}
+  .sort-remove-btn:disabled{opacity:.3; cursor:default;}
+  .sort-add-row{margin-top:.6rem;}
+  .sort-add-select{border:1.5px solid var(--border); background:var(--surface); color:var(--ink); font-weight:700; font-size:.78rem; padding:.4rem .6rem; border-radius:10px;}
+  .sort-locked-note{margin:.6rem 0 0; font-size:.76rem; font-weight:700; color:var(--ink-muted);}
+  .sort-locked-note.hidden{display:none;}
 
   .filter-panel{margin-top:.6rem; padding:.9rem 1rem; border:1.5px solid var(--border); border-radius:14px; background:var(--surface);}
   .filter-panel.hidden{display:none;}
@@ -399,14 +415,17 @@ function renderPage(judge, data) {
     </div>
     <div class="toolbar">
       <button type="button" id="filter-toggle-btn" class="toolbar-btn">Filter <span id="filter-badge" class="toolbar-badge hidden">0</span></button>
-      <label class="sort-label">Sort</label>
-      <select id="sort-field-select" class="sort-select"></select>
-      <button type="button" id="sort-dir-btn" class="sort-dir-btn" title="Toggle ascending/descending">↑ Asc</button>
+      <button type="button" id="sort-toggle-btn" class="toolbar-btn">Sort <span id="sort-badge" class="toolbar-badge hidden">0</span></button>
       <button type="button" id="print-sheet-btn" class="print-btn">🖨 Print</button>
     </div>
     <div id="filter-panel" class="filter-panel hidden">
       <div id="filter-chips" class="filter-chips"></div>
       <button type="button" id="clear-filters-btn" class="clear-filters-btn hidden">✕ Clear all filters</button>
+    </div>
+    <div id="sort-panel" class="filter-panel hidden">
+      <div id="sort-levels" class="sort-levels"></div>
+      <div id="sort-add-row" class="sort-add-row"></div>
+      <p id="sort-locked-note" class="sort-locked-note hidden">🔒 Sort order is set by admin and can't be changed here.</p>
     </div>
     <div id="result-count" class="result-count"></div>` : ''}
   </div>
@@ -426,6 +445,7 @@ function renderPage(judge, data) {
   var FORM_SUBHEADER = ${JSON.stringify(data.formSubHeader)};
   var RUBRICS = ${JSON.stringify(data.rubrics)};
   var MULTI_RUBRIC = RUBRICS.length > 1;
+  var SORT_CONFIG = ${JSON.stringify(data.sortConfig)};
   var rubricNameById = {};
   RUBRICS.forEach(function(r){ rubricNameById[r.id] = r.name; });
   var host = document.getElementById('teams-host');
@@ -438,7 +458,6 @@ function renderPage(judge, data) {
   // ── Filter + sort over the already-loaded TEAMS (client-side only — no
   // refetch) ───────────────────────────────────────────────────────────────
   var filterState = { house: [], category: [], group: [] };
-  var sortField = 'reference_number', sortDir = 'asc';
   var SORT_FIELDS = {
     reference_number: { label: 'Reference No.', get: function(t){ return t.reference_number || ''; }, type: 'text' },
     title: { label: 'Project Title', get: function(t){ return t.title || ''; }, type: 'text' },
@@ -447,6 +466,15 @@ function renderPage(judge, data) {
     group: { label: 'Group', get: function(t){ return t.group || ''; }, type: 'text' },
     total: { label: 'My Total', get: function(t){ var v = teamTotal(t); return v == null ? -Infinity : v; }, type: 'number' },
   };
+  // Multiple sort levels, in priority order — each {field, dir}, ties on
+  // the first level broken by the second, and so on. Seeded from the
+  // admin's own default (SORT_CONFIG, set from the roster's "Judges Sort"
+  // panel); if the admin locked it, SORT_LOCKED disables the whole panel
+  // instead of just hiding it, so a judge can still SEE what order is
+  // being applied without being able to touch it.
+  var SORT_LOCKED = !!SORT_CONFIG.locked;
+  var sortLevels = (SORT_CONFIG.levels || []).filter(function(l){ return l && SORT_FIELDS[l.field]; });
+  if (!sortLevels.length) sortLevels = [{ field: 'reference_number', dir: 'asc' }];
   function distinctValues(key){
     var seen = {}, out = [];
     TEAMS.forEach(function(t){ var v = t[key]; if (v && !seen[v]) { seen[v] = true; out.push(v); } });
@@ -465,14 +493,24 @@ function renderPage(judge, data) {
     });
     return parts.join(' · ');
   }
+  function activeSortSummary(){
+    return sortLevels.map(function(l){
+      var def = SORT_FIELDS[l.field] || SORT_FIELDS.reference_number;
+      return def.label + ' (' + (l.dir === 'desc' ? 'Z→A' : 'A→Z') + ')';
+    }).join(' → ');
+  }
   function visibleTeams(){
     var list = TEAMS.filter(teamMatchesFilter);
-    var def = SORT_FIELDS[sortField] || SORT_FIELDS.reference_number;
     list.sort(function(a, b){
-      var va = def.get(a), vb = def.get(b), cmp;
-      if (def.type === 'number') cmp = (Number(va) || 0) - (Number(vb) || 0);
-      else cmp = String(va).localeCompare(String(vb));
-      return sortDir === 'desc' ? -cmp : cmp;
+      for (var i = 0; i < sortLevels.length; i++){
+        var def = SORT_FIELDS[sortLevels[i].field] || SORT_FIELDS.reference_number;
+        var va = def.get(a), vb = def.get(b), cmp;
+        if (def.type === 'number') cmp = (Number(va) || 0) - (Number(vb) || 0);
+        else cmp = String(va).localeCompare(String(vb));
+        if (sortLevels[i].dir === 'desc') cmp = -cmp;
+        if (cmp !== 0) return cmp;
+      }
+      return 0;
     });
     return list;
   }
@@ -760,8 +798,12 @@ function renderPage(judge, data) {
   var filterChipsHost = document.getElementById('filter-chips');
   var clearFiltersBtn = document.getElementById('clear-filters-btn');
   var resultCountEl = document.getElementById('result-count');
-  var sortFieldSelect = document.getElementById('sort-field-select');
-  var sortDirBtn = document.getElementById('sort-dir-btn');
+  var sortToggleBtn = document.getElementById('sort-toggle-btn');
+  var sortBadge = document.getElementById('sort-badge');
+  var sortPanel = document.getElementById('sort-panel');
+  var sortLevelsHost = document.getElementById('sort-levels');
+  var sortAddRowHost = document.getElementById('sort-add-row');
+  var sortLockedNote = document.getElementById('sort-locked-note');
   var printBtn = document.getElementById('print-sheet-btn');
 
   function activeFilterCount(){
@@ -810,26 +852,80 @@ function renderPage(judge, data) {
     if (filterBadge) { filterBadge.textContent = count; filterBadge.classList.toggle('hidden', !count); }
     if (clearFiltersBtn) clearFiltersBtn.classList.toggle('hidden', !count);
   }
-  if (sortFieldSelect) {
-    sortFieldSelect.innerHTML = Object.keys(SORT_FIELDS).map(function(k){
-      return '<option value="' + k + '"' + (k === sortField ? ' selected' : '') + '>' + esc(SORT_FIELDS[k].label) + '</option>';
+  if (sortToggleBtn) sortToggleBtn.addEventListener('click', function(){
+    var opening = sortPanel.classList.contains('hidden');
+    sortPanel.classList.toggle('hidden', !opening);
+    sortToggleBtn.classList.toggle('open', opening);
+  });
+
+  // Multi-level sort builder — same "add a level, pick field + direction,
+  // remove/reorder" shape as the admin's own roster sort panel, just
+  // scoped to this one judge's teams. Locked by the admin (SORT_LOCKED):
+  // the levels still render so the judge can see the order being applied,
+  // but every control inside is disabled and the "+ Add level" row is
+  // hidden entirely.
+  function renderSortPanel(){
+    if (!sortLevelsHost) return;
+    var used = {};
+    sortLevels.forEach(function(l){ used[l.field] = true; });
+    sortLevelsHost.innerHTML = sortLevels.map(function(lvl, i){
+      var fieldOpts = Object.keys(SORT_FIELDS).map(function(k){
+        var disabled = used[k] && k !== lvl.field;
+        return '<option value="' + k + '"' + (k === lvl.field ? ' selected' : '') + (disabled ? ' disabled' : '') + '>' + esc(SORT_FIELDS[k].label) + '</option>';
+      }).join('');
+      return '<div class="sort-level-row" data-idx="' + i + '">' +
+        '<span class="sort-level-n">' + (i + 1) + '.</span>' +
+        '<select class="sort-select sort-field-select" data-idx="' + i + '"' + (SORT_LOCKED ? ' disabled' : '') + '>' + fieldOpts + '</select>' +
+        '<button type="button" class="sort-dir-btn sort-dir-toggle" data-idx="' + i + '"' + (SORT_LOCKED ? ' disabled' : '') + '>' + (lvl.dir === 'desc' ? '↓ Desc' : '↑ Asc') + '</button>' +
+        '<button type="button" class="sort-remove-btn" data-idx="' + i + '" title="Remove this sort level"' + (SORT_LOCKED || sortLevels.length <= 1 ? ' disabled' : '') + '>✕</button>' +
+        '</div>';
     }).join('');
-    sortFieldSelect.addEventListener('change', function(){
-      sortField = sortFieldSelect.value;
+    var unused = Object.keys(SORT_FIELDS).filter(function(k){ return !used[k]; });
+    sortAddRowHost.innerHTML = (!SORT_LOCKED && unused.length)
+      ? '<select id="sort-add-select" class="sort-add-select"><option value="">+ Add sort level…</option>' + unused.map(function(k){ return '<option value="' + k + '">' + esc(SORT_FIELDS[k].label) + '</option>'; }).join('') + '</select>'
+      : '';
+    sortLevelsHost.querySelectorAll('.sort-field-select').forEach(function(sel){
+      sel.addEventListener('change', function(){
+        sortLevels[Number(sel.getAttribute('data-idx'))].field = sel.value;
+        syncScoresFromDOM();
+        renderSortPanel();
+        rerender();
+      });
+    });
+    sortLevelsHost.querySelectorAll('.sort-dir-toggle').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var lvl = sortLevels[Number(btn.getAttribute('data-idx'))];
+        lvl.dir = lvl.dir === 'desc' ? 'asc' : 'desc';
+        syncScoresFromDOM();
+        renderSortPanel();
+        rerender();
+      });
+    });
+    sortLevelsHost.querySelectorAll('.sort-remove-btn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        if (sortLevels.length <= 1) return;
+        sortLevels.splice(Number(btn.getAttribute('data-idx')), 1);
+        syncScoresFromDOM();
+        renderSortPanel();
+        rerender();
+      });
+    });
+    var addSelect = document.getElementById('sort-add-select');
+    if (addSelect) addSelect.addEventListener('change', function(){
+      if (!addSelect.value) return;
+      sortLevels.push({ field: addSelect.value, dir: 'asc' });
       syncScoresFromDOM();
+      renderSortPanel();
       rerender();
     });
+    if (sortBadge) { sortBadge.textContent = sortLevels.length; sortBadge.classList.toggle('hidden', sortLevels.length <= 1); }
+    if (sortLockedNote) sortLockedNote.classList.toggle('hidden', !SORT_LOCKED);
   }
-  if (sortDirBtn) sortDirBtn.addEventListener('click', function(){
-    sortDir = sortDir === 'asc' ? 'desc' : 'asc';
-    sortDirBtn.textContent = sortDir === 'asc' ? '↑ Asc' : '↓ Desc';
-    syncScoresFromDOM();
-    rerender();
-  });
 
   function rerender(){
     var list = visibleTeams();
     renderFilterChips();
+    renderSortPanel();
     rebuildCards(list);
     rebuildSheet(list);
     applyEditLock();
@@ -881,7 +977,7 @@ function renderPage(judge, data) {
       '<h1>' + esc(FORM_HEADER) + '</h1>' +
       (FORM_SUBHEADER ? '<p class="sub">' + esc(FORM_SUBHEADER) + '</p>' : '') +
       '<p class="judge-row">Judge: <b>' + esc(JUDGE_NAME) + '</b></p>' +
-      '<p class="meta">Printed ' + new Date().toLocaleString() + (filterLine ? ' · Filter: ' + esc(filterLine) : '') + ' · Sort: ' + esc(SORT_FIELDS[sortField].label) + ' (' + (sortDir === 'asc' ? 'A→Z' : 'Z→A') + ')</p>' +
+      '<p class="meta">Printed ' + new Date().toLocaleString() + (filterLine ? ' · Filter: ' + esc(filterLine) : '') + ' · Sort: ' + esc(activeSortSummary()) + '</p>' +
       tablesHtml +
       '</body></html>';
     win.document.open(); win.document.write(html); win.document.close();

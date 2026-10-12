@@ -29843,6 +29843,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="printGroupFormJudgesCombined()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1" title="Every judge's score side by side, with an average and a position"><i data-lucide="bar-chart-3" class="h-3 w-3"></i>Judges' Combined Result</button>
             <button onclick="toggleGroupFormJudgesPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="gavel" class="h-3 w-3"></i>Judges</button>
             <button onclick="toggleGroupFormRubricsPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1" title="Give specific judges, or a filtered slice of teams, their own different score columns"><i data-lucide="list-checks" class="h-3 w-3"></i>Rubrics</button>
+            <button onclick="toggleGroupFormJudgesSortPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1" title="Set the default team order on every judge's own scoring page, and optionally lock it so judges can't change it"><i data-lucide="arrow-down-up" class="h-3 w-3"></i>Judges Sort</button>
             <button onclick="toggleGroupFormReviewerPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="users" class="h-3 w-3"></i>Reviewers</button>
             <button id="gfAddTeamBtn" onclick="gfOpenAdminCreateTeamModal()" class="px-3 py-1.5 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase flex items-center gap-1" title="Create a team for a student directly, bypassing Active/Open/Filter rules"><i data-lucide="plus" class="h-3 w-3"></i>Add Team</button>
             <button id="gfDelDisbandedBtn" onclick="deleteAllDisbandedTeams()" class="px-3 py-1.5 border border-red-200 text-red-600 rounded-full font-black text-[10px] uppercase hover:bg-red-50 flex items-center gap-1"><i data-lucide="trash-2" class="h-3 w-3"></i>Delete Disbanded</button>
@@ -29880,6 +29881,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div id="gfRubricSetsList" class="flex flex-col gap-3"></div>
           <button onclick="gfSaveRubricSets()" class="mt-3 px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Rubrics</button>
         </div>
+        <div id="gfJudgesSortPanel" class="hidden mb-4 p-4 bg-slate-50 rounded-2xl border border-slate-200"></div>
         <div id="gfRosterSummary" class="mb-4"></div>
         <div id="adminGroupRosterList" class="flex flex-col gap-3"></div>
       </div>
@@ -30842,6 +30844,90 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _gfRosterSortSetDir(i, dir) {
     if (_gfRosterSortLevels[i]) _gfRosterSortLevels[i].dir = dir;
     renderAdminGroupRoster(_gfRosterTeams, _gfRosterForm);
+  }
+  // ── Judges' default sort — a form-level setting (separate from the admin's
+  // own roster sort above) that seeds the sort every judge's own scoring page
+  // opens with. Reuses the same _gfSortPanelHtml/_gfCompareByLevels building
+  // blocks as the roster sort, just against a smaller field set (no
+  // leader-identity fields — a judge's page never shows who's on a team) and
+  // persisted to the form (judges_sort_json) instead of being a local-only
+  // view preference.
+  let _gfJudgesSortLevels = [{ field: 'reference_number', dir: 'asc' }];
+  let _gfJudgesSortLocked = false;
+  function _gfJudgesSortFieldDefs() {
+    return {
+      reference_number: { label: 'Reference No.' },
+      title: { label: 'Project Title' },
+      house: { label: 'House' },
+      category: { label: 'Category' },
+      group: { label: 'Group' },
+      total: { label: 'Judge’s Total' },
+    };
+  }
+  function toggleGroupFormJudgesSortPanel() {
+    const host = document.getElementById('gfJudgesSortPanel');
+    if (!host) return;
+    const opening = host.classList.contains('hidden');
+    host.classList.toggle('hidden');
+    if (!opening) return;
+    let saved = {};
+    try { saved = JSON.parse((_gfRosterForm && _gfRosterForm.judges_sort_json) || '{}') || {}; } catch (e) {}
+    _gfJudgesSortLevels = Array.isArray(saved.levels) && saved.levels.length ? saved.levels : [{ field: 'reference_number', dir: 'asc' }];
+    _gfJudgesSortLocked = !!saved.locked;
+    _gfRenderJudgesSortPanel();
+  }
+  function _gfRenderJudgesSortPanel() {
+    const host = document.getElementById('gfJudgesSortPanel');
+    if (!host || host.classList.contains('hidden')) return;
+    host.innerHTML = `
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-[10px] font-black text-slate-400 uppercase">Judges' Default Sort</span>
+      </div>
+      <p class="text-[11px] text-slate-400 font-bold mb-3">Sets the order teams appear in on every judge's own scoring page (first level breaks ties with the second, and so on). Judges can still change it themselves unless you lock it below.</p>
+      ${_gfSortPanelHtml(_gfJudgesSortLevels, _gfJudgesSortFieldDefs(), '_gfJudgesSort')}
+      <label class="flex items-center gap-2 mt-3 text-[11px] font-bold text-slate-600">
+        <input type="checkbox" ${_gfJudgesSortLocked ? 'checked' : ''} onchange="_gfJudgesSortLocked=this.checked">
+        Lock — judges can't change this on their own page
+      </label>
+      <button onclick="_gfSaveJudgesSort()" class="mt-3 px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Save Judges Sort</button>
+    `;
+    lucide.createIcons();
+  }
+  function _gfJudgesSortAdd() {
+    const defs = _gfJudgesSortFieldDefs();
+    const used = new Set(_gfJudgesSortLevels.map(l => l.field));
+    const next = Object.keys(defs).find(k => !used.has(k));
+    if (!next) return;
+    _gfJudgesSortLevels.push({ field: next, dir: 'asc' });
+    _gfRenderJudgesSortPanel();
+  }
+  function _gfJudgesSortRemove(i) {
+    if (_gfJudgesSortLevels.length <= 1) return;
+    _gfJudgesSortLevels.splice(i, 1);
+    _gfRenderJudgesSortPanel();
+  }
+  function _gfJudgesSortMove(i, dir) {
+    const j = i + dir;
+    if (j < 0 || j >= _gfJudgesSortLevels.length) return;
+    [_gfJudgesSortLevels[i], _gfJudgesSortLevels[j]] = [_gfJudgesSortLevels[j], _gfJudgesSortLevels[i]];
+    _gfRenderJudgesSortPanel();
+  }
+  function _gfJudgesSortSetField(i, field) {
+    if (_gfJudgesSortLevels[i]) _gfJudgesSortLevels[i].field = field;
+    _gfRenderJudgesSortPanel();
+  }
+  function _gfJudgesSortSetDir(i, dir) {
+    if (_gfJudgesSortLevels[i]) _gfJudgesSortLevels[i].dir = dir;
+  }
+  function _gfSaveJudgesSort() {
+    if (!_gfRosterFormId) return;
+    const payload = { levels: _gfJudgesSortLevels, locked: !!_gfJudgesSortLocked };
+    _adminFetch('save_group_form', { id: _gfRosterFormId, judges_sort_json: JSON.stringify(payload) }).then(res => {
+      if (res && res.result === 'success') {
+        showToast('Judges sort saved');
+        if (_gfRosterForm) _gfRosterForm.judges_sort_json = JSON.stringify(payload);
+      } else showToast((res && res.message) || 'Save failed', 'error');
+    }).catch(() => showToast('Network error', 'error'));
   }
   // One row per team: leader, members, pending invites, and every group-level
   // answer labeled with its real field name (same field set _gfFormatGroupData
