@@ -31012,7 +31012,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
     const csv = [headers, ...rows].map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    // "sep=,\n" + the UTF-8 BOM is what makes Excel reliably split into real
+    // columns instead of dumping the whole quoted line into column A --
+    // without it, Excel falls back to the Windows list-separator setting
+    // (often ";" outside the US), which silently breaks comma-delimited
+    // CSVs exactly like this one on exactly those machines.
+    a.href = URL.createObjectURL(new Blob(['﻿sep=,\n' + csv], { type: 'text/csv;charset=utf-8' }));
     a.download = `${(_gfRosterForm?.title || 'group_form').replace(/[^a-z0-9]+/gi, '_')}_teams.csv`;
     a.click();
   }
