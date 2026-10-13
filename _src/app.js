@@ -31677,6 +31677,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     sorted.forEach((x, i) => { if (x.value !== last) { rank = i + 1; last = x.value; } positions[x.id] = rank; });
     return positions;
   }
+  // "1st"/"2nd"/"3rd"/"4th"... for printed Position columns — plain numbers
+  // stay in the CSV exports (sortable/filterable there matters more than
+  // the ordinal reads nicely).
+  function _gfOrdinal(n) {
+    n = Number(n);
+    if (!n && n !== 0) return '—';
+    const v = n % 100;
+    const suffix = (v >= 11 && v <= 13) ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th');
+    return n + suffix;
+  }
   // Which of the roster's own filter dimensions are currently narrowed, as
   // one human-readable line — "Category: Physics · House: Jupiter" — for
   // the optional printed subheader. Admin and reviewer keep separate filter
@@ -31788,7 +31798,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           const s = scoresByTeam[t.id] || {};
           const critCells = grp.criteria.map(c => `<td>${s[c.key] != null ? _escHtml(s[c.key]) : '—'}</td>`).join('');
           const total = totalFor(t);
-          return `<tr><td>${globalIdx[t.id] + 1}</td>${dataColsHtml(t)}${customColsHtml(t)}${critCells}<td><b>${total != null ? total : '—'}</b></td><td>${positions[t.id] != null ? positions[t.id] : '—'}</td></tr>`;
+          return `<tr><td>${globalIdx[t.id] + 1}</td>${dataColsHtml(t)}${customColsHtml(t)}${critCells}<td><b>${total != null ? total : '—'}</b></td><td>${positions[t.id] != null ? _gfOrdinal(positions[t.id]) : '—'}</td></tr>`;
         }).join('');
         const heading = multi ? `<h2 style="font-size:13px;margin:14px 0 4px">${_escHtml(grp.name || 'Default')}</h2>` : '';
         return heading + `<table><thead><tr>${headCells}</tr></thead><tbody>${rows}</tbody></table>`;
@@ -32036,7 +32046,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const a = avgByTeam[t.id];
       const totalCell = `<td><b>${a ? a.sum : '—'}</b>${a && a.graded < a.of ? '<span class="note">*</span>' : ''}</td>`;
       const avgCell = `<td>${a ? a.avg.toFixed(1) : '—'}</td>`;
-      const posCell = `<td>${positions[t.id] != null ? positions[t.id] : '—'}</td>`;
+      const posCell = `<td>${positions[t.id] != null ? _gfOrdinal(positions[t.id]) : '—'}</td>`;
       return `<tr><td>${idx + 1}</td>${dataCells}${judgeCells}${totalCell}${avgCell}${posCell}</tr>`;
     }).join('');
     const titleText = (cfg.customTitle && cfg.customTitle.trim()) || `${form?.title || 'Judging'} — Combined Result`;
@@ -32082,9 +32092,43 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _gfPositionHoldersConfig(form) {
     const id = form?.id || 0;
     if (!_gfPositionHoldersConfigByForm[id]) {
-      _gfPositionHoldersConfigByForm[id] = { groupFields: ['category', 'group'], topN: 3, judgeIds: null, customTitle: '' };
+      _gfPositionHoldersConfigByForm[id] = {
+        groupFields: ['category', 'group'], topN: 3, judgeIds: null, customTitle: '',
+        // Print column order IS this array's order — pushed on select,
+        // spliced out on deselect, so clicking columns in the popup in a
+        // given sequence is what puts them in that same sequence on the
+        // printed sheet. Can hold 'custom:<id>' keys too (see customColDefs).
+        dataCols: ['position', 'reference_number', 'project_info', 'average'],
+        customColDefs: {},
+      };
     }
     return _gfPositionHoldersConfigByForm[id];
+  }
+  // position/average are relative to the ranking context (which combination,
+  // which judges), not an intrinsic team property like the rest, so every
+  // column's get() takes the optional per-entry context as a 2nd arg;
+  // regular/custom columns just ignore it.
+  function _gfPositionHoldersColumnsList(form, cfg) {
+    const regular = _gfJudgesSheetColumns(form);
+    const position = { key: 'position', label: 'Position', get: (t, ctx) => ctx ? _gfOrdinal(ctx.position) : '—' };
+    const average = { key: 'average', label: 'Average', get: (t, ctx) => ctx && ctx.avg != null ? ctx.avg.toFixed(1) : '—' };
+    const projectInfo = {
+      key: 'project_info', label: 'Project Info', html: true,
+      get: t => {
+        const lines = [`<b>${_escHtml(_gfProjectTitle(t, form))}</b>`];
+        t.members.forEach(m => {
+          const p = m.profile;
+          const csr = p ? [p.class, p.section].filter(Boolean).join('-') + (p.roll ? '-' + p.roll : '') : '';
+          lines.push(_escHtml((p && p.student_name) || m.student_id) + (csr ? ' (' + _escHtml(csr) + ')' : ''));
+        });
+        return lines.join('<br>');
+      },
+    };
+    const custom = Object.entries(cfg.customColDefs || {}).map(([key, def]) => ({
+      key, label: def.label || 'Custom', html: true,
+      get: t => _escHtml(_gfJudgesSheetFillTemplate(def.template || '', t, regular) || '—').replace(/\\n/g, '<br>'),
+    }));
+    return [position, average, projectInfo, ...regular, ...custom];
   }
   function _gfOpenPositionHoldersModal(teams, form, filterSummary) {
     if (!teams.length) { showToast('No teams to work with yet', 'error'); return; }
@@ -32104,6 +32148,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <label class="text-[10px] font-black text-slate-400 uppercase">Top N per combination</label>
           <input type="number" min="1" value="${cfg.topN}" oninput="_gfPositionHoldersConfigByForm[${form?.id || 0}].topN = Math.max(1, Number(this.value) || 1)" class="w-24 block px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mt-1">
         </div>
+        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Print columns</span>
+        <p class="text-[10px] text-slate-400 font-bold mt-0.5 mb-2">Click to add/remove — the numbered order is the order they'll print in.</p>
+        <div id="gfPositionHoldersCols" class="flex flex-wrap gap-2 mb-3"></div>
+        <div id="gfPositionHoldersCustomCols" class="flex flex-col gap-2 mb-2"></div>
+        <button type="button" onclick="_gfPositionHoldersAddCustomCol(${form?.id || 0})" class="mb-4 px-3 py-1.5 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase">+ Add Custom Column</button>
         <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Judges to include</span>
         <div id="gfPositionHoldersJudgeList" class="flex flex-wrap gap-2 mt-2 mb-4"><p class="text-xs text-slate-400 font-bold">Loading…</p></div>
         <div class="mb-3">
@@ -32121,6 +32170,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     overlay._gfForm = form;
     overlay._gfFilterSummary = filterSummary;
     _gfRenderPositionHoldersFields(form?.id || 0, cfg);
+    _gfRenderPositionHoldersCols(form, cfg);
+    _gfRenderPositionHoldersCustomCols(form, cfg);
     overlay._gfReady = form ? Promise.all([
       _adminFetch('admin_list_judges', { group_form_id: form.id }),
       _adminFetch('admin_get_judge_scores', { group_form_id: form.id }),
@@ -32145,6 +32196,71 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const i = cfg.groupFields.indexOf(key);
     if (i >= 0) { if (cfg.groupFields.length > 1) cfg.groupFields.splice(i, 1); } else cfg.groupFields.push(key);
     _gfRenderPositionHoldersFields(formId, cfg);
+  }
+  // Print column picker — every chip (virtual: Position/Average/Project
+  // Info, plus the regular per-team columns) toggles membership in
+  // cfg.dataCols; the numbered badge shows each selected one's position in
+  // that same array, which IS the print's own column order.
+  function _gfRenderPositionHoldersCols(form, cfg) {
+    const host = document.getElementById('gfPositionHoldersCols');
+    if (!host) return;
+    const cols = _gfPositionHoldersColumnsList(form, cfg).filter(c => !(cfg.customColDefs || {})[c.key]);
+    host.innerHTML = cols.map(c => {
+      const idx = cfg.dataCols.indexOf(c.key);
+      return `<label class="px-2.5 py-1 rounded-full font-black text-[10px] uppercase cursor-pointer ${idx >= 0 ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'}">
+        <input type="checkbox" class="hidden" ${idx >= 0 ? 'checked' : ''} onchange='_gfTogglePositionHoldersCol(${JSON.stringify(form?.id || 0)}, ${JSON.stringify(c.key)})'>${idx >= 0 ? '#' + (idx + 1) + ' ' : ''}${_escHtml(c.label)}
+      </label>`;
+    }).join('');
+  }
+  function _gfTogglePositionHoldersCol(formId, key) {
+    const cfg = _gfPositionHoldersConfigByForm[formId];
+    if (!cfg) return;
+    const i = cfg.dataCols.indexOf(key);
+    if (i >= 0) cfg.dataCols.splice(i, 1); else cfg.dataCols.push(key);
+    const overlay = document.getElementById('gfPositionHoldersOverlay');
+    _gfRenderPositionHoldersCols(overlay?._gfForm, cfg);
+  }
+  // Custom columns — same {label, template} idiom as the Judges Sheet's own
+  // custom columns, but each one is ALSO just another key in cfg.dataCols
+  // (auto-added on creation), so it fully participates in the same
+  // selection-order-is-print-order rule as every other column, including
+  // sitting wherever the admin drags it relative to the built-ins — "drags"
+  // meaning toggles off then back on in a new spot, same as any other chip.
+  function _gfRenderPositionHoldersCustomCols(form, cfg) {
+    const host = document.getElementById('gfPositionHoldersCustomCols');
+    if (!host) return;
+    const entries = Object.entries(cfg.customColDefs || {});
+    host.innerHTML = entries.map(([key, def]) => {
+      const idx = cfg.dataCols.indexOf(key);
+      return `<div class="flex items-center gap-2 bg-slate-50 p-2 rounded-xl border border-slate-200">
+        <span class="text-[10px] font-black text-slate-400 w-6 shrink-0">${idx >= 0 ? '#' + (idx + 1) : '—'}</span>
+        <input type="text" value="${_escHtml(def.label)}" placeholder="Column label" oninput="_gfPositionHoldersConfigByForm[${form?.id || 0}].customColDefs[${JSON.stringify(key)}].label = this.value" class="w-28 shrink-0 px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs">
+        <input type="text" value="${_escHtml(def.template)}" placeholder="Template, e.g. {reference_number} — {project_title:10}" class="flex-1 px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs" oninput="_gfPositionHoldersConfigByForm[${form?.id || 0}].customColDefs[${JSON.stringify(key)}].template = this.value">
+        <button type="button" onclick="_gfPositionHoldersRemoveCustomCol(${form?.id || 0}, ${JSON.stringify(key)})" class="p-1 text-red-400 hover:text-red-600"><i data-lucide="x" class="h-3.5 w-3.5"></i></button>
+      </div>`;
+    }).join('');
+    if (entries.length) lucide.createIcons();
+  }
+  function _gfPositionHoldersAddCustomCol(formId) {
+    const cfg = _gfPositionHoldersConfigByForm[formId];
+    if (!cfg) return;
+    const key = 'custom:' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    if (!cfg.customColDefs) cfg.customColDefs = {};
+    cfg.customColDefs[key] = { label: '', template: '' };
+    cfg.dataCols.push(key);
+    const overlay = document.getElementById('gfPositionHoldersOverlay');
+    _gfRenderPositionHoldersCustomCols(overlay?._gfForm, cfg);
+    _gfRenderPositionHoldersCols(overlay?._gfForm, cfg);
+  }
+  function _gfPositionHoldersRemoveCustomCol(formId, key) {
+    const cfg = _gfPositionHoldersConfigByForm[formId];
+    if (!cfg) return;
+    delete cfg.customColDefs[key];
+    const i = cfg.dataCols.indexOf(key);
+    if (i >= 0) cfg.dataCols.splice(i, 1);
+    const overlay = document.getElementById('gfPositionHoldersOverlay');
+    _gfRenderPositionHoldersCustomCols(overlay?._gfForm, cfg);
+    _gfRenderPositionHoldersCols(overlay?._gfForm, cfg);
   }
   function _gfRenderPositionHoldersJudgeList(form, cfg) {
     const host = document.getElementById('gfPositionHoldersJudgeList');
@@ -32207,14 +32323,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       return { label: grp.label, entries };
     }).filter(g => g.entries.length);
   }
-  // "Name (ID, Class-Section, Roll N)" — all four pieces the request asked
-  // for, bracketed together per participant.
-  function _gfPositionHolderMemberLine(m) {
-    const p = m.profile;
-    const name = (p && p.student_name) || m.student_id;
-    const bits = [m.student_id, p ? [p.class, p.section].filter(Boolean).join('-') : '', p && p.roll ? 'Roll ' + p.roll : ''].filter(Boolean);
-    return `${_escHtml(name)}${bits.length ? ' (' + _escHtml(bits.join(', ')) + ')' : ''}`;
-  }
   function _gfPrintPositionHoldersNow() {
     const overlay = document.getElementById('gfPositionHoldersOverlay');
     if (!overlay) return;
@@ -32226,14 +32334,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     ready.then(() => {
       const groups = _gfComputePositionHolders(teams, form, cfg);
       if (!groups.length) { showToast('No position holders to show — check the judges and group-by fields picked', 'error'); return; }
+      const allCols = _gfPositionHoldersColumnsList(form, cfg);
+      const cols = (cfg.dataCols || []).map(k => allCols.find(c => c.key === k)).filter(Boolean);
+      const printCols = cols.length ? cols : allCols.filter(c => ['position', 'reference_number', 'project_info', 'average'].includes(c.key));
+      const headCells = printCols.map(c => `<th>${_escHtml(c.label)}</th>`).join('');
       const sections = groups.map(g => {
-        const rows = g.entries.map(e => `<tr>
-          <td>${e.position}</td>
-          <td class="ref">${_escHtml(e.team.reference_number || '#' + e.team.id)}</td>
-          <td>${_escHtml(_gfProjectTitle(e.team, form))}</td>
-          <td>${e.team.members.map(_gfPositionHolderMemberLine).join('<br>')}</td>
-          <td>${e.avg != null ? e.avg.toFixed(1) : '—'}</td>
-        </tr>`).join('');
+        const rows = g.entries.map(e => {
+          const ctx = { position: e.position, avg: e.avg };
+          const cells = printCols.map(c => `<td${c.key === 'reference_number' ? ' class="ref"' : ''}>${c.html ? (c.get(e.team, ctx) || '—') : _escHtml(c.get(e.team, ctx) ?? '—')}</td>`).join('');
+          return `<tr>${cells}</tr>`;
+        }).join('');
         // Each combination is its own break-avoiding block, so a short
         // section (the common case — just a Top N) never gets its heading
         // stranded alone at the bottom of a page, separated from its own
@@ -32243,7 +32353,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         // next page either way (thead below), and no single row ever
         // splits across the break (tr/td avoid below).
         return `<div class="combo"><h2>${_escHtml(g.label)}</h2>
-          <table><thead><tr><th>Pos</th><th>Ref</th><th>Project</th><th>Participants</th><th>Avg</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+          <table><thead><tr>${headCells}</tr></thead><tbody>${rows}</tbody></table></div>`;
       }).join('');
       const titleText = (cfg.customTitle && cfg.customTitle.trim()) || `${form?.title || 'Judging'} — Position Holders (Top ${cfg.topN})`;
       const body = `
@@ -32252,13 +32362,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <p style="font-size:10px;color:#6b7280;margin:0 0 12px;text-align:center">Printed ${new Date().toLocaleString()}</p>
         ${sections}`;
       const css = `
-        @page { size: A4 landscape; margin: 14mm; }
+        @page { size: A4 landscape; margin: 16mm; }
+        html, body { margin: 0; padding: 0; }
         body, table { font-family: "Times New Roman", Times, serif; font-size: 11pt; }
         table { width: 100%; border-collapse: collapse; margin-bottom: 4px; }
         thead { display: table-header-group; }
         th, td { border: 1px solid #94a3b8; padding: 7px 9px; text-align: left; vertical-align: middle; }
         th { background: #1e293b; color: #fff; text-transform: uppercase; font-size: 9pt; letter-spacing: 0.04em; }
-        th:first-child, td:first-child { width: 34px; text-align: center; font-weight: 800; }
         td.ref { font-weight: 800; }
         .combo { page-break-inside: avoid; break-inside: avoid; margin-bottom: 14px; }
         .combo h2 { font-size: 14px; margin: 16px 0 6px; page-break-after: avoid; break-after: avoid; }
