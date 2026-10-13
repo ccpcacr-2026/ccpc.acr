@@ -1078,6 +1078,7 @@ function renderPage(judge, data) {
     var logoUrl = location.origin + '/logo.jpg';
     var html = '<!doctype html><html><head><meta charset="utf-8"><title>' + esc(JUDGE_NAME) + ' — Score Sheet</title><style>' +
       '@page{size:A4 landscape;margin:12mm;} body{font-family:Arial,Helvetica,sans-serif;margin:0;color:#111827;}' +
+      '@media screen{body{padding:12mm;}}' +
       '.letterhead{text-align:center;border-bottom:2px solid #1e293b;padding-bottom:8px;margin-bottom:10px;}' +
       '.letterhead img{height:46px;width:46px;object-fit:contain;display:block;margin:0 auto 4px;}' +
       '.inst-name{font-size:15px;font-weight:800;text-transform:uppercase;letter-spacing:.02em;}' +

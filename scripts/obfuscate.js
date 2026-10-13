@@ -390,6 +390,7 @@ const RESERVED = [
   '_gfPrintPositionHoldersNow','_gfDownloadPositionHoldersCsvNow',
   '_gfPositionHoldersConfigByForm',
   '_gfTogglePositionHoldersCol','_gfPositionHoldersAddCustomCol','_gfPositionHoldersRemoveCustomCol',
+  '_gfPositionHoldersInsertToken',
   // Icon picker (Tab builder + Group Form builder) — called via inline
   // onclick="_pickIcon(this)" in generated grid buttons.
   '_pickIcon',

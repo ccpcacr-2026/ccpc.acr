@@ -31061,6 +31061,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${_escHtml(title)}</title><style>
       * { box-sizing: border-box; }
       body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; color: #111827; }
+      /* @page's own margin only ever applies to the actual print/PDF
+         output -- the tab this opens in shows the raw page with NO margin
+         at all until the print dialog (auto-triggered below) actually
+         renders, which read as "there's no margin" if seen in that instant
+         or if the auto-print got blocked. This gives the on-screen view
+         its own visible margin too, scoped to screen so it can't ALSO
+         stack on top of each builder's own @page margin once actually
+         printed. */
+      @media screen { body { padding: 16mm; } }
       .letterhead { text-align: center; border-bottom: 2px solid #1e293b; padding-bottom: 8px; margin-bottom: 10px; }
       .letterhead img { height: 46px; width: 46px; object-fit: contain; display: block; margin: 0 auto 4px; }
       .letterhead .inst-name { font-size: 15px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.02em; }
@@ -32230,16 +32239,48 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const host = document.getElementById('gfPositionHoldersCustomCols');
     if (!host) return;
     const entries = Object.entries(cfg.customColDefs || {});
+    // What a template can actually reference — the regular per-team
+    // columns only (Position/Average need the per-entry ranking context a
+    // template has no access to; Project Info is multi-line HTML, not
+    // something that belongs inline in a plain-text template).
+    const insertable = _gfJudgesSheetColumns(form);
     host.innerHTML = entries.map(([key, def]) => {
       const idx = cfg.dataCols.indexOf(key);
-      return `<div class="flex items-center gap-2 bg-slate-50 p-2 rounded-xl border border-slate-200">
-        <span class="text-[10px] font-black text-slate-400 w-6 shrink-0">${idx >= 0 ? '#' + (idx + 1) : '—'}</span>
-        <input type="text" value="${_escHtml(def.label)}" placeholder="Column label" oninput="_gfPositionHoldersConfigByForm[${form?.id || 0}].customColDefs[${JSON.stringify(key)}].label = this.value" class="w-28 shrink-0 px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs">
-        <input type="text" value="${_escHtml(def.template)}" placeholder="Template, e.g. {reference_number} — {project_title:10}" class="flex-1 px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs" oninput="_gfPositionHoldersConfigByForm[${form?.id || 0}].customColDefs[${JSON.stringify(key)}].template = this.value">
-        <button type="button" onclick="_gfPositionHoldersRemoveCustomCol(${form?.id || 0}, ${JSON.stringify(key)})" class="p-1 text-red-400 hover:text-red-600"><i data-lucide="x" class="h-3.5 w-3.5"></i></button>
+      const tplId = 'gfPhTpl-' + key.replace(/[^a-z0-9]/gi, '');
+      return `<div class="flex flex-col gap-1.5 bg-slate-50 p-2 rounded-xl border border-slate-200">
+        <div class="flex items-center gap-2">
+          <span class="text-[10px] font-black text-slate-400 w-6 shrink-0">${idx >= 0 ? '#' + (idx + 1) : '—'}</span>
+          <input type="text" value="${_escHtml(def.label)}" placeholder="Column label" oninput="_gfPositionHoldersConfigByForm[${form?.id || 0}].customColDefs[${JSON.stringify(key)}].label = this.value" class="flex-1 px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs">
+          <button type="button" onclick="_gfPositionHoldersRemoveCustomCol(${form?.id || 0}, ${JSON.stringify(key)})" class="p-1 text-red-400 hover:text-red-600"><i data-lucide="x" class="h-3.5 w-3.5"></i></button>
+        </div>
+        <div class="flex items-center gap-2">
+          <select onchange="_gfPositionHoldersInsertToken(${JSON.stringify(key)}, this.value); this.value=''" class="shrink-0 px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-[10px] max-w-[110px]">
+            <option value="">Insert variable…</option>
+            ${insertable.map(c => `<option value="${_escHtml(c.key)}">${_escHtml(c.label)}</option>`).join('')}
+          </select>
+          <input type="text" id="${tplId}" value="${_escHtml(def.template)}" placeholder="e.g. {reference_number} — {project_title:10}" class="flex-1 px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs" oninput="_gfPositionHoldersConfigByForm[${form?.id || 0}].customColDefs[${JSON.stringify(key)}].template = this.value">
+        </div>
       </div>`;
     }).join('');
     if (entries.length) lucide.createIcons();
+  }
+  // Inserts {token} into the custom column's own template input at the
+  // cursor (or appends, if nothing's focused there yet), then replays it
+  // through a real 'input' event so the input's own existing oninput
+  // handler is what keeps cfg.customColDefs in sync — no separate write path
+  // to drift out of step with it.
+  function _gfPositionHoldersInsertToken(key, tokenKey) {
+    if (!tokenKey) return;
+    const input = document.getElementById('gfPhTpl-' + key.replace(/[^a-z0-9]/gi, ''));
+    if (!input) return;
+    const start = input.selectionStart != null ? input.selectionStart : input.value.length;
+    const end = input.selectionEnd != null ? input.selectionEnd : input.value.length;
+    const token = '{' + tokenKey + '}';
+    input.value = input.value.slice(0, start) + token + input.value.slice(end);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.focus();
+    const pos = start + token.length;
+    input.setSelectionRange(pos, pos);
   }
   function _gfPositionHoldersAddCustomCol(formId) {
     const cfg = _gfPositionHoldersConfigByForm[formId];
