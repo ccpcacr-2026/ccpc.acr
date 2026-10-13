@@ -31435,9 +31435,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       { key: 'house', label: 'House', values: distinct(_gfTeamHouse) },
       { key: 'group', label: 'Group', values: distinct(_gfTeamGroup) },
       { key: 'category', label: 'Category', values: distinct(t => _gfAnswerByName(t, form, /^category$/i)) },
-    ].filter(d => d.values.length);
-    if (!dims.length) { host.innerHTML = '<p class="text-[11px] text-slate-400 font-bold italic">No House/Group/Category values found among these teams.</p>'; return; }
-    host.innerHTML = dims.map(d => `
+    ];
+    // A filter pick remembered from a previously-saved layout (or from a
+    // different roster filter being active last time this was opened) can
+    // go stale -- a value that no longer belongs to ANY team currently in
+    // play. Left as-is it silently zeroes out the print with no visible
+    // chip to even undo, since a stale value was never among THIS open's
+    // own distinct values below. Prune it here instead, every render, so
+    // the filter can never restrict to a value nothing could ever match.
+    dims.forEach(d => { cfg.filter[d.key] = (cfg.filter[d.key] || []).filter(v => d.values.includes(v)); });
+    const visibleDims = dims.filter(d => d.values.length);
+    if (!visibleDims.length) { host.innerHTML = '<p class="text-[11px] text-slate-400 font-bold italic">No House/Group/Category values found among these teams.</p>'; return; }
+    host.innerHTML = visibleDims.map(d => `
       <div>
         <div class="text-[10px] font-black text-slate-400 uppercase mb-1">${_escHtml(d.label)}</div>
         <div class="flex flex-wrap gap-1.5">
