@@ -31003,13 +31003,27 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const answerFields = fields.filter(f => f.type !== 'group_label' && f.type !== 'profile_picture');
     const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''}${p.roll ? ', Roll ' + p.roll : ''})` : 'Unknown';
     const classSectionOf = p => p ? [p.class, p.section].filter(Boolean).join('-') : '';
-    const headers = ['SL', 'Reference No.', 'Team ID', 'Leader Name', 'Leader Class-Section', 'Leader Roll', 'Leader Student ID', 'Status', 'Review Status', 'Submitted', 'Submitted At', 'Locked', 'Members (excl. leader)', 'Pending Invites', ...answerFields.map(f => f.name || f.data_key)];
+    // One fixed set of columns per "other member" slot (same split-out shape
+    // as the Leader columns), sized to the most members any ONE team in
+    // this export actually has -- not max_team_size -- so a form allowing
+    // up to 5 doesn't pad every team out to 4 empty member slots when most
+    // teams only ever used 1 or 2.
+    const maxOthers = Math.max(0, ...teams.map(t => t.members.filter(m => m.role !== 'leader').length));
+    const memberHeaders = [];
+    for (let i = 1; i <= maxOthers; i++) memberHeaders.push(`Member ${i} Name`, `Member ${i} Class-Section`, `Member ${i} Roll`, `Member ${i} Student ID`);
+    const headers = ['SL', 'Reference No.', 'Team ID', 'Leader Name', 'Leader Class-Section', 'Leader Roll', 'Leader Student ID', 'Status', 'Review Status', 'Submitted', 'Submitted At', 'Locked', ...memberHeaders, 'Pending Invites', ...answerFields.map(f => f.name || f.data_key)];
     const rows = teams.map((t, idx) => {
       const leader = t.members.find(m => m.role === 'leader');
-      const others = t.members.filter(m => m.role !== 'leader').map(m => `${nameOf(m.profile)} [${m.student_id}]`).join('; ');
+      const others = t.members.filter(m => m.role !== 'leader');
+      const memberCells = [];
+      for (let i = 0; i < maxOthers; i++) {
+        const m = others[i];
+        const p = m && m.profile;
+        memberCells.push(p ? p.student_name : (m ? m.student_id : ''), classSectionOf(p), (p && p.roll) || '', m ? m.student_id : '');
+      }
       const pending = t.pending_invites.map(inv => `${nameOf(inv.profile)} [${inv.invited_student_id}]`).join('; ');
       const answers = answerFields.map(f => (t.group_data || {})[f.data_key] ?? '');
-      return [idx + 1, t.reference_number || '', t.id, (leader && leader.profile && leader.profile.student_name) || t.leader_student_id, classSectionOf(leader && leader.profile), (leader && leader.profile && leader.profile.roll) || '', t.leader_student_id, t.status, t.review_status || 'Pending', t.is_submitted ? 'Yes' : 'No', t.submitted_at ? new Date(t.submitted_at).toLocaleString() : '', t.is_locked ? 'Yes' : 'No', others, pending, ...answers];
+      return [idx + 1, t.reference_number || '', t.id, (leader && leader.profile && leader.profile.student_name) || t.leader_student_id, classSectionOf(leader && leader.profile), (leader && leader.profile && leader.profile.roll) || '', t.leader_student_id, t.status, t.review_status || 'Pending', t.is_submitted ? 'Yes' : 'No', t.submitted_at ? new Date(t.submitted_at).toLocaleString() : '', t.is_locked ? 'Yes' : 'No', ...memberCells, pending, ...answers];
     });
     const csv = [headers, ...rows].map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
     const a = document.createElement('a');
