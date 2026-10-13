@@ -1121,7 +1121,7 @@ function renderPage(judge, data) {
         rows.push([idx + 1, team.reference_number, m.role, m.name, m.student_id, m.roll, m.class, m.section, team.title, team.description_full || team.description]);
       });
     });
-    var csv = rows.map(function(r){ return r.map(csvCell).join(','); }).join('\n');
+    var csv = rows.map(function(r){ return r.map(csvCell).join(','); }).join('\\n');
     var a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
     a.download = (JUDGE_NAME || 'judge').replace(/[^a-z0-9]+/gi, '_') + '_project_details.csv';
