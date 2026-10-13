@@ -32234,8 +32234,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <td>${e.team.members.map(_gfPositionHolderMemberLine).join('<br>')}</td>
           <td>${e.avg != null ? e.avg.toFixed(1) : '—'}</td>
         </tr>`).join('');
-        return `<h2 style="font-size:14px;margin:16px 0 6px">${_escHtml(g.label)}</h2>
-          <table><thead><tr><th>Pos</th><th>Ref</th><th>Project</th><th>Participants</th><th>Avg</th></tr></thead><tbody>${rows}</tbody></table>`;
+        // Each combination is its own break-avoiding block, so a short
+        // section (the common case — just a Top N) never gets its heading
+        // stranded alone at the bottom of a page, separated from its own
+        // table on the next one. A combination too tall for one page still
+        // breaks where it has to (the block-level avoid is a best-effort
+        // hint, not a hard rule) — but its own header row repeats on the
+        // next page either way (thead below), and no single row ever
+        // splits across the break (tr/td avoid below).
+        return `<div class="combo"><h2>${_escHtml(g.label)}</h2>
+          <table><thead><tr><th>Pos</th><th>Ref</th><th>Project</th><th>Participants</th><th>Avg</th></tr></thead><tbody>${rows}</tbody></table></div>`;
       }).join('');
       const titleText = (cfg.customTitle && cfg.customTitle.trim()) || `${form?.title || 'Judging'} — Position Holders (Top ${cfg.topN})`;
       const body = `
@@ -32244,13 +32252,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <p style="font-size:10px;color:#6b7280;margin:0 0 12px;text-align:center">Printed ${new Date().toLocaleString()}</p>
         ${sections}`;
       const css = `
-        @page { size: A4 portrait; margin: 14mm; }
+        @page { size: A4 landscape; margin: 14mm; }
         body, table { font-family: "Times New Roman", Times, serif; font-size: 11pt; }
         table { width: 100%; border-collapse: collapse; margin-bottom: 4px; }
+        thead { display: table-header-group; }
         th, td { border: 1px solid #94a3b8; padding: 7px 9px; text-align: left; vertical-align: middle; }
         th { background: #1e293b; color: #fff; text-transform: uppercase; font-size: 9pt; letter-spacing: 0.04em; }
         th:first-child, td:first-child { width: 34px; text-align: center; font-weight: 800; }
         td.ref { font-weight: 800; }
+        .combo { page-break-inside: avoid; break-inside: avoid; margin-bottom: 14px; }
+        .combo h2 { font-size: 14px; margin: 16px 0 6px; page-break-after: avoid; break-after: avoid; }
         tr, td { page-break-inside: avoid; break-inside: avoid; }`;
       _gfOpenPrintWindow(`${form?.title || 'Position Holders'} — Top ${cfg.topN}`, body, css);
     });
