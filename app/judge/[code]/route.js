@@ -1078,17 +1078,17 @@ function renderPage(judge, data) {
     var logoUrl = location.origin + '/logo.jpg';
     var html = '<!doctype html><html><head><meta charset="utf-8"><title>' + esc(JUDGE_NAME) + ' — Score Sheet</title><style>' +
       '@page{size:A4 landscape;margin:12mm;} body{font-family:Arial,Helvetica,sans-serif;margin:0;color:#111827;}' +
-      '.letterhead{display:flex;align-items:center;gap:10px;border-bottom:2px solid #1e293b;padding-bottom:8px;margin-bottom:10px;}' +
-      '.letterhead img{height:42px;width:42px;object-fit:contain;flex-shrink:0;}' +
-      '.inst-name{font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.02em;}' +
+      '.letterhead{text-align:center;border-bottom:2px solid #1e293b;padding-bottom:8px;margin-bottom:10px;}' +
+      '.letterhead img{height:46px;width:46px;object-fit:contain;display:block;margin:0 auto 4px;}' +
+      '.inst-name{font-size:15px;font-weight:800;text-transform:uppercase;letter-spacing:.02em;}' +
       '.inst-addr{font-size:10px;color:#4b5563;}' +
-      'h1{font-size:17px;margin:4px 0 0;} .sub{font-size:11px;color:#4b5563;margin:2px 0 0;}' +
-      '.judge-row{font-size:12px;margin:6px 0 0;} .meta{font-size:10px;color:#6b7280;margin:3px 0 10px;}' +
+      'h1{font-size:17px;margin:4px 0 0;text-align:center;} .sub{font-size:11px;color:#4b5563;margin:2px 0 0;text-align:center;}' +
+      '.judge-row{font-size:12px;margin:6px 0 0;text-align:center;} .meta{font-size:10px;color:#6b7280;margin:3px 0 10px;text-align:center;}' +
       'table{width:100%;border-collapse:collapse;font-size:11pt;margin-bottom:14px;} th,td{border:1px solid #94a3b8;padding:6px 8px;text-align:left;vertical-align:middle;}' +
       'th{background:#1e293b;color:#fff;text-transform:uppercase;font-size:9pt;letter-spacing:.03em;} th:first-child,td:first-child{width:28px;text-align:center;}' +
       'tr,td{page-break-inside:avoid;}' +
       '.sheet-ref{font-weight:800;color:#1e3a8a;margin-right:6px;} .sheet-tags{color:#6b7280;margin-right:6px;} .sheet-members{color:#6b7280;font-size:9pt;margin-top:3px;}</style></head><body>' +
-      '<div class="letterhead"><img src="' + logoUrl + '" alt=""><div><div class="inst-name">Chattogram Cantonment Public College</div><div class="inst-addr">Bayezid, Chattogram</div></div></div>' +
+      '<div class="letterhead"><img src="' + logoUrl + '" alt=""><div class="inst-name">Chattogram Cantonment Public College</div><div class="inst-addr">Bayezid, Chattogram</div></div>' +
       '<h1>' + esc(FORM_HEADER) + '</h1>' +
       (FORM_SUBHEADER ? '<p class="sub">' + esc(FORM_SUBHEADER) + '</p>' : '') +
       '<p class="judge-row">Judge: <b>' + esc(JUDGE_NAME) + '</b></p>' +

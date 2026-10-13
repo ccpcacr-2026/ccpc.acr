@@ -31060,10 +31060,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${_escHtml(title)}</title><style>
       * { box-sizing: border-box; }
       body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; color: #111827; }
+      .letterhead { text-align: center; border-bottom: 2px solid #1e293b; padding-bottom: 8px; margin-bottom: 10px; }
+      .letterhead img { height: 46px; width: 46px; object-fit: contain; display: block; margin: 0 auto 4px; }
+      .letterhead .inst-name { font-size: 15px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.02em; }
+      .letterhead .inst-addr { font-size: 10px; color: #4b5563; }
       ${pageCss}
     </style></head><body>${bodyHtml}</body></html>`);
     win.document.close();
     setTimeout(() => { try { win.focus(); win.print(); } catch (e) {} }, 300);
+  }
+  // Institution letterhead, centered, same shape and copy as the judge's
+  // own page's own print (app/judge/[code]/route.js's printSheet) -- used
+  // by the Judges Sheet / Combined Result print builders below, the two
+  // "score sheet" style outputs this really belongs on, not every print
+  // layout that uses _gfOpenPrintWindow (Table Stickers/Token List are
+  // small per-team cards/slips, not documents a letterhead suits).
+  function _gfPrintLetterheadHtml() {
+    return `<div class="letterhead"><img src="${location.origin}/logo.jpg" alt=""><div class="inst-name">Chattogram Cantonment Public College</div><div class="inst-addr">Bayezid, Chattogram</div></div>`;
   }
   // No onerror fallback here on purpose — a failed image load in a one-off
   // print document isn't worth the attribute-quoting gymnastics; we just
@@ -31770,9 +31783,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }
     const nameLine = cfg.judgeNameLine ? `<p style="font-size:11px;color:#374151;margin:0 0 12px">Judge's Name: <span style="display:inline-block;width:220px;border-bottom:1px solid #9ca3af">${judge ? _escHtml(judge.name) : '&nbsp;'}</span>&nbsp;&nbsp;&nbsp;Printed ${new Date().toLocaleString()}</p>` : `<p style="font-size:10px;color:#6b7280;margin:0 0 12px">Printed ${new Date().toLocaleString()}</p>`;
     const titleText = (cfg.customTitle && cfg.customTitle.trim()) || `${form?.title || 'Judging'} — Judges Score Sheet`;
-    const subheaderHtml = (cfg.showFilterSubheader && filterSummary) ? `<p style="font-size:11px;color:#6b7280;margin:0 0 6px">${_escHtml(filterSummary)}</p>` : '';
+    const subheaderHtml = (cfg.showFilterSubheader && filterSummary) ? `<p style="font-size:11px;color:#6b7280;margin:0 0 6px;text-align:center">${_escHtml(filterSummary)}</p>` : '';
     const body = `
-      <h1 style="font-size:16px;margin:0 0 2px">${_escHtml(titleText)}</h1>
+      ${_gfPrintLetterheadHtml()}
+      <h1 style="font-size:16px;margin:0 0 2px;text-align:center">${_escHtml(titleText)}</h1>
       ${subheaderHtml}
       ${nameLine}
       ${bodyTables}`;
@@ -31960,13 +31974,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       return `<tr><td>${idx + 1}</td>${dataCells}${judgeCells}${totalCell}${avgCell}${posCell}</tr>`;
     }).join('');
     const titleText = (cfg.customTitle && cfg.customTitle.trim()) || `${form?.title || 'Judging'} — Combined Result`;
-    const subheaderHtml = (cfg.showFilterSubheader && filterSummary) ? `<p style="font-size:11px;color:#6b7280;margin:0 0 6px">${_escHtml(filterSummary)}</p>` : '';
+    const subheaderHtml = (cfg.showFilterSubheader && filterSummary) ? `<p style="font-size:11px;color:#6b7280;margin:0 0 6px;text-align:center">${_escHtml(filterSummary)}</p>` : '';
     const footnote = teams.some(t => avgByTeam[t.id] && avgByTeam[t.id].graded < avgByTeam[t.id].of)
       ? `<p style="font-size:9px;color:#6b7280;margin:6px 0 0">* not every selected judge has scored this team yet — the average shown is of those who have.</p>` : '';
     const body = `
-      <h1 style="font-size:16px;margin:0 0 2px">${_escHtml(titleText)}</h1>
+      ${_gfPrintLetterheadHtml()}
+      <h1 style="font-size:16px;margin:0 0 2px;text-align:center">${_escHtml(titleText)}</h1>
       ${subheaderHtml}
-      <p style="font-size:10px;color:#6b7280;margin:0 0 12px">Printed ${new Date().toLocaleString()}</p>
+      <p style="font-size:10px;color:#6b7280;margin:0 0 12px;text-align:center">Printed ${new Date().toLocaleString()}</p>
       <table>
         <thead><tr>${headCells}</tr></thead>
         <tbody>${rows}</tbody>
