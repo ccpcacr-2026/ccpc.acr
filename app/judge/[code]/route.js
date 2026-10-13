@@ -244,7 +244,8 @@ async function loadRosterAndScores(judge) {
     const leader = teamMembers.find(m => m.role === 'leader') || teamMembers[0] || null;
     const house = (leader && leader.profile && leader.profile.house) || '';
     const title = answerByName(fields, t.group_data, /project|poster|title/i) || 'Untitled Project';
-    const description = capWords(answerByName(fields, t.group_data, /detail|description/i), 20);
+    const descriptionFull = answerByName(fields, t.group_data, /detail|description/i);
+    const description = capWords(descriptionFull, 20);
     const category = answerByName(fields, t.group_data, /^category$/i) || '';
     const group = (t.group_data || {}).group || '';
     const rubric = resolveRubric(judge.id, { house, category, group, group_data: t.group_data }, rubricSets, defaultCriteria);
@@ -257,10 +258,16 @@ async function loadRosterAndScores(judge) {
       group,
       title,
       description,
+      description_full: descriptionFull,
       rubric_id: rubric.id,
       criteria: rubric.criteria,
       members: teamMembers.map(m => ({
         name: (m.profile && m.profile.student_name) || m.student_id,
+        student_id: m.student_id,
+        class: (m.profile && m.profile.class) || '',
+        section: (m.profile && m.profile.section) || '',
+        roll: (m.profile && m.profile.roll) || '',
+        role: m.role === 'leader' ? 'Leader' : 'Member',
         class_section_roll: m.profile ? [m.profile.class, m.profile.section].filter(Boolean).join('-') + (m.profile.roll ? '-' + m.profile.roll : '') : '',
       })),
       scores: scoresByTeam[t.id] || {},
@@ -450,6 +457,7 @@ function renderPage(judge, data) {
       <button type="button" id="sort-toggle-btn" class="toolbar-btn">Sort <span id="sort-badge" class="toolbar-badge hidden">0</span></button>
       <button type="button" id="download-excel-btn" class="toolbar-btn" title="Download the currently filtered teams as an Excel file to fill offline">⬇ Excel</button>
       <button type="button" id="upload-excel-btn" class="toolbar-btn"${data.archived ? ' disabled' : ''} title="Upload a filled Excel file — values land in the Sheet view for you to review, then Save All">⬆ Excel</button>
+      <button type="button" id="download-project-csv-btn" class="toolbar-btn" title="Download project details as a CSV — one row per team member, with leader/member identity, project title and full details">⬇ Project CSV</button>
       <input type="file" id="upload-excel-input" accept=".xlsx,.xls" style="display:none">
       <button type="button" id="print-sheet-btn" class="print-btn">🖨 Print</button>
     </div>
@@ -1094,6 +1102,30 @@ function renderPage(judge, data) {
       downloadExcelBtn.disabled = false;
       downloadExcelBtn.textContent = origText;
     });
+  });
+  // Project details CSV — a plain-text export separate from the scoring
+  // Excel above, one row per TEAM MEMBER (not per team) so leader and every
+  // other member get the exact same identity columns, with the project's
+  // own title/details repeated on each of that team's rows. Built with
+  // plain string-joining rather than SheetJS since a CSV needs no library.
+  function csvCell(v){ return '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"'; }
+  var downloadProjectCsvBtn = document.getElementById('download-project-csv-btn');
+  if (downloadProjectCsvBtn) downloadProjectCsvBtn.addEventListener('click', function(){
+    var list = visibleTeams();
+    if (!list.length) { alert('No teams match the current filter.'); return; }
+    var headers = ['SL', 'Reference No.', 'Role', 'Member Name', 'Student ID', 'Roll', 'Class', 'Section', 'Project Title', 'Details'];
+    var rows = [headers];
+    list.forEach(function(team, idx){
+      var members = team.members && team.members.length ? team.members : [{ name: '', student_id: '', roll: '', class: '', section: '', role: '' }];
+      members.forEach(function(m){
+        rows.push([idx + 1, team.reference_number, m.role, m.name, m.student_id, m.roll, m.class, m.section, team.title, team.description_full || team.description]);
+      });
+    });
+    var csv = rows.map(function(r){ return r.map(csvCell).join(','); }).join('\n');
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+    a.download = (JUDGE_NAME || 'judge').replace(/[^a-z0-9]+/gi, '_') + '_project_details.csv';
+    a.click();
   });
   if (uploadExcelBtn && uploadExcelInput) uploadExcelBtn.addEventListener('click', function(){ uploadExcelInput.click(); });
   if (uploadExcelInput) uploadExcelInput.addEventListener('change', function(e){
