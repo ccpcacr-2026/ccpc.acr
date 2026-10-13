@@ -31454,6 +31454,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (i >= 0) list.splice(i, 1); else list.push(value);
     const overlay = document.getElementById(_gfJudgesFilterOverlayId(storeName));
     _gfRenderJudgesFilterDims(storeName, overlay?._gfForm, overlay?._gfTeams, cfg);
+    // Combined Result's judge checklist re-targets itself to whichever
+    // judges are relevant under the filter as it stands after this toggle.
+    if (storeName === 'combined') _gfAutoSelectRelevantJudgesForCombined(formId);
   }
   function _gfApplyJudgesFilter(teams, cfg, form) {
     const f = cfg.filter;
@@ -31826,6 +31829,51 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }
     return _gfJudgesCombinedConfigByForm[id];
   }
+  // Mirrors judgeScopeMatches in app/judge/[code]/route.js (separate trust
+  // boundary, kept in sync by hand -- same reasoning as the triple-
+  // duplicated rubric resolution elsewhere in this file) -- used only to
+  // SUGGEST which judges are relevant to a filtered print, never to gate
+  // anything a judge can actually see or save.
+  function _gfJudgeScopeMatchesTeam(t, form, judge) {
+    const dim = judge.scope_dimension || 'all';
+    if (dim === 'all') return true;
+    let values = [];
+    try { const parsed = JSON.parse(judge.scope_value); values = Array.isArray(parsed) ? parsed : [judge.scope_value]; }
+    catch (e) { values = judge.scope_value ? [judge.scope_value] : []; }
+    if (!values.length) return false;
+    if (dim === 'class') { const p = _gfLeaderProfile(t); return values.includes(String(p?.class || '')); }
+    if (dim === 'house') return values.includes(_gfTeamHouse(t));
+    if (dim === 'group') return values.includes(_gfTeamGroup(t));
+    if (dim === 'category') return values.includes(_gfAnswerByName(t, form, /^category$/i));
+    if (dim.startsWith('answer:')) {
+      const key = dim.slice('answer:'.length);
+      return values.includes(String((t.group_data || {})[key] ?? ''));
+    }
+    return false;
+  }
+  // Recomputes which judges are relevant to whatever's ACTUALLY going to
+  // print right now (the roster's own filter the modal opened with, plus
+  // whatever's picked in this modal's own "Filter teams in this print"
+  // panel) and re-selects exactly those -- only while some filter is
+  // active; with no filter at all this falls back to every enabled judge,
+  // same as before this existed. Re-run on every filter change inside the
+  // modal, so the judge list always reflects the filter currently in play;
+  // an admin can still manually adjust the checkboxes afterward.
+  function _gfAutoSelectRelevantJudgesForCombined(formId) {
+    const cfg = _gfJudgesCombinedConfigByForm[formId];
+    const overlay = document.getElementById('gfJudgesCombinedOverlay');
+    if (!cfg || !overlay || !cfg._judges) return;
+    const form = overlay._gfForm;
+    const filtered = _gfApplyJudgesFilter(overlay._gfTeams || [], cfg, form);
+    const filterActive = !!(overlay._gfFilterSummary || (cfg.filter && Object.values(cfg.filter).some(v => v && v.length)));
+    if (filterActive && filtered.length) {
+      const relevant = cfg._judges.filter(j => filtered.some(t => _gfJudgeScopeMatchesTeam(t, form, j)));
+      cfg.judgeIds = (relevant.length ? relevant : cfg._judges).map(j => j.id);
+    } else {
+      cfg.judgeIds = cfg._judges.map(j => j.id);
+    }
+    _gfRenderJudgesCombinedJudgeList(form, cfg);
+  }
   function _gfOpenJudgesCombinedModal(teams, form, filterSummary) {
     if (!teams.length) { showToast('No teams to print yet', 'error'); return; }
     const cols = _gfJudgesSheetColumns(form);
@@ -31873,9 +31921,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _adminFetch('admin_get_judge_scores', { group_form_id: form.id }),
     ]).then(([jr, sr]) => {
       cfg._judges = (jr && jr.result === 'success') ? jr.judges.filter(j => j.is_enabled) : [];
-      if (cfg.judgeIds == null) cfg.judgeIds = cfg._judges.map(j => j.id);
       cfg._judgeScores = (sr && sr.result === 'success') ? sr.scores : [];
-      _gfRenderJudgesCombinedJudgeList(form, cfg);
+      // Auto-select the judges relevant to whatever's already filtered
+      // (the roster's own active filter this modal opened with) every
+      // time it opens with a filter in play, not just the first time --
+      // same reasoning as re-running it on every in-modal filter change.
+      const filterActive = !!(filterSummary || Object.values(cfg.filter || {}).some(v => v && v.length));
+      if (filterActive) _gfAutoSelectRelevantJudgesForCombined(form.id);
+      else {
+        if (cfg.judgeIds == null) cfg.judgeIds = cfg._judges.map(j => j.id);
+        _gfRenderJudgesCombinedJudgeList(form, cfg);
+      }
     }) : Promise.resolve();
   }
   function _gfRenderJudgesCombinedDataCols(form, cols, cfg) {
