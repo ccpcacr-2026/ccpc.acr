@@ -29841,6 +29841,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="printGroupFormTableStickers()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="tag" class="h-3 w-3"></i>Table Sticker</button>
             <button onclick="printGroupFormJudgesSheet()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1" title="Configurable score sheet for judges — pick which columns show, pull in a judge's live scores, or leave blank for hand-fill"><i data-lucide="clipboard-list" class="h-3 w-3"></i>Judges Sheet</button>
             <button onclick="printGroupFormJudgesCombined()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1" title="Every judge's score side by side, with an average and a position"><i data-lucide="bar-chart-3" class="h-3 w-3"></i>Judges' Combined Result</button>
+            <button onclick="printGroupFormPositionHolders()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1" title="Top N teams, ranked by judges' average, within every combination of House/Group/Category — print or download as CSV"><i data-lucide="trophy" class="h-3 w-3"></i>Position Holders</button>
             <button onclick="toggleGroupFormJudgesPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="gavel" class="h-3 w-3"></i>Judges</button>
             <button onclick="toggleGroupFormRubricsPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1" title="Give specific judges, or a filtered slice of teams, their own different score columns"><i data-lucide="list-checks" class="h-3 w-3"></i>Rubrics</button>
             <button onclick="toggleGroupFormJudgesSortPanel()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1" title="Set the default team order on every judge's own scoring page, and optionally lock it so judges can't change it"><i data-lucide="arrow-down-up" class="h-3 w-3"></i>Judges Sort</button>
@@ -32068,6 +32069,224 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function printGroupFormJudgesCombined() { _gfOpenJudgesCombinedModal(_gfRosterFilteredSorted(), _gfRosterForm, _gfActiveFilterSummary(_gfRosterFilterState)); }
   function _printGfReviewJudgesCombined() { _gfOpenJudgesCombinedModal(_gfReviewFilteredTeams(), _gfReviewForm, _gfActiveFilterSummary(_gfReviewFilterState)); }
 
+  // ── Position Holders — top N teams per combination of House/Group/
+  // Category, ranked by the same judges'-average scoring Combined Result
+  // uses. e.g. picking Category + Group lists the top 3 of every actual
+  // Category × Group pair found among the teams, not just one flat top-3
+  // across everything. Participants print as "Name (ID, Class-Section,
+  // Roll N)" per the request; the CSV breaks the same info into its own
+  // columns, one row per participant (role/name/id/class/section/roll),
+  // same shape as the judge page's own Project CSV.
+  const GF_POSITION_HOLDERS_FIELDS = { house: 'House', group: 'Group', category: 'Category' };
+  let _gfPositionHoldersConfigByForm = {};
+  function _gfPositionHoldersConfig(form) {
+    const id = form?.id || 0;
+    if (!_gfPositionHoldersConfigByForm[id]) {
+      _gfPositionHoldersConfigByForm[id] = { groupFields: ['category', 'group'], topN: 3, judgeIds: null, customTitle: '' };
+    }
+    return _gfPositionHoldersConfigByForm[id];
+  }
+  function _gfOpenPositionHoldersModal(teams, form, filterSummary) {
+    if (!teams.length) { showToast('No teams to work with yet', 'error'); return; }
+    const cfg = _gfPositionHoldersConfig(form);
+    document.getElementById('gfPositionHoldersOverlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'gfPositionHoldersOverlay';
+    overlay.className = 'fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4';
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+    overlay.innerHTML = `
+      <div class="bg-white rounded-3xl w-full max-w-lg p-5 shadow-2xl max-h-[85vh] overflow-y-auto">
+        <p class="font-black text-slate-800 text-sm mb-1">Position Holders</p>
+        <p class="text-[11px] text-slate-400 font-bold mb-4">Top N teams, ranked by judges' average score, within every combination of the fields picked below — e.g. Category + Group lists the top 3 of every Category × Group pair that actually exists among these teams.</p>
+        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Group by</span>
+        <div id="gfPositionHoldersFields" class="flex flex-wrap gap-2 mt-2 mb-4"></div>
+        <div class="mb-4">
+          <label class="text-[10px] font-black text-slate-400 uppercase">Top N per combination</label>
+          <input type="number" min="1" value="${cfg.topN}" oninput="_gfPositionHoldersConfigByForm[${form?.id || 0}].topN = Math.max(1, Number(this.value) || 1)" class="w-24 block px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mt-1">
+        </div>
+        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Judges to include</span>
+        <div id="gfPositionHoldersJudgeList" class="flex flex-wrap gap-2 mt-2 mb-4"><p class="text-xs text-slate-400 font-bold">Loading…</p></div>
+        <div class="mb-3">
+          <label class="text-[10px] font-black text-slate-400 uppercase">Title</label>
+          <input type="text" value="${_escHtml(cfg.customTitle || '')}" placeholder="${_escHtml((form?.title || 'Judging') + ' — Position Holders')}" oninput="_gfPositionHoldersConfigByForm[${form?.id || 0}].customTitle = this.value" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mt-1">
+        </div>
+        <div class="flex items-center gap-2">
+          <button type="button" onclick="_gfPrintPositionHoldersNow()" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white">Print</button>
+          <button type="button" onclick="_gfDownloadPositionHoldersCsvNow()" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-600 hover:bg-slate-50">Download CSV</button>
+          <button type="button" onclick="document.getElementById('gfPositionHoldersOverlay').remove()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-slate-100 text-slate-500 hover:bg-slate-200">Cancel</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    overlay._gfTeams = teams;
+    overlay._gfForm = form;
+    overlay._gfFilterSummary = filterSummary;
+    _gfRenderPositionHoldersFields(form?.id || 0, cfg);
+    overlay._gfReady = form ? Promise.all([
+      _adminFetch('admin_list_judges', { group_form_id: form.id }),
+      _adminFetch('admin_get_judge_scores', { group_form_id: form.id }),
+    ]).then(([jr, sr]) => {
+      cfg._judges = (jr && jr.result === 'success') ? jr.judges.filter(j => j.is_enabled) : [];
+      if (cfg.judgeIds == null) cfg.judgeIds = cfg._judges.map(j => j.id);
+      cfg._judgeScores = (sr && sr.result === 'success') ? sr.scores : [];
+      _gfRenderPositionHoldersJudgeList(form, cfg);
+    }) : Promise.resolve();
+  }
+  function _gfRenderPositionHoldersFields(formId, cfg) {
+    const host = document.getElementById('gfPositionHoldersFields');
+    if (!host) return;
+    host.innerHTML = Object.entries(GF_POSITION_HOLDERS_FIELDS).map(([k, label]) => `
+      <label class="px-2.5 py-1 rounded-full font-black text-[10px] uppercase cursor-pointer ${cfg.groupFields.includes(k) ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'}">
+        <input type="checkbox" class="hidden" ${cfg.groupFields.includes(k) ? 'checked' : ''} onchange='_gfTogglePositionHoldersField(${formId}, ${JSON.stringify(k)})'>${_escHtml(label)}
+      </label>`).join('');
+  }
+  function _gfTogglePositionHoldersField(formId, key) {
+    const cfg = _gfPositionHoldersConfigByForm[formId];
+    if (!cfg) return;
+    const i = cfg.groupFields.indexOf(key);
+    if (i >= 0) { if (cfg.groupFields.length > 1) cfg.groupFields.splice(i, 1); } else cfg.groupFields.push(key);
+    _gfRenderPositionHoldersFields(formId, cfg);
+  }
+  function _gfRenderPositionHoldersJudgeList(form, cfg) {
+    const host = document.getElementById('gfPositionHoldersJudgeList');
+    if (!host) return;
+    const judges = cfg._judges || [];
+    if (!judges.length) { host.innerHTML = '<p class="text-xs text-slate-400 font-bold italic">No judges set up for this form yet — use the "Judges" button on the toolbar.</p>'; return; }
+    host.innerHTML = judges.map(j => `
+      <label class="px-2.5 py-1 rounded-full font-black text-[10px] uppercase cursor-pointer ${(cfg.judgeIds || []).includes(j.id) ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'}">
+        <input type="checkbox" class="hidden" ${(cfg.judgeIds || []).includes(j.id) ? 'checked' : ''} onchange='_gfPositionHoldersToggleJudge(${JSON.stringify(form?.id || 0)}, ${j.id})'>${_escHtml(j.name)}
+      </label>`).join('');
+  }
+  function _gfPositionHoldersToggleJudge(formId, judgeId) {
+    const cfg = _gfPositionHoldersConfigByForm[formId];
+    if (!cfg) return;
+    const i = (cfg.judgeIds || []).indexOf(judgeId);
+    if (i >= 0) cfg.judgeIds.splice(i, 1); else cfg.judgeIds.push(judgeId);
+    const overlay = document.getElementById('gfPositionHoldersOverlay');
+    _gfRenderPositionHoldersJudgeList(overlay?._gfForm, cfg);
+  }
+  // Same judges'-average scoring as _gfBuildJudgesCombined, just grouped
+  // into per-combination buckets and ranked WITHIN each bucket instead of
+  // once across the whole team list.
+  function _gfComputePositionHolders(teams, form, cfg) {
+    const judges = (cfg._judges || []).filter(j => (cfg.judgeIds || []).includes(j.id));
+    const scoresByJudgeTeam = {};
+    (cfg._judgeScores || []).forEach(r => {
+      scoresByJudgeTeam[r.judge_id] = scoresByJudgeTeam[r.judge_id] || {};
+      try { scoresByJudgeTeam[r.judge_id][r.team_id] = JSON.parse(r.scores_json || '{}') || {}; } catch (e) {}
+    });
+    let defaultCriteria = []; try { defaultCriteria = JSON.parse(form?.judging_criteria_json || '[]') || []; } catch (e) {}
+    const rubricSets = _gfParseRubricSets(form);
+    const totalFor = (judgeId, team) => {
+      const s = (scoresByJudgeTeam[judgeId] || {})[team.id];
+      if (!s) return null;
+      const rub = _gfResolveRubricForTeam(judgeId, team, form, rubricSets, defaultCriteria);
+      let sum = 0, any = false;
+      rub.criteria.forEach(c => { const v = Number(s[c.key]); if (!isNaN(v)) { sum += v; any = true; } });
+      return any ? sum : null;
+    };
+    const avgByTeam = {};
+    teams.forEach(t => {
+      const vals = judges.map(j => totalFor(j.id, t)).filter(v => v != null);
+      avgByTeam[t.id] = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+    });
+    const fields = cfg.groupFields.length ? cfg.groupFields : ['category'];
+    const comboValue = (t, f) => f === 'house' ? _gfTeamHouse(t) : f === 'group' ? _gfTeamGroup(t) : _gfAnswerByName(t, form, /^category$/i);
+    const groups = {};
+    teams.forEach(t => {
+      const parts = fields.map(f => comboValue(t, f) || '—');
+      const key = parts.join('\u0001');
+      if (!groups[key]) groups[key] = { label: fields.map((f, i) => `${GF_POSITION_HOLDERS_FIELDS[f]}: ${parts[i]}`).join(' · '), teams: [] };
+      groups[key].teams.push(t);
+    });
+    return Object.values(groups).sort((a, b) => a.label.localeCompare(b.label)).map(grp => {
+      const positions = _gfRankByValueDesc(grp.teams.map(t => ({ id: t.id, value: avgByTeam[t.id] })));
+      const entries = grp.teams
+        .map(t => ({ team: t, position: positions[t.id] != null ? positions[t.id] : null, avg: avgByTeam[t.id] }))
+        .filter(e => e.position != null && e.position <= cfg.topN)
+        .sort((a, b) => a.position - b.position);
+      return { label: grp.label, entries };
+    }).filter(g => g.entries.length);
+  }
+  // "Name (ID, Class-Section, Roll N)" — all four pieces the request asked
+  // for, bracketed together per participant.
+  function _gfPositionHolderMemberLine(m) {
+    const p = m.profile;
+    const name = (p && p.student_name) || m.student_id;
+    const bits = [m.student_id, p ? [p.class, p.section].filter(Boolean).join('-') : '', p && p.roll ? 'Roll ' + p.roll : ''].filter(Boolean);
+    return `${_escHtml(name)}${bits.length ? ' (' + _escHtml(bits.join(', ')) + ')' : ''}`;
+  }
+  function _gfPrintPositionHoldersNow() {
+    const overlay = document.getElementById('gfPositionHoldersOverlay');
+    if (!overlay) return;
+    const form = overlay._gfForm;
+    const cfg = _gfPositionHoldersConfig(form);
+    const teams = overlay._gfTeams;
+    const ready = overlay._gfReady || Promise.resolve();
+    overlay.remove();
+    ready.then(() => {
+      const groups = _gfComputePositionHolders(teams, form, cfg);
+      if (!groups.length) { showToast('No position holders to show — check the judges and group-by fields picked', 'error'); return; }
+      const sections = groups.map(g => {
+        const rows = g.entries.map(e => `<tr>
+          <td>${e.position}</td>
+          <td class="ref">${_escHtml(e.team.reference_number || '#' + e.team.id)}</td>
+          <td>${_escHtml(_gfProjectTitle(e.team, form))}</td>
+          <td>${e.team.members.map(_gfPositionHolderMemberLine).join('<br>')}</td>
+          <td>${e.avg != null ? e.avg.toFixed(1) : '—'}</td>
+        </tr>`).join('');
+        return `<h2 style="font-size:14px;margin:16px 0 6px">${_escHtml(g.label)}</h2>
+          <table><thead><tr><th>Pos</th><th>Ref</th><th>Project</th><th>Participants</th><th>Avg</th></tr></thead><tbody>${rows}</tbody></table>`;
+      }).join('');
+      const titleText = (cfg.customTitle && cfg.customTitle.trim()) || `${form?.title || 'Judging'} — Position Holders (Top ${cfg.topN})`;
+      const body = `
+        ${_gfPrintLetterheadHtml()}
+        <h1 style="font-size:16px;margin:0 0 2px;text-align:center">${_escHtml(titleText)}</h1>
+        <p style="font-size:10px;color:#6b7280;margin:0 0 12px;text-align:center">Printed ${new Date().toLocaleString()}</p>
+        ${sections}`;
+      const css = `
+        @page { size: A4 portrait; margin: 14mm; }
+        body, table { font-family: "Times New Roman", Times, serif; font-size: 11pt; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 4px; }
+        th, td { border: 1px solid #94a3b8; padding: 7px 9px; text-align: left; vertical-align: middle; }
+        th { background: #1e293b; color: #fff; text-transform: uppercase; font-size: 9pt; letter-spacing: 0.04em; }
+        th:first-child, td:first-child { width: 34px; text-align: center; font-weight: 800; }
+        td.ref { font-weight: 800; }
+        tr, td { page-break-inside: avoid; break-inside: avoid; }`;
+      _gfOpenPrintWindow(`${form?.title || 'Position Holders'} — Top ${cfg.topN}`, body, css);
+    });
+  }
+  function _gfDownloadPositionHoldersCsvNow() {
+    const overlay = document.getElementById('gfPositionHoldersOverlay');
+    if (!overlay) return;
+    const form = overlay._gfForm;
+    const cfg = _gfPositionHoldersConfig(form);
+    const teams = overlay._gfTeams;
+    const ready = overlay._gfReady || Promise.resolve();
+    overlay.remove();
+    ready.then(() => {
+      const groups = _gfComputePositionHolders(teams, form, cfg);
+      if (!groups.length) { showToast('No position holders to show — check the judges and group-by fields picked', 'error'); return; }
+      const headers = ['Group', 'Position', 'Average', 'Reference No.', 'Project Title', 'Role', 'Participant Name', 'Student ID', 'Class', 'Section', 'Roll'];
+      const rows = [headers];
+      groups.forEach(g => {
+        g.entries.forEach(e => {
+          const members = e.team.members.length ? e.team.members : [{ role: '', profile: null, student_id: '' }];
+          members.forEach(m => {
+            const p = m.profile;
+            rows.push([g.label, e.position, e.avg != null ? e.avg.toFixed(1) : '', e.team.reference_number || '#' + e.team.id, _gfProjectTitle(e.team, form), m.role === 'leader' ? 'Leader' : 'Member', (p && p.student_name) || m.student_id, m.student_id, (p && p.class) || '', (p && p.section) || '', (p && p.roll) || '']);
+          });
+        });
+      });
+      const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob(['﻿sep=,\n' + csv], { type: 'text/csv;charset=utf-8' }));
+      a.download = `${(form?.title || 'position_holders').replace(/[^a-z0-9]+/gi, '_')}_position_holders.csv`;
+      a.click();
+    });
+  }
+  function printGroupFormPositionHolders() { _gfOpenPositionHoldersModal(_gfRosterFilteredSorted(), _gfRosterForm, _gfActiveFilterSummary(_gfRosterFilterState)); }
+  function _printGfReviewPositionHolders() { _gfOpenPositionHoldersModal(_gfReviewFilteredTeams(), _gfReviewForm, _gfActiveFilterSummary(_gfReviewFilterState)); }
+
   function closeGroupRoster() {
     document.getElementById('adminGroupRoster').classList.add('hidden');
     _gfRosterFormId = null;
@@ -32814,6 +33033,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <button onclick="_printGfReviewTableStickers()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1"><i data-lucide="tag" class="h-3 w-3"></i>Table Sticker</button>
         <button onclick="_printGfReviewJudgesSheet()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1" title="Configurable score sheet for judges — pick which columns show, pull in a judge's live scores, or leave blank for hand-fill"><i data-lucide="clipboard-list" class="h-3 w-3"></i>Judges Sheet</button>
         <button onclick="_printGfReviewJudgesCombined()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1" title="Every judge's score side by side, with an average and a position"><i data-lucide="bar-chart-3" class="h-3 w-3"></i>Judges' Combined Result</button>
+        <button onclick="_printGfReviewPositionHolders()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-full font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1" title="Top N teams, ranked by judges' average, within every combination of House/Group/Category — print or download as CSV"><i data-lucide="trophy" class="h-3 w-3"></i>Position Holders</button>
       `;
       _renderGfReviewRoster(_gfReviewFilteredTeams(), _gfReviewForm);
       _gfRenderReviewFilterPanel();

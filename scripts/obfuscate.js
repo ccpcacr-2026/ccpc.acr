@@ -380,6 +380,15 @@ const RESERVED = [
   '_gfRenderJudgesSheetJudgeSelect',
   'printGroupFormJudgesCombined','_printGfReviewJudgesCombined',
   '_gfOpenJudgesCombinedModal','_gfJudgesCombinedToggleCol','_gfJudgesCombinedToggleJudge','_gfPrintJudgesCombinedNow',
+  // Position Holders (top N per House/Group/Category combination, ranked
+  // by judges' average) — its own modal/field-picker/judge-picker/print/
+  // CSV, all reached via inline onclick/onchange in generated markup.
+  // _gfPositionHoldersConfigByForm is also assigned to DIRECTLY (not just
+  // called) from the Top-N number input and Title text input.
+  'printGroupFormPositionHolders','_printGfReviewPositionHolders',
+  '_gfTogglePositionHoldersField','_gfPositionHoldersToggleJudge',
+  '_gfPrintPositionHoldersNow','_gfDownloadPositionHoldersCsvNow',
+  '_gfPositionHoldersConfigByForm',
   // Icon picker (Tab builder + Group Form builder) — called via inline
   // onclick="_pickIcon(this)" in generated grid buttons.
   '_pickIcon',
