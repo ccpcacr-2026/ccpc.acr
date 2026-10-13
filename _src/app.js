@@ -31002,13 +31002,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     try { fields = JSON.parse(_gfRosterForm?.fields_json || '[]'); } catch (e) {}
     const answerFields = fields.filter(f => f.type !== 'group_label' && f.type !== 'profile_picture');
     const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''}${p.roll ? ', Roll ' + p.roll : ''})` : 'Unknown';
-    const headers = ['SL', 'Reference No.', 'Team ID', 'Leader', 'Leader Student ID', 'Status', 'Review Status', 'Submitted', 'Submitted At', 'Locked', 'Members (excl. leader)', 'Pending Invites', ...answerFields.map(f => f.name || f.data_key)];
+    const classSectionOf = p => p ? [p.class, p.section].filter(Boolean).join('-') : '';
+    const headers = ['SL', 'Reference No.', 'Team ID', 'Leader Name', 'Leader Class-Section', 'Leader Roll', 'Leader Student ID', 'Status', 'Review Status', 'Submitted', 'Submitted At', 'Locked', 'Members (excl. leader)', 'Pending Invites', ...answerFields.map(f => f.name || f.data_key)];
     const rows = teams.map((t, idx) => {
       const leader = t.members.find(m => m.role === 'leader');
       const others = t.members.filter(m => m.role !== 'leader').map(m => `${nameOf(m.profile)} [${m.student_id}]`).join('; ');
       const pending = t.pending_invites.map(inv => `${nameOf(inv.profile)} [${inv.invited_student_id}]`).join('; ');
       const answers = answerFields.map(f => (t.group_data || {})[f.data_key] ?? '');
-      return [idx + 1, t.reference_number || '', t.id, leader ? nameOf(leader.profile) : t.leader_student_id, t.leader_student_id, t.status, t.review_status || 'Pending', t.is_submitted ? 'Yes' : 'No', t.submitted_at ? new Date(t.submitted_at).toLocaleString() : '', t.is_locked ? 'Yes' : 'No', others, pending, ...answers];
+      return [idx + 1, t.reference_number || '', t.id, (leader && leader.profile && leader.profile.student_name) || t.leader_student_id, classSectionOf(leader && leader.profile), (leader && leader.profile && leader.profile.roll) || '', t.leader_student_id, t.status, t.review_status || 'Pending', t.is_submitted ? 'Yes' : 'No', t.submitted_at ? new Date(t.submitted_at).toLocaleString() : '', t.is_locked ? 'Yes' : 'No', others, pending, ...answers];
     });
     const csv = [headers, ...rows].map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
     const a = document.createElement('a');
