@@ -410,6 +410,7 @@ function renderPage(judge, data) {
   .save-all-btn:disabled{opacity:.5; cursor:default;}
   .save-all-btn.hidden{display:none;}
   .save-all-status{font-size:.76rem; font-weight:700; color:var(--ink-muted); white-space:nowrap;}
+  .autosave-note{margin:.5rem 0 0; font-size:.76rem; font-weight:700; color:var(--ink-muted);}
 
   #sheet-host.hidden, #teams-host.hidden{display:none;}
   .sheet-wrap{overflow-x:auto; margin-top:.9rem; border:1px solid var(--border); border-radius:14px; background:var(--surface); box-shadow:var(--shadow);}
@@ -449,9 +450,10 @@ function renderPage(judge, data) {
       <button type="button" id="edit-lock-btn" class="edit-lock-btn locked"${data.archived ? ' disabled' : ''}>🔒 Enable Edit</button>
       <button type="button" id="view-cards-btn" class="view-btn">Cards</button>
       <button type="button" id="view-sheet-btn" class="view-btn active">Sheet (Excel-style)</button>
-      <button type="button" id="save-all-btn" class="save-all-btn hidden"${data.archived ? ' disabled' : ''}>Save All</button>
+      <button type="button" id="save-all-btn" class="save-all-btn hidden"${data.archived ? ' disabled' : ''}>Save All Now</button>
       <span id="save-all-status" class="save-all-status"></span>
     </div>
+    ${data.archived ? '' : '<p class="autosave-note">💾 Scores save automatically a moment after you stop typing — the buttons above are only for an immediate save.</p>'}
     <div class="toolbar">
       <button type="button" id="filter-toggle-btn" class="toolbar-btn">Filter <span id="filter-badge" class="toolbar-badge hidden">0</span></button>
       <button type="button" id="sort-toggle-btn" class="toolbar-btn">Sort <span id="sort-badge" class="toolbar-badge hidden">0</span></button>
@@ -614,6 +616,32 @@ function renderPage(judge, data) {
     return { scores: scores, bad: bad };
   }
 
+  // ── Auto-save — a short debounce after the judge stops typing in a given
+  // team's row/card, not on every keystroke (that would fire a request per
+  // digit typed). Keyed per team_id so typing in one team never resets or
+  // cancels another team's pending save. The manual Save/Save All buttons
+  // stay as an explicit "save right now" action — clicking one clears that
+  // team's pending timer first, so a debounce left over from the last
+  // keystroke can't also fire right after and show a confusing double save.
+  var AUTOSAVE_DELAY_MS = 900;
+  var autosaveTimers = {};
+  function cancelAutoSave(teamId){
+    if (autosaveTimers[teamId]) { clearTimeout(autosaveTimers[teamId]); delete autosaveTimers[teamId]; }
+  }
+  function scheduleAutoSave(teamId, readFn, onStatus){
+    if (ARCHIVED) return;
+    cancelAutoSave(teamId);
+    autosaveTimers[teamId] = setTimeout(function(){
+      delete autosaveTimers[teamId];
+      var r = readFn();
+      if (r.bad) { onStatus('bad'); return; }
+      onStatus('saving');
+      saveTeamScores(teamId, r.scores).then(function(res){
+        onStatus(res.ok ? 'ok' : 'err', res.message);
+      });
+    }, AUTOSAVE_DELAY_MS);
+  }
+
   function renderTeam(team, idx){
     var card = document.createElement('div');
     card.className = 'team-card';
@@ -641,7 +669,7 @@ function renderPage(judge, data) {
       (VISIBLE_FIELDS.description && team.description ? '<div class="team-desc">' + esc(team.description) + '</div>' : '') +
       '<div class="score-grid">' + fieldsHtml + '</div>' +
       '<div class="team-foot"><span class="team-total">Total: <b class="total-val">' + (teamTotal(team) == null ? '—' : teamTotal(team)) + '</b></span>' +
-        '<button type="button" class="save-btn"' + (ARCHIVED ? ' disabled' : '') + '>Save</button></div>' +
+        '<button type="button" class="save-btn"' + (ARCHIVED ? ' disabled' : '') + '>Save Now</button></div>' +
       '<div class="save-status"></div>';
 
     var totalEl = card.querySelector('.total-val');
@@ -657,16 +685,25 @@ function renderPage(judge, data) {
       });
       totalEl.textContent = any ? sum : '—';
     }
-    inputs.forEach(function(inp){ inp.addEventListener('input', recompute); });
+    function applyStatus(state, msg){
+      if (state === 'bad') { statusEl.textContent = 'One or more scores are out of range.'; statusEl.className = 'save-status err'; return; }
+      if (state === 'saving') { statusEl.textContent = 'Saving…'; statusEl.className = 'save-status'; return; }
+      statusEl.textContent = state === 'ok' ? 'Saved ✓' : (msg || 'Could not save.');
+      statusEl.className = state === 'ok' ? 'save-status ok' : 'save-status err';
+    }
+    inputs.forEach(function(inp){ inp.addEventListener('input', function(){
+      recompute();
+      scheduleAutoSave(team.team_id, function(){ return readScoresFromInputs(inputs); }, applyStatus);
+    }); });
 
     saveBtn.addEventListener('click', async function(){
+      cancelAutoSave(team.team_id);
       var r = readScoresFromInputs(inputs);
-      if (r.bad) { statusEl.textContent = 'One or more scores are out of range.'; statusEl.className = 'save-status err'; return; }
+      if (r.bad) { applyStatus('bad'); return; }
       saveBtn.disabled = true;
-      statusEl.textContent = 'Saving…'; statusEl.className = 'save-status';
+      applyStatus('saving');
       var res = await saveTeamScores(team.team_id, r.scores);
-      statusEl.textContent = res.ok ? 'Saved ✓' : res.message;
-      statusEl.className = res.ok ? 'save-status ok' : 'save-status err';
+      applyStatus(res.ok ? 'ok' : 'err', res.message);
       saveBtn.disabled = !!ARCHIVED;
     });
 
@@ -781,7 +818,18 @@ function renderPage(judge, data) {
       tr.classList.add('dirty');
     }
     sheetHost.querySelectorAll('input.sheet-input').forEach(function(inp){
-      inp.addEventListener('input', function(){ recomputeRow(inp.closest('tr')); });
+      inp.addEventListener('input', function(){
+        var tr = inp.closest('tr');
+        recomputeRow(tr);
+        var teamId = Number(tr.getAttribute('data-team-row'));
+        var statusCell = tr.querySelector('.sheet-status');
+        scheduleAutoSave(teamId, function(){ return readScoresFromInputs(tr.querySelectorAll('input[data-crit]')); }, function(state, msg){
+          if (state === 'bad') { statusCell.textContent = '!'; statusCell.className = 'sheet-status err'; statusCell.title = 'Fix the highlighted value(s) first.'; return; }
+          if (state === 'saving') { statusCell.textContent = '…'; statusCell.className = 'sheet-status'; return; }
+          if (state === 'ok') { statusCell.textContent = '✓'; statusCell.className = 'sheet-status ok'; tr.classList.remove('dirty'); }
+          else { statusCell.textContent = '!'; statusCell.className = 'sheet-status err'; statusCell.title = msg || 'Could not save.'; }
+        });
+      });
     });
 
     // Excel-style arrow-key navigation: Left/Right/Up/Down move to the
@@ -843,6 +891,7 @@ function renderPage(judge, data) {
       var tr = rows[i];
       saveAllStatus.textContent = 'Saving ' + (i + 1) + ' of ' + rows.length + '…';
       var teamId = Number(tr.getAttribute('data-team-row'));
+      cancelAutoSave(teamId);
       var inputs = tr.querySelectorAll('input[data-crit]');
       var r = readScoresFromInputs(inputs);
       var statusCell = tr.querySelector('.sheet-status');
