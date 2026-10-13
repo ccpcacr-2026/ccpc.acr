@@ -117,6 +117,23 @@ function judgeScopeMatches(team, form, judge, leaderProfile) {
   if (dim === 'class') return values.includes(String(leaderProfile?.class || ''));
   if (dim === 'house') return values.includes(String(leaderProfile?.house || ''));
   if (dim === 'group') {
+    // Prefer the team's OWN already-captured "Group" answer (the
+    // class_group field type stamps this once, at submission time, from
+    // gfMyBandName — see ccpc-students/_gfClassGroupFieldHtml) over
+    // re-deriving it live from the leader's CURRENT class against the
+    // CURRENT eligibility bands. Bands can be edited by the admin after
+    // teams have already submitted (a class added to or dropped from a
+    // band), which would otherwise silently un-scope an already-approved
+    // team from every judge even though its own Group answer — the same
+    // value shown everywhere else on this page and in the admin roster —
+    // never changed. Only falls back to the live computation when there's
+    // no captured value to go on (no class_group field on this form, or an
+    // older team predating it).
+    let fields = [];
+    try { fields = JSON.parse(form?.fields_json || '[]') || []; } catch (e) {}
+    const groupFieldDef = fields.find(f => f && f.type === 'class_group');
+    const captured = groupFieldDef ? (team.group_data || {})[groupFieldDef.data_key] : null;
+    if (captured) return values.includes(captured);
     let elig = {};
     try { elig = JSON.parse(form?.eligibility_json || '{}') || {}; } catch (e) {}
     const groupField = elig.group_field || 'class';
