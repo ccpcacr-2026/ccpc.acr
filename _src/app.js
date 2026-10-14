@@ -32147,28 +32147,36 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     overlay.id = 'gfPositionHoldersOverlay';
     overlay.className = 'fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4';
     overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+    // The form grew a lot (Group by, Top N, print column picker, custom
+    // columns, judges, title) — tall enough on an ordinary screen that the
+    // button row could scroll out of view inside the old single
+    // scrollable div, Download CSV included. Split into a scrollable body
+    // + a footer OUTSIDE that scroll area instead, so Print/Download
+    // CSV/Cancel stay visible no matter how long the form above gets.
     overlay.innerHTML = `
-      <div class="bg-white rounded-3xl w-full max-w-lg p-5 shadow-2xl max-h-[85vh] overflow-y-auto">
-        <p class="font-black text-slate-800 text-sm mb-1">Position Holders</p>
-        <p class="text-[11px] text-slate-400 font-bold mb-4">Top N teams, ranked by judges' average score, within every combination of the fields picked below — e.g. Category + Group lists the top 3 of every Category × Group pair that actually exists among these teams.</p>
-        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Group by</span>
-        <div id="gfPositionHoldersFields" class="flex flex-wrap gap-2 mt-2 mb-4"></div>
-        <div class="mb-4">
-          <label class="text-[10px] font-black text-slate-400 uppercase">Top N per combination</label>
-          <input type="number" min="1" value="${cfg.topN}" oninput="_gfPositionHoldersConfigByForm[${form?.id || 0}].topN = Math.max(1, Number(this.value) || 1)" class="w-24 block px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mt-1">
+      <div class="bg-white rounded-3xl w-full max-w-lg shadow-2xl max-h-[85vh] flex flex-col">
+        <div class="p-5 overflow-y-auto">
+          <p class="font-black text-slate-800 text-sm mb-1">Position Holders</p>
+          <p class="text-[11px] text-slate-400 font-bold mb-4">Top N teams, ranked by judges' average score, within every combination of the fields picked below — e.g. Category + Group lists the top 3 of every Category × Group pair that actually exists among these teams.</p>
+          <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Group by</span>
+          <div id="gfPositionHoldersFields" class="flex flex-wrap gap-2 mt-2 mb-4"></div>
+          <div class="mb-4">
+            <label class="text-[10px] font-black text-slate-400 uppercase">Top N per combination</label>
+            <input type="number" min="1" value="${cfg.topN}" oninput="_gfPositionHoldersConfigByForm[${form?.id || 0}].topN = Math.max(1, Number(this.value) || 1)" class="w-24 block px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mt-1">
+          </div>
+          <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Print columns</span>
+          <p class="text-[10px] text-slate-400 font-bold mt-0.5 mb-2">Click to add/remove — the numbered order is the order they'll print in.</p>
+          <div id="gfPositionHoldersCols" class="flex flex-wrap gap-2 mb-3"></div>
+          <div id="gfPositionHoldersCustomCols" class="flex flex-col gap-2 mb-2"></div>
+          <button type="button" onclick="_gfPositionHoldersAddCustomCol(${form?.id || 0})" class="mb-4 px-3 py-1.5 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase">+ Add Custom Column</button>
+          <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Judges to include</span>
+          <div id="gfPositionHoldersJudgeList" class="flex flex-wrap gap-2 mt-2 mb-4"><p class="text-xs text-slate-400 font-bold">Loading…</p></div>
+          <div class="mb-1">
+            <label class="text-[10px] font-black text-slate-400 uppercase">Title</label>
+            <input type="text" value="${_escHtml(cfg.customTitle || '')}" placeholder="${_escHtml((form?.title || 'Judging') + ' — Position Holders')}" oninput="_gfPositionHoldersConfigByForm[${form?.id || 0}].customTitle = this.value" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mt-1">
+          </div>
         </div>
-        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Print columns</span>
-        <p class="text-[10px] text-slate-400 font-bold mt-0.5 mb-2">Click to add/remove — the numbered order is the order they'll print in.</p>
-        <div id="gfPositionHoldersCols" class="flex flex-wrap gap-2 mb-3"></div>
-        <div id="gfPositionHoldersCustomCols" class="flex flex-col gap-2 mb-2"></div>
-        <button type="button" onclick="_gfPositionHoldersAddCustomCol(${form?.id || 0})" class="mb-4 px-3 py-1.5 bg-slate-800 text-white rounded-full font-black text-[10px] uppercase">+ Add Custom Column</button>
-        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Judges to include</span>
-        <div id="gfPositionHoldersJudgeList" class="flex flex-wrap gap-2 mt-2 mb-4"><p class="text-xs text-slate-400 font-bold">Loading…</p></div>
-        <div class="mb-3">
-          <label class="text-[10px] font-black text-slate-400 uppercase">Title</label>
-          <input type="text" value="${_escHtml(cfg.customTitle || '')}" placeholder="${_escHtml((form?.title || 'Judging') + ' — Position Holders')}" oninput="_gfPositionHoldersConfigByForm[${form?.id || 0}].customTitle = this.value" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mt-1">
-        </div>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 p-5 pt-3 border-t border-slate-100 shrink-0">
           <button type="button" onclick="_gfPrintPositionHoldersNow()" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white">Print</button>
           <button type="button" onclick="_gfDownloadPositionHoldersCsvNow()" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-600 hover:bg-slate-50">Download CSV</button>
           <button type="button" onclick="document.getElementById('gfPositionHoldersOverlay').remove()" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-slate-100 text-slate-500 hover:bg-slate-200">Cancel</button>
