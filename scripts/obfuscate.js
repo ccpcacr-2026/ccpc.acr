@@ -380,6 +380,7 @@ const RESERVED = [
   '_gfRenderJudgesSheetJudgeSelect',
   'printGroupFormJudgesCombined','_printGfReviewJudgesCombined',
   '_gfOpenJudgesCombinedModal','_gfJudgesCombinedToggleCol','_gfJudgesCombinedToggleJudge','_gfPrintJudgesCombinedNow',
+  '_gfDownloadJudgesCombinedCsvNow',
   // Position Holders (top N per House/Group/Category combination, ranked
   // by judges' average) — its own modal/field-picker/judge-picker/print/
   // CSV, all reached via inline onclick/onchange in generated markup.

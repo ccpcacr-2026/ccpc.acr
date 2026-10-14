@@ -31926,29 +31926,35 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     overlay.id = 'gfJudgesCombinedOverlay';
     overlay.className = 'fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4';
     overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+    // Button row lives OUTSIDE the scrollable body (same fix Position
+    // Holders needed) so Print/Download CSV/Save Layout/Cancel can't
+    // scroll out of view as this form grows.
     overlay.innerHTML = `
-      <div class="bg-white rounded-3xl w-full max-w-lg p-5 shadow-2xl max-h-[85vh] overflow-y-auto">
-        <p class="font-black text-slate-800 text-sm mb-1">Judges' Combined Result</p>
-        <p class="text-[11px] text-slate-400 font-bold mb-4">Every selected judge's total, side by side, computed live from their saved scores — plus an average and a position.</p>
-        <div class="mb-4">
-          <label class="text-[10px] font-black text-slate-400 uppercase">Filter teams in this print</label>
-          <p class="text-[10px] text-slate-400 font-bold mt-0.5 mb-2">On top of whatever's already filtered on the roster, never instead of it.</p>
-          <div id="gfJudgesCombinedFilterDims" class="flex flex-col gap-2"></div>
+      <div class="bg-white rounded-3xl w-full max-w-lg shadow-2xl max-h-[85vh] flex flex-col">
+        <div class="p-5 overflow-y-auto">
+          <p class="font-black text-slate-800 text-sm mb-1">Judges' Combined Result</p>
+          <p class="text-[11px] text-slate-400 font-bold mb-4">Every selected judge's total, side by side, computed live from their saved scores — plus an average and a position.</p>
+          <div class="mb-4">
+            <label class="text-[10px] font-black text-slate-400 uppercase">Filter teams in this print</label>
+            <p class="text-[10px] text-slate-400 font-bold mt-0.5 mb-2">On top of whatever's already filtered on the roster, never instead of it.</p>
+            <div id="gfJudgesCombinedFilterDims" class="flex flex-col gap-2"></div>
+          </div>
+          <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Data columns</span>
+          <div id="gfJudgesCombinedDataCols" class="flex flex-wrap gap-2 mt-2 mb-4"></div>
+          <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Judges to include</span>
+          <div id="gfJudgesCombinedJudgeList" class="flex flex-wrap gap-2 mt-2 mb-4"><p class="text-xs text-slate-400 font-bold">Loading…</p></div>
+          <div class="mb-3">
+            <label class="text-[10px] font-black text-slate-400 uppercase">Title</label>
+            <input type="text" value="${_escHtml(cfg.customTitle || '')}" placeholder="${_escHtml((form?.title || 'Judging') + ' — Combined Result')}" oninput="_gfJudgesCombinedConfigByForm[${form?.id || 0}].customTitle = this.value" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mt-1">
+          </div>
+          <label class="flex items-center gap-2">
+            <input type="checkbox" ${cfg.showFilterSubheader ? 'checked' : ''} ${filterSummary ? '' : 'disabled'} onchange="_gfJudgesCombinedConfigByForm[${form?.id || 0}].showFilterSubheader = this.checked">
+            <span class="text-xs font-bold text-slate-600">Show active filter as a subheader${filterSummary ? ' (' + _escHtml(filterSummary) + ')' : ' (no filter is active right now)'}</span>
+          </label>
         </div>
-        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Data columns</span>
-        <div id="gfJudgesCombinedDataCols" class="flex flex-wrap gap-2 mt-2 mb-4"></div>
-        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Judges to include</span>
-        <div id="gfJudgesCombinedJudgeList" class="flex flex-wrap gap-2 mt-2 mb-4"><p class="text-xs text-slate-400 font-bold">Loading…</p></div>
-        <div class="mb-3">
-          <label class="text-[10px] font-black text-slate-400 uppercase">Title</label>
-          <input type="text" value="${_escHtml(cfg.customTitle || '')}" placeholder="${_escHtml((form?.title || 'Judging') + ' — Combined Result')}" oninput="_gfJudgesCombinedConfigByForm[${form?.id || 0}].customTitle = this.value" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mt-1">
-        </div>
-        <label class="flex items-center gap-2 mb-4">
-          <input type="checkbox" ${cfg.showFilterSubheader ? 'checked' : ''} ${filterSummary ? '' : 'disabled'} onchange="_gfJudgesCombinedConfigByForm[${form?.id || 0}].showFilterSubheader = this.checked">
-          <span class="text-xs font-bold text-slate-600">Show active filter as a subheader${filterSummary ? ' (' + _escHtml(filterSummary) + ')' : ' (no filter is active right now)'}</span>
-        </label>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 p-5 pt-3 border-t border-slate-100 shrink-0 flex-wrap">
           <button type="button" onclick="_gfPrintJudgesCombinedNow()" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-blue-600 text-white">Print</button>
+          <button type="button" onclick="_gfDownloadJudgesCombinedCsvNow()" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-600 hover:bg-slate-50">Download CSV</button>
           <button type="button" onclick="_gfSaveJudgesLayoutNow('combined')" class="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest border border-slate-200 text-slate-600 hover:bg-slate-50" title="Remembers this exact setup for next time, without printing now">Save Layout</button>
           <button type="button" onclick="document.getElementById('gfJudgesCombinedOverlay').remove()" class="flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-slate-100 text-slate-500 hover:bg-slate-200">Cancel</button>
         </div>
@@ -32023,8 +32029,42 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!teams.length) { showToast('No teams match this filter', 'error'); return; }
     ready.then(() => _gfBuildJudgesCombined(teams, form, cfg, filterSummary));
   }
-  function _gfBuildJudgesCombined(teams, form, cfg, filterSummary) {
-    if (!teams.length) return;
+  function _gfDownloadJudgesCombinedCsvNow() {
+    const overlay = document.getElementById('gfJudgesCombinedOverlay');
+    if (!overlay) return;
+    const form = overlay._gfForm;
+    const cfg = _gfJudgesCombinedConfig(form);
+    const teams = _gfApplyJudgesFilter(overlay._gfTeams, cfg, form);
+    const ready = overlay._gfReady || Promise.resolve();
+    _gfSaveJudgesLayout('combined', form);
+    overlay.remove();
+    if (!teams.length) { showToast('No teams match this filter', 'error'); return; }
+    ready.then(() => {
+      const { dataCols, judges, totalFor, avgByTeam, positions } = _gfComputeJudgesCombined(teams, form, cfg);
+      if (!judges.length) { showToast('No judges selected to include', 'error'); return; }
+      // Same selected data columns as the print, one row per team (not
+      // per participant — Combined Result is about comparing judges'
+      // scores, not participant identity). Position/Total/Average stay
+      // plain numbers here, unlike the print's "1st"-style Position.
+      const headers = ['SL', ...dataCols.map(c => c.label), ...judges.map(j => j.name), 'Total', 'Average', 'Position', 'Fully Graded'];
+      const rows = [headers];
+      teams.forEach((t, idx) => {
+        const dataCells = dataCols.map(c => _gfCsvPlainText(c.get(t)));
+        const judgeCells = judges.map(j => { const tot = totalFor(j.id, t); return tot != null ? tot : ''; });
+        const a = avgByTeam[t.id];
+        rows.push([idx + 1, ...dataCells, ...judgeCells, a ? a.sum : '', a ? a.avg.toFixed(1) : '', positions[t.id] != null ? positions[t.id] : '', a ? (a.graded >= a.of ? 'Yes' : 'No') : '']);
+      });
+      const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob(['﻿sep=,\n' + csv], { type: 'text/csv;charset=utf-8' }));
+      a.download = `${(form?.title || 'judges').replace(/[^a-z0-9]+/gi, '_')}_combined_result.csv`;
+      a.click();
+    });
+  }
+  // Shared by the print and CSV builders below — same judges'-average
+  // scoring, same per-(judge,team) rubric resolution, computed once so the
+  // two output formats can never quietly drift apart from each other.
+  function _gfComputeJudgesCombined(teams, form, cfg) {
     const allCols = _gfJudgesSheetColumns(form);
     const dataCols = (cfg.dataCols.length ? cfg.dataCols : ['reference_number']).map(k => allCols.find(c => c.key === k)).filter(Boolean);
     let defaultCriteria = []; try { defaultCriteria = JSON.parse(form?.judging_criteria_json || '[]') || []; } catch (e) {}
@@ -32061,6 +32101,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       avgByTeam[t.id] = vals.length ? { sum: vals.reduce((a, b) => a + b, 0), avg: vals.reduce((a, b) => a + b, 0) / vals.length, graded: vals.length, of: judges.length } : null;
     });
     const positions = _gfRankByValueDesc(teams.map(t => ({ id: t.id, value: avgByTeam[t.id] ? avgByTeam[t.id].avg : null })));
+    return { dataCols, judges, totalFor, avgByTeam, positions };
+  }
+  function _gfBuildJudgesCombined(teams, form, cfg, filterSummary) {
+    if (!teams.length) return;
+    const { dataCols, judges, totalFor, avgByTeam, positions } = _gfComputeJudgesCombined(teams, form, cfg);
     const headCells = ['SL', ...dataCols.map(c => c.label), ...judges.map(j => j.name), 'Total', 'Average', 'Position']
       .map(h => `<th>${_escHtml(h).replace(/\\n/g, '<br>')}</th>`).join('');
     const rows = teams.map((t, idx) => {
