@@ -31074,6 +31074,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       .letterhead img { height: 46px; width: 46px; object-fit: contain; display: block; margin: 0 auto 4px; }
       .letterhead .inst-name { font-size: 15px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.02em; }
       .letterhead .inst-addr { font-size: 10px; color: #4b5563; }
+      .siglist { display: flex; flex-wrap: wrap; gap: 10mm 14mm; margin-top: 16mm; page-break-inside: avoid; break-inside: avoid; }
+      .sigbox { flex: 1; min-width: 42mm; text-align: center; }
+      .sigbox .sigline { border-top: 1px solid #1e293b; height: 10mm; }
+      .sigbox .signame { font-size: 10px; font-weight: 700; color: #374151; padding-top: 2px; }
       ${pageCss}
     </style></head><body>${bodyHtml}</body></html>`);
     win.document.close();
@@ -31087,6 +31091,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // small per-team cards/slips, not documents a letterhead suits).
   function _gfPrintLetterheadHtml() {
     return `<div class="letterhead"><img src="${location.origin}/logo.jpg" alt=""><div class="inst-name">Chattogram Cantonment Public College</div><div class="inst-addr">Bayezid, Chattogram</div></div>`;
+  }
+  // One signature box per name passed in, plus a Principal box always
+  // last — used at the very end of a print document (once for the whole
+  // thing, not per section/table), e.g. the judges actually included in
+  // that print plus the one authority who signs off on every result sheet
+  // regardless of which judges scored it. Wraps to further rows by itself
+  // if there isn't room for everyone on one.
+  function _gfSignatureBlockHtml(names) {
+    const boxes = [...names, 'Principal'];
+    return `<div class="siglist">${boxes.map(n => `<div class="sigbox"><div class="sigline"></div><div class="signame">${_escHtml(n)}</div></div>`).join('')}</div>`;
   }
   // No onerror fallback here on purpose — a failed image load in a one-off
   // print document isn't worth the attribute-quoting gymnastics; we just
@@ -32071,7 +32085,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <thead><tr>${headCells}</tr></thead>
         <tbody>${rows}</tbody>
       </table>
-      ${footnote}`;
+      ${footnote}
+      ${_gfSignatureBlockHtml(judges.map(j => j.name))}`;
     const css = `
       @page { size: A4 landscape; margin: 14mm; }
       body, table { font-family: "Times New Roman", Times, serif; font-size: 11pt; }
@@ -32405,11 +32420,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <table><thead><tr>${headCells}</tr></thead><tbody>${rows}</tbody></table></div>`;
       }).join('');
       const titleText = (cfg.customTitle && cfg.customTitle.trim()) || `${form?.title || 'Judging'} — Position Holders (Top ${cfg.topN})`;
+      const signatureJudges = (cfg._judges || []).filter(j => (cfg.judgeIds || []).includes(j.id));
       const body = `
         ${_gfPrintLetterheadHtml()}
         <h1 style="font-size:16px;margin:0 0 2px;text-align:center">${_escHtml(titleText)}</h1>
         <p style="font-size:10px;color:#6b7280;margin:0 0 12px;text-align:center">Printed ${new Date().toLocaleString()}</p>
-        ${sections}`;
+        ${sections}
+        ${_gfSignatureBlockHtml(signatureJudges.map(j => j.name))}`;
       const css = `
         @page { size: A4 landscape; margin: 16mm; }
         html, body { margin: 0; padding: 0; }
