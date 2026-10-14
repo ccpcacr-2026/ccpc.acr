@@ -32442,6 +32442,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _gfOpenPrintWindow(`${form?.title || 'Position Holders'} — Top ${cfg.topN}`, body, css);
     });
   }
+  // Un-wraps a column's print-oriented HTML (team_info/project_info/an
+  // html-flagged custom column all join multi-line content with <br>) into
+  // one CSV-safe line — a no-op for every plain-text column, which is most
+  // of them.
+  function _gfCsvPlainText(html) {
+    return String(html ?? '').replace(/<br\s*\/?>/gi, '; ').replace(/<[^>]+>/g, '').trim();
+  }
   function _gfDownloadPositionHoldersCsvNow() {
     const overlay = document.getElementById('gfPositionHoldersOverlay');
     if (!overlay) return;
@@ -32453,14 +32460,31 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     ready.then(() => {
       const groups = _gfComputePositionHolders(teams, form, cfg);
       if (!groups.length) { showToast('No position holders to show — check the judges and group-by fields picked', 'error'); return; }
-      const headers = ['Group', 'Position', 'Average', 'Reference No.', 'Project Title', 'Role', 'Participant Name', 'Student ID', 'Class', 'Section', 'Roll'];
+      // Same selected + ordered columns as the print, so the CSV actually
+      // reflects what was picked in the popup instead of a fixed set.
+      // Position/Average stay plain numbers here (not the print's "1st"/
+      // toFixed-only rendering) — sortable in a spreadsheet matters more
+      // than reading nicely. Project Info (title+participants, built for a
+      // print cell) contributes just the title — participants already get
+      // their own dedicated columns below, one row per member.
+      const allCols = _gfPositionHoldersColumnsList(form, cfg);
+      const selected = (cfg.dataCols || []).map(k => allCols.find(c => c.key === k)).filter(Boolean);
+      const csvCols = selected.length ? selected : allCols.filter(c => ['position', 'reference_number', 'project_info', 'average'].includes(c.key));
+      const headers = ['Group', ...csvCols.map(c => c.key === 'project_info' ? 'Project Title' : c.label), 'Role', 'Participant Name', 'Student ID', 'Class', 'Section', 'Roll'];
       const rows = [headers];
       groups.forEach(g => {
         g.entries.forEach(e => {
+          const ctx = { position: e.position, avg: e.avg };
+          const cells = csvCols.map(c => {
+            if (c.key === 'position') return e.position;
+            if (c.key === 'average') return e.avg != null ? e.avg.toFixed(1) : '';
+            if (c.key === 'project_info') return _gfProjectTitle(e.team, form);
+            return _gfCsvPlainText(c.get(e.team, ctx));
+          });
           const members = e.team.members.length ? e.team.members : [{ role: '', profile: null, student_id: '' }];
           members.forEach(m => {
             const p = m.profile;
-            rows.push([g.label, e.position, e.avg != null ? e.avg.toFixed(1) : '', e.team.reference_number || '#' + e.team.id, _gfProjectTitle(e.team, form), m.role === 'leader' ? 'Leader' : 'Member', (p && p.student_name) || m.student_id, m.student_id, (p && p.class) || '', (p && p.section) || '', (p && p.roll) || '']);
+            rows.push([g.label, ...cells, m.role === 'leader' ? 'Leader' : 'Member', (p && p.student_name) || m.student_id, m.student_id, (p && p.class) || '', (p && p.section) || '', (p && p.roll) || '']);
           });
         });
       });
