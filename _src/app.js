@@ -41280,6 +41280,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { key: 'inventory_admin',  label: 'Inventory Admin',    navId: 'nav-inventory-admin' },
     { key: 'payroll_admin',    label: 'Payroll Admin',      navId: 'nav-payroll' },
     { key: 'accounts_admin',   label: 'Accounts Admin',     navId: 'nav-accounts-admin' },
+    // Links out to the separate ccpc-admission app's own admin panel — same
+    // "add-on role, no in-portal module of its own" shape as Registration
+    // Admin below, just an external link instead of a native view.
+    { key: 'admission_admin',  label: 'Admission Admin',    navId: 'nav-admission-admin' },
     { key: 'announcements_admin', label: 'Announcements',   navId: 'nav-announcements' },
     { key: 'my_payslips',      label: 'My Payslips',        navId: 'nav-my-payslips' },
     { key: 'inventory',        label: 'Inventory',          navId: 'nav-inventory' },
@@ -41316,6 +41320,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     inventory_admin:['Admin','Inventory Admin'],
     payroll_admin: ['Admin','Accounts Admin'],
     accounts_admin: ['Admin','Accounts Admin'],
+    // Admin always has access regardless (see _isModuleVisibleForRole);
+    // adjust from System > Module Access if other roles need it too.
+    admission_admin: ['Admission Admin'],
     announcements_admin: ['Admin'],
     my_payslips: ALL_ROLES,
     // Mirrors the previous hardcoded behavior (this nav link had no
@@ -41733,7 +41740,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function editRole(userId, currentRole) {
     document.getElementById('editRoleUserId').value = userId;
     const current = currentRole.split(',').map(r => r.trim());
-    document.querySelectorAll('#editRoleCheckboxes input[type=checkbox]').forEach(cb => { cb.checked = current.includes(cb.value); });
+    document.querySelectorAll('#editRoleCheckboxes input[type=checkbox]').forEach(cb => {
+      cb.checked = current.includes(cb.value);
+      // 'Admission Admin' is delegated-access-only — only the super admin
+      // account may grant/revoke it (see openStaffFormModal for the same guard).
+      const locked = cb.value === 'Admission Admin' && !_isSuperAdmin();
+      cb.disabled = locked;
+      const wrap = cb.closest('.role-chip-wrap');
+      if (wrap) { wrap.classList.toggle('opacity-50', locked); wrap.title = locked ? 'Only the super admin account can grant this role' : ''; }
+    });
     document.getElementById('editRoleModal').classList.remove('hidden');
   }
   function closeEditRoleModal() { document.getElementById('editRoleModal').classList.add('hidden'); }
@@ -41846,7 +41861,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Phone</label><input type="text" id="sfPhone" value="${existing?.phone || ''}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></div>
           <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">${userId ? 'Password (leave blank to keep current)' : 'Initial Password'}</label><input type="password" id="sfPassword" value="${userId ? '' : '1234'}" placeholder="${userId ? '••••••••' : ''}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm">${userId ? '' : '<p class="text-[9px] text-slate-400 font-bold mt-1">Defaults to 1234 — change it here if this person needs something else.</p>'}</div>
           <div class="md:col-span-2"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Role(s)</label>
-            <div class="flex flex-wrap gap-2">${ALL_ROLES.map(r => `<label class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-600 cursor-pointer"><input type="checkbox" class="sf-role-cb" value="${r}" ${roles.includes(r) ? 'checked' : ''}>${r}</label>`).join('')}</div>
+            <div class="flex flex-wrap gap-2">${ALL_ROLES.map(r => {
+              // 'Admission Admin' grants delegated access to the separate
+              // ccpc-admission app's admin panel — only the super admin
+              // account may grant/revoke it. Disabled (not hidden) so an
+              // existing grant stays visible and isn't silently dropped
+              // when anyone else saves other fields on this same record.
+              // UI convenience only — see SUPER_ADMIN_IDS / _isSuperAdmin.
+              const locked = r === 'Admission Admin' && !_isSuperAdmin();
+              const title = locked ? ' title="Only the super admin account can grant this role"' : '';
+              return `<label class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-600 ${locked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}"${title}><input type="checkbox" class="sf-role-cb" value="${r}" ${roles.includes(r) ? 'checked' : ''} ${locked ? 'disabled' : ''}>${r}</label>`;
+            }).join('')}</div>
           </div>
           <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Full Name</label><input type="text" id="sfFullName" value="${staff?.full_name || ''}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"></div>
           <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Designation</label><input type="text" id="sfDesignation" list="sfDesignationList" value="${staff?.designation || ''}" oninput="_sfOnDesignationChange()" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm"><datalist id="sfDesignationList"></datalist></div>
@@ -42150,13 +42175,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const roleCells = ALL_ROLES.map(r => {
         const color = _profileRoleStyle[r] || '#64748b';
         const defaultOn = r === defaultRole;
+        // 'Admission Admin' is delegated-access-only — only the super admin
+        // account may grant it (see openStaffFormModal for the same guard).
+        const locked = r === 'Admission Admin' && !_isSuperAdmin();
         return `<td class="px-2 py-3 text-center">
-          <label class="inline-flex items-center justify-center cursor-pointer">
-            <input type="checkbox" value="${r}" ${defaultOn ? 'checked' : ''}
+          <label class="inline-flex items-center justify-center ${locked ? 'cursor-not-allowed' : 'cursor-pointer'}"${locked ? ' title="Only the super admin account can grant this role"' : ''}>
+            <input type="checkbox" value="${r}" ${defaultOn ? 'checked' : ''} ${locked ? 'disabled' : ''}
               class="profile-role-cb-${id} hidden"
               onchange="togglePermChip(this,'${color}')">
             <span class="w-7 h-7 rounded-lg border-2 flex items-center justify-center transition-all text-[9px] font-black select-none"
-              style="${defaultOn ? `background:${color};border-color:${color};color:#fff;` : 'background:#f8fafc;border-color:#e2e8f0;color:#94a3b8;'}">
+              style="${locked ? 'background:#f1f5f9;border-color:#e2e8f0;color:#cbd5e1;' : defaultOn ? `background:${color};border-color:${color};color:#fff;` : 'background:#f8fafc;border-color:#e2e8f0;color:#94a3b8;'}">
               ${roleAbbr(r)}
             </span>
           </label>
