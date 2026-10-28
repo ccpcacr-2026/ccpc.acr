@@ -41894,10 +41894,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { key: 'inventory_admin',  label: 'Inventory Admin',    navId: 'nav-inventory-admin' },
     { key: 'payroll_admin',    label: 'Payroll Admin',      navId: 'nav-payroll' },
     { key: 'accounts_admin',   label: 'Accounts Admin',     navId: 'nav-accounts-admin' },
-    // Links out to the separate ccpc-admission app's own admin panel — same
-    // "add-on role, no in-portal module of its own" shape as Registration
-    // Admin below, just an external link instead of a native view.
-    { key: 'admission_admin',  label: 'Admission Admin',    navId: 'nav-admission-admin' },
     { key: 'announcements_admin', label: 'Announcements',   navId: 'nav-announcements' },
     { key: 'my_payslips',      label: 'My Payslips',        navId: 'nav-my-payslips' },
     { key: 'inventory',        label: 'Inventory',          navId: 'nav-inventory' },
@@ -41920,6 +41916,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { key: 'analytics',        label: 'Analytics',          navId: 'nav-analytics' },
     { key: 'permissions',      label: 'Permission Control', navId: 'nav-permissions' },
     { key: 'registration_admin', label: 'Registration Admin', navId: 'nav-registration-admin' },
+    { key: 'admission_admin',  label: 'Admission Admin',    navId: 'nav-admission-admin' },
     { key: 'omr_results',      label: 'OMR Results',        navId: 'nav-omr-results' },
   ];
 
