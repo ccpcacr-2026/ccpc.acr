@@ -30572,19 +30572,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // fetched roster instead of a second round trip.
   let _gfRosterTeams = [];
   let _gfRosterForm = null;
+  // Raw admin_get_judge_scores rows ({judge_id, team_id, scores_json}) for
+  // whichever form's roster is currently open — loaded alongside the roster
+  // itself so the "Judge Marks" filter dimension below can be checked
+  // synchronously inside the plain .filter() every other dimension uses.
+  let _gfRosterJudgeScores = [];
   // Fully-customizable multi-dimension filter — each key holds a Set of
   // selected option labels for that dimension; an empty Set means "no
   // constraint on this dimension". Dimensions AND together, options within
   // one dimension OR together (House∈{J,N} AND Group∈{A} AND Status∈
   // {Rejected}, etc.) — covers every combination without a dedicated option
   // per combination.
-  let _gfRosterFilterState = { submission: new Set(), review: new Set(), house: new Set(), group: new Set(), category: new Set() };
+  let _gfRosterFilterState = { submission: new Set(), review: new Set(), house: new Set(), group: new Set(), category: new Set(), judged: new Set() };
   let _gfRosterSortLevels = [{ field: 'created_at', dir: 'desc' }];
   function openGroupRoster(groupFormId) {
     _gfRosterFormId = groupFormId;
     const form = _allGroupForms.find(f => f.id === groupFormId);
     _gfRosterForm = form || null;
-    _gfRosterFilterState = { submission: new Set(), review: new Set(), house: new Set(), group: new Set(), category: new Set() };
+    _gfRosterFilterState = { submission: new Set(), review: new Set(), house: new Set(), group: new Set(), category: new Set(), judged: new Set() };
     document.getElementById('gfRosterFilterPanel').classList.add('hidden');
     _gfRosterSortLevels = [{ field: 'created_at', dir: 'desc' }];
     document.getElementById('gfRosterSortPanel')?.classList.add('hidden');
@@ -30599,9 +30604,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (gfDelDisbandedBtn) gfDelDisbandedBtn.classList.toggle('opacity-40', !!(form && form.archived));
     document.getElementById('adminGroupRoster').classList.remove('hidden');
     document.getElementById('adminGroupRosterList').innerHTML = '<p class="text-xs text-slate-400 font-bold">Loading…</p>';
-    Promise.all([_adminFetch('get_group_form_roster', { group_form_id: groupFormId }), _gfEnsureHouseColors()]).then(([res]) => {
+    Promise.all([
+      _adminFetch('get_group_form_roster', { group_form_id: groupFormId }),
+      _gfEnsureHouseColors(),
+      _adminFetch('admin_get_judge_scores', { group_form_id: groupFormId }),
+    ]).then(([res, , sr]) => {
       if (!res || res.result !== 'success') { document.getElementById('adminGroupRosterList').innerHTML = `<p class="text-xs text-red-500 font-bold">${(res && res.message) || 'Failed to load'}</p>`; return; }
       _gfRosterTeams = res.teams || [];
+      _gfRosterJudgeScores = (sr && sr.result === 'success') ? (sr.scores || []) : [];
       _gfRegisterProfiles(_gfRosterTeams);
       renderAdminGroupRoster(_gfRosterTeams, form);
       _gfRenderRosterFilterPanel();
@@ -30620,9 +30630,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // enough to show the change while leaving everything else untouched.
   function _gfRefreshRosterInPlace() {
     if (!_gfRosterFormId) return;
-    _adminFetch('get_group_form_roster', { group_form_id: _gfRosterFormId }).then(res => {
+    Promise.all([
+      _adminFetch('get_group_form_roster', { group_form_id: _gfRosterFormId }),
+      _adminFetch('admin_get_judge_scores', { group_form_id: _gfRosterFormId }),
+    ]).then(([res, sr]) => {
       if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not refresh', 'error'); return; }
       _gfRosterTeams = res.teams || [];
+      _gfRosterJudgeScores = (sr && sr.result === 'success') ? (sr.scores || []) : [];
       _gfRegisterProfiles(_gfRosterTeams);
       renderAdminGroupRoster(_gfRosterTeams, _gfRosterForm);
     }).catch(() => showToast('Network error while refreshing', 'error'));
@@ -30754,6 +30768,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _gfTeamCategory(t) { return _gfAnswerByName(t, _gfRosterForm, /^category$/i) || ''; }
   function _gfTeamSubmission(t) { return t.is_submitted ? 'Submitted' : 'Saved'; }
   function _gfTeamReview(t) { return t.review_status === 'approved' ? 'Approved' : t.review_status === 'rejected' ? 'Rejected' : 'Unreviewed'; }
+  // "Marked" = at least one judge has entered at least one criterion score
+  // greater than 0 for this team (a saved 0, or no row at all, both count
+  // as "Not marked" here) — distinct from the Combined Result/Position
+  // Holders' own "graded" concept (any saved number, including 0, counts
+  // there), since a judge only really marks a team once they've actually
+  // seen it: effectively doubles as "has this team been judged/present"
+  // without needing a separate attendance field.
+  function _gfTeamHasJudgeMark(t) {
+    return (_gfRosterJudgeScores || []).some(r => {
+      if (String(r.team_id) !== String(t.id)) return false;
+      let s; try { s = JSON.parse(r.scores_json || '{}') || {}; } catch (e) { return false; }
+      return Object.values(s).some(v => Number(v) > 0);
+    });
+  }
+  function _gfTeamJudgeMarkStatus(t) { return _gfTeamHasJudgeMark(t) ? 'Marked' : 'Not marked'; }
   // Option lists always come from the FULL roster (not the currently-
   // filtered subset) — standard faceted-filter convention so picking one
   // dimension never hides options you'd need for another.
@@ -30765,6 +30794,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       { key: 'house', label: 'House', values: distinct(_gfTeamHouse) },
       { key: 'group', label: 'Group', values: distinct(_gfTeamGroup) },
       { key: 'category', label: 'Category', values: distinct(_gfTeamCategory) },
+      { key: 'judged', label: 'Judge Marks', values: ['Marked', 'Not marked'] },
     ];
   }
   function _gfToggleRosterFilterPanel() {
@@ -33950,6 +33980,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (st.house.size && !st.house.has(_gfTeamHouse(t))) return false;
     if (st.group.size && !st.group.has(_gfTeamGroup(t))) return false;
     if (st.category.size && !st.category.has(_gfTeamCategory(t))) return false;
+    if (st.judged.size && !st.judged.has(_gfTeamJudgeMarkStatus(t))) return false;
     return true;
   }
   // Free-text search — matches against reference number, project title, and
