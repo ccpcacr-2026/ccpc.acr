@@ -431,7 +431,14 @@ const RESERVED = [
 
 
   // Viewer Panel class-scoped custom-tab data browsing
-  'loadClassTabData','saveClassTabData'
+  'loadClassTabData','saveClassTabData',
+
+  // Admission Admin (native port of ccpc-admission) — app.html's sidebar
+  // onclick + every onclick/onchange string built inside loadAdmissionAdminView()
+  'loadAdmissionAdminView','_admShowView','_admShowSection','_admFilterApps',
+  '_admLoadNewApplication','_admLoadForm','_admDeleteApp','_admChangeStatus',
+  '_admToggleRowSelect','_admToggleSelectAll','_admClearBulkSelection','_admApplyBulkStatus',
+  '_admAddAcademicRow','_admAddSiblingRow','_admSaveApplication','_admHandlePhoto'
 ];
 
 // Strip HTML comments and collapse whitespace

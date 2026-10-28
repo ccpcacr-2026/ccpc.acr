@@ -1481,3 +1481,9 @@ button { user-select: none; }
 .tpm-card-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .tpm-actionbar { position: sticky; bottom: 0; display: flex; gap: 8px; padding: 10px 0 2px; background: linear-gradient(transparent, #f8fafc 30%); }
 .tpm-btn { flex: 1; padding: 12px; border-radius: 12px; font-weight: 900; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; text-align: center; min-height: 44px; border: none; }
+
+/* Admission Admin — application editor's section tab bar (Application/
+   Student/Father/Mother/Guardian/Tables), same shape as ccpc-admission's
+   own .ftab/.ftab.active it was ported from. */
+.adm-ftab { padding: 8px 16px; border-radius: 10px; font-weight: 900; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #64748b; background: #f8fafc; border: 1px solid #e2e8f0; white-space: nowrap; cursor: pointer; }
+.adm-ftab.adm-ftab-on { background: #2563eb; color: #fff; border-color: #2563eb; }

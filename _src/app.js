@@ -550,6 +550,7 @@
     bus_tracker:   () => loadAdminBusTrackerView(),
     payroll:       () => loadAdminPayrollView(),
     accounts_admin:() => loadAccountsAdminView(),
+    admission_admin:() => loadAdmissionAdminView(),
     profile:       () => openMyProfile(),
     ssc_result_analysis: () => loadSscResultAnalysisView(),
     home:          () => renderMobileHomeGrid(),
@@ -41243,14 +41244,592 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       .createDistribution(myId, _invDistContext.fromType, _invDistContext.fromId, _invDistContext.productId, consumerId, qty, remarks);
   }
 
+  // ══════════════════════════════════════════════════════════════════════
+  // ADMISSION ADMIN — native port of the standalone ccpc-admission app.
+  // Phase 1: Dashboard (search/filter/bulk-status) + full Application editor
+  // (6 section tabs incl. dynamic academic/sibling rows + photo upload +
+  // read-only custom-fields block). Settings tabs (Index Pattern, Form
+  // Fields, Circular, Payments & Admit, Counters, SMS/OTP, Scan, Form/Admit
+  // Card Designer) are later phases — see the plan this was built from.
+  // Backend: app/api/admission-admin/route.js, same auth model as Inventory
+  // Admin (fresh per-request role check, 'Admin' or 'Admission Admin').
+  // ══════════════════════════════════════════════════════════════════════
+  function _admAdminFetch(action, payload) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    return fetch('/api/admission-admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, payload: payload || {}, user_id: myId })
+    }).then(async r => {
+      let body = null;
+      try { body = await r.json(); } catch (_) {}
+      if (!r.ok) throw new Error((body && body.message) || (body && body.error) || ('Network error ' + r.status));
+      return body;
+    });
+  }
+
+  const ADM_CLASSES = ['Nursery','KG','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve'];
+  const ADM_CATEGORIES = ['Army','Civil','Defence','CCPC Teacher','Staff'];
+  const ADM_STATUSES = ['Pending','Called for Test','Admitted','Rejected'];
+  const ADM_STATUS_COLORS = {
+    'Pending': 'bg-amber-100 text-amber-700', 'Called for Test': 'bg-blue-100 text-blue-700',
+    'Admitted': 'bg-emerald-100 text-emerald-700', 'Rejected': 'bg-red-100 text-red-700',
+  };
+  let _admAllApps = [];
+  let _admSelectedIds = new Set();
+  let _admCurrentId = null; // null = new application
+
+  function loadAdmissionAdminView() {
+    _setViewHash('admission_admin');
+    setActiveNavLink('nav-admission-admin');
+    setContentHeader('Admission Admin', 'clipboard-list');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    container.innerHTML = `
+      <div id="admAdminDashboard">
+        <div class="flex flex-wrap items-center gap-2 mb-3">
+          <input type="text" id="adm-search-input" placeholder="Search name, tracking ID…" oninput="_admFilterApps()"
+            class="flex-1 min-w-[160px] px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500">
+          <select id="adm-filter-session" onchange="_admFilterApps()" class="px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold">
+            <option value="">All Sessions</option><option>2025</option><option>2026</option><option>2027</option>
+          </select>
+          <select id="adm-filter-class" onchange="_admFilterApps()" class="px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold">
+            <option value="">All Classes</option>${ADM_CLASSES.map(c => `<option>${c}</option>`).join('')}
+          </select>
+          <select id="adm-filter-status" onchange="_admFilterApps()" class="px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold">
+            <option value="">All Status</option>${ADM_STATUSES.map(s => `<option>${s}</option>`).join('')}
+          </select>
+          <button onclick="_admLoadNewApplication()" class="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-black transition-all">
+            <i data-lucide="plus" class="h-3.5 w-3.5"></i> New Application
+          </button>
+        </div>
+        <div id="adm-stats-row" class="flex flex-wrap items-center gap-2 mb-3"></div>
+        <div id="adm-bulk-action-bar" class="hidden flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5 mb-3">
+          <span id="adm-bulk-count" class="text-xs font-bold text-blue-700">0 selected</span>
+          <select id="adm-bulk-status-select" class="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold" style="width:160px">
+            ${ADM_STATUSES.map(s => `<option>${s}</option>`).join('')}
+          </select>
+          <button onclick="_admApplyBulkStatus()" class="px-3 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest">Set status for selected</button>
+          <button onclick="_admClearBulkSelection()" class="px-3 py-2 border border-slate-200 text-slate-500 rounded-lg text-[10px] font-black uppercase tracking-widest">Clear</button>
+        </div>
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead><tr class="bg-slate-50 border-b border-slate-100">
+              <th class="px-3 py-3 text-left" style="width:36px"><input type="checkbox" id="adm-bulk-select-all" onchange="_admToggleSelectAll(this)"></th>
+              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Tracking ID</th>
+              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Student Name</th>
+              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest hidden md:table-cell">Class</th>
+              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest hidden md:table-cell">Category</th>
+              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest hidden lg:table-cell">Session</th>
+              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
+              <th class="px-3 py-3 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Actions</th>
+            </tr></thead>
+            <tbody id="adm-app-table-body"><tr><td colspan="8" class="px-4 py-10 text-center text-slate-400 text-sm">Loading…</td></tr></tbody>
+          </table>
+        </div>
+        <p id="adm-app-count" class="text-[10px] text-slate-400 font-bold mt-3 text-right"></p>
+      </div>
+
+      <div id="admAdminForm" class="hidden">
+        <div class="flex items-center gap-3 mb-4 flex-wrap">
+          <button onclick="_admShowView('dashboard')" class="flex items-center gap-1.5 px-3 py-2 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50"><i data-lucide="arrow-left" class="h-3.5 w-3.5"></i> Back</button>
+          <h2 id="adm-form-title" class="font-black text-slate-800 text-sm">New Application</h2>
+          <div class="ml-auto"><button onclick="_admSaveApplication()" class="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-black transition-all"><i data-lucide="save" class="h-3.5 w-3.5"></i> Save</button></div>
+        </div>
+        <div class="flex gap-1 mb-4 overflow-x-auto pb-1" id="adm-ftabs">
+          <button class="adm-ftab" data-id="adm-s-appinfo" onclick="_admShowSection('adm-s-appinfo',this)">Application</button>
+          <button class="adm-ftab" data-id="adm-s-student" onclick="_admShowSection('adm-s-student',this)">Student</button>
+          <button class="adm-ftab" data-id="adm-s-father" onclick="_admShowSection('adm-s-father',this)">Father</button>
+          <button class="adm-ftab" data-id="adm-s-mother" onclick="_admShowSection('adm-s-mother',this)">Mother</button>
+          <button class="adm-ftab" data-id="adm-s-guardian" onclick="_admShowSection('adm-s-guardian',this)">Guardian</button>
+          <button class="adm-ftab" data-id="adm-s-tables" onclick="_admShowSection('adm-s-tables',this)">Tables</button>
+        </div>
+        <div id="adm-fsections"></div>
+      </div>`;
+    lucide.createIcons();
+    _admRenderFormSections();
+    _admShowView('dashboard');
+    _admLoadDashboard();
+  }
+
+  function _admShowView(which) {
+    document.getElementById('admAdminDashboard').classList.toggle('hidden', which !== 'dashboard');
+    document.getElementById('admAdminForm').classList.toggle('hidden', which !== 'form');
+  }
+  // Tabs stay in the DOM always, like every other tabbed section in this
+  // portal — only the active one is unhidden.
+  function _admShowSection(id, btn) {
+    document.querySelectorAll('#adm-fsections > div').forEach(el => el.classList.add('hidden'));
+    document.querySelectorAll('#adm-ftabs .adm-ftab').forEach(el => el.classList.remove('adm-ftab-on'));
+    const el = document.getElementById(id); if (el) el.classList.remove('hidden');
+    if (btn) btn.classList.add('adm-ftab-on');
+  }
+
+  function _admFInput(id, opts) {
+    opts = opts || {};
+    const common = 'w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm';
+    if (opts.type === 'select') {
+      return `<select id="${id}" class="${common}">${(opts.options || []).map(o => `<option${opts.placeholder && o === '' ? ' value=""' : ''}>${o}</option>`).join('')}</select>`;
+    }
+    if (opts.type === 'textarea') return `<textarea id="${id}" rows="2" class="${common} resize-none"></textarea>`;
+    return `<input type="${opts.type || 'text'}" id="${id}" class="${common}" placeholder="${opts.placeholder || ''}" ${opts.readonly ? 'readonly' : ''}>`;
+  }
+  function _admFBlock(label, inputHtml, wide) {
+    return `<div class="${wide ? 'md:col-span-2' : ''} space-y-1"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block">${label}</label>${inputHtml}</div>`;
+  }
+  function _admPhotoBox(role) {
+    return `<div class="shrink-0"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">${role[0].toUpperCase() + role.slice(1)}'s Photo</label>
+      <div id="adm-${role}-photo-preview" onclick="document.getElementById('adm-${role}-photo-input').click()" class="w-24 h-28 rounded-xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center cursor-pointer overflow-hidden bg-slate-50 hover:bg-slate-100 transition-all">
+        <i data-lucide="camera" class="h-6 w-6 text-slate-300"></i><span class="text-[9px] text-slate-400 mt-1">Click to upload</span>
+      </div>
+      <input type="file" id="adm-${role}-photo-input" accept="image/*" class="hidden" onchange="_admHandlePhoto(this,'adm-${role}-photo-preview','adm-f-${role}-photo')">
+      <input type="hidden" id="adm-f-${role}-photo"></div>`;
+  }
+  function _admPersonSection(id, title, role, extraFields) {
+    const fields = [
+      _admFBlock(`${title.split("'")[0]}'s Name`, _admFInput(`adm-f-${role}-name`)),
+      _admFBlock('Profession / Occupation', _admFInput(`adm-f-${role}-profession`)),
+      _admFBlock('Designation / Rank', _admFInput(`adm-f-${role}-designation`)),
+      _admFBlock('Education', _admFInput(`adm-f-${role}-education`)),
+      _admFBlock('Contact No.', _admFInput(`adm-f-${role}-contact`, { type: 'tel' })),
+      ...(extraFields || []),
+      _admFBlock('Office Address / Unit', _admFInput(`adm-f-${role}-office`), true),
+    ];
+    return `<div id="${id}" class="hidden bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+      <p class="text-xs font-black text-slate-700 uppercase tracking-widest mb-4">${title}</p>
+      <div class="flex gap-6 flex-wrap">
+        <div class="flex-1 min-w-[260px] grid grid-cols-1 md:grid-cols-2 gap-4">${fields.join('')}</div>
+        ${_admPhotoBox(role)}
+      </div></div>`;
+  }
+  function _admRenderFormSections() {
+    const host = document.getElementById('adm-fsections');
+    if (!host) return;
+    const appInfo = `<div id="adm-s-appinfo" class="hidden bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+      <p class="text-xs font-black text-slate-700 uppercase tracking-widest mb-4">Application Information</p>
+      <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+        ${_admFBlock('Session', _admFInput('adm-f-session', { type: 'select', options: ['2025','2026','2027'] }))}
+        ${_admFBlock('Class', _admFInput('adm-f-class', { type: 'select', options: ADM_CLASSES }))}
+        ${_admFBlock('Category', _admFInput('adm-f-category', { type: 'select', options: ADM_CATEGORIES }))}
+        ${_admFBlock('Version', _admFInput('adm-f-version', { type: 'select', options: ['Bangla','English'] }))}
+        ${_admFBlock('Quota', _admFInput('adm-f-quota', { type: 'select', options: ['No','Freedom Fighter'] }))}
+        ${_admFBlock('Status', _admFInput('adm-f-status', { type: 'select', options: ADM_STATUSES }))}
+        ${_admFBlock('Tracking ID (auto)', _admFInput('adm-f-tracking-id', { readonly: true, placeholder: 'Auto on save' }))}
+        ${_admFBlock('Index ID (auto)', _admFInput('adm-f-index-id', { readonly: true, placeholder: 'Auto on save' }))}
+      </div></div>`;
+    const student = `<div id="adm-s-student" class="hidden bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+      <p class="text-xs font-black text-slate-700 uppercase tracking-widest mb-4">Student Details</p>
+      <div class="flex gap-6 flex-wrap">
+        <div class="flex-1 min-w-[260px] grid grid-cols-1 md:grid-cols-2 gap-4">
+          ${_admFBlock('Name (English)', _admFInput('adm-f-name-en', { placeholder: 'FULL NAME IN CAPS' }), true)}
+          ${_admFBlock('নাম (বাংলায়)', _admFInput('adm-f-name-bn'), true)}
+          ${_admFBlock('Date of Birth', _admFInput('adm-f-dob', { type: 'date' }))}
+          ${_admFBlock('Blood Group', _admFInput('adm-f-blood', { type: 'select', options: ['','A+','A-','B+','B-','AB+','AB-','O+','O-'], placeholder: true }))}
+          ${_admFBlock('Gender', _admFInput('adm-f-gender', { type: 'select', options: ['','Male','Female','Other'], placeholder: true }))}
+          ${_admFBlock('Religion', _admFInput('adm-f-religion', { type: 'select', options: ['','Islam','Hindu','Christian','Buddhist','Other'], placeholder: true }))}
+          ${_admFBlock('Birth Registration No.', _admFInput('adm-f-birth-reg', { placeholder: '17-digit' }))}
+          ${_admFBlock('Nationality', _admFInput('adm-f-nationality'))}
+          ${_admFBlock('Emergency Contact', _admFInput('adm-f-emergency', { type: 'tel', placeholder: '+880…' }))}
+          ${_admFBlock('Height (Inch)', _admFInput('adm-f-height'))}
+          ${_admFBlock('Last Class', _admFInput('adm-f-last-class'))}
+          ${_admFBlock('Last Version', _admFInput('adm-f-last-version', { type: 'select', options: ['','Bangla','English'], placeholder: true }))}
+          ${_admFBlock('Last Institute', _admFInput('adm-f-last-institute'), true)}
+          ${_admFBlock('Present Address', _admFInput('adm-f-present-address', { type: 'textarea' }), true)}
+          ${_admFBlock('Permanent Address', _admFInput('adm-f-permanent-address', { type: 'textarea' }), true)}
+          ${_admFBlock('Co-curricular Activities', _admFInput('adm-f-co-curricular'), true)}
+        </div>
+        ${_admPhotoBox('student')}
+      </div></div>`;
+    const father = _admPersonSection('adm-s-father', "Father's Details", 'father', [
+      _admFBlock('NID', _admFInput('adm-f-father-nid')),
+      _admFBlock('Yearly Income (BDT)', _admFInput('adm-f-father-income')),
+    ]);
+    const mother = _admPersonSection('adm-s-mother', "Mother's Details", 'mother', [
+      _admFBlock('NID', _admFInput('adm-f-mother-nid')),
+      _admFBlock('Yearly Income (BDT)', _admFInput('adm-f-mother-income')),
+    ]);
+    const guardian = `<div id="adm-s-guardian" class="hidden bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+      <p class="text-xs font-black text-slate-700 uppercase tracking-widest mb-4">Local Guardian's Details</p>
+      <div class="flex gap-6 flex-wrap">
+        <div class="flex-1 min-w-[260px] grid grid-cols-1 md:grid-cols-2 gap-4">
+          ${_admFBlock("Guardian's Name", _admFInput('adm-f-guardian-name'))}
+          ${_admFBlock('Profession / Occupation', _admFInput('adm-f-guardian-profession'))}
+          ${_admFBlock('Designation / Rank', _admFInput('adm-f-guardian-designation'))}
+          ${_admFBlock('Education', _admFInput('adm-f-guardian-education'))}
+          ${_admFBlock('Contact No.', _admFInput('adm-f-guardian-contact', { type: 'tel' }))}
+          ${_admFBlock('Relation to Student', _admFInput('adm-f-guardian-relation', { placeholder: 'e.g. Uncle' }))}
+          ${_admFBlock('Office Address', _admFInput('adm-f-guardian-office'), true)}
+        </div>
+        ${_admPhotoBox('guardian')}
+      </div></div>`;
+    const tables = `<div id="adm-s-tables" class="hidden bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-6">
+      <div>
+        <div class="flex items-center justify-between mb-3">
+          <p class="text-xs font-black text-slate-700 uppercase tracking-widest">Academic / Educational Records</p>
+          <button type="button" onclick="_admAddAcademicRow()" class="flex items-center gap-1 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100"><i data-lucide="plus" class="h-3 w-3"></i> Add Row</button>
+        </div>
+        <div class="overflow-x-auto rounded-xl border border-slate-200"><table class="w-full text-sm">
+          <thead><tr class="bg-slate-50 border-b border-slate-200">
+            <th class="px-2 py-2 text-left text-[10px] font-black text-slate-400 uppercase">Exam Name</th>
+            <th class="px-2 py-2 text-left text-[10px] font-black text-slate-400 uppercase">Year</th>
+            <th class="px-2 py-2 text-left text-[10px] font-black text-slate-400 uppercase">Board / Institution</th>
+            <th class="px-2 py-2 text-left text-[10px] font-black text-slate-400 uppercase">Roll No.</th>
+            <th class="px-2 py-2 text-left text-[10px] font-black text-slate-400 uppercase">GPA / Result</th>
+            <th class="w-8"></th>
+          </tr></thead>
+          <tbody id="adm-academic-tbody"></tbody>
+        </table></div>
+      </div>
+      <div>
+        <div class="flex items-center justify-between mb-3">
+          <p class="text-xs font-black text-slate-700 uppercase tracking-widest">Information of Siblings</p>
+          <button type="button" onclick="_admAddSiblingRow()" class="flex items-center gap-1 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100"><i data-lucide="plus" class="h-3 w-3"></i> Add Row</button>
+        </div>
+        <div class="overflow-x-auto rounded-xl border border-slate-200"><table class="w-full text-sm">
+          <thead><tr class="bg-slate-50 border-b border-slate-200">
+            <th class="px-2 py-2 text-left text-[10px] font-black text-slate-400 uppercase">Name</th>
+            <th class="px-2 py-2 text-left text-[10px] font-black text-slate-400 uppercase">Age</th>
+            <th class="px-2 py-2 text-left text-[10px] font-black text-slate-400 uppercase">Class / Standard</th>
+            <th class="px-2 py-2 text-left text-[10px] font-black text-slate-400 uppercase">Institution</th>
+            <th class="w-8"></th>
+          </tr></thead>
+          <tbody id="adm-sibling-tbody"></tbody>
+        </table></div>
+      </div>
+      <div id="adm-custom-fields-block" class="hidden">
+        <p class="text-xs font-black text-slate-700 uppercase tracking-widest mb-3">Custom fields (from applicant's form)</p>
+        <div id="adm-custom-fields-body" class="grid gap-3" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))"></div>
+      </div>
+    </div>`;
+    host.innerHTML = appInfo + student + father + mother + guardian + tables;
+  }
+
+  /* ─── Dashboard ──────────────────────────────────── */
+  async function _admLoadDashboard() {
+    const tbody = document.getElementById('adm-app-table-body');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="px-4 py-10 text-center text-slate-400 text-sm">Loading…</td></tr>';
+    try {
+      const res = await _admAdminFetch('listApplications', {});
+      if (res.error) { showToast(res.error, 'error'); return; }
+      _admAllApps = res.applications || [];
+      _admRenderTable(_admAllApps);
+      _admLoadStats();
+    } catch (e) { showToast(e.message || 'Could not load applications', 'error'); }
+  }
+  async function _admLoadStats() {
+    try {
+      const r = await _admAdminFetch('getStats', {});
+      if (!r.stats) return;
+      const s = r.stats;
+      const chip = (label, val, color) => `<span class="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600">${label}: <b style="color:${color}">${val}</b></span>`;
+      document.getElementById('adm-stats-row').innerHTML =
+        chip('Total', s.total, '#1e293b') + chip('Pending', s.pending, '#d97706') +
+        chip('Admitted', s.admitted, '#059669') + chip('Rejected', s.rejected, '#dc2626');
+    } catch (e) {}
+  }
+  function _admRenderTable(apps) {
+    const tbody = document.getElementById('adm-app-table-body');
+    if (!tbody) return;
+    _admSelectedIds = new Set([..._admSelectedIds].filter(id => apps.some(a => a.id === id)));
+    if (!apps.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="px-4 py-10 text-center text-slate-400 text-sm">No applications found.</td></tr>';
+      document.getElementById('adm-app-count').textContent = '';
+      _admRenderBulkBar();
+      return;
+    }
+    document.getElementById('adm-app-count').textContent = `${apps.length} record${apps.length > 1 ? 's' : ''}`;
+    tbody.innerHTML = apps.map(a => `
+      <tr class="border-t border-slate-50 hover:bg-slate-50/80 transition-all cursor-pointer" onclick="_admLoadForm(${a.id})">
+        <td class="px-3 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="adm-row-select" data-id="${a.id}" ${_admSelectedIds.has(a.id) ? 'checked' : ''} onchange="_admToggleRowSelect(${a.id},this.checked)"></td>
+        <td class="px-3 py-3"><span class="font-black text-blue-600 text-xs font-mono">${_escHtml(a.tracking_id || '—')}</span><br><span class="text-[9px] text-slate-400">${_escHtml(a.index_id || '')}</span></td>
+        <td class="px-3 py-3"><p class="font-bold text-sm text-slate-800">${_escHtml(a.name_english || '—')}</p><p class="text-[10px] text-slate-400">${_escHtml(a.name_bangla || '')}</p>${a.room_no ? `<span class="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 text-[9px] font-bold">Room ${_escHtml(a.room_no)}</span>` : ''}</td>
+        <td class="px-3 py-3 hidden md:table-cell text-sm font-bold text-slate-600">${_escHtml(a.class || '—')}</td>
+        <td class="px-3 py-3 hidden md:table-cell text-sm text-slate-600">${_escHtml(a.category || '—')}</td>
+        <td class="px-3 py-3 hidden lg:table-cell text-sm text-slate-500">${_escHtml(a.session || '—')}</td>
+        <td class="px-3 py-3">
+          <select class="px-2 py-1 rounded-lg text-xs font-bold ${ADM_STATUS_COLORS[a.status] || ''}" onchange="_admChangeStatus(event,${a.id})" onclick="event.stopPropagation()">
+            ${ADM_STATUSES.map(s => `<option${s === a.status ? ' selected' : ''}>${s}</option>`).join('')}
+          </select>
+        </td>
+        <td class="px-3 py-3 text-right whitespace-nowrap">
+          <button onclick="event.stopPropagation();_admLoadForm(${a.id})" class="p-1.5 text-slate-400 hover:text-blue-600" title="Edit"><i data-lucide="edit-2" class="h-3.5 w-3.5"></i></button>
+          <button onclick="event.stopPropagation();_admDeleteApp(${a.id})" class="p-1.5 text-slate-400 hover:text-red-500" title="Delete"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+        </td>
+      </tr>`).join('');
+    lucide.createIcons();
+    _admRenderBulkBar();
+  }
+  function _admToggleRowSelect(id, checked) { checked ? _admSelectedIds.add(id) : _admSelectedIds.delete(id); _admRenderBulkBar(); }
+  function _admToggleSelectAll(cb) {
+    document.querySelectorAll('.adm-row-select').forEach(el => {
+      el.checked = cb.checked;
+      const id = parseInt(el.dataset.id, 10);
+      cb.checked ? _admSelectedIds.add(id) : _admSelectedIds.delete(id);
+    });
+    _admRenderBulkBar();
+  }
+  function _admClearBulkSelection() {
+    _admSelectedIds = new Set();
+    document.querySelectorAll('.adm-row-select').forEach(el => el.checked = false);
+    const all = document.getElementById('adm-bulk-select-all'); if (all) all.checked = false;
+    _admRenderBulkBar();
+  }
+  function _admRenderBulkBar() {
+    const bar = document.getElementById('adm-bulk-action-bar');
+    if (!bar) return;
+    bar.classList.toggle('hidden', _admSelectedIds.size === 0);
+    const countEl = document.getElementById('adm-bulk-count');
+    if (countEl) countEl.textContent = `${_admSelectedIds.size} selected`;
+  }
+  async function _admApplyBulkStatus() {
+    const ids = [..._admSelectedIds];
+    if (!ids.length) return;
+    const status = document.getElementById('adm-bulk-status-select').value;
+    showConfirm(`Set status to "${status}" for ${ids.length} application(s)?`, async () => {
+      try {
+        const r = await _admAdminFetch('bulkUpdateStatus', { ids, status });
+        if (r.error) { showToast(r.error, 'error'); return; }
+        ids.forEach(id => { const app = _admAllApps.find(a => a.id === id); if (app) app.status = status; });
+        _admClearBulkSelection(); _admFilterApps(); _admLoadStats();
+        showToast(`Status updated for ${r.count || ids.length} application(s)`);
+      } catch (e) { showToast(e.message || 'Failed', 'error'); }
+    });
+  }
+  function _admFilterApps() {
+    const q = (document.getElementById('adm-search-input').value || '').toLowerCase();
+    const sess = document.getElementById('adm-filter-session').value;
+    const cls = document.getElementById('adm-filter-class').value;
+    const stat = document.getElementById('adm-filter-status').value;
+    _admRenderTable(_admAllApps.filter(a => {
+      if (q && !`${a.name_english || ''} ${a.tracking_id || ''} ${a.index_id || ''}`.toLowerCase().includes(q)) return false;
+      if (sess && a.session !== sess) return false;
+      if (cls && a.class !== cls) return false;
+      if (stat && a.status !== stat) return false;
+      return true;
+    }));
+  }
+  async function _admChangeStatus(e, id) {
+    e.stopPropagation();
+    const status = e.target.value;
+    try {
+      const r = await _admAdminFetch('updateStatus', { id, status });
+      if (r.error) { showToast(r.error, 'error'); return; }
+      const app = _admAllApps.find(a => a.id === id); if (app) app.status = status;
+      e.target.className = `px-2 py-1 rounded-lg text-xs font-bold ${ADM_STATUS_COLORS[status] || ''}`;
+      showToast('Status updated'); _admLoadStats();
+    } catch (err) { showToast(err.message || 'Failed', 'error'); }
+  }
+  function _admDeleteApp(id) {
+    showConfirm('Delete this application permanently?', async () => {
+      try {
+        const r = await _admAdminFetch('deleteApplication', { id });
+        if (r.error) { showToast(r.error, 'error'); return; }
+        showToast('Deleted'); _admAllApps = _admAllApps.filter(a => a.id !== id); _admFilterApps(); _admLoadStats();
+      } catch (e) { showToast(e.message || 'Failed', 'error'); }
+    });
+  }
+
+  /* ─── Dynamic table rows ─────────────────────────── */
+  function _admAddAcademicRow(data) {
+    data = data || {};
+    const tr = document.createElement('tr');
+    tr.className = 'border-t border-slate-100 group';
+    tr.innerHTML = `
+      <td class="px-2 py-1"><input data-field="exam" value="${_escHtml(data.exam || '')}" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold" placeholder="e.g. SSC"></td>
+      <td class="px-2 py-1"><input data-field="year" value="${_escHtml(data.year || '')}" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold" placeholder="2024"></td>
+      <td class="px-2 py-1"><input data-field="board" value="${_escHtml(data.board || '')}" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold" placeholder="Dhaka Board"></td>
+      <td class="px-2 py-1"><input data-field="roll" value="${_escHtml(data.roll || '')}" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold" placeholder="123456"></td>
+      <td class="px-2 py-1"><input data-field="result" value="${_escHtml(data.result || '')}" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold" placeholder="GPA 5.00"></td>
+      <td class="px-2 py-1 text-center"><button type="button" onclick="this.closest('tr').remove()" class="w-6 h-6 rounded-md text-slate-300 hover:bg-red-50 hover:text-red-500 transition-all text-lg leading-none opacity-0 group-hover:opacity-100">×</button></td>`;
+    document.getElementById('adm-academic-tbody').appendChild(tr);
+  }
+  function _admAddSiblingRow(data) {
+    data = data || {};
+    const tr = document.createElement('tr');
+    tr.className = 'border-t border-slate-100 group';
+    tr.innerHTML = `
+      <td class="px-2 py-1"><input data-field="name" value="${_escHtml(data.name || '')}" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold" placeholder="Full name"></td>
+      <td class="px-2 py-1"><input data-field="age" value="${_escHtml(data.age || '')}" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold" placeholder="Age"></td>
+      <td class="px-2 py-1"><input data-field="cls" value="${_escHtml(data.cls || '')}" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold" placeholder="e.g. Five"></td>
+      <td class="px-2 py-1"><input data-field="institution" value="${_escHtml(data.institution || '')}" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold" placeholder="School name"></td>
+      <td class="px-2 py-1 text-center"><button type="button" onclick="this.closest('tr').remove()" class="w-6 h-6 rounded-md text-slate-300 hover:bg-red-50 hover:text-red-500 transition-all text-lg leading-none opacity-0 group-hover:opacity-100">×</button></td>`;
+    document.getElementById('adm-sibling-tbody').appendChild(tr);
+  }
+  function _admCollectTableRows(tbodyId, fields) {
+    const rows = [];
+    document.querySelectorAll(`#${tbodyId} tr`).forEach(tr => {
+      const row = {}; fields.forEach(f => { row[f] = tr.querySelector(`[data-field="${f}"]`)?.value?.trim() || null; });
+      if (Object.values(row).some(v => v)) rows.push(row);
+    });
+    return rows;
+  }
+
+  /* ─── Form (new/edit application) ───────────────── */
+  const ADM_FORM_FIELDS = [
+    'adm-f-session','adm-f-class','adm-f-category','adm-f-version','adm-f-quota','adm-f-status',
+    'adm-f-name-en','adm-f-name-bn','adm-f-dob','adm-f-blood','adm-f-gender','adm-f-religion','adm-f-birth-reg','adm-f-nationality',
+    'adm-f-emergency','adm-f-height','adm-f-last-class','adm-f-last-version','adm-f-last-institute','adm-f-present-address','adm-f-permanent-address','adm-f-co-curricular',
+    'adm-f-father-name','adm-f-father-profession','adm-f-father-designation','adm-f-father-education','adm-f-father-contact','adm-f-father-nid','adm-f-father-office','adm-f-father-income',
+    'adm-f-mother-name','adm-f-mother-profession','adm-f-mother-designation','adm-f-mother-education','adm-f-mother-contact','adm-f-mother-nid','adm-f-mother-office','adm-f-mother-income',
+    'adm-f-guardian-name','adm-f-guardian-profession','adm-f-guardian-designation','adm-f-guardian-education','adm-f-guardian-contact','adm-f-guardian-relation','adm-f-guardian-office',
+  ];
+  function _admSetV(id, val) { const e = document.getElementById(id); if (e) e.value = val == null ? '' : val; }
+  function _admV(id) { const e = document.getElementById(id); return e ? String(e.value).trim() : ''; }
+  function _admClearForm() {
+    ADM_FORM_FIELDS.forEach(id => _admSetV(id, ''));
+    _admSetV('adm-f-tracking-id', ''); _admSetV('adm-f-index-id', '');
+    ['student','father','mother','guardian'].forEach(r => {
+      _admSetV(`adm-f-${r}-photo`, '');
+      const el = document.getElementById(`adm-${r}-photo-preview`);
+      if (el) el.innerHTML = `<i data-lucide="camera" class="h-6 w-6 text-slate-300"></i><span class="text-[9px] text-slate-400 mt-1">Click to upload</span>`;
+    });
+    _admSetV('adm-f-session', '2026'); _admSetV('adm-f-class', 'Nursery'); _admSetV('adm-f-category', 'Army');
+    _admSetV('adm-f-version', 'Bangla'); _admSetV('adm-f-quota', 'No'); _admSetV('adm-f-status', 'Pending'); _admSetV('adm-f-nationality', 'Bangladeshi');
+    document.getElementById('adm-academic-tbody').innerHTML = ''; _admAddAcademicRow(); _admAddAcademicRow(); _admAddAcademicRow();
+    document.getElementById('adm-sibling-tbody').innerHTML = '';
+    document.getElementById('adm-custom-fields-block').classList.add('hidden');
+    lucide.createIcons();
+  }
+  function _admLoadNewApplication() {
+    _admCurrentId = null; _admClearForm();
+    document.getElementById('adm-form-title').textContent = 'New Application';
+    _admShowView('form');
+    document.querySelector('#adm-ftabs .adm-ftab').click();
+  }
+  async function _admLoadForm(id) {
+    _admCurrentId = id; _admClearForm();
+    document.getElementById('adm-form-title').textContent = 'Edit Application';
+    _admShowView('form');
+    try {
+      const r = await _admAdminFetch('getApplication', { id });
+      const a = r.application;
+      if (!a) { showToast('Not found', 'error'); return; }
+      _admSetV('adm-f-session', a.session); _admSetV('adm-f-class', a.class); _admSetV('adm-f-category', a.category);
+      _admSetV('adm-f-version', a.version); _admSetV('adm-f-quota', a.quota || 'No'); _admSetV('adm-f-status', a.status);
+      _admSetV('adm-f-tracking-id', a.tracking_id); _admSetV('adm-f-index-id', a.index_id);
+      _admSetV('adm-f-name-en', a.name_english); _admSetV('adm-f-name-bn', a.name_bangla);
+      _admSetV('adm-f-dob', a.date_of_birth ? a.date_of_birth.split('T')[0] : '');
+      _admSetV('adm-f-blood', a.blood_group); _admSetV('adm-f-gender', a.gender); _admSetV('adm-f-religion', a.religion);
+      _admSetV('adm-f-birth-reg', a.birth_reg_no); _admSetV('adm-f-nationality', a.nationality || 'Bangladeshi');
+      _admSetV('adm-f-emergency', a.emergency_contact); _admSetV('adm-f-height', a.height);
+      _admSetV('adm-f-last-class', a.last_class); _admSetV('adm-f-last-version', a.last_version); _admSetV('adm-f-last-institute', a.last_institute);
+      _admSetV('adm-f-present-address', a.present_address); _admSetV('adm-f-permanent-address', a.permanent_address);
+      _admSetV('adm-f-co-curricular', a.co_curricular);
+      _admSetV('adm-f-father-name', a.father_name); _admSetV('adm-f-father-profession', a.father_profession);
+      _admSetV('adm-f-father-designation', a.father_designation); _admSetV('adm-f-father-education', a.father_education);
+      _admSetV('adm-f-father-contact', a.father_contact); _admSetV('adm-f-father-nid', a.father_nid);
+      _admSetV('adm-f-father-office', a.father_office_address); _admSetV('adm-f-father-income', a.father_yearly_income);
+      _admSetV('adm-f-mother-name', a.mother_name); _admSetV('adm-f-mother-profession', a.mother_profession);
+      _admSetV('adm-f-mother-designation', a.mother_designation); _admSetV('adm-f-mother-education', a.mother_education);
+      _admSetV('adm-f-mother-contact', a.mother_contact); _admSetV('adm-f-mother-nid', a.mother_nid);
+      _admSetV('adm-f-mother-office', a.mother_office_address); _admSetV('adm-f-mother-income', a.mother_yearly_income);
+      _admSetV('adm-f-guardian-name', a.guardian_name); _admSetV('adm-f-guardian-profession', a.guardian_profession);
+      _admSetV('adm-f-guardian-designation', a.guardian_designation); _admSetV('adm-f-guardian-education', a.guardian_education);
+      _admSetV('adm-f-guardian-contact', a.guardian_contact); _admSetV('adm-f-guardian-relation', a.guardian_relation);
+      _admSetV('adm-f-guardian-office', a.guardian_office_address);
+      ['student','father','mother','guardian'].forEach(role => {
+        const ph = a[`${role}_photo`]; if (!ph) return;
+        _admSetV(`adm-f-${role}-photo`, ph);
+        const el = document.getElementById(`adm-${role}-photo-preview`);
+        if (el) el.innerHTML = `<img src="${ph}" class="w-full h-full object-cover">`;
+      });
+      document.getElementById('adm-academic-tbody').innerHTML = '';
+      const acadRows = Array.isArray(a.academic_records) ? a.academic_records : [];
+      if (acadRows.length) acadRows.forEach(r => _admAddAcademicRow(r)); else { _admAddAcademicRow(); _admAddAcademicRow(); _admAddAcademicRow(); }
+      document.getElementById('adm-sibling-tbody').innerHTML = '';
+      (Array.isArray(a.siblings) ? a.siblings : []).forEach(r => _admAddSiblingRow(r));
+      _admRenderCustomFieldsBlock(a.extra_fields || {});
+      document.querySelector('#adm-ftabs .adm-ftab').click();
+    } catch (e) { showToast(e.message || 'Could not load application', 'error'); }
+  }
+  // Read-only dump of admin-added custom field answers — editing them stays
+  // on the applicant's own form; label lookup needs the current field list.
+  async function _admRenderCustomFieldsBlock(extra) {
+    const block = document.getElementById('adm-custom-fields-block');
+    const body = document.getElementById('adm-custom-fields-body');
+    const keys = Object.keys(extra).filter(k => extra[k] != null && extra[k] !== '');
+    if (!keys.length) { block.classList.add('hidden'); return; }
+    let labels = {};
+    try {
+      const r = await _admAdminFetch('getFormFields', {});
+      (r.fields || []).forEach(f => { labels[f.key] = f.label; });
+    } catch (e) {}
+    body.innerHTML = keys.map(k => `
+      <div class="bg-slate-50 rounded-lg p-2.5">
+        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide">${_escHtml(labels[k] || k)}</p>
+        <p class="text-sm text-slate-700 mt-0.5">${_escHtml(String(extra[k]))}</p>
+      </div>`).join('');
+    block.classList.remove('hidden');
+  }
+  function _admCollectForm() {
+    return {
+      session: _admV('adm-f-session'), class: _admV('adm-f-class'), category: _admV('adm-f-category'), version: _admV('adm-f-version'),
+      quota: _admV('adm-f-quota'), status: _admV('adm-f-status'),
+      name_english: _admV('adm-f-name-en') || null, name_bangla: _admV('adm-f-name-bn') || null,
+      date_of_birth: _admV('adm-f-dob') || null, blood_group: _admV('adm-f-blood') || null, gender: _admV('adm-f-gender') || null,
+      religion: _admV('adm-f-religion') || null, birth_reg_no: _admV('adm-f-birth-reg') || null, nationality: _admV('adm-f-nationality') || 'Bangladeshi',
+      emergency_contact: _admV('adm-f-emergency') || null, height: _admV('adm-f-height') || null,
+      last_class: _admV('adm-f-last-class') || null, last_version: _admV('adm-f-last-version') || null, last_institute: _admV('adm-f-last-institute') || null,
+      present_address: _admV('adm-f-present-address') || null, permanent_address: _admV('adm-f-permanent-address') || null, co_curricular: _admV('adm-f-co-curricular') || null,
+      student_photo: document.getElementById('adm-f-student-photo')?.value || null,
+      father_name: _admV('adm-f-father-name') || null, father_profession: _admV('adm-f-father-profession') || null,
+      father_designation: _admV('adm-f-father-designation') || null, father_education: _admV('adm-f-father-education') || null,
+      father_contact: _admV('adm-f-father-contact') || null, father_nid: _admV('adm-f-father-nid') || null,
+      father_office_address: _admV('adm-f-father-office') || null, father_yearly_income: _admV('adm-f-father-income') || null,
+      father_photo: document.getElementById('adm-f-father-photo')?.value || null,
+      mother_name: _admV('adm-f-mother-name') || null, mother_profession: _admV('adm-f-mother-profession') || null,
+      mother_designation: _admV('adm-f-mother-designation') || null, mother_education: _admV('adm-f-mother-education') || null,
+      mother_contact: _admV('adm-f-mother-contact') || null, mother_nid: _admV('adm-f-mother-nid') || null,
+      mother_office_address: _admV('adm-f-mother-office') || null, mother_yearly_income: _admV('adm-f-mother-income') || null,
+      mother_photo: document.getElementById('adm-f-mother-photo')?.value || null,
+      guardian_name: _admV('adm-f-guardian-name') || null, guardian_profession: _admV('adm-f-guardian-profession') || null,
+      guardian_designation: _admV('adm-f-guardian-designation') || null, guardian_education: _admV('adm-f-guardian-education') || null,
+      guardian_contact: _admV('adm-f-guardian-contact') || null, guardian_relation: _admV('adm-f-guardian-relation') || null,
+      guardian_office_address: _admV('adm-f-guardian-office') || null,
+      guardian_photo: document.getElementById('adm-f-guardian-photo')?.value || null,
+      academic_records: _admCollectTableRows('adm-academic-tbody', ['exam','year','board','roll','result']),
+      siblings: _admCollectTableRows('adm-sibling-tbody', ['name','age','cls','institution']),
+    };
+  }
+  async function _admSaveApplication() {
+    const data = _admCollectForm();
+    if (!data.name_english) {
+      showToast('Enter student name first', 'error');
+      document.querySelectorAll('#adm-ftabs .adm-ftab')[1].click();
+      return;
+    }
+    if (_admCurrentId) { delete data.tracking_id; delete data.index_id; }
+    try {
+      const r = await _admAdminFetch('saveApplication', { id: _admCurrentId, data });
+      if (r.error) { showToast(r.error, 'error'); return; }
+      if (!_admCurrentId) {
+        _admCurrentId = r.id;
+        _admSetV('adm-f-tracking-id', r.tracking_id || '');
+        _admSetV('adm-f-index-id', r.index_id || '');
+      }
+      showToast('Saved successfully');
+    } catch (e) { showToast(e.message || 'Could not save', 'error'); }
+  }
+  function _admHandlePhoto(input, previewId, hiddenId) {
+    const file = input.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+      const d = e.target.result;
+      document.getElementById(hiddenId).value = d;
+      const p = document.getElementById(previewId); if (p) p.innerHTML = `<img src="${d}" class="w-full h-full object-cover">`;
+    };
+    reader.readAsDataURL(file);
+  }
+
   // ── PERMISSION CONTROL PANEL (Admin only) ────────────────────────────────────
-  // 'Admission Admin' / 'Student Portal Admin' / 'Canteen Admin' / 'Inventory
-  // Admin' are add-on roles: each grants delegated control of one separate
-  // app/module (the admission admin panel, the Student Portal module here,
-  // ccpc-canteen's admin panel, and ccpc-inventory respectively) WITHOUT the
-  // blanket 'Admin' role. Inside this portal itself they behave like any
-  // unmapped role (TeacherView fallback) — their only purpose is granting
-  // access elsewhere.
+  // 'Student Portal Admin' / 'Canteen Admin' / 'Inventory Admin' are add-on
+  // roles: each grants delegated control of one separate app/module (the
+  // Student Portal module here, ccpc-canteen's admin panel, and ccpc-inventory
+  // respectively) WITHOUT the blanket 'Admin' role. Inside this portal itself
+  // they behave like any unmapped role (TeacherView fallback) — their only
+  // purpose is granting access elsewhere. 'Admission Admin' USED to be in that
+  // same bucket (ccpc-admission was a separate app/login) but is now a real
+  // native module here too — see loadAdmissionAdminView() below.
   const ALL_ROLES = ['Teacher','Staff','HR','Principal','VP','Admin','Cord','Admission Admin','Student Portal Admin','Canteen Admin','Inventory Admin','Accounts Admin','Class Teacher','Registration Admin'];
   // Two-letter chips would collide with Admin ('AD') / each other — explicit abbreviations
   const ROLE_ABBR = { 'Admission Admin':'AA', 'Student Portal Admin':'SP', 'Canteen Admin':'CA', 'Inventory Admin':'IA', 'Accounts Admin':'AC', 'Registration Admin':'RA' };
