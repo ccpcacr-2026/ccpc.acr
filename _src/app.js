@@ -31040,12 +31040,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const answerFields = fields.filter(f => f.type !== 'group_label' && f.type !== 'profile_picture');
     const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''}${p.roll ? ', Roll ' + p.roll : ''})` : 'Unknown';
     const classSectionOf = p => p ? [p.class, p.section].filter(Boolean).join('-') : '';
-    const headers = ['SL', 'Reference No.', 'Team ID', 'Status', 'Review Status', 'Submitted', 'Submitted At', 'Locked', 'Pending Invites', ...answerFields.map(f => f.name || f.data_key), 'Role', 'Participant Name', 'Class-Section', 'Roll', 'Student ID'];
+    const headers = ['SL', 'Reference No.', 'House', 'Team ID', 'Status', 'Review Status', 'Submitted', 'Submitted At', 'Locked', 'Pending Invites', ...answerFields.map(f => f.name || f.data_key), 'Role', 'Participant Name', 'Class-Section', 'Roll', 'Student ID'];
     const rows = [headers];
     teams.forEach((t, idx) => {
       const pending = t.pending_invites.map(inv => `${nameOf(inv.profile)} [${inv.invited_student_id}]`).join('; ');
       const answers = answerFields.map(f => (t.group_data || {})[f.data_key] ?? '');
-      const teamCells = [idx + 1, t.reference_number || '', t.id, t.status, t.review_status || 'Pending', t.is_submitted ? 'Yes' : 'No', t.submitted_at ? new Date(t.submitted_at).toLocaleString() : '', t.is_locked ? 'Yes' : 'No', pending, ...answers];
+      const teamCells = [idx + 1, t.reference_number || '', _gfTeamHouse(t), t.id, t.status, t.review_status || 'Pending', t.is_submitted ? 'Yes' : 'No', t.submitted_at ? new Date(t.submitted_at).toLocaleString() : '', t.is_locked ? 'Yes' : 'No', pending, ...answers];
       const members = t.members.length ? t.members : [{ role: '', profile: null, student_id: '' }];
       members.forEach(m => {
         const p = m.profile;
@@ -33583,12 +33583,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const answerFields = fields.filter(f => f.type !== 'group_label' && f.type !== 'profile_picture');
     const nameOf = p => p ? `${p.student_name} (${p.class || ''}${p.section ? '-' + p.section : ''}${p.roll ? ', Roll ' + p.roll : ''})` : 'Unknown';
     const classSectionOf = p => p ? [p.class, p.section].filter(Boolean).join('-') : '';
-    const headers = ['SL', 'Reference No.', 'Team ID', 'Status', 'Review Status', 'Submitted', 'Submitted At', 'Locked', 'Pending Invites', ...answerFields.map(f => f.name || f.data_key), 'Role', 'Participant Name', 'Class-Section', 'Roll', 'Student ID'];
+    const headers = ['SL', 'Reference No.', 'House', 'Team ID', 'Status', 'Review Status', 'Submitted', 'Submitted At', 'Locked', 'Pending Invites', ...answerFields.map(f => f.name || f.data_key), 'Role', 'Participant Name', 'Class-Section', 'Roll', 'Student ID'];
     const rows = [headers];
     teams.forEach((t, idx) => {
       const pending = t.pending_invites.map(inv => `${nameOf(inv.profile)} [${inv.invited_student_id}]`).join('; ');
       const answers = answerFields.map(f => (t.group_data || {})[f.data_key] ?? '');
-      const teamCells = [idx + 1, t.reference_number || '', t.id, t.status, t.review_status || 'Pending', t.is_submitted ? 'Yes' : 'No', t.submitted_at ? new Date(t.submitted_at).toLocaleString() : '', t.is_locked ? 'Yes' : 'No', pending, ...answers];
+      const teamCells = [idx + 1, t.reference_number || '', _gfReviewTeamHouse(t), t.id, t.status, t.review_status || 'Pending', t.is_submitted ? 'Yes' : 'No', t.submitted_at ? new Date(t.submitted_at).toLocaleString() : '', t.is_locked ? 'Yes' : 'No', pending, ...answers];
       const members = t.members.length ? t.members : [{ role: '', profile: null, student_id: '' }];
       members.forEach(m => {
         const p = m.profile;
