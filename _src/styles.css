@@ -1487,3 +1487,70 @@ button { user-select: none; }
    own .ftab/.ftab.active it was ported from. */
 .adm-ftab { padding: 8px 16px; border-radius: 10px; font-weight: 900; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #64748b; background: #f8fafc; border: 1px solid #e2e8f0; white-space: nowrap; cursor: pointer; }
 .adm-ftab.adm-ftab-on { background: #2563eb; color: #fff; border-color: #2563eb; }
+
+/* Admission Admin — Admit Card Designer (settings form + live preview) and
+   Form Designer (drag/resize canvas). Ported verbatim from ccpc-admission's
+   own styles.css (.designer-layout/.dgroup/.toggle-lbl/.fd-*/.fdc*/.pp-*),
+   just scoping #props-panel to #adm-fd-props-panel to match this module's
+   adm- prefixed element ids. */
+.designer-layout { display:flex; gap:0; min-height: calc(100vh - 190px); background:#fff; border:1px solid #e2e8f0; border-radius:16px; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,.06); }
+.designer-settings { width:300px; flex-shrink:0; border-right:1px solid #e2e8f0; overflow-y:auto; background:#fafafa; }
+.designer-preview { flex:1; display:flex; flex-direction:column; min-width:0; background:#f0f0f0; }
+.designer-preview-bar { display:flex; align-items:center; justify-content:space-between; padding:8px 14px; background:#fff; border-bottom:1px solid #e2e8f0; font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:.08em; color:#64748b; }
+.preview-refresh-btn { display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:.07em; color:#2563eb; background:none; border:none; cursor:pointer; transition:color .15s; }
+.preview-refresh-btn:hover { color:#000; }
+.preview-iframe { flex:1; width:100%; border:none; }
+
+.dgroup { border-bottom:1px solid #e2e8f0; }
+.dgroup-hdr { display:flex; align-items:center; gap:7px; padding:10px 14px; font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:.07em; color:#475569; cursor:pointer; list-style:none; user-select:none; background:#fafafa; transition:background .1s; }
+.dgroup-hdr:hover { background:#f1f5f9; }
+.dgroup-hdr::-webkit-details-marker { display:none; }
+.dgroup[open] .dgroup-hdr { color:#1e293b; background:#f8fafc; }
+.dgroup-body { padding:10px 14px; background:#fff; }
+
+.toggle-lbl { display:flex; align-items:center; gap:6px; font-size:11px; font-weight:600; color:#475569; cursor:pointer; }
+.toggle-lbl input[type=checkbox] { width:14px; height:14px; accent-color:#2563eb; cursor:pointer; }
+.color-picker { width:100%; height:34px; border:1.5px solid #e2e8f0; border-radius:8px; cursor:pointer; padding:2px; }
+.sec-group { padding:8px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; }
+.fields-grid { display:grid; grid-template-columns:1fr 1fr; gap:4px; }
+
+.tpl-bar { display:flex; align-items:center; gap:6px; flex-wrap:wrap; padding:7px 10px; background:#f0fdf4; border:1.5px solid #bbf7d0; border-radius:10px; margin-bottom:8px; }
+.fd-toolbar { display:flex; align-items:center; gap:5px; flex-wrap:wrap; padding:8px 10px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; margin-bottom:10px; }
+.fd-tool { display:inline-flex; align-items:center; gap:4px; padding:5px 9px; font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:.05em; background:#fff; border:1.5px solid #e2e8f0; border-radius:8px; cursor:pointer; color:#475569; transition:all .12s; white-space:nowrap; }
+.fd-tool:hover { background:#f1f5f9; border-color:#cbd5e1; color:#0f172a; }
+
+.fdc { border:1.5px dashed #93c5fd; transition:border-color .1s; user-select:none; }
+.fdc:hover { border-color:#60a5fa; }
+.fdc-sel { border:2px solid #2563eb !important; box-shadow:0 0 0 3px rgba(37,99,235,.15); z-index:10; }
+.fdc-resize { position:absolute; right:0; bottom:0; width:10px; height:10px; background:#2563eb; cursor:se-resize; border-radius:2px 0 0 0; z-index:20; }
+.fdc-del, .fdc-dup, .fdc-ord { position:absolute; top:0; width:18px; height:18px; border:none; color:#fff; font-size:11px; line-height:1; cursor:pointer; z-index:20; display:flex; align-items:center; justify-content:center; }
+.fdc-del  { right:0;    background:#ef4444; border-radius:0 0 0 4px; }
+.fdc-dup  { right:18px; background:#2563eb; border-radius:0 0 0 4px; font-size:9px; }
+.fdc-ord  { right:36px; background:#64748b; border-radius:0 0 0 4px; font-size:10px; }
+
+#adm-fd-props-panel { padding:10px; }
+.pp-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+.pp-type-lbl { font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:.08em; color:#1e293b; }
+.pp-del-btn { font-size:10px; font-weight:700; color:#ef4444; background:none; border:none; cursor:pointer; }
+.pp-sec { font-size:9px; font-weight:900; text-transform:uppercase; letter-spacing:.1em; color:#64748b; margin:8px 0 4px; border-bottom:1px solid #f1f5f9; padding-bottom:2px; }
+.pp-row { margin-bottom:5px; }
+.pp-lbl { font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:#94a3b8; display:block; margin-bottom:2px; }
+.pp-inp { width:100%; padding:4px 7px; font-size:11px; font-weight:600; background:#f8fafc; border:1.5px solid #e2e8f0; border-radius:7px; outline:none; color:#1e293b; font-family:inherit; box-sizing:border-box; }
+.pp-inp:focus { border-color:#2563eb; }
+.pp-color { width:100%; height:28px; border:1.5px solid #e2e8f0; border-radius:7px; cursor:pointer; padding:1px; box-sizing:border-box; }
+.pp-grid2 { display:grid; grid-template-columns:1fr 1fr; gap:4px; }
+.pp-grid4 { display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:3px; }
+.pp-chkrow { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:4px; }
+.pp-chk { display:flex; align-items:center; gap:4px; font-size:11px; font-weight:600; color:#475569; cursor:pointer; }
+.pp-chk input { width:13px; height:13px; accent-color:#2563eb; cursor:pointer; }
+.pp-col-card { border:1px solid #e2e8f0; border-radius:8px; padding:6px; margin-bottom:5px; background:#fafafa; }
+.pp-col-hdr { display:flex; align-items:center; justify-content:space-between; margin-bottom:4px; font-size:9px; font-weight:900; text-transform:uppercase; color:#64748b; }
+.pp-col-del { background:none; border:none; color:#ef4444; cursor:pointer; font-size:14px; line-height:1; }
+.pp-add-col { width:100%; padding:5px; font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:.06em; color:#2563eb; background:#eff6ff; border:none; border-radius:8px; cursor:pointer; margin-bottom:6px; }
+.pp-note { font-size:9px; color:#94a3b8; margin-bottom:4px; line-height:1.4; }
+.pp-fgrp { margin-bottom:5px; }
+.pp-fgrp-hdr { font-size:8.5px; font-weight:900; text-transform:uppercase; letter-spacing:.08em; color:#6366f1; padding:3px 0 2px; border-bottom:1px solid #e0e7ff; margin-bottom:3px; }
+.pp-fgrp-body { display:flex; flex-wrap:wrap; gap:3px; }
+.pp-selfld-item { display:inline-block; padding:2px 7px; font-size:9.5px; font-weight:600; background:#f1f5f9; border:1px solid #e2e8f0; border-radius:5px; cursor:pointer; color:#475569; transition:all .12s; user-select:none; }
+.pp-selfld-item:hover { background:#e0e7ff; border-color:#a5b4fc; color:#3730a3; }
+.pp-selfld-on { background:#dbeafe; border-color:#93c5fd; color:#1d4ed8; font-weight:900; }

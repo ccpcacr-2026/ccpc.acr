@@ -455,7 +455,32 @@ const RESERVED = [
   // Admission Admin Phase 3 (SMS/OTP settings + Scan) — onclick strings in
   // _admRenderSettingsSections()'s adm-set-sms/adm-set-scan panels and in
   // _admRenderScanResult()'s dynamically-built status-select onclick.
-  '_admSaveSmsSettings','_admSendTestSms','_admStartScan','_admStopScan','_admConfirmScanStatus'
+  '_admSaveSmsSettings','_admSendTestSms','_admStartScan','_admStopScan','_admConfirmScanStatus',
+
+  // Admission Admin Phase 4 (Form Designer canvas + Admit Card Designer +
+  // native print) — two groups:
+  // (a) onclick strings built inside _admRenderSettingsSections()'s new
+  //     adm-set-form/adm-set-admit panels, _admRenderFormTplBar() and
+  //     _admRenderAdmitTplBar(), plus the new Print/Admit Card buttons in
+  //     the application editor header and dashboard row actions.
+  // (b) bare identifiers this file's own code reads/writes by NAME that are
+  //     declared in the two lazy-loaded, NEVER-obfuscated static files
+  //     public/admission-print-templates.js and public/admission-form-
+  //     designer.js (loaded as plain <script> tags, same multi-file-globals
+  //     setup as the reference ccpc-admission app) — without this, the
+  //     obfuscator would rename this file's references to e.g. "formLayout"
+  //     while the external file's own "formLayout" declaration stays
+  //     unrenamed, breaking the cross-file link in both directions
+  //     (including "currentFormSettings", declared IN this file but read
+  //     by bare name from admission-form-designer.js as a global fallback).
+  '_admFormSaveTpl','_admFormSwitchTpl','_admFormSaveAsTpl','_admFormRenameTpl',
+  '_admFormDeleteTpl','_admFormNewTpl','_admSaveAdmitDesign','_admResetAdmitDesign',
+  '_admUpdateAdmitPreview','_admSwitchAdmitTpl','_admAdmitSaveTpl','_admAdmitSaveAsTpl',
+  '_admAdmitRenameTpl','_admAdmitDeleteTpl','_admAdmitNewTpl',
+  '_admPrintAdmitCard','_admPrintForm','_admPrintFormById','_admPrintAdmitById',
+  'fdAddEl','fdZoom','fdZoomFit','fdClearCanvas','previewFormLayout','fdSelect','initCanvas',
+  'formLayout','currentFormSettings','deepMerge','generateAdmitHtml','generateFormHtml',
+  'generateFormFromLayout','DEFAULT_FORM','DEFAULT_ADMIT','DEMO_APP','openPrintTab'
 ];
 
 // Strip HTML comments and collapse whitespace

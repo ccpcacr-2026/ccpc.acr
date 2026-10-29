@@ -41375,7 +41375,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div class="flex items-center gap-3 mb-4 flex-wrap">
           <button onclick="_admShowView('dashboard')" class="flex items-center gap-1.5 px-3 py-2 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50"><i data-lucide="arrow-left" class="h-3.5 w-3.5"></i> Back</button>
           <h2 id="adm-form-title" class="font-black text-slate-800 text-sm">New Application</h2>
-          <div class="ml-auto"><button onclick="_admSaveApplication()" class="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-black transition-all"><i data-lucide="save" class="h-3.5 w-3.5"></i> Save</button></div>
+          <div class="ml-auto flex items-center gap-2">
+            <button onclick="_admPrintAdmitCard()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all"><i data-lucide="credit-card" class="h-3.5 w-3.5"></i> Admit Card</button>
+            <button onclick="_admPrintForm()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all"><i data-lucide="printer" class="h-3.5 w-3.5"></i> Print Form</button>
+            <button onclick="_admSaveApplication()" class="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-black transition-all"><i data-lucide="save" class="h-3.5 w-3.5"></i> Save</button>
+          </div>
         </div>
         <div class="flex gap-1 mb-4 overflow-x-auto pb-1" id="adm-ftabs">
           <button class="adm-ftab" data-id="adm-s-appinfo" onclick="_admShowSection('adm-s-appinfo',this)">Application</button>
@@ -41396,6 +41400,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div class="flex gap-1 mb-4 overflow-x-auto pb-1" id="adm-settabs">
           <button class="adm-ftab" data-id="adm-set-index" onclick="_admShowSettingsTab('adm-set-index',this)">Index Pattern</button>
           <button class="adm-ftab" data-id="adm-set-fields" onclick="_admShowSettingsTab('adm-set-fields',this)">Form Fields</button>
+          <button class="adm-ftab" data-id="adm-set-form" onclick="_admShowSettingsTab('adm-set-form',this)">Form Designer</button>
+          <button class="adm-ftab" data-id="adm-set-admit" onclick="_admShowSettingsTab('adm-set-admit',this)">Admit Card</button>
           <button class="adm-ftab" data-id="adm-set-circular" onclick="_admShowSettingsTab('adm-set-circular',this)">Circular</button>
           <button class="adm-ftab" data-id="adm-set-payments" onclick="_admShowSettingsTab('adm-set-payments',this)">Payments &amp; Admit</button>
           <button class="adm-ftab" data-id="adm-set-counters" onclick="_admShowSettingsTab('adm-set-counters',this)">Counters</button>
@@ -41423,6 +41429,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (btn) btn.classList.add('adm-ftab-on');
     if (id === 'adm-set-index' || id === 'adm-set-circular') _admLoadIndexAndCircular();
     else if (id === 'adm-set-fields') _admFFLoad();
+    else if (id === 'adm-set-form') _admFormDesignerOpen();
+    else if (id === 'adm-set-admit') _admAdmitDesignerOpen();
     else if (id === 'adm-set-payments') _admLoadPaymentsTab();
     else if (id === 'adm-set-counters') _admLoadCounters();
     else if (id === 'adm-set-sms') _admLoadSmsSettings();
@@ -41637,6 +41645,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </td>
         <td class="px-3 py-3 text-right whitespace-nowrap">
           <button onclick="event.stopPropagation();_admLoadForm(${a.id})" class="p-1.5 text-slate-400 hover:text-blue-600" title="Edit"><i data-lucide="edit-2" class="h-3.5 w-3.5"></i></button>
+          <button onclick="event.stopPropagation();_admPrintFormById(${a.id})" class="p-1.5 text-slate-400 hover:text-emerald-600" title="Print form"><i data-lucide="printer" class="h-3.5 w-3.5"></i></button>
+          <button onclick="event.stopPropagation();_admPrintAdmitById(${a.id})" class="p-1.5 text-slate-400 hover:text-violet-600" title="Admit card"><i data-lucide="credit-card" class="h-3.5 w-3.5"></i></button>
           <button onclick="event.stopPropagation();_admDeleteApp(${a.id})" class="p-1.5 text-slate-400 hover:text-red-500" title="Delete"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
         </td>
       </tr>`).join('');
@@ -42141,7 +42151,482 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <p class="text-xs font-black text-slate-700 uppercase tracking-widest mb-2">Scanned this session</p>
           <div id="adm-scan-log" class="text-xs text-slate-400">Nothing scanned yet.</div>
         </div>
+      </div>
+
+      <div id="adm-set-form" class="hidden space-y-3">
+        <div class="fd-toolbar">
+          <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest mr-1">Add:</span>
+          <button class="fd-tool" onclick="fdAddEl('ld')" title="Label + Data box with border">Label+Data</button>
+          <button class="fd-tool" onclick="fdAddEl('table')" title="Multi-column table">Table</button>
+          <button class="fd-tool" onclick="fdAddEl('lbl')" title="Text label from field or static">Label</button>
+          <button class="fd-tool" onclick="fdAddEl('para')" title="Paragraph block">Paragraph</button>
+          <button class="fd-tool" onclick="fdAddEl('photo')" title="Photo with label">Photo</button>
+          <button class="fd-tool" onclick="fdAddEl('qr')" title="QR code with logo option + dynamic label">QR</button>
+          <div class="flex-1"></div>
+          <button class="fd-tool" onclick="fdZoom(-0.1)">−</button>
+          <span id="adm-fd-zoom-lbl" class="text-xs font-black text-slate-600" style="width:48px;text-align:center">100%</span>
+          <button class="fd-tool" onclick="fdZoom(0.1)">+</button>
+          <button class="fd-tool" onclick="fdZoomFit()">Fit</button>
+          <div class="w-px h-5 bg-slate-200 mx-1"></div>
+          <button class="fd-tool text-red-500" onclick="fdClearCanvas()">Clear</button>
+          <button class="fd-tool text-blue-600" onclick="previewFormLayout()">Preview</button>
+          <button class="fd-tool text-emerald-600 font-black" onclick="_admFormSaveTpl()">Save</button>
+        </div>
+        <div id="adm-fd-tpl-bar" class="tpl-bar"></div>
+        <div style="display:flex;gap:10px;height:calc(100vh - 380px);min-height:420px">
+          <div id="adm-fd-canvas-scroll" style="flex:1;overflow:auto;background:#4b5563;border-radius:12px;padding:16px;">
+            <div id="adm-fd-canvas" style="position:relative;width:794px;min-height:1123px;background:#fff;margin:0 auto;box-shadow:0 4px 24px rgba(0,0,0,.5);"></div>
+          </div>
+          <div id="adm-fd-props-panel" style="width:260px;overflow-y:auto;background:#fff;border-radius:12px;border:1px solid #e2e8f0;flex-shrink:0;"></div>
+        </div>
+      </div>
+
+      <div id="adm-set-admit" class="hidden space-y-3">
+        <div id="adm-ad-tpl-bar" class="tpl-bar"></div>
+        <div class="designer-layout">
+          <div class="designer-settings" id="adm-ad-panel">
+            <details open class="dgroup">
+              <summary class="dgroup-hdr">Header</summary>
+              <div class="dgroup-body space-y-2">
+                ${lbl('Logo URL')}<input type="text" id="adm-ad-logo-url" class="${inp}">
+                ${lbl('College Name')}<input type="text" id="adm-ad-college-name" class="${inp}">
+                ${lbl('Address')}<input type="text" id="adm-ad-address" class="${inp}">
+                ${lbl('Card Title')}<input type="text" id="adm-ad-card-title" class="${inp}">
+              </div>
+            </details>
+            <details open class="dgroup">
+              <summary class="dgroup-hdr">Banner Colors</summary>
+              <div class="dgroup-body">
+                <div class="flex gap-3">
+                  <div class="flex-1">${lbl('Background')}<input type="color" id="adm-ad-banner-bg" class="color-picker"></div>
+                  <div class="flex-1">${lbl('Text')}<input type="color" id="adm-ad-banner-text" class="color-picker"></div>
+                </div>
+              </div>
+            </details>
+            <details class="dgroup">
+              <summary class="dgroup-hdr">Visible Fields</summary>
+              <div class="dgroup-body fields-grid">
+                <label class="toggle-lbl"><input type="checkbox" id="adm-adf-tracking"> Tracking ID</label>
+                <label class="toggle-lbl"><input type="checkbox" id="adm-adf-index"> Index ID</label>
+                <label class="toggle-lbl"><input type="checkbox" id="adm-adf-name-en"> Name (EN)</label>
+                <label class="toggle-lbl"><input type="checkbox" id="adm-adf-name-bn"> Name (BN)</label>
+                <label class="toggle-lbl"><input type="checkbox" id="adm-adf-class"> Class</label>
+                <label class="toggle-lbl"><input type="checkbox" id="adm-adf-category"> Category</label>
+                <label class="toggle-lbl"><input type="checkbox" id="adm-adf-version"> Version</label>
+                <label class="toggle-lbl"><input type="checkbox" id="adm-adf-session"> Session</label>
+                <label class="toggle-lbl"><input type="checkbox" id="adm-adf-dob"> Date of Birth</label>
+                <label class="toggle-lbl"><input type="checkbox" id="adm-adf-blood"> Blood Group</label>
+                <label class="toggle-lbl"><input type="checkbox" id="adm-ad-show-photo"> Show Photo</label>
+              </div>
+            </details>
+            <details class="dgroup">
+              <summary class="dgroup-hdr">Exam Info</summary>
+              <div class="dgroup-body space-y-2">
+                ${lbl('Exam Center')}<input type="text" id="adm-ad-exam-center" class="${inp}">
+                <div class="flex gap-2">
+                  <div class="flex-1">${lbl('Date')}<input type="text" id="adm-ad-exam-date" class="${inp}" placeholder="e.g. 15 Jul 2026"></div>
+                  <div class="flex-1">${lbl('Time')}<input type="text" id="adm-ad-exam-time" class="${inp}" placeholder="10:00 AM"></div>
+                </div>
+                ${lbl('Instructions')}<textarea id="adm-ad-instructions" class="${inp} h-20"></textarea>
+              </div>
+            </details>
+            <details class="dgroup">
+              <summary class="dgroup-hdr">Signatures</summary>
+              <div class="dgroup-body space-y-2">
+                <div class="flex gap-2 items-center">
+                  <input type="checkbox" id="adm-ad-sig1-show" class="w-4 h-4 shrink-0">
+                  <input type="text" id="adm-ad-sig1-label" class="${inp} flex-1" placeholder="Invigilator's Signature">
+                </div>
+                <div class="flex gap-2 items-center">
+                  <input type="checkbox" id="adm-ad-sig2-show" class="w-4 h-4 shrink-0">
+                  <input type="text" id="adm-ad-sig2-label" class="${inp} flex-1" placeholder="Controller of Examination">
+                </div>
+              </div>
+            </details>
+            <details class="dgroup">
+              <summary class="dgroup-hdr">Footer</summary>
+              <div class="dgroup-body"><input type="text" id="adm-ad-footer" class="${inp}"></div>
+            </details>
+            <div class="p-4 space-y-2">
+              <button onclick="_admSaveAdmitDesign()" class="w-full py-3 bg-blue-600 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:bg-black transition-all">Save Admit Card Design</button>
+              <button onclick="_admResetAdmitDesign()" class="w-full py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:bg-slate-100 rounded-xl transition-all">Reset to Default</button>
+            </div>
+          </div>
+          <div class="designer-preview">
+            <div class="designer-preview-bar"><span>Admit Card Preview</span><button onclick="_admUpdateAdmitPreview()" class="preview-refresh-btn">Refresh</button></div>
+            <iframe id="adm-ad-preview-iframe" class="preview-iframe"></iframe>
+          </div>
+        </div>
       </div>`;
+  }
+
+  // ── Print/Admit Card rendering — lazy-loaded, pure-function static files
+  // (ccpc-teachers/public/admission-print-templates.js + admission-form-
+  // designer.js, ported from ccpc-admission's own print-templates.js /
+  // form-designer.js). Not run through scripts/obfuscate.js — they're
+  // plain scripts, same as the reference app's own multi-file setup, so
+  // only the entry points below (and the global names they reference by
+  // bare identifier — see obfuscate.js RESERVED) need obfuscator protection. ─
+  let _admPrintTplsLoaded = false, _admFormDesignerLoaded = false;
+  function _ensureAdmissionPrintTemplates() {
+    if (_admPrintTplsLoaded) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = '/admission-print-templates.js';
+      s.onload = () => { _admPrintTplsLoaded = true; resolve(); };
+      s.onerror = () => reject(new Error('Could not load print templates — check your connection.'));
+      document.head.appendChild(s);
+    });
+  }
+  function _ensureAdmissionFormDesigner() {
+    if (_admFormDesignerLoaded) return Promise.resolve();
+    return _ensureAdmissionPrintTemplates().then(() => new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = '/admission-form-designer.js';
+      s.onload = () => { _admFormDesignerLoaded = true; resolve(); };
+      s.onerror = () => reject(new Error('Could not load the form designer — check your connection.'));
+      document.head.appendChild(s);
+    }));
+  }
+
+  // ── Form Designer (canvas) — template CRUD wiring; the canvas engine
+  // itself (formLayout, initCanvas, fdRender, fdAddEl, generateFormFromLayout,
+  // etc.) lives in the lazy-loaded admission-form-designer.js. This mirrors
+  // which of ccpc-admission's TWO same-named template-CRUD implementations
+  // (form-designer.js's own fdSwitchTpl/fdSaveTpl/... vs. app.js's later-
+  // loaded, shadowing formSwitchTpl/formSaveTpl/...) is actually live in
+  // its browser — app.js's, since it loads last and overwrites the global
+  // function names form-designer.js declared first. That's the behavior
+  // ported here, under this module's own _adm-prefixed names instead. ─────
+  let currentFormSettings = null;
+  let _admFormTemplates = [], _admFormActiveTplId = null;
+
+  function _admFormDesignerOpen() {
+    _ensureAdmissionFormDesigner().then(() => _admLoadFormTemplates())
+      .catch(e => showToast(e.message || 'Failed to load form designer', 'error'));
+  }
+  async function _admEnsureFormSettings() {
+    if (currentFormSettings) return;
+    const r = await _admAdminFetch('getSettings', {});
+    const s = r.settings || {};
+    currentFormSettings = deepMerge(DEFAULT_FORM, s.form_settings || {});
+  }
+  async function _admLoadFormTemplates() {
+    await _admEnsureFormSettings();
+    const r = await _admAdminFetch('getSettings', {});
+    const s = r.settings || {};
+    const tplData = s.form_templates || {};
+    _admFormTemplates = tplData.templates || [];
+    _admFormActiveTplId = tplData.activeId || null;
+    if (!_admFormTemplates.length && s.form_settings && s.form_settings.elements && s.form_settings.elements.length) {
+      const migId = 'tpl_migrated';
+      _admFormTemplates = [{ id: migId, name: 'Default', settings: { elements: s.form_settings.elements }, createdAt: '', updatedAt: '' }];
+      _admFormActiveTplId = migId;
+    }
+    _admRenderFormTplBar();
+    const active = _admFormActiveTplId && _admFormTemplates.find(t => t.id === _admFormActiveTplId);
+    if (active) formLayout = (active.settings && active.settings.elements) || active.elements || [];
+    else if (_admFormTemplates.length) formLayout = (_admFormTemplates[0].settings && _admFormTemplates[0].settings.elements) || _admFormTemplates[0].elements || [];
+    else formLayout = [];
+    initCanvas();
+    fdZoomFit();
+  }
+  function _admRenderFormTplBar() {
+    const bar = document.getElementById('adm-fd-tpl-bar');
+    if (!bar) return;
+    if (!_admFormTemplates.length) { bar.innerHTML = '<span class="pp-note" style="margin:0">No templates saved yet.</span>'; return; }
+    const opts = _admFormTemplates.map(t => `<option value="${t.id}"${t.id === _admFormActiveTplId ? ' selected' : ''}>${_escHtml(t.name)}</option>`).join('');
+    bar.innerHTML = `<select onchange="_admFormSwitchTpl(this.value)" class="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold" style="min-width:160px">${opts}</select>
+      <button class="px-3 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg text-[10px] font-black uppercase" onclick="_admFormSaveTpl()">Save</button>
+      <button class="px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-[10px] font-black uppercase" onclick="_admFormSaveAsTpl()">Save As</button>
+      <button class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-[10px] font-black uppercase" onclick="_admFormRenameTpl()">Rename</button>
+      <button class="px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg text-[10px] font-black uppercase" onclick="_admFormDeleteTpl()">Delete</button>
+      <button class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-[10px] font-black uppercase" onclick="_admFormNewTpl()">+ New</button>`;
+  }
+  function _admFormSwitchTpl(id) {
+    _admFormActiveTplId = id;
+    const tpl = _admFormTemplates.find(t => t.id === id);
+    if (!tpl) return;
+    formLayout = (tpl.settings && tpl.settings.elements) || tpl.elements || [];
+    fdSelect(null);
+    fdZoomFit();
+  }
+  async function _admSaveFormTplsDB() {
+    return _admAdminFetch('saveSettings', { key: 'form_templates', value: { templates: _admFormTemplates, activeId: _admFormActiveTplId } });
+  }
+  async function _admFormSaveTpl() {
+    const tpl = _admFormTemplates.find(t => t.id === _admFormActiveTplId);
+    if (!tpl) { showToast('No active template', 'error'); return; }
+    tpl.settings = { elements: JSON.parse(JSON.stringify(formLayout)) };
+    tpl.updatedAt = new Date().toISOString();
+    const r = await _admSaveFormTplsDB();
+    if (r.error) { showToast(r.error, 'error'); return; }
+    showToast(`Saved: ${tpl.name}`);
+  }
+  async function _admFormSaveAsTpl() {
+    const name = prompt('Template name:', 'Form ' + (_admFormTemplates.length + 1));
+    if (!name || !name.trim()) return;
+    const id = 'tpl_' + Date.now();
+    _admFormTemplates.push({ id, name: name.trim(), settings: { elements: JSON.parse(JSON.stringify(formLayout)) }, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    _admFormActiveTplId = id;
+    const r = await _admSaveFormTplsDB();
+    if (r.error) { showToast(r.error, 'error'); return; }
+    _admRenderFormTplBar();
+    showToast(`"${name.trim()}" created`);
+  }
+  async function _admFormRenameTpl() {
+    const tpl = _admFormTemplates.find(t => t.id === _admFormActiveTplId);
+    if (!tpl) { showToast('No active template', 'error'); return; }
+    const name = prompt('New name:', tpl.name);
+    if (!name || !name.trim() || name.trim() === tpl.name) return;
+    tpl.name = name.trim();
+    const r = await _admSaveFormTplsDB();
+    if (r.error) { showToast(r.error, 'error'); return; }
+    _admRenderFormTplBar();
+    showToast(`Renamed to "${tpl.name}"`);
+  }
+  function _admFormDeleteTpl() {
+    if (_admFormTemplates.length <= 1) { showToast('Cannot delete the only template', 'error'); return; }
+    const tpl = _admFormTemplates.find(t => t.id === _admFormActiveTplId);
+    if (!tpl) return;
+    showConfirm(`Delete template "${tpl.name}"?`, async () => {
+      _admFormTemplates = _admFormTemplates.filter(t => t.id !== _admFormActiveTplId);
+      _admFormActiveTplId = _admFormTemplates[0].id;
+      const r = await _admSaveFormTplsDB();
+      if (r.error) { showToast(r.error, 'error'); return; }
+      _admRenderFormTplBar();
+      _admFormSwitchTpl(_admFormActiveTplId);
+      showToast('Deleted');
+    });
+  }
+  function _admFormNewTpl() {
+    formLayout = [];
+    fdSelect(null);
+    showToast('Blank canvas — add elements then Save As', 'info');
+  }
+
+  // ── Admit Card Designer — settings form + live iframe preview + named
+  // templates, ported from ccpc-admission's populateAdmitDesigner/
+  // collectAdmitDesignSettings/updateAdmitPreview/saveAdmitDesign/
+  // resetAdmitDesign + its admitTemplates CRUD. ─────────────────────────────
+  let _admCurrentAdmitSettings = null;
+  let _admAdmitTemplates = [], _admAdmitActiveTplId = null;
+
+  function _admAdmitDesignerOpen() {
+    _ensureAdmissionPrintTemplates().then(() => _admLoadAdmitTemplates())
+      .catch(e => showToast(e.message || 'Failed to load admit card designer', 'error'));
+  }
+  function _admGetActiveAdmitTpl() { return _admAdmitTemplates.find(t => t.id === _admAdmitActiveTplId) || null; }
+  async function _admSaveAdmitTplsDB() {
+    return _admAdminFetch('saveSettings', { key: 'admit_templates', value: { templates: _admAdmitTemplates, activeId: _admAdmitActiveTplId } });
+  }
+  async function _admLoadAdmitTemplates() {
+    const r = await _admAdminFetch('getSettings', {});
+    const s = r.settings || {};
+    const data = s.admit_templates || {};
+    _admAdmitTemplates = data.templates || [];
+    _admAdmitActiveTplId = data.activeId || null;
+    if (!_admAdmitTemplates.length && s.admit_card_settings && Object.keys(s.admit_card_settings).length) {
+      const legacy = { id: 'admit_legacy_' + Date.now(), name: 'Default Card', settings: s.admit_card_settings, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      _admAdmitTemplates.push(legacy);
+      _admAdmitActiveTplId = legacy.id;
+      _admSaveAdmitTplsDB();
+    }
+    const tpl = _admGetActiveAdmitTpl() || (_admAdmitTemplates.length ? _admAdmitTemplates[0] : null);
+    if (tpl) { _admAdmitActiveTplId = tpl.id; _admCurrentAdmitSettings = deepMerge(DEFAULT_ADMIT, tpl.settings || {}); }
+    else { _admAdmitActiveTplId = null; _admCurrentAdmitSettings = deepMerge(DEFAULT_ADMIT, {}); }
+    _admPopulateAdmitDesigner(_admCurrentAdmitSettings);
+    _admRenderAdmitTplBar();
+    setTimeout(_admUpdateAdmitPreview, 100);
+  }
+  function _admPopulateAdmitDesigner(s) {
+    const h = s.header || DEFAULT_ADMIT.header;
+    _admSetV('adm-ad-logo-url', h.logoUrl); _admSetV('adm-ad-college-name', h.collegeName); _admSetV('adm-ad-address', h.address); _admSetV('adm-ad-card-title', h.cardTitle);
+    _admSetV('adm-ad-banner-bg', s.bannerBg || DEFAULT_ADMIT.bannerBg); _admSetV('adm-ad-banner-text', s.bannerText || DEFAULT_ADMIT.bannerText);
+    _admSetChk('adm-ad-show-photo', s.showPhoto !== false);
+    const fields = s.fields || DEFAULT_ADMIT.fields;
+    Object.entries({ tracking_id: 'adm-adf-tracking', index_id: 'adm-adf-index', name_en: 'adm-adf-name-en', name_bn: 'adm-adf-name-bn', class: 'adm-adf-class', category: 'adm-adf-category', version: 'adm-adf-version', session: 'adm-adf-session', dob: 'adm-adf-dob', blood: 'adm-adf-blood' }).forEach(([k, id]) => _admSetChk(id, fields[k] !== false));
+    _admSetV('adm-ad-exam-center', s.examCenter || DEFAULT_ADMIT.examCenter); _admSetV('adm-ad-exam-date', s.examDate || ''); _admSetV('adm-ad-exam-time', s.examTime || '');
+    _admSetV('adm-ad-instructions', s.instructions || DEFAULT_ADMIT.instructions);
+    const sig1 = s.sig1 || DEFAULT_ADMIT.sig1, sig2 = s.sig2 || DEFAULT_ADMIT.sig2;
+    _admSetChk('adm-ad-sig1-show', sig1.visible !== false); _admSetV('adm-ad-sig1-label', sig1.label);
+    _admSetChk('adm-ad-sig2-show', sig2.visible !== false); _admSetV('adm-ad-sig2-label', sig2.label);
+    _admSetV('adm-ad-footer', s.footer || DEFAULT_ADMIT.footer);
+  }
+  function _admCollectAdmitDesignSettings() {
+    return {
+      header: { logoUrl: _admV('adm-ad-logo-url') || DEFAULT_ADMIT.header.logoUrl, collegeName: _admV('adm-ad-college-name'), address: _admV('adm-ad-address'), cardTitle: _admV('adm-ad-card-title') },
+      bannerBg: _admV('adm-ad-banner-bg'), bannerText: _admV('adm-ad-banner-text'),
+      showPhoto: _admChk('adm-ad-show-photo'),
+      fields: { tracking_id: _admChk('adm-adf-tracking'), index_id: _admChk('adm-adf-index'), name_en: _admChk('adm-adf-name-en'), name_bn: _admChk('adm-adf-name-bn'), class: _admChk('adm-adf-class'), category: _admChk('adm-adf-category'), version: _admChk('adm-adf-version'), session: _admChk('adm-adf-session'), dob: _admChk('adm-adf-dob'), blood: _admChk('adm-adf-blood') },
+      examCenter: _admV('adm-ad-exam-center'), examDate: _admV('adm-ad-exam-date'), examTime: _admV('adm-ad-exam-time'),
+      instructions: document.getElementById('adm-ad-instructions') ? document.getElementById('adm-ad-instructions').value : '',
+      sig1: { visible: _admChk('adm-ad-sig1-show'), label: _admV('adm-ad-sig1-label') },
+      sig2: { visible: _admChk('adm-ad-sig2-show'), label: _admV('adm-ad-sig2-label') },
+      footer: _admV('adm-ad-footer'),
+    };
+  }
+  function _admUpdateAdmitPreview() {
+    const settings = _admCollectAdmitDesignSettings();
+    const iframe = document.getElementById('adm-ad-preview-iframe');
+    if (!iframe) return;
+    iframe.srcdoc = generateAdmitHtml(DEMO_APP, settings, true);
+  }
+  async function _admSaveAdmitDesign() {
+    const value = _admCollectAdmitDesignSettings();
+    _admCurrentAdmitSettings = deepMerge(DEFAULT_ADMIT, value);
+    const r = await _admAdminFetch('saveSettings', { key: 'admit_card_settings', value });
+    if (r.error) { showToast(r.error, 'error'); return; }
+    showToast('Admit card design saved');
+  }
+  function _admResetAdmitDesign() {
+    _admPopulateAdmitDesigner(DEFAULT_ADMIT);
+    _admUpdateAdmitPreview();
+  }
+  function _admRenderAdmitTplBar() {
+    const bar = document.getElementById('adm-ad-tpl-bar');
+    if (!bar) return;
+    const opts = _admAdmitTemplates.map(t => `<option value="${t.id}"${t.id === _admAdmitActiveTplId ? ' selected' : ''}>${_escHtml(t.name)}</option>`).join('');
+    const count = _admAdmitTemplates.length;
+    bar.innerHTML = `<span class="text-[10px] font-black text-slate-400 uppercase tracking-widest" style="white-space:nowrap;align-self:center">Templates (${count}):</span>` +
+      (count
+        ? `<select class="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold" style="max-width:200px;flex:1" onchange="_admSwitchAdmitTpl(this.value)">${opts}</select>
+           <button class="px-3 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg text-[10px] font-black uppercase" onclick="_admAdmitSaveTpl()">Save</button>
+           <button class="px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-[10px] font-black uppercase" onclick="_admAdmitSaveAsTpl()">Save As</button>
+           <button class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-[10px] font-black uppercase" onclick="_admAdmitRenameTpl()">Rename</button>
+           <button class="px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg text-[10px] font-black uppercase" onclick="_admAdmitDeleteTpl()">Delete</button>`
+        : `<span class="text-xs text-slate-400" style="align-self:center">No templates yet</span>`) +
+      `<button class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-[10px] font-black uppercase" onclick="_admAdmitNewTpl()">+ New</button>`;
+  }
+  function _admSwitchAdmitTpl(id) {
+    if (id === _admAdmitActiveTplId) return;
+    _admAdmitActiveTplId = id;
+    const tpl = _admGetActiveAdmitTpl();
+    _admCurrentAdmitSettings = deepMerge(DEFAULT_ADMIT, tpl ? (tpl.settings || {}) : {});
+    _admPopulateAdmitDesigner(_admCurrentAdmitSettings);
+    _admUpdateAdmitPreview();
+    _admRenderAdmitTplBar();
+  }
+  async function _admAdmitSaveTpl() {
+    if (!_admAdmitActiveTplId) { await _admAdmitSaveAsTpl(); return; }
+    const tpl = _admGetActiveAdmitTpl();
+    if (!tpl) { await _admAdmitSaveAsTpl(); return; }
+    tpl.settings = _admCollectAdmitDesignSettings();
+    tpl.updatedAt = new Date().toISOString();
+    _admCurrentAdmitSettings = deepMerge(DEFAULT_ADMIT, tpl.settings);
+    const r = await _admSaveAdmitTplsDB();
+    if (r.error) { showToast(r.error, 'error'); return; }
+    showToast(`"${tpl.name}" saved`);
+  }
+  async function _admAdmitSaveAsTpl() {
+    const name = prompt('Template name:', 'Card ' + (_admAdmitTemplates.length + 1));
+    if (!name || !name.trim()) return;
+    const id = 'admit_' + Date.now();
+    _admAdmitTemplates.push({ id, name: name.trim(), settings: _admCollectAdmitDesignSettings(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    _admAdmitActiveTplId = id;
+    const r = await _admSaveAdmitTplsDB();
+    if (r.error) { showToast(r.error, 'error'); return; }
+    showToast(`"${name.trim()}" created`);
+    _admRenderAdmitTplBar();
+  }
+  async function _admAdmitRenameTpl() {
+    const tpl = _admGetActiveAdmitTpl();
+    if (!tpl) { showToast('No active template', 'error'); return; }
+    const name = prompt('New name:', tpl.name);
+    if (!name || !name.trim() || name.trim() === tpl.name) return;
+    tpl.name = name.trim();
+    const r = await _admSaveAdmitTplsDB();
+    if (r.error) { showToast(r.error, 'error'); return; }
+    showToast(`Renamed to "${tpl.name}"`);
+    _admRenderAdmitTplBar();
+  }
+  function _admAdmitDeleteTpl() {
+    const tpl = _admGetActiveAdmitTpl();
+    if (!tpl) { showToast('No active template', 'error'); return; }
+    showConfirm(`Delete template "${tpl.name}" permanently?`, async () => {
+      _admAdmitTemplates = _admAdmitTemplates.filter(t => t.id !== _admAdmitActiveTplId);
+      const next = _admAdmitTemplates[0] || null;
+      _admAdmitActiveTplId = next ? next.id : null;
+      _admCurrentAdmitSettings = deepMerge(DEFAULT_ADMIT, next ? (next.settings || {}) : {});
+      const r = await _admSaveAdmitTplsDB();
+      if (r.error) { showToast(r.error, 'error'); return; }
+      showToast('Deleted');
+      _admPopulateAdmitDesigner(_admCurrentAdmitSettings);
+      _admUpdateAdmitPreview();
+      _admRenderAdmitTplBar();
+    });
+  }
+  function _admAdmitNewTpl() {
+    const name = prompt('New template name:', 'Card ' + (_admAdmitTemplates.length + 1));
+    if (!name || !name.trim()) return;
+    const id = 'admit_' + Date.now();
+    _admAdmitTemplates.push({ id, name: name.trim(), settings: deepMerge(DEFAULT_ADMIT, {}), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    _admAdmitActiveTplId = id;
+    _admCurrentAdmitSettings = deepMerge(DEFAULT_ADMIT, {});
+    _admPopulateAdmitDesigner(_admCurrentAdmitSettings);
+    _admUpdateAdmitPreview();
+    _admRenderAdmitTplBar();
+    showToast(`"${name.trim()}" started — edit settings and Save`, 'info');
+  }
+
+  // ── Print / Admit Card — the admin's own preview, opens a new tab. Mirrors
+  // ccpc-admission's printForm/printAdmitCard/printFormById/printAdmitById. ─
+  async function _admEnsureFormLayoutForPrint() {
+    if (formLayout && formLayout.length) return;
+    const s = (await _admAdminFetch('getSettings', {})).settings || {};
+    const tplData = s.form_templates || {};
+    const tpls = tplData.templates || [];
+    const active = tplData.activeId;
+    const tpl = (active && tpls.find(t => t.id === active)) || tpls[0] || null;
+    if (tpl) { formLayout = (tpl.settings && tpl.settings.elements) || tpl.elements || []; return; }
+    formLayout = (s.form_settings && s.form_settings.elements) || [];
+  }
+  async function _admEnsureAdmitTplForPrint() {
+    if (_admCurrentAdmitSettings) return;
+    const s = (await _admAdminFetch('getSettings', {})).settings || {};
+    const tplData = s.admit_templates || {};
+    const tpls = tplData.templates || [];
+    const active = tplData.activeId;
+    const tpl = (active && tpls.find(t => t.id === active)) || tpls[0] || null;
+    _admCurrentAdmitSettings = deepMerge(DEFAULT_ADMIT, tpl ? (tpl.settings || {}) : (s.admit_card_settings || {}));
+  }
+  async function _admPrintForm() {
+    try {
+      await _ensureAdmissionFormDesigner();
+      await _admEnsureFormSettings();
+      await _admEnsureFormLayoutForPrint();
+      const data = _admCollectForm();
+      openPrintTab(formLayout.length ? generateFormFromLayout(data, formLayout) : generateFormHtml(data, currentFormSettings));
+    } catch (e) { showToast(e.message || 'Could not open print preview', 'error'); }
+  }
+  async function _admPrintAdmitCard() {
+    if (!_admCurrentId) { showToast('Save the application first to generate an Admit Card', 'error'); return; }
+    try {
+      await _ensureAdmissionPrintTemplates();
+      await _admEnsureAdmitTplForPrint();
+      const r = await _admAdminFetch('getApplication', { id: _admCurrentId });
+      if (!r.application) { showToast('Not found', 'error'); return; }
+      openPrintTab(generateAdmitHtml(r.application, _admCurrentAdmitSettings));
+    } catch (e) { showToast(e.message || 'Could not open print preview', 'error'); }
+  }
+  async function _admPrintFormById(id) {
+    try {
+      await _ensureAdmissionFormDesigner();
+      await _admEnsureFormSettings();
+      await _admEnsureFormLayoutForPrint();
+      const r = await _admAdminFetch('getApplication', { id });
+      if (!r.application) { showToast('Not found', 'error'); return; }
+      openPrintTab(formLayout.length ? generateFormFromLayout(r.application, formLayout) : generateFormHtml(r.application, currentFormSettings));
+    } catch (e) { showToast(e.message || 'Could not open print preview', 'error'); }
+  }
+  async function _admPrintAdmitById(id) {
+    try {
+      await _ensureAdmissionPrintTemplates();
+      await _admEnsureAdmitTplForPrint();
+      const r = await _admAdminFetch('getApplication', { id });
+      if (!r.application) { showToast('Not found', 'error'); return; }
+      openPrintTab(generateAdmitHtml(r.application, _admCurrentAdmitSettings));
+    } catch (e) { showToast(e.message || 'Could not open print preview', 'error'); }
   }
 
   // ── Index Pattern + Circular shared state ────────────────────────────────
