@@ -450,7 +450,12 @@ const RESERVED = [
   '_admCircToggleVersion','_admCircToggleCategory','_admCircSetSeats','_admCircSetFee',
   '_admSavePaymentSettings','_admLoadPaymentsList','_admVerifyPay','_admMarkPaidByKey',
   '_admAdmitFileChosen','_admAdmitPasteChanged','_admIssueAdmitsGo',
-  '_admLoadCounters','_admResetCounter'
+  '_admLoadCounters','_admResetCounter',
+
+  // Admission Admin Phase 3 (SMS/OTP settings + Scan) — onclick strings in
+  // _admRenderSettingsSections()'s adm-set-sms/adm-set-scan panels and in
+  // _admRenderScanResult()'s dynamically-built status-select onclick.
+  '_admSaveSmsSettings','_admSendTestSms','_admStartScan','_admStopScan','_admConfirmScanStatus'
 ];
 
 // Strip HTML comments and collapse whitespace

@@ -435,5 +435,34 @@ export async function POST(req) {
     return NextResponse.json({ success: true, updated, matched: Object.keys(roomByAppId).length, unmatched });
   }
 
+  // ── Phase 3: SMS test-send — fires the configured gateway with a fixed
+  // test code; never stored/verified anywhere (no session to attach an OTP
+  // to from the admin side, unlike the applicant-facing requestOtp flow).
+  if (action === 'sendTestSms') {
+    const phone = String(payload.phone || '').trim();
+    if (!phone) return NextResponse.json({ error: 'Enter a phone number to test.' });
+    const rows = await sbAdmission('admission_settings?key=eq.sms_settings');
+    const s = (Array.isArray(rows) && rows[0]) ? (rows[0].value || {}) : {};
+    const code = '123456';
+    if (!s.url) return NextResponse.json({ sent: true, devCode: code });
+    const message = String(s.messageTemplate || 'Your CCPC Admission verification code is {otp}').replace(/\{phone\}/g, phone).replace(/\{otp\}/g, code);
+    let url = String(s.url).replace(/\{phone\}/g, encodeURIComponent(phone)).replace(/\{otp\}/g, encodeURIComponent(code)).replace(/\{message\}/g, encodeURIComponent(message));
+    const method = (s.method || 'GET').toUpperCase();
+    const headers = { ...(s.headers || {}) };
+    let sendBody;
+    if (method !== 'GET' && s.bodyTemplate) {
+      const jsonSafe = v => JSON.stringify(v).slice(1, -1);
+      sendBody = String(s.bodyTemplate).replace(/\{phone\}/g, jsonSafe(phone)).replace(/\{otp\}/g, jsonSafe(code)).replace(/\{message\}/g, jsonSafe(message));
+      if (!headers['Content-Type'] && !headers['content-type']) headers['Content-Type'] = 'application/json';
+    }
+    try {
+      const res = await fetch(url, { method, headers, body: sendBody, signal: AbortSignal.timeout(15000) });
+      if (!res.ok) return NextResponse.json({ error: `Gateway responded ${res.status}` });
+      return NextResponse.json({ sent: true });
+    } catch (e) {
+      return NextResponse.json({ error: 'Could not reach the SMS gateway.' });
+    }
+  }
+
   return NextResponse.json({ error: 'Unknown action.' }, { status: 400 });
 }

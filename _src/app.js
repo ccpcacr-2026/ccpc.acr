@@ -41399,6 +41399,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button class="adm-ftab" data-id="adm-set-circular" onclick="_admShowSettingsTab('adm-set-circular',this)">Circular</button>
           <button class="adm-ftab" data-id="adm-set-payments" onclick="_admShowSettingsTab('adm-set-payments',this)">Payments &amp; Admit</button>
           <button class="adm-ftab" data-id="adm-set-counters" onclick="_admShowSettingsTab('adm-set-counters',this)">Counters</button>
+          <button class="adm-ftab" data-id="adm-set-sms" onclick="_admShowSettingsTab('adm-set-sms',this)">SMS/OTP</button>
+          <button class="adm-ftab" data-id="adm-set-scan" onclick="_admShowSettingsTab('adm-set-scan',this)">Scan</button>
         </div>
         <div id="adm-setsections"></div>
       </div>`;
@@ -41423,6 +41425,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     else if (id === 'adm-set-fields') _admFFLoad();
     else if (id === 'adm-set-payments') _admLoadPaymentsTab();
     else if (id === 'adm-set-counters') _admLoadCounters();
+    else if (id === 'adm-set-sms') _admLoadSmsSettings();
+    else if (id === 'adm-set-scan') _admRenderScanLog();
   }
   // Entry point from the dashboard toolbar's "Settings" button — index
   // pattern + circular both need currentIndexSettings loaded first (the
@@ -42093,6 +42097,50 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <p class="text-xs text-slate-400 mb-3">Each row shows how many Index IDs have been assigned for a year+class combination. Reset only if you need to restart numbering.</p>
           <div id="adm-counters-table">Loading…</div>
         </div>
+      </div>
+
+      <div id="adm-set-sms" class="hidden space-y-4">
+        <div class="${box}">
+          <div class="flex items-center justify-between mb-1">
+            <p class="text-xs font-black text-slate-700 uppercase tracking-widest">SMS Settings — Phone / OTP sign-in</p>
+            <button onclick="_admSaveSmsSettings()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">Save settings</button>
+          </div>
+          <p class="text-xs text-slate-400 mb-3">Generic HTTP sender — points at whichever SMS gateway you use. <code>{phone}</code>, <code>{otp}</code> and <code>{message}</code> are substituted into the URL/body before the request.</p>
+          <div id="adm-sms-devcode-banner" class="hidden bg-amber-50 border border-amber-300 rounded-xl px-4 py-2.5 mb-3 text-xs text-amber-800 font-bold">⚠️ SMS not configured — verification codes are returned directly in the response, not sent. Applicants are not actually phone-verified yet.</div>
+          <div class="grid gap-3" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
+            <div class="space-y-1">${lbl('HTTP method')}<select id="adm-sms-method" class="${inp}"><option value="GET">GET</option><option value="POST">POST</option></select></div>
+            <div class="space-y-1" style="grid-column:span 2">${lbl('Request URL (GET: include query params with tokens)')}<input id="adm-sms-url" class="${inp}" placeholder="https://your-sms-gateway.example/send?to={phone}&amp;msg={message}&amp;key=..."></div>
+          </div>
+          <div class="grid gap-3 mt-3" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
+            <div class="space-y-1">${lbl('Headers (JSON object, optional)')}<input id="adm-sms-headers" class="${inp}" placeholder='{"Authorization":"Bearer ..."}'></div>
+            <div class="space-y-1">${lbl('Body template (POST only — JSON, optional)')}<input id="adm-sms-body" class="${inp}" placeholder='{"to":"{phone}","text":"{message}"}'></div>
+            <div class="space-y-1">${lbl('Message template')}<input id="adm-sms-message" class="${inp}" placeholder="Your CCPC Admission verification code is {otp}"></div>
+          </div>
+          <div class="flex gap-3 items-center mt-4">
+            <input id="adm-sms-test-phone" class="${inp}" style="width:180px" placeholder="01XXXXXXXXX to test">
+            <button onclick="_admSendTestSms()" class="px-3 py-2 border border-slate-200 rounded-lg text-[10px] font-black uppercase">Send test SMS</button>
+            <span id="adm-sms-test-note" class="text-xs text-slate-400"></span>
+          </div>
+        </div>
+      </div>
+
+      <div id="adm-set-scan" class="hidden space-y-4">
+        <div class="${box}">
+          <p class="text-xs font-black text-slate-700 uppercase tracking-widest mb-1">Scan an admit card / application QR</p>
+          <p class="text-xs text-slate-400 mb-3">Point the camera at a printed QR code (it encodes the application's tracking or index number) to pull up that applicant and change their status on the spot.</p>
+          <div class="flex gap-3 items-center mb-3">
+            <button id="adm-scan-start-btn" onclick="_admStartScan()" class="px-4 py-2.5 bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-black transition-all">Start camera</button>
+            <button id="adm-scan-stop-btn" onclick="_admStopScan()" class="hidden px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest">Stop camera</button>
+            <span id="adm-scan-note" class="text-xs text-slate-400"></span>
+          </div>
+          <video id="adm-scan-video" class="hidden rounded-xl bg-black" playsinline muted style="width:100%;max-width:360px"></video>
+          <canvas id="adm-scan-canvas" class="hidden"></canvas>
+        </div>
+        <div id="adm-scan-result" class="hidden ${box}"></div>
+        <div class="${box}">
+          <p class="text-xs font-black text-slate-700 uppercase tracking-widest mb-2">Scanned this session</p>
+          <div id="adm-scan-log" class="text-xs text-slate-400">Nothing scanned yet.</div>
+        </div>
       </div>`;
   }
 
@@ -42620,6 +42668,159 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         _admLoadCounters();
       } catch (e) { showToast(e.message || 'Failed', 'error'); }
     });
+  }
+
+  // ── SMS / OTP settings ───────────────────────────────────────────────────
+  async function _admLoadSmsSettings() {
+    try {
+      const r = await _admAdminFetch('getSettings', {});
+      const s = (r.settings || {}).sms_settings || {};
+      _admSetV('adm-sms-method', s.method || 'GET');
+      _admSetV('adm-sms-url', s.url || '');
+      _admSetV('adm-sms-headers', s.headers ? JSON.stringify(s.headers) : '');
+      _admSetV('adm-sms-body', s.bodyTemplate || '');
+      _admSetV('adm-sms-message', s.messageTemplate || '');
+      const banner = document.getElementById('adm-sms-devcode-banner');
+      if (banner) banner.classList.toggle('hidden', !!s.url);
+    } catch (e) {}
+  }
+  async function _admSaveSmsSettings() {
+    let headers = {};
+    const rawHeaders = _admV('adm-sms-headers');
+    if (rawHeaders) { try { headers = JSON.parse(rawHeaders); } catch (e) { showToast('Headers must be valid JSON (or left blank).', 'error'); return; } }
+    const value = { method: _admV('adm-sms-method') || 'GET', url: _admV('adm-sms-url'), headers, bodyTemplate: _admV('adm-sms-body'), messageTemplate: _admV('adm-sms-message') };
+    try {
+      const r = await _admAdminFetch('saveSettings', { key: 'sms_settings', value });
+      if (r.error) { showToast(r.error, 'error'); return; }
+      const banner = document.getElementById('adm-sms-devcode-banner');
+      if (banner) banner.classList.toggle('hidden', !!value.url);
+      showToast('SMS settings saved' + (value.url ? '' : ' — still unconfigured, codes will show on-screen instead of sending'));
+    } catch (e) { showToast(e.message || 'Could not save', 'error'); }
+  }
+  async function _admSendTestSms() {
+    const phone = _admV('adm-sms-test-phone');
+    if (!phone) { showToast('Enter a phone number to test.', 'error'); return; }
+    const note = document.getElementById('adm-sms-test-note');
+    if (note) note.textContent = 'Sending…';
+    try {
+      const r = await _admAdminFetch('sendTestSms', { phone });
+      if (r.error) { if (note) note.textContent = r.error; return; }
+      if (note) note.textContent = r.devCode ? ('Not sent — gateway unconfigured. Test code: ' + r.devCode) : 'Sent — check the phone.';
+    } catch (e) { if (note) note.textContent = e.message || 'Failed'; }
+  }
+
+  // ── Scan (QR check-in) — jsQR loaded from a CDN only when this tab is used;
+  // camera + decode loop can't be exercised without a real browser+camera,
+  // so this mirrors ccpc-admission's implementation structurally but was only
+  // syntax/build-checked here, not click-tested. ──────────────────────────
+  let _admScanStream = null, _admScanTimer = null, _admScanBusy = false;
+  let _admScanLog = [];
+  function _admEnsureJsQR() {
+    if (window.jsQR) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';
+      s.onload = resolve; s.onerror = () => reject(new Error('Could not load the QR scanner — check your connection.'));
+      document.head.appendChild(s);
+    });
+  }
+  async function _admStartScan() {
+    const note = document.getElementById('adm-scan-note');
+    if (note) note.textContent = 'Loading scanner…';
+    try { await _admEnsureJsQR(); } catch (e) { if (note) note.textContent = e.message; return; }
+    try {
+      _admScanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    } catch (e) {
+      if (note) note.textContent = 'Could not access the camera — check browser permission.';
+      return;
+    }
+    const video = document.getElementById('adm-scan-video');
+    video.srcObject = _admScanStream;
+    video.classList.remove('hidden');
+    await video.play();
+    document.getElementById('adm-scan-start-btn').classList.add('hidden');
+    document.getElementById('adm-scan-stop-btn').classList.remove('hidden');
+    if (note) note.textContent = 'Point the camera at a QR code…';
+    const canvas = document.getElementById('adm-scan-canvas');
+    canvas.width = 400; canvas.height = 300;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    _admScanTimer = setInterval(() => {
+      if (_admScanBusy || !video.videoWidth) return;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = window.jsQR(img.data, img.width, img.height);
+      if (code && code.data) { _admScanBusy = true; _admHandleScannedCode(code.data.trim()); }
+    }, 150);
+  }
+  function _admStopScan() {
+    if (_admScanTimer) { clearInterval(_admScanTimer); _admScanTimer = null; }
+    if (_admScanStream) { _admScanStream.getTracks().forEach(t => t.stop()); _admScanStream = null; }
+    const video = document.getElementById('adm-scan-video');
+    if (video) { video.pause(); video.srcObject = null; video.classList.add('hidden'); }
+    document.getElementById('adm-scan-start-btn')?.classList.remove('hidden');
+    document.getElementById('adm-scan-stop-btn')?.classList.add('hidden');
+    const note = document.getElementById('adm-scan-note'); if (note) note.textContent = '';
+    _admScanBusy = false;
+  }
+  async function _admHandleScannedCode(code) {
+    const note = document.getElementById('adm-scan-note');
+    if (note) note.textContent = 'Looking up ' + code + '…';
+    try {
+      const r = await _admAdminFetch('lookupByCode', { code });
+      if (r.error) {
+        if (note) note.textContent = r.error + ' — keep scanning.';
+        setTimeout(() => { _admScanBusy = false; }, 1200);
+        return;
+      }
+      _admRenderScanResult(r.application);
+      if (note) note.textContent = 'Found — pick a status below, or keep scanning for the next one.';
+    } catch (e) {
+      if (note) note.textContent = (e.message || 'Lookup failed') + ' — keep scanning.';
+    }
+    _admScanBusy = false;
+  }
+  function _admRenderScanResult(app) {
+    const host = document.getElementById('adm-scan-result');
+    if (!host) return;
+    host.classList.remove('hidden');
+    host.innerHTML = `<div class="flex items-center gap-4">
+        ${app.student_photo ? `<img src="${_escHtml(app.student_photo)}" style="width:56px;height:56px;object-fit:cover;border-radius:10px">` : ''}
+        <div class="flex-1">
+          <p class="font-black text-slate-800">${_escHtml(app.name_english || app.name_bangla || '—')}</p>
+          <p class="text-xs text-slate-400">${_escHtml(app.class || '')} · ${_escHtml(app.category || '')} · <span class="font-mono text-blue-600">${_escHtml(app.tracking_id || '')}</span></p>
+          <p class="text-xs mt-1">Current status: <b>${_escHtml(app.status || 'Pending')}</b></p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 mt-3">
+        <select id="adm-scan-status-select" class="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold" style="width:160px">
+          ${ADM_STATUSES.map(s => `<option value="${s}"${s === app.status ? ' selected' : ''}>${s}</option>`).join('')}
+        </select>
+        <button onclick="_admConfirmScanStatus(${app.id},'${String(app.tracking_id || '').replace(/'/g, "\\'")}','${String(app.name_english || '').replace(/'/g, "\\'")}')" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">Set status</button>
+      </div>`;
+  }
+  async function _admConfirmScanStatus(id, trackingId, name) {
+    const sel = document.getElementById('adm-scan-status-select');
+    const status = sel ? sel.value : '';
+    try {
+      const r = await _admAdminFetch('updateStatus', { id, status });
+      if (r.error) { showToast(r.error, 'error'); return; }
+      _admScanLog.unshift({ trackingId, name, status, at: new Date() });
+      _admRenderScanLog();
+      showToast('Status updated');
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+  function _admRenderScanLog() {
+    const host = document.getElementById('adm-scan-log');
+    if (!host) return;
+    if (!_admScanLog.length) { host.textContent = 'Nothing scanned yet.'; return; }
+    host.innerHTML = '<table class="w-full text-left" style="font-size:12px"><thead><tr class="text-[10px] uppercase text-slate-400">' +
+      '<th class="px-2 py-1">Time</th><th class="px-2 py-1">Applicant</th><th class="px-2 py-1">Tracking</th><th class="px-2 py-1">Status set</th></tr></thead><tbody>' +
+      _admScanLog.map(e => `<tr class="border-t border-slate-100">
+        <td class="px-2 py-1 text-slate-400">${e.at.toLocaleTimeString()}</td>
+        <td class="px-2 py-1">${_escHtml(e.name || '—')}</td>
+        <td class="px-2 py-1 font-mono text-blue-600">${_escHtml(e.trackingId || '')}</td>
+        <td class="px-2 py-1 font-bold">${_escHtml(e.status)}</td></tr>`).join('') +
+      '</tbody></table>';
   }
 
   // ── PERMISSION CONTROL PANEL (Admin only) ────────────────────────────────────
