@@ -42006,6 +42006,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex items-center justify-between mb-1">
             <p class="text-xs font-black text-slate-700 uppercase tracking-widest">Applicant Form Fields</p>
             <div class="flex gap-2">
+              <button onclick="_admFFAddSection()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-[10px] font-black uppercase">+ Add section</button>
               <button onclick="_admFFAdd()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-[10px] font-black uppercase">+ Add custom field</button>
               <button onclick="_admFFSave()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">Save fields</button>
             </div>
@@ -42894,32 +42895,46 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   // ── Form Fields editor (applicant "fill in" form) ───────────────────────
   let _admFFState = [];
-  const _admFF_SECTION_ORDER = ['student', 'father', 'mother', 'guardian'];
-  const _admFF_SECTION_LABELS = { student: 'Student', father: 'Father', mother: 'Mother', guardian: 'Guardian' };
+  let _admFFSections = [];
+  const _admFF_DEFAULT_SECTIONS = [
+    { key: 'student',  label: 'Student',  visible: true, built_in: true },
+    { key: 'father',   label: 'Father',   visible: true, built_in: true },
+    { key: 'mother',   label: 'Mother',   visible: true, built_in: true },
+    { key: 'guardian', label: 'Guardian', visible: true, built_in: true },
+  ];
   const _admFF_CUSTOM_TYPES = ['text', 'textarea', 'date', 'number', 'select'];
   async function _admFFLoad() {
     const host = document.getElementById('adm-fields-editor-body');
     if (host) host.innerHTML = '<p class="text-xs text-slate-400">Loading…</p>';
     try {
-      const r = await _admAdminFetch('getFormFields', {});
-      if (r.error) { if (host) host.innerHTML = `<p class="text-xs text-red-500">${_escHtml(r.error)}</p>`; return; }
-      _admFFState = r.fields || [];
+      const [fr, sr] = await Promise.all([
+        _admAdminFetch('getFormFields', {}),
+        _admAdminFetch('getSettings', {}),
+      ]);
+      if (fr.error) { if (host) host.innerHTML = `<p class="text-xs text-red-500">${_escHtml(fr.error)}</p>`; return; }
+      _admFFState = fr.fields || [];
+      const saved = (sr.settings || {}).form_sections;
+      _admFFSections = (Array.isArray(saved) && saved.length) ? saved : _admFF_DEFAULT_SECTIONS.map(s => Object.assign({}, s));
       _admFFRender();
     } catch (e) { if (host) host.innerHTML = `<p class="text-xs text-red-500">${_escHtml(e.message || 'Could not load')}</p>`; }
   }
   function _admFFRender() {
     const host = document.getElementById('adm-fields-editor-body');
     if (!host) return;
-    host.innerHTML = _admFF_SECTION_ORDER.map(sec => {
-      const fields = _admFFState.filter(f => f.section === sec);
-      return `<div>
-        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">${_admFF_SECTION_LABELS[sec]}</p>
+    host.innerHTML = _admFFSections.map(sec => {
+      const fields = _admFFState.filter(f => f.section === sec.key);
+      return `<div class="border border-slate-100 rounded-xl p-3${sec.visible === false ? ' opacity-50' : ''}">
+        <div class="flex items-center gap-2 mb-2">
+          <input class="flex-1 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-black uppercase tracking-widest text-slate-600" value="${_escHtml(sec.label)}" onchange="_admFFRenameSection('${sec.key}',this.value)">
+          <label class="flex items-center gap-1 text-[11px] text-slate-500 whitespace-nowrap"><input type="checkbox" ${sec.visible !== false ? 'checked' : ''} onchange="_admFFToggleSection('${sec.key}',this.checked)"> Visible</label>
+          ${sec.built_in ? `<span class="text-[10px] text-slate-300 font-bold px-1 whitespace-nowrap">built-in</span>` : `<button onclick="_admFFDeleteSection('${sec.key}')" class="px-2 py-1 text-[10px] font-black text-red-500 border border-red-200 rounded-lg whitespace-nowrap">Delete</button>`}
+        </div>
         <div class="space-y-2">${fields.map(_admFFRowHtml).join('') || '<p class="text-xs text-slate-300">No fields in this section.</p>'}</div>
       </div>`;
     }).join('');
   }
   function _admFFRowHtml(f) {
-    const sectionOptions = _admFF_SECTION_ORDER.map(s => `<option value="${s}" ${f.section === s ? 'selected' : ''}>${_admFF_SECTION_LABELS[s]}</option>`).join('');
+    const sectionOptions = _admFFSections.map(s => `<option value="${s.key}" ${f.section === s.key ? 'selected' : ''}>${_escHtml(s.label)}</option>`).join('');
     const typeCell = f.built_in
       ? `<span class="text-[11px] text-slate-400">${_escHtml(f.type)}${f.type === 'photo' ? ' (fixed)' : ''}</span>`
       : `<select class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold" style="width:100px" onchange="_admFFUpdateProp('${f.key}','type',this.value)">${_admFF_CUSTOM_TYPES.map(t => `<option value="${t}" ${f.type === t ? 'selected' : ''}>${t}</option>`).join('')}</select>`;
@@ -42966,7 +42981,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   function _admFFAdd() {
     const key = 'custom_' + Math.random().toString(36).slice(2, 10);
-    _admFFState.push({ key, label: 'New field', type: 'text', section: 'student', required: false, visible: true, built_in: false });
+    const firstSection = ((_admFFSections.find(s => s.visible !== false) || _admFFSections[0] || {}).key) || 'student';
+    _admFFState.push({ key, label: 'New field', type: 'text', section: firstSection, required: false, visible: true, built_in: false });
     _admFFRender();
   }
   function _admFFDelete(key) {
@@ -42977,10 +42993,43 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _admFFRender();
     });
   }
+  function _admFFAddSection() {
+    const key = 'section_' + Math.random().toString(36).slice(2, 10);
+    _admFFSections.push({ key, label: 'New Section', visible: true, built_in: false });
+    _admFFRender();
+  }
+  function _admFFRenameSection(key, val) {
+    const s = _admFFSections.find(x => x.key === key);
+    if (s) s.label = val.trim() || s.label;
+    _admFFRender();
+  }
+  function _admFFToggleSection(key, visible) {
+    const s = _admFFSections.find(x => x.key === key);
+    if (s) s.visible = !!visible;
+    _admFFRender();
+  }
+  function _admFFDeleteSection(key) {
+    const sec = _admFFSections.find(x => x.key === key);
+    if (!sec || sec.built_in) return;
+    const affected = _admFFState.filter(f => f.section === key);
+    const fallback = _admFFSections.find(s => s.key !== key);
+    const msg = affected.length
+      ? `Delete "${sec.label}"? ${affected.length} field(s) in it will move to "${fallback ? fallback.label : 'another section'}".`
+      : `Delete "${sec.label}"? It has no fields.`;
+    showConfirm(msg, () => {
+      if (fallback) affected.forEach(f => { f.section = fallback.key; });
+      _admFFSections = _admFFSections.filter(x => x.key !== key);
+      _admFFRender();
+    });
+  }
   async function _admFFSave() {
     try {
-      const r = await _admAdminFetch('saveFormFields', { fields: _admFFState });
-      if (r.error) { showToast(r.error, 'error'); return; }
+      const [fr, sr] = await Promise.all([
+        _admAdminFetch('saveFormFields', { fields: _admFFState }),
+        _admAdminFetch('saveSettings', { key: 'form_sections', value: _admFFSections }),
+      ]);
+      if (fr.error) { showToast(fr.error, 'error'); return; }
+      if (sr.error) { showToast(sr.error, 'error'); return; }
       showToast('Form fields saved');
     } catch (e) { showToast(e.message || 'Could not save', 'error'); }
   }

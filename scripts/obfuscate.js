@@ -446,6 +446,7 @@ const RESERVED = [
   '_admExportCsv','_admOpenSettings','_admShowSettingsTab','_admInsertToken',
   '_admIndexAddCode','_admIndexDelCode','_admUpdateIndexPreview','_admSaveIndexSettings',
   '_admFFAdd','_admFFSave','_admFFUpdateProp','_admFFChangeSection','_admFFMove','_admFFDelete',
+  '_admFFAddSection','_admFFRenameSection','_admFFToggleSection','_admFFDeleteSection',
   '_admSaveCircular','_admLoadIndexAndCircular','_admCircAddClass','_admCircRemoveClass',
   '_admCircToggleVersion','_admCircToggleCategory','_admCircSetSeats','_admCircSetFee',
   '_admSavePaymentSettings','_admLoadPaymentsList','_admVerifyPay','_admMarkPaidByKey',
