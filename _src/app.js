@@ -41769,7 +41769,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   ];
   function _admSetV(id, val) { const e = document.getElementById(id); if (e) e.value = val == null ? '' : val; }
   function _admV(id) { const e = document.getElementById(id); return e ? String(e.value).trim() : ''; }
-  function _admClearForm() {
+  function _admClearForm(defaultSession) {
     ADM_FORM_FIELDS.forEach(id => _admSetV(id, ''));
     _admSetV('adm-f-tracking-id', ''); _admSetV('adm-f-index-id', '');
     ['student','father','mother','guardian'].forEach(r => {
@@ -41777,15 +41777,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const el = document.getElementById(`adm-${r}-photo-preview`);
       if (el) el.innerHTML = `<i data-lucide="camera" class="h-6 w-6 text-slate-300"></i><span class="text-[9px] text-slate-400 mt-1">Click to upload</span>`;
     });
-    _admSetV('adm-f-session', '2026'); _admSetV('adm-f-class', 'Nursery'); _admSetV('adm-f-category', 'Army');
+    // Default to the active circular's session, not today's calendar year —
+    // an admission circular opened in one year is routinely for the next.
+    _admSetV('adm-f-session', defaultSession || String(new Date().getFullYear())); _admSetV('adm-f-class', 'Nursery'); _admSetV('adm-f-category', 'Army');
     _admSetV('adm-f-version', 'Bangla'); _admSetV('adm-f-quota', 'No'); _admSetV('adm-f-status', 'Pending'); _admSetV('adm-f-nationality', 'Bangladeshi');
     document.getElementById('adm-academic-tbody').innerHTML = ''; _admAddAcademicRow(); _admAddAcademicRow(); _admAddAcademicRow();
     document.getElementById('adm-sibling-tbody').innerHTML = '';
     document.getElementById('adm-custom-fields-block').classList.add('hidden');
     lucide.createIcons();
   }
-  function _admLoadNewApplication() {
-    _admCurrentId = null; _admClearForm();
+  async function _admLoadNewApplication() {
+    _admCurrentId = null;
+    let session = _admCurrentCircular && _admCurrentCircular.session;
+    if (!session) {
+      try {
+        const r = await _admAdminFetch('getSettings', {});
+        session = (r.settings && r.settings.circular_settings && r.settings.circular_settings.session) || '';
+      } catch (e) { /* fall back to current year below */ }
+    }
+    _admClearForm(session);
     document.getElementById('adm-form-title').textContent = 'New Application';
     _admShowView('form');
     document.querySelector('#adm-ftabs .adm-ftab').click();
