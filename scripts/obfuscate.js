@@ -438,7 +438,19 @@ const RESERVED = [
   'loadAdmissionAdminView','_admShowView','_admShowSection','_admFilterApps',
   '_admLoadNewApplication','_admLoadForm','_admDeleteApp','_admChangeStatus',
   '_admToggleRowSelect','_admToggleSelectAll','_admClearBulkSelection','_admApplyBulkStatus',
-  '_admAddAcademicRow','_admAddSiblingRow','_admSaveApplication','_admHandlePhoto'
+  '_admAddAcademicRow','_admAddSiblingRow','_admSaveApplication','_admHandlePhoto',
+
+  // Admission Admin Phase 2 (Settings: Index Pattern/Form Fields/Circular/
+  // Payments & Admit/Counters) — every onclick/onchange string built inside
+  // _admRenderSettingsSections() and the row-builder functions it calls.
+  '_admExportCsv','_admOpenSettings','_admShowSettingsTab','_admInsertToken',
+  '_admIndexAddCode','_admIndexDelCode','_admUpdateIndexPreview','_admSaveIndexSettings',
+  '_admFFAdd','_admFFSave','_admFFUpdateProp','_admFFChangeSection','_admFFMove','_admFFDelete',
+  '_admSaveCircular','_admLoadIndexAndCircular','_admCircAddClass','_admCircRemoveClass',
+  '_admCircToggleVersion','_admCircToggleCategory','_admCircSetSeats','_admCircSetFee',
+  '_admSavePaymentSettings','_admLoadPaymentsList','_admVerifyPay','_admMarkPaidByKey',
+  '_admAdmitFileChosen','_admAdmitPasteChanged','_admIssueAdmitsGo',
+  '_admLoadCounters','_admResetCounter'
 ];
 
 // Strip HTML comments and collapse whitespace

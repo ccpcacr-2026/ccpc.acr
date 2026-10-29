@@ -298,12 +298,141 @@ export async function POST(req) {
     return NextResponse.json({ stats });
   }
 
-  // ── Form field defs (read-only use in Phase 1 — label lookup for the
-  // application editor's custom-fields block; the editor itself is Phase 2) ─
+  // ── Form field defs (Phase 1 added read-only use — label lookup for the
+  // application editor's custom-fields block. Phase 2 below adds the editor
+  // itself via saveFormFields) ──────────────────────────────────────────────
   if (action === 'getFormFields') {
     const rows = await sbAdmission(`admission_settings?key=eq.form_fields_json`);
     const stored = (!rows?.error && rows?.[0]) ? rows[0].value : [];
     return NextResponse.json({ fields: reconcileFormFields(stored) });
+  }
+
+  // ── Phase 2: Settings (Index Pattern / Circular / generic key-value) ────
+  if (action === 'getSettings') {
+    const rows = await sbAdmission('admission_settings');
+    if (!rows || rows.error) return NextResponse.json({ settings: {} });
+    const settings = {};
+    rows.forEach(r => { settings[r.key] = r.value; });
+    return NextResponse.json({ settings });
+  }
+  if (action === 'saveSettings') {
+    const { key, value } = payload;
+    const existing = await sbAdmission(`admission_settings?key=eq.${encodeURIComponent(key)}`);
+    if (existing && !existing.error && existing.length > 0) {
+      await sbAdmission(`admission_settings?key=eq.${encodeURIComponent(key)}`, 'PATCH',
+        { value, updated_at: new Date().toISOString() });
+    } else {
+      await sbAdmission('admission_settings', 'POST', { key, value, updated_at: new Date().toISOString() });
+    }
+    return NextResponse.json({ success: true });
+  }
+
+  // ── Phase 2: Form Fields editor (save side; getFormFields above is the read) ─
+  if (action === 'saveFormFields') {
+    const fields = Array.isArray(payload.fields) ? payload.fields : [];
+    const existing = await sbAdmission('admission_settings?key=eq.form_fields_json');
+    if (existing && !existing.error && existing.length > 0) {
+      await sbAdmission('admission_settings?key=eq.form_fields_json', 'PATCH',
+        { value: fields, updated_at: new Date().toISOString() });
+    } else {
+      await sbAdmission('admission_settings', 'POST', { key: 'form_fields_json', value: fields, updated_at: new Date().toISOString() });
+    }
+    return NextResponse.json({ success: true });
+  }
+
+  // ── Phase 2: Index Pattern preview + Counters ────────────────────────────
+  if (action === 'previewIndexId') {
+    const { settings, session, cls, cat, counter = 1 } = payload;
+    return NextResponse.json({ preview: buildIndexId(settings, session, cls, cat, counter) });
+  }
+  if (action === 'resetCounter') {
+    const { year, cls } = payload;
+    await sbAdmission(`index_counters?year=eq.${encodeURIComponent(year)}&class=eq.${encodeURIComponent(cls)}`, 'DELETE');
+    return NextResponse.json({ success: true });
+  }
+  if (action === 'listCounters') {
+    const rows = await sbAdmission('index_counters?order=year.desc,class.asc');
+    return NextResponse.json({ counters: rows || [] });
+  }
+
+  // ── Phase 2: Payments ────────────────────────────────────────────────────
+  if (action === 'listPayments') {
+    let q = 'admission_payments?select=*&order=created_at.desc&limit=500';
+    if (payload.status) q += `&status=eq.${encodeURIComponent(payload.status)}`;
+    const pays = await sbAdmission(q);
+    if (!Array.isArray(pays)) return NextResponse.json({ payments: [] });
+    const ids = [...new Set(pays.map(p => p.application_id).filter(Boolean))];
+    let appsById = {};
+    if (ids.length) {
+      const apps = await sbAdmission(`admission_applications?id=in.(${ids.join(',')})&select=id,tracking_id,index_id,name_english,class,session,payment_status,stage`);
+      if (Array.isArray(apps)) for (const a of apps) appsById[a.id] = a;
+    }
+    return NextResponse.json({ payments: pays.map(p => ({ ...p, application: appsById[p.application_id] || null })) });
+  }
+  if (action === 'verifyPayment') {
+    const pid = parseInt(payload.paymentId, 10);
+    const approve = !!payload.approve;
+    if (!pid) return NextResponse.json({ error: 'Missing payment id' });
+    const rows = await sbAdmission(`admission_payments?id=eq.${pid}&select=*`);
+    const p = (Array.isArray(rows) && rows[0]) ? rows[0] : null;
+    if (!p) return NextResponse.json({ error: 'Payment not found' });
+    const pRes = await sbAdmission(`admission_payments?id=eq.${pid}`, 'PATCH', {
+      status: approve ? 'verified' : 'rejected', updated_at: new Date().toISOString(),
+    });
+    if (pRes && pRes.error) return NextResponse.json({ error: 'Could not update payment' });
+    if (p.application_id) {
+      const aRes = await sbAdmission(`admission_applications?id=eq.${p.application_id}`, 'PATCH', approve ? {
+        payment_status: 'verified', stage: 'paid', paid_at: new Date().toISOString(),
+        payment_amount: p.amount, updated_at: new Date().toISOString(),
+      } : {
+        payment_status: 'rejected', updated_at: new Date().toISOString(),
+      });
+      if (aRes && aRes.error) return NextResponse.json({ error: 'Payment updated but the application row failed — retry.' });
+    }
+    return NextResponse.json({ success: true });
+  }
+  if (action === 'markPaid') {
+    const appId = parseInt(payload.appId, 10);
+    if (!appId) return NextResponse.json({ error: 'Missing application id' });
+    const res = await sbAdmission(`admission_applications?id=eq.${appId}`, 'PATCH', {
+      payment_status: 'verified', stage: 'paid', paid_at: new Date().toISOString(),
+      payment_method: 'offline', updated_at: new Date().toISOString(),
+    });
+    if (res && res.error) return NextResponse.json({ error: 'Could not update' });
+    return NextResponse.json({ success: true });
+  }
+
+  // ── Phase 2: Admit cards — bulk-issue from an uploaded room list ─────────
+  if (action === 'issueAdmits') {
+    const list = Array.isArray(payload.rows) ? payload.rows : [];
+    if (!list.length) return NextResponse.json({ error: 'No rows to issue' });
+    const apps = await sbAdmission('admission_applications?select=id,tracking_id,index_id&limit=10000');
+    if (!Array.isArray(apps)) return NextResponse.json({ error: 'Could not load applications' });
+    const byKey = {};
+    for (const a of apps) {
+      if (a.tracking_id) byKey[String(a.tracking_id).trim().toUpperCase()] = a.id;
+      if (a.index_id) byKey[String(a.index_id).trim().toUpperCase()] = a.id;
+    }
+    const unmatched = [];
+    const roomByAppId = {};
+    for (const r of list) {
+      const key = String(r.key || '').trim().toUpperCase();
+      const room = String(r.room || '').trim();
+      if (!key || !room) continue;
+      const appId = byKey[key];
+      if (appId) roomByAppId[appId] = room; else unmatched.push(key);
+    }
+    const idsByRoom = {};
+    for (const [appId, room] of Object.entries(roomByAppId)) (idsByRoom[room] = idsByRoom[room] || []).push(appId);
+    const now = new Date().toISOString();
+    let updated = 0;
+    for (const [room, ids] of Object.entries(idsByRoom)) {
+      const res = await sbAdmission(`admission_applications?id=in.(${ids.join(',')})`, 'PATCH', {
+        room_no: room, admit_issued_at: now, updated_at: now,
+      });
+      if (!(res && res.error)) updated += ids.length;
+    }
+    return NextResponse.json({ success: true, updated, matched: Object.keys(roomByAppId).length, unmatched });
   }
 
   return NextResponse.json({ error: 'Unknown action.' }, { status: 400 });

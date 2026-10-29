@@ -41337,6 +41337,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button onclick="_admLoadNewApplication()" class="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-black transition-all">
             <i data-lucide="plus" class="h-3.5 w-3.5"></i> New Application
           </button>
+          <button onclick="_admExportCsv()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
+            <i data-lucide="download" class="h-3.5 w-3.5"></i> Export CSV
+          </button>
+          <button onclick="_admOpenSettings()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
+            <i data-lucide="settings" class="h-3.5 w-3.5"></i> Settings
+          </button>
         </div>
         <div id="adm-stats-row" class="flex flex-wrap items-center gap-2 mb-3"></div>
         <div id="adm-bulk-action-bar" class="hidden flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5 mb-3">
@@ -41380,9 +41386,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button class="adm-ftab" data-id="adm-s-tables" onclick="_admShowSection('adm-s-tables',this)">Tables</button>
         </div>
         <div id="adm-fsections"></div>
+      </div>
+
+      <div id="admAdminSettings" class="hidden">
+        <div class="flex items-center gap-3 mb-4 flex-wrap">
+          <button onclick="_admShowView('dashboard')" class="flex items-center gap-1.5 px-3 py-2 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50"><i data-lucide="arrow-left" class="h-3.5 w-3.5"></i> Back</button>
+          <h2 class="font-black text-slate-800 text-sm">Admission Settings</h2>
+        </div>
+        <div class="flex gap-1 mb-4 overflow-x-auto pb-1" id="adm-settabs">
+          <button class="adm-ftab" data-id="adm-set-index" onclick="_admShowSettingsTab('adm-set-index',this)">Index Pattern</button>
+          <button class="adm-ftab" data-id="adm-set-fields" onclick="_admShowSettingsTab('adm-set-fields',this)">Form Fields</button>
+          <button class="adm-ftab" data-id="adm-set-circular" onclick="_admShowSettingsTab('adm-set-circular',this)">Circular</button>
+          <button class="adm-ftab" data-id="adm-set-payments" onclick="_admShowSettingsTab('adm-set-payments',this)">Payments &amp; Admit</button>
+          <button class="adm-ftab" data-id="adm-set-counters" onclick="_admShowSettingsTab('adm-set-counters',this)">Counters</button>
+        </div>
+        <div id="adm-setsections"></div>
       </div>`;
     lucide.createIcons();
     _admRenderFormSections();
+    _admRenderSettingsSections();
     _admShowView('dashboard');
     _admLoadDashboard();
   }
@@ -41390,6 +41412,27 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admShowView(which) {
     document.getElementById('admAdminDashboard').classList.toggle('hidden', which !== 'dashboard');
     document.getElementById('admAdminForm').classList.toggle('hidden', which !== 'form');
+    document.getElementById('admAdminSettings').classList.toggle('hidden', which !== 'settings');
+  }
+  function _admShowSettingsTab(id, btn) {
+    document.querySelectorAll('#adm-setsections > div').forEach(el => el.classList.add('hidden'));
+    document.querySelectorAll('#adm-settabs .adm-ftab').forEach(el => el.classList.remove('adm-ftab-on'));
+    const el = document.getElementById(id); if (el) el.classList.remove('hidden');
+    if (btn) btn.classList.add('adm-ftab-on');
+    if (id === 'adm-set-index' || id === 'adm-set-circular') _admLoadIndexAndCircular();
+    else if (id === 'adm-set-fields') _admFFLoad();
+    else if (id === 'adm-set-payments') _admLoadPaymentsTab();
+    else if (id === 'adm-set-counters') _admLoadCounters();
+  }
+  // Entry point from the dashboard toolbar's "Settings" button — index
+  // pattern + circular both need currentIndexSettings loaded first (the
+  // circular's class/category pickers read their options from it), so the
+  // default first tab eagerly loads both, same as the reference app's own
+  // `document.querySelector('.atab').click()` on open.
+  function _admOpenSettings() {
+    _admShowView('settings');
+    const firstTab = document.querySelector('#adm-settabs .adm-ftab');
+    if (firstTab) firstTab.click();
   }
   // Tabs stay in the DOM always, like every other tabbed section in this
   // portal — only the active one is unhidden.
@@ -41562,7 +41605,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         chip('Admitted', s.admitted, '#059669') + chip('Rejected', s.rejected, '#dc2626');
     } catch (e) {}
   }
+  let _admLastFiltered = [];
   function _admRenderTable(apps) {
+    _admLastFiltered = apps;
     const tbody = document.getElementById('adm-app-table-body');
     if (!tbody) return;
     _admSelectedIds = new Set([..._admSelectedIds].filter(id => apps.some(a => a.id === id)));
@@ -41854,6 +41899,727 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const p = document.getElementById(previewId); if (p) p.innerHTML = `<img src="${d}" class="w-full h-full object-cover">`;
     };
     reader.readAsDataURL(file);
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // ADMISSION ADMIN — Phase 2: Settings (Index Pattern, Form Fields,
+  // Circular, Payments & Admit, Counters) + applicant-list CSV export.
+  // Ported from ccpc-admission's public/app.html + app.js (Settings tabs)
+  // and app/api/exec/route.js (same actions, added to
+  // app/api/admission-admin/route.js). SMS/OTP, Scan, Form Designer canvas
+  // and Admit Card Designer are later phases — see the plan.
+  // ══════════════════════════════════════════════════════════════════════
+
+  function _admChk(id) { const e = document.getElementById(id); return !!(e && e.checked); }
+  function _admSetChk(id, val) { const e = document.getElementById(id); if (e) e.checked = !!val; }
+
+  // ── Applicant list CSV export (current filtered rows) ───────────────────
+  function _admExportCsv() {
+    const apps = _admLastFiltered;
+    if (!apps.length) { showToast('No applications to export', 'error'); return; }
+    const headers = ['SL', 'Tracking ID', 'Index ID', 'Name', 'Class', 'Version', 'Category', 'Session', 'Status', 'Payment Status', 'Room No', 'Submitted At'];
+    const rows = [headers];
+    apps.forEach((a, idx) => {
+      rows.push([idx + 1, a.tracking_id || '', a.index_id || '', a.name_english || '', a.class || '', a.version || '', a.category || '', a.session || '', a.status || '', a.payment_status || '', a.room_no || '', a.created_at ? new Date(a.created_at).toLocaleString() : '']);
+    });
+    const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob(['﻿sep=,\n' + csv], { type: 'text/csv;charset=utf-8' }));
+    a.download = 'admission_applications.csv';
+    a.click();
+  }
+
+  // ── Settings sub-tab panels (built once, toggled via _admShowSettingsTab) ─
+  function _admRenderSettingsSections() {
+    const host = document.getElementById('adm-setsections');
+    if (!host) return;
+    const lbl = t => `<label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block">${t}</label>`;
+    const box = 'bg-white rounded-2xl shadow-sm border border-slate-100 p-6';
+    const inp = 'w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm';
+    host.innerHTML = `
+      <div id="adm-set-index" class="hidden space-y-4">
+        <div class="${box} space-y-5">
+          <div class="space-y-1">
+            ${lbl('Pattern String')}
+            <input type="text" id="adm-ip-pattern" class="${inp} font-mono" placeholder="{YY}{CLASS}{SEQ4}" oninput="_admUpdateIndexPreview()">
+            <div class="flex flex-wrap gap-1.5 mt-2">
+              ${['{YY}', '{YYYY}', '{CLASS}', '{CAT}', '{SEQ3}', '{SEQ4}', '{SEQ5}'].map(t => `<span class="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-[10px] font-bold font-mono cursor-pointer" onclick="_admInsertToken('${t}')">${t}</span>`).join('')}
+            </div>
+            <p class="text-[10px] text-slate-400">YY/YYYY = year · CLASS = class code from table · CAT = category code · SEQ = counter</p>
+          </div>
+          <div class="bg-blue-50 rounded-xl p-4 space-y-3">
+            <p class="text-[10px] font-black text-blue-700 uppercase tracking-widest">Live Preview</p>
+            <div class="flex flex-wrap gap-3 items-center">
+              <select id="adm-ip-test-class" class="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold" onchange="_admUpdateIndexPreview()"></select>
+              <select id="adm-ip-test-cat" class="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold" onchange="_admUpdateIndexPreview()"></select>
+              <select id="adm-ip-test-session" class="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold" onchange="_admUpdateIndexPreview()">
+                <option>2026</option><option>2025</option><option>2027</option>
+              </select>
+              <span class="text-sm text-slate-400 font-bold">→</span>
+              <code id="adm-ip-preview" class="text-lg font-black text-blue-700 bg-white px-3 py-1 rounded-lg shadow-sm border border-blue-100">—</code>
+            </div>
+          </div>
+          <div class="space-y-2">
+            <div class="flex items-center justify-between">
+              <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Class Codes</p>
+              <button onclick="_admIndexAddCode('class')" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-[10px] font-black uppercase">+ Add Class</button>
+            </div>
+            <div id="adm-class-codes-table" class="grid gap-1.5" style="grid-template-columns:repeat(3,1fr)"></div>
+          </div>
+          <div class="space-y-2">
+            <div class="flex items-center justify-between">
+              <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Category Codes</p>
+              <button onclick="_admIndexAddCode('cat')" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-[10px] font-black uppercase">+ Add Category</button>
+            </div>
+            <div id="adm-cat-codes-table" class="grid gap-1.5" style="grid-template-columns:repeat(2,1fr)"></div>
+          </div>
+          <button onclick="_admSaveIndexSettings()" class="w-full py-3 bg-blue-600 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:bg-black transition-all">Save Index Settings</button>
+        </div>
+      </div>
+
+      <div id="adm-set-fields" class="hidden space-y-4">
+        <div class="${box}">
+          <div class="flex items-center justify-between mb-1">
+            <p class="text-xs font-black text-slate-700 uppercase tracking-widest">Applicant Form Fields</p>
+            <div class="flex gap-2">
+              <button onclick="_admFFAdd()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-[10px] font-black uppercase">+ Add custom field</button>
+              <button onclick="_admFFSave()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">Save fields</button>
+            </div>
+          </div>
+          <p class="text-xs text-slate-400 mb-4">Controls what applicants see on the "fill in" step of the apply form — label, section (tab), required, order, and whether it shows at all. Built-in fields can be hidden or relabeled but not deleted; custom fields can be deleted freely.</p>
+          <div id="adm-fields-editor-body" class="space-y-5"></div>
+        </div>
+      </div>
+
+      <div id="adm-set-circular" class="hidden space-y-4">
+        <div class="${box} space-y-4">
+          <div class="grid gap-3" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr))">
+            <div class="space-y-1">${lbl('Circular Title')}<input id="adm-circ-title" class="${inp}" placeholder="Admission Circular 2026"></div>
+            <div class="space-y-1">${lbl('Session')}<input id="adm-circ-session" class="${inp}" placeholder="2026"></div>
+            <div class="space-y-1">${lbl('Published On')}<input id="adm-circ-date" type="date" class="${inp}"></div>
+            <div class="space-y-1">${lbl('Opens')}<div class="flex gap-1"><input id="adm-circ-start-date" type="date" class="${inp}"><input id="adm-circ-start-time" type="time" class="${inp}" style="max-width:100px"></div></div>
+            <div class="space-y-1">${lbl('Closes')}<div class="flex gap-1"><input id="adm-circ-end-date" type="date" class="${inp}"><input id="adm-circ-end-time" type="time" class="${inp}" style="max-width:100px"></div></div>
+            <div class="space-y-1">${lbl('Timezone')}<select id="adm-circ-tz" class="${inp}">${['GMT+0', 'GMT+1', 'GMT+2', 'GMT+3', 'GMT+4', 'GMT+5', 'GMT+5:30', 'GMT+6', 'GMT+6:30', 'GMT+7', 'GMT+8', 'GMT+9', 'GMT+9:30', 'GMT+10', 'GMT+11', 'GMT+12', 'GMT-3', 'GMT-4', 'GMT-5', 'GMT-6', 'GMT-7', 'GMT-8'].map(z => `<option${z === 'GMT+6' ? ' selected' : ''}>${z}</option>`).join('')}</select></div>
+          </div>
+          <div class="grid gap-3" style="grid-template-columns:1fr auto">
+            <div class="space-y-1">${lbl('Description / Notes')}<input id="adm-circ-desc" class="${inp}" placeholder="Optional notes for the circular…"></div>
+            <label class="flex items-center gap-1.5 text-xs font-bold text-slate-500 self-end pb-2 whitespace-nowrap"><input type="checkbox" id="adm-circ-use-symbol"> Symbol-based counter</label>
+          </div>
+          <div class="flex gap-2">
+            <button onclick="_admSaveCircular()" class="px-4 py-2.5 bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-black transition-all">Save Circular</button>
+            <button onclick="_admLoadIndexAndCircular()" class="px-4 py-2.5 border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50">Reload</button>
+            <span id="adm-circ-save-note" class="text-[10px] text-slate-400 self-center"></span>
+          </div>
+        </div>
+        <div class="${box}">
+          <div class="flex items-center justify-between mb-2">
+            <p class="text-xs font-black text-slate-700 uppercase tracking-widest">Classes in this circular <span id="adm-circ-class-count" class="text-slate-400"></span></p>
+            <div class="flex gap-2 items-center">
+              <select id="adm-circ-add-class-sel" class="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold" style="width:160px"></select>
+              <button onclick="_admCircAddClass()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">+ Add class</button>
+            </div>
+          </div>
+          <p class="text-[10px] text-slate-400 mb-2">Add each class the circular is open for, then tick its version(s) and category(ies). Applicants can only apply to what you open here.</p>
+          <div id="adm-circ-classes"></div>
+        </div>
+      </div>
+
+      <div id="adm-set-payments" class="hidden space-y-4">
+        <div class="${box}">
+          <div class="flex items-center justify-between mb-1">
+            <p class="text-xs font-black text-slate-700 uppercase tracking-widest">Payment Settings</p>
+            <button onclick="_admSavePaymentSettings()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">Save settings</button>
+          </div>
+          <p class="text-xs text-slate-400 mb-4">SSLCommerz credentials stay on the server — applicants never see them. While they're empty, only the manual (TrxID) option is offered.</p>
+          <div class="grid gap-3" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
+            <div class="space-y-1">${lbl('SSLCommerz Store ID')}<input id="adm-ps-store-id" class="${inp}" placeholder="e.g. ccpc0live"></div>
+            <div class="space-y-1">${lbl('SSLCommerz Store Password')}<input id="adm-ps-store-pass" type="password" class="${inp}"></div>
+            <div class="space-y-1">${lbl('Default fee (BDT)')}<input id="adm-ps-default-fee" type="number" class="${inp}" placeholder="e.g. 500"></div>
+            <div class="space-y-1.5 self-end pb-1">
+              <label class="flex items-center gap-1.5 text-xs font-bold text-slate-500"><input type="checkbox" id="adm-ps-sandbox" checked> Sandbox (test) mode</label>
+              <label class="flex items-center gap-1.5 text-xs font-bold text-slate-500"><input type="checkbox" id="adm-ps-gateway-on" checked> Online gateway enabled</label>
+              <label class="flex items-center gap-1.5 text-xs font-bold text-slate-500"><input type="checkbox" id="adm-ps-manual-on" checked> Manual TrxID fallback</label>
+            </div>
+          </div>
+          <div class="grid gap-3 mt-3" style="grid-template-columns:1fr 2fr">
+            <div class="space-y-1">${lbl('Receiving number(s) for manual payment')}<input id="adm-ps-manual-numbers" class="${inp}" placeholder="bKash 017…, Nagad 018…"></div>
+            <div class="space-y-1">${lbl('Manual payment instructions')}<input id="adm-ps-manual-instructions" class="${inp}" placeholder="Send Money to the number above, then enter the TrxID…"></div>
+          </div>
+          <p class="text-[10px] text-slate-400 mt-2">Per-class fees can be set on each class inside the <b>Circular</b> tab; the default fee applies when a class has none.</p>
+        </div>
+
+        <div class="${box}">
+          <div class="flex items-center justify-between mb-1">
+            <p class="text-xs font-black text-slate-700 uppercase tracking-widest">Payment Review</p>
+            <div class="flex gap-2 items-center">
+              <select id="adm-pay-filter" class="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold" onchange="_admLoadPaymentsList()">
+                <option value="review" selected>Needs review</option>
+                <option value="">All payments</option>
+                <option value="valid">Gateway-verified</option>
+                <option value="verified">Manually verified</option>
+                <option value="rejected">Rejected</option>
+              </select>
+              <button onclick="_admLoadPaymentsList()" class="p-2 border border-slate-200 rounded-lg hover:bg-slate-50"><i data-lucide="refresh-cw" class="h-3.5 w-3.5"></i></button>
+            </div>
+          </div>
+          <p class="text-xs text-slate-400 mb-3">Manual (TrxID) payments wait here until you verify them. Or mark an application paid directly by tracking/index number:
+            <span class="inline-flex gap-1 items-center ml-1"><input id="adm-markpaid-key" class="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold" style="width:110px" placeholder="1A2B / 26…"><button onclick="_admMarkPaidByKey()" class="px-2 py-1 border border-slate-200 rounded-lg text-[10px] font-black">Mark paid</button></span>
+          </p>
+          <div id="adm-payments-table" class="overflow-x-auto">Loading…</div>
+        </div>
+
+        <div class="${box}">
+          <p class="text-xs font-black text-slate-700 uppercase tracking-widest mb-1">Issue Admit Cards (room numbers)</p>
+          <p class="text-xs text-slate-400 mb-3">Upload a CSV with two columns — tracking or index number, and room number (a header row is fine) — or paste rows below. Matching applications get their room assigned and their admit card unlocks for download.</p>
+          <div class="flex gap-3 items-center flex-wrap mb-2">
+            <input type="file" id="adm-admit-file" accept=".csv" class="text-xs" onchange="_admAdmitFileChosen(this)">
+            <span class="text-xs text-slate-400">or paste rows (key,room per line):</span>
+          </div>
+          <textarea id="adm-admit-paste" rows="3" class="${inp} font-mono" placeholder="26NU0001, Room 101&#10;1A2C, Room 101&#10;26NU0003, Room 102" oninput="_admAdmitPasteChanged()"></textarea>
+          <div id="adm-admit-preview" class="mt-3 text-xs"></div>
+          <div class="flex gap-3 items-center mt-3">
+            <button id="adm-admit-issue-btn" onclick="_admIssueAdmitsGo()" disabled class="px-4 py-2.5 bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-black transition-all disabled:opacity-40">Issue admit cards</button>
+            <span id="adm-admit-issue-note" class="text-xs text-slate-400"></span>
+          </div>
+        </div>
+      </div>
+
+      <div id="adm-set-counters" class="hidden">
+        <div class="${box}">
+          <div class="flex items-center justify-between mb-2">
+            <p class="text-xs font-black text-slate-700 uppercase tracking-widest">Index ID Counters</p>
+            <button onclick="_admLoadCounters()" class="px-3 py-1.5 border border-slate-200 rounded-lg text-[10px] font-black uppercase flex items-center gap-1"><i data-lucide="refresh-cw" class="h-3.5 w-3.5"></i> Refresh</button>
+          </div>
+          <p class="text-xs text-slate-400 mb-3">Each row shows how many Index IDs have been assigned for a year+class combination. Reset only if you need to restart numbering.</p>
+          <div id="adm-counters-table">Loading…</div>
+        </div>
+      </div>`;
+  }
+
+  // ── Index Pattern + Circular shared state ────────────────────────────────
+  const _admDEFAULT_INDEX = {
+    pattern: '{YY}{CLASS}{SEQ4}',
+    classCodes: { Nursery: 'NU', KG: 'KG', One: '01', Two: '02', Three: '03', Four: '04', Five: '05', Six: '06', Seven: '07', Eight: '08', Nine: '09', Ten: '10', Eleven: '11', Twelve: '12' },
+    categoryCodes: { Army: 'A', Civil: 'C', Defence: 'D', 'CCPC Teacher': 'T', Staff: 'S' },
+  };
+  const _admDEFAULT_CIRCULAR = {
+    title: 'Admission Circular', session: new Date().getFullYear().toString(),
+    publishedDate: '', description: '', useSymbolCounter: false,
+    dimensions: [
+      { id: 'cdim_class', label: 'Class', options: [] },
+      { id: 'cdim_version', label: 'Version', options: [] },
+      { id: 'cdim_category', label: 'Category', options: [] },
+    ],
+    appOptionFields: [
+      { id: 'aof_seats', label: 'Seats', type: 'number' },
+      { id: 'aof_note', label: 'Note', type: 'text' },
+    ],
+    entries: [],
+    classes: [],
+  };
+  let _admIndexSettings = null;
+  let _admCurrentCircular = null;
+
+  async function _admLoadIndexAndCircular() {
+    try {
+      const r = await _admAdminFetch('getSettings', {});
+      const s = r.settings || {};
+      _admIndexSettings = Object.assign({}, _admDEFAULT_INDEX, s.index_settings || {});
+      if (!_admCurrentCircular) {
+        const cd = s.circular_settings || {};
+        _admCurrentCircular = Object.assign({}, _admDEFAULT_CIRCULAR, cd);
+        if (!Array.isArray(_admCurrentCircular.dimensions)) _admCurrentCircular.dimensions = _admDEFAULT_CIRCULAR.dimensions.map(d => Object.assign({}, d));
+        if (!Array.isArray(_admCurrentCircular.entries)) _admCurrentCircular.entries = [];
+        if (!Array.isArray(_admCurrentCircular.classes)) _admCurrentCircular.classes = [];
+      }
+      _admPopulateIndexSettings(_admIndexSettings);
+      _admPopulateCircularInfo();
+      _admRenderCircularClasses();
+    } catch (e) { showToast(e.message || 'Could not load settings', 'error'); }
+  }
+
+  function _admPopulateIndexSettings(s) {
+    _admSetV('adm-ip-pattern', s.pattern || '{YY}{CLASS}{SEQ4}');
+    const classCodes = Object.assign({}, s.classCodes || {});
+    const catCodes = Object.assign({}, s.categoryCodes || {});
+    const circClassKeys = new Set(), circCatKeys = new Set();
+    if (_admCurrentCircular && Array.isArray(_admCurrentCircular.dimensions)) {
+      const classDim = _admCurrentCircular.dimensions.find(d => d.label === 'Class');
+      const catDim = _admCurrentCircular.dimensions.find(d => d.label === 'Category');
+      if (classDim) (classDim.options || []).forEach(opt => { if (opt.value) { if (!(opt.value in classCodes)) classCodes[opt.value] = opt.symbol || ''; circClassKeys.add(opt.value); } });
+      if (catDim) (catDim.options || []).forEach(opt => { if (opt.value) { if (!(opt.value in catCodes)) catCodes[opt.value] = opt.symbol || ''; circCatKeys.add(opt.value); } });
+    }
+    _admRenderCodeTable('adm-class-codes-table', classCodes, 'class', circClassKeys);
+    _admRenderCodeTable('adm-cat-codes-table', catCodes, 'cat', circCatKeys);
+    _admRefreshIndexDropdowns(classCodes, catCodes);
+    _admUpdateIndexPreview();
+  }
+  function _admRenderCodeTable(containerId, codes, prefix, circKeys) {
+    const el = document.getElementById(containerId); if (!el) return;
+    const ck = circKeys || new Set();
+    el.innerHTML = Object.entries(codes).map(([k, val]) => {
+      const fromCirc = ck.has(k);
+      return `<div class="flex items-center gap-1 ${fromCirc ? 'bg-indigo-50 border-indigo-200' : 'bg-slate-50 border-slate-200'} border rounded-lg px-2 py-1.5">
+        <span class="text-xs font-bold text-slate-700 shrink-0" style="min-width:90px">${_escHtml(k)}${fromCirc ? '<span style="font-size:8px;color:#6366f1;margin-left:3px" title="From Circular">●</span>' : ''}</span>
+        <span class="text-slate-300 px-0.5">→</span>
+        <input type="text" data-prefix="${prefix}" data-key="${_escHtml(k)}" value="${_escHtml(val)}" maxlength="6" class="flex-1 min-w-0 px-2 py-1 bg-white border border-slate-200 rounded-lg text-center font-mono font-black text-blue-600 text-xs" oninput="_admUpdateIndexPreview()">
+        <button onclick="_admIndexDelCode('${prefix}','${_escHtml(k)}')" title="Remove ${_escHtml(k)}" class="shrink-0 ml-0.5 w-5 h-5 text-red-500 font-black text-xs">×</button>
+      </div>`;
+    }).join('');
+  }
+  function _admSyncCodeTables() {
+    if (!_admIndexSettings) return;
+    if (!_admIndexSettings.classCodes) _admIndexSettings.classCodes = {};
+    if (!_admIndexSettings.categoryCodes) _admIndexSettings.categoryCodes = {};
+    document.querySelectorAll('[data-prefix="class"]').forEach(el => { _admIndexSettings.classCodes[el.dataset.key] = el.value.trim().toUpperCase(); });
+    document.querySelectorAll('[data-prefix="cat"]').forEach(el => { _admIndexSettings.categoryCodes[el.dataset.key] = el.value.trim().toUpperCase(); });
+  }
+  function _admIndexDelCode(prefix, key) {
+    _admSyncCodeTables();
+    if (prefix === 'class') delete _admIndexSettings.classCodes[key]; else delete _admIndexSettings.categoryCodes[key];
+    _admPopulateIndexSettings(_admIndexSettings);
+  }
+  function _admIndexAddCode(prefix) {
+    const lblName = prefix === 'class' ? 'class' : 'category';
+    const key = prompt(`Enter ${lblName} name (e.g. "Thirteen", "Staff"):`);
+    if (!key || !key.trim()) return;
+    const k = key.trim();
+    _admSyncCodeTables();
+    const target = prefix === 'class' ? _admIndexSettings.classCodes : _admIndexSettings.categoryCodes;
+    if (k in target) { showToast(`"${k}" already exists`, 'error'); return; }
+    target[k] = '';
+    _admPopulateIndexSettings(_admIndexSettings);
+  }
+  function _admRefreshIndexDropdowns(classCodes, catCodes) {
+    const classSel = document.getElementById('adm-ip-test-class');
+    const catSel = document.getElementById('adm-ip-test-cat');
+    if (classSel && Object.keys(classCodes).length) {
+      const prev = classSel.value;
+      classSel.innerHTML = Object.keys(classCodes).map(k => `<option${k === prev ? ' selected' : ''}>${k}</option>`).join('');
+    }
+    if (catSel && Object.keys(catCodes).length) {
+      const prev = catSel.value;
+      catSel.innerHTML = Object.keys(catCodes).map(k => `<option${k === prev ? ' selected' : ''}>${k}</option>`).join('');
+    }
+  }
+  function _admCollectIndexSettings() {
+    const classCodes = {}, catCodes = {};
+    document.querySelectorAll('[data-prefix="class"]').forEach(el => { classCodes[el.dataset.key] = el.value.trim().toUpperCase(); });
+    document.querySelectorAll('[data-prefix="cat"]').forEach(el => { catCodes[el.dataset.key] = el.value.trim().toUpperCase(); });
+    return { pattern: _admV('adm-ip-pattern') || '{YY}{CLASS}{SEQ4}', classCodes, categoryCodes: catCodes };
+  }
+  function _admBuildIndexPreview(settings, cls, cat, session) {
+    const p = settings.pattern || '{YY}{CLASS}{SEQ4}';
+    const yr = String(session || new Date().getFullYear());
+    const classCode = (settings.classCodes || {})[cls] || '';
+    const catCode = (settings.categoryCodes || {})[cat] || 'X';
+    const seq = 1;
+    return p.replace('{YYYY}', yr).replace('{YY}', yr.slice(-2)).replace('{CLASS}', classCode).replace('{CAT}', catCode)
+      .replace('{SEQ5}', String(seq).padStart(5, '0')).replace('{SEQ4}', String(seq).padStart(4, '0')).replace('{SEQ3}', String(seq).padStart(3, '0'));
+  }
+  function _admUpdateIndexPreview() {
+    const settings = _admCollectIndexSettings();
+    const cls = document.getElementById('adm-ip-test-class')?.value || 'Nursery';
+    const cat = document.getElementById('adm-ip-test-cat')?.value || 'Army';
+    const sess = document.getElementById('adm-ip-test-session')?.value || '2026';
+    const el = document.getElementById('adm-ip-preview');
+    if (el) el.textContent = _admBuildIndexPreview(settings, cls, cat, sess);
+  }
+  function _admInsertToken(token) {
+    const inp = document.getElementById('adm-ip-pattern'); if (!inp) return;
+    const pos = inp.selectionStart || inp.value.length;
+    inp.value = inp.value.slice(0, pos) + token + inp.value.slice(pos);
+    inp.setSelectionRange(pos + token.length, pos + token.length);
+    inp.focus(); _admUpdateIndexPreview();
+  }
+  async function _admSaveIndexSettings() {
+    const value = _admCollectIndexSettings();
+    _admIndexSettings = value;
+    try {
+      const r = await _admAdminFetch('saveSettings', { key: 'index_settings', value });
+      if (r.error) { showToast(r.error, 'error'); return; }
+      showToast('Index settings saved');
+    } catch (e) { showToast(e.message || 'Could not save', 'error'); }
+  }
+
+  function _admPopulateCircularInfo() {
+    const c = _admCurrentCircular; if (!c) return;
+    _admSetV('adm-circ-title', c.title || '');
+    _admSetV('adm-circ-session', c.session || '');
+    _admSetV('adm-circ-date', c.publishedDate || '');
+    _admSetV('adm-circ-start-date', c.startDate || '');
+    _admSetV('adm-circ-start-time', c.startTime || '');
+    _admSetV('adm-circ-end-date', c.endDate || '');
+    _admSetV('adm-circ-end-time', c.endTime || '');
+    const tzSel = document.getElementById('adm-circ-tz'); if (tzSel && c.timezone) tzSel.value = c.timezone;
+    _admSetV('adm-circ-desc', c.description || '');
+    _admSetChk('adm-circ-use-symbol', !!c.useSymbolCounter);
+  }
+  async function _admSaveCircular() {
+    if (!_admCurrentCircular) { showToast('Load circular first', 'error'); return; }
+    const c = _admCurrentCircular;
+    c.title = _admV('adm-circ-title') || c.title;
+    c.session = _admV('adm-circ-session') || c.session;
+    c.publishedDate = _admV('adm-circ-date');
+    c.startDate = _admV('adm-circ-start-date');
+    c.startTime = _admV('adm-circ-start-time');
+    c.endDate = _admV('adm-circ-end-date');
+    c.endTime = _admV('adm-circ-end-time');
+    c.timezone = document.getElementById('adm-circ-tz').value || 'GMT+6';
+    c.description = _admV('adm-circ-desc');
+    c.useSymbolCounter = _admChk('adm-circ-use-symbol');
+    try {
+      const r = await _admAdminFetch('saveSettings', { key: 'circular_settings', value: c });
+      if (r.error) { showToast(r.error, 'error'); return; }
+      const note = document.getElementById('adm-circ-save-note');
+      if (note) { note.textContent = 'Saved ' + new Date().toLocaleTimeString(); setTimeout(() => { note.textContent = ''; }, 3000); }
+      showToast('Circular saved');
+      _admPopulateIndexSettings(_admIndexSettings);
+    } catch (e) { showToast(e.message || 'Could not save', 'error'); }
+  }
+  const _admCIRC_VERSIONS = ['Bangla', 'English'];
+  function _admCircAllClasses() { return Object.keys((_admIndexSettings && _admIndexSettings.classCodes) || {}); }
+  function _admCircAllCategories() { return Object.keys((_admIndexSettings && _admIndexSettings.categoryCodes) || {}); }
+  function _admCircAvailClasses() {
+    const used = new Set((_admCurrentCircular.classes || []).map(c => c.class));
+    return _admCircAllClasses().filter(c => !used.has(c));
+  }
+  function _admCircFindClass(cls) { return (_admCurrentCircular.classes || []).find(c => c.class === cls); }
+  function _admRenderCircularClasses() {
+    const c = _admCurrentCircular; if (!c) return;
+    if (!Array.isArray(c.classes)) c.classes = [];
+    const sel = document.getElementById('adm-circ-add-class-sel');
+    if (sel) {
+      const avail = _admCircAvailClasses();
+      sel.innerHTML = avail.length ? avail.map(x => `<option value="${_escHtml(x)}">${_escHtml(x)}</option>`).join('') : '<option value="">— all classes added —</option>';
+      sel.disabled = !avail.length;
+    }
+    const cnt = document.getElementById('adm-circ-class-count'); if (cnt) cnt.textContent = `(${c.classes.length})`;
+    const host = document.getElementById('adm-circ-classes'); if (!host) return;
+    if (!c.classes.length) {
+      host.innerHTML = `<div class="py-6 text-center text-slate-400 text-xs">No classes yet. Pick a class above and click <b>+ Add class</b>.<br>${_admCircAllClasses().length ? '' : '<span class="text-red-500">Define class codes in the Index Pattern tab first.</span>'}</div>`;
+      return;
+    }
+    const cats = _admCircAllCategories();
+    host.innerHTML = c.classes.map(cl => {
+      const vChecks = _admCIRC_VERSIONS.map(ver => `<label class="inline-flex items-center gap-1 text-xs font-bold text-slate-600 cursor-pointer mr-3"><input type="checkbox" ${(cl.versions || []).includes(ver) ? 'checked' : ''} onchange="_admCircToggleVersion('${_escHtml(cl.class)}','${ver}')"> ${ver}</label>`).join('');
+      const cChecks = cats.length
+        ? cats.map(ct => `<label class="inline-flex items-center gap-1 text-xs font-bold text-slate-600 cursor-pointer mr-3"><input type="checkbox" ${(cl.categories || []).includes(ct) ? 'checked' : ''} onchange="_admCircToggleCategory('${_escHtml(cl.class)}','${_escHtml(ct)}')"> ${_escHtml(ct)}</label>`).join('')
+        : '<span class="text-slate-400 text-[10px]">Add categories in the Index Pattern tab first</span>';
+      return `<div class="border border-slate-100 rounded-xl p-3 mb-2 bg-white">
+        <div class="flex justify-between items-center mb-1.5">
+          <b class="text-sm text-slate-800">${_escHtml(cl.class)}</b>
+          <button onclick="_admCircRemoveClass('${_escHtml(cl.class)}')" class="text-[10px] font-black text-red-500 px-2 py-0.5">✕ Remove</button>
+        </div>
+        <div class="flex items-center gap-2 flex-wrap mt-1"><span class="text-[10px] font-black text-slate-400" style="min-width:60px">Version:</span>${vChecks}</div>
+        <div class="flex items-center gap-2 flex-wrap mt-1.5"><span class="text-[10px] font-black text-slate-400" style="min-width:60px">Category:</span>${cChecks}</div>
+        <div class="flex items-center gap-3 flex-wrap mt-1.5">
+          <span class="text-[10px] font-black text-slate-400">Seats:</span>
+          <input class="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold" style="width:90px" value="${_escHtml(cl.seats || '')}" oninput="_admCircSetSeats('${_escHtml(cl.class)}',this.value)" placeholder="e.g. 50">
+          <span class="text-[10px] font-black text-slate-400">Fee (BDT):</span>
+          <input type="number" class="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold" style="width:90px" value="${_escHtml(cl.fee || '')}" oninput="_admCircSetFee('${_escHtml(cl.class)}',this.value)" placeholder="default">
+        </div>
+      </div>`;
+    }).join('');
+  }
+  function _admCircAddClass() {
+    const sel = document.getElementById('adm-circ-add-class-sel');
+    if (!sel || !sel.value) { showToast('No class to add — define class codes in the Index Pattern tab', 'error'); return; }
+    _admCurrentCircular.classes = _admCurrentCircular.classes || [];
+    if (_admCurrentCircular.classes.some(c => c.class === sel.value)) return;
+    _admCurrentCircular.classes.push({ class: sel.value, versions: ['Bangla'], categories: [], seats: '' });
+    _admRenderCircularClasses();
+  }
+  function _admCircRemoveClass(cls) {
+    _admCurrentCircular.classes = (_admCurrentCircular.classes || []).filter(c => c.class !== cls);
+    _admRenderCircularClasses();
+  }
+  function _admCircToggleVersion(cls, ver) {
+    const c = _admCircFindClass(cls); if (!c) return;
+    c.versions = c.versions || [];
+    const i = c.versions.indexOf(ver);
+    if (i < 0) c.versions.push(ver); else c.versions.splice(i, 1);
+  }
+  function _admCircToggleCategory(cls, ct) {
+    const c = _admCircFindClass(cls); if (!c) return;
+    c.categories = c.categories || [];
+    const i = c.categories.indexOf(ct);
+    if (i < 0) c.categories.push(ct); else c.categories.splice(i, 1);
+  }
+  function _admCircSetSeats(cls, val) { const c = _admCircFindClass(cls); if (c) c.seats = val; }
+  function _admCircSetFee(cls, val) { const c = _admCircFindClass(cls); if (c) c.fee = val; }
+
+  // ── Form Fields editor (applicant "fill in" form) ───────────────────────
+  let _admFFState = [];
+  const _admFF_SECTION_ORDER = ['student', 'father', 'mother', 'guardian'];
+  const _admFF_SECTION_LABELS = { student: 'Student', father: 'Father', mother: 'Mother', guardian: 'Guardian' };
+  const _admFF_CUSTOM_TYPES = ['text', 'textarea', 'date', 'number', 'select'];
+  async function _admFFLoad() {
+    const host = document.getElementById('adm-fields-editor-body');
+    if (host) host.innerHTML = '<p class="text-xs text-slate-400">Loading…</p>';
+    try {
+      const r = await _admAdminFetch('getFormFields', {});
+      if (r.error) { if (host) host.innerHTML = `<p class="text-xs text-red-500">${_escHtml(r.error)}</p>`; return; }
+      _admFFState = r.fields || [];
+      _admFFRender();
+    } catch (e) { if (host) host.innerHTML = `<p class="text-xs text-red-500">${_escHtml(e.message || 'Could not load')}</p>`; }
+  }
+  function _admFFRender() {
+    const host = document.getElementById('adm-fields-editor-body');
+    if (!host) return;
+    host.innerHTML = _admFF_SECTION_ORDER.map(sec => {
+      const fields = _admFFState.filter(f => f.section === sec);
+      return `<div>
+        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">${_admFF_SECTION_LABELS[sec]}</p>
+        <div class="space-y-2">${fields.map(_admFFRowHtml).join('') || '<p class="text-xs text-slate-300">No fields in this section.</p>'}</div>
+      </div>`;
+    }).join('');
+  }
+  function _admFFRowHtml(f) {
+    const sectionOptions = _admFF_SECTION_ORDER.map(s => `<option value="${s}" ${f.section === s ? 'selected' : ''}>${_admFF_SECTION_LABELS[s]}</option>`).join('');
+    const typeCell = f.built_in
+      ? `<span class="text-[11px] text-slate-400">${_escHtml(f.type)}${f.type === 'photo' ? ' (fixed)' : ''}</span>`
+      : `<select class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold" style="width:100px" onchange="_admFFUpdateProp('${f.key}','type',this.value)">${_admFF_CUSTOM_TYPES.map(t => `<option value="${t}" ${f.type === t ? 'selected' : ''}>${t}</option>`).join('')}</select>`;
+    const optionsCell = (!f.built_in && f.type === 'select')
+      ? `<input class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold w-full mt-1" placeholder="Comma-separated options" value="${_escHtml((f.options || []).join(', '))}" onchange="_admFFUpdateProp('${f.key}','options', this.value.split(',').map(s=>s.trim()).filter(Boolean))">`
+      : '';
+    const rightCell = f.built_in
+      ? `<label class="flex items-center gap-1 text-[11px] text-slate-500 whitespace-nowrap"><input type="checkbox" ${f.visible !== false ? 'checked' : ''} onchange="_admFFUpdateProp('${f.key}','visible',this.checked)"> Visible</label>`
+      : `<button onclick="_admFFDelete('${f.key}')" class="px-2 py-1 text-[10px] font-black text-red-500 border border-red-200 rounded-lg">Delete</button>`;
+    return `<div class="flex items-start gap-2 border border-slate-100 rounded-xl p-2.5">
+      <div class="flex flex-col gap-0.5">
+        <button onclick="_admFFMove('${f.key}',-1)" class="px-1.5 py-0.5 border border-slate-200 rounded text-[10px]">↑</button>
+        <button onclick="_admFFMove('${f.key}',1)" class="px-1.5 py-0.5 border border-slate-200 rounded text-[10px]">↓</button>
+      </div>
+      <div class="flex-1 grid gap-2" style="grid-template-columns:2fr 1fr 1fr">
+        <div>
+          <input class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold w-full" value="${_escHtml(f.label)}" onchange="_admFFUpdateProp('${f.key}','label',this.value)">
+          ${optionsCell}
+        </div>
+        <select class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold" onchange="_admFFChangeSection('${f.key}', this.value)">${sectionOptions}</select>
+        ${typeCell}
+      </div>
+      <label class="flex items-center gap-1 text-[11px] text-slate-500 self-center whitespace-nowrap"><input type="checkbox" ${f.required ? 'checked' : ''} onchange="_admFFUpdateProp('${f.key}','required',this.checked)"> Required</label>
+      ${rightCell}
+    </div>`;
+  }
+  function _admFFUpdateProp(key, prop, val) { const f = _admFFState.find(x => x.key === key); if (f) f[prop] = val; }
+  function _admFFChangeSection(key, newSection) {
+    const idx = _admFFState.findIndex(x => x.key === key); if (idx < 0) return;
+    const [f] = _admFFState.splice(idx, 1);
+    f.section = newSection;
+    _admFFState.push(f);
+    _admFFRender();
+  }
+  function _admFFMove(key, dir) {
+    const arr = _admFFState;
+    const idx = arr.findIndex(f => f.key === key); if (idx < 0) return;
+    const sec = arr[idx].section;
+    let j = idx + dir;
+    while (j >= 0 && j < arr.length && arr[j].section !== sec) j += dir;
+    if (j < 0 || j >= arr.length) return;
+    [arr[idx], arr[j]] = [arr[j], arr[idx]];
+    _admFFRender();
+  }
+  function _admFFAdd() {
+    const key = 'custom_' + Math.random().toString(36).slice(2, 10);
+    _admFFState.push({ key, label: 'New field', type: 'text', section: 'student', required: false, visible: true, built_in: false });
+    _admFFRender();
+  }
+  function _admFFDelete(key) {
+    const f = _admFFState.find(x => x.key === key);
+    if (!f || f.built_in) return;
+    showConfirm('Delete this custom field? Any answers already saved under it will no longer show anywhere.', () => {
+      _admFFState = _admFFState.filter(x => x.key !== key);
+      _admFFRender();
+    });
+  }
+  async function _admFFSave() {
+    try {
+      const r = await _admAdminFetch('saveFormFields', { fields: _admFFState });
+      if (r.error) { showToast(r.error, 'error'); return; }
+      showToast('Form fields saved');
+    } catch (e) { showToast(e.message || 'Could not save', 'error'); }
+  }
+
+  // ── Payments & Admit ─────────────────────────────────────────────────────
+  const _admPAY_STATUS_COLORS = { review: 'bg-amber-100 text-amber-700', verified: 'bg-emerald-100 text-emerald-700', valid: 'bg-emerald-100 text-emerald-700', rejected: 'bg-red-100 text-red-700' };
+  async function _admLoadPaymentsTab() {
+    try {
+      const r = await _admAdminFetch('getSettings', {});
+      const s = (r.settings || {}).payment_settings || {};
+      _admSetV('adm-ps-store-id', s.sslStoreId || '');
+      _admSetV('adm-ps-store-pass', s.sslStorePass || '');
+      _admSetV('adm-ps-default-fee', s.defaultFee || '');
+      _admSetChk('adm-ps-sandbox', s.sslSandbox !== false);
+      _admSetChk('adm-ps-gateway-on', s.gatewayEnabled !== false);
+      _admSetChk('adm-ps-manual-on', s.manualEnabled !== false);
+      _admSetV('adm-ps-manual-numbers', s.manualNumbers || '');
+      _admSetV('adm-ps-manual-instructions', s.manualInstructions || '');
+    } catch (e) {}
+    _admLoadPaymentsList();
+  }
+  async function _admSavePaymentSettings() {
+    const value = {
+      sslStoreId: _admV('adm-ps-store-id'), sslStorePass: _admV('adm-ps-store-pass'),
+      defaultFee: _admV('adm-ps-default-fee'), currency: 'BDT',
+      sslSandbox: _admChk('adm-ps-sandbox'), gatewayEnabled: _admChk('adm-ps-gateway-on'),
+      manualEnabled: _admChk('adm-ps-manual-on'),
+      manualNumbers: _admV('adm-ps-manual-numbers'), manualInstructions: _admV('adm-ps-manual-instructions'),
+    };
+    try {
+      const r = await _admAdminFetch('saveSettings', { key: 'payment_settings', value });
+      if (r.error) { showToast(r.error, 'error'); return; }
+      showToast('Payment settings saved' + (value.sslStoreId ? (value.sslSandbox ? ' — gateway in SANDBOX mode' : ' — gateway LIVE') : ' — gateway off (no Store ID)'));
+    } catch (e) { showToast(e.message || 'Could not save', 'error'); }
+  }
+  async function _admLoadPaymentsList() {
+    const host = document.getElementById('adm-payments-table'); if (!host) return;
+    host.innerHTML = 'Loading…';
+    const status = (document.getElementById('adm-pay-filter') || {}).value || '';
+    try {
+      const r = await _admAdminFetch('listPayments', status ? { status } : {});
+      const pays = r.payments || [];
+      if (!pays.length) { host.innerHTML = `<p class="text-xs text-slate-400 py-4">No payments${status ? ' with this status' : ''}.</p>`; return; }
+      host.innerHTML = '<table class="w-full text-left" style="font-size:12px"><thead><tr class="text-[10px] uppercase text-slate-400">' +
+        '<th class="px-2 py-2">When</th><th class="px-2 py-2">Applicant</th><th class="px-2 py-2">Gateway</th><th class="px-2 py-2">Ref / TrxID</th><th class="px-2 py-2">Amount</th><th class="px-2 py-2">Status</th><th class="px-2 py-2"></th>' +
+        '</tr></thead><tbody>' + pays.map(p => {
+          const a = p.application || {};
+          const trx = (p.raw && p.raw.trxId) || p.val_id || p.tran_id || '';
+          const when = p.created_at ? new Date(p.created_at).toLocaleString() : '';
+          const act = p.status === 'review'
+            ? `<button onclick="_admVerifyPay(${p.id},true)" class="text-[10px] font-black text-emerald-600 mr-2">✓ Verify</button><button onclick="_admVerifyPay(${p.id},false)" class="text-[10px] font-black text-red-500">✕ Reject</button>`
+            : '';
+          return `<tr class="border-t border-slate-100">
+            <td class="px-2 py-2 text-slate-400 whitespace-nowrap">${when}</td>
+            <td class="px-2 py-2"><b>${_escHtml(a.name_english || '—')}</b><br><span class="font-mono text-[10px] text-blue-600">${_escHtml(a.tracking_id || '')}</span> <span class="text-[10px] text-slate-400">${_escHtml(a.index_id || '')}</span></td>
+            <td class="px-2 py-2">${p.gateway === 'manual' ? _escHtml((p.raw && p.raw.method) || 'manual') + (p.payer_ref ? `<br><span class="text-[10px] text-slate-400">${_escHtml(p.payer_ref)}</span>` : '') : _escHtml(p.gateway || '')}</td>
+            <td class="px-2 py-2 font-mono text-[11px]">${_escHtml(trx)}</td>
+            <td class="px-2 py-2 font-bold">৳${p.amount || 0}</td>
+            <td class="px-2 py-2"><span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${_admPAY_STATUS_COLORS[p.status] || 'bg-slate-100 text-slate-500'}">${_escHtml(p.status || '')}</span></td>
+            <td class="px-2 py-2 whitespace-nowrap text-right">${act}</td></tr>`;
+        }).join('') + '</tbody></table>';
+    } catch (e) { host.innerHTML = `<p class="text-xs text-red-500">${_escHtml(e.message || 'Could not load')}</p>`; }
+  }
+  async function _admVerifyPay(pid, approve) {
+    const go = async () => {
+      try {
+        const r = await _admAdminFetch('verifyPayment', { paymentId: pid, approve });
+        if (r.error) { showToast(r.error, 'error'); return; }
+        showToast(approve ? 'Payment verified — form download unlocked' : 'Payment rejected');
+        _admLoadPaymentsList();
+      } catch (e) { showToast(e.message || 'Failed', 'error'); }
+    };
+    if (!approve) showConfirm('Reject this payment? The applicant will see it as rejected and can retry.', go); else go();
+  }
+  async function _admMarkPaidByKey() {
+    const key = _admV('adm-markpaid-key').toUpperCase();
+    if (!key) { showToast('Enter a tracking or index number', 'error'); return; }
+    try {
+      const r = await _admAdminFetch('listApplications', {});
+      const apps = r.applications || [];
+      const found = apps.find(a => String(a.tracking_id || '').toUpperCase() === key || String(a.index_id || '').toUpperCase() === key);
+      if (!found) { showToast('No application matches ' + key, 'error'); return; }
+      showConfirm(`Mark ${found.name_english || key} (${found.tracking_id}) as PAID (offline)?`, async () => {
+        const r2 = await _admAdminFetch('markPaid', { appId: found.id });
+        if (r2.error) { showToast(r2.error, 'error'); return; }
+        showToast('Marked paid');
+        _admSetV('adm-markpaid-key', '');
+        _admLoadPaymentsList();
+      });
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+
+  // Admit issue: CSV / paste → [{key, room}]. (The reference app also
+  // accepts .xlsx via a SheetJS library that isn't loaded in this portal;
+  // this native port supports CSV + paste only — the plan's own Phase 2
+  // description lists "CSV/paste", not Excel, so this isn't a scope cut.)
+  let _admAdmitRows = [];
+  function _admAdmitSetRows(rows) {
+    _admAdmitRows = rows.filter(r => r.key && r.room);
+    const prev = document.getElementById('adm-admit-preview');
+    const btn = document.getElementById('adm-admit-issue-btn');
+    if (!prev || !btn) return;
+    if (!_admAdmitRows.length) { prev.innerHTML = ''; btn.disabled = true; return; }
+    const shown = _admAdmitRows.slice(0, 8);
+    prev.innerHTML = `<div class="text-slate-500 mb-1"><b>${_admAdmitRows.length}</b> row${_admAdmitRows.length > 1 ? 's' : ''} ready:</div>` +
+      '<table class="font-mono"><tbody>' + shown.map(r => `<tr><td class="pr-6 py-0.5 text-blue-600">${_escHtml(r.key)}</td><td class="py-0.5">${_escHtml(r.room)}</td></tr>`).join('') +
+      (_admAdmitRows.length > shown.length ? `<tr><td colspan="2" class="text-slate-400 py-0.5">…and ${_admAdmitRows.length - shown.length} more</td></tr>` : '') +
+      '</tbody></table>';
+    btn.disabled = false;
+  }
+  function _admAdmitParsePairs(rows2d) {
+    const out = [];
+    rows2d.forEach((cells, i) => {
+      const vals = (cells || []).map(c => String(c == null ? '' : c).trim()).filter(x => x !== '');
+      if (vals.length < 2) return;
+      if (i === 0 && /track|index|key|id/i.test(vals[0]) && /room/i.test(vals[1])) return;
+      out.push({ key: vals[0], room: vals[1] });
+    });
+    return out;
+  }
+  function _admAdmitPasteChanged() {
+    const txt = _admV('adm-admit-paste');
+    const rows2d = txt.split(/\r?\n/).map(l => l.split(/[,\t;]/));
+    _admAdmitSetRows(_admAdmitParsePairs(rows2d));
+  }
+  function _admAdmitFileChosen(input) {
+    const file = input.files && input.files[0]; if (!file) return;
+    const rd = new FileReader();
+    rd.onload = () => {
+      try {
+        const rows2d = String(rd.result).split(/\r?\n/).map(l => l.split(/[,\t;]/).map(c => c.replace(/^"|"$/g, '')));
+        _admAdmitSetRows(_admAdmitParsePairs(rows2d));
+        const n = _admAdmitRows.length;
+        const note = document.getElementById('adm-admit-issue-note');
+        if (note) note.textContent = n ? `Parsed ${n} rows from ${file.name}` : 'No usable rows found — expected columns: key, room';
+      } catch (e) { showToast('Could not read that file: ' + e.message, 'error'); }
+    };
+    rd.readAsText(file);
+  }
+  function _admIssueAdmitsGo() {
+    if (!_admAdmitRows.length) return;
+    showConfirm(`Issue admit cards for ${_admAdmitRows.length} application(s)? Matching applicants can immediately download their admit card with the room number.`, async () => {
+      try {
+        const r = await _admAdminFetch('issueAdmits', { rows: _admAdmitRows });
+        if (r.error) { showToast(r.error, 'error'); return; }
+        const note = document.getElementById('adm-admit-issue-note');
+        if (note) note.textContent = `Issued: ${r.updated} · Matched: ${r.matched}${r.unmatched && r.unmatched.length ? ' · Unmatched: ' + r.unmatched.join(', ') : ''}`;
+        showToast(`Admit cards issued for ${r.updated} application(s)`);
+        if (r.unmatched && r.unmatched.length) showToast(`${r.unmatched.length} key(s) did not match any application`, 'error');
+      } catch (e) { showToast(e.message || 'Failed', 'error'); }
+    });
+  }
+
+  // ── Counters ──────────────────────────────────────────────────────────────
+  async function _admLoadCounters() {
+    const el = document.getElementById('adm-counters-table'); if (!el) return;
+    el.innerHTML = 'Loading…';
+    try {
+      const r = await _admAdminFetch('listCounters', {});
+      if (!r.counters || !r.counters.length) { el.innerHTML = '<p class="text-sm text-slate-400">No counters yet. Index IDs will be assigned when applications are saved.</p>'; return; }
+      el.innerHTML = `<table class="w-full text-sm"><thead><tr class="bg-slate-50 text-left">
+        <th class="px-3 py-2 text-[10px] font-black uppercase text-slate-500">Year</th>
+        <th class="px-3 py-2 text-[10px] font-black uppercase text-slate-500">Class</th>
+        <th class="px-3 py-2 text-[10px] font-black uppercase text-slate-500">Counter</th>
+        <th class="px-3 py-2 text-right text-[10px] font-black uppercase text-slate-500">Reset</th>
+        </tr></thead><tbody>${r.counters.map(c => `<tr class="border-t border-slate-100">
+          <td class="px-3 py-2 font-bold">${_escHtml(c.year)}</td>
+          <td class="px-3 py-2">${_escHtml(c.class)}</td>
+          <td class="px-3 py-2 font-black text-blue-600">${c.counter}</td>
+          <td class="px-3 py-2 text-right"><button onclick="_admResetCounter('${_escHtml(c.year)}','${_escHtml(c.class)}')" class="text-[10px] font-black uppercase text-red-400 px-2 py-1">Reset</button></td>
+        </tr>`).join('')}</tbody></table>`;
+    } catch (e) { el.innerHTML = `<p class="text-xs text-red-500">${_escHtml(e.message || 'Could not load')}</p>`; }
+  }
+  function _admResetCounter(year, cls) {
+    showConfirm(`Reset counter for ${cls} ${year}? This may cause duplicate Index IDs.`, async () => {
+      try {
+        const r = await _admAdminFetch('resetCounter', { year, cls });
+        if (r.error) { showToast(r.error, 'error'); return; }
+        showToast('Counter reset');
+        _admLoadCounters();
+      } catch (e) { showToast(e.message || 'Failed', 'error'); }
+    });
   }
 
   // ── PERMISSION CONTROL PANEL (Admin only) ────────────────────────────────────
