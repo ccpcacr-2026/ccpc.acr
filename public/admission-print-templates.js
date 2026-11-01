@@ -58,7 +58,7 @@ const DEMO_APP = {
 
 const DEFAULT_FORM = {
   header: {
-    logoUrl: 'https://lh3.googleusercontent.com/d/1Gb6gpcw1moYPAh9hSZ7cEQ5vgXxHj8LB',
+    logoUrl: '/logo.jpg',
     collegeName: 'Chattogram Cantonment Public College',
     address: 'Bayezid Bostami-4210, Chattogram Cantonment',
     phone: '02339243170', website: 'http://ccpc.edu.bd', email: 'ccpc1961@yahoo.com',
@@ -104,7 +104,7 @@ const DEFAULT_FORM = {
 
 const DEFAULT_ADMIT = {
   header: {
-    logoUrl: 'https://lh3.googleusercontent.com/d/1Gb6gpcw1moYPAh9hSZ7cEQ5vgXxHj8LB',
+    logoUrl: '/logo.jpg',
     collegeName: 'Chattogram Cantonment Public College',
     address: 'Bayezid Bostami-4210, Chattogram Cantonment',
     phone: '02339243170', website: 'http://ccpc.edu.bd', email: 'ccpc1961@yahoo.com',

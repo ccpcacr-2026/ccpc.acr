@@ -85,7 +85,7 @@ var PHOTO_MAP = {
   mother_photo:   'Mother Photo',
   guardian_photo: 'Guardian Photo',
 };
-var DEFAULT_LOGO = 'https://lh3.googleusercontent.com/d/1Gb6gpcw1moYPAh9hSZ7cEQ5vgXxHj8LB';
+var DEFAULT_LOGO = '/logo.jpg';
 var CANVAS_W = 794, CANVAS_H = 1123;
 
 /* ── State ────────────────────────────────────────── */
