@@ -122,6 +122,7 @@ function mkEl(type) {
     case 'lbl':  return Object.assign(base, {h:5, field:'name_english', staticValue:''});
     case 'para': return Object.assign(base, {h:18, content:'Type text here.\nUse {tracking_id} to insert field values.'});
     case 'photo':return Object.assign(base, {w:15, h:20, photoField:'student_photo'});
+    case 'logo': return Object.assign(base, {w:18, h:18, logoUrl:DEFAULT_LOGO});
     case 'qr':   return Object.assign(base, {w:18, h:22,
       qrContent:'{tracking_id}',
       qrLabel:'{name_english}',
@@ -380,6 +381,16 @@ function elHTML(el, forPrint, app) {
       (el.photoLabelPos==='top' ? lbl5 : '') + photoEl + (el.photoLabelPos==='bottom'||!el.photoLabelPos ? lbl5 : '') + '</div>';
   }
 
+  /* ── 5b. Logo / Static Image ─── (a fixed image — e.g. the college crest —
+     as opposed to 'photo', which is always bound to the application's own
+     uploaded photo fields and can never show a fixed logo) */
+  if (el.type === 'logo') {
+    var logoSrc = el.logoUrl || DEFAULT_LOGO;
+    return '<div style="height:100%;display:flex;align-items:center;justify-content:center;' + pad + bg + '">' +
+      '<img src="'+logoSrc+'" style="max-width:100%;max-height:100%;object-fit:contain;'+bdr()+'" alt="Logo">' +
+      '</div>';
+  }
+
   /* ── 6. QR Code ─── */
   if (el.type === 'qr') {
     var qrText = resolveTemplate(el.qrContent || '{tracking_id}', demo);
@@ -589,7 +600,7 @@ function fdRenderProps(el) {
   }
 
   var inner = '';
-  var typeLabel = {ld:'Label + Data',table:'Table',lbl:'Label Only',para:'Paragraph',photo:'Photo',qr:'QR Code'}[el.type]||el.type;
+  var typeLabel = {ld:'Label + Data',table:'Table',lbl:'Label Only',para:'Paragraph',photo:'Photo',logo:'Logo / Image',qr:'QR Code'}[el.type]||el.type;
 
   /* LD */
   if (el.type === 'ld') {
@@ -726,6 +737,14 @@ function fdRenderProps(el) {
       inp('Label Text','photoLabel',el.photoLabel||'') +
       sel('Label Position','photoLabelPos',el.photoLabelPos||'bottom',[['top','Above'],['bottom','Below'],['none','None']]) +
       fontBlock('label','Label Style') +
+      borderBlock() + layoutBlock();
+  }
+
+  /* LOGO / IMAGE */
+  if (el.type === 'logo') {
+    inner = section('Image') +
+      inp('Image URL','logoUrl',el.logoUrl||DEFAULT_LOGO,'text') +
+      '<div class="pp-note">Defaults to the college logo. Paste any other image URL to use a different crest/mark here instead.</div>' +
       borderBlock() + layoutBlock();
   }
 

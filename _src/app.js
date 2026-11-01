@@ -42188,6 +42188,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button class="fd-tool" onclick="fdAddEl('lbl')" title="Text label from field or static">Label</button>
           <button class="fd-tool" onclick="fdAddEl('para')" title="Paragraph block">Paragraph</button>
           <button class="fd-tool" onclick="fdAddEl('photo')" title="Photo with label">Photo</button>
+          <button class="fd-tool" onclick="fdAddEl('logo')" title="Fixed image — e.g. the college crest — not bound to any applicant data">Logo</button>
           <button class="fd-tool" onclick="fdAddEl('qr')" title="QR code with logo option + dynamic label">QR</button>
           <div class="flex-1"></div>
           <button class="fd-tool" onclick="fdZoom(-0.1)">−</button>
