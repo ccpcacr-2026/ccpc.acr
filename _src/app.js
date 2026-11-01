@@ -41960,6 +41960,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const lbl = t => `<label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block">${t}</label>`;
     const box = 'bg-white rounded-2xl shadow-sm border border-slate-100 p-6';
     const inp = 'w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm';
+    // Admit Card "Visible Fields" rows — each gets its own Label-Width %
+    // input (default 38%) so admins can tune column balance per field,
+    // matching the per-element Label Width control the Form Designer
+    // canvas already offers for its 'ld' elements.
+    const admAdfFields = [
+      ['tracking', 'tracking_id', 'Tracking ID'], ['index', 'index_id', 'Index ID'],
+      ['name-en', 'name_en', 'Name (EN)'], ['name-bn', 'name_bn', 'Name (BN)'],
+      ['class', 'class', 'Class'], ['category', 'category', 'Category'],
+      ['version', 'version', 'Version'], ['session', 'session', 'Session'],
+      ['father-name', 'father_name', "Father's Name"], ['mother-name', 'mother_name', "Mother's Name"],
+      ['dob', 'dob', 'Date of Birth'], ['age', 'age', 'Age'],
+      ['birth-reg', 'birth_reg', 'Birth Reg. No.'], ['gender', 'gender', 'Gender'],
+      ['mobile', 'mobile', 'Mobile'], ['blood', 'blood', 'Blood Group'],
+      ['present', 'present_address', 'Present Address'], ['permanent', 'permanent_address', 'Permanent Address'],
+    ];
     host.innerHTML = `
       <div id="adm-set-index" class="hidden space-y-4">
         <div class="${box} space-y-5">
@@ -42030,6 +42045,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <div class="space-y-1">${lbl('Description / Notes')}<input id="adm-circ-desc" class="${inp}" placeholder="Optional notes for the circular…"></div>
             <label class="flex items-center gap-1.5 text-xs font-bold text-slate-500 self-end pb-2 whitespace-nowrap"><input type="checkbox" id="adm-circ-use-symbol"> Symbol-based counter</label>
           </div>
+          <div class="space-y-1">${lbl('Admit Card Notice (shown at the bottom of every printed Admit Card for this circular — Bangla or English, one instruction per line)')}<textarea id="adm-circ-notice" class="${inp} h-24" placeholder="নির্দেশিকা / Instructions for this circular's admit card…"></textarea></div>
           <div class="flex gap-2">
             <button onclick="_admSaveCircular()" class="px-4 py-2.5 bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-black transition-all">Save Circular</button>
             <button onclick="_admLoadIndexAndCircular()" class="px-4 py-2.5 border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50">Reload</button>
@@ -42203,6 +42219,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 ${lbl('College Name')}<input type="text" id="adm-ad-college-name" class="${inp}">
                 ${lbl('Address')}<input type="text" id="adm-ad-address" class="${inp}">
                 ${lbl('Card Title')}<input type="text" id="adm-ad-card-title" class="${inp}">
+                <label class="toggle-lbl"><input type="checkbox" id="adm-ad-qr-show"> Show verify QR</label>
               </div>
             </details>
             <details open class="dgroup">
@@ -42215,18 +42232,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               </div>
             </details>
             <details class="dgroup">
-              <summary class="dgroup-hdr">Visible Fields</summary>
-              <div class="dgroup-body fields-grid">
-                <label class="toggle-lbl"><input type="checkbox" id="adm-adf-tracking"> Tracking ID</label>
-                <label class="toggle-lbl"><input type="checkbox" id="adm-adf-index"> Index ID</label>
-                <label class="toggle-lbl"><input type="checkbox" id="adm-adf-name-en"> Name (EN)</label>
-                <label class="toggle-lbl"><input type="checkbox" id="adm-adf-name-bn"> Name (BN)</label>
-                <label class="toggle-lbl"><input type="checkbox" id="adm-adf-class"> Class</label>
-                <label class="toggle-lbl"><input type="checkbox" id="adm-adf-category"> Category</label>
-                <label class="toggle-lbl"><input type="checkbox" id="adm-adf-version"> Version</label>
-                <label class="toggle-lbl"><input type="checkbox" id="adm-adf-session"> Session</label>
-                <label class="toggle-lbl"><input type="checkbox" id="adm-adf-dob"> Date of Birth</label>
-                <label class="toggle-lbl"><input type="checkbox" id="adm-adf-blood"> Blood Group</label>
+              <summary class="dgroup-hdr">Visible Fields &amp; Label Width</summary>
+              <div class="dgroup-body space-y-1.5">
+                ${admAdfFields.map(([idSuf, , label]) => `<div class="flex items-center gap-2"><label class="toggle-lbl flex-1"><input type="checkbox" id="adm-adf-${idSuf}"> ${label}</label><input type="number" id="adm-adf-${idSuf}-w" class="w-12 px-1 py-0.5 text-[10px] border border-slate-200 rounded" min="10" max="600" placeholder="38"><select id="adm-adf-${idSuf}-wu" class="px-1 py-0.5 text-[10px] border border-slate-200 rounded"><option value="%">%</option><option value="px">px</option></select></div>`).join('')}
                 <label class="toggle-lbl"><input type="checkbox" id="adm-ad-show-photo"> Show Photo</label>
               </div>
             </details>
@@ -42450,13 +42458,29 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admRenderAdmitTplBar();
     setTimeout(_admUpdateAdmitPreview, 100);
   }
+  // Same key→id-suffix pairs used to build the Admit Card Designer's
+  // "Visible Fields & Label Width" rows in _admRenderSettingsSections().
+  const ADM_ADF_KEY_TO_ID = {
+    tracking_id: 'tracking', index_id: 'index', name_en: 'name-en', name_bn: 'name-bn',
+    class: 'class', category: 'category', version: 'version', session: 'session',
+    father_name: 'father-name', mother_name: 'mother-name', dob: 'dob', age: 'age',
+    birth_reg: 'birth-reg', gender: 'gender', mobile: 'mobile', blood: 'blood',
+    present_address: 'present', permanent_address: 'permanent',
+  };
   function _admPopulateAdmitDesigner(s) {
     const h = s.header || DEFAULT_ADMIT.header;
     _admSetV('adm-ad-logo-url', h.logoUrl); _admSetV('adm-ad-college-name', h.collegeName); _admSetV('adm-ad-address', h.address); _admSetV('adm-ad-card-title', h.cardTitle);
+    _admSetChk('adm-ad-qr-show', h.qrEnabled !== false);
     _admSetV('adm-ad-banner-bg', s.bannerBg || DEFAULT_ADMIT.bannerBg); _admSetV('adm-ad-banner-text', s.bannerText || DEFAULT_ADMIT.bannerText);
     _admSetChk('adm-ad-show-photo', s.showPhoto !== false);
     const fields = s.fields || DEFAULT_ADMIT.fields;
-    Object.entries({ tracking_id: 'adm-adf-tracking', index_id: 'adm-adf-index', name_en: 'adm-adf-name-en', name_bn: 'adm-adf-name-bn', class: 'adm-adf-class', category: 'adm-adf-category', version: 'adm-adf-version', session: 'adm-adf-session', dob: 'adm-adf-dob', blood: 'adm-adf-blood' }).forEach(([k, id]) => _admSetChk(id, fields[k] !== false));
+    const labelWidths = s.labelWidths || {};
+    Object.entries(ADM_ADF_KEY_TO_ID).forEach(([k, idSuf]) => {
+      _admSetChk(`adm-adf-${idSuf}`, fields[k] !== false);
+      const m = String(labelWidths[k] || '38%').match(/^(\d+(?:\.\d+)?)(px|%)?$/);
+      _admSetV(`adm-adf-${idSuf}-w`, m ? m[1] : '38');
+      const wuSel = document.getElementById(`adm-adf-${idSuf}-wu`); if (wuSel) wuSel.value = (m && m[2]) || '%';
+    });
     _admSetV('adm-ad-exam-center', s.examCenter || DEFAULT_ADMIT.examCenter); _admSetV('adm-ad-exam-date', s.examDate || ''); _admSetV('adm-ad-exam-time', s.examTime || '');
     _admSetV('adm-ad-instructions', s.instructions || DEFAULT_ADMIT.instructions);
     const sig1 = s.sig1 || DEFAULT_ADMIT.sig1, sig2 = s.sig2 || DEFAULT_ADMIT.sig2;
@@ -42465,11 +42489,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admSetV('adm-ad-footer', s.footer || DEFAULT_ADMIT.footer);
   }
   function _admCollectAdmitDesignSettings() {
+    const fields = {}, labelWidths = {};
+    Object.entries(ADM_ADF_KEY_TO_ID).forEach(([k, idSuf]) => {
+      fields[k] = _admChk(`adm-adf-${idSuf}`);
+      const wuSel = document.getElementById(`adm-adf-${idSuf}-wu`);
+      const unit = wuSel ? wuSel.value : '%';
+      labelWidths[k] = (parseInt(_admV(`adm-adf-${idSuf}-w`), 10) || 38) + unit;
+    });
     return {
-      header: { logoUrl: _admV('adm-ad-logo-url') || DEFAULT_ADMIT.header.logoUrl, collegeName: _admV('adm-ad-college-name'), address: _admV('adm-ad-address'), cardTitle: _admV('adm-ad-card-title') },
+      header: { logoUrl: _admV('adm-ad-logo-url') || DEFAULT_ADMIT.header.logoUrl, collegeName: _admV('adm-ad-college-name'), address: _admV('adm-ad-address'), cardTitle: _admV('adm-ad-card-title'), qrEnabled: _admChk('adm-ad-qr-show') },
       bannerBg: _admV('adm-ad-banner-bg'), bannerText: _admV('adm-ad-banner-text'),
       showPhoto: _admChk('adm-ad-show-photo'),
-      fields: { tracking_id: _admChk('adm-adf-tracking'), index_id: _admChk('adm-adf-index'), name_en: _admChk('adm-adf-name-en'), name_bn: _admChk('adm-adf-name-bn'), class: _admChk('adm-adf-class'), category: _admChk('adm-adf-category'), version: _admChk('adm-adf-version'), session: _admChk('adm-adf-session'), dob: _admChk('adm-adf-dob'), blood: _admChk('adm-adf-blood') },
+      fields, labelWidths,
       examCenter: _admV('adm-ad-exam-center'), examDate: _admV('adm-ad-exam-date'), examTime: _admV('adm-ad-exam-time'),
       instructions: document.getElementById('adm-ad-instructions') ? document.getElementById('adm-ad-instructions').value : '',
       sig1: { visible: _admChk('adm-ad-sig1-show'), label: _admV('adm-ad-sig1-label') },
@@ -42477,11 +42508,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       footer: _admV('adm-ad-footer'),
     };
   }
-  function _admUpdateAdmitPreview() {
+  // Circular's own Admit Card Notice (Settings → Circular) overrides the
+  // template's default `instructions` text at print/preview time, so
+  // updating the notice per-circular never requires touching the template.
+  async function _admGetCircularNotice() {
+    try {
+      const r = await _admAdminFetch('getSettings', {});
+      const c = (r.settings && r.settings.circular_settings) || {};
+      return (c.admitNotice || '').trim();
+    } catch { return ''; }
+  }
+  async function _admUpdateAdmitPreview() {
     const settings = _admCollectAdmitDesignSettings();
     const iframe = document.getElementById('adm-ad-preview-iframe');
     if (!iframe) return;
-    iframe.srcdoc = generateAdmitHtml(DEMO_APP, settings, true);
+    const circularNotice = await _admGetCircularNotice();
+    const effectiveSettings = circularNotice ? Object.assign({}, settings, { instructions: circularNotice }) : settings;
+    iframe.srcdoc = generateAdmitHtml(DEMO_APP, effectiveSettings, true);
   }
   async function _admSaveAdmitDesign() {
     const value = _admCollectAdmitDesignSettings();
@@ -42617,7 +42660,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       await _admEnsureAdmitTplForPrint();
       const r = await _admAdminFetch('getApplication', { id: _admCurrentId });
       if (!r.application) { showToast('Not found', 'error'); return; }
-      openPrintTab(generateAdmitHtml(r.application, _admCurrentAdmitSettings));
+      const circularNotice = await _admGetCircularNotice();
+      const effectiveSettings = circularNotice ? Object.assign({}, _admCurrentAdmitSettings, { instructions: circularNotice }) : _admCurrentAdmitSettings;
+      openPrintTab(generateAdmitHtml(r.application, effectiveSettings));
     } catch (e) { showToast(e.message || 'Could not open print preview', 'error'); }
   }
   async function _admPrintFormById(id) {
@@ -42636,7 +42681,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       await _admEnsureAdmitTplForPrint();
       const r = await _admAdminFetch('getApplication', { id });
       if (!r.application) { showToast('Not found', 'error'); return; }
-      openPrintTab(generateAdmitHtml(r.application, _admCurrentAdmitSettings));
+      const circularNotice = await _admGetCircularNotice();
+      const effectiveSettings = circularNotice ? Object.assign({}, _admCurrentAdmitSettings, { instructions: circularNotice }) : _admCurrentAdmitSettings;
+      openPrintTab(generateAdmitHtml(r.application, effectiveSettings));
     } catch (e) { showToast(e.message || 'Could not open print preview', 'error'); }
   }
 
@@ -42797,6 +42844,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admSetV('adm-circ-end-time', c.endTime || '');
     const tzSel = document.getElementById('adm-circ-tz'); if (tzSel && c.timezone) tzSel.value = c.timezone;
     _admSetV('adm-circ-desc', c.description || '');
+    _admSetV('adm-circ-notice', c.admitNotice || '');
     _admSetChk('adm-circ-use-symbol', !!c.useSymbolCounter);
   }
   async function _admSaveCircular() {
@@ -42811,6 +42859,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     c.endTime = _admV('adm-circ-end-time');
     c.timezone = document.getElementById('adm-circ-tz').value || 'GMT+6';
     c.description = _admV('adm-circ-desc');
+    c.admitNotice = _admV('adm-circ-notice');
     c.useSymbolCounter = _admChk('adm-circ-use-symbol');
     try {
       const r = await _admAdminFetch('saveSettings', { key: 'circular_settings', value: c });

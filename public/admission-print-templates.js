@@ -11,6 +11,27 @@
 function fmtDate(d){if(!d)return'';try{const dt=new Date(d);return isNaN(dt)?d:dt.toLocaleDateString('en-BD');}catch{return d;}}
 function deepMerge(def,ovr){const r={...def};for(const k in(ovr||{})){if(ovr[k]&&typeof ovr[k]==='object'&&!Array.isArray(ovr[k]))r[k]=deepMerge(def[k]||{},ovr[k]);else r[k]=ovr[k];}return r;}
 
+function prQrBlock(data, caption, size){
+  if(!data) return '';
+  size = size || 70;
+  const url = 'https://api.qrserver.com/v1/create-qr-code/?size='+size+'x'+size+'&ecc=M&data=' + encodeURIComponent(data);
+  return `<div style="width:${size}px;text-align:center;font-size:6.5pt;color:#555;flex-shrink:0"><img src="${url}" style="width:${size}px;height:${size}px;border:1px solid #ddd;display:block;margin:0 auto 2px" alt="QR">${caption||'Scan to verify'}</div>`;
+}
+function verifyQrData(a, collegeName){
+  return `${collegeName||''}\nIndex ID: ${a.index_id||'-'}\nTracking ID: ${a.tracking_id||'-'}\nName: ${a.name_english||'-'}`;
+}
+function fmtAge(dob){
+  if(!dob) return '';
+  try{
+    const b=new Date(dob), n=new Date();
+    if(isNaN(b)) return '';
+    let y=n.getFullYear()-b.getFullYear(), m=n.getMonth()-b.getMonth();
+    if(n.getDate()<b.getDate()) m--;
+    if(m<0){y--;m+=12;}
+    return `${y} year${y!==1?'s':''} ${m} month${m!==1?'s':''}`;
+  }catch{return '';}
+}
+
 const DEMO_APP = {
   tracking_id:'1A2B', index_id:'26NU0001', session:'2026', class:'Nursery', category:'Army', version:'Bangla', quota:'No',
   name_english:'MD. DEMO STUDENT NAME', name_bangla:'মো. ডেমো ছাত্রের নাম', date_of_birth:'2010-01-15',
@@ -39,8 +60,9 @@ const DEFAULT_FORM = {
   header: {
     logoUrl: 'https://lh3.googleusercontent.com/d/1Gb6gpcw1moYPAh9hSZ7cEQ5vgXxHj8LB',
     collegeName: 'Chattogram Cantonment Public College',
-    address: 'Zahir Raihan Road, Cantonment, Chattogram — 4220',
-    phone: '031-650500', website: 'ccpc.edu.bd', formTitle: 'APPLICATION FORM',
+    address: 'Bayezid Bostami-4210, Chattogram Cantonment',
+    phone: '02339243170', website: 'http://ccpc.edu.bd', email: 'ccpc1961@yahoo.com',
+    formTitle: 'APPLICATION FORM', qrEnabled: true,
   },
   indexBar: {
     bgColor: '#1a2b5c', textColor: '#ffffff',
@@ -54,7 +76,7 @@ const DEFAULT_FORM = {
     guardian: { visible: true,  label: "Local Guardian's Details",   showPhoto: true },
   },
   studentFields: {
-    name_en: true, name_bn: true, dob: true, blood: true, gender: true, religion: true,
+    name_en: true, name_bn: true, tracking_id: true, dob: true, blood: true, age: true, gender: true, religion: true,
     birth_reg: true, nationality: true, emergency: true, height: true,
     co_curr: true, last_inst: true, last_cls: true, present: true, permanent: true,
   },
@@ -84,13 +106,22 @@ const DEFAULT_ADMIT = {
   header: {
     logoUrl: 'https://lh3.googleusercontent.com/d/1Gb6gpcw1moYPAh9hSZ7cEQ5vgXxHj8LB',
     collegeName: 'Chattogram Cantonment Public College',
-    address: 'Zahir Raihan Road, Cantonment, Chattogram — 4220',
-    cardTitle: 'ADMIT CARD',
+    address: 'Bayezid Bostami-4210, Chattogram Cantonment',
+    phone: '02339243170', website: 'http://ccpc.edu.bd', email: 'ccpc1961@yahoo.com',
+    cardTitle: 'ADMIT CARD', qrEnabled: true,
   },
   bannerBg: '#1a2b5c', bannerText: '#ffffff',
   showPhoto: true,
-  fields: { tracking_id: true, index_id: true, name_en: true, name_bn: false, class: true, category: true, version: true, session: true, dob: false, blood: false, room: true },
-  labels: { tracking_id: 'Roll / Tracking No.', index_id: 'Index ID', name_en: 'Name (English)', name_bn: 'নাম', class: 'Class', category: 'Category', version: 'Version', session: 'Session', dob: 'Date of Birth', blood: 'Blood Group', room: 'Room No.' },
+  fields: {
+    tracking_id: true, index_id: true, name_en: true, name_bn: false, class: true, category: true, version: true, session: true,
+    father_name: true, mother_name: true, dob: true, age: true, birth_reg: true, gender: true, mobile: true, blood: false,
+    present_address: true, permanent_address: true, room: true,
+  },
+  labels: {
+    tracking_id: 'Roll / Tracking No.', index_id: 'Index ID', name_en: 'Name (English)', name_bn: 'নাম', class: 'Class', category: 'Category', version: 'Version', session: 'Session',
+    father_name: "Father's Name", mother_name: "Mother's Name", dob: 'Date of Birth', age: 'Age', birth_reg: 'Birth Reg. No.', gender: 'Gender', mobile: 'Mobile', blood: 'Blood Group',
+    present_address: 'Present Address', permanent_address: 'Permanent Address', room: 'Room No.',
+  },
   examCenter: 'CCPC Examination Hall, Cantonment, Chattogram',
   examDate: '', examTime: '',
   instructions: '1. Bring this admit card to every examination.\n2. Report to the examination hall 15 minutes before start time.\n3. No mobile phones or electronic devices are allowed.',
@@ -160,9 +191,16 @@ function generateTablesHtml(a,ts,sh){
 }
 
 /* ─── Form HTML Generator ────────────────────────── */
-function prRow(label,value,visible=true){
+function prRow(label,value,visible=true,width){
   if(!visible||value===null||value===undefined||value==='')return'';
-  return`<tr><td class="pr-lbl">${label}</td><td class="pr-val">${value}</td></tr>`;
+  return`<tr><td class="pr-lbl" style="width:${width||'38%'}">${label}</td><td class="pr-val">${value}</td></tr>`;
+}
+function prPairRow(l1,v1,vis1,l2,v2,vis2,w1,w2){
+  const has1=vis1&&v1!==null&&v1!==undefined&&v1!=='', has2=vis2&&v2!==null&&v2!==undefined&&v2!=='';
+  if(!has1&&!has2) return '';
+  if(has1&&has2) return `<tr><td class="pr-lbl" style="width:${w1||'38%'}">${l1}</td><td class="pr-val">${v1}</td><td class="pr-lbl" style="width:${w2||'38%'}">${l2}</td><td class="pr-val">${v2}</td></tr>`;
+  const l=has1?l1:l2, v=has1?v1:v2, w=has1?w1:w2;
+  return `<tr><td class="pr-lbl" style="width:${w||'38%'}">${l}</td><td class="pr-val" colspan="3">${v}</td></tr>`;
 }
 function prPhoto(url,show){
   if(!show)return'';
@@ -179,6 +217,7 @@ function generateFormHtml(a,fs,isPreview=false){
   const mf=fs.motherFields||DEFAULT_FORM.motherFields;
   const gf=fs.guardianFields||DEFAULT_FORM.guardianFields;
   const tr=fs.terms||DEFAULT_FORM.terms;
+  const lw=fs.labelWidths||{};
 
   const indexFields=[];
   if(ib.fields?.tracking_id&&a.tracking_id)indexFields.push({l:'Tracking ID',v:a.tracking_id});
@@ -187,26 +226,24 @@ function generateFormHtml(a,fs,isPreview=false){
   if(ib.fields?.category)indexFields.push({l:'Category',v:a.category||'—'});
   if(ib.fields?.version)indexFields.push({l:'Version',v:a.version||'—'});
   if(ib.fields?.quota)indexFields.push({l:'Quota',v:a.quota||'No'});
+  const infoStripHtml=indexFields.length?`<div class="pr-info-strip">${indexFields.map(f=>`<span><b>${f.l}:</b> ${f.v}</span>`).join('')}</div>`:'';
 
   const studentHtml=!(sec.student?.visible)?'':`
     <div class="pr-section"><div class="pr-sec-hdr" style="background:${sh.bgColor};color:${sh.textColor}">${sec.student.label||"Applicant's Information"}</div>
+    ${infoStripHtml}
     <div class="pr-body"><div class="pr-row-photo">
       <div class="pr-fields"><table class="pr-table">
-        ${prRow('Name (English)',`<strong>${a.name_english||''}</strong>`,sf.name_en)}
-        ${prRow('নাম (বাংলায়)',a.name_bangla,sf.name_bn)}
-        ${prRow('Date of Birth',fmtDate(a.date_of_birth),sf.dob)}
-        ${prRow('Blood Group',a.blood_group,sf.blood)}
-        ${prRow('Gender',a.gender,sf.gender)}
-        ${prRow('Religion',a.religion,sf.religion)}
-        ${prRow('Birth Registration No.',a.birth_reg_no,sf.birth_reg)}
-        ${prRow('Nationality',a.nationality,sf.nationality)}
-        ${prRow('Emergency Contact',a.emergency_contact,sf.emergency)}
-        ${prRow('Height (Inch)',a.height,sf.height)}
-        ${prRow('Co-curricular Activities',a.co_curricular,sf.co_curr)}
-        ${prRow('Last Institute',a.last_institute,sf.last_inst)}
-        ${prRow('Last Class / Version',`${a.last_class||''} ${a.last_version||''}`.trim(),sf.last_cls)}
-        ${prRow('Present Address',a.present_address,sf.present)}
-        ${prRow('Permanent Address',a.permanent_address,sf.permanent)}
+        ${prPairRow('Name (English)',`<strong>${a.name_english||''}</strong>`,sf.name_en,'Tracking ID',a.tracking_id,sf.tracking_id,lw.name_en,lw.tracking_id)}
+        ${prPairRow('নাম (বাংলায়)',a.name_bangla,sf.name_bn,'Blood Group',a.blood_group,sf.blood,lw.name_bn,lw.blood)}
+        ${prPairRow('Date of Birth',fmtDate(a.date_of_birth),sf.dob,'Religion',a.religion,sf.religion,lw.dob,lw.religion)}
+        ${prPairRow('Age',fmtAge(a.date_of_birth),sf.age,'Birth Registration No.',a.birth_reg_no,sf.birth_reg,lw.age,lw.birth_reg)}
+        ${prPairRow('Gender',a.gender,sf.gender,'Nationality',a.nationality,sf.nationality,lw.gender,lw.nationality)}
+        ${prPairRow('Emergency Contact',a.emergency_contact,sf.emergency,'Height (Inch)',a.height,sf.height,lw.emergency,lw.height)}
+        ${prRow('Last Class / Version',`${a.last_class||''} ${a.last_version||''}`.trim(),sf.last_cls,lw.last_cls)}
+        ${prRow('Last Institute',a.last_institute,sf.last_inst,lw.last_inst)}
+        ${prRow('Present Address',a.present_address,sf.present,lw.present)}
+        ${prRow('Permanent Address',a.permanent_address,sf.permanent,lw.permanent)}
+        ${prRow('Co-curricular Activities',a.co_curricular,sf.co_curr,lw.co_curr)}
       </table></div>
       ${prPhoto(a.student_photo,sec.student.showPhoto)}
     </div></div></div>`;
@@ -215,14 +252,10 @@ function generateFormHtml(a,fs,isPreview=false){
     <div class="pr-section"><div class="pr-sec-hdr" style="background:${sh.bgColor};color:${sh.textColor}">${sec.father.label||"Father's Details"}</div>
     <div class="pr-body"><div class="pr-row-photo">
       <div class="pr-fields"><table class="pr-table">
-        ${prRow('Name',`<strong>${a.father_name||''}</strong>`,ff.name)}
-        ${prRow('Profession',a.father_profession,ff.prof)}
-        ${prRow('Designation / Rank',a.father_designation,ff.desig)}
-        ${prRow('Education',a.father_education,ff.edu)}
-        ${prRow('Contact No.',a.father_contact,ff.contact)}
-        ${prRow('NID',a.father_nid,ff.nid)}
-        ${prRow('Office Address / Unit',a.father_office_address,ff.office)}
-        ${prRow('Yearly Income (BDT)',a.father_yearly_income,ff.income)}
+        ${prPairRow('Name',`<strong>${a.father_name||''}</strong>`,ff.name,'Profession',a.father_profession,ff.prof,lw.father_name,lw.father_prof)}
+        ${prPairRow('Designation / Rank',a.father_designation,ff.desig,'Education',a.father_education,ff.edu,lw.father_desig,lw.father_edu)}
+        ${prPairRow('Contact No.',a.father_contact,ff.contact,'NID',a.father_nid,ff.nid,lw.father_contact,lw.father_nid)}
+        ${prPairRow('Office Address / Unit',a.father_office_address,ff.office,'Yearly Income (BDT)',a.father_yearly_income,ff.income,lw.father_office,lw.father_income)}
       </table></div>
       ${prPhoto(a.father_photo,sec.father.showPhoto)}
     </div></div></div>`;
@@ -231,14 +264,10 @@ function generateFormHtml(a,fs,isPreview=false){
     <div class="pr-section"><div class="pr-sec-hdr" style="background:${sh.bgColor};color:${sh.textColor}">${sec.mother.label||"Mother's Details"}</div>
     <div class="pr-body"><div class="pr-row-photo">
       <div class="pr-fields"><table class="pr-table">
-        ${prRow('Name',`<strong>${a.mother_name||''}</strong>`,mf.name)}
-        ${prRow('Profession',a.mother_profession,mf.prof)}
-        ${prRow('Designation / Rank',a.mother_designation,mf.desig)}
-        ${prRow('Education',a.mother_education,mf.edu)}
-        ${prRow('Contact No.',a.mother_contact,mf.contact)}
-        ${prRow('NID',a.mother_nid,mf.nid)}
-        ${prRow('Office Address / Unit',a.mother_office_address,mf.office)}
-        ${prRow('Yearly Income (BDT)',a.mother_yearly_income,mf.income)}
+        ${prPairRow('Name',`<strong>${a.mother_name||''}</strong>`,mf.name,'Profession',a.mother_profession,mf.prof,lw.mother_name,lw.mother_prof)}
+        ${prPairRow('Designation / Rank',a.mother_designation,mf.desig,'Education',a.mother_education,mf.edu,lw.mother_desig,lw.mother_edu)}
+        ${prPairRow('Contact No.',a.mother_contact,mf.contact,'NID',a.mother_nid,mf.nid,lw.mother_contact,lw.mother_nid)}
+        ${prPairRow('Office Address / Unit',a.mother_office_address,mf.office,'Yearly Income (BDT)',a.mother_yearly_income,mf.income,lw.mother_office,lw.mother_income)}
       </table></div>
       ${prPhoto(a.mother_photo,sec.mother.showPhoto)}
     </div></div></div>`;
@@ -247,20 +276,17 @@ function generateFormHtml(a,fs,isPreview=false){
     <div class="pr-section"><div class="pr-sec-hdr" style="background:${sh.bgColor};color:${sh.textColor}">${sec.guardian.label||"Local Guardian's Details"}</div>
     <div class="pr-body"><div class="pr-row-photo">
       <div class="pr-fields"><table class="pr-table">
-        ${prRow('Name',`<strong>${a.guardian_name||''}</strong>`,gf.name)}
-        ${prRow('Profession',a.guardian_profession,gf.prof)}
-        ${prRow('Designation / Rank',a.guardian_designation,gf.desig)}
-        ${prRow('Education',a.guardian_education,gf.edu)}
-        ${prRow('Contact No.',a.guardian_contact,gf.contact)}
-        ${prRow('Relation to Student',a.guardian_relation,gf.relation)}
-        ${prRow('Office Address',a.guardian_office_address,gf.office)}
+        ${prPairRow('Name',`<strong>${a.guardian_name||''}</strong>`,gf.name,'Profession',a.guardian_profession,gf.prof,lw.guardian_name,lw.guardian_prof)}
+        ${prPairRow('Designation / Rank',a.guardian_designation,gf.desig,'Education',a.guardian_education,gf.edu,lw.guardian_desig,lw.guardian_edu)}
+        ${prPairRow('Contact No.',a.guardian_contact,gf.contact,'Relation to Student',a.guardian_relation,gf.relation,lw.guardian_contact,lw.guardian_relation)}
+        ${prRow('Office Address',a.guardian_office_address,gf.office,lw.guardian_office)}
       </table></div>
       ${prPhoto(a.guardian_photo,sec.guardian.showPhoto)}
     </div></div></div>`;
 
   const termsHtml=!tr?.visible?'':
     `<div class="pr-terms"><div class="pr-terms-title">Terms &amp; Conditions</div>
-    <ul>${(tr.text||'').split('\n').filter(l=>l.trim()).map(l=>`<li>${l}</li>`).join('')}</ul></div>`;
+    <ol>${(tr.text||'').split('\n').filter(l=>l.trim()).map(l=>`<li>${l}</li>`).join('')}</ol></div>`;
 
   return`<!DOCTYPE html><html><head><meta charset="UTF-8">
 <title>Application — ${a.tracking_id||''}</title>
@@ -273,6 +299,8 @@ body{font-family:Arial,sans-serif;font-size:10pt;color:#111;background:#fff}
 .pr-college-name{font-size:14pt;font-weight:900;color:${ib.bgColor};line-height:1.2;letter-spacing:.3px}
 .pr-college-addr{font-size:8pt;color:#555;margin-top:2px}
 .pr-form-badge{margin-top:4px;display:inline-block;border:1.5px solid ${ib.bgColor};padding:3px 14px;font-size:10pt;font-weight:900;color:${ib.bgColor};text-transform:uppercase;letter-spacing:1px}
+.pr-info-strip{background:#f0f0f0;padding:5px 10px;font-size:8pt;font-weight:700;color:#333;display:flex;flex-wrap:wrap;gap:4px 18px;border-bottom:1px solid #ccc}
+.pr-info-strip b{color:${ib.bgColor};font-weight:900}
 .pr-index-bar{background:${ib.bgColor};color:${ib.textColor};display:flex;margin:6px 0;border-radius:3px;overflow:hidden}
 .pr-index-cell{flex:1;padding:5px 8px;font-size:8pt;font-weight:900;border-right:1px solid rgba(255,255,255,.2)}
 .pr-index-cell:last-child{border-right:none}
@@ -286,11 +314,11 @@ body{font-family:Arial,sans-serif;font-size:10pt;color:#111;background:#fff}
 .pr-photo{width:80px;height:90px;object-fit:cover;border:1px solid #bbb;display:block}
 .pr-photo-empty{width:80px;height:90px;border:1px solid #bbb;display:flex;align-items:center;justify-content:center;font-size:7pt;color:#aaa}
 .pr-table{width:100%;border-collapse:collapse}
-.pr-lbl{font-size:8pt;color:#555;padding:2.5px 6px 2.5px 0;width:38%;vertical-align:top;white-space:nowrap}
-.pr-val{font-size:8.5pt;color:#111;padding:2.5px 0;vertical-align:top;border-bottom:.5px solid #eee}
+.pr-lbl{font-size:8pt;color:#555;padding:2.5px 6px 2.5px 0;width:21%;vertical-align:top;white-space:nowrap}
+.pr-val{font-size:8.5pt;color:#111;padding:2.5px 6px 2.5px 0;vertical-align:top;border-bottom:.5px solid #eee}
 .pr-terms{border:1px solid #bbb;padding:6px 10px;margin:6px 0;font-size:7.5pt;color:#333}
 .pr-terms-title{font-weight:900;font-size:8pt;margin-bottom:3px;color:${ib.bgColor}}
-.pr-terms ul{padding-left:14px}
+.pr-terms ol{padding-left:14px}
 .pr-terms li{margin-bottom:2px;line-height:1.4}
 .pr-sign-area{display:flex;justify-content:flex-end;margin-top:8px}
 .pr-sign-line{border-top:1px solid #333;width:160px;margin-bottom:3px}
@@ -307,12 +335,13 @@ ${isPreview?'@media screen{body{background:#f5f5f5;padding:10px}.pr-page{backgro
   <img src="${h.logoUrl}" class="pr-logo" alt="CCPC">
   <div style="text-align:center;flex:1">
     <div class="pr-college-name">${h.collegeName}</div>
-    <div class="pr-college-addr">${h.address}${h.phone?` &nbsp;|&nbsp; Phone: ${h.phone}`:''}${h.website?` &nbsp;|&nbsp; ${h.website}`:''}</div>
-    <div class="pr-form-badge">${h.formTitle} — Session ${a.session||new Date().getFullYear()}</div>
+    <div class="pr-college-addr">${h.address}${h.phone?` &nbsp;|&nbsp; Phone: ${h.phone}`:''}${h.website?` &nbsp;|&nbsp; ${h.website}`:''}${h.email?` &nbsp;|&nbsp; ${h.email}`:''}</div>
+    <div class="pr-form-badge">${h.formTitle}</div>
+    <div style="font-size:9pt;font-weight:700;color:${ib.bgColor};margin-top:2px">Session - ${a.session||new Date().getFullYear()}</div>
   </div>
-  <div style="width:60px;text-align:center;font-size:6pt;color:#aaa"><div style="width:50px;height:50px;border:1px solid #ddd;margin:0 auto 2px;display:flex;align-items:center;justify-content:center;font-size:8pt;font-weight:900;color:${ib.bgColor}">${a.tracking_id||''}</div>Tracking ID</div>
+  ${h.qrEnabled!==false?prQrBlock(verifyQrData(a,h.collegeName),'Scan to verify',58):'<div style="width:58px"></div>'}
 </div>
-${indexFields.length?`<div class="pr-index-bar">${indexFields.map(f=>`<div class="pr-index-cell"><span class="pr-index-label">${f.l}</span>${f.v}</div>`).join('')}</div>`:''}
+${sec.student?.visible?'':infoStripHtml}
 ${studentHtml}${fatherHtml}${motherHtml}${guardianHtml}${generateTablesHtml(a,fs.tables||DEFAULT_FORM.tables,sh)}
 ${termsHtml}
 <div class="pr-sign-area"><div class="pr-sign-box"><div style="height:28px"></div><div class="pr-sign-line"></div><div class="pr-sign-label">${fs.signatureLabel||DEFAULT_FORM.signatureLabel}</div></div></div>
@@ -325,6 +354,7 @@ function generateAdmitHtml(a,as,isPreview=false){
   const h=as.header||DEFAULT_ADMIT.header;
   const fields=as.fields||DEFAULT_ADMIT.fields;
   const labels=as.labels||DEFAULT_ADMIT.labels;
+  const lw=as.labelWidths||{};
   const fieldRows=[
     ['tracking_id',labels.tracking_id||'Roll / Tracking No.',a.tracking_id],
     ['index_id',labels.index_id||'Index ID',a.index_id],
@@ -334,8 +364,16 @@ function generateAdmitHtml(a,as,isPreview=false){
     ['category',labels.category||'Category',a.category],
     ['version',labels.version||'Version',a.version],
     ['session',labels.session||'Session',a.session],
+    ['father_name',labels.father_name||"Father's Name",a.father_name],
+    ['mother_name',labels.mother_name||"Mother's Name",a.mother_name],
     ['dob',labels.dob||'Date of Birth',fmtDate(a.date_of_birth)],
+    ['age',labels.age||'Age',fmtAge(a.date_of_birth)],
+    ['birth_reg',labels.birth_reg||'Birth Reg. No.',a.birth_reg_no],
+    ['gender',labels.gender||'Gender',a.gender],
+    ['mobile',labels.mobile||'Mobile',a.emergency_contact],
     ['blood',labels.blood||'Blood Group',a.blood_group],
+    ['present_address',labels.present_address||'Present Address',a.present_address],
+    ['permanent_address',labels.permanent_address||'Permanent Address',a.permanent_address],
     ['room',labels.room||'Room No.',a.room_no],
   ].filter(([k])=>fields[k]);
 
@@ -355,9 +393,9 @@ body{font-family:Arial,sans-serif;font-size:10pt;color:#111;background:#fff}
 .ac-session{font-size:10pt;opacity:.8}
 .ac-body{display:flex;gap:16px;margin-bottom:12px}
 .ac-fields{flex:1}
-.ac-field-row{display:flex;gap:8px;border-bottom:.5px solid #e5e7eb;padding:4px 0}
-.ac-field-lbl{font-size:8.5pt;color:#555;width:40%;vertical-align:middle}
-.ac-field-val{font-size:9.5pt;font-weight:700;color:#111;flex:1}
+.pr-table{width:100%;border-collapse:collapse}
+.pr-lbl{font-size:8pt;color:#555;padding:2.5px 6px 2.5px 0;width:38%;vertical-align:top;white-space:nowrap}
+.pr-val{font-size:8.5pt;color:#111;padding:2.5px 0;vertical-align:top;border-bottom:.5px solid #eee}
 .ac-photo-box{flex-shrink:0;width:100px;display:flex;flex-direction:column;align-items:center}
 .ac-photo{width:90px;height:105px;object-fit:cover;border:1.5px solid #bbb;display:block}
 .ac-photo-empty{width:90px;height:105px;border:1.5px solid #bbb;display:flex;align-items:center;justify-content:center;font-size:7pt;color:#aaa}
@@ -383,17 +421,17 @@ ${isPreview?'@media screen{body{background:#f5f5f5;padding:10px}.ac-page{backgro
   <img src="${h.logoUrl}" class="ac-logo" alt="CCPC">
   <div style="text-align:center;flex:1">
     <div class="ac-college-name">${h.collegeName}</div>
-    <div class="ac-college-addr">${h.address}</div>
+    <div class="ac-college-addr">${h.address}${h.phone?` &nbsp;|&nbsp; Phone: ${h.phone}`:''}${h.website?` &nbsp;|&nbsp; ${h.website}`:''}${h.email?` &nbsp;|&nbsp; ${h.email}`:''}</div>
   </div>
-  <div style="width:60px"></div>
+  ${h.qrEnabled!==false?prQrBlock(verifyQrData(a,h.collegeName),'Scan to verify',58):''}
 </div>
 <div class="ac-banner">
   <span class="ac-card-title">${h.cardTitle||'ADMIT CARD'}</span>
-  <span class="ac-session">Session ${a.session||new Date().getFullYear()}</span>
+  <span class="ac-session">Session - ${a.session||new Date().getFullYear()}</span>
 </div>
 <div class="ac-body">
   <div class="ac-fields">
-    ${fieldRows.map(([,lbl,val])=>`<div class="ac-field-row"><span class="ac-field-lbl">${lbl}</span><span class="ac-field-val">${val||'—'}</span></div>`).join('')}
+    <table class="pr-table">${fieldRows.map(([k,lbl,val])=>`<tr><td class="pr-lbl" style="width:${lw[k]||'38%'}">${lbl}</td><td class="pr-val">${val||'—'}</td></tr>`).join('')}</table>
   </div>
   ${as.showPhoto!==false?`<div class="ac-photo-box">${a.student_photo?`<img src="${a.student_photo}" class="ac-photo">`:`<div class="ac-photo-empty">Photo</div>`}</div>`:''}
 </div>
@@ -410,5 +448,6 @@ ${as.instructions?`<div class="ac-instructions-box"><div class="ac-instr-title">
   ${sig2.visible?`<div class="ac-sig"><div style="height:30px"></div><div class="ac-sig-line"></div><div class="ac-sig-label">${sig2.label}</div></div>`:''}
 </div>
 <div class="ac-footer">${as.footer||DEFAULT_ADMIT.footer}</div>
+<div class="ac-footer" style="margin-top:2px">This is a computer-generated document &nbsp;·&nbsp; Tracking ID #${a.tracking_id||''} &nbsp;·&nbsp; Printing Date: ${new Date().toLocaleDateString('en-GB').split('/').join('-')}</div>
 </div>${isPreview?'':'<script>window.onload=()=>window.print();<\/script>'}</body></html>`;
 }

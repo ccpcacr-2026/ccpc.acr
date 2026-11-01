@@ -117,7 +117,7 @@ function mkEl(type) {
     }
   };
   switch(type) {
-    case 'ld':   return Object.assign(base, {label:'Label', field:'name_english', staticValue:'', labelPos:'left', labelWidth:38});
+    case 'ld':   return Object.assign(base, {label:'Label', field:'name_english', staticValue:'', labelPos:'left', labelWidth:38, labelWidthUnit:'%'});
     case 'table':return Object.assign(base, {h:14, rowCount:1, dataMode:'data', fieldColLabel1:'Particulars', fieldColLabel2:'Details', selectedFields:[], columns:[{label:'Field 1',field:'name_english'},{label:'Field 2',field:'class'}]});
     case 'lbl':  return Object.assign(base, {h:5, field:'name_english', staticValue:''});
     case 'para': return Object.assign(base, {h:18, content:'Type text here.\nUse {tracking_id} to insert field values.'});
@@ -281,7 +281,7 @@ function elHTML(el, forPrint, app) {
         '</div>';
     }
     return '<div style="display:flex;height:100%;' + bdr() + bg + 'box-sizing:border-box;">' +
-      '<div style="width:'+(el.labelWidth||38)+'%;' + pad + fnt('label') + bdr('right') + 'white-space:nowrap;overflow:hidden;">' + (el.label||'Label') + '</div>' +
+      '<div style="width:'+(el.labelWidth||38)+(el.labelWidthUnit||'%')+';' + pad + fnt('label') + bdr('right') + 'white-space:nowrap;overflow:hidden;">' + (el.label||'Label') + '</div>' +
       '<div style="flex:1;' + pad + fnt() + 'overflow:hidden;">' + val + '</div>' +
       '</div>';
   }
@@ -599,7 +599,14 @@ function fdRenderProps(el) {
       (el.field==='__static__' ? inp('Static Value','staticValue',el.staticValue||'') : '') +
       section('Layout') +
       sel('Label Position','labelPos',el.labelPos||'left',[['left','Label Left'],['top','Label Top']]) +
-      ((!el.labelPos||el.labelPos==='left') ? inp('Label Width %','labelWidth',el.labelWidth||38,'number','min="10" max="80"') : '') +
+      ((!el.labelPos||el.labelPos==='left') ?
+        '<div class="pp-row"><label class="pp-lbl">Label Width</label><div style="display:flex;gap:4px;flex:1">' +
+        '<input type="number" class="pp-inp" style="flex:1;min-width:0" value="'+escH(String(el.labelWidth||38))+'" min="10" max="600" oninput="fdUpd(\''+id+'\',\'labelWidth\',this)" onchange="fdUpd(\''+id+'\',\'labelWidth\',this)">' +
+        '<select class="pp-inp" style="width:56px;flex:none" onchange="fdUpd(\''+id+'\',\'labelWidthUnit\',this)">' +
+          '<option value="%"'+((el.labelWidthUnit||'%')==='%'?' selected':'')+'>%</option>' +
+          '<option value="px"'+(el.labelWidthUnit==='px'?' selected':'')+'>px</option>' +
+        '</select></div></div>'
+        : '') +
       fontBlock('label', 'Label Style') +
       fontBlock('', 'Data Style') +
       borderBlock() + layoutBlock();
