@@ -479,7 +479,7 @@ const RESERVED = [
   '_admUpdateAdmitPreview','_admSwitchAdmitTpl','_admAdmitSaveTpl','_admAdmitSaveAsTpl',
   '_admAdmitRenameTpl','_admAdmitDeleteTpl','_admAdmitNewTpl',
   '_admPrintAdmitCard','_admPrintForm','_admPrintFormById','_admPrintAdmitById',
-  'fdAddEl','fdZoom','fdZoomFit','fdClearCanvas','previewFormLayout','fdSelect','initCanvas',
+  'fdAddEl','fdZoom','fdZoomFit','fdClearCanvas','fdLoadOfficialTemplate','previewFormLayout','fdSelect','initCanvas',
   'formLayout','currentFormSettings','deepMerge','generateAdmitHtml','generateFormHtml',
   'generateFormFromLayout','DEFAULT_FORM','DEFAULT_ADMIT','DEMO_APP','openPrintTab'
 ];

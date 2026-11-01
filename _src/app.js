@@ -42348,20 +42348,36 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (active) formLayout = (active.settings && active.settings.elements) || active.elements || [];
     else if (_admFormTemplates.length) formLayout = (_admFormTemplates[0].settings && _admFormTemplates[0].settings.elements) || _admFormTemplates[0].elements || [];
     else formLayout = [];
+    // Nothing saved (or the active/only template has an empty canvas, e.g.
+    // after "+ New" -> Save, or a cleared canvas) — show the ready-made
+    // official layout so the designer is never blank. This only affects
+    // what's displayed here; it does NOT touch the DB, and printing still
+    // reads the real stored elements via _admEnsureFormLayoutForPrint(),
+    // which correctly falls back to the structured generateFormHtml when
+    // those are empty.
+    if (!formLayout.length && typeof DEFAULT_FORM_LAYOUT !== 'undefined') {
+      formLayout = JSON.parse(JSON.stringify(DEFAULT_FORM_LAYOUT));
+    }
     initCanvas();
     fdZoomFit();
   }
   function _admRenderFormTplBar() {
     const bar = document.getElementById('adm-fd-tpl-bar');
     if (!bar) return;
-    if (!_admFormTemplates.length) { bar.innerHTML = '<span class="pp-note" style="margin:0">No templates saved yet.</span>'; return; }
+    if (!_admFormTemplates.length) {
+      bar.innerHTML = '<span class="pp-note" style="margin:0">No templates saved yet.</span>' +
+        '<button class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-[10px] font-black uppercase" onclick="_admFormNewTpl()">+ New</button>' +
+        '<button class="px-3 py-1.5 bg-violet-50 text-violet-700 hover:bg-violet-100 rounded-lg text-[10px] font-black uppercase" onclick="fdLoadOfficialTemplate()">Load Official Template</button>';
+      return;
+    }
     const opts = _admFormTemplates.map(t => `<option value="${t.id}"${t.id === _admFormActiveTplId ? ' selected' : ''}>${_escHtml(t.name)}</option>`).join('');
     bar.innerHTML = `<select onchange="_admFormSwitchTpl(this.value)" class="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold" style="min-width:160px">${opts}</select>
       <button class="px-3 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg text-[10px] font-black uppercase" onclick="_admFormSaveTpl()">Save</button>
       <button class="px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-[10px] font-black uppercase" onclick="_admFormSaveAsTpl()">Save As</button>
       <button class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-[10px] font-black uppercase" onclick="_admFormRenameTpl()">Rename</button>
       <button class="px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg text-[10px] font-black uppercase" onclick="_admFormDeleteTpl()">Delete</button>
-      <button class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-[10px] font-black uppercase" onclick="_admFormNewTpl()">+ New</button>`;
+      <button class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-[10px] font-black uppercase" onclick="_admFormNewTpl()">+ New</button>
+      <button class="px-3 py-1.5 bg-violet-50 text-violet-700 hover:bg-violet-100 rounded-lg text-[10px] font-black uppercase" onclick="fdLoadOfficialTemplate()">Load Official Template</button>`;
   }
   function _admFormSwitchTpl(id) {
     _admFormActiveTplId = id;
