@@ -10,6 +10,11 @@
 
 function fmtDate(d){if(!d)return'';try{const dt=new Date(d);return isNaN(dt)?d:dt.toLocaleDateString('en-BD');}catch{return d;}}
 function deepMerge(def,ovr){const r={...def};for(const k in(ovr||{})){if(ovr[k]&&typeof ovr[k]==='object'&&!Array.isArray(ovr[k]))r[k]=deepMerge(def[k]||{},ovr[k]);else r[k]=ovr[k];}return r;}
+// openPrintTab() writes this HTML into a blank window.open('','_blank') popup, whose
+// base URI is about:blank — a bare relative path like '/logo.jpg' can silently fail to
+// resolve there, so the logo needs an absolute URL (same pattern already used elsewhere
+// in this app, e.g. _src/app.js's letterhead/share-QR code: location.origin + '/logo.jpg').
+const SITE_ORIGIN=(typeof window!=='undefined'&&window.location&&window.location.origin)||'';
 
 function prQrBlock(data, caption, size){
   if(!data) return '';
@@ -58,7 +63,7 @@ const DEMO_APP = {
 
 const DEFAULT_FORM = {
   header: {
-    logoUrl: '/logo.jpg',
+    logoUrl: SITE_ORIGIN+'/logo.jpg',
     collegeName: 'Chattogram Cantonment Public College',
     address: 'Bayezid Bostami-4210, Chattogram Cantonment',
     phone: '02339243170', website: 'http://ccpc.edu.bd', email: 'ccpc1961@yahoo.com',
@@ -104,7 +109,7 @@ const DEFAULT_FORM = {
 
 const DEFAULT_ADMIT = {
   header: {
-    logoUrl: '/logo.jpg',
+    logoUrl: SITE_ORIGIN+'/logo.jpg',
     collegeName: 'Chattogram Cantonment Public College',
     address: 'Bayezid Bostami-4210, Chattogram Cantonment',
     phone: '02339243170', website: 'http://ccpc.edu.bd', email: 'ccpc1961@yahoo.com',

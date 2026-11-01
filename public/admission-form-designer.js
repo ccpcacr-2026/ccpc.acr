@@ -85,7 +85,7 @@ var PHOTO_MAP = {
   mother_photo:   'Mother Photo',
   guardian_photo: 'Guardian Photo',
 };
-var DEFAULT_LOGO = '/logo.jpg';
+var DEFAULT_LOGO = (typeof window!=='undefined'&&window.location&&window.location.origin?window.location.origin:'')+'/logo.jpg';
 var CANVAS_W = 794, CANVAS_H = 1123;
 
 /* ── State ────────────────────────────────────────── */
