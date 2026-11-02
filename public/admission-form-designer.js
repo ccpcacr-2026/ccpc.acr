@@ -540,6 +540,22 @@ function fdZoomFit() {
 function fdRenderProps(el) {
   var panel = document.getElementById('adm-fd-props-panel');
   if (!panel) return;
+  // Rebuilding innerHTML (below) destroys and recreates whatever input the user is
+  // typing into, which steals focus on every keystroke since this fires from oninput.
+  // Save the focused field's id + cursor position here and restore it at the end.
+  var active = document.activeElement;
+  var focusId = (active && panel.contains(active) && active.id) ? active.id : null;
+  var selStart = (focusId && 'selectionStart' in active) ? active.selectionStart : null;
+  var selEnd = (focusId && 'selectionStart' in active) ? active.selectionEnd : null;
+  function restoreFocus() {
+    if (!focusId) return;
+    var restored = document.getElementById(focusId);
+    if (!restored) return;
+    restored.focus();
+    if (selStart !== null && 'setSelectionRange' in restored) {
+      try { restored.setSelectionRange(selStart, selEnd); } catch (e) {}
+    }
+  }
   if (!el) {
     panel.innerHTML = '<div style="text-align:center;padding:32px 0;color:#94a3b8;font-size:11px;">Click an element<br>to edit properties</div>';
     return;
@@ -781,6 +797,7 @@ function fdRenderProps(el) {
     '<div class="pp-header"><span class="pp-type-lbl">'+typeLabel+'</span>' +
     '<button onclick="fdDeleteEl(\''+id+'\')" class="pp-del-btn">Delete</button></div>' +
     inner;
+  restoreFocus();
 }
 
 function escH(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
