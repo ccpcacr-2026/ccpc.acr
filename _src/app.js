@@ -42345,18 +42345,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }
     _admRenderFormTplBar();
     const active = _admFormActiveTplId && _admFormTemplates.find(t => t.id === _admFormActiveTplId);
+    window._admFormLayoutAutoSeeded = false;
     if (active) formLayout = (active.settings && active.settings.elements) || active.elements || [];
     else if (_admFormTemplates.length) formLayout = (_admFormTemplates[0].settings && _admFormTemplates[0].settings.elements) || _admFormTemplates[0].elements || [];
     else formLayout = [];
     // Nothing saved (or the active/only template has an empty canvas, e.g.
     // after "+ New" -> Save, or a cleared canvas) — show the ready-made
     // official layout so the designer is never blank. This only affects
-    // what's displayed here; it does NOT touch the DB, and printing still
-    // reads the real stored elements via _admEnsureFormLayoutForPrint(),
-    // which correctly falls back to the structured generateFormHtml when
-    // those are empty.
+    // what's displayed here; it does NOT touch the DB. The auto-seeded flag
+    // tells _admEnsureFormLayoutForPrint() this isn't real saved data, so
+    // printing still falls back to the structured generateFormHtml instead
+    // of silently printing this unsaved display-only layout.
     if (!formLayout.length && typeof DEFAULT_FORM_LAYOUT !== 'undefined') {
       formLayout = JSON.parse(JSON.stringify(DEFAULT_FORM_LAYOUT));
+      window._admFormLayoutAutoSeeded = true;
     }
     initCanvas();
     fdZoomFit();
@@ -42384,6 +42386,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const tpl = _admFormTemplates.find(t => t.id === id);
     if (!tpl) return;
     formLayout = (tpl.settings && tpl.settings.elements) || tpl.elements || [];
+    window._admFormLayoutAutoSeeded = false;
     fdSelect(null);
     fdZoomFit();
   }
@@ -42397,6 +42400,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     tpl.updatedAt = new Date().toISOString();
     const r = await _admSaveFormTplsDB();
     if (r.error) { showToast(r.error, 'error'); return; }
+    window._admFormLayoutAutoSeeded = false;
     showToast(`Saved: ${tpl.name}`);
   }
   async function _admFormSaveAsTpl() {
@@ -42407,6 +42411,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admFormActiveTplId = id;
     const r = await _admSaveFormTplsDB();
     if (r.error) { showToast(r.error, 'error'); return; }
+    window._admFormLayoutAutoSeeded = false;
     _admRenderFormTplBar();
     showToast(`"${name.trim()}" created`);
   }
@@ -42437,6 +42442,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   function _admFormNewTpl() {
     formLayout = [];
+    window._admFormLayoutAutoSeeded = false;
     fdSelect(null);
     showToast('Blank canvas — add elements then Save As', 'info');
   }
@@ -42643,12 +42649,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // ── Print / Admit Card — the admin's own preview, opens a new tab. Mirrors
   // ccpc-admission's printForm/printAdmitCard/printFormById/printAdmitById. ─
   async function _admEnsureFormLayoutForPrint() {
-    if (formLayout && formLayout.length) return;
+    if (formLayout && formLayout.length && !window._admFormLayoutAutoSeeded) return;
     const s = (await _admAdminFetch('getSettings', {})).settings || {};
     const tplData = s.form_templates || {};
     const tpls = tplData.templates || [];
     const active = tplData.activeId;
     const tpl = (active && tpls.find(t => t.id === active)) || tpls[0] || null;
+    window._admFormLayoutAutoSeeded = false;
     if (tpl) { formLayout = (tpl.settings && tpl.settings.elements) || tpl.elements || []; return; }
     formLayout = (s.form_settings && s.form_settings.elements) || [];
   }

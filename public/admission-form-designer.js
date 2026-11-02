@@ -898,6 +898,9 @@ function fdClearCanvas() {
 function fdLoadOfficialTemplate() {
   function doLoad() {
     formLayout = JSON.parse(JSON.stringify(DEFAULT_FORM_LAYOUT));
+    // Unsaved until the user clicks Save — keep Print falling back to the
+    // structured generateFormHtml (see _admEnsureFormLayoutForPrint) until then.
+    window._admFormLayoutAutoSeeded = true;
     fdSelectedId = null;
     fdRender(); fdRenderProps(null); fdZoomFit();
     if (typeof showToast === 'function') showToast('Official template loaded — click Save to keep it', 'info');
