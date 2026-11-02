@@ -42363,13 +42363,28 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     initCanvas();
     fdZoomFit();
   }
+  // Shared by both the Form and Admit Card designers' Export buttons —
+  // triggers a browser download of `dataObj` as pretty-printed JSON.
+  function _admDownloadJson(filename, dataObj) {
+    const blob = new Blob([JSON.stringify(dataObj, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+  const _admFormIOBtns = `
+      <input type="file" id="adm-fd-import-file" accept="application/json" style="display:none" onchange="_admFormImportFile(this)">
+      <button class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-[10px] font-black uppercase" onclick="_admFormExportTpl()" title="Download the current template as a .json file">Export</button>
+      <button class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-[10px] font-black uppercase" onclick="document.getElementById('adm-fd-import-file').click()" title="Load a template .json file from your computer">Import</button>`;
   function _admRenderFormTplBar() {
     const bar = document.getElementById('adm-fd-tpl-bar');
     if (!bar) return;
     if (!_admFormTemplates.length) {
       bar.innerHTML = '<span class="pp-note" style="margin:0">No templates saved yet.</span>' +
         '<button class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-[10px] font-black uppercase" onclick="_admFormNewTpl()">+ New</button>' +
-        '<button class="px-3 py-1.5 bg-violet-50 text-violet-700 hover:bg-violet-100 rounded-lg text-[10px] font-black uppercase" onclick="fdLoadOfficialTemplate()">Load Official Template</button>';
+        '<button class="px-3 py-1.5 bg-violet-50 text-violet-700 hover:bg-violet-100 rounded-lg text-[10px] font-black uppercase" onclick="fdLoadOfficialTemplate()">Load Official Template</button>' +
+        _admFormIOBtns;
       return;
     }
     const opts = _admFormTemplates.map(t => `<option value="${t.id}"${t.id === _admFormActiveTplId ? ' selected' : ''}>${_escHtml(t.name)}</option>`).join('');
@@ -42379,7 +42394,30 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <button class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-[10px] font-black uppercase" onclick="_admFormRenameTpl()">Rename</button>
       <button class="px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg text-[10px] font-black uppercase" onclick="_admFormDeleteTpl()">Delete</button>
       <button class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-[10px] font-black uppercase" onclick="_admFormNewTpl()">+ New</button>
-      <button class="px-3 py-1.5 bg-violet-50 text-violet-700 hover:bg-violet-100 rounded-lg text-[10px] font-black uppercase" onclick="fdLoadOfficialTemplate()">Load Official Template</button>`;
+      <button class="px-3 py-1.5 bg-violet-50 text-violet-700 hover:bg-violet-100 rounded-lg text-[10px] font-black uppercase" onclick="fdLoadOfficialTemplate()">Load Official Template</button>` +
+      _admFormIOBtns;
+  }
+  function _admFormExportTpl() {
+    const tpl = _admFormTemplates.find(t => t.id === _admFormActiveTplId);
+    const name = (tpl && tpl.name) ? tpl.name.replace(/[^a-z0-9-_ ]/gi, '').trim() || 'form-template' : 'form-template';
+    _admDownloadJson(`${name}.json`, { type: 'admission_form_template', name: tpl ? tpl.name : 'Untitled', elements: formLayout });
+  }
+  function _admFormImportFile(input) {
+    const file = input.files && input.files[0]; if (!file) return;
+    const rd = new FileReader();
+    rd.onload = () => {
+      let data;
+      try { data = JSON.parse(String(rd.result)); } catch { showToast('Not a valid JSON file', 'error'); input.value = ''; return; }
+      const elements = Array.isArray(data) ? data : (Array.isArray(data.elements) ? data.elements : null);
+      if (!elements) { showToast('This file is not a form template export', 'error'); input.value = ''; return; }
+      formLayout = elements;
+      window._admFormLayoutAutoSeeded = true; // unsaved until Save — see _admEnsureFormLayoutForPrint
+      fdSelect(null); fdRender(); fdRenderProps(null); fdZoomFit();
+      showToast('Template imported — click Save to keep it', 'info');
+      input.value = '';
+    };
+    rd.onerror = () => { showToast('Could not read that file', 'error'); input.value = ''; };
+    rd.readAsText(file);
   }
   function _admFormSwitchTpl(id) {
     _admFormActiveTplId = id;
@@ -42573,7 +42611,32 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
            <button class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-[10px] font-black uppercase" onclick="_admAdmitRenameTpl()">Rename</button>
            <button class="px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg text-[10px] font-black uppercase" onclick="_admAdmitDeleteTpl()">Delete</button>`
         : `<span class="text-xs text-slate-400" style="align-self:center">No templates yet</span>`) +
-      `<button class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-[10px] font-black uppercase" onclick="_admAdmitNewTpl()">+ New</button>`;
+      `<button class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-[10px] font-black uppercase" onclick="_admAdmitNewTpl()">+ New</button>
+       <input type="file" id="adm-ad-import-file" accept="application/json" style="display:none" onchange="_admAdmitImportFile(this)">
+       <button class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-[10px] font-black uppercase" onclick="_admAdmitExportTpl()" title="Download the current template as a .json file">Export</button>
+       <button class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-[10px] font-black uppercase" onclick="document.getElementById('adm-ad-import-file').click()" title="Load a template .json file from your computer">Import</button>`;
+  }
+  function _admAdmitExportTpl() {
+    const tpl = _admGetActiveAdmitTpl();
+    const name = (tpl && tpl.name) ? tpl.name.replace(/[^a-z0-9-_ ]/gi, '').trim() || 'admit-template' : 'admit-template';
+    _admDownloadJson(`${name}.json`, { type: 'admission_admit_template', name: tpl ? tpl.name : 'Untitled', settings: _admCollectAdmitDesignSettings() });
+  }
+  function _admAdmitImportFile(input) {
+    const file = input.files && input.files[0]; if (!file) return;
+    const rd = new FileReader();
+    rd.onload = () => {
+      let data;
+      try { data = JSON.parse(String(rd.result)); } catch { showToast('Not a valid JSON file', 'error'); input.value = ''; return; }
+      const settings = (data.settings && typeof data.settings === 'object') ? data.settings : (data.header ? data : null);
+      if (!settings) { showToast('This file is not an admit card template export', 'error'); input.value = ''; return; }
+      _admCurrentAdmitSettings = deepMerge(DEFAULT_ADMIT, settings);
+      _admPopulateAdmitDesigner(_admCurrentAdmitSettings);
+      _admUpdateAdmitPreview();
+      showToast('Template imported — click Save to keep it', 'info');
+      input.value = '';
+    };
+    rd.onerror = () => { showToast('Could not read that file', 'error'); input.value = ''; };
+    rd.readAsText(file);
   }
   function _admSwitchAdmitTpl(id) {
     if (id === _admAdmitActiveTplId) return;

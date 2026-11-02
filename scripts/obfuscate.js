@@ -478,6 +478,7 @@ const RESERVED = [
   '_admFormDeleteTpl','_admFormNewTpl','_admSaveAdmitDesign','_admResetAdmitDesign',
   '_admUpdateAdmitPreview','_admSwitchAdmitTpl','_admAdmitSaveTpl','_admAdmitSaveAsTpl',
   '_admAdmitRenameTpl','_admAdmitDeleteTpl','_admAdmitNewTpl',
+  '_admFormExportTpl','_admFormImportFile','_admAdmitExportTpl','_admAdmitImportFile',
   '_admPrintAdmitCard','_admPrintForm','_admPrintFormById','_admPrintAdmitById',
   'fdAddEl','fdZoom','fdZoomFit','fdClearCanvas','fdLoadOfficialTemplate','previewFormLayout','fdSelect','initCanvas',
   'formLayout','currentFormSettings','deepMerge','generateAdmitHtml','generateFormHtml',
