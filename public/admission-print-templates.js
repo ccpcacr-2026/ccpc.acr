@@ -22,8 +22,13 @@ function prQrBlock(data, caption, size){
   const url = 'https://api.qrserver.com/v1/create-qr-code/?size='+size+'x'+size+'&ecc=M&data=' + encodeURIComponent(data);
   return `<div style="width:${size}px;text-align:center;font-size:6.5pt;color:#555;flex-shrink:0"><img src="${url}" style="width:${size}px;height:${size}px;border:1px solid #ddd;display:block;margin:0 auto 2px" alt="QR">${caption||'Scan to verify'}</div>`;
 }
+// QR encodes a public, no-login verify link (public/verify.html in
+// ccpc-admission — the applicant-facing domain) rather than plain text, so
+// scanning it (e.g. an invigilator checking an admit card) opens a page
+// confirming the record is genuine, instead of just showing raw text.
 function verifyQrData(a, collegeName){
-  return `${collegeName||''}\nIndex ID: ${a.index_id||'-'}\nTracking ID: ${a.tracking_id||'-'}\nName: ${a.name_english||'-'}`;
+  const code = a.tracking_id || a.index_id || '';
+  return 'https://ccpc-admission.vercel.app/verify.html?code=' + encodeURIComponent(code);
 }
 function fmtAge(dob){
   if(!dob) return '';
