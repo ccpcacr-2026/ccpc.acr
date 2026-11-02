@@ -83,7 +83,7 @@ const DEFAULT_FORM = {
   studentFields: {
     name_en: true, name_bn: true, tracking_id: true, dob: true, blood: true, age: true, gender: true, religion: true,
     birth_reg: true, nationality: true, emergency: true, height: true,
-    co_curr: true, last_inst: true, last_cls: true, present: true, permanent: true,
+    co_curr: true, last_inst: true, last_cls: true, last_ver: true, present: true, permanent: true,
   },
   fatherFields:  { name: true, prof: true, desig: true, edu: true, contact: true, nid: true, office: true, income: true },
   motherFields:  { name: true, prof: true, desig: true, edu: true, contact: true, nid: true, office: true, income: true },
@@ -238,13 +238,13 @@ function generateFormHtml(a,fs,isPreview=false){
     ${infoStripHtml}
     <div class="pr-body"><div class="pr-row-photo">
       <div class="pr-fields"><table class="pr-table">
-        ${prPairRow('Name (English)',`<strong>${a.name_english||''}</strong>`,sf.name_en,'Tracking ID',a.tracking_id,sf.tracking_id,lw.name_en,lw.tracking_id)}
-        ${prPairRow('নাম (বাংলায়)',a.name_bangla,sf.name_bn,'Blood Group',a.blood_group,sf.blood,lw.name_bn,lw.blood)}
+        ${prPairRow("Student's Name",`<strong>${a.name_english||''}</strong>`,sf.name_en,'Tracking ID',a.tracking_id,sf.tracking_id,lw.name_en,lw.tracking_id)}
+        ${prPairRow("Student's Name Bangla",a.name_bangla,sf.name_bn,'Blood Group',a.blood_group,sf.blood,lw.name_bn,lw.blood)}
         ${prPairRow('Date of Birth',fmtDate(a.date_of_birth),sf.dob,'Religion',a.religion,sf.religion,lw.dob,lw.religion)}
         ${prPairRow('Age',fmtAge(a.date_of_birth),sf.age,'Birth Registration No.',a.birth_reg_no,sf.birth_reg,lw.age,lw.birth_reg)}
         ${prPairRow('Gender',a.gender,sf.gender,'Nationality',a.nationality,sf.nationality,lw.gender,lw.nationality)}
-        ${prPairRow('Emergency Contact',a.emergency_contact,sf.emergency,'Height (Inch)',a.height,sf.height,lw.emergency,lw.height)}
-        ${prRow('Last Class / Version',`${a.last_class||''} ${a.last_version||''}`.trim(),sf.last_cls,lw.last_cls)}
+        ${prPairRow('Emergency Contact No.',a.emergency_contact,sf.emergency,'Height (Inch)',a.height,sf.height,lw.emergency,lw.height)}
+        ${prPairRow('Last Class',a.last_class,sf.last_cls,'Last Version',a.last_version,sf.last_ver,lw.last_cls,lw.last_ver)}
         ${prRow('Last Institute',a.last_institute,sf.last_inst,lw.last_inst)}
         ${prRow('Present Address',a.present_address,sf.present,lw.present)}
         ${prRow('Permanent Address',a.permanent_address,sf.permanent,lw.permanent)}
@@ -257,10 +257,10 @@ function generateFormHtml(a,fs,isPreview=false){
     <div class="pr-section"><div class="pr-sec-hdr" style="background:${sh.bgColor};color:${sh.textColor}">${sec.father.label||"Father's Details"}</div>
     <div class="pr-body"><div class="pr-row-photo">
       <div class="pr-fields"><table class="pr-table">
-        ${prPairRow('Name',`<strong>${a.father_name||''}</strong>`,ff.name,'Profession',a.father_profession,ff.prof,lw.father_name,lw.father_prof)}
+        ${prPairRow("Father's Name",`<strong>${a.father_name||''}</strong>`,ff.name,'Profession / Occupation',a.father_profession,ff.prof,lw.father_name,lw.father_prof)}
         ${prPairRow('Designation / Rank',a.father_designation,ff.desig,'Education',a.father_education,ff.edu,lw.father_desig,lw.father_edu)}
-        ${prPairRow('Contact No.',a.father_contact,ff.contact,'NID',a.father_nid,ff.nid,lw.father_contact,lw.father_nid)}
-        ${prPairRow('Office Address / Unit',a.father_office_address,ff.office,'Yearly Income (BDT)',a.father_yearly_income,ff.income,lw.father_office,lw.father_income)}
+        ${prPairRow('Contact No',a.father_contact,ff.contact,'NID',a.father_nid,ff.nid,lw.father_contact,lw.father_nid)}
+        ${prPairRow('Office Address / Unit',a.father_office_address,ff.office,'Yearly Income',a.father_yearly_income,ff.income,lw.father_office,lw.father_income)}
       </table></div>
       ${prPhoto(a.father_photo,sec.father.showPhoto)}
     </div></div></div>`;
@@ -269,10 +269,10 @@ function generateFormHtml(a,fs,isPreview=false){
     <div class="pr-section"><div class="pr-sec-hdr" style="background:${sh.bgColor};color:${sh.textColor}">${sec.mother.label||"Mother's Details"}</div>
     <div class="pr-body"><div class="pr-row-photo">
       <div class="pr-fields"><table class="pr-table">
-        ${prPairRow('Name',`<strong>${a.mother_name||''}</strong>`,mf.name,'Profession',a.mother_profession,mf.prof,lw.mother_name,lw.mother_prof)}
+        ${prPairRow("Mother's Name",`<strong>${a.mother_name||''}</strong>`,mf.name,'Profession / Occupation',a.mother_profession,mf.prof,lw.mother_name,lw.mother_prof)}
         ${prPairRow('Designation / Rank',a.mother_designation,mf.desig,'Education',a.mother_education,mf.edu,lw.mother_desig,lw.mother_edu)}
-        ${prPairRow('Contact No.',a.mother_contact,mf.contact,'NID',a.mother_nid,mf.nid,lw.mother_contact,lw.mother_nid)}
-        ${prPairRow('Office Address / Unit',a.mother_office_address,mf.office,'Yearly Income (BDT)',a.mother_yearly_income,mf.income,lw.mother_office,lw.mother_income)}
+        ${prPairRow('Contact No',a.mother_contact,mf.contact,'NID',a.mother_nid,mf.nid,lw.mother_contact,lw.mother_nid)}
+        ${prPairRow('Office Address / Unit',a.mother_office_address,mf.office,'Yearly Income',a.mother_yearly_income,mf.income,lw.mother_office,lw.mother_income)}
       </table></div>
       ${prPhoto(a.mother_photo,sec.mother.showPhoto)}
     </div></div></div>`;
@@ -281,9 +281,9 @@ function generateFormHtml(a,fs,isPreview=false){
     <div class="pr-section"><div class="pr-sec-hdr" style="background:${sh.bgColor};color:${sh.textColor}">${sec.guardian.label||"Local Guardian's Details"}</div>
     <div class="pr-body"><div class="pr-row-photo">
       <div class="pr-fields"><table class="pr-table">
-        ${prPairRow('Name',`<strong>${a.guardian_name||''}</strong>`,gf.name,'Profession',a.guardian_profession,gf.prof,lw.guardian_name,lw.guardian_prof)}
+        ${prPairRow("Guardian's Name",`<strong>${a.guardian_name||''}</strong>`,gf.name,'Profession / Occupation',a.guardian_profession,gf.prof,lw.guardian_name,lw.guardian_prof)}
         ${prPairRow('Designation / Rank',a.guardian_designation,gf.desig,'Education',a.guardian_education,gf.edu,lw.guardian_desig,lw.guardian_edu)}
-        ${prPairRow('Contact No.',a.guardian_contact,gf.contact,'Relation to Student',a.guardian_relation,gf.relation,lw.guardian_contact,lw.guardian_relation)}
+        ${prPairRow('Contact No',a.guardian_contact,gf.contact,'Relation',a.guardian_relation,gf.relation,lw.guardian_contact,lw.guardian_relation)}
         ${prRow('Office Address',a.guardian_office_address,gf.office,lw.guardian_office)}
       </table></div>
       ${prPhoto(a.guardian_photo,sec.guardian.showPhoto)}
