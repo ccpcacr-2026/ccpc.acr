@@ -18,6 +18,7 @@ const RESERVED = [
   'saveDeviceClassAssignment','openMyClassAttendanceReport','generateMyClassAttendanceReport','exportMyClassAttendanceReportCsv','_mcaSetMode','saveAbsentFeeSetting','loadTodaysAttendance',
   'openMyStudentsAttendance','_openMyStudentStatusPicker','_setMyStudentStatus','_revertMyStudentStatus',
   '_toggleMyStudentPresence','_markAllMyStudentsPresent','_setMyStudentsFilter','_filterMyStudentsSearch',
+  '_saveMyStudentsChanges','_discardMyStudentsChanges',
   'openMyClassRoster','_renderMyClassRoster','_myClassSetRosterSort',
   '_mcaOpenStudentPassEvents','_mcaOpenAllPassEvents',
   'renderMobileHomeGrid','_mobileTopBarNavClick','_openStudentPortalMobileMenu',
@@ -238,6 +239,7 @@ const RESERVED = [
   // Attendance tab native port
   'loadAdminAttendanceView','switchAttendanceTab','loadAttendanceReport',
   'markManualAttendance','openAttendanceDeviceEditor',
+  '_attOnClassChange','_attSetStatus','_attSaveChanges','_attDiscardChanges',
   'saveAttendanceDeviceFromEditor','deleteAttendanceDevice','loadPunchLog',
   'loadTodayOverview','saveDeviceConfig','_dhFilterDevices',
   // Exams tab native port (Term/Class-Pattern/Subject/Components/Exam-Pattern

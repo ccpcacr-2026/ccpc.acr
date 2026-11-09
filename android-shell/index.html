@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no">
+<title>CCPC Portal</title>
+<style>
+  :root {
+    --teacher-color: #2563eb;
+    --student-color: #16a34a;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    overflow: hidden; background: #0f172a;
+    font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  }
+  #frame-teacher, #frame-student {
+    position: fixed; inset: 0; width: 100%; height: 100%;
+    border: 0; background: #ffffff;
+  }
+  /* Both iframes stay mounted at all times - visibility is toggled, never the
+     src or DOM presence - so neither ever reloads and neither session/login
+     is ever lost when switching. */
+  .portal-hidden { visibility: hidden; pointer-events: none; z-index: 0; }
+  .portal-visible { visibility: visible; pointer-events: auto; z-index: 1; }
+
+  /* Flag/tab style: flush against the very right edge of the screen (no
+     gap), rounded only on the side facing into the screen so it reads as a
+     pull-tab/ribbon attached to the edge, not a floating circle. Semi-
+     transparent + a blur so whatever's behind it (the portal content) stays
+     partly visible rather than being fully covered. */
+  #switch-btn {
+    position: fixed;
+    right: 0;
+    top: 50%;
+    width: 28px; height: 128px;
+    margin-top: -64px; /* top is a px value set by JS once dragged; this is just the initial center */
+    border-radius: 12px 0 0 12px;
+    border: 1.5px solid rgba(255,255,255,0.85);
+    border-right: none;
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column;
+    gap: 6px;
+    color: #fff;
+    font-weight: 700;
+    box-shadow: -2px 2px 12px rgba(0,0,0,0.35), 0 0 0 0 var(--pulse-color, transparent);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    z-index: 1000;
+    cursor: grab;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
+    transition: background-image 0.2s ease;
+    animation: ccpc-flag-pulse 2.4s ease-in-out infinite;
+  }
+  /* A soft, colour-matched glow that breathes in and out - draws the eye to
+     the edge without being a constant distraction. Disabled for anyone who
+     has motion reduction turned on at the OS level. */
+  @keyframes ccpc-flag-pulse {
+    0%, 100% { box-shadow: -2px 2px 12px rgba(0,0,0,0.35), 0 0 0 0 var(--pulse-color, transparent); }
+    50%      { box-shadow: -2px 2px 12px rgba(0,0,0,0.35), 0 0 16px 5px var(--pulse-color, transparent); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #switch-btn { animation: none; }
+  }
+  /* Everything inside the button must refuse the long-press text-selection/
+     context-menu callout too - Android WebView fires that per-element on
+     whatever you're actually pressing (the icon/label spans), not just the
+     button wrapper, and that callout hijacks the gesture mid-hold, which is
+     exactly what broke "press and hold, then drag". */
+  #switch-btn .icon, #switch-btn span {
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    pointer-events: none; /* let the button element itself own all pointer events */
+  }
+  #switch-btn .icon { font-size: 14px; line-height: 1; }
+  /* Vertical tab-label text, reading bottom-to-top (rotate 180 flips
+     vertical-rl's default top-to-bottom flow). */
+  #switch-label {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    transform: rotate(180deg);
+    font-size: 11px;
+    letter-spacing: 0.5px;
+  }
+  #switch-btn.dragging {
+    box-shadow: -3px 3px 18px rgba(0,0,0,0.45);
+    cursor: grabbing;
+    animation: none; /* the breathing glow is distracting mid-drag */
+  }
+</style>
+</head>
+<body>
+  <iframe id="frame-teacher" src="https://ccpc-acr.vercel.app" class="portal-visible" title="Teachers Portal"></iframe>
+  <iframe id="frame-student" src="https://ccpc-portal.vercel.app" class="portal-hidden" title="Students Portal"></iframe>
+
+  <button id="switch-btn" type="button" aria-label="Switch portal">
+    <span class="icon">&#8646;</span>
+    <span id="switch-label">Students</span>
+  </button>
+
+  <script>
+    (function () {
+      var STORAGE_ACTIVE = 'ccpc_shell_active_portal';
+      var STORAGE_BTN_Y = 'ccpc_shell_btn_y';
+
+      var frames = {
+        teacher: document.getElementById('frame-teacher'),
+        student: document.getElementById('frame-student')
+      };
+      var colors = { teacher: 'var(--teacher-color)', student: 'var(--student-color)' };
+      var labels = { teacher: 'Students', student: 'Teachers' }; // label shows the portal you'd SWITCH TO
+      var btn = document.getElementById('switch-btn');
+      var labelEl = document.getElementById('switch-label');
+
+      var active = localStorage.getItem(STORAGE_ACTIVE) || 'teacher';
+
+      // ── Native status bar colour ────────────────────────────────────────
+      // A cross-origin iframe's own background colour can't be read from
+      // here (browser security - the shell and each portal are different
+      // origins), so this can't pixel-match whatever page is scrolled to
+      // inside the active portal. Both portals' own chrome is a light theme
+      // (cream/white), so the bar defaults to match that - light background,
+      // dark icons - rather than an arbitrary brand accent unrelated to what
+      // either portal actually looks like. It also listens for a postMessage
+      // from either portal - so if ccpc-acr.vercel.app or ccpc-portal.
+      // vercel.app ever starts sending {type:'ccpc-theme-color', color,
+      // dark} as the user navigates within them (e.g. into a page with a
+      // dark header), the status bar will track their ACTUAL current page
+      // colour live, automatically, no shell change needed.
+      var LIGHT_THEME_BAR = '#f6e3bf'; // warm cream, matching the portals' own header tone - clearly distinct from plain white
+
+      function setStatusBar(hexColor, lightIcons, attempt) {
+        var SB = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.StatusBar;
+        if (!SB) {
+          // On a cold start the native bridge can still be registering its
+          // plugins when this first runs - window.Capacitor.Plugins.StatusBar
+          // isn't there yet, and silently giving up left the bar at its
+          // untouched default (white). Retry briefly instead of once.
+          attempt = attempt || 0;
+          if (attempt < 25) setTimeout(function () { setStatusBar(hexColor, lightIcons, attempt + 1); }, 150);
+          return;
+        }
+        SB.setBackgroundColor({ color: hexColor }).catch(function () {});
+        SB.setStyle({ style: lightIcons ? 'DARK' : 'LIGHT' }).catch(function () {});
+      }
+
+      window.addEventListener('message', function (ev) {
+        var data = ev.data;
+        if (!data || data.type !== 'ccpc-theme-color' || typeof data.color !== 'string') return;
+        // Only honour this from whichever portal is actually on-screen right
+        // now, so a background/hidden iframe can't steal the status bar.
+        var sourceFrame = (ev.source === frames.teacher.contentWindow) ? 'teacher'
+                         : (ev.source === frames.student.contentWindow) ? 'student' : null;
+        if (sourceFrame !== active) return;
+        setStatusBar(data.color, !!data.dark);
+      });
+
+      function applyActive(which) {
+        active = which;
+        frames.teacher.className = which === 'teacher' ? 'portal-visible' : 'portal-hidden';
+        frames.student.className = which === 'student' ? 'portal-visible' : 'portal-hidden';
+        // Gradient (not a flat fill) + a colour-matched glow variable the
+        // ccpc-flag-pulse animation breathes in and out, both keyed to
+        // whichever portal you'd switch TO - so the glow itself hints where
+        // tapping will take you, not just the label text.
+        if (which === 'teacher') {
+          btn.style.backgroundImage = 'linear-gradient(160deg, rgba(34, 197, 94, 0.85), rgba(21, 128, 61, 0.78))';
+          btn.style.setProperty('--pulse-color', 'rgba(34, 197, 94, 0.75)');
+        } else {
+          btn.style.backgroundImage = 'linear-gradient(160deg, rgba(59, 130, 246, 0.85), rgba(29, 78, 216, 0.78))';
+          btn.style.setProperty('--pulse-color', 'rgba(59, 130, 246, 0.75)');
+        }
+        labelEl.textContent = labels[which];
+        setStatusBar(LIGHT_THEME_BAR, false); // false = dark icons, readable on a light bar
+        try { localStorage.setItem(STORAGE_ACTIVE, which); } catch (e) {}
+      }
+
+      function switchPortal() {
+        applyActive(active === 'teacher' ? 'student' : 'teacher');
+      }
+
+      applyActive(active);
+
+      // ── Vertical-only drag for the floating button, with tap-vs-drag
+      // detection (a small movement threshold) so a quick tap still
+      // triggers switchPortal() instead of being swallowed as a drag. ──
+      var dragging = false;
+      var moved = false;
+      var startY = 0;
+      var startTop = 0;
+      var TAP_THRESHOLD = 8; // px
+
+      function clampTop(top) {
+        var min = 8;
+        var max = window.innerHeight - btn.offsetHeight - 8;
+        return Math.max(min, Math.min(max, top));
+      }
+
+      function currentTop() {
+        var rect = btn.getBoundingClientRect();
+        return rect.top;
+      }
+
+      function setTop(top) {
+        btn.style.top = clampTop(top) + 'px';
+        btn.style.marginTop = '0';
+      }
+
+      // Restore saved vertical position (or default to a middle-right start).
+      var savedY = parseFloat(localStorage.getItem(STORAGE_BTN_Y));
+      if (!isNaN(savedY)) {
+        setTop(savedY);
+      } else {
+        setTop(window.innerHeight / 2 - btn.offsetHeight / 2);
+      }
+
+      btn.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+
+      btn.addEventListener('pointerdown', function (e) {
+        e.preventDefault(); // suppresses the native long-press callout that was
+        // intercepting the hold before the drag ever got a chance to start
+        dragging = true;
+        moved = false;
+        startY = e.clientY;
+        startTop = currentTop();
+        btn.classList.add('dragging');
+        btn.setPointerCapture(e.pointerId);
+      });
+
+      btn.addEventListener('pointermove', function (e) {
+        if (!dragging) return;
+        var dy = e.clientY - startY;
+        if (Math.abs(dy) > TAP_THRESHOLD) moved = true;
+        setTop(startTop + dy);
+      });
+
+      function endDrag(e) {
+        if (!dragging) return;
+        dragging = false;
+        btn.classList.remove('dragging');
+        try { localStorage.setItem(STORAGE_BTN_Y, String(currentTop())); } catch (err) {}
+        if (!moved) {
+          switchPortal();
+        }
+      }
+
+      btn.addEventListener('pointerup', endDrag);
+      btn.addEventListener('pointercancel', endDrag);
+
+      window.addEventListener('resize', function () {
+        setTop(currentTop());
+      });
+    })();
+  </script>
+</body>
+</html>

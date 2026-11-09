@@ -4349,7 +4349,7 @@
                     <td class="py-1.5 px-3 text-red-500 font-black">${s.absent}</td>
                     <td class="py-1.5 px-3 text-sky-500 font-black">${s.leave || 0}</td>
                     <td class="py-1.5 px-3 font-black ${s.percentage < 75 ? 'text-red-500' : 'text-slate-700'}">${s.percentage}%</td>
-                    <td class="py-1.5 px-3">${passEvents.length ? `<button onclick='_mcaOpenStudentPassEvents(${JSON.stringify(s.student_id)})' class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-black text-[10px] hover:bg-amber-200 transition-all">${passEvents.length}</button>` : '<span class="text-slate-300">—</span>'}</td>
+                    <td class="py-1.5 px-3">${passEvents.length ? `<button onclick='_mcaOpenStudentPassEvents(${JSON.stringify(s.student_id)})' class="px-2.5 py-1 rounded-full text-white font-black text-[10px] shadow-sm hover:shadow-md hover:scale-105 transition-all" style="background:linear-gradient(135deg,#f59e0b,#ef4444)">${passEvents.length}</button>` : '<span class="text-slate-300">—</span>'}</td>
                     ${feeAmount ? `<td class="py-1.5 px-3 font-black text-amber-600">৳${s.absent_fee}</td>` : ''}
                   </tr>`;
                   }).join('') || `<tr><td colspan="${feeAmount ? 8 : 7}" class="p-3 text-slate-400 font-bold text-xs">No students found for this class</td></tr>`}
@@ -4388,11 +4388,17 @@
 
   function _mcaPassEventRowHtml(label, p) {
     return `
-      <div class="flex items-center gap-3 p-3 mb-2 rounded-2xl bg-amber-50">
-        <div class="w-9 h-9 rounded-full flex items-center justify-center shrink-0 bg-amber-100 text-amber-600"><i data-lucide="arrow-left-right" class="h-4 w-4"></i></div>
+      <div class="flex items-center gap-3 p-3 mb-2 rounded-2xl shadow-sm" style="background:linear-gradient(135deg,#fff7ed,#fef2f2)">
+        <div class="w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-white shadow-sm" style="background:linear-gradient(135deg,#f59e0b,#ef4444)"><i data-lucide="arrow-left-right" class="h-4.5 w-4.5"></i></div>
         <div class="flex-1 min-w-0">
-          <p class="text-xs font-black text-slate-800 truncate">${_escHtml(label)}</p>
-          <p class="text-[10px] font-bold text-slate-500">Out <span class="text-slate-800">${_escHtml(p.out || '—')}</span> &rarr; In ${p.in ? `<span class="text-slate-800">${_escHtml(p.in)}</span>` : '<span class="text-amber-600">not back yet</span>'}</p>
+          <p class="text-xs font-black text-slate-800 truncate mb-1">${_escHtml(label)}</p>
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-white text-[10px] font-black" style="background:linear-gradient(135deg,#f59e0b,#fb923c)">Out ${_escHtml(p.out || '—')}</span>
+            <i data-lucide="arrow-right" class="h-3 w-3 text-slate-400"></i>
+            ${p.in
+              ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-white text-[10px] font-black" style="background:linear-gradient(135deg,#059669,#22c55e)">In ${_escHtml(p.in)}</span>`
+              : `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-white text-[10px] font-black" style="background:linear-gradient(135deg,#dc2626,#f43f5e)">Not back yet</span>`}
+          </div>
         </div>
       </div>`;
   }
@@ -4467,11 +4473,17 @@
   let _myStudentsData = null; // last fetched {classes, date}
   let _myStudentsFilter = 'all'; // 'all' | 'present' | 'absent' | 'others'
   let _myStudentsSearch = '';
+  // Edits made since the last load/save, staged locally — nothing hits the
+  // server until Save Changes is tapped. studentId -> status, or '__revert__'
+  // for "revert to device status". Keyed by student_id so repeated edits to
+  // the same student before saving just overwrite their one pending entry.
+  let _myStudentsPendingEdits = {};
 
   function openMyStudentsAttendance() {
     document.getElementById('myStudentsOverlay')?.remove();
     _myStudentsFilter = 'all';
     _myStudentsSearch = '';
+    _myStudentsPendingEdits = {};
     const overlay = document.createElement('div');
     overlay.id = 'myStudentsOverlay';
     // Bottom sheet on mobile (items-end), centered modal from sm: up —
@@ -4495,6 +4507,7 @@
         <div id="myStudentsBody" class="p-4 overflow-y-auto flex-1 bg-slate-50/60">
           <div class="text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>
         </div>
+        <div id="myStudentsSaveBar" class="hidden shrink-0"></div>
       </div>`;
     document.body.appendChild(overlay);
     lucide.createIcons();
@@ -4508,12 +4521,58 @@
     google.script.run
       .withSuccessHandler(res => {
         _myStudentsData = res;
+        _myStudentsPendingEdits = {};
         _renderMyStudentsAttendance();
       })
       .withFailureHandler(() => {
         if (body) body.innerHTML = `<div class="text-center py-8 text-red-400 text-xs font-black uppercase tracking-widest">Failed to load</div>`;
       })
       .getMyClassTodayAttendance(myId);
+  }
+
+  // Unsaved-edit count banner, pinned under the list — only visible while
+  // _myStudentsPendingEdits has entries. Nothing here ever calls the server
+  // itself; Save/Discard are the only two ways a pending edit resolves.
+  function _renderMyStudentsSaveBar() {
+    const bar = document.getElementById('myStudentsSaveBar');
+    if (!bar) return;
+    const n = Object.keys(_myStudentsPendingEdits).length;
+    if (!n) { bar.className = 'hidden shrink-0'; bar.innerHTML = ''; return; }
+    bar.className = 'shrink-0 px-4 py-3 flex items-center gap-2 border-t border-slate-100';
+    bar.style.background = 'linear-gradient(135deg,#eef2ff,#fff7ed)';
+    bar.innerHTML = `
+      <span class="flex-1 text-[11px] font-black text-slate-600 uppercase tracking-widest">${n} unsaved change${n === 1 ? '' : 's'}</span>
+      <button onclick="_discardMyStudentsChanges()" class="px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-500 border border-slate-200 bg-white hover:bg-slate-50 transition-all">Discard</button>
+      <button onclick="_saveMyStudentsChanges()" id="myStudentsSaveBtn" class="px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest text-white shadow-sm hover:shadow-md transition-all flex items-center gap-1.5" style="background:linear-gradient(135deg,#4f46e5,#0ea5e9)"><i data-lucide="save" class="h-3.5 w-3.5"></i>Save Changes</button>`;
+    lucide.createIcons();
+  }
+
+  function _saveMyStudentsChanges() {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const entries = Object.entries(_myStudentsPendingEdits).map(([studentId, status]) => ({ studentId, status }));
+    if (!myId || !entries.length) return;
+    const btn = document.getElementById('myStudentsSaveBtn');
+    if (btn) btn.disabled = true;
+    google.script.run
+      .withSuccessHandler(res => {
+        if (!res || !res.success) {
+          showToast((res && res.message) || 'Failed to save', 'error');
+          if (btn) btn.disabled = false;
+          return;
+        }
+        showToast(`Saved ${entries.length} change${entries.length === 1 ? '' : 's'}`);
+        loadMyStudentsAttendance();
+      })
+      .withFailureHandler(() => {
+        showToast('Network error — changes not saved', 'error');
+        if (btn) btn.disabled = false;
+      })
+      .setMyClassBulkAttendance(myId, entries);
+  }
+
+  function _discardMyStudentsChanges() {
+    _myStudentsPendingEdits = {};
+    loadMyStudentsAttendance();
   }
 
   function _setMyStudentsFilter(key) {
@@ -4573,7 +4632,7 @@
           <button onclick="_setMyStudentsFilter('${f.key}')" class="shrink-0 flex items-center gap-1.5 pl-2.5 pr-3 py-1.5 rounded-full border text-[11px] font-black uppercase tracking-wide transition-all ${_myStudentsFilter === f.key ? 'border-transparent text-white shadow-sm' : 'border-slate-200 text-slate-500 bg-white hover:border-slate-300'}" style="${_myStudentsFilter === f.key ? `background:${f.dot}` : ''}">
             <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:${_myStudentsFilter === f.key ? 'rgba(255,255,255,0.85)' : f.dot}"></span>${f.label}<span class="opacity-70">${f.count}</span>
           </button>`).join('')}
-        ${outCount ? `<span class="shrink-0 flex items-center gap-1.5 pl-2.5 pr-3 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-[11px] font-black uppercase tracking-wide"><i data-lucide="log-out" class="h-3 w-3"></i>${outCount} Out</span>` : ''}
+        ${outCount ? `<span class="shrink-0 flex items-center gap-1.5 pl-2.5 pr-3 py-1.5 rounded-full text-white text-[11px] font-black uppercase tracking-wide shadow-sm" style="background:linear-gradient(135deg,#f59e0b,#ef4444)"><i data-lucide="log-out" class="h-3 w-3"></i>${outCount} Out</span>` : ''}
       </div>
       <div class="flex items-center gap-2">
         <div class="relative flex-1">
@@ -4603,15 +4662,16 @@
             const isOther = s.status !== 'present' && s.status !== 'absent';
             const tel = String(s.phone_number || s.father_phone || s.mother_phone || '').replace(/[\s\-()]/g, '');
             const dotCls = isPresent ? 'bg-emerald-500' : (s.status === 'absent' ? 'bg-red-500' : 'bg-amber-500');
+            const pending = !!_myStudentsPendingEdits[s.student_id];
             return `
-            <div class="flex items-center gap-2.5 sm:gap-3 bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-md hover:border-slate-200 transition-all px-3 py-2.5">
+            <div class="flex items-center gap-2.5 sm:gap-3 bg-white rounded-2xl border ${pending ? 'border-indigo-300 ring-2 ring-indigo-100' : 'border-slate-100'} shadow-sm hover:shadow-md hover:border-slate-200 transition-all px-3 py-2.5">
               ${_avatar(s.student_name, s.photo, 'w-10 h-10 sm:w-11 sm:h-11 shrink-0', dotCls)}
               <div class="flex-1 min-w-0">
                 <p class="text-xs font-black text-slate-900 truncate">${_escHtml(s.student_name || '')}</p>
                 <p class="text-[10px] font-bold text-slate-400 truncate">Roll ${_escHtml(s.roll || '—')} · ${_escHtml(s.student_id)}${tel ? ` · <a href="tel:${_escHtml(tel)}" onclick="event.stopPropagation()" class="text-blue-600">${_escHtml(tel)}</a>` : ''}</p>
                 ${(isOther || s.is_out) ? `<div class="flex items-center gap-1 mt-1 flex-wrap">
                   ${isOther ? `<span class="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wide px-1.5 py-0.5 rounded-full" style="background:${meta.tint};color:${meta.solid};border:1px solid ${meta.border}"><i data-lucide="${meta.icon}" class="h-2.5 w-2.5"></i>${meta.label}</span>` : ''}
-                  ${s.is_out ? `<span title="Tapped out on a mid-day pass, not back yet" class="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200"><i data-lucide="log-out" class="h-2.5 w-2.5"></i>Out${s.out_since ? ` ${_escHtml(s.out_since)}` : ''}</span>` : ''}
+                  ${s.is_out ? `<span title="Tapped out, not back in yet" class="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wide px-2 py-1 rounded-full text-white shadow-sm" style="background:linear-gradient(135deg,#f59e0b,#ef4444)"><i data-lucide="log-out" class="h-2.5 w-2.5"></i>Out${s.out_since ? ` ${_escHtml(s.out_since)}` : ''}</span>` : ''}
                 </div>` : ''}
               </div>
               <button onclick="_toggleMyStudentPresence('${_escHtml(s.student_id)}')" title="Toggle Present/Absent" class="shrink-0 relative w-11 h-6 sm:w-12 sm:h-7 rounded-full transition-colors" style="background:${isPresent ? MY_STUDENTS_STATUS_META.present.bg : MY_STUDENTS_STATUS_META.absent.bg}">
@@ -4626,6 +4686,7 @@
       </div>`;
     }).join('') || `<div class="text-center py-10 text-slate-400 text-xs font-black uppercase tracking-widest">No students match</div>`;
     lucide.createIcons();
+    _renderMyStudentsSaveBar();
   }
 
   function _toggleMyStudentPresence(studentId) {
@@ -4637,22 +4698,12 @@
 
   function _markAllMyStudentsPresent(checked) {
     if (!checked) { _renderMyStudentsAttendance(); return; } // unchecking is just visual, no bulk "unmark" action
-    const myId = window.APP_USER && window.APP_USER.user_id;
-    if (!myId) return;
-    const box = document.getElementById('myStudentsSelectAll');
-    if (box) box.disabled = true;
-    google.script.run
-      .withSuccessHandler(res => {
-        if (box) box.disabled = false;
-        if (!res || !res.success) { showToast((res && res.message) || 'Failed', 'error'); return; }
-        loadMyStudentsAttendance();
-        showToast('Everyone marked present');
-      })
-      .withFailureHandler(() => {
-        if (box) box.disabled = false;
-        showToast('Network error', 'error');
-      })
-      .setMyClassAllPresent(myId);
+    const all = ((_myStudentsData && _myStudentsData.classes) || []).flatMap(c => c.students);
+    all.forEach(s => {
+      if (s.status !== 'present') _myStudentsPendingEdits[s.student_id] = 'present';
+      s.status = 'present'; s.is_override = true;
+    });
+    _renderMyStudentsAttendance();
   }
 
   function _openMyStudentStatusPicker(studentId) {
@@ -4687,58 +4738,24 @@
     lucide.createIcons();
   }
 
-  // Optimistic: the row updates the instant you tap, before the server has
-  // even responded — a save/revert round trip is a few hundred ms on a
-  // real network, which reads as "laggy" for something meant to feel like
-  // a light switch. Snapshots the prior {status,is_override} so a failed
-  // request can put the row back exactly as it was, rather than leaving it
-  // showing a status that was never actually saved.
+  // Staged, not saved: the row updates right away so toggling still feels
+  // instant, but nothing reaches the server until Save Changes is tapped —
+  // this just records/overwrites this student's one pending edit.
   function _setMyStudentStatus(studentId, status) {
-    const myId = window.APP_USER && window.APP_USER.user_id;
     document.getElementById('myStudentStatusOverlay')?.remove();
-    const prev = _snapshotMyStudentStatus(studentId);
     _applyMyStudentStatusLocally(studentId, status, true);
-    google.script.run
-      .withSuccessHandler(res => {
-        if (!res || !res.success) {
-          if (prev) _applyMyStudentStatusLocally(studentId, prev.status, prev.is_override);
-          showToast((res && res.message) || 'Failed to update', 'error');
-        }
-      })
-      .withFailureHandler(() => {
-        if (prev) _applyMyStudentStatusLocally(studentId, prev.status, prev.is_override);
-        showToast('Network error', 'error');
-      })
-      .setMyClassStudentAttendance(myId, studentId, status);
+    _myStudentsPendingEdits[studentId] = status;
+    _renderMyStudentsSaveBar();
   }
 
   function _revertMyStudentStatus(studentId) {
-    const myId = window.APP_USER && window.APP_USER.user_id;
     document.getElementById('myStudentStatusOverlay')?.remove();
-    const prev = _snapshotMyStudentStatus(studentId);
-    // Best local guess while the request is in flight — corrected to the
-    // server's own answer (device-derived present/absent) the moment it replies.
+    // Optimistic guess while this is only staged — corrected to the real
+    // device-derived status once Save Changes actually commits it and the
+    // view reloads fresh data from the server.
     _applyMyStudentStatusLocally(studentId, 'absent', false);
-    google.script.run
-      .withSuccessHandler(res => {
-        if (!res || !res.success) {
-          if (prev) _applyMyStudentStatusLocally(studentId, prev.status, prev.is_override);
-          showToast((res && res.message) || 'Failed to revert', 'error');
-          return;
-        }
-        _applyMyStudentStatusLocally(studentId, res.status, false);
-      })
-      .withFailureHandler(() => {
-        if (prev) _applyMyStudentStatusLocally(studentId, prev.status, prev.is_override);
-        showToast('Network error', 'error');
-      })
-      .revertMyClassStudentAttendance(myId, studentId);
-  }
-
-  function _snapshotMyStudentStatus(studentId) {
-    const all = ((_myStudentsData && _myStudentsData.classes) || []).flatMap(c => c.students);
-    const s = all.find(x => x.student_id === studentId);
-    return s ? { status: s.status, is_override: s.is_override } : null;
+    _myStudentsPendingEdits[studentId] = '__revert__';
+    _renderMyStudentsSaveBar();
   }
 
   function _applyMyStudentStatusLocally(studentId, status, isOverride) {
@@ -10074,8 +10091,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         const attendanceRows = res.attendance.map(a => `
           <tr class="border-t border-slate-50">
             <td class="px-3 py-1.5 font-bold text-slate-500">${a.date}</td>
-            <td class="px-3 py-1.5 font-bold text-slate-700">${a.entry_time || '—'}</td>
-            <td class="px-3 py-1.5 font-bold text-slate-700">${a.exit_time || '—'}</td>
+            <td class="px-3 py-1.5">${a.entry_time ? `<span class="inline-flex px-2 py-0.5 rounded-full text-white text-[10px] font-black" style="background:linear-gradient(135deg,#059669,#22c55e)">${a.entry_time}</span>` : '<span class="text-slate-300 font-bold">—</span>'}</td>
+            <td class="px-3 py-1.5">${a.exit_time ? `<span class="inline-flex px-2 py-0.5 rounded-full text-white text-[10px] font-black" style="background:linear-gradient(135deg,#f59e0b,#ef4444)">${a.exit_time}</span>` : '<span class="text-slate-300 font-bold">—</span>'}</td>
           </tr>`).join('');
 
         const orderRows = res.canteen.orders.map(o => {
@@ -10586,12 +10603,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         pillList(ctNames, 'bg-amber-100 text-amber-600', 'bg-white text-amber-600', selected, 3),
       ].filter(Boolean).join(' ');
       return `<div class="sa-staff-row py-1.5 px-2.5 rounded-lg mb-1 cursor-pointer ${selected ? 'bg-blue-600 text-white' : 'hover:bg-slate-50'}" data-uid="${u.user_id}" data-has-access="${hasAccess ? '1' : '0'}" data-search="${search.replace(/"/g, '&quot;')}" onclick="selectStaffAccessUser(this.dataset.uid)">
-        <div class="flex items-center justify-between gap-2">
-          <div class="min-w-0">
-            <p class="font-black text-xs truncate">${_escHtml(u.full_name || u.user_id)}</p>
-            ${meta ? `<p class="text-[10px] font-bold truncate ${selected ? 'text-blue-100' : 'text-slate-400'}">${_escHtml(meta)}</p>` : ''}
+        <div class="flex items-center gap-2.5">
+          ${_avatar(u.full_name || u.user_id, u.photo_url, 'w-9 h-9')}
+          <div class="flex-1 min-w-0 flex items-center justify-between gap-2">
+            <div class="min-w-0">
+              <p class="font-black text-xs truncate">${_escHtml(u.full_name || u.user_id)}</p>
+              ${meta ? `<p class="text-[10px] font-bold truncate ${selected ? 'text-blue-100' : 'text-slate-400'}">${_escHtml(meta)}</p>` : ''}
+            </div>
+            <div class="flex gap-1 shrink-0 flex-wrap justify-end" style="max-width:160px">${badges}</div>
           </div>
-          <div class="flex gap-1 shrink-0 flex-wrap justify-end" style="max-width:160px">${badges}</div>
         </div>
       </div>`;
     }).join('');
@@ -11224,10 +11244,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       updateStuSelectedCount();
       return;
     }
-    headEl.innerHTML = '<th style="width:28px"></th>' + _stuSearchHeaders.map(h => `<th class="py-2 px-2 font-black text-[10px] text-slate-500 uppercase">${h.replace(/_/g,' ')}</th>`).join('') + '<th style="width:36px"></th>';
+    // "photo" rides along in the full record (same select as the profile
+    // editor) but shown raw it's just a storage URL string, not a column
+    // anyone wants to read - pulled out of the dynamic header list and
+    // rendered as a proper left-side avatar instead.
+    const textHeaders = _stuSearchHeaders.filter(h => h !== 'photo');
+    headEl.innerHTML = '<th style="width:28px"></th><th style="width:34px"></th>' + textHeaders.map(h => `<th class="py-2 px-2 font-black text-[10px] text-slate-500 uppercase">${h.replace(/_/g,' ')}</th>`).join('') + '<th style="width:36px"></th>';
     bodyEl.innerHTML = _stuSearchRows.map(r => `<tr class="border-b border-slate-50">
       <td class="px-2"><input type="checkbox" class="stu-row-check" value="${String(r.student_id).replace(/"/g,'&quot;')}" onchange="updateStuSelectedCount()"></td>
-      ${_stuSearchHeaders.map(h => `<td class="py-1.5 px-2 text-slate-600">${r[h] ?? ''}</td>`).join('')}
+      <td class="px-2">${_avatar(r.student_name || r.student_id, r.photo, 'w-7 h-7')}</td>
+      ${textHeaders.map(h => `<td class="py-1.5 px-2 text-slate-600">${r[h] ?? ''}</td>`).join('')}
       <td class="px-2"><button onclick="openStudentFormModal('${String(r.student_id).replace(/'/g,"\\'")}')" title="Edit Student" class="p-1.5 hover:bg-indigo-50 text-indigo-500 rounded-lg transition-all"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button></td>
     </tr>`).join('');
     updateStuSelectedCount();
@@ -12623,20 +12649,30 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
 
       <div id="att-daily" style="display:none">
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
-          <input type="text" id="attClass" placeholder="Class" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
-          <input type="text" id="attSection" placeholder="Section (optional)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
-          <input type="date" id="attDate" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs">
-          <div class="flex gap-2">
-            <button onclick="loadTodaysAttendance()" class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all"><i data-lucide="calendar-check" class="h-3 w-3"></i>Today</button>
-            <button onclick="loadAttendanceReport()" class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Load</button>
+        <div class="flex flex-wrap items-end gap-2 mb-3">
+          <div>
+            <label class="text-[10px] font-black text-slate-400 uppercase">Class</label>
+            <select id="attClass" onchange="_attOnClassChange()" class="block px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs mt-1 min-w-[150px]"><option value="">Pick a class…</option></select>
           </div>
+          <div>
+            <label class="text-[10px] font-black text-slate-400 uppercase">Section</label>
+            <select id="attSection" class="block px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs mt-1 min-w-[130px]"><option value="">All sections</option></select>
+          </div>
+          <div>
+            <label class="text-[10px] font-black text-slate-400 uppercase">Date</label>
+            <input type="date" id="attDate" class="block px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs mt-1">
+          </div>
+          <button onclick="loadTodaysAttendance()" class="px-3 py-2 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-1.5"><i data-lucide="calendar-check" class="h-3 w-3"></i>Today</button>
+          <button onclick="loadAttendanceReport()" class="px-4 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Load</button>
         </div>
-        <div id="attSummary" class="mb-2 font-black text-slate-700 text-xs"></div>
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <div id="attSummary" class="font-black text-slate-700 text-xs"></div>
+          <div id="attSaveBar" class="hidden"></div>
+        </div>
         <div class="overflow-auto border border-slate-200 rounded-xl">
           <table class="w-full text-left border-collapse text-xs">
-            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Roll</th><th class="py-2 px-3">Name</th><th class="py-2 px-3">Status</th><th class="py-2 px-3">Source</th><th class="py-2 px-3">Override</th></tr></thead>
-            <tbody id="attendanceReportBody"><tr><td colspan="5" class="p-3 text-slate-400 font-bold">Pick a class and date, then Load.</td></tr></tbody>
+            <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Roll</th><th class="py-2 px-3">Name</th><th class="py-2 px-3">Status</th><th class="py-2 px-3">In</th><th class="py-2 px-3">Out</th><th class="py-2 px-3">Source</th><th class="py-2 px-3">Set</th></tr></thead>
+            <tbody id="attendanceReportBody"><tr><td colspan="7" class="p-3 text-slate-400 font-bold">Pick a class and date, then Load.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -12683,11 +12719,35 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     lucide.createIcons();
     const todayDateEl = document.getElementById('todayOverviewDate');
     if (todayDateEl) todayDateEl.value = _todayLocalIso();
+    const attDateEl = document.getElementById('attDate');
+    if (attDateEl) attDateEl.value = _todayLocalIso();
     loadTodayOverview();
+    _attLoadClassOptions();
     _adminFetch('get_absent_fee_setting', {}).then(res => {
       const el = document.getElementById('absentFeeAmount');
       if (el && res && res.result === 'success') el.value = res.amount || '';
     });
+  }
+
+  // Class/section dropdowns for Daily Report — "smart" in the sense that an
+  // admin picks from the school's actual classes instead of typing a class
+  // name freehand (prone to typos silently returning an empty roster).
+  let _attClassSections = null; // [{class,section,group,count}] from get_class_sections
+  let _attPendingEdits = {};    // student_id -> status, staged until Save Changes
+  function _attLoadClassOptions() {
+    _adminFetch('get_class_sections', {}).then(res => {
+      _attClassSections = Array.isArray(res) ? res : [];
+      const classes = Array.from(new Set(_attClassSections.map(r => r.class))).sort();
+      const sel = document.getElementById('attClass');
+      if (sel) sel.innerHTML = '<option value="">Pick a class…</option>' + classes.map(c => `<option value="${_escHtml(c)}">${_escHtml(c)}</option>`).join('');
+    });
+  }
+  function _attOnClassChange() {
+    const clsEl = document.getElementById('attClass');
+    const secSel = document.getElementById('attSection');
+    if (!clsEl || !secSel) return;
+    const sections = Array.from(new Set((_attClassSections || []).filter(r => r.class === clsEl.value).map(r => r.section))).sort();
+    secSel.innerHTML = '<option value="">All sections</option>' + sections.map(s => `<option value="${_escHtml(s)}">${_escHtml(s)}</option>`).join('');
   }
   function saveAbsentFeeSetting() {
     const amount = Number(document.getElementById('absentFeeAmount').value) || 0;
@@ -12814,38 +12874,91 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function loadTodaysAttendance() {
     const dateEl = document.getElementById('attDate');
     if (dateEl) dateEl.value = _todayLocalIso();
-    if (!document.getElementById('attClass').value.trim()) { showToast('Enter a class first', 'error'); return; }
+    if (!document.getElementById('attClass').value) { showToast('Pick a class first', 'error'); return; }
     loadAttendanceReport();
   }
+  let _attLastRows = []; // last-loaded report rows, re-rendered locally as edits are staged
   function loadAttendanceReport() {
     const clsEl = document.getElementById('attClass');
     if (!clsEl) return;
     const payload = {
-      class: clsEl.value.trim(),
-      section: document.getElementById('attSection').value.trim(),
+      class: clsEl.value,
+      section: document.getElementById('attSection').value,
       date: document.getElementById('attDate').value,
     };
     if (!payload.class || !payload.date) { showToast('Class and date required', 'error'); return; }
     _adminFetch('get_attendance_report', payload).then(res => {
       if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed', 'error'); return; }
-      document.getElementById('attSummary').innerHTML = `<span class="text-emerald-600">${res.present_count} present</span> · <span class="text-red-500">${res.absent_count} absent</span> of ${res.rows.length}`;
-      document.getElementById('attendanceReportBody').innerHTML = res.rows.map(r => `<tr class="border-b border-slate-50">
-        <td class="py-1.5 px-3">${r.roll || ''}</td><td class="py-1.5 px-3">${r.student_name || ''}</td>
-        <td class="py-1.5 px-3"><span class="px-2 py-0.5 rounded-full text-[10px] font-black ${r.status === 'present' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}">${r.status}</span></td>
-        <td class="py-1.5 px-3 text-slate-400">${r.source}</td>
-        <td class="py-1.5 px-3">
-          <button onclick="markManualAttendance('${r.student_id}','present')" class="px-2 py-0.5 border border-emerald-200 text-emerald-600 rounded text-[10px] font-black uppercase hover:bg-emerald-50">Present</button>
-          <button onclick="markManualAttendance('${r.student_id}','absent')" class="px-2 py-0.5 border border-red-200 text-red-500 rounded text-[10px] font-black uppercase hover:bg-red-50">Absent</button>
-        </td>
-      </tr>`).join('') || '<tr><td colspan="5" class="p-3 text-slate-400 font-bold text-xs">No students found.</td></tr>';
+      _attLastRows = res.rows;
+      _attPendingEdits = {};
+      _attRenderRows();
     });
   }
-  function markManualAttendance(student_id, status) {
+  function _attTimeBadge(time, kind) {
+    if (!time) return '<span class="text-slate-300 font-bold">—</span>';
+    const bg = kind === 'in' ? 'linear-gradient(135deg,#059669,#22c55e)' : 'linear-gradient(135deg,#f59e0b,#ef4444)';
+    return `<span class="inline-flex px-2 py-0.5 rounded-full text-white text-[10px] font-black" style="background:${bg}">${_escHtml(time)}</span>`;
+  }
+  function _attRenderRows() {
+    const present = _attLastRows.filter(r => r.status === 'present').length;
+    document.getElementById('attSummary').innerHTML = `<span class="text-emerald-600">${present} present</span> · <span class="text-red-500">${_attLastRows.length - present} absent</span> of ${_attLastRows.length}`;
+    document.getElementById('attendanceReportBody').innerHTML = _attLastRows.map(r => {
+      const pending = !!_attPendingEdits[r.student_id];
+      const outCell = r.is_out
+        ? `<span title="Tapped out, not back in yet" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-white text-[10px] font-black" style="background:linear-gradient(135deg,#f59e0b,#ef4444)"><i data-lucide="log-out" class="h-2.5 w-2.5"></i>${_escHtml(r.out_since || '')}</span>`
+        : _attTimeBadge(r.exit_time, 'out');
+      return `<tr class="border-b border-slate-50 ${pending ? 'bg-indigo-50/60' : ''}">
+        <td class="py-1.5 px-3">${r.roll || ''}</td>
+        <td class="py-1.5 px-3 font-bold text-slate-700"><div class="flex items-center gap-2">${_avatar(r.student_name, r.photo, 'w-7 h-7')}<span>${_escHtml(r.student_name || '')}</span></div></td>
+        <td class="py-1.5 px-3"><span class="px-2 py-0.5 rounded-full text-[10px] font-black ${r.status === 'present' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}">${r.status}</span></td>
+        <td class="py-1.5 px-3">${_attTimeBadge(r.entry_time, 'in')}</td>
+        <td class="py-1.5 px-3">${outCell}</td>
+        <td class="py-1.5 px-3 text-slate-400">${r.source}${pending ? ' <span class="text-indigo-500 font-black">· unsaved</span>' : ''}</td>
+        <td class="py-1.5 px-3 whitespace-nowrap">
+          <button onclick="_attSetStatus('${r.student_id}','present')" class="px-2 py-0.5 border border-emerald-200 text-emerald-600 rounded text-[10px] font-black uppercase hover:bg-emerald-50">Present</button>
+          <button onclick="_attSetStatus('${r.student_id}','absent')" class="px-2 py-0.5 border border-red-200 text-red-500 rounded text-[10px] font-black uppercase hover:bg-red-50">Absent</button>
+        </td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="7" class="p-3 text-slate-400 font-bold text-xs">No students found.</td></tr>';
+    lucide.createIcons();
+    _attRenderSaveBar();
+  }
+  // Stages the change locally — nothing reaches the server until Save
+  // Changes is tapped, same local-draft/batch-commit pattern as My Students.
+  function _attSetStatus(student_id, status) {
+    const row = _attLastRows.find(r => r.student_id === student_id);
+    if (!row) return;
+    row.status = status;
+    _attPendingEdits[student_id] = status;
+    _attRenderRows();
+  }
+  function _attRenderSaveBar() {
+    const bar = document.getElementById('attSaveBar');
+    if (!bar) return;
+    const n = Object.keys(_attPendingEdits).length;
+    if (!n) { bar.className = 'hidden'; bar.innerHTML = ''; return; }
+    bar.className = 'flex items-center gap-2';
+    bar.innerHTML = `
+      <span class="text-[11px] font-black text-indigo-600 uppercase tracking-widest">${n} unsaved change${n === 1 ? '' : 's'}</span>
+      <button onclick="_attDiscardChanges()" class="px-3 py-1.5 rounded-lg font-black text-[10px] uppercase tracking-widest text-slate-500 border border-slate-200 bg-white hover:bg-slate-50 transition-all">Discard</button>
+      <button onclick="_attSaveChanges()" id="attSaveBtn" class="px-4 py-1.5 rounded-lg font-black text-[10px] uppercase tracking-widest text-white shadow-sm hover:shadow-md transition-all flex items-center gap-1.5" style="background:linear-gradient(135deg,#4f46e5,#0ea5e9)"><i data-lucide="save" class="h-3.5 w-3.5"></i>Save Changes</button>`;
+    lucide.createIcons();
+  }
+  function _attSaveChanges() {
     const date = document.getElementById('attDate').value;
-    _adminFetch('save_manual_attendance', { student_id, date, status, marked_by: window.APP_USER && window.APP_USER.user_id }).then(res => {
-      if (res && res.result === 'success') { showToast('Updated'); loadAttendanceReport(); }
-      else showToast((res && res.message) || 'Failed', 'error');
-    });
+    const entries = Object.entries(_attPendingEdits).map(([student_id, status]) => ({ student_id, status }));
+    if (!date || !entries.length) return;
+    const btn = document.getElementById('attSaveBtn');
+    if (btn) btn.disabled = true;
+    _adminFetch('save_bulk_manual_attendance', { date, marked_by: window.APP_USER && window.APP_USER.user_id, entries }).then(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed to save', 'error'); if (btn) btn.disabled = false; return; }
+      showToast(`Saved ${entries.length} change${entries.length === 1 ? '' : 's'}`);
+      loadAttendanceReport();
+    }).catch(() => { showToast('Network error — changes not saved', 'error'); if (btn) btn.disabled = false; });
+  }
+  function _attDiscardChanges() {
+    _attPendingEdits = {};
+    loadAttendanceReport();
   }
 
   function loadAttendanceDevices() {
@@ -15176,7 +15289,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _adminFetch('get_exam_marks_for_entry', { exam_id, subject_id, component_type_id, class: cls, section }).then(res => {
       const roster = (res && res.result === 'success' && res.roster) || [];
       document.getElementById('marksEntryBody').innerHTML = roster.map(s => `<tr class="border-b border-slate-50">
-        <td class="py-1.5 px-3">${s.roll}</td><td class="py-1.5 px-3">${s.student_name}</td>
+        <td class="py-1.5 px-3">${s.roll}</td>
+        <td class="py-1.5 px-3"><div class="flex items-center gap-2">${_avatar(s.student_name, s.photo, 'w-7 h-7')}<span>${s.student_name}</span></div></td>
         <td class="py-1.5 px-3"><input type="number" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exam-marks-entry" class="marks-entry-input px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="max-width:100px" data-student="${s.student_id}" value="${s.marks_obtained}"></td>
       </tr>`).join('') || '<tr><td colspan="3" class="p-3 text-slate-400 font-bold text-xs">No students found.</td></tr>';
       _meShowCurrent();

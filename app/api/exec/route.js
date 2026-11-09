@@ -3021,6 +3021,38 @@ const handlers = {
     return { success: true, status };
   },
 
+  // Batch counterpart to setMyClassStudentAttendance/revertMyClassStudentAttendance
+  // — the "Save Changes" button in My Students commits every pending edit in
+  // one request instead of one round trip per toggle. Each entry is checked
+  // against the SAME per-student authorization as the single-student version
+  // (never trusts a class/roster the client claims); an unauthorized entry is
+  // skipped rather than failing the whole batch, so one bad id can't block
+  // every other legitimate edit in the same save.
+  async setMyClassBulkAttendance([userId, entries]) {
+    if (!userId) return { success: false, message: 'Not logged in.' };
+    if (!Array.isArray(entries) || !entries.length) return { success: false, message: 'Nothing to save.' };
+    const today = _todayBdIso();
+    const results = await Promise.all(entries.map(async (e) => {
+      const studentId = e && e.studentId;
+      const status = e && e.status;
+      if (!studentId) return { studentId, ok: false };
+      if (!(await _isCallerStudentAuthorized(userId, studentId))) return { studentId, ok: false };
+      if (status === '__revert__') {
+        const r = await _sbStudentWrite(`manual_attendance_overrides?student_id=eq.${encodeURIComponent(studentId)}&date=eq.${today}`, 'DELETE');
+        if (r && r.error) return { studentId, ok: false };
+        const presentRows = await _sbStudent(`attendance_records?date=eq.${today}&student_id=eq.${encodeURIComponent(studentId)}&select=student_id`);
+        return { studentId, ok: true, status: (Array.isArray(presentRows) && presentRows.length) ? 'present' : 'absent' };
+      }
+      if (!MY_CLASS_ATTENDANCE_STATUSES.has(status)) return { studentId, ok: false };
+      const r = await _sbStudentUpsert('manual_attendance_overrides?on_conflict=student_id,date', {
+        student_id: studentId, date: today, status, marked_by: userId,
+      });
+      if (r && r.error) return { studentId, ok: false };
+      return { studentId, ok: true, status };
+    }));
+    return { success: true, results };
+  },
+
   async revertMyClassStudentAttendance([userId, studentId]) {
     if (!userId || !studentId) return { success: false, message: 'Missing student.' };
     if (!(await _isCallerStudentAuthorized(userId, studentId))) return { success: false, message: 'Not your student.' };

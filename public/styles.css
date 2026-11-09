@@ -774,12 +774,18 @@ button { user-select: none; }
     max-width: none !important;
   }
 
-  /* Better button layout on mobile */
-  .flex.gap-3 {
+  /* Better button layout on mobile — scoped to actual button-ROW
+     containers only (every direct child is a <button>, e.g. a Save/Cancel
+     pair). Bare ".flex.gap-3" matched 150+ unrelated elements app-wide
+     (list rows with an avatar + text, e.g. the Messages conversation list
+     and My Class Roster cards), stacking them into separate lines on
+     mobile — ":has(> :not(button))" excludes anything with a non-button
+     direct child instead of only ever targeting real button groups. */
+  .flex.gap-3:not(:has(> :not(button))) {
     flex-direction: column;
     gap: 0.75rem !important;
   }
-  .flex.gap-3 > button {
+  .flex.gap-3:not(:has(> :not(button))) > button {
     width: 100%;
     min-height: 44px !important;
   }

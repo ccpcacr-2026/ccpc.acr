@@ -2641,7 +2641,7 @@ export async function POST(req) {
     // is untouched by this), this is purely the directory's display value.
     const hdrs = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher_staff' };
     const [profRes, userRes, shortnames] = await Promise.all([
-      fetch(`${SB_URL}/rest/v1/users_profile?select=teacher_id,full_name,designation,shortname,phone,whatsapp&order=full_name.asc&limit=1000`, { headers: hdrs }),
+      fetch(`${SB_URL}/rest/v1/users_profile?select=teacher_id,full_name,designation,shortname,phone,whatsapp,photo_url&order=full_name.asc&limit=1000`, { headers: hdrs }),
       fetch(`${SB_URL}/rest/v1/app_users?select=user_id,email,role,phone&limit=1000`, { headers: hdrs }),
       _shortnameByName(),
     ]);
@@ -2654,6 +2654,7 @@ export async function POST(req) {
       return {
         user_id: u.user_id,
         full_name: p.full_name || '',
+        photo_url: p.photo_url || '',
         shortname: p.shortname || shortnames[_normalizeName(p.full_name)] || '',
         designation: p.designation || '',
         phone: p.phone || p.whatsapp || u.phone || '',
@@ -3552,23 +3553,35 @@ export async function POST(req) {
   if (action === 'get_attendance_report') {
     const { class: cls, section, date } = payload || {};
     if (!date) return NextResponse.json({ result: 'error', message: 'date required.' });
-    const roster = await sb(`students_data?class=eq.${encodeURIComponent(cls || '')}${section ? `&section=eq.${encodeURIComponent(section)}` : ''}&select=student_id,student_name,roll&order=roll.asc`);
+    const roster = await sb(`students_data?class=eq.${encodeURIComponent(cls || '')}${section ? `&section=eq.${encodeURIComponent(section)}` : ''}&select=student_id,student_name,roll,photo&order=roll.asc`);
     if (roster?.error) return NextResponse.json({ result: 'error', message: roster.error });
     _sortByRollInPlace(roster);
     // School-wide, unfiltered by class — plain sb() silently caps at
     // PostgREST's 3000-row max_rows with no guaranteed order (see
     // get_today_attendance_overview above), so must paginate.
     const [present, overrides] = await Promise.all([
-      sbAllRows(`attendance_records?date=eq.${encodeURIComponent(date)}&select=student_id,entry_time`),
+      sbAllRows(`attendance_records?date=eq.${encodeURIComponent(date)}&select=student_id,entry_time,exit_time,pass`),
       sbAllRows(`manual_attendance_overrides?date=eq.${encodeURIComponent(date)}&select=student_id,status,reason`),
     ]);
-    const presentSet = new Set((Array.isArray(present) ? present : []).map(p => p.student_id));
+    const presentByStudent = {};
+    (Array.isArray(present) ? present : []).forEach(p => { presentByStudent[p.student_id] = p; });
     const overrideMap = {};
     (Array.isArray(overrides) ? overrides : []).forEach(o => { overrideMap[o.student_id] = o; });
     const rows = roster.map(s => {
       const ov = overrideMap[s.student_id];
-      const status = ov ? ov.status : (presentSet.has(s.student_id) ? 'present' : 'absent');
-      return { student_id: s.student_id, student_name: s.student_name, roll: s.roll, status, source: ov ? 'manual' : (presentSet.has(s.student_id) ? 'device' : 'none') };
+      const pr = presentByStudent[s.student_id];
+      const status = ov ? ov.status : (pr ? 'present' : 'absent');
+      const pass = pr && pr.pass;
+      const isOut = !!(pass && pass.status === 'out');
+      const history = pass && Array.isArray(pass.history) ? pass.history : [];
+      return {
+        student_id: s.student_id, student_name: s.student_name, roll: s.roll, photo: s.photo, status,
+        source: ov ? 'manual' : (pr ? 'device' : 'none'),
+        entry_time: (pr && pr.entry_time) || null,
+        exit_time: (pr && pr.exit_time) || null,
+        is_out: isOut,
+        out_since: isOut && history.length ? history[history.length - 1].out : null,
+      };
     });
     const presentCount = rows.filter(r => r.status === 'present').length;
     return NextResponse.json({ result: 'success', date, rows, present_count: presentCount, absent_count: rows.length - presentCount });
@@ -5331,7 +5344,7 @@ export async function POST(req) {
   // history (see exam._exam_marks_history in the schema) ────────────────
   if (action === 'get_exam_marks_for_entry') {
     const { exam_id, subject_id, component_type_id, class: cls, section } = payload;
-    let roster = await sb(`students_data?class=eq.${encodeURIComponent(cls)}${section ? `&section=eq.${encodeURIComponent(section)}` : ''}&select=student_id,student_name,roll,group,session&order=roll.asc`);
+    let roster = await sb(`students_data?class=eq.${encodeURIComponent(cls)}${section ? `&section=eq.${encodeURIComponent(section)}` : ''}&select=student_id,student_name,roll,photo,group,session&order=roll.asc`);
     if (roster?.error) return NextResponse.json({ result: 'error', message: roster.error });
     _sortByRollInPlace(roster);
     const examRow = (await sbExam(`exams?id=eq.${encodeURIComponent(exam_id)}&select=*`))?.[0];
