@@ -64,6 +64,22 @@ export async function POST(req) {
     return NextResponse.json({ error: 'Admission Admin access required.' }, { status: 403 });
   }
 
+  // ── Circulars/sessions — every other action below is scoped to one of
+  // these (passed as payload.circular_id), so the same token/room name can
+  // recur across different circulars without colliding. A circular can
+  // span several uploads over time (old+new data mixed across them). ─────
+  if (action === 'listCirculars') {
+    const rows = await sbAdmission('exam_circulars?select=*&order=created_at.desc');
+    return NextResponse.json({ circulars: Array.isArray(rows) ? rows : [] });
+  }
+  if (action === 'createCircular') {
+    const name = String(payload.name || '').trim();
+    if (!name) return NextResponse.json({ error: 'Name is required.' });
+    const res = await sbAdmission('exam_circulars', 'POST', { name });
+    if (res?.error) return NextResponse.json({ error: res.error.includes('duplicate') ? 'A circular with this name already exists.' : res.error });
+    return NextResponse.json({ id: res?.[0]?.id, name });
+  }
+
   // ── Saved import-mapping templates ───────────────────────────────────────
   if (action === 'listCandidateImportTemplates') {
     const rows = await sbAdmission('candidate_import_templates?order=updated_at.desc&limit=200');
@@ -91,6 +107,8 @@ export async function POST(req) {
   // existing candidate's allocation/photo/scan state survives re-imports
   // untouched, while modeled fields + extra_fields get refreshed.
   if (action === 'uploadMappedCandidates') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
     const rows = Array.isArray(payload.rows) ? payload.rows : [];
     if (!rows.length) return NextResponse.json({ error: 'No rows to import.' });
     if (rows.length > 5000) return NextResponse.json({ error: 'Import 5000 rows or fewer at a time.' });
@@ -100,17 +118,17 @@ export async function POST(req) {
     for (const r of rows) {
       const external_key = String(r.external_key || '').trim();
       if (!external_key) { error_count++; continue; }
-      const row = { external_key, updated_at: new Date().toISOString() };
+      const row = { circular_id: circularId, external_key, updated_at: new Date().toISOString() };
       MODELED_FIELDS.forEach(f => { if (r[f] !== undefined && r[f] !== '') row[f] = r[f]; });
       row.extra_fields = (r.extra_fields && typeof r.extra_fields === 'object') ? r.extra_fields : {};
       clean.push(row);
     }
     if (!clean.length) return NextResponse.json({ error: 'No valid rows (primary key column was empty for every row).' });
 
-    // Existing-key lookup, chunked to keep each GET's URL short.
+    // Existing-key lookup WITHIN this circular, chunked to keep each GET's URL short.
     const existingKeys = new Set();
     for (const part of chunk(clean.map(r => r.external_key), 150)) {
-      const q = `exam_candidates?external_key=in.(${part.map(k => encodeURIComponent(k)).join(',')})&select=external_key`;
+      const q = `exam_candidates?circular_id=eq.${circularId}&external_key=in.(${part.map(k => encodeURIComponent(k)).join(',')})&select=external_key`;
       const res = await sbAdmission(q);
       if (Array.isArray(res)) res.forEach(x => existingKeys.add(x.external_key));
     }
@@ -119,11 +137,12 @@ export async function POST(req) {
 
     let wrote = 0;
     for (const part of chunk(clean, 500)) {
-      const res = await sbAdmission('exam_candidates?on_conflict=external_key', 'POST', part, { Prefer: 'resolution=merge-duplicates,return=minimal' });
+      const res = await sbAdmission('exam_candidates?on_conflict=circular_id,external_key', 'POST', part, { Prefer: 'resolution=merge-duplicates,return=minimal' });
       if (!(res && res.error)) wrote += part.length;
     }
 
     const batch = await sbAdmission('candidate_import_batches', 'POST', {
+      circular_id: circularId,
       template_id: payload.template_id || null,
       file_name: payload.file_name || null,
       mapping_used: payload.mapping_used || {},
@@ -137,7 +156,9 @@ export async function POST(req) {
 
   // ── Candidate list ───────────────────────────────────────────────────────
   if (action === 'listCandidates') {
-    let q = 'exam_candidates?select=*&order=created_at.desc&limit=5000';
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ candidates: [] });
+    let q = `exam_candidates?select=*&circular_id=eq.${circularId}&order=created_at.desc&limit=5000`;
     if (payload.class)    q += `&class=eq.${encodeURIComponent(payload.class)}`;
     if (payload.category) q += `&category=eq.${encodeURIComponent(payload.category)}`;
     if (payload.room_id)  q += `&room_id=eq.${parseInt(payload.room_id, 10) || 0}`;
@@ -157,11 +178,15 @@ export async function POST(req) {
 
   // ── Rooms ────────────────────────────────────────────────────────────────
   if (action === 'listRooms') {
-    const rows = await sbAdmission('exam_rooms?select=*&order=room_name.asc');
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ rooms: [] });
+    const rows = await sbAdmission(`exam_rooms?select=*&circular_id=eq.${circularId}&order=room_name.asc`);
     return NextResponse.json({ rooms: Array.isArray(rows) ? rows : [] });
   }
   if (action === 'saveRoom') {
     const { id, room_name, capacity, notes } = payload;
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!id && !circularId) return NextResponse.json({ error: 'Pick a circular first.' });
     if (!room_name || !capacity) return NextResponse.json({ error: 'Room name and capacity are required.' });
     const data = { room_name, capacity: parseInt(capacity, 10) || 0, notes: notes || null, updated_at: new Date().toISOString() };
     if (id) {
@@ -169,6 +194,7 @@ export async function POST(req) {
       if (res?.error) return NextResponse.json({ error: res.error });
       return NextResponse.json({ id });
     }
+    data.circular_id = circularId;
     const res = await sbAdmission('exam_rooms', 'POST', data);
     if (res?.error) return NextResponse.json({ error: res.error });
     return NextResponse.json({ id: res?.[0]?.id });
@@ -178,15 +204,18 @@ export async function POST(req) {
     return NextResponse.json({ success: true });
   }
   if (action === 'uploadRoomData') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
     const rows = Array.isArray(payload.rows) ? payload.rows : [];
     if (!rows.length) return NextResponse.json({ error: 'No rows to import.' });
     const clean = rows.map(r => ({
+      circular_id: circularId,
       room_name: String(r.room_name || '').trim(),
       capacity: parseInt(r.capacity, 10) || 0,
       updated_at: new Date().toISOString(),
     })).filter(r => r.room_name && r.capacity > 0);
     if (!clean.length) return NextResponse.json({ error: 'No valid rows (need a room name and a positive capacity).' });
-    const res = await sbAdmission('exam_rooms?on_conflict=room_name', 'POST', clean, { Prefer: 'resolution=merge-duplicates,return=minimal' });
+    const res = await sbAdmission('exam_rooms?on_conflict=circular_id,room_name', 'POST', clean, { Prefer: 'resolution=merge-duplicates,return=minimal' });
     if (res?.error) return NextResponse.json({ error: res.error });
     return NextResponse.json({ success: true, count: clean.length });
   }
@@ -201,16 +230,18 @@ export async function POST(req) {
   // a single group overflows past one room's capacity, in which case the
   // overflow continues filling the next room.
   if (action === 'runSeatAllocation') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
     const criteria = payload.criteria || {};
     const roomIds = Array.isArray(criteria.room_ids) ? criteria.room_ids.map(n => parseInt(n, 10)).filter(Boolean) : [];
     if (!roomIds.length) return NextResponse.json({ error: 'Pick at least one room.' });
 
-    const roomsRes = await sbAdmission(`exam_rooms?id=in.(${roomIds.join(',')})&select=id,room_name,capacity`);
+    const roomsRes = await sbAdmission(`exam_rooms?id=in.(${roomIds.join(',')})&circular_id=eq.${circularId}&select=id,room_name,capacity`);
     if (!Array.isArray(roomsRes) || !roomsRes.length) return NextResponse.json({ error: 'Rooms not found.' });
     const roomsById = {}; roomsRes.forEach(r => { roomsById[r.id] = r; });
     const orderedRooms = roomIds.map(id => roomsById[id]).filter(Boolean);
 
-    let q = 'exam_candidates?select=id,token,candidate_name,class,category,external_key&limit=10000';
+    let q = `exam_candidates?select=id,token,candidate_name,class,category,external_key&circular_id=eq.${circularId}&limit=10000`;
     if (criteria.filters?.class)    q += `&class=eq.${encodeURIComponent(criteria.filters.class)}`;
     if (criteria.filters?.category) q += `&category=eq.${encodeURIComponent(criteria.filters.category)}`;
     const candidates = await sbAdmission(q);
@@ -230,7 +261,7 @@ export async function POST(req) {
     }
 
     const run = await sbAdmission('seat_allocation_runs', 'POST', {
-      criteria_json: criteria, room_ids: roomIds, candidate_count: ordered.length,
+      circular_id: circularId, criteria_json: criteria, room_ids: roomIds, candidate_count: ordered.length,
     });
     if (run?.error) return NextResponse.json({ error: run.error });
     const runId = run?.[0]?.id;
@@ -258,7 +289,9 @@ export async function POST(req) {
   }
   if (action === 'clearAllocation') {
     const runId = parseInt(payload.allocation_run_id, 10);
-    const q = runId ? `exam_candidates?allocation_run_id=eq.${runId}` : `exam_candidates?allocation_run_id=not.is.null`;
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!runId && !circularId) return NextResponse.json({ error: 'Pick a circular first.' });
+    const q = runId ? `exam_candidates?allocation_run_id=eq.${runId}` : `exam_candidates?circular_id=eq.${circularId}&allocation_run_id=not.is.null`;
     await sbAdmission(q, 'PATCH', { room_id: null, seat_no: null, allocation_run_id: null, updated_at: new Date().toISOString() });
     if (runId) await sbAdmission(`seat_allocation_runs?id=eq.${runId}`, 'PATCH', { cleared_at: new Date().toISOString() });
     return NextResponse.json({ success: true });
@@ -266,6 +299,8 @@ export async function POST(req) {
 
   // ── Photo bulk upload by admin-selected match field ──────────────────────
   if (action === 'bulkPhotoUploadByMatchKey') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
     const matchField = String(payload.match_field || 'token');
     if (!['token', 'external_key', 'candidate_name'].includes(matchField)) {
       return NextResponse.json({ error: 'Invalid match field.' });
@@ -277,7 +312,7 @@ export async function POST(req) {
     for (const job of jobs) {
       const value = String(job.match_value || '').trim();
       if (!value || !job.photo_base64) { failed.push(job.match_value || '(blank)'); continue; }
-      const res = await sbAdmission(`exam_candidates?${matchField}=eq.${encodeURIComponent(value)}`, 'PATCH',
+      const res = await sbAdmission(`exam_candidates?circular_id=eq.${circularId}&${matchField}=eq.${encodeURIComponent(value)}`, 'PATCH',
         { photo_url: job.photo_base64, updated_at: new Date().toISOString() });
       if (res && res.error) failed.push(value); else succeeded++;
     }
@@ -293,7 +328,9 @@ export async function POST(req) {
     return NextResponse.json({ room: room?.[0] || null, candidates: Array.isArray(cands) ? cands : [] });
   }
   if (action === 'getTokenListData') {
-    let q = 'exam_candidates?select=token,candidate_name,class,category,room_id,seat_no&order=token.asc&limit=5000';
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ candidates: [] });
+    let q = `exam_candidates?select=token,candidate_name,class,category,room_id,seat_no&circular_id=eq.${circularId}&order=token.asc&limit=5000`;
     if (payload.class)    q += `&class=eq.${encodeURIComponent(payload.class)}`;
     if (payload.category) q += `&category=eq.${encodeURIComponent(payload.category)}`;
     if (payload.room_id)  q += `&room_id=eq.${parseInt(payload.room_id, 10) || 0}`;
@@ -313,21 +350,25 @@ export async function POST(req) {
     if (scope.room_id && String(c.room_id) !== String(scope.room_id)) return false;
     return true;
   }
-  async function findCandidateByCode(code) {
+  async function findCandidateByCode(circularId, code) {
     const c = encodeURIComponent(String(code || '').trim());
-    if (!c) return null;
-    let rows = await sbAdmission(`exam_candidates?token=eq.${c}&select=*`);
-    if (!Array.isArray(rows) || !rows.length) rows = await sbAdmission(`exam_candidates?external_key=eq.${c}&select=*`);
+    if (!c || !circularId) return null;
+    let rows = await sbAdmission(`exam_candidates?circular_id=eq.${circularId}&token=eq.${c}&select=*`);
+    if (!Array.isArray(rows) || !rows.length) rows = await sbAdmission(`exam_candidates?circular_id=eq.${circularId}&external_key=eq.${c}&select=*`);
     return (Array.isArray(rows) && rows[0]) ? rows[0] : null;
   }
   if (action === 'lookupCandidateByToken') {
-    const candidate = await findCandidateByCode(payload.code);
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
+    const candidate = await findCandidateByCode(circularId, payload.code);
     if (!candidate) return NextResponse.json({ error: `No candidate matches "${payload.code}".` });
     if (!scopeMatches(candidate, payload.scope)) return NextResponse.json({ error: 'This candidate is outside the selected scope.', out_of_scope: true, candidate });
     return NextResponse.json({ candidate });
   }
   if (action === 'scanSubmission' || action === 'scanAttendance') {
-    const candidate = await findCandidateByCode(payload.code);
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
+    const candidate = await findCandidateByCode(circularId, payload.code);
     if (!candidate) return NextResponse.json({ error: `No candidate matches "${payload.code}".` });
     if (!scopeMatches(candidate, payload.scope)) return NextResponse.json({ error: 'This candidate is outside the selected scope.', out_of_scope: true, candidate });
     const now = new Date().toISOString();

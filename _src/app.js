@@ -41533,6 +41533,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button onclick="_admShowView('dashboard')" class="flex items-center gap-1.5 px-3 py-2 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50"><i data-lucide="arrow-left" class="h-3.5 w-3.5"></i> Back</button>
           <h2 class="font-black text-slate-800 text-sm">External Candidates</h2>
         </div>
+        <div class="flex items-center gap-2 flex-wrap mb-4 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5">
+          <span class="text-[10px] uppercase text-slate-400 font-bold">Circular/Session</span>
+          <select id="admCandCircularSelect" onchange="_admCandSetActiveCircular(this.value)" class="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold" style="min-width:160px"><option value="">— None yet —</option></select>
+          <input type="text" id="admCandNewCircularName" placeholder="New circular name…" class="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs" style="width:180px">
+          <button onclick="_admCandCreateCircular()" class="px-3 py-1.5 bg-slate-800 text-white rounded-lg text-[10px] font-black uppercase">+ Create</button>
+          <span class="text-[10px] text-slate-400 ml-auto">Every tab below only shows data for the selected circular — rooms, candidates and allocations never mix across circulars.</span>
+        </div>
         <div class="flex gap-1 mb-4 overflow-x-auto pb-1" id="adm-cand-tabs">
           <button class="adm-ftab" data-id="adm-cand-import" onclick="_admCandShowTab('adm-cand-import',this)">Import &amp; Mapping</button>
           <button class="adm-ftab" data-id="adm-cand-list" onclick="_admCandShowTab('adm-cand-list',this)">Candidates</button>
@@ -43651,6 +43658,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _admCandExcelHeaders = [], _admCandExcelRows = [], _admCandImportFileName = '';
   let _admCandMapRows = [], _admCandRowSeq = 0, _admCandPrimaryKeyRowId = null, _admCandAppliedTemplateId = null;
   let _admCandTemplates = [], _admCandAllCandidates = [], _admCandRooms = [];
+  let _admCandCirculars = [], _admCandActiveCircularId = null;
   let _admCandEditingRoomId = null;
   let _admCandRoomExcelHeaders = [], _admCandRoomExcelRows = [];
   let _admCandScanStream = null, _admCandScanTimer = null, _admCandScanBusy = false;
@@ -43673,10 +43681,55 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admOpenCandidates() {
     _admShowView('candidates');
     _admCandLoadTemplates();
-    _admCandLoadRooms();
-    _admCandLoadList();
+    _admCandLoadCirculars();
     const firstTab = document.querySelector('#adm-cand-tabs .adm-ftab');
     if (firstTab) firstTab.click();
+  }
+  // Circulars/sessions -- every other tab (Candidates/Rooms/Allocation/
+  // Printing/Scan) is scoped to whichever one is selected here, persisted
+  // across reloads so switching portals doesn't lose context.
+  async function _admCandLoadCirculars() {
+    try {
+      const res = await _admCandFetch('listCirculars', {});
+      _admCandCirculars = res.circulars || [];
+      const sel = document.getElementById('admCandCircularSelect');
+      if (sel) sel.innerHTML = _admCandCirculars.length
+        ? _admCandCirculars.map(c => `<option value="${c.id}">${_escHtml(c.name)}</option>`).join('')
+        : '<option value="">— None yet —</option>';
+      let saved = parseInt(localStorage.getItem('admCandActiveCircularId') || '', 10);
+      if (!_admCandCirculars.some(c => c.id === saved)) saved = _admCandCirculars[0]?.id || null;
+      _admCandActiveCircularId = saved || null;
+      if (sel && saved) sel.value = String(saved);
+      _admCandLoadRooms();
+      _admCandLoadList();
+    } catch (e) {}
+  }
+  function _admCandSetActiveCircular(val) {
+    const id = parseInt(val, 10) || null;
+    _admCandActiveCircularId = id;
+    try { if (id) localStorage.setItem('admCandActiveCircularId', String(id)); } catch (e) {}
+    _admCandLoadRooms();
+    _admCandLoadList();
+  }
+  async function _admCandCreateCircular() {
+    const input = document.getElementById('admCandNewCircularName');
+    const name = input ? input.value.trim() : '';
+    if (!name) { showToast('Name the circular first', 'error'); return; }
+    try {
+      const res = await _admCandFetch('createCircular', { name });
+      if (res.error) { showToast(res.error, 'error'); return; }
+      if (input) input.value = '';
+      await _admCandLoadCirculars();
+      _admCandSetActiveCircular(res.id);
+      const sel = document.getElementById('admCandCircularSelect');
+      if (sel) sel.value = String(res.id);
+      showToast(`Circular "${name}" created and selected`, 'success');
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+  function _admCandRequireCircular() {
+    if (_admCandActiveCircularId) return true;
+    showToast('Pick or create a circular first', 'error');
+    return false;
   }
   function _admCandShowTab(id, btn) {
     document.querySelectorAll('#adm-cand-sections > div').forEach(el => el.classList.add('hidden'));
@@ -44018,6 +44071,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('admCandPreviewSection')?.classList.remove('hidden');
   }
   async function _admCandConfirmImport() {
+    if (!_admCandRequireCircular()) return;
     const { mapping, primaryKeyRowId } = _admCandGetMapping();
     if (!primaryKeyRowId || mapping[primaryKeyRowId] === undefined) { showToast('Pick a primary key column first', 'error'); return; }
     const rows = _admCandBuildMappedRows();
@@ -44025,6 +44079,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     Object.keys(mapping).forEach(rowId => { mappingUsed[rowId] = _admCandExcelHeaders[mapping[rowId]]; });
     try {
       const res = await _admCandFetch('uploadMappedCandidates', {
+        circular_id: _admCandActiveCircularId,
         rows, template_id: _admCandAppliedTemplateId || null,
         mapping_used: mappingUsed, primary_key_field: primaryKeyRowId,
         file_name: _admCandImportFileName || null,
@@ -44076,7 +44131,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // ── Candidate list ────────────────────────────────────────────────────────
   async function _admCandLoadList() {
     try {
-      const res = await _admCandFetch('listCandidates', {});
+      const res = await _admCandFetch('listCandidates', { circular_id: _admCandActiveCircularId });
       _admCandAllCandidates = res.candidates || [];
       _admCandRenderList(_admCandAllCandidates);
       _admCandPopulateFilterDropdowns();
@@ -44160,7 +44215,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // ── Rooms ─────────────────────────────────────────────────────────────────
   async function _admCandLoadRooms() {
     try {
-      const res = await _admCandFetch('listRooms', {});
+      const res = await _admCandFetch('listRooms', { circular_id: _admCandActiveCircularId });
       _admCandRooms = res.rooms || [];
       _admCandRenderRoomsTable();
       _admCandRenderAllocRoomPicker();
@@ -44184,11 +44239,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }).join('');
   }
   async function _admCandRoomFormSave() {
+    if (!_admCandEditingRoomId && !_admCandRequireCircular()) return;
     const room_name = document.getElementById('admCandRoomName').value.trim();
     const capacity = document.getElementById('admCandRoomCapacity').value.trim();
     if (!room_name || !capacity) { showToast('Enter a room name and capacity', 'error'); return; }
     try {
-      const res = await _admCandFetch('saveRoom', { id: _admCandEditingRoomId || undefined, room_name, capacity });
+      const res = await _admCandFetch('saveRoom', { id: _admCandEditingRoomId || undefined, circular_id: _admCandActiveCircularId, room_name, capacity });
       if (res.error) { showToast(res.error, 'error'); return; }
       document.getElementById('admCandRoomName').value = '';
       document.getElementById('admCandRoomCapacity').value = '';
@@ -44246,6 +44302,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('admCandRoomMappingSection')?.classList.remove('hidden');
   }
   async function _admCandRoomConfirmImport() {
+    if (!_admCandRequireCircular()) return;
     const mapping = {};
     document.querySelectorAll('.admCandRoomMapRow').forEach(row => {
       const idx = parseInt(row.querySelector('select').value, 10);
@@ -44254,7 +44311,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (mapping.room_name === undefined || mapping.capacity === undefined) { showToast('Map both Room Name and Capacity', 'error'); return; }
     const rows = _admCandRoomExcelRows.map(r => ({ room_name: String(r[mapping.room_name] ?? '').trim(), capacity: String(r[mapping.capacity] ?? '').trim() }));
     try {
-      const res = await _admCandFetch('uploadRoomData', { rows });
+      const res = await _admCandFetch('uploadRoomData', { circular_id: _admCandActiveCircularId, rows });
       if (res.error) { showToast(res.error, 'error'); return; }
       showToast(`${res.count} rooms imported`, 'success');
       _admCandLoadRooms();
@@ -44270,6 +44327,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     </label>`).join('') || '<p class="text-xs text-slate-400">No rooms yet — add some in the Rooms tab.</p>';
   }
   async function _admCandRunAllocation() {
+    if (!_admCandRequireCircular()) return;
     const roomIds = Array.from(document.querySelectorAll('.admCandAllocRoomChk:checked')).map(cb => parseInt(cb.value, 10));
     if (!roomIds.length) { showToast('Pick at least one room', 'error'); return; }
     const criteria = {
@@ -44283,7 +44341,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       room_ids: roomIds,
     };
     try {
-      const res = await _admCandFetch('runSeatAllocation', { criteria });
+      const res = await _admCandFetch('runSeatAllocation', { circular_id: _admCandActiveCircularId, criteria });
       if (res.error) { showToast(res.error, 'error'); return; }
       const out = document.getElementById('admCandAllocResult');
       if (out) out.innerHTML = `<p class="font-bold text-emerald-700">Allocated ${res.allocated} candidate(s).${res.overflow ? ` ${res.overflow} could not fit — add more room capacity and re-run.` : ''}</p>`;
@@ -44292,8 +44350,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }
   async function _admCandClearAllocation() {
-    if (!confirm('Clear ALL room/seat allocations?')) return;
-    try { await _admCandFetch('clearAllocation', {}); showToast('Allocations cleared', 'success'); _admCandLoadList(); _admCandLoadRooms(); } catch (e) { showToast(e.message || 'Failed', 'error'); }
+    if (!_admCandRequireCircular()) return;
+    if (!confirm('Clear ALL room/seat allocations for this circular?')) return;
+    try { await _admCandFetch('clearAllocation', { circular_id: _admCandActiveCircularId }); showToast('Allocations cleared', 'success'); _admCandLoadList(); _admCandLoadRooms(); } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }
 
   // ── Printing ──────────────────────────────────────────────────────────────
@@ -44318,6 +44377,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _gfOpenPrintWindow(`${room?.room_name || 'Room'} — Signature Sheet`, body, css);
   }
   async function _admCandPrintSignatureSheet() {
+    if (!_admCandRequireCircular()) return;
     const roomId = parseInt(document.getElementById('admCandPrintRoomSelect').value, 10);
     if (!roomId) { showToast('Pick a room', 'error'); return; }
     try {
@@ -44344,7 +44404,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _gfOpenPrintWindow('Token List', `<div class="grid">${tokens}</div>`, css);
   }
   async function _admCandPrintTokenList() {
+    if (!_admCandRequireCircular()) return;
     const payload = {
+      circular_id: _admCandActiveCircularId,
       class: document.getElementById('admCandTokenFilterClass').value || undefined,
       room_id: document.getElementById('admCandTokenFilterRoom').value || undefined,
     };
@@ -44368,7 +44430,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (idx >= jobs.length) return Promise.resolve();
       const job = jobs[idx++];
       return _regAdminCompressImage(job.file)
-        .then(base64 => _admCandFetch('bulkPhotoUploadByMatchKey', { match_field: matchField, jobs: [{ match_value: job.matchValue, photo_base64: base64 }] }))
+        .then(base64 => _admCandFetch('bulkPhotoUploadByMatchKey', { circular_id: _admCandActiveCircularId, match_field: matchField, jobs: [{ match_value: job.matchValue, photo_base64: base64 }] }))
         .then(res => { if (!(res && res.succeeded)) failedNames.push(job.file.name); })
         .catch(() => failedNames.push(job.file.name + ' (network error)'))
         .finally(() => { done++; if (onProgress) onProgress(done, total); return next(); });
@@ -44377,6 +44439,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       .then(() => ({ succeeded: total - failedNames.length, failedNames, total }));
   }
   function _admCandBulkUpload(fileList) {
+    if (!_admCandRequireCircular()) return;
     const files = Array.from(fileList || []);
     if (!files.length) return;
     const jobs = files.map(f => ({ matchValue: f.name.replace(/\.[^.]+$/, '').trim(), file: f }));
@@ -44416,6 +44479,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (note) note.textContent = parts.length ? `Scope locked: ${parts.join(', ')}` : 'Scope cleared — any candidate will be accepted.';
   }
   async function _admCandScanStart() {
+    if (!_admCandRequireCircular()) return;
     const note = document.getElementById('admCandScanNote');
     if (note) note.textContent = 'Loading scanner…';
     try { await _admCandEnsureJsQR(); } catch (e) { if (note) note.textContent = e.message; return; }
@@ -44458,6 +44522,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     setTimeout(() => { _admCandScanBusy = false; }, 1000);
   }
   function _admCandScanManualLookup() {
+    if (!_admCandRequireCircular()) return;
     const code = document.getElementById('admCandScanManualCode').value.trim();
     if (!code) return;
     _admCandResolveScan(code);
@@ -44467,7 +44532,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (note) note.textContent = 'Looking up ' + code + '…';
     try {
       const action = _admCandScanMode === 'submission' ? 'scanSubmission' : 'scanAttendance';
-      const r = await _admCandFetch(action, { code, scope: _admCandScanScope });
+      const r = await _admCandFetch(action, { circular_id: _admCandActiveCircularId, code, scope: _admCandScanScope });
       if (r.error) {
         if (note) note.textContent = r.error;
         if (r.out_of_scope && r.candidate) _admCandRenderScanResult(r.candidate, true);
