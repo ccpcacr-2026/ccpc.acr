@@ -44668,7 +44668,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (nameEl) nameEl.value = tpl.name || '';
     Object.entries(mapping).forEach(([key, headerText]) => {
       let row = _admCandMapRows.find(r => r.rowId === key);
-      if (!row) { row = { rowId: key, label: fieldLabels[key] || key, fixed: false }; _admCandMapRows.push(row); }
+      // A template saved before field_labels existed has nothing stored for
+      // its custom fields -- fall back to the Excel column's own header
+      // text (e.g. "StudentNameBangla") rather than the internal row id
+      // ("extra_5"), which is unreadable and means nothing to the admin.
+      if (!row) { row = { rowId: key, label: fieldLabels[key] || headerText || key, fixed: false }; _admCandMapRows.push(row); }
       row.headerIdx = _admCandExcelHeaders.findIndex(h => h === headerText);
     });
     _admCandPrimaryKeyRowId = tpl.primary_key_field || null;
