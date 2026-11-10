@@ -484,7 +484,22 @@ const RESERVED = [
   '_admPrintAdmitCard','_admPrintForm','_admPrintFormById','_admPrintAdmitById',
   'fdAddEl','fdZoom','fdZoomFit','fdClearCanvas','fdLoadOfficialTemplate','previewFormLayout','fdSelect','initCanvas',
   'formLayout','currentFormSettings','deepMerge','generateAdmitHtml','generateFormHtml',
-  'generateFormFromLayout','DEFAULT_FORM','DEFAULT_ADMIT','DEMO_APP','openPrintTab'
+  'generateFormFromLayout','DEFAULT_FORM','DEFAULT_ADMIT','DEMO_APP','openPrintTab',
+
+  // External-Candidate Exam Management (Part 2 of the Admission Admin plan)
+  // — a second, separate entity from admission_applications above: never
+  // created in this system, only imported via Excel from an outside
+  // admission system, then room/seat-allocated, printed, and scanned. Every
+  // onclick/onchange string built inside _admCandRenderSections() and the
+  // toolbar button added to loadAdmissionAdminView()'s dashboard header.
+  '_admOpenCandidates','_admCandShowTab','_admCandHandleImportFile','_admCandUpdateMappingSample',
+  '_admCandApplySavedTemplate','_admCandSaveMappingTemplate','_admCandPreviewImport','_admCandConfirmImport',
+  '_admCandRenameRow','_admCandSetPrimaryKey','_admCandAddMapRow','_admCandRemoveRow',
+  '_admCandLoadList','_admCandFilterList','_admCandExportCsv','_admCandDeleteCandidate',
+  '_admCandRoomHandleImportFile','_admCandRoomConfirmImport','_admCandRoomFormOpen','_admCandRoomFormSave','_admCandRoomDelete',
+  '_admCandRunAllocation','_admCandClearAllocation',
+  '_admCandPrintSignatureSheet','_admCandPrintTokenList','_admCandBulkUpload',
+  '_admCandScanShowMode','_admCandScanSetScope','_admCandScanStart','_admCandScanStop','_admCandScanManualLookup'
 ];
 
 // Strip HTML comments and collapse whitespace

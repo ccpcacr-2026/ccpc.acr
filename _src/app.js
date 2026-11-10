@@ -41454,6 +41454,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button onclick="_admExportCsv()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
             <i data-lucide="download" class="h-3.5 w-3.5"></i> Export CSV
           </button>
+          <button onclick="_admOpenCandidates()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
+            <i data-lucide="users" class="h-3.5 w-3.5"></i> Candidates
+          </button>
           <button onclick="_admOpenSettings()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
             <i data-lucide="settings" class="h-3.5 w-3.5"></i> Settings
           </button>
@@ -41523,10 +41526,28 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button class="adm-ftab" data-id="adm-set-scan" onclick="_admShowSettingsTab('adm-set-scan',this)">Scan</button>
         </div>
         <div id="adm-setsections"></div>
+      </div>
+
+      <div id="admAdminCandidates" class="hidden">
+        <div class="flex items-center gap-3 mb-4 flex-wrap">
+          <button onclick="_admShowView('dashboard')" class="flex items-center gap-1.5 px-3 py-2 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50"><i data-lucide="arrow-left" class="h-3.5 w-3.5"></i> Back</button>
+          <h2 class="font-black text-slate-800 text-sm">External Candidates</h2>
+        </div>
+        <div class="flex gap-1 mb-4 overflow-x-auto pb-1" id="adm-cand-tabs">
+          <button class="adm-ftab" data-id="adm-cand-import" onclick="_admCandShowTab('adm-cand-import',this)">Import &amp; Mapping</button>
+          <button class="adm-ftab" data-id="adm-cand-list" onclick="_admCandShowTab('adm-cand-list',this)">Candidates</button>
+          <button class="adm-ftab" data-id="adm-cand-rooms" onclick="_admCandShowTab('adm-cand-rooms',this)">Rooms</button>
+          <button class="adm-ftab" data-id="adm-cand-alloc" onclick="_admCandShowTab('adm-cand-alloc',this)">Seat Allocation</button>
+          <button class="adm-ftab" data-id="adm-cand-print" onclick="_admCandShowTab('adm-cand-print',this)">Printing</button>
+          <button class="adm-ftab" data-id="adm-cand-photos" onclick="_admCandShowTab('adm-cand-photos',this)">Photos</button>
+          <button class="adm-ftab" data-id="adm-cand-scan" onclick="_admCandShowTab('adm-cand-scan',this)">Scan</button>
+        </div>
+        <div id="adm-cand-sections"></div>
       </div>`;
     lucide.createIcons();
     _admRenderFormSections();
     _admRenderSettingsSections();
+    _admCandRenderSections();
     _admShowView('dashboard');
     _admLoadDashboard();
   }
@@ -41535,6 +41556,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('admAdminDashboard').classList.toggle('hidden', which !== 'dashboard');
     document.getElementById('admAdminForm').classList.toggle('hidden', which !== 'form');
     document.getElementById('admAdminSettings').classList.toggle('hidden', which !== 'settings');
+    document.getElementById('admAdminCandidates').classList.toggle('hidden', which !== 'candidates');
   }
   function _admShowSettingsTab(id, btn) {
     document.querySelectorAll('#adm-setsections > div').forEach(el => el.classList.add('hidden'));
@@ -43615,6 +43637,863 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <td class="px-2 py-1 font-mono text-blue-600">${_escHtml(e.trackingId || '')}</td>
         <td class="px-2 py-1 font-bold">${_escHtml(e.status)}</td></tr>`).join('') +
       '</tbody></table>';
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // EXTERNAL-CANDIDATE EXAM MANAGEMENT — a second, separate entity from the
+  // admission_admin applications above: these candidates are never created
+  // in this system, only imported from an outside admission system via
+  // Excel, then room/seat-allocated, printed, and scanned here. Backend:
+  // app/api/admission-candidates/route.js (own route, own tables, same
+  // auth model). See the plan this was built from (Part 2) for the full
+  // design rationale.
+  // ══════════════════════════════════════════════════════════════════════
+  let _admCandExcelHeaders = [], _admCandExcelRows = [], _admCandImportFileName = '';
+  let _admCandMapRows = [], _admCandRowSeq = 0, _admCandPrimaryKeyRowId = null, _admCandAppliedTemplateId = null;
+  let _admCandTemplates = [], _admCandAllCandidates = [], _admCandRooms = [];
+  let _admCandEditingRoomId = null;
+  let _admCandRoomExcelHeaders = [], _admCandRoomExcelRows = [];
+  let _admCandScanStream = null, _admCandScanTimer = null, _admCandScanBusy = false;
+  let _admCandScanMode = 'submission', _admCandScanScope = {};
+
+  function _admCandFetch(action, payload) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    return fetch('/api/admission-candidates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, payload: payload || {}, user_id: myId })
+    }).then(async r => {
+      let body = null;
+      try { body = await r.json(); } catch (_) {}
+      if (!r.ok) throw new Error((body && body.message) || (body && body.error) || ('Network error ' + r.status));
+      return body;
+    });
+  }
+
+  function _admOpenCandidates() {
+    _admShowView('candidates');
+    _admCandLoadTemplates();
+    _admCandLoadRooms();
+    _admCandLoadList();
+    const firstTab = document.querySelector('#adm-cand-tabs .adm-ftab');
+    if (firstTab) firstTab.click();
+  }
+  function _admCandShowTab(id, btn) {
+    document.querySelectorAll('#adm-cand-sections > div').forEach(el => el.classList.add('hidden'));
+    document.querySelectorAll('#adm-cand-tabs .adm-ftab').forEach(el => el.classList.remove('adm-ftab-on'));
+    const el = document.getElementById(id); if (el) el.classList.remove('hidden');
+    if (btn) btn.classList.add('adm-ftab-on');
+    if (id === 'adm-cand-list') _admCandLoadList();
+    else if (id === 'adm-cand-rooms') _admCandLoadRooms();
+    else if (id === 'adm-cand-alloc') { _admCandLoadRooms(); _admCandPopulateFilterDropdowns(); }
+    else if (id === 'adm-cand-print') { _admCandLoadRooms(); _admCandPopulatePrintDropdowns(); }
+    else if (id === 'adm-cand-scan') _admCandPopulateFilterDropdowns();
+    else if (id === 'adm-cand-import') _admCandLoadTemplates();
+  }
+
+  function _admCandRenderSections() {
+    const host = document.getElementById('adm-cand-sections');
+    if (!host) return;
+    host.innerHTML = `
+      <div id="adm-cand-import" class="hidden">
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-4">
+          <div class="flex items-center gap-3 flex-wrap mb-3">
+            <input type="file" id="admCandFileInput" accept=".xlsx,.xls,.csv" onchange="_admCandHandleImportFile(event)" class="text-xs">
+            <select id="admCandTemplateSelect" onchange="_admCandApplySavedTemplate(this)" class="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold"><option value="">— Use saved mapping —</option></select>
+            <span id="admCandImportStatus" class="text-xs text-slate-400"></span>
+          </div>
+          <div id="admCandMappingSection" class="hidden">
+            <p class="text-[10px] uppercase text-slate-400 font-bold mb-2">Map Excel columns — the radio marks whichever column uniquely identifies a candidate (used to detect new vs. updated rows on later, overlapping uploads)</p>
+            <div class="grid grid-cols-12 gap-2 text-[10px] uppercase text-slate-400 font-bold px-1">
+              <div class="col-span-1 text-center">Key</div><div class="col-span-3">Field</div><div class="col-span-4">Excel column</div><div class="col-span-3">Sample</div><div class="col-span-1"></div>
+            </div>
+            <div id="admCandMappingList"></div>
+            <div class="flex items-center gap-2 mt-3 flex-wrap">
+              <button onclick="_admCandAddMapRow()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase">+ Add field</button>
+              <input type="text" id="admCandTemplateName" placeholder="Name this mapping to save it" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="width:220px">
+              <button onclick="_admCandSaveMappingTemplate()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase">Save mapping</button>
+              <button onclick="_admCandPreviewImport()" class="ml-auto px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase">Preview</button>
+            </div>
+          </div>
+          <div id="admCandPreviewSection" class="hidden mt-3">
+            <div id="admCandPreviewSummary" class="grid grid-cols-3 gap-3 mb-3"></div>
+            <button onclick="_admCandConfirmImport()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase">Confirm Import</button>
+          </div>
+          <div id="admCandResultSection" class="hidden mt-3 bg-emerald-50 border border-emerald-200 rounded-xl p-4"></div>
+        </div>
+      </div>
+
+      <div id="adm-cand-list" class="hidden">
+        <div class="flex flex-wrap items-center gap-2 mb-3">
+          <input type="text" id="admCandListSearch" placeholder="Search token, name…" oninput="_admCandFilterList()" class="flex-1 min-w-[160px] px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold">
+          <select id="admCandListClassFilter" onchange="_admCandFilterList()" class="px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold"><option value="">All Classes</option></select>
+          <select id="admCandListCategoryFilter" onchange="_admCandFilterList()" class="px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold"><option value="">All Categories</option></select>
+          <button onclick="_admCandExportCsv()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50"><i data-lucide="download" class="h-3.5 w-3.5"></i> Export CSV</button>
+        </div>
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead><tr class="bg-slate-50 border-b border-slate-100">
+              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Token</th>
+              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Name</th>
+              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest hidden md:table-cell">Class</th>
+              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest hidden md:table-cell">Category</th>
+              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Room/Seat</th>
+              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest hidden lg:table-cell">Submission</th>
+              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest hidden lg:table-cell">Attendance</th>
+              <th class="px-3 py-3 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Actions</th>
+            </tr></thead>
+            <tbody id="admCandListBody"><tr><td colspan="8" class="px-4 py-10 text-center text-slate-400 text-sm">Loading…</td></tr></tbody>
+          </table>
+        </div>
+        <p id="admCandListCount" class="text-[10px] text-slate-400 font-bold mt-3 text-right"></p>
+      </div>
+
+      <div id="adm-cand-rooms" class="hidden">
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-4">
+          <div class="flex items-center gap-3 flex-wrap mb-3">
+            <input type="text" id="admCandRoomName" placeholder="Room name" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="width:160px">
+            <input type="number" id="admCandRoomCapacity" placeholder="Capacity" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="width:100px">
+            <button onclick="_admCandRoomFormSave()" class="px-3 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">Save Room</button>
+            <span class="text-slate-300">|</span>
+            <input type="file" id="admCandRoomFileInput" accept=".xlsx,.xls,.csv" onchange="_admCandRoomHandleImportFile(event)" class="text-xs">
+            <span id="admCandRoomImportStatus" class="text-xs text-slate-400"></span>
+          </div>
+          <div id="admCandRoomMappingSection" class="hidden mb-3">
+            <div id="admCandRoomMappingList"></div>
+            <button onclick="_admCandRoomConfirmImport()" class="mt-2 px-3 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">Import Rooms</button>
+          </div>
+        </div>
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead><tr class="bg-slate-50 border-b border-slate-100">
+              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Room</th>
+              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Capacity</th>
+              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Allocated</th>
+              <th class="px-3 py-3 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Actions</th>
+            </tr></thead>
+            <tbody id="admCandRoomsBody"><tr><td colspan="4" class="px-4 py-10 text-center text-slate-400 text-sm">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="adm-cand-alloc" class="hidden">
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label class="text-[10px] uppercase text-slate-400 font-bold">Sort candidates by</label>
+              <select id="admCandAllocSortBy" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold mt-1">
+                <option value="token">Token</option><option value="candidate_name">Name</option><option value="class">Class</option><option value="category">Category</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-[10px] uppercase text-slate-400 font-bold">Group by (keeps each group together)</label>
+              <select id="admCandAllocGroupBy" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold mt-1">
+                <option value="">No grouping</option><option value="class">Class</option><option value="category">Category</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-[10px] uppercase text-slate-400 font-bold">Filter — Class</label>
+              <select id="admCandAllocFilterClass" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold mt-1"><option value="">All</option></select>
+            </div>
+            <div>
+              <label class="text-[10px] uppercase text-slate-400 font-bold">Filter — Category</label>
+              <select id="admCandAllocFilterCategory" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold mt-1"><option value="">All</option></select>
+            </div>
+          </div>
+          <label class="text-[10px] uppercase text-slate-400 font-bold">Rooms to fill, in order</label>
+          <div id="admCandAllocRoomPicker" class="flex flex-wrap gap-2 my-2"></div>
+          <div class="flex items-center gap-2 mt-3">
+            <button onclick="_admCandRunAllocation()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase">Run Allocation</button>
+            <button onclick="_admCandClearAllocation()" class="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase">Clear All Allocations</button>
+          </div>
+          <div id="admCandAllocResult" class="mt-3 text-sm"></div>
+        </div>
+      </div>
+
+      <div id="adm-cand-print" class="hidden">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
+            <h3 class="font-black text-slate-800 text-sm mb-3">Room-wise Signature Sheet</h3>
+            <select id="admCandPrintRoomSelect" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold mb-3"></select>
+            <button onclick="_admCandPrintSignatureSheet()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase">Print Signature Sheet</button>
+          </div>
+          <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
+            <h3 class="font-black text-slate-800 text-sm mb-3">Token List</h3>
+            <div class="flex gap-2 mb-3">
+              <select id="admCandTokenFilterClass" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold flex-1"><option value="">All Classes</option></select>
+              <select id="admCandTokenFilterRoom" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold flex-1"><option value="">All Rooms</option></select>
+            </div>
+            <button onclick="_admCandPrintTokenList()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase">Print Token List</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="adm-cand-photos" class="hidden">
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
+          <div class="flex items-center gap-3 flex-wrap mb-3">
+            <label class="text-[10px] uppercase text-slate-400 font-bold">Match photos by</label>
+            <select id="admCandPhotoMatchField" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold">
+              <option value="token">Token</option><option value="external_key">Primary key (as imported)</option><option value="candidate_name">Candidate Name</option>
+            </select>
+            <input type="file" id="admCandPhotoInput" multiple accept="image/*" onchange="_admCandBulkUpload(this.files)" class="text-xs">
+          </div>
+          <p class="text-xs text-slate-400">Name each file exactly like "&lt;matched value&gt;.jpg" — e.g. if matching by Token and a candidate's token is 1042, name the file 1042.jpg.</p>
+          <p id="admCandPhotoProgress" class="text-xs text-slate-500 mt-2"></p>
+        </div>
+      </div>
+
+      <div id="adm-cand-scan" class="hidden">
+        <div class="flex gap-1 mb-4" id="admCandScanModeTabs">
+          <button class="adm-ftab adm-ftab-on" onclick="_admCandScanShowMode('submission', this)">Form Submission Scan</button>
+          <button class="adm-ftab" onclick="_admCandScanShowMode('attendance', this)">Exam Attendance Scan</button>
+        </div>
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
+          <p class="text-[10px] uppercase text-slate-400 font-bold mb-2">Scope — restrict scanning to:</p>
+          <div class="flex gap-2 flex-wrap mb-3">
+            <select id="admCandScanScopeClass" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold"><option value="">Any Class</option></select>
+            <select id="admCandScanScopeCategory" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold"><option value="">Any Category</option></select>
+            <select id="admCandScanScopeRoom" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold"><option value="">Any Room</option></select>
+            <button onclick="_admCandScanSetScope()" class="px-3 py-2 bg-slate-800 text-white rounded-lg text-[10px] font-black uppercase">Lock Scope</button>
+          </div>
+          <p id="admCandScanScopeNote" class="text-xs text-emerald-600 font-bold mb-3"></p>
+          <div class="flex items-center gap-2 mb-3 flex-wrap">
+            <button id="admCandScanStartBtn" onclick="_admCandScanStart()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase">Start Camera</button>
+            <button id="admCandScanStopBtn" onclick="_admCandScanStop()" class="hidden px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase">Stop</button>
+            <div class="flex-1 flex gap-2 min-w-[220px]">
+              <input type="text" id="admCandScanManualCode" placeholder="Or type the code/token manually" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+              <button onclick="_admCandScanManualLookup()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase">Go</button>
+            </div>
+          </div>
+          <video id="admCandScanVideo" class="hidden rounded-xl w-full max-w-sm" muted playsinline></video>
+          <canvas id="admCandScanCanvas" class="hidden"></canvas>
+          <p id="admCandScanNote" class="text-xs text-slate-500 mt-2"></p>
+          <div id="admCandScanResult" class="hidden mt-3"></div>
+        </div>
+      </div>`;
+    lucide.createIcons();
+  }
+
+  // ── Import & Mapping ──────────────────────────────────────────────────────
+  function _admCandDefaultMapRows() {
+    return [
+      { rowId: 'token', label: 'Token', fixed: true },
+      { rowId: 'candidate_name', label: 'Candidate Name', fixed: true },
+      { rowId: 'class', label: 'Class', fixed: true },
+      { rowId: 'category', label: 'Category', fixed: true },
+    ];
+  }
+  function _admCandHeaderSignature() {
+    return _admCandExcelHeaders.map(normImportKey).filter(Boolean).sort().join('|');
+  }
+  function _admCandHandleImportFile(e) {
+    const file = e.target.files[0];
+    const status = document.getElementById('admCandImportStatus');
+    ['admCandMappingSection', 'admCandPreviewSection', 'admCandResultSection'].forEach(id => document.getElementById(id)?.classList.add('hidden'));
+    if (!file) return;
+    if (status) status.textContent = 'Reading file…';
+    _admCandImportFileName = file.name;
+    _admCandAppliedTemplateId = null;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      ensureXLSX().then(() => {
+        try {
+          const wb = XLSX.read(evt.target.result, { type: 'array' });
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const grid = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+          if (!grid.length) { if (status) status.textContent = 'File appears to be empty.'; return; }
+          _admCandExcelHeaders = grid[0].map(h => String(h || '').trim());
+          _admCandExcelRows = grid.slice(1).filter(r => r.some(c => String(c || '').trim() !== ''));
+          if (status) status.textContent = `${file.name} — ${_admCandExcelRows.length} rows, ${_admCandExcelHeaders.length} columns.`;
+          _admCandMapRows = _admCandDefaultMapRows();
+          _admCandPrimaryKeyRowId = null;
+          _admCandApplyMatchingTemplate();
+          _admCandRenderMapping();
+        } catch (err) {
+          if (status) status.textContent = 'Could not read this file: ' + err.message;
+        }
+      }).catch((err) => { if (status) status.textContent = err.message; });
+    };
+    reader.readAsArrayBuffer(file);
+  }
+  function _admCandApplyMatchingTemplate() {
+    const sig = _admCandHeaderSignature();
+    const tpl = _admCandTemplates.find(t => t.header_signature === sig);
+    if (tpl) _admCandApplyTemplateObj(tpl);
+  }
+  function _admCandApplyTemplateObj(tpl) {
+    const mapping = tpl.mapping || {};
+    _admCandMapRows = _admCandDefaultMapRows();
+    Object.entries(mapping).forEach(([key, headerText]) => {
+      let row = _admCandMapRows.find(r => r.rowId === key);
+      if (!row) { row = { rowId: key, label: key, fixed: false }; _admCandMapRows.push(row); }
+      row.headerIdx = _admCandExcelHeaders.findIndex(h => h === headerText);
+    });
+    _admCandPrimaryKeyRowId = tpl.primary_key_field || null;
+    _admCandAppliedTemplateId = tpl.id;
+    showToast(`Applied saved mapping "${tpl.name}"`, 'success');
+  }
+  function _admCandRenderMapping() {
+    const section = document.getElementById('admCandMappingSection');
+    const list = document.getElementById('admCandMappingList');
+    if (!section || !list) return;
+    list.innerHTML = _admCandMapRows.map(row => {
+      const guessIdx = (row.headerIdx !== undefined && row.headerIdx !== null && row.headerIdx >= 0)
+        ? row.headerIdx
+        : _admCandExcelHeaders.findIndex(h => normImportKey(h) === normImportKey(row.label));
+      const options = ['<option value="-1">— Skip —</option>'].concat(_admCandExcelHeaders.map((h, i) => `<option value="${i}" ${i === guessIdx ? 'selected' : ''}>${_escHtml(h || '(blank header)')}</option>`));
+      const sample = guessIdx >= 0 && _admCandExcelRows[0] ? String(_admCandExcelRows[0][guessIdx] ?? '') : '';
+      const labelHtml = row.fixed
+        ? `<span class="font-bold text-xs text-slate-700">${_escHtml(row.label)}</span>`
+        : `<input type="text" value="${_escHtml(row.label)}" oninput="_admCandRenameRow('${row.rowId}', this.value)" class="w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs font-bold">`;
+      return `<div class="grid grid-cols-12 gap-2 items-center py-1 admCandMapRow" data-row-id="${row.rowId}">
+        <div class="col-span-1 text-center"><input type="radio" name="admCandPrimaryKey" value="${row.rowId}" ${_admCandPrimaryKeyRowId === row.rowId ? 'checked' : ''} onchange="_admCandSetPrimaryKey('${row.rowId}')"></div>
+        <div class="col-span-3">${labelHtml}</div>
+        <div class="col-span-4"><select class="admCandMapSelect w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" onchange="_admCandUpdateMappingSample(this)">${options.join('')}</select></div>
+        <div class="col-span-3"><span class="text-xs text-slate-400 italic admCandMapSample">${sample ? 'e.g. ' + sample : ''}</span></div>
+        <div class="col-span-1 text-right">${row.fixed ? '' : `<button onclick="_admCandRemoveRow('${row.rowId}')" class="text-red-400 hover:text-red-600"><i data-lucide="x" class="h-3.5 w-3.5"></i></button>`}</div>
+      </div>`;
+    }).join('');
+    section.classList.remove('hidden');
+    document.getElementById('admCandPreviewSection')?.classList.add('hidden');
+    document.getElementById('admCandResultSection')?.classList.add('hidden');
+    lucide.createIcons();
+  }
+  function _admCandUpdateMappingSample(sel) {
+    const idx = parseInt(sel.value, 10);
+    const row = sel.closest('.admCandMapRow');
+    const sampleEl = row.querySelector('.admCandMapSample');
+    const sample = idx >= 0 && _admCandExcelRows[0] ? String(_admCandExcelRows[0][idx] ?? '') : '';
+    sampleEl.textContent = sample ? 'e.g. ' + sample : '';
+  }
+  function _admCandRenameRow(rowId, val) {
+    const row = _admCandMapRows.find(r => r.rowId === rowId);
+    if (row) row.label = val;
+  }
+  function _admCandSetPrimaryKey(rowId) { _admCandPrimaryKeyRowId = rowId; }
+  function _admCandAddMapRow() {
+    _admCandRowSeq++;
+    _admCandMapRows.push({ rowId: 'extra_' + _admCandRowSeq, label: 'New Field', fixed: false, headerIdx: -1 });
+    _admCandRenderMapping();
+  }
+  function _admCandRemoveRow(rowId) {
+    _admCandMapRows = _admCandMapRows.filter(r => r.rowId !== rowId);
+    if (_admCandPrimaryKeyRowId === rowId) _admCandPrimaryKeyRowId = null;
+    _admCandRenderMapping();
+  }
+  function _admCandGetMapping() {
+    const mapping = {}, labels = {};
+    document.querySelectorAll('.admCandMapRow').forEach(row => {
+      const rowId = row.dataset.rowId;
+      const idx = parseInt(row.querySelector('.admCandMapSelect').value, 10);
+      if (idx >= 0) mapping[rowId] = idx;
+      const input = row.querySelector('input[type=text]');
+      labels[rowId] = input ? input.value.trim() : ((_admCandMapRows.find(r => r.rowId === rowId) || {}).label || rowId);
+    });
+    const primaryEl = document.querySelector('input[name=admCandPrimaryKey]:checked');
+    return { mapping, labels, primaryKeyRowId: primaryEl ? primaryEl.value : null };
+  }
+  function _admCandBuildMappedRows() {
+    const { mapping, labels, primaryKeyRowId } = _admCandGetMapping();
+    return _admCandExcelRows.map(r => {
+      const obj = { extra_fields: {} };
+      Object.entries(mapping).forEach(([rowId, idx]) => {
+        const val = String(r[idx] ?? '').trim();
+        if (['token', 'candidate_name', 'class', 'category'].includes(rowId)) obj[rowId] = val;
+        else obj.extra_fields[labels[rowId] || rowId] = val;
+      });
+      obj.external_key = (primaryKeyRowId && mapping[primaryKeyRowId] !== undefined) ? String(r[mapping[primaryKeyRowId]] ?? '').trim() : '';
+      return obj;
+    });
+  }
+  function _admCandPreviewImport() {
+    const { mapping, primaryKeyRowId } = _admCandGetMapping();
+    if (!primaryKeyRowId || mapping[primaryKeyRowId] === undefined) { showToast('Pick a primary key column first (the radio button)', 'error'); return; }
+    const rows = _admCandBuildMappedRows();
+    const withKey = rows.filter(r => r.external_key).length;
+    const summary = document.getElementById('admCandPreviewSummary');
+    if (summary) summary.innerHTML = `
+      <div class="bg-slate-50 rounded-xl p-3 text-center"><div class="text-xl font-black">${rows.length}</div><div class="text-[10px] uppercase text-slate-400 font-bold">Rows detected</div></div>
+      <div class="bg-slate-50 rounded-xl p-3 text-center"><div class="text-xl font-black">${withKey}</div><div class="text-[10px] uppercase text-slate-400 font-bold">With primary key</div></div>
+      <div class="bg-slate-50 rounded-xl p-3 text-center"><div class="text-xl font-black">${rows.length - withKey}</div><div class="text-[10px] uppercase text-slate-400 font-bold">Will be skipped</div></div>`;
+    document.getElementById('admCandPreviewSection')?.classList.remove('hidden');
+  }
+  async function _admCandConfirmImport() {
+    const { mapping, primaryKeyRowId } = _admCandGetMapping();
+    if (!primaryKeyRowId || mapping[primaryKeyRowId] === undefined) { showToast('Pick a primary key column first', 'error'); return; }
+    const rows = _admCandBuildMappedRows();
+    const mappingUsed = {};
+    Object.keys(mapping).forEach(rowId => { mappingUsed[rowId] = _admCandExcelHeaders[mapping[rowId]]; });
+    try {
+      const res = await _admCandFetch('uploadMappedCandidates', {
+        rows, template_id: _admCandAppliedTemplateId || null,
+        mapping_used: mappingUsed, primary_key_field: primaryKeyRowId,
+        file_name: _admCandImportFileName || null,
+      });
+      if (res.error) { showToast(res.error, 'error'); return; }
+      const result = document.getElementById('admCandResultSection');
+      if (result) {
+        result.classList.remove('hidden');
+        result.innerHTML = `<p class="font-black text-slate-800 mb-2">Import complete</p>
+          <p class="text-sm text-slate-600">${res.new_count} new, ${res.updated_count} updated, ${res.error_count} skipped (no primary key value), out of ${res.total} rows.</p>`;
+      }
+      showToast('Import complete', 'success');
+      _admCandLoadList();
+    } catch (e) { showToast(e.message || 'Import failed', 'error'); }
+  }
+  async function _admCandLoadTemplates() {
+    try {
+      const res = await _admCandFetch('listCandidateImportTemplates', {});
+      _admCandTemplates = res.templates || [];
+      const sel = document.getElementById('admCandTemplateSelect');
+      if (sel) sel.innerHTML = '<option value="">— Use saved mapping —</option>' + _admCandTemplates.map(t => `<option value="${t.id}">${_escHtml(t.name)}</option>`).join('');
+    } catch (e) {}
+  }
+  function _admCandApplySavedTemplate(sel) {
+    const id = parseInt(sel.value, 10);
+    const tpl = _admCandTemplates.find(t => t.id === id);
+    if (!tpl) return;
+    _admCandApplyTemplateObj(tpl);
+    _admCandRenderMapping();
+  }
+  async function _admCandSaveMappingTemplate() {
+    const nameEl = document.getElementById('admCandTemplateName');
+    const name = nameEl ? nameEl.value.trim() : '';
+    if (!name) { showToast('Name this mapping first', 'error'); return; }
+    const { mapping, primaryKeyRowId } = _admCandGetMapping();
+    if (!primaryKeyRowId || mapping[primaryKeyRowId] === undefined) { showToast('Pick a primary key column first', 'error'); return; }
+    const mappingObj = {};
+    Object.keys(mapping).forEach(rowId => { mappingObj[rowId] = _admCandExcelHeaders[mapping[rowId]]; });
+    try {
+      const res = await _admCandFetch('saveCandidateImportTemplate', {
+        name, header_signature: _admCandHeaderSignature(), mapping: mappingObj, primary_key_field: primaryKeyRowId,
+      });
+      if (res.error) { showToast(res.error, 'error'); return; }
+      showToast('Mapping saved', 'success');
+      _admCandLoadTemplates();
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+
+  // ── Candidate list ────────────────────────────────────────────────────────
+  async function _admCandLoadList() {
+    try {
+      const res = await _admCandFetch('listCandidates', {});
+      _admCandAllCandidates = res.candidates || [];
+      _admCandRenderList(_admCandAllCandidates);
+      _admCandPopulateFilterDropdowns();
+    } catch (e) {}
+  }
+  function _admCandRenderList(list) {
+    const body = document.getElementById('admCandListBody');
+    if (!body) return;
+    const countEl = document.getElementById('admCandListCount');
+    if (countEl) countEl.textContent = `${list.length} candidate(s)`;
+    if (!list.length) { body.innerHTML = '<tr><td colspan="8" class="px-4 py-10 text-center text-slate-400 text-sm">No candidates imported yet.</td></tr>'; return; }
+    body.innerHTML = list.map(c => {
+      const room = _admCandRooms.find(r => r.id === c.room_id);
+      return `<tr class="border-t border-slate-100">
+        <td class="px-3 py-2.5 font-mono text-blue-600">${_escHtml(c.token || '')}</td>
+        <td class="px-3 py-2.5 font-bold">${_escHtml(c.candidate_name || '')}</td>
+        <td class="px-3 py-2.5 hidden md:table-cell">${_escHtml(c.class || '')}</td>
+        <td class="px-3 py-2.5 hidden md:table-cell">${_escHtml(c.category || '')}</td>
+        <td class="px-3 py-2.5">${room ? _escHtml(room.room_name) + (c.seat_no ? ' / ' + _escHtml(c.seat_no) : '') : '—'}</td>
+        <td class="px-3 py-2.5 hidden lg:table-cell">${_escHtml(c.submission_scan_status || 'pending')}</td>
+        <td class="px-3 py-2.5 hidden lg:table-cell">${_escHtml(c.attendance_scan_status || 'pending')}</td>
+        <td class="px-3 py-2.5 text-right"><button onclick="_admCandDeleteCandidate(${c.id})" class="text-red-500 text-xs font-bold">Delete</button></td>
+      </tr>`;
+    }).join('');
+  }
+  function _admCandFilterList() {
+    const search = (document.getElementById('admCandListSearch').value || '').toLowerCase();
+    const cls = document.getElementById('admCandListClassFilter').value;
+    const cat = document.getElementById('admCandListCategoryFilter').value;
+    const filtered = _admCandAllCandidates.filter(c =>
+      (!cls || c.class === cls) && (!cat || c.category === cat) &&
+      (!search || [c.token, c.candidate_name, c.external_key].some(v => String(v || '').toLowerCase().includes(search))));
+    _admCandRenderList(filtered);
+  }
+  function _admCandExportCsv() {
+    const rows = _admCandAllCandidates;
+    if (!rows.length) { showToast('Nothing to export', 'error'); return; }
+    const cols = ['token', 'candidate_name', 'class', 'category', 'room_id', 'seat_no', 'submission_scan_status', 'attendance_scan_status'];
+    const csv = [cols.join(',')].concat(rows.map(r => cols.map(c => `"${String(r[c] ?? '').replace(/"/g, '""')}"`).join(','))).join('\r\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = 'exam_candidates.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+  async function _admCandDeleteCandidate(id) {
+    if (!confirm('Delete this candidate?')) return;
+    try { await _admCandFetch('deleteCandidate', { id }); showToast('Deleted', 'success'); _admCandLoadList(); } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+  function _admCandPopulateFilterDropdowns() {
+    const classes = [...new Set(_admCandAllCandidates.map(c => c.class).filter(Boolean))].sort();
+    const cats = [...new Set(_admCandAllCandidates.map(c => c.category).filter(Boolean))].sort();
+    const fill = (id, opts, placeholder) => {
+      const el = document.getElementById(id); if (!el) return;
+      const cur = el.value;
+      el.innerHTML = `<option value="">${placeholder}</option>` + opts.map(o => `<option value="${_escHtml(o)}">${_escHtml(o)}</option>`).join('');
+      el.value = cur;
+    };
+    fill('admCandListClassFilter', classes, 'All Classes');
+    fill('admCandListCategoryFilter', cats, 'All Categories');
+    fill('admCandAllocFilterClass', classes, 'All');
+    fill('admCandAllocFilterCategory', cats, 'All');
+    fill('admCandTokenFilterClass', classes, 'All Classes');
+    fill('admCandScanScopeClass', classes, 'Any Class');
+    fill('admCandScanScopeCategory', cats, 'Any Category');
+    const fillRooms = (id, placeholder) => {
+      const el = document.getElementById(id); if (!el) return;
+      const cur = el.value;
+      el.innerHTML = `<option value="">${placeholder}</option>` + _admCandRooms.map(r => `<option value="${r.id}">${_escHtml(r.room_name)}</option>`).join('');
+      el.value = cur;
+    };
+    fillRooms('admCandTokenFilterRoom', 'All Rooms');
+    fillRooms('admCandScanScopeRoom', 'Any Room');
+  }
+  function _admCandPopulatePrintDropdowns() {
+    const sel = document.getElementById('admCandPrintRoomSelect');
+    if (sel) sel.innerHTML = _admCandRooms.map(r => `<option value="${r.id}">${_escHtml(r.room_name)}</option>`).join('') || '<option value="">No rooms yet</option>';
+    _admCandPopulateFilterDropdowns();
+  }
+
+  // ── Rooms ─────────────────────────────────────────────────────────────────
+  async function _admCandLoadRooms() {
+    try {
+      const res = await _admCandFetch('listRooms', {});
+      _admCandRooms = res.rooms || [];
+      _admCandRenderRoomsTable();
+      _admCandRenderAllocRoomPicker();
+    } catch (e) {}
+  }
+  function _admCandRenderRoomsTable() {
+    const body = document.getElementById('admCandRoomsBody');
+    if (!body) return;
+    if (!_admCandRooms.length) { body.innerHTML = '<tr><td colspan="4" class="px-4 py-10 text-center text-slate-400 text-sm">No rooms yet.</td></tr>'; return; }
+    body.innerHTML = _admCandRooms.map(r => {
+      const allocated = _admCandAllCandidates.filter(c => c.room_id === r.id).length;
+      return `<tr class="border-t border-slate-100">
+        <td class="px-3 py-2.5 font-bold">${_escHtml(r.room_name)}</td>
+        <td class="px-3 py-2.5">${r.capacity}</td>
+        <td class="px-3 py-2.5">${allocated}</td>
+        <td class="px-3 py-2.5 text-right">
+          <button onclick="_admCandRoomFormOpen(${r.id})" class="text-blue-600 text-xs font-bold mr-2">Edit</button>
+          <button onclick="_admCandRoomDelete(${r.id})" class="text-red-500 text-xs font-bold">Delete</button>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+  async function _admCandRoomFormSave() {
+    const room_name = document.getElementById('admCandRoomName').value.trim();
+    const capacity = document.getElementById('admCandRoomCapacity').value.trim();
+    if (!room_name || !capacity) { showToast('Enter a room name and capacity', 'error'); return; }
+    try {
+      const res = await _admCandFetch('saveRoom', { id: _admCandEditingRoomId || undefined, room_name, capacity });
+      if (res.error) { showToast(res.error, 'error'); return; }
+      document.getElementById('admCandRoomName').value = '';
+      document.getElementById('admCandRoomCapacity').value = '';
+      _admCandEditingRoomId = null;
+      showToast('Room saved', 'success');
+      _admCandLoadRooms();
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+  function _admCandRoomFormOpen(id) {
+    const room = _admCandRooms.find(r => r.id === id);
+    if (!room) return;
+    document.getElementById('admCandRoomName').value = room.room_name;
+    document.getElementById('admCandRoomCapacity').value = room.capacity;
+    _admCandEditingRoomId = id;
+  }
+  async function _admCandRoomDelete(id) {
+    if (!confirm('Delete this room? Candidates allocated to it will need re-allocation.')) return;
+    try { await _admCandFetch('deleteRoom', { id }); showToast('Room deleted', 'success'); _admCandLoadRooms(); } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+  function _admCandRoomHandleImportFile(e) {
+    const file = e.target.files[0];
+    const status = document.getElementById('admCandRoomImportStatus');
+    document.getElementById('admCandRoomMappingSection')?.classList.add('hidden');
+    if (!file) return;
+    if (status) status.textContent = 'Reading file…';
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      ensureXLSX().then(() => {
+        try {
+          const wb = XLSX.read(evt.target.result, { type: 'array' });
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const grid = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+          if (!grid.length) { if (status) status.textContent = 'File appears to be empty.'; return; }
+          _admCandRoomExcelHeaders = grid[0].map(h => String(h || '').trim());
+          _admCandRoomExcelRows = grid.slice(1).filter(r => r.some(c => String(c || '').trim() !== ''));
+          if (status) status.textContent = `${file.name} — ${_admCandRoomExcelRows.length} rows.`;
+          _admCandRoomRenderMapping();
+        } catch (err) { if (status) status.textContent = 'Could not read this file: ' + err.message; }
+      }).catch((err) => { if (status) status.textContent = err.message; });
+    };
+    reader.readAsArrayBuffer(file);
+  }
+  function _admCandRoomRenderMapping() {
+    const list = document.getElementById('admCandRoomMappingList');
+    if (!list) return;
+    const fields = [{ key: 'room_name', label: 'Room Name' }, { key: 'capacity', label: 'Capacity' }];
+    list.innerHTML = fields.map(f => {
+      const guessIdx = _admCandRoomExcelHeaders.findIndex(h => normImportKey(h) === normImportKey(f.label) || normImportKey(h) === normImportKey(f.key));
+      const options = ['<option value="-1">— Skip —</option>'].concat(_admCandRoomExcelHeaders.map((h, i) => `<option value="${i}" ${i === guessIdx ? 'selected' : ''}>${_escHtml(h || '(blank header)')}</option>`));
+      return `<div class="flex items-center gap-2 py-1 admCandRoomMapRow" data-key="${f.key}">
+        <span class="font-bold text-xs text-slate-700" style="width:100px">${f.label}</span>
+        <select class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">${options.join('')}</select>
+      </div>`;
+    }).join('');
+    document.getElementById('admCandRoomMappingSection')?.classList.remove('hidden');
+  }
+  async function _admCandRoomConfirmImport() {
+    const mapping = {};
+    document.querySelectorAll('.admCandRoomMapRow').forEach(row => {
+      const idx = parseInt(row.querySelector('select').value, 10);
+      if (idx >= 0) mapping[row.dataset.key] = idx;
+    });
+    if (mapping.room_name === undefined || mapping.capacity === undefined) { showToast('Map both Room Name and Capacity', 'error'); return; }
+    const rows = _admCandRoomExcelRows.map(r => ({ room_name: String(r[mapping.room_name] ?? '').trim(), capacity: String(r[mapping.capacity] ?? '').trim() }));
+    try {
+      const res = await _admCandFetch('uploadRoomData', { rows });
+      if (res.error) { showToast(res.error, 'error'); return; }
+      showToast(`${res.count} rooms imported`, 'success');
+      _admCandLoadRooms();
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+
+  // ── Seat allocation ───────────────────────────────────────────────────────
+  function _admCandRenderAllocRoomPicker() {
+    const host = document.getElementById('admCandAllocRoomPicker');
+    if (!host) return;
+    host.innerHTML = _admCandRooms.map(r => `<label class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold cursor-pointer">
+      <input type="checkbox" class="admCandAllocRoomChk" value="${r.id}"> ${_escHtml(r.room_name)} (${r.capacity})
+    </label>`).join('') || '<p class="text-xs text-slate-400">No rooms yet — add some in the Rooms tab.</p>';
+  }
+  async function _admCandRunAllocation() {
+    const roomIds = Array.from(document.querySelectorAll('.admCandAllocRoomChk:checked')).map(cb => parseInt(cb.value, 10));
+    if (!roomIds.length) { showToast('Pick at least one room', 'error'); return; }
+    const criteria = {
+      sort_by: document.getElementById('admCandAllocSortBy').value,
+      sort_dir: 'asc',
+      group_by: document.getElementById('admCandAllocGroupBy').value,
+      filters: {
+        class: document.getElementById('admCandAllocFilterClass').value || undefined,
+        category: document.getElementById('admCandAllocFilterCategory').value || undefined,
+      },
+      room_ids: roomIds,
+    };
+    try {
+      const res = await _admCandFetch('runSeatAllocation', { criteria });
+      if (res.error) { showToast(res.error, 'error'); return; }
+      const out = document.getElementById('admCandAllocResult');
+      if (out) out.innerHTML = `<p class="font-bold text-emerald-700">Allocated ${res.allocated} candidate(s).${res.overflow ? ` ${res.overflow} could not fit — add more room capacity and re-run.` : ''}</p>`;
+      showToast('Allocation complete', 'success');
+      _admCandLoadList(); _admCandLoadRooms();
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+  async function _admCandClearAllocation() {
+    if (!confirm('Clear ALL room/seat allocations?')) return;
+    try { await _admCandFetch('clearAllocation', {}); showToast('Allocations cleared', 'success'); _admCandLoadList(); _admCandLoadRooms(); } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+
+  // ── Printing ──────────────────────────────────────────────────────────────
+  function _admCandBuildSignatureSheetHtml(room, candidates) {
+    const rows = candidates.map((c, i) => `<tr>
+      <td>${i + 1}</td>
+      <td>${_escHtml(c.seat_no || '')}</td>
+      <td style="display:flex;align-items:center;gap:6px">${_gfPrintAvatarHtml({ photo: c.photo_url, student_name: c.candidate_name }, 22)} ${_escHtml(c.candidate_name || '')}</td>
+      <td>${_escHtml(c.token || '')}</td>
+      <td style="width:120px"><div style="border-top:1px solid #1e293b;height:8mm"></div></td>
+    </tr>`).join('');
+    const body = `
+      <h1 style="font-size:16px;margin:0 0 2px">${_escHtml(room?.room_name || 'Room')} — Signature Sheet</h1>
+      <p style="font-size:10px;color:#6b7280;margin:0 0 10px">${candidates.length} candidate(s) — Printed ${new Date().toLocaleString()}</p>
+      <table><thead><tr><th>SL</th><th>Seat</th><th>Name</th><th>Token</th><th>Signature</th></tr></thead><tbody>${rows}</tbody></table>`;
+    const css = `@page { size: A4 portrait; margin: 12mm; }
+      body, table { font-family: Arial, sans-serif; font-size: 11pt; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { border: 1px solid #e2e8f0; padding: 6px 8px; text-align: left; vertical-align: middle; }
+      th { background: #1e293b; color: #fff; text-transform: uppercase; font-size: 9pt; }
+      tr, td { page-break-inside: avoid; break-inside: avoid; }`;
+    _gfOpenPrintWindow(`${room?.room_name || 'Room'} — Signature Sheet`, body, css);
+  }
+  async function _admCandPrintSignatureSheet() {
+    const roomId = parseInt(document.getElementById('admCandPrintRoomSelect').value, 10);
+    if (!roomId) { showToast('Pick a room', 'error'); return; }
+    try {
+      const res = await _admCandFetch('getSignatureSheetData', { room_id: roomId });
+      if (res.error) { showToast(res.error, 'error'); return; }
+      if (!res.candidates.length) { showToast('No candidates allocated to this room', 'error'); return; }
+      _admCandBuildSignatureSheetHtml(res.room, res.candidates);
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+  function _admCandBuildTokenListHtml(candidates) {
+    const tokens = candidates.map(c => `<div class="token">
+      <div class="info">
+        <div class="ref">${_escHtml(c.token || '')}</div>
+        <div class="proj">${_escHtml(c.candidate_name || '')}</div>
+        <div class="leader">${_escHtml(c.class || '')}${c.category ? ' · ' + _escHtml(c.category) : ''}</div>
+      </div>
+    </div>`).join('');
+    const css = `@page { size: A4 portrait; margin: 10mm; }
+      .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4mm; }
+      .token { border: 1.5px dashed #cbd5e1; border-left: 4px solid #2563eb; border-radius: 8px; padding: 7px 9px; break-inside: avoid; min-height: 20mm; background: #fff; }
+      .token .ref { font-size: 16px; font-weight: 800; }
+      .token .proj { font-size: 10px; color: #374151; margin-top: 2px; }
+      .token .leader { font-size: 8px; color: #6b7280; font-weight: 700; margin-top: 2px; }`;
+    _gfOpenPrintWindow('Token List', `<div class="grid">${tokens}</div>`, css);
+  }
+  async function _admCandPrintTokenList() {
+    const payload = {
+      class: document.getElementById('admCandTokenFilterClass').value || undefined,
+      room_id: document.getElementById('admCandTokenFilterRoom').value || undefined,
+    };
+    try {
+      const res = await _admCandFetch('getTokenListData', payload);
+      if (res.error) { showToast(res.error, 'error'); return; }
+      if (!res.candidates.length) { showToast('No matching candidates', 'error'); return; }
+      _admCandBuildTokenListHtml(res.candidates);
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+
+  // ── Photo bulk upload by admin-selected match field ──────────────────────
+  function _admCandBulkUploadPhotoJobs(jobs, onProgress) {
+    const total = jobs.length;
+    let done = 0;
+    const failedNames = [];
+    const CONCURRENCY = 4;
+    let idx = 0;
+    const matchField = document.getElementById('admCandPhotoMatchField').value;
+    function next() {
+      if (idx >= jobs.length) return Promise.resolve();
+      const job = jobs[idx++];
+      return _regAdminCompressImage(job.file)
+        .then(base64 => _admCandFetch('bulkPhotoUploadByMatchKey', { match_field: matchField, jobs: [{ match_value: job.matchValue, photo_base64: base64 }] }))
+        .then(res => { if (!(res && res.succeeded)) failedNames.push(job.file.name); })
+        .catch(() => failedNames.push(job.file.name + ' (network error)'))
+        .finally(() => { done++; if (onProgress) onProgress(done, total); return next(); });
+    }
+    return Promise.all(Array.from({ length: Math.min(CONCURRENCY, jobs.length) }, next))
+      .then(() => ({ succeeded: total - failedNames.length, failedNames, total }));
+  }
+  function _admCandBulkUpload(fileList) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    const jobs = files.map(f => ({ matchValue: f.name.replace(/\.[^.]+$/, '').trim(), file: f }));
+    const progress = document.getElementById('admCandPhotoProgress');
+    if (progress) progress.textContent = `Uploading 0/${jobs.length}...`;
+    _admCandBulkUploadPhotoJobs(jobs, (done, total) => { if (progress) progress.textContent = `Uploading ${done}/${total}...`; }).then(({ succeeded, failedNames }) => {
+      if (progress) progress.textContent = '';
+      const parts = [`${succeeded} uploaded`];
+      if (failedNames.length) parts.push(`${failedNames.length} failed (no match or network error)`);
+      showToast(parts.join(', '), failedNames.length ? 'error' : 'success');
+      _admCandLoadList();
+    });
+  }
+
+  // ── Dual QR scan — submission vs. attendance, fully independent status
+  // columns/actions, sharing one camera-loop implementation (parameterized
+  // by _admCandScanMode) the same way _admStartScan/_admStopScan already
+  // work for Part 1's application-lookup Scan tab above. ──────────────────
+  function _admCandEnsureJsQR() { return _admEnsureJsQR(); }
+  function _admCandScanShowMode(mode, btn) {
+    _admCandScanStop();
+    _admCandScanMode = mode;
+    document.querySelectorAll('#admCandScanModeTabs .adm-ftab').forEach(el => el.classList.remove('adm-ftab-on'));
+    if (btn) btn.classList.add('adm-ftab-on');
+    document.getElementById('admCandScanResult')?.classList.add('hidden');
+    const note = document.getElementById('admCandScanScopeNote'); if (note) note.textContent = '';
+    _admCandScanScope = {};
+  }
+  function _admCandScanSetScope() {
+    _admCandScanScope = {
+      class: document.getElementById('admCandScanScopeClass').value || undefined,
+      category: document.getElementById('admCandScanScopeCategory').value || undefined,
+      room_id: document.getElementById('admCandScanScopeRoom').value || undefined,
+    };
+    const note = document.getElementById('admCandScanScopeNote');
+    const parts = Object.entries(_admCandScanScope).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`);
+    if (note) note.textContent = parts.length ? `Scope locked: ${parts.join(', ')}` : 'Scope cleared — any candidate will be accepted.';
+  }
+  async function _admCandScanStart() {
+    const note = document.getElementById('admCandScanNote');
+    if (note) note.textContent = 'Loading scanner…';
+    try { await _admCandEnsureJsQR(); } catch (e) { if (note) note.textContent = e.message; return; }
+    try {
+      _admCandScanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    } catch (e) {
+      if (note) note.textContent = 'Could not access the camera — check browser permission.';
+      return;
+    }
+    const video = document.getElementById('admCandScanVideo');
+    video.srcObject = _admCandScanStream;
+    video.classList.remove('hidden');
+    await video.play();
+    document.getElementById('admCandScanStartBtn').classList.add('hidden');
+    document.getElementById('admCandScanStopBtn').classList.remove('hidden');
+    if (note) note.textContent = 'Point the camera at a QR code…';
+    const canvas = document.getElementById('admCandScanCanvas');
+    canvas.width = 400; canvas.height = 300;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    _admCandScanTimer = setInterval(() => {
+      if (_admCandScanBusy || !video.videoWidth) return;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = window.jsQR(img.data, img.width, img.height);
+      if (code && code.data) { _admCandScanBusy = true; _admCandHandleScannedCode(code.data.trim()); }
+    }, 150);
+  }
+  function _admCandScanStop() {
+    if (_admCandScanTimer) { clearInterval(_admCandScanTimer); _admCandScanTimer = null; }
+    if (_admCandScanStream) { _admCandScanStream.getTracks().forEach(t => t.stop()); _admCandScanStream = null; }
+    const video = document.getElementById('admCandScanVideo');
+    if (video) { video.pause(); video.srcObject = null; video.classList.add('hidden'); }
+    document.getElementById('admCandScanStartBtn')?.classList.remove('hidden');
+    document.getElementById('admCandScanStopBtn')?.classList.add('hidden');
+    const note = document.getElementById('admCandScanNote'); if (note) note.textContent = '';
+    _admCandScanBusy = false;
+  }
+  async function _admCandHandleScannedCode(code) {
+    await _admCandResolveScan(code);
+    setTimeout(() => { _admCandScanBusy = false; }, 1000);
+  }
+  function _admCandScanManualLookup() {
+    const code = document.getElementById('admCandScanManualCode').value.trim();
+    if (!code) return;
+    _admCandResolveScan(code);
+  }
+  async function _admCandResolveScan(code) {
+    const note = document.getElementById('admCandScanNote');
+    if (note) note.textContent = 'Looking up ' + code + '…';
+    try {
+      const action = _admCandScanMode === 'submission' ? 'scanSubmission' : 'scanAttendance';
+      const r = await _admCandFetch(action, { code, scope: _admCandScanScope });
+      if (r.error) {
+        if (note) note.textContent = r.error;
+        if (r.out_of_scope && r.candidate) _admCandRenderScanResult(r.candidate, true);
+        return;
+      }
+      if (note) note.textContent = 'Marked — keep scanning for the next one.';
+      _admCandRenderScanResult(r.candidate, false);
+    } catch (e) {
+      if (note) note.textContent = e.message || 'Lookup failed';
+    }
+  }
+  function _admCandRenderScanResult(c, rejected) {
+    const host = document.getElementById('admCandScanResult');
+    if (!host) return;
+    host.classList.remove('hidden');
+    const statusLine = _admCandScanMode === 'submission'
+      ? `Submission: <b>${_escHtml(c.submission_scan_status || 'pending')}</b>`
+      : `Attendance: <b>${_escHtml(c.attendance_scan_status || 'pending')}</b>`;
+    host.innerHTML = `<div class="flex items-center gap-4 ${rejected ? 'bg-red-50 border border-red-200' : 'bg-emerald-50 border border-emerald-200'} rounded-xl p-3">
+      ${c.photo_url ? `<img src="${_escHtml(c.photo_url)}" style="width:48px;height:48px;object-fit:cover;border-radius:10px">` : ''}
+      <div class="flex-1">
+        <p class="font-black text-slate-800">${_escHtml(c.candidate_name || '—')}</p>
+        <p class="text-xs text-slate-500">${_escHtml(c.class || '')} · <span class="font-mono text-blue-600">${_escHtml(c.token || '')}</span></p>
+        <p class="text-xs mt-1">${rejected ? 'Outside selected scope — not marked.' : statusLine}</p>
+      </div>
+    </div>`;
   }
 
   // ── PERMISSION CONTROL PANEL (Admin only) ────────────────────────────────────
