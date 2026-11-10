@@ -73,6 +73,25 @@ async function _isAdmissionAdmin(userId) {
   return roles.includes('Admin') || roles.includes('Admission Admin');
 }
 
+// ── Part 6: committee permissions, widened to cover this route's own views
+// ('applications' = Dashboard + New Application/Form, 'admin_settings' = the
+// Settings view) alongside the 8 Candidates-tab keys already used by
+// app/api/admission-candidates/route.js's circular_committee_members rows --
+// same table, same permissions shape, duplicated helpers per this codebase's
+// no-shared-lib convention (identical to that route's own _getCommitteePerms/
+// _tabOk/_forbidden).
+async function _getCommitteePerms(userId, circularId) {
+  if (!circularId || !userId) return null;
+  const rows = await sbAdmission(`circular_committee_members?circular_id=eq.${circularId}&user_id=eq.${encodeURIComponent(userId)}&select=permissions`);
+  return (Array.isArray(rows) && rows[0] && rows[0].permissions) || null;
+}
+function _tabOk(isFullAdmin, perms, tab, level) {
+  if (isFullAdmin) return true;
+  const have = (perms && perms.tabs && perms.tabs[tab]) || 'none';
+  return level === 'edit' ? have === 'edit' : (have === 'view' || have === 'edit');
+}
+function _forbidden() { return NextResponse.json({ error: 'Not permitted for your committee role.' }, { status: 403 }); }
+
 // Canonical built-in field list — kept identical to ccpc-admission's own
 // app/api/apply/route.js + app/api/exec/route.js (duplicated rather than
 // shared across repos/deployments, matching both apps' existing convention
@@ -182,15 +201,43 @@ export async function POST(req) {
   let body;
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'Bad request' }, { status: 400 }); }
   const { action, payload = {}, user_id } = body;
-
-  if (!(await _isAdmissionAdmin(user_id))) {
-    return NextResponse.json({ error: 'Admission Admin access required.' }, { status: 403 });
+  const isFullAdmin = await _isAdmissionAdmin(user_id);
+  if (!isFullAdmin) {
+    // A committee member (no Admin/Admission Admin role) may only reach this
+    // route via a per-circular 'applications' or 'admin_settings' grant --
+    // every other action here (and any action that can't resolve a
+    // circular_id) stays closed. Session/circular management itself lives
+    // entirely in app/api/admission-candidates/route.js, not here.
+    const APPLICATIONS_ACTIONS = new Set(['listApplications', 'getApplication', 'saveApplication', 'deleteApplication', 'updateStatus', 'bulkUpdateStatus', 'lookupByCode', 'getStats']);
+    const EDIT_ACTIONS = new Set(['saveApplication', 'deleteApplication', 'updateStatus', 'bulkUpdateStatus', 'saveSettings', 'saveFormFields', 'resetCounter', 'verifyPayment', 'markPaid', 'issueAdmits', 'sendTestSms']);
+    const tab = APPLICATIONS_ACTIONS.has(action) ? 'applications' : 'admin_settings';
+    const level = EDIT_ACTIONS.has(action) ? 'edit' : 'view';
+    let circularId = parseInt(payload.circular_id, 10) || null;
+    // For actions that act on an EXISTING row by id, resolve the circular_id
+    // from the row itself -- never trust a client-claimed circular_id for
+    // these, or a committee member permitted on circular A could mutate a
+    // row that actually belongs to circular B just by lying in the payload.
+    const ROW_ID_ACTIONS = { getApplication: 'id', deleteApplication: 'id', updateStatus: 'id' };
+    if (ROW_ID_ACTIONS[action] || (action === 'saveApplication' && payload.id)) {
+      const rowId = parseInt(payload[ROW_ID_ACTIONS[action] || 'id'], 10);
+      const rows = rowId ? await sbAdmission(`admission_applications?id=eq.${rowId}&select=circular_id`) : null;
+      circularId = (Array.isArray(rows) && rows[0]) ? rows[0].circular_id : null;
+    } else if (action === 'bulkUpdateStatus') {
+      const ids = Array.isArray(payload.ids) ? payload.ids.map(n => parseInt(n, 10)).filter(Boolean) : [];
+      const rows = ids.length ? await sbAdmission(`admission_applications?id=in.(${ids.join(',')})&select=circular_id`) : [];
+      const distinct = [...new Set((Array.isArray(rows) ? rows : []).map(r => r.circular_id))];
+      circularId = distinct.length === 1 ? distinct[0] : null;
+    }
+    if (!circularId) return _forbidden();
+    const perms = await _getCommitteePerms(user_id, circularId);
+    if (!_tabOk(false, perms, tab, level)) return _forbidden();
   }
 
   // ── List Applications ────────────────────────────────────────────────────
   if (action === 'listApplications') {
-    let q = 'admission_applications?select=id,tracking_id,index_id,name_english,name_bangla,class,category,version,session,status,stage,payment_status,room_no,created_at&order=created_at.desc&limit=1000';
-    if (payload.session) q += `&session=eq.${encodeURIComponent(payload.session)}`;
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ applications: [] });
+    let q = `admission_applications?select=id,tracking_id,index_id,name_english,name_bangla,class,category,version,session,status,stage,payment_status,room_no,created_at&circular_id=eq.${circularId}&order=created_at.desc&limit=1000`;
     if (payload.class)   q += `&class=eq.${encodeURIComponent(payload.class)}`;
     if (payload.status)  q += `&status=eq.${encodeURIComponent(payload.status)}`;
     const rows = await sbAdmission(q);
@@ -210,12 +257,18 @@ export async function POST(req) {
     data.updated_at = new Date().toISOString();
 
     if (!id) {
+      const circularId = parseInt(payload.circular_id, 10);
+      if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
+      data.circular_id = circularId;
       const trackingId = await sbAdmissionRpc('generate_tracking_id', {});
       data.tracking_id = trackingId || Math.random().toString(16).slice(2, 8).toUpperCase();
 
-      const settingsRows = await sbAdmission('admission_settings?key=in.(index_settings,circular_settings)');
+      const [settingsRows, circRows] = await Promise.all([
+        sbAdmission('admission_settings?key=eq.index_settings'),
+        sbAdmission(`exam_circulars?id=eq.${circularId}&select=index_dimensions`),
+      ]);
       const indexSettings = settingsRows?.find(r => r.key === 'index_settings')?.value || {};
-      const circSettings  = settingsRows?.find(r => r.key === 'circular_settings')?.value || {};
+      const circSettings  = (Array.isArray(circRows) && circRows[0] && circRows[0].index_dimensions) || {};
       let counterKey = data.class || '';
       if (circSettings.useSymbolCounter && circSettings.entries && circSettings.dimensions) {
         const matched = findCircularEntry(data, circSettings);
@@ -236,6 +289,7 @@ export async function POST(req) {
       if (res?.error) return NextResponse.json({ error: res.error });
       return NextResponse.json({ id: res?.[0]?.id, tracking_id: data.tracking_id, index_id: data.index_id });
     } else {
+      delete data.circular_id; // reassigning an application to a different circular isn't supported via edit
       const res = await sbAdmission(`admission_applications?id=eq.${id}`, 'PATCH', data);
       if (res?.error) return NextResponse.json({ error: res.error });
       return NextResponse.json({ id });
@@ -271,10 +325,12 @@ export async function POST(req) {
   if (action === 'lookupByCode') {
     const code = String(payload.code || '').trim();
     if (!code) return NextResponse.json({ error: 'No code scanned.' });
+    const circularId = parseInt(payload.circular_id, 10);
+    const scope = circularId ? `&circular_id=eq.${circularId}` : '';
     const cols = 'id,tracking_id,index_id,name_english,name_bangla,class,category,version,session,status,student_photo';
-    let rows = await sbAdmission(`admission_applications?tracking_id=eq.${encodeURIComponent(code)}&select=${cols}`);
+    let rows = await sbAdmission(`admission_applications?tracking_id=eq.${encodeURIComponent(code)}${scope}&select=${cols}`);
     if (!Array.isArray(rows) || !rows.length) {
-      rows = await sbAdmission(`admission_applications?index_id=eq.${encodeURIComponent(code)}&select=${cols}`);
+      rows = await sbAdmission(`admission_applications?index_id=eq.${encodeURIComponent(code)}${scope}&select=${cols}`);
     }
     const app = (Array.isArray(rows) && rows[0]) ? rows[0] : null;
     if (!app) return NextResponse.json({ error: `No application matches "${code}".` });
@@ -283,10 +339,9 @@ export async function POST(req) {
 
   // ── Stats ────────────────────────────────────────────────────────────────
   if (action === 'getStats') {
-    const q = payload.session
-      ? `admission_applications?select=status&session=eq.${encodeURIComponent(payload.session)}`
-      : 'admission_applications?select=status';
-    const rows = await sbAdmission(q);
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ stats: {} });
+    const rows = await sbAdmission(`admission_applications?select=status&circular_id=eq.${circularId}`);
     if (!rows || rows.error) return NextResponse.json({ stats: {} });
     const stats = { total: rows.length, pending: 0, admitted: 0, rejected: 0, called: 0 };
     rows.forEach(r => {
@@ -308,15 +363,34 @@ export async function POST(req) {
   }
 
   // ── Phase 2: Settings (Index Pattern / Circular / generic key-value) ────
+  // 'circular_settings' (Part 1's dimensions/entries/symbol-counter matrix,
+  // used only to pick an index-ID counter key) is Part 6's one exception to
+  // "settings stay shared across circulars" -- it's redirected to live on
+  // exam_circulars.index_dimensions for the active circular instead of the
+  // global admission_settings table, since the whole point of the Part 1/
+  // Part 2 merge is that each circular gets its own. Every other key (index
+  // pattern, form fields, templates, payments, counters, SMS) is untouched.
   if (action === 'getSettings') {
     const rows = await sbAdmission('admission_settings');
     if (!rows || rows.error) return NextResponse.json({ settings: {} });
     const settings = {};
     rows.forEach(r => { settings[r.key] = r.value; });
+    const circularId = parseInt(payload.circular_id, 10);
+    if (circularId) {
+      const circRows = await sbAdmission(`exam_circulars?id=eq.${circularId}&select=index_dimensions`);
+      settings.circular_settings = (Array.isArray(circRows) && circRows[0] && circRows[0].index_dimensions) || {};
+    }
     return NextResponse.json({ settings });
   }
   if (action === 'saveSettings') {
     const { key, value } = payload;
+    if (key === 'circular_settings') {
+      const circularId = parseInt(payload.circular_id, 10);
+      if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
+      const res = await sbAdmission(`exam_circulars?id=eq.${circularId}`, 'PATCH', { index_dimensions: value });
+      if (res?.error) return NextResponse.json({ error: res.error });
+      return NextResponse.json({ success: true });
+    }
     const existing = await sbAdmission(`admission_settings?key=eq.${encodeURIComponent(key)}`);
     if (existing && !existing.error && existing.length > 0) {
       await sbAdmission(`admission_settings?key=eq.${encodeURIComponent(key)}`, 'PATCH',

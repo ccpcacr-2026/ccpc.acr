@@ -41435,29 +41435,109 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const container = document.getElementById('view-container');
     if (!container) return;
     container.innerHTML = `
-      <div id="admAdminDashboard">
+      <div id="admCandSessionGate" class="hidden">
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 max-w-lg">
+          <h3 class="font-black text-slate-800 text-sm mb-1">Pick a session to continue</h3>
+          <p class="text-xs text-slate-400 mb-4">Each session (e.g. an admission year) holds its own circulars — type a name to create one.</p>
+          <div id="admCandSessionList" class="flex flex-wrap gap-2 mb-4"></div>
+          <div class="flex items-center gap-2">
+            <input type="text" id="admCandNewSessionName" placeholder="New session name… e.g. 2026" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+            <button onclick="_admCandCreateSession()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Create &amp; Continue</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="admCandMyCircularsGate" class="hidden">
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 max-w-lg">
+          <h3 class="font-black text-slate-800 text-sm mb-1">Your committee assignments</h3>
+          <p class="text-xs text-slate-400 mb-4">You've been added to the circulars below — pick one to continue.</p>
+          <div id="admCandMyCircularsList" class="flex flex-col gap-2"></div>
+        </div>
+      </div>
+
+      <div id="admCandCircularGate" class="hidden">
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 max-w-lg">
+          <div class="flex items-center justify-between mb-1">
+            <h3 class="font-black text-slate-800 text-sm">Pick a circular in <span id="admCandGateSessionName" class="text-blue-600"></span></h3>
+            <button onclick="_admCandSwitchSession()" class="text-[10px] text-blue-600 font-black uppercase whitespace-nowrap">Change Session</button>
+          </div>
+          <p class="text-xs text-slate-400 mb-4">Everything in Admission Admin — the application dashboard, settings, and external-candidate tools — is scoped to one circular at a time.</p>
+          <div id="admCandCircularList" class="flex flex-col gap-1.5 mb-4"></div>
+          <div id="admCandCircularFormTitle" class="text-[10px] uppercase text-slate-400 font-bold mb-1">New circular</div>
+          <input type="text" id="admCandNewCircularName" placeholder="Circular name…" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs mb-3">
+          <div class="flex items-center gap-4 mb-3">
+            <div>
+              <label class="text-[10px] uppercase text-slate-400 font-bold block mb-1">Intake</label>
+              <div class="flex gap-1">
+                <label class="flex items-center gap-1 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold cursor-pointer"><input type="radio" name="admCandNewCircularMode" value="offline" checked> Offline (Excel)</label>
+                <label class="flex items-center gap-1 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold cursor-pointer"><input type="radio" name="admCandNewCircularMode" value="online"> Online (live form)</label>
+              </div>
+            </div>
+            <div>
+              <label class="text-[10px] uppercase text-slate-400 font-bold block mb-1">Status</label>
+              <label class="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold cursor-pointer"><input type="checkbox" id="admCandNewCircularActive"> Active / Public</label>
+            </div>
+          </div>
+          <label class="text-[10px] text-slate-400 font-bold block mb-1">Require unique values for (optional — only checked when candidates are entered/edited via the Online form; leave blank to skip)</label>
+          <select id="admCandNewCircularUniqueFields" multiple class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs mb-3" style="height:70px">
+            <option value="token">Token</option>
+            <option value="candidate_name">Candidate Name</option>
+            <option value="class">Class</option>
+            <option value="version">Version</option>
+            <option value="category">Category</option>
+          </select>
+          <p class="text-[10px] uppercase text-slate-400 font-bold mb-1">Bound to (optional) — uploaded data must match these, or it's rejected as a mismatch. Leave blank for "applies to all".</p>
+          <div class="grid grid-cols-3 gap-2 mb-3">
+            <div><label class="text-[10px] text-slate-400 font-bold">Class</label><select id="admCandNewCircularClass" multiple class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="height:84px"></select></div>
+            <div><label class="text-[10px] text-slate-400 font-bold">Version</label><select id="admCandNewCircularVersion" multiple class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="height:84px"></select></div>
+            <div><label class="text-[10px] text-slate-400 font-bold">Category</label><select id="admCandNewCircularCategory" multiple class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="height:84px"></select></div>
+          </div>
+          <p class="text-[10px] uppercase text-slate-400 font-bold mb-1">Admit Card &amp; Apply Form</p>
+          <div class="grid grid-cols-2 gap-2 mb-2">
+            <label class="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold cursor-pointer"><input type="checkbox" id="admCandNewCircularAdmitInstant" checked> Instant Admit Card</label>
+            <div><label class="text-[10px] text-slate-400 font-bold block mb-1">Available From (if not instant)</label><input type="datetime-local" id="admCandNewCircularAdmitReleaseAt" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"></div>
+          </div>
+          <label class="text-[10px] text-slate-400 font-bold block mb-1">Admit Card Instructions (optional — overrides the template's own)</label>
+          <textarea id="admCandNewCircularAdmitInstructions" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs mb-2" rows="2"></textarea>
+          <label class="text-[10px] text-slate-400 font-bold block mb-1">Apply Declaration (shown on the online form)</label>
+          <textarea id="admCandNewCircularDeclaration" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs mb-2" rows="2">I hereby declare that the above-made information is true and correct to the best of my knowledge.</textarea>
+          <div class="flex items-center gap-2 mb-3">
+            <label class="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold cursor-pointer whitespace-nowrap"><input type="checkbox" id="admCandNewCircularSmsOnSubmit"> Send SMS on submission</label>
+            <input type="text" id="admCandNewCircularSmsTemplate" placeholder="Your application has been received. Your token is {token}." class="flex-1 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="admCandCircularSaveBtn" onclick="_admCandSaveCircularForm()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Create &amp; Continue</button>
+            <button id="admCandCircularCancelBtn" onclick="_admCandCancelEditCircular()" class="hidden px-4 py-2 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Cancel Edit</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="admModuleCircularBar" class="hidden flex items-center gap-2 flex-wrap mb-4 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5">
+        <span class="text-[10px] uppercase text-slate-400 font-bold">Circular</span>
+        <b id="admModuleActiveCircularName" class="text-xs font-black text-slate-800"></b>
+        <button onclick="_admCandSwitchCircular()" class="ml-auto px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase">Switch Circular</button>
+      </div>
+
+      <div id="admAdminDashboard" class="hidden">
         <div class="flex flex-wrap items-center gap-2 mb-3">
           <input type="text" id="adm-search-input" placeholder="Search name, tracking ID…" oninput="_admFilterApps()"
             class="flex-1 min-w-[160px] px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500">
-          <select id="adm-filter-session" onchange="_admFilterApps()" class="px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold">
-            <option value="">All Sessions</option><option>2025</option><option>2026</option><option>2027</option>
-          </select>
           <select id="adm-filter-class" onchange="_admFilterApps()" class="px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold">
             <option value="">All Classes</option>${ADM_CLASSES.map(c => `<option>${c}</option>`).join('')}
           </select>
           <select id="adm-filter-status" onchange="_admFilterApps()" class="px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold">
             <option value="">All Status</option>${ADM_STATUSES.map(s => `<option>${s}</option>`).join('')}
           </select>
-          <button onclick="_admLoadNewApplication()" class="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-black transition-all">
+          <button id="adm-new-app-btn" onclick="_admLoadNewApplication()" class="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-black transition-all">
             <i data-lucide="plus" class="h-3.5 w-3.5"></i> New Application
           </button>
           <button onclick="_admExportCsv()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
             <i data-lucide="download" class="h-3.5 w-3.5"></i> Export CSV
           </button>
-          <button onclick="_admOpenCandidates()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
+          <button id="adm-open-candidates-btn" onclick="_admOpenCandidates()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
             <i data-lucide="users" class="h-3.5 w-3.5"></i> Candidates
           </button>
-          <button onclick="_admOpenSettings()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
+          <button id="adm-open-settings-btn" onclick="_admOpenSettings()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
             <i data-lucide="settings" class="h-3.5 w-3.5"></i> Settings
           </button>
         </div>
@@ -41534,83 +41614,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <h2 class="font-black text-slate-800 text-sm">External Candidates</h2>
         </div>
 
-        <div id="admCandSessionGate" class="hidden">
-          <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 max-w-lg">
-            <h3 class="font-black text-slate-800 text-sm mb-1">Pick a session to continue</h3>
-            <p class="text-xs text-slate-400 mb-4">Each session (e.g. an admission year) holds its own circulars — type a name to create one.</p>
-            <div id="admCandSessionList" class="flex flex-wrap gap-2 mb-4"></div>
-            <div class="flex items-center gap-2">
-              <input type="text" id="admCandNewSessionName" placeholder="New session name… e.g. 2026" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">
-              <button onclick="_admCandCreateSession()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Create &amp; Continue</button>
-            </div>
-          </div>
-        </div>
-
-        <div id="admCandMyCircularsGate" class="hidden">
-          <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 max-w-lg">
-            <h3 class="font-black text-slate-800 text-sm mb-1">Your committee assignments</h3>
-            <p class="text-xs text-slate-400 mb-4">You've been added to the circulars below — pick one to continue.</p>
-            <div id="admCandMyCircularsList" class="flex flex-col gap-2"></div>
-          </div>
-        </div>
-
-        <div id="admCandCircularGate" class="hidden">
-          <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 max-w-lg">
-            <div class="flex items-center justify-between mb-1">
-              <h3 class="font-black text-slate-800 text-sm">Pick a circular in <span id="admCandGateSessionName" class="text-blue-600"></span></h3>
-              <button onclick="_admCandSwitchSession()" class="text-[10px] text-blue-600 font-black uppercase whitespace-nowrap">Change Session</button>
-            </div>
-            <p class="text-xs text-slate-400 mb-4">Import, Candidates, Rooms, Allocation, Printing and Scan are all scoped to one circular at a time — the same token or room name can safely repeat across different circulars.</p>
-            <div id="admCandCircularList" class="flex flex-col gap-1.5 mb-4"></div>
-            <div id="admCandCircularFormTitle" class="text-[10px] uppercase text-slate-400 font-bold mb-1">New circular</div>
-            <input type="text" id="admCandNewCircularName" placeholder="Circular name…" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs mb-3">
-            <div class="flex items-center gap-4 mb-3">
-              <div>
-                <label class="text-[10px] uppercase text-slate-400 font-bold block mb-1">Intake</label>
-                <div class="flex gap-1">
-                  <label class="flex items-center gap-1 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold cursor-pointer"><input type="radio" name="admCandNewCircularMode" value="offline" checked> Offline (Excel)</label>
-                  <label class="flex items-center gap-1 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold cursor-pointer"><input type="radio" name="admCandNewCircularMode" value="online"> Online (live form)</label>
-                </div>
-              </div>
-              <div>
-                <label class="text-[10px] uppercase text-slate-400 font-bold block mb-1">Status</label>
-                <label class="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold cursor-pointer"><input type="checkbox" id="admCandNewCircularActive"> Active / Public</label>
-              </div>
-            </div>
-            <label class="text-[10px] text-slate-400 font-bold block mb-1">Require unique values for (optional — only checked when candidates are entered/edited via the Online form; leave blank to skip)</label>
-            <select id="admCandNewCircularUniqueFields" multiple class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs mb-3" style="height:70px">
-              <option value="token">Token</option>
-              <option value="candidate_name">Candidate Name</option>
-              <option value="class">Class</option>
-              <option value="version">Version</option>
-              <option value="category">Category</option>
-            </select>
-            <p class="text-[10px] uppercase text-slate-400 font-bold mb-1">Bound to (optional) — uploaded data must match these, or it's rejected as a mismatch. Leave blank for "applies to all".</p>
-            <div class="grid grid-cols-3 gap-2 mb-3">
-              <div><label class="text-[10px] text-slate-400 font-bold">Class</label><select id="admCandNewCircularClass" multiple class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="height:84px"></select></div>
-              <div><label class="text-[10px] text-slate-400 font-bold">Version</label><select id="admCandNewCircularVersion" multiple class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="height:84px"></select></div>
-              <div><label class="text-[10px] text-slate-400 font-bold">Category</label><select id="admCandNewCircularCategory" multiple class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="height:84px"></select></div>
-            </div>
-            <p class="text-[10px] uppercase text-slate-400 font-bold mb-1">Admit Card &amp; Apply Form</p>
-            <div class="grid grid-cols-2 gap-2 mb-2">
-              <label class="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold cursor-pointer"><input type="checkbox" id="admCandNewCircularAdmitInstant" checked> Instant Admit Card</label>
-              <div><label class="text-[10px] text-slate-400 font-bold block mb-1">Available From (if not instant)</label><input type="datetime-local" id="admCandNewCircularAdmitReleaseAt" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"></div>
-            </div>
-            <label class="text-[10px] text-slate-400 font-bold block mb-1">Admit Card Instructions (optional — overrides the template's own)</label>
-            <textarea id="admCandNewCircularAdmitInstructions" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs mb-2" rows="2"></textarea>
-            <label class="text-[10px] text-slate-400 font-bold block mb-1">Apply Declaration (shown on the online form)</label>
-            <textarea id="admCandNewCircularDeclaration" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs mb-2" rows="2">I hereby declare that the above-made information is true and correct to the best of my knowledge.</textarea>
-            <div class="flex items-center gap-2 mb-3">
-              <label class="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold cursor-pointer whitespace-nowrap"><input type="checkbox" id="admCandNewCircularSmsOnSubmit"> Send SMS on submission</label>
-              <input type="text" id="admCandNewCircularSmsTemplate" placeholder="Your application has been received. Your token is {token}." class="flex-1 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
-            </div>
-            <div class="flex items-center gap-2">
-              <button id="admCandCircularSaveBtn" onclick="_admCandSaveCircularForm()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Create &amp; Continue</button>
-              <button id="admCandCircularCancelBtn" onclick="_admCandCancelEditCircular()" class="hidden px-4 py-2 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Cancel Edit</button>
-            </div>
-          </div>
-        </div>
-
         <div id="admCandMainArea" class="hidden">
           <div class="flex items-center gap-2 flex-wrap mb-4 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5">
             <span class="text-[10px] uppercase text-slate-400 font-bold">Session / Circular</span>
@@ -41636,8 +41639,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admRenderFormSections();
     _admRenderSettingsSections();
     _admCandRenderSections();
-    _admShowView('dashboard');
-    _admLoadDashboard();
+    _admEnterAdmissionModule();
   }
 
   function _admShowView(which) {
@@ -41823,7 +41825,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const tbody = document.getElementById('adm-app-table-body');
     if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="px-4 py-10 text-center text-slate-400 text-sm">Loading…</td></tr>';
     try {
-      const res = await _admAdminFetch('listApplications', {});
+      const res = await _admAdminFetch('listApplications', { circular_id: _admCandActiveCircularId });
       if (res.error) { showToast(res.error, 'error'); return; }
       _admAllApps = res.applications || [];
       _admRenderTable(_admAllApps);
@@ -41832,7 +41834,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   async function _admLoadStats() {
     try {
-      const r = await _admAdminFetch('getStats', {});
+      const r = await _admAdminFetch('getStats', { circular_id: _admCandActiveCircularId });
       if (!r.stats) return;
       const s = r.stats;
       const chip = (label, val, color) => `<span class="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600">${label}: <b style="color:${color}">${val}</b></span>`;
@@ -41915,12 +41917,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   function _admFilterApps() {
     const q = (document.getElementById('adm-search-input').value || '').toLowerCase();
-    const sess = document.getElementById('adm-filter-session').value;
     const cls = document.getElementById('adm-filter-class').value;
     const stat = document.getElementById('adm-filter-status').value;
     _admRenderTable(_admAllApps.filter(a => {
       if (q && !`${a.name_english || ''} ${a.tracking_id || ''} ${a.index_id || ''}`.toLowerCase().includes(q)) return false;
-      if (sess && a.session !== sess) return false;
       if (cls && a.class !== cls) return false;
       if (stat && a.status !== stat) return false;
       return true;
@@ -42015,7 +42015,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     let session = _admCurrentCircular && _admCurrentCircular.session;
     if (!session) {
       try {
-        const r = await _admAdminFetch('getSettings', {});
+        const r = await _admAdminFetch('getSettings', { circular_id: _admCandActiveCircularId });
         session = (r.settings && r.settings.circular_settings && r.settings.circular_settings.session) || '';
       } catch (e) { /* fall back to current year below */ }
     }
@@ -42079,7 +42079,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!keys.length) { block.classList.add('hidden'); return; }
     let labels = {};
     try {
-      const r = await _admAdminFetch('getFormFields', {});
+      const r = await _admAdminFetch('getFormFields', { circular_id: _admCandActiveCircularId });
       (r.fields || []).forEach(f => { labels[f.key] = f.label; });
     } catch (e) {}
     body.innerHTML = keys.map(k => `
@@ -42128,7 +42128,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }
     if (_admCurrentId) { delete data.tracking_id; delete data.index_id; }
     try {
-      const r = await _admAdminFetch('saveApplication', { id: _admCurrentId, data });
+      const r = await _admAdminFetch('saveApplication', { id: _admCurrentId, data, circular_id: _admCandActiveCircularId });
       if (r.error) { showToast(r.error, 'error'); return; }
       if (!_admCurrentId) {
         _admCurrentId = r.id;
@@ -42553,13 +42553,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   async function _admEnsureFormSettings() {
     if (currentFormSettings) return;
-    const r = await _admAdminFetch('getSettings', {});
+    const r = await _admAdminFetch('getSettings', { circular_id: _admCandActiveCircularId });
     const s = r.settings || {};
     currentFormSettings = deepMerge(DEFAULT_FORM, s.form_settings || {});
   }
   async function _admLoadFormTemplates() {
     await _admEnsureFormSettings();
-    const r = await _admAdminFetch('getSettings', {});
+    const r = await _admAdminFetch('getSettings', { circular_id: _admCandActiveCircularId });
     const s = r.settings || {};
     const tplData = s.form_templates || {};
     _admFormTemplates = tplData.templates || [];
@@ -42655,7 +42655,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     fdZoomFit();
   }
   async function _admSaveFormTplsDB() {
-    return _admAdminFetch('saveSettings', { key: 'form_templates', value: { templates: _admFormTemplates, activeId: _admFormActiveTplId } });
+    return _admAdminFetch('saveSettings', { key: 'form_templates', value: { templates: _admFormTemplates, activeId: _admFormActiveTplId }, circular_id: _admCandActiveCircularId });
   }
   async function _admFormSaveTpl() {
     const tpl = _admFormTemplates.find(t => t.id === _admFormActiveTplId);
@@ -42724,10 +42724,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   function _admGetActiveAdmitTpl() { return _admAdmitTemplates.find(t => t.id === _admAdmitActiveTplId) || null; }
   async function _admSaveAdmitTplsDB() {
-    return _admAdminFetch('saveSettings', { key: 'admit_templates', value: { templates: _admAdmitTemplates, activeId: _admAdmitActiveTplId } });
+    return _admAdminFetch('saveSettings', { key: 'admit_templates', value: { templates: _admAdmitTemplates, activeId: _admAdmitActiveTplId }, circular_id: _admCandActiveCircularId });
   }
   async function _admLoadAdmitTemplates() {
-    const r = await _admAdminFetch('getSettings', {});
+    const r = await _admAdminFetch('getSettings', { circular_id: _admCandActiveCircularId });
     const s = r.settings || {};
     const data = s.admit_templates || {};
     _admAdmitTemplates = data.templates || [];
@@ -42802,7 +42802,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // updating the notice per-circular never requires touching the template.
   async function _admGetCircularNotice() {
     try {
-      const r = await _admAdminFetch('getSettings', {});
+      const r = await _admAdminFetch('getSettings', { circular_id: _admCandActiveCircularId });
       const c = (r.settings && r.settings.circular_settings) || {};
       return (c.admitNotice || '').trim();
     } catch { return ''; }
@@ -42818,7 +42818,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   async function _admSaveAdmitDesign() {
     const value = _admCollectAdmitDesignSettings();
     _admCurrentAdmitSettings = deepMerge(DEFAULT_ADMIT, value);
-    const r = await _admAdminFetch('saveSettings', { key: 'admit_card_settings', value });
+    const r = await _admAdminFetch('saveSettings', { key: 'admit_card_settings', value, circular_id: _admCandActiveCircularId });
     if (r.error) { showToast(r.error, 'error'); return; }
     showToast('Admit card design saved');
   }
@@ -42941,7 +42941,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // ccpc-admission's printForm/printAdmitCard/printFormById/printAdmitById. ─
   async function _admEnsureFormLayoutForPrint() {
     if (formLayout && formLayout.length && !window._admFormLayoutAutoSeeded) return;
-    const s = (await _admAdminFetch('getSettings', {})).settings || {};
+    const s = (await _admAdminFetch('getSettings', { circular_id: _admCandActiveCircularId })).settings || {};
     const tplData = s.form_templates || {};
     const tpls = tplData.templates || [];
     const active = tplData.activeId;
@@ -42952,7 +42952,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   async function _admEnsureAdmitTplForPrint() {
     if (_admCurrentAdmitSettings) return;
-    const s = (await _admAdminFetch('getSettings', {})).settings || {};
+    const s = (await _admAdminFetch('getSettings', { circular_id: _admCandActiveCircularId })).settings || {};
     const tplData = s.admit_templates || {};
     const tpls = tplData.templates || [];
     const active = tplData.activeId;
@@ -43028,7 +43028,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   async function _admLoadIndexAndCircular() {
     try {
-      const r = await _admAdminFetch('getSettings', {});
+      const r = await _admAdminFetch('getSettings', { circular_id: _admCandActiveCircularId });
       const s = r.settings || {};
       _admIndexSettings = Object.assign({}, _admDEFAULT_INDEX, s.index_settings || {});
       if (!_admCurrentCircular) {
@@ -43142,7 +43142,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const value = _admCollectIndexSettings();
     _admIndexSettings = value;
     try {
-      const r = await _admAdminFetch('saveSettings', { key: 'index_settings', value });
+      const r = await _admAdminFetch('saveSettings', { key: 'index_settings', value, circular_id: _admCandActiveCircularId });
       if (r.error) { showToast(r.error, 'error'); return; }
       showToast('Index settings saved');
     } catch (e) { showToast(e.message || 'Could not save', 'error'); }
@@ -43177,7 +43177,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     c.admitNotice = _admV('adm-circ-notice');
     c.useSymbolCounter = _admChk('adm-circ-use-symbol');
     try {
-      const r = await _admAdminFetch('saveSettings', { key: 'circular_settings', value: c });
+      const r = await _admAdminFetch('saveSettings', { key: 'circular_settings', value: c, circular_id: _admCandActiveCircularId });
       if (r.error) { showToast(r.error, 'error'); return; }
       const note = document.getElementById('adm-circ-save-note');
       if (note) { note.textContent = 'Saved ' + new Date().toLocaleTimeString(); setTimeout(() => { note.textContent = ''; }, 3000); }
@@ -43273,7 +43273,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     try {
       const [fr, sr] = await Promise.all([
         _admAdminFetch('getFormFields', {}),
-        _admAdminFetch('getSettings', {}),
+        _admAdminFetch('getSettings', { circular_id: _admCandActiveCircularId }),
       ]);
       if (fr.error) { if (host) host.innerHTML = `<p class="text-xs text-red-500">${_escHtml(fr.error)}</p>`; return; }
       _admFFState = fr.fields || [];
@@ -43389,8 +43389,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   async function _admFFSave() {
     try {
       const [fr, sr] = await Promise.all([
-        _admAdminFetch('saveFormFields', { fields: _admFFState }),
-        _admAdminFetch('saveSettings', { key: 'form_sections', value: _admFFSections }),
+        _admAdminFetch('saveFormFields', { fields: _admFFState, circular_id: _admCandActiveCircularId }),
+        _admAdminFetch('saveSettings', { key: 'form_sections', value: _admFFSections, circular_id: _admCandActiveCircularId }),
       ]);
       if (fr.error) { showToast(fr.error, 'error'); return; }
       if (sr.error) { showToast(sr.error, 'error'); return; }
@@ -43402,7 +43402,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   const _admPAY_STATUS_COLORS = { review: 'bg-amber-100 text-amber-700', verified: 'bg-emerald-100 text-emerald-700', valid: 'bg-emerald-100 text-emerald-700', rejected: 'bg-red-100 text-red-700' };
   async function _admLoadPaymentsTab() {
     try {
-      const r = await _admAdminFetch('getSettings', {});
+      const r = await _admAdminFetch('getSettings', { circular_id: _admCandActiveCircularId });
       const s = (r.settings || {}).payment_settings || {};
       _admSetV('adm-ps-store-id', s.sslStoreId || '');
       _admSetV('adm-ps-store-pass', s.sslStorePass || '');
@@ -43424,7 +43424,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       manualNumbers: _admV('adm-ps-manual-numbers'), manualInstructions: _admV('adm-ps-manual-instructions'),
     };
     try {
-      const r = await _admAdminFetch('saveSettings', { key: 'payment_settings', value });
+      const r = await _admAdminFetch('saveSettings', { key: 'payment_settings', value, circular_id: _admCandActiveCircularId });
       if (r.error) { showToast(r.error, 'error'); return; }
       showToast('Payment settings saved' + (value.sslStoreId ? (value.sslSandbox ? ' — gateway in SANDBOX mode' : ' — gateway LIVE') : ' — gateway off (no Store ID)'));
     } catch (e) { showToast(e.message || 'Could not save', 'error'); }
@@ -43434,7 +43434,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     host.innerHTML = 'Loading…';
     const status = (document.getElementById('adm-pay-filter') || {}).value || '';
     try {
-      const r = await _admAdminFetch('listPayments', status ? { status } : {});
+      const r = await _admAdminFetch('listPayments', Object.assign({ circular_id: _admCandActiveCircularId }, status ? { status } : {}));
       const pays = r.payments || [];
       if (!pays.length) { host.innerHTML = `<p class="text-xs text-slate-400 py-4">No payments${status ? ' with this status' : ''}.</p>`; return; }
       host.innerHTML = '<table class="w-full text-left" style="font-size:12px"><thead><tr class="text-[10px] uppercase text-slate-400">' +
@@ -43460,7 +43460,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   async function _admVerifyPay(pid, approve) {
     const go = async () => {
       try {
-        const r = await _admAdminFetch('verifyPayment', { paymentId: pid, approve });
+        const r = await _admAdminFetch('verifyPayment', { paymentId: pid, approve, circular_id: _admCandActiveCircularId });
         if (r.error) { showToast(r.error, 'error'); return; }
         showToast(approve ? 'Payment verified — form download unlocked' : 'Payment rejected');
         _admLoadPaymentsList();
@@ -43472,12 +43472,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const key = _admV('adm-markpaid-key').toUpperCase();
     if (!key) { showToast('Enter a tracking or index number', 'error'); return; }
     try {
-      const r = await _admAdminFetch('listApplications', {});
+      const r = await _admAdminFetch('listApplications', { circular_id: _admCandActiveCircularId });
       const apps = r.applications || [];
       const found = apps.find(a => String(a.tracking_id || '').toUpperCase() === key || String(a.index_id || '').toUpperCase() === key);
       if (!found) { showToast('No application matches ' + key, 'error'); return; }
       showConfirm(`Mark ${found.name_english || key} (${found.tracking_id}) as PAID (offline)?`, async () => {
-        const r2 = await _admAdminFetch('markPaid', { appId: found.id });
+        const r2 = await _admAdminFetch('markPaid', { appId: found.id, circular_id: _admCandActiveCircularId });
         if (r2.error) { showToast(r2.error, 'error'); return; }
         showToast('Marked paid');
         _admSetV('adm-markpaid-key', '');
@@ -43537,7 +43537,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!_admAdmitRows.length) return;
     showConfirm(`Issue admit cards for ${_admAdmitRows.length} application(s)? Matching applicants can immediately download their admit card with the room number.`, async () => {
       try {
-        const r = await _admAdminFetch('issueAdmits', { rows: _admAdmitRows });
+        const r = await _admAdminFetch('issueAdmits', { rows: _admAdmitRows, circular_id: _admCandActiveCircularId });
         if (r.error) { showToast(r.error, 'error'); return; }
         const note = document.getElementById('adm-admit-issue-note');
         if (note) note.textContent = `Issued: ${r.updated} · Matched: ${r.matched}${r.unmatched && r.unmatched.length ? ' · Unmatched: ' + r.unmatched.join(', ') : ''}`;
@@ -43552,7 +43552,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const el = document.getElementById('adm-counters-table'); if (!el) return;
     el.innerHTML = 'Loading…';
     try {
-      const r = await _admAdminFetch('listCounters', {});
+      const r = await _admAdminFetch('listCounters', { circular_id: _admCandActiveCircularId });
       if (!r.counters || !r.counters.length) { el.innerHTML = '<p class="text-sm text-slate-400">No counters yet. Index IDs will be assigned when applications are saved.</p>'; return; }
       el.innerHTML = `<table class="w-full text-sm"><thead><tr class="bg-slate-50 text-left">
         <th class="px-3 py-2 text-[10px] font-black uppercase text-slate-500">Year</th>
@@ -43570,7 +43570,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admResetCounter(year, cls) {
     showConfirm(`Reset counter for ${cls} ${year}? This may cause duplicate Index IDs.`, async () => {
       try {
-        const r = await _admAdminFetch('resetCounter', { year, cls });
+        const r = await _admAdminFetch('resetCounter', { year, cls, circular_id: _admCandActiveCircularId });
         if (r.error) { showToast(r.error, 'error'); return; }
         showToast('Counter reset');
         _admLoadCounters();
@@ -43581,7 +43581,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // ── SMS / OTP settings ───────────────────────────────────────────────────
   async function _admLoadSmsSettings() {
     try {
-      const r = await _admAdminFetch('getSettings', {});
+      const r = await _admAdminFetch('getSettings', { circular_id: _admCandActiveCircularId });
       const s = (r.settings || {}).sms_settings || {};
       _admSetV('adm-sms-method', s.method || 'GET');
       _admSetV('adm-sms-url', s.url || '');
@@ -43598,7 +43598,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (rawHeaders) { try { headers = JSON.parse(rawHeaders); } catch (e) { showToast('Headers must be valid JSON (or left blank).', 'error'); return; } }
     const value = { method: _admV('adm-sms-method') || 'GET', url: _admV('adm-sms-url'), headers, bodyTemplate: _admV('adm-sms-body'), messageTemplate: _admV('adm-sms-message') };
     try {
-      const r = await _admAdminFetch('saveSettings', { key: 'sms_settings', value });
+      const r = await _admAdminFetch('saveSettings', { key: 'sms_settings', value, circular_id: _admCandActiveCircularId });
       if (r.error) { showToast(r.error, 'error'); return; }
       const banner = document.getElementById('adm-sms-devcode-banner');
       if (banner) banner.classList.toggle('hidden', !!value.url);
@@ -43611,7 +43611,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const note = document.getElementById('adm-sms-test-note');
     if (note) note.textContent = 'Sending…';
     try {
-      const r = await _admAdminFetch('sendTestSms', { phone });
+      const r = await _admAdminFetch('sendTestSms', { phone, circular_id: _admCandActiveCircularId });
       if (r.error) { if (note) note.textContent = r.error; return; }
       if (note) note.textContent = r.devCode ? ('Not sent — gateway unconfigured. Test code: ' + r.devCode) : 'Sent — check the phone.';
     } catch (e) { if (note) note.textContent = e.message || 'Failed'; }
@@ -43674,7 +43674,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const note = document.getElementById('adm-scan-note');
     if (note) note.textContent = 'Looking up ' + code + '…';
     try {
-      const r = await _admAdminFetch('lookupByCode', { code });
+      const r = await _admAdminFetch('lookupByCode', { code, circular_id: _admCandActiveCircularId });
       if (r.error) {
         if (note) note.textContent = r.error + ' — keep scanning.';
         setTimeout(() => { _admScanBusy = false; }, 1200);
@@ -43766,24 +43766,40 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
   }
 
-  async function _admOpenCandidates() {
-    _admShowView('candidates');
-    _admCandLoadTemplates();
+  // Part 6: the Session/Circular gate is the entry point for the WHOLE
+  // Admission Admin module (native applications dashboard + settings +
+  // external-candidate tools), not just the Candidates sub-view -- called
+  // once from loadAdmissionAdminView() right after the HTML renders.
+  async function _admEnterAdmissionModule() {
     // Fail OPEN to the full-admin flow on any error here -- this check must
     // never be able to lock a real Admin/Admission Admin out of their own
-    // Session/Circular management just because this new lookup hiccuped.
+    // Session/Circular management just because this lookup hiccuped.
     try { _admCandMyAccess = await _admCandFetch('getMyCommitteeAccess', {}); }
     catch (e) { _admCandMyAccess = { is_full_admin: true, circulars: {} }; }
     if (_admCandMyAccess.is_full_admin) _admCandLoadSessions();
     else _admCandShowMyCircularsGate();
   }
+  // The "Candidates" toolbar button -- the gate/committee-check already ran
+  // at module entry, so this just switches which already-scoped view shows.
+  function _admOpenCandidates() {
+    _admShowView('candidates');
+    document.getElementById('admCandMainArea')?.classList.remove('hidden');
+    _admCandLoadTemplates();
+    const firstTab = document.querySelector('#adm-cand-tabs .adm-ftab:not(.hidden)');
+    if (firstTab && !document.querySelector('#adm-cand-tabs .adm-ftab-on')) firstTab.click();
+  }
+  function _admHideAllGatesAndViews() {
+    document.getElementById('admCandSessionGate')?.classList.add('hidden');
+    document.getElementById('admCandMyCircularsGate')?.classList.add('hidden');
+    document.getElementById('admCandCircularGate')?.classList.add('hidden');
+    document.getElementById('admModuleCircularBar')?.classList.add('hidden');
+    ['admAdminDashboard', 'admAdminForm', 'admAdminSettings', 'admAdminCandidates'].forEach(id => document.getElementById(id)?.classList.add('hidden'));
+  }
   // Committee members never see the Session/Circular admin gates (listSessions
   // etc. are full-admin-only server-side) -- they jump straight from whatever
   // circulars they've been added to, resolved once via getMyCommitteeAccess.
   function _admCandShowMyCircularsGate() {
-    document.getElementById('admCandSessionGate')?.classList.add('hidden');
-    document.getElementById('admCandCircularGate')?.classList.add('hidden');
-    document.getElementById('admCandMainArea')?.classList.add('hidden');
+    _admHideAllGatesAndViews();
     document.getElementById('admCandMyCircularsGate')?.classList.remove('hidden');
     const list = document.getElementById('admCandMyCircularsList');
     const entries = Object.entries(_admCandMyAccess.circulars || {});
@@ -43808,9 +43824,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admCandShowSessionGate() {
     _admCandActiveSessionId = null;
     _admCandActiveCircularId = null;
+    _admHideAllGatesAndViews();
     document.getElementById('admCandSessionGate')?.classList.remove('hidden');
-    document.getElementById('admCandCircularGate')?.classList.add('hidden');
-    document.getElementById('admCandMainArea')?.classList.add('hidden');
     const list = document.getElementById('admCandSessionList');
     if (list) list.innerHTML = _admCandSessions.length
       ? _admCandSessions.map(s => `<button onclick="_admCandEnterSession(${s.id})" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold hover:bg-slate-100">${_escHtml(s.name)}</button>`).join('')
@@ -43848,9 +43863,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admCandShowGate() {
     _admCandActiveCircularId = null;
     _admCandEditingCircularId = null;
-    document.getElementById('admCandSessionGate')?.classList.add('hidden');
+    _admHideAllGatesAndViews();
     document.getElementById('admCandCircularGate')?.classList.remove('hidden');
-    document.getElementById('admCandMainArea')?.classList.add('hidden');
     const sess = _admCandSessions.find(s => s.id === _admCandActiveSessionId);
     const sessNameEl = document.getElementById('admCandGateSessionName');
     if (sessNameEl) sessNameEl.textContent = sess ? sess.name : '';
@@ -44021,8 +44035,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     try { localStorage.setItem('admCandActiveCircularId', String(_admCandActiveCircularId)); } catch (e) {}
     document.getElementById('admCandCircularGate')?.classList.add('hidden');
     document.getElementById('admCandMyCircularsGate')?.classList.add('hidden');
-    document.getElementById('admCandMainArea')?.classList.remove('hidden');
-    const nameEl = document.getElementById('admCandActiveCircularName');
     const c = _admCandCirculars.find(x => x.id === _admCandActiveCircularId);
     const myEntry = (_admCandMyAccess.circulars || {})[_admCandActiveCircularId];
     _admCandMyPerms = _admCandMyAccess.is_full_admin ? null : ((myEntry && myEntry.permissions) || {});
@@ -44030,14 +44042,33 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const summary = c ? _admCandBoundsSummary(c.bounds) : '';
     const displayName = c ? c.name : (myEntry ? myEntry.name : '');
     const displaySession = sess ? sess.name : (myEntry ? myEntry.session_name : '');
-    if (nameEl) nameEl.textContent = (displaySession ? displaySession + ' / ' : '') + displayName + (summary ? ` (${summary})` : '');
+    const fullName = (displaySession ? displaySession + ' / ' : '') + displayName + (summary ? ` (${summary})` : '');
+    const nameEl = document.getElementById('admCandActiveCircularName'); if (nameEl) nameEl.textContent = fullName;
+    const moduleNameEl = document.getElementById('admModuleActiveCircularName'); if (moduleNameEl) moduleNameEl.textContent = fullName;
+    document.getElementById('admModuleCircularBar')?.classList.remove('hidden');
     document.getElementById('admCandCopyLinkBtn')?.classList.toggle('hidden', !(c && c.mode === 'online'));
     _admCandLoadRooms();
     _admCandLoadTagDefs();
     _admCandLoadList();
     _admCandApplyTabGating();
-    const firstTab = document.querySelector('#adm-cand-tabs .adm-ftab:not(.hidden)');
-    if (firstTab) firstTab.click();
+    _admApplyModuleTabGating();
+    _admShowView('dashboard');
+    _admLoadDashboard();
+  }
+  // Part 6: hide/show the Dashboard/Settings/Candidates toolbar buttons for
+  // committee members per their 'applications'/'admin_settings' grants --
+  // same convenience-only pattern as _admCandApplyTabGating, server still
+  // re-checks everything regardless.
+  function _admModuleCan(tab, level) {
+    if (_admCandMyAccess.is_full_admin) return true;
+    const have = (_admCandMyPerms && _admCandMyPerms.tabs && _admCandMyPerms.tabs[tab]) || 'none';
+    return level === 'edit' ? have === 'edit' : (have === 'view' || have === 'edit');
+  }
+  function _admApplyModuleTabGating() {
+    document.getElementById('adm-new-app-btn')?.classList.toggle('hidden', !_admModuleCan('applications', 'edit'));
+    const anyCandidatesTab = _admCandMyAccess.is_full_admin || ['import', 'candidates', 'rooms', 'alloc', 'templates', 'print', 'photos', 'scan'].some(t => _admCandCan(t, 'view'));
+    document.getElementById('adm-open-candidates-btn')?.classList.toggle('hidden', !anyCandidatesTab);
+    document.getElementById('adm-open-settings-btn')?.classList.toggle('hidden', !_admModuleCan('admin_settings', 'view'));
   }
   // Tab-level visibility + Scan-mode/section filtering for committee members
   // (full admins always pass). The server re-checks every one of these on
@@ -44070,7 +44101,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   function _admCandSwitchCircular() {
     try { localStorage.removeItem('admCandActiveCircularId'); } catch (e) {}
-    _admCandShowGate();
+    if (_admCandMyAccess.is_full_admin) _admCandShowGate();
+    else _admCandShowMyCircularsGate();
   }
   function _admCandSwitchSession() {
     try { localStorage.removeItem('admCandActiveSessionId'); localStorage.removeItem('admCandActiveCircularId'); } catch (e) {}
@@ -44346,7 +44378,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   // ── Part 5: Admission Committee (full-admin only — enforced server-side too) ──
   let _admCandCommitteeStaff = [];
-  const ADM_CAND_TABS = [['import', 'Import'], ['candidates', 'Candidates'], ['rooms', 'Rooms'], ['alloc', 'Allocation'], ['templates', 'Templates'], ['print', 'Printing'], ['photos', 'Photos'], ['scan', 'Scan']];
+  // Part 6: 'applications' (native Dashboard + New Application/Form) and
+  // 'admin_settings' (the Settings view) widen this same list -- both the
+  // Committee tab's UI and app/api/admission-admin/route.js's own gate key
+  // off the identical tab names.
+  const ADM_CAND_TABS = [['applications', 'Applications'], ['admin_settings', 'Settings'], ['import', 'Import'], ['candidates', 'Candidates'], ['rooms', 'Rooms'], ['alloc', 'Allocation'], ['templates', 'Templates'], ['print', 'Printing'], ['photos', 'Photos'], ['scan', 'Scan']];
   async function _admCandLoadCommitteeTab() {
     if (!_admCandRequireCircular()) return;
     try {
@@ -44951,7 +44987,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   async function _admCandLoadTemplateMapTab() {
     if (!_admCandRequireCircular()) return;
     try {
-      const r = await _admAdminFetch('getSettings', {});
+      const r = await _admAdminFetch('getSettings', { circular_id: _admCandActiveCircularId });
       const s = r.settings || {};
       _admCandFormTplOptions = (s.form_templates && s.form_templates.templates) || [];
       _admCandAdmitTplOptions = (s.admit_templates && s.admit_templates.templates) || [];
@@ -45084,7 +45120,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   async function _admCandEnsureTemplateLists() {
     if (_admCandFormTplOptions.length || _admCandAdmitTplOptions.length) return;
     try {
-      const r = await _admAdminFetch('getSettings', {});
+      const r = await _admAdminFetch('getSettings', { circular_id: _admCandActiveCircularId });
       const s = r.settings || {};
       _admCandFormTplOptions = (s.form_templates && s.form_templates.templates) || [];
       _admCandAdmitTplOptions = (s.admit_templates && s.admit_templates.templates) || [];
