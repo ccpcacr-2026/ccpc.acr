@@ -93,9 +93,11 @@ export async function POST(req) {
     const name = String(payload.name || '').trim();
     if (!name) return NextResponse.json({ error: 'Name is required.' });
     const bounds = (payload.bounds && typeof payload.bounds === 'object') ? payload.bounds : {};
-    const res = await sbAdmission('exam_circulars', 'POST', { session_id: sessionId, name, bounds });
+    const mode = payload.mode === 'online' ? 'online' : 'offline';
+    const is_active = !!payload.is_active;
+    const res = await sbAdmission('exam_circulars', 'POST', { session_id: sessionId, name, bounds, mode, is_active });
     if (res?.error) return NextResponse.json({ error: res.error.includes('duplicate') ? 'A circular with this name already exists in this session.' : res.error });
-    return NextResponse.json({ id: res?.[0]?.id, name, bounds });
+    return NextResponse.json({ id: res?.[0]?.id, name, bounds, mode, is_active });
   }
   if (action === 'updateCircular') {
     const id = parseInt(payload.id, 10);
@@ -103,9 +105,20 @@ export async function POST(req) {
     const name = String(payload.name || '').trim();
     if (!name) return NextResponse.json({ error: 'Name is required.' });
     const bounds = (payload.bounds && typeof payload.bounds === 'object') ? payload.bounds : {};
-    const res = await sbAdmission(`exam_circulars?id=eq.${id}`, 'PATCH', { name, bounds });
+    const mode = payload.mode === 'online' ? 'online' : 'offline';
+    const is_active = !!payload.is_active;
+    const res = await sbAdmission(`exam_circulars?id=eq.${id}`, 'PATCH', { name, bounds, mode, is_active });
     if (res?.error) return NextResponse.json({ error: res.error.includes('duplicate') ? 'A circular with this name already exists in this session.' : res.error });
-    return NextResponse.json({ success: true, id, name, bounds });
+    return NextResponse.json({ success: true, id, name, bounds, mode, is_active });
+  }
+
+  if (action === 'saveCircularTemplateMap') {
+    const id = parseInt(payload.id, 10);
+    if (!id) return NextResponse.json({ error: 'Missing circular.' });
+    const template_map = (payload.template_map && typeof payload.template_map === 'object') ? payload.template_map : {};
+    const res = await sbAdmission(`exam_circulars?id=eq.${id}`, 'PATCH', { template_map });
+    if (res?.error) return NextResponse.json({ error: res.error });
+    return NextResponse.json({ success: true, id, template_map });
   }
 
   // ── Distinct values from the school's own student roster (student schema,

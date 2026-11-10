@@ -28,6 +28,28 @@ alter table admission.exam_circulars
 alter table admission.exam_candidates
   add column if not exists version text;
 
+-- Intake mode + public/active flag. `mode` is stored now; the UI surfaces
+-- it, but nothing yet actually opens or gates a live public application
+-- form when mode='online' and is_active=true -- that's a separate
+-- integration with the native Admission Admin application flow (Part 1),
+-- still to be scoped out before building.
+alter table admission.exam_circulars
+  add column if not exists mode text not null default 'offline' check (mode in ('offline', 'online'));
+alter table admission.exam_circulars
+  add column if not exists is_active boolean not null default false;
+
+-- Which Form/Admit-Card template (from the native Form/Admit Designer --
+-- admission_settings.form_templates/admit_templates, see _admLoadForm
+-- Templates/_admLoadAdmitTemplates) applies per class/version/category
+-- combination within this circular, plus a default pair for combinations
+-- with no specific override. Shape: {default:{form_template_id,
+-- admit_template_id}, variations:[{key,class,version,category,
+-- form_template_id,admit_template_id}, ...]}. Selection/storage only for
+-- now -- not yet wired into actual print rendering (see migration
+-- comment history / the plan this was built from for that follow-up).
+alter table admission.exam_circulars
+  add column if not exists template_map jsonb not null default '{}'::jsonb;
+
 drop index if exists admission.exam_circulars_name_idx;
 create unique index if not exists exam_circulars_session_name_idx on admission.exam_circulars (session_id, lower(name));
 

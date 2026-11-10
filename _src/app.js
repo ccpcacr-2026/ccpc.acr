@@ -41556,6 +41556,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <div id="admCandCircularList" class="flex flex-col gap-1.5 mb-4"></div>
             <div id="admCandCircularFormTitle" class="text-[10px] uppercase text-slate-400 font-bold mb-1">New circular</div>
             <input type="text" id="admCandNewCircularName" placeholder="Circular name…" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs mb-3">
+            <div class="flex items-center gap-4 mb-3">
+              <div>
+                <label class="text-[10px] uppercase text-slate-400 font-bold block mb-1">Intake</label>
+                <div class="flex gap-1">
+                  <label class="flex items-center gap-1 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold cursor-pointer"><input type="radio" name="admCandNewCircularMode" value="offline" checked> Offline (Excel)</label>
+                  <label class="flex items-center gap-1 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold cursor-pointer"><input type="radio" name="admCandNewCircularMode" value="online"> Online (live form)</label>
+                </div>
+              </div>
+              <div>
+                <label class="text-[10px] uppercase text-slate-400 font-bold block mb-1">Status</label>
+                <label class="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold cursor-pointer"><input type="checkbox" id="admCandNewCircularActive"> Active / Public</label>
+              </div>
+            </div>
             <p class="text-[10px] uppercase text-slate-400 font-bold mb-1">Bound to (optional) — uploaded data must match these, or it's rejected as a mismatch. Leave blank for "applies to all".</p>
             <div class="grid grid-cols-3 gap-2 mb-3">
               <div><label class="text-[10px] text-slate-400 font-bold">Class</label><select id="admCandNewCircularClass" multiple class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="height:84px"></select></div>
@@ -41580,6 +41593,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button class="adm-ftab" data-id="adm-cand-list" onclick="_admCandShowTab('adm-cand-list',this)">Candidates</button>
             <button class="adm-ftab" data-id="adm-cand-rooms" onclick="_admCandShowTab('adm-cand-rooms',this)">Rooms</button>
             <button class="adm-ftab" data-id="adm-cand-alloc" onclick="_admCandShowTab('adm-cand-alloc',this)">Seat Allocation</button>
+            <button class="adm-ftab" data-id="adm-cand-templates" onclick="_admCandShowTab('adm-cand-templates',this)">Templates</button>
             <button class="adm-ftab" data-id="adm-cand-print" onclick="_admCandShowTab('adm-cand-print',this)">Printing</button>
             <button class="adm-ftab" data-id="adm-cand-photos" onclick="_admCandShowTab('adm-cand-photos',this)">Photos</button>
             <button class="adm-ftab" data-id="adm-cand-scan" onclick="_admCandShowTab('adm-cand-scan',this)">Scan</button>
@@ -43797,9 +43811,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     list.innerHTML = _admCandCirculars.length
       ? _admCandCirculars.map(c => {
           const summary = _admCandBoundsSummary(c.bounds);
+          const modeLabel = c.mode === 'online' ? 'Online' : 'Offline';
+          const statusHtml = c.is_active
+            ? '<span class="text-emerald-600">● Active/Public</span>'
+            : '<span class="text-slate-400">○ Inactive</span>';
           return `<div class="flex items-center gap-1.5">
             <button onclick="_admCandEnterCircular(${c.id})" class="flex-1 text-left px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold hover:bg-slate-100">
-              ${_escHtml(c.name)}${summary ? `<span class="block text-[10px] text-slate-400 font-normal">${_escHtml(summary)}</span>` : ''}
+              ${_escHtml(c.name)} <span class="text-[10px] text-slate-400 font-normal">· ${modeLabel}</span> <span class="text-[10px] font-normal">${statusHtml}</span>
+              ${summary ? `<span class="block text-[10px] text-slate-400 font-normal">${_escHtml(summary)}</span>` : ''}
             </button>
             <button onclick="_admCandEditCircular(${c.id})" title="Edit" class="px-2.5 py-2 border border-slate-200 text-slate-500 rounded-lg hover:bg-slate-100"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button>
           </div>`;
@@ -43819,6 +43838,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       } catch (e) {}
     }
   }
+  function _admCandCollectModeActive() {
+    const modeEl = document.querySelector('input[name=admCandNewCircularMode]:checked');
+    const activeEl = document.getElementById('admCandNewCircularActive');
+    return { mode: modeEl ? modeEl.value : 'offline', is_active: !!(activeEl && activeEl.checked) };
+  }
   function _admCandCollectBounds() {
     const get = id => { const el = document.getElementById(id); return el ? Array.from(el.selectedOptions).map(o => o.value) : []; };
     const bounds = {};
@@ -43833,6 +43857,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     ['admCandNewCircularClass', 'admCandNewCircularVersion', 'admCandNewCircularCategory'].forEach(id => {
       const el = document.getElementById(id); if (el) Array.from(el.options).forEach(o => o.selected = false);
     });
+    const offlineRadio = document.querySelector('input[name=admCandNewCircularMode][value=offline]'); if (offlineRadio) offlineRadio.checked = true;
+    const activeEl = document.getElementById('admCandNewCircularActive'); if (activeEl) activeEl.checked = false;
     const title = document.getElementById('admCandCircularFormTitle'); if (title) title.textContent = 'New circular';
     const saveBtn = document.getElementById('admCandCircularSaveBtn'); if (saveBtn) saveBtn.textContent = 'Create & Continue';
     document.getElementById('admCandCircularCancelBtn')?.classList.add('hidden');
@@ -43851,6 +43877,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     sel('admCandNewCircularClass', 'class');
     sel('admCandNewCircularVersion', 'version');
     sel('admCandNewCircularCategory', 'student_category');
+    const modeRadio = document.querySelector(`input[name=admCandNewCircularMode][value="${c.mode === 'online' ? 'online' : 'offline'}"]`); if (modeRadio) modeRadio.checked = true;
+    const activeEl = document.getElementById('admCandNewCircularActive'); if (activeEl) activeEl.checked = !!c.is_active;
     const title = document.getElementById('admCandCircularFormTitle'); if (title) title.textContent = `Editing "${c.name}"`;
     const saveBtn = document.getElementById('admCandCircularSaveBtn'); if (saveBtn) saveBtn.textContent = 'Save Changes';
     document.getElementById('admCandCircularCancelBtn')?.classList.remove('hidden');
@@ -43862,12 +43890,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const name = input ? input.value.trim() : '';
     if (!name) { showToast('Name the circular first', 'error'); return; }
     const bounds = _admCandCollectBounds();
+    const { mode, is_active } = _admCandCollectModeActive();
     try {
       if (_admCandEditingCircularId) {
-        const res = await _admCandFetch('updateCircular', { id: _admCandEditingCircularId, name, bounds });
+        const res = await _admCandFetch('updateCircular', { id: _admCandEditingCircularId, name, bounds, mode, is_active });
         if (res.error) { showToast(res.error, 'error'); return; }
         const c = _admCandCirculars.find(x => x.id === _admCandEditingCircularId);
-        if (c) { c.name = name; c.bounds = bounds; }
+        if (c) { c.name = name; c.bounds = bounds; c.mode = mode; c.is_active = is_active; }
         showToast(`Circular "${name}" updated`, 'success');
         _admCandResetCircularForm();
         _admCandRenderCircularList();
@@ -43876,10 +43905,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           if (nameEl) nameEl.textContent = name;
         }
       } else {
-        const res = await _admCandFetch('createCircular', { session_id: _admCandActiveSessionId, name, bounds });
+        const res = await _admCandFetch('createCircular', { session_id: _admCandActiveSessionId, name, bounds, mode, is_active });
         if (res.error) { showToast(res.error, 'error'); return; }
         if (input) input.value = '';
-        _admCandCirculars.push({ id: res.id, name, bounds });
+        _admCandCirculars.push({ id: res.id, name, bounds, mode, is_active });
         showToast(`Circular "${name}" created`, 'success');
         _admCandEnterCircular(res.id);
       }
@@ -43922,6 +43951,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (id === 'adm-cand-list') _admCandLoadList();
     else if (id === 'adm-cand-rooms') _admCandLoadRooms();
     else if (id === 'adm-cand-alloc') { _admCandLoadRooms(); _admCandPopulateFilterDropdowns(); }
+    else if (id === 'adm-cand-templates') _admCandLoadTemplateMapTab();
     else if (id === 'adm-cand-print') { _admCandLoadRooms(); _admCandPopulatePrintDropdowns(); }
     else if (id === 'adm-cand-scan') _admCandPopulateFilterDropdowns();
     else if (id === 'adm-cand-import') _admCandLoadTemplates();
@@ -44043,6 +44073,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="_admCandClearAllocation()" class="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase">Clear All Allocations</button>
           </div>
           <div id="admCandAllocResult" class="mt-3 text-sm"></div>
+        </div>
+      </div>
+
+      <div id="adm-cand-templates" class="hidden">
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
+          <p class="text-xs text-slate-400 mb-4">Pick which Form &amp; Admit Card template (from the Form/Admit Designer in Settings) applies to each class/version/category combination this circular covers. Rows with no override use the Default. Selection only — printing from this circular still uses the signature sheet/token list in the Printing tab, not the designer layout, until that's wired up.</p>
+          <div class="flex items-center gap-2 flex-wrap mb-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+            <span class="text-[10px] uppercase text-slate-400 font-bold">Bulk-apply to checked rows:</span>
+            <select id="admCandTplBulkForm" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold"><option value="">— Form template —</option></select>
+            <select id="admCandTplBulkAdmit" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold"><option value="">— Admit template —</option></select>
+            <button onclick="_admCandTplBulkApply()" class="px-3 py-1.5 bg-slate-800 text-white rounded-lg text-[10px] font-black uppercase">Apply</button>
+          </div>
+          <div id="admCandTplRows" class="divide-y divide-slate-100"></div>
+          <button onclick="_admCandSaveTemplateMap()" class="mt-4 px-4 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase">Save Template Assignments</button>
         </div>
       </div>
 
@@ -44548,6 +44592,108 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!_admCandRequireCircular()) return;
     if (!confirm('Clear ALL room/seat allocations for this circular?')) return;
     try { await _admCandFetch('clearAllocation', { circular_id: _admCandActiveCircularId }); showToast('Allocations cleared', 'success'); _admCandLoadList(); _admCandLoadRooms(); } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+
+  // ── Form/Admit Card template assignment per class/version/category
+  // combination -- reuses Part 1's own template lists (admission_settings.
+  // form_templates/admit_templates, via the existing getSettings action on
+  // /api/admission-admin) rather than inventing a second template store.
+  // Selection/storage only for now, not yet wired into print rendering. ──
+  let _admCandTemplateMap = { default: {}, variations: [] };
+  let _admCandFormTplOptions = [], _admCandAdmitTplOptions = [];
+  async function _admCandLoadTemplateMapTab() {
+    if (!_admCandRequireCircular()) return;
+    try {
+      const r = await _admAdminFetch('getSettings', {});
+      const s = r.settings || {};
+      _admCandFormTplOptions = (s.form_templates && s.form_templates.templates) || [];
+      _admCandAdmitTplOptions = (s.admit_templates && s.admit_templates.templates) || [];
+    } catch (e) { _admCandFormTplOptions = []; _admCandAdmitTplOptions = []; }
+    const c = _admCandCirculars.find(x => x.id === _admCandActiveCircularId);
+    _admCandTemplateMap = (c && c.template_map && Object.keys(c.template_map).length) ? JSON.parse(JSON.stringify(c.template_map)) : { default: {}, variations: [] };
+    if (!_admCandTemplateMap.default) _admCandTemplateMap.default = {};
+    if (!_admCandTemplateMap.variations) _admCandTemplateMap.variations = [];
+    _admCandBuildVariationRows(c);
+    _admCandRenderTemplateTab();
+  }
+  function _admCandBuildVariationRows(c) {
+    const bounds = (c && c.bounds) || {};
+    const dims = [];
+    if (Array.isArray(bounds.class) && bounds.class.length) dims.push(['class', bounds.class]);
+    if (Array.isArray(bounds.version) && bounds.version.length) dims.push(['version', bounds.version]);
+    if (Array.isArray(bounds.student_category) && bounds.student_category.length) dims.push(['category', bounds.student_category]);
+    let combos = dims.length ? [{}] : [];
+    dims.forEach(([field, values]) => {
+      const next = [];
+      combos.forEach(combo => values.forEach(v => next.push({ ...combo, [field]: v })));
+      combos = next;
+    });
+    const existingByKey = {};
+    _admCandTemplateMap.variations.forEach(v => { existingByKey[v.key] = v; });
+    _admCandTemplateMap.variations = combos.map(combo => {
+      const key = [combo.class || '', combo.version || '', combo.category || ''].join('|');
+      const prior = existingByKey[key] || {};
+      return { key, class: combo.class || '', version: combo.version || '', category: combo.category || '',
+        form_template_id: prior.form_template_id || '', admit_template_id: prior.admit_template_id || '' };
+    });
+  }
+  function _admCandTplOptionsHtml(list, selectedId) {
+    return '<option value="">— inherit default —</option>' + list.map(t => `<option value="${_escHtml(t.id)}" ${t.id === selectedId ? 'selected' : ''}>${_escHtml(t.name)}</option>`).join('');
+  }
+  function _admCandRenderTemplateTab() {
+    const bulkForm = document.getElementById('admCandTplBulkForm');
+    const bulkAdmit = document.getElementById('admCandTplBulkAdmit');
+    if (bulkForm) bulkForm.innerHTML = '<option value="">— Form template —</option>' + _admCandFormTplOptions.map(t => `<option value="${_escHtml(t.id)}">${_escHtml(t.name)}</option>`).join('');
+    if (bulkAdmit) bulkAdmit.innerHTML = '<option value="">— Admit template —</option>' + _admCandAdmitTplOptions.map(t => `<option value="${_escHtml(t.id)}">${_escHtml(t.name)}</option>`).join('');
+    const host = document.getElementById('admCandTplRows');
+    if (!host) return;
+    const defaultRow = `<div class="flex items-center gap-2 py-2">
+      <span class="w-5"></span>
+      <span class="flex-1 text-xs font-black text-slate-700">Default (applies to all combinations with no override)</span>
+      <select class="admCandTplRowForm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold" data-key="__default__" data-kind="form">
+        <option value="">— none —</option>${_admCandFormTplOptions.map(t => `<option value="${_escHtml(t.id)}" ${t.id === (_admCandTemplateMap.default.form_template_id || '') ? 'selected' : ''}>${_escHtml(t.name)}</option>`).join('')}
+      </select>
+      <select class="admCandTplRowAdmit px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold" data-key="__default__" data-kind="admit">
+        <option value="">— none —</option>${_admCandAdmitTplOptions.map(t => `<option value="${_escHtml(t.id)}" ${t.id === (_admCandTemplateMap.default.admit_template_id || '') ? 'selected' : ''}>${_escHtml(t.name)}</option>`).join('')}
+      </select>
+    </div>`;
+    const varRows = _admCandTemplateMap.variations.map(v => {
+      const label = [v.class, v.version, v.category].filter(Boolean).join(' / ') || '(combination)';
+      return `<div class="flex items-center gap-2 py-2">
+        <input type="checkbox" class="admCandTplRowChk" value="${_escHtml(v.key)}">
+        <span class="flex-1 text-xs font-bold text-slate-700">${_escHtml(label)}</span>
+        <select class="admCandTplRowForm px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold" data-key="${_escHtml(v.key)}" data-kind="form">${_admCandTplOptionsHtml(_admCandFormTplOptions, v.form_template_id)}</select>
+        <select class="admCandTplRowAdmit px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold" data-key="${_escHtml(v.key)}" data-kind="admit">${_admCandTplOptionsHtml(_admCandAdmitTplOptions, v.admit_template_id)}</select>
+      </div>`;
+    }).join('');
+    host.innerHTML = defaultRow + (varRows || '<p class="text-xs text-slate-400 py-3">No Class/Version/Category bounds set on this circular — only the Default pair applies. Add bounds when editing the circular to get per-combination rows here.</p>');
+  }
+  function _admCandTplBulkApply() {
+    const formId = document.getElementById('admCandTplBulkForm').value;
+    const admitId = document.getElementById('admCandTplBulkAdmit').value;
+    const checked = Array.from(document.querySelectorAll('.admCandTplRowChk:checked')).map(cb => cb.value);
+    if (!checked.length) { showToast('Check at least one row first', 'error'); return; }
+    checked.forEach(key => {
+      const v = _admCandTemplateMap.variations.find(x => x.key === key);
+      if (v) { if (formId) v.form_template_id = formId; if (admitId) v.admit_template_id = admitId; }
+    });
+    _admCandRenderTemplateTab();
+    showToast(`Applied to ${checked.length} row(s) — remember to Save`, 'success');
+  }
+  async function _admCandSaveTemplateMap() {
+    if (!_admCandRequireCircular()) return;
+    document.querySelectorAll('.admCandTplRowForm, .admCandTplRowAdmit').forEach(sel => {
+      const key = sel.dataset.key, kind = sel.dataset.kind, val = sel.value, field = kind === 'form' ? 'form_template_id' : 'admit_template_id';
+      if (key === '__default__') _admCandTemplateMap.default[field] = val;
+      else { const v = _admCandTemplateMap.variations.find(x => x.key === key); if (v) v[field] = val; }
+    });
+    try {
+      const res = await _admCandFetch('saveCircularTemplateMap', { id: _admCandActiveCircularId, template_map: _admCandTemplateMap });
+      if (res.error) { showToast(res.error, 'error'); return; }
+      const c = _admCandCirculars.find(x => x.id === _admCandActiveCircularId);
+      if (c) c.template_map = _admCandTemplateMap;
+      showToast('Template assignments saved', 'success');
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }
 
   // ── Printing ──────────────────────────────────────────────────────────────
