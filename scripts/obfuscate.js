@@ -510,7 +510,10 @@ const RESERVED = [
   '_admCandTagFilterDefChange','_admCandShowTagHistory',
   '_admCandCommitteeAdd','_admCandCommitteeSave','_admCandCommitteeRemove',
   '_admCandPickExistingSession','_admCandEditSession','_admCandDeleteSession',
-  '_admCandFilterCircularList','_admCandShowCircularForm'
+  '_admCandFilterCircularList','_admCandShowCircularForm',
+  '_admCandSaveVortibdCreds','_admCandLoadVortibdCirculars','_admCandSaveVortibdSyncConfig',
+  '_admCandPullVortibdFile','_admCandSyncVortibdNow',
+  '_admCandAddVortibdScheduleRow','_admCandRemoveVortibdScheduleRow','_admCandUpdateVortibdScheduleRow'
 ];
 
 // Strip HTML comments and collapse whitespace

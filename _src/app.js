@@ -44217,7 +44217,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     else if (id === 'adm-cand-print') { _admCandLoadRooms(); _admCandPopulatePrintDropdowns(); }
     else if (id === 'adm-cand-scan') _admCandPopulateFilterDropdowns();
     else if (id === 'adm-cand-committee') _admCandLoadCommitteeTab();
-    else if (id === 'adm-cand-import') _admCandLoadTemplates();
+    else if (id === 'adm-cand-import') { _admCandLoadTemplates().then(_admCandLoadVortibdPanel); }
   }
 
   function _admCandRenderSections() {
@@ -44225,6 +44225,39 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!host) return;
     host.innerHTML = `
       <div id="adm-cand-import" class="hidden">
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-4">
+          <p class="text-[10px] uppercase text-slate-400 font-bold mb-2">VortiBD Integration</p>
+          <div class="flex gap-2 items-center flex-wrap mb-2">
+            <input type="text" id="admCandVortibdUsername" placeholder="VortiBD username/phone" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="width:160px">
+            <input type="password" id="admCandVortibdPassword" placeholder="Password (blank = keep existing)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="width:220px">
+            <button onclick="_admCandSaveVortibdCreds()" class="px-3 py-2 bg-slate-800 text-white rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Save Credentials</button>
+            <span id="admCandVortibdCredNote" class="text-xs text-slate-400"></span>
+          </div>
+          <div class="flex gap-2 items-center flex-wrap mb-2">
+            <select id="admCandVortibdCircularSelect" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="width:260px"><option value="">— Pick VortiBD circular —</option></select>
+            <button onclick="_admCandLoadVortibdCirculars()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Refresh List</button>
+            <select id="admCandVortibdTemplateSelect" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="width:200px"><option value="">— Mapping to auto-apply —</option></select>
+            <label class="flex items-center gap-1.5 px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold cursor-pointer whitespace-nowrap"><input type="checkbox" id="admCandVortibdEnabled"> Auto-sync enabled</label>
+          </div>
+          <div class="flex gap-2 items-center flex-wrap mb-2">
+            <label class="text-[10px] text-slate-400 font-bold whitespace-nowrap">Active only from</label>
+            <input type="date" id="admCandVortibdStartDate" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+            <label class="text-[10px] text-slate-400 font-bold whitespace-nowrap">to</label>
+            <input type="date" id="admCandVortibdEndDate" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+            <span class="text-[10px] text-slate-400">(leave blank for no date restriction)</span>
+          </div>
+          <p class="text-[10px] uppercase text-slate-400 font-bold mb-1">Sync schedule — different intervals for different times of day (Bangladesh time)</p>
+          <div id="admCandVortibdScheduleList" class="flex flex-col gap-1.5 mb-2"></div>
+          <div class="flex items-center gap-2 flex-wrap mb-2">
+            <button onclick="_admCandAddVortibdScheduleRow()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase">+ Add Time Window</button>
+            <button onclick="_admCandSaveVortibdSyncConfig()" class="px-3 py-2 bg-slate-800 text-white rounded-lg text-[10px] font-black uppercase whitespace-nowrap ml-auto">Save Sync Settings</button>
+          </div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <button onclick="_admCandPullVortibdFile()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase whitespace-nowrap">Pull Now &amp; Map</button>
+            <button onclick="_admCandSyncVortibdNow()" class="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase whitespace-nowrap">Manual Sync Now</button>
+            <span id="admCandVortibdStatus" class="text-xs text-slate-400"></span>
+          </div>
+        </div>
         <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-4">
           <div class="flex items-center gap-3 flex-wrap mb-3">
             <input type="file" id="admCandFileInput" accept=".xlsx,.xls,.csv" onchange="_admCandHandleImportFile(event)" class="text-xs">
@@ -44569,6 +44602,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   function _admCandHandleImportFile(e) {
     const file = e.target.files[0];
+    if (file) _admCandParseImportFile(file);
+  }
+  // Shared by the manual <input type=file> handler above and the VortiBD
+  // "Pull Now & Map" button below -- either way, once we have file bytes,
+  // parsing/mapping/saving-as-template is identical.
+  function _admCandParseImportFile(file) {
     const status = document.getElementById('admCandImportStatus');
     ['admCandMappingSection', 'admCandPreviewSection', 'admCandResultSection'].forEach(id => document.getElementById(id)?.classList.add('hidden'));
     if (!file) return;
@@ -44734,6 +44773,146 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <p class="text-[10px] uppercase text-amber-700 font-bold mb-1">Mismatched rows${mismatchCount > res.mismatches.length ? ` (first ${res.mismatches.length} shown)` : ''}</p>
         ${res.mismatches.map(m => `<p class="text-xs text-amber-800">Row ${m.row} (${_escHtml(m.external_key || '')}): ${_escHtml(m.reason)}</p>`).join('')}
       </div>` : ''}`;
+  }
+  // ── Part 7: VortiBD integration ──────────────────────────────────────────
+  async function _admCandLoadVortibdPanel() {
+    if (!_admCandRequireCircular()) return;
+    try {
+      const credRes = await _admCandFetch('getVortibdCredentials', {});
+      const userEl = document.getElementById('admCandVortibdUsername'); if (userEl) userEl.value = credRes.username || '';
+      const note = document.getElementById('admCandVortibdCredNote');
+      if (note) note.textContent = credRes.hasPassword ? 'Password is set.' : 'No password saved yet.';
+    } catch (e) {}
+    const c = _admCandCirculars.find(x => x.id === _admCandActiveCircularId) || {};
+    const enEl = document.getElementById('admCandVortibdEnabled'); if (enEl) enEl.checked = !!c.vortibd_sync_enabled;
+    const startEl = document.getElementById('admCandVortibdStartDate'); if (startEl) startEl.value = c.vortibd_sync_start_date || '';
+    const endEl = document.getElementById('admCandVortibdEndDate'); if (endEl) endEl.value = c.vortibd_sync_end_date || '';
+    _admCandVortibdSchedule = (Array.isArray(c.vortibd_sync_schedule) && c.vortibd_sync_schedule.length)
+      ? JSON.parse(JSON.stringify(c.vortibd_sync_schedule))
+      : [{ start: '00:00', end: '24:00', interval_minutes: 360 }];
+    _admCandRenderVortibdScheduleList();
+    _admCandUpdateVortibdStatus(c);
+    await _admCandLoadVortibdCirculars(c.vortibd_circular_id);
+    _admCandRenderVortibdTemplateSelect(c.vortibd_mapping_template_id);
+  }
+  let _admCandVortibdSchedule = [];
+  const ADM_CAND_VORTIBD_INTERVALS = [
+    [30, 'Every 30 min'], [60, 'Every hour'], [120, 'Every 2 hours'], [180, 'Every 3 hours'],
+    [360, 'Every 6 hours'], [720, 'Every 12 hours'], [1440, 'Daily'],
+  ];
+  function _admCandRenderVortibdScheduleList() {
+    const host = document.getElementById('admCandVortibdScheduleList');
+    if (!host) return;
+    host.innerHTML = _admCandVortibdSchedule.map((w, i) => `<div class="flex items-center gap-2">
+      <input type="time" value="${_escHtml(w.start)}" onchange="_admCandUpdateVortibdScheduleRow(${i},'start',this.value)" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+      <span class="text-[10px] text-slate-400 font-bold">to</span>
+      <input type="time" value="${_escHtml(w.end === '24:00' ? '23:59' : w.end)}" onchange="_admCandUpdateVortibdScheduleRow(${i},'end',this.value)" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+      <select onchange="_admCandUpdateVortibdScheduleRow(${i},'interval_minutes',this.value)" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+        ${ADM_CAND_VORTIBD_INTERVALS.map(([v, label]) => `<option value="${v}" ${Number(w.interval_minutes) === v ? 'selected' : ''}>${label}</option>`).join('')}
+      </select>
+      <button onclick="_admCandRemoveVortibdScheduleRow(${i})" class="text-red-500 text-xs font-bold px-1">✕</button>
+    </div>`).join('');
+  }
+  function _admCandAddVortibdScheduleRow() {
+    _admCandVortibdSchedule.push({ start: '00:00', end: '24:00', interval_minutes: 360 });
+    _admCandRenderVortibdScheduleList();
+  }
+  function _admCandRemoveVortibdScheduleRow(idx) {
+    if (_admCandVortibdSchedule.length <= 1) { showToast('At least one time window is required', 'error'); return; }
+    _admCandVortibdSchedule.splice(idx, 1);
+    _admCandRenderVortibdScheduleList();
+  }
+  function _admCandUpdateVortibdScheduleRow(idx, key, value) {
+    if (!_admCandVortibdSchedule[idx]) return;
+    _admCandVortibdSchedule[idx][key] = key === 'interval_minutes' ? parseInt(value, 10) : value;
+  }
+  function _admCandRenderVortibdTemplateSelect(selectedId) {
+    const sel = document.getElementById('admCandVortibdTemplateSelect');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— Mapping to auto-apply —</option>' + _admCandTemplates.map(t => `<option value="${t.id}" ${String(t.id) === String(selectedId) ? 'selected' : ''}>${_escHtml(t.name)}</option>`).join('');
+  }
+  function _admCandUpdateVortibdStatus(c) {
+    const status = document.getElementById('admCandVortibdStatus');
+    if (!status) return;
+    if (!c.vortibd_last_sync_at) { status.textContent = 'Never synced yet.'; return; }
+    const when = new Date(c.vortibd_last_sync_at).toLocaleString();
+    const ok = c.vortibd_last_sync_status === 'success';
+    status.innerHTML = `Last sync: <b style="color:${ok ? '#059669' : '#dc2626'}">${ok ? '✓' : '✗'}</b> ${_escHtml(when)} — ${_escHtml(c.vortibd_last_sync_message || '')}`;
+  }
+  async function _admCandLoadVortibdCirculars(preselectId) {
+    const sel = document.getElementById('admCandVortibdCircularSelect');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">Loading…</option>';
+    try {
+      const res = await _admCandFetch('listVortibdCirculars', {});
+      if (res.error) { sel.innerHTML = '<option value="">— Pick VortiBD circular —</option>'; showToast(res.error, 'error'); return; }
+      const list = res.circulars || [];
+      sel.innerHTML = '<option value="">— Pick VortiBD circular —</option>' + list.map(c => `<option value="${c.id}" ${String(c.id) === String(preselectId) ? 'selected' : ''}>${_escHtml(c.name)} (#${c.id})</option>`).join('');
+    } catch (e) { sel.innerHTML = '<option value="">— Pick VortiBD circular —</option>'; }
+  }
+  async function _admCandSaveVortibdCreds() {
+    const username = document.getElementById('admCandVortibdUsername')?.value.trim();
+    const password = document.getElementById('admCandVortibdPassword')?.value;
+    if (!username) { showToast('Enter the VortiBD username first', 'error'); return; }
+    try {
+      const res = await _admCandFetch('saveVortibdCredentials', { username, password });
+      if (res.error) { showToast(res.error, 'error'); return; }
+      const pwEl = document.getElementById('admCandVortibdPassword'); if (pwEl) pwEl.value = '';
+      showToast('VortiBD credentials saved', 'success');
+      _admCandLoadVortibdPanel();
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+  async function _admCandSaveVortibdSyncConfig() {
+    if (!_admCandRequireCircular()) return;
+    const vortibd_circular_id = document.getElementById('admCandVortibdCircularSelect')?.value || '';
+    const enabled = !!document.getElementById('admCandVortibdEnabled')?.checked;
+    const mapping_template_id = document.getElementById('admCandVortibdTemplateSelect')?.value || '';
+    const start_date = document.getElementById('admCandVortibdStartDate')?.value || '';
+    const end_date = document.getElementById('admCandVortibdEndDate')?.value || '';
+    const schedule = _admCandVortibdSchedule.map(w => ({ start: w.start, end: w.end === '23:59' ? '24:00' : w.end, interval_minutes: w.interval_minutes }));
+    try {
+      const res = await _admCandFetch('saveVortibdSyncConfig', { circular_id: _admCandActiveCircularId, vortibd_circular_id, enabled, schedule, start_date, end_date, mapping_template_id });
+      if (res.error) { showToast(res.error, 'error'); return; }
+      const c = _admCandCirculars.find(x => x.id === _admCandActiveCircularId);
+      if (c) {
+        c.vortibd_circular_id = vortibd_circular_id ? parseInt(vortibd_circular_id, 10) : null;
+        c.vortibd_sync_enabled = enabled; c.vortibd_sync_schedule = schedule;
+        c.vortibd_sync_start_date = start_date || null; c.vortibd_sync_end_date = end_date || null;
+        c.vortibd_mapping_template_id = mapping_template_id ? parseInt(mapping_template_id, 10) : null;
+      }
+      showToast('Sync settings saved', 'success');
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+  // "Pull Now & Map" -- the interactive, admin-triggered path: the server
+  // logs into VortiBD and hands back the raw file, which then goes through
+  // the EXACT SAME parsing/mapping/save-as-template pipeline a manually
+  // chosen file already uses (_admCandParseImportFile) -- once the admin
+  // saves a mapping, syncVortibdNow/the cron reuse it with no UI involved.
+  async function _admCandPullVortibdFile() {
+    if (!_admCandRequireCircular()) return;
+    const status = document.getElementById('admCandImportStatus');
+    if (status) status.textContent = 'Pulling from VortiBD…';
+    try {
+      const res = await _admCandFetch('vortibdPullFile', { circular_id: _admCandActiveCircularId });
+      if (res.error) { if (status) status.textContent = res.error; showToast(res.error, 'error'); return; }
+      const binary = atob(res.file_base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const file = new File([bytes], 'vortibd-export.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      _admCandParseImportFile(file);
+    } catch (e) { showToast(e.message || 'Failed to pull from VortiBD', 'error'); }
+  }
+  async function _admCandSyncVortibdNow() {
+    if (!_admCandRequireCircular()) return;
+    const status = document.getElementById('admCandVortibdStatus');
+    if (status) status.textContent = 'Syncing…';
+    try {
+      const res = await _admCandFetch('syncVortibdNow', { circular_id: _admCandActiveCircularId });
+      if (res.error) { showToast(res.error, 'error'); }
+      else { showToast(`Synced — ${res.new_count} new, ${res.updated_count} updated`, 'success'); _admCandLoadList(); }
+      const c = _admCandCirculars.find(x => x.id === _admCandActiveCircularId);
+      if (c) { c.vortibd_last_sync_at = new Date().toISOString(); c.vortibd_last_sync_status = res.error ? 'error' : 'success'; c.vortibd_last_sync_message = res.error || `${res.new_count} new, ${res.updated_count} updated`; _admCandUpdateVortibdStatus(c); }
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }
   async function _admCandLoadTemplates() {
     try {

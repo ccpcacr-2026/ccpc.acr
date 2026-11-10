@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import * as XLSX from 'xlsx';
 
 // ── External-Candidate Exam Management ──────────────────────────────────
 // Separate entity/domain from app/api/admission-admin/route.js's
@@ -126,6 +127,7 @@ export async function POST(req) {
     'listSessions', 'createSession', 'updateSession', 'deleteSession', 'createCircular', 'updateCircular', 'getStudentFieldValues',
     'saveTagDefinition', 'deleteTagDefinition',
     'listStaffForCommittee', 'listCommitteeMembers', 'saveCommitteeMember', 'removeCommitteeMember',
+    'getVortibdCredentials', 'saveVortibdCredentials', 'listVortibdCirculars', 'saveVortibdSyncConfig', 'vortibdPullFile', 'syncVortibdNow',
   ]);
   if (ADMIN_ONLY_ACTIONS.has(action) && !isFullAdmin) {
     return NextResponse.json({ error: 'Admission Admin access required.' }, { status: 403 });
@@ -275,13 +277,12 @@ export async function POST(req) {
   // photo_url/room_id/seat_no/scan fields are never included here, an
   // existing candidate's allocation/photo/scan state survives re-imports
   // untouched, while modeled fields + extra_fields get refreshed.
-  if (action === 'uploadMappedCandidates') {
-    const circularId = parseInt(payload.circular_id, 10);
-    if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
-    if (!isFullAdmin && !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'import', 'edit')) return _forbidden();
-    const rows = Array.isArray(payload.rows) ? payload.rows : [];
-    if (!rows.length) return NextResponse.json({ error: 'No rows to import.' });
-    if (rows.length > 5000) return NextResponse.json({ error: 'Import 5000 rows or fewer at a time.' });
+  // Shared upsert core -- used by the manual uploadMappedCandidates action
+  // below AND by the VortiBD automated sync path (_runVortibdSync), so both
+  // ever only have ONE upsert implementation to keep correct.
+  async function _upsertMappedRows(circularId, rows, meta) {
+    if (!rows.length) return { error: 'No rows to import.' };
+    if (rows.length > 5000) return { error: 'Import 5000 rows or fewer at a time.' };
 
     const circRows = await sbAdmission(`exam_circulars?id=eq.${circularId}&select=bounds`);
     const bounds = (Array.isArray(circRows) && circRows[0] && circRows[0].bounds) || {};
@@ -316,9 +317,9 @@ export async function POST(req) {
       clean.push(row);
     }
     if (!clean.length) {
-      return NextResponse.json(mismatches.length
+      return mismatches.length
         ? { error: `No rows matched this circular's bounds (${mismatches.length} rejected).`, mismatches }
-        : { error: 'No valid rows (primary key column was empty for every row).' });
+        : { error: 'No valid rows (primary key column was empty for every row).' };
     }
 
     // Existing-key lookup WITHIN this circular, chunked to keep each GET's URL short.
@@ -331,27 +332,37 @@ export async function POST(req) {
     const new_count = clean.filter(r => !existingKeys.has(r.external_key)).length;
     const updated_count = clean.length - new_count;
 
-    let wrote = 0;
     for (const part of chunk(clean, 500)) {
-      const res = await sbAdmission('exam_candidates?on_conflict=circular_id,external_key', 'POST', part, { Prefer: 'resolution=merge-duplicates,return=minimal' });
-      if (!(res && res.error)) wrote += part.length;
+      await sbAdmission('exam_candidates?on_conflict=circular_id,external_key', 'POST', part, { Prefer: 'resolution=merge-duplicates,return=minimal' });
     }
 
     const batch = await sbAdmission('candidate_import_batches', 'POST', {
       circular_id: circularId,
-      template_id: payload.template_id || null,
-      file_name: payload.file_name || null,
-      mapping_used: payload.mapping_used || {},
-      primary_key_field: payload.primary_key_field || null,
+      template_id: (meta && meta.template_id) || null,
+      file_name: (meta && meta.file_name) || null,
+      mapping_used: (meta && meta.mapping_used) || {},
+      primary_key_field: (meta && meta.primary_key_field) || null,
       row_count: rows.length, new_count, updated_count, error_count,
-      uploaded_by: user_id || null,
+      uploaded_by: (meta && meta.uploaded_by) || null,
     });
 
-    return NextResponse.json({
+    return {
       success: true, new_count, updated_count, error_count,
       mismatch_count: mismatches.length, mismatches,
       total: rows.length, batch_id: batch?.[0]?.id || null,
+    };
+  }
+  if (action === 'uploadMappedCandidates') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
+    if (!isFullAdmin && !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'import', 'edit')) return _forbidden();
+    const rows = Array.isArray(payload.rows) ? payload.rows : [];
+    const result = await _upsertMappedRows(circularId, rows, {
+      template_id: payload.template_id, file_name: payload.file_name,
+      mapping_used: payload.mapping_used, primary_key_field: payload.primary_key_field,
+      uploaded_by: user_id,
     });
+    return NextResponse.json(result);
   }
 
   // ── Candidate list ───────────────────────────────────────────────────────
@@ -761,6 +772,222 @@ export async function POST(req) {
   if (action === 'removeCommitteeMember') {
     await sbAdmission(`circular_committee_members?id=eq.${parseInt(payload.id, 10) || 0}`, 'DELETE');
     return NextResponse.json({ success: true });
+  }
+
+  // ── Part 7: VortiBD integration — periodic Excel pull + import ──────────
+  // VortiBD's own "Applied Candidates Excel" button turned out (confirmed by
+  // live network inspection, not published docs) to be a plain REST API, not
+  // page-scraping: POST .../api/UserAuth/login -> JWT bearer token (whose
+  // own payload already carries our ClientId claim, so no extra lookup call
+  // is needed), then POST .../api/v1/Profile/download-applied-candidates
+  // with that token. Credentials are one global write-only secret
+  // (admission_settings key 'vortibd_credentials' -- the stored password is
+  // never read back to the browser, only {username, hasPassword}), while
+  // which VortiBD circular feeds which of our circulars, the sync interval,
+  // and the saved mapping template to auto-apply are per-circular columns
+  // on exam_circulars.
+  const VORTIBD_API = 'https://vortibdliveapi.cloudcampus24.com';
+  async function _vortibdCredentials() {
+    const rows = await sbAdmission('admission_settings?key=eq.vortibd_credentials');
+    return (Array.isArray(rows) && rows[0] && rows[0].value) || null;
+  }
+  function _vortibdClientIdFromToken(token) {
+    try {
+      const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString('utf8'));
+      return payload.ClientId || null;
+    } catch (e) { return null; }
+  }
+  async function _vortibdLogin() {
+    const creds = await _vortibdCredentials();
+    if (!creds || !creds.username || !creds.password) throw new Error('VortiBD credentials are not configured yet.');
+    const res = await fetch(`${VORTIBD_API}/api/UserAuth/login`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: creds.username, password: creds.password, rememberMe: false }),
+      signal: AbortSignal.timeout(20000),
+    });
+    const body = await res.json().catch(() => null);
+    const token = body && body.data && (body.data.token || body.data.accessToken || body.data);
+    if (!res.ok || !body || body.isError || typeof token !== 'string') {
+      throw new Error((body && body.message) || 'Could not log in to VortiBD — check the stored credentials.');
+    }
+    const clientId = _vortibdClientIdFromToken(token);
+    if (!clientId) throw new Error('Logged in to VortiBD, but could not determine the school/client ID from the session.');
+    return { token, clientId };
+  }
+  async function _vortibdFetchCirculars(token, clientId) {
+    const res = await fetch(`${VORTIBD_API}/api/v1/CircularDashBoard/circulars-dashboard/${clientId}`, {
+      headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20000),
+    });
+    const body = await res.json().catch(() => null);
+    const list = body && body.data && Array.isArray(body.data.Circulars) ? body.data.Circulars : [];
+    return list.map(c => ({ id: c.CircularId, name: c.CircularTitle || `Circular ${c.CircularId}` }));
+  }
+  // The export response shape (direct binary vs. a JSON envelope carrying a
+  // file URL) was never fully confirmed during testing (repeated automated
+  // attempts stopped reliably firing the request, likely VortiBD-side
+  // throttling of rapid test traffic) -- handled defensively for both.
+  async function _vortibdFetchExportBytes(token, clientId, vortibdCircularId) {
+    const res = await fetch(`${VORTIBD_API}/api/v1/Profile/download-applied-candidates`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clientId: Number(clientId) || 0, isOnlySuccess: true, circularId: Number(vortibdCircularId) || 0,
+        circularDetailId: 0, tranStatus: 0, programID: 0, versionID: 0, shiftID: 0, studentCatID: 0,
+        sessionID: 0, groupID: 0, gender: '', applyDateFrom: null, applyDateTo: null, applicantId: 0,
+        contactNo: '', applicantName: '', bankTransactionId: '', orderBy: '',
+      }),
+      signal: AbortSignal.timeout(45000),
+    });
+    if (!res.ok) throw new Error(`VortiBD export request failed (status ${res.status}).`);
+    const ct = res.headers.get('content-type') || '';
+    if (ct.includes('json')) {
+      const body = await res.json();
+      const fileUrl = body && (body.data?.fileUrl || body.data?.url || body.data?.Url || (typeof body.data === 'string' && body.data.startsWith('http') ? body.data : null));
+      if (!fileUrl) throw new Error('VortiBD returned an unexpected response for the export — no file URL found.');
+      const fileRes = await fetch(fileUrl, { signal: AbortSignal.timeout(45000) });
+      if (!fileRes.ok) throw new Error('Could not download the exported file from VortiBD.');
+      return Buffer.from(await fileRes.arrayBuffer());
+    }
+    return Buffer.from(await res.arrayBuffer());
+  }
+  async function _notifyAdminsOfSyncFailure(circularName, message) {
+    try {
+      const hdrs = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher_staff', 'Content-Profile': 'teacher_staff', 'Content-Type': 'application/json', Prefer: 'return=minimal' };
+      const usersRes = await fetch(`${SB_URL}/rest/v1/app_users?select=user_id,role`, { headers: hdrs });
+      const users = usersRes.ok ? await usersRes.json() : [];
+      const recipients = (Array.isArray(users) ? users : [])
+        .filter(u => String(u.role || '').split(',').map(r => r.trim()).some(r => ['Admin', 'Admission Admin'].includes(r)))
+        .map(u => u.user_id);
+      if (!recipients.length) return;
+      const rows = recipients.map(uid => ({
+        user_id: uid, type: 'vortibd_sync_failed', title: 'VortiBD sync failed',
+        message: `${circularName}: ${message}`, data: { circularName, message }, is_read: false, created_at: new Date().toISOString(),
+      }));
+      await fetch(`${SB_URL}/rest/v1/notifications`, { method: 'POST', headers: hdrs, body: JSON.stringify(rows) });
+    } catch (e) { /* best-effort -- never let a notification failure mask the original sync error */ }
+  }
+  // Server-side mirror of the browser's _admCandBuildMappedRows -- the saved
+  // template stores {rowId: headerText} (by header TEXT, not column index,
+  // so it survives column reordering across uploads), applied here against
+  // freshly-parsed VortiBD headers/rows exactly the same way a manual
+  // re-upload already applies a saved template today.
+  function _applyTemplateMapping(headers, rows, template) {
+    const mapping = template.mapping || {};
+    return rows.map(r => {
+      const obj = { extra_fields: {} };
+      for (const [rowId, headerText] of Object.entries(mapping)) {
+        const colIdx = headers.indexOf(headerText);
+        if (colIdx < 0) continue;
+        const val = String(r[colIdx] ?? '').trim();
+        if (MODELED_FIELDS.includes(rowId)) obj[rowId] = val; else obj.extra_fields[rowId] = val;
+      }
+      const pkHeader = mapping[template.primary_key_field];
+      const pkIdx = pkHeader ? headers.indexOf(pkHeader) : -1;
+      obj.external_key = pkIdx >= 0 ? String(r[pkIdx] ?? '').trim() : '';
+      return obj;
+    });
+  }
+  async function _runVortibdSync(circularId) {
+    const circRows = await sbAdmission(`exam_circulars?id=eq.${circularId}&select=id,name,vortibd_circular_id,vortibd_mapping_template_id`);
+    const circ = Array.isArray(circRows) && circRows[0];
+    if (!circ) return { error: 'Circular not found.' };
+    if (!circ.vortibd_circular_id) return { error: 'No VortiBD circular is linked to this circular yet.' };
+    if (!circ.vortibd_mapping_template_id) return { error: 'No saved mapping yet — use "Pull Now & Map" once first.' };
+    const now = new Date().toISOString();
+    try {
+      const { token, clientId } = await _vortibdLogin();
+      const bytes = await _vortibdFetchExportBytes(token, clientId, circ.vortibd_circular_id);
+      const wb = XLSX.read(bytes, { type: 'buffer' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const grid = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      if (!grid.length) throw new Error('The exported file came back empty.');
+      const headers = grid[0].map(h => String(h || '').trim());
+      const dataRows = grid.slice(1).filter(r => r.some(c => String(c || '').trim() !== ''));
+      const tplRows = await sbAdmission(`candidate_import_templates?id=eq.${circ.vortibd_mapping_template_id}`);
+      const template = Array.isArray(tplRows) && tplRows[0];
+      if (!template) throw new Error('The saved mapping template no longer exists — re-map via "Pull Now & Map".');
+      const mapped = _applyTemplateMapping(headers, dataRows, template);
+      const result = await _upsertMappedRows(circularId, mapped, {
+        template_id: template.id, file_name: 'vortibd-auto-sync.xlsx',
+        mapping_used: template.mapping, primary_key_field: template.primary_key_field,
+      });
+      if (result.error) throw new Error(result.error);
+      await sbAdmission(`exam_circulars?id=eq.${circularId}`, 'PATCH', {
+        vortibd_last_sync_at: now, vortibd_last_sync_status: 'success',
+        vortibd_last_sync_message: `${result.new_count} new, ${result.updated_count} updated`,
+      });
+      return result;
+    } catch (e) {
+      const message = e.message || 'Unknown error.';
+      await sbAdmission(`exam_circulars?id=eq.${circularId}`, 'PATCH', {
+        vortibd_last_sync_at: now, vortibd_last_sync_status: 'error', vortibd_last_sync_message: message,
+      });
+      await _notifyAdminsOfSyncFailure(circ.name, message);
+      return { error: message };
+    }
+  }
+  if (action === 'getVortibdCredentials') {
+    const creds = await _vortibdCredentials();
+    return NextResponse.json({ username: (creds && creds.username) || '', hasPassword: !!(creds && creds.password) });
+  }
+  if (action === 'saveVortibdCredentials') {
+    const username = String(payload.username || '').trim();
+    if (!username) return NextResponse.json({ error: 'Username is required.' });
+    const existing = await _vortibdCredentials();
+    const value = { username, password: payload.password ? String(payload.password) : ((existing && existing.password) || '') };
+    if (!value.password) return NextResponse.json({ error: 'Password is required.' });
+    const rows = await sbAdmission('admission_settings?key=eq.vortibd_credentials');
+    if (Array.isArray(rows) && rows.length) await sbAdmission('admission_settings?key=eq.vortibd_credentials', 'PATCH', { value, updated_at: new Date().toISOString() });
+    else await sbAdmission('admission_settings', 'POST', { key: 'vortibd_credentials', value, updated_at: new Date().toISOString() });
+    return NextResponse.json({ success: true });
+  }
+  if (action === 'listVortibdCirculars') {
+    try {
+      const { token, clientId } = await _vortibdLogin();
+      const circulars = await _vortibdFetchCirculars(token, clientId);
+      return NextResponse.json({ circulars });
+    } catch (e) { return NextResponse.json({ error: e.message || 'Could not reach VortiBD.' }); }
+  }
+  if (action === 'saveVortibdSyncConfig') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ error: 'Missing circular.' });
+    const HHMM = /^([01]\d|2[0-4]):([0-5]\d)$/;
+    const rawSchedule = Array.isArray(payload.schedule) ? payload.schedule : [];
+    const schedule = rawSchedule
+      .map(w => ({ start: String(w.start || ''), end: String(w.end || ''), interval_minutes: parseInt(w.interval_minutes, 10) || 0 }))
+      .filter(w => HHMM.test(w.start) && HHMM.test(w.end) && w.interval_minutes > 0);
+    if (!schedule.length) return NextResponse.json({ error: 'Add at least one valid time window (HH:MM) with an interval.' });
+    const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+    const startDate = DATE_RE.test(payload.start_date || '') ? payload.start_date : null;
+    const endDate = DATE_RE.test(payload.end_date || '') ? payload.end_date : null;
+    const data = {
+      vortibd_circular_id: payload.vortibd_circular_id ? parseInt(payload.vortibd_circular_id, 10) : null,
+      vortibd_sync_enabled: !!payload.enabled,
+      vortibd_sync_schedule: schedule,
+      vortibd_sync_start_date: startDate,
+      vortibd_sync_end_date: endDate,
+      vortibd_mapping_template_id: payload.mapping_template_id ? parseInt(payload.mapping_template_id, 10) : null,
+    };
+    const res = await sbAdmission(`exam_circulars?id=eq.${circularId}`, 'PATCH', data);
+    if (res?.error) return NextResponse.json({ error: res.error });
+    return NextResponse.json({ success: true });
+  }
+  if (action === 'vortibdPullFile') {
+    const circularId = parseInt(payload.circular_id, 10);
+    const circRows = circularId ? await sbAdmission(`exam_circulars?id=eq.${circularId}&select=vortibd_circular_id`) : null;
+    const vortibdCircularId = Array.isArray(circRows) && circRows[0] && circRows[0].vortibd_circular_id;
+    if (!vortibdCircularId) return NextResponse.json({ error: 'Pick which VortiBD circular feeds this one first.' });
+    try {
+      const { token, clientId } = await _vortibdLogin();
+      const bytes = await _vortibdFetchExportBytes(token, clientId, vortibdCircularId);
+      return NextResponse.json({ success: true, file_base64: bytes.toString('base64') });
+    } catch (e) { return NextResponse.json({ error: e.message || 'Could not pull from VortiBD.' }); }
+  }
+  if (action === 'syncVortibdNow') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ error: 'Missing circular.' });
+    const result = await _runVortibdSync(circularId);
+    return NextResponse.json(result);
   }
 
   return NextResponse.json({ error: 'Unknown action.' }, { status: 400 });
