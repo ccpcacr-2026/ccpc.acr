@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server';
 import * as XLSX from 'xlsx';
 
+// VortiBD can reportedly take several minutes to respond on a slow request
+// (not a bot-detection issue -- their own infrastructure is just sometimes
+// slow) -- the function's own time budget needs raising to match, or Vercel
+// kills it long before any of the longer per-request timeouts below matter.
+export const maxDuration = 280;
+
 // ── External-Candidate Exam Management ──────────────────────────────────
 // Separate entity/domain from app/api/admission-admin/route.js's
 // admission_applications: these candidates are never created in this
@@ -816,7 +822,7 @@ export async function POST(req) {
     const res = await fetch(`${VORTIBD_API}/api/UserAuth/login`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: creds.username, password: creds.password, rememberMe: false }),
-      signal: AbortSignal.timeout(20000),
+      signal: AbortSignal.timeout(120000),
     });
     const body = await res.json().catch(() => null);
     if (!res.ok || !body || body.isError) {
@@ -834,7 +840,7 @@ export async function POST(req) {
   }
   async function _vortibdFetchCirculars(token, clientId) {
     const res = await fetch(`${VORTIBD_API}/api/v1/CircularDashBoard/circulars-dashboard/${clientId}`, {
-      headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20000),
+      headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(120000),
     });
     const body = await res.json().catch(() => null);
     const list = body && body.data && Array.isArray(body.data.Circulars) ? body.data.Circulars : [];
@@ -854,7 +860,7 @@ export async function POST(req) {
         sessionID: 0, groupID: 0, gender: '', applyDateFrom: null, applyDateTo: null, applicantId: 0,
         contactNo: '', applicantName: '', bankTransactionId: '', orderBy: '',
       }),
-      signal: AbortSignal.timeout(45000),
+      signal: AbortSignal.timeout(120000),
     });
     if (!res.ok) throw new Error(`VortiBD export request failed (status ${res.status}).`);
     const ct = res.headers.get('content-type') || '';
@@ -862,7 +868,7 @@ export async function POST(req) {
       const body = await res.json();
       const fileUrl = body && (body.data?.fileUrl || body.data?.url || body.data?.Url || (typeof body.data === 'string' && body.data.startsWith('http') ? body.data : null));
       if (!fileUrl) throw new Error('VortiBD returned an unexpected response for the export — no file URL found.');
-      const fileRes = await fetch(fileUrl, { signal: AbortSignal.timeout(45000) });
+      const fileRes = await fetch(fileUrl, { signal: AbortSignal.timeout(60000) });
       if (!fileRes.ok) throw new Error('Could not download the exported file from VortiBD.');
       return Buffer.from(await fileRes.arrayBuffer());
     }

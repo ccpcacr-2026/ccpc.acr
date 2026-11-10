@@ -18,7 +18,11 @@ import * as XLSX from 'xlsx';
 // elapsed actually sync.
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+// VortiBD can reportedly take several minutes to respond on a slow request
+// (not a bot-detection issue -- their own infrastructure is just sometimes
+// slow); this route may also loop over several due circulars in one run, so
+// its budget needs to be generous.
+export const maxDuration = 280;
 
 const SB_URL = process.env.SUPABASE_URL;
 const SB_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -70,7 +74,7 @@ async function _vortibdLogin() {
   const res = await fetch(`${VORTIBD_API}/api/UserAuth/login`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username: creds.username, password: creds.password, rememberMe: false }),
-    signal: AbortSignal.timeout(20000),
+    signal: AbortSignal.timeout(120000),
   });
   const body = await res.json().catch(() => null);
   if (!res.ok || !body || body.isError) {
@@ -93,7 +97,7 @@ async function _vortibdFetchExportBytes(token, clientId, vortibdCircularId) {
       sessionID: 0, groupID: 0, gender: '', applyDateFrom: null, applyDateTo: null, applicantId: 0,
       contactNo: '', applicantName: '', bankTransactionId: '', orderBy: '',
     }),
-    signal: AbortSignal.timeout(45000),
+    signal: AbortSignal.timeout(120000),
   });
   if (!res.ok) throw new Error(`VortiBD export request failed (status ${res.status}).`);
   const ct = res.headers.get('content-type') || '';
@@ -101,7 +105,7 @@ async function _vortibdFetchExportBytes(token, clientId, vortibdCircularId) {
     const body = await res.json();
     const fileUrl = body && (body.data?.fileUrl || body.data?.url || body.data?.Url || (typeof body.data === 'string' && body.data.startsWith('http') ? body.data : null));
     if (!fileUrl) throw new Error('VortiBD returned an unexpected response for the export.');
-    const fileRes = await fetch(fileUrl, { signal: AbortSignal.timeout(45000) });
+    const fileRes = await fetch(fileUrl, { signal: AbortSignal.timeout(60000) });
     if (!fileRes.ok) throw new Error('Could not download the exported file from VortiBD.');
     return Buffer.from(await fileRes.arrayBuffer());
   }
