@@ -41534,21 +41534,44 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <h2 class="font-black text-slate-800 text-sm">External Candidates</h2>
         </div>
 
+        <div id="admCandSessionGate" class="hidden">
+          <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 max-w-lg">
+            <h3 class="font-black text-slate-800 text-sm mb-1">Pick a session to continue</h3>
+            <p class="text-xs text-slate-400 mb-4">Each session (e.g. an admission year) holds its own circulars — type a name to create one.</p>
+            <div id="admCandSessionList" class="flex flex-wrap gap-2 mb-4"></div>
+            <div class="flex items-center gap-2">
+              <input type="text" id="admCandNewSessionName" placeholder="New session name… e.g. 2026" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+              <button onclick="_admCandCreateSession()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Create &amp; Continue</button>
+            </div>
+          </div>
+        </div>
+
         <div id="admCandCircularGate" class="hidden">
           <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 max-w-lg">
-            <h3 class="font-black text-slate-800 text-sm mb-1">Pick a circular/session to continue</h3>
+            <div class="flex items-center justify-between mb-1">
+              <h3 class="font-black text-slate-800 text-sm">Pick a circular in <span id="admCandGateSessionName" class="text-blue-600"></span></h3>
+              <button onclick="_admCandSwitchSession()" class="text-[10px] text-blue-600 font-black uppercase whitespace-nowrap">Change Session</button>
+            </div>
             <p class="text-xs text-slate-400 mb-4">Import, Candidates, Rooms, Allocation, Printing and Scan are all scoped to one circular at a time — the same token or room name can safely repeat across different circulars.</p>
-            <div id="admCandCircularList" class="flex flex-wrap gap-2 mb-4"></div>
+            <div id="admCandCircularList" class="flex flex-col gap-1.5 mb-4"></div>
+            <div id="admCandCircularFormTitle" class="text-[10px] uppercase text-slate-400 font-bold mb-1">New circular</div>
+            <input type="text" id="admCandNewCircularName" placeholder="Circular name…" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs mb-3">
+            <p class="text-[10px] uppercase text-slate-400 font-bold mb-1">Bound to (optional) — uploaded data must match these, or it's rejected as a mismatch. Leave blank for "applies to all".</p>
+            <div class="grid grid-cols-3 gap-2 mb-3">
+              <div><label class="text-[10px] text-slate-400 font-bold">Class</label><select id="admCandNewCircularClass" multiple class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="height:84px"></select></div>
+              <div><label class="text-[10px] text-slate-400 font-bold">Version</label><select id="admCandNewCircularVersion" multiple class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="height:84px"></select></div>
+              <div><label class="text-[10px] text-slate-400 font-bold">Category</label><select id="admCandNewCircularCategory" multiple class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="height:84px"></select></div>
+            </div>
             <div class="flex items-center gap-2">
-              <input type="text" id="admCandNewCircularName" placeholder="New circular name…" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">
-              <button onclick="_admCandCreateCircular()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Create &amp; Continue</button>
+              <button id="admCandCircularSaveBtn" onclick="_admCandSaveCircularForm()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Create &amp; Continue</button>
+              <button id="admCandCircularCancelBtn" onclick="_admCandCancelEditCircular()" class="hidden px-4 py-2 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Cancel Edit</button>
             </div>
           </div>
         </div>
 
         <div id="admCandMainArea" class="hidden">
           <div class="flex items-center gap-2 flex-wrap mb-4 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5">
-            <span class="text-[10px] uppercase text-slate-400 font-bold">Circular/Session</span>
+            <span class="text-[10px] uppercase text-slate-400 font-bold">Session / Circular</span>
             <b id="admCandActiveCircularName" class="text-xs font-black text-slate-800"></b>
             <button onclick="_admCandSwitchCircular()" class="ml-auto px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase">Switch Circular</button>
           </div>
@@ -43672,6 +43695,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _admCandMapRows = [], _admCandRowSeq = 0, _admCandPrimaryKeyRowId = null, _admCandAppliedTemplateId = null;
   let _admCandTemplates = [], _admCandAllCandidates = [], _admCandRooms = [];
   let _admCandCirculars = [], _admCandActiveCircularId = null;
+  let _admCandSessions = [], _admCandActiveSessionId = null;
   let _admCandEditingRoomId = null;
   let _admCandRoomExcelHeaders = [], _admCandRoomExcelRows = [];
   let _admCandScanStream = null, _admCandScanTimer = null, _admCandScanBusy = false;
@@ -43694,29 +43718,172 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admOpenCandidates() {
     _admShowView('candidates');
     _admCandLoadTemplates();
+    _admCandLoadSessions();
+  }
+  // Session -> Circular -- a two-level gate everything else (Import/
+  // Candidates/Rooms/Allocation/Printing/Scan) sits behind: nothing else
+  // is shown until both are picked or created (session first, then a
+  // circular within it), so there's no way to act without either chosen.
+  // Both persist across reloads.
+  async function _admCandLoadSessions() {
+    try {
+      const res = await _admCandFetch('listSessions', {});
+      _admCandSessions = res.sessions || [];
+      const saved = parseInt(localStorage.getItem('admCandActiveSessionId') || '', 10);
+      if (_admCandSessions.some(s => s.id === saved)) _admCandEnterSession(saved);
+      else _admCandShowSessionGate();
+    } catch (e) { _admCandShowSessionGate(); }
+  }
+  function _admCandShowSessionGate() {
+    _admCandActiveSessionId = null;
+    _admCandActiveCircularId = null;
+    document.getElementById('admCandSessionGate')?.classList.remove('hidden');
+    document.getElementById('admCandCircularGate')?.classList.add('hidden');
+    document.getElementById('admCandMainArea')?.classList.add('hidden');
+    const list = document.getElementById('admCandSessionList');
+    if (list) list.innerHTML = _admCandSessions.length
+      ? _admCandSessions.map(s => `<button onclick="_admCandEnterSession(${s.id})" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold hover:bg-slate-100">${_escHtml(s.name)}</button>`).join('')
+      : '<p class="text-xs text-slate-400">No sessions yet — create one below.</p>';
+  }
+  function _admCandEnterSession(id) {
+    _admCandActiveSessionId = parseInt(id, 10) || null;
+    if (!_admCandActiveSessionId) return;
+    try { localStorage.setItem('admCandActiveSessionId', String(_admCandActiveSessionId)); } catch (e) {}
     _admCandLoadCirculars();
   }
-  // Circulars/sessions -- the gate every other tab (Import/Candidates/
-  // Rooms/Allocation/Printing/Scan) sits behind: nothing else is even
-  // shown until one is picked or created, so there's no way to act
-  // without a circular selected. The choice persists across reloads.
+  async function _admCandCreateSession() {
+    const input = document.getElementById('admCandNewSessionName');
+    const name = input ? input.value.trim() : '';
+    if (!name) { showToast('Name the session first', 'error'); return; }
+    try {
+      const res = await _admCandFetch('createSession', { name });
+      if (res.error) { showToast(res.error, 'error'); return; }
+      if (input) input.value = '';
+      _admCandSessions.push({ id: res.id, name });
+      showToast(`Session "${name}" created`, 'success');
+      _admCandEnterSession(res.id);
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
   async function _admCandLoadCirculars() {
     try {
-      const res = await _admCandFetch('listCirculars', {});
+      const res = await _admCandFetch('listCirculars', { session_id: _admCandActiveSessionId });
       _admCandCirculars = res.circulars || [];
       const saved = parseInt(localStorage.getItem('admCandActiveCircularId') || '', 10);
       if (_admCandCirculars.some(c => c.id === saved)) _admCandEnterCircular(saved);
       else _admCandShowGate();
     } catch (e) { _admCandShowGate(); }
   }
+  let _admCandEditingCircularId = null;
   function _admCandShowGate() {
     _admCandActiveCircularId = null;
+    _admCandEditingCircularId = null;
+    document.getElementById('admCandSessionGate')?.classList.add('hidden');
     document.getElementById('admCandCircularGate')?.classList.remove('hidden');
     document.getElementById('admCandMainArea')?.classList.add('hidden');
+    const sess = _admCandSessions.find(s => s.id === _admCandActiveSessionId);
+    const sessNameEl = document.getElementById('admCandGateSessionName');
+    if (sessNameEl) sessNameEl.textContent = sess ? sess.name : '';
+    _admCandRenderCircularList();
+    _admCandResetCircularForm();
+    _admCandLoadStudentFieldOptions();
+  }
+  function _admCandBoundsSummary(bounds) {
+    if (!bounds || !Object.keys(bounds).length) return '';
+    return Object.entries(bounds).filter(([, v]) => Array.isArray(v) && v.length).map(([k, v]) => `${k.replace('student_', '')}: ${v.join('/')}`).join(' · ');
+  }
+  function _admCandRenderCircularList() {
     const list = document.getElementById('admCandCircularList');
-    if (list) list.innerHTML = _admCandCirculars.length
-      ? _admCandCirculars.map(c => `<button onclick="_admCandEnterCircular(${c.id})" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold hover:bg-slate-100">${_escHtml(c.name)}</button>`).join('')
-      : '<p class="text-xs text-slate-400">No circulars yet — create one below.</p>';
+    if (!list) return;
+    list.innerHTML = _admCandCirculars.length
+      ? _admCandCirculars.map(c => {
+          const summary = _admCandBoundsSummary(c.bounds);
+          return `<div class="flex items-center gap-1.5">
+            <button onclick="_admCandEnterCircular(${c.id})" class="flex-1 text-left px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold hover:bg-slate-100">
+              ${_escHtml(c.name)}${summary ? `<span class="block text-[10px] text-slate-400 font-normal">${_escHtml(summary)}</span>` : ''}
+            </button>
+            <button onclick="_admCandEditCircular(${c.id})" title="Edit" class="px-2.5 py-2 border border-slate-200 text-slate-500 rounded-lg hover:bg-slate-100"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button>
+          </div>`;
+        }).join('')
+      : '<p class="text-xs text-slate-400">No circulars yet in this session — create one below.</p>';
+    lucide.createIcons();
+  }
+  async function _admCandLoadStudentFieldOptions() {
+    const fields = [['admCandNewCircularClass', 'class'], ['admCandNewCircularVersion', 'version'], ['admCandNewCircularCategory', 'student_category']];
+    for (const [elId, field] of fields) {
+      const el = document.getElementById(elId);
+      if (!el || el.dataset.loaded) continue;
+      try {
+        const res = await _admCandFetch('getStudentFieldValues', { field });
+        el.innerHTML = (res.values || []).map(v => `<option value="${_escHtml(v)}">${_escHtml(v)}</option>`).join('');
+        el.dataset.loaded = '1';
+      } catch (e) {}
+    }
+  }
+  function _admCandCollectBounds() {
+    const get = id => { const el = document.getElementById(id); return el ? Array.from(el.selectedOptions).map(o => o.value) : []; };
+    const bounds = {};
+    const cls = get('admCandNewCircularClass'); if (cls.length) bounds.class = cls;
+    const ver = get('admCandNewCircularVersion'); if (ver.length) bounds.version = ver;
+    const cat = get('admCandNewCircularCategory'); if (cat.length) bounds.student_category = cat;
+    return bounds;
+  }
+  function _admCandResetCircularForm() {
+    _admCandEditingCircularId = null;
+    const nameEl = document.getElementById('admCandNewCircularName'); if (nameEl) nameEl.value = '';
+    ['admCandNewCircularClass', 'admCandNewCircularVersion', 'admCandNewCircularCategory'].forEach(id => {
+      const el = document.getElementById(id); if (el) Array.from(el.options).forEach(o => o.selected = false);
+    });
+    const title = document.getElementById('admCandCircularFormTitle'); if (title) title.textContent = 'New circular';
+    const saveBtn = document.getElementById('admCandCircularSaveBtn'); if (saveBtn) saveBtn.textContent = 'Create & Continue';
+    document.getElementById('admCandCircularCancelBtn')?.classList.add('hidden');
+  }
+  async function _admCandEditCircular(id) {
+    const c = _admCandCirculars.find(x => x.id === id);
+    if (!c) return;
+    await _admCandLoadStudentFieldOptions();
+    _admCandEditingCircularId = id;
+    const nameEl = document.getElementById('admCandNewCircularName'); if (nameEl) nameEl.value = c.name;
+    const sel = (elId, key) => {
+      const el = document.getElementById(elId);
+      const values = (c.bounds && c.bounds[key]) || [];
+      if (el) Array.from(el.options).forEach(o => o.selected = values.includes(o.value));
+    };
+    sel('admCandNewCircularClass', 'class');
+    sel('admCandNewCircularVersion', 'version');
+    sel('admCandNewCircularCategory', 'student_category');
+    const title = document.getElementById('admCandCircularFormTitle'); if (title) title.textContent = `Editing "${c.name}"`;
+    const saveBtn = document.getElementById('admCandCircularSaveBtn'); if (saveBtn) saveBtn.textContent = 'Save Changes';
+    document.getElementById('admCandCircularCancelBtn')?.classList.remove('hidden');
+    nameEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  function _admCandCancelEditCircular() { _admCandResetCircularForm(); }
+  async function _admCandSaveCircularForm() {
+    const input = document.getElementById('admCandNewCircularName');
+    const name = input ? input.value.trim() : '';
+    if (!name) { showToast('Name the circular first', 'error'); return; }
+    const bounds = _admCandCollectBounds();
+    try {
+      if (_admCandEditingCircularId) {
+        const res = await _admCandFetch('updateCircular', { id: _admCandEditingCircularId, name, bounds });
+        if (res.error) { showToast(res.error, 'error'); return; }
+        const c = _admCandCirculars.find(x => x.id === _admCandEditingCircularId);
+        if (c) { c.name = name; c.bounds = bounds; }
+        showToast(`Circular "${name}" updated`, 'success');
+        _admCandResetCircularForm();
+        _admCandRenderCircularList();
+        if (_admCandActiveCircularId === res.id) {
+          const nameEl = document.getElementById('admCandActiveCircularName');
+          if (nameEl) nameEl.textContent = name;
+        }
+      } else {
+        const res = await _admCandFetch('createCircular', { session_id: _admCandActiveSessionId, name, bounds });
+        if (res.error) { showToast(res.error, 'error'); return; }
+        if (input) input.value = '';
+        _admCandCirculars.push({ id: res.id, name, bounds });
+        showToast(`Circular "${name}" created`, 'success');
+        _admCandEnterCircular(res.id);
+      }
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }
   function _admCandEnterCircular(id) {
     _admCandActiveCircularId = parseInt(id, 10) || null;
@@ -43726,7 +43893,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('admCandMainArea')?.classList.remove('hidden');
     const nameEl = document.getElementById('admCandActiveCircularName');
     const c = _admCandCirculars.find(x => x.id === _admCandActiveCircularId);
-    if (nameEl) nameEl.textContent = c ? c.name : '';
+    const sess = _admCandSessions.find(s => s.id === _admCandActiveSessionId);
+    const summary = c ? _admCandBoundsSummary(c.bounds) : '';
+    if (nameEl) nameEl.textContent = (sess ? sess.name + ' / ' : '') + (c ? c.name : '') + (summary ? ` (${summary})` : '');
     _admCandLoadRooms();
     _admCandLoadList();
     const firstTab = document.querySelector('#adm-cand-tabs .adm-ftab');
@@ -43736,18 +43905,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     try { localStorage.removeItem('admCandActiveCircularId'); } catch (e) {}
     _admCandShowGate();
   }
-  async function _admCandCreateCircular() {
-    const input = document.getElementById('admCandNewCircularName');
-    const name = input ? input.value.trim() : '';
-    if (!name) { showToast('Name the circular first', 'error'); return; }
-    try {
-      const res = await _admCandFetch('createCircular', { name });
-      if (res.error) { showToast(res.error, 'error'); return; }
-      if (input) input.value = '';
-      _admCandCirculars.push({ id: res.id, name });
-      showToast(`Circular "${name}" created`, 'success');
-      _admCandEnterCircular(res.id);
-    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  function _admCandSwitchSession() {
+    try { localStorage.removeItem('admCandActiveSessionId'); localStorage.removeItem('admCandActiveCircularId'); } catch (e) {}
+    _admCandShowSessionGate();
   }
   function _admCandRequireCircular() {
     if (_admCandActiveCircularId) return true;
@@ -43955,6 +44115,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       { rowId: 'token', label: 'Token', fixed: true },
       { rowId: 'candidate_name', label: 'Candidate Name', fixed: true },
       { rowId: 'class', label: 'Class', fixed: true },
+      { rowId: 'version', label: 'Version', fixed: true },
       { rowId: 'category', label: 'Category', fixed: true },
     ];
   }
@@ -44074,7 +44235,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const obj = { extra_fields: {} };
       Object.entries(mapping).forEach(([rowId, idx]) => {
         const val = String(r[idx] ?? '').trim();
-        if (['token', 'candidate_name', 'class', 'category'].includes(rowId)) obj[rowId] = val;
+        if (['token', 'candidate_name', 'class', 'version', 'category'].includes(rowId)) obj[rowId] = val;
         else obj.extra_fields[labels[rowId] || rowId] = val;
       });
       obj.external_key = (primaryKeyRowId && mapping[primaryKeyRowId] !== undefined) ? String(r[mapping[primaryKeyRowId]] ?? '').trim() : '';
@@ -44107,16 +44268,27 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         mapping_used: mappingUsed, primary_key_field: primaryKeyRowId,
         file_name: _admCandImportFileName || null,
       });
-      if (res.error) { showToast(res.error, 'error'); return; }
-      const result = document.getElementById('admCandResultSection');
-      if (result) {
-        result.classList.remove('hidden');
-        result.innerHTML = `<p class="font-black text-slate-800 mb-2">Import complete</p>
-          <p class="text-sm text-slate-600">${res.new_count} new, ${res.updated_count} updated, ${res.error_count} skipped (no primary key value), out of ${res.total} rows.</p>`;
+      if (res.error) {
+        showToast(res.error, 'error');
+        if (res.mismatches && res.mismatches.length) _admCandRenderImportResult(res);
+        return;
       }
+      _admCandRenderImportResult(res);
       showToast('Import complete', 'success');
       _admCandLoadList();
     } catch (e) { showToast(e.message || 'Import failed', 'error'); }
+  }
+  function _admCandRenderImportResult(res) {
+    const result = document.getElementById('admCandResultSection');
+    if (!result) return;
+    result.classList.remove('hidden');
+    const mismatchCount = res.mismatch_count || (res.mismatches ? res.mismatches.length : 0);
+    result.innerHTML = `<p class="font-black text-slate-800 mb-2">${res.success ? 'Import complete' : 'Import rejected'}</p>
+      <p class="text-sm text-slate-600 mb-2">${res.new_count || 0} new, ${res.updated_count || 0} updated, ${res.error_count || 0} skipped (no primary key value), ${mismatchCount} mismatched (outside this circular's bounds), out of ${res.total || 0} rows.</p>
+      ${mismatchCount ? `<div class="bg-amber-50 border border-amber-200 rounded-xl p-3 mt-2 max-h-48 overflow-y-auto">
+        <p class="text-[10px] uppercase text-amber-700 font-bold mb-1">Mismatched rows${mismatchCount > res.mismatches.length ? ` (first ${res.mismatches.length} shown)` : ''}</p>
+        ${res.mismatches.map(m => `<p class="text-xs text-amber-800">Row ${m.row} (${_escHtml(m.external_key || '')}): ${_escHtml(m.reason)}</p>`).join('')}
+      </div>` : ''}`;
   }
   async function _admCandLoadTemplates() {
     try {
@@ -44192,7 +44364,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admCandExportCsv() {
     const rows = _admCandAllCandidates;
     if (!rows.length) { showToast('Nothing to export', 'error'); return; }
-    const cols = ['token', 'candidate_name', 'class', 'category', 'room_id', 'seat_no', 'submission_scan_status', 'attendance_scan_status'];
+    const cols = ['token', 'candidate_name', 'class', 'version', 'category', 'room_id', 'seat_no', 'submission_scan_status', 'attendance_scan_status'];
     const csv = [cols.join(',')].concat(rows.map(r => cols.map(c => `"${String(r[c] ?? '').replace(/"/g, '""')}"`).join(','))).join('\r\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));

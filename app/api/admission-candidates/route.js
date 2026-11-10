@@ -48,7 +48,7 @@ async function _isAdmissionAdmin(userId) {
   return roles.includes('Admin') || roles.includes('Admission Admin');
 }
 
-const MODELED_FIELDS = ['token', 'candidate_name', 'class', 'category'];
+const MODELED_FIELDS = ['token', 'candidate_name', 'class', 'category', 'version'];
 function chunk(arr, size) {
   const out = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
@@ -64,20 +64,68 @@ export async function POST(req) {
     return NextResponse.json({ error: 'Admission Admin access required.' }, { status: 403 });
   }
 
-  // ── Circulars/sessions — every other action below is scoped to one of
-  // these (passed as payload.circular_id), so the same token/room name can
-  // recur across different circulars without colliding. A circular can
-  // span several uploads over time (old+new data mixed across them). ─────
+  // ── Sessions + Circulars — a session (e.g. an admission year, typed
+  // freely, like "2026") holds its own circulars; every action below that
+  // takes circular_id is further scoped to that one circular, so the same
+  // token/room name can recur across different circulars (and the same
+  // circular name across different sessions) without colliding. A circular
+  // can span several uploads over time (old+new data mixed across them). ──
+  if (action === 'listSessions') {
+    const rows = await sbAdmission('exam_sessions?select=*&order=created_at.desc');
+    return NextResponse.json({ sessions: Array.isArray(rows) ? rows : [] });
+  }
+  if (action === 'createSession') {
+    const name = String(payload.name || '').trim();
+    if (!name) return NextResponse.json({ error: 'Name is required.' });
+    const res = await sbAdmission('exam_sessions', 'POST', { name });
+    if (res?.error) return NextResponse.json({ error: res.error.includes('duplicate') ? 'A session with this name already exists.' : res.error });
+    return NextResponse.json({ id: res?.[0]?.id, name });
+  }
   if (action === 'listCirculars') {
-    const rows = await sbAdmission('exam_circulars?select=*&order=created_at.desc');
+    const sessionId = parseInt(payload.session_id, 10);
+    if (!sessionId) return NextResponse.json({ circulars: [] });
+    const rows = await sbAdmission(`exam_circulars?select=*&session_id=eq.${sessionId}&order=created_at.desc`);
     return NextResponse.json({ circulars: Array.isArray(rows) ? rows : [] });
   }
   if (action === 'createCircular') {
+    const sessionId = parseInt(payload.session_id, 10);
+    if (!sessionId) return NextResponse.json({ error: 'Pick a session first.' });
     const name = String(payload.name || '').trim();
     if (!name) return NextResponse.json({ error: 'Name is required.' });
-    const res = await sbAdmission('exam_circulars', 'POST', { name });
-    if (res?.error) return NextResponse.json({ error: res.error.includes('duplicate') ? 'A circular with this name already exists.' : res.error });
-    return NextResponse.json({ id: res?.[0]?.id, name });
+    const bounds = (payload.bounds && typeof payload.bounds === 'object') ? payload.bounds : {};
+    const res = await sbAdmission('exam_circulars', 'POST', { session_id: sessionId, name, bounds });
+    if (res?.error) return NextResponse.json({ error: res.error.includes('duplicate') ? 'A circular with this name already exists in this session.' : res.error });
+    return NextResponse.json({ id: res?.[0]?.id, name, bounds });
+  }
+  if (action === 'updateCircular') {
+    const id = parseInt(payload.id, 10);
+    if (!id) return NextResponse.json({ error: 'Missing circular.' });
+    const name = String(payload.name || '').trim();
+    if (!name) return NextResponse.json({ error: 'Name is required.' });
+    const bounds = (payload.bounds && typeof payload.bounds === 'object') ? payload.bounds : {};
+    const res = await sbAdmission(`exam_circulars?id=eq.${id}`, 'PATCH', { name, bounds });
+    if (res?.error) return NextResponse.json({ error: res.error.includes('duplicate') ? 'A circular with this name already exists in this session.' : res.error });
+    return NextResponse.json({ success: true, id, name, bounds });
+  }
+
+  // ── Distinct values from the school's own student roster (student schema,
+  // students_data table) -- used to build a circular's Class/Version/
+  // Category bounds from the REAL taxonomy already in use, not free text.
+  // field is whitelisted, mirroring app/api/student-admin/route.js's own
+  // get_field_values action (not called directly -- that route's _isAdmin
+  // gate gates on 'Admin'/'Student Portal Admin' only, not 'Admission
+  // Admin', so this is a small self-contained copy instead). ─────────────
+  if (action === 'getStudentFieldValues') {
+    const ALLOWED_FIELDS = ['class', 'version', 'student_category', 'section', 'shift', 'session'];
+    const field = String(payload.field || '').trim();
+    if (!ALLOWED_FIELDS.includes(field)) return NextResponse.json({ error: 'Invalid field.' });
+    const res = await fetch(`${SB_URL}/rest/v1/students_data?select=${field}`, {
+      headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'student' },
+    });
+    const rows = res.ok ? await res.json() : [];
+    const values = [...new Set((Array.isArray(rows) ? rows : []).map(r => r[field]).filter(v => v !== null && v !== undefined && String(v).trim() !== ''))]
+      .map(String).sort();
+    return NextResponse.json({ values });
   }
 
   // ── Saved import-mapping templates ───────────────────────────────────────
@@ -113,17 +161,43 @@ export async function POST(req) {
     if (!rows.length) return NextResponse.json({ error: 'No rows to import.' });
     if (rows.length > 5000) return NextResponse.json({ error: 'Import 5000 rows or fewer at a time.' });
 
+    const circRows = await sbAdmission(`exam_circulars?id=eq.${circularId}&select=bounds`);
+    const bounds = (Array.isArray(circRows) && circRows[0] && circRows[0].bounds) || {};
+    // Maps an exam_candidates modeled field to the bounds key it's checked
+    // against -- "category" here is whatever the admin mapped the Excel's
+    // Category column to, checked against the circular's bound
+    // student_category values (the school's own roster taxonomy).
+    const BOUND_CHECKS = [['class', 'class'], ['category', 'student_category'], ['version', 'version']];
+
     const clean = [];
+    const mismatches = [];
     let error_count = 0;
-    for (const r of rows) {
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
       const external_key = String(r.external_key || '').trim();
       if (!external_key) { error_count++; continue; }
+      let mismatchReason = null;
+      for (const [rowField, boundField] of BOUND_CHECKS) {
+        const allowed = bounds[boundField];
+        if (Array.isArray(allowed) && allowed.length && r[rowField] && !allowed.includes(r[rowField])) {
+          mismatchReason = `${rowField} "${r[rowField]}" is not in this circular's allowed ${boundField.replace('student_', '')} list (${allowed.join(', ')})`;
+          break;
+        }
+      }
+      if (mismatchReason) {
+        if (mismatches.length < 50) mismatches.push({ row: i + 1, external_key, reason: mismatchReason });
+        continue;
+      }
       const row = { circular_id: circularId, external_key, updated_at: new Date().toISOString() };
       MODELED_FIELDS.forEach(f => { if (r[f] !== undefined && r[f] !== '') row[f] = r[f]; });
       row.extra_fields = (r.extra_fields && typeof r.extra_fields === 'object') ? r.extra_fields : {};
       clean.push(row);
     }
-    if (!clean.length) return NextResponse.json({ error: 'No valid rows (primary key column was empty for every row).' });
+    if (!clean.length) {
+      return NextResponse.json(mismatches.length
+        ? { error: `No rows matched this circular's bounds (${mismatches.length} rejected).`, mismatches }
+        : { error: 'No valid rows (primary key column was empty for every row).' });
+    }
 
     // Existing-key lookup WITHIN this circular, chunked to keep each GET's URL short.
     const existingKeys = new Set();
@@ -151,7 +225,11 @@ export async function POST(req) {
       uploaded_by: user_id || null,
     });
 
-    return NextResponse.json({ success: true, new_count, updated_count, error_count, total: rows.length, batch_id: batch?.[0]?.id || null });
+    return NextResponse.json({
+      success: true, new_count, updated_count, error_count,
+      mismatch_count: mismatches.length, mismatches,
+      total: rows.length, batch_id: batch?.[0]?.id || null,
+    });
   }
 
   // ── Candidate list ───────────────────────────────────────────────────────
