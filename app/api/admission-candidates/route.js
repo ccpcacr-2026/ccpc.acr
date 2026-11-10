@@ -263,10 +263,10 @@ export async function POST(req) {
     return NextResponse.json({ templates: Array.isArray(rows) ? rows : [] });
   }
   if (action === 'saveCandidateImportTemplate') {
-    const { name, header_signature, mapping, primary_key_field } = payload;
+    const { name, header_signature, mapping, primary_key_field, field_labels } = payload;
     if (!name || !primary_key_field) return NextResponse.json({ error: 'Name and primary key are required.' });
     const existing = await sbAdmission(`candidate_import_templates?name=eq.${encodeURIComponent(name)}`);
-    const data = { name, header_signature: header_signature || '', mapping: mapping || {}, primary_key_field, updated_at: new Date().toISOString() };
+    const data = { name, header_signature: header_signature || '', mapping: mapping || {}, primary_key_field, field_labels: field_labels || {}, updated_at: new Date().toISOString() };
     if (Array.isArray(existing) && existing.length) {
       const res = await sbAdmission(`candidate_import_templates?id=eq.${existing[0].id}`, 'PATCH', data);
       if (res?.error) return NextResponse.json({ error: res.error });
@@ -545,12 +545,30 @@ export async function POST(req) {
   }
 
   // ── Photo bulk upload by admin-selected match field ──────────────────────
+  // VortiBD's own "download all candidate photos" export comes as four
+  // separate folders (applicant/father/mother/local guardian), so the admin
+  // uploads each folder's files as its own batch, picking which of the four
+  // photo columns that batch fills. Matching is no longer limited to the 3
+  // fixed columns either -- any custom field from a saved mapping template
+  // (e.g. "Applicant ID", if that's what the photos are actually named
+  // after) works too, sent as match_field "extra:<field label>" and read
+  // out of the candidate's extra_fields jsonb via PostgREST's ->> operator.
+  const PHOTO_FIELDS = ['photo_url', 'father_photo_url', 'mother_photo_url', 'guardian_photo_url'];
+  const PHOTO_MATCH_COLUMNS = ['token', 'external_key', 'candidate_name', 'class', 'category', 'version', 'mobile'];
   if (action === 'bulkPhotoUploadByMatchKey') {
     const circularId = parseInt(payload.circular_id, 10);
     if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
     if (!isFullAdmin && !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'photos', 'edit')) return _forbidden();
-    const matchField = String(payload.match_field || 'token');
-    if (!['token', 'external_key', 'candidate_name'].includes(matchField)) {
+    const photoField = PHOTO_FIELDS.includes(payload.photo_field) ? payload.photo_field : 'photo_url';
+    const rawMatchField = String(payload.match_field || 'token');
+    let filterKey;
+    if (rawMatchField.startsWith('extra:')) {
+      const label = rawMatchField.slice(6);
+      if (!label) return NextResponse.json({ error: 'Invalid match field.' });
+      filterKey = `extra_fields->>${encodeURIComponent(label)}`;
+    } else if (PHOTO_MATCH_COLUMNS.includes(rawMatchField)) {
+      filterKey = rawMatchField;
+    } else {
       return NextResponse.json({ error: 'Invalid match field.' });
     }
     const jobs = Array.isArray(payload.jobs) ? payload.jobs : [];
@@ -560,8 +578,8 @@ export async function POST(req) {
     for (const job of jobs) {
       const value = String(job.match_value || '').trim();
       if (!value || !job.photo_base64) { failed.push(job.match_value || '(blank)'); continue; }
-      const res = await sbAdmission(`exam_candidates?circular_id=eq.${circularId}&${matchField}=eq.${encodeURIComponent(value)}`, 'PATCH',
-        { photo_url: job.photo_base64, updated_at: new Date().toISOString() });
+      const res = await sbAdmission(`exam_candidates?circular_id=eq.${circularId}&${filterKey}=eq.${encodeURIComponent(value)}`, 'PATCH',
+        { [photoField]: job.photo_base64, updated_at: new Date().toISOString() });
       if (res && res.error) failed.push(value); else succeeded++;
     }
     return NextResponse.json({ success: true, succeeded, failed, total: jobs.length });
@@ -897,13 +915,14 @@ export async function POST(req) {
   // re-upload already applies a saved template today.
   function _applyTemplateMapping(headers, rows, template) {
     const mapping = template.mapping || {};
+    const fieldLabels = template.field_labels || {};
     return rows.map(r => {
       const obj = { extra_fields: {} };
       for (const [rowId, headerText] of Object.entries(mapping)) {
         const colIdx = headers.indexOf(headerText);
         if (colIdx < 0) continue;
         const val = String(r[colIdx] ?? '').trim();
-        if (MODELED_FIELDS.includes(rowId)) obj[rowId] = val; else obj.extra_fields[rowId] = val;
+        if (MODELED_FIELDS.includes(rowId)) obj[rowId] = val; else obj.extra_fields[fieldLabels[rowId] || rowId] = val;
       }
       const pkHeader = mapping[template.primary_key_field];
       const pkIdx = pkHeader ? headers.indexOf(pkHeader) : -1;

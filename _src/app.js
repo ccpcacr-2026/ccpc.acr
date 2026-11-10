@@ -44218,6 +44218,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     else if (id === 'adm-cand-scan') _admCandPopulateFilterDropdowns();
     else if (id === 'adm-cand-committee') _admCandLoadCommitteeTab();
     else if (id === 'adm-cand-import') { _admCandLoadTemplates().then(_admCandLoadVortibdPanel); }
+    else if (id === 'adm-cand-photos') { _admCandLoadTemplates().then(_admCandPopulatePhotoMatchFieldOptions); }
   }
 
   function _admCandRenderSections() {
@@ -44419,13 +44420,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div id="adm-cand-photos" class="hidden">
         <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
           <div class="flex items-center gap-3 flex-wrap mb-3">
-            <label class="text-[10px] uppercase text-slate-400 font-bold">Match photos by</label>
-            <select id="admCandPhotoMatchField" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold">
-              <option value="token">Token</option><option value="external_key">Primary key (as imported)</option><option value="candidate_name">Candidate Name</option>
+            <label class="text-[10px] uppercase text-slate-400 font-bold">Photo type</label>
+            <select id="admCandPhotoTypeSelect" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold">
+              <option value="photo_url">Applicant</option>
+              <option value="father_photo_url">Father</option>
+              <option value="mother_photo_url">Mother</option>
+              <option value="guardian_photo_url">Local Guardian</option>
             </select>
+            <label class="text-[10px] uppercase text-slate-400 font-bold">Match photos by</label>
+            <select id="admCandPhotoMatchField" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold"></select>
             <input type="file" id="admCandPhotoInput" multiple accept="image/*" onchange="_admCandBulkUpload(this.files)" class="text-xs">
           </div>
-          <p class="text-xs text-slate-400">Name each file exactly like "&lt;matched value&gt;.jpg" — e.g. if matching by Token and a candidate's token is 1042, name the file 1042.jpg.</p>
+          <p class="text-xs text-slate-400">Upload one folder at a time (e.g. a VortiBD photo export's Applicant / Father / Mother / Local Guardian folders, or any batch of your own) — name each file exactly like "&lt;matched value&gt;.jpg". "Match photos by" lists every field from your saved import mappings, not just Token.</p>
           <p id="admCandPhotoProgress" class="text-xs text-slate-500 mt-2"></p>
         </div>
       </div>
@@ -44651,10 +44657,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   function _admCandApplyTemplateObj(tpl) {
     const mapping = tpl.mapping || {};
+    const fieldLabels = tpl.field_labels || {};
     _admCandMapRows = _admCandDefaultMapRows();
     Object.entries(mapping).forEach(([key, headerText]) => {
       let row = _admCandMapRows.find(r => r.rowId === key);
-      if (!row) { row = { rowId: key, label: key, fixed: false }; _admCandMapRows.push(row); }
+      if (!row) { row = { rowId: key, label: fieldLabels[key] || key, fixed: false }; _admCandMapRows.push(row); }
       row.headerIdx = _admCandExcelHeaders.findIndex(h => h === headerText);
     });
     _admCandPrimaryKeyRowId = tpl.primary_key_field || null;
@@ -44993,13 +45000,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const nameEl = document.getElementById('admCandTemplateName');
     const name = nameEl ? nameEl.value.trim() : '';
     if (!name) { showToast('Name this mapping first', 'error'); return; }
-    const { mapping, primaryKeyRowId } = _admCandGetMapping();
+    const { mapping, labels, primaryKeyRowId } = _admCandGetMapping();
     if (!primaryKeyRowId || mapping[primaryKeyRowId] === undefined) { showToast('Pick a primary key column first', 'error'); return; }
     const mappingObj = {};
     Object.keys(mapping).forEach(rowId => { mappingObj[rowId] = _admCandExcelHeaders[mapping[rowId]]; });
     try {
       const res = await _admCandFetch('saveCandidateImportTemplate', {
-        name, header_signature: _admCandHeaderSignature(), mapping: mappingObj, primary_key_field: primaryKeyRowId,
+        name, header_signature: _admCandHeaderSignature(), mapping: mappingObj, primary_key_field: primaryKeyRowId, field_labels: labels,
       });
       if (res.error) { showToast(res.error, 'error'); return; }
       showToast('Mapping saved', 'success');
@@ -45555,6 +45562,41 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   // ── Photo bulk upload by admin-selected match field ──────────────────────
+  // "Match photos by" isn't limited to the 3 fixed columns -- it also lists
+  // every custom field from any saved import mapping template (e.g.
+  // "Applicant ID", if that's what a photo export is actually named after),
+  // sent as "extra:<field label>" and matched server-side against that
+  // candidate's extra_fields. "Photo type" picks which of the four photo
+  // columns this batch fills, for a VortiBD-style export with separate
+  // applicant/father/mother/local-guardian photo folders.
+  const ADM_CAND_FIXED_MATCH_FIELDS = [
+    ['token', 'Token'], ['external_key', 'Primary key (as imported)'], ['candidate_name', 'Candidate Name'],
+    ['class', 'Class'], ['version', 'Version'], ['category', 'Category'], ['mobile', 'Mobile'],
+  ];
+  const ADM_CAND_MODELED_ROW_IDS = ['token', 'candidate_name', 'class', 'version', 'category', 'mobile'];
+  function _admCandFieldOptionsFromTemplates() {
+    const options = ADM_CAND_FIXED_MATCH_FIELDS.map(([value, label]) => ({ value, label }));
+    const seen = new Set(options.map(o => o.label));
+    (_admCandTemplates || []).forEach(t => {
+      const labels = t.field_labels || {};
+      Object.keys(t.mapping || {}).forEach(rowId => {
+        if (ADM_CAND_MODELED_ROW_IDS.includes(rowId)) return;
+        const label = labels[rowId] || rowId;
+        if (seen.has(label)) return;
+        seen.add(label);
+        options.push({ value: 'extra:' + label, label });
+      });
+    });
+    return options;
+  }
+  function _admCandPopulatePhotoMatchFieldOptions() {
+    const sel = document.getElementById('admCandPhotoMatchField');
+    if (!sel) return;
+    const current = sel.value;
+    const options = _admCandFieldOptionsFromTemplates();
+    sel.innerHTML = options.map(o => `<option value="${_escHtml(o.value)}">${_escHtml(o.label)}</option>`).join('');
+    if (options.some(o => o.value === current)) sel.value = current;
+  }
   function _admCandBulkUploadPhotoJobs(jobs, onProgress) {
     const total = jobs.length;
     let done = 0;
@@ -45562,11 +45604,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const CONCURRENCY = 4;
     let idx = 0;
     const matchField = document.getElementById('admCandPhotoMatchField').value;
+    const photoField = document.getElementById('admCandPhotoTypeSelect')?.value || 'photo_url';
     function next() {
       if (idx >= jobs.length) return Promise.resolve();
       const job = jobs[idx++];
       return _regAdminCompressImage(job.file)
-        .then(base64 => _admCandFetch('bulkPhotoUploadByMatchKey', { circular_id: _admCandActiveCircularId, match_field: matchField, jobs: [{ match_value: job.matchValue, photo_base64: base64 }] }))
+        .then(base64 => _admCandFetch('bulkPhotoUploadByMatchKey', { circular_id: _admCandActiveCircularId, match_field: matchField, photo_field: photoField, jobs: [{ match_value: job.matchValue, photo_base64: base64 }] }))
         .then(res => { if (!(res && res.succeeded)) failedNames.push(job.file.name); })
         .catch(() => failedNames.push(job.file.name + ' (network error)'))
         .finally(() => { done++; if (onProgress) onProgress(done, total); return next(); });

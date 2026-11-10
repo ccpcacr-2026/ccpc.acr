@@ -114,13 +114,14 @@ async function _vortibdFetchExportBytes(token, clientId, vortibdCircularId) {
 }
 function _applyTemplateMapping(headers, rows, template) {
   const mapping = template.mapping || {};
+  const fieldLabels = template.field_labels || {};
   return rows.map(r => {
     const obj = { extra_fields: {} };
     for (const [rowId, headerText] of Object.entries(mapping)) {
       const colIdx = headers.indexOf(headerText);
       if (colIdx < 0) continue;
       const val = String(r[colIdx] ?? '').trim();
-      if (MODELED_FIELDS.includes(rowId)) obj[rowId] = val; else obj.extra_fields[rowId] = val;
+      if (MODELED_FIELDS.includes(rowId)) obj[rowId] = val; else obj.extra_fields[fieldLabels[rowId] || rowId] = val;
     }
     const pkHeader = mapping[template.primary_key_field];
     const pkIdx = pkHeader ? headers.indexOf(pkHeader) : -1;
