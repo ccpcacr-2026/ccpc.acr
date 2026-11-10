@@ -713,8 +713,15 @@ button { user-select: none; }
     font-size: 12px;
   }
 
-  /* Responsive tabs */
-  .flex.flex-wrap.gap-2 {
+  /* Responsive tabs — scoped to actual tab-ROW containers only (every
+     direct child is an .admin-tab-btn/.ptab-btn, e.g. the Administration
+     sub-tabs). Bare ".flex.flex-wrap.gap-2" matched hundreds of unrelated
+     toolbars/filter-bars/chip-lists app-wide (e.g. Admission Admin's
+     search+filters+action-buttons row), force-stacking each control onto
+     its own full-width line instead of letting them wrap naturally —
+     same overly-broad-selector bug as ".flex.gap-3" above, same fix
+     shape: require every direct child to actually be a tab button. */
+  .flex.flex-wrap.gap-2:not(:has(> :not(.admin-tab-btn):not(.ptab-btn))) {
     flex-direction: column;
     gap: 0.5rem !important;
   }

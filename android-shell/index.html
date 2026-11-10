@@ -255,6 +255,27 @@
       window.addEventListener('resize', function () {
         setTop(currentTop());
       });
+
+      // ── Hardware/gesture Back button ────────────────────────────────────
+      // The top-level WebView (this page) never itself navigates - only the
+      // iframes' own JS does (ccpc-acr's pushState-based modal/drill-down/
+      // Home guards, and ccpc-portal's Next.js router). Both of those still
+      // add their entries to this document's single shared joint session
+      // history, so stepping it back from here - without touching either
+      // iframe's contentWindow directly - correctly replays whichever
+      // portal's own back-button logic is relevant right now. Called from
+      // MainActivity.onBackPressed(); returning false tells it there was
+      // nothing to go back to, so it should fall through to the normal
+      // "exit the app" behaviour, same as a browser closing its last page.
+      window.ccpcHandleBackButton = function () {
+        try {
+          if (window.history.length > 1) {
+            window.history.back();
+            return true;
+          }
+        } catch (e) {}
+        return false;
+      };
     })();
   </script>
 </body>

@@ -3,6 +3,8 @@ package com.ccpc.facultyportal;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.view.ViewGroup;
+import android.webkit.WebView;
+import androidx.activity.OnBackPressedCallback;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
@@ -48,5 +50,38 @@ public class MainActivity extends BridgeActivity {
         WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
         controller.setAppearanceLightStatusBars(true); // dark icons, for a light bar
         controller.setAppearanceLightNavigationBars(true);
+
+        // Capacitor's own Bridge registers its own OnBackPressedCallback on
+        // this same AndroidX dispatcher during super.onCreate() above - on
+        // the new (non-deprecated) back-press system, the dispatcher only
+        // ever calls the MOST RECENTLY ADDED *enabled* callback, so a plain
+        // override of the old Activity.onBackPressed() method is silently
+        // never invoked at all once any callback is registered (confirmed:
+        // it previously fired unconditionally regardless of what that
+        // override's own logic decided). Registering ours here, after
+        // super.onCreate(), makes it the most-recent one and gives it first
+        // refusal. The WebView that loads android-shell/index.html never
+        // itself navigates - only the portal iframes' own JS does - so ask
+        // the shell's ccpcHandleBackButton() (android-shell/index.html) to
+        // step whichever portal's real navigation first; only when it
+        // reports nothing was there to go back to do we disable ourselves
+        // and re-dispatch, letting Capacitor's own callback (or the system
+        // default) handle it, e.g. actually exiting.
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                WebView webView = getBridge().getWebView();
+                webView.evaluateJavascript(
+                    "(function(){try{return !!(window.ccpcHandleBackButton && window.ccpcHandleBackButton());}catch(e){return false;}})();",
+                    value -> {
+                        if (!"true".equals(value)) {
+                            setEnabled(false);
+                            getOnBackPressedDispatcher().onBackPressed();
+                            setEnabled(true);
+                        }
+                    }
+                );
+            }
+        });
     }
 }
