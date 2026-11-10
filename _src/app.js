@@ -44660,6 +44660,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const mapping = tpl.mapping || {};
     const fieldLabels = tpl.field_labels || {};
     _admCandMapRows = _admCandDefaultMapRows();
+    // Pre-fill the template-name box with the applied template's own name,
+    // so clicking "Save mapping" naturally overwrites/updates it (matched
+    // by name server-side) instead of needing the name retyped from memory
+    // or silently refusing to save at all if left blank.
+    const nameEl = document.getElementById('admCandTemplateName');
+    if (nameEl) nameEl.value = tpl.name || '';
     Object.entries(mapping).forEach(([key, headerText]) => {
       let row = _admCandMapRows.find(r => r.rowId === key);
       if (!row) { row = { rowId: key, label: fieldLabels[key] || key, fixed: false }; _admCandMapRows.push(row); }
