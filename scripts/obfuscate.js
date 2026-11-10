@@ -497,7 +497,7 @@ const RESERVED = [
   '_admCandEnterSession','_admCandCreateSession','_admCandSwitchSession',
   '_admCandHandleImportFile','_admCandUpdateMappingSample',
   '_admCandApplySavedTemplate','_admCandSaveMappingTemplate','_admCandPreviewImport','_admCandConfirmImport',
-  '_admCandRenameRow','_admCandSetPrimaryKey','_admCandAddMapRow','_admCandRemoveRow',
+  '_admCandRenameRow','_admCandSetPrimaryKey','_admCandAddFieldFromHeader','_admCandAddAllRemainingFields','_admCandRemoveRow',
   '_admCandLoadList','_admCandFilterList','_admCandExportCsv','_admCandDeleteCandidate',
   '_admCandPrintFormTemplate','_admCandPrintAdmitTemplate',
   '_admCandRoomHandleImportFile','_admCandRoomConfirmImport','_admCandRoomFormOpen','_admCandRoomFormSave','_admCandRoomDelete',
@@ -511,7 +511,7 @@ const RESERVED = [
   '_admCandCommitteeAdd','_admCandCommitteeSave','_admCandCommitteeRemove',
   '_admCandPickExistingSession','_admCandEditSession','_admCandDeleteSession',
   '_admCandFilterCircularList','_admCandShowCircularForm',
-  '_admCandSaveVortibdCreds','_admCandLoadVortibdCirculars','_admCandSaveVortibdSyncConfig',
+  '_admCandSaveVortibdCreds','_admCandLoadVortibdCirculars','_admCandSaveVortibdSyncConfig','_admCandSaveVortibdCircularLink',
   '_admCandPullVortibdFile','_admCandSyncVortibdNow',
   '_admCandAddVortibdScheduleRow','_admCandRemoveVortibdScheduleRow','_admCandUpdateVortibdScheduleRow'
 ];

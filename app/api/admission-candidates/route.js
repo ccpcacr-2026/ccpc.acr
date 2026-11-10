@@ -133,7 +133,7 @@ export async function POST(req) {
     'listSessions', 'createSession', 'updateSession', 'deleteSession', 'createCircular', 'updateCircular', 'getStudentFieldValues',
     'saveTagDefinition', 'deleteTagDefinition',
     'listStaffForCommittee', 'listCommitteeMembers', 'saveCommitteeMember', 'removeCommitteeMember',
-    'getVortibdCredentials', 'saveVortibdCredentials', 'listVortibdCirculars', 'saveVortibdSyncConfig', 'vortibdPullFile', 'syncVortibdNow',
+    'getVortibdCredentials', 'saveVortibdCredentials', 'listVortibdCirculars', 'getVortibdSyncConfig', 'saveVortibdSyncConfig', 'saveVortibdCircularLink', 'vortibdPullFile', 'syncVortibdNow',
   ]);
   if (ADMIN_ONLY_ACTIONS.has(action) && !isFullAdmin) {
     return NextResponse.json({ error: 'Admission Admin access required.' }, { status: 403 });
@@ -911,12 +911,24 @@ export async function POST(req) {
       return obj;
     });
   }
+  // VortiBD's own export column layout is the same regardless of which of
+  // our circulars the data is headed into, so the mapping (and the rest of
+  // the integration's behavior -- enabled, schedule, date range) is ONE
+  // system-wide config, not repeated per circular. The only thing that
+  // genuinely varies per circular is which VortiBD circular feeds it.
+  const VORTIBD_SYNC_CONFIG_DEFAULT = { enabled: false, schedule: [{ start: '00:00', end: '24:00', interval_minutes: 360 }], start_date: null, end_date: null, mapping_template_id: null };
+  async function _vortibdSyncConfig() {
+    const rows = await sbAdmission('admission_settings?key=eq.vortibd_sync_config');
+    const stored = (Array.isArray(rows) && rows[0] && rows[0].value) || {};
+    return { ...VORTIBD_SYNC_CONFIG_DEFAULT, ...stored };
+  }
   async function _runVortibdSync(circularId) {
-    const circRows = await sbAdmission(`exam_circulars?id=eq.${circularId}&select=id,name,vortibd_circular_id,vortibd_mapping_template_id`);
+    const circRows = await sbAdmission(`exam_circulars?id=eq.${circularId}&select=id,name,vortibd_circular_id`);
     const circ = Array.isArray(circRows) && circRows[0];
     if (!circ) return { error: 'Circular not found.' };
     if (!circ.vortibd_circular_id) return { error: 'No VortiBD circular is linked to this circular yet.' };
-    if (!circ.vortibd_mapping_template_id) return { error: 'No saved mapping yet — use "Pull Now & Map" once first.' };
+    const config = await _vortibdSyncConfig();
+    if (!config.mapping_template_id) return { error: 'No saved mapping yet — use "Pull Now & Map" once first.' };
     const now = new Date().toISOString();
     try {
       const { token, clientId } = await _vortibdLogin();
@@ -927,7 +939,7 @@ export async function POST(req) {
       if (!grid.length) throw new Error('The exported file came back empty.');
       const headers = grid[0].map(h => String(h || '').trim());
       const dataRows = grid.slice(1).filter(r => r.some(c => String(c || '').trim() !== ''));
-      const tplRows = await sbAdmission(`candidate_import_templates?id=eq.${circ.vortibd_mapping_template_id}`);
+      const tplRows = await sbAdmission(`candidate_import_templates?id=eq.${config.mapping_template_id}`);
       const template = Array.isArray(tplRows) && tplRows[0];
       if (!template) throw new Error('The saved mapping template no longer exists — re-map via "Pull Now & Map".');
       const mapped = _applyTemplateMapping(headers, dataRows, template);
@@ -972,9 +984,10 @@ export async function POST(req) {
       return NextResponse.json({ circulars });
     } catch (e) { return NextResponse.json({ error: e.message || 'Could not reach VortiBD.' }); }
   }
+  if (action === 'getVortibdSyncConfig') {
+    return NextResponse.json({ config: await _vortibdSyncConfig() });
+  }
   if (action === 'saveVortibdSyncConfig') {
-    const circularId = parseInt(payload.circular_id, 10);
-    if (!circularId) return NextResponse.json({ error: 'Missing circular.' });
     const HHMM = /^([01]\d|2[0-4]):([0-5]\d)$/;
     const rawSchedule = Array.isArray(payload.schedule) ? payload.schedule : [];
     const schedule = rawSchedule
@@ -982,17 +995,26 @@ export async function POST(req) {
       .filter(w => HHMM.test(w.start) && HHMM.test(w.end) && w.interval_minutes > 0);
     if (!schedule.length) return NextResponse.json({ error: 'Add at least one valid time window (HH:MM) with an interval.' });
     const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-    const startDate = DATE_RE.test(payload.start_date || '') ? payload.start_date : null;
-    const endDate = DATE_RE.test(payload.end_date || '') ? payload.end_date : null;
-    const data = {
-      vortibd_circular_id: payload.vortibd_circular_id ? parseInt(payload.vortibd_circular_id, 10) : null,
-      vortibd_sync_enabled: !!payload.enabled,
-      vortibd_sync_schedule: schedule,
-      vortibd_sync_start_date: startDate,
-      vortibd_sync_end_date: endDate,
-      vortibd_mapping_template_id: payload.mapping_template_id ? parseInt(payload.mapping_template_id, 10) : null,
+    const config = {
+      enabled: !!payload.enabled,
+      schedule,
+      start_date: DATE_RE.test(payload.start_date || '') ? payload.start_date : null,
+      end_date: DATE_RE.test(payload.end_date || '') ? payload.end_date : null,
+      mapping_template_id: payload.mapping_template_id ? parseInt(payload.mapping_template_id, 10) : null,
     };
-    const res = await sbAdmission(`exam_circulars?id=eq.${circularId}`, 'PATCH', data);
+    const rows = await sbAdmission('admission_settings?key=eq.vortibd_sync_config');
+    if (Array.isArray(rows) && rows.length) await sbAdmission('admission_settings?key=eq.vortibd_sync_config', 'PATCH', { value: config, updated_at: new Date().toISOString() });
+    else await sbAdmission('admission_settings', 'POST', { key: 'vortibd_sync_config', value: config, updated_at: new Date().toISOString() });
+    return NextResponse.json({ success: true });
+  }
+  // The one genuinely per-circular piece -- which VortiBD circular feeds
+  // this one. Everything else about the sync is the global config above.
+  if (action === 'saveVortibdCircularLink') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ error: 'Missing circular.' });
+    const res = await sbAdmission(`exam_circulars?id=eq.${circularId}`, 'PATCH', {
+      vortibd_circular_id: payload.vortibd_circular_id ? parseInt(payload.vortibd_circular_id, 10) : null,
+    });
     if (res?.error) return NextResponse.json({ error: res.error });
     return NextResponse.json({ success: true });
   }

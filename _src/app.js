@@ -44226,7 +44226,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     host.innerHTML = `
       <div id="adm-cand-import" class="hidden">
         <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-4">
-          <p class="text-[10px] uppercase text-slate-400 font-bold mb-2">VortiBD Integration</p>
+          <p class="text-[10px] uppercase text-slate-400 font-bold mb-2">VortiBD Integration — applies to the whole admission system</p>
           <div class="flex gap-2 items-center flex-wrap mb-2">
             <input type="text" id="admCandVortibdUsername" placeholder="VortiBD username/phone" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="width:160px">
             <input type="password" id="admCandVortibdPassword" placeholder="Password (blank = keep existing)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="width:220px">
@@ -44234,8 +44234,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <span id="admCandVortibdCredNote" class="text-xs text-slate-400"></span>
           </div>
           <div class="flex gap-2 items-center flex-wrap mb-2">
-            <select id="admCandVortibdCircularSelect" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="width:260px"><option value="">— Pick VortiBD circular —</option></select>
-            <button onclick="_admCandLoadVortibdCirculars()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Refresh List</button>
             <select id="admCandVortibdTemplateSelect" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="width:200px"><option value="">— Mapping to auto-apply —</option></select>
             <label class="flex items-center gap-1.5 px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold cursor-pointer whitespace-nowrap"><input type="checkbox" id="admCandVortibdEnabled"> Auto-sync enabled</label>
           </div>
@@ -44248,9 +44246,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
           <p class="text-[10px] uppercase text-slate-400 font-bold mb-1">Sync schedule — different intervals for different times of day (Bangladesh time)</p>
           <div id="admCandVortibdScheduleList" class="flex flex-col gap-1.5 mb-2"></div>
-          <div class="flex items-center gap-2 flex-wrap mb-2">
+          <div class="flex items-center gap-2 flex-wrap">
             <button onclick="_admCandAddVortibdScheduleRow()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase">+ Add Time Window</button>
             <button onclick="_admCandSaveVortibdSyncConfig()" class="px-3 py-2 bg-slate-800 text-white rounded-lg text-[10px] font-black uppercase whitespace-nowrap ml-auto">Save Sync Settings</button>
+          </div>
+        </div>
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-4">
+          <p class="text-[10px] uppercase text-slate-400 font-bold mb-2">This circular's VortiBD source</p>
+          <div class="flex gap-2 items-center flex-wrap mb-2">
+            <select id="admCandVortibdCircularSelect" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="width:260px"><option value="">— Pick VortiBD circular —</option></select>
+            <button onclick="_admCandLoadVortibdCirculars()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Refresh List</button>
+            <button onclick="_admCandSaveVortibdCircularLink()" class="px-3 py-2 bg-slate-800 text-white rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Save Link</button>
           </div>
           <div class="flex items-center gap-2 flex-wrap">
             <button onclick="_admCandPullVortibdFile()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase whitespace-nowrap">Pull Now &amp; Map</button>
@@ -44271,7 +44277,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </div>
             <div id="admCandMappingList"></div>
             <div class="flex items-center gap-2 mt-3 flex-wrap">
-              <button onclick="_admCandAddMapRow()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase">+ Add field</button>
+              <select id="admCandAddFieldSelect" onchange="_admCandAddFieldFromHeader(this)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="width:200px"><option value="">+ Add column as field…</option></select>
+              <button onclick="_admCandAddAllRemainingFields()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase whitespace-nowrap">+ Add All Remaining</button>
               <input type="text" id="admCandTemplateName" placeholder="Name this mapping to save it" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="width:220px">
               <button onclick="_admCandSaveMappingTemplate()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase">Save mapping</button>
               <button onclick="_admCandPreviewImport()" class="ml-auto px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase">Preview</button>
@@ -44677,7 +44684,38 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     section.classList.remove('hidden');
     document.getElementById('admCandPreviewSection')?.classList.add('hidden');
     document.getElementById('admCandResultSection')?.classList.add('hidden');
+    _admCandPopulateAddFieldSelect();
     lucide.createIcons();
+  }
+  // Excel headers not yet claimed by any mapped row -- backs both the
+  // "+ Add column as field" picker and "+ Add All Remaining" below, so
+  // adding extra fields (e.g. every leftover VortiBD column after a pull)
+  // is pick-from-a-list instead of manually typing each label by hand.
+  function _admCandUnmappedHeaderIndexes() {
+    const used = new Set(_admCandMapRows.map(r => r.headerIdx).filter(i => i !== undefined && i !== null && i >= 0));
+    return _admCandExcelHeaders.map((h, i) => i).filter(i => !used.has(i));
+  }
+  function _admCandPopulateAddFieldSelect() {
+    const sel = document.getElementById('admCandAddFieldSelect');
+    if (!sel) return;
+    const unmapped = _admCandUnmappedHeaderIndexes();
+    sel.innerHTML = '<option value="">+ Add column as field…</option>' + unmapped.map(i => `<option value="${i}">${_escHtml(_admCandExcelHeaders[i] || '(blank header)')}</option>`).join('');
+  }
+  function _admCandAddFieldFromHeader(sel) {
+    const idx = parseInt(sel.value, 10);
+    if (isNaN(idx) || idx < 0) return;
+    _admCandRowSeq++;
+    _admCandMapRows.push({ rowId: 'extra_' + _admCandRowSeq, label: _admCandExcelHeaders[idx] || ('Column ' + (idx + 1)), fixed: false, headerIdx: idx });
+    _admCandRenderMapping();
+  }
+  function _admCandAddAllRemainingFields() {
+    const unmapped = _admCandUnmappedHeaderIndexes();
+    if (!unmapped.length) { showToast('Every column is already mapped', 'error'); return; }
+    unmapped.forEach(idx => {
+      _admCandRowSeq++;
+      _admCandMapRows.push({ rowId: 'extra_' + _admCandRowSeq, label: _admCandExcelHeaders[idx] || ('Column ' + (idx + 1)), fixed: false, headerIdx: idx });
+    });
+    _admCandRenderMapping();
   }
   function _admCandUpdateMappingSample(sel) {
     const idx = parseInt(sel.value, 10);
@@ -44691,11 +44729,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (row) row.label = val;
   }
   function _admCandSetPrimaryKey(rowId) { _admCandPrimaryKeyRowId = rowId; }
-  function _admCandAddMapRow() {
-    _admCandRowSeq++;
-    _admCandMapRows.push({ rowId: 'extra_' + _admCandRowSeq, label: 'New Field', fixed: false, headerIdx: -1 });
-    _admCandRenderMapping();
-  }
   function _admCandRemoveRow(rowId) {
     _admCandMapRows = _admCandMapRows.filter(r => r.rowId !== rowId);
     if (_admCandPrimaryKeyRowId === rowId) _admCandPrimaryKeyRowId = null;
@@ -44775,6 +44808,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>` : ''}`;
   }
   // ── Part 7: VortiBD integration ──────────────────────────────────────────
+  // Credentials + sync schedule/mapping/date-range are ONE config for the
+  // whole admission system (admission_settings key vortibd_sync_config) --
+  // only "which VortiBD circular feeds this circular" varies per circular.
   async function _admCandLoadVortibdPanel() {
     if (!_admCandRequireCircular()) return;
     try {
@@ -44783,17 +44819,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const note = document.getElementById('admCandVortibdCredNote');
       if (note) note.textContent = credRes.hasPassword ? 'Password is set.' : 'No password saved yet.';
     } catch (e) {}
+    try {
+      const cfgRes = await _admCandFetch('getVortibdSyncConfig', {});
+      const cfg = cfgRes.config || {};
+      const enEl = document.getElementById('admCandVortibdEnabled'); if (enEl) enEl.checked = !!cfg.enabled;
+      const startEl = document.getElementById('admCandVortibdStartDate'); if (startEl) startEl.value = cfg.start_date || '';
+      const endEl = document.getElementById('admCandVortibdEndDate'); if (endEl) endEl.value = cfg.end_date || '';
+      _admCandVortibdSchedule = (Array.isArray(cfg.schedule) && cfg.schedule.length)
+        ? JSON.parse(JSON.stringify(cfg.schedule))
+        : [{ start: '00:00', end: '24:00', interval_minutes: 360 }];
+      _admCandRenderVortibdScheduleList();
+      _admCandRenderVortibdTemplateSelect(cfg.mapping_template_id);
+    } catch (e) {}
     const c = _admCandCirculars.find(x => x.id === _admCandActiveCircularId) || {};
-    const enEl = document.getElementById('admCandVortibdEnabled'); if (enEl) enEl.checked = !!c.vortibd_sync_enabled;
-    const startEl = document.getElementById('admCandVortibdStartDate'); if (startEl) startEl.value = c.vortibd_sync_start_date || '';
-    const endEl = document.getElementById('admCandVortibdEndDate'); if (endEl) endEl.value = c.vortibd_sync_end_date || '';
-    _admCandVortibdSchedule = (Array.isArray(c.vortibd_sync_schedule) && c.vortibd_sync_schedule.length)
-      ? JSON.parse(JSON.stringify(c.vortibd_sync_schedule))
-      : [{ start: '00:00', end: '24:00', interval_minutes: 360 }];
-    _admCandRenderVortibdScheduleList();
     _admCandUpdateVortibdStatus(c);
     await _admCandLoadVortibdCirculars(c.vortibd_circular_id);
-    _admCandRenderVortibdTemplateSelect(c.vortibd_mapping_template_id);
   }
   let _admCandVortibdSchedule = [];
   const ADM_CAND_VORTIBD_INTERVALS = [
@@ -44873,24 +44913,28 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }
   async function _admCandSaveVortibdSyncConfig() {
-    if (!_admCandRequireCircular()) return;
-    const vortibd_circular_id = document.getElementById('admCandVortibdCircularSelect')?.value || '';
     const enabled = !!document.getElementById('admCandVortibdEnabled')?.checked;
     const mapping_template_id = document.getElementById('admCandVortibdTemplateSelect')?.value || '';
     const start_date = document.getElementById('admCandVortibdStartDate')?.value || '';
     const end_date = document.getElementById('admCandVortibdEndDate')?.value || '';
     const schedule = _admCandVortibdSchedule.map(w => ({ start: w.start, end: w.end === '23:59' ? '24:00' : w.end, interval_minutes: w.interval_minutes }));
     try {
-      const res = await _admCandFetch('saveVortibdSyncConfig', { circular_id: _admCandActiveCircularId, vortibd_circular_id, enabled, schedule, start_date, end_date, mapping_template_id });
+      const res = await _admCandFetch('saveVortibdSyncConfig', { enabled, schedule, start_date, end_date, mapping_template_id });
+      if (res.error) { showToast(res.error, 'error'); return; }
+      showToast('Sync settings saved — these apply to every linked circular', 'success');
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+  // The one genuinely per-circular setting -- which VortiBD circular feeds
+  // the currently-active circular. Everything else is the global config above.
+  async function _admCandSaveVortibdCircularLink() {
+    if (!_admCandRequireCircular()) return;
+    const vortibd_circular_id = document.getElementById('admCandVortibdCircularSelect')?.value || '';
+    try {
+      const res = await _admCandFetch('saveVortibdCircularLink', { circular_id: _admCandActiveCircularId, vortibd_circular_id });
       if (res.error) { showToast(res.error, 'error'); return; }
       const c = _admCandCirculars.find(x => x.id === _admCandActiveCircularId);
-      if (c) {
-        c.vortibd_circular_id = vortibd_circular_id ? parseInt(vortibd_circular_id, 10) : null;
-        c.vortibd_sync_enabled = enabled; c.vortibd_sync_schedule = schedule;
-        c.vortibd_sync_start_date = start_date || null; c.vortibd_sync_end_date = end_date || null;
-        c.vortibd_mapping_template_id = mapping_template_id ? parseInt(mapping_template_id, 10) : null;
-      }
-      showToast('Sync settings saved', 'success');
+      if (c) c.vortibd_circular_id = vortibd_circular_id ? parseInt(vortibd_circular_id, 10) : null;
+      showToast('VortiBD circular link saved', 'success');
     } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }
   // "Pull Now & Map" -- the interactive, admin-triggered path: the server

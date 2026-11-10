@@ -10,12 +10,13 @@ import * as XLSX from 'xlsx';
 // shape ever changes.
 //
 // Vercel Cron's own schedule (vercel.json) is a fixed 30-minute wake-up --
-// actual per-circular cadence is admin-defined as a list of time-of-day
-// windows, each with its own interval (exam_circulars.vortibd_sync_schedule),
-// checked here against vortibd_last_sync_at on every wake-up, plus an
-// optional active date range (vortibd_sync_start_date/end_date) -- only
-// circulars that are both in-range and whose current window's interval has
-// elapsed actually sync.
+// the actual sync behavior (enabled, schedule, date range, which mapping
+// template to apply) is ONE system-wide config (admission_settings key
+// 'vortibd_sync_config'), not per circular -- VortiBD's export column
+// layout is the same regardless of which circular the data is headed into.
+// The only thing that varies per circular is exam_circulars.vortibd_
+// circular_id (which VortiBD circular feeds it) and its own vortibd_last_
+// sync_at, checked against the shared schedule on every wake-up.
 
 export const dynamic = 'force-dynamic';
 // VortiBD can reportedly take several minutes to respond on a slow request
@@ -184,7 +185,12 @@ async function _notifyAdminsOfSyncFailure(circularName, message) {
     await fetch(`${SB_URL}/rest/v1/notifications`, { method: 'POST', headers: hdrs, body: JSON.stringify(rows) });
   } catch (e) { /* best-effort */ }
 }
-async function _runVortibdSync(circ) {
+async function _vortibdSyncConfig() {
+  const rows = await sbAdmission('admission_settings?key=eq.vortibd_sync_config');
+  const stored = (Array.isArray(rows) && rows[0] && rows[0].value) || {};
+  return { enabled: false, schedule: [{ start: '00:00', end: '24:00', interval_minutes: 360 }], start_date: null, end_date: null, mapping_template_id: null, ...stored };
+}
+async function _runVortibdSync(circ, config) {
   const now = new Date().toISOString();
   try {
     const { token, clientId } = await _vortibdLogin();
@@ -195,7 +201,7 @@ async function _runVortibdSync(circ) {
     if (!grid.length) throw new Error('The exported file came back empty.');
     const headers = grid[0].map(h => String(h || '').trim());
     const dataRows = grid.slice(1).filter(r => r.some(c => String(c || '').trim() !== ''));
-    const tplRows = await sbAdmission(`candidate_import_templates?id=eq.${circ.vortibd_mapping_template_id}`);
+    const tplRows = await sbAdmission(`candidate_import_templates?id=eq.${config.mapping_template_id}`);
     const template = Array.isArray(tplRows) && tplRows[0];
     if (!template) throw new Error('The saved mapping template no longer exists.');
     const mapped = _applyTemplateMapping(headers, dataRows, template);
@@ -241,19 +247,22 @@ export async function GET(req) {
   if (!process.env.CRON_SECRET || auth !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 });
   }
-  const rows = await sbAdmission('exam_circulars?vortibd_sync_enabled=eq.true&vortibd_mapping_template_id=not.is.null&select=id,name,vortibd_circular_id,vortibd_mapping_template_id,vortibd_sync_schedule,vortibd_sync_start_date,vortibd_sync_end_date,vortibd_last_sync_at');
+  const config = await _vortibdSyncConfig();
+  if (!config.enabled || !config.mapping_template_id) {
+    return NextResponse.json({ checked: 0, due: 0, synced: 0, failed: 0, note: 'VortiBD sync is disabled or has no saved mapping yet.' });
+  }
+  const rows = await sbAdmission('exam_circulars?vortibd_circular_id=not.is.null&select=id,name,vortibd_circular_id,vortibd_last_sync_at');
   const circulars = Array.isArray(rows) ? rows : [];
   const bdNow = _bdNow();
   const todayStr = _bdDateStr(bdNow);
-  const inDateRange = c => (!c.vortibd_sync_start_date || todayStr >= c.vortibd_sync_start_date) && (!c.vortibd_sync_end_date || todayStr <= c.vortibd_sync_end_date);
-  const due = circulars.filter(c => {
-    if (!inDateRange(c)) return false;
+  const inDateRange = (!config.start_date || todayStr >= config.start_date) && (!config.end_date || todayStr <= config.end_date);
+  const intervalMin = _activeIntervalMinutes(config.schedule, _bdMinutesOfDay(bdNow));
+  const due = inDateRange ? circulars.filter(c => {
     if (!c.vortibd_last_sync_at) return true;
-    const intervalMin = _activeIntervalMinutes(c.vortibd_sync_schedule, _bdMinutesOfDay(bdNow));
     const elapsedMin = (Date.now() - new Date(c.vortibd_last_sync_at).getTime()) / 60000;
     return elapsedMin >= intervalMin;
-  });
+  }) : [];
   const results = [];
-  for (const c of due) results.push(await _runVortibdSync(c));
+  for (const c of due) results.push(await _runVortibdSync(c, config));
   return NextResponse.json({ checked: circulars.length, due: due.length, synced: results.filter(r => r.success).length, failed: results.filter(r => r.error).length, results });
 }
