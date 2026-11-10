@@ -48,7 +48,41 @@ async function _isAdmissionAdmin(userId) {
   return roles.includes('Admin') || roles.includes('Admission Admin');
 }
 
-const MODELED_FIELDS = ['token', 'candidate_name', 'class', 'category', 'version'];
+// ── Part 5: per-circular Admission Committee permissions ───────────────────
+// Full Admins/Admission Admins bypass all of this (tabOk/scanOk below always
+// pass them). A committee member has none of those roles -- their only
+// access is whatever circular_committee_members.permissions grants them for
+// THIS specific circular_id, re-checked fresh every request (never trusted
+// from the client), same as every other role check in this codebase.
+async function _getCommitteePerms(userId, circularId) {
+  if (!circularId || !userId) return null;
+  const rows = await sbAdmission(`circular_committee_members?circular_id=eq.${circularId}&user_id=eq.${encodeURIComponent(userId)}&select=permissions`);
+  return (Array.isArray(rows) && rows[0] && rows[0].permissions) || null;
+}
+function _tabOk(isFullAdmin, perms, tab, level) {
+  if (isFullAdmin) return true;
+  const have = (perms && perms.tabs && perms.tabs[tab]) || 'none';
+  return level === 'edit' ? have === 'edit' : (have === 'view' || have === 'edit');
+}
+function _scanOk(isFullAdmin, perms, optionKey) {
+  if (isFullAdmin) return true;
+  return !!(perms && Array.isArray(perms.scan_options) && perms.scan_options.includes(optionKey));
+}
+function _forbidden() { return NextResponse.json({ error: 'Not permitted for your committee role.' }, { status: 403 }); }
+
+// Part 3 (VortiBD-parity "Configure Downloads") fields shared by createCircular/updateCircular.
+function _admCandDownloadsConfig(payload) {
+  return {
+    admit_instant: payload.admit_instant === undefined ? true : !!payload.admit_instant,
+    admit_release_at: payload.admit_release_at ? String(payload.admit_release_at) : null,
+    admit_instructions: payload.admit_instructions ? String(payload.admit_instructions) : null,
+    apply_declaration: String(payload.apply_declaration || 'I hereby declare that the above-made information is true and correct to the best of my knowledge.'),
+    sms_on_submit: !!payload.sms_on_submit,
+    sms_template: String(payload.sms_template || 'Your application has been received. Your token is {token}.'),
+  };
+}
+
+const MODELED_FIELDS = ['token', 'candidate_name', 'class', 'category', 'version', 'mobile'];
 function chunk(arr, size) {
   const out = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
@@ -59,9 +93,49 @@ export async function POST(req) {
   let body;
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'Bad request' }, { status: 400 }); }
   const { action, payload = {}, user_id } = body;
+  const isFullAdmin = await _isAdmissionAdmin(user_id);
 
-  if (!(await _isAdmissionAdmin(user_id))) {
+  // getMyCommitteeAccess is the one deliberately ungated action -- its whole
+  // purpose is letting a non-admin committee member discover their own
+  // access (sidebar visibility, which circulars/tabs/scan-options they have).
+  if (action === 'getMyCommitteeAccess') {
+    const rows = user_id ? await sbAdmission(`circular_committee_members?user_id=eq.${encodeURIComponent(user_id)}&select=circular_id,permissions`) : [];
+    const memberRows = Array.isArray(rows) ? rows : [];
+    const circulars = {};
+    if (memberRows.length) {
+      const ids = memberRows.map(r => r.circular_id).join(',');
+      const circRows = await sbAdmission(`exam_circulars?id=in.(${ids})&select=id,name,session_id`);
+      const circList = Array.isArray(circRows) ? circRows : [];
+      const sessIds = [...new Set(circList.map(c => c.session_id).filter(Boolean))];
+      const sessRows = sessIds.length ? await sbAdmission(`exam_sessions?id=in.(${sessIds.join(',')})&select=id,name`) : [];
+      const sessById = {}; (Array.isArray(sessRows) ? sessRows : []).forEach(s => { sessById[s.id] = s.name; });
+      const circById = {}; circList.forEach(c => { circById[c.id] = c; });
+      memberRows.forEach(r => {
+        const c = circById[r.circular_id];
+        circulars[r.circular_id] = { permissions: r.permissions || {}, name: c ? c.name : '', session_name: c ? (sessById[c.session_id] || '') : '' };
+      });
+    }
+    return NextResponse.json({ is_full_admin: isFullAdmin, circulars });
+  }
+
+  // Session/circular management + committee management itself + tag-
+  // *definition* authoring stay full-admin-only -- a committee member must
+  // never configure the circular, manage the committee, or create new scan
+  // sections, only use what's already been granted to them.
+  const ADMIN_ONLY_ACTIONS = new Set([
+    'listSessions', 'createSession', 'createCircular', 'updateCircular', 'getStudentFieldValues',
+    'saveTagDefinition', 'deleteTagDefinition',
+    'listStaffForCommittee', 'listCommitteeMembers', 'saveCommitteeMember', 'removeCommitteeMember',
+  ]);
+  if (ADMIN_ONLY_ACTIONS.has(action) && !isFullAdmin) {
     return NextResponse.json({ error: 'Admission Admin access required.' }, { status: 403 });
+  }
+  // Reusable Excel-mapping templates aren't circular-scoped and aren't
+  // sensitive candidate data -- any committee member (of any circular) may
+  // read/save them, but a stranger with no committee role anywhere may not.
+  if ((action === 'listCandidateImportTemplates' || action === 'saveCandidateImportTemplate') && !isFullAdmin) {
+    const anyRow = user_id ? await sbAdmission(`circular_committee_members?user_id=eq.${encodeURIComponent(user_id)}&select=id&limit=1`) : [];
+    if (!Array.isArray(anyRow) || !anyRow.length) return _forbidden();
   }
 
   // ── Sessions + Circulars — a session (e.g. an admission year, typed
@@ -85,7 +159,13 @@ export async function POST(req) {
     const sessionId = parseInt(payload.session_id, 10);
     if (!sessionId) return NextResponse.json({ circulars: [] });
     const rows = await sbAdmission(`exam_circulars?select=*&session_id=eq.${sessionId}&order=created_at.desc`);
-    return NextResponse.json({ circulars: Array.isArray(rows) ? rows : [] });
+    let circulars = Array.isArray(rows) ? rows : [];
+    if (!isFullAdmin) {
+      const myRows = user_id ? await sbAdmission(`circular_committee_members?user_id=eq.${encodeURIComponent(user_id)}&select=circular_id`) : [];
+      const myIds = new Set((Array.isArray(myRows) ? myRows : []).map(r => r.circular_id));
+      circulars = circulars.filter(c => myIds.has(c.id));
+    }
+    return NextResponse.json({ circulars });
   }
   if (action === 'createCircular') {
     const sessionId = parseInt(payload.session_id, 10);
@@ -96,9 +176,10 @@ export async function POST(req) {
     const mode = payload.mode === 'online' ? 'online' : 'offline';
     const is_active = !!payload.is_active;
     const unique_fields = Array.isArray(payload.unique_fields) ? payload.unique_fields.map(String) : [];
-    const res = await sbAdmission('exam_circulars', 'POST', { session_id: sessionId, name, bounds, mode, is_active, unique_fields });
+    const downloads = _admCandDownloadsConfig(payload);
+    const res = await sbAdmission('exam_circulars', 'POST', { session_id: sessionId, name, bounds, mode, is_active, unique_fields, ...downloads });
     if (res?.error) return NextResponse.json({ error: res.error.includes('duplicate') ? 'A circular with this name already exists in this session.' : res.error });
-    return NextResponse.json({ id: res?.[0]?.id, name, bounds, mode, is_active, unique_fields });
+    return NextResponse.json({ id: res?.[0]?.id, name, bounds, mode, is_active, unique_fields, ...downloads });
   }
   if (action === 'updateCircular') {
     const id = parseInt(payload.id, 10);
@@ -109,14 +190,16 @@ export async function POST(req) {
     const mode = payload.mode === 'online' ? 'online' : 'offline';
     const is_active = !!payload.is_active;
     const unique_fields = Array.isArray(payload.unique_fields) ? payload.unique_fields.map(String) : [];
-    const res = await sbAdmission(`exam_circulars?id=eq.${id}`, 'PATCH', { name, bounds, mode, is_active, unique_fields });
+    const downloads = _admCandDownloadsConfig(payload);
+    const res = await sbAdmission(`exam_circulars?id=eq.${id}`, 'PATCH', { name, bounds, mode, is_active, unique_fields, ...downloads });
     if (res?.error) return NextResponse.json({ error: res.error.includes('duplicate') ? 'A circular with this name already exists in this session.' : res.error });
-    return NextResponse.json({ success: true, id, name, bounds, mode, is_active, unique_fields });
+    return NextResponse.json({ success: true, id, name, bounds, mode, is_active, unique_fields, ...downloads });
   }
 
   if (action === 'saveCircularTemplateMap') {
     const id = parseInt(payload.id, 10);
     if (!id) return NextResponse.json({ error: 'Missing circular.' });
+    if (!isFullAdmin && !_tabOk(isFullAdmin, await _getCommitteePerms(user_id, id), 'templates', 'edit')) return _forbidden();
     const template_map = (payload.template_map && typeof payload.template_map === 'object') ? payload.template_map : {};
     const res = await sbAdmission(`exam_circulars?id=eq.${id}`, 'PATCH', { template_map });
     if (res?.error) return NextResponse.json({ error: res.error });
@@ -172,6 +255,7 @@ export async function POST(req) {
   if (action === 'uploadMappedCandidates') {
     const circularId = parseInt(payload.circular_id, 10);
     if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
+    if (!isFullAdmin && !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'import', 'edit')) return _forbidden();
     const rows = Array.isArray(payload.rows) ? payload.rows : [];
     if (!rows.length) return NextResponse.json({ error: 'No rows to import.' });
     if (rows.length > 5000) return NextResponse.json({ error: 'Import 5000 rows or fewer at a time.' });
@@ -251,6 +335,7 @@ export async function POST(req) {
   if (action === 'listCandidates') {
     const circularId = parseInt(payload.circular_id, 10);
     if (!circularId) return NextResponse.json({ candidates: [] });
+    if (!isFullAdmin && !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'candidates', 'view')) return _forbidden();
     let q = `exam_candidates?select=*&circular_id=eq.${circularId}&order=created_at.desc&limit=5000`;
     if (payload.class)    q += `&class=eq.${encodeURIComponent(payload.class)}`;
     if (payload.category) q += `&category=eq.${encodeURIComponent(payload.category)}`;
@@ -265,7 +350,13 @@ export async function POST(req) {
     return NextResponse.json({ candidates: rows || [] });
   }
   if (action === 'deleteCandidate') {
-    await sbAdmission(`exam_candidates?id=eq.${parseInt(payload.id, 10) || 0}`, 'DELETE');
+    const candId = parseInt(payload.id, 10) || 0;
+    if (!isFullAdmin) {
+      const rows = await sbAdmission(`exam_candidates?id=eq.${candId}&select=circular_id`);
+      const circularId = (Array.isArray(rows) && rows[0]) ? rows[0].circular_id : null;
+      if (!_tabOk(false, await _getCommitteePerms(user_id, circularId), 'candidates', 'edit')) return _forbidden();
+    }
+    await sbAdmission(`exam_candidates?id=eq.${candId}`, 'DELETE');
     return NextResponse.json({ success: true });
   }
 
@@ -273,13 +364,21 @@ export async function POST(req) {
   if (action === 'listRooms') {
     const circularId = parseInt(payload.circular_id, 10);
     if (!circularId) return NextResponse.json({ rooms: [] });
+    if (!isFullAdmin && !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'rooms', 'view')) return _forbidden();
     const rows = await sbAdmission(`exam_rooms?select=*&circular_id=eq.${circularId}&order=room_name.asc`);
     return NextResponse.json({ rooms: Array.isArray(rows) ? rows : [] });
   }
   if (action === 'saveRoom') {
     const { id, room_name, capacity, notes } = payload;
-    const circularId = parseInt(payload.circular_id, 10);
+    let circularId = parseInt(payload.circular_id, 10);
     if (!id && !circularId) return NextResponse.json({ error: 'Pick a circular first.' });
+    if (!isFullAdmin) {
+      if (!circularId && id) {
+        const existing = await sbAdmission(`exam_rooms?id=eq.${parseInt(id, 10)}&select=circular_id`);
+        circularId = (Array.isArray(existing) && existing[0]) ? existing[0].circular_id : null;
+      }
+      if (!_tabOk(false, await _getCommitteePerms(user_id, circularId), 'rooms', 'edit')) return _forbidden();
+    }
     if (!room_name || !capacity) return NextResponse.json({ error: 'Room name and capacity are required.' });
     const data = { room_name, capacity: parseInt(capacity, 10) || 0, notes: notes || null, updated_at: new Date().toISOString() };
     if (id) {
@@ -293,12 +392,19 @@ export async function POST(req) {
     return NextResponse.json({ id: res?.[0]?.id });
   }
   if (action === 'deleteRoom') {
-    await sbAdmission(`exam_rooms?id=eq.${parseInt(payload.id, 10) || 0}`, 'DELETE');
+    const roomId = parseInt(payload.id, 10) || 0;
+    if (!isFullAdmin) {
+      const rows = await sbAdmission(`exam_rooms?id=eq.${roomId}&select=circular_id`);
+      const circularId = (Array.isArray(rows) && rows[0]) ? rows[0].circular_id : null;
+      if (!_tabOk(false, await _getCommitteePerms(user_id, circularId), 'rooms', 'edit')) return _forbidden();
+    }
+    await sbAdmission(`exam_rooms?id=eq.${roomId}`, 'DELETE');
     return NextResponse.json({ success: true });
   }
   if (action === 'uploadRoomData') {
     const circularId = parseInt(payload.circular_id, 10);
     if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
+    if (!isFullAdmin && !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'rooms', 'edit')) return _forbidden();
     const rows = Array.isArray(payload.rows) ? payload.rows : [];
     if (!rows.length) return NextResponse.json({ error: 'No rows to import.' });
     const clean = rows.map(r => ({
@@ -325,6 +431,7 @@ export async function POST(req) {
   if (action === 'runSeatAllocation') {
     const circularId = parseInt(payload.circular_id, 10);
     if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
+    if (!isFullAdmin && !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'alloc', 'edit')) return _forbidden();
     const criteria = payload.criteria || {};
     const roomIds = Array.isArray(criteria.room_ids) ? criteria.room_ids.map(n => parseInt(n, 10)).filter(Boolean) : [];
     if (!roomIds.length) return NextResponse.json({ error: 'Pick at least one room.' });
@@ -382,8 +489,15 @@ export async function POST(req) {
   }
   if (action === 'clearAllocation') {
     const runId = parseInt(payload.allocation_run_id, 10);
-    const circularId = parseInt(payload.circular_id, 10);
+    let circularId = parseInt(payload.circular_id, 10);
     if (!runId && !circularId) return NextResponse.json({ error: 'Pick a circular first.' });
+    if (!isFullAdmin) {
+      if (!circularId && runId) {
+        const runRows = await sbAdmission(`seat_allocation_runs?id=eq.${runId}&select=circular_id`);
+        circularId = (Array.isArray(runRows) && runRows[0]) ? runRows[0].circular_id : null;
+      }
+      if (!_tabOk(false, await _getCommitteePerms(user_id, circularId), 'alloc', 'edit')) return _forbidden();
+    }
     const q = runId ? `exam_candidates?allocation_run_id=eq.${runId}` : `exam_candidates?circular_id=eq.${circularId}&allocation_run_id=not.is.null`;
     await sbAdmission(q, 'PATCH', { room_id: null, seat_no: null, allocation_run_id: null, updated_at: new Date().toISOString() });
     if (runId) await sbAdmission(`seat_allocation_runs?id=eq.${runId}`, 'PATCH', { cleared_at: new Date().toISOString() });
@@ -394,6 +508,7 @@ export async function POST(req) {
   if (action === 'bulkPhotoUploadByMatchKey') {
     const circularId = parseInt(payload.circular_id, 10);
     if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
+    if (!isFullAdmin && !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'photos', 'edit')) return _forbidden();
     const matchField = String(payload.match_field || 'token');
     if (!['token', 'external_key', 'candidate_name'].includes(matchField)) {
       return NextResponse.json({ error: 'Invalid match field.' });
@@ -416,6 +531,11 @@ export async function POST(req) {
   if (action === 'getSignatureSheetData') {
     const roomId = parseInt(payload.room_id, 10);
     if (!roomId) return NextResponse.json({ error: 'Missing room.' });
+    if (!isFullAdmin) {
+      const roomRows = await sbAdmission(`exam_rooms?id=eq.${roomId}&select=circular_id`);
+      const circularId = (Array.isArray(roomRows) && roomRows[0]) ? roomRows[0].circular_id : null;
+      if (!_tabOk(false, await _getCommitteePerms(user_id, circularId), 'print', 'view')) return _forbidden();
+    }
     const room = await sbAdmission(`exam_rooms?id=eq.${roomId}`);
     const cands = await sbAdmission(`exam_candidates?room_id=eq.${roomId}&select=token,candidate_name,seat_no,photo_url,class,category&order=seat_no.asc`);
     return NextResponse.json({ room: room?.[0] || null, candidates: Array.isArray(cands) ? cands : [] });
@@ -423,6 +543,7 @@ export async function POST(req) {
   if (action === 'getTokenListData') {
     const circularId = parseInt(payload.circular_id, 10);
     if (!circularId) return NextResponse.json({ candidates: [] });
+    if (!isFullAdmin && !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'print', 'view')) return _forbidden();
     let q = `exam_candidates?select=token,candidate_name,class,category,room_id,seat_no&circular_id=eq.${circularId}&order=token.asc&limit=5000`;
     if (payload.class)    q += `&class=eq.${encodeURIComponent(payload.class)}`;
     if (payload.category) q += `&category=eq.${encodeURIComponent(payload.category)}`;
@@ -453,6 +574,7 @@ export async function POST(req) {
   if (action === 'lookupCandidateByToken') {
     const circularId = parseInt(payload.circular_id, 10);
     if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
+    if (!isFullAdmin && !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'scan', 'view')) return _forbidden();
     const candidate = await findCandidateByCode(circularId, payload.code);
     if (!candidate) return NextResponse.json({ error: `No candidate matches "${payload.code}".` });
     if (!scopeMatches(candidate, payload.scope)) return NextResponse.json({ error: 'This candidate is outside the selected scope.', out_of_scope: true, candidate });
@@ -461,6 +583,11 @@ export async function POST(req) {
   if (action === 'scanSubmission' || action === 'scanAttendance') {
     const circularId = parseInt(payload.circular_id, 10);
     if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
+    if (!isFullAdmin) {
+      const perms = await _getCommitteePerms(user_id, circularId);
+      const optKey = action === 'scanSubmission' ? 'submission' : 'attendance';
+      if (!_tabOk(false, perms, 'scan', 'edit') || !_scanOk(false, perms, optKey)) return _forbidden();
+    }
     const candidate = await findCandidateByCode(circularId, payload.code);
     if (!candidate) return NextResponse.json({ error: `No candidate matches "${payload.code}".` });
     if (!scopeMatches(candidate, payload.scope)) return NextResponse.json({ error: 'This candidate is outside the selected scope.', out_of_scope: true, candidate });
@@ -471,6 +598,146 @@ export async function POST(req) {
     const res = await sbAdmission(`exam_candidates?id=eq.${candidate.id}`, 'PATCH', { ...data, updated_at: now });
     if (res?.error) return NextResponse.json({ error: res.error });
     return NextResponse.json({ success: true, candidate: { ...candidate, ...data } });
+  }
+
+  // ── Part 4: admin-defined candidate tagging via QR scan ("Custom Tags") ──
+  // Separate from the fixed submission/attendance scan above -- sections are
+  // whatever the admin defines (Toggle/Text/Dropdown), and every scan is
+  // logged to candidate_tag_scans (append-only) so a later re-scan never
+  // loses the previous value, just adds a new current one.
+  function _slugifyTagKey(label) {
+    return String(label || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'tag';
+  }
+  if (action === 'listTagDefinitions') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ definitions: [] });
+    // Low-sensitivity metadata (just section names/types), not candidate data
+    // -- readable by anyone with at least view on either tab that uses it.
+    if (!isFullAdmin) {
+      const perms = await _getCommitteePerms(user_id, circularId);
+      if (!_tabOk(false, perms, 'scan', 'view') && !_tabOk(false, perms, 'candidates', 'view')) return NextResponse.json({ definitions: [] });
+    }
+    const rows = await sbAdmission(`candidate_tag_definitions?circular_id=eq.${circularId}&order=created_at.asc`);
+    return NextResponse.json({ definitions: Array.isArray(rows) ? rows : [] });
+  }
+  if (action === 'saveTagDefinition') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
+    const label = String(payload.label || '').trim();
+    if (!label) return NextResponse.json({ error: 'Section name is required.' });
+    const type = ['toggle', 'text', 'dropdown'].includes(payload.type) ? payload.type : 'toggle';
+    const options = Array.isArray(payload.options) ? payload.options.map(String).filter(Boolean) : [];
+    const id = parseInt(payload.id, 10);
+    if (id) {
+      // key is immutable once created -- candidate_tag_scans.tag_key already references it by value.
+      const res = await sbAdmission(`candidate_tag_definitions?id=eq.${id}`, 'PATCH', { label, type, options });
+      if (res?.error) return NextResponse.json({ error: res.error });
+      return NextResponse.json({ success: true, id });
+    }
+    const key = _slugifyTagKey(label);
+    const data = { circular_id: circularId, key, label, type, options };
+    const res = await sbAdmission('candidate_tag_definitions', 'POST', data);
+    if (res?.error) return NextResponse.json({ error: res.error.includes('duplicate') ? 'A section with this name already exists.' : res.error });
+    return NextResponse.json({ id: res?.[0]?.id, ...data });
+  }
+  if (action === 'deleteTagDefinition') {
+    await sbAdmission(`candidate_tag_definitions?id=eq.${parseInt(payload.id, 10) || 0}`, 'DELETE');
+    return NextResponse.json({ success: true });
+  }
+  async function applyCandidateTag(candidateId, tagKey, value) {
+    await sbAdmission('candidate_tag_scans', 'POST', { candidate_id: candidateId, tag_key: tagKey, value });
+    const rows = await sbAdmission(`exam_candidates?id=eq.${candidateId}&select=tags`);
+    const currentTags = (Array.isArray(rows) && rows[0] && rows[0].tags) || {};
+    const tags = { ...currentTags, [tagKey]: value };
+    await sbAdmission(`exam_candidates?id=eq.${candidateId}`, 'PATCH', { tags, updated_at: new Date().toISOString() });
+    return tags;
+  }
+  if (action === 'scanTagCandidate') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
+    const tagKey = String(payload.tag_key || '').trim();
+    if (!tagKey) return NextResponse.json({ error: 'Pick a tag section first.' });
+    if (!isFullAdmin) {
+      const perms = await _getCommitteePerms(user_id, circularId);
+      if (!_tabOk(false, perms, 'scan', 'edit') || !_scanOk(false, perms, 'tag:' + tagKey)) return _forbidden();
+    }
+    const candidate = await findCandidateByCode(circularId, payload.code);
+    if (!candidate) return NextResponse.json({ error: `No candidate matches "${payload.code}".` });
+    if (!scopeMatches(candidate, payload.scope)) return NextResponse.json({ error: 'This candidate is outside the selected scope.', out_of_scope: true, candidate });
+    const tags = await applyCandidateTag(candidate.id, tagKey, payload.value === undefined ? true : payload.value);
+    return NextResponse.json({ success: true, candidate: { ...candidate, tags } });
+  }
+  if (action === 'setCandidateTagValue') {
+    const candidateId = parseInt(payload.candidate_id, 10);
+    const tagKey = String(payload.tag_key || '').trim();
+    if (!candidateId || !tagKey) return NextResponse.json({ error: 'Missing candidate or tag section.' });
+    if (!isFullAdmin) {
+      const candRows = await sbAdmission(`exam_candidates?id=eq.${candidateId}&select=circular_id`);
+      const circularId = (Array.isArray(candRows) && candRows[0]) ? candRows[0].circular_id : null;
+      if (!_tabOk(false, await _getCommitteePerms(user_id, circularId), 'candidates', 'edit')) return _forbidden();
+    }
+    const tags = await applyCandidateTag(candidateId, tagKey, payload.value === undefined ? true : payload.value);
+    return NextResponse.json({ success: true, tags });
+  }
+  if (action === 'getCandidateTagHistory') {
+    const candidateId = parseInt(payload.candidate_id, 10);
+    const tagKey = String(payload.tag_key || '').trim();
+    if (!candidateId || !tagKey) return NextResponse.json({ history: [] });
+    if (!isFullAdmin) {
+      const candRows = await sbAdmission(`exam_candidates?id=eq.${candidateId}&select=circular_id`);
+      const circularId = (Array.isArray(candRows) && candRows[0]) ? candRows[0].circular_id : null;
+      const perms = await _getCommitteePerms(user_id, circularId);
+      if (!_tabOk(false, perms, 'candidates', 'view') && !_tabOk(false, perms, 'scan', 'view')) return _forbidden();
+    }
+    const rows = await sbAdmission(`candidate_tag_scans?candidate_id=eq.${candidateId}&tag_key=eq.${encodeURIComponent(tagKey)}&order=scanned_at.desc&limit=50`);
+    return NextResponse.json({ history: Array.isArray(rows) ? rows : [] });
+  }
+
+  // ── Part 5: committee management (all admin-only -- enforced above via
+  // ADMIN_ONLY_ACTIONS already) ────────────────────────────────────────────
+  const BASELINE_STAFF_ROLES = ['Teacher', 'Staff', 'HR', 'Principal', 'VP', 'Cord', 'Class Teacher'];
+  async function _staffDirectory() {
+    const hdrs = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher_staff' };
+    const [profRes, userRes] = await Promise.all([
+      fetch(`${SB_URL}/rest/v1/users_profile?select=teacher_id,full_name`, { headers: hdrs }),
+      fetch(`${SB_URL}/rest/v1/app_users?select=user_id,email,role&limit=1000`, { headers: hdrs }),
+    ]);
+    const profiles = profRes.ok ? await profRes.json() : [];
+    const users = userRes.ok ? await userRes.json() : [];
+    const nameById = {}; (Array.isArray(profiles) ? profiles : []).forEach(p => { nameById[p.teacher_id] = p.full_name; });
+    return (Array.isArray(users) ? users : []).map(u => ({
+      user_id: u.user_id, email: u.email, role: u.role,
+      name: nameById[u.user_id] || u.email || u.user_id,
+    }));
+  }
+  if (action === 'listStaffForCommittee') {
+    const staff = await _staffDirectory();
+    const eligible = staff.filter(u => String(u.role || '').split(',').map(r => r.trim()).some(r => BASELINE_STAFF_ROLES.includes(r)));
+    return NextResponse.json({ staff: eligible });
+  }
+  if (action === 'listCommitteeMembers') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ members: [] });
+    const rows = await sbAdmission(`circular_committee_members?circular_id=eq.${circularId}&order=created_at.asc`);
+    const members = Array.isArray(rows) ? rows : [];
+    if (!members.length) return NextResponse.json({ members: [] });
+    const staff = await _staffDirectory();
+    const byId = {}; staff.forEach(s => { byId[s.user_id] = s; });
+    return NextResponse.json({ members: members.map(m => ({ ...m, staff: byId[m.user_id] || { user_id: m.user_id, name: m.user_id } })) });
+  }
+  if (action === 'saveCommitteeMember') {
+    const circularId = parseInt(payload.circular_id, 10);
+    const memberUserId = String(payload.user_id || '').trim();
+    if (!circularId || !memberUserId) return NextResponse.json({ error: 'Pick a circular and a staff member.' });
+    const permissions = (payload.permissions && typeof payload.permissions === 'object') ? payload.permissions : {};
+    const res = await sbAdmission('circular_committee_members?on_conflict=circular_id,user_id', 'POST',
+      { circular_id: circularId, user_id: memberUserId, permissions }, { Prefer: 'resolution=merge-duplicates,return=representation' });
+    if (res?.error) return NextResponse.json({ error: res.error });
+    return NextResponse.json({ id: res?.[0]?.id, success: true });
+  }
+  if (action === 'removeCommitteeMember') {
+    await sbAdmission(`circular_committee_members?id=eq.${parseInt(payload.id, 10) || 0}`, 'DELETE');
+    return NextResponse.json({ success: true });
   }
 
   return NextResponse.json({ error: 'Unknown action.' }, { status: 400 });

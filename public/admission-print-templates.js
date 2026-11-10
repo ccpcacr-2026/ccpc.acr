@@ -26,7 +26,12 @@ function prQrBlock(data, caption, size){
 // ccpc-admission — the applicant-facing domain) rather than plain text, so
 // scanning it (e.g. an invigilator checking an admit card) opens a page
 // confirming the record is genuine, instead of just showing raw text.
+// a.qr_data overrides this with a raw, plain-text payload instead -- used by
+// the External-Candidate module (exam_candidates aren't in admission_applications,
+// so the verify.html link above would never resolve for them) whose own Scan
+// tab expects the QR to BE the bare token/external_key, nothing wrapped around it.
 function verifyQrData(a, collegeName){
+  if (a.qr_data) return String(a.qr_data);
   const code = a.tracking_id || a.index_id || '';
   return 'https://ccpc-admission.vercel.app/verify.html?code=' + encodeURIComponent(code);
 }
@@ -132,6 +137,7 @@ const DEFAULT_ADMIT = {
     father_name: "Father's Name", mother_name: "Mother's Name", dob: 'Date of Birth', age: 'Age', birth_reg: 'Birth Reg. No.', gender: 'Gender', mobile: 'Mobile', blood: 'Blood Group',
     present_address: 'Present Address', permanent_address: 'Permanent Address', room: 'Room No.',
   },
+  examBox: { visible: true },
   examCenter: 'CCPC Examination Hall, Cantonment, Chattogram',
   examDate: '', examTime: '',
   instructions: '1. Bring this admit card to every examination.\n2. Report to the examination hall 15 minutes before start time.\n3. No mobile phones or electronic devices are allowed.',
@@ -445,13 +451,13 @@ ${isPreview?'@media screen{body{background:#f5f5f5;padding:10px}.ac-page{backgro
   </div>
   ${as.showPhoto!==false?`<div class="ac-photo-box">${a.student_photo?`<img src="${a.student_photo}" class="ac-photo">`:`<div class="ac-photo-empty">Photo</div>`}</div>`:''}
 </div>
-<div class="ac-exam-box">
+${(as.examBox||DEFAULT_ADMIT.examBox).visible!==false?`<div class="ac-exam-box">
   <div class="ac-exam-title">Examination Details</div>
   ${as.examCenter?`<div class="ac-exam-row"><strong>Exam Center:</strong> ${as.examCenter}</div>`:''}
   ${as.examDate?`<div class="ac-exam-row"><strong>Date:</strong> ${as.examDate}</div>`:''}
   ${as.examTime?`<div class="ac-exam-row"><strong>Time:</strong> ${as.examTime}</div>`:''}
   ${a.room_no?`<div class="ac-exam-row"><strong>Exam Room:</strong> <span class="ac-room-badge">${a.room_no}</span></div>`:''}
-</div>
+</div>`:''}
 ${as.instructions?`<div class="ac-instructions-box"><div class="ac-instr-title">Instructions</div><ul class="ac-instr-list">${as.instructions.split('\n').filter(l=>l.trim()).map(l=>`<li>${l}</li>`).join('')}</ul></div>`:''}
 <div class="ac-sigs">
   ${sig1.visible?`<div class="ac-sig"><div style="height:30px"></div><div class="ac-sig-line"></div><div class="ac-sig-label">${sig1.label}</div></div>`:''}

@@ -505,7 +505,10 @@ const RESERVED = [
   '_admCandTplBulkApply','_admCandSaveTemplateMap',
   '_admCandPrintSignatureSheet','_admCandPrintTokenList','_admCandBulkUpload',
   '_admCandScanShowMode','_admCandScanSetScope','_admCandScanStart','_admCandScanStop','_admCandScanManualLookup',
-  '_admCandCopyApplyLink'
+  '_admCandCopyApplyLink',
+  '_admCandTagDefTypeChange','_admCandTagDefSave','_admCandTagDefDelete','_admCandScanTagDefChange','_admCandScanLockTag',
+  '_admCandTagFilterDefChange','_admCandShowTagHistory',
+  '_admCandCommitteeAdd','_admCandCommitteeSave','_admCandCommitteeRemove'
 ];
 
 // Strip HTML comments and collapse whitespace

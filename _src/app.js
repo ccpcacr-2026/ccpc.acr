@@ -41546,6 +41546,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
         </div>
 
+        <div id="admCandMyCircularsGate" class="hidden">
+          <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 max-w-lg">
+            <h3 class="font-black text-slate-800 text-sm mb-1">Your committee assignments</h3>
+            <p class="text-xs text-slate-400 mb-4">You've been added to the circulars below — pick one to continue.</p>
+            <div id="admCandMyCircularsList" class="flex flex-col gap-2"></div>
+          </div>
+        </div>
+
         <div id="admCandCircularGate" class="hidden">
           <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 max-w-lg">
             <div class="flex items-center justify-between mb-1">
@@ -41583,6 +41591,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <div><label class="text-[10px] text-slate-400 font-bold">Version</label><select id="admCandNewCircularVersion" multiple class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="height:84px"></select></div>
               <div><label class="text-[10px] text-slate-400 font-bold">Category</label><select id="admCandNewCircularCategory" multiple class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="height:84px"></select></div>
             </div>
+            <p class="text-[10px] uppercase text-slate-400 font-bold mb-1">Admit Card &amp; Apply Form</p>
+            <div class="grid grid-cols-2 gap-2 mb-2">
+              <label class="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold cursor-pointer"><input type="checkbox" id="admCandNewCircularAdmitInstant" checked> Instant Admit Card</label>
+              <div><label class="text-[10px] text-slate-400 font-bold block mb-1">Available From (if not instant)</label><input type="datetime-local" id="admCandNewCircularAdmitReleaseAt" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"></div>
+            </div>
+            <label class="text-[10px] text-slate-400 font-bold block mb-1">Admit Card Instructions (optional — overrides the template's own)</label>
+            <textarea id="admCandNewCircularAdmitInstructions" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs mb-2" rows="2"></textarea>
+            <label class="text-[10px] text-slate-400 font-bold block mb-1">Apply Declaration (shown on the online form)</label>
+            <textarea id="admCandNewCircularDeclaration" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs mb-2" rows="2">I hereby declare that the above-made information is true and correct to the best of my knowledge.</textarea>
+            <div class="flex items-center gap-2 mb-3">
+              <label class="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold cursor-pointer whitespace-nowrap"><input type="checkbox" id="admCandNewCircularSmsOnSubmit"> Send SMS on submission</label>
+              <input type="text" id="admCandNewCircularSmsTemplate" placeholder="Your application has been received. Your token is {token}." class="flex-1 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+            </div>
             <div class="flex items-center gap-2">
               <button id="admCandCircularSaveBtn" onclick="_admCandSaveCircularForm()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Create &amp; Continue</button>
               <button id="admCandCircularCancelBtn" onclick="_admCandCancelEditCircular()" class="hidden px-4 py-2 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Cancel Edit</button>
@@ -41606,6 +41627,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button class="adm-ftab" data-id="adm-cand-print" onclick="_admCandShowTab('adm-cand-print',this)">Printing</button>
             <button class="adm-ftab" data-id="adm-cand-photos" onclick="_admCandShowTab('adm-cand-photos',this)">Photos</button>
             <button class="adm-ftab" data-id="adm-cand-scan" onclick="_admCandShowTab('adm-cand-scan',this)">Scan</button>
+            <button class="adm-ftab hidden" id="admCandCommitteeTabBtn" onclick="_admCandShowTab('adm-cand-committee',this)">Committee</button>
           </div>
           <div id="adm-cand-sections"></div>
         </div>
@@ -42445,6 +42467,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <details class="dgroup">
               <summary class="dgroup-hdr">Exam Info</summary>
               <div class="dgroup-body space-y-2">
+                <label class="toggle-lbl"><input type="checkbox" id="adm-ad-examdetails-show"> Show Examination Details box</label>
                 ${lbl('Exam Center')}<input type="text" id="adm-ad-exam-center" class="${inp}">
                 <div class="flex gap-2">
                   <div class="flex-1">${lbl('Date')}<input type="text" id="adm-ad-exam-date" class="${inp}" placeholder="e.g. 15 Jul 2026"></div>
@@ -42745,6 +42768,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _admSetV(`adm-adf-${idSuf}-w`, m ? m[1] : '38');
       const wuSel = document.getElementById(`adm-adf-${idSuf}-wu`); if (wuSel) wuSel.value = (m && m[2]) || '%';
     });
+    _admSetChk('adm-ad-examdetails-show', (s.examBox || DEFAULT_ADMIT.examBox).visible !== false);
     _admSetV('adm-ad-exam-center', s.examCenter || DEFAULT_ADMIT.examCenter); _admSetV('adm-ad-exam-date', s.examDate || ''); _admSetV('adm-ad-exam-time', s.examTime || '');
     _admSetV('adm-ad-instructions', s.instructions || DEFAULT_ADMIT.instructions);
     const sig1 = s.sig1 || DEFAULT_ADMIT.sig1, sig2 = s.sig2 || DEFAULT_ADMIT.sig2;
@@ -42765,6 +42789,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       bannerBg: _admV('adm-ad-banner-bg'), bannerText: _admV('adm-ad-banner-text'),
       showPhoto: _admChk('adm-ad-show-photo'),
       fields, labelWidths,
+      examBox: { visible: _admChk('adm-ad-examdetails-show') },
       examCenter: _admV('adm-ad-exam-center'), examDate: _admV('adm-ad-exam-date'), examTime: _admV('adm-ad-exam-time'),
       instructions: document.getElementById('adm-ad-instructions') ? document.getElementById('adm-ad-instructions').value : '',
       sig1: { visible: _admChk('adm-ad-sig1-show'), label: _admV('adm-ad-sig1-label') },
@@ -43724,6 +43749,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _admCandRoomExcelHeaders = [], _admCandRoomExcelRows = [];
   let _admCandScanStream = null, _admCandScanTimer = null, _admCandScanBusy = false;
   let _admCandScanMode = 'submission', _admCandScanScope = {};
+  let _admCandTagDefs = [], _admCandScanTagKey = null, _admCandScanTagValue = null;
+  let _admCandMyAccess = { is_full_admin: true, circulars: {} }, _admCandMyPerms = null;
 
   function _admCandFetch(action, payload) {
     const myId = window.APP_USER && window.APP_USER.user_id;
@@ -43739,10 +43766,27 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
   }
 
-  function _admOpenCandidates() {
+  async function _admOpenCandidates() {
     _admShowView('candidates');
     _admCandLoadTemplates();
-    _admCandLoadSessions();
+    try { _admCandMyAccess = await _admCandFetch('getMyCommitteeAccess', {}); }
+    catch (e) { _admCandMyAccess = { is_full_admin: false, circulars: {} }; }
+    if (_admCandMyAccess.is_full_admin) _admCandLoadSessions();
+    else _admCandShowMyCircularsGate();
+  }
+  // Committee members never see the Session/Circular admin gates (listSessions
+  // etc. are full-admin-only server-side) -- they jump straight from whatever
+  // circulars they've been added to, resolved once via getMyCommitteeAccess.
+  function _admCandShowMyCircularsGate() {
+    document.getElementById('admCandSessionGate')?.classList.add('hidden');
+    document.getElementById('admCandCircularGate')?.classList.add('hidden');
+    document.getElementById('admCandMainArea')?.classList.add('hidden');
+    document.getElementById('admCandMyCircularsGate')?.classList.remove('hidden');
+    const list = document.getElementById('admCandMyCircularsList');
+    const entries = Object.entries(_admCandMyAccess.circulars || {});
+    if (list) list.innerHTML = entries.length
+      ? entries.map(([id, c]) => `<button onclick="_admCandEnterCircular(${id})" class="text-left px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100"><span class="font-bold text-sm text-slate-800">${_escHtml(c.name)}</span><span class="block text-[10px] text-slate-400 font-bold uppercase">${_escHtml(c.session_name)}</span></button>`).join('')
+      : '<p class="text-xs text-slate-400">You haven\'t been added to any circular\'s committee yet — ask an Admission Admin.</p>';
   }
   // Session -> Circular -- a two-level gate everything else (Import/
   // Candidates/Rooms/Allocation/Printing/Scan) sits behind: nothing else
@@ -43865,6 +43909,28 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const cat = get('admCandNewCircularCategory'); if (cat.length) bounds.student_category = cat;
     return bounds;
   }
+  // datetime-local inputs read/write LOCAL wall-clock time with no timezone
+  // suffix -- converting with toISOString() (UTC) instead of local getters
+  // would silently shift the displayed time by the browser's UTC offset.
+  function _admCandIsoToLocalInput(iso) {
+    const d = new Date(iso);
+    if (isNaN(d)) return '';
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+  function _admCandCollectDownloadsConfig() {
+    const v = id => { const el = document.getElementById(id); return el ? el.value : ''; };
+    const chk = id => { const el = document.getElementById(id); return !!(el && el.checked); };
+    const releaseLocal = v('admCandNewCircularAdmitReleaseAt');
+    return {
+      admit_instant: chk('admCandNewCircularAdmitInstant'),
+      admit_release_at: releaseLocal ? new Date(releaseLocal).toISOString() : null,
+      admit_instructions: v('admCandNewCircularAdmitInstructions').trim() || null,
+      apply_declaration: v('admCandNewCircularDeclaration').trim() || 'I hereby declare that the above-made information is true and correct to the best of my knowledge.',
+      sms_on_submit: chk('admCandNewCircularSmsOnSubmit'),
+      sms_template: v('admCandNewCircularSmsTemplate').trim() || 'Your application has been received. Your token is {token}.',
+    };
+  }
   function _admCandResetCircularForm() {
     _admCandEditingCircularId = null;
     const nameEl = document.getElementById('admCandNewCircularName'); if (nameEl) nameEl.value = '';
@@ -43873,6 +43939,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
     const offlineRadio = document.querySelector('input[name=admCandNewCircularMode][value=offline]'); if (offlineRadio) offlineRadio.checked = true;
     const activeEl = document.getElementById('admCandNewCircularActive'); if (activeEl) activeEl.checked = false;
+    const instantEl = document.getElementById('admCandNewCircularAdmitInstant'); if (instantEl) instantEl.checked = true;
+    const releaseEl = document.getElementById('admCandNewCircularAdmitReleaseAt'); if (releaseEl) releaseEl.value = '';
+    const admitInstrEl = document.getElementById('admCandNewCircularAdmitInstructions'); if (admitInstrEl) admitInstrEl.value = '';
+    const declEl = document.getElementById('admCandNewCircularDeclaration'); if (declEl) declEl.value = 'I hereby declare that the above-made information is true and correct to the best of my knowledge.';
+    const smsOnEl = document.getElementById('admCandNewCircularSmsOnSubmit'); if (smsOnEl) smsOnEl.checked = false;
+    const smsTplEl = document.getElementById('admCandNewCircularSmsTemplate'); if (smsTplEl) smsTplEl.value = '';
     const title = document.getElementById('admCandCircularFormTitle'); if (title) title.textContent = 'New circular';
     const saveBtn = document.getElementById('admCandCircularSaveBtn'); if (saveBtn) saveBtn.textContent = 'Create & Continue';
     document.getElementById('admCandCircularCancelBtn')?.classList.add('hidden');
@@ -43896,6 +43968,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (uniqueEl) Array.from(uniqueEl.options).forEach(o => o.selected = uniqueValues.includes(o.value));
     const modeRadio = document.querySelector(`input[name=admCandNewCircularMode][value="${c.mode === 'online' ? 'online' : 'offline'}"]`); if (modeRadio) modeRadio.checked = true;
     const activeEl = document.getElementById('admCandNewCircularActive'); if (activeEl) activeEl.checked = !!c.is_active;
+    const instantEl = document.getElementById('admCandNewCircularAdmitInstant'); if (instantEl) instantEl.checked = c.admit_instant !== false;
+    const releaseEl = document.getElementById('admCandNewCircularAdmitReleaseAt');
+    if (releaseEl) releaseEl.value = c.admit_release_at ? _admCandIsoToLocalInput(c.admit_release_at) : '';
+    const admitInstrEl = document.getElementById('admCandNewCircularAdmitInstructions'); if (admitInstrEl) admitInstrEl.value = c.admit_instructions || '';
+    const declEl = document.getElementById('admCandNewCircularDeclaration'); if (declEl) declEl.value = c.apply_declaration || 'I hereby declare that the above-made information is true and correct to the best of my knowledge.';
+    const smsOnEl = document.getElementById('admCandNewCircularSmsOnSubmit'); if (smsOnEl) smsOnEl.checked = !!c.sms_on_submit;
+    const smsTplEl = document.getElementById('admCandNewCircularSmsTemplate'); if (smsTplEl) smsTplEl.value = c.sms_template || '';
     const title = document.getElementById('admCandCircularFormTitle'); if (title) title.textContent = `Editing "${c.name}"`;
     const saveBtn = document.getElementById('admCandCircularSaveBtn'); if (saveBtn) saveBtn.textContent = 'Save Changes';
     document.getElementById('admCandCircularCancelBtn')?.classList.remove('hidden');
@@ -43909,12 +43988,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const bounds = _admCandCollectBounds();
     const { mode, is_active } = _admCandCollectModeActive();
     const unique_fields = _admCandCollectUniqueFields();
+    const downloads = _admCandCollectDownloadsConfig();
     try {
       if (_admCandEditingCircularId) {
-        const res = await _admCandFetch('updateCircular', { id: _admCandEditingCircularId, name, bounds, mode, is_active, unique_fields });
+        const res = await _admCandFetch('updateCircular', { id: _admCandEditingCircularId, name, bounds, mode, is_active, unique_fields, ...downloads });
         if (res.error) { showToast(res.error, 'error'); return; }
         const c = _admCandCirculars.find(x => x.id === _admCandEditingCircularId);
-        if (c) { c.name = name; c.bounds = bounds; c.mode = mode; c.is_active = is_active; c.unique_fields = unique_fields; }
+        if (c) { c.name = name; c.bounds = bounds; c.mode = mode; c.is_active = is_active; c.unique_fields = unique_fields; Object.assign(c, downloads); }
         showToast(`Circular "${name}" updated`, 'success');
         _admCandResetCircularForm();
         _admCandRenderCircularList();
@@ -43923,10 +44003,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           if (nameEl) nameEl.textContent = name;
         }
       } else {
-        const res = await _admCandFetch('createCircular', { session_id: _admCandActiveSessionId, name, bounds, mode, is_active, unique_fields });
+        const res = await _admCandFetch('createCircular', { session_id: _admCandActiveSessionId, name, bounds, mode, is_active, unique_fields, ...downloads });
         if (res.error) { showToast(res.error, 'error'); return; }
         if (input) input.value = '';
-        _admCandCirculars.push({ id: res.id, name, bounds, mode, is_active, unique_fields });
+        _admCandCirculars.push({ id: res.id, name, bounds, mode, is_active, unique_fields, ...downloads });
         showToast(`Circular "${name}" created`, 'success');
         _admCandEnterCircular(res.id);
       }
@@ -43937,17 +44017,53 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!_admCandActiveCircularId) return;
     try { localStorage.setItem('admCandActiveCircularId', String(_admCandActiveCircularId)); } catch (e) {}
     document.getElementById('admCandCircularGate')?.classList.add('hidden');
+    document.getElementById('admCandMyCircularsGate')?.classList.add('hidden');
     document.getElementById('admCandMainArea')?.classList.remove('hidden');
     const nameEl = document.getElementById('admCandActiveCircularName');
     const c = _admCandCirculars.find(x => x.id === _admCandActiveCircularId);
+    const myEntry = (_admCandMyAccess.circulars || {})[_admCandActiveCircularId];
+    _admCandMyPerms = _admCandMyAccess.is_full_admin ? null : ((myEntry && myEntry.permissions) || {});
     const sess = _admCandSessions.find(s => s.id === _admCandActiveSessionId);
     const summary = c ? _admCandBoundsSummary(c.bounds) : '';
-    if (nameEl) nameEl.textContent = (sess ? sess.name + ' / ' : '') + (c ? c.name : '') + (summary ? ` (${summary})` : '');
+    const displayName = c ? c.name : (myEntry ? myEntry.name : '');
+    const displaySession = sess ? sess.name : (myEntry ? myEntry.session_name : '');
+    if (nameEl) nameEl.textContent = (displaySession ? displaySession + ' / ' : '') + displayName + (summary ? ` (${summary})` : '');
     document.getElementById('admCandCopyLinkBtn')?.classList.toggle('hidden', !(c && c.mode === 'online'));
     _admCandLoadRooms();
+    _admCandLoadTagDefs();
     _admCandLoadList();
-    const firstTab = document.querySelector('#adm-cand-tabs .adm-ftab');
+    _admCandApplyTabGating();
+    const firstTab = document.querySelector('#adm-cand-tabs .adm-ftab:not(.hidden)');
     if (firstTab) firstTab.click();
+  }
+  // Tab-level visibility + Scan-mode/section filtering for committee members
+  // (full admins always pass). The server re-checks every one of these on
+  // every request regardless -- this is UX convenience, not the boundary.
+  function _admCandCan(tab, level) {
+    if (_admCandMyAccess.is_full_admin) return true;
+    const have = (_admCandMyPerms && _admCandMyPerms.tabs && _admCandMyPerms.tabs[tab]) || 'none';
+    return level === 'edit' ? have === 'edit' : (have === 'view' || have === 'edit');
+  }
+  function _admCandCanScanOption(key) {
+    if (_admCandMyAccess.is_full_admin) return true;
+    return !!(_admCandMyPerms && Array.isArray(_admCandMyPerms.scan_options) && _admCandMyPerms.scan_options.includes(key));
+  }
+  const _ADM_CAND_TAB_FOR_DATA_ID = {
+    'adm-cand-import': 'import', 'adm-cand-list': 'candidates', 'adm-cand-rooms': 'rooms',
+    'adm-cand-alloc': 'alloc', 'adm-cand-templates': 'templates', 'adm-cand-print': 'print',
+    'adm-cand-photos': 'photos', 'adm-cand-scan': 'scan',
+  };
+  function _admCandApplyTabGating() {
+    document.querySelectorAll('#adm-cand-tabs .adm-ftab[data-id]').forEach(btn => {
+      const tab = _ADM_CAND_TAB_FOR_DATA_ID[btn.getAttribute('data-id')];
+      btn.classList.toggle('hidden', !_admCandCan(tab, 'view'));
+    });
+    document.getElementById('admCandCommitteeTabBtn')?.classList.toggle('hidden', !_admCandMyAccess.is_full_admin);
+    document.querySelectorAll('#admCandScanModeTabs .adm-ftab[data-scan-opt]').forEach(btn => {
+      btn.classList.toggle('hidden', !_admCandCanScanOption(btn.getAttribute('data-scan-opt')));
+    });
+    const anyTagOption = _admCandMyAccess.is_full_admin || !!(_admCandMyPerms && Array.isArray(_admCandMyPerms.scan_options) && _admCandMyPerms.scan_options.some(o => o.startsWith('tag:')));
+    document.getElementById('admCandScanTagsModeBtn')?.classList.toggle('hidden', !anyTagOption);
   }
   function _admCandSwitchCircular() {
     try { localStorage.removeItem('admCandActiveCircularId'); } catch (e) {}
@@ -43985,6 +44101,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     else if (id === 'adm-cand-templates') _admCandLoadTemplateMapTab();
     else if (id === 'adm-cand-print') { _admCandLoadRooms(); _admCandPopulatePrintDropdowns(); }
     else if (id === 'adm-cand-scan') _admCandPopulateFilterDropdowns();
+    else if (id === 'adm-cand-committee') _admCandLoadCommitteeTab();
     else if (id === 'adm-cand-import') _admCandLoadTemplates();
   }
 
@@ -44025,6 +44142,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <input type="text" id="admCandListSearch" placeholder="Search token, name…" oninput="_admCandFilterList()" class="flex-1 min-w-[160px] px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold">
           <select id="admCandListClassFilter" onchange="_admCandFilterList()" class="px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold"><option value="">All Classes</option></select>
           <select id="admCandListCategoryFilter" onchange="_admCandFilterList()" class="px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold"><option value="">All Categories</option></select>
+          <select id="admCandListTagDefFilter" onchange="_admCandTagFilterDefChange()" class="px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold"><option value="">Any Tag Section</option></select>
+          <input type="text" id="admCandListTagValueFilter" oninput="_admCandFilterList()" placeholder="Value" class="hidden w-28 px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold">
+          <select id="admCandListTagValueSelect" onchange="_admCandFilterList()" class="hidden px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold"></select>
           <button onclick="_admCandExportCsv()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50"><i data-lucide="download" class="h-3.5 w-3.5"></i> Export CSV</button>
         </div>
         <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-x-auto">
@@ -44037,9 +44157,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Room/Seat</th>
               <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest hidden lg:table-cell">Submission</th>
               <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest hidden lg:table-cell">Attendance</th>
+              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest hidden lg:table-cell">Tags</th>
               <th class="px-3 py-3 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Actions</th>
             </tr></thead>
-            <tbody id="admCandListBody"><tr><td colspan="8" class="px-4 py-10 text-center text-slate-400 text-sm">Loading…</td></tr></tbody>
+            <tbody id="admCandListBody"><tr><td colspan="9" class="px-4 py-10 text-center text-slate-400 text-sm">Loading…</td></tr></tbody>
           </table>
         </div>
         <p id="admCandListCount" class="text-[10px] text-slate-400 font-bold mt-3 text-right"></p>
@@ -44155,8 +44276,33 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
       <div id="adm-cand-scan" class="hidden">
         <div class="flex gap-1 mb-4" id="admCandScanModeTabs">
-          <button class="adm-ftab adm-ftab-on" onclick="_admCandScanShowMode('submission', this)">Form Submission Scan</button>
-          <button class="adm-ftab" onclick="_admCandScanShowMode('attendance', this)">Exam Attendance Scan</button>
+          <button class="adm-ftab adm-ftab-on" data-scan-opt="submission" onclick="_admCandScanShowMode('submission', this)">Form Submission Scan</button>
+          <button class="adm-ftab" data-scan-opt="attendance" onclick="_admCandScanShowMode('attendance', this)">Exam Attendance Scan</button>
+          <button class="adm-ftab" id="admCandScanTagsModeBtn" onclick="_admCandScanShowMode('tags', this)">Custom Tags</button>
+        </div>
+        <div id="admCandTagsPanel" class="hidden bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-3">
+          <div class="flex items-center justify-between mb-2">
+            <p class="text-[10px] uppercase text-slate-400 font-bold">Tag Sections</p>
+          </div>
+          <div class="flex gap-2 items-center mb-2 flex-wrap">
+            <input id="admCandTagDefLabel" placeholder="Section name e.g. Division" class="flex-1 min-w-[160px] px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+            <select id="admCandTagDefType" onchange="_admCandTagDefTypeChange()" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+              <option value="toggle">Toggle</option>
+              <option value="text">Text</option>
+              <option value="dropdown">Dropdown</option>
+            </select>
+            <input id="admCandTagDefOptions" placeholder="Options (comma-separated)" class="hidden flex-1 min-w-[160px] px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+            <button onclick="_admCandTagDefSave()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">Add Section</button>
+          </div>
+          <div id="admCandTagDefList" class="flex flex-wrap gap-1.5 mb-3"></div>
+          <p class="text-[10px] uppercase text-slate-400 font-bold mb-2">Scanning for:</p>
+          <div class="flex gap-2 items-center mb-3 flex-wrap">
+            <select id="admCandScanTagDefSelect" onchange="_admCandScanTagDefChange()" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold"><option value="">Pick a section…</option></select>
+            <input id="admCandScanTagValueText" placeholder="Value to assign" class="hidden px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+            <select id="admCandScanTagValueSelect" class="hidden px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"></select>
+            <button onclick="_admCandScanLockTag()" class="px-3 py-2 bg-slate-800 text-white rounded-lg text-[10px] font-black uppercase">Lock &amp; Start</button>
+          </div>
+          <p id="admCandScanTagNote" class="text-xs text-emerald-600 font-bold"></p>
         </div>
         <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
           <p class="text-[10px] uppercase text-slate-400 font-bold mb-2">Scope — restrict scanning to:</p>
@@ -44180,8 +44326,113 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <p id="admCandScanNote" class="text-xs text-slate-500 mt-2"></p>
           <div id="admCandScanResult" class="hidden mt-3"></div>
         </div>
+      </div>
+
+      <div id="adm-cand-committee" class="hidden">
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-3">
+          <p class="text-[10px] uppercase text-slate-400 font-bold mb-2">Add a committee member</p>
+          <div class="flex gap-2 items-center">
+            <select id="admCandCommitteeStaffSelect" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold"><option value="">Pick a staff member…</option></select>
+            <button onclick="_admCandCommitteeAdd()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Add to Committee</button>
+          </div>
+        </div>
+        <div id="admCandCommitteeList" class="flex flex-col gap-3"></div>
       </div>`;
     lucide.createIcons();
+  }
+
+  // ── Part 5: Admission Committee (full-admin only — enforced server-side too) ──
+  let _admCandCommitteeStaff = [];
+  const ADM_CAND_TABS = [['import', 'Import'], ['candidates', 'Candidates'], ['rooms', 'Rooms'], ['alloc', 'Allocation'], ['templates', 'Templates'], ['print', 'Printing'], ['photos', 'Photos'], ['scan', 'Scan']];
+  async function _admCandLoadCommitteeTab() {
+    if (!_admCandRequireCircular()) return;
+    try {
+      if (!_admCandCommitteeStaff.length) {
+        const r = await _admCandFetch('listStaffForCommittee', {});
+        _admCandCommitteeStaff = r.staff || [];
+        const sel = document.getElementById('admCandCommitteeStaffSelect');
+        if (sel) sel.innerHTML = '<option value="">Pick a staff member…</option>' + _admCandCommitteeStaff.map(s => `<option value="${_escHtml(s.user_id)}">${_escHtml(s.name)} (${_escHtml(s.role || '')})</option>`).join('');
+      }
+      const res = await _admCandFetch('listCommitteeMembers', { circular_id: _admCandActiveCircularId });
+      _admCandRenderCommitteeList(res.members || []);
+    } catch (e) { showToast(e.message || 'Failed to load committee', 'error'); }
+  }
+  async function _admCandCommitteeAdd() {
+    const sel = document.getElementById('admCandCommitteeStaffSelect');
+    const userId = sel ? sel.value : '';
+    if (!userId) { showToast('Pick a staff member first', 'error'); return; }
+    try {
+      await _admCandFetch('saveCommitteeMember', { circular_id: _admCandActiveCircularId, user_id: userId, permissions: { tabs: {}, scan_options: [] } });
+      _admCandGrantModuleSidebarAccess(userId);
+      showToast('Added — set their permissions below', 'success');
+      _admCandLoadCommitteeTab();
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+  // Committee membership alone doesn't make the "Admission Admin" sidebar
+  // link appear for someone without that role -- it's gated by the portal's
+  // existing per-person module-grant system (_hasModuleAccess/_userModulePermissions,
+  // saved via the same google.script.run -> /api/exec shim as every other
+  // settings write in this app). Grant them View there too, additive (never
+  // downgrades an existing Edit/Delete grant), so the link just appears —
+  // this module's OWN per-circular/tab/scan permissions (committee_members)
+  // remain the real, separately-enforced boundary once they're inside.
+  function _admCandGrantModuleSidebarAccess(userId) {
+    try {
+      google.script.run.withSuccessHandler(function (settings) {
+        const current = (settings && settings.user_module_permissions) || {};
+        const next = JSON.parse(JSON.stringify(current));
+        next[userId] = next[userId] || {};
+        next[userId].admission_admin = Object.assign({ view: true, edit: false, delete: false }, next[userId].admission_admin, { view: true });
+        google.script.run.withSuccessHandler(function () { _userModulePermissions = next; }).updateSystemSettings({ user_module_permissions: next });
+      }).getSystemSettings();
+    } catch (e) {}
+  }
+  function _admCandRenderCommitteeList(members) {
+    const host = document.getElementById('admCandCommitteeList');
+    if (!host) return;
+    if (!members.length) { host.innerHTML = '<p class="text-xs text-slate-400">No committee members yet — add one above.</p>'; return; }
+    host.innerHTML = members.map(m => {
+      const perms = m.permissions || {};
+      const tabs = perms.tabs || {};
+      const scanOpts = perms.scan_options || [];
+      const tabSelects = ADM_CAND_TABS.map(([key, label]) => `
+        <div class="flex flex-col items-start">
+          <span class="text-[9px] uppercase text-slate-400 font-bold mb-0.5">${label}</span>
+          <select data-tab="${key}" class="admCandCommitteeTabSel px-2 py-1 bg-slate-50 border border-slate-200 rounded text-[10px] font-bold">
+            <option value="none" ${(!tabs[key] || tabs[key] === 'none') ? 'selected' : ''}>None</option>
+            <option value="view" ${tabs[key] === 'view' ? 'selected' : ''}>View</option>
+            <option value="edit" ${tabs[key] === 'edit' ? 'selected' : ''}>Edit</option>
+          </select>
+        </div>`).join('');
+      const scanChecks = [['submission', 'Submission'], ['attendance', 'Attendance']]
+        .concat(_admCandTagDefs.map(d => ['tag:' + d.key, d.label]))
+        .map(([key, label]) => `<label class="flex items-center gap-1 text-[10px] font-bold text-slate-600"><input type="checkbox" class="admCandCommitteeScanChk" value="${_escHtml(key)}" ${scanOpts.includes(key) ? 'checked' : ''}> ${_escHtml(label)}</label>`).join('');
+      return `<div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-4" data-member-id="${m.id}" data-user-id="${_escHtml(m.user_id)}">
+        <div class="flex items-center justify-between mb-2">
+          <div><span class="font-black text-slate-800 text-sm">${_escHtml(m.staff ? m.staff.name : m.user_id)}</span> <span class="text-[10px] text-slate-400 font-bold uppercase">${_escHtml((m.staff && m.staff.role) || '')}</span></div>
+          <button onclick="_admCandCommitteeRemove(${m.id})" class="text-red-500 text-xs font-bold">Remove</button>
+        </div>
+        <div class="flex gap-2 flex-wrap mb-2">${tabSelects}</div>
+        <p class="text-[9px] uppercase text-slate-400 font-bold mb-1">Scan options</p>
+        <div class="flex gap-3 flex-wrap mb-2">${scanChecks}</div>
+        <button onclick="_admCandCommitteeSave(this)" class="px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-[10px] font-black uppercase">Save Permissions</button>
+      </div>`;
+    }).join('');
+  }
+  async function _admCandCommitteeSave(btn) {
+    const card = btn.closest('[data-member-id]');
+    if (!card) return;
+    const tabs = {};
+    card.querySelectorAll('.admCandCommitteeTabSel').forEach(sel => { tabs[sel.getAttribute('data-tab')] = sel.value; });
+    const scan_options = Array.from(card.querySelectorAll('.admCandCommitteeScanChk:checked')).map(c => c.value);
+    try {
+      await _admCandFetch('saveCommitteeMember', { circular_id: _admCandActiveCircularId, user_id: card.getAttribute('data-user-id'), permissions: { tabs, scan_options } });
+      showToast('Permissions saved', 'success');
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+  async function _admCandCommitteeRemove(id) {
+    if (!confirm('Remove this committee member? They will immediately lose all access to this circular.')) return;
+    try { await _admCandFetch('removeCommitteeMember', { id }); _admCandLoadCommitteeTab(); } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }
 
   // ── Import & Mapping ──────────────────────────────────────────────────────
@@ -44412,9 +44663,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!body) return;
     const countEl = document.getElementById('admCandListCount');
     if (countEl) countEl.textContent = `${list.length} candidate(s)`;
-    if (!list.length) { body.innerHTML = '<tr><td colspan="8" class="px-4 py-10 text-center text-slate-400 text-sm">No candidates imported yet.</td></tr>'; return; }
+    if (!list.length) { body.innerHTML = '<tr><td colspan="9" class="px-4 py-10 text-center text-slate-400 text-sm">No candidates imported yet.</td></tr>'; return; }
     body.innerHTML = list.map(c => {
       const room = _admCandRooms.find(r => r.id === c.room_id);
+      const tagBadges = Object.entries(c.tags || {}).map(([k, v]) => {
+        const def = _admCandTagDefs.find(d => d.key === k);
+        const label = def ? def.label : k;
+        const shown = v === true ? 'Yes' : String(v ?? '');
+        return `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-slate-100 rounded text-[10px] font-bold text-slate-600 mr-1 mb-1">${_escHtml(label)}: ${_escHtml(shown)} <button onclick="_admCandShowTagHistory(${c.id},'${k}')" class="text-slate-400 hover:text-slate-700" title="History">⏱</button></span>`;
+      }).join('');
       return `<tr class="border-t border-slate-100">
         <td class="px-3 py-2.5 font-mono text-blue-600">${_escHtml(c.token || '')}</td>
         <td class="px-3 py-2.5 font-bold">${_escHtml(c.candidate_name || '')}</td>
@@ -44423,22 +44680,68 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <td class="px-3 py-2.5">${room ? _escHtml(room.room_name) + (c.seat_no ? ' / ' + _escHtml(c.seat_no) : '') : '—'}</td>
         <td class="px-3 py-2.5 hidden lg:table-cell">${_escHtml(c.submission_scan_status || 'pending')}</td>
         <td class="px-3 py-2.5 hidden lg:table-cell">${_escHtml(c.attendance_scan_status || 'pending')}</td>
+        <td class="px-3 py-2.5 hidden lg:table-cell">${tagBadges || '<span class="text-slate-300">—</span>'}</td>
         <td class="px-3 py-2.5 text-right whitespace-nowrap">
           <button onclick="_admCandPrintFormTemplate(${c.id})" class="text-blue-600 text-xs font-bold mr-2">Form</button>
           <button onclick="_admCandPrintAdmitTemplate(${c.id})" class="text-blue-600 text-xs font-bold mr-2">Admit</button>
-          <button onclick="_admCandDeleteCandidate(${c.id})" class="text-red-500 text-xs font-bold">Delete</button>
+          ${_admCandCan('candidates', 'edit') ? `<button onclick="_admCandDeleteCandidate(${c.id})" class="text-red-500 text-xs font-bold">Delete</button>` : ''}
         </td>
       </tr>`;
     }).join('');
+  }
+  function _admCandTagFilterDefChange() {
+    const sel = document.getElementById('admCandListTagDefFilter');
+    const def = _admCandTagDefs.find(d => String(d.id) === sel.value);
+    const textEl = document.getElementById('admCandListTagValueFilter');
+    const selEl = document.getElementById('admCandListTagValueSelect');
+    textEl.classList.add('hidden'); selEl.classList.add('hidden');
+    textEl.value = '';
+    if (!def) { _admCandFilterList(); return; }
+    if (def.type === 'dropdown') {
+      selEl.innerHTML = '<option value="">Any value</option>' + (def.options || []).map(o => `<option value="${_escHtml(o)}">${_escHtml(o)}</option>`).join('');
+      selEl.classList.remove('hidden');
+    } else if (def.type === 'toggle') {
+      selEl.innerHTML = '<option value="">Any value</option><option value="true">Yes</option>';
+      selEl.classList.remove('hidden');
+    } else {
+      textEl.classList.remove('hidden');
+    }
+    _admCandFilterList();
   }
   function _admCandFilterList() {
     const search = (document.getElementById('admCandListSearch').value || '').toLowerCase();
     const cls = document.getElementById('admCandListClassFilter').value;
     const cat = document.getElementById('admCandListCategoryFilter').value;
+    const tagDefSel = document.getElementById('admCandListTagDefFilter');
+    const def = _admCandTagDefs.find(d => String(d.id) === tagDefSel.value);
+    const tagValue = def
+      ? (def.type === 'text' ? document.getElementById('admCandListTagValueFilter').value.trim() : document.getElementById('admCandListTagValueSelect').value)
+      : '';
     const filtered = _admCandAllCandidates.filter(c =>
       (!cls || c.class === cls) && (!cat || c.category === cat) &&
-      (!search || [c.token, c.candidate_name, c.external_key].some(v => String(v || '').toLowerCase().includes(search))));
+      (!search || [c.token, c.candidate_name, c.external_key].some(v => String(v || '').toLowerCase().includes(search))) &&
+      (!def || !tagValue || String((c.tags || {})[def.key]) === tagValue));
     _admCandRenderList(filtered);
+  }
+  async function _admCandShowTagHistory(candidateId, tagKey) {
+    try {
+      const res = await _admCandFetch('getCandidateTagHistory', { candidate_id: candidateId, tag_key: tagKey });
+      const history = res.history || [];
+      if (!history.length) { showToast('No history yet', 'error'); return; }
+      const def = _admCandTagDefs.find(d => d.key === tagKey);
+      const lines = history.map((h, i) => {
+        const shown = h.value === true ? 'Yes' : String(h.value ?? '');
+        const when = new Date(h.scanned_at).toLocaleString();
+        return `${i + 1}. ${shown} — ${when}`;
+      }).join('\n');
+      const pick = prompt(`History for ${def ? def.label : tagKey} (most recent first). Type a number to restore that value as current, or Cancel:\n\n${lines}`);
+      const idx = parseInt(pick, 10);
+      if (!idx || idx < 1 || idx > history.length) return;
+      const chosen = history[idx - 1];
+      await _admCandFetch('setCandidateTagValue', { candidate_id: candidateId, tag_key: tagKey, value: chosen.value });
+      showToast('Restored', 'success');
+      _admCandLoadList();
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }
   function _admCandExportCsv() {
     const rows = _admCandAllCandidates;
@@ -44466,6 +44769,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     };
     fill('admCandListClassFilter', classes, 'All Classes');
     fill('admCandListCategoryFilter', cats, 'All Categories');
+    const tagDefSel = document.getElementById('admCandListTagDefFilter');
+    if (tagDefSel) {
+      const cur = tagDefSel.value;
+      tagDefSel.innerHTML = '<option value="">Any Tag Section</option>' + _admCandTagDefs.map(d => `<option value="${d.id}">${_escHtml(d.label)}</option>`).join('');
+      tagDefSel.value = cur;
+    }
     fill('admCandAllocFilterClass', classes, 'All');
     fill('admCandAllocFilterCategory', cats, 'All');
     fill('admCandTokenFilterClass', classes, 'All Classes');
@@ -44752,6 +45061,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       session: sess ? sess.name : '',
       room_no: room ? room.room_name : '',
       student_photo: c.photo_url,
+      qr_data: c.token || c.external_key || '',
       extra_fields: c.extra_fields || {},
       ...(c.extra_fields || {}),
     };
@@ -44793,13 +45103,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   async function _admCandPrintAdmitTemplate(candidateId) {
     const c = _admCandAllCandidates.find(x => x.id === candidateId);
     if (!c) return;
+    const circ = _admCandCirculars.find(x => x.id === _admCandActiveCircularId);
+    if (circ && circ.admit_instant === false) {
+      const releaseAt = circ.admit_release_at ? new Date(circ.admit_release_at) : null;
+      if (!releaseAt || new Date() < releaseAt) {
+        showToast(releaseAt ? `Admit cards aren't available until ${releaseAt.toLocaleString()}` : 'Admit card release date has not been set for this circular.', 'error');
+        return;
+      }
+    }
     await _admCandEnsureTemplateLists();
     const { admit_template_id } = _admCandResolveTemplateIds(c);
     const tpl = _admCandAdmitTplOptions.find(t => t.id === admit_template_id);
     if (!tpl) { showToast('No Admit Card template assigned for this candidate\'s class/version/category — set one in the Templates tab.', 'error'); return; }
     try {
       await _ensureAdmissionPrintTemplates();
-      const html = generateAdmitHtml(_admCandToAppShape(c), tpl.settings || {});
+      const settings = (circ && circ.admit_instructions) ? Object.assign({}, tpl.settings, { instructions: circ.admit_instructions }) : (tpl.settings || {});
+      const html = generateAdmitHtml(_admCandToAppShape(c), settings);
       openPrintTab(html);
     } catch (e) { showToast(e.message || 'Could not render the admit card', 'error'); }
   }
@@ -44836,17 +45155,27 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _admCandBuildSignatureSheetHtml(res.room, res.candidates);
     } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }
+  // Each card's QR encodes the bare token (same payload the Scan tab's
+  // camera reader hands to scanSubmission) -- these cards are what gets
+  // scanned at the "submission" (physical form collection) stage, before
+  // room allocation even runs, matching the Scan tab's two independent modes.
   function _admCandBuildTokenListHtml(candidates) {
-    const tokens = candidates.map(c => `<div class="token">
+    const tokens = candidates.map(c => {
+      const qrSrc = 'https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=' + encodeURIComponent(c.token || '');
+      return `<div class="token">
+      <img src="${qrSrc}" class="qr" alt="QR">
       <div class="info">
         <div class="ref">${_escHtml(c.token || '')}</div>
         <div class="proj">${_escHtml(c.candidate_name || '')}</div>
         <div class="leader">${_escHtml(c.class || '')}${c.category ? ' · ' + _escHtml(c.category) : ''}</div>
       </div>
-    </div>`).join('');
+    </div>`;
+    }).join('');
     const css = `@page { size: A4 portrait; margin: 10mm; }
       .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4mm; }
-      .token { border: 1.5px dashed #cbd5e1; border-left: 4px solid #2563eb; border-radius: 8px; padding: 7px 9px; break-inside: avoid; min-height: 20mm; background: #fff; }
+      .token { display: flex; align-items: center; gap: 8px; border: 1.5px dashed #cbd5e1; border-left: 4px solid #2563eb; border-radius: 8px; padding: 7px 9px; break-inside: avoid; min-height: 20mm; background: #fff; }
+      .token .qr { width: 44px; height: 44px; flex-shrink: 0; }
+      .token .info { flex: 1; min-width: 0; }
       .token .ref { font-size: 16px; font-weight: 800; }
       .token .proj { font-size: 10px; color: #374151; margin-top: 2px; }
       .token .leader { font-size: 8px; color: #6b7280; font-weight: 700; margin-top: 2px; }`;
@@ -44916,6 +45245,81 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('admCandScanResult')?.classList.add('hidden');
     const note = document.getElementById('admCandScanScopeNote'); if (note) note.textContent = '';
     _admCandScanScope = {};
+    document.getElementById('admCandTagsPanel')?.classList.toggle('hidden', mode !== 'tags');
+    if (mode === 'tags') { _admCandScanTagKey = null; _admCandScanTagValue = null; _admCandLoadTagDefs(); }
+  }
+  // ── Part 4: Custom Tags — admin-defined scan sections ────────────────────
+  async function _admCandLoadTagDefs() {
+    if (!_admCandActiveCircularId) return;
+    try {
+      const res = await _admCandFetch('listTagDefinitions', { circular_id: _admCandActiveCircularId });
+      _admCandTagDefs = res.definitions || [];
+      _admCandRenderTagDefList();
+      _admCandPopulateScanTagDefSelect();
+    } catch (e) {}
+  }
+  function _admCandRenderTagDefList() {
+    const host = document.getElementById('admCandTagDefList');
+    if (!host) return;
+    host.innerHTML = _admCandTagDefs.map(d => `<span class="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 rounded-full text-[10px] font-bold text-slate-700">${_escHtml(d.label)} <span class="text-slate-400 uppercase">${_escHtml(d.type)}</span> <button onclick="_admCandTagDefDelete(${d.id})" class="text-red-500 ml-1">×</button></span>`).join('') || '<span class="text-xs text-slate-400">No sections yet — add one above.</span>';
+  }
+  function _admCandTagDefTypeChange() {
+    const type = document.getElementById('admCandTagDefType').value;
+    document.getElementById('admCandTagDefOptions')?.classList.toggle('hidden', type !== 'dropdown');
+  }
+  async function _admCandTagDefSave() {
+    if (!_admCandRequireCircular()) return;
+    const label = document.getElementById('admCandTagDefLabel').value.trim();
+    if (!label) { showToast('Name the section first', 'error'); return; }
+    const type = document.getElementById('admCandTagDefType').value;
+    const options = type === 'dropdown'
+      ? document.getElementById('admCandTagDefOptions').value.split(',').map(s => s.trim()).filter(Boolean)
+      : [];
+    try {
+      const res = await _admCandFetch('saveTagDefinition', { circular_id: _admCandActiveCircularId, label, type, options });
+      if (res.error) { showToast(res.error, 'error'); return; }
+      document.getElementById('admCandTagDefLabel').value = '';
+      document.getElementById('admCandTagDefOptions').value = '';
+      showToast('Section added', 'success');
+      _admCandLoadTagDefs();
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+  async function _admCandTagDefDelete(id) {
+    if (!confirm('Delete this tag section? Candidates keep whatever value they already have, but it will no longer be assignable by scanning.')) return;
+    try { await _admCandFetch('deleteTagDefinition', { id }); _admCandLoadTagDefs(); } catch (e) {}
+  }
+  function _admCandPopulateScanTagDefSelect() {
+    const sel = document.getElementById('admCandScanTagDefSelect');
+    if (!sel) return;
+    const allowed = _admCandTagDefs.filter(d => _admCandCanScanOption('tag:' + d.key));
+    sel.innerHTML = '<option value="">Pick a section…</option>' + allowed.map(d => `<option value="${d.id}">${_escHtml(d.label)} (${_escHtml(d.type)})</option>`).join('');
+  }
+  function _admCandScanTagDefChange() {
+    const sel = document.getElementById('admCandScanTagDefSelect');
+    const def = _admCandTagDefs.find(d => String(d.id) === sel.value);
+    const textEl = document.getElementById('admCandScanTagValueText');
+    const selEl = document.getElementById('admCandScanTagValueSelect');
+    textEl.classList.add('hidden'); selEl.classList.add('hidden');
+    if (!def) return;
+    if (def.type === 'text') { textEl.classList.remove('hidden'); }
+    else if (def.type === 'dropdown') {
+      selEl.innerHTML = (def.options || []).map(o => `<option value="${_escHtml(o)}">${_escHtml(o)}</option>`).join('');
+      selEl.classList.remove('hidden');
+    }
+  }
+  function _admCandScanLockTag() {
+    const sel = document.getElementById('admCandScanTagDefSelect');
+    const def = _admCandTagDefs.find(d => String(d.id) === sel.value);
+    const note = document.getElementById('admCandScanTagNote');
+    if (!def) { if (note) note.textContent = 'Pick a tag section first.'; return; }
+    let value = true;
+    if (def.type === 'text') value = document.getElementById('admCandScanTagValueText').value.trim();
+    else if (def.type === 'dropdown') value = document.getElementById('admCandScanTagValueSelect').value;
+    if (def.type !== 'toggle' && !value) { if (note) note.textContent = 'Set a value first.'; return; }
+    _admCandScanTagKey = def.key;
+    _admCandScanTagValue = value;
+    if (note) note.textContent = `Locked: ${def.label} = ${value === true ? 'yes' : value} — scan candidates now.`;
+    _admCandScanStart();
   }
   function _admCandScanSetScope() {
     _admCandScanScope = {
@@ -44978,10 +45382,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   async function _admCandResolveScan(code) {
     const note = document.getElementById('admCandScanNote');
+    if (_admCandScanMode === 'tags' && !_admCandScanTagKey) { if (note) note.textContent = 'Lock a tag section first.'; return; }
     if (note) note.textContent = 'Looking up ' + code + '…';
     try {
-      const action = _admCandScanMode === 'submission' ? 'scanSubmission' : 'scanAttendance';
-      const r = await _admCandFetch(action, { circular_id: _admCandActiveCircularId, code, scope: _admCandScanScope });
+      const action = _admCandScanMode === 'submission' ? 'scanSubmission' : _admCandScanMode === 'attendance' ? 'scanAttendance' : 'scanTagCandidate';
+      const extra = _admCandScanMode === 'tags' ? { tag_key: _admCandScanTagKey, value: _admCandScanTagValue } : {};
+      const r = await _admCandFetch(action, { circular_id: _admCandActiveCircularId, code, scope: _admCandScanScope, ...extra });
       if (r.error) {
         if (note) note.textContent = r.error;
         if (r.out_of_scope && r.candidate) _admCandRenderScanResult(r.candidate, true);
@@ -44997,9 +45403,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const host = document.getElementById('admCandScanResult');
     if (!host) return;
     host.classList.remove('hidden');
-    const statusLine = _admCandScanMode === 'submission'
-      ? `Submission: <b>${_escHtml(c.submission_scan_status || 'pending')}</b>`
-      : `Attendance: <b>${_escHtml(c.attendance_scan_status || 'pending')}</b>`;
+    let statusLine;
+    if (_admCandScanMode === 'submission') statusLine = `Submission: <b>${_escHtml(c.submission_scan_status || 'pending')}</b>`;
+    else if (_admCandScanMode === 'attendance') statusLine = `Attendance: <b>${_escHtml(c.attendance_scan_status || 'pending')}</b>`;
+    else {
+      const def = _admCandTagDefs.find(d => d.key === _admCandScanTagKey);
+      const val = (c.tags || {})[_admCandScanTagKey];
+      statusLine = `${_escHtml(def ? def.label : _admCandScanTagKey)}: <b>${_escHtml(val === true ? 'Yes' : String(val ?? ''))}</b>`;
+    }
     host.innerHTML = `<div class="flex items-center gap-4 ${rejected ? 'bg-red-50 border border-red-200' : 'bg-emerald-50 border border-emerald-200'} rounded-xl p-3">
       ${c.photo_url ? `<img src="${_escHtml(c.photo_url)}" style="width:48px;height:48px;object-fit:cover;border-radius:10px">` : ''}
       <div class="flex-1">

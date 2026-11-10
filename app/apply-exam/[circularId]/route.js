@@ -67,6 +67,36 @@ async function generateUniqueToken(circularId) {
   return 'T' + Date.now().toString(36).toUpperCase();
 }
 
+// Best-effort SMS on a successful new submission, reusing the same generic
+// gateway config (admission_settings.sms_settings) Admission Admin's own
+// sendTestSms action already uses (app/api/admission-admin/route.js) -- no
+// new SMS infrastructure, just a second caller with {token} instead of {otp}.
+// Never throws -- a misconfigured/unreachable gateway must never fail the
+// applicant's submission.
+async function sendSubmissionSms(circular, data) {
+  try {
+    if (!circular.sms_on_submit || !data.mobile) return;
+    const rows = await sbAdmission('admission_settings?key=eq.sms_settings');
+    const s = (Array.isArray(rows) && rows[0]) ? (rows[0].value || {}) : {};
+    if (!s.url) return;
+    const template = circular.sms_template || 'Your application has been received. Your token is {token}.';
+    const message = template
+      .replace(/\{token\}/g, data.token || '')
+      .replace(/\{name\}/g, data.candidate_name || '')
+      .replace(/\{class\}/g, data.class || '');
+    let url = String(s.url).replace(/\{phone\}/g, encodeURIComponent(data.mobile)).replace(/\{message\}/g, encodeURIComponent(message));
+    const method = (s.method || 'GET').toUpperCase();
+    const headers = { ...(s.headers || {}) };
+    let sendBody;
+    if (method !== 'GET' && s.bodyTemplate) {
+      const jsonSafe = v => JSON.stringify(v).slice(1, -1);
+      sendBody = String(s.bodyTemplate).replace(/\{phone\}/g, jsonSafe(data.mobile)).replace(/\{message\}/g, jsonSafe(message));
+      if (!headers['Content-Type'] && !headers['content-type']) headers['Content-Type'] = 'application/json';
+    }
+    await fetch(url, { method, headers, body: sendBody, signal: AbortSignal.timeout(15000) });
+  } catch (e) { /* best-effort -- never fail the submission over SMS */ }
+}
+
 function closedHtml(message) {
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Application not available</title>
@@ -88,10 +118,12 @@ function renderFormPage(circular, existing, editToken) {
   const title = esc(circular.name);
   const fields = [
     fieldHtml('f_candidate_name', 'Full Name', null, existing?.candidate_name, true),
+    fieldHtml('f_mobile', 'Mobile Number', null, existing?.mobile, false),
     fieldHtml('f_class', 'Class', bounds.class, existing?.class, false),
     fieldHtml('f_version', 'Version', bounds.version, existing?.version, false),
     fieldHtml('f_category', 'Category', bounds.student_category, existing?.category, false),
   ].join('');
+  const declaration = esc(circular.apply_declaration || 'I hereby declare that the above-made information is true and correct to the best of my knowledge.');
 
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${title} — Application Form</title>
@@ -111,6 +143,8 @@ function renderFormPage(circular, existing, editToken) {
   #msg.ok{background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;display:block}
   .token{font-family:monospace;font-size:18px;font-weight:700;background:#eff6ff;color:#1d4ed8;padding:6px 10px;border-radius:8px;display:inline-block;margin-top:6px}
   .link{word-break:break-all;font-size:11px;color:#2563eb}
+  .decl{display:flex;align-items:flex-start;gap:8px;font-size:12px;color:#475569;margin-bottom:16px}
+  .decl input{margin-top:2px;flex-shrink:0}
 </style></head>
 <body>
   <div class="card">
@@ -118,7 +152,8 @@ function renderFormPage(circular, existing, editToken) {
     <p class="sub">${editToken ? 'Edit your submitted application below.' : 'Fill in your details to apply.'}</p>
     <form id="form">
       ${fields}
-      <button type="submit" id="submitBtn">${editToken ? 'Save Changes' : 'Submit Application'}</button>
+      <label class="decl"><input type="checkbox" id="f_declaration"><span>${declaration}</span></label>
+      <button type="submit" id="submitBtn" disabled>${editToken ? 'Save Changes' : 'Submit Application'}</button>
     </form>
     <div id="msg"></div>
   </div>
@@ -128,15 +163,19 @@ function renderFormPage(circular, existing, editToken) {
   var form = document.getElementById('form');
   var msg = document.getElementById('msg');
   var btn = document.getElementById('submitBtn');
+  var decl = document.getElementById('f_declaration');
+  decl.addEventListener('change', function(){ btn.disabled = !decl.checked; });
   form.addEventListener('submit', function(e){
     e.preventDefault();
     btn.disabled = true;
     msg.className = ''; msg.textContent = '';
     var body = {
       candidate_name: document.getElementById('f_candidate_name').value.trim(),
+      mobile: document.getElementById('f_mobile').value.trim(),
       class: document.getElementById('f_class').value.trim(),
       version: document.getElementById('f_version').value.trim(),
       category: document.getElementById('f_category').value.trim(),
+      declaration_accepted: decl.checked,
       token: editToken,
     };
     fetch(location.pathname, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) })
@@ -204,11 +243,13 @@ export async function POST(request, { params }) {
 
   const data = {
     candidate_name: String(body.candidate_name || '').trim(),
+    mobile: String(body.mobile || '').trim(),
     class: String(body.class || '').trim(),
     version: String(body.version || '').trim(),
     category: String(body.category || '').trim(),
   };
   if (!data.candidate_name) return NextResponse.json({ result: 'error', message: 'Name is required.' }, { status: 400 });
+  if (body.declaration_accepted !== true) return NextResponse.json({ result: 'error', message: 'Please accept the declaration before submitting.' }, { status: 400 });
 
   const boundsErr = checkBounds(circular.bounds || {}, data);
   if (boundsErr) return NextResponse.json({ result: 'error', message: boundsErr }, { status: 400 });
@@ -234,5 +275,6 @@ export async function POST(request, { params }) {
   const token = await generateUniqueToken(id);
   const res = await sbAdmission('exam_candidates', 'POST', { circular_id: id, external_key: token, token, ...data });
   if (res && res.error) return NextResponse.json({ result: 'error', message: 'Could not submit your application.' }, { status: 500 });
+  await sendSubmissionSms(circular, { ...data, token });
   return NextResponse.json({ result: 'success', token });
 }
