@@ -95,9 +95,10 @@ export async function POST(req) {
     const bounds = (payload.bounds && typeof payload.bounds === 'object') ? payload.bounds : {};
     const mode = payload.mode === 'online' ? 'online' : 'offline';
     const is_active = !!payload.is_active;
-    const res = await sbAdmission('exam_circulars', 'POST', { session_id: sessionId, name, bounds, mode, is_active });
+    const unique_fields = Array.isArray(payload.unique_fields) ? payload.unique_fields.map(String) : [];
+    const res = await sbAdmission('exam_circulars', 'POST', { session_id: sessionId, name, bounds, mode, is_active, unique_fields });
     if (res?.error) return NextResponse.json({ error: res.error.includes('duplicate') ? 'A circular with this name already exists in this session.' : res.error });
-    return NextResponse.json({ id: res?.[0]?.id, name, bounds, mode, is_active });
+    return NextResponse.json({ id: res?.[0]?.id, name, bounds, mode, is_active, unique_fields });
   }
   if (action === 'updateCircular') {
     const id = parseInt(payload.id, 10);
@@ -107,9 +108,10 @@ export async function POST(req) {
     const bounds = (payload.bounds && typeof payload.bounds === 'object') ? payload.bounds : {};
     const mode = payload.mode === 'online' ? 'online' : 'offline';
     const is_active = !!payload.is_active;
-    const res = await sbAdmission(`exam_circulars?id=eq.${id}`, 'PATCH', { name, bounds, mode, is_active });
+    const unique_fields = Array.isArray(payload.unique_fields) ? payload.unique_fields.map(String) : [];
+    const res = await sbAdmission(`exam_circulars?id=eq.${id}`, 'PATCH', { name, bounds, mode, is_active, unique_fields });
     if (res?.error) return NextResponse.json({ error: res.error.includes('duplicate') ? 'A circular with this name already exists in this session.' : res.error });
-    return NextResponse.json({ success: true, id, name, bounds, mode, is_active });
+    return NextResponse.json({ success: true, id, name, bounds, mode, is_active, unique_fields });
   }
 
   if (action === 'saveCircularTemplateMap') {

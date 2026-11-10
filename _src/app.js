@@ -41569,6 +41569,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 <label class="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold cursor-pointer"><input type="checkbox" id="admCandNewCircularActive"> Active / Public</label>
               </div>
             </div>
+            <label class="text-[10px] text-slate-400 font-bold block mb-1">Require unique values for (optional — only checked when candidates are entered/edited via the Online form; leave blank to skip)</label>
+            <select id="admCandNewCircularUniqueFields" multiple class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs mb-3" style="height:70px">
+              <option value="token">Token</option>
+              <option value="candidate_name">Candidate Name</option>
+              <option value="class">Class</option>
+              <option value="version">Version</option>
+              <option value="category">Category</option>
+            </select>
             <p class="text-[10px] uppercase text-slate-400 font-bold mb-1">Bound to (optional) — uploaded data must match these, or it's rejected as a mismatch. Leave blank for "applies to all".</p>
             <div class="grid grid-cols-3 gap-2 mb-3">
               <div><label class="text-[10px] text-slate-400 font-bold">Class</label><select id="admCandNewCircularClass" multiple class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="height:84px"></select></div>
@@ -43843,6 +43851,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const activeEl = document.getElementById('admCandNewCircularActive');
     return { mode: modeEl ? modeEl.value : 'offline', is_active: !!(activeEl && activeEl.checked) };
   }
+  function _admCandCollectUniqueFields() {
+    const el = document.getElementById('admCandNewCircularUniqueFields');
+    return el ? Array.from(el.selectedOptions).map(o => o.value) : [];
+  }
   function _admCandCollectBounds() {
     const get = id => { const el = document.getElementById(id); return el ? Array.from(el.selectedOptions).map(o => o.value) : []; };
     const bounds = {};
@@ -43854,7 +43866,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admCandResetCircularForm() {
     _admCandEditingCircularId = null;
     const nameEl = document.getElementById('admCandNewCircularName'); if (nameEl) nameEl.value = '';
-    ['admCandNewCircularClass', 'admCandNewCircularVersion', 'admCandNewCircularCategory'].forEach(id => {
+    ['admCandNewCircularClass', 'admCandNewCircularVersion', 'admCandNewCircularCategory', 'admCandNewCircularUniqueFields'].forEach(id => {
       const el = document.getElementById(id); if (el) Array.from(el.options).forEach(o => o.selected = false);
     });
     const offlineRadio = document.querySelector('input[name=admCandNewCircularMode][value=offline]'); if (offlineRadio) offlineRadio.checked = true;
@@ -43877,6 +43889,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     sel('admCandNewCircularClass', 'class');
     sel('admCandNewCircularVersion', 'version');
     sel('admCandNewCircularCategory', 'student_category');
+    const uniqueEl = document.getElementById('admCandNewCircularUniqueFields');
+    const uniqueValues = c.unique_fields || [];
+    if (uniqueEl) Array.from(uniqueEl.options).forEach(o => o.selected = uniqueValues.includes(o.value));
     const modeRadio = document.querySelector(`input[name=admCandNewCircularMode][value="${c.mode === 'online' ? 'online' : 'offline'}"]`); if (modeRadio) modeRadio.checked = true;
     const activeEl = document.getElementById('admCandNewCircularActive'); if (activeEl) activeEl.checked = !!c.is_active;
     const title = document.getElementById('admCandCircularFormTitle'); if (title) title.textContent = `Editing "${c.name}"`;
@@ -43891,12 +43906,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!name) { showToast('Name the circular first', 'error'); return; }
     const bounds = _admCandCollectBounds();
     const { mode, is_active } = _admCandCollectModeActive();
+    const unique_fields = _admCandCollectUniqueFields();
     try {
       if (_admCandEditingCircularId) {
-        const res = await _admCandFetch('updateCircular', { id: _admCandEditingCircularId, name, bounds, mode, is_active });
+        const res = await _admCandFetch('updateCircular', { id: _admCandEditingCircularId, name, bounds, mode, is_active, unique_fields });
         if (res.error) { showToast(res.error, 'error'); return; }
         const c = _admCandCirculars.find(x => x.id === _admCandEditingCircularId);
-        if (c) { c.name = name; c.bounds = bounds; c.mode = mode; c.is_active = is_active; }
+        if (c) { c.name = name; c.bounds = bounds; c.mode = mode; c.is_active = is_active; c.unique_fields = unique_fields; }
         showToast(`Circular "${name}" updated`, 'success');
         _admCandResetCircularForm();
         _admCandRenderCircularList();
@@ -43905,10 +43921,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           if (nameEl) nameEl.textContent = name;
         }
       } else {
-        const res = await _admCandFetch('createCircular', { session_id: _admCandActiveSessionId, name, bounds, mode, is_active });
+        const res = await _admCandFetch('createCircular', { session_id: _admCandActiveSessionId, name, bounds, mode, is_active, unique_fields });
         if (res.error) { showToast(res.error, 'error'); return; }
         if (input) input.value = '';
-        _admCandCirculars.push({ id: res.id, name, bounds, mode, is_active });
+        _admCandCirculars.push({ id: res.id, name, bounds, mode, is_active, unique_fields });
         showToast(`Circular "${name}" created`, 'success');
         _admCandEnterCircular(res.id);
       }

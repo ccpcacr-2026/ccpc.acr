@@ -50,6 +50,16 @@ alter table admission.exam_circulars
 alter table admission.exam_circulars
   add column if not exists template_map jsonb not null default '{}'::jsonb;
 
+-- Which fields must hold unique values when a candidate is entered/edited
+-- by a user through the (not-yet-built) ONLINE intake form -- e.g. don't
+-- let two online submissions reuse the same phone number. Config/storage
+-- only: there is no live single-record add/edit surface yet to actually
+-- enforce this against (bulk Excel import already has its own, separate
+-- upsert-by-primary-key uniqueness, unaffected by this). Empty array (the
+-- default) means no uniqueness check at all.
+alter table admission.exam_circulars
+  add column if not exists unique_fields jsonb not null default '[]'::jsonb;
+
 drop index if exists admission.exam_circulars_name_idx;
 create unique index if not exists exam_circulars_session_name_idx on admission.exam_circulars (session_id, lower(name));
 
