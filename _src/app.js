@@ -44277,7 +44277,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </div>
             <div id="admCandMappingList"></div>
             <div class="flex items-center gap-2 mt-3 flex-wrap">
-              <select id="admCandAddFieldSelect" onchange="_admCandAddFieldFromHeader(this)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="width:200px"><option value="">+ Add column as field…</option></select>
+              <select id="admCandAddFieldSelect" multiple size="4" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="width:200px"></select>
+              <button onclick="_admCandAddSelectedFields()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase whitespace-nowrap">+ Add Selected</button>
               <button onclick="_admCandAddAllRemainingFields()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase whitespace-nowrap">+ Add All Remaining</button>
               <input type="text" id="admCandTemplateName" placeholder="Name this mapping to save it" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="width:220px">
               <button onclick="_admCandSaveMappingTemplate()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase">Save mapping</button>
@@ -44687,10 +44688,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admCandPopulateAddFieldSelect();
     lucide.createIcons();
   }
-  // Excel headers not yet claimed by any mapped row -- backs both the
-  // "+ Add column as field" picker and "+ Add All Remaining" below, so
-  // adding extra fields (e.g. every leftover VortiBD column after a pull)
-  // is pick-from-a-list instead of manually typing each label by hand.
+  // Excel headers not yet claimed by any mapped row -- backs the
+  // multi-select "+ Add Selected" picker and "+ Add All Remaining" below,
+  // so adding extra fields (e.g. several leftover VortiBD columns after a
+  // pull) is pick-from-a-list instead of manually typing each label by hand.
   function _admCandUnmappedHeaderIndexes() {
     const used = new Set(_admCandMapRows.map(r => r.headerIdx).filter(i => i !== undefined && i !== null && i >= 0));
     return _admCandExcelHeaders.map((h, i) => i).filter(i => !used.has(i));
@@ -44699,13 +44700,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const sel = document.getElementById('admCandAddFieldSelect');
     if (!sel) return;
     const unmapped = _admCandUnmappedHeaderIndexes();
-    sel.innerHTML = '<option value="">+ Add column as field…</option>' + unmapped.map(i => `<option value="${i}">${_escHtml(_admCandExcelHeaders[i] || '(blank header)')}</option>`).join('');
+    sel.innerHTML = unmapped.map(i => `<option value="${i}">${_escHtml(_admCandExcelHeaders[i] || '(blank header)')}</option>`).join('')
+      || '<option value="" disabled>— every column is mapped —</option>';
   }
-  function _admCandAddFieldFromHeader(sel) {
-    const idx = parseInt(sel.value, 10);
-    if (isNaN(idx) || idx < 0) return;
-    _admCandRowSeq++;
-    _admCandMapRows.push({ rowId: 'extra_' + _admCandRowSeq, label: _admCandExcelHeaders[idx] || ('Column ' + (idx + 1)), fixed: false, headerIdx: idx });
+  function _admCandAddSelectedFields() {
+    const sel = document.getElementById('admCandAddFieldSelect');
+    if (!sel) return;
+    const indexes = Array.from(sel.selectedOptions).map(o => parseInt(o.value, 10)).filter(i => !isNaN(i) && i >= 0);
+    if (!indexes.length) { showToast('Select one or more columns first', 'error'); return; }
+    indexes.forEach(idx => {
+      _admCandRowSeq++;
+      _admCandMapRows.push({ rowId: 'extra_' + _admCandRowSeq, label: _admCandExcelHeaders[idx] || ('Column ' + (idx + 1)), fixed: false, headerIdx: idx });
+    });
     _admCandRenderMapping();
   }
   function _admCandAddAllRemainingFields() {

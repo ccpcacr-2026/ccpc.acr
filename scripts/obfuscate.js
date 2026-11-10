@@ -497,7 +497,7 @@ const RESERVED = [
   '_admCandEnterSession','_admCandCreateSession','_admCandSwitchSession',
   '_admCandHandleImportFile','_admCandUpdateMappingSample',
   '_admCandApplySavedTemplate','_admCandSaveMappingTemplate','_admCandPreviewImport','_admCandConfirmImport',
-  '_admCandRenameRow','_admCandSetPrimaryKey','_admCandAddFieldFromHeader','_admCandAddAllRemainingFields','_admCandRemoveRow',
+  '_admCandRenameRow','_admCandSetPrimaryKey','_admCandAddSelectedFields','_admCandAddAllRemainingFields','_admCandRemoveRow',
   '_admCandLoadList','_admCandFilterList','_admCandExportCsv','_admCandDeleteCandidate',
   '_admCandPrintFormTemplate','_admCandPrintAdmitTemplate',
   '_admCandRoomHandleImportFile','_admCandRoomConfirmImport','_admCandRoomFormOpen','_admCandRoomFormSave','_admCandRoomDelete',
