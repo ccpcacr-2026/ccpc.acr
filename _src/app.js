@@ -44277,6 +44277,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <div class="col-span-1 text-center">Key</div><div class="col-span-3">Field</div><div class="col-span-4">Excel column</div><div class="col-span-3">Sample</div><div class="col-span-1"></div>
             </div>
             <div id="admCandMappingList"></div>
+            <datalist id="admCandFieldLabelOptions"></datalist>
             <div class="flex items-center gap-2 mt-3 flex-wrap">
               <select id="admCandAddFieldSelect" multiple size="4" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="width:200px"></select>
               <button onclick="_admCandAddSelectedFields()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase whitespace-nowrap">+ Add Selected</button>
@@ -44680,7 +44681,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const sample = guessIdx >= 0 && _admCandExcelRows[0] ? String(_admCandExcelRows[0][guessIdx] ?? '') : '';
       const labelHtml = row.fixed
         ? `<span class="font-bold text-xs text-slate-700">${_escHtml(row.label)}</span>`
-        : `<input type="text" value="${_escHtml(row.label)}" oninput="_admCandRenameRow('${row.rowId}', this.value)" class="w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs font-bold">`;
+        : `<input type="text" list="admCandFieldLabelOptions" value="${_escHtml(row.label)}" oninput="_admCandRenameRow('${row.rowId}', this.value)" class="w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs font-bold">`;
       return `<div class="grid grid-cols-12 gap-2 items-center py-1 admCandMapRow" data-row-id="${row.rowId}">
         <div class="col-span-1 text-center"><input type="radio" name="admCandPrimaryKey" value="${row.rowId}" ${_admCandPrimaryKeyRowId === row.rowId ? 'checked' : ''} onchange="_admCandSetPrimaryKey('${row.rowId}')"></div>
         <div class="col-span-3">${labelHtml}</div>
@@ -44987,7 +44988,30 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _admCandTemplates = res.templates || [];
       const sel = document.getElementById('admCandTemplateSelect');
       if (sel) sel.innerHTML = '<option value="">— Use saved mapping —</option>' + _admCandTemplates.map(t => `<option value="${t.id}">${_escHtml(t.name)}</option>`).join('');
+      _admCandPopulateFieldLabelOptions();
     } catch (e) {}
+  }
+  // Every custom field name ever used across saved mapping templates (e.g.
+  // "Applicant ID"), offered as suggestions while naming/renaming a mapped
+  // field -- so re-mapping a later VortiBD pull reuses the same exact field
+  // names instead of drifting (which would silently break anything matched
+  // against that label, like the photo-upload match-by-field feature).
+  function _admCandPopulateFieldLabelOptions() {
+    const host = document.getElementById('admCandFieldLabelOptions');
+    if (!host) return;
+    const seen = new Set();
+    const labels = [];
+    (_admCandTemplates || []).forEach(t => {
+      const fieldLabels = t.field_labels || {};
+      Object.keys(t.mapping || {}).forEach(rowId => {
+        if (ADM_CAND_MODELED_ROW_IDS.includes(rowId)) return;
+        const label = fieldLabels[rowId] || rowId;
+        if (seen.has(label)) return;
+        seen.add(label);
+        labels.push(label);
+      });
+    });
+    host.innerHTML = labels.map(l => `<option value="${_escHtml(l)}"></option>`).join('');
   }
   function _admCandApplySavedTemplate(sel) {
     const id = parseInt(sel.value, 10);
