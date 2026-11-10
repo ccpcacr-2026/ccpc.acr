@@ -43769,8 +43769,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   async function _admOpenCandidates() {
     _admShowView('candidates');
     _admCandLoadTemplates();
+    // Fail OPEN to the full-admin flow on any error here -- this check must
+    // never be able to lock a real Admin/Admission Admin out of their own
+    // Session/Circular management just because this new lookup hiccuped.
     try { _admCandMyAccess = await _admCandFetch('getMyCommitteeAccess', {}); }
-    catch (e) { _admCandMyAccess = { is_full_admin: false, circulars: {} }; }
+    catch (e) { _admCandMyAccess = { is_full_admin: true, circulars: {} }; }
     if (_admCandMyAccess.is_full_admin) _admCandLoadSessions();
     else _admCandShowMyCircularsGate();
   }
