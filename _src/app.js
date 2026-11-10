@@ -41533,23 +41533,36 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button onclick="_admShowView('dashboard')" class="flex items-center gap-1.5 px-3 py-2 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50"><i data-lucide="arrow-left" class="h-3.5 w-3.5"></i> Back</button>
           <h2 class="font-black text-slate-800 text-sm">External Candidates</h2>
         </div>
-        <div class="flex items-center gap-2 flex-wrap mb-4 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5">
-          <span class="text-[10px] uppercase text-slate-400 font-bold">Circular/Session</span>
-          <select id="admCandCircularSelect" onchange="_admCandSetActiveCircular(this.value)" class="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold" style="min-width:160px"><option value="">— None yet —</option></select>
-          <input type="text" id="admCandNewCircularName" placeholder="New circular name…" class="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs" style="width:180px">
-          <button onclick="_admCandCreateCircular()" class="px-3 py-1.5 bg-slate-800 text-white rounded-lg text-[10px] font-black uppercase">+ Create</button>
-          <span class="text-[10px] text-slate-400 ml-auto">Every tab below only shows data for the selected circular — rooms, candidates and allocations never mix across circulars.</span>
+
+        <div id="admCandCircularGate" class="hidden">
+          <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 max-w-lg">
+            <h3 class="font-black text-slate-800 text-sm mb-1">Pick a circular/session to continue</h3>
+            <p class="text-xs text-slate-400 mb-4">Import, Candidates, Rooms, Allocation, Printing and Scan are all scoped to one circular at a time — the same token or room name can safely repeat across different circulars.</p>
+            <div id="admCandCircularList" class="flex flex-wrap gap-2 mb-4"></div>
+            <div class="flex items-center gap-2">
+              <input type="text" id="admCandNewCircularName" placeholder="New circular name…" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+              <button onclick="_admCandCreateCircular()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Create &amp; Continue</button>
+            </div>
+          </div>
         </div>
-        <div class="flex gap-1 mb-4 overflow-x-auto pb-1" id="adm-cand-tabs">
-          <button class="adm-ftab" data-id="adm-cand-import" onclick="_admCandShowTab('adm-cand-import',this)">Import &amp; Mapping</button>
-          <button class="adm-ftab" data-id="adm-cand-list" onclick="_admCandShowTab('adm-cand-list',this)">Candidates</button>
-          <button class="adm-ftab" data-id="adm-cand-rooms" onclick="_admCandShowTab('adm-cand-rooms',this)">Rooms</button>
-          <button class="adm-ftab" data-id="adm-cand-alloc" onclick="_admCandShowTab('adm-cand-alloc',this)">Seat Allocation</button>
-          <button class="adm-ftab" data-id="adm-cand-print" onclick="_admCandShowTab('adm-cand-print',this)">Printing</button>
-          <button class="adm-ftab" data-id="adm-cand-photos" onclick="_admCandShowTab('adm-cand-photos',this)">Photos</button>
-          <button class="adm-ftab" data-id="adm-cand-scan" onclick="_admCandShowTab('adm-cand-scan',this)">Scan</button>
+
+        <div id="admCandMainArea" class="hidden">
+          <div class="flex items-center gap-2 flex-wrap mb-4 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5">
+            <span class="text-[10px] uppercase text-slate-400 font-bold">Circular/Session</span>
+            <b id="admCandActiveCircularName" class="text-xs font-black text-slate-800"></b>
+            <button onclick="_admCandSwitchCircular()" class="ml-auto px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase">Switch Circular</button>
+          </div>
+          <div class="flex gap-1 mb-4 overflow-x-auto pb-1" id="adm-cand-tabs">
+            <button class="adm-ftab" data-id="adm-cand-import" onclick="_admCandShowTab('adm-cand-import',this)">Import &amp; Mapping</button>
+            <button class="adm-ftab" data-id="adm-cand-list" onclick="_admCandShowTab('adm-cand-list',this)">Candidates</button>
+            <button class="adm-ftab" data-id="adm-cand-rooms" onclick="_admCandShowTab('adm-cand-rooms',this)">Rooms</button>
+            <button class="adm-ftab" data-id="adm-cand-alloc" onclick="_admCandShowTab('adm-cand-alloc',this)">Seat Allocation</button>
+            <button class="adm-ftab" data-id="adm-cand-print" onclick="_admCandShowTab('adm-cand-print',this)">Printing</button>
+            <button class="adm-ftab" data-id="adm-cand-photos" onclick="_admCandShowTab('adm-cand-photos',this)">Photos</button>
+            <button class="adm-ftab" data-id="adm-cand-scan" onclick="_admCandShowTab('adm-cand-scan',this)">Scan</button>
+          </div>
+          <div id="adm-cand-sections"></div>
         </div>
-        <div id="adm-cand-sections"></div>
       </div>`;
     lucide.createIcons();
     _admRenderFormSections();
@@ -43682,34 +43695,46 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admShowView('candidates');
     _admCandLoadTemplates();
     _admCandLoadCirculars();
-    const firstTab = document.querySelector('#adm-cand-tabs .adm-ftab');
-    if (firstTab) firstTab.click();
   }
-  // Circulars/sessions -- every other tab (Candidates/Rooms/Allocation/
-  // Printing/Scan) is scoped to whichever one is selected here, persisted
-  // across reloads so switching portals doesn't lose context.
+  // Circulars/sessions -- the gate every other tab (Import/Candidates/
+  // Rooms/Allocation/Printing/Scan) sits behind: nothing else is even
+  // shown until one is picked or created, so there's no way to act
+  // without a circular selected. The choice persists across reloads.
   async function _admCandLoadCirculars() {
     try {
       const res = await _admCandFetch('listCirculars', {});
       _admCandCirculars = res.circulars || [];
-      const sel = document.getElementById('admCandCircularSelect');
-      if (sel) sel.innerHTML = _admCandCirculars.length
-        ? _admCandCirculars.map(c => `<option value="${c.id}">${_escHtml(c.name)}</option>`).join('')
-        : '<option value="">— None yet —</option>';
-      let saved = parseInt(localStorage.getItem('admCandActiveCircularId') || '', 10);
-      if (!_admCandCirculars.some(c => c.id === saved)) saved = _admCandCirculars[0]?.id || null;
-      _admCandActiveCircularId = saved || null;
-      if (sel && saved) sel.value = String(saved);
-      _admCandLoadRooms();
-      _admCandLoadList();
-    } catch (e) {}
+      const saved = parseInt(localStorage.getItem('admCandActiveCircularId') || '', 10);
+      if (_admCandCirculars.some(c => c.id === saved)) _admCandEnterCircular(saved);
+      else _admCandShowGate();
+    } catch (e) { _admCandShowGate(); }
   }
-  function _admCandSetActiveCircular(val) {
-    const id = parseInt(val, 10) || null;
-    _admCandActiveCircularId = id;
-    try { if (id) localStorage.setItem('admCandActiveCircularId', String(id)); } catch (e) {}
+  function _admCandShowGate() {
+    _admCandActiveCircularId = null;
+    document.getElementById('admCandCircularGate')?.classList.remove('hidden');
+    document.getElementById('admCandMainArea')?.classList.add('hidden');
+    const list = document.getElementById('admCandCircularList');
+    if (list) list.innerHTML = _admCandCirculars.length
+      ? _admCandCirculars.map(c => `<button onclick="_admCandEnterCircular(${c.id})" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold hover:bg-slate-100">${_escHtml(c.name)}</button>`).join('')
+      : '<p class="text-xs text-slate-400">No circulars yet — create one below.</p>';
+  }
+  function _admCandEnterCircular(id) {
+    _admCandActiveCircularId = parseInt(id, 10) || null;
+    if (!_admCandActiveCircularId) return;
+    try { localStorage.setItem('admCandActiveCircularId', String(_admCandActiveCircularId)); } catch (e) {}
+    document.getElementById('admCandCircularGate')?.classList.add('hidden');
+    document.getElementById('admCandMainArea')?.classList.remove('hidden');
+    const nameEl = document.getElementById('admCandActiveCircularName');
+    const c = _admCandCirculars.find(x => x.id === _admCandActiveCircularId);
+    if (nameEl) nameEl.textContent = c ? c.name : '';
     _admCandLoadRooms();
     _admCandLoadList();
+    const firstTab = document.querySelector('#adm-cand-tabs .adm-ftab');
+    if (firstTab) firstTab.click();
+  }
+  function _admCandSwitchCircular() {
+    try { localStorage.removeItem('admCandActiveCircularId'); } catch (e) {}
+    _admCandShowGate();
   }
   async function _admCandCreateCircular() {
     const input = document.getElementById('admCandNewCircularName');
@@ -43719,11 +43744,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const res = await _admCandFetch('createCircular', { name });
       if (res.error) { showToast(res.error, 'error'); return; }
       if (input) input.value = '';
-      await _admCandLoadCirculars();
-      _admCandSetActiveCircular(res.id);
-      const sel = document.getElementById('admCandCircularSelect');
-      if (sel) sel.value = String(res.id);
-      showToast(`Circular "${name}" created and selected`, 'success');
+      _admCandCirculars.push({ id: res.id, name });
+      showToast(`Circular "${name}" created`, 'success');
+      _admCandEnterCircular(res.id);
     } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }
   function _admCandRequireCircular() {

@@ -492,7 +492,7 @@ const RESERVED = [
   // admission system, then room/seat-allocated, printed, and scanned. Every
   // onclick/onchange string built inside _admCandRenderSections() and the
   // toolbar button added to loadAdmissionAdminView()'s dashboard header.
-  '_admOpenCandidates','_admCandShowTab','_admCandSetActiveCircular','_admCandCreateCircular','_admCandHandleImportFile','_admCandUpdateMappingSample',
+  '_admOpenCandidates','_admCandShowTab','_admCandEnterCircular','_admCandSwitchCircular','_admCandCreateCircular','_admCandHandleImportFile','_admCandUpdateMappingSample',
   '_admCandApplySavedTemplate','_admCandSaveMappingTemplate','_admCandPreviewImport','_admCandConfirmImport',
   '_admCandRenameRow','_admCandSetPrimaryKey','_admCandAddMapRow','_admCandRemoveRow',
   '_admCandLoadList','_admCandFilterList','_admCandExportCsv','_admCandDeleteCandidate',
