@@ -54,6 +54,16 @@ function _vortibdClientIdFromToken(token) {
   try { return JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString('utf8')).ClientId || null; }
   catch (e) { return null; }
 }
+// Same structural JWT search as admission-candidates/route.js's copy -- the
+// login response's exact field name for the token was never confirmed, so a
+// guessed field name made a genuinely successful login look like a failure.
+function _findJwtString(value, depth) {
+  if ((depth || 0) > 4 || value == null) return null;
+  if (typeof value === 'string') return /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value) ? value : null;
+  if (Array.isArray(value)) { for (const v of value) { const f = _findJwtString(v, (depth || 0) + 1); if (f) return f; } return null; }
+  if (typeof value === 'object') { for (const k of Object.keys(value)) { const f = _findJwtString(value[k], (depth || 0) + 1); if (f) return f; } return null; }
+  return null;
+}
 async function _vortibdLogin() {
   const creds = await _vortibdCredentials();
   if (!creds || !creds.username || !creds.password) throw new Error('VortiBD credentials are not configured.');
@@ -63,10 +73,11 @@ async function _vortibdLogin() {
     signal: AbortSignal.timeout(20000),
   });
   const body = await res.json().catch(() => null);
-  const token = body && body.data && (body.data.token || body.data.accessToken || body.data);
-  if (!res.ok || !body || body.isError || typeof token !== 'string') {
-    throw new Error((body && body.message) || 'Could not log in to VortiBD.');
+  if (!res.ok || !body || body.isError) {
+    throw new Error((body && body.message) || `Could not log in to VortiBD (status ${res.status}).`);
   }
+  const token = _findJwtString(body.data) || _findJwtString(body);
+  if (!token) throw new Error('Logged in to VortiBD, but could not find the session token in the response.');
   const clientId = _vortibdClientIdFromToken(token);
   if (!clientId) throw new Error('Could not determine the VortiBD client ID from the session.');
   return { token, clientId };
