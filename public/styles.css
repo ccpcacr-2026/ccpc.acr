@@ -1541,6 +1541,19 @@ button { user-select: none; }
 .fdc-dup  { right:18px; background:#2563eb; border-radius:0 0 0 4px; font-size:9px; }
 .fdc-ord  { right:36px; background:#64748b; border-radius:0 0 0 4px; font-size:10px; }
 
+.fd-fields-panel { padding:8px; font-size:11px; }
+.fd-field-group { margin-bottom:8px; }
+.fd-field-grouphdr { font-size:9px; font-weight:900; text-transform:uppercase; letter-spacing:.08em; color:#64748b; padding:2px 2px 4px; border-bottom:1px solid #f1f5f9; margin-bottom:3px; }
+.fd-field-row { display:flex; align-items:center; gap:5px; padding:3px 4px; border-radius:6px; }
+.fd-field-row.fd-field-on { background:#eff6ff; }
+.fd-field-dot { width:14px; flex-shrink:0; text-align:center; font-size:10px; font-weight:900; color:#2563eb; }
+.fd-field-name { flex:1; font-size:10.5px; font-weight:600; color:#475569; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.fd-field-row.fd-field-on .fd-field-name { color:#1e293b; font-weight:700; }
+.fd-field-count { font-size:9px; font-weight:900; color:#2563eb; flex-shrink:0; }
+.fd-field-dup { flex-shrink:0; width:18px; height:18px; border:none; border-radius:5px; background:#e2e8f0; color:#475569; font-size:10px; font-weight:900; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.fd-field-row.fd-field-on .fd-field-dup { background:#2563eb; color:#fff; }
+.fd-field-dup:hover { opacity:.85; }
+
 #adm-fd-props-panel { padding:10px; }
 .pp-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
 .pp-type-lbl { font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:.08em; color:#1e293b; }

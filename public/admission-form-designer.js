@@ -176,7 +176,72 @@ function loadCustomFieldDefs() {
       var grp = FIELD_GROUPS.filter(function(g){ return g.g === grpName; })[0];
       if (grp && grp.keys.indexOf(f.key) === -1) grp.keys.push(f.key);
     });
+    fdRenderFieldsPanel();
   }).catch(function(){});
+}
+
+/* ── Fields panel: every known field, marked placed/not-placed, with a
+   duplicate-or-add action — kept in sync by calling this from fdRender()
+   (which every add/delete/duplicate/property-edit path already calls). ── */
+function fdFieldUsage() {
+  var counts = {};
+  function bump(k) { if (!k || k === '__static__') return; counts[k] = (counts[k]||0) + 1; }
+  function extractTemplateFields(str) {
+    (String(str||'').match(/\{(\w+)\}/g) || []).forEach(function(m) { bump(m.slice(1, -1)); });
+  }
+  formLayout.forEach(function(el) {
+    if (el.type === 'ld' || el.type === 'lbl') bump(el.field);
+    else if (el.type === 'photo') bump(el.photoField);
+    else if (el.type === 'para') extractTemplateFields(el.content);
+    else if (el.type === 'qr') { extractTemplateFields(el.qrContent); extractTemplateFields(el.qrLabel); }
+    else if (el.type === 'table') {
+      if (el.dataMode === 'selected') (el.selectedFields || []).forEach(function(sf){ bump(sf.field); });
+      else (el.columns || []).forEach(function(c){ bump(c.field); });
+    }
+  });
+  return counts;
+}
+function fdFirstElementForField(field) {
+  for (var i = 0; i < formLayout.length; i++) {
+    var el = formLayout[i];
+    if ((el.type === 'ld' || el.type === 'lbl') && el.field === field) return el.id;
+    if (el.type === 'photo' && el.photoField === field) return el.id;
+  }
+  return null;
+}
+function fdDupField(field) {
+  var id = fdFirstElementForField(field);
+  if (id) { fdDupEl(id); return; }
+  var isPhoto = !!PHOTO_MAP[field];
+  var el = mkEl(isPhoto ? 'photo' : 'ld');
+  if (isPhoto) el.photoField = field;
+  else { el.field = field; el.label = FIELD_MAP[field] || field; }
+  var last = formLayout[formLayout.length - 1];
+  if (last) { el.x = Math.min(last.x + 2, 100 - el.w); el.y = Math.min(last.y + 2, 100 - el.h); }
+  formLayout.push(el);
+  fdSelect(el.id);
+}
+function fdRenderFieldsPanel() {
+  var host = document.getElementById('adm-fd-fields-panel');
+  if (!host) return;
+  var usage = fdFieldUsage();
+  function rowHtml(key, label) {
+    var count = usage[key] || 0;
+    var placed = count > 0;
+    return '<div class="fd-field-row' + (placed ? ' fd-field-on' : '') + '">' +
+      '<span class="fd-field-dot">' + (placed ? '✓' : '') + '</span>' +
+      '<span class="fd-field-name" title="' + escH(label) + '">' + escH(label) + '</span>' +
+      (placed ? '<span class="fd-field-count">×' + count + '</span>' : '') +
+      '<button class="fd-field-dup" title="' + (placed ? 'Duplicate on canvas' : 'Add to canvas') + '" onclick="fdDupField(\'' + key + '\')">' + (placed ? '⧉' : '+') + '</button>' +
+      '</div>';
+  }
+  var groupsHtml = FIELD_GROUPS.map(function(grp) {
+    return '<div class="fd-field-group"><div class="fd-field-grouphdr">' + escH(grp.g) + '</div>' +
+      grp.keys.map(function(k){ return rowHtml(k, FIELD_MAP[k] || k); }).join('') + '</div>';
+  }).join('');
+  var photosHtml = '<div class="fd-field-group"><div class="fd-field-grouphdr">Photos</div>' +
+    Object.keys(PHOTO_MAP).map(function(k){ return rowHtml(k, PHOTO_MAP[k]); }).join('') + '</div>';
+  host.innerHTML = groupsHtml + photosHtml;
 }
 
 /* ── Render canvas ────────────────────────────────── */
@@ -187,6 +252,7 @@ function fdRender() {
   formLayout.forEach(function(el) {
     canvas.appendChild(mkDiv(el));
   });
+  fdRenderFieldsPanel();
 }
 
 function mkDiv(el) {

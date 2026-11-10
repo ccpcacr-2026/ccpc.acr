@@ -42404,6 +42404,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
         <div id="adm-fd-tpl-bar" class="tpl-bar"></div>
         <div style="display:flex;gap:10px;height:calc(100vh - 380px);min-height:420px">
+          <div id="adm-fd-fields-panel" class="fd-fields-panel" style="width:200px;overflow-y:auto;background:#fff;border-radius:12px;border:1px solid #e2e8f0;flex-shrink:0;"></div>
           <div id="adm-fd-canvas-scroll" style="flex:1;overflow:auto;background:#4b5563;border-radius:12px;padding:16px;">
             <div id="adm-fd-canvas" style="position:relative;width:794px;min-height:1123px;background:#fff;margin:0 auto;box-shadow:0 4px 24px rgba(0,0,0,.5);"></div>
           </div>
