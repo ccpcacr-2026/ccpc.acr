@@ -74,10 +74,11 @@ async function _vortibdLogin() {
   });
   const body = await res.json().catch(() => null);
   if (!res.ok || !body || body.isError) {
-    throw new Error((body && body.message) || `Could not log in to VortiBD (status ${res.status}).`);
+    const detail = body ? JSON.stringify({ isError: body.isError, responseCode: body.responseCode, responseGroup: body.responseGroup, exceptionMessage: body.exceptionMessage, errors: body.errors }) : '(no JSON body)';
+    throw new Error(`VortiBD login failed (HTTP ${res.status}): ${(body && body.message) || 'no message'} — ${detail}`);
   }
   const token = _findJwtString(body.data) || _findJwtString(body);
-  if (!token) throw new Error('Logged in to VortiBD, but could not find the session token in the response.');
+  if (!token) throw new Error('Logged in to VortiBD, but could not find the session token in the response: ' + JSON.stringify(body.data).slice(0, 300));
   const clientId = _vortibdClientIdFromToken(token);
   if (!clientId) throw new Error('Could not determine the VortiBD client ID from the session.');
   return { token, clientId };
