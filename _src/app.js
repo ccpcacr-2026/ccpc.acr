@@ -44841,14 +44841,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   async function _admCandLoadVortibdCirculars(preselectId) {
     const sel = document.getElementById('admCandVortibdCircularSelect');
+    const note = document.getElementById('admCandVortibdCredNote');
     if (!sel) return;
     sel.innerHTML = '<option value="">Loading…</option>';
     try {
       const res = await _admCandFetch('listVortibdCirculars', {});
-      if (res.error) { sel.innerHTML = '<option value="">— Pick VortiBD circular —</option>'; showToast(res.error, 'error'); return; }
+      if (res.error) {
+        sel.innerHTML = '<option value="">— Pick VortiBD circular —</option>';
+        if (note) note.innerHTML = `<span style="color:#dc2626">${_escHtml(res.error)}</span>`;
+        showToast(res.error, 'error');
+        return;
+      }
       const list = res.circulars || [];
       sel.innerHTML = '<option value="">— Pick VortiBD circular —</option>' + list.map(c => `<option value="${c.id}" ${String(c.id) === String(preselectId) ? 'selected' : ''}>${_escHtml(c.name)} (#${c.id})</option>`).join('');
-    } catch (e) { sel.innerHTML = '<option value="">— Pick VortiBD circular —</option>'; }
+      if (!list.length && note) note.innerHTML = `<span style="color:#dc2626">Logged in to VortiBD, but no circulars came back — see console/network tab.</span>`;
+    } catch (e) {
+      sel.innerHTML = '<option value="">— Pick VortiBD circular —</option>';
+      if (note) note.innerHTML = `<span style="color:#dc2626">${_escHtml(e.message || 'Request failed')}</span>`;
+    }
   }
   async function _admCandSaveVortibdCreds() {
     const username = document.getElementById('admCandVortibdUsername')?.value.trim();
