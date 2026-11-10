@@ -123,7 +123,7 @@ export async function POST(req) {
   // never configure the circular, manage the committee, or create new scan
   // sections, only use what's already been granted to them.
   const ADMIN_ONLY_ACTIONS = new Set([
-    'listSessions', 'createSession', 'createCircular', 'updateCircular', 'getStudentFieldValues',
+    'listSessions', 'createSession', 'updateSession', 'deleteSession', 'createCircular', 'updateCircular', 'getStudentFieldValues',
     'saveTagDefinition', 'deleteTagDefinition',
     'listStaffForCommittee', 'listCommitteeMembers', 'saveCommitteeMember', 'removeCommitteeMember',
   ]);
@@ -154,6 +154,29 @@ export async function POST(req) {
     const res = await sbAdmission('exam_sessions', 'POST', { name });
     if (res?.error) return NextResponse.json({ error: res.error.includes('duplicate') ? 'A session with this name already exists.' : res.error });
     return NextResponse.json({ id: res?.[0]?.id, name });
+  }
+  if (action === 'updateSession') {
+    const id = parseInt(payload.id, 10);
+    const name = String(payload.name || '').trim();
+    if (!id) return NextResponse.json({ error: 'Missing session.' });
+    if (!name) return NextResponse.json({ error: 'Name is required.' });
+    const res = await sbAdmission(`exam_sessions?id=eq.${id}`, 'PATCH', { name });
+    if (res?.error) return NextResponse.json({ error: res.error.includes('duplicate') ? 'A session with this name already exists.' : res.error });
+    return NextResponse.json({ success: true, id, name });
+  }
+  if (action === 'deleteSession') {
+    const id = parseInt(payload.id, 10);
+    if (!id) return NextResponse.json({ error: 'Missing session.' });
+    const circRows = await sbAdmission(`exam_circulars?session_id=eq.${id}&select=id`);
+    const circIds = (Array.isArray(circRows) ? circRows : []).map(c => c.id);
+    if (circIds.length) {
+      const candRows = await sbAdmission(`exam_candidates?circular_id=in.(${circIds.join(',')})&select=id&limit=1`);
+      if (Array.isArray(candRows) && candRows.length) {
+        return NextResponse.json({ error: 'This session has candidates under it — remove them first before deleting the session.' });
+      }
+    }
+    await sbAdmission(`exam_sessions?id=eq.${id}`, 'DELETE');
+    return NextResponse.json({ success: true });
   }
   if (action === 'listCirculars') {
     const sessionId = parseInt(payload.session_id, 10);

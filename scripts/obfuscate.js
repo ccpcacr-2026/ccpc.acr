@@ -508,7 +508,9 @@ const RESERVED = [
   '_admCandCopyApplyLink',
   '_admCandTagDefTypeChange','_admCandTagDefSave','_admCandTagDefDelete','_admCandScanTagDefChange','_admCandScanLockTag',
   '_admCandTagFilterDefChange','_admCandShowTagHistory',
-  '_admCandCommitteeAdd','_admCandCommitteeSave','_admCandCommitteeRemove'
+  '_admCandCommitteeAdd','_admCandCommitteeSave','_admCandCommitteeRemove',
+  '_admCandPickExistingSession','_admCandEditSession','_admCandDeleteSession',
+  '_admCandFilterCircularList','_admCandShowCircularForm'
 ];
 
 // Strip HTML comments and collapse whitespace

@@ -41438,8 +41438,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div id="admCandSessionGate" class="hidden">
         <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 max-w-lg">
           <h3 class="font-black text-slate-800 text-sm mb-1">Pick a session to continue</h3>
-          <p class="text-xs text-slate-400 mb-4">Each session (e.g. an admission year) holds its own circulars — type a name to create one.</p>
-          <div id="admCandSessionList" class="flex flex-wrap gap-2 mb-4"></div>
+          <p class="text-xs text-slate-400 mb-4">Each session (e.g. an admission year) holds its own circulars — pick one from the student database or type a new name.</p>
+          <div id="admCandSessionList" class="flex flex-col gap-1.5 mb-4"></div>
+          <select id="admCandExistingSessionSelect" onchange="_admCandPickExistingSession()" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs mb-2">
+            <option value="">— Select an existing session from the student database —</option>
+          </select>
           <div class="flex items-center gap-2">
             <input type="text" id="admCandNewSessionName" placeholder="New session name… e.g. 2026" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">
             <button onclick="_admCandCreateSession()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Create &amp; Continue</button>
@@ -41462,7 +41465,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="_admCandSwitchSession()" class="text-[10px] text-blue-600 font-black uppercase whitespace-nowrap">Change Session</button>
           </div>
           <p class="text-xs text-slate-400 mb-4">Everything in Admission Admin — the application dashboard, settings, and external-candidate tools — is scoped to one circular at a time.</p>
-          <div id="admCandCircularList" class="flex flex-col gap-1.5 mb-4"></div>
+          <input type="text" id="admCandCircularSearch" oninput="_admCandFilterCircularList()" placeholder="Search circulars…" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs mb-2">
+          <div id="admCandCircularList" class="flex flex-col gap-1.5 mb-3"></div>
+          <button id="admCandNewCircularToggleBtn" onclick="_admCandShowCircularForm()" class="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 border border-dashed border-slate-300 text-slate-500 rounded-lg text-[10px] font-black uppercase mb-3 hover:bg-slate-50"><i data-lucide="plus" class="h-3.5 w-3.5"></i> Create Circular</button>
+          <div id="admCandCircularFormBox" class="hidden">
           <div id="admCandCircularFormTitle" class="text-[10px] uppercase text-slate-400 font-bold mb-1">New circular</div>
           <input type="text" id="admCandNewCircularName" placeholder="Circular name…" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs mb-3">
           <div class="flex items-center gap-4 mb-3">
@@ -41508,6 +41514,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex items-center gap-2">
             <button id="admCandCircularSaveBtn" onclick="_admCandSaveCircularForm()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Create &amp; Continue</button>
             <button id="admCandCircularCancelBtn" onclick="_admCandCancelEditCircular()" class="hidden px-4 py-2 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Cancel Edit</button>
+          </div>
           </div>
         </div>
       </div>
@@ -43826,16 +43833,69 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admCandActiveCircularId = null;
     _admHideAllGatesAndViews();
     document.getElementById('admCandSessionGate')?.classList.remove('hidden');
+    _admCandRenderSessionList();
+    _admCandLoadExistingSessionOptions();
+  }
+  function _admCandRenderSessionList() {
     const list = document.getElementById('admCandSessionList');
-    if (list) list.innerHTML = _admCandSessions.length
-      ? _admCandSessions.map(s => `<button onclick="_admCandEnterSession(${s.id})" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold hover:bg-slate-100">${_escHtml(s.name)}</button>`).join('')
+    if (!list) return;
+    list.innerHTML = _admCandSessions.length
+      ? _admCandSessions.map(s => `<div class="flex items-center gap-1.5">
+          <button onclick="_admCandEnterSession(${s.id})" class="flex-1 text-left px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold hover:bg-slate-100">${_escHtml(s.name)}</button>
+          <button onclick="_admCandEditSession(${s.id})" title="Rename" class="px-2.5 py-2 border border-slate-200 text-slate-500 rounded-lg hover:bg-slate-100"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button>
+          <button onclick="_admCandDeleteSession(${s.id})" title="Delete" class="px-2.5 py-2 border border-slate-200 text-red-500 rounded-lg hover:bg-red-50"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+        </div>`).join('')
       : '<p class="text-xs text-slate-400">No sessions yet — create one below.</p>';
+    lucide.createIcons();
+  }
+  // Lets the admin pick a real session value already in use in the student
+  // database (students_data.session) instead of retyping it -- reuses the
+  // same getStudentFieldValues action the circular Bound-to pickers already
+  // use. Picking an option just fills the text input; the free-text field
+  // stays available for a genuinely new session name.
+  async function _admCandLoadExistingSessionOptions() {
+    const sel = document.getElementById('admCandExistingSessionSelect');
+    if (!sel || sel.dataset.loaded) return;
+    try {
+      const res = await _admCandFetch('getStudentFieldValues', { field: 'session' });
+      sel.innerHTML = '<option value="">— Select an existing session from the student database —</option>' +
+        (res.values || []).map(v => `<option value="${_escHtml(v)}">${_escHtml(v)}</option>`).join('');
+      sel.dataset.loaded = '1';
+    } catch (e) {}
+  }
+  function _admCandPickExistingSession() {
+    const sel = document.getElementById('admCandExistingSessionSelect');
+    const input = document.getElementById('admCandNewSessionName');
+    if (sel && input && sel.value) input.value = sel.value;
   }
   function _admCandEnterSession(id) {
     _admCandActiveSessionId = parseInt(id, 10) || null;
     if (!_admCandActiveSessionId) return;
     try { localStorage.setItem('admCandActiveSessionId', String(_admCandActiveSessionId)); } catch (e) {}
     _admCandLoadCirculars();
+  }
+  async function _admCandEditSession(id) {
+    const s = _admCandSessions.find(x => x.id === id);
+    if (!s) return;
+    const name = prompt('Rename session:', s.name);
+    if (!name || !name.trim() || name.trim() === s.name) return;
+    try {
+      const res = await _admCandFetch('updateSession', { id, name: name.trim() });
+      if (res.error) { showToast(res.error, 'error'); return; }
+      s.name = name.trim();
+      showToast('Session renamed', 'success');
+      _admCandRenderSessionList();
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+  async function _admCandDeleteSession(id) {
+    if (!confirm('Delete this session? Only allowed if no candidates exist under any of its circulars.')) return;
+    try {
+      const res = await _admCandFetch('deleteSession', { id });
+      if (res.error) { showToast(res.error, 'error'); return; }
+      _admCandSessions = _admCandSessions.filter(s => s.id !== id);
+      showToast('Session deleted', 'success');
+      _admCandRenderSessionList();
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }
   async function _admCandCreateSession() {
     const input = document.getElementById('admCandNewSessionName');
@@ -43868,6 +43928,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const sess = _admCandSessions.find(s => s.id === _admCandActiveSessionId);
     const sessNameEl = document.getElementById('admCandGateSessionName');
     if (sessNameEl) sessNameEl.textContent = sess ? sess.name : '';
+    const searchEl = document.getElementById('admCandCircularSearch'); if (searchEl) searchEl.value = '';
     _admCandRenderCircularList();
     _admCandResetCircularForm();
     _admCandLoadStudentFieldOptions();
@@ -43876,11 +43937,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!bounds || !Object.keys(bounds).length) return '';
     return Object.entries(bounds).filter(([, v]) => Array.isArray(v) && v.length).map(([k, v]) => `${k.replace('student_', '')}: ${v.join('/')}`).join(' · ');
   }
-  function _admCandRenderCircularList() {
+  function _admCandFilterCircularList() {
+    const q = (document.getElementById('admCandCircularSearch')?.value || '').toLowerCase().trim();
+    const filtered = q ? _admCandCirculars.filter(c => (c.name || '').toLowerCase().includes(q)) : _admCandCirculars;
+    _admCandRenderCircularList(filtered);
+  }
+  function _admCandRenderCircularList(list_) {
+    const circulars = list_ || _admCandCirculars;
     const list = document.getElementById('admCandCircularList');
     if (!list) return;
-    list.innerHTML = _admCandCirculars.length
-      ? _admCandCirculars.map(c => {
+    list.innerHTML = circulars.length
+      ? circulars.map(c => {
           const summary = _admCandBoundsSummary(c.bounds);
           const modeLabel = c.mode === 'online' ? 'Online' : 'Offline';
           const statusHtml = c.is_active
@@ -43894,7 +43961,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="_admCandEditCircular(${c.id})" title="Edit" class="px-2.5 py-2 border border-slate-200 text-slate-500 rounded-lg hover:bg-slate-100"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button>
           </div>`;
         }).join('')
-      : '<p class="text-xs text-slate-400">No circulars yet in this session — create one below.</p>';
+      : (_admCandCirculars.length ? '<p class="text-xs text-slate-400">No circulars match your search.</p>' : '<p class="text-xs text-slate-400">No circulars yet in this session — use "Create Circular" below.</p>');
     lucide.createIcons();
   }
   async function _admCandLoadStudentFieldOptions() {
@@ -43965,12 +44032,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const title = document.getElementById('admCandCircularFormTitle'); if (title) title.textContent = 'New circular';
     const saveBtn = document.getElementById('admCandCircularSaveBtn'); if (saveBtn) saveBtn.textContent = 'Create & Continue';
     document.getElementById('admCandCircularCancelBtn')?.classList.add('hidden');
+    document.getElementById('admCandCircularFormBox')?.classList.add('hidden');
+    document.getElementById('admCandNewCircularToggleBtn')?.classList.remove('hidden');
+  }
+  // The "+ Create Circular" button -- keeps the gate's default view to just
+  // the list + search, only revealing the (fairly long) creation form once
+  // the admin actually wants to add one.
+  function _admCandShowCircularForm() {
+    _admCandResetCircularForm();
+    document.getElementById('admCandCircularFormBox')?.classList.remove('hidden');
+    document.getElementById('admCandNewCircularToggleBtn')?.classList.add('hidden');
+    document.getElementById('admCandNewCircularName')?.focus();
   }
   async function _admCandEditCircular(id) {
     const c = _admCandCirculars.find(x => x.id === id);
     if (!c) return;
     await _admCandLoadStudentFieldOptions();
     _admCandEditingCircularId = id;
+    document.getElementById('admCandCircularFormBox')?.classList.remove('hidden');
+    document.getElementById('admCandNewCircularToggleBtn')?.classList.add('hidden');
     const nameEl = document.getElementById('admCandNewCircularName'); if (nameEl) nameEl.value = c.name;
     const sel = (elId, key) => {
       const el = document.getElementById(elId);
