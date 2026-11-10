@@ -45378,6 +45378,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const bulkAdmit = document.getElementById('admCandTplBulkAdmit');
     if (bulkForm) bulkForm.innerHTML = '<option value="">— Form template —</option>' + _admCandFormTplOptions.map(t => `<option value="${_escHtml(t.id)}">${_escHtml(t.name)}</option>`).join('');
     if (bulkAdmit) bulkAdmit.innerHTML = '<option value="">— Admit template —</option>' + _admCandAdmitTplOptions.map(t => `<option value="${_escHtml(t.id)}">${_escHtml(t.name)}</option>`).join('');
+    // Nothing to check/apply to without per-combination rows -- the bar's
+    // own controls would otherwise look usable but can never succeed,
+    // producing a confusing "check at least one row" with no checkbox in
+    // sight anywhere on the page.
+    const bulkBar = bulkForm ? bulkForm.closest('div') : null;
+    if (bulkBar) bulkBar.classList.toggle('hidden', !_admCandTemplateMap.variations.length);
     const host = document.getElementById('admCandTplRows');
     if (!host) return;
     const defaultRow = `<div class="flex items-center gap-2 py-2">
