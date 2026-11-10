@@ -41594,6 +41594,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex items-center gap-2 flex-wrap mb-4 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5">
             <span class="text-[10px] uppercase text-slate-400 font-bold">Session / Circular</span>
             <b id="admCandActiveCircularName" class="text-xs font-black text-slate-800"></b>
+            <button id="admCandCopyLinkBtn" onclick="_admCandCopyApplyLink()" class="hidden px-3 py-1.5 border border-slate-200 text-blue-600 rounded-lg text-[10px] font-black uppercase">Copy Application Link</button>
             <button onclick="_admCandSwitchCircular()" class="ml-auto px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase">Switch Circular</button>
           </div>
           <div class="flex gap-1 mb-4 overflow-x-auto pb-1" id="adm-cand-tabs">
@@ -43941,6 +43942,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const sess = _admCandSessions.find(s => s.id === _admCandActiveSessionId);
     const summary = c ? _admCandBoundsSummary(c.bounds) : '';
     if (nameEl) nameEl.textContent = (sess ? sess.name + ' / ' : '') + (c ? c.name : '') + (summary ? ` (${summary})` : '');
+    document.getElementById('admCandCopyLinkBtn')?.classList.toggle('hidden', !(c && c.mode === 'online'));
     _admCandLoadRooms();
     _admCandLoadList();
     const firstTab = document.querySelector('#adm-cand-tabs .adm-ftab');
@@ -43958,6 +43960,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (_admCandActiveCircularId) return true;
     showToast('Pick or create a circular first', 'error');
     return false;
+  }
+  // Public, login-free application form -- app/apply-exam/[circularId]/
+  // route.js -- only live when this circular is mode='online' and
+  // is_active=true (the button that calls this is hidden otherwise).
+  function _admCandCopyApplyLink() {
+    if (!_admCandActiveCircularId) return;
+    const url = `${location.origin}/apply-exam/${_admCandActiveCircularId}`;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(() => showToast('Application link copied', 'success')).catch(() => showToast(url, 'success'));
+    } else {
+      showToast(url, 'success');
+    }
   }
   function _admCandShowTab(id, btn) {
     document.querySelectorAll('#adm-cand-sections > div').forEach(el => el.classList.add('hidden'));
@@ -44408,7 +44422,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <td class="px-3 py-2.5">${room ? _escHtml(room.room_name) + (c.seat_no ? ' / ' + _escHtml(c.seat_no) : '') : '—'}</td>
         <td class="px-3 py-2.5 hidden lg:table-cell">${_escHtml(c.submission_scan_status || 'pending')}</td>
         <td class="px-3 py-2.5 hidden lg:table-cell">${_escHtml(c.attendance_scan_status || 'pending')}</td>
-        <td class="px-3 py-2.5 text-right"><button onclick="_admCandDeleteCandidate(${c.id})" class="text-red-500 text-xs font-bold">Delete</button></td>
+        <td class="px-3 py-2.5 text-right whitespace-nowrap">
+          <button onclick="_admCandPrintFormTemplate(${c.id})" class="text-blue-600 text-xs font-bold mr-2">Form</button>
+          <button onclick="_admCandPrintAdmitTemplate(${c.id})" class="text-blue-600 text-xs font-bold mr-2">Admit</button>
+          <button onclick="_admCandDeleteCandidate(${c.id})" class="text-red-500 text-xs font-bold">Delete</button>
+        </td>
       </tr>`;
     }).join('');
   }
@@ -44710,6 +44728,79 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (c) c.template_map = _admCandTemplateMap;
       showToast('Template assignments saved', 'success');
     } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+
+  // ── Per-candidate template printing — adapts an exam_candidates row onto
+  // the SAME field keys Part 1's Form/Admit Designer engine (generateForm
+  // FromLayout/generateAdmitHtml in the lazy-loaded admission-form-
+  // designer.js/admission-print-templates.js) reads via fv(app, field):
+  // app[field], falling back to app.extra_fields[field]. Only the fields
+  // this module actually collects (name/class/version/category/token/
+  // photo/room/session) resolve to real values; any OTHER field a
+  // template happens to use (father_name, address, etc. — fields this
+  // module never collects) renders fv()'s own "[field]" placeholder, same
+  // graceful-degradation the engine already does for a missing field on a
+  // real application, not a new failure mode. ────────────────────────────
+  function _admCandToAppShape(c) {
+    const room = _admCandRooms.find(r => r.id === c.room_id);
+    const sess = _admCandSessions.find(s => s.id === _admCandActiveSessionId);
+    return {
+      tracking_id: c.token, index_id: c.token,
+      name_english: c.candidate_name, name_bangla: '',
+      class: c.class, category: c.category, version: c.version,
+      session: sess ? sess.name : '',
+      room_no: room ? room.room_name : '',
+      student_photo: c.photo_url,
+      extra_fields: c.extra_fields || {},
+      ...(c.extra_fields || {}),
+    };
+  }
+  function _admCandResolveTemplateIds(c) {
+    const circ = _admCandCirculars.find(x => x.id === _admCandActiveCircularId);
+    const tm = (circ && circ.template_map) || {};
+    const variations = tm.variations || [];
+    const match = variations.find(v =>
+      (!v.class || v.class === c.class) && (!v.version || v.version === c.version) && (!v.category || v.category === c.category) &&
+      (v.form_template_id || v.admit_template_id));
+    return {
+      form_template_id: (match && match.form_template_id) || (tm.default && tm.default.form_template_id) || '',
+      admit_template_id: (match && match.admit_template_id) || (tm.default && tm.default.admit_template_id) || '',
+    };
+  }
+  async function _admCandEnsureTemplateLists() {
+    if (_admCandFormTplOptions.length || _admCandAdmitTplOptions.length) return;
+    try {
+      const r = await _admAdminFetch('getSettings', {});
+      const s = r.settings || {};
+      _admCandFormTplOptions = (s.form_templates && s.form_templates.templates) || [];
+      _admCandAdmitTplOptions = (s.admit_templates && s.admit_templates.templates) || [];
+    } catch (e) {}
+  }
+  async function _admCandPrintFormTemplate(candidateId) {
+    const c = _admCandAllCandidates.find(x => x.id === candidateId);
+    if (!c) return;
+    await _admCandEnsureTemplateLists();
+    const { form_template_id } = _admCandResolveTemplateIds(c);
+    const tpl = _admCandFormTplOptions.find(t => t.id === form_template_id);
+    if (!tpl) { showToast('No Form template assigned for this candidate\'s class/version/category — set one in the Templates tab.', 'error'); return; }
+    try {
+      await _ensureAdmissionFormDesigner();
+      const html = generateFormFromLayout(_admCandToAppShape(c), (tpl.settings && tpl.settings.elements) || []);
+      openPrintTab(html);
+    } catch (e) { showToast(e.message || 'Could not render the form', 'error'); }
+  }
+  async function _admCandPrintAdmitTemplate(candidateId) {
+    const c = _admCandAllCandidates.find(x => x.id === candidateId);
+    if (!c) return;
+    await _admCandEnsureTemplateLists();
+    const { admit_template_id } = _admCandResolveTemplateIds(c);
+    const tpl = _admCandAdmitTplOptions.find(t => t.id === admit_template_id);
+    if (!tpl) { showToast('No Admit Card template assigned for this candidate\'s class/version/category — set one in the Templates tab.', 'error'); return; }
+    try {
+      await _ensureAdmissionPrintTemplates();
+      const html = generateAdmitHtml(_admCandToAppShape(c), tpl.settings || {});
+      openPrintTab(html);
+    } catch (e) { showToast(e.message || 'Could not render the admit card', 'error'); }
   }
 
   // ── Printing ──────────────────────────────────────────────────────────────

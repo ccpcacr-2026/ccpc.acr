@@ -499,11 +499,13 @@ const RESERVED = [
   '_admCandApplySavedTemplate','_admCandSaveMappingTemplate','_admCandPreviewImport','_admCandConfirmImport',
   '_admCandRenameRow','_admCandSetPrimaryKey','_admCandAddMapRow','_admCandRemoveRow',
   '_admCandLoadList','_admCandFilterList','_admCandExportCsv','_admCandDeleteCandidate',
+  '_admCandPrintFormTemplate','_admCandPrintAdmitTemplate',
   '_admCandRoomHandleImportFile','_admCandRoomConfirmImport','_admCandRoomFormOpen','_admCandRoomFormSave','_admCandRoomDelete',
   '_admCandRunAllocation','_admCandClearAllocation',
   '_admCandTplBulkApply','_admCandSaveTemplateMap',
   '_admCandPrintSignatureSheet','_admCandPrintTokenList','_admCandBulkUpload',
-  '_admCandScanShowMode','_admCandScanSetScope','_admCandScanStart','_admCandScanStop','_admCandScanManualLookup'
+  '_admCandScanShowMode','_admCandScanSetScope','_admCandScanStart','_admCandScanStop','_admCandScanManualLookup',
+  '_admCandCopyApplyLink'
 ];
 
 // Strip HTML comments and collapse whitespace
