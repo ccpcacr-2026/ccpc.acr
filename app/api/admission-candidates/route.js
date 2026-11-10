@@ -917,10 +917,29 @@ export async function POST(req) {
   // system-wide config, not repeated per circular. The only thing that
   // genuinely varies per circular is which VortiBD circular feeds it.
   const VORTIBD_SYNC_CONFIG_DEFAULT = { enabled: false, schedule: [{ start: '00:00', end: '24:00', interval_minutes: 360 }], start_date: null, end_date: null, mapping_template_id: null };
+  // One-time upgrade path: these settings used to live per-circular on
+  // exam_circulars. The first time the new global row is read and doesn't
+  // exist yet, seed it from whichever circular had actually been
+  // configured (rather than silently resetting an admin's saved schedule
+  // to the untouched default) and persist that as the new global config.
+  async function _vortibdSyncConfigMigrateLegacy() {
+    const legacyRows = await sbAdmission('exam_circulars?select=vortibd_sync_enabled,vortibd_sync_schedule,vortibd_sync_start_date,vortibd_sync_end_date,vortibd_mapping_template_id&order=id.asc');
+    const seed = Array.isArray(legacyRows) && legacyRows.find(c => c.vortibd_sync_enabled || c.vortibd_mapping_template_id ||
+      (Array.isArray(c.vortibd_sync_schedule) && c.vortibd_sync_schedule.length && !(c.vortibd_sync_schedule.length === 1 && c.vortibd_sync_schedule[0].start === '00:00' && c.vortibd_sync_schedule[0].end === '24:00' && c.vortibd_sync_schedule[0].interval_minutes === 360)));
+    const config = seed ? {
+      enabled: !!seed.vortibd_sync_enabled,
+      schedule: (Array.isArray(seed.vortibd_sync_schedule) && seed.vortibd_sync_schedule.length) ? seed.vortibd_sync_schedule : VORTIBD_SYNC_CONFIG_DEFAULT.schedule,
+      start_date: seed.vortibd_sync_start_date || null,
+      end_date: seed.vortibd_sync_end_date || null,
+      mapping_template_id: seed.vortibd_mapping_template_id || null,
+    } : { ...VORTIBD_SYNC_CONFIG_DEFAULT };
+    await sbAdmission('admission_settings', 'POST', { key: 'vortibd_sync_config', value: config, updated_at: new Date().toISOString() });
+    return config;
+  }
   async function _vortibdSyncConfig() {
     const rows = await sbAdmission('admission_settings?key=eq.vortibd_sync_config');
-    const stored = (Array.isArray(rows) && rows[0] && rows[0].value) || {};
-    return { ...VORTIBD_SYNC_CONFIG_DEFAULT, ...stored };
+    if (Array.isArray(rows) && rows.length) return { ...VORTIBD_SYNC_CONFIG_DEFAULT, ...rows[0].value };
+    return await _vortibdSyncConfigMigrateLegacy();
   }
   async function _runVortibdSync(circularId) {
     const circRows = await sbAdmission(`exam_circulars?id=eq.${circularId}&select=id,name,vortibd_circular_id`);
