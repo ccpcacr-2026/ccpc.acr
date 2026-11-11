@@ -466,7 +466,7 @@ export async function POST(req) {
     return NextResponse.json({ rooms: Array.isArray(rows) ? rows : [] });
   }
   if (action === 'saveRoom') {
-    const { id, room_name, capacity, notes } = payload;
+    const { id, room_name, capacity, notes, building } = payload;
     let circularId = parseInt(payload.circular_id, 10);
     if (!id && !circularId) return NextResponse.json({ error: 'Pick a circular first.' });
     if (!isFullAdmin) {
@@ -477,7 +477,7 @@ export async function POST(req) {
       if (!_tabOk(false, await _getCommitteePerms(user_id, circularId), 'rooms', 'edit')) return _forbidden();
     }
     if (!room_name || !capacity) return NextResponse.json({ error: 'Room name and capacity are required.' });
-    const data = { room_name, capacity: parseInt(capacity, 10) || 0, notes: notes || null, updated_at: new Date().toISOString() };
+    const data = { room_name, capacity: parseInt(capacity, 10) || 0, notes: notes || null, building: building || null, updated_at: new Date().toISOString() };
     if (id) {
       const res = await sbAdmission(`exam_rooms?id=eq.${parseInt(id, 10)}`, 'PATCH', data);
       if (res?.error) return NextResponse.json({ error: res.error });

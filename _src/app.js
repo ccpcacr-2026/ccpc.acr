@@ -44501,6 +44501,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex items-center gap-3 flex-wrap mb-3">
             <input type="text" id="admCandRoomName" placeholder="Room name" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="width:160px">
             <input type="number" id="admCandRoomCapacity" placeholder="Capacity" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="width:100px">
+            <select id="admCandRoomBuilding" onchange="_admCandRoomBuildingSelectChange(this)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="width:160px">
+              <option value="">— Auto from name —</option>
+            </select>
             <button onclick="_admCandRoomFormSave()" class="px-3 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">Save Room</button>
             <span class="text-slate-300">|</span>
             <input type="file" id="admCandRoomFileInput" accept=".xlsx,.xls,.csv" onchange="_admCandRoomHandleImportFile(event)" class="text-xs">
@@ -45686,18 +45689,38 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     try {
       const res = await _admCandFetch('listRooms', { circular_id: _admCandActiveCircularId });
       _admCandRooms = res.rooms || [];
+      _admCandPopulateRoomBuildingSelect();
       _admCandRenderRoomsTable();
       _admCandRenderAllocRoomPicker();
     } catch (e) {}
   }
-  // Building is derived from the room name's own prefix convention (e.g.
-  // "SB-101" -> School Building), not a separate stored field -- matches how
-  // the school's existing manual seat-plan spreadsheet already names rooms,
-  // so nothing needs re-entering for rooms that already follow it.
+  // Building is an explicit, admin-settable field (building column on
+  // exam_rooms) -- when left blank it falls back to a guess derived from the
+  // room name's own prefix convention (e.g. "SB-101" -> School Building),
+  // matching how the school's existing manual seat-plan spreadsheet already
+  // names rooms, so nothing needs re-entering for rooms that follow it.
   const ADM_CAND_BUILDING_PREFIXES = { SB: 'School Building', HB: 'Honors Building', CB: 'College Building', MB: 'Main Building', JB: 'Junior Block' };
-  function _admCandRoomBuildingLabel(roomName) {
+  function _admCandRoomBuildingLabel(room) {
+    if (room && room.building) return room.building;
+    const roomName = room && room.room_name ? room.room_name : room;
     const m = /^([A-Za-z]{2,3})[-_\s]/.exec(String(roomName || '').trim());
     return (m && ADM_CAND_BUILDING_PREFIXES[m[1].toUpperCase()]) || '';
+  }
+  function _admCandPopulateRoomBuildingSelect() {
+    const sel = document.getElementById('admCandRoomBuilding');
+    if (!sel) return;
+    const cur = sel.value;
+    const known = [...new Set(Object.values(ADM_CAND_BUILDING_PREFIXES).concat(_admCandRooms.map(r => r.building).filter(Boolean)))].sort();
+    sel.innerHTML = '<option value="">— Auto from name —</option>' + known.map(b => `<option value="${_escHtml(b)}">${_escHtml(b)}</option>`).join('') + '<option value="__other__">Other…</option>';
+    sel.value = cur;
+  }
+  function _admCandRoomBuildingSelectChange(sel) {
+    if (sel.value !== '__other__') return;
+    const label = (prompt('Name this building:') || '').trim();
+    if (!label) { sel.value = ''; return; }
+    const opt = document.createElement('option');
+    opt.value = label; opt.textContent = label; opt.selected = true;
+    sel.insertBefore(opt, sel.lastElementChild);
   }
   function _admCandRenderRoomsTable() {
     const body = document.getElementById('admCandRoomsBody');
@@ -45705,7 +45728,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!_admCandRooms.length) { body.innerHTML = '<tr><td colspan="5" class="px-4 py-10 text-center text-slate-400 text-sm">No rooms yet.</td></tr>'; return; }
     body.innerHTML = _admCandRooms.map(r => {
       const allocated = _admCandAllCandidates.filter(c => c.room_id === r.id).length;
-      const building = _admCandRoomBuildingLabel(r.room_name);
+      const building = _admCandRoomBuildingLabel(r);
       return `<tr class="border-t border-slate-100">
         <td class="px-3 py-2.5 font-bold">${_escHtml(r.room_name)}</td>
         <td class="px-3 py-2.5 text-slate-500">${building ? _escHtml(building) : '<span class="text-slate-300">—</span>'}</td>
@@ -45722,12 +45745,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!_admCandEditingRoomId && !_admCandRequireCircular()) return;
     const room_name = document.getElementById('admCandRoomName').value.trim();
     const capacity = document.getElementById('admCandRoomCapacity').value.trim();
+    const building = document.getElementById('admCandRoomBuilding')?.value || '';
     if (!room_name || !capacity) { showToast('Enter a room name and capacity', 'error'); return; }
     try {
-      const res = await _admCandFetch('saveRoom', { id: _admCandEditingRoomId || undefined, circular_id: _admCandActiveCircularId, room_name, capacity });
+      const res = await _admCandFetch('saveRoom', { id: _admCandEditingRoomId || undefined, circular_id: _admCandActiveCircularId, room_name, capacity, building });
       if (res.error) { showToast(res.error, 'error'); return; }
       document.getElementById('admCandRoomName').value = '';
       document.getElementById('admCandRoomCapacity').value = '';
+      document.getElementById('admCandRoomBuilding').value = '';
       _admCandEditingRoomId = null;
       showToast('Room saved', 'success');
       _admCandLoadRooms();
@@ -45738,6 +45763,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!room) return;
     document.getElementById('admCandRoomName').value = room.room_name;
     document.getElementById('admCandRoomCapacity').value = room.capacity;
+    const buildingSel = document.getElementById('admCandRoomBuilding');
+    if (buildingSel) buildingSel.value = room.building || '';
     _admCandEditingRoomId = id;
   }
   async function _admCandRoomDelete(id) {
@@ -45803,7 +45830,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const host = document.getElementById('admCandAllocRoomPicker');
     if (!host) return;
     host.innerHTML = _admCandRooms.map(r => {
-      const building = _admCandRoomBuildingLabel(r.room_name);
+      const building = _admCandRoomBuildingLabel(r);
       return `<label class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold cursor-pointer">
       <input type="checkbox" class="admCandAllocRoomChk" value="${r.id}"> ${_escHtml(r.room_name)} (${r.capacity})${building ? ` <span class="text-slate-400 font-normal">— ${_escHtml(building)}</span>` : ''}
     </label>`;

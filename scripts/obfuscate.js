@@ -503,7 +503,7 @@ const RESERVED = [
   '_admCandLoadList','_admCandFilterList','_admCandFilterListDebounced','_admCandExportCsv','_admCandDeleteCandidate',
   '_admCandToggleRowSelect','_admCandToggleSelectAll','_admCandClearSelection','_admCandDeleteSelected',
   '_admCandPrintFormTemplate','_admCandPrintAdmitTemplate',
-  '_admCandRoomHandleImportFile','_admCandRoomConfirmImport','_admCandRoomFormOpen','_admCandRoomFormSave','_admCandRoomDelete',
+  '_admCandRoomHandleImportFile','_admCandRoomConfirmImport','_admCandRoomFormOpen','_admCandRoomFormSave','_admCandRoomDelete','_admCandRoomBuildingSelectChange',
   '_admCandRunAllocation','_admCandClearAllocation',
   '_admCandTplBulkApply','_admCandSaveTemplateMap',
   '_admCandPrintSignatureSheet','_admCandPrintTokenList','_admCandBulkUpload',
