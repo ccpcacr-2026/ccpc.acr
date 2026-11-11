@@ -45490,7 +45490,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
           <p id="admCandScanScopeNote" class="text-xs text-emerald-600 font-bold mb-3"></p>
           <div id="admCandScanChooser" class="flex flex-col sm:flex-row gap-2 mb-3">
-            <button onclick="_admCandScanChooseInput('camera')" class="flex items-center justify-center gap-1.5 w-full sm:w-auto px-4 py-3 sm:py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest"><i data-lucide="camera" class="h-3.5 w-3.5"></i> Open Camera</button>
+            <button id="admCandScanCameraBtn" onclick="_admCandScanChooseInput('camera')" class="flex items-center justify-center gap-1.5 w-full sm:w-auto px-4 py-3 sm:py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest"><i data-lucide="camera" class="h-3.5 w-3.5"></i> Open Camera</button>
             <button onclick="_admCandScanChooseInput('manual')" class="flex items-center justify-center gap-1.5 w-full sm:w-auto px-4 py-3 sm:py-2.5 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest"><i data-lucide="keyboard" class="h-3.5 w-3.5"></i> Manual</button>
           </div>
           <div id="admCandScanCameraOverlay" class="hidden" style="position:fixed;top:0;right:0;bottom:0;left:0;width:100%;height:100%;z-index:9000;background:#000;">
@@ -45503,7 +45503,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <button onclick="_admCandScanStop()" class="flex items-center gap-1.5 px-3 py-2 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase"><i data-lucide="arrow-left" class="h-3.5 w-3.5"></i> Back</button>
             </div>
             <div class="flex gap-2 max-w-sm">
-              <input type="text" id="admCandScanManualCode" placeholder="Type the code/token" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+              <input type="text" id="admCandScanManualCode" placeholder="Type the code/token" onkeydown="if(event.key==='Enter'){event.preventDefault();_admCandScanManualLookup();}" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">
               <button onclick="_admCandScanManualLookup()" class="px-3 py-2 bg-slate-800 text-white rounded-lg text-[10px] font-black uppercase">Go</button>
             </div>
           </div>
@@ -45530,6 +45530,37 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
         <div id="admCandCommitteeList" class="flex flex-col gap-3"></div>
       </div>`;
+    // Some Android WebView builds fail to escape position:fixed elements
+    // nested inside the module's own scrollable container (the Scan tab's
+    // full-screen camera box rendered mid-page instead of edge-to-edge,
+    // reported live on-device) -- reparenting these 3 straight onto <body>
+    // removes every intervening scrollable/positioned ancestor so "fixed"
+    // has nothing but the real viewport left to be relative to. Safe: all
+    // three are referenced purely by id everywhere (JS and CSS), never by
+    // DOM position, and this runs once per _admCandRenderSections() call
+    // (circular switches don't re-render this skeleton).
+    ['admCandScanCameraOverlay', 'admCandScanNote', 'admCandScanResult'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el && el.parentElement !== document.body) document.body.appendChild(el);
+    });
+    // The web <video>+jsQR camera path above has been unreliable on-device
+    // (full-screen rendering bugs that persisted across several WebView
+    // workarounds). Inside the Android shell, offer a genuine native scan
+    // instead (_admCandNativeScanStart, via the shell's postMessage relay --
+    // same shape as the NFC relay); the old 'camera' mode/code stays intact,
+    // just unused, rather than ripped out. A plain desktop/laptop browser
+    // has no such native plugin AND no handheld camera worth scanning with,
+    // so there it's manual entry only -- hide the button entirely rather
+    // than offer a mode that can't work.
+    const cameraBtn = document.getElementById('admCandScanCameraBtn');
+    if (cameraBtn) {
+      if (_admCandIsInShell()) {
+        cameraBtn.innerHTML = '<i data-lucide="camera" class="h-3.5 w-3.5"></i> Scan QR';
+        cameraBtn.onclick = () => _admCandScanChooseInput('native');
+      } else {
+        cameraBtn.classList.add('hidden');
+      }
+    }
     lucide.createIcons();
   }
 
@@ -47059,6 +47090,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // below is shared/behavior-agnostic, the same way _admStartScan/
   // _admStopScan already work for Part 1's application-lookup Scan tab. ──
   function _admCandEnsureJsQR() { return _admEnsureJsQR(); }
+  // True only when this page is running inside the Android shell's iframe
+  // (android-shell/index.html embeds this exact deployment as #frame-teacher)
+  // -- same reasoning/precedent as the NFC relay: no handshake needed, a
+  // plain browser tab visiting this URL directly always has window.parent
+  // === window, while the shell's iframe never does.
+  function _admCandIsInShell() { try { return window.parent && window.parent !== window; } catch (e) { return false; } }
   async function _admCandLoadScanOptions() {
     if (!_admCandActiveCircularId) return;
     try {
@@ -47299,11 +47336,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (valFilter === '__none__') return empty;
       return String(raw) === valFilter;
     });
+    // Capped so this stays cheap to re-render on a large roster (this runs
+    // after every single scan, not just on demand) -- narrow with search or
+    // the value filter to find a specific person beyond the cap.
+    const SCAN_DATA_ROW_CAP = 150;
     const countEl = document.getElementById('admCandScanDataCount');
-    if (countEl) countEl.textContent = `${rows.length} of ${all.length}`;
+    if (countEl) countEl.textContent = rows.length > SCAN_DATA_ROW_CAP ? `Showing first ${SCAN_DATA_ROW_CAP} of ${rows.length} matches (of ${all.length} total) — narrow your search to see more` : `${rows.length} of ${all.length}`;
     const body = document.getElementById('admCandScanDataBody');
     if (body) {
-      body.innerHTML = rows.map(a => `
+      body.innerHTML = rows.slice(0, SCAN_DATA_ROW_CAP).map(a => `
         <tr class="border-t border-slate-50">
           <td class="px-2 py-2 font-mono text-blue-600">${_escHtml(a.tracking_id || a.token || '—')}</td>
           <td class="px-2 py-2 font-bold">${_escHtml(a.name_english || '—')}</td>
@@ -47392,7 +47433,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       showToast('Saved — ready for next scan', 'success');
       const app = _admAllApps.find(x => x.id === _admCandMarksCurrentCandidate.id);
       if (app) app.scan_values = r.scan_values || {};
-      _admCandRenderScanDataTable();
+      // Reopening the camera (inside _admCandCloseMarksForm, right below)
+      // must never wait on this -- re-rendering the review table is
+      // comparatively expensive on a large roster, and this fires after
+      // EVERY submit, so deferring it a tick keeps "submit -> camera back
+      // up" feeling instant instead of visibly stalling.
+      setTimeout(_admCandRenderScanDataTable, 0);
       _admCandCloseMarksForm();
     } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }
@@ -47404,8 +47450,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admCandScanBusy = false;
     // Camera mode: _admCandScanPauseForPopup fully released the stream when
     // this popup opened, so reopen it fresh for the next candidate -- no
-    // re-tap of "Open Camera" needed. Manual mode never paused anything.
+    // re-tap of "Open Camera" needed. Native mode: start the next one-shot
+    // scan the same way. Manual mode never paused anything -- just refocus
+    // so the next scan/type goes straight into the field.
     if (_admCandScanInputMode === 'camera') _admCandScanStart();
+    else if (_admCandScanInputMode === 'native') _admCandNativeScanStart();
+    else if (_admCandScanInputMode === 'manual') document.getElementById('admCandScanManualCode')?.focus();
   }
   function _admCandScanLockTag() {
     const opt = _admCandScanSelectedOption;
@@ -47443,9 +47493,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }
     _admCandScanInputMode = mode;
     document.getElementById('admCandScanChooser')?.classList.add('hidden');
-    document.getElementById('admCandScanCameraOverlay')?.classList.toggle('hidden', mode !== 'camera');
+    const overlay = document.getElementById('admCandScanCameraOverlay');
+    if (overlay) {
+      overlay.classList.toggle('hidden', mode !== 'camera');
+      // Belt-and-braces alongside the reparent-to-<body> fix above: some
+      // WebView builds also mis-resolve width:100%/height:100% against the
+      // wrong containing block even once truly fixed -- pinning to real
+      // viewport pixels sidesteps that regardless of the root cause.
+      if (mode === 'camera') { overlay.style.width = window.innerWidth + 'px'; overlay.style.height = window.innerHeight + 'px'; }
+    }
     document.getElementById('admCandScanManualBox')?.classList.toggle('hidden', mode !== 'manual');
     if (mode === 'camera') _admCandScanStart();
+    else if (mode === 'native') _admCandNativeScanStart();
     else document.getElementById('admCandScanManualCode')?.focus();
   }
   async function _admCandScanStart() {
@@ -47486,6 +47545,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (_admCandScanStream) { _admCandScanStream.getTracks().forEach(t => t.stop()); _admCandScanStream = null; }
     const video = document.getElementById('admCandScanVideo');
     if (video) { video.pause(); video.srcObject = null; video.classList.add('hidden'); }
+    _admCandNativeScanStop();
     _admCandScanInputMode = null;
     _admCandMarksFormOpen = false;
     _admCandMarksCurrentCandidate = null;
@@ -47495,6 +47555,49 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('admCandScanChooser')?.classList.remove('hidden');
     const note = document.getElementById('admCandScanNote'); if (note) note.textContent = '';
     _admCandScanBusy = false;
+    // A plain desktop/laptop browser never gets a camera option at all (see
+    // _admCandRenderSections) -- skip the chooser click entirely and drop
+    // straight into Manual, which is then the one and only way to scan.
+    if (!_admCandIsInShell()) _admCandScanChooseInput('manual');
+  }
+  // ── Native QR scan (Android shell only) -- relays through the shell's
+  // postMessage bridge (android-shell/index.html), same shape as the NFC
+  // relay: one pending request at a time, matched by requestId. Each scan
+  // is a one-shot native Activity (BarcodeScanner.scan()), not a continuous
+  // stream, so _admCandHandleScannedCode below re-triggers this itself for
+  // the next candidate when the current scan behavior calls for it.
+  let _admCandNativeScanReqSeq = 0;
+  let _admCandNativeScanPending = null;
+  let _admCandNativeScanListenerBound = false;
+  function _admCandNativeScanEnsureListener() {
+    if (_admCandNativeScanListenerBound) return;
+    _admCandNativeScanListenerBound = true;
+    window.addEventListener('message', ev => {
+      const data = ev.data;
+      if (!data || typeof data.type !== 'string' || data.requestId !== _admCandNativeScanPending) return;
+      if (data.type === 'ccpc-qrscan-result') {
+        _admCandNativeScanPending = null;
+        _admCandHandleScannedCode(String(data.value || '').trim());
+      } else if (data.type === 'ccpc-qrscan-error') {
+        _admCandNativeScanPending = null;
+        const messages = { unavailable: 'Native QR scanner not available on this device — use Manual.', denied: 'Camera permission denied — enable it in system settings.', failed: 'Scan failed — try again.' };
+        const msg = messages[data.error];
+        _admCandScanStop(); // back to chooser -- note set AFTER, since _admCandScanStop clears it
+        if (msg) { const note = document.getElementById('admCandScanNote'); if (note) note.textContent = msg; }
+      }
+    });
+  }
+  function _admCandNativeScanStart() {
+    _admCandNativeScanEnsureListener();
+    const requestId = 'qr' + (++_admCandNativeScanReqSeq);
+    _admCandNativeScanPending = requestId;
+    const note = document.getElementById('admCandScanNote'); if (note) note.textContent = 'Opening camera…';
+    window.parent.postMessage({ type: 'ccpc-qrscan-start', requestId }, '*');
+  }
+  function _admCandNativeScanStop() {
+    if (!_admCandNativeScanPending) return;
+    window.parent.postMessage({ type: 'ccpc-qrscan-stop', requestId: _admCandNativeScanPending }, '*');
+    _admCandNativeScanPending = null;
   }
   // Lighter than _admCandScanStop: releases the camera hardware (stops the
   // stream, hides the full-screen box) for the duration of a 'form'-behavior
@@ -47511,12 +47614,26 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   async function _admCandHandleScannedCode(code) {
     await _admCandResolveScan(code);
     setTimeout(() => { _admCandScanBusy = false; }, 1000);
+    // Native scans are one-shot (a separate native Activity per scan, unlike
+    // the continuous web-camera decode loop above) -- re-trigger it so
+    // 'status'/'tag' behaviors still scan one-after-another with no re-tap.
+    // Skipped when a 'form'-behavior popup just opened instead (no write
+    // yet) -- _admCandCloseMarksForm reopens scanning itself once that's
+    // submitted/cancelled.
+    if (_admCandScanInputMode === 'native' && !_admCandMarksFormOpen) _admCandNativeScanStart();
   }
   function _admCandScanManualLookup() {
     if (!_admCandRequireCircular()) return;
-    const code = document.getElementById('admCandScanManualCode').value.trim();
+    const input = document.getElementById('admCandScanManualCode');
+    const code = input.value.trim();
     if (!code) return;
-    _admCandResolveScan(code);
+    // Cleared immediately (not after the lookup resolves) -- a handheld/USB
+    // barcode scanner wedge "types" its code + Enter into whatever field is
+    // focused, firing this on every scan; if the field isn't clear before
+    // the operator scans or types the next one, it appends onto the last
+    // code instead of replacing it.
+    input.value = '';
+    _admCandResolveScan(code).finally(() => input.focus());
   }
   // A QR code may encode a full URL from the external system (e.g. VortiBD's
   // own "https://vortibd.com/54321") rather than a bare token -- the real
@@ -47590,7 +47707,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         const app = _admAllApps.find(x => x.id === r.candidate.id);
         if (app) app.scan_values = r.candidate.scan_values || {};
         _admRenderFilterPanel();
-        _admCandRenderScanDataTable();
+        // Deferred -- this fires on every single continuous scan (status/tag
+        // behaviors scan one-after-another with no pause), so re-rendering
+        // a large roster table synchronously here was adding visible lag to
+        // the scan loop itself.
+        setTimeout(_admCandRenderScanDataTable, 0);
       }
     } catch (e) {
       if (note) note.textContent = e.message || 'Lookup failed';

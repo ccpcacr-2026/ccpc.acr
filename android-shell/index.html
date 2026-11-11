@@ -221,6 +221,71 @@
         if (NFC) NFC.stopScanning().catch(function () {});
         req.source.postMessage({ type: 'ccpc-nfc-error', requestId: requestId, error: 'cancelled' }, req.origin);
       }
+      // ── Native QR scan relay (same reasoning/shape as the NFC relay above)
+      // ──────────────────────────────────────────────────────────────────
+      // Uses BarcodeScanner.scan() -- the plugin's "ready-to-use interface"
+      // -- rather than startScan()'s transparent-WebView-overlay approach,
+      // deliberately: this shell hosts the real page inside a cross-origin
+      // iframe, so making the native camera preview show "through" the
+      // WebView would also require the iframe's own document to turn
+      // transparent, which is fragile across WebView builds. scan() opens
+      // a wholly separate native Activity instead (genuinely full-screen,
+      // immune to any WebView position:fixed/transparency quirk) and just
+      // hands back the decoded value once the user is done with it -- the
+      // on-device camera full-screen bug reported in the web fallback
+      // (jsQR + <video>) doesn't exist here because nothing is rendered in
+      // the WebView at all while this is open. Protocol: iframe -> shell
+      // {type:'ccpc-qrscan-start', requestId}; shell -> that same iframe
+      // {type:'ccpc-qrscan-result', requestId, value} on a decode, or
+      // {type:'ccpc-qrscan-error', requestId, error} for
+      // 'unavailable'|'denied'|'cancelled'|'failed'; iframe -> shell
+      // {type:'ccpc-qrscan-stop', requestId} just stops US from acting on a
+      // late result for a request the caller already gave up on (there is
+      // no native "cancel" for this modal API -- the user dismisses its own
+      // activity themselves).
+      var pendingQrRequest = null; // {source, origin, requestId}
+      function _qrPlugin() { return window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BarcodeScanner; }
+      function startQrScan(source, origin, requestId, attempt) {
+        var BC = _qrPlugin();
+        if (!BC) {
+          attempt = attempt || 0;
+          if (attempt < 25) { setTimeout(function () { startQrScan(source, origin, requestId, attempt + 1); }, 150); return; }
+          source.postMessage({ type: 'ccpc-qrscan-error', requestId: requestId, error: 'unavailable' }, origin);
+          return;
+        }
+        pendingQrRequest = { source: source, origin: origin, requestId: requestId };
+        BC.isSupported().then(function (r) {
+          if (!r || !r.supported) { pendingQrRequest = null; source.postMessage({ type: 'ccpc-qrscan-error', requestId: requestId, error: 'unavailable' }, origin); return; }
+          return BC.checkPermissions().then(function (p) {
+            return p.camera === 'granted' ? true : BC.requestPermissions().then(function (p2) { return p2.camera === 'granted'; });
+          }).then(function (granted) {
+            if (!granted) { pendingQrRequest = null; source.postMessage({ type: 'ccpc-qrscan-error', requestId: requestId, error: 'denied' }, origin); return; }
+            return BC.scan({ formats: ['QR_CODE'] }).then(function (result) {
+              // A later _admCandScanStop (stopQrScan) may have already
+              // claimed/cleared this request while the native activity was
+              // still open -- don't deliver a result nobody's waiting for.
+              if (!pendingQrRequest || pendingQrRequest.requestId !== requestId) return;
+              pendingQrRequest = null;
+              var b = result && result.barcodes && result.barcodes[0];
+              var value = b && (b.rawValue || b.displayValue);
+              if (value) source.postMessage({ type: 'ccpc-qrscan-result', requestId: requestId, value: value }, origin);
+              else source.postMessage({ type: 'ccpc-qrscan-error', requestId: requestId, error: 'cancelled' }, origin);
+            }).catch(function () {
+              if (pendingQrRequest && pendingQrRequest.requestId === requestId) pendingQrRequest = null;
+              source.postMessage({ type: 'ccpc-qrscan-error', requestId: requestId, error: 'failed' }, origin);
+            });
+          });
+        }).catch(function () {
+          pendingQrRequest = null;
+          source.postMessage({ type: 'ccpc-qrscan-error', requestId: requestId, error: 'unavailable' }, origin);
+        });
+      }
+      function stopQrScan(requestId) {
+        if (!pendingQrRequest || pendingQrRequest.requestId !== requestId) return;
+        var req = pendingQrRequest;
+        pendingQrRequest = null;
+        req.source.postMessage({ type: 'ccpc-qrscan-error', requestId: requestId, error: 'cancelled' }, req.origin);
+      }
       window.addEventListener('message', function (ev) {
         var data = ev.data;
         if (!data || typeof data.type !== 'string') return;
@@ -229,6 +294,8 @@
         if (ev.source !== frames.teacher.contentWindow && ev.source !== frames.student.contentWindow) return;
         if (data.type === 'ccpc-nfc-start' && data.requestId) startNfcScan(ev.source, ev.origin, data.requestId);
         else if (data.type === 'ccpc-nfc-stop' && data.requestId) stopNfcScan(data.requestId);
+        else if (data.type === 'ccpc-qrscan-start' && data.requestId) startQrScan(ev.source, ev.origin, data.requestId);
+        else if (data.type === 'ccpc-qrscan-stop' && data.requestId) stopQrScan(data.requestId);
       });
 
       function applyActive(which) {
