@@ -41877,7 +41877,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <thead><tr class="bg-slate-50 border-b border-slate-100">
               <th class="px-3 py-3 text-left" style="width:36px"><input type="checkbox" id="adm-bulk-select-all" onchange="_admToggleSelectAll(this)"></th>
               <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Applicant</th>
-              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest hidden md:table-cell">Family</th>
+              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest hidden md:table-cell">Family &amp; Scan</th>
               <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
               <th class="px-3 py-3 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Actions</th>
             </tr></thead>
@@ -42535,6 +42535,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         a.mother_name ? `<p><span class="font-black text-slate-500">M:</span> ${_escHtml(a.mother_name)}${a.mother_contact ? ' · ' + _escHtml(a.mother_contact) : ''}</p>` : '',
         a.guardian_name ? `<p><span class="font-black text-slate-500">G:</span> ${_escHtml(a.guardian_name)}${a.guardian_contact ? ' · ' + _escHtml(a.guardian_contact) : ''}${a.guardian_relation ? ' (' + _escHtml(a.guardian_relation) + ')' : ''}</p>` : '',
       ].filter(Boolean).join('');
+      // Scan Option results (status/tag/form -- submission, attendance, a
+      // Custom Tag, Marks Entry fields, whatever this circular has defined)
+      // shown as small badges so they're visible without opening the row --
+      // this is the real reason this column so often looked near-empty for
+      // bulk-imported rosters with no father/mother data on file.
+      const scanBadges = _admScanValuesCompact(a.scan_values).map(({ label, shown }) =>
+        `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[9px] font-bold whitespace-nowrap">${_escHtml(label)}: ${_escHtml(shown)}</span>`
+      ).join('');
+      const details = family + (scanBadges ? `<div class="flex flex-wrap gap-1${family ? ' mt-1' : ''}">${scanBadges}</div>` : '');
       return `
       <tr class="border-t border-slate-50 hover:bg-slate-50/80 transition-all cursor-pointer" onclick="_admLoadForm(${a.id})">
         <td class="px-3 py-3 adm-row-select-cell" onclick="event.stopPropagation()"><input type="checkbox" class="adm-row-select" data-id="${a.id}" ${_admSelectedIds.has(a.id) ? 'checked' : ''} onchange="_admToggleRowSelect(${a.id},this.checked)"></td>
@@ -42545,7 +42554,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           ${metaLine ? `<p class="text-[10px] text-slate-500 font-bold mt-0.5">${_escHtml(metaLine)}</p>` : ''}
           ${a.room_no ? `<span class="inline-block mt-1 px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 text-[9px] font-bold">Room ${_escHtml(a.room_no)}</span>` : ''}
         </td>
-        <td class="px-3 py-3 hidden md:table-cell text-[11px] text-slate-600 leading-relaxed">${family || '<span class="text-slate-300">—</span>'}</td>
+        <td class="px-3 py-3 hidden md:table-cell text-[11px] text-slate-600 leading-relaxed">${details || '<span class="text-slate-300">—</span>'}</td>
         <td class="px-3 py-3">
           <select class="adm-row-status-select px-2 py-1 rounded-lg text-xs font-bold ${ADM_STATUS_COLORS[a.status] || ''}" onchange="_admChangeStatus(event,${a.id})" onclick="event.stopPropagation()">
             ${ADM_STATUSES.map(s => `<option${s === a.status ? ' selected' : ''}>${s}</option>`).join('')}
@@ -42894,6 +42903,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>`).join('');
     block.classList.remove('hidden');
   }
+  // Shared by the read-only Scan-data block below AND the Applications
+  // table's row (_admRenderTable) -- one formatter so "what a tag/status/
+  // form scan result looks like" never drifts between the two places it's
+  // shown. Returns [{label, shown}], already filtered to populated keys.
+  function _admScanValuesCompact(scanValues) {
+    const values = scanValues || {};
+    const keys = Object.keys(values).filter(k => values[k] != null && values[k] !== '');
+    return keys.map(k => {
+      const opt = (_admCandScanOptions || []).find(o => o.key === k);
+      const label = opt ? opt.label : k;
+      const v = values[k];
+      let shown;
+      if (opt && opt.behavior === 'status') shown = v && v.done ? `Done${v.scanned_at ? ' — ' + new Date(v.scanned_at).toLocaleString() : ''}` : 'Pending';
+      else if (opt && opt.behavior === 'form') shown = Object.entries(v || {}).map(([fk, fv]) => { const f = (opt.config?.fields || []).find(x => x.key === fk); return `${f ? f.label : fk}: ${fv}`; }).join(', ') || '—';
+      else shown = v === true ? 'Yes' : String(v);
+      return { label, shown };
+    });
+  }
   // Read-only dump of whatever this candidate has accumulated from the Scan
   // tab's dynamic Scan Options (status/tag/form behaviors) -- the applicant
   // record itself has no edit path for these, same reasoning as the custom
@@ -42903,17 +42930,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const block = document.getElementById('adm-scan-data-block');
     const body = document.getElementById('adm-scan-data-body');
     if (!block || !body) return;
-    const values = scanValues || {};
-    const keys = Object.keys(values).filter(k => values[k] != null && values[k] !== '');
-    if (!keys.length) { block.classList.add('hidden'); return; }
-    body.innerHTML = keys.map(k => {
-      const opt = (_admCandScanOptions || []).find(o => o.key === k);
-      const label = opt ? opt.label : k;
-      const v = values[k];
-      let shown;
-      if (opt && opt.behavior === 'status') shown = v && v.done ? `Done${v.scanned_at ? ' — ' + new Date(v.scanned_at).toLocaleString() : ''}` : 'Pending';
-      else if (opt && opt.behavior === 'form') shown = Object.entries(v || {}).map(([fk, fv]) => { const f = (opt.config?.fields || []).find(x => x.key === fk); return `${f ? f.label : fk}: ${fv}`; }).join(', ') || '—';
-      else shown = v === true ? 'Yes' : String(v);
+    const entries = _admScanValuesCompact(scanValues);
+    if (!entries.length) { block.classList.add('hidden'); return; }
+    body.innerHTML = entries.map(({ label, shown }) => {
       return `<div class="bg-slate-50 rounded-lg p-2.5">
         <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide">${_escHtml(label)}</p>
         <p class="text-sm text-slate-700 mt-0.5">${_escHtml(shown)}</p>
