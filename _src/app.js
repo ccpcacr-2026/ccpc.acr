@@ -41558,6 +41558,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             ${ADM_STATUSES.map(s => `<option>${s}</option>`).join('')}
           </select>
           <button onclick="_admApplyBulkStatus()" class="px-3 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest">Set status for selected</button>
+          <button onclick="_admBulkDeleteSelected()" class="px-3 py-2 bg-red-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest">Delete Selected</button>
           <button onclick="_admClearBulkSelection()" class="px-3 py-2 border border-slate-200 text-slate-500 rounded-lg text-[10px] font-black uppercase tracking-widest">Clear</button>
         </div>
         <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-x-auto">
@@ -41922,6 +41923,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         ids.forEach(id => { const app = _admAllApps.find(a => a.id === id); if (app) app.status = status; });
         _admClearBulkSelection(); _admFilterApps(); _admLoadStats();
         showToast(`Status updated for ${r.count || ids.length} application(s)`);
+      } catch (e) { showToast(e.message || 'Failed', 'error'); }
+    });
+  }
+  function _admBulkDeleteSelected() {
+    const ids = [..._admSelectedIds];
+    if (!ids.length) return;
+    showConfirm(`Delete ${ids.length} selected application(s)? This cannot be undone.`, async () => {
+      try {
+        const r = await _admAdminFetch('bulkDeleteApplications', { ids });
+        if (r.error) { showToast(r.error, 'error'); return; }
+        showToast(`Deleted ${r.count || ids.length} application(s)`);
+        _admAllApps = _admAllApps.filter(a => !_admSelectedIds.has(a.id));
+        _admClearBulkSelection(); _admFilterApps(); _admLoadStats();
       } catch (e) { showToast(e.message || 'Failed', 'error'); }
     });
   }

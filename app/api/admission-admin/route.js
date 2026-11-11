@@ -208,8 +208,8 @@ export async function POST(req) {
     // every other action here (and any action that can't resolve a
     // circular_id) stays closed. Session/circular management itself lives
     // entirely in app/api/admission-candidates/route.js, not here.
-    const APPLICATIONS_ACTIONS = new Set(['listApplications', 'getApplication', 'saveApplication', 'deleteApplication', 'updateStatus', 'bulkUpdateStatus', 'lookupByCode', 'getStats']);
-    const EDIT_ACTIONS = new Set(['saveApplication', 'deleteApplication', 'updateStatus', 'bulkUpdateStatus', 'saveSettings', 'saveFormFields', 'resetCounter', 'verifyPayment', 'markPaid', 'issueAdmits', 'sendTestSms']);
+    const APPLICATIONS_ACTIONS = new Set(['listApplications', 'getApplication', 'saveApplication', 'deleteApplication', 'updateStatus', 'bulkUpdateStatus', 'bulkDeleteApplications', 'lookupByCode', 'getStats']);
+    const EDIT_ACTIONS = new Set(['saveApplication', 'deleteApplication', 'updateStatus', 'bulkUpdateStatus', 'bulkDeleteApplications', 'saveSettings', 'saveFormFields', 'resetCounter', 'verifyPayment', 'markPaid', 'issueAdmits', 'sendTestSms']);
     const tab = APPLICATIONS_ACTIONS.has(action) ? 'applications' : 'admin_settings';
     const level = EDIT_ACTIONS.has(action) ? 'edit' : 'view';
     let circularId = parseInt(payload.circular_id, 10) || null;
@@ -222,7 +222,7 @@ export async function POST(req) {
       const rowId = parseInt(payload[ROW_ID_ACTIONS[action] || 'id'], 10);
       const rows = rowId ? await sbAdmission(`admission_applications?id=eq.${rowId}&select=circular_id`) : null;
       circularId = (Array.isArray(rows) && rows[0]) ? rows[0].circular_id : null;
-    } else if (action === 'bulkUpdateStatus') {
+    } else if (action === 'bulkUpdateStatus' || action === 'bulkDeleteApplications') {
       const ids = Array.isArray(payload.ids) ? payload.ids.map(n => parseInt(n, 10)).filter(Boolean) : [];
       const rows = ids.length ? await sbAdmission(`admission_applications?id=in.(${ids.join(',')})&select=circular_id`) : [];
       const distinct = [...new Set((Array.isArray(rows) ? rows : []).map(r => r.circular_id))];
@@ -328,6 +328,16 @@ export async function POST(req) {
     if (!payload.status) return NextResponse.json({ error: 'Pick a status to apply.' });
     const res = await sbAdmission(`admission_applications?id=in.(${ids.join(',')})`, 'PATCH',
       { status: payload.status, updated_at: new Date().toISOString() });
+    if (res?.error) return NextResponse.json({ error: res.error });
+    return NextResponse.json({ success: true, count: ids.length });
+  }
+
+  // ── Bulk delete ──────────────────────────────────────────────────────────
+  if (action === 'bulkDeleteApplications') {
+    const ids = Array.isArray(payload.ids) ? payload.ids.map(n => parseInt(n, 10)).filter(Boolean) : [];
+    if (!ids.length) return NextResponse.json({ error: 'No applications selected.' });
+    if (ids.length > 300) return NextResponse.json({ error: 'Select 300 or fewer applications at a time.' });
+    const res = await sbAdmission(`admission_applications?id=in.(${ids.join(',')})`, 'DELETE');
     if (res?.error) return NextResponse.json({ error: res.error });
     return NextResponse.json({ success: true, count: ids.length });
   }
