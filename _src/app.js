@@ -44414,6 +44414,28 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       document.head.appendChild(s);
     });
   }
+  // Shared by both camera-scan flows -- a short synthesized beep (Web Audio
+  // API, no audio file/asset needed) played the instant a QR is physically
+  // decoded, independent of whatever the app then does with that code
+  // (looked up, matched, rejected as out-of-scope, etc.) -- immediate
+  // feedback that something was read, same as a real barcode scanner.
+  function _admPlayScanBeep() {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.16);
+      osc.onended = () => ctx.close().catch(() => {});
+    } catch (e) { /* best-effort -- never block scanning over audio failing */ }
+  }
   // Shared by both camera-scan flows in this file (Part 1's native Scan tab
   // and the Candidates module's dynamic Scan Options) -- a getUserMedia
   // rejection is overwhelmingly a permission problem in practice, so this
@@ -45337,12 +45359,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="_admCandScanChooseInput('camera')" class="flex items-center justify-center gap-1.5 w-full sm:w-auto px-4 py-3 sm:py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest"><i data-lucide="camera" class="h-3.5 w-3.5"></i> Open Camera</button>
             <button onclick="_admCandScanChooseInput('manual')" class="flex items-center justify-center gap-1.5 w-full sm:w-auto px-4 py-3 sm:py-2.5 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest"><i data-lucide="keyboard" class="h-3.5 w-3.5"></i> Manual</button>
           </div>
-          <div id="admCandScanCameraBox" class="hidden">
-            <div class="flex items-center gap-2 mb-3">
-              <button onclick="_admCandScanStop()" class="flex items-center gap-1.5 px-3 py-2 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase"><i data-lucide="arrow-left" class="h-3.5 w-3.5"></i> Back</button>
-            </div>
-            <video id="admCandScanVideo" class="hidden rounded-xl w-full max-w-sm" muted playsinline></video>
+          <div id="admCandScanCameraBox" class="hidden" style="position:fixed;inset:0;z-index:9000;background:#000;">
+            <video id="admCandScanVideo" class="hidden" style="width:100%;height:100%;object-fit:cover;" muted playsinline></video>
             <canvas id="admCandScanCanvas" class="hidden"></canvas>
+            <button onclick="_admCandScanStop()" style="position:absolute;top:calc(env(safe-area-inset-top,0px) + 16px);left:16px;" class="flex items-center gap-1.5 px-3 py-2 bg-black/55 text-white rounded-lg text-[10px] font-black uppercase backdrop-blur-sm"><i data-lucide="x" class="h-3.5 w-3.5"></i> Close</button>
           </div>
           <div id="admCandScanManualBox" class="hidden">
             <div class="flex items-center gap-2 mb-3">
@@ -45353,8 +45373,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <button onclick="_admCandScanManualLookup()" class="px-3 py-2 bg-slate-800 text-white rounded-lg text-[10px] font-black uppercase">Go</button>
             </div>
           </div>
-          <p id="admCandScanNote" class="text-xs text-slate-500 mt-2"></p>
-          <div id="admCandScanResult" class="hidden mt-3"></div>
+          <p id="admCandScanNote" class="text-xs text-white font-bold" style="position:fixed;left:16px;right:16px;bottom:16px;z-index:9400;background:rgba(0,0,0,0.75);padding:10px 14px;border-radius:10px;text-align:center;"></p>
+          <div id="admCandScanResult" class="hidden" style="position:fixed;left:0;right:0;bottom:0;z-index:9500;max-height:70vh;overflow-y:auto;background:#fff;border-top-left-radius:16px;border-top-right-radius:16px;box-shadow:0 -4px 24px rgba(0,0,0,0.25);padding:16px;"></div>
         </div>
       </div>
 
@@ -47107,6 +47127,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!opt) return;
     _admCandMarksFormOpen = true;
     _admCandMarksCurrentCandidate = candidate;
+    // Release the camera for the duration of this popup (not just pause
+    // decoding) -- _admCandCloseMarksForm below reopens it automatically on
+    // Submit/Cancel. No-op if scanning via Manual (nothing to pause).
+    if (_admCandScanInputMode === 'camera') _admCandScanPauseForPopup();
     const host = document.getElementById('admCandScanResult');
     if (!host) return;
     host.classList.remove('hidden');
@@ -47151,8 +47175,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admCandMarksCurrentCandidate = null;
     document.getElementById('admCandScanResult')?.classList.add('hidden');
     _admCandScanBusy = false;
-    const note = document.getElementById('admCandScanNote');
-    if (note && _admCandScanSelectedOption?.behavior === 'form') note.textContent = _admCandScanInputMode === 'camera' ? 'Point the camera at the next QR code…' : '';
+    // Camera mode: _admCandScanPauseForPopup fully released the stream when
+    // this popup opened, so reopen it fresh for the next candidate -- no
+    // re-tap of "Open Camera" needed. Manual mode never paused anything.
+    if (_admCandScanInputMode === 'camera') _admCandScanStart();
   }
   function _admCandScanLockTag() {
     const opt = _admCandScanSelectedOption;
@@ -47222,7 +47248,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const code = window.jsQR(img.data, img.width, img.height);
-      if (code && code.data) { _admCandScanBusy = true; _admCandHandleScannedCode(code.data.trim()); }
+      if (code && code.data) { _admPlayScanBeep(); _admCandScanBusy = true; _admCandHandleScannedCode(code.data.trim()); }
     }, 150);
   }
   // Also doubles as "back to chooser" (called by both boxes' Back button, and
@@ -47242,6 +47268,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('admCandScanChooser')?.classList.remove('hidden');
     const note = document.getElementById('admCandScanNote'); if (note) note.textContent = '';
     _admCandScanBusy = false;
+  }
+  // Lighter than _admCandScanStop: releases the camera hardware (stops the
+  // stream, hides the full-screen box) for the duration of a 'form'-behavior
+  // option's marks-entry popup, WITHOUT resetting the input mode or sending
+  // the admin back to the Open Camera/Manual chooser -- _admCandCloseMarksForm
+  // calls _admCandScanStart() again right after to reopen it automatically.
+  function _admCandScanPauseForPopup() {
+    if (_admCandScanTimer) { clearInterval(_admCandScanTimer); _admCandScanTimer = null; }
+    if (_admCandScanStream) { _admCandScanStream.getTracks().forEach(t => t.stop()); _admCandScanStream = null; }
+    const video = document.getElementById('admCandScanVideo');
+    if (video) { video.pause(); video.srcObject = null; video.classList.add('hidden'); }
+    document.getElementById('admCandScanCameraBox')?.classList.add('hidden');
   }
   async function _admCandHandleScannedCode(code) {
     await _admCandResolveScan(code);

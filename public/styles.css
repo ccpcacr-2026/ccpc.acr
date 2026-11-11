@@ -1511,6 +1511,13 @@ button { user-select: none; }
 #admAdminAppList.adm-view-only .adm-row-delete-btn { display: none !important; }
 #admAdminAppList.adm-view-only .adm-row-status-badge { display: inline-block !important; }
 
+/* Scan tab's full-screen camera overlay: the status banner is a fixed
+   bottom pill shown on top of the live camera feed (or the plain page when
+   the camera isn't open) -- :empty keeps it invisible with no stray empty
+   bar when there's nothing to say, with no JS call-site changes needed
+   anywhere that already just sets its textContent. */
+#admCandScanNote:empty { display: none; }
+
 /* Admission Admin — Admit Card Designer (settings form + live preview) and
    Form Designer (drag/resize canvas). Ported verbatim from ccpc-admission's
    own styles.css (.designer-layout/.dgroup/.toggle-lbl/.fd-*/.fdc*/.pp-*),
