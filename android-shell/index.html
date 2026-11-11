@@ -160,6 +160,77 @@
         setStatusBar(data.color, !!data.dark);
       });
 
+      // ── NFC relay (Part 11: tap-to-login) ───────────────────────────────
+      // Native Capacitor plugins are only reachable from this top-level shell
+      // script, never from either portal's cross-origin iframe JS directly -
+      // same reason the status bar above is driven by postMessage rather
+      // than each portal calling window.Capacitor.Plugins itself. Protocol
+      // (either portal may use it): iframe -> shell {type:'ccpc-nfc-start',
+      // requestId}; shell -> that same iframe {type:'ccpc-nfc-result',
+      // requestId, uid} once a tag is read, or {type:'ccpc-nfc-error',
+      // requestId, error} for 'unavailable'|'denied'|'cancelled'|'failed';
+      // iframe -> shell {type:'ccpc-nfc-stop', requestId} cancels an
+      // in-progress scan. One scan is "claimed" by whichever request is
+      // currently pending; a tag read always stops scanning right after
+      // (this is a one-shot login tap, not continuous scanning).
+      var pendingNfcRequest = null; // {source, origin, requestId}
+      var nfcListenerRegistered = false;
+      function _nfcPlugin() { return window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.CapacitorNfc; }
+      function ensureNfcListener() {
+        var NFC = _nfcPlugin();
+        if (!NFC || nfcListenerRegistered) return NFC;
+        nfcListenerRegistered = true;
+        NFC.addListener('nfcEvent', function (ev) {
+          var req = pendingNfcRequest;
+          if (!req) return;
+          var idBytes = ev && ev.tag && ev.tag.id;
+          if (!idBytes || !idBytes.length) return;
+          var uid = idBytes.map(function (b) { return ('0' + (b & 0xff).toString(16)).slice(-2); }).join('');
+          pendingNfcRequest = null;
+          NFC.stopScanning().catch(function () {});
+          req.source.postMessage({ type: 'ccpc-nfc-result', requestId: req.requestId, uid: uid }, req.origin);
+        });
+        return NFC;
+      }
+      function startNfcScan(source, origin, requestId, attempt) {
+        var NFC = ensureNfcListener();
+        if (!NFC) {
+          // Same cold-start race as setStatusBar above - the bridge may
+          // still be registering its plugins.
+          attempt = attempt || 0;
+          if (attempt < 25) { setTimeout(function () { startNfcScan(source, origin, requestId, attempt + 1); }, 150); return; }
+          source.postMessage({ type: 'ccpc-nfc-error', requestId: requestId, error: 'unavailable' }, origin);
+          return;
+        }
+        NFC.isSupported().then(function (r) {
+          if (!r || !r.supported) { source.postMessage({ type: 'ccpc-nfc-error', requestId: requestId, error: 'unavailable' }, origin); return; }
+          pendingNfcRequest = { source: source, origin: origin, requestId: requestId };
+          NFC.startScanning().catch(function () {
+            pendingNfcRequest = null;
+            source.postMessage({ type: 'ccpc-nfc-error', requestId: requestId, error: 'denied' }, origin);
+          });
+        }).catch(function () {
+          source.postMessage({ type: 'ccpc-nfc-error', requestId: requestId, error: 'unavailable' }, origin);
+        });
+      }
+      function stopNfcScan(requestId) {
+        if (!pendingNfcRequest || pendingNfcRequest.requestId !== requestId) return;
+        var req = pendingNfcRequest;
+        pendingNfcRequest = null;
+        var NFC = _nfcPlugin();
+        if (NFC) NFC.stopScanning().catch(function () {});
+        req.source.postMessage({ type: 'ccpc-nfc-error', requestId: requestId, error: 'cancelled' }, req.origin);
+      }
+      window.addEventListener('message', function (ev) {
+        var data = ev.data;
+        if (!data || typeof data.type !== 'string') return;
+        // Only the two known portal iframes may trigger a scan - same
+        // allow-list reasoning as the theme-color listener above.
+        if (ev.source !== frames.teacher.contentWindow && ev.source !== frames.student.contentWindow) return;
+        if (data.type === 'ccpc-nfc-start' && data.requestId) startNfcScan(ev.source, ev.origin, data.requestId);
+        else if (data.type === 'ccpc-nfc-stop' && data.requestId) stopNfcScan(data.requestId);
+      });
+
       function applyActive(which) {
         active = which;
         frames.teacher.className = which === 'teacher' ? 'portal-visible' : 'portal-hidden';
