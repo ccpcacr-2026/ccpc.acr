@@ -511,7 +511,7 @@ const RESERVED = [
   '_admCandCopyApplyLink',
   '_admCandTagDefTypeChange','_admCandTagDefSave','_admCandTagDefDelete','_admCandScanTagDefChange','_admCandScanLockTag',
   '_admCandTagFilterDefChange','_admCandShowTagHistory',
-  '_admCandCommitteeAdd','_admCandCommitteeSave','_admCandCommitteeRemove',
+  '_admCandCommitteeAdd','_admCandCommitteeSave','_admCandCommitteeRemove','_admCandPullCommitteeMembers',
   '_admCandPickExistingSession','_admCandEditSession','_admCandDeleteSession',
   '_admCandFilterCircularList','_admCandShowCircularForm',
   '_admCandSaveVortibdCreds','_admCandLoadVortibdCirculars','_admCandSaveVortibdSyncConfig','_admCandSaveVortibdCircularLink',

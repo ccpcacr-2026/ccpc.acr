@@ -44632,7 +44632,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
       <div id="adm-cand-committee" class="hidden">
         <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-3">
-          <p class="text-[10px] uppercase text-slate-400 font-bold mb-2">Add a committee member</p>
+          <p class="text-[10px] uppercase text-slate-400 font-bold mb-2">Pull all members from an existing committee</p>
+          <div class="flex gap-2 items-center">
+            <select id="admCandPullCommitteeSelect" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold"><option value="">Pick a committee…</option></select>
+            <button onclick="_admCandPullCommitteeMembers()" class="px-4 py-2 bg-slate-800 text-white rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Pull All Members</button>
+          </div>
+          <p class="text-[10px] text-slate-400 mt-1.5">Adds every eligible staff member of that committee here at once, with no permissions set yet (edit each below). Members already on this list, or not eligible for Admission Committee duty, are skipped.</p>
+        </div>
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-3">
+          <p class="text-[10px] uppercase text-slate-400 font-bold mb-2">Add one committee member</p>
           <div class="flex gap-2 items-center">
             <select id="admCandCommitteeStaffSelect" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold"><option value="">Pick a staff member…</option></select>
             <button onclick="_admCandCommitteeAdd()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Add to Committee</button>
@@ -44650,6 +44658,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // Committee tab's UI and app/api/admission-admin/route.js's own gate key
   // off the identical tab names.
   const ADM_CAND_TABS = [['applications', 'Applications'], ['admin_settings', 'Settings'], ['import', 'Import'], ['candidates', 'Candidates'], ['rooms', 'Rooms'], ['alloc', 'Allocation'], ['templates', 'Templates'], ['print', 'Printing'], ['photos', 'Photos'], ['scan', 'Scan']];
+  let _admCandOrgCommittees = [];
   async function _admCandLoadCommitteeTab() {
     if (!_admCandRequireCircular()) return;
     try {
@@ -44658,6 +44667,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         _admCandCommitteeStaff = r.staff || [];
         const sel = document.getElementById('admCandCommitteeStaffSelect');
         if (sel) sel.innerHTML = '<option value="">Pick a staff member…</option>' + _admCandCommitteeStaff.map(s => `<option value="${_escHtml(s.user_id)}">${_escHtml(s.name)} (${_escHtml(s.role || '')})</option>`).join('');
+      }
+      if (!_admCandOrgCommittees.length) {
+        const r = await _admCandFetch('listOrgCommittees', {});
+        _admCandOrgCommittees = r.committees || [];
+        const pullSel = document.getElementById('admCandPullCommitteeSelect');
+        if (pullSel) pullSel.innerHTML = '<option value="">Pick a committee…</option>' + _admCandOrgCommittees.map(c => `<option value="${c.id}">${_escHtml(c.committee_name)}${c.sub_committee ? ' — ' + _escHtml(c.sub_committee) : ''} (${c.member_count} member${c.member_count === 1 ? '' : 's'})</option>`).join('');
       }
       const res = await _admCandFetch('listCommitteeMembers', { circular_id: _admCandActiveCircularId });
       _admCandRenderCommitteeList(res.members || []);
@@ -44671,6 +44686,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       await _admCandFetch('saveCommitteeMember', { circular_id: _admCandActiveCircularId, user_id: userId, permissions: { tabs: {}, scan_options: [] } });
       _admCandGrantModuleSidebarAccess(userId);
       showToast('Added — set their permissions below', 'success');
+      _admCandLoadCommitteeTab();
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+  // Pulls in every eligible member of an existing general-purpose committee
+  // (teacher_staff.committee_groups) at once, instead of re-adding each
+  // person one at a time through the picker above.
+  async function _admCandPullCommitteeMembers() {
+    const sel = document.getElementById('admCandPullCommitteeSelect');
+    const committeeId = sel ? sel.value : '';
+    if (!committeeId) { showToast('Pick a committee first', 'error'); return; }
+    try {
+      const res = await _admCandFetch('pullCommitteeMembers', { circular_id: _admCandActiveCircularId, committee_id: committeeId });
+      if (res.error) { showToast(res.error, 'error'); return; }
+      (res.added_user_ids || []).forEach(uid => _admCandGrantModuleSidebarAccess(uid));
+      if (res.added) showToast(`Added ${res.added} member(s)${res.skipped ? ` — ${res.skipped} already on this committee or not eligible` : ''} — set their permissions below`, 'success');
+      else showToast('Everyone eligible from that committee is already on this circular\'s committee', 'error');
       _admCandLoadCommitteeTab();
     } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }

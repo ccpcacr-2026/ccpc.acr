@@ -153,7 +153,7 @@ export async function POST(req) {
   const ADMIN_ONLY_ACTIONS = new Set([
     'listSessions', 'createSession', 'updateSession', 'deleteSession', 'createCircular', 'updateCircular', 'getStudentFieldValues',
     'saveTagDefinition', 'deleteTagDefinition',
-    'listStaffForCommittee', 'listCommitteeMembers', 'saveCommitteeMember', 'removeCommitteeMember',
+    'listStaffForCommittee', 'listCommitteeMembers', 'saveCommitteeMember', 'removeCommitteeMember', 'listOrgCommittees', 'pullCommitteeMembers',
     'getVortibdCredentials', 'saveVortibdCredentials', 'listVortibdCirculars', 'getVortibdSyncConfig', 'saveVortibdSyncConfig', 'saveVortibdCircularLink', 'vortibdPullFile', 'syncVortibdNow',
   ]);
   if (ADMIN_ONLY_ACTIONS.has(action) && !isFullAdmin) {
@@ -841,6 +841,41 @@ export async function POST(req) {
   if (action === 'removeCommitteeMember') {
     await sbAdmission(`circular_committee_members?id=eq.${parseInt(payload.id, 10) || 0}`, 'DELETE');
     return NextResponse.json({ success: true });
+  }
+  // Lets an admin pick one of the portal's existing general-purpose
+  // committees (teacher_staff.committee_groups -- an unrelated HR/evaluation
+  // feature, not scoped to admission at all) and bulk-add every one of its
+  // members onto this circular's Admission Committee in one go, instead of
+  // re-adding each staff member one at a time through the normal picker.
+  if (action === 'listOrgCommittees') {
+    const hdrs = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher_staff' };
+    const res = await fetch(`${SB_URL}/rest/v1/committee_groups?select=id,committee_name,sub_committee,members_list&order=committee_name.asc`, { headers: hdrs });
+    const rows = res.ok ? await res.json() : [];
+    return NextResponse.json({ committees: (Array.isArray(rows) ? rows : []).map(c => ({ id: c.id, committee_name: c.committee_name, sub_committee: c.sub_committee, member_count: Array.isArray(c.members_list) ? c.members_list.length : 0 })) });
+  }
+  if (action === 'pullCommitteeMembers') {
+    const circularId = parseInt(payload.circular_id, 10);
+    const committeeId = parseInt(payload.committee_id, 10);
+    if (!circularId || !committeeId) return NextResponse.json({ error: 'Pick a circular and a committee.' });
+    const hdrs = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher_staff' };
+    const res = await fetch(`${SB_URL}/rest/v1/committee_groups?id=eq.${committeeId}&select=members_list`, { headers: hdrs });
+    const rows = res.ok ? await res.json() : [];
+    const memberIds = (Array.isArray(rows) && rows[0] && Array.isArray(rows[0].members_list) ? rows[0].members_list : []).map(m => m.user_id).filter(Boolean);
+    if (!memberIds.length) return NextResponse.json({ error: 'That committee has no members to pull.' });
+    // Only staff eligible for Admission Committee membership at all (same
+    // baseline this module already enforces for the one-at-a-time picker)
+    // gets pulled in -- a general committee can include students/guardians,
+    // which this module never allows.
+    const staff = await _staffDirectory();
+    const eligibleIds = new Set(staff.filter(u => String(u.role || '').split(',').map(r => r.trim()).some(r => BASELINE_STAFF_ROLES.includes(r))).map(u => u.user_id));
+    const existing = await sbAdmission(`circular_committee_members?circular_id=eq.${circularId}&select=user_id`);
+    const existingIds = new Set((Array.isArray(existing) ? existing : []).map(r => r.user_id));
+    const toAdd = memberIds.filter(id => eligibleIds.has(id) && !existingIds.has(id));
+    if (!toAdd.length) return NextResponse.json({ added: 0, skipped: memberIds.length });
+    const rowsToInsert = toAdd.map(user_id => ({ circular_id: circularId, user_id, permissions: { tabs: {}, scan_options: [] } }));
+    const insRes = await sbAdmission('circular_committee_members?on_conflict=circular_id,user_id', 'POST', rowsToInsert, { Prefer: 'resolution=merge-duplicates,return=minimal' });
+    if (insRes?.error) return NextResponse.json({ error: insRes.error });
+    return NextResponse.json({ added: toAdd.length, skipped: memberIds.length - toAdd.length, added_user_ids: toAdd });
   }
 
   // ── Part 7: VortiBD integration — periodic Excel pull + import ──────────
