@@ -44649,6 +44649,58 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     try { _admCandFormFieldDefs = (await _admAdminFetch('getFormFields', {})).fields || []; }
     catch (e) { _admCandFormFieldDefs = []; }
   }
+  // Known aliases for common external naming conventions (e.g. VortiBD's own
+  // column names) that don't normalize to an exact match against our own
+  // field labels/keys -- e.g. "TrackingNo" means Token, "ProgramName" means
+  // Class. Keys here are already run through normImportKey (lowercase, no
+  // spaces/underscores/hyphens). Checked before the generic fuzzy fallback.
+  const ADM_CAND_HEADER_ALIASES = {
+    trackingno: 'token', studentid: 'token', applicantid: 'token', rollno: 'token', roll: 'token',
+    studentname: 'name_english', candidatename: 'name_english', applicantname: 'name_english', name: 'name_english',
+    studentnamebangla: 'name_bangla', namebangla: 'name_bangla',
+    programname: 'class', classname: 'class', program: 'class',
+    studentcatname: 'category', studentcategory: 'category', categoryname: 'category', catname: 'category',
+    versionname: 'version',
+    mobileno: 'mobile', contactno: 'mobile', phone: 'mobile', phoneno: 'mobile', mobilenumber: 'mobile', cellno: 'mobile',
+    dob: 'date_of_birth', dateofbirth: 'date_of_birth', birthdate: 'date_of_birth',
+    bloodgroup: 'blood_group', blood: 'blood_group',
+    presentaddress: 'present_address', currentaddress: 'present_address',
+    permanentaddress: 'permanent_address', permaddress: 'permanent_address',
+    fathername: 'father_name', fathersname: 'father_name',
+    fathercontact: 'father_contact', fathermobile: 'father_contact', fatherphone: 'father_contact',
+    fatherprofession: 'father_profession', fatheroccupation: 'father_profession',
+    fathernid: 'father_nid', fatherdesignation: 'father_designation',
+    mothername: 'mother_name', mothersname: 'mother_name',
+    mothercontact: 'mother_contact', mothermobile: 'mother_contact', motherphone: 'mother_contact',
+    motherprofession: 'mother_profession', motheroccupation: 'mother_profession',
+    mothernid: 'mother_nid', motherdesignation: 'mother_designation',
+    guardianname: 'guardian_name', guardiancontact: 'guardian_contact', guardianmobile: 'guardian_contact',
+    guardianrelation: 'guardian_relation', guardiannid: 'guardian_nid',
+    gender: 'gender', sex: 'gender',
+    religion: 'religion', nationality: 'nationality',
+    lastclass: 'last_class', lastinstitute: 'last_institute', lastversion: 'last_version', lastschool: 'last_institute',
+    height: 'height', birthregno: 'birth_reg_no', birthregistrationno: 'birth_reg_no',
+    emergencycontact: 'emergency_contact',
+  };
+  // Generic fuzzy fallback for anything the alias table and exact match both
+  // miss: substring containment either direction, normalized. Picks the
+  // longest (most specific) candidate label/key to reduce false positives
+  // from short, generic substrings.
+  function _admCandFuzzyFieldGuess(normHeader) {
+    if (normHeader.length < 3) return null;
+    const candidates = ADM_CAND_CORE_FIELD_LABELS.map(([key, label]) => ({ key, label }))
+      .concat(_admCandFormFieldDefs.map(f => ({ key: f.key, label: f.label })));
+    let best = null, bestLen = 0;
+    candidates.forEach(c => {
+      [normImportKey(c.label), normImportKey(c.key)].forEach(norm => {
+        if (norm.length < 3) return;
+        if ((normHeader.includes(norm) || norm.includes(normHeader)) && norm.length > bestLen) {
+          best = c; bestLen = norm.length;
+        }
+      });
+    });
+    return best;
+  }
   function _admCandHeaderSignature() {
     return _admCandExcelHeaders.map(normImportKey).filter(Boolean).sort().join('|');
   }
@@ -44680,6 +44732,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           _admCandMapRows = _admCandDefaultMapRows();
           _admCandPrimaryKeyRowId = null;
           _admCandApplyMatchingTemplate();
+          // No saved mapping matched this file's exact header set -- rather
+          // than leave the screen empty, auto-map every column by guessing
+          // its field from the header text (same guess _admCandAddFieldRowForHeader
+          // already does for "+ Add All Remaining"); the admin can still
+          // re-pick any row's field or primary key afterward.
+          if (!_admCandMapRows.length) _admCandAutoMapAllColumns();
           _admCandRenderMapping();
         } catch (err) {
           if (status) status.textContent = 'Could not read this file: ' + err.message;
@@ -44793,8 +44851,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const normHeader = normImportKey(headerText);
     const coreGuess = ADM_CAND_CORE_FIELD_LABELS.find(([key, label]) => normImportKey(label) === normHeader || normImportKey(key) === normHeader);
     const fieldGuess = _admCandFormFieldDefs.find(f => normImportKey(f.label) === normHeader || normImportKey(f.key) === normHeader);
-    const guessKey = coreGuess ? coreGuess[0] : (fieldGuess ? fieldGuess.key : null);
-    const guessLabel = coreGuess ? coreGuess[1] : (fieldGuess ? fieldGuess.label : null);
+    let guessKey = coreGuess ? coreGuess[0] : (fieldGuess ? fieldGuess.key : null);
+    let guessLabel = coreGuess ? coreGuess[1] : (fieldGuess ? fieldGuess.label : null);
+    if (!guessKey) {
+      // No exact match -- try the known-alias table, then a generic fuzzy
+      // (substring) guess, in that order (alias is higher-confidence).
+      const aliasKey = ADM_CAND_HEADER_ALIASES[normHeader];
+      if (aliasKey) {
+        const aliasCore = ADM_CAND_CORE_FIELD_LABELS.find(([key]) => key === aliasKey);
+        const aliasField = _admCandFormFieldDefs.find(f => f.key === aliasKey);
+        if (aliasCore) { guessKey = aliasCore[0]; guessLabel = aliasCore[1]; }
+        else if (aliasField) { guessKey = aliasField.key; guessLabel = aliasField.label; }
+      }
+      if (!guessKey) {
+        const fuzzy = _admCandFuzzyFieldGuess(normHeader);
+        if (fuzzy) { guessKey = fuzzy.key; guessLabel = fuzzy.label; }
+      }
+    }
     if (guessKey && !_admCandMapRows.some(r => r.rowId === guessKey)) {
       _admCandMapRows.push({ rowId: guessKey, label: guessLabel, fixed: false, headerIdx: idx });
     } else {
@@ -44814,6 +44887,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!unmapped.length) { showToast('Every column is already mapped', 'error'); return; }
     unmapped.forEach(idx => _admCandAddFieldRowForHeader(idx));
     _admCandRenderMapping();
+  }
+  // Auto-map every column on a freshly parsed file with no matching saved
+  // template -- same per-header guess as "+ Add All Remaining", just run
+  // without a button click, so the mapping screen is never empty on first
+  // load. Defaults the primary key to "token" when one got mapped, since
+  // that's the field virtually every source uses as its unique identifier;
+  // the admin can still change it.
+  function _admCandAutoMapAllColumns() {
+    _admCandUnmappedHeaderIndexes().forEach(idx => _admCandAddFieldRowForHeader(idx));
+    if (!_admCandPrimaryKeyRowId) {
+      const tokenRow = _admCandMapRows.find(r => r.rowId === 'token');
+      if (tokenRow) _admCandPrimaryKeyRowId = tokenRow.rowId;
+    }
   }
   function _admCandUpdateMappingSample(sel) {
     const idx = parseInt(sel.value, 10);
