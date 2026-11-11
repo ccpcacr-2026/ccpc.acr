@@ -45360,7 +45360,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="_admCandScanChooseInput('camera')" class="flex items-center justify-center gap-1.5 w-full sm:w-auto px-4 py-3 sm:py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest"><i data-lucide="camera" class="h-3.5 w-3.5"></i> Open Camera</button>
             <button onclick="_admCandScanChooseInput('manual')" class="flex items-center justify-center gap-1.5 w-full sm:w-auto px-4 py-3 sm:py-2.5 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest"><i data-lucide="keyboard" class="h-3.5 w-3.5"></i> Manual</button>
           </div>
-          <div id="admCandScanCameraOverlay" class="hidden" style="position:fixed;inset:0;z-index:9000;background:#000;">
+          <div id="admCandScanCameraOverlay" class="hidden" style="position:fixed;top:0;right:0;bottom:0;left:0;width:100%;height:100%;z-index:9000;background:#000;">
             <video id="admCandScanVideo" class="hidden" style="width:100%;height:100%;object-fit:cover;" muted playsinline></video>
             <canvas id="admCandScanCanvas" class="hidden"></canvas>
             <button onclick="_admCandScanStop()" style="position:absolute;top:calc(env(safe-area-inset-top,0px) + 16px);left:16px;" class="flex items-center gap-1.5 px-3 py-2 bg-black/55 text-white rounded-lg text-[10px] font-black uppercase backdrop-blur-sm"><i data-lucide="x" class="h-3.5 w-3.5"></i> Close</button>
@@ -47156,6 +47156,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <button onclick="_admCandCancelMarksForm()" class="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase">Cancel</button>
       </div>
     </div>`;
+    // Jump straight into the first field + open the keyboard -- this popup
+    // appears mid-scan with no tap of its own, so without this the admin
+    // has to manually tap the field every single time before typing.
+    const firstField = host.querySelector('[data-marks-key]');
+    if (firstField) setTimeout(() => { firstField.focus(); try { firstField.select(); } catch (e) {} }, 60);
   }
   async function _admCandSubmitMarksForm() {
     const opt = _admCandScanSelectedOption;
