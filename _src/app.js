@@ -41486,7 +41486,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
           <label class="text-[10px] text-slate-400 font-bold block mb-1">Require unique values for (optional — only checked when candidates are entered/edited via the Online form; leave blank to skip)</label>
           <select id="admCandNewCircularUniqueFields" multiple class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs mb-3" style="height:70px">
-            <option value="token">Token</option>
+            <option value="token">Tracking ID</option>
             <option value="candidate_name">Candidate Name</option>
             <option value="class">Class</option>
             <option value="version">Version</option>
@@ -44447,7 +44447,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <table class="w-full text-sm">
             <thead><tr class="bg-slate-50 border-b border-slate-100">
               <th class="px-3 py-3 text-left" style="width:36px"><input type="checkbox" id="admCandSelectAll" onchange="_admCandToggleSelectAll(this)"></th>
-              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Token</th>
+              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Tracking ID</th>
               <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Name</th>
               <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest hidden md:table-cell">Class</th>
               <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest hidden md:table-cell">Category</th>
@@ -44497,7 +44497,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <div>
               <label class="text-[10px] uppercase text-slate-400 font-bold">Sort candidates by</label>
               <select id="admCandAllocSortBy" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold mt-1">
-                <option value="token">Token</option><option value="name_english">Name</option><option value="class">Class</option><option value="category">Category</option>
+                <option value="token">Tracking ID</option><option value="name_english">Name</option><option value="class">Class</option><option value="category">Category</option>
               </select>
             </div>
             <div>
@@ -44571,7 +44571,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <select id="admCandPhotoMatchField" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold"></select>
             <input type="file" id="admCandPhotoInput" multiple accept="image/*" onchange="_admCandBulkUpload(this.files)" class="text-xs">
           </div>
-          <p class="text-xs text-slate-400">Upload one folder at a time (e.g. a VortiBD photo export's Applicant / Father / Mother / Local Guardian folders, or any batch of your own) — name each file exactly like "&lt;matched value&gt;.jpg". "Match photos by" lists every field from your saved import mappings, not just Token.</p>
+          <p class="text-xs text-slate-400">Upload one folder at a time (e.g. a VortiBD photo export's Applicant / Father / Mother / Local Guardian folders, or any batch of your own) — name each file exactly like "&lt;matched value&gt;.jpg". "Match photos by" lists every field from your saved import mappings, not just Tracking ID.</p>
           <p id="admCandPhotoProgress" class="text-xs text-slate-500 mt-2"></p>
         </div>
       </div>
@@ -44752,7 +44752,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // as every Form Field, instead of being force-present.
   function _admCandDefaultMapRows() { return []; }
   const ADM_CAND_CORE_FIELDS = ['token', 'class', 'category', 'version', 'mobile'];
-  const ADM_CAND_CORE_FIELD_LABELS = [['token', 'Token'], ['class', 'Class'], ['version', 'Version'], ['category', 'Category'], ['mobile', 'Mobile']];
+  const ADM_CAND_CORE_FIELD_LABELS = [['token', 'Tracking ID'], ['class', 'Class'], ['version', 'Version'], ['category', 'Category'], ['mobile', 'Mobile']];
   // Form Fields (same list app/api/admission-admin/route.js's native
   // application editor reads/writes via getFormFields/saveFormFields) is the
   // vocabulary for every non-fixed mapping row -- fetched once per Import &
@@ -45900,7 +45900,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const body = `
       <h1 style="font-size:16px;margin:0 0 2px">${_escHtml(room?.room_name || 'Room')} — Signature Sheet</h1>
       <p style="font-size:10px;color:#6b7280;margin:0 0 10px">${candidates.length} candidate(s) — Printed ${new Date().toLocaleString()}</p>
-      <table><thead><tr><th>SL</th><th>Seat</th><th>Name</th><th>Token</th><th>Signature</th></tr></thead><tbody>${rows}</tbody></table>`;
+      <table><thead><tr><th>SL</th><th>Seat</th><th>Name</th><th>Tracking ID</th><th>Signature</th></tr></thead><tbody>${rows}</tbody></table>`;
     const css = `@page { size: A4 portrait; margin: 12mm; }
       body, table { font-family: Arial, sans-serif; font-size: 11pt; }
       table { width: 100%; border-collapse: collapse; }
@@ -45969,7 +45969,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // columns this batch fills, for a VortiBD-style export with separate
   // applicant/father/mother/local-guardian photo folders.
   const ADM_CAND_FIXED_MATCH_FIELDS = [
-    ['token', 'Token'], ['external_key', 'Primary key (as imported)'],
+    ['token', 'Tracking ID'], ['external_key', 'Primary key (as imported)'],
     ['class', 'Class'], ['version', 'Version'], ['category', 'Category'], ['mobile', 'Mobile'],
   ];
   function _admCandFieldOptionsFromTemplates() {
