@@ -245,8 +245,8 @@ export async function POST(req) {
   // (unlike regular application edits). Checked before the generic
   // committee-permission logic below, which only ever ADDS access for
   // non-admins, never restricts it below what that logic would otherwise allow.
-  if (!isFullAdmin && (action === 'saveCustomCounter' || action === 'deleteCustomCounter' || action === 'saveCustomCounterLayout')) {
-    return NextResponse.json({ error: 'Only an Admin/Admission Admin can manage Custom Count cards.' }, { status: 403 });
+  if (!isFullAdmin && (action === 'saveCustomCounter' || action === 'deleteCustomCounter' || action === 'saveCustomCounterLayout' || action === 'saveApplicantColumns')) {
+    return NextResponse.json({ error: 'Only an Admin/Admission Admin can manage this dashboard layout.' }, { status: 403 });
   }
   if (!isFullAdmin) {
     // A committee member (no Admin/Admission Admin role) may only reach this
@@ -294,7 +294,7 @@ export async function POST(req) {
     // breakdowns can't be computed without it. The two tabs' own UI/edit
     // controls still gate separately (see _admModuleCan('applications', …)
     // client-side and EDIT_ACTIONS above for the real write boundary).
-    const listAppsOk = action === 'listApplications' && (_tabOk(false, perms, 'dashboard', 'view') || _tabOk(false, perms, 'applications', 'view'));
+    const listAppsOk = (action === 'listApplications' || action === 'getApplicantColumns') && (_tabOk(false, perms, 'dashboard', 'view') || _tabOk(false, perms, 'applications', 'view'));
     if (!_tabOk(false, perms, tab, level) && !formFieldsReadOk && !listAppsOk) return _forbidden();
   }
 
@@ -318,7 +318,11 @@ export async function POST(req) {
     // row's room badge in the Dashboard/Applications table silently stayed
     // blank (room_no is only ever set by the separate Payments/Admit-issuing
     // flow, a different feature, left untouched here).
-    let q = `admission_applications?select=id,tracking_id,index_id,token,source,name_english,name_bangla,class,category,version,session,status,stage,payment_status,room_no,room_id,seat_no,scan_values,created_at,father_name,father_contact,mother_name,mother_contact,guardian_name,guardian_contact,guardian_relation&circular_id=eq.${circularId}&order=created_at.desc`;
+    // Full field set the admin-configurable column layout (applicant_columns,
+    // see getApplicantColumns/saveApplicantColumns below) can draw from --
+    // added once here rather than per-column, so any combination the admin
+    // picks already has real data to show.
+    let q = `admission_applications?select=id,tracking_id,index_id,token,source,name_english,name_bangla,class,category,version,session,status,stage,payment_status,room_no,room_id,seat_no,scan_values,created_at,date_of_birth,gender,blood_group,present_address,permanent_address,father_name,father_profession,father_designation,father_contact,father_office_address,mother_name,mother_profession,mother_designation,mother_contact,mother_office_address,guardian_name,guardian_contact,guardian_relation&circular_id=eq.${circularId}&order=created_at.desc`;
     if (payload.class)   q += `&class=eq.${encodeURIComponent(payload.class)}`;
     if (payload.status)  q += `&status=eq.${encodeURIComponent(payload.status)}`;
     if (payload.source)  q += `&source=eq.${encodeURIComponent(payload.source)}`;
@@ -332,6 +336,28 @@ export async function POST(req) {
       (rows || []).forEach(r => { if (r.room_id) r.room_name = nameById[r.room_id] || null; });
     }
     return NextResponse.json({ applications: rows || [] });
+  }
+
+  // ── Applicant table column layout (admin-defined, per circular) ─────────
+  // Which fields appear in the Applications table, grouped into which
+  // column, in what order -- Status/Actions stay fixed trailing columns
+  // client-side regardless. Lives on exam_circulars (that table, not this
+  // route's own admission_applications, is already how this module stores
+  // other per-circular display settings) -- read via the same sbAdmission
+  // helper, no cross-route call needed for one jsonb column.
+  if (action === 'getApplicantColumns') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ columns: [] });
+    const rows = await sbAdmission(`exam_circulars?id=eq.${circularId}&select=applicant_columns`);
+    return NextResponse.json({ columns: (Array.isArray(rows) && rows[0] && rows[0].applicant_columns) || [] });
+  }
+  if (action === 'saveApplicantColumns') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
+    const columns = Array.isArray(payload.columns) ? payload.columns : [];
+    const res = await sbAdmission(`exam_circulars?id=eq.${circularId}`, 'PATCH', { applicant_columns: columns });
+    if (res?.error) return NextResponse.json({ error: res.error });
+    return NextResponse.json({ success: true });
   }
 
   // ── Get Application ──────────────────────────────────────────────────────

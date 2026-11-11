@@ -41874,8 +41874,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button onclick="_admExportCsv()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
             <i data-lucide="download" class="h-3.5 w-3.5"></i> Export CSV
           </button>
+          <button id="adm-columns-btn" onclick="_admAppColumnsToggleEditor()" class="hidden flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
+            <i data-lucide="columns" class="h-3.5 w-3.5"></i> Configure Columns
+          </button>
         </div>
         <div id="admFilterPanel" class="hidden mb-3 p-4 bg-slate-50 rounded-2xl border border-slate-200"></div>
+        <div id="admAppColumnsEditor" class="hidden mb-3 p-4 bg-slate-50 rounded-2xl border border-slate-200"></div>
         <div id="adm-bulk-action-bar" class="hidden flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5 mb-3">
           <span id="adm-bulk-count" class="text-xs font-bold text-blue-700">0 selected</span>
           <select id="adm-bulk-status-select" class="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold" style="width:160px">
@@ -41887,12 +41891,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
         <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-x-auto">
           <table class="w-full text-sm">
-            <thead><tr class="bg-slate-50 border-b border-slate-100">
+            <thead><tr id="adm-app-table-head-row" class="bg-slate-50 border-b border-slate-100">
               <th class="px-3 py-3 text-left" style="width:36px"><input type="checkbox" id="adm-bulk-select-all" onchange="_admToggleSelectAll(this)"></th>
-              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Applicant</th>
-              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest hidden md:table-cell">Family &amp; Scan</th>
-              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
-              <th class="px-3 py-3 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Actions</th>
             </tr></thead>
             <tbody id="adm-app-table-body"><tr><td colspan="5" class="px-4 py-10 text-center text-slate-400 text-sm">Loading…</td></tr></tbody>
           </table>
@@ -42607,6 +42607,123 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admCustomCounterSyncGrid();
   }
 
+  // ── Admin-configurable Applicant table columns ───────────────────────────
+  // Catalog of every field the admin may place into a data column -- Status
+  // and Actions stay fixed trailing columns, never part of this. Each
+  // render(a) returns one line of HTML (already escaped) or '' when this
+  // candidate has nothing for that field; a column stacks its chosen
+  // fields' non-empty lines top to bottom.
+  const ADM_APP_FIELD_CATALOG = [
+    { key: 'tracking_id', label: 'Tracking/Index ID', render: a => `<span class="font-black text-blue-600 text-xs font-mono">${_escHtml(a.tracking_id || a.token || '—')}</span>${a.index_id ? ` <span class="text-[9px] text-slate-400">${_escHtml(a.index_id)}</span>` : ''}` },
+    { key: 'name', label: 'Student Name', render: a => `<p class="font-bold text-sm text-slate-800">${_escHtml(a.name_english || '—')}</p>${a.name_bangla ? `<p class="text-[10px] text-slate-400">${_escHtml(a.name_bangla)}</p>` : ''}` },
+    { key: 'class_cat_version', label: 'Class / Category / Version', render: a => { const v = [a.class, a.category, a.version].filter(Boolean).join(' · '); return v ? `<p class="text-[10px] text-slate-500 font-bold">${_escHtml(v)}</p>` : ''; } },
+    { key: 'session', label: 'Session', render: a => a.session ? `<p class="text-xs text-slate-600">${_escHtml(a.session)}</p>` : '' },
+    { key: 'room_seat', label: 'Room / Seat', render: a => (a.room_name || a.room_no) ? `<span class="inline-block px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 text-[9px] font-bold">Room ${_escHtml(a.room_name || a.room_no)}${a.seat_no ? ' · Seat ' + _escHtml(a.seat_no) : ''}</span>` : '' },
+    { key: 'source', label: 'Source', render: a => `<p class="text-xs text-slate-500">${_escHtml(a.source || 'native')}</p>` },
+    { key: 'dob', label: 'Date of Birth', render: a => a.date_of_birth ? `<p class="text-xs text-slate-600">${_escHtml(a.date_of_birth)}</p>` : '' },
+    { key: 'gender', label: 'Gender', render: a => a.gender ? `<p class="text-xs text-slate-600">${_escHtml(a.gender)}</p>` : '' },
+    { key: 'blood_group', label: 'Blood Group', render: a => a.blood_group ? `<p class="text-xs text-slate-600">${_escHtml(a.blood_group)}</p>` : '' },
+    { key: 'present_address', label: 'Present Address', render: a => a.present_address ? `<p class="text-xs text-slate-600">${_escHtml(a.present_address)}</p>` : '' },
+    { key: 'permanent_address', label: 'Permanent Address', render: a => a.permanent_address ? `<p class="text-xs text-slate-600">${_escHtml(a.permanent_address)}</p>` : '' },
+    { key: 'father_name', label: "Father's Name", render: a => a.father_name ? `<p class="text-xs text-slate-700 font-bold">${_escHtml(a.father_name)}</p>` : '' },
+    { key: 'father_designation', label: "Father's Profession/Designation", render: a => { const v = [a.father_profession, a.father_designation].filter(Boolean).join(', '); return v ? `<p class="text-xs text-slate-500">${_escHtml(v)}</p>` : ''; } },
+    { key: 'father_contact', label: "Father's Contact", render: a => a.father_contact ? `<p class="text-xs text-slate-500">${_escHtml(a.father_contact)}</p>` : '' },
+    { key: 'father_address', label: "Father's Office Address", render: a => a.father_office_address ? `<p class="text-xs text-slate-500">${_escHtml(a.father_office_address)}</p>` : '' },
+    { key: 'mother_name', label: "Mother's Name", render: a => a.mother_name ? `<p class="text-xs text-slate-700 font-bold">${_escHtml(a.mother_name)}</p>` : '' },
+    { key: 'mother_designation', label: "Mother's Profession/Designation", render: a => { const v = [a.mother_profession, a.mother_designation].filter(Boolean).join(', '); return v ? `<p class="text-xs text-slate-500">${_escHtml(v)}</p>` : ''; } },
+    { key: 'mother_contact', label: "Mother's Contact", render: a => a.mother_contact ? `<p class="text-xs text-slate-500">${_escHtml(a.mother_contact)}</p>` : '' },
+    { key: 'mother_address', label: "Mother's Office Address", render: a => a.mother_office_address ? `<p class="text-xs text-slate-500">${_escHtml(a.mother_office_address)}</p>` : '' },
+    { key: 'guardian_name', label: "Guardian's Name", render: a => a.guardian_name ? `<p class="text-xs text-slate-700 font-bold">${_escHtml(a.guardian_name)}${a.guardian_relation ? ' (' + _escHtml(a.guardian_relation) + ')' : ''}</p>` : '' },
+    { key: 'guardian_contact', label: "Guardian's Contact", render: a => a.guardian_contact ? `<p class="text-xs text-slate-500">${_escHtml(a.guardian_contact)}</p>` : '' },
+    { key: 'scan_values', label: 'Scan/Tag Results', render: a => { const badges = _admScanValuesCompact(a.scan_values).map(({ label, shown }) => `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[9px] font-bold whitespace-nowrap">${_escHtml(label)}: ${_escHtml(shown)}</span>`).join(''); return badges ? `<div class="flex flex-wrap gap-1">${badges}</div>` : ''; } },
+  ];
+  function _admAppFieldLabel(key) { const f = ADM_APP_FIELD_CATALOG.find(x => x.key === key); return f ? f.label : key; }
+  function _admAppFieldRender(key, a) { const f = ADM_APP_FIELD_CATALOG.find(x => x.key === key); return f ? (f.render(a) || '') : ''; }
+  // Matches the table's layout from before this feature existed, so a
+  // circular with no saved layout yet (applicant_columns = []) looks
+  // exactly like it always did.
+  const ADM_APP_DEFAULT_COLUMNS = [
+    { label: 'Applicant', fields: ['tracking_id', 'name', 'class_cat_version', 'room_seat'] },
+    { label: 'Family & Scan', fields: ['father_name', 'father_contact', 'mother_name', 'mother_contact', 'guardian_name', 'guardian_contact', 'scan_values'] },
+  ];
+  let _admAppColumns = ADM_APP_DEFAULT_COLUMNS;
+  async function _admLoadApplicantColumns() {
+    try {
+      const r = await _admAdminFetch('getApplicantColumns', { circular_id: _admCandActiveCircularId });
+      _admAppColumns = (Array.isArray(r.columns) && r.columns.length) ? r.columns : ADM_APP_DEFAULT_COLUMNS;
+    } catch (e) { _admAppColumns = ADM_APP_DEFAULT_COLUMNS; }
+    document.getElementById('adm-columns-btn')?.classList.toggle('hidden', !_admCandMyAccess.is_full_admin);
+    _admRenderTableHead();
+    _admFilterApps();
+  }
+  function _admRenderTableHead() {
+    const row = document.getElementById('adm-app-table-head-row');
+    if (!row) return;
+    const dataThs = _admAppColumns.map((col, i) => `<th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest${i > 0 ? ' hidden md:table-cell' : ''}">${_escHtml(col.label || 'Column ' + (i + 1))}</th>`).join('');
+    row.innerHTML = `<th class="px-3 py-3 text-left" style="width:36px"><input type="checkbox" id="adm-bulk-select-all" onchange="_admToggleSelectAll(this)"></th>`
+      + dataThs
+      + `<th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>`
+      + `<th class="px-3 py-3 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Actions</th>`;
+  }
+  // ── Column editor (admin-only) ───────────────────────────────────────────
+  let _admAppColumnsDraft = null;
+  function _admAppColumnsToggleEditor() {
+    const panel = document.getElementById('admAppColumnsEditor');
+    if (!panel) return;
+    const show = panel.classList.contains('hidden');
+    if (show) { _admAppColumnsDraft = JSON.parse(JSON.stringify(_admAppColumns)); _admAppColumnsRenderEditor(); }
+    panel.classList.toggle('hidden', !show);
+  }
+  function _admAppColumnsRenderEditor() {
+    const panel = document.getElementById('admAppColumnsEditor');
+    if (!panel || !_admAppColumnsDraft) return;
+    panel.innerHTML = `
+      <p class="text-[10px] uppercase text-slate-400 font-bold mb-1">Configure Applicant Table Columns</p>
+      <p class="text-xs text-slate-400 mb-3">Status and Actions always stay as the last two columns. Build the columns before them below — each column stacks its chosen fields as separate lines, in the order added.</p>
+      <div class="flex flex-wrap items-start gap-3 mb-3">
+        ${_admAppColumnsDraft.map((col, ci) => `
+          <div class="bg-white rounded-xl border border-slate-200 p-3" style="width:220px">
+            <div class="flex items-center gap-1 mb-2">
+              <input value="${_escHtml(col.label)}" oninput="_admAppColumnsSetLabel(${ci}, this.value)" class="flex-1 px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs font-bold" placeholder="Column label">
+              <button type="button" onclick="_admAppColumnsRemoveColumn(${ci})" class="text-red-400 hover:text-red-600 text-sm px-1">&times;</button>
+            </div>
+            <div class="flex flex-col gap-1 mb-2">
+              ${(col.fields || []).map((fk, fi) => `<span class="flex items-center justify-between gap-1 px-2 py-1 bg-slate-100 rounded text-[10px] font-bold text-slate-600">${_escHtml(_admAppFieldLabel(fk))}<button type="button" onclick="_admAppColumnsRemoveField(${ci},${fi})" class="text-slate-400 hover:text-red-500">&times;</button></span>`).join('') || '<span class="text-[10px] text-slate-300">No fields yet</span>'}
+            </div>
+            <select onchange="_admAppColumnsAddField(${ci}, this.value)" class="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded text-[10px]">
+              <option value="">+ Add field…</option>
+              ${ADM_APP_FIELD_CATALOG.map(f => `<option value="${f.key}">${_escHtml(f.label)}</option>`).join('')}
+            </select>
+          </div>`).join('')}
+        <button type="button" onclick="_admAppColumnsAddColumn()" class="flex items-center justify-center px-4 py-8 bg-white border border-dashed border-slate-300 rounded-xl text-xs font-bold text-slate-400 hover:text-slate-600" style="width:120px">+ Add Column</button>
+      </div>
+      <div class="flex gap-2 flex-wrap">
+        <button type="button" onclick="_admAppColumnsSave()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">Save Layout</button>
+        <button type="button" onclick="_admAppColumnsCancel()" class="px-3 py-1.5 border border-slate-200 text-slate-500 rounded-lg text-[10px] font-black uppercase">Cancel</button>
+        <button type="button" onclick="_admAppColumnsReset()" class="px-3 py-1.5 border border-slate-200 text-slate-500 rounded-lg text-[10px] font-black uppercase">Reset to Default</button>
+      </div>`;
+  }
+  function _admAppColumnsSetLabel(ci, val) { if (_admAppColumnsDraft[ci]) _admAppColumnsDraft[ci].label = val; }
+  function _admAppColumnsAddColumn() { _admAppColumnsDraft.push({ label: 'New Column', fields: [] }); _admAppColumnsRenderEditor(); }
+  function _admAppColumnsRemoveColumn(ci) { _admAppColumnsDraft.splice(ci, 1); _admAppColumnsRenderEditor(); }
+  function _admAppColumnsAddField(ci, key) { if (!key || !_admAppColumnsDraft[ci]) return; if (!_admAppColumnsDraft[ci].fields.includes(key)) _admAppColumnsDraft[ci].fields.push(key); _admAppColumnsRenderEditor(); }
+  function _admAppColumnsRemoveField(ci, fi) { if (_admAppColumnsDraft[ci]) _admAppColumnsDraft[ci].fields.splice(fi, 1); _admAppColumnsRenderEditor(); }
+  function _admAppColumnsReset() { _admAppColumnsDraft = JSON.parse(JSON.stringify(ADM_APP_DEFAULT_COLUMNS)); _admAppColumnsRenderEditor(); }
+  function _admAppColumnsCancel() { document.getElementById('admAppColumnsEditor')?.classList.add('hidden'); _admAppColumnsDraft = null; }
+  async function _admAppColumnsSave() {
+    if (!_admAppColumnsDraft) return;
+    try {
+      const res = await _admAdminFetch('saveApplicantColumns', { circular_id: _admCandActiveCircularId, columns: _admAppColumnsDraft });
+      if (res.error) { showToast(res.error, 'error'); return; }
+      _admAppColumns = _admAppColumnsDraft;
+      document.getElementById('admAppColumnsEditor')?.classList.add('hidden');
+      _admAppColumnsDraft = null;
+      _admRenderTableHead();
+      _admFilterApps();
+      showToast('Column layout saved', 'success');
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+
   let _admLastFiltered = [];
   let _admTablePage = 0;
   const ADM_TABLE_PAGE_SIZE = 200;
@@ -42615,8 +42732,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const tbody = document.getElementById('adm-app-table-body');
     if (!tbody) return;
     _admSelectedIds = new Set([..._admSelectedIds].filter(id => apps.some(a => a.id === id)));
+    const colCount = _admAppColumns.length + 3;
     if (!apps.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="px-4 py-10 text-center text-slate-400 text-sm">No applications found.</td></tr>';
+      tbody.innerHTML = `<tr><td colspan="${colCount}" class="px-4 py-10 text-center text-slate-400 text-sm">No applications found.</td></tr>`;
       document.getElementById('adm-app-count').textContent = '';
       document.getElementById('adm-app-pagination').innerHTML = '';
       _admRenderBulkBar();
@@ -42627,37 +42745,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (_admTablePage < 0) _admTablePage = 0;
     const pageApps = apps.slice(_admTablePage * ADM_TABLE_PAGE_SIZE, _admTablePage * ADM_TABLE_PAGE_SIZE + ADM_TABLE_PAGE_SIZE);
     document.getElementById('adm-app-count').textContent = `${apps.length} record${apps.length > 1 ? 's' : ''}`;
-    // Applicant/Family columns pack what used to be 5 separate columns
-    // (Tracking ID, Name, Class, Category, Session + father/mother/guardian)
-    // into two dense, multi-line cells -- fewer columns to squeeze/hide on
-    // narrow screens, more info visible per row on every screen size.
+    // Data columns are fully admin-defined (_admAppColumns/ADM_APP_FIELD_CATALOG
+    // above) -- each one stacks its chosen fields' rendered lines; Status and
+    // Actions stay fixed, always the last two columns.
     tbody.innerHTML = pageApps.map(a => {
-      const metaLine = [a.class, a.category, a.version, a.session].filter(Boolean).join(' · ');
-      const family = [
-        a.father_name ? `<p><span class="font-black text-slate-500">F:</span> ${_escHtml(a.father_name)}${a.father_contact ? ' · ' + _escHtml(a.father_contact) : ''}</p>` : '',
-        a.mother_name ? `<p><span class="font-black text-slate-500">M:</span> ${_escHtml(a.mother_name)}${a.mother_contact ? ' · ' + _escHtml(a.mother_contact) : ''}</p>` : '',
-        a.guardian_name ? `<p><span class="font-black text-slate-500">G:</span> ${_escHtml(a.guardian_name)}${a.guardian_contact ? ' · ' + _escHtml(a.guardian_contact) : ''}${a.guardian_relation ? ' (' + _escHtml(a.guardian_relation) + ')' : ''}</p>` : '',
-      ].filter(Boolean).join('');
-      // Scan Option results (status/tag/form -- submission, attendance, a
-      // Custom Tag, Marks Entry fields, whatever this circular has defined)
-      // shown as small badges so they're visible without opening the row --
-      // this is the real reason this column so often looked near-empty for
-      // bulk-imported rosters with no father/mother data on file.
-      const scanBadges = _admScanValuesCompact(a.scan_values).map(({ label, shown }) =>
-        `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[9px] font-bold whitespace-nowrap">${_escHtml(label)}: ${_escHtml(shown)}</span>`
-      ).join('');
-      const details = family + (scanBadges ? `<div class="flex flex-wrap gap-1${family ? ' mt-1' : ''}">${scanBadges}</div>` : '');
+      const dataCells = _admAppColumns.map((col, i) => {
+        const lines = (col.fields || []).map(fk => _admAppFieldRender(fk, a)).filter(Boolean);
+        return `<td class="px-3 py-3${i > 0 ? ' hidden md:table-cell' : ''} text-[11px] text-slate-600 leading-relaxed space-y-0.5">${lines.length ? lines.join('') : '<span class="text-slate-300">—</span>'}</td>`;
+      }).join('');
       return `
       <tr class="border-t border-slate-50 hover:bg-slate-50/80 transition-all cursor-pointer" onclick="_admLoadForm(${a.id})">
         <td class="px-3 py-3 adm-row-select-cell" onclick="event.stopPropagation()"><input type="checkbox" class="adm-row-select" data-id="${a.id}" ${_admSelectedIds.has(a.id) ? 'checked' : ''} onchange="_admToggleRowSelect(${a.id},this.checked)"></td>
-        <td class="px-3 py-3">
-          <span class="font-black text-blue-600 text-xs font-mono">${_escHtml(a.tracking_id || a.token || '—')}</span>${a.index_id ? ` <span class="text-[9px] text-slate-400">${_escHtml(a.index_id)}</span>` : ''}
-          <p class="font-bold text-sm text-slate-800 mt-0.5">${_escHtml(a.name_english || '—')}</p>
-          ${a.name_bangla ? `<p class="text-[10px] text-slate-400">${_escHtml(a.name_bangla)}</p>` : ''}
-          ${metaLine ? `<p class="text-[10px] text-slate-500 font-bold mt-0.5">${_escHtml(metaLine)}</p>` : ''}
-          ${(a.room_name || a.room_no) ? `<span class="inline-block mt-1 px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 text-[9px] font-bold">Room ${_escHtml(a.room_name || a.room_no)}${a.seat_no ? ' · Seat ' + _escHtml(a.seat_no) : ''}</span>` : ''}
-        </td>
-        <td class="px-3 py-3 hidden md:table-cell text-[11px] text-slate-600 leading-relaxed">${details || '<span class="text-slate-300">—</span>'}</td>
+        ${dataCells}
         <td class="px-3 py-3">
           <select class="adm-row-status-select px-2 py-1 rounded-lg text-xs font-bold ${ADM_STATUS_COLORS[a.status] || ''}" onchange="_admChangeStatus(event,${a.id})" onclick="event.stopPropagation()">
             ${ADM_STATUSES.map(s => `<option${s === a.status ? ' selected' : ''}>${s}</option>`).join('')}
@@ -45170,6 +45269,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admShowView('dashboard');
     _admLoadDashboard();
     _admLoadCustomCounters();
+    _admLoadApplicantColumns();
   }
   // Part 6: hide/show the Dashboard/Settings/Candidates toolbar buttons for
   // committee members per their 'applications'/'admin_settings' grants --
@@ -47854,7 +47954,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         const r = await _admCandFetch('lookupCandidateByToken', { circular_id: _admCandActiveCircularId, code, scope: _admCandScanScope });
         if (r.error) {
           if (note) note.textContent = r.error;
-          if (r.out_of_scope && r.candidate) _admCandRenderScanResult(r.candidate, true);
+          if (r.out_of_scope && r.candidate) _admCandRenderScanResult(r.candidate, true, rawCode);
           return;
         }
         if (note) note.textContent = '';
@@ -47867,11 +47967,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const r = await _admCandFetch('applyScanOption', { circular_id: _admCandActiveCircularId, option_key: opt.key, code, scope: _admCandScanScope, ...extra });
       if (r.error) {
         if (note) note.textContent = r.error;
-        if (r.out_of_scope && r.candidate) _admCandRenderScanResult(r.candidate, true);
+        if (r.out_of_scope && r.candidate) _admCandRenderScanResult(r.candidate, true, rawCode);
         return;
       }
       if (note) note.textContent = 'Marked — keep scanning for the next one.';
-      _admCandRenderScanResult(r.candidate, false);
+      _admCandRenderScanResult(r.candidate, false, rawCode);
       // Keep the Applications tab's in-memory roster (and its Scan Option
       // filter dimensions/pills) current immediately, the same way every
       // other mutation in this module patches _admAllApps in place rather
@@ -47891,7 +47991,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (note) note.textContent = e.message || 'Lookup failed';
     }
   }
-  function _admCandRenderScanResult(c, rejected) {
+  // The scanned QR itself often encodes a full "scan to verify" URL on the
+  // source system (confirmed by the user against a real printed card) --
+  // _admCandExtractScanCode already strips that down to the bare token for
+  // our own lookup, but the original link is still worth offering as an
+  // optional cross-check. Kept strictly opt-in/on-demand (a link, not an
+  // auto-navigate) so the fast path -- our own DB lookup, already loaded --
+  // stays the fast path; opening a third-party page is a separate, slower
+  // action the admin chooses only when they actually want it.
+  function _admCandScannedUrl(raw) {
+    const s = String(raw || '').trim();
+    const looksLikeUrl = /^[a-z][a-z0-9+.-]*:\/\//i.test(s) || /^[a-z0-9-]+(\.[a-z0-9-]+)+\//i.test(s);
+    if (!looksLikeUrl) return null;
+    try { return /^[a-z][a-z0-9+.-]*:\/\//i.test(s) ? s : 'https://' + s; } catch (e) { return null; }
+  }
+  function _admCandRenderScanResult(c, rejected, sourceRaw) {
     const host = document.getElementById('admCandScanResult');
     if (!host) return;
     host.classList.remove('hidden');
@@ -47902,14 +48016,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (opt.behavior === 'status') statusLine = `${_escHtml(opt.label)}: <b>${val && val.done ? 'Done' : 'Pending'}</b>`;
       else if (opt.behavior === 'tag') statusLine = `${_escHtml(opt.label)}: <b>${_escHtml(val === true ? 'Yes' : String(val ?? ''))}</b>`;
     }
+    const sourceUrl = _admCandScannedUrl(sourceRaw);
     host.innerHTML = `<div class="flex items-center gap-4 ${rejected ? 'bg-red-50 border border-red-200' : 'bg-emerald-50 border border-emerald-200'} rounded-xl p-3">
       ${c.student_photo ? `<img src="${_escHtml(c.student_photo)}" style="width:48px;height:48px;object-fit:cover;border-radius:10px">` : ''}
       <div class="flex-1">
         <p class="font-black text-slate-800">${_escHtml(c.name_english || '—')}</p>
         <p class="text-xs text-slate-500">${_escHtml(c.class || '')} · <span class="font-mono text-blue-600">${_escHtml(c.token || '')}</span></p>
         <p class="text-xs mt-1">${rejected ? 'Outside selected scope — not marked.' : statusLine}</p>
+        ${sourceUrl ? `<a href="${_escHtml(sourceUrl)}" target="_blank" rel="noopener" class="inline-flex items-center gap-1 text-[10px] font-black uppercase text-blue-600 mt-1.5"><i data-lucide="external-link" class="h-3 w-3"></i> Open verification link</a>` : ''}
       </div>
     </div>`;
+    if (window.lucide) lucide.createIcons();
   }
 
   // ── PERMISSION CONTROL PANEL (Admin only) ────────────────────────────────────
