@@ -44402,6 +44402,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // tag-filter code (never deleted, never reachable) doesn't throw.
   let _admCandScanMode = null, _admCandScanScope = {}, _admCandScanInputMode = null;
   let _admCandScanOptions = [], _admCandScanSelectedOption = null, _admCandScanTagValue = null;
+  // Admin-overridable QR/manual-code extraction rule for the active circular
+  // (exam_circulars.qr_value_pattern) -- a regex with one capture group,
+  // tried before the built-in URL-last-segment heuristic in
+  // _admCandExtractScanCode. Blank means "use the built-in heuristic only".
+  let _admCandQrValuePattern = '';
   let _admCandTagDefs = [], _admCandMarksFormOpen = false, _admCandMarksCurrentCandidate = null;
   let _admCandMyAccess = { is_full_admin: true, circulars: {} }, _admCandMyPerms = null;
 
@@ -44754,6 +44759,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('admCandCircularGate')?.classList.add('hidden');
     document.getElementById('admCandMyCircularsGate')?.classList.add('hidden');
     const c = _admCandCirculars.find(x => x.id === _admCandActiveCircularId);
+    _admCandQrValuePattern = (c && c.qr_value_pattern) || '';
     const myEntry = (_admCandMyAccess.circulars || {})[_admCandActiveCircularId];
     _admCandMyPerms = _admCandMyAccess.is_full_admin ? null : ((myEntry && myEntry.permissions) || {});
     const sess = _admCandSessions.find(s => s.id === _admCandActiveSessionId);
@@ -45145,6 +45151,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </select>
             <input id="admCandScanOptNewTagOptions" placeholder="Options (comma-separated)" class="hidden flex-1 min-w-[160px] px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
             <button onclick="_admCandScanOptionCreate()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">Create</button>
+          </div>
+          <p id="admCandScanOptNewBehaviorHelp" class="text-[10px] text-slate-400"></p>
+        </div>
+        <div id="admCandQrFormatBox" class="hidden bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-3">
+          <p class="text-[10px] uppercase text-slate-400 font-bold mb-1">QR Value Format</p>
+          <p class="text-[10px] text-slate-400 mb-2">How to pull the real value out of a scanned/typed code. Leave blank to use the default: if it looks like a URL (e.g. vortibd.com/54321), the last part after the final "/" is used (54321). If the external system's QR format changes, enter a regular expression with one capture group here instead — the captured text becomes the code looked up.</p>
+          <div class="flex gap-2 items-center flex-wrap">
+            <input id="admCandQrFormatInput" placeholder="e.g. /id=([0-9]+)/ — leave blank for the default" class="flex-1 min-w-[220px] px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono">
+            <button onclick="_admCandSaveQrValuePattern()" class="px-3 py-1.5 bg-slate-800 text-white rounded-lg text-[10px] font-black uppercase">Save</button>
           </div>
         </div>
         <div id="admCandScanOptionPanel" class="hidden bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-3"></div>
@@ -46741,6 +46756,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _admCandUpdateScanScopeBoxVisibility();
       _admRenderFilterPanel(); // no-op if the Applications filter panel isn't open; keeps its dims current if it is
     } catch (e) {}
+    const qrBox = document.getElementById('admCandQrFormatBox');
+    const isAdmin = _admCandMyAccess.is_full_admin;
+    if (qrBox) qrBox.classList.toggle('hidden', !isAdmin);
+    const qrInput = document.getElementById('admCandQrFormatInput');
+    if (qrInput) qrInput.value = _admCandQrValuePattern || '';
+  }
+  async function _admCandSaveQrValuePattern() {
+    if (!_admCandRequireCircular()) return;
+    const pattern = document.getElementById('admCandQrFormatInput').value.trim();
+    try {
+      const res = await _admCandFetch('saveQrValuePattern', { circular_id: _admCandActiveCircularId, pattern });
+      if (res.error) { showToast(res.error, 'error'); return; }
+      _admCandQrValuePattern = pattern;
+      showToast('Saved', 'success');
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }
   // Scoping/scanning is meaningless with nothing selected to scan for --
   // hide that whole box (Scope + Open Camera/Manual) rather than leaving it
@@ -46777,10 +46807,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // never create, edit, or remove one.
   function _admCandScanToggleOptionCreate() {
     document.getElementById('admCandScanOptionCreateBox')?.classList.toggle('hidden');
+    _admCandScanOptionBehaviorChange(); // populate the help text for whatever behavior is currently selected
   }
+  // Brief plain-language explanation of each behavior, shown under the
+  // creation form so an admin picks the right one before committing (a
+  // behavior is immutable once a scan option is created).
+  const ADM_SCAN_BEHAVIOR_HELP = {
+    status: 'A single tap mark, like a checklist item — scan a QR and it is instantly marked "done" with a timestamp. Nothing else to enter. Good for things like "Form Collected" or "Present at Exam".',
+    tag: 'Pick one value first (a Toggle, a typed Text value, or a Dropdown choice like "Division A/B/C"), lock it, then scan as many candidates as you want — every one gets that same value. Good for sorting people into groups.',
+    form: 'After each scan, a small form with the fields you define (number or text) appears for that one candidate — fill it in and submit, then scanning continues automatically. Good for recording marks or any other per-person details.',
+  };
   function _admCandScanOptionBehaviorChange() {
     const behavior = document.getElementById('admCandScanOptNewBehavior').value;
     document.getElementById('admCandScanOptNewTagType')?.classList.toggle('hidden', behavior !== 'tag');
+    const help = document.getElementById('admCandScanOptNewBehaviorHelp');
+    if (help) help.textContent = ADM_SCAN_BEHAVIOR_HELP[behavior] || '';
     _admCandScanOptionTagTypeChange();
   }
   function _admCandScanOptionTagTypeChange() {
@@ -47055,9 +47096,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // scans AND manual-typed/pasted URLs both resolve the same way, with no
   // per-system config needed -- whatever the QR/paste contains, only the
   // final /segment (or the raw value, if it isn't URL-shaped at all) is used.
+  //
+  // If the admin has set a custom _admCandQrValuePattern (one capture group),
+  // that's tried FIRST -- an external system's QR format can change over
+  // time, so this is an escape hatch rather than a second hardcoded rule.
+  // Falls back to the built-in URL heuristic if blank, not set, or the
+  // custom pattern doesn't match.
   function _admCandExtractScanCode(raw) {
     const s = String(raw || '').trim();
     if (!s) return s;
+    if (_admCandQrValuePattern) {
+      try {
+        const m = s.match(new RegExp(_admCandQrValuePattern));
+        if (m) return (m[1] !== undefined ? m[1] : m[0]).trim();
+      } catch (e) { /* invalid regex -- fall through to the built-in heuristic */ }
+    }
     const looksLikeUrl = /^[a-z][a-z0-9+.-]*:\/\//i.test(s) || /^[a-z0-9-]+(\.[a-z0-9-]+)+\//i.test(s);
     if (!looksLikeUrl) return s;
     try {

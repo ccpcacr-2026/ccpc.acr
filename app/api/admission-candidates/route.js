@@ -176,7 +176,7 @@ export async function POST(req) {
   // sections, only use what's already been granted to them.
   const ADMIN_ONLY_ACTIONS = new Set([
     'listSessions', 'createSession', 'updateSession', 'deleteSession', 'createCircular', 'updateCircular', 'getStudentFieldValues',
-    'saveScanOption', 'deleteScanOption', 'addFormField', 'removeFormField',
+    'saveScanOption', 'deleteScanOption', 'addFormField', 'removeFormField', 'saveQrValuePattern',
     'listStaffForCommittee', 'listCommitteeMembers', 'saveCommitteeMember', 'removeCommitteeMember', 'listOrgCommittees', 'pullCommitteeMembers',
     'getVortibdCredentials', 'saveVortibdCredentials', 'listVortibdCirculars', 'getVortibdSyncConfig', 'saveVortibdSyncConfig', 'saveVortibdCircularLink', 'vortibdPullFile', 'syncVortibdNow',
   ]);
@@ -270,6 +270,18 @@ export async function POST(req) {
     const res = await sbAdmission(`exam_circulars?id=eq.${id}`, 'PATCH', { name, bounds, mode, is_active, unique_fields, ...downloads });
     if (res?.error) return NextResponse.json({ error: res.error.includes('duplicate') ? 'A circular with this name already exists in this session.' : res.error });
     return NextResponse.json({ success: true, id, name, bounds, mode, is_active, unique_fields, ...downloads });
+  }
+
+  if (action === 'saveQrValuePattern') {
+    const id = parseInt(payload.circular_id, 10);
+    if (!id) return NextResponse.json({ error: 'Missing circular.' });
+    const pattern = String(payload.pattern || '').trim();
+    if (pattern) {
+      try { new RegExp(pattern); } catch (e) { return NextResponse.json({ error: 'That is not a valid regular expression: ' + e.message }); }
+    }
+    const res = await sbAdmission(`exam_circulars?id=eq.${id}`, 'PATCH', { qr_value_pattern: pattern || null });
+    if (res?.error) return NextResponse.json({ error: res.error });
+    return NextResponse.json({ success: true });
   }
 
   if (action === 'saveCircularTemplateMap') {
