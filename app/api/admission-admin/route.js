@@ -40,6 +40,29 @@ async function sbAdmission(path, method = 'GET', body = null) {
   return text ? JSON.parse(text) : null;
 }
 
+// Full-roster read via Range-header pagination (same pattern as
+// app/api/student-admin/route.js's own sbAllRows), not a single capped
+// page -- listApplications used a flat `limit=1000`, which silently
+// truncated the Dashboard's totals/breakdowns once a circular's roster
+// (e.g. a VortiBD-synced one) grew past 1000 rows.
+async function sbAdmissionAllRows(path) {
+  const PAGE = 1000;
+  let all = [];
+  let offset = 0;
+  while (true) {
+    const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
+      headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'admission', Range: `${offset}-${offset + PAGE - 1}` },
+    });
+    if (!res.ok) return { error: await res.text() };
+    const page = await res.json();
+    if (!Array.isArray(page)) return { error: 'Unexpected response shape' };
+    all = all.concat(page);
+    if (page.length < PAGE) break;
+    offset += PAGE;
+  }
+  return all;
+}
+
 async function sbAdmissionRpc(fn, params = {}) {
   const res = await fetch(`${SB_URL}/rest/v1/rpc/${fn}`, {
     method: 'POST',
@@ -247,11 +270,11 @@ export async function POST(req) {
   if (action === 'listApplications') {
     const circularId = parseInt(payload.circular_id, 10);
     if (!circularId) return NextResponse.json({ applications: [] });
-    let q = `admission_applications?select=id,tracking_id,index_id,token,source,name_english,name_bangla,class,category,version,session,status,stage,payment_status,room_no,created_at&circular_id=eq.${circularId}&order=created_at.desc&limit=1000`;
+    let q = `admission_applications?select=id,tracking_id,index_id,token,source,name_english,name_bangla,class,category,version,session,status,stage,payment_status,room_no,created_at&circular_id=eq.${circularId}&order=created_at.desc`;
     if (payload.class)   q += `&class=eq.${encodeURIComponent(payload.class)}`;
     if (payload.status)  q += `&status=eq.${encodeURIComponent(payload.status)}`;
     if (payload.source)  q += `&source=eq.${encodeURIComponent(payload.source)}`;
-    const rows = await sbAdmission(q);
+    const rows = await sbAdmissionAllRows(q);
     if (rows?.error) return NextResponse.json({ error: rows.error });
     return NextResponse.json({ applications: rows || [] });
   }
