@@ -42187,7 +42187,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _admSetV('adm-f-version', a.version); _admSetV('adm-f-quota', a.quota || 'No'); _admSetV('adm-f-status', a.status);
       _admSetV('adm-f-tracking-id', a.tracking_id || a.token || ''); _admSetV('adm-f-index-id', a.index_id || '');
       _admSetV('adm-f-name-en', a.name_english); _admSetV('adm-f-name-bn', a.name_bangla);
-      _admSetV('adm-f-dob', a.date_of_birth ? a.date_of_birth.split('T')[0] : '');
+      // Some rows were synced before date_of_birth's values were normalized
+      // to ISO on the way in (see _admCandNormalizeDateToISO) -- re-apply
+      // the same tolerant parse here so an already-stored non-ISO date
+      // (e.g. "17-12-2017") still displays in this <input type="date">
+      // instead of silently rendering blank, without needing a re-sync.
+      _admSetV('adm-f-dob', a.date_of_birth ? _admCandNormalizeDateToISO(a.date_of_birth.split('T')[0]) : '');
       _admSetV('adm-f-blood', a.blood_group); _admSetV('adm-f-gender', a.gender); _admSetV('adm-f-religion', a.religion);
       _admSetV('adm-f-birth-reg', a.birth_reg_no); _admSetV('adm-f-nationality', a.nationality || 'Bangladeshi');
       _admSetV('adm-f-emergency', a.emergency_contact); _admSetV('adm-f-height', a.height);
