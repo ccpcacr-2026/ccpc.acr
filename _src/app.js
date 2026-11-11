@@ -41780,6 +41780,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
       <div class="hidden flex gap-1 mb-4 overflow-x-auto pb-1" id="adm-top-tabs">
         <button class="adm-ftab" data-id="dashboard" onclick="_admShowView('dashboard')">Dashboard</button>
+        <button class="adm-ftab" data-id="applist" onclick="_admShowView('applist')">Applications</button>
         <button class="adm-ftab" data-id="adm-cand-import" onclick="_admShowTopTab('adm-cand-import',this)">Import &amp; Mapping</button>
         <button class="adm-ftab" data-id="adm-cand-rooms" onclick="_admShowTopTab('adm-cand-rooms',this)">Rooms</button>
         <button class="adm-ftab" data-id="adm-cand-alloc" onclick="_admShowTopTab('adm-cand-alloc',this)">Seat Allocation</button>
@@ -41789,6 +41790,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
 
       <div id="admAdminDashboard" class="hidden">
+        <div id="adm-stats-row" class="mb-3"></div>
+        <div id="adm-custom-counters-section"></div>
+      </div>
+
+      <div id="admAdminAppList" class="hidden">
         <div class="flex flex-wrap items-center gap-2 mb-3">
           <input type="text" id="adm-search-input" placeholder="Search name, tracking ID…" oninput="_admFilterAppsDebounced()"
             class="flex-1 min-w-[160px] px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500">
@@ -41811,7 +41817,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </button>
         </div>
         <div id="admFilterPanel" class="hidden mb-3 p-4 bg-slate-50 rounded-2xl border border-slate-200"></div>
-        <div id="adm-stats-row" class="mb-3"></div>
         <div id="adm-bulk-action-bar" class="hidden flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5 mb-3">
           <span id="adm-bulk-count" class="text-xs font-bold text-blue-700">0 selected</span>
           <select id="adm-bulk-status-select" class="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold" style="width:160px">
@@ -41844,7 +41849,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
       <div id="admAdminForm" class="hidden">
         <div class="flex items-center gap-3 mb-4 flex-wrap">
-          <button onclick="_admShowView('dashboard')" class="flex items-center gap-1.5 px-3 py-2 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50"><i data-lucide="arrow-left" class="h-3.5 w-3.5"></i> Back</button>
+          <button onclick="_admShowView('applist')" class="flex items-center gap-1.5 px-3 py-2 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50"><i data-lucide="arrow-left" class="h-3.5 w-3.5"></i> Back</button>
           <h2 id="adm-form-title" class="font-black text-slate-800 text-sm">New Application</h2>
           <div class="ml-auto flex items-center gap-2">
             <button onclick="_admPrintAdmitCard()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all"><i data-lucide="credit-card" class="h-3.5 w-3.5"></i> Admit Card</button>
@@ -41891,14 +41896,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function _admShowView(which) {
     document.getElementById('admAdminDashboard').classList.toggle('hidden', which !== 'dashboard');
+    document.getElementById('admAdminAppList').classList.toggle('hidden', which !== 'applist');
     document.getElementById('admAdminForm').classList.toggle('hidden', which !== 'form');
     document.getElementById('admAdminSettings').classList.toggle('hidden', which !== 'settings');
     document.getElementById('admAdminCandidates').classList.toggle('hidden', which !== 'candidates');
-    // Dashboard/Settings sit directly in the shared top-level tab bar
-    // (#adm-top-tabs) alongside the Candidates-side tabs -- keep its active
-    // highlight in sync here too. The Candidates-side tabs manage their own
-    // highlight via _admShowTopTab (which calls this with 'candidates').
-    if (which === 'dashboard' || which === 'settings') {
+    // Dashboard/Applications/Settings sit directly in the shared top-level
+    // tab bar (#adm-top-tabs) alongside the Candidates-side tabs -- keep its
+    // active highlight in sync here too. The Candidates-side tabs manage
+    // their own highlight via _admShowTopTab (which calls this with
+    // 'candidates').
+    if (which === 'dashboard' || which === 'applist' || which === 'settings') {
       document.querySelectorAll('#adm-top-tabs .adm-ftab').forEach(el => el.classList.remove('adm-ftab-on'));
       document.querySelector(`#adm-top-tabs .adm-ftab[data-id="${which}"]`)?.classList.add('adm-ftab-on');
     }
@@ -42236,7 +42243,114 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         ${_admBreakdownList('source', 'By Source', k => ADM_SOURCE_BAR_COLORS[k] || 'bg-slate-400')}
       </div>`;
     if (window.lucide) lucide.createIcons();
+    _admRenderCustomCounters();
   }
+
+  // ── Custom Count cards ───────────────────────────────────────────────────
+  // Admin-built AND-of-field=value filters, computed live client-side from
+  // _admAllApps (same roster the built-in breakdowns already use) -- only
+  // the filter DEFINITION is persisted server-side (dashboard_custom_
+  // counters), never a stored count, so a saved card always reflects the
+  // circular's current data.
+  const ADM_CUSTOM_COUNTER_FIELDS = [
+    ['class', 'Class'], ['category', 'Category'], ['version', 'Version'], ['session', 'Session'],
+    ['status', 'Status'], ['source', 'Source'], ['payment_status', 'Payment Status'], ['stage', 'Stage'],
+  ];
+  let _admCustomCounters = [];
+  let _admCustomCounterDraft = []; // [{field, value}]
+  function _admCustomCounterFieldLabel(key) { return (ADM_CUSTOM_COUNTER_FIELDS.find(([k]) => k === key) || [key, key])[1]; }
+  function _admCustomCounterValues(field) {
+    return [...new Set(_admAllApps.map(a => (field === 'source' ? (a.source || 'native') : a[field])).filter(v => v !== undefined && v !== null && v !== ''))].sort();
+  }
+  function _admCustomCounterMatches(app, filters) {
+    return Object.entries(filters || {}).every(([field, value]) => {
+      const v = field === 'source' ? (app.source || 'native') : app[field];
+      return String(v || '') === String(value);
+    });
+  }
+  function _admCustomCounterCountFor(filters) { return _admAllApps.filter(a => _admCustomCounterMatches(a, filters)).length; }
+  function _admCustomCounterDraftFilters() {
+    const f = {}; _admCustomCounterDraft.forEach(c => { f[c.field] = c.value; }); return f;
+  }
+  function _admCustomCounterPopulateValueSelect() {
+    const fieldSel = document.getElementById('admCustomCounterFieldSel');
+    const valSel = document.getElementById('admCustomCounterValueSel');
+    if (!fieldSel || !valSel) return;
+    const values = _admCustomCounterValues(fieldSel.value);
+    valSel.innerHTML = values.length ? values.map(v => `<option value="${_escHtml(v)}">${_escHtml(v)}</option>`).join('') : '<option value="">(no values yet)</option>';
+  }
+  function _admCustomCounterAddCondition() {
+    const fieldSel = document.getElementById('admCustomCounterFieldSel');
+    const valSel = document.getElementById('admCustomCounterValueSel');
+    if (!fieldSel || !valSel || !valSel.value) return;
+    _admCustomCounterDraft = _admCustomCounterDraft.filter(c => c.field !== fieldSel.value);
+    _admCustomCounterDraft.push({ field: fieldSel.value, value: valSel.value });
+    _admRenderCustomCounters();
+  }
+  function _admCustomCounterRemoveCondition(field) {
+    _admCustomCounterDraft = _admCustomCounterDraft.filter(c => c.field !== field);
+    _admRenderCustomCounters();
+  }
+  function _admCustomCounterClearDraft() { _admCustomCounterDraft = []; _admRenderCustomCounters(); }
+  async function _admCustomCounterSaveAsCard() {
+    if (!_admCustomCounterDraft.length) return;
+    const label = prompt('Label for this card?');
+    if (!label || !label.trim()) return;
+    try {
+      const res = await _admAdminFetch('saveCustomCounter', { circular_id: _admCandActiveCircularId, label: label.trim(), filters: _admCustomCounterDraftFilters() });
+      if (res.error) { showToast(res.error, 'error'); return; }
+      _admCustomCounterDraft = [];
+      await _admLoadCustomCounters();
+      showToast('Card saved', 'success');
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+  function _admCustomCounterDeleteCard(id) {
+    showConfirm('Remove this custom count card?', async () => {
+      try {
+        await _admAdminFetch('deleteCustomCounter', { id });
+        _admCustomCounters = _admCustomCounters.filter(c => c.id !== id);
+        _admRenderCustomCounters();
+      } catch (e) { showToast(e.message || 'Failed', 'error'); }
+    });
+  }
+  async function _admLoadCustomCounters() {
+    try { const r = await _admAdminFetch('listCustomCounters', { circular_id: _admCandActiveCircularId }); _admCustomCounters = r.counters || []; }
+    catch (e) { _admCustomCounters = []; }
+    _admRenderCustomCounters();
+  }
+  function _admRenderCustomCounters() {
+    const host = document.getElementById('adm-custom-counters-section');
+    if (!host) return;
+    host.innerHTML = `
+      <div class="bg-white rounded-2xl border border-slate-100 p-4 mt-3">
+        <p class="text-[10px] uppercase text-slate-400 font-bold mb-2.5">Custom Count</p>
+        <div class="flex flex-wrap items-center gap-2 mb-2">
+          <select id="admCustomCounterFieldSel" onchange="_admCustomCounterPopulateValueSelect()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold">
+            ${ADM_CUSTOM_COUNTER_FIELDS.map(([k, l]) => `<option value="${k}">${_escHtml(l)}</option>`).join('')}
+          </select>
+          <select id="admCustomCounterValueSel" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold" style="min-width:120px"></select>
+          <button type="button" onclick="_admCustomCounterAddCondition()" class="px-3 py-1.5 bg-slate-800 text-white rounded-lg text-[10px] font-black uppercase">+ Add Condition</button>
+        </div>
+        <div class="flex flex-wrap gap-1.5 mb-2">
+          ${_admCustomCounterDraft.length ? _admCustomCounterDraft.map(c => `<span class="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full text-[10px] font-black">${_escHtml(_admCustomCounterFieldLabel(c.field))}: ${_escHtml(c.value)}<button type="button" onclick='_admCustomCounterRemoveCondition(${JSON.stringify(c.field)})' class="ml-0.5 text-blue-400 hover:text-blue-700">&times;</button></span>`).join('') : '<span class="text-xs text-slate-400">No conditions yet — pick a field and value, then Add Condition.</span>'}
+        </div>
+        <div class="flex items-center gap-3 flex-wrap">
+          <p class="text-sm font-bold text-slate-600">Matching: <span class="text-xl font-black text-blue-600 tabular-nums">${_admCustomCounterCountFor(_admCustomCounterDraftFilters())}</span></p>
+          ${_admCustomCounterDraft.length ? `<button type="button" onclick="_admCustomCounterSaveAsCard()" class="px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-[10px] font-black uppercase">Save as Card</button>
+          <button type="button" onclick="_admCustomCounterClearDraft()" class="px-3 py-1.5 border border-slate-200 text-slate-500 rounded-lg text-[10px] font-black uppercase">Clear</button>` : ''}
+        </div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
+        ${_admCustomCounters.map(c => `
+          <div class="bg-white rounded-2xl border border-slate-100 p-4 relative">
+            <button type="button" onclick="_admCustomCounterDeleteCard(${c.id})" class="absolute top-2 right-2 text-slate-300 hover:text-red-500 text-xs">&times;</button>
+            <p class="text-[10px] uppercase text-slate-400 font-bold mb-1 pr-4 truncate" title="${_escHtml(c.label)}">${_escHtml(c.label)}</p>
+            <p class="text-2xl font-black text-slate-800 tabular-nums">${_admCustomCounterCountFor(c.filters || {})}</p>
+          </div>`).join('')}
+      </div>`;
+    _admCustomCounterPopulateValueSelect();
+  }
+
   let _admLastFiltered = [];
   let _admTablePage = 0;
   const ADM_TABLE_PAGE_SIZE = 200;
@@ -44276,7 +44390,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('admCandCircularGate')?.classList.add('hidden');
     document.getElementById('admModuleCircularBar')?.classList.add('hidden');
     document.getElementById('adm-top-tabs')?.classList.add('hidden');
-    ['admAdminDashboard', 'admAdminForm', 'admAdminSettings', 'admAdminCandidates'].forEach(id => document.getElementById(id)?.classList.add('hidden'));
+    ['admAdminDashboard', 'admAdminAppList', 'admAdminForm', 'admAdminSettings', 'admAdminCandidates'].forEach(id => document.getElementById(id)?.classList.add('hidden'));
   }
   // Committee members never see the Session/Circular admin gates (listSessions
   // etc. are full-admin-only server-side) -- they jump straight from whatever
@@ -44610,6 +44724,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admApplyModuleTabGating();
     _admShowView('dashboard');
     _admLoadDashboard();
+    _admLoadCustomCounters();
   }
   // Part 6: hide/show the Dashboard/Settings/Candidates toolbar buttons for
   // committee members per their 'applications'/'admin_settings' grants --
@@ -44623,6 +44738,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admApplyModuleTabGating() {
     document.getElementById('adm-new-app-btn')?.classList.toggle('hidden', !_admModuleCan('applications', 'edit'));
     document.querySelector('#adm-top-tabs .adm-ftab[data-id="dashboard"]')?.classList.toggle('hidden', !_admModuleCan('applications', 'view'));
+    document.querySelector('#adm-top-tabs .adm-ftab[data-id="applist"]')?.classList.toggle('hidden', !_admModuleCan('applications', 'view'));
     document.querySelector('#adm-top-tabs .adm-ftab[data-id="settings"]')?.classList.toggle('hidden', !_admModuleCan('admin_settings', 'view'));
   }
   // Tab-level visibility + Scan-mode/section filtering for committee members

@@ -231,8 +231,8 @@ export async function POST(req) {
     // every other action here (and any action that can't resolve a
     // circular_id) stays closed. Session/circular management itself lives
     // entirely in app/api/admission-candidates/route.js, not here.
-    const APPLICATIONS_ACTIONS = new Set(['listApplications', 'getApplication', 'saveApplication', 'deleteApplication', 'updateStatus', 'bulkUpdateStatus', 'bulkDeleteApplications', 'lookupByCode', 'getStats']);
-    const EDIT_ACTIONS = new Set(['saveApplication', 'deleteApplication', 'updateStatus', 'bulkUpdateStatus', 'bulkDeleteApplications', 'saveSettings', 'saveFormFields', 'resetCounter', 'verifyPayment', 'markPaid', 'issueAdmits', 'sendTestSms']);
+    const APPLICATIONS_ACTIONS = new Set(['listApplications', 'getApplication', 'saveApplication', 'deleteApplication', 'updateStatus', 'bulkUpdateStatus', 'bulkDeleteApplications', 'lookupByCode', 'getStats', 'listCustomCounters', 'saveCustomCounter', 'deleteCustomCounter']);
+    const EDIT_ACTIONS = new Set(['saveApplication', 'deleteApplication', 'updateStatus', 'bulkUpdateStatus', 'bulkDeleteApplications', 'saveSettings', 'saveFormFields', 'resetCounter', 'verifyPayment', 'markPaid', 'issueAdmits', 'sendTestSms', 'saveCustomCounter', 'deleteCustomCounter']);
     const tab = APPLICATIONS_ACTIONS.has(action) ? 'applications' : 'admin_settings';
     const level = EDIT_ACTIONS.has(action) ? 'edit' : 'view';
     let circularId = parseInt(payload.circular_id, 10) || null;
@@ -250,6 +250,10 @@ export async function POST(req) {
       const rows = ids.length ? await sbAdmission(`admission_applications?id=in.(${ids.join(',')})&select=circular_id`) : [];
       const distinct = [...new Set((Array.isArray(rows) ? rows : []).map(r => r.circular_id))];
       circularId = distinct.length === 1 ? distinct[0] : null;
+    } else if (action === 'deleteCustomCounter') {
+      const rowId = parseInt(payload.id, 10);
+      const rows = rowId ? await sbAdmission(`dashboard_custom_counters?id=eq.${rowId}&select=circular_id`) : null;
+      circularId = (Array.isArray(rows) && rows[0]) ? rows[0].circular_id : null;
     }
     if (!circularId) return _forbidden();
     const perms = await _getCommitteePerms(user_id, circularId);
@@ -397,6 +401,34 @@ export async function POST(req) {
       if (r.status === 'Called for Test') stats.called++;
     });
     return NextResponse.json({ stats });
+  }
+
+  // ── Dashboard custom count cards ─────────────────────────────────────────
+  // Definitions only -- the count itself is always computed client-side
+  // from the circular's already-loaded roster (_admAllApps), same as the
+  // built-in Class/Category/Source breakdowns. Keeps this a tiny CRUD, no
+  // new query/aggregation surface to keep in sync with listApplications.
+  if (action === 'listCustomCounters') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ counters: [] });
+    const rows = await sbAdmission(`dashboard_custom_counters?circular_id=eq.${circularId}&order=created_at.asc`);
+    if (rows?.error) return NextResponse.json({ error: rows.error });
+    return NextResponse.json({ counters: rows || [] });
+  }
+  if (action === 'saveCustomCounter') {
+    const circularId = parseInt(payload.circular_id, 10);
+    const label = String(payload.label || '').trim();
+    if (!circularId || !label) return NextResponse.json({ error: 'Missing circular or label.' });
+    const filters = (payload.filters && typeof payload.filters === 'object') ? payload.filters : {};
+    const res = await sbAdmission('dashboard_custom_counters', 'POST', { circular_id: circularId, label, filters });
+    if (res?.error) return NextResponse.json({ error: res.error });
+    return NextResponse.json({ counter: res?.[0] || null });
+  }
+  if (action === 'deleteCustomCounter') {
+    const id = parseInt(payload.id, 10);
+    if (!id) return NextResponse.json({ error: 'Missing id.' });
+    await sbAdmission(`dashboard_custom_counters?id=eq.${id}`, 'DELETE');
+    return NextResponse.json({ success: true });
   }
 
   // ── Form field defs (Phase 1 added read-only use — label lookup for the
