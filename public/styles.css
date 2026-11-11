@@ -1501,6 +1501,16 @@ button { user-select: none; }
 .adm-ftab { padding: 8px 16px; border-radius: 10px; font-weight: 900; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #64748b; background: #f8fafc; border: 1px solid #e2e8f0; white-space: nowrap; cursor: pointer; }
 .adm-ftab.adm-ftab-on { background: #2563eb; color: #fff; border-color: #2563eb; }
 
+/* Applications tab, view-only committee grant ('applications':'view' but
+   not 'edit') -- hide the bulk-select checkboxes, status-change select, and
+   delete button; show a plain read-only status badge instead. Toggled via
+   _admApplyModuleTabGating adding/removing .adm-view-only on #admAdminAppList. */
+#admAdminAppList.adm-view-only .adm-row-select-cell,
+#admAdminAppList.adm-view-only #adm-bulk-select-all,
+#admAdminAppList.adm-view-only .adm-row-status-select,
+#admAdminAppList.adm-view-only .adm-row-delete-btn { display: none !important; }
+#admAdminAppList.adm-view-only .adm-row-status-badge { display: inline-block !important; }
+
 /* Admission Admin — Admit Card Designer (settings form + live preview) and
    Form Designer (drag/resize canvas). Ported verbatim from ccpc-admission's
    own styles.css (.designer-layout/.dgroup/.toggle-lbl/.fd-*/.fdc*/.pp-*),

@@ -240,12 +240,15 @@ export async function POST(req) {
     // circular_id) stays closed. Session/circular management itself lives
     // entirely in app/api/admission-candidates/route.js, not here.
     // saveCustomCounter/deleteCustomCounter already returned 403 above for
-    // every non-admin, so they're deliberately left out of both sets here --
-    // listCustomCounters (viewing) still follows the normal 'applications'
-    // view/edit grant like every other Dashboard-area read.
-    const APPLICATIONS_ACTIONS = new Set(['listApplications', 'getApplication', 'saveApplication', 'deleteApplication', 'updateStatus', 'bulkUpdateStatus', 'bulkDeleteApplications', 'lookupByCode', 'getStats', 'listCustomCounters']);
+    // every non-admin, so they're deliberately left out of both sets here.
+    // 'dashboard' and 'applications' are now two independent permissions
+    // (previously one merged 'applications' grant) -- a member can be given
+    // Dashboard stats/breakdowns without also being able to open, edit, or
+    // delete individual application records, and vice versa.
+    const DASHBOARD_ACTIONS = new Set(['getStats', 'listCustomCounters']);
+    const APPLICATIONS_ACTIONS = new Set(['getApplication', 'saveApplication', 'deleteApplication', 'updateStatus', 'bulkUpdateStatus', 'bulkDeleteApplications', 'lookupByCode']);
     const EDIT_ACTIONS = new Set(['saveApplication', 'deleteApplication', 'updateStatus', 'bulkUpdateStatus', 'bulkDeleteApplications', 'saveSettings', 'saveFormFields', 'resetCounter', 'verifyPayment', 'markPaid', 'issueAdmits', 'sendTestSms']);
-    const tab = APPLICATIONS_ACTIONS.has(action) ? 'applications' : 'admin_settings';
+    const tab = DASHBOARD_ACTIONS.has(action) ? 'dashboard' : APPLICATIONS_ACTIONS.has(action) ? 'applications' : 'admin_settings';
     const level = EDIT_ACTIONS.has(action) ? 'edit' : 'view';
     let circularId = parseInt(payload.circular_id, 10) || null;
     // For actions that act on an EXISTING row by id, resolve the circular_id
@@ -270,7 +273,14 @@ export async function POST(req) {
     // needs to read (Part 8) -- a committee member granted only 'import'
     // there (and no 'admin_settings' grant at all) can still read it.
     const formFieldsReadOk = action === 'getFormFields' && _tabOk(false, perms, 'import', 'view');
-    if (!_tabOk(false, perms, tab, level) && !formFieldsReadOk) return _forbidden();
+    // listApplications feeds BOTH the Dashboard's breakdowns (computed
+    // client-side from the full roster) and the Applications tab's own
+    // table -- either grant unlocks the underlying read, since Dashboard
+    // breakdowns can't be computed without it. The two tabs' own UI/edit
+    // controls still gate separately (see _admModuleCan('applications', …)
+    // client-side and EDIT_ACTIONS above for the real write boundary).
+    const listAppsOk = action === 'listApplications' && (_tabOk(false, perms, 'dashboard', 'view') || _tabOk(false, perms, 'applications', 'view'));
+    if (!_tabOk(false, perms, tab, level) && !formFieldsReadOk && !listAppsOk) return _forbidden();
   }
 
   // ── List Applications ────────────────────────────────────────────────────

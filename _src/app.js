@@ -42087,6 +42087,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <p class="text-xs font-black text-slate-700 uppercase tracking-widest mb-3">Custom fields (from applicant's form)</p>
         <div id="adm-custom-fields-body" class="grid gap-3" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))"></div>
       </div>
+      <div id="adm-scan-data-block" class="hidden mt-4">
+        <p class="text-xs font-black text-slate-700 uppercase tracking-widest mb-3">Scanned data (Scan tab)</p>
+        <div id="adm-scan-data-body" class="grid gap-3" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))"></div>
+      </div>
     </div>`;
     host.innerHTML = appInfo + student + father + mother + guardian + tables;
   }
@@ -42270,18 +42274,43 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     ['status', 'Status'], ['source', 'Source'], ['payment_status', 'Payment Status'], ['stage', 'Stage'],
   ];
   let _admCustomCounters = [];
-  let _admCustomCounterDraft = []; // [{field, value}]
+  let _admCustomCounterDraft = []; // [{field, value}] -- AND'd exact-value conditions, optional
+  // Non-empty means "show every distinct combination of these fields' own
+  // values, each with its own count" instead of one single number -- e.g.
+  // Class+Category+Version grouped shows one row per real (class, category,
+  // version) combination actually present, never capped/truncated.
+  let _admCustomCounterGroupBy = [];
   function _admCustomCounterFieldLabel(key) { return (ADM_CUSTOM_COUNTER_FIELDS.find(([k]) => k === key) || [key, key])[1]; }
   function _admCustomCounterValues(field) {
     return [...new Set(_admAllApps.map(a => (field === 'source' ? (a.source || 'native') : a[field])).filter(v => v !== undefined && v !== null && v !== ''))].sort();
   }
-  function _admCustomCounterMatches(app, filters) {
-    return Object.entries(filters || {}).every(([field, value]) => {
+  function _admCustomCounterMatches(app, conditions) {
+    return Object.entries(conditions || {}).every(([field, value]) => {
       const v = field === 'source' ? (app.source || 'native') : app[field];
       return String(v || '') === String(value);
     });
   }
-  function _admCustomCounterCountFor(filters) { return _admAllApps.filter(a => _admCustomCounterMatches(a, filters)).length; }
+  function _admCustomCounterCountFor(conditions) { return _admAllApps.filter(a => _admCustomCounterMatches(a, conditions)).length; }
+  // Saved cards store {conditions, group_by} now; a card saved before Group
+  // By existed is a flat {field:value,...} map with neither key present --
+  // normalize once so every reader below works off one consistent shape.
+  function _admCustomCounterNormalize(raw) {
+    if (raw && (raw.conditions !== undefined || raw.group_by !== undefined)) {
+      return { conditions: raw.conditions || {}, group_by: Array.isArray(raw.group_by) ? raw.group_by : [] };
+    }
+    return { conditions: raw || {}, group_by: [] };
+  }
+  function _admCustomCounterGroupedCounts(conditions, groupFields) {
+    const base = _admAllApps.filter(a => _admCustomCounterMatches(a, conditions));
+    const map = new Map();
+    base.forEach(a => {
+      const parts = groupFields.map(f => String((f === 'source' ? (a.source || 'native') : a[f]) || '(blank)'));
+      const key = parts.join('\u0001');
+      if (!map.has(key)) map.set(key, { parts, count: 0 });
+      map.get(key).count++;
+    });
+    return [...map.values()].sort((a, b) => b.count - a.count);
+  }
   function _admCustomCounterDraftFilters() {
     const f = {}; _admCustomCounterDraft.forEach(c => { f[c.field] = c.value; }); return f;
   }
@@ -42304,15 +42333,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admCustomCounterDraft = _admCustomCounterDraft.filter(c => c.field !== field);
     _admRenderCustomCounters();
   }
-  function _admCustomCounterClearDraft() { _admCustomCounterDraft = []; _admRenderCustomCounters(); }
+  function _admCustomCounterToggleGroupBy(field, checked) {
+    _admCustomCounterGroupBy = checked ? [..._admCustomCounterGroupBy, field] : _admCustomCounterGroupBy.filter(f => f !== field);
+    _admRenderCustomCounters();
+  }
+  function _admCustomCounterClearDraft() { _admCustomCounterDraft = []; _admCustomCounterGroupBy = []; _admRenderCustomCounters(); }
   async function _admCustomCounterSaveAsCard() {
-    if (!_admCustomCounterDraft.length) return;
+    if (!_admCustomCounterDraft.length && !_admCustomCounterGroupBy.length) return;
     const label = prompt('Label for this card?');
     if (!label || !label.trim()) return;
     try {
-      const res = await _admAdminFetch('saveCustomCounter', { circular_id: _admCandActiveCircularId, label: label.trim(), filters: _admCustomCounterDraftFilters() });
+      const filters = { conditions: _admCustomCounterDraftFilters(), group_by: [..._admCustomCounterGroupBy] };
+      const res = await _admAdminFetch('saveCustomCounter', { circular_id: _admCandActiveCircularId, label: label.trim(), filters });
       if (res.error) { showToast(res.error, 'error'); return; }
-      _admCustomCounterDraft = [];
+      _admCustomCounterDraft = []; _admCustomCounterGroupBy = [];
       await _admLoadCustomCounters();
       showToast('Card saved', 'success');
     } catch (e) { showToast(e.message || 'Failed', 'error'); }
@@ -42331,9 +42365,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     catch (e) { _admCustomCounters = []; }
     _admRenderCustomCounters();
   }
+  // Single big number with no Group By fields picked; a combination-wise
+  // breakdown table otherwise -- every combination gets its own row, no
+  // top-N cap (a tall table scrolls inside the card instead of truncating).
+  function _admCustomCounterRenderBody(conditions, groupFields) {
+    if (!groupFields.length) return `<p class="text-2xl font-black text-slate-800 tabular-nums">${_admCustomCounterCountFor(conditions)}</p>`;
+    const rows = _admCustomCounterGroupedCounts(conditions, groupFields);
+    if (!rows.length) return '<p class="text-xs text-slate-400">No matching data.</p>';
+    const labels = groupFields.map(_admCustomCounterFieldLabel);
+    return `<div class="max-h-72 overflow-y-auto">
+      <table class="w-full text-xs">
+        <thead><tr class="text-left text-slate-400 font-bold uppercase text-[9px]">${labels.map(l => `<th class="pr-3 pb-1">${_escHtml(l)}</th>`).join('')}<th class="pb-1 text-right">Count</th></tr></thead>
+        <tbody>${rows.map(r => `<tr class="border-t border-slate-50">${r.parts.map(p => `<td class="pr-3 py-1 font-bold text-slate-700">${_escHtml(p)}</td>`).join('')}<td class="py-1 text-right font-black text-slate-800 tabular-nums">${r.count}</td></tr>`).join('')}</tbody>
+      </table>
+    </div>`;
+  }
   function _admRenderCustomCounters() {
     const host = document.getElementById('adm-custom-counters-section');
     if (!host) return;
+    const draftConditions = _admCustomCounterDraftFilters();
     host.innerHTML = `
       <div class="bg-white rounded-2xl border border-slate-100 p-4 mt-3">
         <p class="text-[10px] uppercase text-slate-400 font-bold mb-2.5">Custom Count</p>
@@ -42345,21 +42395,32 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button type="button" onclick="_admCustomCounterAddCondition()" class="px-3 py-1.5 bg-slate-800 text-white rounded-lg text-[10px] font-black uppercase">+ Add Condition</button>
         </div>
         <div class="flex flex-wrap gap-1.5 mb-2">
-          ${_admCustomCounterDraft.length ? _admCustomCounterDraft.map(c => `<span class="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full text-[10px] font-black">${_escHtml(_admCustomCounterFieldLabel(c.field))}: ${_escHtml(c.value)}<button type="button" onclick='_admCustomCounterRemoveCondition(${JSON.stringify(c.field)})' class="ml-0.5 text-blue-400 hover:text-blue-700">&times;</button></span>`).join('') : '<span class="text-xs text-slate-400">No conditions yet — pick a field and value, then Add Condition.</span>'}
+          ${_admCustomCounterDraft.length ? _admCustomCounterDraft.map(c => `<span class="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full text-[10px] font-black">${_escHtml(_admCustomCounterFieldLabel(c.field))}: ${_escHtml(c.value)}<button type="button" onclick='_admCustomCounterRemoveCondition(${JSON.stringify(c.field)})' class="ml-0.5 text-blue-400 hover:text-blue-700">&times;</button></span>`).join('') : '<span class="text-xs text-slate-400">No conditions yet — optional, narrows which applicants count.</span>'}
         </div>
-        <div class="flex items-center gap-3 flex-wrap">
-          <p class="text-sm font-bold text-slate-600">Matching: <span class="text-xl font-black text-blue-600 tabular-nums">${_admCustomCounterCountFor(_admCustomCounterDraftFilters())}</span></p>
-          ${_admCustomCounterDraft.length ? `${_admCandMyAccess.is_full_admin ? `<button type="button" onclick="_admCustomCounterSaveAsCard()" class="px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-[10px] font-black uppercase">Save as Card</button>` : ''}
-          <button type="button" onclick="_admCustomCounterClearDraft()" class="px-3 py-1.5 border border-slate-200 text-slate-500 rounded-lg text-[10px] font-black uppercase">Clear</button>` : ''}
+        <p class="text-[10px] uppercase text-slate-400 font-bold mb-1">Group by (optional — shows every combination's own count instead of one number)</p>
+        <div class="flex flex-wrap gap-2.5 mb-3">
+          ${ADM_CUSTOM_COUNTER_FIELDS.map(([k, l]) => `<label class="flex items-center gap-1 text-xs font-bold text-slate-600"><input type="checkbox" onchange='_admCustomCounterToggleGroupBy(${JSON.stringify(k)}, this.checked)' ${_admCustomCounterGroupBy.includes(k) ? 'checked' : ''}> ${_escHtml(l)}</label>`).join('')}
+        </div>
+        <div class="flex items-start gap-3 flex-wrap">
+          <div class="flex-1 min-w-[160px]">
+            ${_admCustomCounterGroupBy.length ? `<p class="text-[10px] uppercase text-slate-400 font-bold mb-1">Preview</p>${_admCustomCounterRenderBody(draftConditions, _admCustomCounterGroupBy)}` : `<p class="text-sm font-bold text-slate-600">Matching: <span class="text-xl font-black text-blue-600 tabular-nums">${_admCustomCounterCountFor(draftConditions)}</span></p>`}
+          </div>
+          ${(_admCustomCounterDraft.length || _admCustomCounterGroupBy.length) ? `<div class="flex gap-2 shrink-0">
+            ${_admCandMyAccess.is_full_admin ? `<button type="button" onclick="_admCustomCounterSaveAsCard()" class="px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Save as Card</button>` : ''}
+            <button type="button" onclick="_admCustomCounterClearDraft()" class="px-3 py-1.5 border border-slate-200 text-slate-500 rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Clear</button>
+          </div>` : ''}
         </div>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
-        ${_admCustomCounters.map(c => `
-          <div class="bg-white rounded-2xl border border-slate-100 p-4 relative">
+        ${_admCustomCounters.map(c => {
+          const norm = _admCustomCounterNormalize(c.filters || {});
+          const wide = norm.group_by.length > 0;
+          return `<div class="bg-white rounded-2xl border border-slate-100 p-4 relative${wide ? ' md:col-span-3' : ''}">
             ${_admCandMyAccess.is_full_admin ? `<button type="button" onclick="_admCustomCounterDeleteCard(${c.id})" class="absolute top-2 right-2 text-slate-300 hover:text-red-500 text-xs">&times;</button>` : ''}
             <p class="text-[10px] uppercase text-slate-400 font-bold mb-1 pr-4 truncate" title="${_escHtml(c.label)}">${_escHtml(c.label)}</p>
-            <p class="text-2xl font-black text-slate-800 tabular-nums">${_admCustomCounterCountFor(c.filters || {})}</p>
-          </div>`).join('')}
+            ${_admCustomCounterRenderBody(norm.conditions, norm.group_by)}
+          </div>`;
+        }).join('')}
       </div>`;
     _admCustomCounterPopulateValueSelect();
   }
@@ -42386,22 +42447,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('adm-app-count').textContent = `${apps.length} record${apps.length > 1 ? 's' : ''}`;
     tbody.innerHTML = pageApps.map(a => `
       <tr class="border-t border-slate-50 hover:bg-slate-50/80 transition-all cursor-pointer" onclick="_admLoadForm(${a.id})">
-        <td class="px-3 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="adm-row-select" data-id="${a.id}" ${_admSelectedIds.has(a.id) ? 'checked' : ''} onchange="_admToggleRowSelect(${a.id},this.checked)"></td>
+        <td class="px-3 py-3 adm-row-select-cell" onclick="event.stopPropagation()"><input type="checkbox" class="adm-row-select" data-id="${a.id}" ${_admSelectedIds.has(a.id) ? 'checked' : ''} onchange="_admToggleRowSelect(${a.id},this.checked)"></td>
         <td class="px-3 py-3"><span class="font-black text-blue-600 text-xs font-mono">${_escHtml(a.tracking_id || a.token || '—')}</span><br><span class="text-[9px] text-slate-400">${_escHtml(a.index_id || (a.source !== 'native' ? a.source : '') || '')}</span></td>
         <td class="px-3 py-3"><p class="font-bold text-sm text-slate-800">${_escHtml(a.name_english || '—')}</p><p class="text-[10px] text-slate-400">${_escHtml(a.name_bangla || '')}</p>${a.room_no ? `<span class="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 text-[9px] font-bold">Room ${_escHtml(a.room_no)}</span>` : ''}</td>
         <td class="px-3 py-3 hidden md:table-cell text-sm font-bold text-slate-600">${_escHtml(a.class || '—')}</td>
         <td class="px-3 py-3 hidden md:table-cell text-sm text-slate-600">${_escHtml(a.category || '—')}</td>
         <td class="px-3 py-3 hidden lg:table-cell text-sm text-slate-500">${_escHtml(a.session || '—')}</td>
         <td class="px-3 py-3">
-          <select class="px-2 py-1 rounded-lg text-xs font-bold ${ADM_STATUS_COLORS[a.status] || ''}" onchange="_admChangeStatus(event,${a.id})" onclick="event.stopPropagation()">
+          <select class="adm-row-status-select px-2 py-1 rounded-lg text-xs font-bold ${ADM_STATUS_COLORS[a.status] || ''}" onchange="_admChangeStatus(event,${a.id})" onclick="event.stopPropagation()">
             ${ADM_STATUSES.map(s => `<option${s === a.status ? ' selected' : ''}>${s}</option>`).join('')}
           </select>
+          <span class="adm-row-status-badge hidden px-2 py-1 rounded-lg text-xs font-bold ${ADM_STATUS_COLORS[a.status] || ''}">${_escHtml(a.status || '')}</span>
         </td>
         <td class="px-3 py-3 text-right whitespace-nowrap">
           <button onclick="event.stopPropagation();_admLoadForm(${a.id})" class="p-1.5 text-slate-400 hover:text-blue-600" title="Edit"><i data-lucide="edit-2" class="h-3.5 w-3.5"></i></button>
           <button onclick="event.stopPropagation();_admPrintFormById(${a.id})" class="p-1.5 text-slate-400 hover:text-emerald-600" title="Print form"><i data-lucide="printer" class="h-3.5 w-3.5"></i></button>
           <button onclick="event.stopPropagation();_admPrintAdmitById(${a.id})" class="p-1.5 text-slate-400 hover:text-violet-600" title="Admit card"><i data-lucide="credit-card" class="h-3.5 w-3.5"></i></button>
-          <button onclick="event.stopPropagation();_admDeleteApp(${a.id})" class="p-1.5 text-slate-400 hover:text-red-500" title="Delete"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+          <button onclick="event.stopPropagation();_admDeleteApp(${a.id})" class="adm-row-delete-btn p-1.5 text-slate-400 hover:text-red-500" title="Delete"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
         </td>
       </tr>`).join('');
     lucide.createIcons();
@@ -42612,6 +42674,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('adm-academic-tbody').innerHTML = ''; _admAddAcademicRow(); _admAddAcademicRow(); _admAddAcademicRow();
     document.getElementById('adm-sibling-tbody').innerHTML = '';
     document.getElementById('adm-custom-fields-block').classList.add('hidden');
+    document.getElementById('adm-scan-data-block')?.classList.add('hidden');
     lucide.createIcons();
   }
   async function _admLoadNewApplication() {
@@ -42676,6 +42739,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       document.getElementById('adm-sibling-tbody').innerHTML = '';
       (Array.isArray(a.siblings) ? a.siblings : []).forEach(r => _admAddSiblingRow(r));
       _admRenderCustomFieldsBlock(a.extra_fields || {});
+      _admRenderScanDataBlock(a.scan_values || {});
       document.querySelector('#adm-ftabs .adm-ftab').click();
     } catch (e) { showToast(e.message || 'Could not load application', 'error'); }
   }
@@ -42696,6 +42760,33 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide">${_escHtml(labels[k] || k)}</p>
         <p class="text-sm text-slate-700 mt-0.5">${_escHtml(String(extra[k]))}</p>
       </div>`).join('');
+    block.classList.remove('hidden');
+  }
+  // Read-only dump of whatever this candidate has accumulated from the Scan
+  // tab's dynamic Scan Options (status/tag/form behaviors) -- the applicant
+  // record itself has no edit path for these, same reasoning as the custom
+  // fields block above; only _admCandScanOptions (loaded once per circular
+  // entry) is needed for label lookups, no extra fetch required here.
+  function _admRenderScanDataBlock(scanValues) {
+    const block = document.getElementById('adm-scan-data-block');
+    const body = document.getElementById('adm-scan-data-body');
+    if (!block || !body) return;
+    const values = scanValues || {};
+    const keys = Object.keys(values).filter(k => values[k] != null && values[k] !== '');
+    if (!keys.length) { block.classList.add('hidden'); return; }
+    body.innerHTML = keys.map(k => {
+      const opt = (_admCandScanOptions || []).find(o => o.key === k);
+      const label = opt ? opt.label : k;
+      const v = values[k];
+      let shown;
+      if (opt && opt.behavior === 'status') shown = v && v.done ? `Done${v.scanned_at ? ' — ' + new Date(v.scanned_at).toLocaleString() : ''}` : 'Pending';
+      else if (opt && opt.behavior === 'form') shown = Object.entries(v || {}).map(([fk, fv]) => { const f = (opt.config?.fields || []).find(x => x.key === fk); return `${f ? f.label : fk}: ${fv}`; }).join(', ') || '—';
+      else shown = v === true ? 'Yes' : String(v);
+      return `<div class="bg-slate-50 rounded-lg p-2.5">
+        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide">${_escHtml(label)}</p>
+        <p class="text-sm text-slate-700 mt-0.5">${_escHtml(shown)}</p>
+      </div>`;
+    }).join('');
     block.classList.remove('hidden');
   }
   function _admCollectForm() {
@@ -44791,9 +44882,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   function _admApplyModuleTabGating() {
     document.getElementById('adm-new-app-btn')?.classList.toggle('hidden', !_admModuleCan('applications', 'edit'));
-    document.querySelector('#adm-top-tabs .adm-ftab[data-id="dashboard"]')?.classList.toggle('hidden', !_admModuleCan('applications', 'view'));
+    document.querySelector('#adm-top-tabs .adm-ftab[data-id="dashboard"]')?.classList.toggle('hidden', !_admModuleCan('dashboard', 'view'));
     document.querySelector('#adm-top-tabs .adm-ftab[data-id="applist"]')?.classList.toggle('hidden', !_admModuleCan('applications', 'view'));
     document.querySelector('#adm-top-tabs .adm-ftab[data-id="settings"]')?.classList.toggle('hidden', !_admModuleCan('admin_settings', 'view'));
+    // Per-row edit controls (status change, delete) and the bulk-action bar
+    // are edit-only -- a view-only Applications grant can open/browse
+    // records but not change or remove them. Server already enforces this
+    // (EDIT_ACTIONS in admission-admin/route.js); this just keeps the UI
+    // from showing controls that would 403 on click.
+    const canEditApps = _admModuleCan('applications', 'edit');
+    document.getElementById('admAdminAppList')?.classList.toggle('adm-view-only', !canEditApps);
   }
   // Tab-level visibility + Scan-mode/section filtering for committee members
   // (full admins always pass). The server re-checks every one of these on
@@ -45221,14 +45319,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   // ── Part 5: Admission Committee (full-admin only — enforced server-side too) ──
   let _admCandCommitteeStaff = [];
-  // Part 6: 'applications' gates BOTH the Dashboard tab (stats/breakdowns)
-  // and the separate Applications tab (search/table/editor) -- they split
-  // into two top-level tabs later in this session but still share the one
-  // underlying permission, so the label spells out both names here rather
-  // than looking like "Dashboard" has no grantable permission at all.
-  // 'admin_settings' (the Settings view) widens this same list the same
-  // way -- both the Committee tab's UI and app/api/admission-admin/route.js's
-  // own gate key off the identical tab names.
+  // 'dashboard' and 'applications' are independent permissions -- a member
+  // can see Dashboard stats/breakdowns without being able to open, edit, or
+  // delete individual application records, and vice versa (previously one
+  // merged 'applications' grant covered both). 'admin_settings' (the
+  // Settings view) widens this same list the same way -- both the Committee
+  // tab's UI and app/api/admission-admin/route.js's own gate key off the
+  // identical tab names.
   // 'candidates' is deliberately NOT listed here any more -- the standalone
   // Candidates list panel it used to gate has no reachable button anywhere
   // in the UI (not even for a full admin), so offering it as a grantable
@@ -45236,7 +45333,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // 'candidates':'view' (background refresh for Rooms/Allocation counts
   // etc.), so _admCandCommitteeSave grants it implicitly below instead of
   // exposing a no-op control for it.
-  const ADM_CAND_TABS = [['applications', 'Dashboard & Applications'], ['admin_settings', 'Settings'], ['import', 'Import'], ['rooms', 'Rooms'], ['alloc', 'Allocation'], ['templates', 'Templates'], ['print', 'Printing'], ['photos', 'Photos'], ['scan', 'Scan']];
+  const ADM_CAND_TABS = [['dashboard', 'Dashboard'], ['applications', 'Applications'], ['admin_settings', 'Settings'], ['import', 'Import'], ['rooms', 'Rooms'], ['alloc', 'Allocation'], ['templates', 'Templates'], ['print', 'Printing'], ['photos', 'Photos'], ['scan', 'Scan']];
   let _admCandOrgCommittees = [];
   async function _admCandLoadCommitteeTab() {
     if (!_admCandRequireCircular()) return;
