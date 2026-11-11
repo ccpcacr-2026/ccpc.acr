@@ -248,6 +248,12 @@ async function _vortibdSyncConfig() {
 }
 async function _runVortibdSync(circ, config) {
   const now = new Date().toISOString();
+  // Claim this circular immediately (before any slow network work) by
+  // advancing vortibd_last_sync_at right away -- with the cron now ticking
+  // every 5 minutes, a sync that runs long could otherwise still be
+  // in-flight when the next tick fires, and that tick would see the same
+  // stale last_sync_at and pick this circular again, double-syncing it.
+  await sbAdmission(`exam_circulars?id=eq.${circ.id}`, 'PATCH', { vortibd_last_sync_at: now, vortibd_last_sync_status: 'running' });
   try {
     const { token, clientId } = await _vortibdLogin();
     const bytes = await _vortibdFetchExportBytes(token, clientId, circ.vortibd_circular_id);
@@ -271,7 +277,10 @@ async function _runVortibdSync(circ, config) {
   } catch (e) {
     const message = e.message || 'Unknown error.';
     await sbAdmission(`exam_circulars?id=eq.${circ.id}`, 'PATCH', { vortibd_last_sync_at: now, vortibd_last_sync_status: 'error', vortibd_last_sync_message: message });
-    await _notifyAdminsOfSyncFailure(circ.name, message);
+    // Only notify on the FIRST failure of a streak, not on every 5-minute
+    // retry -- otherwise a multi-hour VortiBD outage would spam admins with
+    // a fresh notification every 5 minutes until it recovers.
+    if (circ.vortibd_last_sync_status !== 'error') await _notifyAdminsOfSyncFailure(circ.name, message);
     return { circular_id: circ.id, error: message };
   }
 }
@@ -307,16 +316,22 @@ export async function GET(req) {
   if (!config.enabled || !config.mapping_template_id) {
     return NextResponse.json({ checked: 0, due: 0, synced: 0, failed: 0, note: 'VortiBD sync is disabled or has no saved mapping yet.' });
   }
-  const rows = await sbAdmission('exam_circulars?vortibd_circular_id=not.is.null&select=id,name,vortibd_circular_id,vortibd_last_sync_at');
+  const rows = await sbAdmission('exam_circulars?vortibd_circular_id=not.is.null&select=id,name,vortibd_circular_id,vortibd_last_sync_at,vortibd_last_sync_status');
   const circulars = Array.isArray(rows) ? rows : [];
   const bdNow = _bdNow();
   const todayStr = _bdDateStr(bdNow);
   const inDateRange = (!config.start_date || todayStr >= config.start_date) && (!config.end_date || todayStr <= config.end_date);
   const intervalMin = _activeIntervalMinutes(config.schedule, _bdMinutesOfDay(bdNow));
+  // A circular whose last attempt errored retries every 5 minutes (this
+  // route's own cron cadence) regardless of the normal schedule interval,
+  // until it succeeds -- a transient VortiBD-side failure shouldn't have to
+  // wait out the full configured interval (which can be hours) to recover.
+  const RETRY_AFTER_ERROR_MIN = 5;
   const due = inDateRange ? circulars.filter(c => {
     if (!c.vortibd_last_sync_at) return true;
     const elapsedMin = (Date.now() - new Date(c.vortibd_last_sync_at).getTime()) / 60000;
-    return elapsedMin >= intervalMin;
+    const neededMin = c.vortibd_last_sync_status === 'error' ? RETRY_AFTER_ERROR_MIN : intervalMin;
+    return elapsedMin >= neededMin;
   }) : [];
   const results = [];
   for (const c of due) results.push(await _runVortibdSync(c, config));
