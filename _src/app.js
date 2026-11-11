@@ -42122,13 +42122,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       { key: 'status', label: 'Status', values: ADM_STATUSES },
       { key: 'source', label: 'Source', values: ['native', 'imported', 'online'] },
     ];
-    // Admin-defined Custom Tags (Scan tab) become filter dimensions here too,
-    // so whatever gets tagged while scanning is immediately filterable --
-    // 'tag:<key>' matches the same prefix the committee scan_options grants
-    // already use elsewhere in this module.
-    (_admCandTagDefs || []).forEach(d => {
-      const values = d.type === 'toggle' ? ['yes'] : d.type === 'dropdown' ? (d.options || []) : distinct(a => (a.tags || {})[d.key]);
-      if (values.length) dims.push({ key: 'tag:' + d.key, label: d.label, values });
+    // Part 10: dynamic Scan Options (status/tag behaviors) become filter
+    // dimensions here too, so whatever gets marked/tagged while scanning is
+    // immediately filterable -- 'opt:<key>' namespaces them from the fixed
+    // dims above. 'form' behavior holds multiple sub-fields per scan, not
+    // one single value, so it isn't offered as a single filterable dimension.
+    (_admCandScanOptions || []).forEach(o => {
+      if (o.behavior === 'status') { dims.push({ key: 'opt:' + o.key, label: o.label, values: ['done'] }); return; }
+      if (o.behavior !== 'tag') return;
+      const cfg = o.config || {};
+      const values = cfg.type === 'toggle' ? ['yes'] : cfg.type === 'dropdown' ? (cfg.options || []) : distinct(a => (a.scan_values || {})[o.key]);
+      if (values.length) dims.push({ key: 'opt:' + o.key, label: o.label, values });
     });
     return dims;
   }
@@ -42492,9 +42496,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (st.status.size && !st.status.has(a.status)) return false;
       if (st.source.size && !st.source.has(a.source || 'native')) return false;
       for (const dimKey in st) {
-        if (!dimKey.startsWith('tag:') || !st[dimKey].size) continue;
-        const v = (a.tags || {})[dimKey.slice(4)];
-        if (!st[dimKey].has(v === true ? 'yes' : String(v || ''))) return false;
+        if (!dimKey.startsWith('opt:') || !st[dimKey].size) continue;
+        const optKey = dimKey.slice(4);
+        const opt = (_admCandScanOptions || []).find(o => o.key === optKey);
+        const raw = (a.scan_values || {})[optKey];
+        const v = (opt && opt.behavior === 'status') ? (raw && raw.done ? 'done' : '') : (raw === true ? 'yes' : String(raw || ''));
+        if (!st[dimKey].has(v)) return false;
       }
       return true;
     });
@@ -44367,9 +44374,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _admCandEditingRoomId = null;
   let _admCandRoomExcelHeaders = [], _admCandRoomExcelRows = [];
   let _admCandScanStream = null, _admCandScanTimer = null, _admCandScanBusy = false;
-  let _admCandScanMode = 'submission', _admCandScanScope = {}, _admCandScanInputMode = null;
-  let _admCandTagDefs = [], _admCandScanTagKey = null, _admCandScanTagValue = null;
-  let _admCandMarksFields = [], _admCandMarksFormOpen = false, _admCandMarksCurrentCandidate = null;
+  // Part 10: fully dynamic Scan Options -- _admCandScanMode now holds the
+  // selected option's plain `key` (no more fixed 'submission'/'attendance'/
+  // 'tags'/'marks' strings); _admCandScanSelectedOption is that option's
+  // full row (behavior/config). _admCandTagDefs stays declared (unused, left
+  // empty) purely so the orphaned, unreachable Candidates-list panel's old
+  // tag-filter code (never deleted, never reachable) doesn't throw.
+  let _admCandScanMode = null, _admCandScanScope = {}, _admCandScanInputMode = null;
+  let _admCandScanOptions = [], _admCandScanSelectedOption = null, _admCandScanTagValue = null;
+  let _admCandTagDefs = [], _admCandMarksFormOpen = false, _admCandMarksCurrentCandidate = null;
   let _admCandMyAccess = { is_full_admin: true, circulars: {} }, _admCandMyPerms = null;
 
   function _admCandFetch(action, payload) {
@@ -44733,7 +44746,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('adm-top-tabs')?.classList.remove('hidden');
     document.getElementById('admCandCopyLinkBtn')?.classList.toggle('hidden', !(c && c.mode === 'online'));
     _admCandLoadRooms();
-    _admCandLoadTagDefs();
+    _admCandLoadScanOptions();
     _admCandLoadList();
     _admCandApplyTabGating();
     _admApplyModuleTabGating();
@@ -44793,11 +44806,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
     const anySetupVisible = !!document.querySelector('#adm-cand-setup-tabs .adm-ftab[data-id]:not(.hidden)');
     document.querySelector('#adm-top-tabs .adm-ftab[data-id="adm-cand-setup"]')?.classList.toggle('hidden', !anySetupVisible);
-    document.querySelectorAll('#admCandScanModeTabs .adm-ftab[data-scan-opt]').forEach(btn => {
-      btn.classList.toggle('hidden', !_admCandCanScanOption(btn.getAttribute('data-scan-opt')));
-    });
-    const anyTagOption = _admCandMyAccess.is_full_admin || !!(_admCandMyPerms && Array.isArray(_admCandMyPerms.scan_options) && _admCandMyPerms.scan_options.some(o => o.startsWith('tag:')));
-    document.getElementById('admCandScanTagsModeBtn')?.classList.toggle('hidden', !anyTagOption);
+    // Scan Options mode tabs are fully dynamic now (Part 10) -- gating
+    // happens inline in _admCandRenderScanModeTabs itself (it filters the
+    // option list before rendering), not by hiding pre-rendered buttons here.
   }
   function _admCandSwitchCircular() {
     try { localStorage.removeItem('admCandActiveCircularId'); } catch (e) {}
@@ -44846,7 +44857,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const el = document.getElementById(id); if (el) el.classList.remove('hidden');
     if (id === 'adm-cand-rooms') _admCandLoadRooms();
     else if (id === 'adm-cand-alloc') { _admCandLoadRooms(); _admCandPopulateFilterDropdowns(); }
-    else if (id === 'adm-cand-scan') _admCandPopulateFilterDropdowns();
+    else if (id === 'adm-cand-scan') { _admCandPopulateFilterDropdowns(); _admCandLoadScanOptions(); }
     else if (id === 'adm-cand-import') { _admCandLoadFormFieldsForMapping(); _admCandLoadTemplates().then(_admCandLoadVortibdPanel); }
   }
   // Inner sub-tab bar for the "Circular Setup" outer tab: Template Setup/
@@ -45097,51 +45108,26 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
 
       <div id="adm-cand-scan" class="hidden">
-        <div class="flex flex-col sm:flex-row gap-1.5 mb-4" id="admCandScanModeTabs">
-          <button class="adm-ftab adm-ftab-on w-full sm:w-auto text-center" data-scan-opt="submission" onclick="_admCandScanShowMode('submission', this)">Form Submission Scan</button>
-          <button class="adm-ftab w-full sm:w-auto text-center" data-scan-opt="attendance" onclick="_admCandScanShowMode('attendance', this)">Exam Attendance Scan</button>
-          <button class="adm-ftab w-full sm:w-auto text-center" id="admCandScanTagsModeBtn" onclick="_admCandScanShowMode('tags', this)">Custom Tags</button>
-          <button class="adm-ftab w-full sm:w-auto text-center" id="admCandScanMarksModeBtn" data-scan-opt="marks" onclick="_admCandScanShowMode('marks', this)">Marks Entry</button>
-        </div>
-        <div id="admCandMarksPanel" class="hidden bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-3">
-          <div class="flex items-center justify-between mb-2">
-            <p class="text-[10px] uppercase text-slate-400 font-bold">Marks Fields</p>
-          </div>
-          <div id="admCandMarksFieldAddRow" class="flex gap-2 items-center mb-2 flex-wrap">
-            <input id="admCandMarksFieldLabel" placeholder="Field name e.g. Written Marks" class="flex-1 min-w-[160px] px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
-            <select id="admCandMarksFieldType" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
-              <option value="number">Number keypad</option>
-              <option value="text">Text keypad</option>
+        <div class="flex flex-col sm:flex-row flex-wrap gap-1.5 mb-4" id="admCandScanModeTabs"></div>
+        <div id="admCandScanOptionCreateBox" class="hidden bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-3">
+          <p class="text-[10px] uppercase text-slate-400 font-bold mb-2">New Scan Option</p>
+          <div class="flex gap-2 items-center mb-1 flex-wrap">
+            <input id="admCandScanOptNewLabel" placeholder="Name e.g. Division, Written Marks, Collected" class="flex-1 min-w-[160px] px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+            <select id="admCandScanOptNewBehavior" onchange="_admCandScanOptionBehaviorChange()" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+              <option value="status">Status / Toggle (simple one-tap mark)</option>
+              <option value="tag">Tag value (lock one value, scan many)</option>
+              <option value="form">Form (fields filled in after each scan)</option>
             </select>
-            <button onclick="_admCandMarksFieldSave()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">Add Field</button>
-          </div>
-          <div id="admCandMarksFieldList" class="flex flex-wrap gap-1.5"></div>
-          <p class="text-[10px] text-slate-400 mt-2">After each scan, the candidate's short info and these fields appear for entry — submitting saves them and automatically returns to scanning for the next candidate.</p>
-        </div>
-        <div id="admCandTagsPanel" class="hidden bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-3">
-          <div class="flex items-center justify-between mb-2">
-            <p class="text-[10px] uppercase text-slate-400 font-bold">Tag Sections</p>
-          </div>
-          <div id="admCandTagDefAddRow" class="flex gap-2 items-center mb-2 flex-wrap">
-            <input id="admCandTagDefLabel" placeholder="Section name e.g. Division" class="flex-1 min-w-[160px] px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
-            <select id="admCandTagDefType" onchange="_admCandTagDefTypeChange()" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+            <select id="admCandScanOptNewTagType" onchange="_admCandScanOptionTagTypeChange()" class="hidden px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
               <option value="toggle">Toggle</option>
               <option value="text">Text</option>
               <option value="dropdown">Dropdown</option>
             </select>
-            <input id="admCandTagDefOptions" placeholder="Options (comma-separated)" class="hidden flex-1 min-w-[160px] px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
-            <button onclick="_admCandTagDefSave()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">Add Section</button>
+            <input id="admCandScanOptNewTagOptions" placeholder="Options (comma-separated)" class="hidden flex-1 min-w-[160px] px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+            <button onclick="_admCandScanOptionCreate()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">Create</button>
           </div>
-          <div id="admCandTagDefList" class="flex flex-wrap gap-1.5 mb-3"></div>
-          <p class="text-[10px] uppercase text-slate-400 font-bold mb-2">Scanning for:</p>
-          <div class="flex gap-2 items-center mb-3 flex-wrap">
-            <select id="admCandScanTagDefSelect" onchange="_admCandScanTagDefChange()" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold"><option value="">Pick a section…</option></select>
-            <input id="admCandScanTagValueText" placeholder="Value to assign" class="hidden px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">
-            <select id="admCandScanTagValueSelect" class="hidden px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"></select>
-            <button onclick="_admCandScanLockTag()" class="px-3 py-2 bg-slate-800 text-white rounded-lg text-[10px] font-black uppercase">Lock &amp; Start</button>
-          </div>
-          <p id="admCandScanTagNote" class="text-xs text-emerald-600 font-bold"></p>
         </div>
+        <div id="admCandScanOptionPanel" class="hidden bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-3"></div>
         <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
           <p class="text-[10px] uppercase text-slate-400 font-bold mb-2">Scope — restrict scanning to:</p>
           <div class="flex gap-2 flex-wrap mb-3">
@@ -45294,8 +45280,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <option value="edit" ${tabs[key] === 'edit' ? 'selected' : ''}>Edit</option>
           </select>
         </div>`).join('');
-      const scanChecks = [['submission', 'Submission'], ['attendance', 'Attendance'], ['marks', 'Marks Entry']]
-        .concat(_admCandTagDefs.map(d => ['tag:' + d.key, d.label]))
+      // Part 10: one flat list of plain scan option keys -- no more built-in/
+      // custom distinction (and no more 'tag:' prefix) to special-case here.
+      const scanChecks = _admCandScanOptions
+        .map(o => [o.key, o.label])
         .map(([key, label]) => `<label class="flex items-center gap-1 text-[10px] font-bold text-slate-600"><input type="checkbox" class="admCandCommitteeScanChk" value="${_escHtml(key)}" ${scanOpts.includes(key) ? 'checked' : ''}> ${_escHtml(label)}</label>`).join('');
       return `<div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-4" data-member-id="${m.id}" data-user-id="${_escHtml(m.user_id)}">
         <div class="flex items-center justify-between mb-2">
@@ -46710,124 +46698,185 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
   }
 
-  // ── Dual QR scan — submission vs. attendance, fully independent status
-  // columns/actions, sharing one camera-loop implementation (parameterized
-  // by _admCandScanMode) the same way _admStartScan/_admStopScan already
-  // work for Part 1's application-lookup Scan tab above. ──────────────────
+  // ── Part 10: fully dynamic Scan Options -- replaces the old fixed
+  // Submission/Attendance modes, Custom Tags, and Marks Entry with one
+  // admin-defined system. Three behaviors: 'status' (simple one-tap mark,
+  // no lock step), 'tag' (lock one value, then scan many), 'form' (a small
+  // field set filled in after each scan). The camera-loop implementation
+  // below is shared/behavior-agnostic, the same way _admStartScan/
+  // _admStopScan already work for Part 1's application-lookup Scan tab. ──
   function _admCandEnsureJsQR() { return _admEnsureJsQR(); }
-  function _admCandScanShowMode(mode, btn) {
+  async function _admCandLoadScanOptions() {
+    if (!_admCandActiveCircularId) return;
+    try {
+      const res = await _admCandFetch('listScanOptions', { circular_id: _admCandActiveCircularId });
+      _admCandScanOptions = res.options || [];
+      if (!_admCandScanMode || !_admCandScanOptions.some(o => o.key === _admCandScanMode)) {
+        _admCandScanMode = _admCandScanOptions.length ? _admCandScanOptions[0].key : null;
+      }
+      _admCandScanSelectedOption = _admCandScanOptions.find(o => o.key === _admCandScanMode) || null;
+      _admCandRenderScanModeTabs();
+      _admCandRenderScanOptionPanel();
+      _admRenderFilterPanel(); // no-op if the Applications filter panel isn't open; keeps its dims current if it is
+    } catch (e) {}
+  }
+  function _admCandRenderScanModeTabs() {
+    const host = document.getElementById('admCandScanModeTabs');
+    if (!host) return;
+    const isAdmin = _admCandMyAccess.is_full_admin;
+    const allowed = _admCandScanOptions.filter(o => isAdmin || _admCandCanScanOption(o.key));
+    host.innerHTML = allowed.map(o => `<button class="adm-ftab w-full sm:w-auto text-center${o.key === _admCandScanMode ? ' adm-ftab-on' : ''}" onclick='_admCandScanShowMode(${JSON.stringify(o.key)})'>${_escHtml(o.label)}</button>`).join('')
+      + (isAdmin ? `<button class="adm-ftab w-full sm:w-auto text-center" onclick="_admCandScanToggleOptionCreate()">+ New Scan Option</button>` : '');
+  }
+  function _admCandScanShowMode(key) {
     _admCandScanStop();
-    _admCandScanMode = mode;
-    document.querySelectorAll('#admCandScanModeTabs .adm-ftab').forEach(el => el.classList.remove('adm-ftab-on'));
-    if (btn) btn.classList.add('adm-ftab-on');
+    _admCandScanMode = key;
+    _admCandScanSelectedOption = _admCandScanOptions.find(o => o.key === key) || null;
+    _admCandScanTagValue = null;
+    document.getElementById('admCandScanOptionCreateBox')?.classList.add('hidden');
     document.getElementById('admCandScanResult')?.classList.add('hidden');
     const note = document.getElementById('admCandScanScopeNote'); if (note) note.textContent = '';
     _admCandScanScope = {};
-    document.getElementById('admCandTagsPanel')?.classList.toggle('hidden', mode !== 'tags');
-    document.getElementById('admCandMarksPanel')?.classList.toggle('hidden', mode !== 'marks');
-    if (mode === 'tags') { _admCandScanTagKey = null; _admCandScanTagValue = null; _admCandLoadTagDefs(); }
-    if (mode === 'marks') { _admCandCloseMarksForm(); _admCandLoadMarksFields(); }
+    _admCandRenderScanModeTabs();
+    _admCandRenderScanOptionPanel();
   }
-  // ── Part 4: Custom Tags — admin-defined scan sections ────────────────────
-  async function _admCandLoadTagDefs() {
-    if (!_admCandActiveCircularId) return;
-    try {
-      const res = await _admCandFetch('listTagDefinitions', { circular_id: _admCandActiveCircularId });
-      _admCandTagDefs = res.definitions || [];
-      _admCandRenderTagDefList();
-      _admCandPopulateScanTagDefSelect();
-      _admRenderFilterPanel(); // no-op if the Applications filter panel isn't open; keeps its tag dims current if it is
-    } catch (e) {}
+  // Admin-only creation flow (ADMIN_ONLY_ACTIONS server-side) -- a committee
+  // member can only USE an option they've been granted via scan_options,
+  // never create, edit, or remove one.
+  function _admCandScanToggleOptionCreate() {
+    document.getElementById('admCandScanOptionCreateBox')?.classList.toggle('hidden');
   }
-  // Defining/deleting tag SECTIONS (and their dropdown options) is admin-only
-  // server-side (ADMIN_ONLY_ACTIONS in admission-candidates/route.js) -- a
-  // committee member can only USE an existing section they've been granted
-  // via scan_options, never create or remove one. Hiding the Add-Section row
-  // and each chip's delete button for them is UX convenience matching that
-  // real boundary, not the enforcement itself.
-  function _admCandRenderTagDefList() {
-    const host = document.getElementById('admCandTagDefList');
-    const isAdmin = _admCandMyAccess.is_full_admin;
-    document.getElementById('admCandTagDefAddRow')?.classList.toggle('hidden', !isAdmin);
-    if (!host) return;
-    host.innerHTML = _admCandTagDefs.map(d => `<span class="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 rounded-full text-[10px] font-bold text-slate-700">${_escHtml(d.label)} <span class="text-slate-400 uppercase">${_escHtml(d.type)}</span> ${isAdmin ? `<button onclick="_admCandTagDefDelete(${d.id})" class="text-red-500 ml-1">×</button>` : ''}</span>`).join('') || `<span class="text-xs text-slate-400">${isAdmin ? 'No sections yet — add one above.' : 'No tag sections available yet.'}</span>`;
+  function _admCandScanOptionBehaviorChange() {
+    const behavior = document.getElementById('admCandScanOptNewBehavior').value;
+    document.getElementById('admCandScanOptNewTagType')?.classList.toggle('hidden', behavior !== 'tag');
+    _admCandScanOptionTagTypeChange();
   }
-  function _admCandTagDefTypeChange() {
-    const type = document.getElementById('admCandTagDefType').value;
-    document.getElementById('admCandTagDefOptions')?.classList.toggle('hidden', type !== 'dropdown');
+  function _admCandScanOptionTagTypeChange() {
+    const behavior = document.getElementById('admCandScanOptNewBehavior').value;
+    const type = document.getElementById('admCandScanOptNewTagType').value;
+    document.getElementById('admCandScanOptNewTagOptions')?.classList.toggle('hidden', !(behavior === 'tag' && type === 'dropdown'));
   }
-  async function _admCandTagDefSave() {
+  async function _admCandScanOptionCreate() {
     if (!_admCandRequireCircular()) return;
-    const label = document.getElementById('admCandTagDefLabel').value.trim();
-    if (!label) { showToast('Name the section first', 'error'); return; }
-    const type = document.getElementById('admCandTagDefType').value;
-    const options = type === 'dropdown'
-      ? document.getElementById('admCandTagDefOptions').value.split(',').map(s => s.trim()).filter(Boolean)
-      : [];
+    const label = document.getElementById('admCandScanOptNewLabel').value.trim();
+    if (!label) { showToast('Name the scan option first', 'error'); return; }
+    const behavior = document.getElementById('admCandScanOptNewBehavior').value;
+    const payload = { circular_id: _admCandActiveCircularId, label, behavior };
+    if (behavior === 'tag') {
+      payload.type = document.getElementById('admCandScanOptNewTagType').value;
+      payload.options = document.getElementById('admCandScanOptNewTagOptions').value.split(',').map(s => s.trim()).filter(Boolean);
+    }
     try {
-      const res = await _admCandFetch('saveTagDefinition', { circular_id: _admCandActiveCircularId, label, type, options });
+      const res = await _admCandFetch('saveScanOption', payload);
       if (res.error) { showToast(res.error, 'error'); return; }
-      document.getElementById('admCandTagDefLabel').value = '';
-      document.getElementById('admCandTagDefOptions').value = '';
-      showToast('Section added', 'success');
-      _admCandLoadTagDefs();
+      document.getElementById('admCandScanOptNewLabel').value = '';
+      document.getElementById('admCandScanOptNewTagOptions').value = '';
+      showToast('Scan option created', 'success');
+      _admCandScanMode = res.key;
+      await _admCandLoadScanOptions();
     } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }
-  async function _admCandTagDefDelete(id) {
-    if (!confirm('Delete this tag section? Candidates keep whatever value they already have, but it will no longer be assignable by scanning.')) return;
-    try { await _admCandFetch('deleteTagDefinition', { id }); _admCandLoadTagDefs(); } catch (e) {}
-  }
-  // ── "Marks Entry" scan mode — admin-defined number/text fields filled in
-  // once per scanned candidate. Unlike Custom Tags (lock one field+value,
-  // then scan many candidates with it), here the admin defines the field SET
-  // up front and a small form for ALL of them appears after EACH scan.
-  async function _admCandLoadMarksFields() {
-    if (!_admCandActiveCircularId) return;
+  async function _admCandScanOptionDelete(id) {
+    if (!confirm('Delete this scan option? Candidates keep whatever value they already have, but it will no longer be usable for scanning.')) return;
     try {
-      const res = await _admCandFetch('listMarksFields', { circular_id: _admCandActiveCircularId });
-      _admCandMarksFields = res.fields || [];
-      _admCandRenderMarksFieldList();
+      await _admCandFetch('deleteScanOption', { id });
+      _admCandScanMode = null;
+      await _admCandLoadScanOptions();
     } catch (e) {}
   }
-  // Same admin-only reasoning as _admCandRenderTagDefList -- defining/
-  // deleting fields is enforced admin-only server-side (ADMIN_ONLY_ACTIONS).
-  function _admCandRenderMarksFieldList() {
-    const host = document.getElementById('admCandMarksFieldList');
+  // One shared panel whose content depends on the selected option's
+  // behavior: 'status' needs no extra UI (a scan marks it instantly);
+  // 'tag' shows the value-picker + Lock & Start step; 'form' shows the
+  // admin's field-management box (Add/Remove Field, admin-only).
+  function _admCandRenderScanOptionPanel() {
+    const panel = document.getElementById('admCandScanOptionPanel');
+    if (!panel) return;
+    const opt = _admCandScanSelectedOption;
     const isAdmin = _admCandMyAccess.is_full_admin;
-    document.getElementById('admCandMarksFieldAddRow')?.classList.toggle('hidden', !isAdmin);
-    if (!host) return;
-    host.innerHTML = _admCandMarksFields.map(f => `<span class="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 rounded-full text-[10px] font-bold text-slate-700">${_escHtml(f.label)} <span class="text-slate-400 uppercase">${f.input_type === 'text' ? 'Text' : 'Number'}</span> ${isAdmin ? `<button onclick="_admCandMarksFieldDelete(${f.id})" class="text-red-500 ml-1">×</button>` : ''}</span>`).join('') || `<span class="text-xs text-slate-400">${isAdmin ? 'No fields yet — add one above.' : 'No marks fields available yet.'}</span>`;
+    if (!opt || (opt.behavior === 'status' && !isAdmin)) { panel.classList.add('hidden'); panel.innerHTML = ''; return; }
+    panel.classList.remove('hidden');
+    const deleteBtn = isAdmin ? `<button onclick="_admCandScanOptionDelete(${opt.id})" class="px-3 py-1.5 border border-red-200 text-red-500 rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Delete this option</button>` : '';
+    if (opt.behavior === 'status') {
+      panel.innerHTML = `<div class="flex items-center justify-between flex-wrap gap-2"><p class="text-[10px] uppercase text-slate-400 font-bold">${_escHtml(opt.label)} — scans mark it done instantly</p>${deleteBtn}</div>`;
+      return;
+    }
+    if (opt.behavior === 'tag') {
+      const cfg = opt.config || {};
+      let valueInput = '';
+      if (cfg.type === 'text') valueInput = `<input id="admCandScanTagValueInput" placeholder="Value to assign" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">`;
+      else if (cfg.type === 'dropdown') valueInput = `<select id="admCandScanTagValueInput" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">${(cfg.options || []).map(o => `<option value="${_escHtml(o)}">${_escHtml(o)}</option>`).join('')}</select>`;
+      panel.innerHTML = `
+        <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+          <p class="text-[10px] uppercase text-slate-400 font-bold">${_escHtml(opt.label)} — pick a value, then lock &amp; scan</p>
+          ${deleteBtn}
+        </div>
+        <div class="flex gap-2 items-center mb-2 flex-wrap">
+          ${valueInput}
+          <button onclick="_admCandScanLockTag()" class="px-3 py-2 bg-slate-800 text-white rounded-lg text-[10px] font-black uppercase">Lock &amp; Start</button>
+        </div>
+        <p id="admCandScanTagNote" class="text-xs text-emerald-600 font-bold"></p>`;
+      return;
+    }
+    // 'form'
+    const fields = (opt.config && opt.config.fields) || [];
+    panel.innerHTML = `
+      <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+        <p class="text-[10px] uppercase text-slate-400 font-bold">${_escHtml(opt.label)} — fields</p>
+        ${deleteBtn}
+      </div>
+      ${isAdmin ? `<div class="flex gap-2 items-center mb-2 flex-wrap">
+        <input id="admCandFormFieldLabel" placeholder="Field name e.g. Written Marks" class="flex-1 min-w-[160px] px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+        <select id="admCandFormFieldType" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+          <option value="number">Number keypad</option>
+          <option value="text">Text keypad</option>
+        </select>
+        <button onclick="_admCandFormFieldAdd()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">Add Field</button>
+      </div>` : ''}
+      <div class="flex flex-wrap gap-1.5">
+        ${fields.map(f => `<span class="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 rounded-full text-[10px] font-bold text-slate-700">${_escHtml(f.label)} <span class="text-slate-400 uppercase">${f.input_type === 'text' ? 'Text' : 'Number'}</span> ${isAdmin ? `<button onclick='_admCandFormFieldRemove(${JSON.stringify(f.key)})' class="text-red-500 ml-1">×</button>` : ''}</span>`).join('') || `<span class="text-xs text-slate-400">${isAdmin ? 'No fields yet — add one above.' : 'No fields defined yet.'}</span>`}
+      </div>
+      <p class="text-[10px] text-slate-400 mt-2">After each scan, the candidate's short info and these fields appear for entry — submitting saves them and automatically returns to scanning for the next candidate.</p>`;
   }
-  async function _admCandMarksFieldSave() {
-    if (!_admCandRequireCircular()) return;
-    const label = document.getElementById('admCandMarksFieldLabel').value.trim();
+  async function _admCandFormFieldAdd() {
+    const opt = _admCandScanSelectedOption;
+    if (!opt || opt.behavior !== 'form') return;
+    const label = document.getElementById('admCandFormFieldLabel').value.trim();
     if (!label) { showToast('Name the field first', 'error'); return; }
-    const input_type = document.getElementById('admCandMarksFieldType').value;
+    const input_type = document.getElementById('admCandFormFieldType').value;
     try {
-      const res = await _admCandFetch('saveMarksField', { circular_id: _admCandActiveCircularId, label, input_type });
+      const res = await _admCandFetch('addFormField', { option_id: opt.id, label, input_type });
       if (res.error) { showToast(res.error, 'error'); return; }
-      document.getElementById('admCandMarksFieldLabel').value = '';
+      opt.config = { ...opt.config, fields: res.fields };
       showToast('Field added', 'success');
-      _admCandLoadMarksFields();
+      _admCandRenderScanOptionPanel();
     } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }
-  async function _admCandMarksFieldDelete(id) {
-    if (!confirm('Delete this marks field? Candidates keep whatever value they already have, but it will no longer be entered by scanning.')) return;
-    try { await _admCandFetch('deleteMarksField', { id }); _admCandLoadMarksFields(); } catch (e) {}
+  async function _admCandFormFieldRemove(fieldKey) {
+    const opt = _admCandScanSelectedOption;
+    if (!opt) return;
+    if (!confirm('Delete this field? Candidates keep whatever value they already have, but it will no longer be entered by scanning.')) return;
+    try {
+      const res = await _admCandFetch('removeFormField', { option_id: opt.id, field_key: fieldKey });
+      opt.config = { ...opt.config, fields: res.fields || [] };
+      _admCandRenderScanOptionPanel();
+    } catch (e) {}
   }
-  // Shown after a 'marks'-mode scan resolves (a plain lookup, not a write --
-  // see _admCandResolveScan) instead of the usual pending/collected-style
-  // result line. Camera decoding is paused (not stopped -- see the
-  // _admCandMarksFormOpen check in _admCandScanStart's loop) while this is
-  // open, and resumes automatically on Submit/Cancel with no re-tap needed.
+  // Shown after a 'form'-behavior scan resolves (a plain lookup, not a write
+  // -- see _admCandResolveScan) instead of the usual status-line result.
+  // Camera decoding is paused (not stopped -- see the _admCandMarksFormOpen
+  // check in _admCandScanStart's loop) while this is open, and resumes
+  // automatically on Submit/Cancel with no re-tap needed.
   function _admCandOpenMarksForm(candidate) {
+    const opt = _admCandScanSelectedOption;
+    if (!opt) return;
     _admCandMarksFormOpen = true;
     _admCandMarksCurrentCandidate = candidate;
     const host = document.getElementById('admCandScanResult');
     if (!host) return;
     host.classList.remove('hidden');
-    const existing = candidate.marks || {};
-    const fieldsHtml = _admCandMarksFields.map(f => `
+    const existing = (candidate.scan_values || {})[opt.key] || {};
+    const fields = (opt.config && opt.config.fields) || [];
+    const fieldsHtml = fields.map(f => `
       <div class="mb-2">
         <label class="text-[10px] uppercase text-slate-400 font-bold">${_escHtml(f.label)}</label>
         <input type="${f.input_type === 'text' ? 'text' : 'number'}" inputmode="${f.input_type === 'text' ? 'text' : 'numeric'}" data-marks-key="${_escHtml(f.key)}" value="${_escHtml(existing[f.key] ?? '')}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold mt-1">
@@ -46840,7 +46889,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <p class="text-xs text-slate-500">${_escHtml(candidate.class || '')} · <span class="font-mono text-blue-600">${_escHtml(candidate.token || candidate.tracking_id || '')}</span></p>
         </div>
       </div>
-      ${_admCandMarksFields.length ? fieldsHtml : '<p class="text-xs text-slate-400 mb-2">No marks fields defined yet — add some above.</p>'}
+      ${fields.length ? fieldsHtml : '<p class="text-xs text-slate-400 mb-2">No fields defined yet — add some above.</p>'}
       <div class="flex gap-2 mt-2">
         <button onclick="_admCandSubmitMarksForm()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase">Submit</button>
         <button onclick="_admCandCancelMarksForm()" class="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase">Cancel</button>
@@ -46848,12 +46897,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     </div>`;
   }
   async function _admCandSubmitMarksForm() {
-    if (!_admCandMarksCurrentCandidate) return;
+    const opt = _admCandScanSelectedOption;
+    if (!_admCandMarksCurrentCandidate || !opt) return;
     const host = document.getElementById('admCandScanResult');
-    const marks = {};
-    host?.querySelectorAll('[data-marks-key]').forEach(el => { marks[el.getAttribute('data-marks-key')] = el.value.trim(); });
+    const value = {};
+    host?.querySelectorAll('[data-marks-key]').forEach(el => { value[el.getAttribute('data-marks-key')] = el.value.trim(); });
     try {
-      const r = await _admCandFetch('saveCandidateMarks', { candidate_id: _admCandMarksCurrentCandidate.id, marks });
+      const r = await _admCandFetch('saveScanOptionValue', { candidate_id: _admCandMarksCurrentCandidate.id, option_key: opt.key, value });
       if (r.error) { showToast(r.error, 'error'); return; }
       showToast('Saved — ready for next scan', 'success');
       _admCandCloseMarksForm();
@@ -46866,39 +46916,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('admCandScanResult')?.classList.add('hidden');
     _admCandScanBusy = false;
     const note = document.getElementById('admCandScanNote');
-    if (note && _admCandScanMode === 'marks') note.textContent = _admCandScanInputMode === 'camera' ? 'Point the camera at the next QR code…' : '';
-  }
-  function _admCandPopulateScanTagDefSelect() {
-    const sel = document.getElementById('admCandScanTagDefSelect');
-    if (!sel) return;
-    const allowed = _admCandTagDefs.filter(d => _admCandCanScanOption('tag:' + d.key));
-    sel.innerHTML = '<option value="">Pick a section…</option>' + allowed.map(d => `<option value="${d.id}">${_escHtml(d.label)} (${_escHtml(d.type)})</option>`).join('');
-  }
-  function _admCandScanTagDefChange() {
-    const sel = document.getElementById('admCandScanTagDefSelect');
-    const def = _admCandTagDefs.find(d => String(d.id) === sel.value);
-    const textEl = document.getElementById('admCandScanTagValueText');
-    const selEl = document.getElementById('admCandScanTagValueSelect');
-    textEl.classList.add('hidden'); selEl.classList.add('hidden');
-    if (!def) return;
-    if (def.type === 'text') { textEl.classList.remove('hidden'); }
-    else if (def.type === 'dropdown') {
-      selEl.innerHTML = (def.options || []).map(o => `<option value="${_escHtml(o)}">${_escHtml(o)}</option>`).join('');
-      selEl.classList.remove('hidden');
-    }
+    if (note && _admCandScanSelectedOption?.behavior === 'form') note.textContent = _admCandScanInputMode === 'camera' ? 'Point the camera at the next QR code…' : '';
   }
   function _admCandScanLockTag() {
-    const sel = document.getElementById('admCandScanTagDefSelect');
-    const def = _admCandTagDefs.find(d => String(d.id) === sel.value);
+    const opt = _admCandScanSelectedOption;
     const note = document.getElementById('admCandScanTagNote');
-    if (!def) { if (note) note.textContent = 'Pick a tag section first.'; return; }
+    if (!opt || opt.behavior !== 'tag') return;
+    const cfg = opt.config || {};
     let value = true;
-    if (def.type === 'text') value = document.getElementById('admCandScanTagValueText').value.trim();
-    else if (def.type === 'dropdown') value = document.getElementById('admCandScanTagValueSelect').value;
-    if (def.type !== 'toggle' && !value) { if (note) note.textContent = 'Set a value first.'; return; }
-    _admCandScanTagKey = def.key;
+    if (cfg.type !== 'toggle') {
+      const input = document.getElementById('admCandScanTagValueInput');
+      value = input ? input.value.trim() : '';
+      if (!value) { if (note) note.textContent = 'Set a value first.'; return; }
+    }
     _admCandScanTagValue = value;
-    if (note) note.textContent = `Locked: ${def.label} = ${value === true ? 'yes' : value} — choose how to scan below.`;
+    if (note) note.textContent = `Locked: ${opt.label} = ${value === true ? 'yes' : value} — choose how to scan below.`;
     _admCandScanStop(); // resets to the Open Camera / Manual chooser, nothing was running yet
   }
   function _admCandScanSetScope() {
@@ -46916,8 +46948,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // screen in the field shows one clear next step instead of a camera
   // preview and a text input competing for space.
   function _admCandScanChooseInput(mode) {
-    if (_admCandScanMode === 'tags' && !_admCandScanTagKey) {
-      const tagNote = document.getElementById('admCandScanTagNote'); if (tagNote) tagNote.textContent = 'Lock a tag section first.';
+    if (_admCandScanSelectedOption?.behavior === 'tag' && _admCandScanTagValue === null) {
+      const tagNote = document.getElementById('admCandScanTagNote'); if (tagNote) tagNote.textContent = 'Lock a value first.';
       return;
     }
     _admCandScanInputMode = mode;
@@ -47005,13 +47037,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   async function _admCandResolveScan(rawCode) {
     const code = _admCandExtractScanCode(rawCode);
     const note = document.getElementById('admCandScanNote');
-    if (_admCandScanMode === 'tags' && !_admCandScanTagKey) { if (note) note.textContent = 'Lock a tag section first.'; return; }
+    const opt = _admCandScanSelectedOption;
+    if (!opt) { if (note) note.textContent = 'Pick a scan option first.'; return; }
+    if (opt.behavior === 'tag' && _admCandScanTagValue === null) { if (note) note.textContent = 'Lock a value first.'; return; }
     if (_admCandMarksFormOpen) return; // a form is already open awaiting submit/cancel -- ignore stray scans
     if (note) note.textContent = 'Looking up ' + code + '…';
-    // Marks Entry is a lookup, not an immediate write -- it opens a form
+    // 'form' behavior is a lookup, not an immediate write -- it opens a form
     // instead of marking anything, and the actual save only happens when the
     // admin submits that form (_admCandSubmitMarksForm).
-    if (_admCandScanMode === 'marks') {
+    if (opt.behavior === 'form') {
       try {
         const r = await _admCandFetch('lookupCandidateByToken', { circular_id: _admCandActiveCircularId, code, scope: _admCandScanScope });
         if (r.error) {
@@ -47025,9 +47059,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       return;
     }
     try {
-      const action = _admCandScanMode === 'submission' ? 'scanSubmission' : _admCandScanMode === 'attendance' ? 'scanAttendance' : 'scanTagCandidate';
-      const extra = _admCandScanMode === 'tags' ? { tag_key: _admCandScanTagKey, value: _admCandScanTagValue } : {};
-      const r = await _admCandFetch(action, { circular_id: _admCandActiveCircularId, code, scope: _admCandScanScope, ...extra });
+      const extra = opt.behavior === 'tag' ? { value: _admCandScanTagValue } : {};
+      const r = await _admCandFetch('applyScanOption', { circular_id: _admCandActiveCircularId, option_key: opt.key, code, scope: _admCandScanScope, ...extra });
       if (r.error) {
         if (note) note.textContent = r.error;
         if (r.out_of_scope && r.candidate) _admCandRenderScanResult(r.candidate, true);
@@ -47035,14 +47068,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       }
       if (note) note.textContent = 'Marked — keep scanning for the next one.';
       _admCandRenderScanResult(r.candidate, false);
-      // Keep the Applications tab's in-memory roster (and its tag filter
-      // dimensions/pills) current immediately, the same way every other
-      // mutation in this module patches _admAllApps in place rather than
-      // waiting for a full reload -- so a freshly-scanned tag is filterable
-      // right away, not just after switching away and back.
-      if (_admCandScanMode === 'tags' && r.candidate) {
+      // Keep the Applications tab's in-memory roster (and its Scan Option
+      // filter dimensions/pills) current immediately, the same way every
+      // other mutation in this module patches _admAllApps in place rather
+      // than waiting for a full reload -- so a freshly-scanned value is
+      // filterable right away, not just after switching away and back.
+      if (r.candidate) {
         const app = _admAllApps.find(x => x.id === r.candidate.id);
-        if (app) app.tags = r.candidate.tags || {};
+        if (app) app.scan_values = r.candidate.scan_values || {};
         _admRenderFilterPanel();
       }
     } catch (e) {
@@ -47053,13 +47086,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const host = document.getElementById('admCandScanResult');
     if (!host) return;
     host.classList.remove('hidden');
-    let statusLine;
-    if (_admCandScanMode === 'submission') statusLine = `Submission: <b>${_escHtml(c.submission_scan_status || 'pending')}</b>`;
-    else if (_admCandScanMode === 'attendance') statusLine = `Attendance: <b>${_escHtml(c.attendance_scan_status || 'pending')}</b>`;
-    else {
-      const def = _admCandTagDefs.find(d => d.key === _admCandScanTagKey);
-      const val = (c.tags || {})[_admCandScanTagKey];
-      statusLine = `${_escHtml(def ? def.label : _admCandScanTagKey)}: <b>${_escHtml(val === true ? 'Yes' : String(val ?? ''))}</b>`;
+    const opt = _admCandScanSelectedOption;
+    let statusLine = '';
+    if (opt) {
+      const val = (c.scan_values || {})[opt.key];
+      if (opt.behavior === 'status') statusLine = `${_escHtml(opt.label)}: <b>${val && val.done ? 'Done' : 'Pending'}</b>`;
+      else if (opt.behavior === 'tag') statusLine = `${_escHtml(opt.label)}: <b>${_escHtml(val === true ? 'Yes' : String(val ?? ''))}</b>`;
     }
     host.innerHTML = `<div class="flex items-center gap-4 ${rejected ? 'bg-red-50 border border-red-200' : 'bg-emerald-50 border border-emerald-200'} rounded-xl p-3">
       ${c.student_photo ? `<img src="${_escHtml(c.student_photo)}" style="width:48px;height:48px;object-fit:cover;border-radius:10px">` : ''}

@@ -282,7 +282,10 @@ export async function POST(req) {
   if (action === 'listApplications') {
     const circularId = parseInt(payload.circular_id, 10);
     if (!circularId) return NextResponse.json({ applications: [] });
-    let q = `admission_applications?select=id,tracking_id,index_id,token,source,name_english,name_bangla,class,category,version,session,status,stage,payment_status,room_no,created_at&circular_id=eq.${circularId}&order=created_at.desc`;
+    // scan_values included so the Dashboard/Applications filter panel's
+    // dynamic Scan Option dimensions (Part 10) have real data to read --
+    // without it every row's scan_values would be undefined client-side.
+    let q = `admission_applications?select=id,tracking_id,index_id,token,source,name_english,name_bangla,class,category,version,session,status,stage,payment_status,room_no,scan_values,created_at&circular_id=eq.${circularId}&order=created_at.desc`;
     if (payload.class)   q += `&class=eq.${encodeURIComponent(payload.class)}`;
     if (payload.status)  q += `&status=eq.${encodeURIComponent(payload.status)}`;
     if (payload.source)  q += `&source=eq.${encodeURIComponent(payload.source)}`;

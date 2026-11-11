@@ -176,7 +176,7 @@ export async function POST(req) {
   // sections, only use what's already been granted to them.
   const ADMIN_ONLY_ACTIONS = new Set([
     'listSessions', 'createSession', 'updateSession', 'deleteSession', 'createCircular', 'updateCircular', 'getStudentFieldValues',
-    'saveTagDefinition', 'deleteTagDefinition', 'saveMarksField', 'deleteMarksField',
+    'saveScanOption', 'deleteScanOption', 'addFormField', 'removeFormField',
     'listStaffForCommittee', 'listCommitteeMembers', 'saveCommitteeMember', 'removeCommitteeMember', 'listOrgCommittees', 'pullCommitteeMembers',
     'getVortibdCredentials', 'saveVortibdCredentials', 'listVortibdCirculars', 'getVortibdSyncConfig', 'saveVortibdSyncConfig', 'saveVortibdCircularLink', 'vortibdPullFile', 'syncVortibdNow',
   ]);
@@ -765,176 +765,149 @@ export async function POST(req) {
     if (!scopeMatches(candidate, payload.scope)) return NextResponse.json({ error: 'This candidate is outside the selected scope.', out_of_scope: true, candidate });
     return NextResponse.json({ candidate });
   }
-  if (action === 'scanSubmission' || action === 'scanAttendance') {
-    const circularId = parseInt(payload.circular_id, 10);
-    if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
-    if (!isFullAdmin) {
-      const perms = await _getCommitteePerms(user_id, circularId);
-      const optKey = action === 'scanSubmission' ? 'submission' : 'attendance';
-      if (!_tabOk(false, perms, 'scan', 'edit') || !_scanOk(false, perms, optKey)) return _forbidden();
-    }
-    const candidate = await findCandidateByCode(circularId, payload.code);
-    if (!candidate) return NextResponse.json({ error: `No candidate matches "${payload.code}".` });
-    if (!scopeMatches(candidate, payload.scope)) return NextResponse.json({ error: 'This candidate is outside the selected scope.', out_of_scope: true, candidate });
-    const now = new Date().toISOString();
-    const data = action === 'scanSubmission'
-      ? { submission_scan_status: 'collected', submission_scanned_at: now }
-      : { attendance_scan_status: 'present', attendance_scanned_at: now };
-    const res = await sbAdmission(`admission_applications?id=eq.${candidate.id}`, 'PATCH', { ...data, updated_at: now });
-    if (res?.error) return NextResponse.json({ error: res.error });
-    return NextResponse.json({ success: true, candidate: { ...candidate, ...data } });
-  }
-
-  // ── Part 4: admin-defined candidate tagging via QR scan ("Custom Tags") ──
-  // Separate from the fixed submission/attendance scan above -- sections are
-  // whatever the admin defines (Toggle/Text/Dropdown), and every scan is
-  // logged to candidate_tag_scans (append-only) so a later re-scan never
-  // loses the previous value, just adds a new current one.
+  // ── Part 10: fully dynamic Scan Options -- replaces the old fixed
+  // Submission/Attendance modes, Custom Tags (Part 4), and Marks Entry with
+  // one admin-defined system. An option is 'status' (simple one-tap mark),
+  // 'tag' (lock one field+value, then scan many), or 'form' (multi-field
+  // entry per scan). Every scan is logged to scan_option_history
+  // (append-only), generalized from the old candidate_tag_scans so ALL
+  // behavior types get history, not just tags. migration_admission_scan_
+  // options.sql seeded 'submission'/'attendance' as ordinary status options
+  // (and migrated any existing Tags/Marks data) for every existing circular
+  // -- nothing here treats them as special any more.
   function _slugifyTagKey(label) {
-    return String(label || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'tag';
+    return String(label || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'option';
   }
-  if (action === 'listTagDefinitions') {
+  if (action === 'listScanOptions') {
     const circularId = parseInt(payload.circular_id, 10);
-    if (!circularId) return NextResponse.json({ definitions: [] });
-    // Low-sensitivity metadata (just section names/types), not candidate data
+    if (!circularId) return NextResponse.json({ options: [] });
+    // Low-sensitivity metadata (labels/behavior/config), not candidate data
     // -- readable by anyone with at least view on either tab that uses it.
     if (!isFullAdmin) {
       const perms = await _getCommitteePerms(user_id, circularId);
-      if (!_tabOk(false, perms, 'scan', 'view') && !_tabOk(false, perms, 'candidates', 'view')) return NextResponse.json({ definitions: [] });
+      if (!_tabOk(false, perms, 'scan', 'view') && !_tabOk(false, perms, 'candidates', 'view')) return NextResponse.json({ options: [] });
     }
-    const rows = await sbAdmission(`candidate_tag_definitions?circular_id=eq.${circularId}&order=created_at.asc`);
-    return NextResponse.json({ definitions: Array.isArray(rows) ? rows : [] });
+    const rows = await sbAdmission(`scan_options?circular_id=eq.${circularId}&order=sort_order.asc,created_at.asc`);
+    return NextResponse.json({ options: Array.isArray(rows) ? rows : [] });
   }
-  if (action === 'saveTagDefinition') {
+  if (action === 'saveScanOption') {
     const circularId = parseInt(payload.circular_id, 10);
     if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
     const label = String(payload.label || '').trim();
-    if (!label) return NextResponse.json({ error: 'Section name is required.' });
-    const type = ['toggle', 'text', 'dropdown'].includes(payload.type) ? payload.type : 'toggle';
-    const options = Array.isArray(payload.options) ? payload.options.map(String).filter(Boolean) : [];
+    if (!label) return NextResponse.json({ error: 'A name is required.' });
     const id = parseInt(payload.id, 10);
     if (id) {
-      // key is immutable once created -- candidate_tag_scans.tag_key already references it by value.
-      const res = await sbAdmission(`candidate_tag_definitions?id=eq.${id}`, 'PATCH', { label, type, options });
+      // behavior and key are immutable once created -- scan_values/history
+      // already reference the key by value, and switching behavior would
+      // make existing recorded values meaningless.
+      const config = (payload.config && typeof payload.config === 'object') ? payload.config : {};
+      const res = await sbAdmission(`scan_options?id=eq.${id}`, 'PATCH', { label, config });
       if (res?.error) return NextResponse.json({ error: res.error });
       return NextResponse.json({ success: true, id });
     }
+    const behavior = ['status', 'tag', 'form'].includes(payload.behavior) ? payload.behavior : 'status';
+    const config = behavior === 'tag'
+      ? { type: ['toggle', 'text', 'dropdown'].includes(payload.type) ? payload.type : 'toggle', options: Array.isArray(payload.options) ? payload.options.map(String).filter(Boolean) : [] }
+      : behavior === 'form' ? { fields: [] } : {};
     const key = _slugifyTagKey(label);
-    const data = { circular_id: circularId, key, label, type, options };
-    const res = await sbAdmission('candidate_tag_definitions', 'POST', data);
-    if (res?.error) return NextResponse.json({ error: res.error.includes('duplicate') ? 'A section with this name already exists.' : res.error });
+    const existing = await sbAdmission(`scan_options?circular_id=eq.${circularId}&select=id`);
+    const sort_order = Array.isArray(existing) ? existing.length : 0;
+    const data = { circular_id: circularId, key, label, behavior, config, sort_order };
+    const res = await sbAdmission('scan_options', 'POST', data);
+    if (res?.error) return NextResponse.json({ error: res.error.includes('duplicate') ? 'A scan option with this name already exists.' : res.error });
     return NextResponse.json({ id: res?.[0]?.id, ...data });
   }
-  if (action === 'deleteTagDefinition') {
-    await sbAdmission(`candidate_tag_definitions?id=eq.${parseInt(payload.id, 10) || 0}`, 'DELETE');
+  if (action === 'deleteScanOption') {
+    await sbAdmission(`scan_options?id=eq.${parseInt(payload.id, 10) || 0}`, 'DELETE');
     return NextResponse.json({ success: true });
   }
-  async function applyCandidateTag(candidateId, tagKey, value) {
-    await sbAdmission('candidate_tag_scans', 'POST', { candidate_id: candidateId, tag_key: tagKey, value });
-    const rows = await sbAdmission(`admission_applications?id=eq.${candidateId}&select=tags`);
-    const currentTags = (Array.isArray(rows) && rows[0] && rows[0].tags) || {};
-    const tags = { ...currentTags, [tagKey]: value };
-    await sbAdmission(`admission_applications?id=eq.${candidateId}`, 'PATCH', { tags, updated_at: new Date().toISOString() });
-    return tags;
+  // Read-merge-write on one 'form'-behavior option's config.fields array --
+  // same shape as the old dedicated candidate_marks_fields table, just
+  // scoped to one option's config instead of a separate table/row-per-field.
+  if (action === 'addFormField') {
+    const optionId = parseInt(payload.option_id, 10);
+    const label = String(payload.label || '').trim();
+    if (!optionId || !label) return NextResponse.json({ error: 'Missing option or field name.' });
+    const rows = await sbAdmission(`scan_options?id=eq.${optionId}&select=config`);
+    const opt = Array.isArray(rows) && rows[0];
+    if (!opt) return NextResponse.json({ error: 'Scan option not found.' });
+    const fields = Array.isArray(opt.config?.fields) ? opt.config.fields : [];
+    const key = _slugifyTagKey(label);
+    if (fields.some(f => f.key === key)) return NextResponse.json({ error: 'A field with this name already exists.' });
+    const input_type = payload.input_type === 'text' ? 'text' : 'number';
+    fields.push({ key, label, input_type });
+    const res = await sbAdmission(`scan_options?id=eq.${optionId}`, 'PATCH', { config: { ...opt.config, fields } });
+    if (res?.error) return NextResponse.json({ error: res.error });
+    return NextResponse.json({ success: true, fields });
   }
-  if (action === 'scanTagCandidate') {
+  if (action === 'removeFormField') {
+    const optionId = parseInt(payload.option_id, 10);
+    const fieldKey = String(payload.field_key || '').trim();
+    if (!optionId || !fieldKey) return NextResponse.json({ error: 'Missing option or field.' });
+    const rows = await sbAdmission(`scan_options?id=eq.${optionId}&select=config`);
+    const opt = Array.isArray(rows) && rows[0];
+    if (!opt) return NextResponse.json({ error: 'Scan option not found.' });
+    const fields = (Array.isArray(opt.config?.fields) ? opt.config.fields : []).filter(f => f.key !== fieldKey);
+    const res = await sbAdmission(`scan_options?id=eq.${optionId}`, 'PATCH', { config: { ...opt.config, fields } });
+    if (res?.error) return NextResponse.json({ error: res.error });
+    return NextResponse.json({ success: true, fields });
+  }
+  async function _applyScanValue(candidateId, optionKey, value) {
+    await sbAdmission('scan_option_history', 'POST', { candidate_id: candidateId, option_key: optionKey, value });
+    const rows = await sbAdmission(`admission_applications?id=eq.${candidateId}&select=scan_values`);
+    const current = (Array.isArray(rows) && rows[0] && rows[0].scan_values) || {};
+    const scan_values = { ...current, [optionKey]: value };
+    await sbAdmission(`admission_applications?id=eq.${candidateId}`, 'PATCH', { scan_values, updated_at: new Date().toISOString() });
+    return scan_values;
+  }
+  // The scan-triggered write, for 'status' and 'tag' behaviors (an
+  // immediate mark on scan) -- 'form'-behavior options instead use
+  // lookupCandidateByToken for the post-scan lookup and saveScanOptionValue
+  // below for the submit, since they need a form filled in between the two.
+  if (action === 'applyScanOption') {
     const circularId = parseInt(payload.circular_id, 10);
     if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
-    const tagKey = String(payload.tag_key || '').trim();
-    if (!tagKey) return NextResponse.json({ error: 'Pick a tag section first.' });
+    const optionKey = String(payload.option_key || '').trim();
+    if (!optionKey) return NextResponse.json({ error: 'Pick a scan option first.' });
     if (!isFullAdmin) {
       const perms = await _getCommitteePerms(user_id, circularId);
-      if (!_tabOk(false, perms, 'scan', 'edit') || !_scanOk(false, perms, 'tag:' + tagKey)) return _forbidden();
+      if (!_tabOk(false, perms, 'scan', 'edit') || !_scanOk(false, perms, optionKey)) return _forbidden();
     }
     const candidate = await findCandidateByCode(circularId, payload.code);
     if (!candidate) return NextResponse.json({ error: `No candidate matches "${payload.code}".` });
     if (!scopeMatches(candidate, payload.scope)) return NextResponse.json({ error: 'This candidate is outside the selected scope.', out_of_scope: true, candidate });
-    const tags = await applyCandidateTag(candidate.id, tagKey, payload.value === undefined ? true : payload.value);
-    return NextResponse.json({ success: true, candidate: { ...candidate, tags } });
+    const value = payload.value !== undefined ? payload.value : { done: true, scanned_at: new Date().toISOString() };
+    const scan_values = await _applyScanValue(candidate.id, optionKey, value);
+    return NextResponse.json({ success: true, candidate: { ...candidate, scan_values } });
   }
-  if (action === 'setCandidateTagValue') {
+  // The 'form'-behavior submit path (candidate already resolved via a prior
+  // lookupCandidateByToken call) -- also doubles as the direct-admin
+  // correction/restore-from-history path, same as the old setCandidateTagValue.
+  if (action === 'saveScanOptionValue') {
     const candidateId = parseInt(payload.candidate_id, 10);
-    const tagKey = String(payload.tag_key || '').trim();
-    if (!candidateId || !tagKey) return NextResponse.json({ error: 'Missing candidate or tag section.' });
+    const optionKey = String(payload.option_key || '').trim();
+    if (!candidateId || !optionKey) return NextResponse.json({ error: 'Missing candidate or scan option.' });
     if (!isFullAdmin) {
       const candRows = await sbAdmission(`admission_applications?id=eq.${candidateId}&select=circular_id`);
       const circularId = (Array.isArray(candRows) && candRows[0]) ? candRows[0].circular_id : null;
-      if (!_tabOk(false, await _getCommitteePerms(user_id, circularId), 'candidates', 'edit')) return _forbidden();
+      const perms = await _getCommitteePerms(user_id, circularId);
+      if ((!_tabOk(false, perms, 'scan', 'edit') || !_scanOk(false, perms, optionKey)) && !_tabOk(false, perms, 'candidates', 'edit')) return _forbidden();
     }
-    const tags = await applyCandidateTag(candidateId, tagKey, payload.value === undefined ? true : payload.value);
-    return NextResponse.json({ success: true, tags });
+    const scan_values = await _applyScanValue(candidateId, optionKey, payload.value);
+    return NextResponse.json({ success: true, scan_values });
   }
-  if (action === 'getCandidateTagHistory') {
+  if (action === 'getScanOptionHistory') {
     const candidateId = parseInt(payload.candidate_id, 10);
-    const tagKey = String(payload.tag_key || '').trim();
-    if (!candidateId || !tagKey) return NextResponse.json({ history: [] });
+    const optionKey = String(payload.option_key || '').trim();
+    if (!candidateId || !optionKey) return NextResponse.json({ history: [] });
     if (!isFullAdmin) {
       const candRows = await sbAdmission(`admission_applications?id=eq.${candidateId}&select=circular_id`);
       const circularId = (Array.isArray(candRows) && candRows[0]) ? candRows[0].circular_id : null;
       const perms = await _getCommitteePerms(user_id, circularId);
       if (!_tabOk(false, perms, 'candidates', 'view') && !_tabOk(false, perms, 'scan', 'view')) return _forbidden();
     }
-    const rows = await sbAdmission(`candidate_tag_scans?candidate_id=eq.${candidateId}&tag_key=eq.${encodeURIComponent(tagKey)}&order=scanned_at.desc&limit=50`);
+    const rows = await sbAdmission(`scan_option_history?candidate_id=eq.${candidateId}&option_key=eq.${encodeURIComponent(optionKey)}&order=scanned_at.desc&limit=50`);
     return NextResponse.json({ history: Array.isArray(rows) ? rows : [] });
-  }
-
-  // ── "Marks Entry" scan mode -- admin-defined number/text fields filled in
-  // once per scanned candidate (distinct from Custom Tags above: Tags lock
-  // one field+value before scanning many candidates with it; Marks shows a
-  // small multi-field form after EACH scan). Field CRUD is admin-only
-  // (ADMIN_ONLY_ACTIONS above); using the fields while scanning is a
-  // committee scan_options grant ('marks'), same shape as 'submission'/
-  // 'attendance'/'tag:<key>'.
-  if (action === 'listMarksFields') {
-    const circularId = parseInt(payload.circular_id, 10);
-    if (!circularId) return NextResponse.json({ fields: [] });
-    if (!isFullAdmin) {
-      const perms = await _getCommitteePerms(user_id, circularId);
-      if (!_tabOk(false, perms, 'scan', 'view') && !_tabOk(false, perms, 'candidates', 'view')) return NextResponse.json({ fields: [] });
-    }
-    const rows = await sbAdmission(`candidate_marks_fields?circular_id=eq.${circularId}&order=sort_order.asc,created_at.asc`);
-    return NextResponse.json({ fields: Array.isArray(rows) ? rows : [] });
-  }
-  if (action === 'saveMarksField') {
-    const circularId = parseInt(payload.circular_id, 10);
-    if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
-    const label = String(payload.label || '').trim();
-    if (!label) return NextResponse.json({ error: 'Field name is required.' });
-    const input_type = payload.input_type === 'text' ? 'text' : 'number';
-    const id = parseInt(payload.id, 10);
-    if (id) {
-      // key is immutable once created, same reasoning as tag definitions.
-      const res = await sbAdmission(`candidate_marks_fields?id=eq.${id}`, 'PATCH', { label, input_type });
-      if (res?.error) return NextResponse.json({ error: res.error });
-      return NextResponse.json({ success: true, id });
-    }
-    const key = _slugifyTagKey(label);
-    const existing = await sbAdmission(`candidate_marks_fields?circular_id=eq.${circularId}&select=id`);
-    const sort_order = Array.isArray(existing) ? existing.length : 0;
-    const data = { circular_id: circularId, key, label, input_type, sort_order };
-    const res = await sbAdmission('candidate_marks_fields', 'POST', data);
-    if (res?.error) return NextResponse.json({ error: res.error.includes('duplicate') ? 'A field with this name already exists.' : res.error });
-    return NextResponse.json({ id: res?.[0]?.id, ...data });
-  }
-  if (action === 'deleteMarksField') {
-    await sbAdmission(`candidate_marks_fields?id=eq.${parseInt(payload.id, 10) || 0}`, 'DELETE');
-    return NextResponse.json({ success: true });
-  }
-  if (action === 'saveCandidateMarks') {
-    const candidateId = parseInt(payload.candidate_id, 10);
-    if (!candidateId) return NextResponse.json({ error: 'Missing candidate.' });
-    const candRows = await sbAdmission(`admission_applications?id=eq.${candidateId}&select=circular_id,marks`);
-    const row = Array.isArray(candRows) && candRows[0];
-    if (!row) return NextResponse.json({ error: 'Candidate not found.' });
-    if (!isFullAdmin) {
-      const perms = await _getCommitteePerms(user_id, row.circular_id);
-      if (!_tabOk(false, perms, 'scan', 'edit') || !_scanOk(false, perms, 'marks')) return _forbidden();
-    }
-    const incoming = (payload.marks && typeof payload.marks === 'object') ? payload.marks : {};
-    const marks = { ...(row.marks || {}), ...incoming };
-    const res = await sbAdmission(`admission_applications?id=eq.${candidateId}`, 'PATCH', { marks, updated_at: new Date().toISOString() });
-    if (res?.error) return NextResponse.json({ error: res.error });
-    return NextResponse.json({ success: true, marks });
   }
 
   // ── Part 5: committee management (all admin-only -- enforced above via
