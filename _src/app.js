@@ -42655,7 +42655,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <p class="font-bold text-sm text-slate-800 mt-0.5">${_escHtml(a.name_english || '—')}</p>
           ${a.name_bangla ? `<p class="text-[10px] text-slate-400">${_escHtml(a.name_bangla)}</p>` : ''}
           ${metaLine ? `<p class="text-[10px] text-slate-500 font-bold mt-0.5">${_escHtml(metaLine)}</p>` : ''}
-          ${a.room_no ? `<span class="inline-block mt-1 px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 text-[9px] font-bold">Room ${_escHtml(a.room_no)}</span>` : ''}
+          ${(a.room_name || a.room_no) ? `<span class="inline-block mt-1 px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 text-[9px] font-bold">Room ${_escHtml(a.room_name || a.room_no)}${a.seat_no ? ' · Seat ' + _escHtml(a.seat_no) : ''}</span>` : ''}
         </td>
         <td class="px-3 py-3 hidden md:table-cell text-[11px] text-slate-600 leading-relaxed">${details || '<span class="text-slate-300">—</span>'}</td>
         <td class="px-3 py-3">
@@ -43126,7 +43126,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admExportCsv() {
     const apps = _admLastFiltered;
     if (!apps.length) { showToast('No applications to export', 'error'); return; }
-    const headers = ['SL', 'Tracking ID', 'Index ID', 'Name', 'Class', 'Version', 'Category', 'Session', 'Status', 'Payment Status', 'Room No', 'Submitted At'];
+    const headers = ['SL', 'Tracking ID', 'Index ID', 'Name', 'Class', 'Version', 'Category', 'Session', 'Status', 'Payment Status', 'Room No', 'Seat No', 'Submitted At'];
     // Part 10: one column per Scan Option (status/tag), and one column per
     // field for 'form'-behavior options, so scanned/tagged/marks data
     // exports alongside the base fields -- apps is already _admLastFiltered,
@@ -43149,7 +43149,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     headers.push(...scanCols.map(c => c.header));
     const rows = [headers];
     apps.forEach((a, idx) => {
-      rows.push([idx + 1, a.tracking_id || '', a.index_id || '', a.name_english || '', a.class || '', a.version || '', a.category || '', a.session || '', a.status || '', a.payment_status || '', a.room_no || '', a.created_at ? new Date(a.created_at).toLocaleString() : '', ...scanCols.map(c => c.get(a))]);
+      rows.push([idx + 1, a.tracking_id || '', a.index_id || '', a.name_english || '', a.class || '', a.version || '', a.category || '', a.session || '', a.status || '', a.payment_status || '', a.room_name || a.room_no || '', a.seat_no || '', a.created_at ? new Date(a.created_at).toLocaleString() : '', ...scanCols.map(c => c.get(a))]);
     });
     const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
     const a = document.createElement('a');
@@ -45442,30 +45442,34 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
       <div id="adm-cand-alloc" class="hidden">
         <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
+          <p class="text-xs text-slate-400 mb-4">
+            Running this takes every candidate matching the filters below, sorts/groups them as chosen, then fills the
+            checked rooms <b>in the order they're listed below</b>, each up to its capacity. It re-assigns ALL matching
+            candidates every time — including ones already seated from a previous run — so re-running with different
+            filters/rooms can move someone who was already allocated. "Clear All Allocations" removes every room/seat
+            assignment in this circular (useful before a fresh run with new criteria).
+          </p>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div>
               <label class="text-[10px] uppercase text-slate-400 font-bold">Sort candidates by</label>
-              <select id="admCandAllocSortBy" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold mt-1">
-                <option value="token">Tracking ID</option><option value="name_english">Name</option><option value="class">Class</option><option value="category">Category</option>
+              <select id="admCandAllocSortBy" onchange="_admCandUpdateAllocPreview()" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold mt-1">
+                <option value="token">Tracking ID</option><option value="name_english">Name</option>${_admCandAllocFieldOptionsHtml()}
               </select>
             </div>
             <div>
-              <label class="text-[10px] uppercase text-slate-400 font-bold">Group by (keeps each group together)</label>
-              <select id="admCandAllocGroupBy" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold mt-1">
-                <option value="">No grouping</option><option value="class">Class</option><option value="category">Category</option>
+              <label class="text-[10px] uppercase text-slate-400 font-bold">Group by (keeps each group together, filled before moving to the next)</label>
+              <select id="admCandAllocGroupBy" onchange="_admCandUpdateAllocPreview()" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold mt-1">
+                <option value="">No grouping</option>${_admCandAllocFieldOptionsHtml()}
               </select>
-            </div>
-            <div>
-              <label class="text-[10px] uppercase text-slate-400 font-bold">Filter — Class</label>
-              <select id="admCandAllocFilterClass" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold mt-1"><option value="">All</option></select>
-            </div>
-            <div>
-              <label class="text-[10px] uppercase text-slate-400 font-bold">Filter — Category</label>
-              <select id="admCandAllocFilterCategory" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold mt-1"><option value="">All</option></select>
             </div>
           </div>
-          <label class="text-[10px] uppercase text-slate-400 font-bold">Rooms to fill, in order</label>
+          <div id="admCandAllocFilters" class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4"></div>
+          <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
+            <label class="text-[10px] uppercase text-slate-400 font-bold">Rooms to fill, in order shown</label>
+            <label class="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 cursor-pointer"><input type="checkbox" id="admCandAllocOnlyAvailable" checked onchange="_admCandRenderAllocRoomPicker()"> Only rooms with available seats</label>
+          </div>
           <div id="admCandAllocRoomPicker" class="flex flex-wrap gap-2 my-2"></div>
+          <div id="admCandAllocPreview" class="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2 mb-3"></div>
           <div class="flex items-center gap-2 mt-3">
             <button onclick="_admCandRunAllocation()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase">Run Allocation</button>
             <button onclick="_admCandClearAllocation()" class="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase">Clear All Allocations</button>
@@ -46659,8 +46663,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       tagDefSel.innerHTML = '<option value="">Any Tag Section</option>' + _admCandTagDefs.map(d => `<option value="${d.id}">${_escHtml(d.label)}</option>`).join('');
       tagDefSel.value = cur;
     }
-    fill('admCandAllocFilterClass', classes, 'All');
-    fill('admCandAllocFilterCategory', cats, 'All');
     fill('admCandTokenFilterClass', classes, 'All Classes');
     fill('admCandScanScopeClass', classes, 'Any Class');
     fill('admCandScanScopeCategory', cats, 'Any Category');
@@ -46672,6 +46674,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     };
     fillRooms('admCandTokenFilterRoom', 'All Rooms');
     fillRooms('admCandScanScopeRoom', 'Any Room');
+    _admCandRenderAllocFilters();
+    _admCandUpdateAllocPreview();
   }
   function _admCandPopulatePrintDropdowns() {
     const sel = document.getElementById('admCandPrintRoomSelect');
@@ -46821,15 +46825,85 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   // ── Seat allocation ───────────────────────────────────────────────────────
+  // Same field set as the backend's own ALLOC_FIELDS whitelist
+  // (app/api/admission-candidates/route.js) -- Sort By/Group By/Filters all
+  // draw from this one list so every field the server actually supports is
+  // always offered (previously only class/category were wired end-to-end,
+  // even in the UI).
+  const ADM_CAND_ALLOC_FIELD_LABELS = { class: 'Class', category: 'Category', version: 'Version', session: 'Session', status: 'Status', source: 'Source' };
+  function _admCandAllocFieldOptionsHtml() {
+    return Object.entries(ADM_CAND_ALLOC_FIELD_LABELS).map(([k, l]) => `<option value="${k}">${l}</option>`).join('');
+  }
+  // Values come from the already-loaded _admCandAllCandidates roster (same
+  // "derive options from real data" approach the Applications tab's own
+  // filter panel uses), so every filter only ever offers values that
+  // actually exist for this circular, and never goes stale against a fixed
+  // hardcoded list.
+  function _admCandRenderAllocFilters() {
+    const host = document.getElementById('admCandAllocFilters');
+    if (!host) return;
+    const cur = {};
+    host.querySelectorAll('select[data-field]').forEach(s => { cur[s.dataset.field] = s.value; });
+    host.innerHTML = Object.entries(ADM_CAND_ALLOC_FIELD_LABELS).map(([k, l]) => {
+      const values = [...new Set(_admCandAllCandidates.map(c => c[k]).filter(Boolean))].sort();
+      return `<div><label class="text-[10px] uppercase text-slate-400 font-bold">Filter — ${l}</label>
+        <select data-field="${k}" onchange="_admCandUpdateAllocPreview()" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold mt-1">
+          <option value="">All</option>${values.map(v => `<option value="${_escHtml(v)}"${cur[k] === v ? ' selected' : ''}>${_escHtml(v)}</option>`).join('')}
+        </select></div>`;
+    }).join('');
+  }
+  function _admCandCollectAllocFilters() {
+    const filters = {};
+    document.querySelectorAll('#admCandAllocFilters select[data-field]').forEach(s => { if (s.value) filters[s.dataset.field] = s.value; });
+    return filters;
+  }
+  // "Only rooms with available seats" (complaint: no way to hide full rooms
+  // from the picker) -- available = capacity minus however many candidates
+  // currently sit in that room (same count _admCandRenderRoomsTable already
+  // shows in the Rooms tab), so a full room just disappears from the list
+  // by default instead of the admin having to check capacity manually.
   function _admCandRenderAllocRoomPicker() {
     const host = document.getElementById('admCandAllocRoomPicker');
     if (!host) return;
-    host.innerHTML = _admCandRooms.map(r => {
+    const onlyAvailable = document.getElementById('admCandAllocOnlyAvailable')?.checked;
+    const rooms = _admCandRooms.map(r => {
+      const allocated = _admCandAllCandidates.filter(c => c.room_id === r.id).length;
+      return { ...r, allocated, available: r.capacity - allocated };
+    }).filter(r => !onlyAvailable || r.available > 0);
+    host.innerHTML = rooms.map(r => {
       const building = _admCandRoomBuildingLabel(r);
       return `<label class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold cursor-pointer">
-      <input type="checkbox" class="admCandAllocRoomChk" value="${r.id}"> ${_escHtml(r.room_name)} (${r.capacity})${building ? ` <span class="text-slate-400 font-normal">— ${_escHtml(building)}</span>` : ''}
+      <input type="checkbox" class="admCandAllocRoomChk" value="${r.id}" data-available="${r.available}" onchange="_admCandUpdateAllocPreview()"> ${_escHtml(r.room_name)}${building ? ` <span class="text-slate-400 font-normal">— ${_escHtml(building)}</span>` : ''}
+      <span class="px-1.5 py-0.5 rounded-full text-[9px] font-black ${r.available > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'}">${r.available} / ${r.capacity} free</span>
     </label>`;
-    }).join('') || '<p class="text-xs text-slate-400">No rooms yet — add some in the Rooms tab.</p>';
+    }).join('') || (onlyAvailable
+      ? '<p class="text-xs text-slate-400">No rooms with available seats — uncheck "Only rooms with available seats", or free some up in Rooms/Clear Allocations.</p>'
+      : '<p class="text-xs text-slate-400">No rooms yet — add some in the Rooms tab.</p>');
+    _admCandUpdateAllocPreview();
+  }
+  // Client-side, no extra round-trip: a quick sanity check of what Run
+  // Allocation is actually about to do, before committing to it (addresses
+  // "the allocation system isn't clear enough" -- the admin can now see how
+  // many candidates match and whether the picked rooms have room for them).
+  // Approximate by design (re-running genuinely re-assigns already-seated
+  // candidates too, which can free/consume capacity differently than a
+  // simple capacity-allocated snapshot predicts) -- framed as "about" rather
+  // than an exact guarantee.
+  function _admCandUpdateAllocPreview() {
+    const out = document.getElementById('admCandAllocPreview');
+    if (!out) return;
+    const filters = _admCandCollectAllocFilters();
+    const matching = _admCandAllCandidates.filter(c => Object.entries(filters).every(([k, v]) => String(c[k] || '') === v));
+    const checked = Array.from(document.querySelectorAll('.admCandAllocRoomChk:checked'));
+    if (!checked.length) {
+      out.innerHTML = `<b class="text-slate-700">${matching.length}</b> candidate(s) match your filters. Pick at least one room above to see whether they'll all fit.`;
+      return;
+    }
+    const totalAvailable = checked.reduce((sum, cb) => sum + (parseInt(cb.dataset.available, 10) || 0), 0);
+    const wouldFit = Math.min(matching.length, totalAvailable);
+    const wouldOverflow = Math.max(0, matching.length - totalAvailable);
+    out.innerHTML = `<b class="text-slate-700">${matching.length}</b> candidate(s) match your filters · <b class="text-slate-700">${checked.length}</b> room(s) picked with <b class="text-slate-700">${totalAvailable}</b> seat(s) free (about) — `
+      + `<b class="${wouldOverflow ? 'text-red-600' : 'text-emerald-600'}">${wouldFit} would be seated${wouldOverflow ? `, ${wouldOverflow} would NOT fit — add more rooms or capacity` : ''}</b>.`;
   }
   async function _admCandRunAllocation() {
     if (!_admCandRequireCircular()) return;
@@ -46839,10 +46913,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       sort_by: document.getElementById('admCandAllocSortBy').value,
       sort_dir: 'asc',
       group_by: document.getElementById('admCandAllocGroupBy').value,
-      filters: {
-        class: document.getElementById('admCandAllocFilterClass').value || undefined,
-        category: document.getElementById('admCandAllocFilterCategory').value || undefined,
-      },
+      filters: _admCandCollectAllocFilters(),
       room_ids: roomIds,
     };
     try {

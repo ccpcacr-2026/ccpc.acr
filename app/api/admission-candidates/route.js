@@ -45,6 +45,11 @@ async function sbAdmission(path, method = 'GET', body = null, extraHeaders = {})
 // Inventory Admin itself. Self-contained copy of
 // app/api/inventory-admin/route.js's own sbInventory() (no shared import,
 // matching this repo's convention).
+// Fields the Seat Allocation engine (and its UI) may filter/sort/group by --
+// a fixed whitelist since these names get interpolated straight into a
+// PostgREST query string (see runSeatAllocation below).
+const ALLOC_FIELDS = ['class', 'category', 'version', 'session', 'status', 'source'];
+
 async function sbInventory(path, method = 'GET', body = null) {
   const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
     method,
@@ -593,8 +598,9 @@ export async function POST(req) {
   }
 
   // ── Seat allocation engine ───────────────────────────────────────────────
-  // criteria: { sort_by: 'token'|'name_english'|field, sort_dir: 'asc'|'desc',
-  //             group_by: ''|'class'|'category', filters: {class?, category?},
+  // criteria: { sort_by: 'token'|'name_english'|one of ALLOC_FIELDS,
+  //             sort_dir: 'asc'|'desc', group_by: ''|one of ALLOC_FIELDS,
+  //             filters: {class?, category?, version?, session?, status?, source?},
   //             room_ids: [in fill order] }
   // Fills each room to capacity in room_ids order; when group_by is set,
   // candidates are grouped first (each group kept together, sorted groups by
@@ -614,20 +620,26 @@ export async function POST(req) {
     const roomsById = {}; roomsRes.forEach(r => { roomsById[r.id] = r; });
     const orderedRooms = roomIds.map(id => roomsById[id]).filter(Boolean);
 
-    let q = `admission_applications?select=id,token,name_english,class,category,external_key&circular_id=eq.${circularId}&limit=10000`;
-    if (criteria.filters?.class)    q += `&class=eq.${encodeURIComponent(criteria.filters.class)}`;
-    if (criteria.filters?.category) q += `&category=eq.${encodeURIComponent(criteria.filters.category)}`;
+    // Whitelisted (never interpolate an arbitrary client-sent column name
+    // into a query string) -- also the full set of fields the Seat
+    // Allocation UI now offers for Filter/Sort/Group By (previously only
+    // class/category were wired end-to-end here, even though the UI's
+    // intent was always "any roster field").
+    let q = `admission_applications?select=id,token,name_english,class,category,version,session,status,source,external_key&circular_id=eq.${circularId}&limit=10000`;
+    const filters = criteria.filters || {};
+    for (const f of ALLOC_FIELDS) { if (filters[f]) q += `&${f}=eq.${encodeURIComponent(filters[f])}`; }
     const candidates = await sbAdmission(q);
     if (!Array.isArray(candidates) || !candidates.length) return NextResponse.json({ error: 'No matching candidates to allocate.' });
 
-    const sortBy = criteria.sort_by || 'token';
+    const sortBy = ALLOC_FIELDS.concat(['token', 'name_english']).includes(criteria.sort_by) ? criteria.sort_by : 'token';
     const dir = criteria.sort_dir === 'desc' ? -1 : 1;
     const cmp = (a, b) => String(a[sortBy] ?? '').localeCompare(String(b[sortBy] ?? ''), undefined, { numeric: true }) * dir;
 
     let ordered;
-    if (criteria.group_by) {
+    const groupBy = ALLOC_FIELDS.includes(criteria.group_by) ? criteria.group_by : '';
+    if (groupBy) {
       const groups = {};
-      candidates.forEach(c => { const k = c[criteria.group_by] || ''; (groups[k] = groups[k] || []).push(c); });
+      candidates.forEach(c => { const k = c[groupBy] || ''; (groups[k] = groups[k] || []).push(c); });
       ordered = Object.keys(groups).sort().flatMap(k => groups[k].sort(cmp));
     } else {
       ordered = candidates.slice().sort(cmp);

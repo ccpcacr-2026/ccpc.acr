@@ -80,6 +80,21 @@ async function sbAdmissionRpc(fn, params = {}) {
   return text ? JSON.parse(text) : null;
 }
 
+// Cross-schema read into the Inventory module's rooms registry (Part 9:
+// Admission's Rooms tab/Seat Allocation now share inventory.rooms rather
+// than a circular-scoped table) -- needed here only to resolve a room_id
+// into its human-readable name for the Dashboard/Applications list's room
+// badge. Self-contained copy of app/api/admission-candidates/route.js's own
+// sbInventory(), per this repo's no-shared-lib convention.
+async function sbInventory(path) {
+  const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
+    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'inventory' },
+  });
+  const text = await res.text();
+  if (!res.ok) return { error: text };
+  return text ? JSON.parse(text) : null;
+}
+
 // Fresh per-request check against teacher_staff.app_users — never trust a cached role.
 async function _getUserRoles(userId) {
   if (!userId) return [];
@@ -297,12 +312,25 @@ export async function POST(req) {
     // without it every row's scan_values would be undefined client-side.
     // Father/mother/guardian name+contact added so the Applications table's
     // row can show a compact "Family" column without a per-row fetch.
-    let q = `admission_applications?select=id,tracking_id,index_id,token,source,name_english,name_bangla,class,category,version,session,status,stage,payment_status,room_no,scan_values,created_at,father_name,father_contact,mother_name,mother_contact,guardian_name,guardian_contact,guardian_relation&circular_id=eq.${circularId}&order=created_at.desc`;
+    // room_id/seat_no added: Part 9's seat allocation writes these (FK into
+    // the shared inventory.rooms registry), not the legacy room_no text
+    // column -- without selecting+resolving them here, every seat-allocated
+    // row's room badge in the Dashboard/Applications table silently stayed
+    // blank (room_no is only ever set by the separate Payments/Admit-issuing
+    // flow, a different feature, left untouched here).
+    let q = `admission_applications?select=id,tracking_id,index_id,token,source,name_english,name_bangla,class,category,version,session,status,stage,payment_status,room_no,room_id,seat_no,scan_values,created_at,father_name,father_contact,mother_name,mother_contact,guardian_name,guardian_contact,guardian_relation&circular_id=eq.${circularId}&order=created_at.desc`;
     if (payload.class)   q += `&class=eq.${encodeURIComponent(payload.class)}`;
     if (payload.status)  q += `&status=eq.${encodeURIComponent(payload.status)}`;
     if (payload.source)  q += `&source=eq.${encodeURIComponent(payload.source)}`;
     const rows = await sbAdmissionAllRows(q);
     if (rows?.error) return NextResponse.json({ error: rows.error });
+    const roomIds = [...new Set((rows || []).map(r => r.room_id).filter(Boolean))];
+    if (roomIds.length) {
+      const roomRows = await sbInventory(`rooms?id=in.(${roomIds.join(',')})&select=id,name`);
+      const nameById = {};
+      (Array.isArray(roomRows) ? roomRows : []).forEach(r => { nameById[r.id] = r.name; });
+      (rows || []).forEach(r => { if (r.room_id) r.room_name = nameById[r.room_id] || null; });
+    }
     return NextResponse.json({ applications: rows || [] });
   }
 
