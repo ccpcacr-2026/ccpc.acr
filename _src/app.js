@@ -41529,18 +41529,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div class="flex flex-wrap items-center gap-2 mb-3">
           <input type="text" id="adm-search-input" placeholder="Search name, tracking ID…" oninput="_admFilterApps()"
             class="flex-1 min-w-[160px] px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500">
-          <select id="adm-filter-class" onchange="_admFilterApps()" class="px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold">
-            <option value="">All Classes</option>
-          </select>
-          <select id="adm-filter-category" onchange="_admFilterApps()" class="px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold">
-            <option value="">All Categories</option>
-          </select>
-          <select id="adm-filter-status" onchange="_admFilterApps()" class="px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold">
-            <option value="">All Status</option>${ADM_STATUSES.map(s => `<option>${s}</option>`).join('')}
-          </select>
-          <select id="adm-filter-source" onchange="_admFilterApps()" class="px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold">
-            <option value="">All Sources</option><option value="native">Native</option><option value="imported">Imported</option><option value="online">Online</option>
-          </select>
+          <button type="button" onclick="_admToggleFilterPanel()" class="px-3 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1.5"><i data-lucide="filter" class="h-3.5 w-3.5"></i>Filters<span id="admFilterCount" class="hidden ml-1 px-1.5 py-0.5 bg-slate-800 text-white rounded-full text-[9px]"></span></button>
           <select id="adm-sort-by" onchange="_admFilterApps()" class="px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold">
             <option value="created_desc">Newest First</option>
             <option value="created_asc">Oldest First</option>
@@ -41564,6 +41553,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <i data-lucide="settings" class="h-3.5 w-3.5"></i> Settings
           </button>
         </div>
+        <div id="admFilterPanel" class="hidden mb-3 p-4 bg-slate-50 rounded-2xl border border-slate-200"></div>
         <div id="adm-stats-row" class="flex flex-wrap items-center gap-2 mb-3"></div>
         <div id="adm-bulk-action-bar" class="hidden flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5 mb-3">
           <span id="adm-bulk-count" class="text-xs font-bold text-blue-700">0 selected</span>
@@ -41855,27 +41845,68 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const res = await _admAdminFetch('listApplications', { circular_id: _admCandActiveCircularId });
       if (res.error) { showToast(res.error, 'error'); return; }
       _admAllApps = res.applications || [];
-      _admPopulateFilterDropdowns();
+      _admFilterState = { class: new Set(), category: new Set(), status: new Set(), source: new Set() };
+      document.getElementById('admFilterPanel')?.classList.add('hidden');
       _admTablePage = 0;
       _admFilterApps();
       _admLoadStats();
     } catch (e) { showToast(e.message || 'Could not load applications', 'error'); }
   }
-  // Class/Category filter options are derived from the applications actually
-  // loaded (not a fixed school-wide class list), same pattern the Candidates
-  // tab's own filter dropdowns already use -- keeps them accurate for
+  // Multi-select tag-style filter panel, same pattern as the Group Form
+  // reviewer's filter panel (_gfRenderReviewFilterPanel/toggleGfReviewFilter):
+  // a "Filters" button with a badge count toggles a panel of pill buttons per
+  // dimension, each independently multi-selectable, with a "Clear all" link.
+  // Class/Category options are derived from the applications actually
+  // loaded (not a fixed school-wide class list) so they stay accurate for
   // whatever this circular's data actually contains.
-  function _admPopulateFilterDropdowns() {
-    const classes = [...new Set(_admAllApps.map(a => a.class).filter(Boolean))].sort();
-    const cats = [...new Set(_admAllApps.map(a => a.category).filter(Boolean))].sort();
-    const fill = (id, opts, placeholder) => {
-      const el = document.getElementById(id); if (!el) return;
-      const cur = el.value;
-      el.innerHTML = `<option value="">${placeholder}</option>` + opts.map(o => `<option value="${_escHtml(o)}">${_escHtml(o)}</option>`).join('');
-      el.value = cur;
-    };
-    fill('adm-filter-class', classes, 'All Classes');
-    fill('adm-filter-category', cats, 'All Categories');
+  let _admFilterState = { class: new Set(), category: new Set(), status: new Set(), source: new Set() };
+  function _admFilterDims() {
+    const distinct = fn => [...new Set(_admAllApps.map(fn).filter(Boolean))].sort();
+    return [
+      { key: 'class', label: 'Class', values: distinct(a => a.class) },
+      { key: 'category', label: 'Category', values: distinct(a => a.category) },
+      { key: 'status', label: 'Status', values: ADM_STATUSES },
+      { key: 'source', label: 'Source', values: ['native', 'imported', 'online'] },
+    ];
+  }
+  function _admToggleFilterPanel() {
+    const panel = document.getElementById('admFilterPanel');
+    if (!panel) return;
+    const show = panel.classList.contains('hidden');
+    panel.classList.toggle('hidden', !show);
+    if (show) _admRenderFilterPanel();
+  }
+  function _admFilterActiveCount() { return Object.values(_admFilterState).reduce((n, s) => n + s.size, 0); }
+  function _admUpdateFilterBadge() {
+    const n = _admFilterActiveCount();
+    const badge = document.getElementById('admFilterCount');
+    if (badge) { badge.textContent = n || ''; badge.classList.toggle('hidden', !n); }
+  }
+  function toggleAdmFilter(dimKey, value) {
+    const set = _admFilterState[dimKey];
+    set.has(value) ? set.delete(value) : set.add(value);
+    _admRenderFilterPanel();
+    _admFilterApps();
+  }
+  function clearAdmFilters() {
+    Object.values(_admFilterState).forEach(s => s.clear());
+    _admRenderFilterPanel();
+    _admFilterApps();
+  }
+  function _admRenderFilterPanel() {
+    const host = document.getElementById('admFilterPanel');
+    if (!host || host.classList.contains('hidden')) { _admUpdateFilterBadge(); return; }
+    const dims = _admFilterDims().filter(d => d.values.length);
+    host.innerHTML = dims.map(d => {
+      const sel = _admFilterState[d.key];
+      return `<div class="mb-3 last:mb-0">
+        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">${_escHtml(d.label)}</p>
+        <div class="flex flex-wrap gap-1.5">
+          ${d.values.map(v => `<button type="button" onclick='toggleAdmFilter(${JSON.stringify(d.key)}, ${JSON.stringify(v)})' class="px-2.5 py-1 rounded-full font-black text-[10px] uppercase ${sel.has(v) ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'}">${_escHtml(v)}</button>`).join('')}
+        </div>
+      </div>`;
+    }).join('') + (_admFilterActiveCount() ? `<button type="button" onclick="clearAdmFilters()" class="text-[10px] font-black text-red-600 uppercase hover:underline">Clear all filters</button>` : '');
+    _admUpdateFilterBadge();
   }
   async function _admLoadStats() {
     try {
@@ -42000,17 +42031,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   function _admFilterApps() {
     const q = (document.getElementById('adm-search-input').value || '').toLowerCase();
-    const cls = document.getElementById('adm-filter-class').value;
-    const cat = document.getElementById('adm-filter-category')?.value || '';
-    const stat = document.getElementById('adm-filter-status').value;
-    const src = document.getElementById('adm-filter-source')?.value || '';
+    const st = _admFilterState;
     const sortBy = document.getElementById('adm-sort-by')?.value || 'created_desc';
     let filtered = _admAllApps.filter(a => {
       if (q && !`${a.name_english || ''} ${a.tracking_id || ''} ${a.index_id || ''} ${a.token || ''}`.toLowerCase().includes(q)) return false;
-      if (cls && a.class !== cls) return false;
-      if (cat && a.category !== cat) return false;
-      if (stat && a.status !== stat) return false;
-      if (src && (a.source || 'native') !== src) return false;
+      if (st.class.size && !st.class.has(a.class)) return false;
+      if (st.category.size && !st.category.has(a.category)) return false;
+      if (st.status.size && !st.status.has(a.status)) return false;
+      if (st.source.size && !st.source.has(a.source || 'native')) return false;
       return true;
     });
     filtered = _admSortApps(filtered, sortBy);

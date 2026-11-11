@@ -440,6 +440,7 @@ const RESERVED = [
   'loadAdmissionAdminView','_admShowView','_admShowSection','_admFilterApps',
   '_admLoadNewApplication','_admLoadForm','_admDeleteApp','_admChangeStatus',
   '_admToggleRowSelect','_admToggleSelectAll','_admClearBulkSelection','_admApplyBulkStatus','_admBulkDeleteSelected','_admTableGoPage',
+  '_admToggleFilterPanel','toggleAdmFilter','clearAdmFilters',
   '_admAddAcademicRow','_admAddSiblingRow','_admSaveApplication','_admHandlePhoto',
 
   // Admission Admin Phase 2 (Settings: Index Pattern/Form Fields/Circular/
