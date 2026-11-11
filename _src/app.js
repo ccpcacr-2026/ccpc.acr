@@ -44493,11 +44493,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <table class="w-full text-sm">
             <thead><tr class="bg-slate-50 border-b border-slate-100">
               <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Room</th>
+              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Building</th>
               <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Capacity</th>
               <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Allocated</th>
               <th class="px-3 py-3 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Actions</th>
             </tr></thead>
-            <tbody id="admCandRoomsBody"><tr><td colspan="4" class="px-4 py-10 text-center text-slate-400 text-sm">Loading…</td></tr></tbody>
+            <tbody id="admCandRoomsBody"><tr><td colspan="5" class="px-4 py-10 text-center text-slate-400 text-sm">Loading…</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -45651,14 +45652,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _admCandRenderAllocRoomPicker();
     } catch (e) {}
   }
+  // Building is derived from the room name's own prefix convention (e.g.
+  // "SB-101" -> School Building), not a separate stored field -- matches how
+  // the school's existing manual seat-plan spreadsheet already names rooms,
+  // so nothing needs re-entering for rooms that already follow it.
+  const ADM_CAND_BUILDING_PREFIXES = { SB: 'School Building', HB: 'Honors Building', CB: 'College Building', MB: 'Main Building' };
+  function _admCandRoomBuildingLabel(roomName) {
+    const m = /^([A-Za-z]{2,3})[-_\s]/.exec(String(roomName || '').trim());
+    return (m && ADM_CAND_BUILDING_PREFIXES[m[1].toUpperCase()]) || '';
+  }
   function _admCandRenderRoomsTable() {
     const body = document.getElementById('admCandRoomsBody');
     if (!body) return;
-    if (!_admCandRooms.length) { body.innerHTML = '<tr><td colspan="4" class="px-4 py-10 text-center text-slate-400 text-sm">No rooms yet.</td></tr>'; return; }
+    if (!_admCandRooms.length) { body.innerHTML = '<tr><td colspan="5" class="px-4 py-10 text-center text-slate-400 text-sm">No rooms yet.</td></tr>'; return; }
     body.innerHTML = _admCandRooms.map(r => {
       const allocated = _admCandAllCandidates.filter(c => c.room_id === r.id).length;
+      const building = _admCandRoomBuildingLabel(r.room_name);
       return `<tr class="border-t border-slate-100">
         <td class="px-3 py-2.5 font-bold">${_escHtml(r.room_name)}</td>
+        <td class="px-3 py-2.5 text-slate-500">${building ? _escHtml(building) : '<span class="text-slate-300">—</span>'}</td>
         <td class="px-3 py-2.5">${r.capacity}</td>
         <td class="px-3 py-2.5">${allocated}</td>
         <td class="px-3 py-2.5 text-right">
@@ -45752,9 +45764,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admCandRenderAllocRoomPicker() {
     const host = document.getElementById('admCandAllocRoomPicker');
     if (!host) return;
-    host.innerHTML = _admCandRooms.map(r => `<label class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold cursor-pointer">
-      <input type="checkbox" class="admCandAllocRoomChk" value="${r.id}"> ${_escHtml(r.room_name)} (${r.capacity})
-    </label>`).join('') || '<p class="text-xs text-slate-400">No rooms yet — add some in the Rooms tab.</p>';
+    host.innerHTML = _admCandRooms.map(r => {
+      const building = _admCandRoomBuildingLabel(r.room_name);
+      return `<label class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold cursor-pointer">
+      <input type="checkbox" class="admCandAllocRoomChk" value="${r.id}"> ${_escHtml(r.room_name)} (${r.capacity})${building ? ` <span class="text-slate-400 font-normal">— ${_escHtml(building)}</span>` : ''}
+    </label>`;
+    }).join('') || '<p class="text-xs text-slate-400">No rooms yet — add some in the Rooms tab.</p>';
   }
   async function _admCandRunAllocation() {
     if (!_admCandRequireCircular()) return;
