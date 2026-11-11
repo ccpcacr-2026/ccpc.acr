@@ -148,6 +148,51 @@
     }).withFailureHandler(() => {}).getSystemSettings();
   }
 
+  // ── Pull-to-refresh (mobile) ─────────────────────────────────────────────
+  // The Android app shell (android-shell/index.html) loads this page inside
+  // a fixed, chrome-less iframe -- there is no OS/browser pull-to-refresh
+  // available in there, so the only way to reload stale data was force-
+  // closing and reopening the app. This adds the standard drag-down-from-
+  // the-very-top gesture at the content layer instead, so it works the same
+  // whether this page is loaded directly in a mobile browser or inside the
+  // app's iframe. Driven entirely by touch events, so it never engages for
+  // a mouse/desktop user.
+  (function () {
+    const THRESHOLD = 70; // px of downward drag, measured from the top, before release triggers a reload
+    let startY = null, dy = 0, indicator = null;
+    function scrollTopNow() { return (document.scrollingElement || document.documentElement).scrollTop; }
+    function ensureIndicator() {
+      if (indicator) return indicator;
+      const style = document.createElement('style');
+      style.textContent = '@keyframes ptrSpin { to { transform: rotate(360deg); } }';
+      document.head.appendChild(style);
+      indicator = document.createElement('div');
+      indicator.id = 'ptr-indicator';
+      indicator.style.cssText = 'position:fixed;left:0;right:0;top:0;height:0;display:flex;align-items:center;justify-content:center;overflow:hidden;z-index:99999;transition:height .15s ease;pointer-events:none;background:transparent;';
+      indicator.innerHTML = '<div style="width:26px;height:26px;border-radius:50%;border:3px solid #cbd5e1;border-top-color:#2563eb;animation:ptrSpin .7s linear infinite;"></div>';
+      document.body.appendChild(indicator);
+      return indicator;
+    }
+    document.addEventListener('touchstart', e => {
+      startY = (scrollTopNow() <= 0 && e.touches.length === 1) ? e.touches[0].clientY : null;
+      dy = 0;
+    }, { passive: true });
+    document.addEventListener('touchmove', e => {
+      if (startY == null) return;
+      if (scrollTopNow() > 0) { startY = null; ensureIndicator().style.height = '0px'; return; }
+      dy = e.touches[0].clientY - startY;
+      if (dy <= 0) { ensureIndicator().style.height = '0px'; return; }
+      ensureIndicator().style.height = Math.min(dy * 0.5, 80) + 'px';
+    }, { passive: true });
+    document.addEventListener('touchend', () => {
+      if (startY == null) return;
+      const el = ensureIndicator();
+      if (dy >= THRESHOLD) { el.style.height = '56px'; location.reload(); }
+      else el.style.height = '0px';
+      startY = null; dy = 0;
+    });
+  })();
+
   document.addEventListener('DOMContentLoaded', () => {
     // Warm up Vercel serverless function immediately so login isn't delayed by cold start.
     // getSystemSettings is lightweight and also applies the saved gradient theme on the login screen.
