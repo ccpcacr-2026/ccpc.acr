@@ -45148,7 +45148,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
         </div>
         <div id="admCandScanOptionPanel" class="hidden bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-3"></div>
-        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
+        <p id="admCandScanEmptyNote" class="hidden text-xs text-slate-400 bg-white rounded-2xl border border-slate-100 p-5">No scan options yet — create one above to start scanning.</p>
+        <div id="admCandScanScopeBox" class="hidden bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
           <p class="text-[10px] uppercase text-slate-400 font-bold mb-2">Scope — restrict scanning to:</p>
           <div class="flex gap-2 flex-wrap mb-3">
             <select id="admCandScanScopeClass" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold"><option value="">Any Class</option></select>
@@ -46737,8 +46738,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _admCandScanSelectedOption = _admCandScanOptions.find(o => o.key === _admCandScanMode) || null;
       _admCandRenderScanModeTabs();
       _admCandRenderScanOptionPanel();
+      _admCandUpdateScanScopeBoxVisibility();
       _admRenderFilterPanel(); // no-op if the Applications filter panel isn't open; keeps its dims current if it is
     } catch (e) {}
+  }
+  // Scoping/scanning is meaningless with nothing selected to scan for --
+  // hide that whole box (Scope + Open Camera/Manual) rather than leaving it
+  // floating uselessly when the circular has no scan options yet (or the
+  // admin just deleted the last one).
+  function _admCandUpdateScanScopeBoxVisibility() {
+    const hasOption = !!_admCandScanSelectedOption;
+    document.getElementById('admCandScanScopeBox')?.classList.toggle('hidden', !hasOption);
+    document.getElementById('admCandScanEmptyNote')?.classList.toggle('hidden', hasOption);
   }
   function _admCandRenderScanModeTabs() {
     const host = document.getElementById('admCandScanModeTabs');
@@ -46759,6 +46770,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admCandScanScope = {};
     _admCandRenderScanModeTabs();
     _admCandRenderScanOptionPanel();
+    _admCandUpdateScanScopeBoxVisibility();
   }
   // Admin-only creation flow (ADMIN_ONLY_ACTIONS server-side) -- a committee
   // member can only USE an option they've been granted via scan_options,
