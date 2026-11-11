@@ -437,7 +437,7 @@ const RESERVED = [
 
   // Admission Admin (native port of ccpc-admission) — app.html's sidebar
   // onclick + every onclick/onchange string built inside loadAdmissionAdminView()
-  'loadAdmissionAdminView','_admShowView','_admShowSection','_admFilterApps',
+  'loadAdmissionAdminView','_admShowView','_admShowSection','_admFilterApps','_admFilterAppsDebounced',
   '_admLoadNewApplication','_admLoadForm','_admDeleteApp','_admChangeStatus',
   '_admToggleRowSelect','_admToggleSelectAll','_admClearBulkSelection','_admApplyBulkStatus','_admBulkDeleteSelected','_admTableGoPage',
   '_admToggleFilterPanel','toggleAdmFilter','clearAdmFilters',
@@ -500,7 +500,7 @@ const RESERVED = [
   '_admCandApplySavedTemplate','_admCandSaveMappingTemplate','_admCandPreviewImport','_admCandConfirmImport',
   '_admCandDeleteSelectedTemplate',
   '_admCandSetRowFieldKey','_admCandSetPrimaryKey','_admCandAddSelectedFields','_admCandAddAllRemainingFields','_admCandRemoveRow',
-  '_admCandLoadList','_admCandFilterList','_admCandExportCsv','_admCandDeleteCandidate',
+  '_admCandLoadList','_admCandFilterList','_admCandFilterListDebounced','_admCandExportCsv','_admCandDeleteCandidate',
   '_admCandToggleRowSelect','_admCandToggleSelectAll','_admCandClearSelection','_admCandDeleteSelected',
   '_admCandPrintFormTemplate','_admCandPrintAdmitTemplate',
   '_admCandRoomHandleImportFile','_admCandRoomConfirmImport','_admCandRoomFormOpen','_admCandRoomFormSave','_admCandRoomDelete',

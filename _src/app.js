@@ -41527,7 +41527,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
       <div id="admAdminDashboard" class="hidden">
         <div class="flex flex-wrap items-center gap-2 mb-3">
-          <input type="text" id="adm-search-input" placeholder="Search name, tracking ID…" oninput="_admFilterApps()"
+          <input type="text" id="adm-search-input" placeholder="Search name, tracking ID…" oninput="_admFilterAppsDebounced()"
             class="flex-1 min-w-[160px] px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500">
           <button type="button" onclick="_admToggleFilterPanel()" class="px-3 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1.5"><i data-lucide="filter" class="h-3.5 w-3.5"></i>Filters<span id="admFilterCount" class="hidden ml-1 px-1.5 py-0.5 bg-slate-800 text-white rounded-full text-[9px]"></span></button>
           <select id="adm-sort-by" onchange="_admFilterApps()" class="px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold">
@@ -42028,6 +42028,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         _admClearBulkSelection(); _admFilterApps(); _admLoadStats();
       } catch (e) { showToast(e.message || 'Failed', 'error'); }
     });
+  }
+  // Re-rendering the whole (up to 200-row) table on every single keystroke
+  // -- previously wired directly to the search box's oninput -- caused
+  // enough layout thrash on phones to make the on-screen keyboard dismiss
+  // itself after each letter typed or deleted. Debouncing so the actual
+  // filter/re-render only runs once typing pauses briefly fixes that without
+  // changing the live-filter behavior itself.
+  let _admSearchDebounceTimer = null;
+  function _admFilterAppsDebounced() {
+    clearTimeout(_admSearchDebounceTimer);
+    _admSearchDebounceTimer = setTimeout(_admFilterApps, 220);
   }
   function _admFilterApps() {
     const q = (document.getElementById('adm-search-input').value || '').toLowerCase();
@@ -44430,11 +44441,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
       <div id="adm-cand-list" class="hidden">
         <div class="flex flex-wrap items-center gap-2 mb-3">
-          <input type="text" id="admCandListSearch" placeholder="Search token, name…" oninput="_admCandFilterList()" class="flex-1 min-w-[160px] px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold">
+          <input type="text" id="admCandListSearch" placeholder="Search token, name…" oninput="_admCandFilterListDebounced()" class="flex-1 min-w-[160px] px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold">
           <select id="admCandListClassFilter" onchange="_admCandFilterList()" class="px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold"><option value="">All Classes</option></select>
           <select id="admCandListCategoryFilter" onchange="_admCandFilterList()" class="px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold"><option value="">All Categories</option></select>
           <select id="admCandListTagDefFilter" onchange="_admCandTagFilterDefChange()" class="px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold"><option value="">Any Tag Section</option></select>
-          <input type="text" id="admCandListTagValueFilter" oninput="_admCandFilterList()" placeholder="Value" class="hidden w-28 px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold">
+          <input type="text" id="admCandListTagValueFilter" oninput="_admCandFilterListDebounced()" placeholder="Value" class="hidden w-28 px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold">
           <select id="admCandListTagValueSelect" onchange="_admCandFilterList()" class="hidden px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold"></select>
           <button onclick="_admCandExportCsv()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50"><i data-lucide="download" class="h-3.5 w-3.5"></i> Export CSV</button>
         </div>
@@ -45534,6 +45545,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       textEl.classList.remove('hidden');
     }
     _admCandFilterList();
+  }
+  // Same mobile-keyboard-dismissal fix as _admFilterAppsDebounced above --
+  // debounces the two free-text inputs that drive this list's live filter
+  // (search box and tag-value filter) so the full re-render doesn't fire on
+  // every single keystroke.
+  let _admCandFilterDebounceTimer = null;
+  function _admCandFilterListDebounced() {
+    clearTimeout(_admCandFilterDebounceTimer);
+    _admCandFilterDebounceTimer = setTimeout(_admCandFilterList, 220);
   }
   function _admCandFilterList() {
     const search = (document.getElementById('admCandListSearch').value || '').toLowerCase();
