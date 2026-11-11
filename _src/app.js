@@ -45458,6 +45458,27 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
         </div>
         <div id="admCandScanOptionPanel" class="hidden bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-3"></div>
+        <div id="admCandScanDataBox" class="hidden bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-3">
+          <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+            <p class="text-[10px] uppercase text-slate-400 font-bold">Scan data for this option</p>
+            <div class="flex gap-2 items-center flex-wrap">
+              <input type="text" id="admCandScanDataSearch" placeholder="Search name/tracking ID…" oninput="_admCandRenderScanDataTable()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+              <select id="admCandScanDataValueFilter" onchange="_admCandRenderScanDataTable()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"></select>
+            </div>
+          </div>
+          <div class="overflow-x-auto rounded-xl border border-slate-100">
+            <table class="w-full text-xs">
+              <thead><tr class="bg-slate-50 border-b border-slate-100">
+                <th class="px-2 py-2 text-left font-black text-slate-400 uppercase">Tracking ID</th>
+                <th class="px-2 py-2 text-left font-black text-slate-400 uppercase">Name</th>
+                <th class="px-2 py-2 text-left font-black text-slate-400 uppercase hidden md:table-cell">Class</th>
+                <th class="px-2 py-2 text-left font-black text-slate-400 uppercase">Value</th>
+              </tr></thead>
+              <tbody id="admCandScanDataBody"></tbody>
+            </table>
+          </div>
+          <p id="admCandScanDataCount" class="text-[10px] text-slate-400 font-bold mt-2"></p>
+        </div>
         <p id="admCandScanEmptyNote" class="hidden text-xs text-slate-400 bg-white rounded-2xl border border-slate-100 p-5">No scan options yet — create one above to start scanning.</p>
         <div id="admCandScanScopeBox" class="hidden bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
           <p class="text-[10px] uppercase text-slate-400 font-bold mb-2">Scope — restrict scanning to:</p>
@@ -47049,6 +47070,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _admCandScanSelectedOption = _admCandScanOptions.find(o => o.key === _admCandScanMode) || null;
       _admCandRenderScanModeTabs();
       _admCandRenderScanOptionPanel();
+      _admCandRenderScanDataFilterOptions();
+      _admCandRenderScanDataTable();
       _admCandUpdateScanScopeBoxVisibility();
       _admRenderFilterPanel(); // no-op if the Applications filter panel isn't open; keeps its dims current if it is
     } catch (e) {}
@@ -47096,6 +47119,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admCandScanScope = {};
     _admCandRenderScanModeTabs();
     _admCandRenderScanOptionPanel();
+    // Reset the review table's own filter state too -- a value filter left
+    // over from the previous option (e.g. "Division: A") makes no sense
+    // once a different option is selected.
+    const dataSearch = document.getElementById('admCandScanDataSearch'); if (dataSearch) dataSearch.value = '';
+    _admCandRenderScanDataFilterOptions();
+    _admCandRenderScanDataTable();
     _admCandUpdateScanScopeBoxVisibility();
   }
   // Admin-only creation flow (ADMIN_ONLY_ACTIONS server-side) -- a committee
@@ -47206,6 +47235,83 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
       <p class="text-[10px] text-slate-400 mt-2">After each scan, the candidate's short info and these fields appear for entry — submitting saves them and automatically returns to scanning for the next candidate.</p>`;
   }
+  // Review table for whichever Scan Option is currently selected -- shows
+  // every applicant (not just the ones already scanned, so the admin can
+  // also see who's still pending) with this one option's current value,
+  // filterable by value, right below the option panel. Reuses _admAllApps
+  // (already loaded for the Dashboard/Applications tab -- same roster,
+  // same scan_values) rather than a second server round-trip.
+  function _admCandScanValueForOption(opt, raw) {
+    if (!opt) return '—';
+    if (opt.behavior === 'status') return raw && raw.done ? `Done${raw.scanned_at ? ' — ' + new Date(raw.scanned_at).toLocaleString() : ''}` : 'Pending';
+    if (opt.behavior === 'form') {
+      const fields = (opt.config && opt.config.fields) || [];
+      if (!raw || !Object.keys(raw).length) return '—';
+      return fields.map(f => `${f.label}: ${raw[f.key] ?? '—'}`).join(', ') || '—';
+    }
+    // tag
+    if (raw === undefined || raw === null || raw === '') return '—';
+    return raw === true ? 'Yes' : String(raw);
+  }
+  function _admCandRenderScanDataFilterOptions() {
+    const sel = document.getElementById('admCandScanDataValueFilter');
+    if (!sel) return;
+    const opt = _admCandScanSelectedOption;
+    if (!opt) { sel.innerHTML = ''; return; }
+    if (opt.behavior === 'status') {
+      sel.innerHTML = `<option value="">Any</option><option value="done">Done</option><option value="pending">Pending</option>`;
+    } else if (opt.behavior === 'tag') {
+      const cfg = opt.config || {};
+      let opts = [];
+      if (cfg.type === 'dropdown') opts = cfg.options || [];
+      else if (cfg.type === 'toggle') opts = ['true'];
+      sel.innerHTML = `<option value="">Any</option>`
+        + opts.map(o => `<option value="${_escHtml(o)}">${_escHtml(o === 'true' ? 'Yes' : o)}</option>`).join('')
+        + `<option value="__has__">Has a value</option><option value="__none__">No value yet</option>`;
+    } else {
+      sel.innerHTML = `<option value="">Any</option><option value="__has__">Has a value</option><option value="__none__">No value yet</option>`;
+    }
+  }
+  function _admCandRenderScanDataTable() {
+    const box = document.getElementById('admCandScanDataBox');
+    if (!box) return;
+    const opt = _admCandScanSelectedOption;
+    if (!opt) { box.classList.add('hidden'); return; }
+    box.classList.remove('hidden');
+    const q = (document.getElementById('admCandScanDataSearch')?.value || '').toLowerCase();
+    const valFilter = document.getElementById('admCandScanDataValueFilter')?.value || '';
+    const all = _admAllApps || [];
+    const rows = all.filter(a => {
+      if (q && !`${a.name_english || ''} ${a.tracking_id || ''} ${a.token || ''}`.toLowerCase().includes(q)) return false;
+      if (!valFilter) return true;
+      const raw = (a.scan_values || {})[opt.key];
+      if (opt.behavior === 'status') {
+        const done = !!(raw && raw.done);
+        return valFilter === 'done' ? done : !done;
+      }
+      if (opt.behavior === 'form') {
+        const has = !!(raw && Object.keys(raw).length);
+        return valFilter === '__has__' ? has : !has;
+      }
+      // tag
+      const empty = raw === undefined || raw === null || raw === '';
+      if (valFilter === '__has__') return !empty;
+      if (valFilter === '__none__') return empty;
+      return String(raw) === valFilter;
+    });
+    const countEl = document.getElementById('admCandScanDataCount');
+    if (countEl) countEl.textContent = `${rows.length} of ${all.length}`;
+    const body = document.getElementById('admCandScanDataBody');
+    if (body) {
+      body.innerHTML = rows.map(a => `
+        <tr class="border-t border-slate-50">
+          <td class="px-2 py-2 font-mono text-blue-600">${_escHtml(a.tracking_id || a.token || '—')}</td>
+          <td class="px-2 py-2 font-bold">${_escHtml(a.name_english || '—')}</td>
+          <td class="px-2 py-2 hidden md:table-cell text-slate-500">${_escHtml(a.class || '—')}</td>
+          <td class="px-2 py-2">${_escHtml(_admCandScanValueForOption(opt, (a.scan_values || {})[opt.key]))}</td>
+        </tr>`).join('') || `<tr><td colspan="4" class="px-2 py-6 text-center text-slate-400">No matches.</td></tr>`;
+    }
+  }
   async function _admCandFormFieldAdd() {
     const opt = _admCandScanSelectedOption;
     if (!opt || opt.behavior !== 'form') return;
@@ -47284,6 +47390,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const r = await _admCandFetch('saveScanOptionValue', { candidate_id: _admCandMarksCurrentCandidate.id, option_key: opt.key, value });
       if (r.error) { showToast(r.error, 'error'); return; }
       showToast('Saved — ready for next scan', 'success');
+      const app = _admAllApps.find(x => x.id === _admCandMarksCurrentCandidate.id);
+      if (app) app.scan_values = r.scan_values || {};
+      _admCandRenderScanDataTable();
       _admCandCloseMarksForm();
     } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }
@@ -47481,6 +47590,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         const app = _admAllApps.find(x => x.id === r.candidate.id);
         if (app) app.scan_values = r.candidate.scan_values || {};
         _admRenderFilterPanel();
+        _admCandRenderScanDataTable();
       }
     } catch (e) {
       if (note) note.textContent = e.message || 'Lookup failed';
