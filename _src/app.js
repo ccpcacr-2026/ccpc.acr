@@ -41825,8 +41825,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
 
       <div class="hidden flex gap-1 mb-4 overflow-x-auto pb-1" id="adm-top-tabs">
-        <button class="adm-ftab shrink-0" data-id="dashboard" onclick="_admShowView('dashboard')">Dashboard</button>
-        <button class="adm-ftab shrink-0" data-id="applist" onclick="_admShowView('applist')">Applications</button>
+        <button class="adm-ftab shrink-0" data-id="dashboard" onclick="_admShowView('dashboard'); _admRefreshApps(true);">Dashboard</button>
+        <button class="adm-ftab shrink-0" data-id="applist" onclick="_admShowView('applist'); _admRefreshApps(true);">Applications</button>
         <button class="adm-ftab shrink-0" data-id="adm-cand-import" onclick="_admShowTopTab('adm-cand-import',this)">Import &amp; Mapping</button>
         <button class="adm-ftab shrink-0" data-id="adm-cand-rooms" onclick="_admShowTopTab('adm-cand-rooms',this)">Rooms</button>
         <button class="adm-ftab shrink-0" data-id="adm-cand-alloc" onclick="_admShowTopTab('adm-cand-alloc',this)">Seat Allocation</button>
@@ -41876,15 +41876,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <table class="w-full text-sm">
             <thead><tr class="bg-slate-50 border-b border-slate-100">
               <th class="px-3 py-3 text-left" style="width:36px"><input type="checkbox" id="adm-bulk-select-all" onchange="_admToggleSelectAll(this)"></th>
-              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Tracking ID</th>
-              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Student Name</th>
-              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest hidden md:table-cell">Class</th>
-              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest hidden md:table-cell">Category</th>
-              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest hidden lg:table-cell">Session</th>
+              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Applicant</th>
+              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest hidden md:table-cell">Family</th>
               <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
               <th class="px-3 py-3 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Actions</th>
             </tr></thead>
-            <tbody id="adm-app-table-body"><tr><td colspan="8" class="px-4 py-10 text-center text-slate-400 text-sm">Loading…</td></tr></tbody>
+            <tbody id="adm-app-table-body"><tr><td colspan="5" class="px-4 py-10 text-center text-slate-400 text-sm">Loading…</td></tr></tbody>
           </table>
         </div>
         <div class="flex items-center justify-between mt-3 flex-wrap gap-2">
@@ -41895,12 +41892,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
       <div id="admAdminForm" class="hidden">
         <div class="flex items-center gap-3 mb-4 flex-wrap">
-          <button onclick="_admShowView('applist')" class="flex items-center gap-1.5 px-3 py-2 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50"><i data-lucide="arrow-left" class="h-3.5 w-3.5"></i> Back</button>
+          <button onclick="_admShowView('applist'); _admRefreshApps(true);" class="flex items-center gap-1.5 px-3 py-2 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50"><i data-lucide="arrow-left" class="h-3.5 w-3.5"></i> Back</button>
           <h2 id="adm-form-title" class="font-black text-slate-800 text-sm">New Application</h2>
+          <span id="adm-form-view-badge" class="hidden px-2 py-1 rounded-full bg-slate-100 text-slate-400 text-[9px] font-black uppercase tracking-widest">View Only</span>
           <div class="ml-auto flex items-center gap-2">
+            <button id="adm-form-edit-btn" onclick="_admEnterEditMode()" class="hidden flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-black transition-all"><i data-lucide="edit-2" class="h-3.5 w-3.5"></i> Edit</button>
             <button onclick="_admPrintAdmitCard()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all"><i data-lucide="credit-card" class="h-3.5 w-3.5"></i> Admit Card</button>
             <button onclick="_admPrintForm()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all"><i data-lucide="printer" class="h-3.5 w-3.5"></i> Print Form</button>
-            <button onclick="_admSaveApplication()" class="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-black transition-all"><i data-lucide="save" class="h-3.5 w-3.5"></i> Save</button>
+            <button id="adm-form-save-btn" onclick="_admSaveApplication()" class="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-black transition-all"><i data-lucide="save" class="h-3.5 w-3.5"></i> Save</button>
           </div>
         </div>
         <div class="flex gap-1 mb-4 overflow-x-auto pb-1" id="adm-ftabs">
@@ -42099,7 +42098,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div>
         <div class="flex items-center justify-between mb-3">
           <p class="text-xs font-black text-slate-700 uppercase tracking-widest">Academic / Educational Records</p>
-          <button type="button" onclick="_admAddAcademicRow()" class="flex items-center gap-1 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100"><i data-lucide="plus" class="h-3 w-3"></i> Add Row</button>
+          <button id="adm-academic-add-btn" type="button" onclick="_admAddAcademicRow()" class="flex items-center gap-1 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100"><i data-lucide="plus" class="h-3 w-3"></i> Add Row</button>
         </div>
         <div class="overflow-x-auto rounded-xl border border-slate-200"><table class="w-full text-sm">
           <thead><tr class="bg-slate-50 border-b border-slate-200">
@@ -42116,7 +42115,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div>
         <div class="flex items-center justify-between mb-3">
           <p class="text-xs font-black text-slate-700 uppercase tracking-widest">Information of Siblings</p>
-          <button type="button" onclick="_admAddSiblingRow()" class="flex items-center gap-1 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100"><i data-lucide="plus" class="h-3 w-3"></i> Add Row</button>
+          <button id="adm-sibling-add-btn" type="button" onclick="_admAddSiblingRow()" class="flex items-center gap-1 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100"><i data-lucide="plus" class="h-3 w-3"></i> Add Row</button>
         </div>
         <div class="overflow-x-auto rounded-xl border border-slate-200"><table class="w-full text-sm">
           <thead><tr class="bg-slate-50 border-b border-slate-200">
@@ -42144,7 +42143,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   /* ─── Dashboard ──────────────────────────────────── */
   async function _admLoadDashboard() {
     const tbody = document.getElementById('adm-app-table-body');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="px-4 py-10 text-center text-slate-400 text-sm">Loading…</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="px-4 py-10 text-center text-slate-400 text-sm">Loading…</td></tr>';
     try {
       const res = await _admAdminFetch('listApplications', { circular_id: _admCandActiveCircularId });
       if (res.error) { showToast(res.error, 'error'); return; }
@@ -42154,7 +42153,41 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _admTablePage = 0;
       _admFilterApps();
       _admLoadStats();
+      _admStartAppsPoll();
     } catch (e) { showToast(e.message || 'Could not load applications', 'error'); }
+  }
+  // Lighter-weight refetch for "keep this live" moments (switching into the
+  // Dashboard/Applications tab, coming back from the form, the background
+  // poll below) -- unlike _admLoadDashboard above, this never resets the
+  // admin's current search/filter/page state, it just re-renders with
+  // whatever's actually on the server now.
+  async function _admRefreshApps(silent) {
+    if (!_admCandActiveCircularId) return;
+    try {
+      const res = await _admAdminFetch('listApplications', { circular_id: _admCandActiveCircularId });
+      if (res.error) { if (!silent) showToast(res.error, 'error'); return; }
+      _admAllApps = res.applications || [];
+      _admFilterApps();
+      _admLoadStats();
+    } catch (e) { if (!silent) showToast(e.message || 'Could not refresh', 'error'); }
+  }
+  // Background poll so the Dashboard/Applications tab reflects scans/edits
+  // made elsewhere (another device, a concurrent VortiBD sync) without the
+  // admin needing to manually reload the whole page -- same self-stopping
+  // pattern already used for the Messages list poll (_loadConversations):
+  // the interval checks its own anchor element is still in the DOM and
+  // clears itself once the admin navigates away from this module entirely.
+  let _admAppsPollTimer = null;
+  function _admStartAppsPoll() {
+    clearInterval(_admAppsPollTimer);
+    _admAppsPollTimer = setInterval(() => {
+      const dash = document.getElementById('admAdminDashboard');
+      if (!dash) { clearInterval(_admAppsPollTimer); return; }
+      const dashVisible = !dash.classList.contains('hidden');
+      const listVisible = !document.getElementById('admAdminAppList')?.classList.contains('hidden');
+      if (!dashVisible && !listVisible) return;
+      _admRefreshApps(true);
+    }, 20000);
   }
   // Multi-select tag-style filter panel, same pattern as the Group Form
   // reviewer's filter panel (_gfRenderReviewFilterPanel/toggleGfReviewFilter):
@@ -42480,7 +42513,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!tbody) return;
     _admSelectedIds = new Set([..._admSelectedIds].filter(id => apps.some(a => a.id === id)));
     if (!apps.length) {
-      tbody.innerHTML = '<tr><td colspan="8" class="px-4 py-10 text-center text-slate-400 text-sm">No applications found.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" class="px-4 py-10 text-center text-slate-400 text-sm">No applications found.</td></tr>';
       document.getElementById('adm-app-count').textContent = '';
       document.getElementById('adm-app-pagination').innerHTML = '';
       _admRenderBulkBar();
@@ -42491,14 +42524,28 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (_admTablePage < 0) _admTablePage = 0;
     const pageApps = apps.slice(_admTablePage * ADM_TABLE_PAGE_SIZE, _admTablePage * ADM_TABLE_PAGE_SIZE + ADM_TABLE_PAGE_SIZE);
     document.getElementById('adm-app-count').textContent = `${apps.length} record${apps.length > 1 ? 's' : ''}`;
-    tbody.innerHTML = pageApps.map(a => `
+    // Applicant/Family columns pack what used to be 5 separate columns
+    // (Tracking ID, Name, Class, Category, Session + father/mother/guardian)
+    // into two dense, multi-line cells -- fewer columns to squeeze/hide on
+    // narrow screens, more info visible per row on every screen size.
+    tbody.innerHTML = pageApps.map(a => {
+      const metaLine = [a.class, a.category, a.version, a.session].filter(Boolean).join(' · ');
+      const family = [
+        a.father_name ? `<p><span class="font-black text-slate-500">F:</span> ${_escHtml(a.father_name)}${a.father_contact ? ' · ' + _escHtml(a.father_contact) : ''}</p>` : '',
+        a.mother_name ? `<p><span class="font-black text-slate-500">M:</span> ${_escHtml(a.mother_name)}${a.mother_contact ? ' · ' + _escHtml(a.mother_contact) : ''}</p>` : '',
+        a.guardian_name ? `<p><span class="font-black text-slate-500">G:</span> ${_escHtml(a.guardian_name)}${a.guardian_contact ? ' · ' + _escHtml(a.guardian_contact) : ''}${a.guardian_relation ? ' (' + _escHtml(a.guardian_relation) + ')' : ''}</p>` : '',
+      ].filter(Boolean).join('');
+      return `
       <tr class="border-t border-slate-50 hover:bg-slate-50/80 transition-all cursor-pointer" onclick="_admLoadForm(${a.id})">
         <td class="px-3 py-3 adm-row-select-cell" onclick="event.stopPropagation()"><input type="checkbox" class="adm-row-select" data-id="${a.id}" ${_admSelectedIds.has(a.id) ? 'checked' : ''} onchange="_admToggleRowSelect(${a.id},this.checked)"></td>
-        <td class="px-3 py-3"><span class="font-black text-blue-600 text-xs font-mono">${_escHtml(a.tracking_id || a.token || '—')}</span><br><span class="text-[9px] text-slate-400">${_escHtml(a.index_id || (a.source !== 'native' ? a.source : '') || '')}</span></td>
-        <td class="px-3 py-3"><p class="font-bold text-sm text-slate-800">${_escHtml(a.name_english || '—')}</p><p class="text-[10px] text-slate-400">${_escHtml(a.name_bangla || '')}</p>${a.room_no ? `<span class="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 text-[9px] font-bold">Room ${_escHtml(a.room_no)}</span>` : ''}</td>
-        <td class="px-3 py-3 hidden md:table-cell text-sm font-bold text-slate-600">${_escHtml(a.class || '—')}</td>
-        <td class="px-3 py-3 hidden md:table-cell text-sm text-slate-600">${_escHtml(a.category || '—')}</td>
-        <td class="px-3 py-3 hidden lg:table-cell text-sm text-slate-500">${_escHtml(a.session || '—')}</td>
+        <td class="px-3 py-3">
+          <span class="font-black text-blue-600 text-xs font-mono">${_escHtml(a.tracking_id || a.token || '—')}</span>${a.index_id ? ` <span class="text-[9px] text-slate-400">${_escHtml(a.index_id)}</span>` : ''}
+          <p class="font-bold text-sm text-slate-800 mt-0.5">${_escHtml(a.name_english || '—')}</p>
+          ${a.name_bangla ? `<p class="text-[10px] text-slate-400">${_escHtml(a.name_bangla)}</p>` : ''}
+          ${metaLine ? `<p class="text-[10px] text-slate-500 font-bold mt-0.5">${_escHtml(metaLine)}</p>` : ''}
+          ${a.room_no ? `<span class="inline-block mt-1 px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 text-[9px] font-bold">Room ${_escHtml(a.room_no)}</span>` : ''}
+        </td>
+        <td class="px-3 py-3 hidden md:table-cell text-[11px] text-slate-600 leading-relaxed">${family || '<span class="text-slate-300">—</span>'}</td>
         <td class="px-3 py-3">
           <select class="adm-row-status-select px-2 py-1 rounded-lg text-xs font-bold ${ADM_STATUS_COLORS[a.status] || ''}" onchange="_admChangeStatus(event,${a.id})" onclick="event.stopPropagation()">
             ${ADM_STATUSES.map(s => `<option${s === a.status ? ' selected' : ''}>${s}</option>`).join('')}
@@ -42506,12 +42553,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <span class="adm-row-status-badge hidden px-2 py-1 rounded-lg text-xs font-bold ${ADM_STATUS_COLORS[a.status] || ''}">${_escHtml(a.status || '')}</span>
         </td>
         <td class="px-3 py-3 text-right whitespace-nowrap">
-          <button onclick="event.stopPropagation();_admLoadForm(${a.id})" class="p-1.5 text-slate-400 hover:text-blue-600" title="Edit"><i data-lucide="edit-2" class="h-3.5 w-3.5"></i></button>
+          <button onclick="event.stopPropagation();_admEditApp(${a.id})" class="p-1.5 text-slate-400 hover:text-blue-600" title="Edit"><i data-lucide="edit-2" class="h-3.5 w-3.5"></i></button>
           <button onclick="event.stopPropagation();_admPrintFormById(${a.id})" class="p-1.5 text-slate-400 hover:text-emerald-600" title="Print form"><i data-lucide="printer" class="h-3.5 w-3.5"></i></button>
           <button onclick="event.stopPropagation();_admPrintAdmitById(${a.id})" class="p-1.5 text-slate-400 hover:text-violet-600" title="Admit card"><i data-lucide="credit-card" class="h-3.5 w-3.5"></i></button>
           <button onclick="event.stopPropagation();_admDeleteApp(${a.id})" class="adm-row-delete-btn p-1.5 text-slate-400 hover:text-red-500" title="Delete"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
         </td>
-      </tr>`).join('');
+      </tr>`;
+    }).join('');
     lucide.createIcons();
     _admRenderBulkBar();
     _admRenderTablePagination(totalPages, apps.length);
@@ -42670,7 +42718,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <td class="px-2 py-1"><input data-field="board" value="${_escHtml(data.board || '')}" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold" placeholder="Dhaka Board"></td>
       <td class="px-2 py-1"><input data-field="roll" value="${_escHtml(data.roll || '')}" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold" placeholder="123456"></td>
       <td class="px-2 py-1"><input data-field="result" value="${_escHtml(data.result || '')}" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold" placeholder="GPA 5.00"></td>
-      <td class="px-2 py-1 text-center"><button type="button" onclick="this.closest('tr').remove()" class="w-6 h-6 rounded-md text-slate-300 hover:bg-red-50 hover:text-red-500 transition-all text-lg leading-none opacity-0 group-hover:opacity-100">×</button></td>`;
+      <td class="px-2 py-1 text-center"><button type="button" onclick="this.closest('tr').remove()" class="adm-table-row-del w-6 h-6 rounded-md text-slate-300 hover:bg-red-50 hover:text-red-500 transition-all text-lg leading-none opacity-0 group-hover:opacity-100">×</button></td>`;
     document.getElementById('adm-academic-tbody').appendChild(tr);
   }
   function _admAddSiblingRow(data) {
@@ -42682,7 +42730,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <td class="px-2 py-1"><input data-field="age" value="${_escHtml(data.age || '')}" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold" placeholder="Age"></td>
       <td class="px-2 py-1"><input data-field="cls" value="${_escHtml(data.cls || '')}" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold" placeholder="e.g. Five"></td>
       <td class="px-2 py-1"><input data-field="institution" value="${_escHtml(data.institution || '')}" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold" placeholder="School name"></td>
-      <td class="px-2 py-1 text-center"><button type="button" onclick="this.closest('tr').remove()" class="w-6 h-6 rounded-md text-slate-300 hover:bg-red-50 hover:text-red-500 transition-all text-lg leading-none opacity-0 group-hover:opacity-100">×</button></td>`;
+      <td class="px-2 py-1 text-center"><button type="button" onclick="this.closest('tr').remove()" class="adm-table-row-del w-6 h-6 rounded-md text-slate-300 hover:bg-red-50 hover:text-red-500 transition-all text-lg leading-none opacity-0 group-hover:opacity-100">×</button></td>`;
     document.getElementById('adm-sibling-tbody').appendChild(tr);
   }
   function _admCollectTableRows(tbodyId, fields) {
@@ -42735,12 +42783,46 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admClearForm(session);
     document.getElementById('adm-form-title').textContent = 'New Application';
     _admShowView('form');
+    _admSetFormReadOnly(false);
     document.querySelector('#adm-ftabs .adm-ftab').click();
   }
-  async function _admLoadForm(id) {
+  // Clicking a row opens this in read-only "view" mode by default (info
+  // laid out exactly like the edit form, just not editable) -- only the
+  // explicit Edit button (or the row's pencil icon, via _admEditApp)
+  // unlocks the fields, per the user's "edit view only when click to
+  // edit" request. _admSetFormReadOnly itself still re-checks the real
+  // 'applications':'edit' grant, so a view-only committee member can never
+  // actually reach edit mode even via _admEditApp/_admEnterEditMode.
+  function _admEditApp(id) { _admLoadForm(id, true); }
+  function _admEnterEditMode() {
+    if (!_admModuleCan('applications', 'edit')) { showToast('You only have view access to Applications', 'error'); return; }
+    _admSetFormReadOnly(false);
+  }
+  let _admFormReadOnly = false;
+  function _admSetFormReadOnly(readonly) {
+    if (!_admModuleCan('applications', 'edit')) readonly = true;
+    _admFormReadOnly = readonly;
+    ADM_FORM_FIELDS.forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (el.tagName === 'SELECT') el.disabled = readonly; else el.readOnly = readonly;
+    });
+    document.querySelectorAll('#adm-academic-tbody input, #adm-sibling-tbody input').forEach(el => { el.readOnly = readonly; });
+    document.querySelectorAll('.adm-table-row-del').forEach(el => el.classList.toggle('hidden', readonly));
+    document.getElementById('adm-academic-add-btn')?.classList.toggle('hidden', readonly);
+    document.getElementById('adm-sibling-add-btn')?.classList.toggle('hidden', readonly);
+    ['student','father','mother','guardian'].forEach(role => {
+      document.getElementById(`adm-${role}-photo-preview`)?.classList.toggle('pointer-events-none', readonly);
+    });
+    document.getElementById('adm-form-save-btn')?.classList.toggle('hidden', readonly);
+    document.getElementById('adm-form-edit-btn')?.classList.toggle('hidden', !readonly || !_admModuleCan('applications', 'edit'));
+    document.getElementById('adm-form-view-badge')?.classList.toggle('hidden', !readonly);
+  }
+  async function _admLoadForm(id, startInEdit) {
     _admCurrentId = id; _admClearForm();
-    document.getElementById('adm-form-title').textContent = 'Edit Application';
+    document.getElementById('adm-form-title').textContent = 'Application';
     _admShowView('form');
+    _admSetFormReadOnly(!startInEdit);
     try {
       const r = await _admAdminFetch('getApplication', { id });
       const a = r.application;
@@ -42787,6 +42869,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _admRenderCustomFieldsBlock(a.extra_fields || {});
       _admRenderScanDataBlock(a.scan_values || {});
       document.querySelector('#adm-ftabs .adm-ftab').click();
+      // Re-apply now that the real academic/sibling rows exist -- the
+      // earlier call (right after _admShowView above) only covered the
+      // placeholder rows _admClearForm created before this fetch resolved.
+      _admSetFormReadOnly(!startInEdit);
     } catch (e) { showToast(e.message || 'Could not load application', 'error'); }
   }
   // Read-only dump of admin-added custom field answers — editing them stays
@@ -42872,6 +42958,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       document.querySelectorAll('#adm-ftabs .adm-ftab')[1].click();
       return;
     }
+    const wasExisting = !!_admCurrentId;
     if (_admCurrentId) { delete data.tracking_id; delete data.index_id; }
     try {
       const r = await _admAdminFetch('saveApplication', { id: _admCurrentId, data, circular_id: _admCandActiveCircularId });
@@ -42882,6 +42969,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         _admSetV('adm-f-index-id', r.index_id || '');
       }
       showToast('Saved successfully');
+      // Editing an existing application drops back to view mode after a
+      // successful save (per "edit view opens only when click to edit");
+      // a brand-new application stays in edit mode since it's still being
+      // filled in. Either way the list/dashboard behind it is kept live.
+      if (wasExisting) _admSetFormReadOnly(true);
+      _admRefreshApps(true);
     } catch (e) { showToast(e.message || 'Could not save', 'error'); }
   }
   function _admHandlePhoto(input, previewId, hiddenId) {

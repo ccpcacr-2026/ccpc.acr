@@ -295,7 +295,9 @@ export async function POST(req) {
     // scan_values included so the Dashboard/Applications filter panel's
     // dynamic Scan Option dimensions (Part 10) have real data to read --
     // without it every row's scan_values would be undefined client-side.
-    let q = `admission_applications?select=id,tracking_id,index_id,token,source,name_english,name_bangla,class,category,version,session,status,stage,payment_status,room_no,scan_values,created_at&circular_id=eq.${circularId}&order=created_at.desc`;
+    // Father/mother/guardian name+contact added so the Applications table's
+    // row can show a compact "Family" column without a per-row fetch.
+    let q = `admission_applications?select=id,tracking_id,index_id,token,source,name_english,name_bangla,class,category,version,session,status,stage,payment_status,room_no,scan_values,created_at,father_name,father_contact,mother_name,mother_contact,guardian_name,guardian_contact,guardian_relation&circular_id=eq.${circularId}&order=created_at.desc`;
     if (payload.class)   q += `&class=eq.${encodeURIComponent(payload.class)}`;
     if (payload.status)  q += `&status=eq.${encodeURIComponent(payload.status)}`;
     if (payload.source)  q += `&source=eq.${encodeURIComponent(payload.source)}`;
