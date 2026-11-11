@@ -44913,10 +44913,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // uses) instead of a free-typed label -- so mapped data lands on the same
   // field names as the applicants, and matching features (photo upload,
   // filters) can rely on stable keys. "+ Define new field…" registers a
-  // brand-new custom field on the spot via saveFormFields.
-  function _admCandFieldSelectOptionsHtml(currentKey) {
+  // brand-new custom field on the spot via saveFormFields. "As per Excel"
+  // (the default for anything that didn't auto-match) stores the value
+  // under a key derived from the column's own header, into extra_fields,
+  // without registering a portal-wide Form Field. "Skip" excludes the
+  // column from the import entirely. Whether either is the current state is
+  // derived from the row's rowId (not a stored flag), so it stays correct
+  // even for rows built by re-applying an old saved template.
+  function _admCandFieldSelectOptionsHtml(row) {
+    const currentKey = row.rowId;
+    const isSkip = String(currentKey).startsWith('__skip_');
+    const isCore = ADM_CAND_CORE_FIELDS.includes(currentKey);
+    const isField = _admCandFormFieldDefs.some(f => f.key === currentKey);
+    const isAsIs = !isSkip && !isCore && !isField;
     const sections = [['student', 'Student'], ['father', 'Father'], ['mother', 'Mother'], ['guardian', 'Guardian']];
-    let html = `<option value="">— pick field —</option>`;
+    let html = `<option value="__asis__" ${isAsIs ? 'selected' : ''}>As per Excel${row.label ? ' — "' + _escHtml(row.label) + '"' : ''}</option>`;
+    html += `<option value="__skip__" ${isSkip ? 'selected' : ''}>Skip this column</option>`;
     html += `<optgroup label="System">` + ADM_CAND_CORE_FIELD_LABELS.map(([key, label]) => `<option value="${key}" ${key === currentKey ? 'selected' : ''}>${_escHtml(label)}</option>`).join('') + `</optgroup>`;
     sections.forEach(([sec, secLabel]) => {
       const opts = _admCandFormFieldDefs.filter(f => (f.section || 'student') === sec);
@@ -44938,7 +44950,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const sample = guessIdx >= 0 && _admCandExcelRows[0] ? String(_admCandExcelRows[0][guessIdx] ?? '') : '';
       const labelHtml = row.fixed
         ? `<span class="font-bold text-xs text-slate-700">${_escHtml(row.label)}</span>`
-        : `<select onchange="_admCandSetRowFieldKey('${row.rowId}', this)" class="w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs font-bold">${_admCandFieldSelectOptionsHtml(row.rowId)}</select>`;
+        : `<select onchange="_admCandSetRowFieldKey('${row.rowId}', this)" class="w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs font-bold">${_admCandFieldSelectOptionsHtml(row)}</select>`;
       return `<div class="grid grid-cols-12 gap-2 items-center py-1 admCandMapRow" data-row-id="${row.rowId}">
         <div class="col-span-1 text-center"><input type="radio" name="admCandPrimaryKey" value="${row.rowId}" ${_admCandPrimaryKeyRowId === row.rowId ? 'checked' : ''} onchange="_admCandSetPrimaryKey('${row.rowId}')"></div>
         <div class="col-span-3">${labelHtml}</div>
@@ -44968,10 +44980,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     sel.innerHTML = unmapped.map(i => `<option value="${i}">${_escHtml(_admCandExcelHeaders[i] || '(blank header)')}</option>`).join('')
       || '<option value="" disabled>— every column is mapped —</option>';
   }
-  // New rows start "pending" (no field chosen yet) unless the Excel header
-  // text happens to match an existing Form Field's key/label, in which case
-  // it's auto-assigned immediately -- same auto-guess spirit as a saved
-  // template auto-applying by header signature.
+  // A new row defaults to "As per Excel" (store the value under a field
+  // derived from the column's own header text, into extra_fields) unless the
+  // header text happens to match an existing Form Field's key/label -- in
+  // which case it's auto-assigned to that real field immediately -- same
+  // auto-guess spirit as a saved template auto-applying by header signature.
+  // The admin can still re-pick a real field, or explicitly Skip the column.
+  function _admCandSlugifyHeader(text) {
+    return normImportKey(text).replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'field';
+  }
+  function _admCandUniqueAsIsKey(headerText, headerIdx) {
+    const base = _admCandSlugifyHeader(headerText);
+    const taken = new Set(_admCandMapRows.filter(r => r.headerIdx !== headerIdx).map(r => r.rowId));
+    _admCandFormFieldDefs.forEach(f => taken.add(f.key));
+    ADM_CAND_CORE_FIELDS.forEach(k => taken.add(k));
+    return taken.has(base) ? (base + '_c' + headerIdx) : base;
+  }
   function _admCandAddFieldRowForHeader(idx) {
     _admCandRowSeq++;
     const headerText = _admCandExcelHeaders[idx] || ('Column ' + (idx + 1));
@@ -44998,7 +45022,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (guessKey && !_admCandMapRows.some(r => r.rowId === guessKey)) {
       _admCandMapRows.push({ rowId: guessKey, label: guessLabel, fixed: false, headerIdx: idx });
     } else {
-      _admCandMapRows.push({ rowId: 'pending_' + _admCandRowSeq, label: headerText, fixed: false, headerIdx: idx });
+      const key = _admCandUniqueAsIsKey(headerText, idx);
+      _admCandMapRows.push({ rowId: key, label: headerText, fixed: false, headerIdx: idx });
     }
   }
   function _admCandAddSelectedFields() {
@@ -45043,7 +45068,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const row = _admCandMapRows.find(r => r.rowId === rowId);
     if (!row) return;
     if (sel.value === '__new__') { _admCandDefineNewFormField(row); return; }
-    if (!sel.value) return;
+    if (sel.value === '__skip__') {
+      if (_admCandPrimaryKeyRowId === row.rowId) _admCandPrimaryKeyRowId = null;
+      row.rowId = '__skip_' + (row.headerIdx != null ? row.headerIdx : _admCandRowSeq++);
+      _admCandRenderMapping();
+      return;
+    }
+    if (sel.value === '__asis__') {
+      const headerText = row.label || (row.headerIdx != null ? _admCandExcelHeaders[row.headerIdx] : '') || 'field';
+      const key = _admCandUniqueAsIsKey(headerText, row.headerIdx);
+      if (_admCandPrimaryKeyRowId === row.rowId) _admCandPrimaryKeyRowId = key;
+      row.rowId = key; row.label = headerText;
+      _admCandRenderMapping();
+      return;
+    }
     if (_admCandMapRows.some(r => r !== row && r.rowId === sel.value)) { showToast('That field is already mapped to another column', 'error'); _admCandRenderMapping(); return; }
     if (_admCandPrimaryKeyRowId === row.rowId) _admCandPrimaryKeyRowId = sel.value;
     row.rowId = sel.value;
@@ -45078,14 +45116,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (_admCandPrimaryKeyRowId === rowId) _admCandPrimaryKeyRowId = null;
     _admCandRenderMapping();
   }
-  function _admCandPendingFieldCount() {
-    return _admCandMapRows.filter(r => !r.fixed && String(r.rowId).startsWith('pending_')).length;
-  }
   function _admCandGetMapping() {
     const mapping = {};
     document.querySelectorAll('.admCandMapRow').forEach(row => {
       const rowId = row.dataset.rowId;
-      if (String(rowId).startsWith('pending_')) return; // not yet assigned to a field -- excluded, not guessed
+      if (String(rowId).startsWith('__skip_')) return; // explicitly skipped -- excluded from the import
       const idx = parseInt(row.querySelector('.admCandMapSelect').value, 10);
       if (idx >= 0) mapping[rowId] = idx;
     });
@@ -45109,7 +45144,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admCandPreviewImport() {
     const { mapping, primaryKeyRowId } = _admCandGetMapping();
     if (!primaryKeyRowId || mapping[primaryKeyRowId] === undefined) { showToast('Pick a primary key column first (the radio button)', 'error'); return; }
-    if (_admCandPendingFieldCount()) { showToast(`${_admCandPendingFieldCount()} column(s) have no field assigned yet — pick one or remove the row`, 'error'); return; }
     const rows = _admCandBuildMappedRows();
     const withKey = rows.filter(r => r.external_key).length;
     const summary = document.getElementById('admCandPreviewSummary');
@@ -45123,7 +45157,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!_admCandRequireCircular()) return;
     const { mapping, primaryKeyRowId } = _admCandGetMapping();
     if (!primaryKeyRowId || mapping[primaryKeyRowId] === undefined) { showToast('Pick a primary key column first', 'error'); return; }
-    if (_admCandPendingFieldCount()) { showToast(`${_admCandPendingFieldCount()} column(s) have no field assigned yet — pick one or remove the row`, 'error'); return; }
     const rows = _admCandBuildMappedRows();
     const mappingUsed = {};
     Object.keys(mapping).forEach(rowId => { mappingUsed[rowId] = _admCandExcelHeaders[mapping[rowId]]; });
@@ -45353,7 +45386,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!name) { showToast('Name this mapping first', 'error'); return; }
     const { mapping, primaryKeyRowId } = _admCandGetMapping();
     if (!primaryKeyRowId || mapping[primaryKeyRowId] === undefined) { showToast('Pick a primary key column first', 'error'); return; }
-    if (_admCandPendingFieldCount()) { showToast(`${_admCandPendingFieldCount()} column(s) have no field assigned yet — pick one or remove the row`, 'error'); return; }
     const mappingObj = {};
     Object.keys(mapping).forEach(rowId => { mappingObj[rowId] = _admCandExcelHeaders[mapping[rowId]]; });
     try {
