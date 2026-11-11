@@ -41733,6 +41733,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     setContentHeader('Admission Admin', 'clipboard-list');
     const container = document.getElementById('view-container');
     if (!container) return;
+    // Rebuilding this container's markup detaches #adm-custom-counters-cards
+    // -- drop the stale GridStack instance reference along with it so the
+    // next sync creates a fresh one against the new DOM node instead of
+    // silently no-op'ing against a destroyed element.
+    _admCustomCounterGrid = null;
     container.innerHTML = `
       <div id="admCandSessionGate" class="hidden">
         <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 max-w-lg">
@@ -41838,6 +41843,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div id="admAdminDashboard" class="hidden">
         <div id="adm-stats-row" class="mb-3"></div>
         <div id="adm-custom-counters-section"></div>
+        <!-- Separate, stable mount for the saved Custom Count cards' GridStack
+             grid -- kept OUTSIDE #adm-custom-counters-section's own innerHTML
+             churn (that div gets fully rewritten on every builder-box
+             interaction and every periodic dashboard refresh) specifically so
+             GridStack's own DOM/drag state is never torn down mid-use; it is
+             updated only via GridStack's own .load(), never innerHTML. -->
+        <div id="adm-custom-counters-cards-toolbar" class="hidden flex items-center justify-between gap-2 mt-3"></div>
+        <div id="adm-custom-counters-cards" class="mt-2"></div>
       </div>
 
       <div id="admAdminAppList" class="hidden">
@@ -42489,19 +42502,109 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button type="button" onclick="_admCustomCounterClearDraft()" class="px-3 py-1.5 border border-slate-200 text-slate-500 rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Clear</button>
           </div>` : ''}
         </div>
-      </div>
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
-        ${_admCustomCounters.map(c => {
-          const norm = _admCustomCounterNormalize(c.filters || {});
-          const wide = norm.group_by.length > 0;
-          return `<div class="bg-white rounded-2xl border border-slate-100 p-4 relative${wide ? ' md:col-span-3' : ''}">
-            ${_admCandMyAccess.is_full_admin ? `<button type="button" onclick="_admCustomCounterDeleteCard(${c.id})" class="absolute top-2 right-2 text-slate-300 hover:text-red-500 text-xs">&times;</button>` : ''}
-            <p class="text-[10px] uppercase text-slate-400 font-bold mb-1 pr-4 truncate" title="${_escHtml(c.label)}">${_escHtml(c.label)}</p>
-            ${_admCustomCounterRenderBody(norm.conditions, norm.group_by)}
-          </div>`;
-        }).join('')}
       </div>`;
     _admCustomCounterPopulateValueSelect();
+    _admCustomCounterSyncGrid();
+  }
+  // ── Saved Custom Count cards: freeform drag/resize via GridStack ───────
+  // Lives in its own stable #adm-custom-counters-cards mount (see the static
+  // markup comment above) so periodic dashboard refreshes and every builder-
+  // box keystroke -- both of which re-run _admRenderCustomCounters above --
+  // never tear down the grid mid-drag. GridStack itself is lazy-loaded (same
+  // on-demand-CDN-script pattern as ensureXLSX/_admEnsureJsQR) since most
+  // dashboards may never have a saved card at all.
+  let _admGridStackPromise = null;
+  function _admEnsureGridStack() {
+    if (window.GridStack) return Promise.resolve();
+    if (_admGridStackPromise) return _admGridStackPromise;
+    _admGridStackPromise = new Promise((resolve, reject) => {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = 'https://cdn.jsdelivr.net/npm/gridstack@14.1.0/dist/gridstack.min.css';
+      document.head.appendChild(link);
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/gridstack@14.1.0/dist/gridstack-all.js';
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error('Could not load the drag/resize library.'));
+      document.head.appendChild(script);
+    });
+    return _admGridStackPromise;
+  }
+  let _admCustomCounterGrid = null; // the live GridStack instance, created once
+  let _admCustomCounterArranging = false;
+  function _admCustomCounterCardInnerHtml(c) {
+    const norm = _admCustomCounterNormalize(c.filters || {});
+    return `${_admCandMyAccess.is_full_admin ? `<button type="button" onclick="_admCustomCounterDeleteCard(${c.id})" class="absolute top-2 right-2 text-slate-300 hover:text-red-500 text-xs">&times;</button>` : ''}
+      <p class="text-[10px] uppercase text-slate-400 font-bold mb-1 pr-4 truncate" title="${_escHtml(c.label)}">${_escHtml(c.label)}</p>
+      ${_admCustomCounterRenderBody(norm.conditions, norm.group_by)}`;
+  }
+  async function _admCustomCounterSyncGrid() {
+    const toolbar = document.getElementById('adm-custom-counters-cards-toolbar');
+    const host = document.getElementById('adm-custom-counters-cards');
+    if (!host || !toolbar) return;
+    // Called this exact way (data refreshed, re-sync) every ~20s by the
+    // live dashboard poll too -- skip while the admin is mid-drag so a
+    // background refresh can never snap a card back to its last-saved spot
+    // out from under them. Re-entering arrange mode already re-syncs once
+    // on its own (_admCustomCounterStartArrange), so nothing here is stale.
+    if (_admCustomCounterArranging && _admCustomCounterGrid) return;
+    if (!_admCustomCounters.length) {
+      toolbar.classList.add('hidden');
+      host.innerHTML = '';
+      _admCustomCounterGrid = null; // host was just cleared -- the old instance's DOM is gone
+      return;
+    }
+    toolbar.classList.remove('hidden');
+    toolbar.innerHTML = _admCandMyAccess.is_full_admin ? (_admCustomCounterArranging
+      ? `<span class="text-[10px] uppercase text-slate-400 font-bold">Drag cards to move · drag a corner to resize</span>
+         <div class="flex gap-2"><button type="button" onclick="_admCustomCounterCancelArrange()" class="px-3 py-1.5 border border-slate-200 text-slate-500 rounded-lg text-[10px] font-black uppercase">Cancel</button><button type="button" onclick="_admCustomCounterSaveArrange()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">Save Layout</button></div>`
+      : `<span></span><button type="button" onclick="_admCustomCounterStartArrange()" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase flex items-center gap-1.5"><i data-lucide="move" class="h-3.5 w-3.5"></i> Rearrange</button>`)
+      : '';
+    if (window.lucide) lucide.createIcons();
+    try { await _admEnsureGridStack(); } catch (e) { host.innerHTML = '<p class="text-xs text-red-500">Could not load the card layout engine.</p>'; return; }
+    if (!document.getElementById('adm-custom-counters-cards')) return; // navigated away while loading
+    const items = _admCustomCounters.map((c, i) => {
+      const norm = _admCustomCounterNormalize(c.filters || {});
+      const wide = norm.group_by.length > 0;
+      const l = (c.layout && typeof c.layout.w === 'number') ? c.layout : null;
+      return {
+        id: String(c.id),
+        x: l ? l.x : (wide ? 0 : (i % 3) * 4),
+        y: l ? l.y : (wide ? i * 4 : Math.floor(i / 3) * 4),
+        w: l ? l.w : (wide ? 12 : 4),
+        h: l ? l.h : 4,
+        content: `<div class="bg-white rounded-2xl border border-slate-100 p-4 relative h-full overflow-auto">${_admCustomCounterCardInnerHtml(c)}</div>`,
+      };
+    });
+    if (!_admCustomCounterGrid) {
+      host.innerHTML = '<div class="grid-stack"></div>';
+      _admCustomCounterGrid = GridStack.init({ column: 12, cellHeight: 60, margin: 6, staticGrid: !_admCustomCounterArranging, float: true }, host.querySelector('.grid-stack'));
+    }
+    _admCustomCounterGrid.setStatic(!_admCustomCounterArranging);
+    _admCustomCounterGrid.load(items, true);
+    if (window.lucide) lucide.createIcons();
+  }
+  function _admCustomCounterStartArrange() {
+    if (!_admCandMyAccess.is_full_admin) return;
+    _admCustomCounterArranging = true;
+    _admCustomCounterSyncGrid();
+  }
+  function _admCustomCounterCancelArrange() {
+    _admCustomCounterArranging = false;
+    _admCustomCounterSyncGrid();
+  }
+  async function _admCustomCounterSaveArrange() {
+    if (!_admCustomCounterGrid) return;
+    const saved = _admCustomCounterGrid.save(false);
+    const layouts = (Array.isArray(saved) ? saved : []).map(w => ({ id: w.id, x: w.x, y: w.y, w: w.w, h: w.h }));
+    try {
+      const res = await _admAdminFetch('saveCustomCounterLayout', { circular_id: _admCandActiveCircularId, layouts });
+      if (res.error) { showToast(res.error, 'error'); return; }
+      layouts.forEach(l => { const c = _admCustomCounters.find(x => String(x.id) === String(l.id)); if (c) c.layout = { x: l.x, y: l.y, w: l.w, h: l.h }; });
+      showToast('Layout saved', 'success');
+    } catch (e) { showToast(e.message || 'Could not save layout', 'error'); }
+    _admCustomCounterArranging = false;
+    _admCustomCounterSyncGrid();
   }
 
   let _admLastFiltered = [];

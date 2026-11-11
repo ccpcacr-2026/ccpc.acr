@@ -230,7 +230,7 @@ export async function POST(req) {
   // (unlike regular application edits). Checked before the generic
   // committee-permission logic below, which only ever ADDS access for
   // non-admins, never restricts it below what that logic would otherwise allow.
-  if (!isFullAdmin && (action === 'saveCustomCounter' || action === 'deleteCustomCounter')) {
+  if (!isFullAdmin && (action === 'saveCustomCounter' || action === 'deleteCustomCounter' || action === 'saveCustomCounterLayout')) {
     return NextResponse.json({ error: 'Only an Admin/Admission Admin can manage Custom Count cards.' }, { status: 403 });
   }
   if (!isFullAdmin) {
@@ -451,6 +451,19 @@ export async function POST(req) {
     const id = parseInt(payload.id, 10);
     if (!id) return NextResponse.json({ error: 'Missing id.' });
     await sbAdmission(`dashboard_custom_counters?id=eq.${id}`, 'DELETE');
+    return NextResponse.json({ success: true });
+  }
+  // Batch-saves the freeform drag/resize position+size for every card the
+  // admin just arranged (GridStack's own save()/load() shape: x/y/w/h in
+  // 12-column grid units) -- one PATCH per card, same as every other small
+  // batch update in this route (no bulk-upsert helper exists here).
+  if (action === 'saveCustomCounterLayout') {
+    const layouts = Array.isArray(payload.layouts) ? payload.layouts : [];
+    for (const l of layouts) {
+      const id = parseInt(l.id, 10);
+      if (!id) continue;
+      await sbAdmission(`dashboard_custom_counters?id=eq.${id}`, 'PATCH', { layout: { x: l.x, y: l.y, w: l.w, h: l.h } });
+    }
     return NextResponse.json({ success: true });
   }
 

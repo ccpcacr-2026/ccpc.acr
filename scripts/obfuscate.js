@@ -445,6 +445,7 @@ const RESERVED = [
   '_admToggleFilterPanel','toggleAdmFilter','clearAdmFilters','_admClearStatusFilter',
   '_admCustomCounterPopulateValueSelect','_admCustomCounterAddCondition','_admCustomCounterRemoveCondition','_admCustomCounterToggleGroupBy',
   '_admCustomCounterClearDraft','_admCustomCounterSaveAsCard','_admCustomCounterDeleteCard',
+  '_admCustomCounterStartArrange','_admCustomCounterCancelArrange','_admCustomCounterSaveArrange',
   '_admAddAcademicRow','_admAddSiblingRow','_admSaveApplication','_admHandlePhoto',
 
   // Admission Admin Phase 2 (Settings: Index Pattern/Form Fields/Circular/
