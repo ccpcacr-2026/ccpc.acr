@@ -45221,10 +45221,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   // ── Part 5: Admission Committee (full-admin only — enforced server-side too) ──
   let _admCandCommitteeStaff = [];
-  // Part 6: 'applications' (native Dashboard + New Application/Form) and
-  // 'admin_settings' (the Settings view) widen this same list -- both the
-  // Committee tab's UI and app/api/admission-admin/route.js's own gate key
-  // off the identical tab names.
+  // Part 6: 'applications' gates BOTH the Dashboard tab (stats/breakdowns)
+  // and the separate Applications tab (search/table/editor) -- they split
+  // into two top-level tabs later in this session but still share the one
+  // underlying permission, so the label spells out both names here rather
+  // than looking like "Dashboard" has no grantable permission at all.
+  // 'admin_settings' (the Settings view) widens this same list the same
+  // way -- both the Committee tab's UI and app/api/admission-admin/route.js's
+  // own gate key off the identical tab names.
   // 'candidates' is deliberately NOT listed here any more -- the standalone
   // Candidates list panel it used to gate has no reachable button anywhere
   // in the UI (not even for a full admin), so offering it as a grantable
@@ -45232,7 +45236,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // 'candidates':'view' (background refresh for Rooms/Allocation counts
   // etc.), so _admCandCommitteeSave grants it implicitly below instead of
   // exposing a no-op control for it.
-  const ADM_CAND_TABS = [['applications', 'Applications'], ['admin_settings', 'Settings'], ['import', 'Import'], ['rooms', 'Rooms'], ['alloc', 'Allocation'], ['templates', 'Templates'], ['print', 'Printing'], ['photos', 'Photos'], ['scan', 'Scan']];
+  const ADM_CAND_TABS = [['applications', 'Dashboard & Applications'], ['admin_settings', 'Settings'], ['import', 'Import'], ['rooms', 'Rooms'], ['alloc', 'Allocation'], ['templates', 'Templates'], ['print', 'Printing'], ['photos', 'Photos'], ['scan', 'Scan']];
   let _admCandOrgCommittees = [];
   async function _admCandLoadCommitteeTab() {
     if (!_admCandRequireCircular()) return;
