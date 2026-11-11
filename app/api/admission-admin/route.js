@@ -225,14 +225,26 @@ export async function POST(req) {
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'Bad request' }, { status: 400 }); }
   const { action, payload = {}, user_id } = body;
   const isFullAdmin = await _isAdmissionAdmin(user_id);
+  // Saving/deleting a Custom Count card is admin-only, full stop -- not
+  // something a committee member's 'applications' edit grant extends to
+  // (unlike regular application edits). Checked before the generic
+  // committee-permission logic below, which only ever ADDS access for
+  // non-admins, never restricts it below what that logic would otherwise allow.
+  if (!isFullAdmin && (action === 'saveCustomCounter' || action === 'deleteCustomCounter')) {
+    return NextResponse.json({ error: 'Only an Admin/Admission Admin can manage Custom Count cards.' }, { status: 403 });
+  }
   if (!isFullAdmin) {
     // A committee member (no Admin/Admission Admin role) may only reach this
     // route via a per-circular 'applications' or 'admin_settings' grant --
     // every other action here (and any action that can't resolve a
     // circular_id) stays closed. Session/circular management itself lives
     // entirely in app/api/admission-candidates/route.js, not here.
-    const APPLICATIONS_ACTIONS = new Set(['listApplications', 'getApplication', 'saveApplication', 'deleteApplication', 'updateStatus', 'bulkUpdateStatus', 'bulkDeleteApplications', 'lookupByCode', 'getStats', 'listCustomCounters', 'saveCustomCounter', 'deleteCustomCounter']);
-    const EDIT_ACTIONS = new Set(['saveApplication', 'deleteApplication', 'updateStatus', 'bulkUpdateStatus', 'bulkDeleteApplications', 'saveSettings', 'saveFormFields', 'resetCounter', 'verifyPayment', 'markPaid', 'issueAdmits', 'sendTestSms', 'saveCustomCounter', 'deleteCustomCounter']);
+    // saveCustomCounter/deleteCustomCounter already returned 403 above for
+    // every non-admin, so they're deliberately left out of both sets here --
+    // listCustomCounters (viewing) still follows the normal 'applications'
+    // view/edit grant like every other Dashboard-area read.
+    const APPLICATIONS_ACTIONS = new Set(['listApplications', 'getApplication', 'saveApplication', 'deleteApplication', 'updateStatus', 'bulkUpdateStatus', 'bulkDeleteApplications', 'lookupByCode', 'getStats', 'listCustomCounters']);
+    const EDIT_ACTIONS = new Set(['saveApplication', 'deleteApplication', 'updateStatus', 'bulkUpdateStatus', 'bulkDeleteApplications', 'saveSettings', 'saveFormFields', 'resetCounter', 'verifyPayment', 'markPaid', 'issueAdmits', 'sendTestSms']);
     const tab = APPLICATIONS_ACTIONS.has(action) ? 'applications' : 'admin_settings';
     const level = EDIT_ACTIONS.has(action) ? 'edit' : 'view';
     let circularId = parseInt(payload.circular_id, 10) || null;
@@ -250,10 +262,6 @@ export async function POST(req) {
       const rows = ids.length ? await sbAdmission(`admission_applications?id=in.(${ids.join(',')})&select=circular_id`) : [];
       const distinct = [...new Set((Array.isArray(rows) ? rows : []).map(r => r.circular_id))];
       circularId = distinct.length === 1 ? distinct[0] : null;
-    } else if (action === 'deleteCustomCounter') {
-      const rowId = parseInt(payload.id, 10);
-      const rows = rowId ? await sbAdmission(`dashboard_custom_counters?id=eq.${rowId}&select=circular_id`) : null;
-      circularId = (Array.isArray(rows) && rows[0]) ? rows[0].circular_id : null;
     }
     if (!circularId) return _forbidden();
     const perms = await _getCommitteePerms(user_id, circularId);

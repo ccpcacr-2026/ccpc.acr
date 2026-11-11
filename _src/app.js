@@ -42345,14 +42345,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
         <div class="flex items-center gap-3 flex-wrap">
           <p class="text-sm font-bold text-slate-600">Matching: <span class="text-xl font-black text-blue-600 tabular-nums">${_admCustomCounterCountFor(_admCustomCounterDraftFilters())}</span></p>
-          ${_admCustomCounterDraft.length ? `<button type="button" onclick="_admCustomCounterSaveAsCard()" class="px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-[10px] font-black uppercase">Save as Card</button>
+          ${_admCustomCounterDraft.length ? `${_admCandMyAccess.is_full_admin ? `<button type="button" onclick="_admCustomCounterSaveAsCard()" class="px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-[10px] font-black uppercase">Save as Card</button>` : ''}
           <button type="button" onclick="_admCustomCounterClearDraft()" class="px-3 py-1.5 border border-slate-200 text-slate-500 rounded-lg text-[10px] font-black uppercase">Clear</button>` : ''}
         </div>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
         ${_admCustomCounters.map(c => `
           <div class="bg-white rounded-2xl border border-slate-100 p-4 relative">
-            <button type="button" onclick="_admCustomCounterDeleteCard(${c.id})" class="absolute top-2 right-2 text-slate-300 hover:text-red-500 text-xs">&times;</button>
+            ${_admCandMyAccess.is_full_admin ? `<button type="button" onclick="_admCustomCounterDeleteCard(${c.id})" class="absolute top-2 right-2 text-slate-300 hover:text-red-500 text-xs">&times;</button>` : ''}
             <p class="text-[10px] uppercase text-slate-400 font-bold mb-1 pr-4 truncate" title="${_escHtml(c.label)}">${_escHtml(c.label)}</p>
             <p class="text-2xl font-black text-slate-800 tabular-nums">${_admCustomCounterCountFor(c.filters || {})}</p>
           </div>`).join('')}
